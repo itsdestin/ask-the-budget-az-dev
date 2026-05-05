@@ -1,0 +1,54 @@
+# Node
+node_modules/
+.next/
+out/
+dist/
+build/
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+.Python
+.venv/
+venv/
+env/
+*.egg-info/
+.pytest_cache/
+
+# Environment
+.env
+.env.local
+.env.*.local
+*.env
+
+# Editor
+.vscode/
+.idea/
+*.swp
+*.swo
+.DS_Store
+Thumbs.db
+
+# Project-specific
+samples/extractor-output/
+samples/raw-pdfs/
+*.tmp
+.tmp-*/
+
+# Postgres / database
+*.db
+*.sqlite
+postgres-data/
+
+# Test artifacts
+coverage/
+.nyc_output/
+
+# Companion app builds
+companion-dist/
+companion-out/
