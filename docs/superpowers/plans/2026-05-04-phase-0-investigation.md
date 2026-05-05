@@ -168,9 +168,9 @@ documents:
 
 Search these public sites for the PDFs above. Where multiple revisions exist (e.g., two FY25 baseline books — preliminary vs. final), prefer the final published version unless a preliminary is being explicitly tested.
 
-- JLBC documents: `azleg.gov/jlbc/` and adjacent paths
-- AGAO Annual Financial Reports: `azauditor.gov` (Auditor General publishes the AFR)
-- Governor's Executive Budget: `azospb.gov` (Office of Strategic Planning and Budgeting)
+- JLBC documents: https://www.azjlbc.gov/current-year/ and https://www.azjlbc.gov/prior-years/
+- AGAO Annual Financial Reports: https://gao.az.gov/financials/afr (Arizona General Accounting Office, the body that *prepares* the AFR — NOT the Auditor General at `azauditor.gov`, which is a separate body that audits it)
+- Governor's Executive Budget: https://ospb.az.gov/governors-budget-requests (Office of Strategic Planning and Budgeting)
 
 For each document, do a focused web search for the exact title + year. If a URL can't be confirmed unambiguously, **stop and ask the user** to confirm the right link before downloading. Wrong sample documents cascade into wrong findings.
 
