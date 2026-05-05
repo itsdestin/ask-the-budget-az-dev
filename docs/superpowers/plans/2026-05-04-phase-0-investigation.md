@@ -18,20 +18,24 @@ Files created during Phase 0 (paths relative to `~/ask-the-budget-az-dev/`):
 
 | Path | Purpose | Tracked? |
 |---|---|---|
-| `samples/manifest.yaml` | URLs + SHA256 checksums + metadata for source PDFs | ✓ |
-| `samples/raw-pdfs/*.pdf` | The actual source PDFs | gitignored (large; reproducible from manifest) |
+| `samples/manifest.yaml` | URLs + SHA256 checksums + metadata for source documents (PDF and DOCX) | ✓ |
+| `samples/raw-pdfs/*.pdf` | Source PDFs | gitignored (large; reproducible from manifest URLs + checksums) |
+| `samples/raw-docx/*.docx` | Source DOCX files (budget bills) | gitignored |
 | `samples/scoring-pages.yaml` | The ~20 chosen pages with descriptions of why each was picked | ✓ |
 | `samples/scoring-rubric.md` | The 0–3 scoring scale and what each level means per dimension | ✓ |
-| `samples/extractor-output/mineru/<doc-id>/page-<N>.{json,md}` | MinerU output per page | gitignored |
-| `samples/extractor-output/docling/<doc-id>/page-<N>.{json,md}` | Docling output per page | gitignored |
-| `samples/scores-mineru.csv` | Manual MinerU scores | ✓ |
-| `samples/scores-docling.csv` | Manual Docling scores | ✓ |
+| `samples/extractor-output/mineru/<doc-id>/page-<N>.{json,md}` | MinerU output per PDF page | gitignored |
+| `samples/extractor-output/docling/<doc-id>/page-<N>.{json,md}` | Docling-PDF output per PDF page | gitignored |
+| `samples/extractor-output/docling-docx/<doc-id>/document.{json,md}` | Docling-DOCX output (whole document, no page concept) | gitignored |
+| `samples/scores-mineru.csv` | Manual MinerU scores (PDFs only) | ✓ |
+| `samples/scores-docling.csv` | Manual Docling-PDF scores (PDFs only) | ✓ |
+| `samples/docx-ingest-validation.md` | Findings from Task 5b (Docling-DOCX validation) | ✓ |
 | `data/entity-targets.yaml` | The 10 agencies, 7 programs, 3 sub-programs we'll track | ✓ |
 | `data/entity-variance-catalog.csv` | How each target is named across all 4 doc types | ✓ |
-| `scripts/check_pdf_manifest.py` | Verify samples/raw-pdfs/ matches manifest checksums | ✓ |
+| `scripts/check_pdf_manifest.py` | Verify `samples/raw-pdfs/` and `samples/raw-docx/` match manifest checksums | ✓ |
 | `scripts/run_mineru.py` | Wrapper to run MinerU on one PDF or page range | ✓ |
-| `scripts/run_docling.py` | Same for Docling | ✓ |
-| `scripts/aggregate_scores.py` | Compute per-extractor totals, per-dimension breakdowns | ✓ |
+| `scripts/run_docling.py` | Same for Docling-PDF | ✓ |
+| `scripts/run_docling_docx.py` | Wrapper to run Docling's native DOCX parser | ✓ |
+| `scripts/aggregate_scores.py` | Compute per-extractor totals, per-dimension breakdowns (PDFs only) | ✓ |
 | `scripts/tests/` | Pytest tests for the wrapper scripts | ✓ |
 | `pyproject.toml` | Python project config + dependencies | ✓ |
 | `docs/superpowers/investigations/2026-MM-DD-phase-0-bakeoff.md` | Final findings memo (MM-DD = execution date) | ✓ |
@@ -67,7 +71,7 @@ samples/extractor-output/
 samples/raw-pdfs/
 ```
 
-If missing, append them. Do NOT commit raw PDFs or extractor output to git — they bloat the repo and are reproducible from manifest + extractor scripts.
+If missing, append them. Verify `samples/raw-docx/` is also there. Do NOT commit raw source files (PDF or DOCX) or extractor output to git — they bloat the repo and are reproducible from manifest + extractor scripts.
 
 - [ ] **Step 3: Skim the spec sections that drive Phase 0**
 
@@ -75,37 +79,44 @@ Read `docs/superpowers/specs/2026-05-04-ask-the-budget-az-design.md` §8 (Phase 
 
 ---
 
-## Task 1: Acquire sample PDFs
+## Task 1: Acquire sample documents
 
 **Files:**
 - Create: `samples/manifest.yaml`
-- Create: `samples/raw-pdfs/*.pdf` (downloaded; gitignored)
+- Create: `samples/raw-pdfs/*.pdf` (6 PDFs, downloaded; gitignored)
+- Create: `samples/raw-docx/*.docx` (1 DOCX, copied from Downloads; gitignored)
 
-The spec calls for ~6–8 PDFs:
-- 1× JLBC Baseline Book FY25 (current, narrative-dense)
-- 1× JLBC Baseline Book FY23 (older, for cross-year testing)
-- 1× JLBC Appropriations Report FY25
-- 1× AGAO Annual Financial Report FY24 (different formatting, GAAP, restated tables)
-- 1× Governor's Executive Budget FY26
-- 1–2× misc (a JLBC fiscal note, a small supplement)
+Final corpus (7 documents, finalized 2026-05-04 during plan-prep web research):
 
-- [ ] **Step 1: Create the manifest skeleton**
+- **JLBC FY 2027 Baseline Book** — `https://www.azjlbc.gov/budget/27baselinesinglefile.pdf`
+- **JLBC FY 2023 Baseline Book** — `https://www.azjlbc.gov/budget/23baselinesinglefile.pdf` (paired with FY27 for cross-year drift testing)
+- **JLBC FY 2026 Appropriations Report** — `https://www.azjlbc.gov/26ar/fy2026approprpt.pdf`
+- **GAO FY 2025 AFR** — `https://gao.az.gov/sites/default/files/2025-12/AFR25%20COMBINED%20with%20Transmittal%20Letter.pdf` (most recent)
+- **OSPB FY 2027 Governor's State Agency Detail** — `https://ospb.az.gov/sites/default/files/2026-01/state-agency-detail-fy-2027.pdf`
+- **OSPB FY 2027 Sources and Uses of State Funds** — `https://ospb.az.gov/sites/default/files/2026-01/sources-and-uses-of-state-funds-fy-2027.pdf`
+- **AZ Senate Bill 1735 (Chapter 233 of 2025) — General Appropriations Act** — local file at `~/Downloads/0233.docx`. **NOT converted to PDF**: per spec §4 + §10.5, .docx is a structured XML source-of-truth and gets ingested natively (Docling-docx parser). Converting would discard tagged structure we already have.
 
-Create `samples/manifest.yaml`:
+- [ ] **Step 1: Create the manifest with all 7 entries**
+
+Create `samples/manifest.yaml`. URLs are pre-filled from web research; sha256 and page_count fill in during Step 4 (download).
 
 ```yaml
-# Source PDFs for Phase 0 investigation. URLs and checksums let any
+# Source documents for Phase 0 investigation. URLs and checksums let any
 # future contributor re-download and verify the exact same files.
+# `source_format` distinguishes PDFs (extracted via MinerU/Docling-pdf,
+# (page, bbox) provenance) from DOCX (extracted via Docling-docx,
+# (paragraph_id, cell_id) provenance). See spec §6.
 documents:
-  - id: jlbc-baseline-fy25
+  - id: jlbc-baseline-fy27
     publisher: jlbc
     doc_type: baseline-book
-    fiscal_year: 2025
-    title: "JLBC FY 2025 Baseline Book"
-    source_url: ""        # filled in Step 2
+    fiscal_year: 2027
+    title: "JLBC FY 2027 Baseline Book"
+    source_url: "https://www.azjlbc.gov/budget/27baselinesinglefile.pdf"
+    source_format: pdf
     sha256: ""            # filled in Step 4
     page_count: 0         # filled in Step 4
-    local_path: "samples/raw-pdfs/jlbc-baseline-fy25.pdf"
+    local_path: "samples/raw-pdfs/jlbc-baseline-fy27.pdf"
     acquired_on: "2026-MM-DD"
 
   - id: jlbc-baseline-fy23
@@ -113,68 +124,92 @@ documents:
     doc_type: baseline-book
     fiscal_year: 2023
     title: "JLBC FY 2023 Baseline Book"
-    source_url: ""
+    source_url: "https://www.azjlbc.gov/budget/23baselinesinglefile.pdf"
+    source_format: pdf
     sha256: ""
     page_count: 0
     local_path: "samples/raw-pdfs/jlbc-baseline-fy23.pdf"
     acquired_on: "2026-MM-DD"
 
-  - id: jlbc-approps-fy25
+  - id: jlbc-approps-fy26
     publisher: jlbc
     doc_type: approps-report
-    fiscal_year: 2025
-    title: "JLBC FY 2025 Appropriations Report"
-    source_url: ""
+    fiscal_year: 2026
+    title: "JLBC FY 2026 Appropriations Report"
+    source_url: "https://www.azjlbc.gov/26ar/fy2026approprpt.pdf"
+    source_format: pdf
     sha256: ""
     page_count: 0
-    local_path: "samples/raw-pdfs/jlbc-approps-fy25.pdf"
+    local_path: "samples/raw-pdfs/jlbc-approps-fy26.pdf"
     acquired_on: "2026-MM-DD"
 
-  - id: agao-afr-fy24
+  - id: agao-afr-fy25
     publisher: agao
     doc_type: afr
-    fiscal_year: 2024
-    title: "Arizona Annual Comprehensive Financial Report FY 2024"
-    source_url: ""
+    fiscal_year: 2025
+    title: "Arizona Annual Financial Report FY 2025 (with Transmittal Letter)"
+    source_url: "https://gao.az.gov/sites/default/files/2025-12/AFR25%20COMBINED%20with%20Transmittal%20Letter.pdf"
+    source_format: pdf
     sha256: ""
     page_count: 0
-    local_path: "samples/raw-pdfs/agao-afr-fy24.pdf"
+    local_path: "samples/raw-pdfs/agao-afr-fy25.pdf"
     acquired_on: "2026-MM-DD"
 
-  - id: governors-budget-fy26
+  - id: governors-state-agency-detail-fy27
     publisher: governor
     doc_type: governors-budget
-    fiscal_year: 2026
-    title: "Governor's Executive Budget FY 2026"
-    source_url: ""
+    fiscal_year: 2027
+    title: "Governor's FY 2027 State Agency Detail"
+    source_url: "https://ospb.az.gov/sites/default/files/2026-01/state-agency-detail-fy-2027.pdf"
+    source_format: pdf
     sha256: ""
     page_count: 0
-    local_path: "samples/raw-pdfs/governors-budget-fy26.pdf"
+    local_path: "samples/raw-pdfs/governors-state-agency-detail-fy27.pdf"
     acquired_on: "2026-MM-DD"
 
-  - id: jlbc-fiscal-note-misc
-    publisher: jlbc
-    doc_type: fiscal-note
-    fiscal_year: 2025
-    title: "JLBC fiscal note (representative; specific bill chosen during execution)"
-    source_url: ""
+  - id: governors-sources-and-uses-fy27
+    publisher: governor
+    doc_type: governors-budget
+    fiscal_year: 2027
+    title: "Governor's FY 2027 Sources and Uses of State Funds"
+    source_url: "https://ospb.az.gov/sites/default/files/2026-01/sources-and-uses-of-state-funds-fy-2027.pdf"
+    source_format: pdf
     sha256: ""
     page_count: 0
-    local_path: "samples/raw-pdfs/jlbc-fiscal-note-misc.pdf"
+    local_path: "samples/raw-pdfs/governors-sources-and-uses-fy27.pdf"
+    acquired_on: "2026-MM-DD"
+
+  - id: budget-bill-sb1735-2025
+    publisher: legislature
+    doc_type: budget-bill
+    fiscal_year: 2026
+    title: "AZ Senate Bill 1735 (Chapter 233 of 2025) — General Appropriations Act"
+    source_url: ""        # legislative source URL TBD; user copy is local
+    source_format: docx
+    sha256: ""
+    # No page_count for docx — flow document. Optional: count paragraphs in Step 4.
+    local_path: "samples/raw-docx/budget-bill-sb1735-2025.docx"
     acquired_on: "2026-MM-DD"
 ```
 
-- [ ] **Step 2: Discover URLs (with user help if needed)**
+- [ ] **Step 2: Confirm URLs (already pre-filled)**
 
-Search these public sites for the PDFs above. Where multiple revisions exist (e.g., two FY25 baseline books — preliminary vs. final), prefer the final published version unless a preliminary is being explicitly tested.
+URLs were discovered during plan-prep web research (2026-05-04) and pre-filled in Step 1's manifest. Index pages are recorded for future reference if URLs change:
 
 - JLBC documents: https://www.azjlbc.gov/current-year/ and https://www.azjlbc.gov/prior-years/
 - AGAO Annual Financial Reports: https://gao.az.gov/financials/afr (Arizona General Accounting Office, the body that *prepares* the AFR — NOT the Auditor General at `azauditor.gov`, which is a separate body that audits it)
 - Governor's Executive Budget: https://ospb.az.gov/governors-budget-requests (Office of Strategic Planning and Budgeting)
 
-For each document, do a focused web search for the exact title + year. If a URL can't be confirmed unambiguously, **stop and ask the user** to confirm the right link before downloading. Wrong sample documents cascade into wrong findings.
+Quick sanity check: spot-curl one of each publisher's URLs to confirm 200 OK. **Use a real browser User-Agent header** — bare `curl` (default User-Agent) gets 403 from `gao.az.gov` and `ospb.az.gov` due to anti-bot filters:
 
-Update each `source_url:` in `samples/manifest.yaml` with the confirmed URL.
+```bash
+curl -sI -A "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36" \
+  "https://gao.az.gov/sites/default/files/2025-12/AFR25%20COMBINED%20with%20Transmittal%20Letter.pdf" | head -5
+```
+
+Expect `HTTP/1.1 200 OK`. If any URL returns 4xx/5xx, the file may have moved — re-discover from the index page before continuing.
+
+The budget bill (`budget-bill-sb1735-2025`) entry has an empty `source_url` — the file lives at `~/Downloads/0233.docx` from the user's manual provision. If a canonical URL is later established (legislative bill tracker), update the manifest entry and add to commit notes.
 
 - [ ] **Step 3: Write the checksum verifier**
 
@@ -359,31 +394,49 @@ uv run pytest scripts/tests/test_check_pdf_manifest.py -v
 
 Expected: 3 tests PASS.
 
-- [ ] **Step 6: Download each PDF**
-
-For each entry in `samples/manifest.yaml` with a confirmed `source_url`:
+- [ ] **Step 6: Download each PDF + copy the DOCX into place**
 
 ```bash
-mkdir -p samples/raw-pdfs
-curl -L -o samples/raw-pdfs/jlbc-baseline-fy25.pdf "<source_url>"
-# repeat for each document
+mkdir -p samples/raw-pdfs samples/raw-docx
+UA="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+
+# 6 PDFs — use the manifest's source_url and local_path for each
+curl -L -A "$UA" -o samples/raw-pdfs/jlbc-baseline-fy27.pdf \
+  "https://www.azjlbc.gov/budget/27baselinesinglefile.pdf"
+curl -L -A "$UA" -o samples/raw-pdfs/jlbc-baseline-fy23.pdf \
+  "https://www.azjlbc.gov/budget/23baselinesinglefile.pdf"
+curl -L -A "$UA" -o samples/raw-pdfs/jlbc-approps-fy26.pdf \
+  "https://www.azjlbc.gov/26ar/fy2026approprpt.pdf"
+curl -L -A "$UA" -o samples/raw-pdfs/agao-afr-fy25.pdf \
+  "https://gao.az.gov/sites/default/files/2025-12/AFR25%20COMBINED%20with%20Transmittal%20Letter.pdf"
+curl -L -A "$UA" -o samples/raw-pdfs/governors-state-agency-detail-fy27.pdf \
+  "https://ospb.az.gov/sites/default/files/2026-01/state-agency-detail-fy-2027.pdf"
+curl -L -A "$UA" -o samples/raw-pdfs/governors-sources-and-uses-fy27.pdf \
+  "https://ospb.az.gov/sites/default/files/2026-01/sources-and-uses-of-state-funds-fy-2027.pdf"
+
+# 1 DOCX — copy from the user's Downloads folder
+cp ~/Downloads/0233.docx samples/raw-docx/budget-bill-sb1735-2025.docx
 ```
 
-Then compute SHA256 and page count for each:
+The `-A "$UA"` flag is required for `gao.az.gov` and `ospb.az.gov` — without it those servers return 403. JLBC's CDN doesn't care, but using the UA uniformly costs nothing.
+
+Then compute SHA256 (and PDF page counts):
 
 ```bash
-sha256sum samples/raw-pdfs/jlbc-baseline-fy25.pdf
-# Use any PDF tool to get page count, e.g.:
-uv run python -c "import pypdf; print(len(pypdf.PdfReader('samples/raw-pdfs/jlbc-baseline-fy25.pdf').pages))"
+uv add pypdf  # if not already added
+
+# SHA256 for all 7
+for f in samples/raw-pdfs/*.pdf samples/raw-docx/*.docx; do
+  echo "$(sha256sum "$f")"
+done
+
+# Page count for the 6 PDFs
+for f in samples/raw-pdfs/*.pdf; do
+  echo "$f: $(uv run python -c "import pypdf, sys; print(len(pypdf.PdfReader('$f').pages))")"
+done
 ```
 
-You'll need pypdf:
-
-```bash
-uv add pypdf
-```
-
-Update `samples/manifest.yaml`: fill in the `sha256:` and `page_count:` fields for each downloaded PDF, plus today's date in `acquired_on:`.
+Update `samples/manifest.yaml`: fill in `sha256:` for all 7 entries, `page_count:` for the 6 PDFs (leave the docx entry's `page_count` field absent — it's nullable per spec §6), and today's date in every `acquired_on:`.
 
 - [ ] **Step 7: Verify the manifest**
 
@@ -916,12 +969,14 @@ Co-Authored-By: Claude Opus 4.7 (1M context) <noreply@anthropic.com>"
 
 ---
 
-## Task 4: Pick the 20 representative pages
+## Task 4: Pick the 20 representative pages (PDFs only)
 
 **Files:**
 - Create: `samples/scoring-pages.yaml`
 
 The point: deliberately surface every failure mode we know exists, not sample at random. Each chosen page targets at least one specific failure mode listed below.
+
+**Scope:** The budget bill (.docx) is **NOT** included in page-based scoring — DOCX is a flow document with no page concept and a different extractor (Docling-docx, no MinerU comparison). It's validated separately in Task 5b. All ~20 pages here come from the 6 PDFs only.
 
 - [ ] **Step 1: Open each PDF and identify candidate pages**
 
@@ -979,11 +1034,13 @@ Co-Authored-By: Claude Opus 4.7 (1M context) <noreply@anthropic.com>"
 
 ---
 
-## Task 5: Run both extractors on the chosen pages
+## Task 5: Run both extractors on the chosen PDF pages
 
 **Files:**
 - Generates: `samples/extractor-output/mineru/<doc-id>/page-<N>.{json,md}` (gitignored)
 - Generates: `samples/extractor-output/docling/<doc-id>/page-<N>.{json,md}` (gitignored)
+
+This task covers PDFs only. The budget bill .docx is validated separately in Task 5b.
 
 - [ ] **Step 1: Generate a runner from the page list**
 
@@ -1049,6 +1106,269 @@ Co-Authored-By: Claude Opus 4.7 (1M context) <noreply@anthropic.com>"
 ```
 
 If no fixes were needed, this step is a no-op.
+
+---
+
+## Task 5b: Validate Docling DOCX ingest on the budget bill
+
+**Files:**
+- Generates: `samples/extractor-output/docling-docx/budget-bill-sb1735-2025/document.{json,md}` (gitignored)
+- Create: `samples/docx-ingest-validation.md`
+
+Docling has a native `.docx` parser. Per spec §10.5, we want this validated separately from the PDF bake-off because:
+- DOCX provenance is `(paragraph_id, cell_id)`, not `(page, bbox)` — different extraction shape
+- MinerU is PDF-only, so a head-to-head comparison isn't possible
+- The validation question isn't "which is better" but "does Docling-docx produce clean enough structured output to make the lossy PDF-conversion path unnecessary"
+
+- [ ] **Step 1: Extend `run_docling.py` to handle .docx (or write `run_docling_docx.py`)**
+
+Easiest is a separate, simpler script since DOCX has no page concept — output is one JSON for the whole document, plus one Markdown.
+
+Create `scripts/run_docling_docx.py`:
+
+```python
+"""Run Docling's native DOCX parser on a .docx file.
+
+Outputs:
+  <out>/document.json   — structured extraction. Each block has:
+                          {type, text, paragraph_id, table_cell_id?, style?}
+  <out>/document.md     — Markdown rendering of the document
+
+paragraph_id and table_cell_id are stable across runs (deterministic from
+the .docx XML structure). They are the on-disk equivalent of bbox for the
+DOCX path — see spec §10.5 "stable id contract".
+"""
+
+import argparse
+import json
+import sys
+from pathlib import Path
+
+
+def write_dry_run(docx: Path, out: Path) -> None:
+    out.mkdir(parents=True, exist_ok=True)
+    (out / "document.json").write_text(
+        json.dumps(
+            {"extractor": "docling-docx-dry-run", "source_docx": str(docx), "blocks": []},
+            indent=2,
+        )
+    )
+    (out / "document.md").write_text("# Dry-run\n")
+
+
+def run_docling_docx(docx: Path, out: Path) -> None:
+    from docling.document_converter import DocumentConverter  # type: ignore[import-not-found]
+
+    converter = DocumentConverter()
+    result = converter.convert(str(docx))
+    doc = result.document
+
+    out.mkdir(parents=True, exist_ok=True)
+    blocks = []
+    paragraph_counter = 0
+    for item, _level in doc.iterate_items():
+        # For DOCX, Docling exposes self_ref or item.id as a stable identifier.
+        # Use whichever the installed version provides; the contract is
+        # determinism — same .docx in must produce same id out.
+        stable_id = getattr(item, "self_ref", None) or getattr(item, "id", None) or f"p{paragraph_counter}"
+        block = {
+            "type": item.label.value if hasattr(item, "label") else type(item).__name__,
+            "text": getattr(item, "text", None) or getattr(item, "content", None) or "",
+            "paragraph_id": stable_id,
+        }
+        # If the item is inside a table, capture the cell id too
+        if hasattr(item, "table_cell"):
+            block["table_cell_id"] = getattr(item.table_cell, "id", None)
+        blocks.append(block)
+        paragraph_counter += 1
+
+    (out / "document.json").write_text(
+        json.dumps(
+            {"extractor": "docling-docx", "source_docx": str(docx), "blocks": blocks},
+            indent=2,
+        )
+    )
+    md_lines = [b["text"] for b in blocks if b.get("text")]
+    (out / "document.md").write_text("\n\n".join(md_lines) + "\n")
+
+
+def main(argv: list[str] | None = None) -> int:
+    parser = argparse.ArgumentParser(description="Run Docling docx parser on a .docx file.")
+    parser.add_argument("--docx", required=True, type=Path)
+    parser.add_argument("--out", required=True, type=Path)
+    parser.add_argument("--dry-run", action="store_true")
+    args = parser.parse_args(argv)
+
+    if not args.docx.exists():
+        print(f"DOCX not found: {args.docx}", file=sys.stderr)
+        return 2
+
+    if args.dry_run:
+        write_dry_run(args.docx, args.out)
+    else:
+        run_docling_docx(args.docx, args.out)
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())
+```
+
+- [ ] **Step 2: Write a failing test**
+
+Create `scripts/tests/test_run_docling_docx.py`:
+
+```python
+import json
+import subprocess
+import sys
+import zipfile
+from pathlib import Path
+
+
+def make_minimal_docx(path: Path) -> None:
+    """Build a tiny but valid .docx (a zip with the required parts)."""
+    with zipfile.ZipFile(path, "w") as z:
+        z.writestr(
+            "[Content_Types].xml",
+            '<?xml version="1.0" encoding="UTF-8"?><Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types">'
+            '<Default Extension="xml" ContentType="application/xml"/>'
+            '<Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/>'
+            '<Override PartName="/word/document.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.document.main+xml"/>'
+            '</Types>',
+        )
+        z.writestr(
+            "_rels/.rels",
+            '<?xml version="1.0" encoding="UTF-8"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">'
+            '<Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="word/document.xml"/>'
+            '</Relationships>',
+        )
+        z.writestr(
+            "word/document.xml",
+            '<?xml version="1.0" encoding="UTF-8"?><w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"><w:body>'
+            '<w:p><w:r><w:t>Hello world</w:t></w:r></w:p>'
+            '</w:body></w:document>',
+        )
+
+
+def test_writes_document_outputs(tmp_path: Path) -> None:
+    docx = tmp_path / "tiny.docx"
+    make_minimal_docx(docx)
+    out = tmp_path / "out"
+
+    result = subprocess.run(
+        [
+            sys.executable,
+            "scripts/run_docling_docx.py",
+            "--docx", str(docx),
+            "--out", str(out),
+            "--dry-run",
+        ],
+        capture_output=True,
+        text=True,
+    )
+    assert result.returncode == 0, result.stderr
+    assert (out / "document.json").exists()
+    assert (out / "document.md").exists()
+    payload = json.loads((out / "document.json").read_text())
+    assert payload["extractor"] == "docling-docx-dry-run"
+
+
+def test_rejects_missing_docx(tmp_path: Path) -> None:
+    out = tmp_path / "out"
+    result = subprocess.run(
+        [
+            sys.executable,
+            "scripts/run_docling_docx.py",
+            "--docx", str(tmp_path / "nope.docx"),
+            "--out", str(out),
+        ],
+        capture_output=True,
+        text=True,
+    )
+    assert result.returncode != 0
+    assert "not found" in (result.stderr + result.stdout).lower()
+```
+
+- [ ] **Step 3: Run the tests**
+
+```bash
+uv run pytest scripts/tests/test_run_docling_docx.py -v
+```
+
+Expected: 2 tests PASS.
+
+- [ ] **Step 4: Run on the real budget bill**
+
+```bash
+uv run python scripts/run_docling_docx.py \
+  --docx samples/raw-docx/budget-bill-sb1735-2025.docx \
+  --out samples/extractor-output/docling-docx/budget-bill-sb1735-2025
+```
+
+Expected: `document.json` and `document.md` exist with non-empty content.
+
+- [ ] **Step 5: Validate the output by hand**
+
+Open `samples/extractor-output/docling-docx/budget-bill-sb1735-2025/document.json` and `document.md` side by side with the original .docx (open in Word or LibreOffice).
+
+Verify:
+1. **Paragraph fidelity** — every distinct paragraph in the .docx appears as a block in `document.json` (spot-check ~10 paragraphs near the top, middle, and bottom).
+2. **Table preservation** — the line-item appropriations tables (e.g., DCS section in `Sec. 25`) preserve every cell. Find one numeric cell in the .docx and confirm it appears in the JSON with the right value and an associated `table_cell_id`.
+3. **Heading detection** — section markers like "Sec. 25. DEPARTMENT OF CHILD SAFETY" are tagged as headings (block `type` reflects this), not as plain paragraphs.
+4. **Stable id contract** — re-run Step 4. Diff the two `document.json` outputs:
+
+```bash
+diff <(uv run python scripts/run_docling_docx.py --docx samples/raw-docx/budget-bill-sb1735-2025.docx --out /tmp/run-a && cat /tmp/run-a/document.json) \
+     <(uv run python scripts/run_docling_docx.py --docx samples/raw-docx/budget-bill-sb1735-2025.docx --out /tmp/run-b && cat /tmp/run-b/document.json)
+```
+
+Expected: no diff. If `paragraph_id` values shift between runs, the ingest pipeline can't reliably attach citations to source paragraphs — that breaks spec §10.5's stable-id contract. Document the exact mechanism Docling uses to assign ids and any version-pin that's required.
+
+- [ ] **Step 6: Document findings**
+
+Create `samples/docx-ingest-validation.md`:
+
+```markdown
+# DOCX Ingest Validation — Budget Bill SB 1735
+
+## Docling version
+- docling: <version from `uv pip list | grep docling`>
+
+## Stable id mechanism
+- Source: <e.g., "self_ref attribute on iterate_items() output, format /paragraphs/{n}">
+- Determinism: <pass / fail / details>
+
+## Quality assessment
+| Check | Pass? | Notes |
+|---|---|---|
+| Paragraph fidelity | | |
+| Table preservation | | |
+| Heading detection | | |
+| Stable id contract | | |
+
+## Issues observed
+- (anything Docling stumbled on; e.g., footnote handling, complex section numbering)
+
+## Recommendation
+- (Pass: native DOCX ingest is clean; v1 ingest pipeline routes .docx → Docling-docx natively)
+- (Fail with mitigation: document specific failures and the workarounds needed)
+- (Hard fail: revisit; consider docx → pdf conversion fallback OR python-docx + custom parsing)
+```
+
+- [ ] **Step 7: Commit**
+
+```bash
+git add scripts/run_docling_docx.py scripts/tests/test_run_docling_docx.py samples/docx-ingest-validation.md
+git commit -m "phase-0: validate Docling native DOCX ingest on budget bill
+
+Per spec §4 + §10.5, .docx is processed natively (not converted to PDF).
+This task confirms Docling's docx parser produces clean structured output
+with deterministic paragraph/cell ids — the load-bearing requirement for
+DOCX-source citation rendering.
+
+Co-Authored-By: Claude Opus 4.7 (1M context) <noreply@anthropic.com>"
+```
 
 ---
 
@@ -1734,6 +2054,10 @@ relates_to: docs/superpowers/specs/2026-05-04-ask-the-budget-az-design.md
 
 [From samples/chunking-validation.md: which rules held, which needed adjustment, what new heuristics are needed for Phase 1.]
 
+## 4b. Format-aware ingest validation (DOCX path)
+
+[From samples/docx-ingest-validation.md: did Docling's native DOCX parser produce clean structured output on the budget bill? Did paragraph/cell ids stay stable across runs? Are any limitations material to v1?]
+
 ## 5. Surprises and footguns
 
 [Anything we didn't anticipate. Examples to look for:
@@ -1756,6 +2080,7 @@ State one of:
 - `samples/scores-docling.csv`
 - `samples/score-summary.md`
 - `samples/chunking-validation.md`
+- `samples/docx-ingest-validation.md`
 - `data/entity-targets.yaml`
 - `data/entity-variance-catalog.csv`
 - `data/entity-variance-summary.md`
@@ -1841,7 +2166,8 @@ After writing this plan, the following spec coverage check passes:
 | Spec section | Plan task(s) |
 |---|---|
 | §8.1 Sample corpus | Task 1 |
-| §8.2 Extractor bake-off | Tasks 2, 3, 4, 5, 6, 7, 8, 9 |
+| §8.2 Extractor bake-off (PDF path) | Tasks 2, 3, 4, 5, 6, 7, 8, 9 |
+| §10.5 / §4 DOCX native ingest validation | Task 5b |
 | §8.3 Entity-resolution catalog | Tasks 10, 11 |
 | §8.4 Chunking shape validation | Task 12 |
 | §8.5 Phase 0 deliverables | All deliverables produced; final memo in Task 13 |

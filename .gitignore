@@ -37,6 +37,7 @@ Thumbs.db
 # Project-specific
 samples/extractor-output/
 samples/raw-pdfs/
+samples/raw-docx/
 *.tmp
 .tmp-*/
 
