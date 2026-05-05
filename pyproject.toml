@@ -5,6 +5,7 @@ description = "Ask the Budget AZ — Phase 0 extractor bake-off + ingest scripts
 requires-python = ">=3.12"
 dependencies = [
     "pyyaml>=6.0.3",
+    "mineru[pipeline]>=3.1.6",
 ]
 
 [dependency-groups]

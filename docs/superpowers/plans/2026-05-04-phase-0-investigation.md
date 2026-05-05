@@ -663,16 +663,16 @@ Expected: 2 tests PASS.
 
 - [ ] **Step 5: Smoke test on a real PDF**
 
-Pick one PDF (smallest one — probably the fiscal note). Run MinerU on its first page:
+Pick one PDF (smallest available — the AGAO AFR FY25 at 2.7MB; the fiscal note originally referenced was replaced by the budget bill, which is a DOCX). Run MinerU on its first page:
 
 ```bash
 uv run python scripts/run_mineru.py \
-  --pdf samples/raw-pdfs/jlbc-fiscal-note-misc.pdf \
-  --out samples/extractor-output/mineru/jlbc-fiscal-note-misc \
+  --pdf samples/raw-pdfs/agao-afr-fy25.pdf \
+  --out samples/extractor-output/mineru/agao-afr-fy25 \
   --pages 1
 ```
 
-Expected: `samples/extractor-output/mineru/jlbc-fiscal-note-misc/page-1.json` and `page-1.md` exist with non-empty content.
+Expected: `samples/extractor-output/mineru/agao-afr-fy25/page-1.json` and `page-1.md` exist with non-empty content.
 
 If MinerU fails to install or run (model download fails, GPU mismatch, etc.), document the issue in `samples/extractor-output/mineru/README.md` and decide: retry on a different machine, use a smaller MinerU variant, or fall back to CPU-only mode. Do NOT proceed to scoring with a broken environment.
 
@@ -920,12 +920,12 @@ Expected: 2 tests PASS.
 
 ```bash
 uv run python scripts/run_docling.py \
-  --pdf samples/raw-pdfs/jlbc-fiscal-note-misc.pdf \
-  --out samples/extractor-output/docling/jlbc-fiscal-note-misc \
+  --pdf samples/raw-pdfs/agao-afr-fy25.pdf \
+  --out samples/extractor-output/docling/agao-afr-fy25 \
   --pages 1
 ```
 
-Expected: page-1.json and page-1.md exist with non-empty content. If Docling returns extraction results that don't align with the assumed `iterate_items() + .prov` API (it has changed across recent versions), inspect with `python -c "from docling.document_converter import DocumentConverter; r = DocumentConverter().convert('samples/raw-pdfs/jlbc-fiscal-note-misc.pdf'); print(type(r.document)); print(dir(r.document))"` and adjust `run_docling()` to match the installed version's API. Document the version + adjustment in `samples/extractor-output/docling/README.md`.
+Expected: page-1.json and page-1.md exist with non-empty content. If Docling returns extraction results that don't align with the assumed `iterate_items() + .prov` API (it has changed across recent versions), inspect with `python -c "from docling.document_converter import DocumentConverter; r = DocumentConverter().convert('samples/raw-pdfs/agao-afr-fy25.pdf'); print(type(r.document)); print(dir(r.document))"` and adjust `run_docling()` to match the installed version's API. Document the version + adjustment in `samples/extractor-output/docling/README.md`.
 
 - [ ] **Step 6: Document the setup**
 
