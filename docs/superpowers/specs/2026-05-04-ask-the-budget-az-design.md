@@ -90,15 +90,25 @@ Three runtime tiers, plus a Phase 2 companion app on each analyst's machine.
                                    └──────────────────────────────┘
 
 INGEST PIPELINE (offline, run on Destin's machine for v1):
-  raw PDFs → MinerU/Docling → JSON+bbox → structure-aware chunker
+  raw documents (PDF + DOCX) → format-aware router:
+    .pdf  → MinerU (or Docling-pdf) → JSON + (page, bbox) provenance
+    .docx → Docling native docx parser → JSON + (paragraph_id, cell_id) provenance
+  → structure-aware chunker (format-agnostic on the chunker side)
   → Voyage-3-large embeddings → Postgres write
   + agency canonical map (curated YAML, version-controlled)
+
+Why format-aware: budget bills (and likely future legislative artifacts) are
+distributed as .docx — a structured XML format where paragraphs, tables,
+and headings are tagged explicitly. Converting to PDF and then re-extracting
+discards information we already have for free. Native docx ingest is
+lossless and deterministic; PDF extraction inherently performs layout
+inference that is error-prone on financial docs.
 ```
 
 ### 4.1 Role separation
 
 - **Browser** is dumb: UI only, no business logic.
-- **Web server** owns retrieval, ranking, faithfulness verification, audit logging, and PDF serving. **It does not embed the LLM provider directly** — it delegates synthesis to the active `LLMProvider` implementation (see §4.2). This separation lets us swap providers (local companion / Anthropic API / self-hosted) without touching the retrieval pipeline.
+- **Web server** owns retrieval, ranking, faithfulness verification, audit logging, and source-document serving (PDF byte serving for PDF sources, on-demand HTML rendering for .docx sources). **It does not embed the LLM provider directly** — it delegates synthesis to the active `LLMProvider` implementation (see §4.2). This separation lets us swap providers (local companion / Anthropic API / self-hosted) without touching the retrieval pipeline.
 - **Companion app** is small and single-purpose: receives `(question, retrieved_chunks)`, returns `(answer, structured_citations)` via Claude Code running locally. Lifted from YouCoded's existing PTY/wrapper infrastructure.
 - **Postgres** is the single persistent store. Chunks, vectors, BM25 index, document metadata, agency canonical map, audit log all live in one database. Single backup, single restore.
 
@@ -151,15 +161,16 @@ Postgres schema, simplified:
 -- Documents in the corpus
 CREATE TABLE documents (
   doc_id TEXT PRIMARY KEY,
-  publisher TEXT NOT NULL,        -- 'jlbc' | 'agao' | 'governor'
-  doc_type TEXT NOT NULL,         -- 'baseline-book' | 'approps-report' | 'afr' | 'governors-budget' | 'fiscal-note' | ...
+  publisher TEXT NOT NULL,          -- 'jlbc' | 'agao' | 'governor' | 'legislature'
+  doc_type TEXT NOT NULL,           -- 'baseline-book' | 'approps-report' | 'afr' | 'governors-budget' | 'budget-bill' | ...
   fiscal_year INT NOT NULL,
   title TEXT NOT NULL,
   source_url TEXT,
-  pdf_blob_path TEXT NOT NULL,    -- where the original PDF lives, served via HTTP range
-  page_count INT NOT NULL,
+  source_format TEXT NOT NULL,      -- 'pdf' | 'docx' (extensible to 'html', 'xml', etc.)
+  source_blob_path TEXT NOT NULL,   -- where the original file lives; served via HTTP range (PDF) or on-demand HTML render (DOCX)
+  page_count INT,                   -- nullable; populated for PDFs only
   ingested_at TIMESTAMPTZ NOT NULL,
-  extractor TEXT NOT NULL,        -- 'mineru-2.5' | 'docling' | 'sonnet-vision'
+  extractor TEXT NOT NULL,          -- 'mineru-2.5' | 'docling-pdf' | 'docling-docx' | 'sonnet-vision'
   extractor_version TEXT NOT NULL
 );
 
@@ -177,8 +188,12 @@ CREATE TABLE chunks (
   doc_id TEXT NOT NULL REFERENCES documents(doc_id),
   text TEXT NOT NULL,
   embedding vector(1024),                  -- Voyage-3-large output dim
-  page INT NOT NULL,
-  bbox NUMERIC[],                          -- [x1, y1, x2, y2] in PDF points; multi-rect chunks store flattened arrays
+  -- Provenance is polymorphic by source format. PDF sources populate (page, bbox);
+  -- DOCX sources populate source_anchor with paragraph and cell ids. The CHECK
+  -- constraint enforces that at least one provenance shape is present.
+  page INT,                                -- nullable; PDF-source chunks only
+  bbox NUMERIC[],                          -- nullable; PDF-source chunks only ([x1, y1, x2, y2] in PDF points; multi-rect = flattened)
+  source_anchor JSONB,                     -- nullable; non-PDF chunks. Shape for docx: {"paragraph_id": "p47", "table_cell_id": "tbl3.r5.c2"}
   section_path TEXT[],                     -- ['Department of Corrections', 'Operating Lump Sum', 'County Reimbursement']
   agency_canonical_id TEXT REFERENCES agencies(agency_id),
   fiscal_year INT,                         -- denormalized from documents for fast filter
@@ -186,7 +201,8 @@ CREATE TABLE chunks (
   is_table BOOLEAN NOT NULL DEFAULT FALSE,
   table_html TEXT,                         -- preserved for is_table=true chunks
   token_count INT NOT NULL,
-  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  CHECK ((page IS NOT NULL AND bbox IS NOT NULL) OR source_anchor IS NOT NULL)
 );
 
 -- BM25 index lives here via ParadeDB pg_search; not a separate table
@@ -309,9 +325,11 @@ Take the winning extractor's output, manually mark up where chunks should split.
 
 | Layer | Choice | Why |
 |---|---|---|
+| **Format-aware ingest router** | Trivial extension-based dispatch (`.pdf` → PDF path, `.docx` → DOCX path) | Native processing of structured formats avoids the lossy `docx → pdf → re-extract` round-trip. |
 | **PDF extraction (primary)** | MinerU 2.5 self-hosted | Best open-source on financial-doc benchmarks; emits page+bbox per element. Validated in Phase 0. |
-| **PDF extraction (fallback)** | Docling | More mature ecosystem; documented fallback for cases where MinerU stumbles. |
+| **PDF extraction (fallback)** | Docling-pdf | More mature ecosystem; documented fallback for cases where MinerU stumbles. |
 | **PDF extraction (escalation, optional)** | Claude Sonnet 4.6 vision | For pages flagged low-confidence. Costs API budget; only used if Phase 0 shows it's necessary. |
+| **DOCX extraction** | Docling native docx parser | Reads the .docx XML directly. Lossless: paragraphs, tables, headings, and styles are explicit in the source. No layout inference needed. |
 | **Chunking** | Structure-aware, tables atomic, 512-token target / 1024 max, ~15% overlap | 2026 consensus for financial RAG (recall 0.877 vs. 0.759 for semantic-only chunking). |
 | **Vector + lexical store** | Postgres + pgvector + ParadeDB pg_search | Single store, transactional metadata, easy SQL fan-out for comparison queries. Fits free tier (Supabase or Neon). |
 | **Embeddings** | Voyage-3-large | Measurably leads MTEB on legal+financial sub-benchmarks. 1024-dim. |
@@ -353,11 +371,21 @@ Take the winning extractor's output, manually mark up where chunks should split.
 
 A toggle in the answer pane (off by default). When on, scrolling the answer auto-scrolls the PDF viewer to follow each citation as it comes into view. Synchronized scrollytelling for analysts auditing a long answer.
 
-### 10.4 Implementation notes
+### 10.4 Implementation notes (PDF source)
 
 - LLM emits citations as **tool calls**, not Anthropic Citations API. Tool calls give us span-level anchoring + structured output + a verification pass in one shape.
 - `react-pdf-highlighter-extended` wraps PDF.js and supports both text and rect highlights. Skip `react-pdf-viewer` (unmaintained since early 2023) and Adobe Embed (vendor lock-in, weak programmatic control).
 - Server serves PDFs via HTTP Range requests; PDF.js loads in 64KB chunks. Render only ±2 pages around viewport per PDF.js's own guidance.
+
+### 10.5 Non-PDF source rendering (.docx)
+
+For chunks sourced from .docx documents, the side-panel viewer uses HTML rendering with paragraph- and cell-level highlights instead of bbox overlays. Same UX promise; different rendering primitive.
+
+- **Render path:** Server converts the .docx to HTML on demand (Mammoth.js server-side, or a Python equivalent like `docx2html`). The HTML preserves Word's structural tagging — every `<w:p>` becomes a `<p>` with a stable `id`, every `<w:tc>` becomes a `<td>` with a stable `id`. The same stable ids are stored in `chunks.source_anchor` during ingest, so a click on a citation chip can resolve directly to a DOM element.
+- **Highlighting:** The chunk's `source_anchor` JSON carries `{paragraph_id, table_cell_id?}`. The viewer scrolls to that element and applies a yellow background highlight on the matching `<p>` or `<td>`.
+- **Multi-paragraph citations** = multiple chips, each opening their own anchor. Same as multi-region PDF citations.
+- **Confidence chrome and verify mode** behave identically to the PDF path.
+- **Stable ids are the contract.** The DOCX renderer must emit deterministic, ingest-time-equivalent ids — otherwise highlighting silently mismatches the cited paragraph. Verify by re-rendering during ingest and confirming the same id assignment.
 
 ## 11. Refusal Behavior
 
@@ -449,6 +477,8 @@ These are codified to prevent future drift.
 - **Faithfulness verifier model choice.** Self-hosted NLI model vs. another LLM call vs. structured-output classifier from the same Claude session. Resolution: Phase 1 spike.
 - **Companion app framework.** Electron (matches YouCoded, larger binary) vs. Tauri (smaller, less mature for our integrations). Resolution: Phase 2.
 - **JLBC SSO availability.** Whether `azleg.gov` Google Workspace SSO is technically available to our app. Resolution: ask JLBC IT.
+- **DOCX→HTML renderer choice.** Mammoth.js (Node, runs in browser or server) vs. python-docx + custom HTML emitter (server-side, fewer deps but more code). Either way, the renderer must emit deterministic, ingest-time-equivalent paragraph/cell ids. Resolution: Phase 1 spike with a stable-id contract test.
+- **Source format coverage beyond PDF/DOCX.** If future corpus expansion brings HTML pages (e.g., legislative bill text rendered as HTML on `azleg.gov`) or XML (legislative bill tracker feeds), the format-aware router extends naturally — but we should not pre-build paths until we have a real document to ingest.
 
 ## 17. References
 
