@@ -1,7 +1,7 @@
 ---
 title: Ask the Budget AZ — Design Spec
 date: 2026-05-04
-status: draft (pending user review)
+status: approved
 authors: Destin Moss, Claude
 audience: design implementers, future contributors, internal pilot stakeholders
 ---
