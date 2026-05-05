@@ -91,6 +91,7 @@ version = "0.1.0"
 source = { virtual = "." }
 dependencies = [
     { name = "mineru", extra = ["pipeline"] },
+    { name = "opendataloader-pdf" },
     { name = "pyyaml" },
 ]
 
@@ -103,6 +104,7 @@ dev = [
 [package.metadata]
 requires-dist = [
     { name = "mineru", extras = ["pipeline"], specifier = ">=3.1.6" },
+    { name = "opendataloader-pdf", specifier = ">=2.4.1" },
     { name = "pyyaml", specifier = ">=6.0.3" },
 ]
 
@@ -1466,6 +1468,15 @@ wheels = [
     { url = "https://files.pythonhosted.org/packages/4b/33/b5db29a6c00eb8f50708110d8d453747ca125c8b805bc437b289dbdcc057/opencv_python_headless-4.13.0.92-cp37-abi3-manylinux_2_28_x86_64.whl", hash = "sha256:0bd48544f77c68b2941392fcdf9bcd2b9cdf00e98cb8c29b2455d194763cf99e", size = 60391106, upload-time = "2026-02-05T10:30:14.236Z" },
     { url = "https://files.pythonhosted.org/packages/fb/c3/52cfea47cd33e53e8c0fbd6e7c800b457245c1fda7d61660b4ffe9596a7f/opencv_python_headless-4.13.0.92-cp37-abi3-win32.whl", hash = "sha256:a7cf08e5b191f4ebb530791acc0825a7986e0d0dee2a3c491184bd8599848a4b", size = 30812232, upload-time = "2026-02-05T07:02:29.594Z" },
     { url = "https://files.pythonhosted.org/packages/4a/90/b338326131ccb2aaa3c2c85d00f41822c0050139a4bfe723cfd95455bd2d/opencv_python_headless-4.13.0.92-cp37-abi3-win_amd64.whl", hash = "sha256:77a82fe35ddcec0f62c15f2ba8a12ecc2ed4207c17b0902c7a3151ae29f37fb6", size = 40070414, upload-time = "2026-02-05T07:02:26.448Z" },
+]
+
+[[package]]
+name = "opendataloader-pdf"
+version = "2.4.1"
+source = { registry = "https://pypi.org/simple" }
+sdist = { url = "https://files.pythonhosted.org/packages/5c/47/4ff03b49492bca8c4b34a43111a52c37cd50cb3c3b80880f9850e8cbac62/opendataloader_pdf-2.4.1.tar.gz", hash = "sha256:32862027e72970a2dd12afea5d77aa560dbc0b1d356a2da014337716017cfcd0", size = 22538009, upload-time = "2026-04-30T08:41:42.389Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/e9/d8/7dfe4e45937e9bcfa9221c7f990fc08c9e5c77f6ccdc83bebb88e23c6af0/opendataloader_pdf-2.4.1-py3-none-any.whl", hash = "sha256:ebf410756f261f97dc3e5064ee1e75d9b83a0554535da0eb57bfc5f76549a166", size = 22551868, upload-time = "2026-04-30T08:41:38.795Z" },
 ]
 
 [[package]]

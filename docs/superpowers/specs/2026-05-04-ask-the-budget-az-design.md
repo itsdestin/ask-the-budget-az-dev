@@ -91,8 +91,8 @@ Three runtime tiers, plus a Phase 2 companion app on each analyst's machine.
 
 INGEST PIPELINE (offline, run on Destin's machine for v1):
   raw documents (PDF + DOCX) → format-aware router:
-    .pdf  → MinerU (or Docling-pdf) → JSON + (page, bbox) provenance
-    .docx → Docling native docx parser → JSON + (paragraph_id, cell_id) provenance
+    .pdf  → MinerU (or OpenDataLoader-PDF) → JSON + (page, bbox) provenance
+    .docx → python-docx → JSON + (paragraph_id, cell_id) provenance
   → structure-aware chunker (format-agnostic on the chunker side)
   → Voyage-3-large embeddings → Postgres write
   + agency canonical map (curated YAML, version-controlled)
@@ -170,7 +170,7 @@ CREATE TABLE documents (
   source_blob_path TEXT NOT NULL,   -- where the original file lives; served via HTTP range (PDF) or on-demand HTML render (DOCX)
   page_count INT,                   -- nullable; populated for PDFs only
   ingested_at TIMESTAMPTZ NOT NULL,
-  extractor TEXT NOT NULL,          -- 'mineru-2.5' | 'docling-pdf' | 'docling-docx' | 'sonnet-vision'
+  extractor TEXT NOT NULL,          -- 'mineru-2.5' | 'opendataloader-2.4.1' | 'python-docx' | 'sonnet-vision'
   extractor_version TEXT NOT NULL
 );
 
@@ -282,7 +282,7 @@ Stored in `samples/raw-pdfs/` (gitignored if too large; metadata committed).
 
 ### 8.2 Extractor bake-off
 
-Both **MinerU 2.5** and **Docling** run on the same ~20 deliberately-chosen pages:
+Both **MinerU 2.5** and **OpenDataLoader-PDF** run on the same ~20 deliberately-chosen pages. (Originally Docling was the second extractor; pivoted 2026-05-05 — see Phase 0 plan intro.) Pages chosen:
 
 - A 5+ page appropriations table with merged headers
 - A restated AFR fund-balance table with footnote chains
@@ -327,9 +327,9 @@ Take the winning extractor's output, manually mark up where chunks should split.
 |---|---|---|
 | **Format-aware ingest router** | Trivial extension-based dispatch (`.pdf` → PDF path, `.docx` → DOCX path) | Native processing of structured formats avoids the lossy `docx → pdf → re-extract` round-trip. |
 | **PDF extraction (primary)** | MinerU 2.5 self-hosted | Best open-source on financial-doc benchmarks; emits page+bbox per element. Validated in Phase 0. |
-| **PDF extraction (fallback)** | Docling-pdf | More mature ecosystem; documented fallback for cases where MinerU stumbles. |
+| **PDF extraction (fallback)** | OpenDataLoader-PDF v2.4.1 | Apache-2.0, JDK-only, ~15× faster than MinerU on the smoke-test page. 0.928 table-accuracy benchmark. (Replaces Docling, which proved unworkable on Windows — see Phase 0 plan "Pivot — 2026-05-05".) |
 | **PDF extraction (escalation, optional)** | Claude Sonnet 4.6 vision | For pages flagged low-confidence. Costs API budget; only used if Phase 0 shows it's necessary. |
-| **DOCX extraction** | Docling native docx parser | Reads the .docx XML directly. Lossless: paragraphs, tables, headings, and styles are explicit in the source. No layout inference needed. |
+| **DOCX extraction** | `python-docx` direct | Reads the .docx XML directly. Lossless: paragraphs, tables, headings, and styles are explicit in the source. No layout inference needed. |
 | **Chunking** | Structure-aware, tables atomic, 512-token target / 1024 max, ~15% overlap | 2026 consensus for financial RAG (recall 0.877 vs. 0.759 for semantic-only chunking). |
 | **Vector + lexical store** | Postgres + pgvector + ParadeDB pg_search | Single store, transactional metadata, easy SQL fan-out for comparison queries. Fits free tier (Supabase or Neon). |
 | **Embeddings** | Voyage-3-large | Measurably leads MTEB on legal+financial sub-benchmarks. 1024-dim. |
