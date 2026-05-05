@@ -92,6 +92,55 @@ def _block_page(block: dict) -> int | None:
         return None
 
 
+def _subset_table_to_page(table: dict, page: int) -> dict | None:
+    """Return a copy of `table` containing only cells on the given page.
+
+    OpenDataLoader sometimes emits a single table that spans many PDF
+    pages — its outer `page number` field then names the FIRST page of
+    the span, but each cell inside carries its own correct per-page
+    `page number`. We walk rows -> cells, keep cells whose page matches,
+    and drop rows that end up empty.
+
+    Returns None if the table has no cells on `page`.
+    """
+    out_rows: list[dict] = []
+    for row in table.get("rows", []) or []:
+        kept_cells: list[dict] = []
+        for cell in row.get("cells", []) or []:
+            if _cell_on_page(cell, page):
+                kept_cells.append(cell)
+        if kept_cells:
+            out_rows.append({**row, "cells": kept_cells})
+    if not out_rows:
+        return None
+    return {**table, "rows": out_rows, "page number": page}
+
+
+def _cell_on_page(cell: dict, page: int) -> bool:
+    """True if a table cell (or any of its content descendants) is on `page`.
+
+    A cell's own `page number` is the primary signal. Some cells without
+    a top-level page_number still have descendants tagged with a page;
+    we accept either.
+    """
+    pn = cell.get("page number")
+    if pn is not None:
+        try:
+            if int(pn) == page:
+                return True
+        except (TypeError, ValueError):
+            pass
+    for kid in cell.get("kids", []) or []:
+        kpn = kid.get("page number")
+        if kpn is not None:
+            try:
+                if int(kpn) == page:
+                    return True
+            except (TypeError, ValueError):
+                continue
+    return False
+
+
 def run_opendataloader(pdf: Path, out: Path, pages: list[int]) -> None:
     """Real path. Calls opendataloader_pdf.convert() once for all requested pages.
 
@@ -113,12 +162,23 @@ def run_opendataloader(pdf: Path, out: Path, pages: list[int]) -> None:
 
     with TemporaryDirectory() as tmp:
         tmp_path = Path(tmp)
+        # use_struct_tree=True is load-bearing for AZ budget docs.
+        # Without it, the AZ Legislature's appropriations tables come back
+        # as concatenated paragraphs (e.g. row "AHCCCS Fund 14,554,163,500
+        # (2,258,900) 4,451,100 ..." in a single block) — column structure
+        # lost, cell-level citations impossible. Empirically tested on
+        # jlbc-approps-fy26 p.520: default mode produced 24 paragraph
+        # blocks with column-merged rows; struct_tree mode produced 159
+        # nested table blocks with proper {row, col, span, bbox} per cell.
+        # Non-table pages (prose, footnote-heavy) still return paragraph
+        # blocks under struct_tree, so this is a safe default.
         opendataloader_pdf.convert(
             input_path=str(pdf),
             output_dir=str(tmp_path),
             format="json",
             pages=_format_pages_for_cli(pages),
             quiet=True,
+            use_struct_tree=True,
         )
 
         json_path = tmp_path / f"{pdf_stem}.json"
@@ -137,12 +197,28 @@ def run_opendataloader(pdf: Path, out: Path, pages: list[int]) -> None:
                 shutil.rmtree(images_dst)
             shutil.copytree(images_src, images_dst)
 
-    # Bucket all elements by 1-indexed page
-    blocks_by_page: dict[int, list[dict]] = {}
+    # Bucket all elements by 1-indexed page.
+    #
+    # use_struct_tree=True can produce a single table block that spans
+    # MANY PDF pages (e.g. AFR fund-balance schedule comes back as one
+    # 4,110-row table with `page number` set to the first page of the
+    # span; cells inside carry correct per-page page numbers). If we
+    # bucketed only on each top-level block's outer `page number`,
+    # subsequent pages of a multi-page table would be empty in our
+    # per-page output. So for tables, we descend into rows/cells and
+    # construct a per-page subset that retains only cells matching the
+    # target page.
+    blocks_by_page: dict[int, list[dict]] = {p: [] for p in pages}
     for el in doc.get("kids", []):
-        p = _block_page(el)
-        if p is not None:
-            blocks_by_page.setdefault(p, []).append(el)
+        if el.get("type") == "table":
+            for page in pages:
+                subset = _subset_table_to_page(el, page)
+                if subset is not None:
+                    blocks_by_page[page].append(subset)
+        else:
+            p = _block_page(el)
+            if p is not None and p in blocks_by_page:
+                blocks_by_page[p].append(el)
 
     for page in pages:
         blocks = blocks_by_page.get(page, [])
@@ -159,23 +235,81 @@ def run_opendataloader(pdf: Path, out: Path, pages: list[int]) -> None:
             encoding="utf-8",
         )
 
-        # Synthesized Markdown — preserve element order and join `content`.
-        # OpenDataLoader's native markdown export doesn't split per-page in a
-        # form we can recover without a separator hack, so we build it here.
+        # Synthesized Markdown — preserve element order. Table blocks
+        # carry their content nested under rows/cells/kids; we recurse to
+        # render them as a Markdown grid so analysts can see the
+        # extractor's column structure side-by-side with the PDF.
         md_lines: list[str] = []
         for b in blocks:
-            text = b.get("content")
-            if not text:
-                continue
-            if b.get("type") == "heading":
-                level = b.get("heading level") or 1
-                md_lines.append(f"{'#' * int(level)} {text}")
-            else:
-                md_lines.append(str(text))
+            md_lines.extend(_render_block_md(b))
         (out / f"page-{page}.md").write_text(
             "\n\n".join(md_lines) + "\n",
             encoding="utf-8",
         )
+
+
+def _cell_text(cell: dict) -> str:
+    """Concatenate every text-bearing descendant of a table cell.
+
+    Cells carry a `kids` array of paragraph/heading/etc. records. Each
+    descendant has a `content` field; we join them with spaces so the
+    cell renders as a single Markdown table cell. Newlines and pipes
+    inside cell content are escaped — pipes break Markdown table rows.
+    """
+    parts: list[str] = []
+
+    def walk(node: dict) -> None:
+        c = node.get("content")
+        if c:
+            parts.append(c)
+        for child in node.get("kids", []) or []:
+            walk(child)
+
+    walk(cell)
+    text = " ".join(p.strip() for p in parts if p.strip())
+    return text.replace("|", "\\|").replace("\n", " ").strip()
+
+
+def _render_block_md(b: dict) -> list[str]:
+    """Render a single top-level block as Markdown.
+
+    Tables become standard Markdown grids; headings get `#` prefix;
+    paragraphs become plain lines. Returns a list of Markdown lines
+    (joined with blank-line separators by the caller).
+    """
+    btype = b.get("type")
+
+    if btype == "table":
+        # AZ budget docs use the PDF tagged structure tree to mark
+        # individual values as 1×1 "tables" with large column_span values
+        # for visual layout — a page can carry 100+ such micro-tables.
+        # Rendering each as a Markdown grid produces walls of empty pipes
+        # because the column-span padding forces 80+ cells per row.
+        #
+        # Instead, walk the cell tree in source order and emit each
+        # text-bearing cell as a plain line. Row/column metadata stays in
+        # the JSON for downstream chunking (which can group by bbox-y
+        # proximity to reconstruct logical rows when needed). The .md is
+        # for human review during Phase 0 scoring; readability beats
+        # structural fidelity at this rendering layer.
+        rows = b.get("rows", []) or []
+        cell_lines: list[str] = []
+        for row in rows:
+            for cell in row.get("cells", []) or []:
+                t = _cell_text(cell)
+                if t:
+                    cell_lines.append(t)
+        if not cell_lines:
+            return []
+        return ["\n".join(cell_lines)]
+
+    text = b.get("content")
+    if not text:
+        return []
+    if btype == "heading":
+        level = b.get("heading level") or 1
+        return [f"{'#' * int(level)} {text}"]
+    return [str(text)]
 
 
 def main(argv: list[str] | None = None) -> int:
