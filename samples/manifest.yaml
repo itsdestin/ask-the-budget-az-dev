@@ -1,0 +1,88 @@
+# Source documents for Phase 0 investigation. URLs and checksums let any
+# future contributor re-download and verify the exact same files.
+# `source_format` distinguishes PDFs (extracted via MinerU/Docling-pdf,
+# (page, bbox) provenance) from DOCX (extracted via Docling-docx,
+# (paragraph_id, cell_id) provenance). See spec §6.
+documents:
+  - id: jlbc-baseline-fy27
+    publisher: jlbc
+    doc_type: baseline-book
+    fiscal_year: 2027
+    title: "JLBC FY 2027 Baseline Book"
+    source_url: "https://www.azjlbc.gov/budget/27baselinesinglefile.pdf"
+    source_format: pdf
+    sha256: "11942f74851436d3ed41b1846b748885be3471eac75dd55844ed79ec2b3fac10"
+    page_count: 620
+    local_path: "samples/raw-pdfs/jlbc-baseline-fy27.pdf"
+    acquired_on: "2026-05-04"
+
+  - id: jlbc-baseline-fy23
+    publisher: jlbc
+    doc_type: baseline-book
+    fiscal_year: 2023
+    title: "JLBC FY 2023 Baseline Book"
+    source_url: "https://www.azjlbc.gov/budget/23baselinesinglefile.pdf"
+    source_format: pdf
+    sha256: "0ef9925e7515492d116f0dc8c86b4cb34b30be680fa16cc3742696a4198d0074"
+    page_count: 547
+    local_path: "samples/raw-pdfs/jlbc-baseline-fy23.pdf"
+    acquired_on: "2026-05-04"
+
+  - id: jlbc-approps-fy26
+    publisher: jlbc
+    doc_type: approps-report
+    fiscal_year: 2026
+    title: "JLBC FY 2026 Appropriations Report"
+    source_url: "https://www.azjlbc.gov/26ar/fy2026approprpt.pdf"
+    source_format: pdf
+    sha256: "1b8e2f89ca051154278470354f0abab1118d8bd3561ddce6e57ce738d11430ae"
+    page_count: 569
+    local_path: "samples/raw-pdfs/jlbc-approps-fy26.pdf"
+    acquired_on: "2026-05-04"
+
+  - id: agao-afr-fy25
+    publisher: agao
+    doc_type: afr
+    fiscal_year: 2025
+    title: "Arizona Annual Financial Report FY 2025 (with Transmittal Letter)"
+    source_url: "https://gao.az.gov/sites/default/files/2025-12/AFR25%20COMBINED%20with%20Transmittal%20Letter.pdf"
+    source_format: pdf
+    sha256: "79382426f0bf0a7bc2ea264b8a37933d76430d41044c8b7a7b6d6f0922acc16e"
+    page_count: 181
+    local_path: "samples/raw-pdfs/agao-afr-fy25.pdf"
+    acquired_on: "2026-05-04"
+
+  - id: governors-state-agency-detail-fy27
+    publisher: governor
+    doc_type: governors-budget
+    fiscal_year: 2027
+    title: "Governor's FY 2027 State Agency Detail"
+    source_url: "https://ospb.az.gov/sites/default/files/2026-01/state-agency-detail-fy-2027.pdf"
+    source_format: pdf
+    sha256: "1461d7302d4a5e44f41db3b3ea1e6f491049621dc0e6c47db011c4b6d65d357c"
+    page_count: 636
+    local_path: "samples/raw-pdfs/governors-state-agency-detail-fy27.pdf"
+    acquired_on: "2026-05-04"
+
+  - id: governors-sources-and-uses-fy27
+    publisher: governor
+    doc_type: governors-budget
+    fiscal_year: 2027
+    title: "Governor's FY 2027 Sources and Uses of State Funds"
+    source_url: "https://ospb.az.gov/sites/default/files/2026-01/sources-and-uses-of-state-funds-fy-2027.pdf"
+    source_format: pdf
+    sha256: "af47f6c4d7c0bc973d489bea4c1be7f6f0226330d65986bde7cb567607eed8c3"
+    page_count: 919
+    local_path: "samples/raw-pdfs/governors-sources-and-uses-fy27.pdf"
+    acquired_on: "2026-05-04"
+
+  - id: budget-bill-sb1735-2025
+    publisher: legislature
+    doc_type: budget-bill
+    fiscal_year: 2026
+    title: "AZ Senate Bill 1735 (Chapter 233 of 2025) — General Appropriations Act"
+    source_url: ""
+    source_format: docx
+    sha256: "4fae932354ef12872da3c62fa37688877433d039ac00b0c03440e4012163feda"
+    local_path: "samples/raw-docx/budget-bill-sb1735-2025.docx"
+    acquired_on: "2026-05-04"
