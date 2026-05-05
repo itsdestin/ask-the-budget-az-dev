@@ -1,7 +1,9 @@
-"""Verify samples/raw-pdfs/ and samples/raw-docx/ match samples/manifest.yaml checksums.
+"""Verify that local files in samples/raw-pdfs/ and samples/raw-docx/ match
+the SHA256 checksums declared in samples/manifest.yaml.
 
-Exits 0 if all files match their declared checksums, 1 otherwise.
-Reports missing files, mismatched checksums, and orphan files separately.
+Exits 0 if all manifest entries verify, 1 otherwise. Reports missing files,
+checksum mismatches, and orphan files (present on disk but not in manifest)
+separately to stderr.
 """
 
 import hashlib
@@ -28,11 +30,34 @@ def main() -> int:
         print(f"manifest missing: {MANIFEST}", file=sys.stderr)
         return 1
 
-    manifest = yaml.safe_load(MANIFEST.read_text())
-    failures = []
+    # Defensive YAML parse: a hand-edit miscount of indentation should produce
+    # a clear "FAIL: ..." line, not a raw Python traceback. Destin (non-dev)
+    # may edit the manifest by hand, so each shape failure is enumerated.
+    try:
+        manifest = yaml.safe_load(MANIFEST.read_text())
+    except yaml.YAMLError as e:
+        print(f"FAIL: malformed YAML in {MANIFEST}: {e}", file=sys.stderr)
+        return 1
 
+    if not isinstance(manifest, dict) or "documents" not in manifest:
+        print(f"FAIL: {MANIFEST} missing top-level 'documents' key", file=sys.stderr)
+        return 1
+    documents = manifest["documents"]
+    if not isinstance(documents, list):
+        print(f"FAIL: 'documents' in {MANIFEST} is not a list", file=sys.stderr)
+        return 1
+
+    failures = []
     declared_paths = set()
-    for doc in manifest["documents"]:
+    for i, doc in enumerate(documents):
+        if not isinstance(doc, dict):
+            failures.append(f"entry [{i}] is not a mapping")
+            continue
+        for required in ("local_path", "sha256"):
+            if required not in doc:
+                failures.append(f"entry [{i}] (id={doc.get('id', '?')}) missing required key: {required}")
+        if "local_path" not in doc or "sha256" not in doc:
+            continue  # can't verify this entry; the failure was recorded above
         local = Path(doc["local_path"])
         declared_paths.add(local)
 

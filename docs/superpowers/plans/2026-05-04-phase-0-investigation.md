@@ -31,7 +31,7 @@ Files created during Phase 0 (paths relative to `~/ask-the-budget-az-dev/`):
 | `samples/docx-ingest-validation.md` | Findings from Task 5b (Docling-DOCX validation) | ✓ |
 | `data/entity-targets.yaml` | The 10 agencies, 7 programs, 3 sub-programs we'll track | ✓ |
 | `data/entity-variance-catalog.csv` | How each target is named across all 4 doc types | ✓ |
-| `scripts/check_pdf_manifest.py` | Verify `samples/raw-pdfs/` and `samples/raw-docx/` match manifest checksums | ✓ |
+| `scripts/check_corpus_manifest.py` | Verify `samples/raw-pdfs/` and `samples/raw-docx/` match manifest checksums | ✓ |
 | `scripts/run_mineru.py` | Wrapper to run MinerU on one PDF or page range | ✓ |
 | `scripts/run_docling.py` | Same for Docling-PDF | ✓ |
 | `scripts/run_docling_docx.py` | Wrapper to run Docling's native DOCX parser | ✓ |
@@ -213,7 +213,7 @@ The budget bill (`budget-bill-sb1735-2025`) entry has an empty `source_url` — 
 
 - [ ] **Step 3: Write the checksum verifier**
 
-Create `scripts/check_pdf_manifest.py`:
+Create `scripts/check_corpus_manifest.py`:
 
 ```python
 """Verify samples/raw-pdfs/ matches samples/manifest.yaml checksums.
@@ -287,10 +287,10 @@ if __name__ == "__main__":
 
 - [ ] **Step 4: Write a failing test for the verifier**
 
-Create `scripts/tests/test_check_pdf_manifest.py`:
+Create `scripts/tests/test_check_corpus_manifest.py`:
 
 ```python
-"""Tests for scripts/check_pdf_manifest.py.
+"""Tests for scripts/check_corpus_manifest.py.
 
 We don't ship real PDFs to the test fixture — we synthesize tiny binary
 files and write a manifest pointing at them, so the test runs offline.
@@ -311,14 +311,14 @@ def write_fixture(tmp_path: Path, files: dict[str, bytes], manifest_text: str) -
     (tmp_path / "samples").mkdir(exist_ok=True)
     (tmp_path / "samples" / "manifest.yaml").write_text(manifest_text)
     # Copy the script into the fixture so cwd-relative paths work
-    src = Path(__file__).parent.parent / "check_pdf_manifest.py"
+    src = Path(__file__).parent.parent / "check_corpus_manifest.py"
     (tmp_path / "scripts").mkdir(exist_ok=True)
-    (tmp_path / "scripts" / "check_pdf_manifest.py").write_text(src.read_text())
+    (tmp_path / "scripts" / "check_corpus_manifest.py").write_text(src.read_text())
 
 
 def run(tmp_path: Path) -> subprocess.CompletedProcess:
     return subprocess.run(
-        [sys.executable, "scripts/check_pdf_manifest.py"],
+        [sys.executable, "scripts/check_corpus_manifest.py"],
         cwd=tmp_path,
         capture_output=True,
         text=True,
@@ -389,7 +389,7 @@ def test_flags_orphan_file(tmp_path: Path) -> None:
 cd ~/ask-the-budget-az-dev
 uv init --no-readme --no-pin-python  # creates pyproject.toml if missing
 uv add pyyaml --dev pytest
-uv run pytest scripts/tests/test_check_pdf_manifest.py -v
+uv run pytest scripts/tests/test_check_corpus_manifest.py -v
 ```
 
 Expected: 3 tests PASS.
@@ -441,7 +441,7 @@ Update `samples/manifest.yaml`: fill in `sha256:` for all 7 entries, `page_count
 - [ ] **Step 7: Verify the manifest**
 
 ```bash
-uv run python scripts/check_pdf_manifest.py
+uv run python scripts/check_corpus_manifest.py
 ```
 
 Expected: `OK: all manifest entries verified`
@@ -2173,7 +2173,7 @@ After writing this plan, the following spec coverage check passes:
 | §8.5 Phase 0 deliverables | All deliverables produced; final memo in Task 13 |
 | Phase 1 go/no-go decision | Task 13 (§6 of memo) |
 
-No bracketed placeholders remain in plan task content (the memo template intentionally has bracketed fill-in fields, since those resolve only at execution). All file paths are concrete; all commands include exact arguments. Type/method names are consistent across the four script files (`run_mineru.py`, `run_docling.py`, `check_pdf_manifest.py`, `aggregate_scores.py`) — no signature drift.
+No bracketed placeholders remain in plan task content (the memo template intentionally has bracketed fill-in fields, since those resolve only at execution). All file paths are concrete; all commands include exact arguments. Type/method names are consistent across the four script files (`run_mineru.py`, `run_docling.py`, `check_corpus_manifest.py`, `aggregate_scores.py`) — no signature drift.
 
 ---
 
