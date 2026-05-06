@@ -105,6 +105,52 @@ class Page:
 
 
 @dataclass
+class DocxParagraph:
+    """A paragraph from a DOCX bill. DOCX provenance is `paragraph_id`
+    (Word's w14:paraId), not (page, bbox)."""
+
+    text: str
+    paragraph_id: str
+    style: str = "Normal"
+    cells: list[str] | None = None  # tab-split line-item row, when present
+
+
+@dataclass
+class DocxTableCell:
+    """One cell from a DOCX table. table_cell_id is deterministic from
+    position (e.g. 't1-r1-c1' in run_docx_ingest.py)."""
+
+    text: str
+    table_cell_id: str
+    row: int
+    col: int
+
+
+# Either kind of DOCX body block can appear inside a Section's body.
+DocxBlock = DocxParagraph | DocxTableCell
+
+
+@dataclass
+class Section:
+    """A DOCX section — a heading paragraph and the body blocks under it.
+
+    Bill structure (cross-doc-relationships §9):
+      - Part 1: agency tables. Heading style 'Normal' with all-caps
+        department name. Body paragraphs in 'P 06-*' styles.
+      - Part 2: provisions. Heading style 'SEC 06-18' / 'SEC 06-19' / etc.
+        Body in 'Normal' style.
+    """
+
+    style: str  # 'SEC 06-18' / 'Normal' / 'P 06-1' / etc.
+    heading_text: str
+    heading_paragraph_id: str
+    body_blocks: list[DocxBlock] = field(default_factory=list)
+    parsed_heading: dict = field(default_factory=dict)
+    # Captured A.R.S. refs across heading + body, for Phase 1b citation enrichment
+    ars_refs: list[str] = field(default_factory=list)
+
+
+@dataclass
 class OutlineNode:
     """One node in the document outline tree."""
 
@@ -125,6 +171,10 @@ class ExtractedDocument:
     extractor: str  # 'opendataloader' | 'mineru' | 'python-docx'
     pages: list[Page] = field(default_factory=list)
     outline: list[OutlineNode] = field(default_factory=list)
+    # DOCX-only — bill sections (Part 1 agency tables + Part 2 provisions).
+    # PDF readers leave this empty; the chunk-orchestrator branches on
+    # whichever surface is populated.
+    sections: list[Section] = field(default_factory=list)
 
     @property
     def has_tables(self) -> bool:
