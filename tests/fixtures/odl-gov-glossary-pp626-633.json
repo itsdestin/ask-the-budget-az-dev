@@ -1,0 +1,156 @@
+{
+  "extractor": "opendataloader-2.4.1",
+  "source_pdf": "samples/raw-pdfs/governors-state-agency-detail-fy27.pdf",
+  "page": 626,
+  "blocks": [
+    {
+      "type": "heading",
+      "id": "h-section",
+      "page number": 626,
+      "bounding box": [72.0, 720.0, 540.0, 740.0],
+      "content": "Budget Terms",
+      "heading level": 1,
+      "level": "H1"
+    },
+    {
+      "type": "heading",
+      "id": "h-1",
+      "page number": 626,
+      "bounding box": [72.0, 690.0, 540.0, 710.0],
+      "content": "Appropriation",
+      "heading level": 2,
+      "level": "H2"
+    },
+    {
+      "type": "paragraph",
+      "id": "p-1",
+      "page number": 626,
+      "bounding box": [72.0, 660.0, 540.0, 680.0],
+      "content": "A legal authorization, made by the Legislature, to spend a specified sum of money from the State Treasury for a specific purpose."
+    },
+    {
+      "type": "heading",
+      "id": "h-2",
+      "page number": 626,
+      "bounding box": [72.0, 620.0, 540.0, 640.0],
+      "content": "Baseline",
+      "heading level": 2,
+      "level": "H2"
+    },
+    {
+      "type": "paragraph",
+      "id": "p-2a",
+      "page number": 626,
+      "bounding box": [72.0, 580.0, 540.0, 600.0],
+      "content": "An estimate of the State's spending requirements for the upcoming fiscal year, assuming no policy changes."
+    },
+    {
+      "type": "paragraph",
+      "id": "p-2b",
+      "page number": 626,
+      "bounding box": [72.0, 540.0, 540.0, 560.0],
+      "content": "The baseline is updated regularly to reflect changes in the State economy and statutory funding requirements."
+    },
+    {
+      "type": "heading",
+      "id": "h-3",
+      "page number": 627,
+      "bounding box": [72.0, 720.0, 540.0, 740.0],
+      "content": "Lump Sum Appropriation",
+      "heading level": 2,
+      "level": "H2"
+    },
+    {
+      "type": "paragraph",
+      "id": "p-3",
+      "page number": 627,
+      "bounding box": [72.0, 690.0, 540.0, 710.0],
+      "content": "An appropriation that may be spent for any purpose within the broad mission of the receiving agency, subject to statutory limits."
+    },
+    {
+      "type": "heading",
+      "id": "h-acronyms",
+      "page number": 632,
+      "bounding box": [72.0, 720.0, 540.0, 740.0],
+      "content": "Acronyms",
+      "heading level": 1,
+      "level": "H1"
+    },
+    {
+      "type": "table",
+      "id": "t-acronyms",
+      "page number": 632,
+      "bounding box": [72.0, 200.0, 540.0, 700.0],
+      "rows": [
+        {
+          "id": "r-h",
+          "cells": [
+            {
+              "id": "c-h1",
+              "page number": 632,
+              "bounding box": [72.0, 680.0, 250.0, 700.0],
+              "kids": [{"type": "paragraph", "content": "Acronym"}]
+            },
+            {
+              "id": "c-h2",
+              "page number": 632,
+              "bounding box": [250.0, 680.0, 540.0, 700.0],
+              "kids": [{"type": "paragraph", "content": "Expansion"}]
+            }
+          ]
+        },
+        {
+          "id": "r-1",
+          "cells": [
+            {
+              "id": "c-1a",
+              "page number": 632,
+              "bounding box": [72.0, 650.0, 250.0, 670.0],
+              "kids": [{"type": "paragraph", "content": "AHCCCS"}]
+            },
+            {
+              "id": "c-1b",
+              "page number": 632,
+              "bounding box": [250.0, 650.0, 540.0, 670.0],
+              "kids": [{"type": "paragraph", "content": "Arizona Health Care Cost Containment System"}]
+            }
+          ]
+        },
+        {
+          "id": "r-2",
+          "cells": [
+            {
+              "id": "c-2a",
+              "page number": 632,
+              "bounding box": [72.0, 620.0, 250.0, 640.0],
+              "kids": [{"type": "paragraph", "content": "JLBC"}]
+            },
+            {
+              "id": "c-2b",
+              "page number": 632,
+              "bounding box": [250.0, 620.0, 540.0, 640.0],
+              "kids": [{"type": "paragraph", "content": "Joint Legislative Budget Committee"}]
+            }
+          ]
+        },
+        {
+          "id": "r-3",
+          "cells": [
+            {
+              "id": "c-3a",
+              "page number": 632,
+              "bounding box": [72.0, 590.0, 250.0, 610.0],
+              "kids": [{"type": "paragraph", "content": "OSPB"}]
+            },
+            {
+              "id": "c-3b",
+              "page number": 632,
+              "bounding box": [250.0, 590.0, 540.0, 610.0],
+              "kids": [{"type": "paragraph", "content": "Office of Strategic Planning and Budgeting"}]
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}
