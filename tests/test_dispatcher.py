@@ -85,7 +85,7 @@ def test_extractor_registry_covers_every_doc_type_in_plan() -> None:
         "budget-bill",
         # Discovery output (cross-cuts + per-agency).
         "baseline-per-agency", "approps-per-agency",
-        "s-pdf", "bh-pdf", "bd-pdf", "topic-pdf",
+        "s-pdf", "bh-pdf", "bd-pdf", "topic-pdf", "detailed-list-pdf",
     }
     actual_doc_types = {dt for (dt, _fmt) in EXTRACTOR_REGISTRY}
     missing = expected_doc_types - actual_doc_types

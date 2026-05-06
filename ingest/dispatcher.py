@@ -187,11 +187,17 @@ EXTRACTOR_REGISTRY: dict[tuple[str, str], type] = {
     # JLBC per-agency.
     ("baseline-per-agency", "pdf"): MinerUExtractor,
     ("approps-per-agency", "pdf"): MinerUExtractor,
-    # JLBC cross-cuts (s/bh/bd/topic).
+    # JLBC cross-cuts (s/bh/bd/topic + page-keyed detailed-list).
     ("s-pdf", "pdf"): MinerUExtractor,
     ("bh-pdf", "pdf"): MinerUExtractor,
     ("bd-pdf", "pdf"): MinerUExtractor,
     ("topic-pdf", "pdf"): MinerUExtractor,
+    # The "Detailed List of GF/Other Fund Changes" approps PDFs use
+    # page-keyed filenames (`452.pdf`, `459.pdf`) — a separate doc_type
+    # so chunkers can route them differently if needed (these are
+    # pre-computed delta tables, often *the* answer to comparison
+    # queries — see cross-doc-relationships §3a).
+    ("detailed-list-pdf", "pdf"): MinerUExtractor,
     # Budget bill DOCX.
     ("budget-bill", "docx"): PythonDocxExtractor,
 }

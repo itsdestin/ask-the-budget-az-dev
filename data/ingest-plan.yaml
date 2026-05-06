@@ -1,0 +1,74 @@
+# Phase 1a Week 1 ingest target list — Order C (cross-cuts first).
+#
+# Why Order C: per docs/cross-doc-relationships.md §2, most simple lookup
+# queries have their best answer in a single cross-cut chunk (s-PDF for
+# baseline, bd/bh-PDF for approps). So we front-load the smallest,
+# highest-ROI form factor:
+#   - Week 1: 18 baseline s-PDFs (FY27) + 31 approps cross-cuts (FY26)
+#             + budget bill DOCX = ~50 URLs / 5+ MB total
+#   - Week 2: 110 per-agency PDFs (FY27 baseline)
+#   - Week 3: backfill prior years
+#   - Week 4: integration tests + handoff to Phase 1b
+#
+# The list is intentionally configurable. If early dogfood reveals
+# narrative-driven queries dominate, switching to Order B (per-agency-
+# first) is a one-file edit. See plan doc 2026-05-06-phase-1a-ingestion-
+# and-chunking.md for the rationale.
+
+order_hypothesis: |
+  Order C — front-load JLBC cross-cut s/bh/bd-PDFs because most simple
+  lookup queries have their best answer in a single cross-cut chunk per
+  cross-doc-relationships §2. Per-agency PDFs in Week 2; singlefiles
+  deferred to a Phase 1b safety-net.
+
+week_1:
+  # JLBC FY27 baseline cross-cuts (s-PDFs + capitaloutlay + crr).
+  # Discovery walks <YY>baselinelinks.pdf to enumerate.
+  - publisher: jlbc
+    doc_type: baseline-cross-cut
+    fiscal_year: 2027
+
+  # JLBC FY26 approps cross-cuts (bh + bd + page-keyed detailed-list + topic).
+  # Discovery walks <YY>ar/apprpttoc.pdf to enumerate.
+  - publisher: jlbc
+    doc_type: approps-cross-cut
+    fiscal_year: 2026
+
+  # AZ SB 1735 (Chapter 233 of 2025) — General Appropriations Act.
+  # Single DOCX; no discovery walking needed.
+  - publisher: legislature
+    doc_type: budget-bill
+    fiscal_year: 2026
+    source_format: docx
+    local_path: samples/raw-docx/budget-bill-sb1735-2025.docx
+
+week_2:
+  # JLBC FY27 baseline per-agency PDFs (~110 docs).
+  # Discovery walks <YY>baseline/agencyindex.pdf to enumerate per-agency
+  # slugs, then enumerates each <slug>.pdf.
+  - publisher: jlbc
+    doc_type: baseline-per-agency
+    fiscal_year: 2027
+
+week_3:
+  # Backfill prior years.
+  - publisher: jlbc
+    doc_type: baseline-per-agency
+    fiscal_year: 2026
+  - publisher: jlbc
+    doc_type: approps-per-agency
+    fiscal_year: 2025
+  - publisher: agao
+    doc_type: afr
+    fiscal_year: 2025
+    source_format: pdf
+    local_path: samples/raw-pdfs/agao-afr-fy25.pdf
+  - publisher: governor
+    doc_type: governors-budget
+    fiscal_year: 2027
+    source_format: pdf
+    local_path: samples/raw-pdfs/governors-state-agency-detail-fy27.pdf
+
+  # Sources and Uses of State Funds (FY27): 919 pages, 8 outline entries,
+  # weak structure. Deferred from Phase 1a to Phase 2 unless retrieval
+  # proves it's needed — see plan doc "Deferred decisions" section.
