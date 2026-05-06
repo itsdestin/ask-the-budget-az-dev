@@ -12,6 +12,11 @@ dependencies = [
     "pydantic>=2.9.0",
     "beautifulsoup4>=4.14.0",
     "rapidfuzz>=3.10.0",
+    # torch + torchvision pinned as direct deps so [tool.uv.sources] below
+    # routes them to the PyTorch CUDA index. Without this, uv treats them
+    # as transitive (via mineru[pipeline]) and pulls the PyPI CPU wheel.
+    "torch>=2.11.0",
+    "torchvision>=0.26.0",
 ]
 
 [dependency-groups]
@@ -26,3 +31,25 @@ dev = [
 markers = [
     "network: tests that fetch from the live JLBC URLs via the download cache",
 ]
+
+# PyTorch CUDA wheels for Nvidia GPU acceleration.
+#
+# MinerU's pipeline backend uses torch + transformers under the hood; with the
+# default CPU torch wheel it runs ~2-3 min/page on real PDFs. Pulling the CUDA
+# 12.4 build of torch makes it run on the GPU instead — order-of-magnitude
+# speedup on table-heavy pages.
+#
+# Driver 591.74 (CUDA 13.1) on this dev box. cu128 chosen because torch 2.11
+# (which mineru[pipeline]>=3.1.6 requires) only publishes CUDA wheels for
+# cu128 and newer — cu124 maxes out at torch 2.6.0. Verify with
+# `python -c "import torch; print(torch.cuda.is_available())"` after
+# `uv sync` — must return True.
+
+[[tool.uv.index]]
+name = "pytorch-cu128"
+url = "https://download.pytorch.org/whl/cu128"
+explicit = true
+
+[tool.uv.sources]
+torch = { index = "pytorch-cu128" }
+torchvision = { index = "pytorch-cu128" }
