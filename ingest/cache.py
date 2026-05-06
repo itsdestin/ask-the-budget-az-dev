@@ -118,6 +118,16 @@ class DownloadCache:
             return False
         return (self.root / entry["relative_path"]).exists()
 
+    def sha256_of(self, url: str) -> str | None:
+        """Return the recorded sha256 for ``url``, or None if not cached.
+
+        Does NOT re-hash the on-disk file — returns the manifest's
+        recorded value. Callers that want to verify integrity should
+        re-fetch (which sha-checks before returning).
+        """
+        entry = self._entries.get(url)
+        return None if entry is None else entry["sha256"]
+
     def fetch(self, url: str, *, expected_sha256: str | None = None) -> Path:
         """Return a Path to the cached bytes for ``url``, downloading if needed.
 
