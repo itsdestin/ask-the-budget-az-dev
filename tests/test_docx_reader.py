@@ -44,6 +44,47 @@ def test_docx_reader_part_1_section_carries_line_items_as_body():
     assert body0.cells == ["Operating Lump Sum", "11,005,600"]
 
 
+def test_docx_reader_detects_real_bill_part_1_with_sec_prefix():
+    """Real-bill Part-1 dept headings use `Sec. NN.  <ALL-CAPS NAME>`, not bare
+    ALL-CAPS as the synthetic fixture had. WS6 integration finding 2026-05-06:
+    SB 1735 has 90+ such headings (numbered or unnumbered Sec.), peppered with
+    NBSP whitespace. Without this case the entire bill body collapses into one
+    section and agency-stamping rate drops to 1/49.
+    """
+    from chunking.readers.docx_reader import DocxReader as _Reader
+
+    reader = _Reader()
+    cases = [
+        # Numbered Sec. with regular spaces
+        ("Normal", "Sec. 31.  STATE DEPARTMENT OF CORRECTIONS"),
+        # Unnumbered Sec. (blank number — appears in bills where the renumber
+        # pass hasn't run) with regular spaces
+        ("Normal", "Sec.   ARIZONA HEALTH CARE COST CONTAINMENT SYSTEM"),
+        # NBSP variant — Word writes \xa0 between Sec. and the number
+        ("Normal", "Sec.\xa031.\xa0\xa0STATE DEPARTMENT OF CORRECTIONS"),
+        # Apostrophe in dept name (Governor's Office of Equal Opportunity)
+        ("Normal", "Sec.   GOVERNOR'S OFFICE OF EQUAL OPPORTUNITY"),
+    ]
+    for style, text in cases:
+        assert reader._is_section_heading(style, text), (
+            f"expected heading-detection on real-bill shape: ({style!r}, {text!r})"
+        )
+
+    # Negative cases — body text that LOOKS Sec.-ish but isn't a Part-1 heading
+    non_headings = [
+        # Lowercase body sentence — not a heading
+        ("Normal", "Some lower case body text describing appropriations."),
+        # Sec.-prefixed but body is mixed-case (this is a Part-2 SEC heading
+        # rendered on Normal style — the SEC-style branch should catch it via
+        # explicit style, not content; we intentionally don't claim it as Part-1)
+        ("Normal", "Sec. 18. Supplemental appropriation; Department of Corrections; FY 2026"),
+    ]
+    for style, text in non_headings:
+        assert not reader._is_section_heading(style, text), (
+            f"expected NOT-a-heading: ({style!r}, {text!r})"
+        )
+
+
 def test_docx_reader_detects_part_2_provisions():
     """Part 2 provisions: SEC 06-18 / SEC 06-19 / etc."""
     doc = DocxReader().read(FIXTURE_SB1735)

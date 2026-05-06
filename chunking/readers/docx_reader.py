@@ -72,6 +72,12 @@ _FY_RE = re.compile(r"\bFY\s*(\d{4})\b")
 # digits but the heading text should be predominantly uppercase letters.
 _DEPT_HEADING_RE = re.compile(r"^[A-Z][A-Z &\-,'/0-9]{4,}$")
 
+# Real bills (e.g. SB 1735) prefix Part-1 dept headings with ``Sec. NN.  `` or
+# bare ``Sec.  `` (when the section number renumber pass hasn't run yet). The
+# remainder is the same ALL-CAPS dept name; we strip the prefix and re-test.
+# Captures: optional digit+dot, then the ALL-CAPS remainder.
+_SEC_DEPT_PREFIX_RE = re.compile(r"^Sec\.\s*(?:\d+\.)?\s+(.+)$")
+
 
 class DocxReader:
     """Reads run_docx_ingest output → ExtractedDocument with sections."""
@@ -170,9 +176,19 @@ class DocxReader:
     def _is_section_heading(style: str, text: str) -> bool:
         if style.startswith("SEC "):
             return True
-        # Part 1: Normal style with ALL-CAPS department name
-        if style == "Normal" and _DEPT_HEADING_RE.match(text):
-            return True
+        # Part 1: Normal style with ALL-CAPS department name. Word peppers
+        # the bill source with non-breaking spaces (\xa0); normalize them
+        # to regular space so the regex matches the real-world shapes.
+        if style == "Normal":
+            normalized = text.replace("\xa0", " ").strip()
+            if _DEPT_HEADING_RE.match(normalized):
+                return True
+            # Real-bill shape: ``Sec. NN.  <ALL-CAPS NAME>`` (numbered) or
+            # ``Sec.  <ALL-CAPS NAME>`` (unnumbered). Strip the Sec. prefix
+            # and re-test the remainder against the bare ALL-CAPS pattern.
+            m = _SEC_DEPT_PREFIX_RE.match(normalized)
+            if m and _DEPT_HEADING_RE.match(m.group(1).strip()):
+                return True
         return False
 
 

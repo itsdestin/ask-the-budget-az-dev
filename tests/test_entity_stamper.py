@@ -132,6 +132,45 @@ def test_stamp_ocr_drift_fuzzy_match():
     assert stamped.agency_canonical_id == "agency:dor"
 
 
+def test_stamp_all_caps_bill_heading_with_nbsp_resolves_via_fuzzy():
+    """Real-bill headings have non-breaking spaces (\\xa0) instead of regular
+    spaces between tokens — Word writes them that way. WS6 finding 2026-05-06:
+    rapidfuzz `token_set_ratio` does NOT tokenize on NBSP, so
+    'Sec.\\xa025.\\xa0\\xa0DEPARTMENT OF CHILD SAFETY' gets tokenized as
+    `[..., 'sec.\\xa025.\\xa0\\xa0department', 'of', 'child', 'safety']` —
+    the dept-name token is fused with the section number prefix and never
+    matches catalog. Fix: normalize NBSP to space in the fuzzy processor.
+    """
+    stamper = EntityStamper.from_default_paths()
+    chunk = _chunk(
+        section_path=["Sec.\xa025.\xa0\xa0DEPARTMENT OF CHILD SAFETY"],
+        publisher="legislature",
+    )
+    stamped = stamper.stamp(chunk)
+    # Both Child Safety canonical_ids in the catalog are valid resolutions —
+    # accept any agency:cs* match. The bug is None, not which-of-two-cs-ids.
+    assert stamped.agency_canonical_id is not None
+    assert stamped.agency_canonical_id.startswith("agency:")
+    assert "cs" in stamped.agency_canonical_id or "cfs" in stamped.agency_canonical_id
+
+
+def test_stamp_all_caps_bill_heading_resolves_via_fuzzy():
+    """Real-bill Part-1 dept headings are ALL-CAPS (e.g. 'DEPARTMENT OF
+    CORRECTIONS' from SB 1735). The catalog stores them as 'Corrections,
+    Department of' / 'Department of Corrections'. WS6 finding 2026-05-06:
+    rapidfuzz `token_set_ratio` is case-sensitive in v3.x without an explicit
+    processor — every ALL-CAPS heading scored ~19, far below the 85 threshold,
+    leaving 65 of 91 dept-heading chunks in the bill unstamped.
+    """
+    stamper = EntityStamper.from_default_paths()
+    chunk = _chunk(
+        section_path=["DEPARTMENT OF CORRECTIONS"],
+        publisher="legislature",
+    )
+    stamped = stamper.stamp(chunk)
+    assert stamped.agency_canonical_id == "agency:adc"
+
+
 # --- No match -> None + observability ---------------------------------------
 
 

@@ -293,12 +293,24 @@ class EntityStamper:
             if key and key in self._name_to_id:
                 return self._name_to_id[key], []
 
-        # Fuzzy fallback: rapidfuzz token_set_ratio against canonical_names
+        # Fuzzy fallback: rapidfuzz token_set_ratio against canonical_names.
+        # The processor is load-bearing on TWO axes:
+        #   1. Casefold — rapidfuzz's token_set_ratio is case-sensitive in 3.x
+        #      without an explicit processor, so 'DEPARTMENT OF CORRECTIONS'
+        #      vs 'Department of Corrections' scored ~19, far below the 85
+        #      floor.
+        #   2. NBSP normalization — Word writes bill headings with non-
+        #      breaking spaces (\xa0) between tokens, which rapidfuzz does
+        #      NOT tokenize on. Without normalization the heading token
+        #      'Sec.\xa025.\xa0\xa0DEPARTMENT' fuses with the section number
+        #      and never matches the catalog. Replacing \xa0 with regular
+        #      space restores normal whitespace tokenization.
         for cand in candidates:
             best = process.extractOne(
                 cand,
                 self._all_names,
                 scorer=fuzz.token_set_ratio,
+                processor=_fuzzy_processor,
                 score_cutoff=_FUZZY_THRESHOLD,
             )
             if best is not None:
@@ -384,6 +396,15 @@ class EntityStamper:
 
 _PUNCT_RE = re.compile(r"[^\w\s\-]")
 _WS_RE = re.compile(r"\s+")
+
+
+def _fuzzy_processor(s: str) -> str:
+    """Pre-tokenization normalization for rapidfuzz token_set_ratio.
+
+    Two transforms: NBSP→space (so Word's \\xa0 between tokens doesn't fuse
+    them) and casefold (so ALL-CAPS bill headings match mixed-case catalog).
+    """
+    return s.replace("\xa0", " ").lower()
 
 
 def _normalize_for_match(s: str) -> str:
