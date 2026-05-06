@@ -18,3 +18,8 @@ dev = [
     "pypdf>=6.10.2",
     "pytest>=9.0.3",
 ]
+
+[tool.pytest.ini_options]
+markers = [
+    "network: tests that fetch from the live JLBC URLs via the download cache",
+]
