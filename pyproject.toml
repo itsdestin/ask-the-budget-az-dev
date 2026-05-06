@@ -8,6 +8,7 @@ dependencies = [
     "mineru[pipeline]>=3.1.6",
     "opendataloader-pdf>=2.4.1",
     "python-docx>=1.2.0",
+    "requests>=2.32.0",
 ]
 
 [dependency-groups]
@@ -16,4 +17,9 @@ dev = [
     "pymupdf>=1.27.2.3",
     "pypdf>=6.10.2",
     "pytest>=9.0.3",
+]
+
+[tool.pytest.ini_options]
+markers = [
+    "network: tests that fetch from the live JLBC URLs via the download cache",
 ]

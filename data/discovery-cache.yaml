@@ -1,0 +1,740 @@
+entries:
+  jlbc.approps-cross-cut.2026:
+    discovered_at: '2026-05-06T18:03:56+00:00'
+    doc_type: approps-cross-cut
+    entries:
+    - filename: bh2.pdf
+      page_in_doc: null
+      section_kind: budget-highlights
+      title: "\u2022  FY 2025 \u2013 FY 2028 Statement of General Fund Revenues and\
+        \ Expenditures ..............................................................BH-2"
+      url: https://www.azjlbc.gov/26AR/bh2.pdf
+    - filename: bh3.pdf
+      page_in_doc: null
+      section_kind: budget-highlights
+      title: "\u2022  FY 2026 State General Fund Budget Summary ............................................................................................................BH-3"
+      url: https://www.azjlbc.gov/26AR/bh3.pdf
+    - filename: bh11.pdf
+      page_in_doc: null
+      section_kind: budget-highlights
+      title: "\u2022  General Fund Budget 4-Year Analysis ........................................................................................................................BH-11"
+      url: https://www.azjlbc.gov/26AR/bh11.pdf
+    - filename: bh20.pdf
+      page_in_doc: null
+      section_kind: budget-highlights
+      title: "\u2022  Summary of One-Time General Fund Adjustments ...................................................................................................BH-20"
+      url: https://www.azjlbc.gov/26AR/bh20.pdf
+    - filename: bh25.pdf
+      page_in_doc: null
+      section_kind: budget-highlights
+      title: "\u2022  Summary of One-Time General Fund Transfers ........................................................................................................BH-25"
+      url: https://www.azjlbc.gov/26AR/bh25.pdf
+    - filename: bh26.pdf
+      page_in_doc: null
+      section_kind: budget-highlights
+      title: "\u2022  Graphs of FY 2026 Budget .........................................................................................................................................BH-26"
+      url: https://www.azjlbc.gov/26AR/bh26.pdf
+    - filename: bh28.pdf
+      page_in_doc: null
+      section_kind: budget-highlights
+      title: "\u2022  FY 2016 - FY 2026 \u201CThen and Now\u201D Comparisons .....................................................................................................BH-28"
+      url: https://www.azjlbc.gov/26AR/bh28.pdf
+    - filename: bd2.pdf
+      page_in_doc: null
+      section_kind: budget-detail
+      title: "\u2022  Summary of Appropriated Funds by Agency ...............................................................................................................\
+        \ BD-2"
+      url: https://www.azjlbc.gov/26AR/bd2.pdf
+    - filename: bd4.pdf
+      page_in_doc: null
+      section_kind: budget-detail
+      title: "\u2022  Summary of Capital Outlay Appropriations .................................................................................................................\
+        \ BD-4"
+      url: https://www.azjlbc.gov/26AR/bd4.pdf
+    - filename: bd6.pdf
+      page_in_doc: null
+      section_kind: budget-detail
+      title: "\u2022  Summary of Additional Operating and Statutory Appropriations\
+        \ ...............................................................................\
+        \ BD-6"
+      url: https://www.azjlbc.gov/26AR/bd6.pdf
+    - filename: bd8.pdf
+      page_in_doc: null
+      section_kind: budget-detail
+      title: "\u2022  Previously Enacted Appropriations FY 2026 and Beyond ............................................................................................\
+        \ BD-8"
+      url: https://www.azjlbc.gov/26AR/bd8.pdf
+    - filename: bd10.pdf
+      page_in_doc: null
+      section_kind: budget-detail
+      title: "\u2022  Summary of Total Spending Authority (Appropriated and Non-Appropriated\
+        \ Funds) .............................................BD-10"
+      url: https://www.azjlbc.gov/26AR/bd10.pdf
+    - filename: bd12.pdf
+      page_in_doc: null
+      section_kind: budget-detail
+      title: "\u2022  State Personnel Summary by Agency ........................................................................................................................BD-12"
+      url: https://www.azjlbc.gov/26AR/bd12.pdf
+    - filename: capitaloutlay.pdf
+      page_in_doc: 388
+      section_kind: topic
+      title: "\u2022  Capital Outlay"
+      url: https://www.azjlbc.gov/26AR/capitaloutlay.pdf
+    - filename: 392.pdf
+      page_in_doc: 392
+      section_kind: detailed-list
+      title: "\u2022  Summary of Rent Charges"
+      url: https://www.azjlbc.gov/26AR/392.pdf
+    - filename: 422.pdf
+      page_in_doc: 422
+      section_kind: detailed-list
+      title: "\u2022  Lease-Purchase Appropriations"
+      url: https://www.azjlbc.gov/26AR/422.pdf
+    - filename: 426.pdf
+      page_in_doc: 426
+      section_kind: detailed-list
+      title: "\u2022  General Fund Revenue"
+      url: https://www.azjlbc.gov/26AR/426.pdf
+    - filename: 433.pdf
+      page_in_doc: 433
+      section_kind: detailed-list
+      title: "\u2022  Budget Stabilization Fund"
+      url: https://www.azjlbc.gov/26AR/433.pdf
+    - filename: crr.pdf
+      page_in_doc: 438
+      section_kind: topic
+      title: CONSOLIDATED RETIREMENT REPORT
+      url: https://www.azjlbc.gov/26AR/crr.pdf
+    - filename: 444.pdf
+      page_in_doc: 444
+      section_kind: detailed-list
+      title: "\u2022  General Provisions of the General Appropriation Act and Other\
+        \ Overall Issues"
+      url: https://www.azjlbc.gov/26AR/444.pdf
+    - filename: 449.pdf
+      page_in_doc: 449
+      section_kind: detailed-list
+      title: "\u2022  Salary Adjustments for State Employees Since FY 2015 and Salary\
+        \ Adjustments for Elected Officials"
+      url: https://www.azjlbc.gov/26AR/449.pdf
+    - filename: 452.pdf
+      page_in_doc: 452
+      section_kind: detailed-list
+      title: "\u2022  Detailed List of General Fund Changes by Agency"
+      url: https://www.azjlbc.gov/26AR/452.pdf
+    - filename: 459.pdf
+      page_in_doc: 459
+      section_kind: detailed-list
+      title: "\u2022  Detailed List of Other Fund Changes by Agency"
+      url: https://www.azjlbc.gov/26AR/459.pdf
+    - filename: 466.pdf
+      page_in_doc: 466
+      section_kind: detailed-list
+      title: "\u2022  General Fund Spending by Budget Units - Ongoing Funding"
+      url: https://www.azjlbc.gov/26AR/466.pdf
+    - filename: 468.pdf
+      page_in_doc: 468
+      section_kind: detailed-list
+      title: "\u2022  Summary of One-Time Other Fund Adjustments"
+      url: https://www.azjlbc.gov/26AR/468.pdf
+    - filename: 471.pdf
+      page_in_doc: 471
+      section_kind: detailed-list
+      title: "\u2022  FY 2026 General Fund Crosswalk of General Appropriation Act\
+        \ to Appropriations Report Totals"
+      url: https://www.azjlbc.gov/26AR/471.pdf
+    - filename: 473.pdf
+      page_in_doc: 473
+      section_kind: detailed-list
+      title: "\u2022  FY 2026 Other Funds Crosswalk of General Appropriation Act to\
+        \ Appropriations Report Totals"
+      url: https://www.azjlbc.gov/26AR/473.pdf
+    - filename: 478.pdf
+      page_in_doc: 478
+      section_kind: detailed-list
+      title: "\u2022  Summary of Risk Management Charges"
+      url: https://www.azjlbc.gov/26AR/478.pdf
+    - filename: 482.pdf
+      page_in_doc: 482
+      section_kind: detailed-list
+      title: BUDGET RECONCILIATION BILLS AND MAJOR FOOTNOTE CHANGES
+      url: https://www.azjlbc.gov/26AR/482.pdf
+    - filename: 508.pdf
+      page_in_doc: 508
+      section_kind: detailed-list
+      title: FY 2025 GENERAL FUND AND OTHER FUND ADJUSTMENTS
+      url: https://www.azjlbc.gov/26AR/508.pdf
+    - filename: 526.pdf
+      page_in_doc: 526
+      section_kind: detailed-list
+      title: JLBC STAFF AND AGENCY DIRECTORY LISTINGS
+      url: https://www.azjlbc.gov/26AR/526.pdf
+    fiscal_year: 2026
+    publisher: jlbc
+    source_sha256: d6dc34bdb6c6a9635891901ddc7d42c1ad7e27800e1e651016290f6584e1bc87
+    source_url: https://www.azjlbc.gov/26ar/apprpttoc.pdf
+  jlbc.baseline-cross-cut.2027:
+    discovered_at: '2026-05-06T18:03:56+00:00'
+    doc_type: baseline-cross-cut
+    entries:
+    - filename: s1.pdf
+      page_in_doc: null
+      section_kind: summary-section
+      title: "\u2022 Statement of General Fund Revenues and Expenditures ..............................................................................................\
+        \ S-1"
+      url: https://www.azjlbc.gov/27baseline/s1.pdf
+    - filename: s2.pdf
+      page_in_doc: null
+      section_kind: summary-section
+      title: "\u2022 FY 2027 Baseline Summary ............................................................................................................................................\
+        \ S-2"
+      url: https://www.azjlbc.gov/27baseline/s2.pdf
+    - filename: s7.pdf
+      page_in_doc: null
+      section_kind: summary-section
+      title: "\u2022 Summary of Ongoing General Fund Spending by Agency .............................................................................................\
+        \ S-7"
+      url: https://www.azjlbc.gov/27baseline/s7.pdf
+    - filename: s9.pdf
+      page_in_doc: null
+      section_kind: summary-section
+      title: "\u2022 Summary of One-Time General Fund Spending by Agency ...........................................................................................\
+        \ S-9"
+      url: https://www.azjlbc.gov/27baseline/s9.pdf
+    - filename: s15.pdf
+      page_in_doc: null
+      section_kind: summary-section
+      title: "\u2022 FY 2027 General Fund Summary by Agency ................................................................................................................\
+        \ S-15"
+      url: https://www.azjlbc.gov/27baseline/s15.pdf
+    - filename: s18.pdf
+      page_in_doc: null
+      section_kind: summary-section
+      title: "\u2022 FY 2027 Other Appropriated Funds Summary by Agency ...........................................................................................\
+        \ S-18"
+      url: https://www.azjlbc.gov/27baseline/s18.pdf
+    - filename: s31.pdf
+      page_in_doc: null
+      section_kind: summary-section
+      title: "\u2022 General Fund - Detailed List of FY 2027 Changes by Agency .......................................................................................\
+        \ S-31"
+      url: https://www.azjlbc.gov/27baseline/s31.pdf
+    - filename: s43.pdf
+      page_in_doc: null
+      section_kind: summary-section
+      title: "\u2022 Other Funds - Detailed List of FY 2027 Changes by Agency ........................................................................................\
+        \ S-43"
+      url: https://www.azjlbc.gov/27baseline/s43.pdf
+    - filename: s54.pdf
+      page_in_doc: null
+      section_kind: summary-section
+      title: "\u2022 Summary of One-Time Other Fund Spending by Agency ............................................................................................\
+        \ S-54"
+      url: https://www.azjlbc.gov/27baseline/s54.pdf
+    - filename: s57.pdf
+      page_in_doc: null
+      section_kind: summary-section
+      title: "\u2022 FY 2026 Adjustments ...................................................................................................................................................\
+        \ S-57"
+      url: https://www.azjlbc.gov/27baseline/s57.pdf
+    - filename: s58.pdf
+      page_in_doc: null
+      section_kind: summary-section
+      title: "\u2022 Summary of Federal and Other Non-Appropriated Fund Expenditures\
+        \ by Agency .................................................... S-58"
+      url: https://www.azjlbc.gov/27baseline/s58.pdf
+    - filename: s80.pdf
+      page_in_doc: null
+      section_kind: summary-section
+      title: "\u2022 Previously Enacted Appropriations FY 2027 and Beyond ............................................................................................\
+        \ S-80"
+      url: https://www.azjlbc.gov/27baseline/s80.pdf
+    - filename: s83.pdf
+      page_in_doc: null
+      section_kind: summary-section
+      title: "\u2022 State Personnel Summary by Full-Time Equivalent Positions .....................................................................................\
+        \ S-83"
+      url: https://www.azjlbc.gov/27baseline/s83.pdf
+    - filename: s87.pdf
+      page_in_doc: null
+      section_kind: summary-section
+      title: "\u2022 FY 2027 Budget Reconciliation Bill Provisions .............................................................................................................\
+        \ S-87"
+      url: https://www.azjlbc.gov/27baseline/s87.pdf
+    - filename: s90.pdf
+      page_in_doc: null
+      section_kind: summary-section
+      title: "\u2022 FY 2027 General Appropriation Act Provisions ............................................................................................................\
+        \ S-90"
+      url: https://www.azjlbc.gov/27baseline/s90.pdf
+    - filename: s90.pdf
+      page_in_doc: null
+      section_kind: summary-section
+      title: "\u2022 FY 2027 Major Footnote Changes ...............................................................................................................................\
+        \ S-91"
+      url: https://www.azjlbc.gov/27baseline/s90.pdf
+    - filename: capitaloutlay.pdf
+      page_in_doc: 480
+      section_kind: topic
+      title: CAPITAL OUTLAY ESTIMATES
+      url: https://www.azjlbc.gov/27baseline/capitaloutlay.pdf
+    - filename: crr.pdf
+      page_in_doc: 511
+      section_kind: topic
+      title: CONSOLIDATED RETIREMENT REPORT
+      url: https://www.azjlbc.gov/27baseline/crr.pdf
+    fiscal_year: 2027
+    publisher: jlbc
+    source_sha256: cbd7f21c22e72d7921ffd93064b4cf8e2d53be04d2836d5cd7f1ba75389a9ae8
+    source_url: https://www.azjlbc.gov/budget/27baselinelinks.pdf
+  jlbc.baseline-per-agency.2027:
+    discovered_at: '2026-05-06T18:03:56+00:00'
+    doc_type: baseline-per-agency
+    entries:
+    - name: Water Resources, Department of
+      page_in_doc: 471
+      slug: wat
+      url: https://www.azjlbc.gov/27baseline/wat.pdf
+    - name: Water Infrastructure Finance Authority
+      page_in_doc: 464
+      slug: wifa
+      url: https://www.azjlbc.gov/27baseline/wifa.pdf
+    - name: Veterinary Medical Examining Board, Arizona State
+      page_in_doc: 463
+      slug: vme
+      url: https://www.azjlbc.gov/27baseline/vme.pdf
+    - name: Veterans' Services, Department of
+      page_in_doc: 458
+      slug: vsc
+      url: https://www.azjlbc.gov/27baseline/vsc.pdf
+    - name: University of Arizona - Health Sciences Center
+      page_in_doc: 454
+      slug: uniuhsc
+      url: https://www.azjlbc.gov/27baseline/uniuhsc.pdf
+    - name: University of Arizona - Main Campus
+      page_in_doc: 446
+      slug: uniumain
+      url: https://www.azjlbc.gov/27baseline/uniumain.pdf
+    - name: Northern Arizona University
+      page_in_doc: 440
+      slug: uninau
+      url: https://www.azjlbc.gov/27baseline/uninau.pdf
+    - name: Arizona State University
+      page_in_doc: 434
+      slug: uniasu
+      url: https://www.azjlbc.gov/27baseline/uniasu.pdf
+    - name: Regents, Arizona Board of
+      page_in_doc: 425
+      slug: unibor
+      url: https://www.azjlbc.gov/27baseline/unibor.pdf
+    - name: "Tribal Relations, Governor\u2019s Office on"
+      page_in_doc: 424
+      slug: otr
+      url: https://www.azjlbc.gov/27baseline/otr.pdf
+    - name: Treasurer, State
+      page_in_doc: 410
+      slug: tre
+      url: https://www.azjlbc.gov/27baseline/tre.pdf
+    - name: Transportation, Department of
+      page_in_doc: 400
+      slug: dot
+      url: https://www.azjlbc.gov/27baseline/dot.pdf
+    - name: Tourism, Office of
+      page_in_doc: 397
+      slug: tou
+      url: https://www.azjlbc.gov/27baseline/tou.pdf
+    - name: Technical Registration, State Board of
+      page_in_doc: 396
+      slug: tec
+      url: https://www.azjlbc.gov/27baseline/tec.pdf
+    - name: Tax Appeals, State Board of
+      page_in_doc: 395
+      slug: tax
+      url: https://www.azjlbc.gov/27baseline/tax.pdf
+    - name: Senate
+      page_in_doc: 315
+      slug: legsen
+      url: https://www.azjlbc.gov/27baseline/legsen.pdf
+    - name: Secretary of State, Department of State
+      page_in_doc: 388
+      slug: sos
+      url: https://www.azjlbc.gov/27baseline/sos.pdf
+    - name: Revenue, Department of
+      page_in_doc: 381
+      slug: dor
+      url: https://www.azjlbc.gov/27baseline/dor.pdf
+    - name: Retirement System, Arizona State
+      page_in_doc: 379
+      slug: ret
+      url: https://www.azjlbc.gov/27baseline/ret.pdf
+    - name: Respiratory Care Examiners, Board of
+      page_in_doc: 378
+      slug: res
+      url: https://www.azjlbc.gov/27baseline/res.pdf
+    - name: Residential Utility Consumer Office
+      page_in_doc: 377
+      slug: ruc
+      url: https://www.azjlbc.gov/27baseline/ruc.pdf
+    - name: Real Estate Department, State
+      page_in_doc: 375
+      slug: rea
+      url: https://www.azjlbc.gov/27baseline/rea.pdf
+    - name: Public Safety Personnel Retirement System
+      page_in_doc: 373
+      slug: psp
+      url: https://www.azjlbc.gov/27baseline/psp.pdf
+    - name: Public Safety, Department of
+      page_in_doc: 360
+      slug: dps
+      url: https://www.azjlbc.gov/27baseline/dps.pdf
+    - name: Psychologist Examiners, State Board of
+      page_in_doc: 359
+      slug: psy
+      url: https://www.azjlbc.gov/27baseline/psy.pdf
+    - name: Private Postsecondary Education, State Board for
+      page_in_doc: 357
+      slug: pri
+      url: https://www.azjlbc.gov/27baseline/pri.pdf
+    - name: Power Authority, Arizona
+      page_in_doc: 356
+      slug: apa
+      url: https://www.azjlbc.gov/27baseline/apa.pdf
+    - name: Podiatry Examiners, State Board of
+      page_in_doc: 355
+      slug: pod
+      url: https://www.azjlbc.gov/27baseline/pod.pdf
+    - name: Pioneers' Home, Arizona
+      page_in_doc: 353
+      slug: pio
+      url: https://www.azjlbc.gov/27baseline/pio.pdf
+    - name: Physical Therapy, Board of
+      page_in_doc: 352
+      slug: phy
+      url: https://www.azjlbc.gov/27baseline/phy.pdf
+    - name: Pharmacy, Arizona State Board of
+      page_in_doc: 349
+      slug: pha
+      url: https://www.azjlbc.gov/27baseline/pha.pdf
+    - name: Personnel Board, State
+      page_in_doc: 348
+      slug: per
+      url: https://www.azjlbc.gov/27baseline/per.pdf
+    - name: Parks Board, Arizona State
+      page_in_doc: 343
+      slug: spb
+      url: https://www.azjlbc.gov/27baseline/spb.pdf
+    - name: Osteopathic Examiners in Medicine and Surgery, Arizona ...   342  Board
+        of........................................................................
+      page_in_doc: null
+      slug: ost
+      url: https://www.azjlbc.gov/27baseline/ost.pdf
+    - name: Optometry, State Board of
+      page_in_doc: 341
+      slug: opt
+      url: https://www.azjlbc.gov/27baseline/opt.pdf
+    - name: Opticians, State Board of Dispensing
+      page_in_doc: 340
+      slug: dis
+      url: https://www.azjlbc.gov/27baseline/dis.pdf
+    - name: Ombudsman-Citizens Aide Office
+      page_in_doc: 314
+      slug: legomb
+      url: https://www.azjlbc.gov/27baseline/legomb.pdf
+    - name: Occupational Therapy Examiners, Board of
+      page_in_doc: 339
+      slug: occ
+      url: https://www.azjlbc.gov/27baseline/occ.pdf
+    - name: Nursing Care Institution Administrators and Assisted Living   338  Facility
+        Managers, Board of Examiners of ....................
+      page_in_doc: null
+      slug: nci
+      url: https://www.azjlbc.gov/27baseline/nci.pdf
+    - name: Nursing, State Board of
+      page_in_doc: 335
+      slug: nur
+      url: https://www.azjlbc.gov/27baseline/nur.pdf
+    - name: Navigable Stream Adjudication Commission, Arizona
+      page_in_doc: 333
+      slug: nav
+      url: https://www.azjlbc.gov/27baseline/nav.pdf
+    - name: Naturopathic Physicians Medical Board
+      page_in_doc: 332
+      slug: nat
+      url: https://www.azjlbc.gov/27baseline/nat.pdf
+    - name: Natural Resource Conservation Board, State
+      page_in_doc: 330
+      slug: nrc
+      url: https://www.azjlbc.gov/27baseline/nrc.pdf
+    - name: Mine Inspector, State
+      page_in_doc: 328
+      slug: min
+      url: https://www.azjlbc.gov/27baseline/min.pdf
+    - name: Medical Board, Arizona
+      page_in_doc: 326
+      slug: med
+      url: https://www.azjlbc.gov/27baseline/med.pdf
+    - name: Massage Therapy, Board of
+      page_in_doc: 325
+      slug: bmt
+      url: https://www.azjlbc.gov/27baseline/bmt.pdf
+    - name: Lottery Commission, Arizona State
+      page_in_doc: 319
+      slug: lot
+      url: https://www.azjlbc.gov/27baseline/lot.pdf
+    - name: Liquor Licenses and Control, Department of
+      page_in_doc: 316
+      slug: liq
+      url: https://www.azjlbc.gov/27baseline/liq.pdf
+    - name: Legislative Council
+      page_in_doc: 312
+      slug: legleg
+      url: https://www.azjlbc.gov/27baseline/legleg.pdf
+    - name: Land Department, State
+      page_in_doc: 303
+      slug: lan
+      url: https://www.azjlbc.gov/27baseline/lan.pdf
+    - name: Juvenile Corrections, Department of
+      page_in_doc: 298
+      slug: djc
+      url: https://www.azjlbc.gov/27baseline/djc.pdf
+    - name: Superior Court
+      page_in_doc: 290
+      slug: judsup
+      url: https://www.azjlbc.gov/27baseline/judsup.pdf
+    - name: Court of Appeals
+      page_in_doc: 289
+      slug: judcoa
+      url: https://www.azjlbc.gov/27baseline/judcoa.pdf
+    - name: Supreme Court
+      page_in_doc: 282
+      slug: judspa
+      url: https://www.azjlbc.gov/27baseline/judspa.pdf
+    - name: Joint Legislative Budget Committee
+      page_in_doc: 311
+      slug: legjlbc
+      url: https://www.azjlbc.gov/27baseline/legjlbc.pdf
+    - name: Insurance and Financial Institutions, Department of
+      page_in_doc: 276
+      slug: dif
+      url: https://www.azjlbc.gov/27baseline/dif.pdf
+    - name: Industrial Commission of Arizona
+      page_in_doc: 274
+      slug: ind
+      url: https://www.azjlbc.gov/27baseline/ind.pdf
+    - name: Independent Redistricting Commission
+      page_in_doc: 273
+      slug: irc
+      url: https://www.azjlbc.gov/27baseline/irc.pdf
+    - name: Independent Correctional Oversight Office
+      page_in_doc: 272
+      slug: ico
+      url: https://www.azjlbc.gov/27baseline/ico.pdf
+    - name: Housing, Arizona Department of
+      page_in_doc: 267
+      slug: doh
+      url: https://www.azjlbc.gov/27baseline/doh.pdf
+    - name: House of Representatives
+      page_in_doc: 310
+      slug: leghou
+      url: https://www.azjlbc.gov/27baseline/leghou.pdf
+    - name: Homeopathic and Integrated Medicine Examiners, Bd. of
+      page_in_doc: 266
+      slug: hom
+      url: https://www.azjlbc.gov/27baseline/hom.pdf
+    - name: Homeland Security, Arizona Department of
+      page_in_doc: 263
+      slug: hla
+      url: https://www.azjlbc.gov/27baseline/hla.pdf
+    - name: Historical Society of Arizona, Prescott
+      page_in_doc: 262
+      slug: paz
+      url: https://www.azjlbc.gov/27baseline/paz.pdf
+    - name: Historical Society, Arizona
+      page_in_doc: 260
+      slug: azh
+      url: https://www.azjlbc.gov/27baseline/azh.pdf
+    - name: Health Services, Department of
+      page_in_doc: 243
+      slug: dhs
+      url: https://www.azjlbc.gov/27baseline/dhs.pdf
+    - name: Governor's Office of Strategic Planning and Budgeting
+      page_in_doc: 242
+      slug: osp
+      url: https://www.azjlbc.gov/27baseline/osp.pdf
+    - name: Governor, Office of the
+      page_in_doc: 239
+      slug: gov
+      url: https://www.azjlbc.gov/27baseline/gov.pdf
+    - name: Gaming, Department of
+      page_in_doc: 230
+      slug: gam
+      url: https://www.azjlbc.gov/27baseline/gam.pdf
+    - name: Game and Fish Department, Arizona
+      page_in_doc: 224
+      slug: fis
+      url: https://www.azjlbc.gov/27baseline/fis.pdf
+    - name: Forestry and Fire Management, Arizona Department of
+      page_in_doc: 219
+      slug: for
+      url: https://www.azjlbc.gov/27baseline/for.pdf
+    - name: Exposition and State Fair Board, Arizona
+      page_in_doc: 218
+      slug: col
+      url: https://www.azjlbc.gov/27baseline/col.pdf
+    - name: Executive Clemency, Board of
+      page_in_doc: 216
+      slug: exe
+      url: https://www.azjlbc.gov/27baseline/exe.pdf
+    - name: Equalization, State Board of
+      page_in_doc: 215
+      slug: equ
+      url: https://www.azjlbc.gov/27baseline/equ.pdf
+    - name: Equal Opportunity, Governor's Office of
+      page_in_doc: 214
+      slug: oeo
+      url: https://www.azjlbc.gov/27baseline/oeo.pdf
+    - name: Environmental Quality, Department of
+      page_in_doc: 205
+      slug: deq
+      url: https://www.azjlbc.gov/27baseline/deq.pdf
+    - name: Emergency and Military Affairs, Department of
+      page_in_doc: 197
+      slug: ema
+      url: https://www.azjlbc.gov/27baseline/ema.pdf
+    - name: Education, Department of
+      page_in_doc: 175
+      slug: ade
+      url: https://www.azjlbc.gov/27baseline/ade.pdf
+    - name: Education, State Board of
+      page_in_doc: 173
+      slug: boe
+      url: https://www.azjlbc.gov/27baseline/boe.pdf
+    - name: Economic Security, Department of
+      page_in_doc: 151
+      slug: des
+      url: https://www.azjlbc.gov/27baseline/des.pdf
+    - name: Economic Opportunity, Office of
+      page_in_doc: 147
+      slug: oec
+      url: https://www.azjlbc.gov/27baseline/oec.pdf
+    - name: Early Childhood Development and Health Board, Arizona
+      page_in_doc: 145
+      slug: ecdb
+      url: https://www.azjlbc.gov/27baseline/ecdb.pdf
+    - name: Dental Examiners, State Board of
+      page_in_doc: 143
+      slug: den
+      url: https://www.azjlbc.gov/27baseline/den.pdf
+    - name: Deaf and the Hard of Hearing, Commission for the
+      page_in_doc: 141
+      slug: hea
+      url: https://www.azjlbc.gov/27baseline/hea.pdf
+    - name: Deaf and the Blind, Arizona State Schools for the
+      page_in_doc: 136
+      slug: sdb
+      url: https://www.azjlbc.gov/27baseline/sdb.pdf
+    - name: Criminal Justice Commission, Arizona
+      page_in_doc: 130
+      slug: jus
+      url: https://www.azjlbc.gov/27baseline/jus.pdf
+    - name: Corrections, State Department of
+      page_in_doc: 119
+      slug: adc
+      url: https://www.azjlbc.gov/27baseline/adc.pdf
+    - name: Corporation Commission
+      page_in_doc: 116
+      slug: cor
+      url: https://www.azjlbc.gov/27baseline/cor.pdf
+    - name: Contractors, Registrar of
+      page_in_doc: 114
+      slug: roc
+      url: https://www.azjlbc.gov/27baseline/roc.pdf
+    - name: Constable Ethics Standards and Training Board
+      page_in_doc: 113
+      slug: cet
+      url: https://www.azjlbc.gov/27baseline/cet.pdf
+    - name: Community Colleges, Arizona
+      page_in_doc: 104
+      slug: acc
+      url: https://www.azjlbc.gov/27baseline/acc.pdf
+    - name: Commerce Authority, Arizona
+      page_in_doc: 96
+      slug: aca
+      url: https://www.azjlbc.gov/27baseline/aca.pdf
+    - name: Citizens Clean Elections Commission
+      page_in_doc: 95
+      slug: cce
+      url: https://www.azjlbc.gov/27baseline/cce.pdf
+    - name: Chiropractic Examiners, State Board of
+      page_in_doc: 94
+      slug: bce
+      url: https://www.azjlbc.gov/27baseline/bce.pdf
+    - name: Child Safety, Department of
+      page_in_doc: 83
+      slug: dcs
+      url: https://www.azjlbc.gov/27baseline/dcs.pdf
+    - name: Charter Schools, State Board for
+      page_in_doc: 82
+      slug: cha
+      url: https://www.azjlbc.gov/27baseline/cha.pdf
+    - name: Behavioral Health Examiners, Board of
+      page_in_doc: 81
+      slug: bhe
+      url: https://www.azjlbc.gov/27baseline/bhe.pdf
+    - name: Barbering and Cosmetology Board
+      page_in_doc: 79
+      slug: bcb
+      url: https://www.azjlbc.gov/27baseline/bcb.pdf
+    - name: Auditor General
+      page_in_doc: 308
+      slug: legaud
+      url: https://www.azjlbc.gov/27baseline/legaud.pdf
+    - name: Attorney General - Department of Law
+      page_in_doc: 67
+      slug: att
+      url: https://www.azjlbc.gov/27baseline/att.pdf
+    - name: Athletic Training, Board of
+      page_in_doc: 66
+      slug: bat
+      url: https://www.azjlbc.gov/27baseline/bat.pdf
+    - name: Arts, Arizona Commission on the
+      page_in_doc: 64
+      slug: art
+      url: https://www.azjlbc.gov/27baseline/art.pdf
+    - name: AHCCCS
+      page_in_doc: 44
+      slug: axs
+      url: https://www.azjlbc.gov/27baseline/axs.pdf
+    - name: Agriculture, Arizona Department of
+      page_in_doc: 36
+      slug: agr
+      url: https://www.azjlbc.gov/27baseline/agr.pdf
+    - name: Administrative Hearings, Office of
+      page_in_doc: 35
+      slug: oah
+      url: https://www.azjlbc.gov/27baseline/oah.pdf
+    - name: ADOA - School Facilities Division
+      page_in_doc: 27
+      slug: doa-sfd
+      url: https://www.azjlbc.gov/27baseline/doa-sfd.pdf
+    - name: ADOA - Automation Projects Fund
+      page_in_doc: 18
+      slug: doa-apf
+      url: https://www.azjlbc.gov/27baseline/doa-apf.pdf
+    - name: Administration, Arizona Department of
+      page_in_doc: 3
+      slug: doa
+      url: https://www.azjlbc.gov/27baseline/doa.pdf
+    - name: Acupuncture Board of Examiners
+      page_in_doc: 2
+      slug: bae
+      url: https://www.azjlbc.gov/27baseline/bae.pdf
+    - name: Accountancy, Arizona State Board of
+      page_in_doc: 1
+      slug: sba
+      url: https://www.azjlbc.gov/27baseline/sba.pdf
+    fiscal_year: 2027
+    publisher: jlbc
+    source_sha256: 8ecf3a60ae34512add971d458c78fd62ea4c327a66a85b6f0166cd14f4fe9a6b
+    source_url: https://www.azjlbc.gov/27baseline/agencyindex.pdf
+version: 1
