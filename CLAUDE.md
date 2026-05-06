@@ -28,7 +28,7 @@ Read `docs/superpowers/specs/2026-05-04-ask-the-budget-az-design.md` before any 
 cd <repo> && git fetch origin && git pull origin master
 ```
 
-**Use worktrees for non-trivial work.** Any work beyond a handful of lines must be done in a separate git worktree (or use the Agent tool with `isolation: "worktree"`). Prevents concurrent Claude sessions from overwriting each other.
+**Use worktrees for non-trivial work.** Any work beyond a handful of lines must be done in a separate git worktree (or use the Agent tool with `isolation: "worktree"`). Prevents concurrent Claude sessions from overwriting each other. Worktrees live at `~/ask-the-budget-az-worktrees/<branch-name>/`.
 
 **Annotate non-trivial code edits with a WHY comment.** Destin is a non-developer relying on comments to understand what code does and why. Example: `// Strip citation chip when faithfulness check returns < 0.7 — better to show "no source" than fake confidence.`
 
@@ -55,8 +55,8 @@ Sub-repo code goes in the relevant sub-repo. Workspace-level artifacts (specs, p
 
 | Phase | Status | What happens | Where it runs |
 |---|---|---|---|
-| **Phase 0 — Investigation** | not started | Extractor bake-off (MinerU vs Docling), entity-resolution catalog, chunking validation. Output: findings memo. | Destin's machine |
-| **Phase 1 — Working prototype** | not started | Full 5-year ingest, web UI, retrieval + citation pipeline, LLM via local YouCoded. | Destin's machine |
+| **Phase 0 — Investigation** | ✓ closed 2026-05-06 | Per-doc-type extractor routing decision (MinerU + OpenDataLoader-PDF + python-docx; original MinerU-vs-Docling bake-off pivoted 2026-05-05), 157-agency canonical catalog from publisher data, JLBC four-layout publishing structure mapped, chunk-shape decisions D1–D7. Outcomes: findings memo + chunk-shape doc + data-model doc under `docs/superpowers/investigations/`. | Destin's machine |
+| **Phase 1 — Working prototype** | in planning | Full 5-year ingest, web UI, retrieval + citation pipeline, LLM via local YouCoded. | Destin's machine |
 | **Phase 2 — Companion app + first deploy** | not started | Build JLBC Budget Agent companion. Deploy web app to free-tier hosting. Onboard 2-3 trusted analysts. | Vercel/Supabase + each analyst's machine |
 | **Phase 3 — Internal pilot** | not started | Wider JLBC use. Tier 2 entity resolution. Eval set expansion. | Same |
 | **Phase 4 — Public-launch consideration** | not started | Gated on hard metrics in the spec. | Same, plus public host |
@@ -66,6 +66,7 @@ Sub-repo code goes in the relevant sub-repo. Workspace-level artifacts (specs, p
 - `docs/superpowers/specs/` — design specs, one per major decision area
 - `docs/superpowers/plans/` — implementation plans, derived from specs
 - `docs/superpowers/investigations/` — research memos, Phase 0 findings, ad-hoc investigations
+- `docs/reference/` — domain primers and reference material (e.g., the JLBC writing draft used as system-prompt context)
 - `.claude/rules/` — auto-loaded rules for specific subsystems (e.g., `live-app-safety.md` once we have a deployed instance)
 
 ## Compaction Guidance

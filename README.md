@@ -8,7 +8,9 @@ A Q&A tool over Arizona state budget documents — JLBC Appropriations Reports, 
 
 ## Status
 
-**Phase 0 — Investigation** (not started). See [`docs/superpowers/specs/2026-05-04-ask-the-budget-az-design.md`](docs/superpowers/specs/2026-05-04-ask-the-budget-az-design.md) for the full design.
+**Phase 0 — Investigation:** ✓ closed 2026-05-06. Outcomes in [`docs/superpowers/investigations/2026-05-06-phase-0-findings.md`](docs/superpowers/investigations/2026-05-06-phase-0-findings.md) (memo), [`2026-05-05-chunk-shape-decisions.md`](docs/superpowers/investigations/2026-05-05-chunk-shape-decisions.md) (chunking), and [`2026-05-06-data-model.md`](docs/superpowers/investigations/2026-05-06-data-model.md) (publisher landscape + cross-doc relationships).
+
+**Phase 1 — Working prototype:** in planning. See [`docs/superpowers/specs/2026-05-04-ask-the-budget-az-design.md`](docs/superpowers/specs/2026-05-04-ask-the-budget-az-design.md) for the full design.
 
 ## Repos in this project
 
@@ -23,7 +25,9 @@ A Q&A tool over Arizona state budget documents — JLBC Appropriations Reports, 
 
 - [Design spec](docs/superpowers/specs/2026-05-04-ask-the-budget-az-design.md)
 - [Workspace conventions](CLAUDE.md)
-- Phase 0 findings (when available): `docs/superpowers/investigations/`
+- Phase 0 findings memo: [`docs/superpowers/investigations/2026-05-06-phase-0-findings.md`](docs/superpowers/investigations/2026-05-06-phase-0-findings.md)
+- Chunk-shape decisions: [`docs/superpowers/investigations/2026-05-05-chunk-shape-decisions.md`](docs/superpowers/investigations/2026-05-05-chunk-shape-decisions.md)
+- Source-data model: [`docs/superpowers/investigations/2026-05-06-data-model.md`](docs/superpowers/investigations/2026-05-06-data-model.md)
 
 ## Why this exists
 

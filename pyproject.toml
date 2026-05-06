@@ -1,7 +1,7 @@
 [project]
-name = "ask-the-budget-az-phase-0"
+name = "ask-the-budget-az-dev"
 version = "0.1.0"
-description = "Ask the Budget AZ — Phase 0 extractor bake-off + ingest scripts"
+description = "Ask the Budget AZ — workspace repo: docs, plans, specs, ingest tooling"
 requires-python = ">=3.12"
 dependencies = [
     "pyyaml>=6.0.3",
