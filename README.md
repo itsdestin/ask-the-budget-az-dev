@@ -10,7 +10,13 @@ A Q&A tool over Arizona state budget documents — JLBC Appropriations Reports, 
 
 **Phase 0 — Investigation:** ✓ closed 2026-05-06. Outcomes in [`docs/superpowers/investigations/2026-05-06-phase-0-findings.md`](docs/superpowers/investigations/2026-05-06-phase-0-findings.md) (memo), [`2026-05-05-chunk-shape-decisions.md`](docs/superpowers/investigations/2026-05-05-chunk-shape-decisions.md) (chunking), and [`2026-05-06-data-model.md`](docs/superpowers/investigations/2026-05-06-data-model.md) (publisher landscape + cross-doc relationships).
 
-**Phase 1 — Working prototype:** in planning. See [`docs/superpowers/specs/2026-05-04-ask-the-budget-az-design.md`](docs/superpowers/specs/2026-05-04-ask-the-budget-az-design.md) for the full design.
+**Phase 1a — Ingest + chunking:** ✓ closed 2026-05-06 (slice-validated). Tag `phase-1a-validated-slice`. 5 docs / 161 chunks / 91.3% agency-stamped / 227 funds. Hand-off contract at [`data/chunks/MANIFEST.md`](data/chunks/MANIFEST.md). Full-corpus ingest moves to Phase 1b kickoff.
+
+**Phase 1b — Storage + retrieval:** in planning. See [`docs/superpowers/plans/2026-05-06-phase-1b-storage-and-retrieval.md`](docs/superpowers/plans/2026-05-06-phase-1b-storage-and-retrieval.md).
+
+**Phase 1c — Companion + UI:** not started. See [`docs/superpowers/plans/2026-05-06-phase-1c-companion-and-ui.md`](docs/superpowers/plans/2026-05-06-phase-1c-companion-and-ui.md).
+
+For architectural context across all phases, see [`docs/superpowers/specs/2026-05-04-ask-the-budget-az-design.md`](docs/superpowers/specs/2026-05-04-ask-the-budget-az-design.md).
 
 ## Repos in this project
 
@@ -25,6 +31,9 @@ A Q&A tool over Arizona state budget documents — JLBC Appropriations Reports, 
 
 - [Design spec](docs/superpowers/specs/2026-05-04-ask-the-budget-az-design.md)
 - [Workspace conventions](CLAUDE.md)
+- Phase 1a → Phase 1b hand-off contract: [`data/chunks/MANIFEST.md`](data/chunks/MANIFEST.md)
+- Phase 1b plan (next): [`docs/superpowers/plans/2026-05-06-phase-1b-storage-and-retrieval.md`](docs/superpowers/plans/2026-05-06-phase-1b-storage-and-retrieval.md)
+- Phase 1c plan (later): [`docs/superpowers/plans/2026-05-06-phase-1c-companion-and-ui.md`](docs/superpowers/plans/2026-05-06-phase-1c-companion-and-ui.md)
 - Phase 0 findings memo: [`docs/superpowers/investigations/2026-05-06-phase-0-findings.md`](docs/superpowers/investigations/2026-05-06-phase-0-findings.md)
 - Chunk-shape decisions: [`docs/superpowers/investigations/2026-05-05-chunk-shape-decisions.md`](docs/superpowers/investigations/2026-05-05-chunk-shape-decisions.md)
 - Source-data model: [`docs/superpowers/investigations/2026-05-06-data-model.md`](docs/superpowers/investigations/2026-05-06-data-model.md)

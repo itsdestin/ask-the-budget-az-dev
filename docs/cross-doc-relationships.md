@@ -46,7 +46,7 @@ Different question shapes have different best-source documents. Retrieval should
 | "Show me the legal text appropriating $X to Y" | Budget bill DOCX | Bills are the legal source |
 | "What's the year-end balance for fund Y?" | AFR | AFR is audited financial reality |
 | "Which agencies got increases over $50M?" | Approps `bd*` cross-cuts (or baseline `s31` for proposed) | Pre-aggregated change tables |
-| "What funds does X agency draw from?" | Baseline `s18.pdf` (= approps `bd2.pdf`) | Pre-aggregated cross-cut |
+| "What funds does X agency draw from?" | Baseline `s18.pdf` (and `bd2.pdf` — same logical view, different rendered shape; Phase 1a parser handles s18, bd2 needs a parser revision) | Pre-aggregated cross-cut. **Phase 1a finding 2026-05-06:** chunk-shape D6 stamps the whole-table chunk to a single agency (first match in source order), so retrieval by `agency_canonical_id = 'axs'` won't currently find the AHCCCS rows even though they're in the chunk text. Per-row stamping is open for Phase 1b. |
 | "FTE headcount for X over time?" | Baseline `s83.pdf` (= approps `bd12.pdf`) | Pre-aggregated FTE table |
 | "What does '85/15 funding' / 'BSF' / 'feed bill' mean?" | Gov glossary (pp. 626–633) + JLBC writing draft | Domain primer, system-prompt context |
 

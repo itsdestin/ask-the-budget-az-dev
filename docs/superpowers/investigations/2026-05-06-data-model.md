@@ -95,7 +95,7 @@ These approps section PDFs are roughly equivalent to baseline s-PDFs:
 | `bh25.pdf` | `s9.pdf` (similar) | Summary of One-Time General Fund Transfers |
 | `bh26.pdf` | (no direct) | Graphs of FY 2026 Budget |
 | `bh28.pdf` | (no direct) | "Then and Now" Comparisons (FY16–FY26) |
-| `bd2.pdf` | `s18.pdf` | **Summary of Appropriated Funds by Agency** (the canonical "what funds does X agency use" cross-cut) |
+| `bd2.pdf` | `s18.pdf` | **Summary of Appropriated Funds by Agency** (the canonical "what funds does X agency use" cross-cut). **Phase 1a finding 2026-05-06:** s18 and bd2 represent the same logical view but have **different rendered column layouts** in practice — `funds/parser.py::parse_s18_table` works on s18 and yields 0 rows on bd2. They are NOT interchangeable for parsing; bd2 needs a parser revision (Phase 1b). |
 | `bd4.pdf` | (no direct) | Summary of Capital Outlay Appropriations |
 | `bd6.pdf` | (no direct) | Summary of Additional Operating and Statutory Appropriations |
 | `bd8.pdf` | `s80.pdf` | Previously Enacted Appropriations FY 2026 and Beyond |
@@ -508,6 +508,8 @@ samples/raw-docx/
 Plus `samples/entity-catalog.yaml` (canonical agency catalog) and the existing chunk-shape decisions doc.
 
 ## 9. Implications for Phase 1
+
+> **Note 2026-05-06:** Phase 1 was subsequently split into **Phase 1a** (ingest + chunking — closed 2026-05-06 under slice scope, tag `phase-1a-validated-slice`), **Phase 1b** (storage + retrieval, in planning), and **Phase 1c** (companion + UI, not started). The implications below mostly map to Phase 1a + 1b; see those plan docs for execution detail. The bd2/s18 footnote on the table at line 98 captures one Phase 1a finding (parser handles s18 but not bd2) that this section's "Cross-cut indexing" bullet did not anticipate.
 
 When Phase 1 ingestion is implemented, the data-model decisions to make:
 

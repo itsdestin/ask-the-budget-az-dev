@@ -1,5 +1,7 @@
 # Phase 1a — Ingestion + Chunking Implementation Plan
 
+> **STATUS: CLOSED 2026-05-06 (slice-validated).** Tag `phase-1a-validated-slice` at commit `9ba0385`. Slice scope (5 docs / 161 chunks / 91.3% agency-stamped / 227 funds) executed and validated end-to-end against real source documents — NOT the full Week 1–3 corpus this plan originally envisioned. The pipeline is proven; full-corpus ingest moves to Phase 1b kickoff. Real-bill integration findings (3 bugs fixed) and chunk-shape observations (4 deferred) are captured in `data/chunks/MANIFEST.md`. Plan body below preserved as the historical record of how Phase 1a was scoped; sections that diverge from what shipped are annotated inline with **WS6 finding 2026-05-06** callouts.
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Stand up an end-to-end pipeline that pulls source documents from publisher URLs, extracts them with the right per-doc-type tool, and produces uniform `Chunk` rows matching the spec §6 schema. By the end of Phase 1a, we should be able to type a question against an in-memory chunk list and see plausible candidate chunks come back. Storage, retrieval scoring, embeddings, the LLM call, and the UI are out of scope here — those are Phase 1b and 1c.
@@ -85,7 +87,9 @@ Files created during Phase 1a (paths relative to `~/ask-the-budget-az-dev/`):
 | `chunking/builder.py` | Top-level chunking orchestrator: extractor output → chunk list | ✓ |
 | `scripts/build_fund_catalog.py` | Parses s18.pdf + bd2.pdf + AFR schedules → fund catalog | ✓ |
 | `scripts/load_domain_primer.py` | Renders writing draft + Gov glossary into system-prompt blob | ✓ |
-| `scripts/run_phase_1a.py` | Convenience entry point: load plan, drive ingest, write chunks | ✓ |
+| `scripts/run_phase_1a_slice.py` | Slice orchestrator: download + extract + chunk for 5-doc slice. Originally planned as `scripts/run_phase_1a.py`; renamed to reflect actual slice scope. | ✓ |
+| `scripts/audit_chunks.py` | Per-doc audit (stamping rate, token distribution, provenance integrity, schema re-validation). Added in WS6. | ✓ |
+| `scripts/smoke_query.py` | TF-IDF retrieval + 5 plan-defined queries. Added in WS6. | ✓ |
 | `tests/test_discovery.py` | Tests TOC walking, URL convention generation, slug-alias resolution | ✓ |
 | `tests/test_chunking.py` | Tests chunk builders on Phase 0 extractor-output fixtures | ✓ |
 | `tests/test_entity_stamper.py` | Tests slug-alias resolution + name-to-canonical fallback | ✓ |
@@ -817,6 +821,14 @@ test_queries:
     expected_row_label_substring: "Aviation"
 ```
 
+> **WS6 finding 2026-05-06:** as written, three of these queries don't match real-corpus text under TF-IDF tokenization. JLBC docs and the bill spell out names; the queries used acronyms.
+> - **Q1 substring** `"Health Care Cost Containment"` — s18 uses bare `AHCCCS` as the row label, not the spelled-out form. Substring expectation is wrong against real data; smoke script uses `"AHCCCS"`.
+> - **Q3 query string** `"What did the FY 2026 GAA appropriate to ADC?"` — neither `GAA` nor `ADC` appears in the bill DOCX. The bill uses "general appropriations act" and "Department of Corrections" verbatim. Smoke script uses `"FY 2026 appropriation Department of Corrections"`.
+> - **Q4 query string** `"What's the FTE headcount for ADOT?"` — `ADOT` doesn't appear in s83. JLBC s83 uses `"Department of Transportation"`. Smoke script uses `"FTE Full-Time Equivalent Positions Department of Transportation"`.
+> - **Q3 expected_chunk_doc_id** `budget-bill-sb1735-2025` — missing `legislature-` publisher prefix the driver convention adds. Real doc_id is `legislature-budget-bill-fy2026-sb1735-2025`.
+>
+> The actual smoke script at `scripts/smoke_query.py` uses spelled-out forms; original plan queries above are kept as the input to the deferred Phase-1b acronym-expansion design decision (likely query-rewrite using the system-prompt context's acronyms section). 5/5 queries pass top-3 retrieval after reformulation.
+
 - [ ] **Step 2: Naive in-memory retrieval**
 
 For Phase 1a only: load all chunks into memory, embed each query into a TF-IDF vector, rank by cosine similarity. No Voyage embeddings, no BM25, no rerank — just enough to verify the chunks contain the right content. If the right chunk doesn't even rank top-3 on TF-IDF, something is wrong with chunk-shape or entity stamping; fix before handing to Phase 1b.
@@ -835,9 +847,13 @@ Open `data/chunks/jlbc-baseline-fy2027-s18.json` in a text editor. Verify:
 
 `scripts/sweep_entities.py` iterates `samples/extractor-output/`. After Phase 1a ingestion, point it at `data/extractor-output/` and re-run. New unmatched candidates feed back into the entity catalog or aliases file.
 
+> **WS6 finding 2026-05-06:** under slice scope this step was NOT done — `sweep_entities.py` has hardcoded path globs (`opendataloader/*/*.md`, `mineru/*/*.md`, `docx/*/*.md`) that don't match the WS6 layout (`<doc_id>/page-*.md` directly under `data/extractor-output/`). The script needs a `--root` argparse option (or layout normalization) before it's reusable on the new layout. Slice catalog audit was instead done via `scripts/audit_chunks.py` (per-doc stamping + provenance) and `scripts/build_fund_catalog.py` (real-corpus fund catalog from s18 + bd2). Deferred to Phase 1b for full corpus.
+
 - [ ] **Step 2: Manual review of `agency-slug-aliases.yaml#pending_for_phase_1`**
 
 Phase 0 left four open items (pending review of `eliminated_or_merged` notes; resolve `doa-cfs / doa-csf / doa-sfd / sfb` identity; verify `ban → dif` merger; check approps-fy2015 hosting URL path). Phase 1a Week 3 ingests FY15-FY22 approps — that's when these resolve naturally. Document the resolutions back into `agency-slug-aliases.yaml`.
+
+> **WS6 finding 2026-05-06:** slice scope did NOT include FY15-FY22 ingest, so all four `pending_for_phase_1` items remain open. Carries over to Phase 1b's first session (full Week 1 ingest + Week 3 backfill).
 
 ### Task 6.3: Hand-off package for Phase 1b
 
@@ -848,6 +864,8 @@ Lists every doc ingested, chunk count, sha256 of the chunk file, and a sample ch
 - [ ] **Step 2: Tag the merge commit `phase-1a-complete`**
 
 After integration tests pass and the manifest is written. Phase 1b starts from this tag.
+
+> **WS6 finding 2026-05-06:** tag actually used was `phase-1a-validated-slice` (not `phase-1a-complete`) to reflect the slice scope under which Phase 1a closed. Phase 1b plan references `phase-1a-validated-slice`.
 
 ---
 
@@ -865,18 +883,21 @@ These don't block Phase 1a closure. Capture so they're not forgotten — many be
 
 ## What "Phase 1a done" means
 
-By the end of Phase 1a:
+> **WS6 outcome 2026-05-06.** Slice scope met every quality target; volume targets (`5+ fiscal years`, `~3000+ chunks`) explicitly deferred to Phase 1b kickoff (see `data/chunks/MANIFEST.md`).
 
-- 5+ fiscal years of source content extracted to `data/extractor-output/`
-- ~3000+ chunks emitted to `data/chunks/` (rough estimate; bounded by per-agency PDF count × years + cross-cut PDF count × years + bills + AFR + Gov SAD)
-- Every chunk passes Pydantic schema validation
-- ≥ 90% of chunks have `agency_canonical_id` stamped (the rest go to a review file)
-- Fund catalog populated with ≥ 80 funds; cross-validated with AFR
-- Domain primer rendered into `data/system-prompt-context.md`
-- 5 smoke-query test cases pass on TF-IDF retrieval (proves chunks contain the right content for representative analyst questions)
-- `data/chunks/MANIFEST.md` written; `phase-1a-complete` tag created
+| Criterion | Plan target | Slice actual | Status |
+|---|---|---|---|
+| Source content extracted | 5+ fiscal years | FY26 + FY27 only (slice scope) | ✗ deferred to 1b |
+| Chunks emitted | ~3000+ | 161 (slice scope) | ✗ deferred to 1b |
+| Pydantic schema validation | every chunk passes | 161 / 161 | ✓ |
+| `agency_canonical_id` stamped | ≥ 90% | 91.3% (147 / 161) | ✓ |
+| Fund catalog | ≥ 80 funds | 227 funds | ✓ |
+| Domain primer rendered | yes | `data/system-prompt-context.md` written WS5 | ✓ |
+| 5 smoke-query test cases pass on TF-IDF | yes | 5 / 5 (after query reformulation, see Task 6.1 callout) | ✓ |
+| `data/chunks/MANIFEST.md` written | yes | yes | ✓ |
+| Tag created | `phase-1a-complete` | `phase-1a-validated-slice` (renamed to reflect slice scope) | ✓ |
 
-Phase 1b then takes the chunk JSON + fund catalog + system-prompt context as inputs and builds storage + retrieval on top.
+Phase 1b then takes the chunk JSON + fund catalog + system-prompt context as inputs and builds storage + retrieval on top. **Phase 1b's first workstream is full Week 1 corpus ingest** to close the volume gap.
 
 ## Pointer to the conversation
 

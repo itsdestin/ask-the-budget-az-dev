@@ -56,7 +56,9 @@ Sub-repo code goes in the relevant sub-repo. Workspace-level artifacts (specs, p
 | Phase | Status | What happens | Where it runs |
 |---|---|---|---|
 | **Phase 0 — Investigation** | ✓ closed 2026-05-06 | Per-doc-type extractor routing decision (MinerU + OpenDataLoader-PDF + python-docx; original MinerU-vs-Docling bake-off pivoted 2026-05-05), 157-agency canonical catalog from publisher data, JLBC four-layout publishing structure mapped, chunk-shape decisions D1–D7. Outcomes: findings memo + chunk-shape doc + data-model doc under `docs/superpowers/investigations/`. | Destin's machine |
-| **Phase 1 — Working prototype** | in planning | Full 5-year ingest, web UI, retrieval + citation pipeline, LLM via local YouCoded. | Destin's machine |
+| **Phase 1a — Ingest + chunking** | ✓ closed 2026-05-06 (slice-validated) | Tag `phase-1a-validated-slice` at commit `9ba0385`. 5 docs / 161 chunks / 91.3% agency-stamped / 227 funds. Pipeline proven end-to-end on real source; full-corpus ingest moves to Phase 1b kickoff. Hand-off contract at `data/chunks/MANIFEST.md`. | Destin's machine |
+| **Phase 1b — Storage + retrieval** | in planning | Postgres + pgvector + ParadeDB; hybrid retrieval (BM25 + dense + RRF + rerank); query routing. Plan at `docs/superpowers/plans/2026-05-06-phase-1b-storage-and-retrieval.md`. | Destin's machine |
+| **Phase 1c — Companion + UI** | not started | LLM synthesis + faithfulness verification + Next.js UI. Plan at `docs/superpowers/plans/2026-05-06-phase-1c-companion-and-ui.md`. | Destin's machine |
 | **Phase 2 — Companion app + first deploy** | not started | Build JLBC Budget Agent companion. Deploy web app to free-tier hosting. Onboard 2-3 trusted analysts. | Vercel/Supabase + each analyst's machine |
 | **Phase 3 — Internal pilot** | not started | Wider JLBC use. Tier 2 entity resolution. Eval set expansion. | Same |
 | **Phase 4 — Public-launch consideration** | not started | Gated on hard metrics in the spec. | Same, plus public host |
