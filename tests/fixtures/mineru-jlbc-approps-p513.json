@@ -1,0 +1,39 @@
+{
+  "extractor": "mineru-3.1.6",
+  "source_pdf": "samples/raw-pdfs/jlbc-approps-fy26.pdf",
+  "page": 513,
+  "blocks": [
+    {
+      "type": "text",
+      "text": "Department of Administration",
+      "text_level": 1,
+      "bbox": [72.0, 700.0, 540.0, 720.0],
+      "page_idx": 512
+    },
+    {
+      "type": "text",
+      "text": "Capital Outlay",
+      "text_level": 2,
+      "bbox": [72.0, 670.0, 540.0, 690.0],
+      "page_idx": 512
+    },
+    {
+      "type": "text",
+      "text": "Detailed appropriations are summarized in the table below.",
+      "bbox": [72.0, 640.0, 540.0, 660.0],
+      "page_idx": 512
+    },
+    {
+      "type": "table",
+      "table_body": "<table><thead><tr><th>Project</th><th>FY2026</th></tr></thead><tbody><tr><td>Parks Statewide Solar Shade Structures</td><td>$1,200,000</td></tr><tr><td>State Capitol Roof Repair</td><td>$3,500,000</td></tr></tbody></table>",
+      "bbox": [72.0, 400.0, 540.0, 620.0],
+      "page_idx": 512
+    },
+    {
+      "type": "image",
+      "img_path": "images/p513-img-001.png",
+      "bbox": [72.0, 100.0, 300.0, 300.0],
+      "page_idx": 512
+    }
+  ]
+}

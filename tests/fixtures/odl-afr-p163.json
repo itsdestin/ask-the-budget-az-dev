@@ -1,0 +1,100 @@
+{
+  "extractor": "opendataloader-2.4.1",
+  "source_pdf": "samples/raw-pdfs/agao-afr-fy25.pdf",
+  "page": 163,
+  "blocks": [
+    {
+      "type": "heading",
+      "id": "elem-001",
+      "page number": 163,
+      "bounding box": [72.0, 700.0, 540.0, 720.0],
+      "content": "Arizona Annual Financial Report FY 2025",
+      "heading level": 1,
+      "level": "Doctitle"
+    },
+    {
+      "type": "heading",
+      "id": "elem-002",
+      "page number": 163,
+      "bounding box": [72.0, 660.0, 540.0, 680.0],
+      "content": "Notes to the Financial Statements",
+      "heading level": 2,
+      "level": "H1"
+    },
+    {
+      "type": "heading",
+      "id": "elem-003",
+      "page number": 163,
+      "bounding box": [72.0, 620.0, 540.0, 640.0],
+      "content": "Statement of Revenues, Expenditures and Changes in Fund Balance",
+      "heading level": 3,
+      "level": "H2"
+    },
+    {
+      "type": "paragraph",
+      "id": "elem-004",
+      "page number": 163,
+      "bounding box": [72.0, 580.0, 540.0, 600.0],
+      "content": "See Note 6 for pension liabilities recognized during the fiscal year.",
+      "font": "Times-Roman",
+      "font size": "10.5"
+    },
+    {
+      "type": "table",
+      "id": "elem-005",
+      "page number": 163,
+      "bounding box": [72.0, 400.0, 540.0, 560.0],
+      "rows": [
+        {
+          "id": "row-001",
+          "cells": [
+            {
+              "id": "cell-001",
+              "page number": 163,
+              "bounding box": [72.0, 540.0, 250.0, 560.0],
+              "kids": [
+                {"type": "paragraph", "content": "Fund"}
+              ]
+            },
+            {
+              "id": "cell-002",
+              "page number": 163,
+              "bounding box": [250.0, 540.0, 540.0, 560.0],
+              "kids": [
+                {"type": "paragraph", "content": "Balance"}
+              ]
+            }
+          ]
+        },
+        {
+          "id": "row-002",
+          "cells": [
+            {
+              "id": "cell-003",
+              "page number": 163,
+              "bounding box": [72.0, 500.0, 250.0, 540.0],
+              "kids": [
+                {"type": "paragraph", "content": "General Fund"}
+              ]
+            },
+            {
+              "id": "cell-004",
+              "page number": 163,
+              "bounding box": [250.0, 500.0, 540.0, 540.0],
+              "kids": [
+                {"type": "paragraph", "content": "$1,234,567,000"}
+              ]
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "type": "image",
+      "id": "elem-006",
+      "page number": 163,
+      "bounding box": [72.0, 200.0, 300.0, 380.0],
+      "source": "agao-afr-fy25_images/p163-img-001.png"
+    }
+  ]
+}

@@ -1,0 +1,75 @@
+{
+  "extractor": "python-docx",
+  "source_docx": "samples/raw-docx/budget-bill-sb1735-2025.docx",
+  "blocks": [
+    {
+      "kind": "paragraph",
+      "paragraph_id": "p:00A14B01",
+      "style": "Normal",
+      "text": "DEPARTMENT OF CORRECTIONS"
+    },
+    {
+      "kind": "paragraph",
+      "paragraph_id": "p:00A14B02",
+      "style": "P 06-1",
+      "text": "Operating Lump Sum\t11,005,600",
+      "cells": ["Operating Lump Sum", "11,005,600"]
+    },
+    {
+      "kind": "paragraph",
+      "paragraph_id": "p:00A14B03",
+      "style": "P 06-1",
+      "text": "Building Renewal\t500,000",
+      "cells": ["Building Renewal", "500,000"]
+    },
+    {
+      "kind": "paragraph",
+      "paragraph_id": "p:00A14B04",
+      "style": "Normal",
+      "text": "ARIZONA HEALTH CARE COST CONTAINMENT SYSTEM"
+    },
+    {
+      "kind": "paragraph",
+      "paragraph_id": "p:00A14B05",
+      "style": "P 06-1",
+      "text": "Operating Lump Sum\t14,554,163,500",
+      "cells": ["Operating Lump Sum", "14,554,163,500"]
+    },
+    {
+      "kind": "paragraph",
+      "paragraph_id": "p:00A14B06",
+      "style": "SEC 06-18",
+      "text": "Sec. 18. Supplemental appropriation; Department of Corrections; FY 2026; building renewal; section 41-792.01."
+    },
+    {
+      "kind": "paragraph",
+      "paragraph_id": "p:00A14B07",
+      "style": "Normal",
+      "text": "An additional $500,000 is appropriated to the department of corrections for FY 2026 for building renewal pursuant to section 41-792.01, A.R.S."
+    },
+    {
+      "kind": "paragraph",
+      "paragraph_id": "p:00A14B08",
+      "style": "SEC 06-18",
+      "text": "Sec. 19. Appropriation reduction; Arizona Health Care Cost Containment System; FY 2026; restoration."
+    },
+    {
+      "kind": "paragraph",
+      "paragraph_id": "p:00A14B09",
+      "style": "Normal",
+      "text": "The appropriation made by section 35-1 to AHCCCS for FY 2026 is reduced by section 36-2901."
+    },
+    {
+      "kind": "paragraph",
+      "paragraph_id": "p:00A14B10",
+      "style": "SEC 06-19",
+      "text": "Sec. 20. Fund balance transfer; State General Fund; FY 2026; transfer."
+    },
+    {
+      "kind": "paragraph",
+      "paragraph_id": "p:00A14B11",
+      "style": "Normal",
+      "text": "The state treasurer shall transfer $1,000,000 from the State General Fund pursuant to section 35-142.01."
+    }
+  ]
+}

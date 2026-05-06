@@ -9,6 +9,9 @@ dependencies = [
     "opendataloader-pdf>=2.4.1",
     "python-docx>=1.2.0",
     "requests>=2.32.0",
+    "pydantic>=2.9.0",
+    "beautifulsoup4>=4.14.0",
+    "rapidfuzz>=3.10.0",
 ]
 
 [dependency-groups]

@@ -1,0 +1,71 @@
+{
+  "extractor": "mineru-3.1.6",
+  "source_pdf": "samples/raw-pdfs/jlbc-baseline-fy27.pdf",
+  "page": 142,
+  "blocks": [
+    {
+      "type": "text",
+      "text": "Department of Administration",
+      "text_level": 1,
+      "bbox": [72.0, 700.0, 540.0, 720.0],
+      "page_idx": 141
+    },
+    {
+      "type": "text",
+      "text": "Mission Statement",
+      "text_level": 2,
+      "bbox": [72.0, 670.0, 540.0, 690.0],
+      "page_idx": 141
+    },
+    {
+      "type": "text",
+      "text": "The Department of Administration provides a wide range of central management services and shared business operations to other state agencies. The Department's responsibilities include risk management, capital planning, fleet operations, building maintenance, surplus property disposal, and information technology services. The Department serves as the central administrative arm of state government, providing operational support that enables agencies to focus on their primary missions.",
+      "bbox": [72.0, 600.0, 540.0, 660.0],
+      "page_idx": 141
+    },
+    {
+      "type": "text",
+      "text": "The Department also administers the State Procurement Office, which establishes statewide contracts for commodities and services used by all state agencies. By consolidating purchasing authority, the State Procurement Office leverages the state's combined buying power to obtain favorable pricing and terms. Statewide contracts cover everything from office supplies to vehicle fleets to professional services.",
+      "bbox": [72.0, 540.0, 540.0, 590.0],
+      "page_idx": 141
+    },
+    {
+      "type": "text",
+      "text": "FY 2027 Operating Budget",
+      "text_level": 2,
+      "bbox": [72.0, 510.0, 540.0, 530.0],
+      "page_idx": 141
+    },
+    {
+      "type": "text",
+      "text": "The Executive recommends $123,456,700 from the General Fund and $45,000,000 from Other Appropriated Funds for the Department of Administration's operating budget for FY 2027. The recommendation represents a 3.2% increase over the FY 2026 enacted level, primarily reflecting cost increases for IT modernization initiatives and increased risk management premiums driven by claims experience.",
+      "bbox": [72.0, 460.0, 540.0, 500.0],
+      "page_idx": 141
+    },
+    {
+      "type": "text",
+      "text": "The General Fund recommendation includes $5.2 million for the continued migration of legacy mainframe systems to cloud-based infrastructure. This is the third year of a five-year migration plan approved by JLBC in FY 2025. The plan is on schedule to retire the last mainframe application by FY 2029, with projected ongoing operational savings of approximately $8 million per year once complete.",
+      "bbox": [72.0, 400.0, 540.0, 450.0],
+      "page_idx": 141
+    },
+    {
+      "type": "text",
+      "text": "Other Appropriated Funds include $12.5 million from the Risk Management Revolving Fund for property and liability insurance premiums, $8 million from the Capital Outlay Stabilization Fund for ongoing capital project oversight, and $24.5 million from various agency-billed services for shared IT operations.",
+      "bbox": [72.0, 340.0, 540.0, 390.0],
+      "page_idx": 141
+    },
+    {
+      "type": "text",
+      "text": "Performance Measures",
+      "text_level": 2,
+      "bbox": [72.0, 310.0, 540.0, 330.0],
+      "page_idx": 141
+    },
+    {
+      "type": "text",
+      "text": "The Department reports performance against twelve key indicators each quarter to JLBC. These include average procurement cycle time, statewide contract utilization rate, risk management claim resolution time, and customer satisfaction surveys for the Capitol Mall police services and motor pool. The most recent quarterly report showed strong performance on procurement cycle time (averaging 18 days vs. a 21-day target) but elevated claim resolution time (averaging 47 days vs. a 30-day target), driven primarily by complex litigation involving the State Hospital.",
+      "bbox": [72.0, 240.0, 540.0, 300.0],
+      "page_idx": 141
+    }
+  ]
+}
