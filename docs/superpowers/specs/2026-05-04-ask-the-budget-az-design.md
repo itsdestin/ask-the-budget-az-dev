@@ -90,12 +90,21 @@ Three runtime tiers, plus a Phase 2 companion app on each analyst's machine.
                                    └──────────────────────────────┘
 
 INGEST PIPELINE (offline, run on Destin's machine for v1):
-  raw documents (PDF + DOCX) → format-aware router:
-    .pdf  → MinerU (or OpenDataLoader-PDF) → JSON + (page, bbox) provenance
-    .docx → python-docx → JSON + (paragraph_id, cell_id) provenance
-  → structure-aware chunker (format-agnostic on the chunker side)
+  raw documents (PDF + DOCX) → per-doc-type extractor routing:
+    Tagged PDFs (AFR, Gov State-Agency-Detail)
+      → OpenDataLoader-PDF with use_struct_tree=True
+      → cell-level JSON + (page, bbox) provenance
+    Untagged PDFs (JLBC Baseline, JLBC Approps, Gov Sources-and-Uses)
+      → MinerU 2.5 (CLI subprocess)
+      → HTML tables + (page, bbox) provenance
+    DOCX (budget bills)
+      → python-docx
+      → JSON + (paragraph_id, cell_id) provenance
+  → chunking layer (extractor-aware reader, format-agnostic output)
+  → uniform Chunk rows (table chunks + narrative chunks)
   → Voyage-3-large embeddings → Postgres write
-  + agency canonical map (curated YAML, version-controlled)
+  + agency canonical map keyed by JLBC slug (`agency:<slug>`, e.g. `agency:axs` for AHCCCS)
+  + cross-cut summary PDFs (JLBC s-PDFs s1–s90) ingested as small focused docs
 
 Why format-aware: budget bills (and likely future legislative artifacts) are
 distributed as .docx — a structured XML format where paragraphs, tables,
@@ -255,7 +264,7 @@ Programs and sub-program canonicalization (Tier 2) is **deferred**; sub-program 
 
 | Phase | Scope | Where it runs | Users |
 |---|---|---|---|
-| **Phase 0 — Investigation** | Extractor bake-off, entity-resolution catalog, chunking validation. Output: findings memo. ~3–5 days. | Destin's machine | Destin |
+| **Phase 0 — Investigation** ✓ closed 2026-05-06 | Extractor bake-off, entity-resolution catalog, chunking validation. See `docs/superpowers/investigations/2026-05-06-phase-0-findings.md` (memo), `2026-05-05-chunk-shape-decisions.md` (chunking), `2026-05-06-data-model.md` (source-data model). | Destin's machine | Destin |
 | **Phase 1 — Working prototype** | Full 5-year ingest, web UI, retrieval + citation pipeline, LLM via local YouCoded. End-to-end working but only on Destin's machine. ~3–5 weeks. | Destin's machine | Destin (dogfooding) |
 | **Phase 2 — Companion + first deploy** | Build JLBC Budget Agent companion (lifts from YouCoded). Deploy web app to free tier. Onboard 2–3 trusted analysts. ~2–3 weeks. | Vercel/Supabase + each analyst's machine | Destin + 2–3 analysts |
 | **Phase 3 — Internal pilot** | Wider JLBC use. Tier 2 entity resolution informed by real query logs. Eval set expansion. | Same | Wider JLBC |
@@ -264,6 +273,18 @@ Programs and sub-program canonicalization (Tier 2) is **deferred**; sub-program 
 Tier 0 / Phase 0 is the **only** phase where we make irreversible architecture decisions. Each subsequent phase adds capability on top.
 
 ## 8. Phase 0 Investigation (Concrete Plan)
+
+> **Status: closed 2026-05-06.** Outcomes captured in:
+> - `docs/superpowers/investigations/2026-05-06-phase-0-findings.md` — findings memo (settled decisions, deferred decisions, Phase 1 readiness)
+> - `docs/superpowers/investigations/2026-05-05-chunk-shape-decisions.md` — chunk-shape decisions D1–D7
+> - `docs/superpowers/investigations/2026-05-06-data-model.md` — JLBC publishing structure, s-PDFs, slug-as-canonical-id, multi-year corpus
+>
+> Notable scope changes during execution:
+> - **Goal 1 (winner extractor) became per-doc-type routing** — no single winner; ODL for tagged PDFs (AFR, Gov), MinerU for untagged (JLBC), python-docx for DOCX. Documented in §9 stack table below.
+> - **Goal 2 (entity catalog) was bootstrapped from publisher data** — JLBC's per-year agency-index PDFs gave us 132 canonical agencies with stable slugs going back to FY 2015. `samples/entity-catalog.yaml`.
+> - **Discovery of JLBC's four parallel publishing layouts** (singlefile + link-nav + per-agency PDFs + cross-cut s-PDFs) — this changes the Phase 1 ingestion shape; see data-model doc §2-§3.
+>
+> The original concrete plan below is preserved as the historical record of how Phase 0 was scoped.
 
 The only phase that produces a memo instead of code. Goal: make irreversible architecture decisions on real data.
 
@@ -326,9 +347,9 @@ Take the winning extractor's output, manually mark up where chunks should split.
 | Layer | Choice | Why |
 |---|---|---|
 | **Format-aware ingest router** | Trivial extension-based dispatch (`.pdf` → PDF path, `.docx` → DOCX path) | Native processing of structured formats avoids the lossy `docx → pdf → re-extract` round-trip. |
-| **PDF extraction (primary)** | MinerU 2.5 self-hosted | Best open-source on financial-doc benchmarks; emits page+bbox per element. Validated in Phase 0. |
-| **PDF extraction (fallback)** | OpenDataLoader-PDF v2.4.1 | Apache-2.0, JDK-only, ~15× faster than MinerU on the smoke-test page. 0.928 table-accuracy benchmark. (Replaces Docling, which proved unworkable on Windows — see Phase 0 plan "Pivot — 2026-05-05".) |
-| **PDF extraction (escalation, optional)** | Claude Sonnet 4.6 vision | For pages flagged low-confidence. Costs API budget; only used if Phase 0 shows it's necessary. |
+| **PDF extraction (tagged docs: AFR, Gov State-Agency-Detail)** | OpenDataLoader-PDF v2.4.1 with `use_struct_tree=True` | Tagged PDFs carry a structure tree; ODL surfaces it as cell-level JSON with row/col indices. Apache-2.0, JDK-only, ~15× faster than MinerU. (Replaces Docling, which proved unworkable on Windows — see Phase 0 plan "Pivot — 2026-05-05".) |
+| **PDF extraction (untagged docs: JLBC Baseline, JLBC Approps, Gov S&U)** | MinerU 2.5/3.x via CLI subprocess | Untagged PDFs lose column structure under ODL; MinerU detects tables and emits HTML with row/col attribution. Validated in Phase 0 inspection on JLBC pages 164/513. |
+| **PDF extraction (escalation, deferred)** | Claude Sonnet/Opus 4.x vision | Defer to Phase 1+ if MinerU's residual error rate proves unacceptable. Three response strategies in chunk-shape D-defer-1: accept + UI surfacing / confidence-flagging / custom JLBC extractor. |
 | **DOCX extraction** | `python-docx` direct | Reads the .docx XML directly. Lossless: paragraphs, tables, headings, and styles are explicit in the source. No layout inference needed. |
 | **Chunking** | Structure-aware, tables atomic, 512-token target / 1024 max, ~15% overlap | 2026 consensus for financial RAG (recall 0.877 vs. 0.759 for semantic-only chunking). |
 | **Vector + lexical store** | Postgres + pgvector + ParadeDB pg_search | Single store, transactional metadata, easy SQL fan-out for comparison queries. Fits free tier (Supabase or Neon). |
