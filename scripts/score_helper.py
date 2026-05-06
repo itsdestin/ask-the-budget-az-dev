@@ -237,23 +237,43 @@ def main() -> int:
     helper_lines: list[str] = []
     helper_lines.append("# Phase 0 Task 8 — Scoring Helper (OpenDataLoader)")
     helper_lines.append("")
-    helper_lines.append(
-        "For each page below, open the PDF in a viewer to the listed page, "
-        "then check the 3 spot-check cells. Each row in the CSV is pre-filled "
-        "with auto-scored dimensions; you fill in `bbox_quality` and "
-        "`footnote_attachment`, and confirm/override the auto-suggestions."
-    )
+    helper_lines.append("## How to use this file")
     helper_lines.append("")
-    helper_lines.append("**Auto-scored** (computed from JSON + pypdf reference):")
-    helper_lines.append("- `cell_accuracy` — full numeric-token diff against pypdf")
-    helper_lines.append("- `multipage_reassembly` — JSON inspection for shared table IDs")
+    helper_lines.append("For each page below you'll see four things:")
+    helper_lines.append("1. A **preview PNG** showing the PDF page with extraction bboxes drawn on it (light blue = every detected element; ① ② ③ red badges = spot-check cells)")
+    helper_lines.append("2. The **3 spot-check cell texts** the red badges correspond to")
+    helper_lines.append("3. **Auto-scores** I've already filled into `samples/scores-opendataloader.csv`")
+    helper_lines.append("4. **What to score yourself** in the CSV")
     helper_lines.append("")
-    helper_lines.append("**Auto-suggested** (you confirm in the viewer):")
-    helper_lines.append("- `header_detection` — pypdf CAPS-line count vs ODL heading-block count")
+    helper_lines.append("### Per-page workflow (~3 min/page)")
     helper_lines.append("")
-    helper_lines.append("**You score** (visual inspection required):")
-    helper_lines.append("- `bbox_quality` — open the PDF, look at the 3 spot-check bboxes below")
-    helper_lines.append("- `footnote_attachment` — pick a footnote on the page, check it ties to the right row")
+    helper_lines.append("**Step 1 — Open the preview PNG.** Look at the 3 red boxes (① ② ③).")
+    helper_lines.append("- Does each red box surround a single, readable element on the page (not too much, not too little, not a wrong region)?")
+    helper_lines.append("- Look at the light-blue boxes overall: do they look like reasonable element boundaries, or is there obvious chaos (boxes crossing unrelated content, missing whole regions, etc.)?")
+    helper_lines.append("")
+    helper_lines.append("**Step 2 — Compare the 3 spot-check texts** (in the table for each page) **with what's actually in those red boxes on the PNG.**")
+    helper_lines.append("- All 3 match exactly: the auto-scored `cell_accuracy` is correct.")
+    helper_lines.append("- 1 mismatch: override `cell_accuracy` to 2 in the CSV.")
+    helper_lines.append("- 2+ mismatches or wrong digits: override to 1 (or 0).")
+    helper_lines.append("")
+    helper_lines.append("**Step 3 — Score `bbox_quality` in the CSV** based on Step 1:")
+    helper_lines.append("- All 3 red boxes tight around their content, blue boxes look reasonable: **3**")
+    helper_lines.append("- 1 red box off (covers extra content or misses content), or blue boxes drift on a few items: **2**")
+    helper_lines.append("- 2+ red boxes off, or blue boxes are clearly wrong on many items: **1**")
+    helper_lines.append("- No bboxes drawn, or wildly off-page: **0**")
+    helper_lines.append("")
+    helper_lines.append("**Step 4 — Score `footnote_attachment` in the CSV.**")
+    helper_lines.append("- If the page has no footnote markers visible: **NA**")
+    helper_lines.append("- If footnotes exist: open the PDF (or just look at the PNG) and pick one footnote marker like `(1)` or `*`. Open `samples/extractor-output/opendataloader/<doc>/page-<N>.md`. Is the footnote text near the row that referenced it (within ~5 lines)?")
+    helper_lines.append("  - Tied correctly: **3**. Footnote present but unattached: **2**. Wrong row or mangled: **1**. Footnote dropped: **0**.")
+    helper_lines.append("")
+    helper_lines.append("**Step 5 — Confirm or override `header_detection`.**")
+    helper_lines.append("- Open the .md file. Count `# Heading` lines.")
+    helper_lines.append("- Compare with how many visual headings (large/bold text) you see on the PNG.")
+    helper_lines.append("- All caught, no false flags: **3**. 1 missed or 1 false: **2**. ≥2 missed: **1**. None caught: **0**.")
+    helper_lines.append("- Sometimes ODL puts headings INSIDE table blocks (visible in the .json) rather than as `heading`-typed blocks. If the heading text is somewhere in the output (just not labeled `heading`), score 2.")
+    helper_lines.append("")
+    helper_lines.append("**Step 6 — Don't change `cell_accuracy` or `multipage_reassembly` unless Step 2 surfaced a problem** (these were auto-scored from data; trust them by default).")
     helper_lines.append("")
     helper_lines.append("---")
 
@@ -299,46 +319,74 @@ def main() -> int:
         helper_lines.append("")
         helper_lines.append(f"## {doc_id} p.{page} — `{', '.join(archetypes)}`")
         helper_lines.append("")
-        helper_lines.append(f"**PDF:** `{pdf_path}` — open page **{page}**")
-        helper_lines.append(f"**Output:** `samples/extractor-output/opendataloader/{doc_id}/page-{page}.{{json,md}}`")
+        helper_lines.append(f"**Preview:** `samples/scoring-helpers/{doc_id}/page-{page}.png` _(the page with bboxes drawn — open this first)_")
+        helper_lines.append(f"**Original PDF:** `{pdf_path}` (page {page})")
+        helper_lines.append(f"**Extraction output:** `samples/extractor-output/opendataloader/{doc_id}/page-{page}.{{json,md}}`")
         helper_lines.append("")
-        helper_lines.append("**Spot-check cells** (open PDF, find these on the page, verify text matches and bbox surrounds the right region):")
         if spot_checks:
+            helper_lines.append("**Spot-checks (the red ① ② ③ on the preview):** confirm each red box surrounds the matching text on the page.")
             helper_lines.append("")
-            helper_lines.append("| # | content | bbox (PDF user-space) | row,col |")
-            helper_lines.append("|---|---|---|---|")
+            helper_lines.append("| Badge | What's inside the red box should be |")
+            helper_lines.append("|---|---|")
             for i, s in enumerate(spot_checks, 1):
                 content = s["text"].replace("|", "\\|").replace("\n", " ")
-                rc = f"r{s['row']},c{s['col']}" if s["row"] else "—"
-                helper_lines.append(f"| {i} | `{content}` | {fmt_bbox(s['bbox'])} | {rc} |")
+                helper_lines.append(f"| ⓘ{i} | `{content}` |")
         else:
-            helper_lines.append("")
-            helper_lines.append("_No text-bearing blocks — page extraction may have failed; check before scoring._")
+            helper_lines.append("_No text-bearing blocks were detected on this page — extraction may have failed. Score everything 0._")
         helper_lines.append("")
-        helper_lines.append("**Auto-scores:**")
+        helper_lines.append("**Already auto-scored in the CSV** (don't re-score unless your spot-check disagrees):")
         helper_lines.append(f"- `cell_accuracy` = **{cell_acc}** — {cell_acc_why}")
         helper_lines.append(f"- `multipage_reassembly` = **{multi}** — {multi_why}")
-        helper_lines.append(f"- `header_detection` = **{head_score}** _(suggested)_ — {head_why}")
-        helper_lines.append(f"- `footnote_attachment` — **{footnote_hint}** ({n_footnote_markers} marker candidates in pypdf text)")
+        helper_lines.append("")
+        helper_lines.append(f"**Auto-suggested, please confirm:** `header_detection` = **{head_score}** — {head_why}")
+        helper_lines.append("")
+        helper_lines.append(f"**You score:** `bbox_quality` (from the red boxes in the preview) and `footnote_attachment` (hint: {footnote_hint}, {n_footnote_markers} marker candidates found in pypdf text).")
 
-    # Write CSV
-    with SCORES_CSV.open("w", encoding="utf-8", newline="") as f:
-        writer = csv.DictWriter(
-            f,
-            fieldnames=[
-                "doc_id", "page", "archetypes",
-                "cell_accuracy", "bbox_quality", "multipage_reassembly",
-                "header_detection", "footnote_attachment", "notes",
-            ],
-        )
-        writer.writeheader()
-        writer.writerows(csv_rows)
-
-    # Write helper markdown
+    # Write helper markdown first — it has no risk of clobbering user
+    # work (it's regenerated from data each run).
     HELPER_MD.write_text("\n".join(helper_lines) + "\n", encoding="utf-8")
-
-    print(f"wrote {SCORES_CSV} ({len(csv_rows)} rows)")
     print(f"wrote {HELPER_MD}")
+
+    # CSV is the user's working scoring file. If it's locked (open in
+    # Excel) OR if the user has already filled in bbox_quality /
+    # footnote_attachment values, skip the rewrite and tell them.
+    skip_csv = False
+    if SCORES_CSV.exists():
+        try:
+            with SCORES_CSV.open("r", encoding="utf-8") as f:
+                existing = list(csv.DictReader(f))
+            for row in existing:
+                if row.get("bbox_quality") or row.get("footnote_attachment"):
+                    skip_csv = True
+                    break
+        except Exception:
+            pass
+
+    if skip_csv:
+        print(
+            f"SKIPPED writing {SCORES_CSV} — it has user-filled scores. "
+            "Edit it directly or delete + rerun this script."
+        )
+        return 0
+    try:
+        with SCORES_CSV.open("w", encoding="utf-8", newline="") as f:
+            writer = csv.DictWriter(
+                f,
+                fieldnames=[
+                    "doc_id", "page", "archetypes",
+                    "cell_accuracy", "bbox_quality", "multipage_reassembly",
+                    "header_detection", "footnote_attachment", "notes",
+                ],
+            )
+            writer.writeheader()
+            writer.writerows(csv_rows)
+        print(f"wrote {SCORES_CSV} ({len(csv_rows)} rows)")
+    except PermissionError:
+        print(
+            f"WARNING: {SCORES_CSV} is locked (open in Excel?). "
+            "Close it and re-run if you want auto-scores refreshed; "
+            "the helper.md was still updated."
+        )
     return 0
 
 
