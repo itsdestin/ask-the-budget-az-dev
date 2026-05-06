@@ -1,0 +1,20 @@
+{
+  "extractor": "mineru-3.1.6",
+  "source_pdf": "samples/raw-pdfs/jlbc-baseline-fy27.pdf",
+  "page": 1,
+  "blocks": [
+    {
+      "type": "text",
+      "text": "Section 18 — Other Appropriated Funds Summary",
+      "text_level": 1,
+      "bbox": [72, 700, 540, 720],
+      "page_idx": 0
+    },
+    {
+      "type": "table",
+      "table_body": "<table><thead><tr><th>Fund</th><th>FY2026</th><th>FY2027</th></tr></thead><tbody><tr><td colspan=\"3\">Department of Administration</td></tr><tr><td>General Fund</td><td>$100,000,000</td><td>$105,000,000</td></tr><tr><td>Aviation Fund</td><td>$5,000,000</td><td>$5,200,000</td></tr><tr><td>State Highway Fund</td><td>$2,000,000</td><td>$2,100,000</td></tr><tr><td>Department Total</td><td>$107,000,000</td><td>$112,300,000</td></tr><tr><td colspan=\"3\">Department of Health Services</td></tr><tr><td>General Fund</td><td>$200,000,000</td><td>$210,000,000</td></tr><tr><td>Tobacco Tax Health Care Fund</td><td>$50,000,000</td><td>$52,000,000</td></tr><tr><td>Department Total</td><td>$250,000,000</td><td>$262,000,000</td></tr><tr><td colspan=\"3\">Department of Corrections</td></tr><tr><td>General Fund</td><td>$1,500,000,000</td><td>$1,575,000,000</td></tr><tr><td>Building Renewal Fund</td><td>$8,000,000</td><td>$8,400,000</td></tr><tr><td>Department Total</td><td>$1,508,000,000</td><td>$1,583,400,000</td></tr></tbody></table>",
+      "bbox": [72, 100, 540, 690],
+      "page_idx": 0
+    }
+  ]
+}
