@@ -13,7 +13,7 @@ the rule rides with the type, not just the database.
 """
 from __future__ import annotations
 
-from pydantic import BaseModel, ConfigDict, model_validator
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 
 class ChunkProvenance(BaseModel):
@@ -64,3 +64,8 @@ class Chunk(BaseModel):
     doc_type: str
     publisher: str
     token_count: int
+    # Observability for entity-stamper hops (chunk-shape D7). Empty when no
+    # alias was applied during canonical-id resolution. Not persisted to
+    # Postgres in spec §6 — sidecar metadata for audit/debugging.
+    alias_chain: list[str] = Field(default_factory=list)
+    fund_mentions: list[str] = Field(default_factory=list)
