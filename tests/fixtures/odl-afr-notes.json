@@ -1,0 +1,94 @@
+{
+  "extractor": "opendataloader-2.4.1",
+  "source_pdf": "samples/raw-pdfs/agao-afr-fy25.pdf",
+  "page": 174,
+  "blocks": [
+    {
+      "type": "heading",
+      "id": "h-section",
+      "page number": 174,
+      "bounding box": [72.0, 720.0, 540.0, 740.0],
+      "content": "Notes to Financial Statements",
+      "heading level": 1,
+      "level": "H1"
+    },
+    {
+      "type": "heading",
+      "id": "h-note-1",
+      "page number": 174,
+      "bounding box": [72.0, 690.0, 540.0, 710.0],
+      "content": "Note 1 — Summary of Significant Accounting Policies",
+      "heading level": 2,
+      "level": "H2"
+    },
+    {
+      "type": "paragraph",
+      "id": "p-note-1a",
+      "page number": 174,
+      "bounding box": [72.0, 660.0, 540.0, 680.0],
+      "content": "The accompanying basic financial statements of the State of Arizona have been prepared in conformity with generally accepted accounting principles (GAAP) as applied to governmental units."
+    },
+    {
+      "type": "paragraph",
+      "id": "p-note-1b",
+      "page number": 174,
+      "bounding box": [72.0, 620.0, 540.0, 640.0],
+      "content": "The Governmental Accounting Standards Board (GASB) is the accepted standard-setting body for establishing governmental accounting and financial reporting principles."
+    },
+    {
+      "type": "heading",
+      "id": "h-note-2",
+      "page number": 175,
+      "bounding box": [72.0, 720.0, 540.0, 740.0],
+      "content": "Note 2 — Cash and Investments",
+      "heading level": 2,
+      "level": "H2"
+    },
+    {
+      "type": "paragraph",
+      "id": "p-note-2",
+      "page number": 175,
+      "bounding box": [72.0, 690.0, 540.0, 710.0],
+      "content": "The State pools cash from each fund into a centralized cash pool, which is invested daily by the State Treasurer."
+    },
+    {
+      "type": "heading",
+      "id": "h-note-6",
+      "page number": 178,
+      "bounding box": [72.0, 720.0, 540.0, 740.0],
+      "content": "Note 6 — Fund Balances",
+      "heading level": 2,
+      "level": "H2"
+    },
+    {
+      "type": "paragraph",
+      "id": "p-note-6a",
+      "page number": 178,
+      "bounding box": [72.0, 690.0, 540.0, 710.0],
+      "content": "Fund balances of the Statement of Revenues, Expenditures and Changes in Fund Balance are classified as nonspendable, restricted, committed, assigned, or unassigned per GASB Statement No. 54."
+    },
+    {
+      "type": "paragraph",
+      "id": "p-note-6b",
+      "page number": 178,
+      "bounding box": [72.0, 660.0, 540.0, 680.0],
+      "content": "Restricted fund balances total $4.2 billion across all governmental funds; the General Fund's unassigned balance is reported separately."
+    },
+    {
+      "type": "heading",
+      "id": "h-note-12",
+      "page number": 181,
+      "bounding box": [72.0, 720.0, 540.0, 740.0],
+      "content": "Note 12 — Subsequent Events",
+      "heading level": 2,
+      "level": "H2"
+    },
+    {
+      "type": "paragraph",
+      "id": "p-note-12",
+      "page number": 181,
+      "bounding box": [72.0, 690.0, 540.0, 710.0],
+      "content": "Management has evaluated subsequent events through the date of issuance of these financial statements and identified no material events requiring disclosure."
+    }
+  ]
+}
