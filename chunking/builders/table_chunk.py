@@ -44,12 +44,19 @@ class DocMeta:
     Mirrors the public fields on `chunk.types.Chunk` that aren't derivable
     from the table itself. `doc_id` is what the dispatcher's `make_doc_id`
     produced for this document.
+
+    `extractor` / `source_format` are used by the orchestrator to dispatch
+    to the right reader. `source_url` is consumed by the entity stamper
+    (JLBC URL → per-agency slug).
     """
 
     doc_id: str
     publisher: str
     doc_type: str
     fiscal_year: int
+    extractor: str = ""  # 'mineru' | 'opendataloader' | 'python-docx'
+    source_format: str = ""  # 'pdf' | 'docx'
+    source_url: str | None = None
 
 
 def build_table_chunk(
