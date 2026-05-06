@@ -86,7 +86,7 @@ wheels = [
 ]
 
 [[package]]
-name = "ask-the-budget-az-phase-0"
+name = "ask-the-budget-az-dev"
 version = "0.1.0"
 source = { virtual = "." }
 dependencies = [
