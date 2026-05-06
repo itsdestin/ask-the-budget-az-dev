@@ -1,0 +1,21 @@
+doc_id,page,archetypes,cell_accuracy,bbox_quality,multipage_reassembly,header_detection,footnote_attachment,notes
+jlbc-approps-fy26,520,multi-page-table,3,,1,1,,All distinct numeric tokens match pypdf reference.
+jlbc-approps-fy26,513,multi-page-table,3,,0,1,,All distinct numeric tokens match pypdf reference.
+governors-state-agency-detail-fy27,535,multi-page-table,3,,1,1,,All distinct numeric tokens match pypdf reference.
+governors-state-agency-detail-fy27,602,multi-page-table,3,,1,1,,All distinct numeric tokens match pypdf reference.
+jlbc-approps-fy26,27,multi-page-table,2,,0,1,,"1 number(s) in pypdf only, 1 in ODL only — likely formatting"
+agao-afr-fy25,163,restated-afr,3,,NA,1,,All distinct numeric tokens match pypdf reference.
+agao-afr-fy25,128,restated-afr,3,,NA,1,,All distinct numeric tokens match pypdf reference.
+agao-afr-fy25,126,restated-afr,3,,NA,1,,All distinct numeric tokens match pypdf reference.
+jlbc-baseline-fy27,140,multi-column-narrative,3,,NA,1,,All distinct numeric tokens match pypdf reference.
+jlbc-baseline-fy23,125,multi-column-narrative,3,,NA,1,,All distinct numeric tokens match pypdf reference.
+jlbc-baseline-fy27,163,multi-column-narrative,3,,NA,1,,All distinct numeric tokens match pypdf reference.
+governors-state-agency-detail-fy27,6,footnote-heavy,3,,NA,1,,All distinct numeric tokens match pypdf reference.
+jlbc-approps-fy26,101,footnote-heavy,2,,NA,1,,"1 number(s) in pypdf only, 0 in ODL only — likely formatting"
+jlbc-approps-fy26,164,footnote-heavy,3,,NA,1,,All distinct numeric tokens match pypdf reference.
+governors-state-agency-detail-fy27,32,cross-doc-name,3,,NA,3,,All distinct numeric tokens match pypdf reference.
+jlbc-baseline-fy27,143,cross-doc-name,3,,NA,1,,All distinct numeric tokens match pypdf reference.
+jlbc-baseline-fy23,112,cross-doc-name,3,,NA,3,,All distinct numeric tokens match pypdf reference.
+agao-afr-fy25,177,misc;afr-notes,3,,NA,3,,All distinct numeric tokens match pypdf reference.
+governors-sources-and-uses-fy27,24,misc;summary-table,3,,NA,1,,All distinct numeric tokens match pypdf reference.
+jlbc-approps-fy26,49,misc;line-item-marker,3,,NA,1,,All distinct numeric tokens match pypdf reference.

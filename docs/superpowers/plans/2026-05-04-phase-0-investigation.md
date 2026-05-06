@@ -6,9 +6,11 @@
 
 **Architecture:** Mostly manual investigation procedure with small Python automation. Output artifacts are documents and structured data (YAML, CSV, Markdown), not running software. The plan combines code-shaped tasks (TDD applies: extractor wrapper, checksum verifier) with manual graded-procedure tasks (open PDF, score extractor output against ground truth, record). All work runs in `~/ask-the-budget-az-dev/` on `master`.
 
-**Tech Stack:** Python 3.11+ (MinerU and Docling both ship as Python packages), `uv` for Python env management, YAML/CSV for structured data, Markdown for the memo. No web/Node tooling at this stage.
+**Tech Stack:** Python 3.11+, `uv` for Python env management, YAML/CSV for structured data, Markdown for the memo. PDF extractors: MinerU 2.5 (Python+CLI) + OpenDataLoader-PDF v2.4.1 (Java CLI w/ Python wrapper). DOCX: `python-docx` direct. No web/Node tooling at this stage.
 
 **Source spec:** `docs/superpowers/specs/2026-05-04-ask-the-budget-az-design.md` (especially §8).
+
+**Pivot — 2026-05-05:** Originally planned to bake off MinerU vs Docling. Docling proved unworkable on Destin's Windows machine: `docling-parse` v5.3.x has an open `std::bad_alloc` regression ([issue #227](https://github.com/docling-project/docling-parse/issues/227)), and at the OS level every `ProcessPoolExecutor` spawn re-scanned ~110 MB of native DLLs through Windows Defender (even `docling --help` exceeded 60 s). Pivoted to OpenDataLoader-PDF — Apache-2.0, JDK 11+, no model downloads, headline 0.928 table accuracy benchmark. Smoke test on AFR p.1 finished in 10 seconds (vs MinerU's 2m26s on the same page). DOCX path also dropped from Docling — replaced by `python-docx` direct, which is what we'd want anyway for a structured-XML source-of-truth file.
 
 ---
 
@@ -24,17 +26,17 @@ Files created during Phase 0 (paths relative to `~/ask-the-budget-az-dev/`):
 | `samples/scoring-pages.yaml` | The ~20 chosen pages with descriptions of why each was picked | ✓ |
 | `samples/scoring-rubric.md` | The 0–3 scoring scale and what each level means per dimension | ✓ |
 | `samples/extractor-output/mineru/<doc-id>/page-<N>.{json,md}` | MinerU output per PDF page | gitignored |
-| `samples/extractor-output/docling/<doc-id>/page-<N>.{json,md}` | Docling-PDF output per PDF page | gitignored |
-| `samples/extractor-output/docling-docx/<doc-id>/document.{json,md}` | Docling-DOCX output (whole document, no page concept) | gitignored |
+| `samples/extractor-output/opendataloader/<doc-id>/page-<N>.{json,md}` | OpenDataLoader-PDF output per PDF page | gitignored |
+| `samples/extractor-output/docx/<doc-id>/document.{json,md}` | python-docx output (whole document, no page concept) | gitignored |
 | `samples/scores-mineru.csv` | Manual MinerU scores (PDFs only) | ✓ |
-| `samples/scores-docling.csv` | Manual Docling-PDF scores (PDFs only) | ✓ |
-| `samples/docx-ingest-validation.md` | Findings from Task 5b (Docling-DOCX validation) | ✓ |
+| `samples/scores-opendataloader.csv` | Manual OpenDataLoader-PDF scores (PDFs only) | ✓ |
+| `samples/docx-ingest-validation.md` | Findings from Task 5b (python-docx ingest validation) | ✓ |
 | `data/entity-targets.yaml` | The 10 agencies, 7 programs, 3 sub-programs we'll track | ✓ |
 | `data/entity-variance-catalog.csv` | How each target is named across all 4 doc types | ✓ |
-| `scripts/check_pdf_manifest.py` | Verify `samples/raw-pdfs/` and `samples/raw-docx/` match manifest checksums | ✓ |
+| `scripts/check_corpus_manifest.py` | Verify `samples/raw-pdfs/` and `samples/raw-docx/` match manifest checksums | ✓ |
 | `scripts/run_mineru.py` | Wrapper to run MinerU on one PDF or page range | ✓ |
-| `scripts/run_docling.py` | Same for Docling-PDF | ✓ |
-| `scripts/run_docling_docx.py` | Wrapper to run Docling's native DOCX parser | ✓ |
+| `scripts/run_opendataloader.py` | Same for OpenDataLoader-PDF | ✓ |
+| `scripts/run_docx_ingest.py` | Wrapper to extract DOCX paragraphs + table cells via python-docx | ✓ |
 | `scripts/aggregate_scores.py` | Compute per-extractor totals, per-dimension breakdowns (PDFs only) | ✓ |
 | `scripts/tests/` | Pytest tests for the wrapper scripts | ✓ |
 | `pyproject.toml` | Python project config + dependencies | ✓ |
@@ -94,7 +96,7 @@ Final corpus (7 documents, finalized 2026-05-04 during plan-prep web research):
 - **GAO FY 2025 AFR** — `https://gao.az.gov/sites/default/files/2025-12/AFR25%20COMBINED%20with%20Transmittal%20Letter.pdf` (most recent)
 - **OSPB FY 2027 Governor's State Agency Detail** — `https://ospb.az.gov/sites/default/files/2026-01/state-agency-detail-fy-2027.pdf`
 - **OSPB FY 2027 Sources and Uses of State Funds** — `https://ospb.az.gov/sites/default/files/2026-01/sources-and-uses-of-state-funds-fy-2027.pdf`
-- **AZ Senate Bill 1735 (Chapter 233 of 2025) — General Appropriations Act** — local file at `~/Downloads/0233.docx`. **NOT converted to PDF**: per spec §4 + §10.5, .docx is a structured XML source-of-truth and gets ingested natively (Docling-docx parser). Converting would discard tagged structure we already have.
+- **AZ Senate Bill 1735 (Chapter 233 of 2025) — General Appropriations Act** — local file at `~/Downloads/0233.docx`. **NOT converted to PDF**: per spec §4 + §10.5, .docx is a structured XML source-of-truth and gets ingested natively (`python-docx`). Converting would discard tagged structure we already have.
 
 - [ ] **Step 1: Create the manifest with all 7 entries**
 
@@ -103,8 +105,8 @@ Create `samples/manifest.yaml`. URLs are pre-filled from web research; sha256 an
 ```yaml
 # Source documents for Phase 0 investigation. URLs and checksums let any
 # future contributor re-download and verify the exact same files.
-# `source_format` distinguishes PDFs (extracted via MinerU/Docling-pdf,
-# (page, bbox) provenance) from DOCX (extracted via Docling-docx,
+# `source_format` distinguishes PDFs (extracted via MinerU/OpenDataLoader-PDF,
+# (page, bbox) provenance) from DOCX (extracted via python-docx,
 # (paragraph_id, cell_id) provenance). See spec §6.
 documents:
   - id: jlbc-baseline-fy27
@@ -213,7 +215,7 @@ The budget bill (`budget-bill-sb1735-2025`) entry has an empty `source_url` — 
 
 - [ ] **Step 3: Write the checksum verifier**
 
-Create `scripts/check_pdf_manifest.py`:
+Create `scripts/check_corpus_manifest.py`:
 
 ```python
 """Verify samples/raw-pdfs/ matches samples/manifest.yaml checksums.
@@ -287,10 +289,10 @@ if __name__ == "__main__":
 
 - [ ] **Step 4: Write a failing test for the verifier**
 
-Create `scripts/tests/test_check_pdf_manifest.py`:
+Create `scripts/tests/test_check_corpus_manifest.py`:
 
 ```python
-"""Tests for scripts/check_pdf_manifest.py.
+"""Tests for scripts/check_corpus_manifest.py.
 
 We don't ship real PDFs to the test fixture — we synthesize tiny binary
 files and write a manifest pointing at them, so the test runs offline.
@@ -311,14 +313,14 @@ def write_fixture(tmp_path: Path, files: dict[str, bytes], manifest_text: str) -
     (tmp_path / "samples").mkdir(exist_ok=True)
     (tmp_path / "samples" / "manifest.yaml").write_text(manifest_text)
     # Copy the script into the fixture so cwd-relative paths work
-    src = Path(__file__).parent.parent / "check_pdf_manifest.py"
+    src = Path(__file__).parent.parent / "check_corpus_manifest.py"
     (tmp_path / "scripts").mkdir(exist_ok=True)
-    (tmp_path / "scripts" / "check_pdf_manifest.py").write_text(src.read_text())
+    (tmp_path / "scripts" / "check_corpus_manifest.py").write_text(src.read_text())
 
 
 def run(tmp_path: Path) -> subprocess.CompletedProcess:
     return subprocess.run(
-        [sys.executable, "scripts/check_pdf_manifest.py"],
+        [sys.executable, "scripts/check_corpus_manifest.py"],
         cwd=tmp_path,
         capture_output=True,
         text=True,
@@ -389,7 +391,7 @@ def test_flags_orphan_file(tmp_path: Path) -> None:
 cd ~/ask-the-budget-az-dev
 uv init --no-readme --no-pin-python  # creates pyproject.toml if missing
 uv add pyyaml --dev pytest
-uv run pytest scripts/tests/test_check_pdf_manifest.py -v
+uv run pytest scripts/tests/test_check_corpus_manifest.py -v
 ```
 
 Expected: 3 tests PASS.
@@ -441,7 +443,7 @@ Update `samples/manifest.yaml`: fill in `sha256:` for all 7 entries, `page_count
 - [ ] **Step 7: Verify the manifest**
 
 ```bash
-uv run python scripts/check_pdf_manifest.py
+uv run python scripts/check_corpus_manifest.py
 ```
 
 Expected: `OK: all manifest entries verified`
@@ -663,16 +665,16 @@ Expected: 2 tests PASS.
 
 - [ ] **Step 5: Smoke test on a real PDF**
 
-Pick one PDF (smallest one — probably the fiscal note). Run MinerU on its first page:
+Pick one PDF (smallest available — the AGAO AFR FY25 at 2.7MB; the fiscal note originally referenced was replaced by the budget bill, which is a DOCX). Run MinerU on its first page:
 
 ```bash
 uv run python scripts/run_mineru.py \
-  --pdf samples/raw-pdfs/jlbc-fiscal-note-misc.pdf \
-  --out samples/extractor-output/mineru/jlbc-fiscal-note-misc \
+  --pdf samples/raw-pdfs/agao-afr-fy25.pdf \
+  --out samples/extractor-output/mineru/agao-afr-fy25 \
   --pages 1
 ```
 
-Expected: `samples/extractor-output/mineru/jlbc-fiscal-note-misc/page-1.json` and `page-1.md` exist with non-empty content.
+Expected: `samples/extractor-output/mineru/agao-afr-fy25/page-1.json` and `page-1.md` exist with non-empty content.
 
 If MinerU fails to install or run (model download fails, GPU mismatch, etc.), document the issue in `samples/extractor-output/mineru/README.md` and decide: retry on a different machine, use a smaller MinerU variant, or fall back to CPU-only mode. Do NOT proceed to scoring with a broken environment.
 
@@ -715,13 +717,20 @@ Co-Authored-By: Claude Opus 4.7 (1M context) <noreply@anthropic.com>"
 
 ---
 
-## Task 3: Set up Docling environment
+## Task 3: Set up OpenDataLoader-PDF environment ✅ COMPLETED 2026-05-05
 
-**Files:**
-- Modify: `pyproject.toml` (add docling dependency)
-- Create: `scripts/run_docling.py` (mirror of `run_mineru.py`)
-- Create: `scripts/tests/test_run_docling.py`
-- Create: `samples/extractor-output/docling/README.md`
+**Files (final):**
+- Modified: `pyproject.toml` (`opendataloader-pdf>=2.4.1` added; `docling` not used after pivot)
+- Created: `scripts/run_opendataloader.py` — wrapper, mirrors `run_mineru.py` per-page contract
+- Created: `scripts/tests/test_run_opendataloader.py` — 2 dry-run tests
+- Created: `samples/extractor-output/opendataloader/README.md` — install + smoke-test findings
+
+**Outcome:** All 9 tests pass. Smoke test on AFR FY25 page 1 finished in ~10 seconds (vs MinerU's 2m26s) and produced 17 blocks across 3 element types (12 paragraph, 3 image, 2 heading) — 100% bbox coverage, 14/17 with font metadata, both headings tagged with PDF semantic level (`Doctitle`, `Subtitle`) plus numeric `heading level`. Synthesized Markdown reads cleanly with `#` heading promotion. See the README for fields, install notes, and open questions deferred to Task 5.
+
+The original Task 3 was for Docling, which proved unworkable (see "Pivot — 2026-05-05" near the top of this plan, and the Docling failure note in `samples/extractor-output/opendataloader/README.md`).
+
+<details>
+<summary>Original Task 3 steps (Docling — superseded, kept for history)</summary>
 
 - [ ] **Step 1: Install Docling**
 
@@ -920,12 +929,12 @@ Expected: 2 tests PASS.
 
 ```bash
 uv run python scripts/run_docling.py \
-  --pdf samples/raw-pdfs/jlbc-fiscal-note-misc.pdf \
-  --out samples/extractor-output/docling/jlbc-fiscal-note-misc \
+  --pdf samples/raw-pdfs/agao-afr-fy25.pdf \
+  --out samples/extractor-output/docling/agao-afr-fy25 \
   --pages 1
 ```
 
-Expected: page-1.json and page-1.md exist with non-empty content. If Docling returns extraction results that don't align with the assumed `iterate_items() + .prov` API (it has changed across recent versions), inspect with `python -c "from docling.document_converter import DocumentConverter; r = DocumentConverter().convert('samples/raw-pdfs/jlbc-fiscal-note-misc.pdf'); print(type(r.document)); print(dir(r.document))"` and adjust `run_docling()` to match the installed version's API. Document the version + adjustment in `samples/extractor-output/docling/README.md`.
+Expected: page-1.json and page-1.md exist with non-empty content. If Docling returns extraction results that don't align with the assumed `iterate_items() + .prov` API (it has changed across recent versions), inspect with `python -c "from docling.document_converter import DocumentConverter; r = DocumentConverter().convert('samples/raw-pdfs/agao-afr-fy25.pdf'); print(type(r.document)); print(dir(r.document))"` and adjust `run_docling()` to match the installed version's API. Document the version + adjustment in `samples/extractor-output/docling/README.md`.
 
 - [ ] **Step 6: Document the setup**
 
@@ -966,6 +975,8 @@ doesn't masquerade as a regression in the other.
 
 Co-Authored-By: Claude Opus 4.7 (1M context) <noreply@anthropic.com>"
 ```
+
+</details>
 
 ---
 
@@ -1038,7 +1049,7 @@ Co-Authored-By: Claude Opus 4.7 (1M context) <noreply@anthropic.com>"
 
 **Files:**
 - Generates: `samples/extractor-output/mineru/<doc-id>/page-<N>.{json,md}` (gitignored)
-- Generates: `samples/extractor-output/docling/<doc-id>/page-<N>.{json,md}` (gitignored)
+- Generates: `samples/extractor-output/opendataloader/<doc-id>/page-<N>.{json,md}` (gitignored)
 
 This task covers PDFs only. The budget bill .docx is validated separately in Task 5b.
 
@@ -1059,7 +1070,7 @@ for doc_id, page_list in by_doc.items():
     pages_str = ','.join(str(p) for p in sorted(set(page_list)))
     pdf = manifest[doc_id]['local_path']
     print(f'>>> {doc_id} pages {pages_str}')
-    for tool in ['mineru', 'docling']:
+    for tool in ['mineru', 'opendataloader']:
         out = f'samples/extractor-output/{tool}/{doc_id}'
         subprocess.run(['uv', 'run', 'python', f'scripts/run_{tool}.py',
                         '--pdf', pdf, '--out', out, '--pages', pages_str],
@@ -1067,7 +1078,7 @@ for doc_id, page_list in by_doc.items():
 "
 ```
 
-This may take significant wall-clock time (large PDFs, real extractors). If a page fails on either extractor, do NOT abort the whole run — capture the error in `samples/extractor-output/<tool>/<doc-id>/page-<N>.error.txt` and continue. (Adjust the script to wrap each tool invocation in try/except if needed.)
+This may take significant wall-clock time on the MinerU side (large PDFs, real models). OpenDataLoader is roughly 15× faster than MinerU per page on the smoke-test reference (~10 s vs 2m26s on AFR p.1). If a page fails on either extractor, do NOT abort the whole run — capture the error in `samples/extractor-output/<tool>/<doc-id>/page-<N>.error.txt` and continue. (Adjust the script to wrap each tool invocation in try/except if needed.)
 
 - [ ] **Step 2: Confirm all expected outputs exist**
 
@@ -1078,7 +1089,7 @@ from pathlib import Path
 pages = yaml.safe_load(open('samples/scoring-pages.yaml'))['pages']
 missing = []
 for p in pages:
-    for tool in ['mineru', 'docling']:
+    for tool in ['mineru', 'opendataloader']:
         for ext in ['json', 'md']:
             f = Path(f'samples/extractor-output/{tool}/{p[\"doc_id\"]}/page-{p[\"page\"]}.{ext}')
             if not f.exists():
@@ -1094,10 +1105,10 @@ If any outputs are missing for non-error reasons (extractor silently dropped the
 
 - [ ] **Step 3: Commit (no output files, just any wrapper fixes)**
 
-If you adjusted `run_mineru.py` or `run_docling.py` to handle real-PDF surprises during this task, commit those changes:
+If you adjusted `run_mineru.py` or `run_opendataloader.py` to handle real-PDF surprises during this task, commit those changes:
 
 ```bash
-git add scripts/run_mineru.py scripts/run_docling.py
+git add scripts/run_mineru.py scripts/run_opendataloader.py
 git commit -m "phase-0: extractor-wrapper fixes from real-PDF runs
 
 - <describe specific issues encountered>
@@ -1109,16 +1120,20 @@ If no fixes were needed, this step is a no-op.
 
 ---
 
-## Task 5b: Validate Docling DOCX ingest on the budget bill
+## Task 5b: Validate DOCX native ingest on the budget bill (python-docx) — REPLAN
 
 **Files:**
-- Generates: `samples/extractor-output/docling-docx/budget-bill-sb1735-2025/document.{json,md}` (gitignored)
+- Generates: `samples/extractor-output/docx/budget-bill-sb1735-2025/document.{json,md}` (gitignored)
+- Create: `scripts/run_docx_ingest.py`
+- Create: `scripts/tests/test_run_docx_ingest.py`
 - Create: `samples/docx-ingest-validation.md`
 
-Docling has a native `.docx` parser. Per spec §10.5, we want this validated separately from the PDF bake-off because:
-- DOCX provenance is `(paragraph_id, cell_id)`, not `(page, bbox)` — different extraction shape
-- MinerU is PDF-only, so a head-to-head comparison isn't possible
-- The validation question isn't "which is better" but "does Docling-docx produce clean enough structured output to make the lossy PDF-conversion path unnecessary"
+> **Pivot — 2026-05-05:** Docling-DOCX is no longer in scope (see plan intro). Replacement: `python-docx` direct paragraph + table-cell extraction. Per spec §10.5, DOCX provenance is `(paragraph_id, cell_id)` — `python-docx` exposes both via `paragraph._element.xpath('@w:paraId')` (stable XML attribute) and `cell._element.xpath('w:tblPrEx')` ancestry. The validation question is unchanged: does the parser produce clean enough structured output to make the lossy PDF-conversion path unnecessary?
+>
+> The detailed steps below are the original Docling-based plan, kept for reference. **Before executing, write a short replanning note** that ports the wrapper, tests, and validation procedure to `python-docx` (drop the `from docling.document_converter import DocumentConverter` import; iterate `Document(docx).paragraphs` and `Document(docx).tables`; stable IDs come from `_element.attrib['{...}paraId']` when present, fall back to a counter-based ID with a recorded mapping). The validation goals (paragraph fidelity, table preservation, heading detection, stable-id contract across runs) are unchanged.
+
+<details>
+<summary>Original Task 5b steps (Docling-DOCX — superseded, kept for history)</summary>
 
 - [ ] **Step 1: Extend `run_docling.py` to handle .docx (or write `run_docling_docx.py`)**
 
@@ -1370,6 +1385,8 @@ DOCX-source citation rendering.
 Co-Authored-By: Claude Opus 4.7 (1M context) <noreply@anthropic.com>"
 ```
 
+</details>
+
 ---
 
 ## Task 6: Define scoring rubric
@@ -1444,7 +1461,7 @@ dimension doesn't apply; aggregate stats compute over applicable cells only.
 
 For each (page × extractor) combination, fill one row in:
 - `samples/scores-mineru.csv`
-- `samples/scores-docling.csv`
+- `samples/scores-opendataloader.csv`
 
 with this header:
 `doc_id,page,archetypes,cell_accuracy,bbox_quality,multipage_reassembly,header_detection,footnote_attachment,notes`
@@ -1508,12 +1525,12 @@ Co-Authored-By: Claude Opus 4.7 (1M context) <noreply@anthropic.com>"
 
 ---
 
-## Task 8: Score Docling outputs
+## Task 8: Score OpenDataLoader outputs
 
 **Files:**
-- Create: `samples/scores-docling.csv`
+- Create: `samples/scores-opendataloader.csv`
 
-Same procedure as Task 7, against `samples/extractor-output/docling/...`.
+Same procedure as Task 7, against `samples/extractor-output/opendataloader/...`.
 
 - [ ] **Step 1: Write the CSV header**
 
@@ -1523,7 +1540,7 @@ doc_id,page,archetypes,cell_accuracy,bbox_quality,multipage_reassembly,header_de
 
 - [ ] **Step 2: Score each page**
 
-Same procedure as Task 7. Important: **score against the same rubric**, not "compared to MinerU." Bias from already-knowing-MinerU-was-good leaks; minimize by scoring Docling without referring back to MinerU's score.
+Same procedure as Task 7. Important: **score against the same rubric**, not "compared to MinerU." Bias from already-knowing-MinerU-was-good leaks; minimize by scoring OpenDataLoader without referring back to MinerU's score.
 
 - [ ] **Step 3: Spot-check**
 
@@ -1532,8 +1549,8 @@ Same as Task 7 Step 3.
 - [ ] **Step 4: Commit**
 
 ```bash
-git add samples/scores-docling.csv
-git commit -m "phase-0: manual Docling scores across 20 pages × 5 dimensions
+git add samples/scores-opendataloader.csv
+git commit -m "phase-0: manual OpenDataLoader scores across 20 pages × 5 dimensions
 
 Co-Authored-By: Claude Opus 4.7 (1M context) <noreply@anthropic.com>"
 ```
@@ -1593,7 +1610,7 @@ def test_excludes_NA_from_means(tmp_path: Path) -> None:
         ],
     )
     write_scores(
-        tmp_path / "samples" / "scores-docling.csv",
+        tmp_path / "samples" / "scores-opendataloader.csv",
         [
             'doc1,1,"multi-page-table",2,2,2,2,NA,',
             'doc1,2,"footnote-heavy",NA,2,NA,2,1,',
@@ -1606,7 +1623,7 @@ def test_excludes_NA_from_means(tmp_path: Path) -> None:
     summary = (tmp_path / "samples" / "score-summary.md").read_text()
     # MinerU footnote_attachment: only one applicable cell (value 2) -> mean = 2.0
     assert "footnote_attachment" in summary
-    # Docling cell_accuracy: only one applicable cell (value 2) -> mean = 2.0
+    # OpenDataLoader cell_accuracy: only one applicable cell (value 2) -> mean = 2.0
     assert "cell_accuracy" in summary
 
 
@@ -1617,7 +1634,7 @@ def test_winner_emerges_when_one_dominates(tmp_path: Path) -> None:
         ['doc1,1,"x",3,3,3,3,3,'],
     )
     write_scores(
-        tmp_path / "samples" / "scores-docling.csv",
+        tmp_path / "samples" / "scores-opendataloader.csv",
         ['doc1,1,"x",1,1,1,1,1,'],
     )
 
@@ -1636,7 +1653,7 @@ Create `scripts/aggregate_scores.py`:
 
 Reads:
   samples/scores-mineru.csv
-  samples/scores-docling.csv
+  samples/scores-opendataloader.csv
 
 Writes:
   samples/score-summary.md  — per-dimension means, per-archetype means,
@@ -1707,46 +1724,46 @@ def aggregate(rows: list[dict]) -> dict:
 
 def main() -> int:
     mineru = aggregate(load(Path("samples/scores-mineru.csv")))
-    docling = aggregate(load(Path("samples/scores-docling.csv")))
+    opendataloader = aggregate(load(Path("samples/scores-opendataloader.csv")))
 
     lines: list[str] = []
     lines.append("# Phase 0 Extractor Bake-Off — Aggregate Scores\n")
-    lines.append(f"Computed from `samples/scores-mineru.csv` and `samples/scores-docling.csv`.\n")
+    lines.append(f"Computed from `samples/scores-mineru.csv` and `samples/scores-opendataloader.csv`.\n")
 
     lines.append("## Overall mean (NA-excluded, 0–3 scale)\n")
     lines.append(f"- MinerU: **{fmt(mineru['overall'])}**")
-    lines.append(f"- Docling: **{fmt(docling['overall'])}**\n")
+    lines.append(f"- OpenDataLoader: **{fmt(opendataloader['overall'])}**\n")
 
     lines.append("## Per-dimension mean\n")
-    lines.append("| Dimension | MinerU | Docling |")
+    lines.append("| Dimension | MinerU | OpenDataLoader |")
     lines.append("|---|---|---|")
     for d in DIMENSIONS:
-        lines.append(f"| {d} | {fmt(mineru['by_dim'][d])} | {fmt(docling['by_dim'][d])} |")
+        lines.append(f"| {d} | {fmt(mineru['by_dim'][d])} | {fmt(opendataloader['by_dim'][d])} |")
     lines.append("")
 
-    archs = sorted(set(mineru["by_arch"]) | set(docling["by_arch"]))
+    archs = sorted(set(mineru["by_arch"]) | set(opendataloader["by_arch"]))
     lines.append("## Per-archetype mean\n")
-    lines.append("| Archetype | MinerU | Docling |")
+    lines.append("| Archetype | MinerU | OpenDataLoader |")
     lines.append("|---|---|---|")
     for a in archs:
-        lines.append(f"| {a} | {fmt(mineru['by_arch'].get(a))} | {fmt(docling['by_arch'].get(a))} |")
+        lines.append(f"| {a} | {fmt(mineru['by_arch'].get(a))} | {fmt(opendataloader['by_arch'].get(a))} |")
     lines.append("")
 
-    docs = sorted(set(mineru["by_doc"]) | set(docling["by_doc"]))
+    docs = sorted(set(mineru["by_doc"]) | set(opendataloader["by_doc"]))
     lines.append("## Per-document mean\n")
-    lines.append("| Document | MinerU | Docling |")
+    lines.append("| Document | MinerU | OpenDataLoader |")
     lines.append("|---|---|---|")
     for d in docs:
-        lines.append(f"| {d} | {fmt(mineru['by_doc'].get(d))} | {fmt(docling['by_doc'].get(d))} |")
+        lines.append(f"| {d} | {fmt(mineru['by_doc'].get(d))} | {fmt(opendataloader['by_doc'].get(d))} |")
     lines.append("")
 
-    if mineru["overall"] is not None and docling["overall"] is not None:
-        if mineru["overall"] > docling["overall"]:
+    if mineru["overall"] is not None and opendataloader["overall"] is not None:
+        if mineru["overall"] > opendataloader["overall"]:
             winner = "MinerU"
-            margin = mineru["overall"] - docling["overall"]
-        elif docling["overall"] > mineru["overall"]:
-            winner = "Docling"
-            margin = docling["overall"] - mineru["overall"]
+            margin = mineru["overall"] - opendataloader["overall"]
+        elif opendataloader["overall"] > mineru["overall"]:
+            winner = "OpenDataLoader"
+            margin = opendataloader["overall"] - mineru["overall"]
         else:
             winner = "tie"
             margin = 0.0
@@ -2012,7 +2029,7 @@ relates_to: docs/superpowers/specs/2026-05-04-ask-the-budget-az-design.md
 
 ## TL;DR
 
-- **Recommended extractor:** [MinerU 2.5 / Docling]. Overall mean: [X.XX] vs. [Y.YY] for the loser. See §2.
+- **Recommended extractor:** [MinerU 2.5 / OpenDataLoader-PDF]. Overall mean: [X.XX] vs. [Y.YY] for the loser. See §2.
 - **Tier 1 entity-resolution scope:** [agencies only / agencies + N programs]. See §3.
 - **Chunking strategy:** [held / adjusted, see §4].
 - **Phase 1 go/no-go:** [GO / GO with caveats / NO-GO]. See §6.
@@ -2056,7 +2073,7 @@ relates_to: docs/superpowers/specs/2026-05-04-ask-the-budget-az-design.md
 
 ## 4b. Format-aware ingest validation (DOCX path)
 
-[From samples/docx-ingest-validation.md: did Docling's native DOCX parser produce clean structured output on the budget bill? Did paragraph/cell ids stay stable across runs? Are any limitations material to v1?]
+[From samples/docx-ingest-validation.md: did `python-docx` produce clean structured output on the budget bill? Did paragraph/cell ids stay stable across runs? Are any limitations material to v1?]
 
 ## 5. Surprises and footguns
 
@@ -2077,7 +2094,7 @@ State one of:
 - `samples/manifest.yaml`
 - `samples/scoring-pages.yaml`
 - `samples/scores-mineru.csv`
-- `samples/scores-docling.csv`
+- `samples/scores-opendataloader.csv`
 - `samples/score-summary.md`
 - `samples/chunking-validation.md`
 - `samples/docx-ingest-validation.md`
@@ -2173,7 +2190,7 @@ After writing this plan, the following spec coverage check passes:
 | §8.5 Phase 0 deliverables | All deliverables produced; final memo in Task 13 |
 | Phase 1 go/no-go decision | Task 13 (§6 of memo) |
 
-No bracketed placeholders remain in plan task content (the memo template intentionally has bracketed fill-in fields, since those resolve only at execution). All file paths are concrete; all commands include exact arguments. Type/method names are consistent across the four script files (`run_mineru.py`, `run_docling.py`, `check_pdf_manifest.py`, `aggregate_scores.py`) — no signature drift.
+No bracketed placeholders remain in plan task content (the memo template intentionally has bracketed fill-in fields, since those resolve only at execution). All file paths are concrete; all commands include exact arguments. Type/method names are consistent across the four script files (`run_mineru.py`, `run_docling.py`, `check_corpus_manifest.py`, `aggregate_scores.py`) — no signature drift.
 
 ---
 

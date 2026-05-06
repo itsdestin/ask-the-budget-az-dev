@@ -1,0 +1,117 @@
+# Pages selected for the Phase 0 extractor bake-off (Task 4).
+#
+# Each entry tags the page with archetype labels so aggregate_scores.py
+# (Task 9) can compute per-archetype means — we want to know WHERE each
+# extractor wins or loses, not just an overall number.
+#
+# Picked from samples/scout-shortlist.md (heuristic scout) — see commit
+# 9354439 for the scouting script and the reasoning behind candidates.
+# Coverage spans all 6 PDFs and exercises every failure mode flagged in
+# the scoring rubric (samples/scoring-rubric.md).
+
+pages:
+  # ---- Multi-page tables (5) — last page of long appropriations runs ----
+  - doc_id: jlbc-approps-fy26
+    page: 520
+    archetypes: ["multi-page-table"]
+    notes: "Last page of a 5-page run with 1,474 numbers (largest table run found in the corpus)"
+
+  - doc_id: jlbc-approps-fy26
+    page: 513
+    archetypes: ["multi-page-table"]
+    notes: "Last page of a separate 5-page run (407 numbers)"
+
+  - doc_id: governors-state-agency-detail-fy27
+    page: 535
+    archetypes: ["multi-page-table"]
+    notes: "Governor's-doc multi-page table (304 numbers); tests cross-doc reassembly behavior"
+
+  - doc_id: governors-state-agency-detail-fy27
+    page: 602
+    archetypes: ["multi-page-table"]
+    notes: "Different agency span in Governor's doc (301 numbers)"
+
+  - doc_id: jlbc-approps-fy26
+    page: 27
+    archetypes: ["multi-page-table"]
+    notes: "Early-in-doc table run — different visual style than later pages (280 numbers)"
+
+  # ---- Restated AFR tables (3) — fund-balance with prior-year columns ----
+  - doc_id: agao-afr-fy25
+    page: 163
+    archetypes: ["restated-afr"]
+    notes: "Prior-year column + fund-balance schedule, 94 numbers — strongest restatement signal in AFR FY25"
+
+  - doc_id: agao-afr-fy25
+    page: 128
+    archetypes: ["restated-afr"]
+    notes: "Prior-year + fund-balance, 72 numbers"
+
+  - doc_id: agao-afr-fy25
+    page: 126
+    archetypes: ["restated-afr"]
+    notes: "Prior-year + fund-balance, 68 numbers (sampled in scout probe; clean 'STATEMENT OF REVENUES, EXPENDITURES AND CHANGES IN FUND BALANCE' header)"
+
+  # ---- Multi-column narrative (3) — Baseline Book agency descriptions ----
+  - doc_id: jlbc-baseline-fy27
+    page: 140
+    archetypes: ["multi-column-narrative"]
+    notes: "Mission/Program-Description page with 4,823 chars of prose AND 39 numbers — best prose+inline-table mix in the corpus"
+
+  - doc_id: jlbc-baseline-fy23
+    page: 125
+    archetypes: ["multi-column-narrative"]
+    notes: "FY23 Baseline pair candidate (4,763 chars, 15 numbers)"
+
+  - doc_id: jlbc-baseline-fy27
+    page: 163
+    archetypes: ["multi-column-narrative"]
+    notes: "Most prose-heavy Baseline page (5,367 chars, 9 numbers); tests narrative reading order"
+
+  # ---- Footnote-heavy schedules (3) ----
+  - doc_id: governors-state-agency-detail-fy27
+    page: 6
+    archetypes: ["footnote-heavy"]
+    notes: "10 footnote markers + 88 numbers (verify in viewer that this isn't a TOC; scout flagged TOC-adjacent signals)"
+
+  - doc_id: jlbc-approps-fy26
+    page: 101
+    archetypes: ["footnote-heavy"]
+    notes: "7 markers + 61 numbers"
+
+  - doc_id: jlbc-approps-fy26
+    page: 164
+    archetypes: ["footnote-heavy"]
+    notes: "9 markers + 24 numbers (independent page from p.101 — covers a different schedule type)"
+
+  # ---- Cross-doc-name (3) — AHCCCS across docs and fiscal years ----
+  - doc_id: governors-state-agency-detail-fy27
+    page: 32
+    archetypes: ["cross-doc-name"]
+    notes: "AHCCCS in Governor's-doc framing (7×); pair with the two Baseline pages below"
+
+  - doc_id: jlbc-baseline-fy27
+    page: 143
+    archetypes: ["cross-doc-name"]
+    notes: "AHCCCS in FY27 Baseline (19×) — heaviest mention; tests cross-doc-type drift"
+
+  - doc_id: jlbc-baseline-fy23
+    page: 112
+    archetypes: ["cross-doc-name"]
+    notes: "AHCCCS in FY23 Baseline (11×) — tests cross-year + cross-doc-type drift"
+
+  # ---- Misc (3) — variety to surface unanticipated failures ----
+  - doc_id: agao-afr-fy25
+    page: 177
+    archetypes: ["misc", "afr-notes"]
+    notes: "AFR prose page (4,434 chars, only 3 numbers) — likely Notes-to-Financial-Statements; tests narrative/disclosure handling vs. all-table pages (AFR FY25 has no MD&A section)"
+
+  - doc_id: governors-sources-and-uses-fy27
+    page: 24
+    archetypes: ["misc", "summary-table"]
+    notes: "Early Sources-and-Uses summary table (176 numbers, page near doc start); covers the only PDF not otherwise represented at the table-archetype level"
+
+  - doc_id: jlbc-approps-fy26
+    page: 49
+    archetypes: ["misc", "line-item-marker"]
+    notes: "Approps page with explicit SPECIAL LINE ITEMS / OPERATING LUMP SUM marker (81 numbers); tests structural-marker preservation"

@@ -34,8 +34,14 @@ env/
 .DS_Store
 Thumbs.db
 
-# Project-specific
-samples/extractor-output/
+# Project-specific — extractor outputs are reproducible and large; only the
+# per-extractor README (setup notes + version pinning) is tracked. Negation
+# patterns require the parent dirs to NOT be excluded with trailing-slash,
+# so we ignore everything inside via `**` then re-include the dir tree.
+samples/extractor-output/**
+!samples/extractor-output/
+!samples/extractor-output/*/
+!samples/extractor-output/*/README.md
 samples/raw-pdfs/
 samples/raw-docx/
 *.tmp

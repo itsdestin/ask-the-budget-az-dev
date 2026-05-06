@@ -1,0 +1,1691 @@
+_meta:
+  generated_from: samples/extractor-output (Phase 0 sample only — 23 PDF pages + 1 DOCX)
+  patterns:
+    agency_acronyms:
+    - AHCCCS
+    - ADOT
+    - DCS
+    - DES
+    - DEMA
+    - DJC
+    - DPS
+    - ADE
+    - DEQ
+    - ADHS
+    - DHS
+    - DOR
+    - ASLD
+    - ADA
+    - AZDA
+    - ADOA
+    - ADC
+    - ADCRR
+    - ADWR
+    - AZSF
+    - DEU
+    - AZIVMD
+    - DOL
+    - DCSE
+    - OSPB
+    - JLBC
+    - AGAO
+    - ASRS
+    - PSPRS
+    - ABOR
+    - ASU
+    - UA
+    - NAU
+    agency_spelled_out: Department of <name>
+    agency_footer: FY YYYY <DocType> <Page> <AgencyTag>
+    fund_named: <words> Fund
+    fund_afr: <NNNN-NAME FUND>
+  instructions_for_user: 'This is a candidate list, NOT canonical. For each candidate: decide canonical name, group aliases,
+    mark false-positives, or defer. Phase 1 will run this against the full corpus.'
+agencies:
+- candidate: AHCCCS
+  occurrences: 51
+  seen_in_docs:
+  - agao-afr-fy25
+  - budget-bill-sb1735-2025
+  - governors-state-agency-detail-fy27
+  - jlbc-approps-fy26
+  - jlbc-baseline-fy23
+  - jlbc-baseline-fy27
+  example_files:
+  - agao-afr-fy25/page-177.md
+  - budget-bill-sb1735-2025/document.md
+  - governors-state-agency-detail-fy27/page-32.md
+  aliases_observed:
+  - AHCCCS
+  footer_confirmed: true
+- candidate: department of administration
+  occurrences: 49
+  seen_in_docs:
+  - budget-bill-sb1735-2025
+  - jlbc-approps-fy26
+  example_files:
+  - budget-bill-sb1735-2025/document.md
+  - jlbc-approps-fy26/page-49.md
+  aliases_observed:
+  - Arizona Department of Administration
+  footer_confirmed: false
+- candidate: DEPARTMENT OF ECONOMIC SECURITY
+  occurrences: 41
+  seen_in_docs:
+  - agao-afr-fy25
+  - budget-bill-sb1735-2025
+  - jlbc-approps-fy26
+  - jlbc-baseline-fy27
+  example_files:
+  - agao-afr-fy25/page-128.md
+  - budget-bill-sb1735-2025/document.md
+  - jlbc-approps-fy26/page-520.md
+  aliases_observed:
+  - department of economic security pursuant
+  - department of economic security and the department
+  - department of economic security home and community based
+  footer_confirmed: false
+- candidate: DEPARTMENT OF CORRECTIONS
+  occurrences: 35
+  seen_in_docs:
+  - budget-bill-sb1735-2025
+  - governors-state-agency-detail-fy27
+  - jlbc-baseline-fy27
+  example_files:
+  - budget-bill-sb1735-2025/document.md
+  - governors-state-agency-detail-fy27/page-6.md
+  - jlbc-baseline-fy27/page-163.md
+  aliases_observed:
+  - state department of corrections
+  footer_confirmed: false
+- candidate: DEPARTMENT OF CHILD SAFETY
+  occurrences: 30
+  seen_in_docs:
+  - budget-bill-sb1735-2025
+  - governors-state-agency-detail-fy27
+  - jlbc-approps-fy26
+  - jlbc-baseline-fy23
+  - jlbc-baseline-fy27
+  example_files:
+  - budget-bill-sb1735-2025/document.md
+  - governors-state-agency-detail-fy27/page-6.md
+  - jlbc-approps-fy26/page-520.md
+  aliases_observed:
+  - Department of Child Safety Expenditure Authority
+  footer_confirmed: false
+- candidate: DEPARTMENT OF EDUCATION
+  occurrences: 26
+  seen_in_docs:
+  - budget-bill-sb1735-2025
+  - governors-state-agency-detail-fy27
+  - jlbc-approps-fy26
+  example_files:
+  - budget-bill-sb1735-2025/document.md
+  - governors-state-agency-detail-fy27/page-6.md
+  - jlbc-approps-fy26/page-520.md
+  aliases_observed: []
+  footer_confirmed: false
+- candidate: DES
+  occurrences: 23
+  seen_in_docs:
+  - agao-afr-fy25
+  - budget-bill-sb1735-2025
+  - jlbc-approps-fy26
+  - jlbc-baseline-fy27
+  example_files:
+  - agao-afr-fy25/page-126.md
+  - agao-afr-fy25/page-128.md
+  - budget-bill-sb1735-2025/document.md
+  aliases_observed: []
+  footer_confirmed: false
+- candidate: department of health services
+  occurrences: 20
+  seen_in_docs:
+  - budget-bill-sb1735-2025
+  example_files:
+  - budget-bill-sb1735-2025/document.md
+  aliases_observed:
+  - department of health services pursuant
+  - department of health services on or before February
+  - department of health services and the charitable organization
+  footer_confirmed: false
+- candidate: DEPARTMENT OF PUBLIC SAFETY
+  occurrences: 13
+  seen_in_docs:
+  - budget-bill-sb1735-2025
+  - governors-state-agency-detail-fy27
+  - jlbc-approps-fy26
+  example_files:
+  - budget-bill-sb1735-2025/document.md
+  - governors-state-agency-detail-fy27/page-6.md
+  - jlbc-approps-fy26/page-164.md
+  aliases_observed:
+  - department of public safety joint
+  - department of public safety by Laws
+  - department of public safety positions
+  - department of public safety GIITEM personnel
+  footer_confirmed: false
+- candidate: ADOT
+  occurrences: 10
+  seen_in_docs:
+  - agao-afr-fy25
+  - budget-bill-sb1735-2025
+  - jlbc-approps-fy26
+  example_files:
+  - agao-afr-fy25/page-163.md
+  - budget-bill-sb1735-2025/document.md
+  - jlbc-approps-fy26/page-27.md
+  aliases_observed: []
+  footer_confirmed: false
+- candidate: department of veterans
+  occurrences: 10
+  seen_in_docs:
+  - budget-bill-sb1735-2025
+  example_files:
+  - budget-bill-sb1735-2025/document.md
+  aliases_observed: []
+  footer_confirmed: false
+- candidate: Arizona department of forestry and fire
+  occurrences: 8
+  seen_in_docs:
+  - budget-bill-sb1735-2025
+  example_files:
+  - budget-bill-sb1735-2025/document.md
+  aliases_observed:
+  - ARIZONA DEPARTMENT OF FORESTRY AND FIRE MANAGEMENT
+  - Arizona department of forestry and fire management by Laws
+  footer_confirmed: false
+- candidate: DEPARTMENT OF TRANSPORTATION
+  occurrences: 8
+  seen_in_docs:
+  - agao-afr-fy25
+  - budget-bill-sb1735-2025
+  example_files:
+  - agao-afr-fy25/page-163.md
+  - budget-bill-sb1735-2025/document.md
+  aliases_observed: []
+  footer_confirmed: false
+- candidate: DEPARTMENT OF ENVIRONMENTAL QUALITY
+  occurrences: 7
+  seen_in_docs:
+  - budget-bill-sb1735-2025
+  example_files:
+  - budget-bill-sb1735-2025/document.md
+  aliases_observed:
+  - department of environmental quality indirect cost fund established
+  footer_confirmed: false
+- candidate: DEPARTMENT OF GAMING
+  occurrences: 7
+  seen_in_docs:
+  - budget-bill-sb1735-2025
+  example_files:
+  - budget-bill-sb1735-2025/document.md
+  aliases_observed: []
+  footer_confirmed: false
+- candidate: Department  of Juvenile Corrections
+  occurrences: 7
+  seen_in_docs:
+  - budget-bill-sb1735-2025
+  - jlbc-approps-fy26
+  example_files:
+  - budget-bill-sb1735-2025/document.md
+  - jlbc-approps-fy26/page-164.md
+  aliases_observed: []
+  footer_confirmed: false
+- candidate: Department of Revenue
+  occurrences: 7
+  seen_in_docs:
+  - agao-afr-fy25
+  - budget-bill-sb1735-2025
+  example_files:
+  - agao-afr-fy25/page-177.md
+  - budget-bill-sb1735-2025/document.md
+  aliases_observed: []
+  footer_confirmed: false
+- candidate: Department of insurance and financial
+  occurrences: 5
+  seen_in_docs:
+  - budget-bill-sb1735-2025
+  example_files:
+  - budget-bill-sb1735-2025/document.md
+  aliases_observed:
+  - DEPARTMENT OF INSURANCE AND FINANCIAL INSTITUTIONS
+  footer_confirmed: false
+- candidate: Department of Water Resources
+  occurrences: 5
+  seen_in_docs:
+  - budget-bill-sb1735-2025
+  - jlbc-approps-fy26
+  example_files:
+  - budget-bill-sb1735-2025/document.md
+  - jlbc-approps-fy26/page-520.md
+  aliases_observed: []
+  footer_confirmed: false
+- candidate: ARIZONA DEPARTMENT OF AGRICULTURE
+  occurrences: 4
+  seen_in_docs:
+  - budget-bill-sb1735-2025
+  example_files:
+  - budget-bill-sb1735-2025/document.md
+  aliases_observed: []
+  footer_confirmed: false
+- candidate: state department of corrections opioid remediation fund
+  occurrences: 4
+  seen_in_docs:
+  - budget-bill-sb1735-2025
+  - jlbc-baseline-fy27
+  example_files:
+  - budget-bill-sb1735-2025/document.md
+  - jlbc-baseline-fy27/page-163.md
+  aliases_observed:
+  - state department  of corrections opioid remediation fund established pursuant
+  footer_confirmed: false
+- candidate: department of education pursuant
+  occurrences: 4
+  seen_in_docs:
+  - budget-bill-sb1735-2025
+  example_files:
+  - budget-bill-sb1735-2025/document.md
+  aliases_observed: []
+  footer_confirmed: false
+- candidate: ARIZONA DEPARTMENT OF HOMELAND SECURITY
+  occurrences: 4
+  seen_in_docs:
+  - budget-bill-sb1735-2025
+  example_files:
+  - budget-bill-sb1735-2025/document.md
+  aliases_observed:
+  - department of homeland security if such a training
+  footer_confirmed: false
+- candidate: DEPARTMENT OF LIQUOR LICENSES AND CONTROL
+  occurrences: 4
+  seen_in_docs:
+  - budget-bill-sb1735-2025
+  example_files:
+  - budget-bill-sb1735-2025/document.md
+  aliases_observed: []
+  footer_confirmed: false
+- candidate: DHS
+  occurrences: 4
+  seen_in_docs:
+  - budget-bill-sb1735-2025
+  - jlbc-approps-fy26
+  example_files:
+  - budget-bill-sb1735-2025/document.md
+  - jlbc-approps-fy26/page-101.md
+  aliases_observed: []
+  footer_confirmed: false
+- candidate: Enacted
+  occurrences: 4
+  seen_in_docs:
+  - jlbc-approps-fy26
+  example_files:
+  - jlbc-approps-fy26/page-27.md
+  - jlbc-approps-fy26/page-513.md
+  aliases_observed: []
+  footer_confirmed: true
+- candidate: All dollar amounts are expressed in thousands.
+  occurrences: 3
+  seen_in_docs:
+  - governors-state-agency-detail-fy27
+  example_files:
+  - governors-state-agency-detail-fy27/page-535.md
+  - governors-state-agency-detail-fy27/page-6.md
+  - governors-state-agency-detail-fy27/page-602.md
+  aliases_observed: []
+  footer_confirmed: true
+- candidate: DCS
+  occurrences: 3
+  seen_in_docs:
+  - budget-bill-sb1735-2025
+  - governors-state-agency-detail-fy27
+  example_files:
+  - budget-bill-sb1735-2025/document.md
+  - governors-state-agency-detail-fy27/page-6.md
+  aliases_observed: []
+  footer_confirmed: false
+- candidate: DEPARTMENT OF EMERGENCY AND MILITARY AFFAIRS
+  occurrences: 3
+  seen_in_docs:
+  - budget-bill-sb1735-2025
+  example_files:
+  - budget-bill-sb1735-2025/document.md
+  aliases_observed: []
+  footer_confirmed: false
+- candidate: department of housing
+  occurrences: 3
+  seen_in_docs:
+  - budget-bill-sb1735-2025
+  example_files:
+  - budget-bill-sb1735-2025/document.md
+  aliases_observed:
+  - ARIZONA DEPARTMENT OF HOUSING
+  footer_confirmed: false
+- candidate: DEPARTMENT OF STATE
+  occurrences: 3
+  seen_in_docs:
+  - budget-bill-sb1735-2025
+  example_files:
+  - budget-bill-sb1735-2025/document.md
+  aliases_observed: []
+  footer_confirmed: false
+- candidate: ADE
+  occurrences: 2
+  seen_in_docs:
+  - jlbc-approps-fy26
+  example_files:
+  - jlbc-approps-fy26/page-27.md
+  aliases_observed: []
+  footer_confirmed: false
+- candidate: ADOA
+  occurrences: 2
+  seen_in_docs:
+  - governors-state-agency-detail-fy27
+  - jlbc-approps-fy26
+  example_files:
+  - governors-state-agency-detail-fy27/page-6.md
+  - jlbc-approps-fy26/page-27.md
+  aliases_observed: []
+  footer_confirmed: false
+- candidate: Arizona department of administration pursuant
+  occurrences: 2
+  seen_in_docs:
+  - budget-bill-sb1735-2025
+  example_files:
+  - budget-bill-sb1735-2025/document.md
+  aliases_observed: []
+  footer_confirmed: false
+- candidate: DEPARTMENT OF ADMINISTRATION, DIVISION
+  occurrences: 2
+  seen_in_docs:
+  - budget-bill-sb1735-2025
+  example_files:
+  - budget-bill-sb1735-2025/document.md
+  aliases_observed: []
+  footer_confirmed: false
+- candidate: department of administration, which
+  occurrences: 2
+  seen_in_docs:
+  - budget-bill-sb1735-2025
+  example_files:
+  - budget-bill-sb1735-2025/document.md
+  aliases_observed: []
+  footer_confirmed: false
+- candidate: department of administration-central services bureau
+  occurrences: 2
+  seen_in_docs:
+  - budget-bill-sb1735-2025
+  example_files:
+  - budget-bill-sb1735-2025/document.md
+  aliases_observed: []
+  footer_confirmed: false
+- candidate: state department of corrections private prison per diem
+  occurrences: 2
+  seen_in_docs:
+  - budget-bill-sb1735-2025
+  example_files:
+  - budget-bill-sb1735-2025/document.md
+  aliases_observed:
+  - state department of corrections private prison per diem special
+  footer_confirmed: false
+- candidate: department of education and the state board
+  occurrences: 2
+  seen_in_docs:
+  - budget-bill-sb1735-2025
+  example_files:
+  - budget-bill-sb1735-2025/document.md
+  aliases_observed:
+  - department of education and the superintendent
+  footer_confirmed: false
+- candidate: Department of General Fund
+  occurrences: 2
+  seen_in_docs:
+  - governors-state-agency-detail-fy27
+  example_files:
+  - governors-state-agency-detail-fy27/page-535.md
+  - governors-state-agency-detail-fy27/page-602.md
+  aliases_observed: []
+  footer_confirmed: false
+- candidate: department of real estate
+  occurrences: 2
+  seen_in_docs:
+  - budget-bill-sb1735-2025
+  example_files:
+  - budget-bill-sb1735-2025/document.md
+  aliases_observed: []
+  footer_confirmed: false
+- candidate: department of revenue administrative fund established by section
+  occurrences: 2
+  seen_in_docs:
+  - budget-bill-sb1735-2025
+  example_files:
+  - budget-bill-sb1735-2025/document.md
+  aliases_observed: []
+  footer_confirmed: false
+- candidate: DJC
+  occurrences: 2
+  seen_in_docs:
+  - jlbc-approps-fy26
+  example_files:
+  - jlbc-approps-fy26/page-513.md
+  aliases_observed: []
+  footer_confirmed: false
+- candidate: FY 2025
+  occurrences: 2
+  seen_in_docs:
+  - jlbc-baseline-fy27
+  example_files:
+  - jlbc-baseline-fy27/page-140.md
+  - jlbc-baseline-fy27/page-163.md
+  aliases_observed: []
+  footer_confirmed: true
+- candidate: JLBC
+  occurrences: 2
+  seen_in_docs:
+  - jlbc-approps-fy26
+  example_files:
+  - jlbc-approps-fy26/page-164.md
+  aliases_observed: []
+  footer_confirmed: false
+- candidate: '% ol CIEF Approp.'
+  occurrences: 1
+  seen_in_docs:
+  - jlbc-approps-fy26
+  example_files:
+  - jlbc-approps-fy26/page-164.md
+  aliases_observed: []
+  footer_confirmed: true
+- candidate: ADA
+  occurrences: 1
+  seen_in_docs:
+  - budget-bill-sb1735-2025
+  example_files:
+  - budget-bill-sb1735-2025/document.md
+  aliases_observed: []
+  footer_confirmed: false
+- candidate: ADC
+  occurrences: 1
+  seen_in_docs:
+  - jlbc-approps-fy26
+  example_files:
+  - jlbc-approps-fy26/page-27.md
+  aliases_observed: []
+  footer_confirmed: false
+- candidate: Arizo na Cri m i na I J u stice Co m m iss io n
+  occurrences: 1
+  seen_in_docs:
+  - jlbc-approps-fy26
+  example_files:
+  - jlbc-approps-fy26/page-164.md
+  aliases_observed: []
+  footer_confirmed: true
+- candidate: Arizona Criminal Justice Commission
+  occurrences: 1
+  seen_in_docs:
+  - jlbc-approps-fy26
+  example_files:
+  - jlbc-approps-fy26/page-164.md
+  aliases_observed: []
+  footer_confirmed: true
+- candidate: Arizona Deportment  of Administration
+  occurrences: 1
+  seen_in_docs:
+  - jlbc-approps-fy26
+  example_files:
+  - jlbc-approps-fy26/page-49.md
+  aliases_observed: []
+  footer_confirmed: true
+- candidate: Attorney General - Deportment  of Law
+  occurrences: 1
+  seen_in_docs:
+  - jlbc-baseline-fy27
+  example_files:
+  - jlbc-baseline-fy27/page-163.md
+  aliases_observed: []
+  footer_confirmed: true
+- candidate: Attorney Generol - Deportment  of Law
+  occurrences: 1
+  seen_in_docs:
+  - jlbc-baseline-fy23
+  example_files:
+  - jlbc-baseline-fy23/page-125.md
+  aliases_observed: []
+  footer_confirmed: true
+- candidate: department of administration by Laws
+  occurrences: 1
+  seen_in_docs:
+  - budget-bill-sb1735-2025
+  example_files:
+  - budget-bill-sb1735-2025/document.md
+  aliases_observed: []
+  footer_confirmed: false
+- candidate: department of administration losses and premiums
+  occurrences: 1
+  seen_in_docs:
+  - budget-bill-sb1735-2025
+  example_files:
+  - budget-bill-sb1735-2025/document.md
+  aliases_observed: []
+  footer_confirmed: false
+- candidate: department of administration not enter into any agreements
+  occurrences: 1
+  seen_in_docs:
+  - budget-bill-sb1735-2025
+  example_files:
+  - budget-bill-sb1735-2025/document.md
+  aliases_observed: []
+  footer_confirmed: false
+- candidate: department of administration on or before December
+  occurrences: 1
+  seen_in_docs:
+  - budget-bill-sb1735-2025
+  example_files:
+  - budget-bill-sb1735-2025/document.md
+  aliases_observed: []
+  footer_confirmed: false
+- candidate: department of administration reporting
+  occurrences: 1
+  seen_in_docs:
+  - budget-bill-sb1735-2025
+  example_files:
+  - budget-bill-sb1735-2025/document.md
+  aliases_observed: []
+  footer_confirmed: false
+- candidate: Arizona department of agriculture by Laws
+  occurrences: 1
+  seen_in_docs:
+  - budget-bill-sb1735-2025
+  example_files:
+  - budget-bill-sb1735-2025/document.md
+  aliases_observed: []
+  footer_confirmed: false
+- candidate: Department of Assured and Adequate Water Supply Admin
+  occurrences: 1
+  seen_in_docs:
+  - jlbc-approps-fy26
+  example_files:
+  - jlbc-approps-fy26/page-520.md
+  aliases_observed: []
+  footer_confirmed: false
+- candidate: Department of Child Support Enforcement Administration Fund
+  occurrences: 1
+  seen_in_docs:
+  - jlbc-approps-fy26
+  example_files:
+  - jlbc-approps-fy26/page-520.md
+  aliases_observed: []
+  footer_confirmed: false
+- candidate: Department of Classroom Site Fund
+  occurrences: 1
+  seen_in_docs:
+  - jlbc-approps-fy26
+  example_files:
+  - jlbc-approps-fy26/page-520.md
+  aliases_observed: []
+  footer_confirmed: false
+- candidate: state department of corrections and the director
+  occurrences: 1
+  seen_in_docs:
+  - budget-bill-sb1735-2025
+  example_files:
+  - budget-bill-sb1735-2025/document.md
+  aliases_observed: []
+  footer_confirmed: false
+- candidate: state department of corrections as required pursuant this act
+  occurrences: 1
+  seen_in_docs:
+  - budget-bill-sb1735-2025
+  example_files:
+  - budget-bill-sb1735-2025/document.md
+  aliases_observed: []
+  footer_confirmed: false
+- candidate: state department of corrections by Laws
+  occurrences: 1
+  seen_in_docs:
+  - budget-bill-sb1735-2025
+  example_files:
+  - budget-bill-sb1735-2025/document.md
+  aliases_observed: []
+  footer_confirmed: false
+- candidate: Department of education empowerment
+  occurrences: 1
+  seen_in_docs:
+  - budget-bill-sb1735-2025
+  example_files:
+  - budget-bill-sb1735-2025/document.md
+  aliases_observed: []
+  footer_confirmed: false
+- candidate: department of gaming during fiscal year
+  occurrences: 1
+  seen_in_docs:
+  - budget-bill-sb1735-2025
+  example_files:
+  - budget-bill-sb1735-2025/document.md
+  aliases_observed: []
+  footer_confirmed: false
+- candidate: Department of Health and Human Services, and the
+  occurrences: 1
+  seen_in_docs:
+  - agao-afr-fy25
+  example_files:
+  - agao-afr-fy25/page-177.md
+  aliases_observed: []
+  footer_confirmed: false
+- candidate: department of health services, earnings on state lands
+  occurrences: 1
+  seen_in_docs:
+  - budget-bill-sb1735-2025
+  example_files:
+  - budget-bill-sb1735-2025/document.md
+  aliases_observed: []
+  footer_confirmed: false
+- candidate: department of insurance
+  occurrences: 1
+  seen_in_docs:
+  - budget-bill-sb1735-2025
+  example_files:
+  - budget-bill-sb1735-2025/document.md
+  aliases_observed: []
+  footer_confirmed: false
+- candidate: department of law
+  occurrences: 1
+  seen_in_docs:
+  - budget-bill-sb1735-2025
+  example_files:
+  - budget-bill-sb1735-2025/document.md
+  aliases_observed: []
+  footer_confirmed: false
+- candidate: department of public
+  occurrences: 1
+  seen_in_docs:
+  - budget-bill-sb1735-2025
+  example_files:
+  - budget-bill-sb1735-2025/document.md
+  aliases_observed: []
+  footer_confirmed: false
+- candidate: Department  of Public Safetv
+  occurrences: 1
+  seen_in_docs:
+  - jlbc-approps-fy26
+  example_files:
+  - jlbc-approps-fy26/page-164.md
+  aliases_observed: []
+  footer_confirmed: false
+- candidate: department of revenue by Laws
+  occurrences: 1
+  seen_in_docs:
+  - budget-bill-sb1735-2025
+  example_files:
+  - budget-bill-sb1735-2025/document.md
+  aliases_observed: []
+  footer_confirmed: false
+- candidate: department of revenue incurs legal expenses
+  occurrences: 1
+  seen_in_docs:
+  - budget-bill-sb1735-2025
+  example_files:
+  - budget-bill-sb1735-2025/document.md
+  aliases_observed: []
+  footer_confirmed: false
+- candidate: department of the university
+  occurrences: 1
+  seen_in_docs:
+  - budget-bill-sb1735-2025
+  example_files:
+  - budget-bill-sb1735-2025/document.md
+  aliases_observed: []
+  footer_confirmed: false
+- candidate: department of transportation, an annual progress
+  occurrences: 1
+  seen_in_docs:
+  - budget-bill-sb1735-2025
+  example_files:
+  - budget-bill-sb1735-2025/document.md
+  aliases_observed: []
+  footer_confirmed: false
+- candidate: department of water
+  occurrences: 1
+  seen_in_docs:
+  - budget-bill-sb1735-2025
+  example_files:
+  - budget-bill-sb1735-2025/document.md
+  aliases_observed: []
+  footer_confirmed: false
+- candidate: DOR
+  occurrences: 1
+  seen_in_docs:
+  - agao-afr-fy25
+  example_files:
+  - agao-afr-fy25/page-177.md
+  aliases_observed: []
+  footer_confirmed: false
+- candidate: DPS
+  occurrences: 1
+  seen_in_docs:
+  - jlbc-approps-fy26
+  example_files:
+  - jlbc-approps-fy26/page-27.md
+  aliases_observed: []
+  footer_confirmed: false
+- candidate: FY 2024
+  occurrences: 1
+  seen_in_docs:
+  - jlbc-approps-fy26
+  example_files:
+  - jlbc-approps-fy26/page-49.md
+  aliases_observed: []
+  footer_confirmed: true
+- candidate: General Fund Sources and Uses
+  occurrences: 1
+  seen_in_docs:
+  - governors-sources-and-uses-fy27
+  example_files:
+  - governors-sources-and-uses-fy27/page-24.md
+  aliases_observed: []
+  footer_confirmed: true
+- candidate: Medically Needy Account
+  occurrences: 1
+  seen_in_docs:
+  - jlbc-approps-fy26
+  example_files:
+  - jlbc-approps-fy26/page-101.md
+  aliases_observed: []
+  footer_confirmed: true
+- candidate: NAU
+  occurrences: 1
+  seen_in_docs:
+  - budget-bill-sb1735-2025
+  example_files:
+  - budget-bill-sb1735-2025/document.md
+  aliases_observed: []
+  footer_confirmed: false
+funds:
+- candidate: General Fund
+  occurrences: 22
+  seen_in_docs:
+  - governors-sources-and-uses-fy27
+  - governors-state-agency-detail-fy27
+  - jlbc-approps-fy26
+  - jlbc-baseline-fy23
+  - jlbc-baseline-fy27
+  example_files:
+  - governors-sources-and-uses-fy27/page-24.md
+  - governors-state-agency-detail-fy27/page-32.md
+  - governors-state-agency-detail-fy27/page-535.md
+  aliases_observed: []
+  footer_confirmed: false
+- candidate: Tobacco Products Tax Fund
+  occurrences: 8
+  seen_in_docs:
+  - governors-state-agency-detail-fy27
+  - jlbc-approps-fy26
+  example_files:
+  - governors-state-agency-detail-fy27/page-535.md
+  - governors-state-agency-detail-fy27/page-602.md
+  - jlbc-approps-fy26/page-101.md
+  aliases_observed: []
+  footer_confirmed: false
+- candidate: Health  Care Fund
+  occurrences: 5
+  seen_in_docs:
+  - governors-state-agency-detail-fy27
+  - jlbc-approps-fy26
+  example_files:
+  - governors-state-agency-detail-fy27/page-535.md
+  - governors-state-agency-detail-fy27/page-602.md
+  - jlbc-approps-fy26/page-101.md
+  aliases_observed: []
+  footer_confirmed: false
+- candidate: CPCF Revolving  Fund
+  occurrences: 3
+  seen_in_docs:
+  - jlbc-baseline-fy23
+  example_files:
+  - jlbc-baseline-fy23/page-125.md
+  aliases_observed: []
+  footer_confirmed: false
+- candidate: Criminal Justice Enhancement Fund
+  occurrences: 3
+  seen_in_docs:
+  - jlbc-approps-fy26
+  example_files:
+  - jlbc-approps-fy26/page-164.md
+  aliases_observed: []
+  footer_confirmed: false
+- candidate: Long Term Care System Fund
+  occurrences: 3
+  seen_in_docs:
+  - jlbc-approps-fy26
+  - jlbc-baseline-fy27
+  example_files:
+  - jlbc-approps-fy26/page-520.md
+  - jlbc-baseline-fy27/page-140.md
+  aliases_observed: []
+  footer_confirmed: false
+- candidate: Term Water  Augmentation Fund
+  occurrences: 3
+  seen_in_docs:
+  - governors-state-agency-detail-fy27
+  - jlbc-approps-fy26
+  example_files:
+  - governors-state-agency-detail-fy27/page-535.md
+  - jlbc-approps-fy26/page-520.md
+  aliases_observed: []
+  footer_confirmed: false
+- candidate: AHCCCS Fund
+  occurrences: 2
+  seen_in_docs:
+  - governors-state-agency-detail-fy27
+  - jlbc-baseline-fy27
+  example_files:
+  - governors-state-agency-detail-fy27/page-32.md
+  - jlbc-baseline-fy27/page-143.md
+  aliases_observed: []
+  footer_confirmed: false
+- candidate: Air Quality Fund
+  occurrences: 2
+  seen_in_docs:
+  - governors-state-agency-detail-fy27
+  example_files:
+  - governors-state-agency-detail-fy27/page-535.md
+  - governors-state-agency-detail-fy27/page-602.md
+  aliases_observed: []
+  footer_confirmed: false
+- candidate: Arizona Tobacco Litigation Settlement Fund
+  occurrences: 2
+  seen_in_docs:
+  - jlbc-approps-fy26
+  - jlbc-baseline-fy27
+  example_files:
+  - jlbc-approps-fy26/page-520.md
+  - jlbc-baseline-fy27/page-140.md
+  aliases_observed: []
+  footer_confirmed: false
+- candidate: Budget Neutrality  Compliance Fund
+  occurrences: 2
+  seen_in_docs:
+  - governors-state-agency-detail-fy27
+  example_files:
+  - governors-state-agency-detail-fy27/page-535.md
+  - governors-state-agency-detail-fy27/page-602.md
+  aliases_observed: []
+  footer_confirmed: false
+- candidate: 'Care Cost Containment System
+
+    General Fund'
+  occurrences: 2
+  seen_in_docs:
+  - governors-state-agency-detail-fy27
+  example_files:
+  - governors-state-agency-detail-fy27/page-535.md
+  - governors-state-agency-detail-fy27/page-602.md
+  aliases_observed: []
+  footer_confirmed: false
+- candidate: Children's Health Insurance  Program Fund
+  occurrences: 2
+  seen_in_docs:
+  - governors-state-agency-detail-fy27
+  example_files:
+  - governors-state-agency-detail-fy27/page-535.md
+  - governors-state-agency-detail-fy27/page-602.md
+  aliases_observed: []
+  footer_confirmed: false
+- candidate: Credit Card Clearing Fund
+  occurrences: 2
+  seen_in_docs:
+  - agao-afr-fy25
+  example_files:
+  - agao-afr-fy25/page-177.md
+  aliases_observed: []
+  footer_confirmed: false
+- candidate: Forensics  Fund
+  occurrences: 2
+  seen_in_docs:
+  - jlbc-approps-fy26
+  example_files:
+  - jlbc-approps-fy26/page-164.md
+  aliases_observed: []
+  footer_confirmed: false
+- candidate: General Fund AHCCCS  Fund
+  occurrences: 2
+  seen_in_docs:
+  - jlbc-baseline-fy27
+  example_files:
+  - jlbc-baseline-fy27/page-143.md
+  aliases_observed: []
+  footer_confirmed: false
+- candidate: Health Care Investment Fund
+  occurrences: 2
+  seen_in_docs:
+  - jlbc-approps-fy26
+  example_files:
+  - jlbc-approps-fy26/page-520.md
+  aliases_observed: []
+  footer_confirmed: false
+- candidate: Nuclear Emergency  Management Fund
+  occurrences: 2
+  seen_in_docs:
+  - governors-state-agency-detail-fy27
+  example_files:
+  - governors-state-agency-detail-fy27/page-535.md
+  - governors-state-agency-detail-fy27/page-602.md
+  aliases_observed: []
+  footer_confirmed: false
+- candidate: Prescription Drug Rebate  Fund
+  occurrences: 2
+  seen_in_docs:
+  - governors-state-agency-detail-fy27
+  example_files:
+  - governors-state-agency-detail-fy27/page-535.md
+  - governors-state-agency-detail-fy27/page-602.md
+  aliases_observed: []
+  footer_confirmed: false
+- candidate: 'Recovery Fund
+
+    Tobacco Products Tax Fund'
+  occurrences: 2
+  seen_in_docs:
+  - jlbc-approps-fy26
+  - jlbc-baseline-fy27
+  example_files:
+  - jlbc-approps-fy26/page-520.md
+  - jlbc-baseline-fy27/page-140.md
+  aliases_observed: []
+  footer_confirmed: false
+- candidate: Seriously Mentally Ill Housing  Trust Fund
+  occurrences: 2
+  seen_in_docs:
+  - governors-state-agency-detail-fy27
+  example_files:
+  - governors-state-agency-detail-fy27/page-535.md
+  - governors-state-agency-detail-fy27/page-602.md
+  aliases_observed: []
+  footer_confirmed: false
+- candidate: 'Subdivision Funds
+
+    Prescription Drug Rebate Fund'
+  occurrences: 2
+  seen_in_docs:
+  - jlbc-approps-fy26
+  - jlbc-baseline-fy27
+  example_files:
+  - jlbc-approps-fy26/page-520.md
+  - jlbc-baseline-fy27/page-140.md
+  aliases_observed: []
+  footer_confirmed: false
+- candidate: Substance Abuse Services  Fund
+  occurrences: 2
+  seen_in_docs:
+  - governors-state-agency-detail-fy27
+  example_files:
+  - governors-state-agency-detail-fy27/page-535.md
+  - governors-state-agency-detail-fy27/page-602.md
+  aliases_observed: []
+  footer_confirmed: false
+- candidate: 2000-FEDERAL GRANT FUND
+  occurrences: 1
+  seen_in_docs:
+  - agao-afr-fy25
+  example_files:
+  - agao-afr-fy25/page-128.md
+  aliases_observed: []
+  footer_confirmed: false
+- candidate: 2005-STATE AVIATION FUND
+  occurrences: 1
+  seen_in_docs:
+  - agao-afr-fy25
+  example_files:
+  - agao-afr-fy25/page-163.md
+  aliases_observed: []
+  footer_confirmed: false
+- candidate: 2019-DEVELOPMENTALLY DISABLED CLIENT TRUST FUND
+  occurrences: 1
+  seen_in_docs:
+  - agao-afr-fy25
+  example_files:
+  - agao-afr-fy25/page-128.md
+  aliases_observed: []
+  footer_confirmed: false
+- candidate: 2029-REGIONAL AREA ROAD FUND
+  occurrences: 1
+  seen_in_docs:
+  - agao-afr-fy25
+  example_files:
+  - agao-afr-fy25/page-163.md
+  aliases_observed: []
+  footer_confirmed: false
+- candidate: 2030-STATE HIGHWAY FUND
+  occurrences: 1
+  seen_in_docs:
+  - agao-afr-fy25
+  example_files:
+  - agao-afr-fy25/page-163.md
+  aliases_observed: []
+  footer_confirmed: false
+- candidate: 2031-ARIZONA HIGHWAYS MAGAZINE FUND
+  occurrences: 1
+  seen_in_docs:
+  - agao-afr-fy25
+  example_files:
+  - agao-afr-fy25/page-163.md
+  aliases_observed: []
+  footer_confirmed: false
+- candidate: 2066-SPECIAL ADMINISTRATION FUND
+  occurrences: 1
+  seen_in_docs:
+  - agao-afr-fy25
+  example_files:
+  - agao-afr-fy25/page-128.md
+  aliases_observed: []
+  footer_confirmed: false
+- candidate: 2071-DEPARTMENT FLEET OPERATIONS FUND
+  occurrences: 1
+  seen_in_docs:
+  - agao-afr-fy25
+  example_files:
+  - agao-afr-fy25/page-163.md
+  aliases_observed: []
+  footer_confirmed: false
+- candidate: 2091-CHILD SUPPORT ENFORCEMENT ADMINISTRATION FUND
+  occurrences: 1
+  seen_in_docs:
+  - agao-afr-fy25
+  example_files:
+  - agao-afr-fy25/page-128.md
+  aliases_observed: []
+  footer_confirmed: false
+- candidate: 2093-ECONOMIC SECURITY CAPITAL INVESTMENTS FUND
+  occurrences: 1
+  seen_in_docs:
+  - agao-afr-fy25
+  example_files:
+  - agao-afr-fy25/page-128.md
+  aliases_observed: []
+  footer_confirmed: false
+- candidate: 2097-ADOT FEDERAL PROGRAMS FUND
+  occurrences: 1
+  seen_in_docs:
+  - agao-afr-fy25
+  example_files:
+  - agao-afr-fy25/page-163.md
+  aliases_observed: []
+  footer_confirmed: false
+- candidate: 2150-ABANDONED VEHICLE ADMINISTRATION FUND
+  occurrences: 1
+  seen_in_docs:
+  - agao-afr-fy25
+  example_files:
+  - agao-afr-fy25/page-163.md
+  aliases_observed: []
+  footer_confirmed: false
+- candidate: 2160-DOMESTIC VIOLENCE SERVICES FUND
+  occurrences: 1
+  seen_in_docs:
+  - agao-afr-fy25
+  example_files:
+  - agao-afr-fy25/page-128.md
+  aliases_observed: []
+  footer_confirmed: false
+- candidate: 2190-SEXUAL VIOLENCE SERVICE FUND
+  occurrences: 1
+  seen_in_docs:
+  - agao-afr-fy25
+  example_files:
+  - agao-afr-fy25/page-128.md
+  aliases_observed: []
+  footer_confirmed: false
+- candidate: 2217-PUBLIC ASSISTANCE COLLECTIONS FUND
+  occurrences: 1
+  seen_in_docs:
+  - agao-afr-fy25
+  example_files:
+  - agao-afr-fy25/page-128.md
+  aliases_observed: []
+  footer_confirmed: false
+- candidate: 2224-DEPT LONG-TERM CARE SYSTEM FUND
+  occurrences: 1
+  seen_in_docs:
+  - agao-afr-fy25
+  example_files:
+  - agao-afr-fy25/page-128.md
+  aliases_observed: []
+  footer_confirmed: false
+- candidate: 2335-SPINAL AND HEAD INJURIES TRUST FUND
+  occurrences: 1
+  seen_in_docs:
+  - agao-afr-fy25
+  example_files:
+  - agao-afr-fy25/page-128.md
+  aliases_observed: []
+  footer_confirmed: false
+- candidate: 2347-FAMILY CAREGIVER GRANT PROGRAM FUND
+  occurrences: 1
+  seen_in_docs:
+  - agao-afr-fy25
+  example_files:
+  - agao-afr-fy25/page-128.md
+  aliases_observed: []
+  footer_confirmed: false
+- candidate: 2348-NEIGHBORS HELPING NEIGHBORS FUND
+  occurrences: 1
+  seen_in_docs:
+  - agao-afr-fy25
+  example_files:
+  - agao-afr-fy25/page-128.md
+  aliases_observed: []
+  footer_confirmed: false
+- candidate: 3168-LGIP-COP INVESTMENT HELD FOR TRUSTEE FUND
+  occurrences: 1
+  seen_in_docs:
+  - agao-afr-fy25
+  example_files:
+  - agao-afr-fy25/page-126.md
+  aliases_observed: []
+  footer_confirmed: false
+- candidate: 3191-ARIZONA PEACE OFFICERS MEMORIAL FUND
+  occurrences: 1
+  seen_in_docs:
+  - agao-afr-fy25
+  example_files:
+  - agao-afr-fy25/page-126.md
+  aliases_observed: []
+  footer_confirmed: false
+- candidate: 3310-POLITICAL PARTIES TRUST FUND
+  occurrences: 1
+  seen_in_docs:
+  - agao-afr-fy25
+  example_files:
+  - agao-afr-fy25/page-126.md
+  aliases_observed: []
+  footer_confirmed: false
+- candidate: 3318-PERMANENT LAND ENDOWMENT TRUST FUND
+  occurrences: 1
+  seen_in_docs:
+  - agao-afr-fy25
+  example_files:
+  - agao-afr-fy25/page-126.md
+  aliases_observed: []
+  footer_confirmed: false
+- candidate: 3323-ENDOWMENT RENTAL INCOME PREPAYMENT FUND
+  occurrences: 1
+  seen_in_docs:
+  - agao-afr-fy25
+  example_files:
+  - agao-afr-fy25/page-126.md
+  aliases_observed: []
+  footer_confirmed: false
+- candidate: 3324-ARIZONA HEALTH INNOVATION TRUST FUND
+  occurrences: 1
+  seen_in_docs:
+  - agao-afr-fy25
+  example_files:
+  - agao-afr-fy25/page-126.md
+  aliases_observed: []
+  footer_confirmed: false
+- candidate: 3702-CRIMINAL JUSTICE ENHANCEMENT FUND
+  occurrences: 1
+  seen_in_docs:
+  - agao-afr-fy25
+  example_files:
+  - agao-afr-fy25/page-126.md
+  aliases_observed: []
+  footer_confirmed: false
+- candidate: 3736-TREASURER ADMINISTRATIVE FUND
+  occurrences: 1
+  seen_in_docs:
+  - agao-afr-fy25
+  example_files:
+  - agao-afr-fy25/page-126.md
+  aliases_observed: []
+  footer_confirmed: false
+- candidate: 3742-CENTRAL ARIZONA WATER CONSERVATION DISTRICT FUND
+  occurrences: 1
+  seen_in_docs:
+  - agao-afr-fy25
+  example_files:
+  - agao-afr-fy25/page-126.md
+  aliases_observed: []
+  footer_confirmed: false
+- candidate: 3747-LOCAL TRANSPORTATION ASSISTANCE FUND
+  occurrences: 1
+  seen_in_docs:
+  - agao-afr-fy25
+  example_files:
+  - agao-afr-fy25/page-126.md
+  aliases_observed: []
+  footer_confirmed: false
+- candidate: 3792-PLAN SIX FACILITY - CAWCD FUND
+  occurrences: 1
+  seen_in_docs:
+  - agao-afr-fy25
+  example_files:
+  - agao-afr-fy25/page-126.md
+  aliases_observed: []
+  footer_confirmed: false
+- candidate: 3798-TELEPHONE SOLICITATION CASH BOND FUND
+  occurrences: 1
+  seen_in_docs:
+  - agao-afr-fy25
+  example_files:
+  - agao-afr-fy25/page-126.md
+  aliases_observed: []
+  footer_confirmed: false
+- candidate: 9005-DES UNEMPLOYMENT BENEFIT FUND
+  occurrences: 1
+  seen_in_docs:
+  - agao-afr-fy25
+  example_files:
+  - agao-afr-fy25/page-126.md
+  aliases_observed: []
+  footer_confirmed: false
+- candidate: 9400-TREASURER INTEREST CLEARING FUND
+  occurrences: 1
+  seen_in_docs:
+  - agao-afr-fy25
+  example_files:
+  - agao-afr-fy25/page-126.md
+  aliases_observed: []
+  footer_confirmed: false
+- candidate: Adequate Water Supply Admin Fund
+  occurrences: 1
+  seen_in_docs:
+  - jlbc-approps-fy26
+  example_files:
+  - jlbc-approps-fy26/page-520.md
+  aliases_observed: []
+  footer_confirmed: false
+- candidate: AHCCCS General Fund
+  occurrences: 1
+  seen_in_docs:
+  - jlbc-baseline-fy23
+  example_files:
+  - jlbc-baseline-fy23/page-112.md
+  aliases_observed: []
+  footer_confirmed: false
+- candidate: AHCCCS's General  Fund
+  occurrences: 1
+  seen_in_docs:
+  - jlbc-baseline-fy23
+  example_files:
+  - jlbc-baseline-fy23/page-112.md
+  aliases_observed: []
+  footer_confirmed: false
+- candidate: Allocation  Fund
+  occurrences: 1
+  seen_in_docs:
+  - jlbc-baseline-fy23
+  example_files:
+  - jlbc-baseline-fy23/page-125.md
+  aliases_observed: []
+  footer_confirmed: false
+- candidate: Antitrust Enforcement Revolving Fund
+  occurrences: 1
+  seen_in_docs:
+  - jlbc-baseline-fy23
+  example_files:
+  - jlbc-baseline-fy23/page-125.md
+  aliases_observed: []
+  footer_confirmed: false
+- candidate: Arizona Endowment Trust Fund
+  occurrences: 1
+  seen_in_docs:
+  - agao-afr-fy25
+  example_files:
+  - agao-afr-fy25/page-177.md
+  aliases_observed: []
+  footer_confirmed: false
+- candidate: Athletic Training Fund
+  occurrences: 1
+  seen_in_docs:
+  - governors-state-agency-detail-fy27
+  example_files:
+  - governors-state-agency-detail-fy27/page-602.md
+  aliases_observed: []
+  footer_confirmed: false
+- candidate: Authoritv  Funds AHCCCS Fund
+  occurrences: 1
+  seen_in_docs:
+  - jlbc-baseline-fy27
+  example_files:
+  - jlbc-baseline-fy27/page-140.md
+  aliases_observed: []
+  footer_confirmed: false
+- candidate: 'Budget Units
+
+    AHCCCS
+
+    AHCCCS Fund'
+  occurrences: 1
+  seen_in_docs:
+  - jlbc-approps-fy26
+  example_files:
+  - jlbc-approps-fy26/page-520.md
+  aliases_observed: []
+  footer_confirmed: false
+- candidate: Child Support Enforcement Administration Fund
+  occurrences: 1
+  seen_in_docs:
+  - jlbc-approps-fy26
+  example_files:
+  - jlbc-approps-fy26/page-520.md
+  aliases_observed: []
+  footer_confirmed: false
+- candidate: Classroom Site Fund
+  occurrences: 1
+  seen_in_docs:
+  - jlbc-approps-fy26
+  example_files:
+  - jlbc-approps-fy26/page-520.md
+  aliases_observed: []
+  footer_confirmed: false
+- candidate: Collection Enforcement Revolving Fund
+  occurrences: 1
+  seen_in_docs:
+  - jlbc-baseline-fy23
+  example_files:
+  - jlbc-baseline-fy23/page-125.md
+  aliases_observed: []
+  footer_confirmed: false
+- candidate: Colorado River Protection Fund
+  occurrences: 1
+  seen_in_docs:
+  - governors-state-agency-detail-fy27
+  example_files:
+  - governors-state-agency-detail-fy27/page-6.md
+  aliases_observed: []
+  footer_confirmed: false
+- candidate: Consumer  Fraud Revolving  Fund
+  occurrences: 1
+  seen_in_docs:
+  - jlbc-baseline-fy23
+  example_files:
+  - jlbc-baseline-fy23/page-125.md
+  aliases_observed: []
+  footer_confirmed: false
+- candidate: Corrections Fund
+  occurrences: 1
+  seen_in_docs:
+  - agao-afr-fy25
+  example_files:
+  - agao-afr-fy25/page-177.md
+  aliases_observed: []
+  footer_confirmed: false
+- candidate: Delivery System Reform Incentive Payment Fund
+  occurrences: 1
+  seen_in_docs:
+  - jlbc-approps-fy26
+  example_files:
+  - jlbc-approps-fy26/page-520.md
+  aliases_observed: []
+  footer_confirmed: false
+- candidate: Discontinue Border Security Fund
+  occurrences: 1
+  seen_in_docs:
+  - governors-state-agency-detail-fy27
+  example_files:
+  - governors-state-agency-detail-fy27/page-6.md
+  aliases_observed: []
+  footer_confirmed: false
+- candidate: DOR Unclaimed Property Fund
+  occurrences: 1
+  seen_in_docs:
+  - agao-afr-fy25
+  example_files:
+  - agao-afr-fy25/page-177.md
+  aliases_observed: []
+  footer_confirmed: false
+- candidate: Employee  Compensation Study Erroneous  Convictions Fund
+  occurrences: 1
+  seen_in_docs:
+  - jlbc-approps-fy26
+  example_files:
+  - jlbc-approps-fy26/page-49.md
+  aliases_observed: []
+  footer_confirmed: false
+- candidate: Enhoncement Fund
+  occurrences: 1
+  seen_in_docs:
+  - jlbc-approps-fy26
+  example_files:
+  - jlbc-approps-fy26/page-164.md
+  aliases_observed: []
+  footer_confirmed: false
+- candidate: 'Expenditure Authority
+
+    Comprehensive Health Plan Fund'
+  occurrences: 1
+  seen_in_docs:
+  - jlbc-approps-fy26
+  example_files:
+  - jlbc-approps-fy26/page-520.md
+  aliases_observed: []
+  footer_confirmed: false
+- candidate: Failing Schools Tutoring Fund
+  occurrences: 1
+  seen_in_docs:
+  - jlbc-approps-fy26
+  example_files:
+  - jlbc-approps-fy26/page-520.md
+  aliases_observed: []
+  footer_confirmed: false
+- candidate: Flealth Care Fund
+  occurrences: 1
+  seen_in_docs:
+  - jlbc-approps-fy26
+  example_files:
+  - jlbc-approps-fy26/page-101.md
+  aliases_observed: []
+  footer_confirmed: false
+- candidate: Free  Arizona Fund
+  occurrences: 1
+  seen_in_docs:
+  - jlbc-approps-fy26
+  example_files:
+  - jlbc-approps-fy26/page-101.md
+  aliases_observed: []
+  footer_confirmed: false
+- candidate: Fund Hospital Assessment  Fund
+  occurrences: 1
+  seen_in_docs:
+  - jlbc-baseline-fy27
+  example_files:
+  - jlbc-baseline-fy27/page-140.md
+  aliases_observed: []
+  footer_confirmed: false
+- candidate: FUND SOURCES General Fund
+  occurrences: 1
+  seen_in_docs:
+  - jlbc-approps-fy26
+  example_files:
+  - jlbc-approps-fy26/page-49.md
+  aliases_observed: []
+  footer_confirmed: false
+- candidate: General Fund Budget Neutrality Compliance  Fund
+  occurrences: 1
+  seen_in_docs:
+  - jlbc-baseline-fy27
+  example_files:
+  - jlbc-baseline-fy27/page-143.md
+  aliases_observed: []
+  footer_confirmed: false
+- candidate: Governor's Emergency Fund
+  occurrences: 1
+  seen_in_docs:
+  - governors-state-agency-detail-fy27
+  example_files:
+  - governors-state-agency-detail-fy27/page-6.md
+  aliases_observed: []
+  footer_confirmed: false
+- candidate: Hospital Assessment Fund
+  occurrences: 1
+  seen_in_docs:
+  - jlbc-approps-fy26
+  example_files:
+  - jlbc-approps-fy26/page-520.md
+  aliases_observed: []
+  footer_confirmed: false
+- candidate: Housing Acceleration Fund
+  occurrences: 1
+  seen_in_docs:
+  - governors-state-agency-detail-fy27
+  example_files:
+  - governors-state-agency-detail-fy27/page-6.md
+  aliases_observed: []
+  footer_confirmed: false
+- candidate: ISA Fund
+  occurrences: 1
+  seen_in_docs:
+  - governors-state-agency-detail-fy27
+  example_files:
+  - governors-state-agency-detail-fy27/page-535.md
+  aliases_observed: []
+  footer_confirmed: false
+- candidate: Local Trans Assistance Fund
+  occurrences: 1
+  seen_in_docs:
+  - agao-afr-fy25
+  example_files:
+  - agao-afr-fy25/page-177.md
+  aliases_observed: []
+  footer_confirmed: false
+- candidate: Nursing Care Facility Provider Assessment Fund
+  occurrences: 1
+  seen_in_docs:
+  - jlbc-approps-fy26
+  example_files:
+  - jlbc-approps-fy26/page-520.md
+  aliases_observed: []
+  footer_confirmed: false
+- candidate: Nursing Facility Provider Assessment  Fund
+  occurrences: 1
+  seen_in_docs:
+  - jlbc-baseline-fy27
+  example_files:
+  - jlbc-baseline-fy27/page-140.md
+  aliases_observed: []
+  footer_confirmed: false
+- candidate: Other Appropriated Funds Air Quality  Fund
+  occurrences: 1
+  seen_in_docs:
+  - jlbc-approps-fy26
+  example_files:
+  - jlbc-approps-fy26/page-49.md
+  aliases_observed: []
+  footer_confirmed: false
+- candidate: Payment Fund
+  occurrences: 1
+  seen_in_docs:
+  - jlbc-baseline-fy27
+  example_files:
+  - jlbc-baseline-fy27/page-140.md
+  aliases_observed: []
+  footer_confirmed: false
+- candidate: Racketeering Revolving  Fund
+  occurrences: 1
+  seen_in_docs:
+  - jlbc-baseline-fy23
+  example_files:
+  - jlbc-baseline-fy23/page-125.md
+  aliases_observed: []
+  footer_confirmed: false
+- candidate: Rainy Day Fund
+  occurrences: 1
+  seen_in_docs:
+  - governors-sources-and-uses-fy27
+  example_files:
+  - governors-sources-and-uses-fy27/page-24.md
+  aliases_observed: []
+  footer_confirmed: false
+- candidate: Reimburse Prior Border Costs Prior Fund
+  occurrences: 1
+  seen_in_docs:
+  - governors-sources-and-uses-fy27
+  example_files:
+  - governors-sources-and-uses-fy27/page-24.md
+  aliases_observed: []
+  footer_confirmed: false
+- candidate: Revolving Fund
+  occurrences: 1
+  seen_in_docs:
+  - jlbc-baseline-fy23
+  example_files:
+  - jlbc-baseline-fy23/page-125.md
+  aliases_observed: []
+  footer_confirmed: false
+- candidate: 'School Safety
+
+    Instructional Improvement Fund'
+  occurrences: 1
+  seen_in_docs:
+  - jlbc-approps-fy26
+  example_files:
+  - jlbc-approps-fy26/page-520.md
+  aliases_observed: []
+  footer_confirmed: false
+- candidate: State General Fund
+  occurrences: 1
+  seen_in_docs:
+  - agao-afr-fy25
+  example_files:
+  - agao-afr-fy25/page-177.md
+  aliases_observed: []
+  footer_confirmed: false
+- candidate: System  Collections Fund Automation Operations Fund
+  occurrences: 1
+  seen_in_docs:
+  - jlbc-approps-fy26
+  example_files:
+  - jlbc-approps-fy26/page-49.md
+  aliases_observed: []
+  footer_confirmed: false
+- candidate: 'Transfers Total
+
+
+    Corrections Fund'
+  occurrences: 1
+  seen_in_docs:
+  - governors-state-agency-detail-fy27
+  example_files:
+  - governors-state-agency-detail-fy27/page-535.md
+  aliases_observed: []
+  footer_confirmed: false
+- candidate: Treasurer Administrative Fund
+  occurrences: 1
+  seen_in_docs:
+  - agao-afr-fy25
+  example_files:
+  - agao-afr-fy25/page-177.md
+  aliases_observed: []
+  footer_confirmed: false
+- candidate: Trustee Fund
+  occurrences: 1
+  seen_in_docs:
+  - agao-afr-fy25
+  example_files:
+  - agao-afr-fy25/page-177.md
+  aliases_observed: []
+  footer_confirmed: false
+- candidate: Veterans Home  Trust Fund
+  occurrences: 1
+  seen_in_docs:
+  - jlbc-approps-fy26
+  example_files:
+  - jlbc-approps-fy26/page-27.md
+  aliases_observed: []
+  footer_confirmed: false
+- candidate: Veterinary Medical Examining Board Fund
+  occurrences: 1
+  seen_in_docs:
+  - jlbc-approps-fy26
+  example_files:
+  - jlbc-approps-fy26/page-520.md
+  aliases_observed: []
+  footer_confirmed: false
+- candidate: Water Resources Fund
+  occurrences: 1
+  seen_in_docs:
+  - jlbc-approps-fy26
+  example_files:
+  - jlbc-approps-fy26/page-520.md
+  aliases_observed: []
+  footer_confirmed: false

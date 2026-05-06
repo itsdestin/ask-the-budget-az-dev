@@ -1,0 +1,204 @@
+# JLBC agency-slug aliases and lifecycle history
+#
+# Generated from analysis of 17 JLBC agency-index PDFs (FY15-FY27 approps +
+# FY23-FY27 baselines). The slug is JLBC's stable URL filename for an agency
+# (e.g. `axs.pdf` for AHCCCS); most slugs are stable across years, but a few
+# have been renamed and many agencies have been added or eliminated.
+#
+# This file is the source of truth for:
+#   1. Slug rename mappings — when ingesting older docs, treat the old slug
+#      as an alias for the new one.
+#   2. Agency lifecycle — first_seen / last_seen years per slug.
+#   3. Eliminated-agency awareness — analysts may ask about agencies that
+#      no longer exist; the system should know what they were.
+#
+# See docs/superpowers/investigations/2026-05-06-data-model.md §4 for
+# the full discussion.
+
+renames:
+  # When an old slug stops appearing the same year a new one starts and the
+  # canonical name on the agency-index is essentially the same, it's a slug
+  # rename — same agency, JLBC just changed the URL filename.
+
+  - old_slug: rev
+    new_slug: dor
+    transition_year: 2027  # FY27 baseline first to use `dor`
+    canonical_name: "Revenue, Department of"
+    note: |
+      Department of Revenue. Used `rev` continuously from FY15 through FY26
+      approps. JLBC switched the per-agency PDF filename to `dor` starting
+      with the FY27 baseline. Same agency, no organizational change.
+
+  - old_slug: doaapf
+    new_slug: doa-apf
+    transition_year: 2016
+    canonical_name: "ADOA - Automation Projects Fund"
+    note: |
+      Hyphenation convention added. Same fund, FY15 used no hyphen, FY16+
+      added one. JLBC's URL filename changed accordingly.
+
+  - old_slugs: [doacfs, doa-cfs, doa-csf]
+    new_slug: doa-csf  # canonical form FY17+ in observed data
+    transition_year: 2017
+    canonical_name: "ADOA - Capital Outlay Stabilization Fund (or School Facilities)"
+    note: |
+      Naming churn over FY15-FY17. The current `doa-sfd` (School Facilities
+      Division) appeared in FY23+ and may be a successor to one of these
+      historical slugs. Manual confirmation required before ingesting older
+      data — these may not all map to the same logical entity.
+
+  - old_slugs: [uniasue, uniasum, uniasuw]
+    new_slug: uniasu
+    transition_year: 2021
+    canonical_name: "Arizona State University"
+    note: |
+      Until FY20, ASU was split into three slugs by campus: East (uniasue,
+      FY15-FY18), Main (uniasum, FY15-FY20), West (uniasuw, FY15-FY18). FY21
+      consolidated to a single `uniasu` slug. Cross-year ASU queries need
+      to fan out across the historical slug set.
+
+# Slugs that appeared and disappeared without a clear rename target. These are
+# real agency eliminations or splits. Source data: 17-index sweep.
+eliminated_or_merged:
+
+  # Long-lived eliminations (5+ years, then removed)
+  - slug: aam
+    last_year: 2025
+    canonical_name: "African-American Affairs, Arizona Commission of"
+    note: "Removed after FY25. Possibly merged or de-funded."
+  - slug: apc
+    last_year: 2023
+    canonical_name: "Parents Comm. on Drug Education and Prevention, Arizona"
+  - slug: ata
+    last_year: 2021
+    canonical_name: "Athletic Training (or similar)"
+  - slug: ban
+    last_year: 2021
+    canonical_name: "Banking (department or board)"
+    note: |
+      Likely merged into Insurance and Financial Institutions (`dif`) —
+      `dif` slug appeared FY21, `ban` last appeared FY21. Confirm by
+      reading the FY21 approps narrative.
+  - slug: bar
+    last_year: 2024
+    canonical_name: "Barbers, Board of"
+    note: "Likely merged into Barbering and Cosmetology Board (`bcb`)."
+  - slug: cf
+    last_year: 2026
+    canonical_name: "County Funding"
+  - slug: cos
+    last_year: 2024
+    canonical_name: "Cosmetology, Board of"
+    note: "Likely merged into Barbering and Cosmetology Board (`bcb`)."
+  - slug: emb
+    last_year: 2025
+    canonical_name: "Funeral Directors and Embalmers, State Board of"
+  - slug: ins
+    last_year: 2021
+    canonical_name: "Insurance, Department of"
+    note: |
+      Renamed/expanded to Insurance and Financial Institutions (`dif`)
+      starting FY21. Effectively a slug rename of the same regulatory body
+      but with expanded scope — treat `ins` as a partial alias for `dif`.
+  - slug: pos
+    last_year: 2023
+    canonical_name: "Postsecondary (likely Postsecondary Education)"
+  - slug: sfb
+    last_year: 2022
+    canonical_name: "School Facilities Board"
+    note: |
+      Likely the predecessor of `doa-sfd` (ADOA - School Facilities
+      Division), which appeared FY23. Treat as functional alias.
+
+  # Brief / transient slugs (1-3 years, possibly errors or short-lived)
+  - slugs: [app, bfs, cna, cs, geo, osh, pes, rac, rad, sbo, usl, wei]
+    note: |
+      Each appears in 1-4 fiscal years across FY15-FY19. Most are
+      pre-consolidation legacy bodies. Worth confirming each's fate
+      against the JLBC narratives if a corpus query lands on them.
+
+# Slugs that appeared after FY15 — newly created agencies or splits.
+added_since_fy15:
+
+  - slug: dcs
+    first_year: 2016
+    canonical_name: "Child Safety, Department of"
+    note: |
+      Department of Child Safety was created in 2014 by AZ Legislature,
+      splitting CPS out from DES. First budget appearance with own slug
+      was FY16 approps.
+
+  - slug: dif
+    first_year: 2021
+    canonical_name: "Insurance and Financial Institutions, Department of"
+    note: "Merger of `ins` (Insurance Department) and Banking Department (`ban`)."
+
+  - slug: doa-sfd
+    first_year: 2023
+    canonical_name: "ADOA - School Facilities Division"
+    note: "Successor to standalone School Facilities Board (`sfb`, last seen FY22)."
+
+  - slug: bcb
+    first_year: 2023
+    canonical_name: "Barbering and Cosmetology Board"
+    note: "Successor to separate Barbers (`bar`) and Cosmetology (`cos`) boards."
+
+  - slug: ico
+    first_year: 2026
+    canonical_name: "Independent Correctional Oversight Office"
+
+  - slug: nrc
+    first_year: 2026
+    canonical_name: "Natural Resource Conservation Board, State"
+
+  - slug: legomb
+    first_year: 2023
+    canonical_name: "Legislative Ombudsman"
+
+  - slug: cet
+    first_year: 2020
+    canonical_name: "Constable Ethics Standards and Training Board"
+
+  - slug: oec
+    first_year: 2017
+    canonical_name: "Economic Opportunity, Office of"
+
+  - slug: otr
+    first_year: 2018
+    canonical_name: "Tribal Relations, Governor's Office on"
+
+  - slug: boe
+    first_year: 2016
+    canonical_name: "Education, State Board of"
+    note: "Was merged with Department of Education in earlier years; split out FY16."
+
+# Per-index counts for context
+slug_counts_by_index:
+  approps_fy2015: 126
+  approps_fy2016: 127
+  approps_fy2017: 126
+  approps_fy2018: 123
+  approps_fy2019: 115
+  approps_fy2020: 114
+  approps_fy2021: 115
+  approps_fy2022: 114
+  approps_fy2023: 116
+  approps_fy2024: 113
+  approps_fy2025: 111
+  approps_fy2026: 111
+  baseline_fy2023: 115
+  baseline_fy2024: 113
+  baseline_fy2025: 111
+  baseline_fy2026: 110
+  baseline_fy2027: 110
+
+# Notes for the catalog rebuild
+maintenance:
+  source_files: "samples/raw-pdfs/jlbc-{baseline,approps}-fy{YYYY}-agency-index.pdf"
+  rebuild_command: "uv run python scripts/build_agency_catalog.py"
+  related: "samples/entity-catalog.yaml — full canonical agency catalog"
+  pending_for_phase_1:
+    - "Manual review of 'eliminated_or_merged' notes — confirm fate of each via JLBC narrative."
+    - "Resolve doa-cfs / doa-csf / doa-sfd / sfb identity — likely all the same logical entity but JLBC churned through several slug forms."
+    - "Verify ban → dif merger inference."
+    - "Check approps-fy2015 hosting URL path for further history (`http://www.azleg.gov/jlbc/15AR/...`); pre-FY15 may exist at older paths."
