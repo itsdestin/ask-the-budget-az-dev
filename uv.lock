@@ -92,6 +92,7 @@ source = { virtual = "." }
 dependencies = [
     { name = "mineru", extra = ["pipeline"] },
     { name = "opendataloader-pdf" },
+    { name = "pydantic" },
     { name = "python-docx" },
     { name = "pyyaml" },
     { name = "requests" },
@@ -109,6 +110,7 @@ dev = [
 requires-dist = [
     { name = "mineru", extras = ["pipeline"], specifier = ">=3.1.6" },
     { name = "opendataloader-pdf", specifier = ">=2.4.1" },
+    { name = "pydantic", specifier = ">=2.9.0" },
     { name = "python-docx", specifier = ">=1.2.0" },
     { name = "pyyaml", specifier = ">=6.0.3" },
     { name = "requests", specifier = ">=2.32.0" },
