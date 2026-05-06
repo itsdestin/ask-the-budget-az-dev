@@ -184,21 +184,27 @@ def render_page(
         rect = to_image_xyxy(s["bbox"])
         if rect[2] <= rect[0] or rect[3] <= rect[1]:
             continue
-        draw.rectangle(rect, outline=(220, 30, 30, 255), width=6)
+        # Inflate the spot-check rect outward so the border sits clear of
+        # the text edges (a tight-bbox outline at width=6 paints 3px over
+        # the glyphs themselves). Padding chosen empirically — 6px at
+        # 150 DPI keeps the outline visibly outside the text without
+        # making adjacent spot-checks overlap each other.
+        pad = 6
+        outset = (rect[0] - pad, rect[1] - pad, rect[2] + pad, rect[3] + pad)
+        draw.rectangle(outset, outline=(220, 30, 30, 255), width=3)
         # Badge: 50×50 translucent red. Translucency is the difference
         # between "I can read the cell underneath" (good) and "the badge
         # erases the content I'm trying to verify" (bad — caught during
         # 2026-05-05 review). Alpha ~150/255 lets text show through.
         # Outline + text stay full-alpha so the badge remains visible.
         badge_size = 50
-        # Placement: try LEFT of bbox first, then ABOVE, then fall back
-        # inside the upper-left corner.
-        bx0 = rect[0] - badge_size - 4
-        by0 = rect[1] - 4
+        # Placement: try LEFT of the inflated outline first, then ABOVE,
+        # then fall back inside the bbox upper-left.
+        bx0 = outset[0] - badge_size - 4
+        by0 = outset[1] - 4
         if bx0 < 0:
-            # Try above the bbox instead of overlapping the content.
-            bx0_above = rect[0]
-            by0_above = rect[1] - badge_size - 4
+            bx0_above = outset[0]
+            by0_above = outset[1] - badge_size - 4
             if by0_above >= 0:
                 bx0, by0 = bx0_above, by0_above
             else:
