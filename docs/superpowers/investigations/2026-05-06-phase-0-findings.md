@@ -60,7 +60,7 @@ Plus four outcomes that weren't on the original plan but matter as much or more 
 - **Sample per-agency PDFs** for FY27 baseline (`axs`, `dot`, `dps`, `des`, `dor`, `legjlbc`, `lan`, `judsup`, `boe`, `exe`, `jus`) — confirms per-agency PDFs carry their own outline trees describing program structure.
 - **Working extractor wrappers**: `scripts/run_opendataloader.py`, `scripts/run_mineru.py`, `scripts/run_docx_ingest.py`.
 - **Variance-discovery sweep** (`scripts/sweep_entities.py`) and **catalog builder** (`scripts/build_agency_catalog.py`) — reusable in Phase 1 against the full corpus. Catalog builder accepts both legacy (`azleg.gov/jlbc/`) and current (`azjlbc.gov/`) JLBC hosts.
-- **20-page sample extraction** under `samples/extractor-output/` for ODL + MinerU spot checks; PNG previews under `samples/scoring-helpers*/`.
+- **20-page sample extraction** under `samples/extractor-output/` for ODL + MinerU spot checks (kept — used by `scripts/sweep_entities.py` and as Phase 1 chunking-layer fixtures); PNG previews under `samples/phase-0-archive/scoring-helpers*/` (archived along with the bake-off scoring artifacts).
 
 ## Deferred decisions (explicit non-goals for Phase 1's first pass)
 

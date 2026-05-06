@@ -1,8 +1,9 @@
-# Source documents for Phase 0 investigation. URLs and checksums let any
-# future contributor re-download and verify the exact same files.
-# `source_format` distinguishes PDFs (extracted via MinerU/Docling-pdf,
-# (page, bbox) provenance) from DOCX (extracted via Docling-docx,
-# (paragraph_id, cell_id) provenance). See spec §6.
+# Source documents acquired during Phase 0 investigation; remains the working
+# manifest for Phase 1+ ingest. URLs and checksums let any future contributor
+# re-download and verify the exact same files. `source_format` distinguishes
+# PDFs (extracted via OpenDataLoader-PDF for tagged docs / MinerU for untagged,
+# (page, bbox) provenance) from DOCX (extracted via python-docx,
+# (paragraph_id, cell_id) provenance). See spec §6 + §9.
 documents:
   - id: jlbc-baseline-fy27
     publisher: jlbc

@@ -1,6 +1,13 @@
 # Phase 0 — Investigation Implementation Plan
 
-> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
+> **STATUS: CLOSED 2026-05-06 — historical record.** This plan is preserved as the executed task list and the contemporaneous record of how Phase 0 was scoped. The actual outcomes (per-doc-type extractor routing, 157-agency canonical catalog, JLBC four-layout discovery, chunk-shape decisions D1–D7) live in:
+> - `docs/superpowers/investigations/2026-05-06-phase-0-findings.md` — findings memo
+> - `docs/superpowers/investigations/2026-05-05-chunk-shape-decisions.md` — chunk-shape decisions
+> - `docs/superpowers/investigations/2026-05-06-data-model.md` — publisher landscape + cross-doc relationships
+>
+> Notable scope changes during execution: (1) Goal 1 became per-doc-type routing rather than a single winner; (2) the entity catalog was bootstrapped from publisher-authoritative agency-index PDFs rather than manual heuristics; (3) JLBC's four parallel publishing layouts (singlefile / link-nav / per-agency / cross-cut s-PDFs) were discovered mid-investigation. See the findings memo "What actually happened" section.
+
+> **For agentic workers (historical):** Phase 0 used superpowers:subagent-driven-development / superpowers:executing-plans to implement this plan task-by-task. Steps used checkbox (`- [ ]`) syntax for tracking; some are unchecked because the work was superseded by the scope changes above rather than executed.
 
 **Goal:** Produce a findings memo that informs all v1 architecture decisions for Ask the Budget AZ, anchored in real Arizona budget documents. Specifically: pick a winning PDF extractor, define Tier 1 entity-resolution scope, validate the chunking strategy, and produce a go/no-go decision for Phase 1.
 
