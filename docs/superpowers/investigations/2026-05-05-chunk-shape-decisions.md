@@ -59,6 +59,8 @@ Tested against three pages: AFR p.163 (tagged, ODL), JLBC Approps p.513 (untagge
 
 **Refines spec §8.4:** existing line "tables atomic, 512-token target / 1024 max" holds — the 512/1024 target is for narrative chunks; tables are atomic by exception and may exceed.
 
+**WS6 follow-up 2026-05-06:** real-corpus run on s18 (Funds × Agencies cross-cut, 13 pages, ~25 agencies per chunk) revealed that whole-table chunking + single `agency_canonical_id` per chunk is the wrong unit for **cross-cut tables specifically**. Each chunk gets stamped to the FIRST agency the resolver matches in source order (alphabetical for s18), so retrieval by `agency_canonical_id` filter won't surface the correct chunk for any non-first agency. Per-row stamping or section-by-agency chunk-shape subdivision is open for Phase 1b. D1 holds for per-agency tables (one agency = one chunk is correct); cross-cut tables are the open subcase.
+
 ### D2. "Logical table" = semantic sub-table, not printed-page table
 
 **Decision:** chunk boundary = one logically complete fiscal unit (one fund-section in AFR, one agency's appropriation table in Approps, one freestanding summary table). Multi-page tables are one chunk; very large tables (>~100 rows) subdivide at next-level heading, not arbitrary row count.
@@ -67,6 +69,8 @@ Tested against three pages: AFR p.163 (tagged, ODL), JLBC Approps p.513 (untagge
 - AFR's fund-balance schedule is one printed table that spans 3 pages and contains many funds. The natural retrieval unit is per-fund — that's what queries target ("Aviation Fund", "Highway Fund").
 - JLBC's per-agency appropriation pages have one logical table per agency.
 - Subdividing by row count breaks semantic coherence and forces parent-chunk strategies; subdividing by heading preserves coherence.
+
+**WS6 follow-up 2026-05-06:** the Phase 1a MinerUReader did NOT reassemble s18's 13-page Funds × Agencies table into one chunk. Cause: the heading "FY 2027 Other Fund Summary by Agency" repeats on every continuation page, and the reader's "no heading between" reassembly guard blocks merging when ANY heading appears between two same-shape tables. Two possible fixes for Phase 1b: (a) widen the guard to ignore re-emitted same-text headings (heading whose text equals the most recent already-claimed heading); or (b) move multi-page reassembly to a post-pass that uses table-shape similarity (column count + header text equivalence) rather than heading boundaries. Listed in `data/chunks/MANIFEST.md` as a Phase 1b chunk-shape revisit.
 
 ### D3. Citation = chunk_id + row identifier; UI highlights row within table
 

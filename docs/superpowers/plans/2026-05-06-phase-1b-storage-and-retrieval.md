@@ -9,7 +9,17 @@
 - `samples/entity-catalog.yaml` + `samples/agency-slug-aliases.yaml` — agency canonical map
 - `data/fund-catalog.yaml` — fund canonical map
 - `data/system-prompt-context.md` — domain primer (loaded by Phase 1c, not used here)
-- `phase-1a-complete` git tag
+- `phase-1a-validated-slice` git tag (Phase 1a closed under slice scope, not full corpus — see "Slice-scope caveat" below)
+- `data/chunks/MANIFEST.md` — Phase 1a → Phase 1b hand-off contract; lists what's in scope, what was deferred, integration findings, chunk-shape observations
+
+**Slice-scope caveat:** Phase 1a closed under a validated-slice scope (5 docs / 161 chunks) rather than the full Week 1–3 corpus the original Phase 1a plan envisioned. The pipeline (download → MinerU/DOCX → chunk → stamp) is proven end-to-end on real source, but volume targets ("5+ fiscal years", "~3000+ chunks") are deferred. Phase 1b's first workstream should be **full Week 1 corpus ingest** (~50 PDFs the orchestrator at `scripts/run_phase_1a_slice.py` already supports — adapt it to a wider doc list) so storage + retrieval is plumbed against representative volume. Phase-1a-derived items Phase 1b inherits:
+
+- `funds/parser.py::parse_s18_table` works on s18 but yields 0 rows on bd2 (different column layout). bd2 parser revision needed before fund catalog can be cross-source merged.
+- Cross-cut whole-table chunks (chunk-shape D6) stamp to a SINGLE `agency_canonical_id` — the first match the resolver sees alphabetically — even when the table lists ~25 agencies. Per-row stamping or section-by-agency chunk subdivision is open.
+- Source documents use spelled-out names ("Department of Corrections"); the Phase 1a smoke queries used acronyms ("ADC", "ADOT", "GAA") that don't tokenize against in-corpus text under TF-IDF. Acronym expansion (likely query-rewrite using the system-prompt context's acronyms section) is a Phase 1b retrieval concern.
+- `samples/agency-slug-aliases.yaml#pending_for_phase_1` items still open — require FY15-FY22 ingest to resolve naturally. Will surface when Phase 1b ingests prior years.
+
+See `data/chunks/MANIFEST.md` "Deferred to Phase 1b" section for the full deferral list.
 
 **Scope this plan:**
 - Postgres + pgvector + ParadeDB local setup
@@ -220,7 +230,9 @@ def test_connection_round_trip():
 - Create: `db/loader.py`
 - Create: `tests/test_loader.py`
 
-- [ ] **Step 1: Failing test — load Phase 1a fixture**
+- [ ] **Step 1: Stage chunk fixture, then failing test — load Phase 1a fixture**
+
+> **Note 2026-05-06:** Phase 1a did NOT pre-stage chunk fixtures under `tests/fixtures/chunks/` — the slice's chunk files live in `data/chunks/` (gitignored except MANIFEST.md). Step 1.a here is to copy a real chunk file into the fixture path so the loader test has stable input. Use `data/chunks/jlbc-baseline-fy2027-s18.json` from a fresh slice run; that file is small (~80KB / 14 chunks). Phase 1a's `doc_type` was `baseline-cross-cut`, NOT `s-pdf` — adjust the assertion below accordingly.
 
 ```python
 def test_load_s18_fixture():
@@ -230,12 +242,12 @@ def test_load_s18_fixture():
             "SELECT * FROM documents WHERE doc_id = 'jlbc-baseline-fy2027-s18'"
         ).fetchone()
         assert doc["publisher"] == "jlbc"
-        assert doc["doc_type"] == "s-pdf"
+        assert doc["doc_type"] == "baseline-cross-cut"
         chunks = conn.execute(
             "SELECT * FROM chunks WHERE doc_id = 'jlbc-baseline-fy2027-s18'"
         ).fetchall()
-        assert len(chunks) == 1
-        assert chunks[0]["is_table"] is True
+        assert len(chunks) == 14   # slice produced 14 chunks; pin against MANIFEST.md
+        assert all(c["is_table"] for c in chunks)
 ```
 
 - [ ] **Step 2: Implement `load_doc(chunk_json_path)`**
@@ -250,7 +262,7 @@ def load_all_phase_1a(chunks_dir="data/chunks"):
         load_doc(chunk_file)
 ```
 
-Runtime expectation: ~3000 chunks should load in < 30 seconds with batch inserts.
+Runtime expectation: ~3000 chunks should load in < 30 seconds with batch inserts. (Slice has 161 chunks; full-corpus volume target carries forward from the original Phase 1a plan.)
 
 ### Task 2.2: Validation pass after loading
 
@@ -682,6 +694,18 @@ Constant in `retrieval/pipeline.py` named `REFUSAL_RERANKER_THRESHOLD`. Comment 
 After eval pass bar is met. Phase 1c starts here.
 
 ---
+
+## Phase 1a derived open questions for Phase 1b
+
+These are scope inputs from Phase 1a's slice run, captured here so Phase 1b's first session has them in front of it. Full list with context in `data/chunks/MANIFEST.md`.
+
+- **Full Week 1 corpus ingest** (~50 PDFs the Phase 1a orchestrator already supports). Should be Phase 1b's first workstream — closes the volume gap before storage + retrieval work meaningfully.
+- **bd2 parser shape mismatch.** `funds/parser.py::parse_s18_table` works on `s18.pdf` but yields 0 rows on `bd2.pdf` (different column layout). Without a bd2 parser revision, the fund catalog stays single-source (s18 only) and cross-source merge is impossible. Decide between: bd2-specific parser, format-tolerant unified parser, or accept single-source.
+- **Cross-cut whole-table chunk-shape revisit.** Current chunks stamp to a single `agency_canonical_id` (first match in source order) even when the table lists ~25 agencies. Retrieval by agency filter won't surface non-first agencies. Decide between per-row stamping, section-by-agency chunk subdivision, or alt-shape (multi-agency stamping array). Resolve before retrieval is wired against `agency_canonical_id` filters.
+- **Multi-page table reassembly across repeated headings.** s18's 13-page Funds × Agencies table emits as 13 chunks because the title heading repeats on every continuation page. Either widen the reassembly guard to ignore re-emitted same-text headings, or move reassembly to a post-pass driven by table-shape similarity rather than heading boundaries.
+- **Acronym expansion for retrieval.** Source documents use spelled-out names; queries often use acronyms. TF-IDF over raw chunk text can't bridge that. Likely fix: query-rewrite step using the system-prompt context's acronyms section, OR augment chunk text with an acronyms appendix at index time.
+- **`samples/agency-slug-aliases.yaml#pending_for_phase_1`** — four open items requiring FY15-FY22 ingest to resolve naturally. Will surface during full-corpus ingest.
+- **`scripts/sweep_entities.py` layout incompatibility.** The Phase 0 script's hardcoded path globs (`opendataloader/*/*.md`, `mineru/*/*.md`, `docx/*/*.md`) don't match the WS6 layout (`<doc_id>/page-*.md` directly under `data/extractor-output/`). Add a `--root` argparse option (or layout normalization) before re-running for full corpus.
 
 ## Deferred decisions (explicit non-goals)
 
