@@ -293,12 +293,18 @@ class EntityStamper:
             if key and key in self._name_to_id:
                 return self._name_to_id[key], []
 
-        # Fuzzy fallback: rapidfuzz token_set_ratio against canonical_names
+        # Fuzzy fallback: rapidfuzz token_set_ratio against canonical_names.
+        # processor=str.lower is load-bearing — rapidfuzz's token_set_ratio is
+        # case-sensitive without one in 3.x, so 'DEPARTMENT OF CORRECTIONS'
+        # vs 'Department of Corrections' scored ~19 (far below the 85 floor)
+        # and every ALL-CAPS bill heading went unstamped. Casefolding both
+        # sides before scoring makes the OCR-drift threshold meaningful.
         for cand in candidates:
             best = process.extractOne(
                 cand,
                 self._all_names,
                 scorer=fuzz.token_set_ratio,
+                processor=str.lower,
                 score_cutoff=_FUZZY_THRESHOLD,
             )
             if best is not None:

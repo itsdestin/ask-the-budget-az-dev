@@ -132,6 +132,23 @@ def test_stamp_ocr_drift_fuzzy_match():
     assert stamped.agency_canonical_id == "agency:dor"
 
 
+def test_stamp_all_caps_bill_heading_resolves_via_fuzzy():
+    """Real-bill Part-1 dept headings are ALL-CAPS (e.g. 'DEPARTMENT OF
+    CORRECTIONS' from SB 1735). The catalog stores them as 'Corrections,
+    Department of' / 'Department of Corrections'. WS6 finding 2026-05-06:
+    rapidfuzz `token_set_ratio` is case-sensitive in v3.x without an explicit
+    processor — every ALL-CAPS heading scored ~19, far below the 85 threshold,
+    leaving 65 of 91 dept-heading chunks in the bill unstamped.
+    """
+    stamper = EntityStamper.from_default_paths()
+    chunk = _chunk(
+        section_path=["DEPARTMENT OF CORRECTIONS"],
+        publisher="legislature",
+    )
+    stamped = stamper.stamp(chunk)
+    assert stamped.agency_canonical_id == "agency:adc"
+
+
 # --- No match -> None + observability ---------------------------------------
 
 
