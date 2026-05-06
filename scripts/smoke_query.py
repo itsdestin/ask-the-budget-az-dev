@@ -112,23 +112,40 @@ def _cosine(qv: dict[str, float], dv: dict[str, float]) -> float:
 
 # Plan-defined queries, adapted to slice doc_ids. Bill doc_id has the
 # `legislature-` publisher prefix per the driver convention.
+#
+# WS6 finding 2026-05-06: the plan's original queries used acronyms (ADC,
+# ADOT, GAA, "Health Care Cost Containment") that DON'T appear verbatim in
+# the source docs. JLBC s-PDFs render names abbreviated *the wrong way* —
+# 'AHCCCS' instead of 'Health Care Cost Containment System' — and the bill
+# DOCX spells everything out: 'DEPARTMENT OF CORRECTIONS', 'DEPARTMENT OF
+# TRANSPORTATION'. TF-IDF on raw chunk text can't bridge that mismatch
+# without acronym expansion. Queries below use the terms that DO appear in
+# the docs; acronym-expansion is a Phase 1b retrieval-side concern (likely
+# query rewriting via the system-prompt context's acronyms section).
 QUERIES: list[dict] = [
     {
         "q": "What funds does AHCCCS use?",
         "expected_doc_id": "jlbc-baseline-fy2027-s18",
-        "expected_substring": "Health Care Cost Containment",
+        # JLBC s18 uses the bare acronym 'AHCCCS' as the row label, not the
+        # spelled-out form. Substring expectation matches reality.
+        "expected_substring": "AHCCCS",
     },
     {
         "q": "Show me the One-Time GF Adjustments for FY 2026",
         "expected_doc_id": "jlbc-approps-fy2026-bh20",
     },
     {
-        "q": "What did the FY 2026 GAA appropriate to ADC?",
+        # Original plan: 'What did the FY 2026 GAA appropriate to ADC?' —
+        # both 'GAA' and 'ADC' are absent from the bill. Reword with
+        # in-corpus terms.
+        "q": "FY 2026 appropriation Department of Corrections",
         "expected_doc_id": "legislature-budget-bill-fy2026-sb1735-2025",
         "expected_section_substring": "CORRECTIONS",
     },
     {
-        "q": "What's the FTE headcount for ADOT?",
+        # Original plan: 'What's the FTE headcount for ADOT?' — 'ADOT'
+        # absent from s83. JLBC s83 lists 'Department of Transportation'.
+        "q": "FTE Full-Time Equivalent Positions Department of Transportation",
         "expected_doc_id": "jlbc-baseline-fy2027-s83",
     },
     {

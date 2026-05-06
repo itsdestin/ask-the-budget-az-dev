@@ -50,7 +50,15 @@ samples/raw-docx/
 # data/system-prompt-context.md, data/ingest-plan.yaml) ARE tracked.
 data/cached-pdfs/
 data/extractor-output/
-data/chunks/
+# data/chunks/ contents are reproducible and large; gitignore everything
+# except MANIFEST.md (the Phase-1a → Phase-1b hand-off contract). Negation
+# patterns require the parent dir NOT to be excluded with trailing-slash,
+# so we ignore everything inside via `**` then re-include the dir + manifest.
+data/chunks/**
+!data/chunks/
+!data/chunks/MANIFEST.md
+# Audit JSON outputs are reproducible — gitignore.
+data/audit/
 
 *.tmp
 .tmp-*/
