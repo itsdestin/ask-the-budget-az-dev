@@ -90,6 +90,7 @@ name = "ask-the-budget-az-dev"
 version = "0.1.0"
 source = { virtual = "." }
 dependencies = [
+    { name = "beautifulsoup4" },
     { name = "mineru", extra = ["pipeline"] },
     { name = "opendataloader-pdf" },
     { name = "pydantic" },
@@ -108,6 +109,7 @@ dev = [
 
 [package.metadata]
 requires-dist = [
+    { name = "beautifulsoup4", specifier = ">=4.14.0" },
     { name = "mineru", extras = ["pipeline"], specifier = ">=3.1.6" },
     { name = "opendataloader-pdf", specifier = ">=2.4.1" },
     { name = "pydantic", specifier = ">=2.9.0" },
