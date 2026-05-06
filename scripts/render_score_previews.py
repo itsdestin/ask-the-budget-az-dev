@@ -185,22 +185,32 @@ def render_page(
         if rect[2] <= rect[0] or rect[3] <= rect[1]:
             continue
         draw.rectangle(rect, outline=(220, 30, 30, 255), width=6)
-        # Badge: 50x50 red square placed to the LEFT of the bbox.
+        # Badge: 50×50 translucent red. Translucency is the difference
+        # between "I can read the cell underneath" (good) and "the badge
+        # erases the content I'm trying to verify" (bad — caught during
+        # 2026-05-05 review). Alpha ~150/255 lets text show through.
+        # Outline + text stay full-alpha so the badge remains visible.
         badge_size = 50
+        # Placement: try LEFT of bbox first, then ABOVE, then fall back
+        # inside the upper-left corner.
         bx0 = rect[0] - badge_size - 4
-        # If there's no room on the left, fall back to placing it inside
-        # the upper-left corner of the bbox.
-        if bx0 < 0:
-            bx0 = rect[0] + 2
         by0 = rect[1] - 4
+        if bx0 < 0:
+            # Try above the bbox instead of overlapping the content.
+            bx0_above = rect[0]
+            by0_above = rect[1] - badge_size - 4
+            if by0_above >= 0:
+                bx0, by0 = bx0_above, by0_above
+            else:
+                bx0, by0 = rect[0] + 2, rect[1] + 2  # inside fallback
         # Clamp to visible area.
         bx0 = max(0, min(bx0, img_w - badge_size))
         by0 = max(0, min(by0, img_h - badge_size))
         draw.rectangle(
             (bx0, by0, bx0 + badge_size, by0 + badge_size),
-            fill=(220, 30, 30, 255),
+            fill=(220, 30, 30, 150),
             outline=(140, 0, 0, 255),
-            width=2,
+            width=3,
         )
         draw.text(
             (bx0 + 13, by0 + 2),
