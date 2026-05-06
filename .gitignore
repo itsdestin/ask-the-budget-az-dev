@@ -44,6 +44,14 @@ samples/extractor-output/**
 !samples/extractor-output/*/README.md
 samples/raw-pdfs/
 samples/raw-docx/
+
+# Phase 1a runtime data — large, reproducible. The smaller curated
+# artifacts (data/discovery-cache.yaml, data/fund-catalog.yaml,
+# data/system-prompt-context.md, data/ingest-plan.yaml) ARE tracked.
+data/cached-pdfs/
+data/extractor-output/
+data/chunks/
+
 *.tmp
 .tmp-*/
 
