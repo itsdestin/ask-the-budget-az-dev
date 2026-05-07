@@ -1,44 +1,55 @@
 # Phase 1b — Storage + Retrieval Implementation Plan
 
+> **REFRAMED 2026-05-06.** This plan was rewritten in-place to reflect the architectural reframe captured in `docs/superpowers/decisions/2026-05-06-phase-1bc-architecture.md`. Key changes from the original plan:
+> 1. **Vertical-slice scope** — Phase 1b operates on the existing 5-doc / 161-chunk slice. Volume ingest is decoupled (new "Volume ingest" section); doesn't gate WS1–WS6. Reverses the original "first workstream is full Week 1 ingest" framing.
+> 2. **WS7 router/decomposer collapses** — under the constrained agent pattern (D7), Claude does query routing and decomposition through tool-call sequences. WS7 becomes "expose retrieve() as MCP tool surface."
+> 3. **Schema flips agency_canonical_id scalar → array** — `agency_canonical_ids TEXT[]` (D2). Migration 0001 carries the change.
+> 4. **Eval (WS8) is the only workstream that genuinely needs the full corpus** — others TDD against the slice.
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** Persist Phase 1a's chunks into Postgres with pgvector + ParadeDB, generate Voyage-3-large embeddings, and stand up the hybrid retrieval pipeline (BM25 + dense + RRF + rerank). By the end of Phase 1b, we should be able to call `retrieve(query) -> list[Chunk]` from a Python REPL and get top-20 candidate chunks back with the right content for the spec §13 eval queries. Synthesis, faithfulness verification, and the UI are Phase 1c.
+**Goal:** Persist Phase 1a's chunks into Postgres with pgvector + ParadeDB, generate Voyage-3-large embeddings, stand up the hybrid retrieval pipeline (BM25 + dense + RRF + rerank), and prepare the surface that Phase 1c's MCP server will wrap. By the end of Phase 1b, `retrieve(query, filters) -> {chunks, top_score}` is callable from a Python REPL with metadata filters and returns the right top-20 candidates for the eval set. Synthesis, citation rendering, faithfulness verification, audit-log writes, the MCP server, and the UI are Phase 1c.
 
 **Inputs from Phase 1a:**
 - `data/chunks/<doc-id>.json` — NDJSON Chunk records ready to load
 - `samples/entity-catalog.yaml` + `samples/agency-slug-aliases.yaml` — agency canonical map
 - `data/fund-catalog.yaml` — fund canonical map
-- `data/system-prompt-context.md` — domain primer (loaded by Phase 1c, not used here)
-- `phase-1a-validated-slice` git tag (Phase 1a closed under slice scope, not full corpus — see "Slice-scope caveat" below)
-- `data/chunks/MANIFEST.md` — Phase 1a → Phase 1b hand-off contract; lists what's in scope, what was deferred, integration findings, chunk-shape observations
+- `data/system-prompt-context.md` — domain primer (loaded by Phase 1c into the system prompt; not used in 1b directly)
+- `phase-1a-validated-slice` git tag — Phase 1a closed under slice scope; volume ingest decoupled
+- `data/chunks/MANIFEST.md` — Phase 1a → Phase 1b hand-off contract
 
-**Slice-scope caveat:** Phase 1a closed under a validated-slice scope (5 docs / 161 chunks) rather than the full Week 1–3 corpus the original Phase 1a plan envisioned. The pipeline (download → MinerU/DOCX → chunk → stamp) is proven end-to-end on real source, but volume targets ("5+ fiscal years", "~3000+ chunks") are deferred. Phase 1b's first workstream should be **full Week 1 corpus ingest** (~50 PDFs the orchestrator at `scripts/run_phase_1a_slice.py` already supports — adapt it to a wider doc list) so storage + retrieval is plumbed against representative volume. Phase-1a-derived items Phase 1b inherits:
+**Phase-1a-derived items Phase 1b inherits (status updates):**
 
-- `funds/parser.py::parse_s18_table` works on s18 but yields 0 rows on bd2 (different column layout). bd2 parser revision needed before fund catalog can be cross-source merged.
-- Cross-cut whole-table chunks (chunk-shape D6) stamp to a SINGLE `agency_canonical_id` — the first match the resolver sees alphabetically — even when the table lists ~25 agencies. Per-row stamping or section-by-agency chunk subdivision is open.
-- Source documents use spelled-out names ("Department of Corrections"); the Phase 1a smoke queries used acronyms ("ADC", "ADOT", "GAA") that don't tokenize against in-corpus text under TF-IDF. Acronym expansion (likely query-rewrite using the system-prompt context's acronyms section) is a Phase 1b retrieval concern.
-- `samples/agency-slug-aliases.yaml#pending_for_phase_1` items still open — require FY15-FY22 ingest to resolve naturally. Will surface when Phase 1b ingests prior years.
+- ~~Cross-cut whole-table chunks stamp to a single agency~~ — **resolved by D2 (array column).** Migration 0001 carries the schema change; loader (WS2) restamps from existing chunk JSONs (the resolver already returns multiple matches; existing slice files use the singular field but the loader can promote to array trivially).
+- ~~Acronym expansion as a server-side query-rewrite step~~ — **reframed by D7:** acronym expansion is a system-prompt instruction in the Budget MCP server's setup ("expand acronyms before calling retrieve()"). Tested in WS8 eval; revisit only if recall is poor.
+- **bd2 parser shape mismatch** — out of scope for 1b retrieval. Cross-source fund catalog merge is a Phase 1.5 concern.
+- **`samples/agency-slug-aliases.yaml#pending_for_phase_1` items** — surface when volume ingest covers FY15–FY22 (Phase 1.5).
+- **Multi-page table reassembly** — less urgent under D2 (each chunk now stamps to all 25 agencies). Revisit if eval shows it matters.
 
 See `data/chunks/MANIFEST.md` "Deferred to Phase 1b" section for the full deferral list.
 
 **Scope this plan:**
 - Postgres + pgvector + ParadeDB local setup
-- Schema migrations matching spec §6 (extended with a `funds` table)
-- Loader: Phase 1a chunk JSON → Postgres rows
+- Schema migrations matching spec §6 (with array agency stamping + funds + conversations + messages tables)
+- Loader: Phase 1a chunk JSON → Postgres rows (handles scalar → array agency stamping promotion)
 - Embedding pipeline (Voyage-3-large API)
 - BM25 index via ParadeDB pg_search
 - Hybrid retrieval (BM25 top 200 + dense top 100 → RRF → rerank → top 20)
-- Query routing classifier (lookup / comparison / synthesis)
-- Sub-query decomposition for comparison queries
-- Metadata filters (`fiscal_year`, `doc_type`, `agency_canonical_id`)
+- Metadata filters (`fiscal_year`, `doc_type`, `agency_canonical_ids`, `fund_canonical_id`, `publisher`, `is_table`)
+- `retrieve(query, filters) -> {chunks, top_score}` Python entry point — production caller (the Budget MCP server in Phase 1c) imports it; eval calls it directly
 
 **Out of scope (deferred to Phase 1c):**
-- LLM synthesis call
-- Tool-call citation emission
+- LLM synthesis (any Claude call)
+- Citation rendering / `cite()` tool implementation
+- The Budget MCP server itself (Phase 1c WS1 — but the Python pipeline it wraps is built here)
 - NLI faithfulness verifier
 - Web UI
-- Companion app
-- Audit log writes (table created here, but only retrieval rows; query-side rows happen in 1c)
+- Audit log writes (`queries`, `conversations`, `messages` tables created here, populated in 1c)
+
+**Out of scope (deferred to Phase 2 or later):**
+- Standalone companion app (Phase 2 — v1 piggybacks on running YouCoded; D3)
+- Server-side query classifier / regex decomposer / FY-range extractor — collapsed under D7
+- Cross-source fund catalog merge / bd2 parser revision (Phase 1.5)
 
 **Architecture:** Postgres 16 + pgvector + ParadeDB pg_search, run locally via Docker. Python 3.12 client. Voyage Python SDK for embeddings + reranker. SQL migrations via `alembic` or hand-written `.sql` files in `db/migrations/`. Single source of truth: spec §6 schema; this plan is a faithful implementation of it.
 
@@ -142,26 +153,14 @@ Expect rows for `vector` and `pg_search`.
 - Create: `db/migrations/0002_indexes.sql`
 - Create: `db/migrations/0003_seed_catalogs.sql`
 
-- [ ] **Step 1: 0001 initial schema — copy spec §6 verbatim**
+- [ ] **Step 1: 0001 initial schema — apply the reframed spec §6**
 
-Tables: `documents`, `agencies`, `chunks`, `queries`, `eval_runs`. Spec §6 has the full DDL; copy it.
+Tables: `documents`, `agencies`, `funds`, `chunks`, `conversations`, `messages`, `queries`, `eval_runs`. Spec §6 (post-2026-05-06 reframe) has the full DDL; copy it. Note three differences from the *original* spec §6:
 
-Plus one **extension** to spec §6: a `funds` table (Phase 1a built the catalog; Phase 1b persists it).
-
-```sql
-CREATE TABLE funds (
-  fund_id TEXT PRIMARY KEY,             -- e.g., 'aviation'
-  canonical_name TEXT NOT NULL,         -- 'Aviation Fund'
-  short_name TEXT,
-  aliases TEXT[] NOT NULL DEFAULT '{}',
-  present_in TEXT[] NOT NULL DEFAULT '{}'  -- ['jlbc-s18', 'jlbc-bd2', 'agao-afr']
-);
-
-ALTER TABLE chunks ADD COLUMN fund_canonical_id TEXT REFERENCES funds(fund_id);
-ALTER TABLE chunks ADD COLUMN fund_mentions TEXT[] NOT NULL DEFAULT '{}';
-```
-
-`fund_mentions` carries the list of all funds mentioned in a chunk (chunk-shape narrative chunks may touch many funds; one is primary, others are mentioned). Phase 1a Workstream 3 Task 3.4 step 3 produces this.
+1. `chunks.agency_canonical_id TEXT` is now `chunks.agency_canonical_ids TEXT[] NOT NULL DEFAULT '{}'` (decision D2).
+2. `funds` table is part of the initial schema (was an extension in the original plan).
+3. `conversations` and `messages` tables are part of the initial schema (decision D4 — multi-turn UX).
+4. `queries` table is per-assistant-turn, FK'd to `messages`, with `retrieve_calls` and `cite_calls` JSONB columns recording the agent's tool-call sequence — different shape from the original `queries` schema.
 
 - [ ] **Step 2: 0002 indexes**
 
@@ -177,13 +176,20 @@ CREATE INDEX chunks_bm25 ON chunks USING bm25 (chunk_id, text)
 CREATE INDEX chunks_fiscal_year ON chunks (fiscal_year);
 CREATE INDEX chunks_doc_type ON chunks (doc_type);
 CREATE INDEX chunks_publisher ON chunks (publisher);
-CREATE INDEX chunks_agency ON chunks (agency_canonical_id);
-CREATE INDEX chunks_fund ON chunks (fund_canonical_id);
+CREATE INDEX chunks_agency_ids_gin ON chunks USING gin (agency_canonical_ids);
+CREATE INDEX chunks_fund_id ON chunks (fund_canonical_id);
+CREATE INDEX chunks_fund_mentions_gin ON chunks USING gin (fund_mentions);
 CREATE INDEX chunks_is_table ON chunks (is_table);
 
 -- Documents lookup
 CREATE INDEX documents_pub_type_fy ON documents (publisher, doc_type, fiscal_year);
+
+-- Messages lookup
+CREATE INDEX messages_conversation_created ON messages (conversation_id, created_at);
+CREATE INDEX queries_message ON queries (message_id);
 ```
+
+The agency + fund GIN indexes are load-bearing for the array-filter pattern: `WHERE 'agency:adc' = ANY(agency_canonical_ids)` uses `chunks_agency_ids_gin`.
 
 - [ ] **Step 3: 0003 seed catalogs**
 
@@ -254,15 +260,17 @@ def test_load_s18_fixture():
 
 Read NDJSON, validate against `Chunk` Pydantic model, insert into `documents` (one row from the manifest) + `chunks` (one row per record). Use `INSERT ... ON CONFLICT DO UPDATE` for idempotence.
 
-- [ ] **Step 3: Bulk loader for full Phase 1a output**
+> **Note 2026-05-06:** Existing slice chunk JSONs use the singular `agency_canonical_id` field. The loader must promote scalar → array on insert (`agency_canonical_ids = [agency_canonical_id] if agency_canonical_id else []`). For cross-cut chunks that should stamp multiple agencies, **the chunker is updated separately** to emit the array shape natively before re-running the slice ingest. Phase 1b can either (a) re-run the slice with the updated chunker first or (b) accept single-element arrays from existing JSONs and revisit when volume ingest happens. Recommend (a) — re-running the slice is fast (~5 min) and gives correct stamping for s18 from the start.
+
+- [ ] **Step 3: Bulk loader for slice chunks**
 
 ```python
-def load_all_phase_1a(chunks_dir="data/chunks"):
+def load_all_chunks(chunks_dir="data/chunks"):
     for chunk_file in chunks_dir.glob("*.json"):
         load_doc(chunk_file)
 ```
 
-Runtime expectation: ~3000 chunks should load in < 30 seconds with batch inserts. (Slice has 161 chunks; full-corpus volume target carries forward from the original Phase 1a plan.)
+Slice has 161 chunks; loads in seconds. Volume corpus (after the "Volume ingest" workstream below) targets ~3000+ chunks; should load in <30s with batch inserts.
 
 ### Task 2.2: Validation pass after loading
 
@@ -277,14 +285,15 @@ def validate_load():
         ("docs > 0", "SELECT COUNT(*) > 0 FROM documents"),
         ("chunks > 0", "SELECT COUNT(*) > 0 FROM chunks"),
         ("all chunks have provenance", "SELECT COUNT(*) FROM chunks WHERE page IS NULL AND source_anchor IS NULL"),  # expect 0
-        ("entity stamping rate", "SELECT COUNT(*) FILTER (WHERE agency_canonical_id IS NOT NULL) * 1.0 / COUNT(*) FROM chunks"),  # expect ≥ 0.9
-        ("foreign key integrity", "SELECT COUNT(*) FROM chunks WHERE agency_canonical_id IS NOT NULL AND agency_canonical_id NOT IN (SELECT agency_id FROM agencies)"),  # expect 0
+        ("entity stamping rate", "SELECT COUNT(*) FILTER (WHERE array_length(agency_canonical_ids, 1) > 0) * 1.0 / COUNT(*) FROM chunks"),  # expect ≥ 0.9
+        ("agency FK integrity", "SELECT COUNT(*) FROM chunks c WHERE EXISTS (SELECT 1 FROM unnest(c.agency_canonical_ids) aid WHERE aid NOT IN (SELECT agency_id FROM agencies))"),  # expect 0
+        ("fund FK integrity", "SELECT COUNT(*) FROM chunks WHERE fund_canonical_id IS NOT NULL AND fund_canonical_id NOT IN (SELECT fund_id FROM funds)"),  # expect 0
     ]
     for label, sql in checks:
         ...
 ```
 
-Failures here mean Phase 1a output drifted from Phase 1b's schema expectations — caught at load time, not at query time.
+Failures here mean Phase 1a output drifted from Phase 1b's schema expectations — caught at load time, not at query time. Note the array-aware checks (FK validation iterates `unnest(agency_canonical_ids)`).
 
 ---
 
@@ -387,7 +396,7 @@ ORDER BY score DESC
 LIMIT %s;
 ```
 
-Filters: `fiscal_year`, `publisher`, `doc_type`, `agency_canonical_id`, `fund_canonical_id`, `is_table`. All optional.
+Filters: `fiscal_year`, `publisher`, `doc_type`, `agency_canonical_id` (single or list), `fund_canonical_id`, `is_table`. All optional. Agency filter syntax: `WHERE agency_canonical_ids && %s::text[]` (array overlap operator) — uses the `chunks_agency_ids_gin` index.
 
 - [ ] **Step 3: Top-k = 200 default per spec §3.4**
 
@@ -413,8 +422,8 @@ BM25 fails on heavy paraphrase ("how much did the prison system get?" vs. "Depar
 def test_dense_paraphrase_recall():
     # Query phrased differently from chunk content
     results = dense_query("how much money did the prison system receive", top_k=20)
-    # Should still surface the ADC chunk
-    assert any(r.agency_canonical_id == "agency:adc" for r in results)
+    # Should still surface a chunk stamped with ADC
+    assert any("agency:adc" in r.agency_canonical_ids for r in results)
 ```
 
 - [ ] **Step 2: Implement `dense_query(text, top_k, **filters) -> list[DenseHit]`**
@@ -485,66 +494,94 @@ Voyage rerank-2.5 pricing: ~$0.05 / 1k requests, where each request is one query
 ```python
 class RetrievalRequest(BaseModel):
     query: str
-    query_type: Literal["lookup", "comparison", "synthesis"] | None = None  # auto if None
     fiscal_year: list[int] | None = None
     doc_type: list[str] | None = None
+    publisher: list[str] | None = None
     agency_canonical_id: list[str] | None = None
+    fund_canonical_id: list[str] | None = None
+    is_table: bool | None = None
     top_k: int = 20
 
 class RetrievalResult(BaseModel):
     chunks: list[RetrievedChunk]   # top_k
-    sub_queries: list[SubQueryResult] | None = None  # for comparison queries
-    classified_type: Literal["lookup", "comparison", "synthesis"]
+    top_score: float                # max reranker score across results — drives refusal threshold check (spec §11)
     reranker_scores: list[float]
 ```
 
-- [ ] **Step 2: Failing test — end-to-end retrieval against a 5-eval-query subset**
+> **Note 2026-05-06:** No `query_type` / `sub_queries` fields. The constrained agent pattern (D7) puts routing and decomposition in Claude's reasoning layer, not in this Python pipeline. Each `retrieve()` call is one query with optional filters — comparison queries surface as multiple separate calls from Claude.
+
+- [ ] **Step 2: Failing test — single-query retrieval against the slice**
 
 ```python
 def test_pipeline_aviation_fund():
-    result = retrieve(RetrievalRequest(query="What's the balance of the Aviation Fund?"))
+    result = retrieve(RetrievalRequest(query="balance of the Aviation Fund"))
     top = result.chunks[0]
     assert "Aviation" in top.text
     assert top.fund_canonical_id == "fund:aviation"
     assert top.is_table  # should win on the s18 cross-cut chunk
+    assert result.top_score > 0.3  # above placeholder refusal threshold
 ```
 
 - [ ] **Step 3: Implement pipeline**
 
 ```python
 def retrieve(req: RetrievalRequest) -> RetrievalResult:
-    classified = classify(req.query) if req.query_type is None else req.query_type
-    if classified == "comparison":
-        sub_queries = decompose(req.query)
-        sub_results = [_retrieve_single(sq, req.filters) for sq in sub_queries]
-        # Merge sub-query results, preserving sub-query attribution
-        chunks = merge_sub_results(sub_results, total_k=req.top_k)
-        return RetrievalResult(chunks=chunks, sub_queries=sub_results, classified_type=classified, ...)
-    else:
-        chunks = _retrieve_single(req.query, req.filters, top_k=req.top_k)
-        return RetrievalResult(chunks=chunks, classified_type=classified, ...)
-
-def _retrieve_single(query, filters, top_k=20):
-    bm25_hits = bm25_query(query, top_k=200, **filters)
-    dense_hits = dense_query(query, top_k=100, **filters)
+    bm25_hits = bm25_query(req.query, top_k=200, **req.filters)
+    dense_hits = dense_query(req.query, top_k=100, **req.filters)
     fused = rrf_fuse([bm25_hits, dense_hits], top_k=50)
-    fused_chunks = load_chunk_text(fused)  # hydrate from DB
-    reranked = rerank(query, fused_chunks, top_k=top_k)
-    return reranked
+    fused_chunks = load_chunk_text(fused)
+    reranked = rerank(req.query, fused_chunks, top_k=req.top_k)
+    return RetrievalResult(
+        chunks=reranked,
+        top_score=max((c.score for c in reranked), default=0.0),
+        reranker_scores=[c.score for c in reranked],
+    )
 ```
+
+Single function; no classifier, no decomposer. Comparison-query handling is Claude's job in Phase 1c via multiple `retrieve()` tool calls.
 
 ---
 
-## Workstream 7 — Query routing
+## Workstream 7 — Retrieval API surface
 
-**Goal:** Classifier that picks `lookup` / `comparison` / `synthesis` per spec §3.4. Decomposer that splits comparison queries into per-FY sub-queries.
+**Goal:** Wrap the WS6 pipeline in a stable Python entry point that the Phase 1c MCP server (the production caller) and the WS8 eval harness will both import. Keep the surface small — under the constrained agent pattern (D7), routing and decomposition aren't here.
 
-### Task 7.1: Hand-labeled training set
+**Reframed 2026-05-06.** Original WS7 was "regex classifier + FY-range decomposer + sub-query merge logic" (~150 lines). Collapsed to "publish a clean `retrieve(query, filters)` entry point." Phase 1c WS1 (Budget MCP server) wraps this; Claude in YouCoded sessions calls the MCP tool which calls this Python function.
+
+### Task 7.1: Confirm `retrieve()` is import-clean
+
+**Files:**
+- Update: `retrieval/__init__.py` (re-export `retrieve`, `RetrievalRequest`, `RetrievalResult`)
+
+- [ ] **Step 1: Verify Phase 1c can import the entry point**
+
+```python
+# What the Phase 1c MCP server will do:
+from retrieval import retrieve, RetrievalRequest
+
+result = retrieve(RetrievalRequest(
+    query="Aviation Fund balance",
+    fiscal_year=[2027],
+    fund_canonical_id=["fund:aviation"],
+))
+```
+
+No new code; just confirm the import surface is clean and the type hints are sufficient for the MCP tool wrapper to consume.
+
+> **Routing + decomposition NOT in Phase 1b.** Removed 2026-05-06: regex classifier, FY-range decomposer, sub-query merge logic. Decision D7 puts these in Claude's reasoning layer via the constrained agent pattern. Claude in YouCoded sessions calls `retrieve()` one or more times per turn; the MCP server's system prompt instructs it on routing logic ("expand acronyms; require explicit FY for comparisons; pick narrow filters when possible").
+
+---
+
+## Workstream 8 — Retrieval validation
+
+**Goal:** Curate eval set, evaluate the pipeline against it, calibrate refusal threshold, document the retrieval API contract for Phase 1c.
+
+> **Note 2026-05-06:** WS8 is **the only Phase 1b workstream that genuinely needs the full corpus.** WS1–WS7 TDD against the slice. WS8's recall numbers only hit their target after volume ingest (see "Volume ingest" section below) has loaded the full Week-1 + first-FY corpus across all four publishers.
+
+### Task 8.1: Curate eval queries
 
 **Files:**
 - Create: `eval/queries.yaml`
-
-Spec §13 calls for ~50 hand-curated eval queries by Phase 1 launch. Phase 1b builds ~30; Phase 1c expands.
 
 - [ ] **Step 1: Curate ~30 queries across the three types**
 
@@ -559,9 +596,9 @@ Spec §13 calls for ~50 hand-curated eval queries by Phase 1 launch. Phase 1b bu
 - id: q-014
   query: "How did corrections appropriations change between FY23 and FY25?"
   type: comparison
-  expected_decomposition:
-    - {topic: "corrections appropriations", fiscal_year: 2023}
-    - {topic: "corrections appropriations", fiscal_year: 2025}
+  expected_chunks_must_include:
+    - {doc_type: "approps-report", fiscal_year: 2023, agency: "agency:adc"}
+    - {doc_type: "approps-report", fiscal_year: 2025, agency: "agency:adc"}
   expected_refusal: false
 
 - id: q-027
@@ -570,107 +607,40 @@ Spec §13 calls for ~50 hand-curated eval queries by Phase 1 launch. Phase 1b bu
   expected_refusal: true
 ```
 
-Mix per spec §2: ~60% lookup, ~30% comparison, ~10% synthesis + out-of-scope. Each query annotated with `expected_chunks_must_include` (publisher + doc_type + agency + FY constraints) so retrieval can be scored mechanically.
+Mix per spec §2: ~60% lookup, ~30% comparison, ~10% synthesis + out-of-scope. Each query annotated with `expected_chunks_must_include` (publisher + doc_type + agency + FY constraints) so retrieval can be scored mechanically. The `type` field is informational only (no classifier consumes it); it helps scope the eval mix and lets us compute per-type recall.
 
-### Task 7.2: Classifier
-
-**Files:**
-- Create: `retrieval/router.py`
-- Create: `tests/test_router.py`
-
-Spec §9 calls for ~150 lines, custom classifier. Probably regex + keyword heuristics for v1; LLM-classifier later.
-
-- [ ] **Step 1: Failing tests against hand-labeled queries**
-
-```python
-def test_classify_examples():
-    # Comparison signals: "compare", "between X and Y", "change", "difference"
-    assert classify("How did corrections change between FY23 and FY25?") == "comparison"
-    assert classify("What's the difference between Gov rec and GAA for ADE?") == "comparison"
-    # Synthesis signals: "summarize", "overview", "what are the major"
-    assert classify("Summarize fiscal pressures in the FY25 baseline") == "synthesis"
-    assert classify("What are the major changes in the AFR notes between 2022 and 2024?") == "comparison"  # 'between' wins
-    # Lookup default
-    assert classify("What was the FY24 GF appropriation for ADC?") == "lookup"
-    # Out-of-scope
-    assert classify("What's the right tax policy?") == "out_of_scope"
-```
-
-- [ ] **Step 2: Implement classifier**
-
-Regex tier first:
-- `\bbetween\b.*\band\b` → comparison
-- `\b(compare|comparison|change|changed|difference|vs)\b` → comparison
-- `\b(summarize|overview|major|trends?)\b` → synthesis
-- `\b(should|recommend|policy|opinion)\b` → out_of_scope
-- default → lookup
-
-Test against the labeled set; iterate on keywords until ≥ 90% accuracy on hand-labeled queries. Document misclassified queries in `eval/router-misses.md` for later LLM-classifier upgrade.
-
-### Task 7.3: Comparison query decomposer
-
-**Files:**
-- Create: `retrieval/decomposer.py`
-- Create: `tests/test_decomposer.py`
-
-Per spec §5 example: `"How did ADC General Fund appropriations change between FY23 and FY25?"` → `[{topic: "ADC General Fund appropriations", fiscal_year: 2023}, {...fiscal_year: 2025}]`.
-
-- [ ] **Step 1: Failing test — extract FY range from "between X and Y"**
-
-```python
-def test_decompose_fy_range():
-    result = decompose("How did corrections appropriations change between FY23 and FY25?")
-    assert len(result.sub_queries) == 2  # or 3 (FY23, FY24, FY25) — design choice
-    assert all("corrections" in sq.topic for sq in result.sub_queries)
-    assert {sq.fiscal_year for sq in result.sub_queries} == {2023, 2025}
-```
-
-- [ ] **Step 2: Implement decomposer**
-
-Two regex patterns:
-- "between FY(N) and FY(M)" → sub-queries for FY N and FY M (start with endpoints only; if eval shows queries expect intermediate years, expand)
-- "in FY(N) vs FY(M)" → same
-
-Topic = the rest of the query with the fiscal-year clause removed. Per spec §16 open question: "When user says 'compare X' without specifying years, do we fan out across all years? Last 3?" — punt for v1; require explicit years. Surface a refusal `"Need explicit fiscal years for comparison queries"` if absent.
-
----
-
-## Workstream 8 — Retrieval validation
-
-**Goal:** Evaluate the pipeline against the curated eval set.
-
-### Task 8.1: Eval runner
+### Task 8.2: Eval runner
 
 **Files:**
 - Create: `eval/run_eval.py`
 
-- [ ] **Step 1: Implement eval harness**
+- [ ] **Step 1: Implement eval harness (single-shot mode)**
 
 For each query in `eval/queries.yaml`:
-1. Call `retrieve(query)`.
+1. Call `retrieve(RetrievalRequest(query=q.query))` — bypasses the agent; calls the Python pipeline directly for deterministic measurement.
 2. Compare top-K chunks against `expected_chunks_must_include`. A query passes citation recall if every expected (publisher × doc_type × agency × FY) constraint is satisfied by at least one returned chunk.
-3. Record per-query: classified type, sub-queries, top-K chunk IDs, recall@5, recall@20, latency.
+3. Record per-query: top-K chunk IDs, recall@5, recall@20, latency, top reranker score (for refusal threshold tuning).
 
-Output: `eval/results/<git_sha>.json` and a Markdown summary.
+Output: `eval/results/<git_sha>.json` + a Markdown summary.
 
 - [ ] **Step 2: First eval run + report**
 
-Run eval; write `docs/superpowers/investigations/2026-MM-DD-phase-1b-eval.md` with:
+Run eval (against the volume-ingested corpus); write `docs/superpowers/investigations/2026-MM-DD-phase-1b-eval.md` with:
 - Total queries, type breakdown
 - Recall@5 / Recall@20 overall and per type
-- Per-query failures with hypothesized cause (chunk-shape issue / extractor issue / classifier issue / corpus-coverage issue)
+- Per-query failures with hypothesized cause (chunk-shape / extractor / corpus coverage / acronym expansion / filter logic)
 
-Pass bar: **Recall@20 ≥ 80% on lookup queries** (the simplest case). Comparison + synthesis recall is informational for now; their final accuracy depends on synthesis quality (Phase 1c).
+Pass bar: **Recall@20 ≥ 80% on lookup queries** (the simplest case). Comparison + synthesis recall is informational; their final accuracy depends on the agent (Phase 1c).
 
-If pass bar isn't met, the failures point at the work to do — could be chunk-shape (revisit chunking layer in 1a worktree), extractor coverage (re-extract a problematic doc), embedding mode (forgot to use input_type="query"), or filter logic.
+If pass bar isn't met, failures point at the work to do — chunk-shape revisit, extractor coverage gap, missing volume in the corpus, or filter logic.
 
-### Task 8.2: Refusal threshold calibration
+### Task 8.3: Refusal threshold calibration
 
 **Files:**
 - Update: `retrieval/pipeline.py`
 - Update: `eval/queries.yaml` (add intentional-refusal cases if not already present)
 
-Spec §11 says the threshold is calibrated during Phase 1 against the eval set; placeholder = reranker score < 0.3 → `refusal_no_retrieval`.
+Spec §11 says the threshold is calibrated during Phase 1 against the eval set; placeholder = `top_score < 0.3` → `refusal_no_retrieval`.
 
 - [ ] **Step 1: Compute optimal threshold**
 
@@ -681,13 +651,13 @@ For each candidate threshold in [0.1, 0.2, 0.3, 0.4, 0.5]:
 
 - [ ] **Step 2: Lock chosen threshold + document rationale**
 
-Constant in `retrieval/pipeline.py` named `REFUSAL_RERANKER_THRESHOLD`. Comment cites the eval-run artifact that justified it.
+Constant in `retrieval/pipeline.py` named `REFUSAL_RERANKER_THRESHOLD`. Comment cites the eval-run artifact that justified it. Phase 1c's MCP server reads this constant — the system prompt instructs Claude to refuse when `top_score < REFUSAL_RERANKER_THRESHOLD`.
 
-### Task 8.3: Hand-off package for Phase 1c
+### Task 8.4: Hand-off package for Phase 1c
 
 - [ ] **Step 1: Document the retrieval API contract**
 
-`docs/retrieval-api.md` — the `RetrievalRequest` / `RetrievalResult` shapes, what filters are supported, what the chunks look like coming out, refusal behavior. Phase 1c's synthesis layer reads this as its input contract.
+`docs/retrieval-api.md` — the `RetrievalRequest` / `RetrievalResult` shapes, what filters are supported, what the chunks look like coming out, refusal threshold semantics. Phase 1c's MCP server reads this as its input contract.
 
 - [ ] **Step 2: Tag `phase-1b-complete`**
 
@@ -695,39 +665,86 @@ After eval pass bar is met. Phase 1c starts here.
 
 ---
 
-## Phase 1a derived open questions for Phase 1b
+## Volume ingest (decoupled workstream)
 
-These are scope inputs from Phase 1a's slice run, captured here so Phase 1b's first session has them in front of it. Full list with context in `data/chunks/MANIFEST.md`.
+**Goal:** Ingest the full v1 corpus (all four publishers, most-recent FY) so WS8's eval can measure recall against representative volume. Runs concurrently with or after WS1–WS7; doesn't gate them.
 
-- **Full Week 1 corpus ingest** (~50 PDFs the Phase 1a orchestrator already supports). Should be Phase 1b's first workstream — closes the volume gap before storage + retrieval work meaningfully.
-- **bd2 parser shape mismatch.** `funds/parser.py::parse_s18_table` works on `s18.pdf` but yields 0 rows on `bd2.pdf` (different column layout). Without a bd2 parser revision, the fund catalog stays single-source (s18 only) and cross-source merge is impossible. Decide between: bd2-specific parser, format-tolerant unified parser, or accept single-source.
-- **Cross-cut whole-table chunk-shape revisit.** Current chunks stamp to a single `agency_canonical_id` (first match in source order) even when the table lists ~25 agencies. Retrieval by agency filter won't surface non-first agencies. Decide between per-row stamping, section-by-agency chunk subdivision, or alt-shape (multi-agency stamping array). Resolve before retrieval is wired against `agency_canonical_id` filters.
-- **Multi-page table reassembly across repeated headings.** s18's 13-page Funds × Agencies table emits as 13 chunks because the title heading repeats on every continuation page. Either widen the reassembly guard to ignore re-emitted same-text headings, or move reassembly to a post-pass driven by table-shape similarity rather than heading boundaries.
-- **Acronym expansion for retrieval.** Source documents use spelled-out names; queries often use acronyms. TF-IDF over raw chunk text can't bridge that. Likely fix: query-rewrite step using the system-prompt context's acronyms section, OR augment chunk text with an acronyms appendix at index time.
-- **`samples/agency-slug-aliases.yaml#pending_for_phase_1`** — four open items requiring FY15-FY22 ingest to resolve naturally. Will surface during full-corpus ingest.
-- **`scripts/sweep_entities.py` layout incompatibility.** The Phase 0 script's hardcoded path globs (`opendataloader/*/*.md`, `mineru/*/*.md`, `docx/*/*.md`) don't match the WS6 layout (`<doc_id>/page-*.md` directly under `data/extractor-output/`). Add a `--root` argparse option (or layout normalization) before re-running for full corpus.
+**Reframed 2026-05-06.** Originally the Phase 1b plan said "full Week 1 ingest is the first workstream" — that path delays the storage/retrieval code by 2–3 weeks for re-running the existing Phase 1a orchestrator. Reversed under decision D1 (vertical slice). The orchestrator is proven; volume ingest is now a parallel track with no code dependencies on WS1–WS7.
+
+### Target corpus for v1
+
+Per decision D12, v1 dogfood needs all four publishers covered for the spec §3 comparison use case to work:
+
+- **JLBC FY27 baseline** — 15 cross-cut s-PDFs + 110 per-agency PDFs (most already on disk in `samples/raw-pdfs/` from Phase 0)
+- **JLBC FY26 approps** — 28 cross-cut PDFs (bh*, bd*, page-keyed)
+- **Legislature FY26 budget bill (SB 1735)** — already in slice
+- **Governor FY27** — State Agency Detail (636 pages) + Sources & Uses (919 pages)
+- **AGAO FY25 AFR** — 181 pages, tagged
+- **Primers** — writing draft + Gov glossary (system-prompt context, not retrieved)
+
+Multi-year backfill (FY15–FY24) is Phase 1.5 — same orchestrator, more URLs.
+
+### Tasks
+
+**Files:**
+- Update: `scripts/run_phase_1a_slice.py` (rename to `run_volume_ingest.py`; widen the doc list; consume `ingest/discovery.py` for TOC-driven URL enumeration)
+- Update: `scripts/sweep_entities.py` (add `--root` arg; existing path globs assume the old phase-0 layout)
+
+- [ ] **Step 1: Adapt orchestrator to walk discovery for full Week-1 list**
+
+`ingest/discovery.py` already has `walk_baseline_links()`, `walk_approps_toc()`, `walk_agency_index()`. Wire them into the orchestrator so doc lists come from the live TOC PDFs rather than hardcoded slice constants.
+
+- [ ] **Step 2: Add Gov SAD + AGAO AFR pipelines**
+
+These weren't in the slice. Use the OpenDataLoader path for both (tagged PDFs per Phase 0 stack decisions). Confirm extractor outputs land in `data/extractor-output/<doc-id>/` in the same shape as MinerU outputs.
+
+- [ ] **Step 3: Run end-to-end**
+
+```bash
+uv run python scripts/run_volume_ingest.py
+uv run python db/loader.py
+uv run python scripts/embed_corpus.py
+```
+
+Expected: ~3000 chunks, ~$0.32 embedding cost, runs unattended for 1–2 hours.
+
+- [ ] **Step 4: Verify volume ingest with `db/validate.py`**
+
+Same checks as the slice load. Stamping rate ≥ 90%, FK integrity, all chunks have provenance.
+
+### When to run
+
+Two valid sequencings:
+
+- **Concurrent with WS1–WS7:** start volume ingest as a background process while building infra. Re-run the loader as new chunks arrive. Lets WS8 fire as soon as WS1–WS7 + ingest both complete.
+- **After WS1–WS7:** simpler bookkeeping; WS1–WS7 finalize against the slice, then volume ingest is a single batch run before WS8.
+
+Either works. Concurrent is faster to v1; sequential is simpler to track.
+
+---
 
 ## Deferred decisions (explicit non-goals)
 
 - **LLM provider abstraction (`LLMProvider` interface).** Phase 1c. Storage/retrieval is provider-agnostic.
-- **Synthesis call.** Phase 1c.
+- **Synthesis call / Budget MCP server.** Phase 1c WS1.
 - **Faithfulness verifier.** Phase 1c.
-- **Per-query audit log writes.** Schema is created here (queries table); writes happen in 1c when there's a query path with results worth logging.
+- **Per-query audit log writes.** Schema is created here (`queries`, `conversations`, `messages` tables); writes happen in 1c.
 - **Index restatement / AFR Note pairing for retrieval boost.** Phase 1a Workstream 5 Task 5.3 captured the metadata; turning that into a retrieval boost is a Phase 2 enhancement.
 - **Per-row metadata for tabular chunks.** Currently the chunk is the table; the row is identified at citation time (Phase 1c). If retrieval ever needs to filter by row-level metadata (e.g., "fund + agency where amount > $50M"), that's a Phase 2 enhancement.
 - **Cost optimization.** Voyage-3-large + rerank-2.5 are top-quality but not cheapest. Switching to lower-cost embedding (Voyage-3-lite) or a self-hosted reranker is post-MVP.
-- **Hybrid score combination beyond RRF.** RRF is the well-attested default. Per-type weighting (boost BM25 for lookups, dense for synthesis) is supported via the per-list weight parameter; tuning happens during 8.1 if recall is mixed.
+- **Hybrid score combination beyond RRF.** RRF is the well-attested default. Per-type weighting (boost BM25 for lookups, dense for synthesis) is supported via the per-list weight parameter; tuning happens during 8.2 if recall is mixed.
+- **Server-side query classifier / regex decomposer.** Removed under D7. Claude does this work in Phase 1c.
+- **Multi-year backfill ingest (FY15–FY24).** Phase 1.5; same orchestrator with more URLs.
 
 ## What "Phase 1b done" means
 
 By the end of Phase 1b:
 
-- Postgres + pgvector + ParadeDB running locally with schema applied
-- All Phase 1a chunks loaded; embeddings populated (~$0.32 corpus cost confirmed before run)
-- BM25 + dense retrieval helpers working with metadata filters
-- RRF fusion + Voyage rerank-2.5 wired into a top-level `retrieve(query)` API
-- Query classifier ≥ 90% accuracy on hand-labeled set; comparison decomposer working on FY-range queries
-- Eval set ≥ 80% recall@20 on lookup queries; eval results doc written
+- Postgres + pgvector + ParadeDB running locally with reframed-spec-§6 schema applied (array agency stamping, funds + conversations + messages tables)
+- Volume ingest run; ~3000 chunks across all four publishers loaded; embeddings populated (~$0.32 corpus cost)
+- BM25 + dense retrieval helpers working with metadata filters (including array-overlap agency filter)
+- RRF fusion + Voyage rerank-2.5 wired into a top-level `retrieve(query, filters) -> {chunks, top_score}` Python API
+- Eval set (~30 queries) ≥ 80% recall@20 on lookup queries; eval results doc written
 - Refusal threshold calibrated and locked
 - Retrieval API contract documented at `docs/retrieval-api.md`
 - `phase-1b-complete` tag created

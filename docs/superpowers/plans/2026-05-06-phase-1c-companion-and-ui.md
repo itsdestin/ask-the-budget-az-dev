@@ -1,34 +1,44 @@
-# Phase 1c — Companion + Synthesis + UI Implementation Plan
+# Phase 1c — Synthesis + UI Implementation Plan
+
+> **REFRAMED 2026-05-06.** This plan was rewritten in-place to reflect the architectural reframe captured in `docs/superpowers/decisions/2026-05-06-phase-1bc-architecture.md`. Key changes from the original plan:
+> 1. **No standalone companion app for v1.** Replaced by piggybacking on a running YouCoded instance (decision D3). WS2 (Companion app) is **deleted**; WS1 (LLMProvider) becomes "implement `YouCodedSessionProvider`."
+> 2. **Custom budget tools live in a Budget MCP server** (decision D6) registered in YouCoded's MCP config. New WS introduced for it.
+> 3. **Constrained agent-pattern retrieval** (decision D7). The synthesis prompt requires Claude to call `retrieve()` before answering; comparison decomposition happens in Claude's reasoning, not server-side.
+> 4. **Multi-turn chat** is the UX (decision D4). The web UI is a chat thread (not search-bar + answer-pane).
+> 5. **DOCX viewer + verify-mode toggle deferred to Phase 2** (decision D10).
+> 6. **Eval expansion target is 30 → 35** (was 30 → 50). Full 50 follows Phase 1.5 backfill.
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** Wire the LLM synthesis layer + faithfulness verifier + web UI on top of Phase 1b's retrieval API, producing a working end-to-end product on Destin's machine. By the end of Phase 1c, Destin can type a question into a browser, get an answer with citation chips, click a chip, and see the source PDF page with the cited region highlighted. This is "Phase 1 — Working prototype" complete per spec §7.
+**Goal:** Wire the synthesis + citation rendering + web UI on top of Phase 1b's retrieval API, producing a working multi-turn chat-style end-to-end product on Destin's machine that depends on a running YouCoded instance. By the end of Phase 1c, Destin can type a question into a budget-app browser tab, get a cited answer, ask follow-ups in the same conversation, click citation chips, and see the source PDF page with the cited region highlighted. This is "Phase 1 — Working prototype" complete per spec §7.
 
 **Inputs from Phase 1b:**
-- `retrieve(RetrievalRequest) -> RetrievalResult` retrieval API at `retrieval/pipeline.py`
-- Postgres with all chunks + embeddings + indexes
+- `retrieve(RetrievalRequest) -> RetrievalResult` Python entry point at `retrieval/pipeline.py`
+- `REFUSAL_RERANKER_THRESHOLD` constant (calibrated)
+- Postgres with all chunks + embeddings + indexes (post-volume-ingest)
 - Eval set at `eval/queries.yaml` with ~30 queries
-- Refusal threshold locked
 - `data/system-prompt-context.md` from Phase 1a (writing draft + Gov glossary)
 - `phase-1b-complete` git tag
 
+**Hard external dependency:**
+- A YouCoded installation on the same machine, running and reachable at `ws://localhost:9900`. v1 fails fast with a "please open YouCoded" notice if absent.
+
 **Scope this plan:**
-- LLM provider abstraction (`LLMProvider` interface) + `LocalCompanionProvider` implementation
-- Companion app (lifts from YouCoded's PTY/wrapper infra)
-- Tool-call citation emission (`cite(chunk_id, span_start, span_end, confidence)`)
-- NLI/judge faithfulness verifier
-- Next.js web UI (search bar, answer pane, citation chips)
-- PDF.js + react-pdf-highlighter-extended viewer
-- DOCX → HTML on-demand renderer with stable paragraph IDs
-- Audit log writes (the `queries` table populated)
-- Eval expansion to ~50 queries
-- End-to-end smoke test on Destin's machine
+- `LLMProvider` interface + `YouCodedSessionProvider` implementation (talks to localhost:9900)
+- **Budget MCP server** — Node process registered in YouCoded's MCP config; exposes `retrieve(query, filters)` and `cite(...)` tools
+- Synthesis system prompt (loaded by the MCP server) — instructs Claude on tool use, refusal thresholds, citation format, acronym expansion
+- NLI/judge faithfulness verifier (post-streaming)
+- Next.js multi-turn chat UI (conversation thread with citation chips)
+- PDF.js + react-pdf-highlighter-extended viewer with bbox highlight
+- Audit log writes (`conversations`, `messages`, `queries` tables populated)
+- Eval expansion to ~35 queries; end-to-end smoke test
 
 **Out of scope (deferred to Phase 2):**
-- Companion app distribution to other analysts
+- Standalone companion app (so the budget app can run without YouCoded)
+- DOCX HTML renderer / `DocxViewer` component
+- Verify-mode toggle (synchronized scrolling)
 - Public web deployment (Vercel + Supabase)
-- AnthropicAPIProvider (uses single shared org account)
-- SelfHostedLLMProvider (open-weight model)
+- `AnthropicAPIProvider` and `SelfHostedLLMProvider`
 - Tier 2 entity resolution (program-level)
 - Larger eval set expansion (Phase 3)
 
@@ -37,40 +47,62 @@
 ```
 ┌─────────────────────────────────────────────────────────┐
 │ Browser (localhost:3000)                                │
-│  Next.js SPA: search bar, answer pane, PDF viewer       │
+│  Next.js SPA: chat thread, citation chips, PDF viewer   │
+│  (DOCX viewer + verify-mode deferred to Phase 2)        │
 └──────────────────────────┬──────────────────────────────┘
-                           │ HTTPS / API routes
+                           │ HTTPS / API routes (SSE for streaming)
                            ▼
 ┌─────────────────────────────────────────────────────────┐
-│ Web server (Next.js, localhost:3000)                    │
+│ Budget web server (Next.js, localhost:3000)            │
 │  Routes:                                                │
-│   POST /api/query → calls retrieve() + synthesize()    │
+│   POST /api/conversations → start a new conversation    │
+│   POST /api/conversations/:id/messages → send turn      │
 │   GET  /api/pdf/:doc_id → HTTP range serving            │
-│   GET  /api/docx/:doc_id → on-demand HTML render        │
-│  Faithfulness verifier (post-synthesis)                 │
-│  Audit log writer                                       │
-└──────────────────────────┬──────────────────────────────┘
-                           │
-              ┌────────────┴───────────┐
-              ▼                        ▼
-┌──────────────────────────┐  ┌──────────────────────────┐
-│ Postgres                  │  │ Companion app            │
-│ (Phase 1b — chunks etc.)  │  │ (localhost:9100)         │
+│  YouCodedSessionProvider (talks to ws://localhost:9900)│
+│  Faithfulness verifier (post-streaming)                 │
+│  Audit log writer (conversations, messages, queries)    │
+└────────────┬─────────────────────┬─────────────────────┘
+             │                     │
+             │ ws://localhost:9900 │ Postgres
+             │                     ▼
+             ▼              ┌──────────────────────────┐
+┌──────────────────────────┐│ Postgres                  │
 │                           │  │  • Wraps Claude Code     │
-│                           │  │  • WebSocket transport   │
-│                           │  │  • System tray UI only   │
+│                           │  │  • chunks, conversations,│
+│                           │  │    messages, queries     │
 └──────────────────────────┘  └──────────────────────────┘
+                ▲
+                │ MCP (stdio / JSON-RPC)
+                │
+┌──────────────────────────────────────────────────────────┐
+│ Running YouCoded instance (must be open on the machine)  │
+│  Claude Code session per conversation                    │
+│  Pro/Max OAuth (existing)                                │
+│  Transcript-watcher (parses tool_use blocks)             │
+│  MCP host (loads Budget MCP server)                      │
+└──────────────────────────┬───────────────────────────────┘
+                           │ stdio MCP
+                           ▼
+┌──────────────────────────────────────────────────────────┐
+│ Budget MCP server (Node, registered in YouCoded)        │
+│  Tools:                                                  │
+│   retrieve(query, filters) → {chunks, top_score}         │
+│   cite(chunk_id, span_start, span_end, conf, claim_span) │
+│  Imports retrieval/pipeline.py via subprocess or HTTP    │
+└──────────────────────────────────────────────────────────┘
 ```
 
 **Tech Stack:**
 - Web app: Next.js 14 (App Router) + React 18 + TypeScript
 - PDF viewer: `pdfjs-dist` + `react-pdf-highlighter-extended`
-- DOCX → HTML: `mammoth.js` (Node, server-side render)
-- Companion: lifts from YouCoded's existing PTY/wrapper infrastructure (`youcoded/desktop/src/main/pty-worker.js` + claude-code wrapper). Initial implementation: a small Node.js process exposing a localhost WebSocket; can later become an Electron app for distribution.
+- ~~DOCX → HTML: `mammoth.js`~~ — deferred to Phase 2
+- Budget MCP server: Node 20+, `@modelcontextprotocol/sdk` for the tool framing. Single process, ~few hundred lines. Reference shape: `wecoded-marketplace/spotify-services` plugin.
 - Faithfulness verifier: NLI model self-hosted (e.g., `sentence-transformers/cross-encoder-nli-deberta-v3-base`) OR an LLM judge call — decision in Workstream 3.
-- Python for retrieval (re-used from 1b); Node for web + companion (different runtime). Web server calls retrieval via subprocess or HTTP-bridge — see Workstream 6.
+- Python for retrieval (re-used from 1b); Node for web + MCP server (different runtime). MCP server calls retrieval via subprocess or HTTP-bridge — see Workstream 6.
 
-**Source spec:** `docs/superpowers/specs/2026-05-04-ask-the-budget-az-design.md` — §4 (architecture), §4.2 (provider abstraction), §5 (data flow), §10 (citation UX), §11 (refusal), §12 (audit log).
+**Source spec:** `docs/superpowers/specs/2026-05-04-ask-the-budget-az-design.md` (post-2026-05-06 reframe) — §4 (architecture), §4.2 (provider abstraction), §5 (multi-turn data flow), §10 (citation UX), §11 (refusal), §12 (audit log).
+
+**Source decisions:** `docs/superpowers/decisions/2026-05-06-phase-1bc-architecture.md` — D3 (YouCoded piggyback), D4 (multi-turn), D5 (Claude keeps general tools), D6 (MCP server), D7 (constrained agent pattern), D10 (UI scope), D11 (provider seam).
 
 ---
 
@@ -80,72 +112,260 @@ Files created during Phase 1c:
 
 | Path | Purpose | Tracked? |
 |---|---|---|
-| `companion/server.js` | Localhost WebSocket server wrapping Claude Code | ✓ |
-| `companion/synthesize.js` | Builds the synthesis prompt + tool definitions | ✓ |
-| `companion/claude-wrapper.js` | YouCoded-style claude-code wrapper (lifted) | ✓ |
-| `companion/package.json` | Companion app deps | ✓ |
-| `companion/README.md` | Companion app setup + run instructions | ✓ |
+| `mcp-server/index.ts` | Budget MCP server entry point — registers `retrieve` and `cite` tools | ✓ |
+| `mcp-server/tools/retrieve.ts` | Wraps `retrieval/pipeline.py::retrieve()` (subprocess or HTTP) | ✓ |
+| `mcp-server/tools/cite.ts` | Records cite calls; returns ack | ✓ |
+| `mcp-server/system-prompt.md` | System prompt loaded into the MCP server config (constrained agent rules) | ✓ |
+| `mcp-server/package.json` | MCP server deps (`@modelcontextprotocol/sdk`) | ✓ |
+| `mcp-server/README.md` | Setup: register with YouCoded's MCP config | ✓ |
 | `web/` | Next.js app root | ✓ |
 | `web/package.json` | Web deps | ✓ |
-| `web/app/page.tsx` | Single-page UI (search, answer, viewer) | ✓ |
-| `web/app/api/query/route.ts` | POST /api/query handler | ✓ |
+| `web/app/page.tsx` | Multi-turn chat UI (thread view) | ✓ |
+| `web/app/api/conversations/route.ts` | POST /api/conversations — start a new conversation (calls `LLMProvider.startConversation`) | ✓ |
+| `web/app/api/conversations/[id]/messages/route.ts` | POST /api/conversations/:id/messages — relay user turn, stream events back | ✓ |
 | `web/app/api/pdf/[doc_id]/route.ts` | PDF range-serving | ✓ |
-| `web/app/api/docx/[doc_id]/route.ts` | DOCX → HTML | ✓ |
-| `web/components/SearchBar.tsx` | Query input | ✓ |
-| `web/components/AnswerPane.tsx` | Renders answer with citation chips | ✓ |
+| `web/components/ChatThread.tsx` | Renders the conversation as message bubbles | ✓ |
+| `web/components/MessageInput.tsx` | Bottom-of-thread input (replaces SearchBar) | ✓ |
 | `web/components/CitationChip.tsx` | Underlined-span chip with hover/click | ✓ |
 | `web/components/PdfViewer.tsx` | PDF.js + react-pdf-highlighter wrapper | ✓ |
-| `web/components/DocxViewer.tsx` | HTML viewer with paragraph-id highlight | ✓ |
 | `web/components/RefusalBanner.tsx` | Three refusal cases per spec §11 | ✓ |
-| `web/components/VerifyModeToggle.tsx` | Spec §10.3 toggle | ✓ |
-| `web/lib/retrieval-bridge.ts` | Calls Python retrieval (subprocess or HTTP) | ✓ |
-| `web/lib/llm-provider.ts` | `LLMProvider` interface + `LocalCompanionProvider` | ✓ |
+| `web/lib/llm-provider.ts` | `LLMProvider` interface + `YouCodedSessionProvider` | ✓ |
+| `web/lib/youcoded-client.ts` | WebSocket client for `ws://localhost:9900` | ✓ |
+| `web/lib/transcript-parser.ts` | Parses YouCoded's transcript stream for `tool_use` blocks | ✓ |
 | `web/lib/faithfulness.ts` | NLI/judge verifier | ✓ |
 | `web/lib/citation-merge.ts` | Merges multi-chunk citations into one rendered span | ✓ |
-| `web/lib/audit-log.ts` | Writes to `queries` table | ✓ |
+| `web/lib/audit-log.ts` | Writes to `conversations`, `messages`, `queries` tables | ✓ |
 | `web/tests/...` | Component + integration tests (Playwright for E2E) | ✓ |
-| `eval/queries-expanded.yaml` | ~50-query eval set (1b's 30 + 20 added) | ✓ |
+| `eval/queries-expanded.yaml` | ~35-query eval set (1b's 30 + 5 added for end-to-end) | ✓ |
 | `eval/run_e2e_eval.py` | Runs full retrieval + synthesis + faithfulness, scores against expected_answer_contains | ✓ |
+
+Files NOT created (deferred to Phase 2):
+- `companion/*` — standalone companion app (D3)
+- `web/components/DocxViewer.tsx` (D10)
+- `web/components/VerifyModeToggle.tsx` (D10)
+- `web/app/api/docx/[doc_id]/route.ts` (D10)
 
 Files modified:
 - `pyproject.toml` — add `fastapi>=0.110` + `uvicorn` if we choose HTTP-bridge for retrieval
-- `.gitignore` — add `web/.next/`, `web/node_modules/`, `companion/node_modules/`
+- `.gitignore` — add `web/.next/`, `web/node_modules/`, `mcp-server/node_modules/`
 
 Secrets:
 - `.env.local` — `ANTHROPIC_OAUTH_TOKEN` (read by companion via Claude Code's existing auth flow), `DATABASE_URL` (web → Postgres for audit log), `RETRIEVAL_BRIDGE_URL` (web → retrieval).
 
 ---
 
-## Workstream 1 — LLM Provider abstraction
+## Workstream 1 — Budget MCP server
 
-**Goal:** Define the `LLMProvider` TypeScript interface and the `LocalCompanionProvider` implementation. Per spec §4.2 — this separation lets us swap providers in later phases without touching retrieval or UI.
+**Goal:** Build the small Node process that registers `retrieve` and `cite` tools with the user's running YouCoded instance. Once registered, any Claude session in YouCoded can use these tools — including the budget app's own conversations and any normal YouCoded chat the user opens (D6).
 
-### Task 1.1: Provider interface
+This replaces the original Phase 1c WS1 ("LLM Provider abstraction" — moved to WS2 in this reframe) AND WS2 ("Companion app" — deleted under D3, deferred to Phase 2).
+
+### Task 1.1: MCP server scaffold
+
+**Files:**
+- Create: `mcp-server/package.json`
+- Create: `mcp-server/index.ts`
+- Create: `mcp-server/README.md`
+
+- [ ] **Step 1: Bootstrap the MCP project**
+
+`mcp-server/package.json` depends on `@modelcontextprotocol/sdk`. Reference: `wecoded-marketplace/spotify-services` plugin in your YouCoded ecosystem — same shape (Node MCP server, two tools, registered in YouCoded's MCP config).
+
+`mcp-server/index.ts` minimal scaffold:
+
+```ts
+import { Server } from "@modelcontextprotocol/sdk/server/index.js";
+import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
+import { retrieveTool } from "./tools/retrieve";
+import { citeTool } from "./tools/cite";
+
+const server = new Server(
+  { name: "ask-the-budget-az", version: "0.1.0" },
+  { capabilities: { tools: {} } },
+);
+
+server.registerTool(retrieveTool);
+server.registerTool(citeTool);
+
+await server.connect(new StdioServerTransport());
+```
+
+- [ ] **Step 2: README on registering with YouCoded**
+
+Two-line setup: add an entry to `~/.claude/.../mcp_servers.json` (or whichever YouCoded MCP config the user is on) pointing at `mcp-server/index.ts`. Document the exact config path; verify in YouCoded that the tools show up in `/mcp`.
+
+### Task 1.2: `retrieve` tool
+
+**Files:**
+- Create: `mcp-server/tools/retrieve.ts`
+- Create: `mcp-server/tests/test_retrieve.ts`
+
+- [ ] **Step 1: Failing test — tool definition + filter shape**
+
+```ts
+test("retrieve tool schema validates filter shape", () => {
+  const valid = { query: "Aviation Fund", filters: { fiscal_year: [2027] } };
+  expect(retrieveTool.inputSchema.parse(valid)).toEqual(valid);
+  const invalid = { query: "x", filters: { fiscal_year: "2027" } }; // wrong type
+  expect(() => retrieveTool.inputSchema.parse(invalid)).toThrow();
+});
+```
+
+- [ ] **Step 2: Implement against `retrieval/pipeline.py`**
+
+Two paths:
+- **Subprocess (simpler):** spawn `python -m retrieval.cli` with the query/filters as JSON on stdin; read JSON response on stdout. Cold-start cost per call, but dead simple.
+- **HTTP bridge (better):** stand up `fastapi + uvicorn` server (`retrieval/server.py`) that imports `retrieve()` once and serves HTTP. MCP tool POSTs to it. Faster (no Python startup per call); needs a process to manage.
+
+Recommend HTTP bridge — Phase 1b WS6 already builds the Python pipeline; wrapping it in a FastAPI server is ~30 lines.
+
+```ts
+export const retrieveTool = {
+  name: "retrieve",
+  description: "Retrieve relevant chunks from the AZ budget corpus...",
+  inputSchema: z.object({
+    query: z.string(),
+    filters: z.object({
+      fiscal_year: z.array(z.number()).optional(),
+      doc_type: z.array(z.string()).optional(),
+      publisher: z.array(z.string()).optional(),
+      agency_canonical_id: z.array(z.string()).optional(),
+      fund_canonical_id: z.array(z.string()).optional(),
+      is_table: z.boolean().optional(),
+    }).optional(),
+  }),
+  async handler({ query, filters }) {
+    const result = await fetch(`${RETRIEVAL_URL}/retrieve`, {
+      method: "POST",
+      body: JSON.stringify({ query, ...filters }),
+    }).then(r => r.json());
+    return {
+      content: [{ type: "text", text: JSON.stringify(result) }],
+    };
+  },
+};
+```
+
+The MCP `content` shape is what Claude sees — so the chunks come back as text it can read. Each chunk includes its `chunk_id`, `text`, page/bbox, agency stamps, etc.
+
+### Task 1.3: `cite` tool
+
+**Files:**
+- Create: `mcp-server/tools/cite.ts`
+- Create: `mcp-server/tests/test_cite.ts`
+
+- [ ] **Step 1: Schema + ack-only handler**
+
+```ts
+export const citeTool = {
+  name: "cite",
+  description: "Record a citation supporting a claim in your answer...",
+  inputSchema: z.object({
+    chunk_id: z.string(),
+    span_start: z.number().int().nonnegative(),
+    span_end: z.number().int().positive(),
+    confidence: z.enum(["verbatim", "paraphrase"]),
+    claim_span: z.string().min(1),
+  }),
+  async handler(args) {
+    // Record-only: the budget web server reads cite() calls from YouCoded's
+    // transcript stream as tool_use blocks. The MCP server doesn't need to
+    // do anything except ack; faithfulness verification happens in the
+    // budget web server post-streaming.
+    return { content: [{ type: "text", text: "ok" }] };
+  },
+};
+```
+
+- [ ] **Step 2: Validate `chunk_id` exists**
+
+Tool handler queries Postgres to confirm `chunk_id` is real before returning ok. Hallucinated chunk_ids fail loudly here (Claude sees the error in the tool result and can self-correct).
+
+### Task 1.4: System prompt
+
+**Files:**
+- Create: `mcp-server/system-prompt.md`
+
+The system prompt is loaded into the Claude session that uses these tools. It's the linchpin of the constrained agent pattern (D7).
+
+- [ ] **Step 1: Draft the system prompt**
+
+Should cover:
+- **Domain primer** — load `data/system-prompt-context.md` from Phase 1a (writing draft + Gov glossary + acronyms)
+- **Constrained agent rules**:
+  - "You MUST call `retrieve()` at least once before answering any user question about the budget corpus."
+  - "If `retrieve()` returns chunks with `top_score < 0.3`, refuse: 'I couldn't find anything in the corpus that addresses this question. The corpus currently includes [doc types and fiscal years].'"
+  - "When the user asks a comparison question (between two FYs, between Gov and JLBC), call `retrieve()` once per side."
+  - "Expand acronyms before calling `retrieve()`: ADC → 'Department of Corrections'; ADOT → 'Department of Transportation'; etc."
+  - "When the user asks an editorial/policy question ('what should we do', 'what's the right policy'), refuse with `refusal_out_of_scope`."
+- **Citation rules**:
+  - "Every factual claim in your answer must be supported by a `cite()` tool call."
+  - "`claim_span` must be the verbatim text of the claim as you wrote it in your answer."
+  - "Use `confidence: 'verbatim'` when the chunk text contains the claim word-for-word; otherwise `'paraphrase'`."
+- **Refusal copy** — three refusal types from spec §11
+
+- [ ] **Step 2: Document how the system prompt loads**
+
+YouCoded's MCP config (or per-conversation system prompt) needs to include this. Document the exact mechanism — likely a YouCoded skill or per-session prompt prefix.
+
+### Task 1.5: Integration smoke test
+
+**Files:**
+- Create: `mcp-server/tests/test_integration.ts`
+
+- [ ] **Step 1: Open a YouCoded session with the MCP server registered**
+
+Spin up YouCoded (or use the running instance). Start a chat. Send a test query like "What's the balance of the Aviation Fund?"
+
+- [ ] **Step 2: Verify Claude calls `retrieve()` then `cite()`**
+
+Watch the YouCoded transcript for the tool_use blocks. Confirm `retrieve` is called with reasonable args, returns chunks, and `cite` is emitted for the claim. Manual smoke test; no automation yet.
+
+---
+
+## Workstream 2 — `LLMProvider` interface + `YouCodedSessionProvider`
+
+**Goal:** Define the TypeScript `LLMProvider` interface (preserved as a seam per D11) and ship the v1 implementation: `YouCodedSessionProvider`, which talks to a running YouCoded instance over `ws://localhost:9900`. This replaces what was originally split across the old WS1 + WS2 (provider abstraction + standalone companion). The standalone companion is **deferred to Phase 2** under D3.
+
+### Task 2.1: Provider interface
 
 **Files:**
 - Create: `web/lib/llm-provider.ts`
 - Create: `web/tests/test_llm_provider.ts`
 
-- [ ] **Step 1: Write the interface (matches spec §4.2)**
+- [ ] **Step 1: Write the multi-turn interface (matches reframed spec §4.2)**
 
 ```ts
 export interface LLMProvider {
-  synthesize(args: {
-    query: string;
-    chunks: Chunk[];
-    queryType: "lookup" | "comparison" | "synthesis";
+  startConversation(): Promise<{ conversationId: string }>;
+
+  sendTurn(args: {
+    conversationId: string;
+    userMessage: string;
+    onEvent: (e: ProviderEvent) => void;
   }): Promise<{
-    answer: string;
+    finalAnswer: string;
     citations: Citation[];
+    retrievedChunkIds: string[];
     refusal?: RefusalReason;
   }>;
+
+  endConversation(id: string): Promise<void>;
 }
+
+export type ProviderEvent =
+  | { type: "assistant_text_delta"; text: string }
+  | { type: "tool_use"; tool: "retrieve" | "cite"; input: unknown }
+  | { type: "tool_result"; output: unknown }
+  | { type: "attention"; state: "ok" | "stuck" | "error" }
+  | { type: "done" };
 
 export type Citation = {
   chunkId: string;
-  spanStart: number;   // char offset in answer
+  spanStart: number;
   spanEnd: number;
-  confidence: number;  // model's self-reported [0..1]
+  confidence: "verbatim" | "paraphrase";
+  claimSpan: string;
 };
 
 export type RefusalReason =
@@ -157,185 +377,92 @@ export type RefusalReason =
 - [ ] **Step 2: Failing test — mock provider returns expected shape**
 
 ```ts
-test("mock provider returns valid LLMProvider shape", async () => {
+test("mock provider matches multi-turn LLMProvider interface", async () => {
+  const events: ProviderEvent[] = [];
   const mock: LLMProvider = {
-    synthesize: async () => ({
-      answer: "test",
-      citations: [{ chunkId: "c1", spanStart: 0, spanEnd: 4, confidence: 0.9 }],
-    }),
+    startConversation: async () => ({ conversationId: "c1" }),
+    sendTurn: async ({ onEvent }) => {
+      onEvent({ type: "assistant_text_delta", text: "hi" });
+      onEvent({ type: "done" });
+      return { finalAnswer: "hi", citations: [], retrievedChunkIds: [] };
+    },
+    endConversation: async () => {},
   };
-  const result = await mock.synthesize({ query: "q", chunks: [], queryType: "lookup" });
-  expect(result.citations[0].chunkId).toBe("c1");
+  const { conversationId } = await mock.startConversation();
+  const r = await mock.sendTurn({ conversationId, userMessage: "q", onEvent: (e) => events.push(e) });
+  expect(r.finalAnswer).toBe("hi");
 });
 ```
 
-### Task 1.2: LocalCompanionProvider
+### Task 2.2: `YouCodedSessionProvider`
 
 **Files:**
+- Create: `web/lib/youcoded-client.ts`
+- Create: `web/lib/transcript-parser.ts`
 - Update: `web/lib/llm-provider.ts`
 
-- [ ] **Step 1: Implement against companion WebSocket**
+- [ ] **Step 1: Verify YouCoded port-9900 surface**
+
+Spec §16 open question: confirm a non-YouCoded client can connect, create a session, send messages, receive streamed transcripts including `tool_use` blocks. Read `youcoded/desktop/src/main/remote-server.ts` to identify the message types. Write a 30-line probe script that connects, opens a session, sends "hello", and prints transcript events.
+
+If the surface is sufficient: proceed.
+If gaps exist (e.g. no way to send `system_prompt` per-session, no way to load an MCP server only for this session): file as known limitations and either work around or open YouCoded changes — these need to be done in YouCoded's repo (the budget app doesn't fork YouCoded per D9).
+
+- [ ] **Step 2: Implement the WebSocket client**
+
+`web/lib/youcoded-client.ts` — typed wrapper around YouCoded's port-9900 protocol. Handles auth (probably bearer token from YouCoded's pairing flow), session lifecycle, message send, transcript event subscription.
+
+- [ ] **Step 3: Implement transcript-parser**
+
+`web/lib/transcript-parser.ts` — consumes YouCoded's transcript stream, emits typed `ProviderEvent`s. Looks at each transcript event:
+- `assistant-text-delta` events → `{ type: "assistant_text_delta", text }`
+- `tool_use` blocks where tool name is `retrieve` or `cite` → `{ type: "tool_use", ... }`
+- `tool_result` blocks → `{ type: "tool_result", ... }`
+- attention-state changes → `{ type: "attention", state }`
+- end-of-turn → `{ type: "done" }`
+
+YouCoded's `transcript-watcher.ts` already does the heavy lifting (parsing JSONL, attention classification, etc.) — the budget client just needs to consume the events YouCoded emits over port 9900.
+
+- [ ] **Step 4: Wire into `YouCodedSessionProvider`**
 
 ```ts
-export class LocalCompanionProvider implements LLMProvider {
-  constructor(private url = "ws://localhost:9100") {}
+export class YouCodedSessionProvider implements LLMProvider {
+  constructor(private url = "ws://localhost:9900") {}
 
-  async synthesize(args) {
-    const ws = new WebSocket(this.url);
-    return new Promise((resolve, reject) => {
-      ws.onopen = () => ws.send(JSON.stringify({ type: "synthesize", payload: args }));
-      ws.onmessage = (msg) => {
-        const data = JSON.parse(msg.data);
-        if (data.type === "synthesize:result") resolve(data.payload);
-        if (data.type === "synthesize:error") reject(new Error(data.payload.message));
-      };
-      ws.onerror = (err) => reject(err);
-    });
+  async startConversation() {
+    const client = await connectToYouCoded(this.url);
+    const session = await client.createSession({ /* TBD: how to attach the budget MCP system prompt */ });
+    return { conversationId: session.id };
+  }
+
+  async sendTurn({ conversationId, userMessage, onEvent }) {
+    const events = await sendMessageAndStream(conversationId, userMessage);
+    const citations: Citation[] = [];
+    const retrievedChunkIds: string[] = [];
+    let finalAnswer = "";
+    for await (const e of events) {
+      onEvent(e);
+      if (e.type === "assistant_text_delta") finalAnswer += e.text;
+      if (e.type === "tool_use" && e.tool === "cite") citations.push(parseCite(e.input));
+      if (e.type === "tool_use" && e.tool === "retrieve") {
+        // chunks come back via the corresponding tool_result
+      }
+      if (e.type === "tool_result" && /* corresponds to retrieve */) {
+        retrievedChunkIds.push(...extractChunkIds(e.output));
+      }
+    }
+    return { finalAnswer, citations, retrievedChunkIds };
+  }
+
+  async endConversation(id: string) {
+    // no-op for v1; the YouCoded session lives on
   }
 }
 ```
 
-- [ ] **Step 2: Failing test against a stub companion server**
+- [ ] **Step 5: Detect missing YouCoded gracefully**
 
-Spin up a tiny Node WebSocket server in the test that replies with a canned `synthesize:result`; assert client decodes correctly.
-
----
-
-## Workstream 2 — Companion app
-
-**Goal:** Lift the Claude-Code-wrapping infrastructure from YouCoded into a small standalone Node app. Exposes a localhost WebSocket; receives `(query, chunks, queryType)`; runs Claude Code with a structured prompt; emits answer + tool-call citations.
-
-This is the most YouCoded-coupled workstream — the wrapper, PTY setup, and Pro/Max-OAuth flow already exist there. We're not building from scratch; we're vendoring (or borrowing) and trimming.
-
-### Task 2.1: Lift the wrapper from YouCoded
-
-**Files:**
-- Create: `companion/claude-wrapper.js`
-- Create: `companion/server.js`
-- Create: `companion/package.json`
-
-- [ ] **Step 1: Identify YouCoded source files to lift**
-
-Read `youcoded/desktop/src/main/pty-worker.js` and `youcoded/app/src/main/assets/claude-wrapper.js` (Android version for reference). The desktop pty-worker.js is the closer match — it's already a Node process that spawns Claude Code as a child PTY.
-
-- [ ] **Step 2: Copy + trim**
-
-Copy `pty-worker.js` to `companion/claude-wrapper.js`. Strip everything that's YouCoded-app-specific (terminal UI plumbing, session strip metadata, tool routing). Keep: PTY spawn, OAuth-token plumbing, stdout streaming.
-
-- [ ] **Step 3: Wrap as a WebSocket server**
-
-`companion/server.js`:
-
-```js
-const WebSocket = require("ws");
-const { spawnClaudeCode, sendQuery } = require("./claude-wrapper");
-
-const wss = new WebSocket.Server({ port: 9100 });
-wss.on("connection", (ws) => {
-  ws.on("message", async (raw) => {
-    const msg = JSON.parse(raw);
-    if (msg.type === "synthesize") {
-      try {
-        const result = await synthesize(msg.payload);
-        ws.send(JSON.stringify({ type: "synthesize:result", payload: result, id: msg.id }));
-      } catch (err) {
-        ws.send(JSON.stringify({ type: "synthesize:error", payload: { message: err.message }, id: msg.id }));
-      }
-    }
-  });
-});
-```
-
-- [ ] **Step 4: Run instructions in `companion/README.md`**
-
-```bash
-cd companion
-npm install
-node server.js  # listens on ws://localhost:9100
-```
-
-Document: requires Claude Code installed + Pro/Max OAuth completed via `claude /login`. Reuses the YouCoded auth approach — companion doesn't manage its own credentials.
-
-### Task 2.2: Synthesis prompt + tool definitions
-
-**Files:**
-- Create: `companion/synthesize.js`
-- Create: `companion/tests/test_synthesize.js`
-
-- [ ] **Step 1: Build the prompt**
-
-```js
-function buildSystemPrompt(domainPrimer) {
-  return [
-    "You are an Arizona state budget analyst's assistant.",
-    "You answer fiscal questions by citing exact source chunks.",
-    "",
-    "**Hard rules:**",
-    "- Every factual claim must be supported by a `cite()` tool call.",
-    "- Use the `cite()` tool with the chunk_id and the span (start, end) in your answer text where the supported claim appears.",
-    "- If the chunks don't support a claim, do not make it. Refuse with `refuse(reason)` if you can't answer faithfully.",
-    "- Be terse. Analysts know the domain; no over-explanation.",
-    "",
-    "**Domain reference:**",
-    domainPrimer,
-  ].join("\n");
-}
-
-function buildUserMessage(query, chunks, queryType) {
-  return [
-    `Query type: ${queryType}`,
-    `Query: ${query}`,
-    "",
-    "Available chunks:",
-    chunks.map((c, i) => `[${i}] chunk_id=${c.chunkId}\n${c.text}`).join("\n\n"),
-    "",
-    "Provide an answer using only what the chunks support. Emit `cite()` calls for each supported claim.",
-  ].join("\n");
-}
-```
-
-- [ ] **Step 2: Define the `cite` and `refuse` tools**
-
-Claude tool-use format:
-
-```js
-const tools = [
-  {
-    name: "cite",
-    description: "Anchor a claim to a source chunk. Call once per factual claim.",
-    input_schema: {
-      type: "object",
-      properties: {
-        chunk_id: { type: "string" },
-        span_start: { type: "integer", description: "Char offset in the answer where the claim begins" },
-        span_end: { type: "integer", description: "Char offset where the claim ends" },
-        confidence: { type: "number", description: "0..1 self-reported confidence in the citation" },
-      },
-      required: ["chunk_id", "span_start", "span_end", "confidence"],
-    },
-  },
-  {
-    name: "refuse",
-    description: "Decline to answer when chunks don't support a confident answer.",
-    input_schema: {
-      type: "object",
-      properties: {
-        reason: { type: "string", enum: ["synthesis", "out_of_scope"] },
-        explanation: { type: "string" },
-      },
-      required: ["reason"],
-    },
-  },
-];
-```
-
-- [ ] **Step 3: Parse the response**
-
-Claude's tool-use response interleaves text blocks and tool-use blocks. Walk the assistant's content array; collect text into the `answer`; collect `cite` tool uses into `citations`; if `refuse` was called, return a refusal.
-
-- [ ] **Step 4: Failing test — mock Claude response → structured output**
-
-Synthetic Claude API response with two text blocks + three `cite` calls; verify the parser produces correct `(answer, citations)` tuple.
+If `ws://localhost:9900` doesn't connect, the budget web server returns a 503 to the browser with a payload like `{ error: "youcoded_not_running" }`. The chat UI shows a banner: *"YouCoded must be running to use the budget app. Open YouCoded and refresh."* Don't crash; don't auto-retry forever; do offer a refresh button.
 
 ---
 
@@ -417,11 +544,11 @@ After stripping, the surviving citations' span_start/end must still line up with
 
 ---
 
-## Workstream 4 — Web UI
+## Workstream 4 — Web UI (multi-turn chat)
 
-**Goal:** Single Next.js page with search bar, answer pane, side-panel viewer, citation chips. Implements spec §10 citation UX.
+**Goal:** Next.js multi-turn chat UI with citation chips, side-panel PDF viewer, refusal banners. Implements spec §10 citation UX in a chat-thread shape rather than search-bar+answer-pane (D4).
 
-### Task 4.1: Next.js scaffold + layout
+### Task 4.1: Next.js scaffold + chat layout
 
 **Files:**
 - Create: `web/app/page.tsx`
@@ -435,21 +562,23 @@ npx create-next-app@latest web --typescript --app --tailwind --no-src-dir
 
 - [ ] **Step 2: Two-column layout**
 
-Left column: search bar + answer pane. Right column: PDF/DOCX viewer. Resizable divider via `react-resizable-panels` or CSS grid.
+Left column: chat thread (scrolling messages) + bottom-anchored message input. Right column: PDF viewer. Resizable divider via `react-resizable-panels` or CSS grid.
 
-### Task 4.2: SearchBar + AnswerPane
+### Task 4.2: ChatThread + MessageInput
 
 **Files:**
-- Create: `web/components/SearchBar.tsx`
-- Create: `web/components/AnswerPane.tsx`
+- Create: `web/components/ChatThread.tsx`
+- Create: `web/components/MessageInput.tsx`
 
-- [ ] **Step 1: SearchBar — text input + submit**
+- [ ] **Step 1: MessageInput — text input + submit**
 
-Posts to `/api/query`. Streams the answer (Vercel AI SDK pattern) so chips appear as the LLM emits them.
+Submit posts to `/api/conversations/:id/messages`. Streams events back via SSE; chat thread appends as text and tool calls arrive.
 
-- [ ] **Step 2: AnswerPane — renders answer with chips**
+- [ ] **Step 2: ChatThread — render multi-turn conversation**
 
-Walks the (answer, citations) tuple. Each citation underlines the span and renders a numbered chip at the end of the underlined span. Chips show one of three glyphs per spec §10.1: ✓ verbatim, ≈ paraphrase, ⚠ ungrounded (the last is rendered as `[claim removed]` rather than as a chip after Workstream 3 stripping).
+Renders the conversation as a sequence of message bubbles (user + assistant). Each assistant message contains the synthesized answer with citation chips inline. Tool calls (retrieve, cite) can render as collapsible breadcrumbs ("Searched: 'Aviation Fund balance' (FY 2027) → 14 results") so the analyst can audit the agent's reasoning.
+
+Walks the (answer, citations) tuple per assistant message. Each citation underlines the span and renders a numbered chip at the end of the underlined span. Chips show one of three glyphs per spec §10.1: ✓ verbatim, ≈ paraphrase, ⚠ ungrounded (the last is rendered as `[claim removed]` rather than as a chip after Workstream 3 stripping).
 
 ### Task 4.3: CitationChip — hover + click
 
@@ -507,49 +636,23 @@ PDF.js loads in 64KB chunks; the route must support `Range` headers.
 
 ### Task 4.5: DocxViewer
 
-**Files:**
-- Create: `web/components/DocxViewer.tsx`
-- Create: `web/app/api/docx/[doc_id]/route.ts`
+> **Deferred to Phase 2 under D10.** v1 has only one DOCX in the slice (the SB 1735 bill) and the cost of building the server-side mammoth render + stable-id contract isn't worth it for a single doc. When DOCX-source citations are clicked in v1, fall back to: open the underlying file via the OS default DOCX handler, OR show a "DOCX viewer coming in Phase 2; here's the verbatim cited text" panel. The chunks themselves are still retrievable; only the in-app rendering is deferred.
 
-- [ ] **Step 1: Server-side mammoth.js render**
+The original Task 4.5 detail is preserved here for Phase 2 reference:
+- Server-side mammoth.js render with stable paragraph IDs (`web14:paraId` → DOM `id`)
+- Re-rendering must produce identical id sets (contract test)
+- Citation click → scroll + highlight by `paragraph_id` from `chunks.source_anchor`
 
-```ts
-// web/app/api/docx/[doc_id]/route.ts
-import mammoth from "mammoth";
-export async function GET(req, { params }) {
-  const docxPath = await resolveDocPath(params.doc_id);
-  const result = await mammoth.convertToHtml({ path: docxPath }, {
-    transformDocument: addStableIds,  // see Step 2
-  });
-  return new Response(result.value, { headers: { "content-type": "text/html" } });
-}
-```
-
-- [ ] **Step 2: Stable paragraph ID transform**
-
-Per spec §10.5: every `<w:p>` becomes `<p id="...">` with the same `w14:paraId` value Phase 1a captured in `chunks.source_anchor.paragraph_id`. Mammoth's transform API lets us inject ids during render. **This is the contract that makes citation→highlight work for DOCX.**
-
-- [ ] **Step 3: DocxViewer component**
-
-Loads the HTML via fetch, sets `dangerouslySetInnerHTML`. On `citation:select(chunkId)`, looks up `chunks.source_anchor.paragraph_id`, scrolls to `#<paragraph_id>`, paints a yellow background highlight. Multi-paragraph chunks get multiple highlights.
-
-- [ ] **Step 4: Stable-id contract test**
-
-Re-rendering the same DOCX twice must produce the same paragraph ids. Run mammoth twice on `samples/raw-docx/budget-bill-sb1735-2025.docx`; assert identical id sets. Otherwise highlighting silently mismatches the cited paragraph.
-
-### Task 4.6: Refusal banner + verify mode toggle
+### Task 4.6: Refusal banner
 
 **Files:**
 - Create: `web/components/RefusalBanner.tsx`
-- Create: `web/components/VerifyModeToggle.tsx`
 
 - [ ] **Step 1: RefusalBanner — three cases per spec §11**
 
 `refusal_no_retrieval`, `refusal_synthesis`, `refusal_out_of_scope`. Each renders the spec's exact copy plus, for `synthesis` and `out_of_scope`, the top 5 chunks for the analyst to read directly.
 
-- [ ] **Step 2: VerifyModeToggle per spec §10.3**
-
-Off by default. When on: scrolling the answer pane scrolls the viewer to the chunk corresponding to the citation that just came into view. Implement via IntersectionObserver on chip elements.
+> **Verify-mode toggle deferred to Phase 2 under D10.** Polish feature; not needed for v1 dogfood.
 
 ---
 
@@ -579,21 +682,18 @@ export async function POST(req) {
   await writeQueryRow({
     raw_query: query,
     classified_type: retrieval.classified_type,
-    sub_queries: retrieval.sub_queries,
-    retrieved_chunk_ids: retrieval.chunks.map(c => c.chunkId),
-    reranker_scores: retrieval.reranker_scores,
-    chunks_sent_to_llm: retrieval.chunks.map(c => c.chunkId),
-    llm_provider: "local-companion",
-    llm_response_raw: synthResult.answer,
-    citations_emitted: synthResult.citations,
+    retrieve_calls: retrieveCalls,    // list of {query, filters, returned_chunk_ids, reranker_scores, top_score}
+    cite_calls: synthResult.citations,
     faithfulness_verdicts: verified.verdicts,
-    final_answer_rendered: verified.cleanedAnswer,
     refusal_type: synthResult.refusal?.type ?? null,
     latency_ms: Date.now() - start,
   });
+  // Plus: append assistant message to messages table; FK queries.message_id to it.
   return NextResponse.json({ answer: verified.cleanedAnswer, citations: verified.citations, refusal: synthResult.refusal });
 }
 ```
+
+> **Note 2026-05-06:** schema reframed under D4 — `queries` is per-assistant-turn FK'd to `messages`, with `retrieve_calls` and `cite_calls` JSONB columns. Audit log writer also writes to `conversations` (on first turn) and `messages` (every turn).
 
 - [ ] **Step 3: Audit log NEVER trains anything**
 
@@ -662,25 +762,23 @@ export async function callRetrieval(query: string): Promise<RetrievalResult> {
 
 ## Workstream 7 — Eval expansion + end-to-end validation
 
-**Goal:** Expand Phase 1b's ~30-query eval set to ~50, run end-to-end (retrieval + synthesis + faithfulness), measure full-system metrics.
+**Goal:** Expand Phase 1b's ~30-query eval set to ~35 (D10 tightened from the original "to ~50" target — full 50 follows Phase 1.5 backfill), run end-to-end (retrieval-via-MCP + synthesis-via-YouCoded-session + faithfulness), measure full-system metrics.
 
 ### Task 7.1: Expand eval set
 
 **Files:**
 - Update/Create: `eval/queries-expanded.yaml`
 
-- [ ] **Step 1: Add 20 more queries**
+- [ ] **Step 1: Add 5 more queries (target ~35 total)**
 
-Targeted at gaps from Phase 1b's eval results. Cover:
-- Cross-publisher comparisons (Gov rec vs. enacted)
-- Year-over-year comparisons (multi-year fan-out)
-- Bills-anchored questions ("show me the legal text appropriating $X to Y")
-- Fund-level questions answered by s18/bd2 cross-cuts
-- AFR audited-vs-enacted comparisons
-- Out-of-scope refusal cases (3 of them: editorial, hypothetical, beyond-corpus)
-- Synthesis cases ("summarize the major fiscal pressures in FY 2025")
+Targeted at multi-turn flows + cross-publisher integration that single-shot Phase 1b eval can't measure. Cover:
+- A multi-turn conversation: turn 1 = lookup, turn 2 = follow-up that requires anaphora resolution (e.g. "what about FY24?" referring back to turn 1's agency).
+- Cross-publisher comparison (Gov rec vs. enacted) — exercises Claude calling `retrieve()` twice with different `publisher` filters.
+- A bills-anchored question that resolves to a specific paragraph in the SB 1735 DOCX.
+- A synthesis case ("summarize the major fiscal pressures in FY 2025").
+- An out-of-scope query that should hit `refusal_out_of_scope` via the system prompt's policy-question rule.
 
-Each query: `expected_answer_contains: list[str]` (substring matches in the rendered answer) + `expected_citations_must_include: list[chunk-shape constraint]` + `expected_refusal: bool`.
+Each query: `expected_answer_contains: list[str]` (substring matches in the rendered answer) + `expected_citations_must_include: list[chunk-shape constraint]` + `expected_refusal: bool` + (for multi-turn) `turns: list[{query, expected_answer_contains, ...}]`.
 
 ### Task 7.2: End-to-end eval runner
 
@@ -728,14 +826,17 @@ If bar isn't met, the failure mode usually points at the workstream to revisit:
 
 ### Task 7.4: Smoke test on Destin's machine
 
-- [ ] **Step 1: Bring whole stack up via `scripts/dev.sh`**
+- [ ] **Step 1: Bring whole stack up**
 
-Postgres + retrieval sidecar + companion server + Next.js. Open `localhost:3000`. Run a handful of queries by hand, confirm:
-- Citation chips render with right glyphs
+Required running processes: YouCoded (with Budget MCP server registered) + Postgres (Docker) + retrieval FastAPI sidecar + Next.js dev server. A `scripts/dev.sh` (or `.ps1`) starts everything except YouCoded itself (which Destin runs). Open `localhost:3000`. Run a handful of queries by hand, confirm:
+- Conversation thread accepts user messages and renders streaming assistant responses
+- Tool calls (retrieve, cite) visible as breadcrumbs in the assistant message
+- Citation chips render with right glyphs (✓ / ≈)
 - Click → PDF jumps + highlights bbox
-- DOCX click → paragraph highlights
+- DOCX-source citations show "viewer coming in Phase 2" panel (per D10 deferral)
 - Refusal banners render the right copy
-- Verify mode synchronizes answer scrolling with viewer
+- Follow-up turns work — anaphora resolves correctly via Claude's session context
+- Closing/reopening YouCoded breaks the budget app cleanly with the "please open YouCoded" banner
 
 Document any rough edges in `docs/known-issues-phase-1.md` for Phase 2 polish.
 
@@ -745,31 +846,33 @@ Document any rough edges in `docs/known-issues-phase-1.md` for Phase 2 polish.
 
 These are explicit non-goals for Phase 1 — captured for Phase 2+ planning:
 
-- **Companion app distribution.** Phase 2: ship a packaged Electron/Tauri build for the 2-3 trusted analyst rollout. Phase 1's companion is a Node script Destin runs locally.
+- **Standalone companion app.** Phase 2: ship a packaged companion (lifts YouCoded's PTY/wrapper + WebSocket layer) so the budget app can run without YouCoded installed. Phase 1 hard-depends on YouCoded.
+- **DOCX HTML viewer + verify-mode toggle.** Phase 2 polish (D10).
 - **Multi-tenant deployment.** Phase 2: free-tier Vercel + Supabase. Phase 1 is single-machine.
-- **Auth.** Phase 2: Google SSO restricted to azleg.gov. Phase 1: localhost, no auth needed.
-- **Eval expansion to 200 queries.** Phase 3.
+- **Auth.** Phase 2: Google SSO restricted to azleg.gov. Phase 1: localhost, no auth needed (relies on YouCoded's existing OAuth for Claude).
+- **Eval expansion to 50 (and eventually 200).** Phase 1.5 / Phase 3.
 - **AnthropicAPIProvider / SelfHostedLLMProvider.** Phase 3 / 4.
-- **Tier 2 entity resolution.** Phase 3 — programs and sub-programs canonicalization. Phase 1's per-agency outline trees give us partial coverage; Phase 3 fills in the rest using real query log analysis.
+- **Tier 2 entity resolution.** Phase 3 — programs and sub-programs canonicalization. Phase 1's per-agency outline trees give us partial coverage.
 - **AFR restated-table handling decision.** Spec §16 open question. Phase 2 decision.
 - **Public-launch metrics gate.** Spec §14. Phase 4.
-- **Comparison query fan-out heuristics for "compare X" without explicit years.** Spec §16 open question. Phase 1 refuses without explicit years; Phase 2 picks heuristic from real query patterns.
 
 ## What "Phase 1 done" means (full Phase 1 across 1a + 1b + 1c)
 
 By the end of Phase 1c (and therefore Phase 1):
 
-- Destin can type a question into a localhost browser and get an answer with citation chips
-- Click a chip → the source PDF page opens with the cited region highlighted
-- DOCX-source citations open the on-demand HTML render with paragraph highlight
+- A running YouCoded instance has the Budget MCP server registered with `retrieve` + `cite` tools
+- Destin can open `localhost:3000` and have a multi-turn budget chat
+- Claude calls `retrieve()` per turn (constrained agent rule); citations come back as `cite()` tool calls
+- Citation chips render with right glyphs; click → source PDF page with cited region highlighted
+- Multi-turn follow-ups work (anaphora resolved via Claude's session context)
 - Faithfulness verifier strips ungrounded claims with a visible note
 - Refusal cases render the right banner copy + raw chunks
-- Audit log accumulates one row per query
-- Eval set passes the Phase 1 bar (§7.3 above)
-- The whole stack starts with one command (`scripts/dev.sh`)
+- Audit log accumulates rows in `conversations`, `messages`, `queries`
+- Eval set (~35 queries) passes the Phase 1 bar (§7.3 above)
+- The budget stack starts with one command (`scripts/dev.sh`); YouCoded is a manual prerequisite documented in the README
 - `phase-1-complete` tag created
 
-Phase 2 takes this and builds: companion app distribution, free-tier deployment, 2-3 trusted-analyst onboarding.
+Phase 2 takes this and builds: standalone companion (so the app can run without YouCoded), DOCX HTML viewer, verify-mode, free-tier deployment, 2-3 trusted-analyst onboarding.
 
 ## Pointer to the conversation
 
