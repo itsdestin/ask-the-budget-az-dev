@@ -35,6 +35,13 @@ from db.validate import run_checks
 
 FIXTURES = Path(__file__).parent / "fixtures"
 
+# Doc-id namespace for integration test fixtures so they don't collide with
+# any corpus rows that might be loaded in the same database (e.g. via
+# scripts/load_slice.py during dev iteration). All test inserts go under
+# this id; teardown wipes ONLY rows with this id, leaving the real corpus
+# untouched.
+TEST_DOC_ID = "test-jlbc-baseline-fy2027-s18"
+
 
 # ---------------------------------------------------------------------------
 # DB availability helper -- mirrors tests/test_connection.py.
@@ -217,11 +224,36 @@ def _reset_pool_between_tests():
     close_pool()
 
 
+@pytest.fixture(autouse=True)
+def _wipe_test_fixture_rows_after_each_test():
+    """Teardown: wipe rows the tests loaded (scoped to TEST_DOC_ID) so each
+    test starts with a clean slice of its own namespace AND so leftover test
+    rows don't pollute corpus-wide queries elsewhere (e.g. validate.run_checks).
+
+    Skipped when no DB is available — the integration tests are also skipped
+    in that case via @needs_db.
+    """
+    yield
+    if not _has_database():
+        return
+    try:
+        with get_connection() as conn:
+            conn.execute(
+                "DELETE FROM chunks WHERE doc_id = %s", (TEST_DOC_ID,)
+            )
+            conn.execute(
+                "DELETE FROM documents WHERE doc_id = %s", (TEST_DOC_ID,)
+            )
+    finally:
+        close_pool()
+
+
 @pytest.fixture
 def s18_doc_meta() -> DocumentMeta:
-    """DocumentMeta for the JLBC FY27 baseline s18 fixture."""
+    """DocumentMeta for the JLBC FY27 baseline s18 fixture, namespaced under
+    TEST_DOC_ID so it doesn't collide with corpus-loaded s18 rows."""
     return DocumentMeta(
-        doc_id="jlbc-baseline-fy2027-s18",
+        doc_id=TEST_DOC_ID,
         publisher="jlbc",
         doc_type="baseline-cross-cut",
         fiscal_year=2027,
@@ -239,12 +271,13 @@ def s18_chunks() -> list[Chunk]:
     """Real chunks built via chunk_doc() from the committed MinerU fixture.
 
     Stable input without re-running the slice ingest -- same path the existing
-    chunking tests use.
+    chunking tests use. Doc-id is overridden to TEST_DOC_ID so the resulting
+    chunks (and their chunk_ids) are namespaced away from the real corpus.
     """
     chunks = chunk_doc(
         extractor_output_path=FIXTURES / "mineru-jlbc-baseline-s18.json",
         doc_meta=DocMeta(
-            doc_id="jlbc-baseline-fy2027-s18",
+            doc_id=TEST_DOC_ID,
             publisher="jlbc",
             doc_type="baseline-cross-cut",
             fiscal_year=2027,
@@ -260,21 +293,21 @@ def s18_chunks() -> list[Chunk]:
 @pytest.fixture
 def s18_ndjson(tmp_path: Path, s18_chunks: list[Chunk]) -> Path:
     """Write the real chunks to an NDJSON tmp file (mirrors data/chunks/<doc>.json)."""
-    path = tmp_path / "jlbc-baseline-fy2027-s18.json"
+    path = tmp_path / f"{TEST_DOC_ID}.json"
     with path.open("w", encoding="utf-8") as f:
         for c in s18_chunks:
             f.write(c.model_dump_json() + "\n")
     return path
 
 
-def _truncate_load_state(conn) -> None:
-    """Wipe documents + chunks so each integration test starts clean.
-
-    `RESTART IDENTITY CASCADE` unused -- tables have no SERIAL/IDENTITY columns
-    and the FK is documents -> chunks (cascade not needed).
+def _wipe_test_doc(conn) -> None:
+    """Pre-load wipe scoped to TEST_DOC_ID. Each integration test calls this at
+    its start so it begins with a clean fixture namespace, but corpus rows
+    (any non-TEST_DOC_ID) stay untouched. Symmetric with the autouse teardown
+    above; both wipe the same scope.
     """
-    conn.execute("DELETE FROM chunks")
-    conn.execute("DELETE FROM documents")
+    conn.execute("DELETE FROM chunks WHERE doc_id = %s", (TEST_DOC_ID,))
+    conn.execute("DELETE FROM documents WHERE doc_id = %s", (TEST_DOC_ID,))
 
 
 @needs_db
@@ -284,13 +317,14 @@ def test_load_chunk_file_inserts_document_and_chunks(
     s18_chunks: list[Chunk],
 ):
     with get_connection() as conn:
-        _truncate_load_state(conn)
+        _wipe_test_doc(conn)
         n = load_chunk_file(s18_ndjson, s18_doc_meta, conn)
         assert n == len(s18_chunks)
 
         doc = conn.execute(
             "SELECT publisher, doc_type, fiscal_year, source_format, extractor "
-            "FROM documents WHERE doc_id = 'jlbc-baseline-fy2027-s18'"
+            "FROM documents WHERE doc_id = %s",
+            (TEST_DOC_ID,),
         ).fetchone()
         assert doc["publisher"] == "jlbc"
         assert doc["doc_type"] == "baseline-cross-cut"
@@ -299,7 +333,8 @@ def test_load_chunk_file_inserts_document_and_chunks(
         assert doc["extractor"] == "mineru-2.5"
 
         chunks_in_db = conn.execute(
-            "SELECT COUNT(*)::INT AS n FROM chunks WHERE doc_id = 'jlbc-baseline-fy2027-s18'"
+            "SELECT COUNT(*)::INT AS n FROM chunks WHERE doc_id = %s",
+            (TEST_DOC_ID,),
         ).fetchone()
         assert chunks_in_db["n"] == len(s18_chunks)
 
@@ -310,14 +345,15 @@ def test_load_promotes_agency_id_to_array(
 ):
     """At least one s18 chunk should land with an agency_canonical_ids array."""
     with get_connection() as conn:
-        _truncate_load_state(conn)
+        _wipe_test_doc(conn)
         load_chunk_file(s18_ndjson, s18_doc_meta, conn)
 
         row = conn.execute(
             "SELECT chunk_id, agency_canonical_ids FROM chunks "
-            "WHERE doc_id = 'jlbc-baseline-fy2027-s18' "
+            "WHERE doc_id = %s "
             "AND array_length(agency_canonical_ids, 1) > 0 "
-            "LIMIT 1"
+            "LIMIT 1",
+            (TEST_DOC_ID,),
         ).fetchone()
         assert row is not None, "no chunks landed with an agency stamped"
         # The DB returns a Python list for TEXT[]
@@ -331,13 +367,14 @@ def test_load_satisfies_provenance_check_for_pdf(
 ):
     """All s18 chunks are PDF -> page IS NOT NULL AND bbox IS NOT NULL."""
     with get_connection() as conn:
-        _truncate_load_state(conn)
+        _wipe_test_doc(conn)
         load_chunk_file(s18_ndjson, s18_doc_meta, conn)
 
         bad = conn.execute(
             "SELECT COUNT(*)::INT AS n FROM chunks "
-            "WHERE doc_id = 'jlbc-baseline-fy2027-s18' "
-            "AND (page IS NULL OR bbox IS NULL)"
+            "WHERE doc_id = %s "
+            "AND (page IS NULL OR bbox IS NULL)",
+            (TEST_DOC_ID,),
         ).fetchone()
         assert bad["n"] == 0
 
@@ -346,13 +383,14 @@ def test_load_satisfies_provenance_check_for_pdf(
 def test_load_idempotent(s18_ndjson: Path, s18_doc_meta: DocumentMeta):
     """Running the loader twice yields the same row count (ON CONFLICT DO UPDATE)."""
     with get_connection() as conn:
-        _truncate_load_state(conn)
+        _wipe_test_doc(conn)
         n1 = load_chunk_file(s18_ndjson, s18_doc_meta, conn)
         n2 = load_chunk_file(s18_ndjson, s18_doc_meta, conn)
         assert n1 == n2
 
         actual = conn.execute(
-            "SELECT COUNT(*)::INT AS n FROM chunks WHERE doc_id = 'jlbc-baseline-fy2027-s18'"
+            "SELECT COUNT(*)::INT AS n FROM chunks WHERE doc_id = %s",
+            (TEST_DOC_ID,),
         ).fetchone()
         assert actual["n"] == n1
 
@@ -363,7 +401,7 @@ def test_load_rejects_chunk_with_wrong_meta(
 ):
     """Cross-check: meta.publisher mismatching the chunk raises before any insert."""
     bad_meta = DocumentMeta(
-        doc_id="jlbc-baseline-fy2027-s18",
+        doc_id=TEST_DOC_ID,
         publisher="agao",  # WRONG; chunks say 'jlbc'
         doc_type="baseline-cross-cut",
         fiscal_year=2027,
@@ -374,7 +412,7 @@ def test_load_rejects_chunk_with_wrong_meta(
         extractor_version="2.5.0",
     )
     with get_connection() as conn:
-        _truncate_load_state(conn)
+        _wipe_test_doc(conn)
         with pytest.raises(ValueError, match="publisher"):
             load_doc(s18_chunks, bad_meta, conn)
 
@@ -383,9 +421,17 @@ def test_load_rejects_chunk_with_wrong_meta(
 def test_validate_run_checks_passes_after_load(
     s18_ndjson: Path, s18_doc_meta: DocumentMeta
 ):
-    """db.validate.run_checks reports zero failures on a freshly-loaded slice."""
+    """db.validate.run_checks reports zero failures on a freshly-loaded slice.
+
+    Note: run_checks() queries the WHOLE chunks table — so this test passes
+    if both (a) the test-loaded fixture rows are well-formed AND (b) any
+    pre-existing corpus rows are well-formed. With corpus loaded in the same
+    DB this still passes (corpus is well-formed by construction). With only
+    the test fixture loaded, it also passes. Either path is a meaningful
+    smoke of the validate module.
+    """
     with get_connection() as conn:
-        _truncate_load_state(conn)
+        _wipe_test_doc(conn)
         load_chunk_file(s18_ndjson, s18_doc_meta, conn)
 
         results = run_checks(conn)
