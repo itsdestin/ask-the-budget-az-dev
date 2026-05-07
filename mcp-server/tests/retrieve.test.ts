@@ -1,0 +1,187 @@
+// Unit tests for the retrieve tool. Exercise schema validation +
+// handler behavior with a stubbed fetcher so no real HTTP / Postgres /
+// Voyage call is made — these run in any environment.
+
+import { describe, expect, it, vi } from "vitest";
+
+import { loadConfig } from "../src/config.js";
+import {
+  makeRetrieveHandler,
+  retrieveInputSchema,
+  type RetrieveBridgeResponse,
+} from "../src/tools/retrieve.js";
+
+// ---------------------------------------------------------------------------
+// Schema validation
+// ---------------------------------------------------------------------------
+
+describe("retrieve input schema", () => {
+  it("accepts a minimal query-only payload", () => {
+    const parsed = retrieveInputSchema.parse({ query: "Aviation Fund" });
+    expect(parsed.query).toBe("Aviation Fund");
+  });
+
+  it("accepts the full filter set", () => {
+    const parsed = retrieveInputSchema.parse({
+      query: "balance",
+      filters: {
+        fiscal_year: [2027],
+        doc_type: ["baseline-cross-cut"],
+        publisher: ["jlbc"],
+        agency_canonical_id: ["agency:adc"],
+        fund_canonical_id: ["fund:aviation"],
+        is_table: true,
+      },
+      top_k: 10,
+    });
+    expect(parsed.filters?.fiscal_year).toEqual([2027]);
+    expect(parsed.top_k).toBe(10);
+  });
+
+  it("rejects fiscal_year with the wrong primitive type", () => {
+    expect(() =>
+      retrieveInputSchema.parse({
+        query: "x",
+        filters: { fiscal_year: "2027" },
+      }),
+    ).toThrow();
+  });
+
+  it("rejects an empty query string", () => {
+    expect(() => retrieveInputSchema.parse({ query: "" })).toThrow();
+  });
+
+  it("rejects unknown publisher values", () => {
+    expect(() =>
+      retrieveInputSchema.parse({
+        query: "x",
+        filters: { publisher: ["acme"] },
+      }),
+    ).toThrow();
+  });
+
+  it("rejects unknown filter keys (strict)", () => {
+    expect(() =>
+      retrieveInputSchema.parse({
+        query: "x",
+        filters: { mystery: ["foo"] },
+      }),
+    ).toThrow();
+  });
+
+  it("rejects fiscal_year out of bounds", () => {
+    expect(() =>
+      retrieveInputSchema.parse({
+        query: "x",
+        filters: { fiscal_year: [1900] },
+      }),
+    ).toThrow();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Handler behavior — fetcher mocked
+// ---------------------------------------------------------------------------
+
+const fakeBridgeResponse: RetrieveBridgeResponse = {
+  chunks: [
+    {
+      chunk_id: "test-doc::0",
+      doc_id: "test-doc",
+      doc_title: "Doc",
+      publisher: "jlbc",
+      fiscal_year: 2027,
+      doc_type: "baseline-cross-cut",
+      section_path: ["AHCCCS"],
+      page_start: 47,
+      page_end: 47,
+      text: "Aviation Fund balance was $123,456.",
+      score: 0.91,
+    },
+  ],
+  top_score: 0.91,
+  retrieval_id: "00000000-0000-0000-0000-000000000001",
+  bm25_count: 12,
+  dense_count: 8,
+  fused_count: 4,
+};
+
+function makeFakeFetch(
+  response: unknown,
+  init: { ok?: boolean; status?: number; bodyText?: string } = {},
+): typeof fetch {
+  return vi.fn(async (_url: RequestInfo | URL, _opts?: RequestInit) => {
+    return new Response(
+      init.bodyText ?? JSON.stringify(response),
+      {
+        status: init.status ?? 200,
+        headers: { "content-type": "application/json" },
+      },
+    );
+  });
+}
+
+describe("retrieve handler", () => {
+  it("forwards query+filters+top_k to the bridge and returns the JSON payload", async () => {
+    const fetcher = vi.fn(async (url: RequestInfo | URL, opts?: RequestInit) => {
+      // Confirm the URL points at /retrieve and the body shape is right.
+      expect(String(url)).toMatch(/\/retrieve$/);
+      expect(opts?.method).toBe("POST");
+      const body = JSON.parse(opts?.body as string);
+      expect(body.query).toBe("Aviation Fund");
+      expect(body.filters).toEqual({ fiscal_year: [2027] });
+      expect(body.top_k).toBe(10);
+      return new Response(JSON.stringify(fakeBridgeResponse), { status: 200 });
+    });
+
+    const handler = makeRetrieveHandler(loadConfig(), fetcher);
+    const result = await handler({
+      query: "Aviation Fund",
+      filters: { fiscal_year: [2027] },
+      top_k: 10,
+    });
+
+    expect(result.isError).toBeUndefined();
+    expect(result.content).toHaveLength(1);
+    expect(result.content[0]!.type).toBe("text");
+
+    const decoded = JSON.parse(result.content[0]!.text as string);
+    expect(decoded).toEqual(fakeBridgeResponse);
+    expect(fetcher).toHaveBeenCalledTimes(1);
+  });
+
+  it("defaults top_k to 20 and filters to null when omitted", async () => {
+    const fetcher = vi.fn(async (_u: RequestInfo | URL, opts?: RequestInit) => {
+      const body = JSON.parse(opts?.body as string);
+      expect(body.filters).toBeNull();
+      expect(body.top_k).toBe(20);
+      return new Response(JSON.stringify(fakeBridgeResponse), { status: 200 });
+    });
+
+    const handler = makeRetrieveHandler(loadConfig(), fetcher);
+    await handler({ query: "x" });
+    expect(fetcher).toHaveBeenCalledTimes(1);
+  });
+
+  it("returns isError:true with a readable message on bridge HTTP error", async () => {
+    const fetcher = makeFakeFetch(undefined, {
+      status: 500,
+      bodyText: "internal server error",
+    });
+    const handler = makeRetrieveHandler(loadConfig(), fetcher);
+    const result = await handler({ query: "x" });
+    expect(result.isError).toBe(true);
+    expect(result.content[0]!.text).toMatch(/retrieve\(\) failed/);
+    expect(result.content[0]!.text).toMatch(/500/);
+  });
+
+  it("returns isError:true with a transport-error message when fetch throws", async () => {
+    const fetcher = vi.fn(async () => {
+      throw new TypeError("ECONNREFUSED 127.0.0.1:9200");
+    });
+    const handler = makeRetrieveHandler(loadConfig(), fetcher);
+    const result = await handler({ query: "x" });
+    expect(result.isError).toBe(true);
+    expect(result.content[0]!.text).toMatch(/transport error/);
+  });
+});
