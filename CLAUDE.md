@@ -56,6 +56,10 @@ cd <repo> && git fetch origin && git pull origin master
 
 Sub-repo code goes in the relevant sub-repo. Workspace-level artifacts (specs, plans, investigations, decisions, cross-cutting docs, this `CLAUDE.md`, `.claude/rules/`, dev tooling) get committed to this workspace repo. For v1, most code lives in this repo (separation can wait until Phase 2 deployment).
 
+## Active handoffs
+
+If you're starting a fresh session and the user asks you to pick up "volume ingest" or similar Phase 1b corpus-expansion work, read [`PROMPT-volume-ingest.md`](PROMPT-volume-ingest.md) at the repo root first. It's a self-contained handoff prompt for a desktop session with a beefier GPU; the goal is to widen the corpus from the 5-doc validated slice (JLBC + Legislature only) to all four publishers (adds Governor + AGAO) per architecture decision D12.
+
 ## Project Phases
 
 | Phase | Status | What happens | Where it runs |
