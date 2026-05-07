@@ -21,6 +21,9 @@ dependencies = [
     # psycopg[binary] = libpq bundled wheel, no separate libpq install needed on Windows.
     "psycopg[binary,pool]>=3.2",
     "pgvector>=0.3",
+    # Phase 1b WS3: Voyage embeddings (voyage-3-large, 1024 dim) + Phase 1b WS6 reranker (rerank-2.5).
+    # Single SDK provides both.
+    "voyageai>=0.3.4",
 ]
 
 [dependency-groups]
