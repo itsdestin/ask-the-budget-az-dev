@@ -1,5 +1,20 @@
 # Phase 1b — Storage + Retrieval Implementation Plan
 
+> **STATUS 2026-05-07: ✓ Shipped on slice.** WS1–WS7 all merged to master against the 5-doc / 161-chunk slice. End-to-end smoke validated (`Aviation Fund balance` query surfaces s18 chunks via BM25 → dense → RRF → Voyage rerank-2.5). 373 pytest passing. Public API: `retrieval.retrieve(RetrievalRequest) → RetrievalResult` exported from `retrieval/__init__.py`.
+>
+> | WS | Status | Landed in |
+> |---|---|---|
+> | WS1 — Postgres infra + schema | ✓ shipped | `phase-1b-ws1` merge |
+> | WS2 — Chunk loader + post-load validation | ✓ shipped | `phase-1b-ws2-chunk-loader` merge |
+> | WS3 — Voyage embeddings | ✓ shipped | `phase-1b-ws3-embeddings` merge (`8ea409b`) |
+> | WS4 — BM25 retrieval | ✓ shipped | `phase-1b-ws4-5-retrieval` merge (`c041b53`) |
+> | WS5 — Dense retrieval | ✓ shipped | same merge as WS4 |
+> | WS6 — RRF fusion + Voyage rerank-2.5 + `retrieve()` pipeline | ✓ shipped | `phase-1b-ws6-hybrid` merge (`1732f4c`) |
+> | WS7 — Public retrieve API | ✓ implicit via `retrieval/__init__.py` | shipped with WS6 |
+> | WS8 — Eval set + recall@K | **blocked on volume corpus** — runs concurrent with Phase 1c | — |
+>
+> WS8 deferred until volume ingest (separate workstream — see [`PROMPT-volume-ingest.md`](../../../PROMPT-volume-ingest.md)) lands; the 161-chunk slice is too narrow to give meaningful recall@K numbers. The remainder of this plan is preserved as the as-built reference; checklist items (`- [ ]`) below are NOT pending — they're shipped.
+
 > **REFRAMED 2026-05-06.** This plan was rewritten in-place to reflect the architectural reframe captured in `docs/superpowers/decisions/2026-05-06-phase-1bc-architecture.md`. Key changes from the original plan:
 > 1. **Vertical-slice scope** — Phase 1b operates on the existing 5-doc / 161-chunk slice. Volume ingest is decoupled (new "Volume ingest" section); doesn't gate WS1–WS6. Reverses the original "first workstream is full Week 1 ingest" framing.
 > 2. **WS7 router/decomposer collapses** — under the constrained agent pattern (D7), Claude does query routing and decomposition through tool-call sequences. WS7 becomes "expose retrieve() as MCP tool surface."

@@ -97,7 +97,9 @@ cd ../ask-the-budget-az-worktrees/phase-1b-volume-ingest
 # 8. Run the existing test suite to confirm everything works
 $env:DATABASE_URL = "postgresql://askbudget:askbudget-dev@127.0.0.1:5432/askbudget"
 uv run pytest -q
-# Expect: 311 passed (the 2 voyage-live tests skip without VOYAGE_API_KEY).
+# Expect: 373 passing as of 2026-05-07 (Phase 1b WS1-WS7 shipped, plus
+# Phase 1c FastAPI sidecar tests). Live Voyage tests skip without
+# VOYAGE_API_KEY.
 ```
 
 ## Step 1 — extend the orchestrator (plan §"Volume ingest" Step 1)
