@@ -17,6 +17,10 @@ dependencies = [
     # as transitive (via mineru[pipeline]) and pulls the PyPI CPU wheel.
     "torch>=2.11.0",
     "torchvision>=0.26.0",
+    # Phase 1b WS1: Postgres client + pgvector type registration.
+    # psycopg[binary] = libpq bundled wheel, no separate libpq install needed on Windows.
+    "psycopg[binary,pool]>=3.2",
+    "pgvector>=0.3",
 ]
 
 [dependency-groups]
