@@ -67,6 +67,8 @@ data/audit/
 *.db
 *.sqlite
 postgres-data/
+# Phase 1b local-dev Postgres data volume (Docker compose bind mount)
+db/data/
 
 # Test artifacts
 coverage/
