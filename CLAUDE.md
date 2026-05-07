@@ -8,7 +8,11 @@ This workspace repo holds cross-cutting docs, plans, specs, and dev tooling. Sub
 
 The system's job is **retrieval with auditable provenance**. Answer generation is secondary. A fiscal analyst who can't trust a claim won't use the tool twice.
 
-Read `docs/superpowers/specs/2026-05-04-ask-the-budget-az-design.md` before any non-trivial change. The invariants section is load-bearing.
+Read `docs/superpowers/specs/2026-05-04-ask-the-budget-az-design.md` before any non-trivial change. The invariants section is load-bearing. Also read `docs/superpowers/decisions/2026-05-06-phase-1bc-architecture.md` for the v1 architectural decisions that shape Phase 1b/1c.
+
+## v1 in one paragraph
+
+v1 is a multi-turn budget Q&A web app that runs on Destin's machine and **hard-depends on a running YouCoded instance** for synthesis. The budget app's Node backend talks to YouCoded over `ws://localhost:9900`; YouCoded provides the Claude Code session, Pro/Max OAuth, PTY/wrapper, and MCP host. A small Budget MCP server (separate Node process, registered with YouCoded) exposes `retrieve(query, filters)` and `cite(...)` tools. Claude in each conversation calls `retrieve()` (constrained agent pattern — system prompt requires it before answering) and emits `cite()` per claim. The budget UI is a chat thread with citation chips and a side-panel PDF viewer. Standalone companion app, DOCX viewer, verify-mode toggle, and multi-analyst distribution all defer to Phase 2. v1's corpus targets all four publishers (JLBC + Legislature + Gov + AGAO) for the most-recent FY each. See decisions doc D1–D12 for rationale.
 
 ## Core Invariants (override anything else when in conflict)
 
@@ -44,22 +48,21 @@ cd <repo> && git fetch origin && git pull origin master
 
 | Directory | Repo | What it is |
 |-----------|------|------------|
-| `ask-the-budget-az-dev/` | (this) | Workspace repo: docs, plans, specs, dev tooling |
-| `ask-the-budget-az/` | (planned) | The web app — Next.js + React + TypeScript |
-| `ask-the-budget-az-companion/` | (planned, Phase 2) | JLBC Budget Agent — Electron/Tauri companion app, lifts from YouCoded's Claude Code wrapper |
-| `ask-the-budget-az-ingest/` | (planned) | Ingest pipeline — Python or TypeScript, runs offline |
+| `ask-the-budget-az-dev/` | (this) | Workspace repo: docs, plans, specs, dev tooling, ingest pipeline (currently colocated), retrieval pipeline (Phase 1b), MCP server + web app (Phase 1c) |
+| `ask-the-budget-az/` | (later, Phase 2) | If we split, the deployable web-app artifact moves here |
+| `ask-the-budget-az-companion/` | (later, Phase 2) | Standalone companion app — only built when distributing to analysts who don't run YouCoded |
 
-Sub-repo code goes in the relevant sub-repo. Workspace-level artifacts (specs, plans, investigations, cross-cutting docs, this `CLAUDE.md`, `.claude/rules/`, dev tooling) get committed to this workspace repo.
+Sub-repo code goes in the relevant sub-repo. Workspace-level artifacts (specs, plans, investigations, decisions, cross-cutting docs, this `CLAUDE.md`, `.claude/rules/`, dev tooling) get committed to this workspace repo. For v1, most code lives in this repo (separation can wait until Phase 2 deployment).
 
 ## Project Phases
 
 | Phase | Status | What happens | Where it runs |
 |---|---|---|---|
-| **Phase 0 — Investigation** | ✓ closed 2026-05-06 | Per-doc-type extractor routing decision (MinerU + OpenDataLoader-PDF + python-docx; original MinerU-vs-Docling bake-off pivoted 2026-05-05), 157-agency canonical catalog from publisher data, JLBC four-layout publishing structure mapped, chunk-shape decisions D1–D7. Outcomes: findings memo + chunk-shape doc + data-model doc under `docs/superpowers/investigations/`. | Destin's machine |
-| **Phase 1a — Ingest + chunking** | ✓ closed 2026-05-06 (slice-validated) | Tag `phase-1a-validated-slice` at commit `9ba0385`. 5 docs / 161 chunks / 91.3% agency-stamped / 227 funds. Pipeline proven end-to-end on real source; full-corpus ingest moves to Phase 1b kickoff. Hand-off contract at `data/chunks/MANIFEST.md`. | Destin's machine |
-| **Phase 1b — Storage + retrieval** | in planning | Postgres + pgvector + ParadeDB; hybrid retrieval (BM25 + dense + RRF + rerank); query routing. Plan at `docs/superpowers/plans/2026-05-06-phase-1b-storage-and-retrieval.md`. | Destin's machine |
-| **Phase 1c — Companion + UI** | not started | LLM synthesis + faithfulness verification + Next.js UI. Plan at `docs/superpowers/plans/2026-05-06-phase-1c-companion-and-ui.md`. | Destin's machine |
-| **Phase 2 — Companion app + first deploy** | not started | Build JLBC Budget Agent companion. Deploy web app to free-tier hosting. Onboard 2-3 trusted analysts. | Vercel/Supabase + each analyst's machine |
+| **Phase 0 — Investigation** | ✓ closed 2026-05-06 | Per-doc-type extractor routing decision, 157-agency canonical catalog, JLBC four-layout structure mapped, chunk-shape decisions D1–D7. | Destin's machine |
+| **Phase 1a — Ingest + chunking** | ✓ closed 2026-05-06 (slice-validated) | Tag `phase-1a-validated-slice` at `9ba0385`. 5 docs / 161 chunks / 91.3% agency-stamped / 227 funds. Pipeline proven on real source. Hand-off at `data/chunks/MANIFEST.md`. | Destin's machine |
+| **Phase 1b — Storage + retrieval** | in planning (reframed 2026-05-06) | Postgres + pgvector + ParadeDB; schema with array agency stamping + funds + conversations + messages tables; hybrid retrieval (BM25 + dense + RRF + rerank) exposed as `retrieve(query, filters) → {chunks, top_score}`. Vertical-slice scope (TDD against the 161-chunk slice); volume ingest decoupled. Server-side router/decomposer **deleted** under D7 (Claude does that work via tool calls in 1c). Plan at `docs/superpowers/plans/2026-05-06-phase-1b-storage-and-retrieval.md`. | Destin's machine |
+| **Phase 1c — Synthesis + UI** | not started (reframed 2026-05-06) | Budget MCP server (registered with running YouCoded) exposing `retrieve` + `cite` tools. `YouCodedSessionProvider` (talks to `ws://localhost:9900`). Multi-turn chat UI with citation chips. PDF viewer with bbox highlight. Faithfulness verifier. Audit log writes. Hard-depends on running YouCoded. DOCX viewer + verify-mode + standalone companion deferred to Phase 2. Plan at `docs/superpowers/plans/2026-05-06-phase-1c-companion-and-ui.md`. | Destin's machine + running YouCoded |
+| **Phase 2 — Standalone companion + first deploy** | not started | Build standalone companion (lifts YouCoded PTY/wrapper into separate process). Add DOCX viewer + verify mode. Deploy to free-tier hosting. Onboard 2-3 trusted analysts. | Vercel/Supabase + each analyst's machine |
 | **Phase 3 — Internal pilot** | not started | Wider JLBC use. Tier 2 entity resolution. Eval set expansion. | Same |
 | **Phase 4 — Public-launch consideration** | not started | Gated on hard metrics in the spec. | Same, plus public host |
 
@@ -68,6 +71,7 @@ Sub-repo code goes in the relevant sub-repo. Workspace-level artifacts (specs, p
 - `docs/superpowers/specs/` — design specs, one per major decision area
 - `docs/superpowers/plans/` — implementation plans, derived from specs
 - `docs/superpowers/investigations/` — research memos, Phase 0 findings, ad-hoc investigations
+- `docs/superpowers/decisions/` — decision artifacts that supersede portions of specs/plans (e.g., `2026-05-06-phase-1bc-architecture.md` for the v1 reframe)
 - `docs/reference/` — domain primers and reference material (e.g., the JLBC writing draft used as system-prompt context)
 - `.claude/rules/` — auto-loaded rules for specific subsystems (e.g., `live-app-safety.md` once we have a deployed instance)
 

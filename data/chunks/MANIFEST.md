@@ -83,24 +83,32 @@ are recorded for Phase 1b chunk-shape decisions.
   chunk gets stamped to the FIRST agency the resolver matches in the
   table, even though the chunk lists ~25 agencies. AHCCCS rows are
   inside chunk 0000, but that chunk is stamped `agency:bae` (Board of
-  Accountancy). Per-row stamping or section-by-agency chunk subdivision
-  is a Phase-1b chunk-shape revisit.
+  Accountancy).
+  **RESOLVED 2026-05-06 (decision D2):** schema flips
+  `agency_canonical_id TEXT` → `agency_canonical_ids TEXT[]` in Phase 1b
+  migration 0001. Whole-table chunks stamp ALL agencies; filter syntax
+  `WHERE 'agency:adc' = ANY(agency_canonical_ids)` uses GIN index. No
+  per-row chunk explosion, no chunk-shape redesign. Loader promotes
+  scalar → array on insert; existing slice JSONs work as-is. See
+  `docs/superpowers/decisions/2026-05-06-phase-1bc-architecture.md`.
 - **Multi-page tables not reassembling on s18.** s18 spans 13 pages
   with the same logical Funds × Agencies table, but each page got its
   own chunk because the table title heading repeats on every continuation
   page and the reader's "no heading between" rule blocks reassembly.
-  Listed in plan's "deferred" section already.
+  **Less urgent under D2** — each chunk now stamps to all 25 agencies,
+  so retrieval by agency filter still surfaces all 13 chunks. Revisit
+  if eval shows it matters.
 - **bd2 parser yields 0 fund-rows.** `funds/parser.py::parse_s18_table`
   is tuned to s18's specific shape; bd2 has agency-as-section-spanned-row
-  + fund-rows but a different exact column layout. Need a more
-  format-tolerant parser, or a bd2-specific parser, before bd2 can
-  contribute funds to the cross-source merge. Phase 1b.
+  + fund-rows but a different exact column layout. **Out of scope for
+  Phase 1b retrieval** — cross-source fund catalog merge is a Phase 1.5
+  concern.
 - **Plan smoke queries used acronyms (`ADC`, `ADOT`, `GAA`) that don't
   appear in source text.** JLBC docs use spelled-out names; the bill
-  too. Acronym-expansion (likely query-rewrite using the system-prompt
-  context's acronyms section) is a Phase-1b retrieval concern. Smoke
-  queries adapted to in-corpus terms; Phase 1b should test with both
-  acronym and spelled-out variants.
+  too. **REFRAMED under D7:** acronym expansion is a system-prompt
+  instruction in the Phase 1c Budget MCP server ("expand acronyms before
+  calling retrieve()"), not a separate retrieval-layer component. Tested
+  in WS8 eval; revisit only if recall is poor.
 
 ## What "Phase 1a done" means (plan §"What Phase 1a done means")
 
