@@ -9,7 +9,9 @@ import { useState } from "react";
 
 import type { AssistantBlock } from "@/state/chat-types";
 import MarkdownContent from "../MarkdownContent";
+import CiteView from "./CiteView";
 import DiffView from "./DiffView";
+import RetrieveView from "./RetrieveView";
 import {
   basename,
   Chip,
@@ -447,6 +449,12 @@ export default function ToolBody({ tool }: { tool: ToolBlock }) {
       case "WebFetch":
       case "WebSearch":
         return <WebFetchView tool={tool} />;
+      case "retrieve":
+      case "mcp__ask-the-budget-az__retrieve":
+        return <RetrieveView tool={tool} />;
+      case "cite":
+      case "mcp__ask-the-budget-az__cite":
+        return <CiteView tool={tool} />;
       default:
         return <RawFallbackView tool={tool} />;
     }
