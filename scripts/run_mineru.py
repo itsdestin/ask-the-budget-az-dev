@@ -133,7 +133,18 @@ def run_mineru(pdf: Path, out: Path, pages: list[int]) -> None:
     The `pipeline` backend is chosen because it works on CPU only; the
     default `hybrid-auto-engine` may want a GPU. See the Phase 0 README
     at samples/extractor-output/mineru/README.md for backend rationale.
+
+    If the env var ``MINERU_API_URL`` is set, the wrapper passes
+    ``--api-url <url>`` to the CLI so each call submits to a long-lived
+    ``mineru-api`` daemon instead of spinning up its own temporary one.
+    Empirically saves 25-30s per doc on a 4070 SUPER (the per-invocation
+    model load + FastAPI bootstrap dominates cold-start time). Start the
+    daemon with: ``uv run mineru-api --host 127.0.0.1 --port 8000``.
     """
+    import os
+
+    api_url = os.environ.get("MINERU_API_URL")
+
     out.mkdir(parents=True, exist_ok=True)
     pdf_stem = pdf.stem
 
@@ -148,6 +159,8 @@ def run_mineru(pdf: Path, out: Path, pages: list[int]) -> None:
                 "-e", str(end - 1),
                 "-b", "pipeline",
             ]
+            if api_url:
+                cmd.extend(["--api-url", api_url])
             result = subprocess.run(cmd, capture_output=True, text=True)
             if result.returncode != 0:
                 # Trim stderr — mineru's logs can be hundreds of lines on success too,

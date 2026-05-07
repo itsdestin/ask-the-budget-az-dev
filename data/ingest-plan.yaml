@@ -40,6 +40,7 @@ week_1:
     doc_type: budget-bill
     fiscal_year: 2026
     source_format: docx
+    bill_id: sb1735-2025
     local_path: samples/raw-docx/budget-bill-sb1735-2025.docx
 
 week_2:

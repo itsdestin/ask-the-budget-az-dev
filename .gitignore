@@ -42,26 +42,41 @@ samples/extractor-output/**
 !samples/extractor-output/
 !samples/extractor-output/*/
 !samples/extractor-output/*/README.md
-samples/raw-pdfs/
+samples/raw-pdfs/**
+!samples/raw-pdfs/
 # samples/raw-docx/ is NOT ignored — see CLAUDE.md "Sample primary sources".
 # DOCX files are user-uploaded primary sources (e.g., legislative bills) that
 # can't be auto-fetched from a public URL the way PDFs can. Committing them
 # keeps them on disk across worktrees and fresh clones.
+#
+# Same logic for the AGAO Annual Financial Report — its source URL on
+# gao.az.gov is gated behind a Cloudflare bot challenge that returns 403 to
+# every programmatic client (curl/httpx/PowerShell) even with full browser
+# headers. Functionally a user-uploaded primary source. Commit it so future
+# worktrees / fresh clones don't need to manually re-download via a browser.
+# See docs/superpowers/investigations/2026-05-07-publisher-portals.md.
+!samples/raw-pdfs/agao-afr-fy25.pdf
 
 # Phase 1a runtime data — large, reproducible. The smaller curated
 # artifacts (data/discovery-cache.yaml, data/fund-catalog.yaml,
 # data/system-prompt-context.md, data/ingest-plan.yaml) ARE tracked.
 data/cached-pdfs/
 data/extractor-output/
-# data/chunks/ contents are reproducible and large; gitignore everything
-# except MANIFEST.md (the Phase-1a → Phase-1b hand-off contract). Negation
-# patterns require the parent dir NOT to be excluded with trailing-slash,
-# so we ignore everything inside via `**` then re-include the dir + manifest.
-data/chunks/**
-!data/chunks/
-!data/chunks/MANIFEST.md
+# data/chunks/ chunk JSONs ARE committed — decision per
+# PROMPT-volume-ingest.md "Commit policy": persist across machines so
+# volume ingest doesn't have to re-run on every clone (1-2hr GPU run +
+# ~28MB total compressed — well under any practical Git size limit).
+# extractor-output/ and cached-pdfs/ stay gitignored above; those are
+# the bulky reproducible inputs.
 # Audit JSON outputs are reproducible — gitignore.
 data/audit/
+
+# mineru-api daemon writes per-request <task-id>/ subdirs under output/
+# in whatever CWD it's launched from. Reproducible from the source PDFs +
+# the dispatcher's own per-doc extractor-output/<doc_id>/manifest.json
+# sidecar; we don't need a second copy in the repo. Leaving these tracked
+# would add ~390MB of UUID-named noise per volume-ingest run.
+output/
 
 *.tmp
 .tmp-*/

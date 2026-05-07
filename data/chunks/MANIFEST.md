@@ -1,17 +1,70 @@
-# Phase 1a chunk store — MANIFEST
+# Phase 1a/1b chunk store — MANIFEST
 
-This directory holds the Phase 1a chunk hand-off to Phase 1b. Each `.json`
-is NDJSON (one Pydantic-validated `Chunk` per line). Phase 1b reads this
-manifest as its input contract.
+This directory holds the chunk store backing v1 retrieval. Each `.json`
+is NDJSON (one Pydantic-validated `Chunk` per line). The chunk JSONs ARE
+committed (per `PROMPT-volume-ingest.md` "Commit policy"): persist across
+machines so volume ingest doesn't have to re-run on every clone.
 
-## Slice scope
+## Volume corpus (current — landed 2026-05-07)
 
-This is a **validated slice**, not the full Week-1 corpus. Five
-hand-picked docs cover the WS6 plan's smoke-query expectations
-end-to-end. Full ingest (Week 1: ~50 docs; Weeks 2–3: prior FYs +
-per-agency PDFs + AFR + Gov SAD) moves to the first session of Phase 1b
-when the storage layer is plumbed and we'd be re-ingesting anyway. See
-"Deferred to Phase 1b" below.
+The volume ingest closed Phase 1b's "Volume ingest decoupled workstream"
+per decision D12 (all four publishers covered for v1 dogfood). Driven by
+`scripts/run_volume_ingest.py` reading `data/ingest-plan.yaml`. See
+[`docs/superpowers/investigations/2026-05-07-publisher-portals.md`](../../docs/superpowers/investigations/2026-05-07-publisher-portals.md)
+for the publisher-side URL map.
+
+### By publisher
+
+| Publisher | Docs | Chunks | Agency-stamping |
+|---|---:|---:|---:|
+| `jlbc` | 379 | 6,037 | 97.2% |
+| `governor` | 1 | 1,395 | 43.5% |
+| `agao` | 1 | 187 | 68.4% |
+| `legislature` | 1 | 136 | 91.2% |
+| **Total** | **382** | **7,755** | **86.7%** |
+
+### By doc_type × fiscal year
+
+| Doc type | FY | Docs | Chunks |
+|---|---:|---:|---:|
+| `baseline-per-agency` | 2027 | 110 | 1,806 |
+| `governors-budget` (Gov SAD) | 2027 | 1 | 1,395 |
+| `s-pdf` | 2027 | 15 | 128 |
+| `topic-pdf` | 2027 | 2 | 16 |
+| `baseline-per-agency` | 2026 | 110 | 1,650 |
+| `budget-bill` (SB 1735) | 2026 | 1 | 136 |
+| `detailed-list-pdf` | 2026 | 16 | 226 |
+| `bh-pdf` | 2026 | 7 | 57 |
+| `bd-pdf` | 2026 | 6 | 15 |
+| `topic-pdf` | 2026 | 2 | 19 |
+| `approps-per-agency` | 2025 | 111 | 2,120 |
+| `afr` (AGAO) | 2025 | 1 | 187 |
+
+### What "Phase 1b volume-ingest done" means (achieved)
+
+| Criterion | Plan target | Volume actual |
+|---|---|---|
+| All four publishers represented | yes | ✓ jlbc + governor + agao + legislature |
+| Total chunks | ≥ 2500 (target ~3000) | 7,755 |
+| All `db.validate` checks pass | 9/9 | ✓ 9/9 |
+| Agency stamping | ≥ 0.85 | 0.867 |
+| Embeddings populated | full corpus, ≤ free Voyage tier | ✓ 7,755 / 7,755 (~$0; 2.25M tokens) |
+
+### Notes on the volume ingest
+
+- **Discovery** walked three JLBC TOC PDFs (`<YY>baselinelinks.pdf`, `<YY>baseline/agencyindex.pdf`, `<YY>ar/apprpttoc.pdf`) per fiscal year to enumerate sub-PDFs. 385 plan items → 382 unique `doc_id`s after deduping (3 doc_ids appeared in two TOCs each: `s90` in baseline, `ost` and `nci` in per-agency).
+- **Tagged-PDF singletons** (Gov SAD 636 pp, AGAO AFR 181 pp) ran through OpenDataLoader on CPU/Java. Pre-extracted in parallel during the JLBC ingest run (no GPU contention with the MinerU daemon).
+- **MinerU daemon mode** (`mineru-api` + `MINERU_API_URL` env var) cut the per-doc cost from ~45s cold-start to ~10s warm, ~3x speedup. Net wall time for 385 docs: ~1.5 hours.
+- **50 dwarf chunks deleted post-load** — the chunker emitted some empty-text chunks on certain FY25 approps-per-agency PDFs (token_count=0, length=0). They were preserved in the NDJSON (chunker is the source of truth) but stripped from the DB before embedding, since Voyage rejects empty inputs and they have no retrieval value. Worth fixing at the chunker side in Phase 2 — the 34 truly-empty chunks all came from approps-per-agency PDFs with sparse JLBC layout.
+- **Sources & Uses (Gov FY27 S&U)** is intentionally deferred per `data/ingest-plan.yaml`'s explicit Phase-2 comment, not ingested in this run.
+
+---
+
+## Slice scope (historical — kept for context)
+
+The original 5-doc validated slice that proved the Phase 1a pipeline
+end-to-end before volume ingest. Inventory below was the hand-off
+contract to Phase 1b.
 
 ## Inventory
 

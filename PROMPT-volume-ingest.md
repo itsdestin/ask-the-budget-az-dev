@@ -122,11 +122,25 @@ Per the spec, both are tagged PDFs that should run through the
 PDFs, MinerU for untagged JLBC PDFs). The wrapper is at
 `scripts/run_opendataloader.py`.
 
-- **Governor FY27 SAD**: `https://efs.az.gov/sites/default/files/...` (find URL in
-  `data/discovery-cache.yaml` or via the AZ Gov OFM page).
-- **Governor FY27 Sources & Uses**: same publisher, separate URL.
-- **AGAO FY25 AFR**: `https://www.azauditor.gov/sites/default/files/...` (single
-  document, 181 pp).
+- **Governor FY27 SAD**: declared in `samples/manifest.yaml` as
+  `governors-state-agency-detail-fy27` —
+  `https://ospb.az.gov/sites/default/files/2026-01/state-agency-detail-fy-2027.pdf`.
+  OSPB serves PDFs without anti-bot gating; the orchestrator can fetch this
+  directly via `DownloadCache`, or pre-stage the file at the `local_path`
+  declared in the manifest (the plan currently uses local-path).
+- **Governor FY27 Sources & Uses**: declared in `samples/manifest.yaml`
+  (`governors-sources-and-uses-fy27`) but **deferred to Phase 2** per the
+  bottom comment in `data/ingest-plan.yaml` week_3. URL is in the manifest if
+  you want to revive it; skipping it for v1 dogfood is intentional.
+- **AGAO FY25 AFR**: declared in `samples/manifest.yaml` as `agao-afr-fy25`.
+  Source URL is on `gao.az.gov`, but **gao.az.gov is Cloudflare-protected** —
+  programmatic clients (curl/httpx/PowerShell, even with full browser headers)
+  get HTTP 403 with `cf-mitigated: challenge`. Workaround: open
+  https://gao.az.gov/financials/afr in a browser, save the PDF to
+  `samples/raw-pdfs/agao-afr-fy25.pdf`, and `check_corpus_manifest.py` will
+  verify the SHA matches the manifest. See
+  `docs/superpowers/investigations/2026-05-07-publisher-portals.md` for the
+  full portal map.
 
 The chunker should accept ODL output via the existing dispatch in
 `chunking/builder.py:chunk_doc`. Confirm `chunking/readers/odl_reader.py`
