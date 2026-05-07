@@ -34,6 +34,7 @@ const RETRIEVE_OUTPUT_OK = JSON.stringify({
       section_path: ["Aviation Fund"],
       page_start: 47,
       page_end: 47,
+      bbox: [10, 20, 100, 40],
       text: "Aviation Fund balance was $123M as of June 30, 2024.",
       score: 0.91,
     },
@@ -88,8 +89,63 @@ describe("extractCitations", () => {
     expect(c.claimSpan).toBe("$123M.");
     expect(c.citationId).toBe("cit-uuid-1");
     expect(c.resolved?.docTitle).toBe("JLBC Baseline Book");
+    expect(c.resolved?.docId).toBe("doc-A");
     expect(c.resolved?.pageStart).toBe(47);
     expect(c.resolved?.fiscalYear).toBe(2024);
+    expect(c.resolved?.bbox).toEqual([10, 20, 100, 40]);
+  });
+
+  it("normalizes a missing bbox to null (e.g. DOCX chunks)", () => {
+    const turn = turnWithBlocks([
+      {
+        kind: "tool",
+        toolUseId: "r1",
+        toolName: "retrieve",
+        input: { query: "x" },
+        status: "complete",
+        output: JSON.stringify({
+          chunks: [
+            {
+              chunk_id: "bill-A:para12",
+              doc_id: "bill-A",
+              doc_title: "SB1735",
+              publisher: "legislature",
+              fiscal_year: 2025,
+              doc_type: "budget-bill",
+              section_path: [],
+              page_start: null,
+              page_end: null,
+              bbox: null,
+              text: "Section 12 ...",
+              score: 0.7,
+            },
+          ],
+          top_score: 0.7,
+          retrieval_id: "r-2",
+          bm25_count: 1,
+          dense_count: 1,
+          fused_count: 1,
+        }),
+      },
+      { kind: "text", uuid: "u1", text: "From the bill." },
+      {
+        kind: "tool",
+        toolUseId: "c1",
+        toolName: "cite",
+        input: {
+          chunk_id: "bill-A:para12",
+          span_start: 0,
+          span_end: 9,
+          confidence: "paraphrase",
+          claim_span: "From the",
+        },
+        status: "complete",
+      },
+    ]);
+    const citations = extractCitations(turn);
+    expect(citations).toHaveLength(1);
+    expect(citations[0]!.resolved?.bbox).toBeNull();
+    expect(citations[0]!.resolved?.docId).toBe("bill-A");
   });
 
   it("indexes citations sequentially across multiple cite() calls", () => {
@@ -230,12 +286,14 @@ describe("formatCopyCitation", () => {
       confidence: "verbatim",
       claimSpan: "y",
       resolved: {
+        docId: "doc-A",
         docTitle: "JLBC Baseline Book",
         publisher: "JLBC",
         fiscalYear: 2024,
         docType: "jlbc-baseline-book",
         pageStart: 47,
         pageEnd: 47,
+        bbox: [10, 20, 100, 40],
         text: "y",
       },
     };
@@ -251,12 +309,14 @@ describe("formatCopyCitation", () => {
       confidence: "verbatim",
       claimSpan: "y",
       resolved: {
+        docId: "doc-B",
         docTitle: "Foo",
         publisher: "AGAO",
         fiscalYear: null,
         docType: "afr",
         pageStart: 10,
         pageEnd: 12,
+        bbox: null,
         text: "y",
       },
     };

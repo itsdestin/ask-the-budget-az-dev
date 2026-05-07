@@ -195,7 +195,9 @@ def test_retrieve_marshals_chunks_to_schema_shape(monkeypatch):
     assert isinstance(body["retrieval_id"], str) and body["retrieval_id"]
     assert len(body["chunks"]) == 2
 
-    # Per-chunk shape.
+    # Per-chunk shape. `bbox` joined the schema in Phase 1c WS4c so the
+    # PdfViewer can paint a precise rectangle highlight on chip-click;
+    # required-field set unchanged otherwise.
     c0 = body["chunks"][0]
     assert set(c0.keys()) == {
         "chunk_id",
@@ -207,6 +209,7 @@ def test_retrieve_marshals_chunks_to_schema_shape(monkeypatch):
         "section_path",
         "page_start",
         "page_end",
+        "bbox",
         "text",
         "score",
     }
@@ -218,6 +221,7 @@ def test_retrieve_marshals_chunks_to_schema_shape(monkeypatch):
     assert c0["doc_type"] == "baseline-cross-cut"
     assert c0["section_path"] == ["AHCCCS", "Operating Lump Sum"]
     assert c0["page_start"] == 47 and c0["page_end"] == 47
+    assert c0["bbox"] == [10.0, 20.0, 100.0, 40.0]
     assert c0["score"] == 0.9
 
 
@@ -440,6 +444,122 @@ def test_cite_validate_rejects_inverted_span(monkeypatch):
     body = resp.json()
     assert body["ok"] is False
     assert body["error"] == "span out of range"
+
+
+# ---------------------------------------------------------------------------
+# Unit tests — /docs/{doc_id} (monkeypatched DB)
+# ---------------------------------------------------------------------------
+
+
+def test_doc_metadata_returns_full_record(monkeypatch):
+    """The Next.js /api/pdf/[doc_id] route reads source_blob_path from
+    this endpoint to resolve a chip-click into a file to stream. Pin
+    down the response shape so a schema drift breaks the test (and
+    not the click-to-jump UX) at PR time."""
+
+    class FakeConn:
+        def execute(self, *_args, **_kw):
+            class _Cur:
+                def fetchone(self):
+                    return {
+                        "doc_id": "d1",
+                        "title": "JLBC Baseline Book",
+                        "publisher": "jlbc",
+                        "doc_type": "baseline-cross-cut",
+                        "fiscal_year": 2024,
+                        "source_format": "pdf",
+                        "source_blob_path": "/path/to/file.pdf",
+                        "page_count": 250,
+                        "source_url": "https://example.com/file.pdf",
+                    }
+
+            return _Cur()
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *a):
+            pass
+
+    monkeypatch.setattr(api_module, "get_connection", lambda: FakeConn())
+
+    with TestClient(app) as client:
+        resp = client.get("/docs/d1")
+
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["doc_id"] == "d1"
+    assert body["title"] == "JLBC Baseline Book"
+    assert body["source_blob_path"] == "/path/to/file.pdf"
+    assert body["source_format"] == "pdf"
+    assert body["page_count"] == 250
+    assert body["fiscal_year"] == 2024
+    assert body["source_url"] == "https://example.com/file.pdf"
+
+
+def test_doc_metadata_returns_404_for_unknown_doc(monkeypatch):
+    """Hallucinated doc_ids hit 404 cleanly (the Next.js route relays
+    that to the browser as a 404 too — no PDF panel painted)."""
+
+    class FakeConn:
+        def execute(self, *_args, **_kw):
+            class _Cur:
+                def fetchone(self):
+                    return None
+
+            return _Cur()
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *a):
+            pass
+
+    monkeypatch.setattr(api_module, "get_connection", lambda: FakeConn())
+
+    with TestClient(app) as client:
+        resp = client.get("/docs/ghost-doc")
+    assert resp.status_code == 404
+
+
+def test_doc_metadata_omits_null_optional_fields(monkeypatch):
+    """`response_model_exclude_none=True` keeps page_count / source_url
+    out of the JSON when null. Catches accidental dropping of the
+    response_model_exclude_none=True decorator (which would render
+    nulls and confuse the Next.js consumer)."""
+
+    class FakeConn:
+        def execute(self, *_args, **_kw):
+            class _Cur:
+                def fetchone(self):
+                    return {
+                        "doc_id": "d2",
+                        "title": "Bill SB1234",
+                        "publisher": "legislature",
+                        "doc_type": "budget-bill",
+                        "fiscal_year": 2025,
+                        "source_format": "docx",
+                        "source_blob_path": "/path/to/file.docx",
+                        "page_count": None,
+                        "source_url": None,
+                    }
+
+            return _Cur()
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *a):
+            pass
+
+    monkeypatch.setattr(api_module, "get_connection", lambda: FakeConn())
+
+    with TestClient(app) as client:
+        resp = client.get("/docs/d2")
+    body = resp.json()
+    assert "page_count" not in body
+    assert "source_url" not in body
+    assert body["source_blob_path"] == "/path/to/file.docx"
 
 
 # ---------------------------------------------------------------------------

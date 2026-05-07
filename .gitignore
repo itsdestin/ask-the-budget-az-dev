@@ -82,3 +82,9 @@ coverage/
 # Companion app builds
 companion-dist/
 companion-out/
+
+# pdfjs-dist worker bundle — copied to web/public/ by the postinstall
+# script (web/scripts/copy-pdf-worker.mjs) so the renderer can load it
+# from a stable URL. Auto-regenerated on every `npm install`; not worth
+# ~1.2 MB of git history.
+web/public/pdf.worker.min.mjs
