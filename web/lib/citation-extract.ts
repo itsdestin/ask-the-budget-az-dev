@@ -13,6 +13,8 @@ import type { AssistantTurn } from "@/state/chat-types.js";
 export type CitationConfidence = "verbatim" | "paraphrase";
 
 export interface ResolvedChunk {
+  /** doc_id from the chunk; PdfViewer fetches `/api/pdf/{doc_id}` to load the source. */
+  docId: string;
   /** Display title from the documents table (denormalized at the API). */
   docTitle: string;
   publisher: string;
@@ -22,6 +24,8 @@ export interface ResolvedChunk {
   /** Inclusive 1-indexed PDF page numbers. v1 has page_start === page_end (single-page chunks). */
   pageStart: number | null;
   pageEnd: number | null;
+  /** [x1, y1, x2, y2] in PDF points. Null for non-PDF chunks (e.g. DOCX bills) — PdfViewer falls back to page-level highlighting in that case. */
+  bbox: number[] | null;
   /** Full chunk text — used to render the verbatim quote in the hover tooltip. */
   text: string;
 }
@@ -47,12 +51,14 @@ export interface Citation {
 
 interface RetrieveChunk {
   chunk_id: string;
+  doc_id?: string;
   doc_title?: string;
   publisher?: string;
   fiscal_year?: number | null;
   doc_type?: string;
   page_start?: number | null;
   page_end?: number | null;
+  bbox?: number[] | null;
   text?: string;
 }
 
@@ -133,12 +139,17 @@ function buildResolvedChunkMap(
     for (const c of parsed.chunks) {
       if (!c.chunk_id) continue;
       out.set(c.chunk_id, {
+        docId: c.doc_id ?? "",
         docTitle: c.doc_title ?? "",
         publisher: c.publisher ?? "",
         fiscalYear: c.fiscal_year ?? null,
         docType: c.doc_type ?? "",
         pageStart: c.page_start ?? null,
         pageEnd: c.page_end ?? null,
+        bbox:
+          Array.isArray(c.bbox) && c.bbox.length >= 4
+            ? [c.bbox[0]!, c.bbox[1]!, c.bbox[2]!, c.bbox[3]!]
+            : null,
         text: c.text ?? "",
       });
     }

@@ -76,6 +76,13 @@ class ChunkOut(BaseModel):
     here from the documents table rather than being threaded through
     RetrievedChunk, keeping retrieval-module concerns separate from
     schema-marshaling concerns.
+
+    `bbox` is the chunk's PDF rectangle in PDF points, shape
+    [x1, y1, x2, y2] (single rect for v1 — multi-rect chunks are
+    flattened upstream and unsupported by the viewer until Phase 2).
+    Null for non-PDF chunks (e.g. DOCX bills). Phase 1c WS4c added
+    the field so the PdfViewer can paint a precise bbox highlight
+    on chip-click; pre-WS4c clients ignore it harmlessly.
     """
 
     chunk_id: str
@@ -87,6 +94,7 @@ class ChunkOut(BaseModel):
     section_path: list[str]
     page_start: int | None
     page_end: int | None
+    bbox: list[float] | None = None
     text: str
     score: float
 
@@ -105,6 +113,30 @@ class RetrieveResponse(BaseModel):
     bm25_count: int
     dense_count: int
     fused_count: int
+
+
+class DocMetadataResponse(BaseModel):
+    """Metadata about an ingested document. Returned by GET /docs/{doc_id}.
+
+    `source_blob_path` is the on-disk path the ingest pipeline saved
+    the original artifact to (relative to the project root or
+    absolute, depending on how ingest was run). Phase 1c WS4c reads
+    it from the Next.js `/api/pdf/[doc_id]` route to stream the PDF
+    bytes back to PDF.js with HTTP Range support. The endpoint is
+    metadata-only — actual file bytes flow through Next.js because
+    Phase 1 is single-machine (Next + sidecar share the filesystem)
+    and Node has cleaner Range-streaming primitives than uvicorn.
+    """
+
+    doc_id: str
+    title: str
+    publisher: str
+    doc_type: str
+    fiscal_year: int
+    source_format: str
+    source_blob_path: str
+    page_count: int | None
+    source_url: str | None
 
 
 class CiteValidateBody(BaseModel):
@@ -222,6 +254,7 @@ def http_retrieve(body: RetrieveRequestBody) -> RetrieveResponse:
                 section_path=c.section_path,
                 page_start=c.page,
                 page_end=c.page,
+                bbox=c.bbox,
                 text=c.text,
                 score=c.score,
             )
@@ -232,6 +265,42 @@ def http_retrieve(body: RetrieveRequestBody) -> RetrieveResponse:
         bm25_count=result.bm25_count,
         dense_count=result.dense_count,
         fused_count=result.fused_count,
+    )
+
+
+@app.get("/docs/{doc_id}", response_model_exclude_none=True)
+def http_doc_metadata(doc_id: str) -> DocMetadataResponse:
+    """Look up a single document's metadata (including the on-disk
+    source path). Used by the Next.js `/api/pdf/[doc_id]` route to
+    resolve a click-on-chip into a file to stream. Returns 404 when
+    `doc_id` is not in the documents table.
+    """
+    with get_connection() as conn:
+        row = conn.execute(
+            """
+            SELECT doc_id, title, publisher, doc_type, fiscal_year,
+                   source_format, source_blob_path, page_count, source_url
+            FROM documents
+            WHERE doc_id = %s
+            """,
+            [doc_id],
+        ).fetchone()
+    if row is None:
+        # Importing here keeps the top-of-module imports stable and
+        # avoids paying the import cost when /docs is never called.
+        from fastapi import HTTPException
+
+        raise HTTPException(status_code=404, detail="doc_id not found")
+    return DocMetadataResponse(
+        doc_id=row["doc_id"],
+        title=row["title"],
+        publisher=row["publisher"],
+        doc_type=row["doc_type"],
+        fiscal_year=row["fiscal_year"],
+        source_format=row["source_format"],
+        source_blob_path=row["source_blob_path"],
+        page_count=row["page_count"],
+        source_url=row["source_url"],
     )
 
 
