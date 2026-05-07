@@ -9,16 +9,16 @@
 > | WS2 — `LLMProvider` + `YouCodedSessionProvider` (`web/lib/`) | ✓ shipped | `6eaea46` / `77f3f45` (merge) |
 > | WS4a — Next.js scaffold + chat skeleton + theme tokens (`web/app/`, `web/components/`, `web/state/`) | ✓ shipped | `83c0d72` / `f66fb68` (merge) |
 > | WS4b — Per-tool ToolBody views + CitationChip + RefusalBanner | ✓ shipped | `e1dda9d` / `d9cef10` / `3d4812b` (merge) |
-> | WS4c — PdfViewer + `/api/pdf` range serving + click-chip-to-jump | not started | — |
+> | WS4c — PdfViewer + `/api/pdf` range serving + click-chip-to-jump | ✓ shipped | `4a1ddec` / `e0ceb58` / `501583e` (merge) |
 > | WS3 — Faithfulness verifier | not started — needs spike (§3.1) | — |
 > | WS5 — Audit-log writes to `conversations` / `messages` / `queries` | not started — schema exists, no writer yet | — |
 > | WS7 — Eval expansion + end-to-end validation | blocked on volume corpus | — |
 >
-> Test status: 90/90 vitest in `web/`, 373/373 pytest in repo root.
+> Test status: 109/109 vitest in `web/`, 345/345 pytest (42 skipped on live-DB/Voyage gates) in repo root.
 >
-> **What works end-to-end today:** Run the FastAPI sidecar, register the Budget MCP server with YouCoded, restart YouCoded, then `cd web && npm run dev`. Type a question; you'll see streaming assistant text, per-tool ToolBody views (Bash terminal-style, Edit/Write diffs, Read with cat-n parser, Grep grouped-by-file, retrieve chunk previews, cite citation cards, generic raw fallback), citation chips with hover tooltip + click-to-bus, refusal/error banners (props-driven for now), multi-turn follow-ups within one conversation. **PDF viewer, faithfulness verification, refusal auto-detection, and audit-log persistence are NOT wired** — that's the WS4c / WS3 / WS5 work.
+> **What works end-to-end today:** Run the FastAPI sidecar, register the Budget MCP server with YouCoded, restart YouCoded, then `cd web && npm run dev`. Type a question; you'll see streaming assistant text, per-tool ToolBody views (Bash terminal-style, Edit/Write diffs, Read with cat-n parser, Grep grouped-by-file, retrieve chunk previews, cite citation cards, generic raw fallback), citation chips with hover tooltip + click-to-bus, multi-turn follow-ups, and (after first chip click) a side-panel **PDF viewer** that renders the cited page via pdfjs-dist + canvas with a yellow bbox highlight on the cited region. Refusal banners are wired component-side but not auto-rendered (props-driven only). **Faithfulness verification, refusal auto-detection, and audit-log persistence are NOT wired** — that's the WS3 / WS5 work.
 >
-> The unchecked checkbox items below (`- [ ]`) under WS1, WS2, WS4 (the 4a/4b portions) are NOT pending — they shipped. Treat the WS3 / WS4c / WS5 / WS7 sections as the live work queue.
+> The unchecked checkbox items below (`- [ ]`) under WS1, WS2, WS4 are NOT pending — they shipped. Treat the WS3 / WS5 / WS7 sections as the live work queue.
 
 > **REFRAMED 2026-05-06.** This plan was rewritten in-place to reflect the architectural reframe captured in `docs/superpowers/decisions/2026-05-06-phase-1bc-architecture.md`. Key changes from the original plan:
 > 1. **No standalone companion app for v1.** Replaced by piggybacking on a running YouCoded instance (decision D3). WS2 (Companion app) is **deleted**; WS1 (LLMProvider) becomes "implement `YouCodedSessionProvider`."
