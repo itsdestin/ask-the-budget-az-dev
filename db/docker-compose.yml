@@ -10,7 +10,7 @@
 
 services:
   postgres:
-    image: paradedb/paradedb:0.18.4-pg16
+    image: paradedb/paradedb:0.23.4-pg16
     container_name: askbudget-postgres
     environment:
       POSTGRES_DB: askbudget
