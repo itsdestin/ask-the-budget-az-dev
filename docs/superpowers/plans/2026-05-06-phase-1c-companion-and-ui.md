@@ -1,5 +1,25 @@
 # Phase 1c — Synthesis + UI Implementation Plan
 
+> **STATUS 2026-05-07.** In progress. Per-workstream status:
+>
+> | WS | Status | Landed in |
+> |---|---|---|
+> | WS1 — Budget MCP server (`mcp-server/`) | ✓ shipped | `c81cc4c` / `c240bbe` (merge) |
+> | WS6 — FastAPI retrieval bridge (`retrieval/api.py`, bundled with WS1) | ✓ shipped | same commit as WS1 |
+> | WS2 — `LLMProvider` + `YouCodedSessionProvider` (`web/lib/`) | ✓ shipped | `6eaea46` / `77f3f45` (merge) |
+> | WS4a — Next.js scaffold + chat skeleton + theme tokens (`web/app/`, `web/components/`, `web/state/`) | ✓ shipped | `83c0d72` / `f66fb68` (merge) |
+> | WS4b — Per-tool ToolBody views + CitationChip + RefusalBanner | not started | — |
+> | WS4c — PdfViewer + `/api/pdf` range serving + click-chip-to-jump | not started | — |
+> | WS3 — Faithfulness verifier | not started — needs spike (§3.1) | — |
+> | WS5 — Audit-log writes to `conversations` / `messages` / `queries` | not started — schema exists, no writer yet | — |
+> | WS7 — Eval expansion + end-to-end validation | blocked on volume corpus | — |
+>
+> Test status: 53/53 vitest in `web/`, 373/373 pytest in repo root.
+>
+> **What works end-to-end today:** Run the FastAPI sidecar, register the Budget MCP server with YouCoded, restart YouCoded, then `cd web && npm run dev`. Type a question; you'll see streaming assistant text, every tool call rendered as a generic JSON ToolCard, refusal/error banners, multi-turn follow-ups within one conversation. **Citation chips, PDF viewer, faithfulness verification, and audit-log persistence are NOT wired** — that's the WS4b / WS4c / WS3 / WS5 work.
+>
+> The unchecked checkbox items below (`- [ ]`) under WS1, WS2, WS4 (the 4a portions) are NOT pending — they shipped. Treat the WS3 / WS4b / WS4c / WS5 / WS7 sections as the live work queue.
+
 > **REFRAMED 2026-05-06.** This plan was rewritten in-place to reflect the architectural reframe captured in `docs/superpowers/decisions/2026-05-06-phase-1bc-architecture.md`. Key changes from the original plan:
 > 1. **No standalone companion app for v1.** Replaced by piggybacking on a running YouCoded instance (decision D3). WS2 (Companion app) is **deleted**; WS1 (LLMProvider) becomes "implement `YouCodedSessionProvider`."
 > 2. **Custom budget tools live in a Budget MCP server** (decision D6) registered in YouCoded's MCP config. New WS introduced for it.

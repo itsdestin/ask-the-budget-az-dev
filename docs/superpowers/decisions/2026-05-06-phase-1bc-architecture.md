@@ -142,17 +142,19 @@ Multi-year backfill (FY15–FY24) is Phase 1.5. Same orchestrator, more URLs, no
 
 The corresponding amendments to spec, plans, CLAUDE.md, README.md, and MANIFEST.md are landed in the same commit/branch as this decision artifact. See the git log for the branch `phase-1bc-architecture-amendments` for the exact edits.
 
+## Closed items (resolved post-session)
+
+- **Citation tool schema final field names + types.** Closed 2026-05-06 — locked in `docs/superpowers/decisions/2026-05-06-citation-tool-schema.md`. Implemented in `mcp-server/src/tools/{retrieve,cite}.ts` (zod schemas) and the FastAPI sidecar at `retrieval/api.py`.
+- **YouCoded port-9900 remote API verification.** Closed 2026-05-06 — verified in `docs/superpowers/investigations/2026-05-06-youcoded-remote-api-verification.md`. Green-lit Phase 1c WS2; the `YouCodedSessionProvider` in `web/lib/youcoded-session-provider.ts` now ships against this surface.
+
 ## Open items still TBD
 
-These are NOT decided here; flagged for follow-up:
-
-- ~~**Citation tool schema final field names + types.**~~ **Closed 2026-05-06** — locked in `docs/superpowers/decisions/2026-05-06-citation-tool-schema.md`.
-- ~~**YouCoded port-9900 remote API verification.**~~ **Closed 2026-05-06** — verified in `docs/superpowers/investigations/2026-05-06-youcoded-remote-api-verification.md`. Green-light for Phase 1c WS2.
-- **Refusal threshold value.** Spec §11 calls for calibration during Phase 1; placeholder is reranker score < 0.3.
-- **Acronym expansion.** Phase 1b WS7's old role; with agent-pattern retrieval, this becomes a system-prompt instruction ("expand acronyms before calling retrieve()") rather than a separate component. Test in WS8 eval; revisit if recall is poor.
+- **Refusal threshold value.** Spec §11 calls for calibration during Phase 1; placeholder is reranker score < 0.3 (currently used by the Phase 1c MCP server's system prompt).
+- **Faithfulness verifier model choice.** Phase 1c WS3 spike — NLI cross-encoder vs Anthropic LLM judge vs structured-output from same Claude session. Not started.
+- **Acronym expansion.** Phase 1b WS7's old role; with agent-pattern retrieval, this becomes a system-prompt instruction ("expand acronyms before calling retrieve()") rather than a separate component. Tested in Phase 1b WS8 eval (blocked on volume corpus); revisit if recall is poor.
 - **Cross-cut multi-page table reassembly** (s18 emitting as 13 chunks). Less urgent under D2 since each chunk now stamps to all 25 agencies; revisit if eval shows it matters.
 - **bd2 parser** (yields 0 fund rows). Out of scope for retrieval; revisit when fund-catalog cross-source merge is needed.
-- **Volume ingest mechanics** — adapt `scripts/run_phase_1a_slice.py` to walk `ingest/discovery.py` for full Week 1 + add Gov SAD + AGAO AFR. Separate session, after the vertical slice.
+- **Volume ingest mechanics** — handed off to a desktop session via `PROMPT-volume-ingest.md`. Targets all four publishers per D12. Status: in progress.
 
 ## Pointer to the conversation
 

@@ -1,6 +1,6 @@
 # db/ — Phase 1b Postgres infrastructure
 
-Local Postgres 16 + pgvector + ParadeDB pg_search for the Ask the Budget AZ retrieval stack. See `docs/superpowers/plans/2026-05-06-phase-1b-storage-and-retrieval.md` Workstream 1 for the workstream-level overview.
+Local Postgres 16 + pgvector + ParadeDB pg_search for the Ask the Budget AZ retrieval stack. **Phase 1b WS1–WS7 shipped on slice (2026-05-07)** — schema is stable, the slice corpus is loaded and embedded, retrieval is callable end-to-end via `retrieval.retrieve(...)`. Volume ingest (corpus expansion to all four publishers) runs separately — see [`PROMPT-volume-ingest.md`](../PROMPT-volume-ingest.md).
 
 ## Quick start
 
@@ -67,3 +67,5 @@ with get_connection() as conn:
 ParadeDB's `paradedb/paradedb` image is plain Postgres 16 with `pgvector` and `pg_search` pre-installed. The alternative — building extensions from source in a custom Dockerfile — would fight the `pg_search` Rust toolchain dance every time we bumped Postgres minor versions. Pinning to `paradedb/paradedb:0.18.4-pg16` gives us reproducible builds without managing the extension build chain ourselves.
 
 The image is otherwise vanilla; nothing ParadeDB-specific is required for production deployments — Phase 4 can switch to a managed Postgres + extension pair without code changes.
+
+(Actual pinned tag is `paradedb/paradedb:0.23.4-pg16`, set in `db/docker-compose.yml`. The image label was bumped from the originally-planned 0.18.4 because that tag never existed on Docker Hub.)

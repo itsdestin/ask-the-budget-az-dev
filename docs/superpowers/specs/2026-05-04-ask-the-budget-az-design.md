@@ -10,7 +10,20 @@ audience: design implementers, future contributors, internal pilot stakeholders
 
 A Q&A system over Arizona state budget documents, designed for JLBC staff and fiscal analysts. The product's core value is **auditable retrieval with provenance**: every claim the system makes links to the exact PDF page and bounding box that supports it.
 
-This spec is the source of truth for v1 architecture, phasing, citation UX, refusal behavior, evaluation, and governance. The implementation plan (forthcoming) is derived from this document.
+This spec is the source of truth for v1 product invariants (§2), problem framing (§1), and governance (§13). For architecture, data flow, schema, and citation transport — the parts that shifted under the 2026-05-06 reframe — read this spec **alongside** the decision artifacts below.
+
+> **PARTIALLY SUPERSEDED 2026-05-06.** A working session on 2026-05-06 reframed v1 around "piggyback on a running YouCoded instance" + "constrained agent-pattern retrieval" + "multi-turn chat UX". Several sections of this spec are partially superseded; the table below maps each one to the decision artifact that takes precedence. **When this spec disagrees with a decision artifact, the decision wins.**
+>
+> | Spec section | Status | Authoritative reference |
+> |---|---|---|
+> | §4 Architecture | partially superseded | [`decisions/2026-05-06-phase-1bc-architecture.md`](../decisions/2026-05-06-phase-1bc-architecture.md) — D3 (YouCoded piggyback), D6 (Budget MCP server), D9 (no vendoring), D11 (LLMProvider seam) |
+> | §4.2 Provider abstraction | partially superseded | Same — D11. Interface preserved; v1 ships exactly one impl (`YouCodedSessionProvider`). |
+> | §5 Multi-turn data flow | rewritten | Decision D4 (multi-turn UX) + D7 (constrained agent pattern). The single-query "Turn 1 / Turn 2" flow originally in §5 is no longer accurate; see Phase 1c plan §"Architecture" diagram. |
+> | §6 Schema — `chunks.agency_canonical_id` | superseded | D2 — the column is now `agency_canonical_ids TEXT[]` (array). Migration `db/migrations/0001_initial_schema.sql` is the source of truth. Conversations / messages / queries tables added per D4 schema reframe. |
+> | §10.4 Citation transport | rewritten | [`decisions/2026-05-06-citation-tool-schema.md`](../decisions/2026-05-06-citation-tool-schema.md) — Claude emits `cite(chunk_id, span_start, span_end, confidence, claim_span)` via MCP tool calls, parsed from YouCoded's transcript stream as `tool_use` blocks. The Anthropic Citations API / prompt-marker JSON path described in this spec is not the v1 transport. |
+> | §16 Open Questions | many resolved | See "Open items still TBD" in [`decisions/2026-05-06-phase-1bc-architecture.md`](../decisions/2026-05-06-phase-1bc-architecture.md) for the current shortlist. |
+>
+> **Sections still authoritative as written:** §1 (Problem), §2 (Invariants), §3 (Use cases / query types), §7 (Phasing), §11 (Refusal), §12 (Audit log shape — fields are right; the FK to `messages` was added per D4), §13 (Governance), §14 (Public-launch metrics gate).
 
 ## 1. Problem Statement
 
