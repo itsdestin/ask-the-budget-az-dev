@@ -44,6 +44,8 @@ cd <repo> && git fetch origin && git pull origin master
 
 **Clean up worktrees after merging.** `git worktree remove <path>` then `git branch -D <branch>`. Stale worktrees confuse future sessions.
 
+**Sample primary sources go in `samples/raw-<format>/` and are committed.** When the user uploads a primary-source document (legislative bill DOCX, agency report, etc.) that can't be auto-fetched from a public URL the way JLBC PDFs can, drop it under `samples/raw-<format>/` (e.g. `samples/raw-docx/`) and commit it. These files are load-bearing for the slice and Phase 1b's retrieval tests; treating them as gitignored runtime data means they're lost on every worktree create / fresh clone, and the user has to re-upload. PDFs are different — they live under `samples/raw-pdfs/` (gitignored) because the DownloadCache fetches them from public URLs on demand.
+
 ## Workspace Layout (planned)
 
 | Directory | Repo | What it is |

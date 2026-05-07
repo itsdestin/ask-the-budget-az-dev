@@ -43,7 +43,10 @@ samples/extractor-output/**
 !samples/extractor-output/*/
 !samples/extractor-output/*/README.md
 samples/raw-pdfs/
-samples/raw-docx/
+# samples/raw-docx/ is NOT ignored — see CLAUDE.md "Sample primary sources".
+# DOCX files are user-uploaded primary sources (e.g., legislative bills) that
+# can't be auto-fetched from a public URL the way PDFs can. Committing them
+# keeps them on disk across worktrees and fresh clones.
 
 # Phase 1a runtime data — large, reproducible. The smaller curated
 # artifacts (data/discovery-cache.yaml, data/fund-catalog.yaml,
