@@ -146,7 +146,8 @@ The corresponding amendments to spec, plans, CLAUDE.md, README.md, and MANIFEST.
 
 These are NOT decided here; flagged for follow-up:
 
-- **Citation tool schema final field names + types.** Sketched in D6; nail down before Phase 1c WS3 (system prompt + tool schema).
+- ~~**Citation tool schema final field names + types.**~~ **Closed 2026-05-06** — locked in `docs/superpowers/decisions/2026-05-06-citation-tool-schema.md`.
+- ~~**YouCoded port-9900 remote API verification.**~~ **Closed 2026-05-06** — verified in `docs/superpowers/investigations/2026-05-06-youcoded-remote-api-verification.md`. Green-light for Phase 1c WS2.
 - **Refusal threshold value.** Spec §11 calls for calibration during Phase 1; placeholder is reranker score < 0.3.
 - **Acronym expansion.** Phase 1b WS7's old role; with agent-pattern retrieval, this becomes a system-prompt instruction ("expand acronyms before calling retrieve()") rather than a separate component. Test in WS8 eval; revisit if recall is poor.
 - **Cross-cut multi-page table reassembly** (s18 emitting as 13 chunks). Less urgent under D2 since each chunk now stamps to all 25 agencies; revisit if eval shows it matters.
