@@ -53,14 +53,17 @@ describe("PdfViewer empty state (SSR)", () => {
     expect(html).toContain("Click a citation chip");
   });
 
-  it("does not render the embed without a selection", () => {
+  it("does not render the lazy PdfPage without a selection", () => {
+    // PdfPage is dynamically imported with ssr: false — the SSR
+    // pass should not include any /api/pdf reference until a
+    // citation is selected on the client.
     const html = renderToString(
       <CitationBusProvider>
         <PdfViewer />
       </CitationBusProvider>,
     );
-    expect(html).not.toContain("</embed>");
     expect(html).not.toContain("/api/pdf/");
+    expect(html).not.toContain("<canvas");
   });
 });
 
@@ -104,15 +107,14 @@ describe("PdfViewer bus subscription (client)", () => {
     await act(async () => {
       busHandle!.select(citation());
     });
-    // After bus selection: breadcrumb + embed appear, empty state gone.
+    // After bus selection: breadcrumb appears + the PdfPage lazy
+    // chunk shows its loading placeholder. The actual canvas
+    // render lives in PdfPage and depends on pdfjs-dist resolving
+    // a real PDF over HTTP — that's an integration concern, not a
+    // PdfViewer wiring concern.
     expect(container.textContent).not.toContain("Click a citation chip");
     expect(container.textContent).toContain("JLBC Baseline Book");
     expect(container.textContent).toContain("47");
-    const embed = container.querySelector("embed");
-    expect(embed).not.toBeNull();
-    expect(embed!.getAttribute("src")).toBe(
-      "/api/pdf/doc-A#page=47&toolbar=1&navpanes=0",
-    );
 
     await act(async () => {
       root!.unmount();
