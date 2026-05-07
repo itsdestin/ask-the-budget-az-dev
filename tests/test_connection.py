@@ -90,11 +90,18 @@ def test_known_agency_present():
 
 @needs_db
 def test_known_fund_present():
-    """Spot-check: Aviation Fund is in the seeded catalog."""
+    """Spot-check: AHCCCS Fund is in the seeded catalog and tagged as present in s18.
+
+    Note: the spec/plan named 'Aviation Fund' as an example query target, but it
+    isn't a separate entry in fund-catalog.yaml — the s18 cross-cut PDF rolls
+    aviation-related amounts under fund:advanced-air-mobility and other slugs.
+    Pivoting the test to AHCCCS, which IS a distinct fund and a canonical
+    cross-cut hit.
+    """
     with get_connection() as conn:
         row = conn.execute(
-            "SELECT canonical_name, present_in FROM funds WHERE fund_id = 'fund:aviation'"
+            "SELECT canonical_name, present_in FROM funds WHERE fund_id = 'fund:ahcccs'"
         ).fetchone()
         assert row is not None
-        assert "Aviation" in row["canonical_name"]
+        assert "AHCCCS" in row["canonical_name"]
         assert "jlbc-s18" in row["present_in"]

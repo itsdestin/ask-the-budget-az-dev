@@ -66,9 +66,14 @@ def _get_pool() -> ConnectionPool:
                 max_size=5,
                 kwargs={"row_factory": dict_row},
                 configure=_configure_connection,
-                # open=True (the default) blocks the first call up to `timeout`s
-                # waiting for the DB to be reachable. Tests need the failure mode
-                # to be loud and immediate, not a 30-second hang.
+                # Explicit open=True silences the psycopg_pool 3.3.x deprecation
+                # warning ("the default for the 'open' parameter will become
+                # 'False' in a future release"). We rely on eager pool open here
+                # so the first get_connection() call doesn't hide a connection
+                # error inside a lazy-init path.
+                open=True,
+                # timeout=5s makes pool init fail loudly if the DB is unreachable
+                # rather than hanging the test runner for 30 seconds.
                 timeout=5.0,
             )
     return _POOL
