@@ -4,20 +4,34 @@
 // a citation row under each text block listing the cite() calls
 // whose `claim_span` was emitted while that text was visible.
 //
-// Citation chips inline-underline-then-chip rendering (spec §10.1)
-// is the long-term goal; v1 of WS4b renders chips at the end of the
-// text block they belong to. Hover tooltip + click-to-bus work the
-// same either way; per-character span underlining can come during
-// WS4c polish once the PdfViewer is wired and we can verify the
-// spans are correct end-to-end.
+// Citations render inline (spec §10.1): the matching claim_span in
+// the text gets underlined and a tiny chip appears next to it. When
+// the substring match fails (Claude paraphrased the answer between
+// thought and citation, or a markdown formatting boundary breaks the
+// match), the citation falls back to a footer "Sources" row under
+// the same text block so the chip is never lost.
+//
+// We also hide the cite() tool calls themselves — they're the
+// substrate for the chips, so showing the raw mcp__ask-the-budget-az__cite
+// ToolCard would be redundant noise.
 
-import { useMemo } from "react";
+import { useMemo, useState } from "react";
 
 import { extractCitations, type Citation } from "@/lib/citation-extract";
 import type { AssistantBlock, AssistantTurn } from "@/state/chat-types";
 import CitationChip from "./CitationChip";
-import MarkdownContent from "./MarkdownContent";
+import CitedMarkdownContent from "./CitedMarkdownContent";
 import ToolCard from "./ToolCard";
+
+function isCiteToolBlock(
+  block: AssistantBlock,
+): block is Extract<AssistantBlock, { kind: "tool" }> {
+  return (
+    block.kind === "tool" &&
+    (block.toolName === "cite" ||
+      block.toolName === "mcp__ask-the-budget-az__cite")
+  );
+}
 
 interface Props {
   turn: AssistantTurn;
@@ -38,24 +52,54 @@ export default function AssistantTurnBubble({ turn }: Props) {
     () => assignCitationsToTextBlocks(turn.blocks, citations),
     [turn.blocks, citations],
   );
+  // Track which citation indexes were rendered inline (claim_span
+  // substring-matched) — we only show the footer fallback row for
+  // citations that did NOT match inline, so the same chip never
+  // appears twice for a single claim.
+  const [inlineMatchedByBlock, setInlineMatchedByBlock] = useState<
+    Map<string, Set<number>>
+  >(new Map());
+  const recordMatched = (blockUuid: string) => (matched: Set<number>) => {
+    setInlineMatchedByBlock((prev) => {
+      const existing = prev.get(blockUuid);
+      if (existing && setsEqual(existing, matched)) return prev;
+      const next = new Map(prev);
+      next.set(blockUuid, matched);
+      return next;
+    });
+  };
 
   return (
     <div className="flex flex-col gap-1">
       {turn.blocks.map((block) => {
         if (block.kind === "text") {
           const blockCitations = citationsByTextBlock.get(block.uuid) ?? [];
+          const matchedInline =
+            inlineMatchedByBlock.get(block.uuid) ?? new Set<number>();
+          // Footer fallback: only citations that did NOT match inline.
+          // The match is by index in `citations` (the result of
+          // extractCitations), not by chip number — keep both in sync
+          // by comparing on the same array index.
+          const unmatched = blockCitations.filter((c) => {
+            const idx = citations.indexOf(c);
+            return idx < 0 || !matchedInline.has(idx);
+          });
           return (
             <div
               key={block.uuid}
               className="rounded-md bg-well border border-edge-dim p-3 text-fg text-sm"
             >
-              <MarkdownContent content={block.text} />
-              {blockCitations.length > 0 && (
+              <CitedMarkdownContent
+                content={block.text}
+                citations={blockCitations}
+                onMatched={recordMatched(block.uuid)}
+              />
+              {unmatched.length > 0 && (
                 <div className="mt-2 pt-2 border-t border-edge-dim flex items-center gap-1.5 flex-wrap">
                   <span className="text-[10px] uppercase tracking-wider text-fg-muted">
                     Sources
                   </span>
-                  {blockCitations.map((c) => (
+                  {unmatched.map((c) => (
                     <CitationChip key={c.index} citation={c} />
                   ))}
                 </div>
@@ -63,6 +107,11 @@ export default function AssistantTurnBubble({ turn }: Props) {
             </div>
           );
         }
+        // Hide cite() tool calls — the chip is the user-visible
+        // surface. Other tool calls (retrieve, Bash, Read, …) still
+        // render as cards because the analyst wants to see what
+        // Claude looked at.
+        if (isCiteToolBlock(block)) return null;
         return <ToolCard key={block.toolUseId} tool={block} />;
       })}
       {turn.isComplete && turn.stopReason && STOP_NOTE[turn.stopReason] && (
@@ -72,6 +121,12 @@ export default function AssistantTurnBubble({ turn }: Props) {
       )}
     </div>
   );
+}
+
+function setsEqual<T>(a: Set<T>, b: Set<T>): boolean {
+  if (a.size !== b.size) return false;
+  for (const x of a) if (!b.has(x)) return false;
+  return true;
 }
 
 /**

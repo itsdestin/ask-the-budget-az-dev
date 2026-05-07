@@ -166,9 +166,13 @@ describe("PdfViewer bus subscription (client)", () => {
     await act(async () => {
       busHandle!.select(dangling);
     });
-    // Empty state stays — viewer doesn't render an embed for an
-    // unresolvable citation.
-    expect(container.textContent).toContain("Source viewer");
+    // The unresolved-citation message replaces the empty state and
+    // explicitly tells the user the click landed but we can't load
+    // the source. The chunk_id and chip number must surface so the
+    // user has something concrete to debug from.
+    expect(container.textContent).toContain("Couldn't open source PDF");
+    expect(container.textContent).toContain("ghost-chunk");
+    expect(container.textContent).toContain("[1]");
     expect(container.querySelector("embed")).toBeNull();
 
     await act(async () => {

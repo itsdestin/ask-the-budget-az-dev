@@ -145,6 +145,16 @@ export class YouCodedClient {
     (payload: { sessionId: string; exitCode?: number }) => void
   >();
 
+  /** Listeners for hook:event broadcasts — the FIRST hook event for a
+   *  session means CC has booted past the SessionStart hook and the
+   *  TUI input bar is ready to accept programmatic input. YouCoded's
+   *  own UI uses this exact signal to enable/disable its InputBar
+   *  (see App.tsx setInitializedSessions). The session provider gates
+   *  sendInput on this so we don't race with CC's startup banner. */
+  private hookListeners = new Set<
+    (payload: { sessionId: string; type: string }) => void
+  >();
+
   /** Monotonic counter for request id generation. Restarts on every
    *  client instance — there's no need for global uniqueness because
    *  ids are scoped to one in-flight pending map. */
@@ -287,9 +297,25 @@ export class YouCodedClient {
         return;
       }
 
+      // Hook event broadcast — first one for a session means CC has
+      // hit its SessionStart hook and the TUI input bar is ready
+      // for input. The session provider uses this to gate sendInput.
+      if (msg.type === "hook:event" && msg.payload) {
+        const payload = msg.payload as { sessionId?: string; type?: string };
+        if (payload.sessionId && payload.type) {
+          for (const cb of this.hookListeners) {
+            safeInvoke(cb, {
+              sessionId: payload.sessionId,
+              type: payload.type,
+            });
+          }
+        }
+        return;
+      }
+
       // Other broadcasts (chat:hydrate, session:created, status:data,
-      // pty:output, hook:event, ...) are ignored by the budget client —
-      // we get everything we need from transcript:event.
+      // pty:output, ...) are ignored by the budget client — we get
+      // everything we need from transcript:event + hook:event.
     });
 
     ws.on("close", (code, reason) => {
@@ -423,6 +449,18 @@ export class YouCodedClient {
     this.destroyListeners.add(listener);
     return () => {
       this.destroyListeners.delete(listener);
+    };
+  }
+
+  /** Subscribe to hook:event broadcasts (any session, any hook type).
+   *  The first event per sessionId is the "CC is ready" signal —
+   *  YouCoded's UI uses it identically to enable the InputBar. */
+  onHookEvent(
+    listener: (payload: { sessionId: string; type: string }) => void,
+  ): () => void {
+    this.hookListeners.add(listener);
+    return () => {
+      this.hookListeners.delete(listener);
     };
   }
 }

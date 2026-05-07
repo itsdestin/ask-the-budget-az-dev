@@ -30,22 +30,34 @@ interface SelectedDoc {
 
 export default function PdfViewer() {
   const [selected, setSelected] = useState<SelectedDoc | null>(null);
+  // Track the last-clicked unresolved citation so we can show
+  // *which* citation we couldn't load, instead of looking
+  // identical to the no-clicks-yet state.
+  const [unresolvedClick, setUnresolvedClick] = useState<Citation | null>(
+    null,
+  );
 
   useCitationSelected((citation) => {
     if (!citation.resolved?.docId || citation.resolved.pageStart == null) {
-      // No source metadata in this turn — chip click can't navigate
-      // to a file. Surface the empty state with a hint instead of
-      // dropping the click silently.
+      // No source metadata for this chunk — likely the retrieve()
+      // result didn't carry doc_id/page_start, or the chunk_id
+      // came from a previous turn the renderer doesn't have on hand.
+      // Surface that explicitly so the user knows the click landed.
+      setUnresolvedClick(citation);
       setSelected(null);
       return;
     }
+    setUnresolvedClick(null);
     setSelected({ citation });
   });
 
-  if (!selected) {
-    return <EmptyState />;
+  if (selected) {
+    return <Loaded selected={selected} />;
   }
-  return <Loaded selected={selected} />;
+  if (unresolvedClick) {
+    return <UnresolvedState citation={unresolvedClick} />;
+  }
+  return <EmptyState />;
 }
 
 function EmptyState() {
@@ -61,6 +73,37 @@ function EmptyState() {
           DOCX-source citations (legislative bills) will get their own viewer
           in Phase 2.
         </p>
+      </div>
+    </div>
+  );
+}
+
+function UnresolvedState({ citation }: { citation: Citation }) {
+  return (
+    <div className="h-full flex flex-col items-center justify-center text-fg-muted text-sm px-6 py-12 bg-canvas">
+      <div className="max-w-md text-left space-y-3">
+        <h2 className="text-base font-bold text-fg">
+          Couldn't open source PDF
+        </h2>
+        <p>
+          The citation Claude emitted (chip{" "}
+          <span className="font-mono text-fg-2">[{citation.index}]</span>)
+          references chunk{" "}
+          <span className="font-mono text-fg-2">{citation.chunkId}</span>, but
+          the retrieve() call in this turn didn't surface a doc_id or
+          page_start for it.
+        </p>
+        <p className="text-xs text-fg-faint">
+          Common causes: the model is citing a chunk_id from prior context, or
+          the chunk's source isn't a PDF (legislative bills are DOCX, viewer
+          comes in Phase 2). Open the cite tool card in the chat for the raw
+          chunk_id and re-ask if you want a fresh retrieve().
+        </p>
+        {citation.claimSpan && (
+          <blockquote className="mt-3 border-l-2 border-edge pl-3 text-fg-dim italic text-xs">
+            {citation.claimSpan}
+          </blockquote>
+        )}
       </div>
     </div>
   );

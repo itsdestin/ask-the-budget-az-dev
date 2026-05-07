@@ -15,11 +15,25 @@
 // upstream of this route needs to know.
 
 import { promises as fs, createReadStream } from "node:fs";
+import { isAbsolute, resolve } from "node:path";
 import { Readable } from "node:stream";
 import { NextResponse } from "next/server";
 
 const RETRIEVAL_BRIDGE_URL =
   process.env.RETRIEVAL_BRIDGE_URL ?? "http://127.0.0.1:9200";
+
+// FastAPI's /docs endpoint returns `source_blob_path` as a path
+// relative to the project root (e.g. `data/cached-pdfs/...pdf`).
+// Next.js's `process.cwd()` is the `web/` subdir, not the project
+// root, so plain `fs.stat(blobPath)` would look in `web/data/...`
+// and miss every cached PDF. Resolve relative paths against the
+// repo root, configurable via env for non-local deployments.
+const CORPUS_ROOT =
+  process.env.BUDGET_CORPUS_ROOT ?? resolve(process.cwd(), "..");
+
+function resolveBlobPath(blobPath: string): string {
+  return isAbsolute(blobPath) ? blobPath : resolve(CORPUS_ROOT, blobPath);
+}
 
 interface DocMetadata {
   doc_id: string;
@@ -126,14 +140,16 @@ export async function GET(
     );
   }
 
+  const absPath = resolveBlobPath(meta.source_blob_path);
   let stat: { size: number };
   try {
-    stat = await fs.stat(meta.source_blob_path);
+    stat = await fs.stat(absPath);
   } catch (err) {
     return NextResponse.json(
       {
         error: "source_blob_missing",
-        path: meta.source_blob_path,
+        path: absPath,
+        relative: meta.source_blob_path,
         detail: err instanceof Error ? err.message : String(err),
       },
       { status: 500 },
@@ -154,7 +170,7 @@ export async function GET(
     // Full body — used on the very first fetch (PDF.js sends a HEAD
     // first in some configurations; this branch covers both HEAD
     // fallback and clients without Range support).
-    const stream = createReadStream(meta.source_blob_path);
+    const stream = createReadStream(absPath);
     return new Response(Readable.toWeb(stream) as ReadableStream, {
       status: 200,
       headers: {
@@ -166,7 +182,7 @@ export async function GET(
 
   const { start, end } = range;
   const chunkSize = end - start + 1;
-  const stream = createReadStream(meta.source_blob_path, { start, end });
+  const stream = createReadStream(absPath, { start, end });
   return new Response(Readable.toWeb(stream) as ReadableStream, {
     status: 206,
     headers: {

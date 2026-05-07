@@ -11,6 +11,12 @@ export interface MockServerOptions {
    *  tokens listed in `acceptedTokens`. */
   acceptAnyToken?: boolean;
   acceptedTokens?: string[];
+  /** Auto-emit a SessionStart hook event after each session:create
+   *  response (default true). Mimics real YouCoded behavior — CC
+   *  fires SessionStart shortly after spawn, which the session
+   *  provider uses as its "ready" signal. Set false in tests that
+   *  want to verify the unhealthy path (no hook ever arrives). */
+  autoEmitHookOnCreate?: boolean;
 }
 
 export interface ConnectedClient {
@@ -100,6 +106,19 @@ export class MockYouCodedServer {
     for (const c of this.clients) c.ws.send(msg);
   }
 
+  /** Broadcast a hook:event. The session provider gates sendInput on
+   *  the first per-session hook event (matches YouCoded's UI behavior
+   *  for `setInitializedSessions`). Tests that exercise sendTurn must
+   *  emit one of these before the provider will dispatch the user
+   *  message. */
+  emitHookEvent(sessionId: string, type = "SessionStart"): void {
+    const msg = JSON.stringify({
+      type: "hook:event",
+      payload: { sessionId, type },
+    });
+    for (const c of this.clients) c.ws.send(msg);
+  }
+
   private handleConnection(ws: WebSocket): void {
     let authed = false;
     let authedToken = "";
@@ -169,6 +188,22 @@ export class MockYouCodedServer {
             payload: result,
           }),
         );
+        // Auto-emit a SessionStart hook event so the provider's
+        // ready-gate flips and sendTurn can dispatch. Mimics what
+        // real YouCoded does (CC fires SessionStart shortly after
+        // spawn). Tests that want to test the unhealthy path
+        // (no hook ever arrives) can override `autoEmitHookOnCreate`
+        // — set to false on the server before calling startConversation.
+        if (
+          this.opts.autoEmitHookOnCreate !== false &&
+          typeof result?.id === "string"
+        ) {
+          // Emit on the next tick so the response is processed first
+          // and the client has a chance to register its hook listener
+          // through the same WebSocket.
+          const sid = result.id;
+          setImmediate(() => this.emitHookEvent(sid));
+        }
         return;
       }
 

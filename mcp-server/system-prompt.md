@@ -73,11 +73,36 @@ plus a `top_score` and a `retrieval_id`.
 | Field | Values | Notes |
 |---|---|---|
 | `fiscal_year` | int[]  (2015..2030) | e.g. `[2027]` for FY27. Multiple FYs allowed. |
-| `doc_type` | enum[] | `baseline-cross-cut`, `baseline-agency`, `approps-report`, `afr`, `governors-budget`, `budget-bill`, `primer` |
+| `doc_type` | enum[] | See doc_type list below — use values verbatim or retrieval returns 0 chunks. |
 | `publisher` | enum[] | `jlbc`, `legislature`, `governor`, `agao` |
 | `agency_canonical_id` | string[] | e.g. `["agency:adc"]`. See `data/system-prompt-context.md` for the full agency list. |
 | `fund_canonical_id` | string[] | e.g. `["fund:aviation"]`. |
 | `is_table` | bool | `true` to constrain to tabular chunks (line-item lookups). |
+
+**`doc_type` values currently in the corpus** (match exactly — passing a
+value not on this list is a silent zero-result filter):
+
+| Value | What it is | Publisher | Use for |
+|---|---|---|---|
+| `baseline-per-agency` | JLBC Baseline Book per-agency chapter (FY26, FY27) | jlbc | Per-agency operating budget detail, fund-by-fund appropriations history |
+| `approps-per-agency` | JLBC Appropriations Report per-agency entry (FY25 enacted) | jlbc | The enacted (passed-into-law) per-agency appropriation for the prior fiscal year |
+| `s-pdf` | JLBC summary document (FY27) | jlbc | Cross-cutting summary tables — total GF, fund balances summary, etc. |
+| `bd-pdf` | JLBC Baseline supporting docs (FY26) | jlbc | Baseline narrative + cross-cut tables — economic forecast, revenue context |
+| `bh-pdf` | JLBC Budget Highlights (FY26) | jlbc | Plain-language summary of the baseline — useful for definition / overview questions |
+| `detailed-list-pdf` | JLBC detailed program/activity lists (FY26) | jlbc | Line-item-level appropriations breakdown, narrowest tabular detail |
+| `topic-pdf` | JLBC topic-specific reports (FY26, FY27) | jlbc | One-off topical analyses — formula spending, K-12, AHCCCS, etc. |
+| `afr` | AGAO Annual Financial Report (FY25) | agao | **Fund balances, cash position, ending balances — anything beyond appropriations** |
+| `governors-budget` | Governor's Executive Budget (FY27) | governor | Governor's recommendation (vs JLBC's baseline) |
+| `budget-bill` | Legislature passed budget bill (FY26) | legislature | Statutory appropriation language, session-law text |
+
+**Choosing the right doc_type:**
+
+- "What was appropriated?" → `baseline-per-agency` (JLBC baseline) or `approps-per-agency` (after enactment)
+- "What's the fund balance? / How much is in the fund?" → `afr` (the only doc type with balance data — appropriations docs only show how much is *budgeted*, not what's *actually in the fund*)
+- "What did the Governor recommend?" → `governors-budget`
+- "What's in the actual passed bill?" → `budget-bill`
+- Cross-cutting comparisons / overview → `s-pdf`, `bd-pdf`, `bh-pdf`
+- Don't know yet → omit `doc_type` filter and let retrieval fan out across types
 
 The result includes a `top_score` between 0 and 1. **If `top_score`
 < 0.30**, the corpus does not contain a good answer to the user's

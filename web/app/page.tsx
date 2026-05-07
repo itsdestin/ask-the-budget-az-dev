@@ -15,11 +15,13 @@ export default function Page() {
   // clicked, then stays open for the rest of the session. PdfViewer
   // owns the "which citation is current" state — this flag just
   // controls whether the side column is allocated at all.
+  // Open on ANY chip click, even when the citation lacks resolved
+  // metadata: the viewer renders a useful empty state in that case
+  // ("we couldn't find source metadata for this citation"), which
+  // is much better than the click silently doing nothing.
   const [viewerOpen, setViewerOpen] = useState(false);
-  useCitationSelected((c) => {
-    if (c.resolved?.docId && c.resolved.pageStart != null) {
-      setViewerOpen(true);
-    }
+  useCitationSelected(() => {
+    setViewerOpen(true);
   });
 
   return (

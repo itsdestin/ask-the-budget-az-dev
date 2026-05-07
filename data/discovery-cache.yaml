@@ -173,6 +173,459 @@ entries:
     publisher: jlbc
     source_sha256: d6dc34bdb6c6a9635891901ddc7d42c1ad7e27800e1e651016290f6584e1bc87
     source_url: https://www.azjlbc.gov/26ar/apprpttoc.pdf
+  jlbc.approps-per-agency.2025:
+    discovered_at: '2026-05-07T20:09:12+00:00'
+    doc_type: approps-per-agency
+    entries:
+    - name: Accountancy, Arizona State Board of
+      page_in_doc: 1
+      slug: sba
+      url: https://www.azjlbc.gov/25AR/sba.pdf
+    - name: Acupuncture Board of Examiners
+      page_in_doc: 2
+      slug: bae
+      url: https://www.azjlbc.gov/25AR/bae.pdf
+    - name: Administration, Arizona Department of
+      page_in_doc: 3
+      slug: doa
+      url: https://www.azjlbc.gov/25AR/doa.pdf
+    - name: Automation Projects Fund
+      page_in_doc: 13
+      slug: doa-apf
+      url: https://www.azjlbc.gov/25AR/doa-apf.pdf
+    - name: School Facilities Division
+      page_in_doc: 23
+      slug: doa-sfd
+      url: https://www.azjlbc.gov/25AR/doa-sfd.pdf
+    - name: Administrative Hearings, Office of
+      page_in_doc: 29
+      slug: oah
+      url: https://www.azjlbc.gov/25AR/oah.pdf
+    - name: African-American Affairs, Arizona Commission of
+      page_in_doc: 30
+      slug: aam
+      url: https://www.azjlbc.gov/25AR/aam.pdf
+    - name: Agriculture, Arizona Department of
+      page_in_doc: 31
+      slug: agr
+      url: https://www.azjlbc.gov/25AR/agr.pdf
+    - name: AHCCCS
+      page_in_doc: 35
+      slug: axs
+      url: https://www.azjlbc.gov/25AR/axs.pdf
+    - name: Arts, Arizona Commission on the
+      page_in_doc: 58
+      slug: art
+      url: https://www.azjlbc.gov/25AR/art.pdf
+    - name: Athletic Training, Board of
+      page_in_doc: 59
+      slug: bat
+      url: https://www.azjlbc.gov/25AR/bat.pdf
+    - name: Attorney General - Department of Law
+      page_in_doc: 60
+      slug: att
+      url: https://www.azjlbc.gov/25AR/att.pdf
+    - name: Auditor General
+      page_in_doc: 270
+      slug: legaud
+      url: https://www.azjlbc.gov/25AR/legaud.pdf
+    - name: Barbering and Cosmetology Board
+      page_in_doc: 69
+      slug: bcb
+      url: https://www.azjlbc.gov/25AR/bcb.pdf
+    - name: Behavioral Health Examiners, Board of
+      page_in_doc: 71
+      slug: bhe
+      url: https://www.azjlbc.gov/25AR/bhe.pdf
+    - name: Charter Schools, State Board for
+      page_in_doc: 73
+      slug: cha
+      url: https://www.azjlbc.gov/25AR/cha.pdf
+    - name: Child Safety, Department of
+      page_in_doc: 75
+      slug: dcs
+      url: https://www.azjlbc.gov/25AR/dcs.pdf
+    - name: Chiropractic Examiners, State Board of
+      page_in_doc: 89
+      slug: bce
+      url: https://www.azjlbc.gov/25AR/bce.pdf
+    - name: Citizens Clean Elections Commission
+      page_in_doc: 90
+      slug: cce
+      url: https://www.azjlbc.gov/25AR/cce.pdf
+    - name: Commerce Authority, Arizona
+      page_in_doc: 91
+      slug: aca
+      url: https://www.azjlbc.gov/25AR/aca.pdf
+    - name: Community Colleges, Arizona
+      page_in_doc: 96
+      slug: acc
+      url: https://www.azjlbc.gov/25AR/acc.pdf
+    - name: Constable Ethics Standards and Training Board
+      page_in_doc: 105
+      slug: cet
+      url: https://www.azjlbc.gov/25AR/cet.pdf
+    - name: Contractors, Registrar of
+      page_in_doc: 106
+      slug: roc
+      url: https://www.azjlbc.gov/25AR/roc.pdf
+    - name: Corporation Commission
+      page_in_doc: 107
+      slug: cor
+      url: https://www.azjlbc.gov/25AR/cor.pdf
+    - name: Corrections, State Department of
+      page_in_doc: 109
+      slug: adc
+      url: https://www.azjlbc.gov/25AR/adc.pdf
+    - name: County Funding
+      page_in_doc: 120
+      slug: cf
+      url: https://www.azjlbc.gov/25AR/cf.pdf
+    - name: Criminal Justice Commission, Arizona
+      page_in_doc: 123
+      slug: jus
+      url: https://www.azjlbc.gov/25AR/jus.pdf
+    - name: Deaf and the Blind, Arizona State Schools for the
+      page_in_doc: 127
+      slug: sdb
+      url: https://www.azjlbc.gov/25AR/sdb.pdf
+    - name: Deaf and the Hard of Hearing, Commission for the
+      page_in_doc: 131
+      slug: hea
+      url: https://www.azjlbc.gov/25AR/hea.pdf
+    - name: Dental Examiners, State Board of
+      page_in_doc: 133
+      slug: den
+      url: https://www.azjlbc.gov/25AR/den.pdf
+    - name: Early Childhood Development and Health Board, Arizona
+      page_in_doc: 135
+      slug: ecdb
+      url: https://www.azjlbc.gov/25AR/ecdb.pdf
+    - name: Economic Opportunity, Office of
+      page_in_doc: 136
+      slug: oec
+      url: https://www.azjlbc.gov/25AR/oec.pdf
+    - name: Economic Security, Department of
+      page_in_doc: 138
+      slug: des
+      url: https://www.azjlbc.gov/25AR/des.pdf
+    - name: Education, State Board of
+      page_in_doc: 156
+      slug: boe
+      url: https://www.azjlbc.gov/25AR/boe.pdf
+    - name: Education, Department of
+      page_in_doc: 158
+      slug: ade
+      url: https://www.azjlbc.gov/25AR/ade.pdf
+    - name: Emergency and Military Affairs, Department of
+      page_in_doc: 186
+      slug: ema
+      url: https://www.azjlbc.gov/25AR/ema.pdf
+    - name: Environmental Quality, Department of
+      page_in_doc: 193
+      slug: deq
+      url: https://www.azjlbc.gov/25AR/deq.pdf
+    - name: Equal Opportunity, Governor's Office of
+      page_in_doc: 198
+      slug: oeo
+      url: https://www.azjlbc.gov/25AR/oeo.pdf
+    - name: Equalization, State Board of
+      page_in_doc: 199
+      slug: equ
+      url: https://www.azjlbc.gov/25AR/equ.pdf
+    - name: Executive Clemency, Board of
+      page_in_doc: 200
+      slug: exe
+      url: https://www.azjlbc.gov/25AR/exe.pdf
+    - name: Exposition and State Fair Board, Arizona
+      page_in_doc: 202
+      slug: col
+      url: https://www.azjlbc.gov/25AR/col.pdf
+    - name: Forestry and Fire Management, Arizona Department of
+      page_in_doc: 204
+      slug: for
+      url: https://www.azjlbc.gov/25AR/for.pdf
+    - name: Funeral Directors and Embalmers, State Board of
+      page_in_doc: 209
+      slug: emb
+      url: https://www.azjlbc.gov/25AR/emb.pdf
+    - name: Game and Fish Department, Arizona
+      page_in_doc: 210
+      slug: fis
+      url: https://www.azjlbc.gov/25AR/fis.pdf
+    - name: Gaming, Department of
+      page_in_doc: 212
+      slug: gam
+      url: https://www.azjlbc.gov/25AR/gam.pdf
+    - name: Governor, Office of the
+      page_in_doc: 218
+      slug: gov
+      url: https://www.azjlbc.gov/25AR/gov.pdf
+    - name: Governor's Office of Strategic Planning and Budgeting
+      page_in_doc: 220
+      slug: osp
+      url: https://www.azjlbc.gov/25AR/osp.pdf
+    - name: Health Services, Department of
+      page_in_doc: 222
+      slug: dhs
+      url: https://www.azjlbc.gov/25AR/dhs.pdf
+    - name: Historical Society, Arizona
+      page_in_doc: 234
+      slug: azh
+      url: https://www.azjlbc.gov/25AR/azh.pdf
+    - name: Historical Society of Arizona, Prescott
+      page_in_doc: 236
+      slug: paz
+      url: https://www.azjlbc.gov/25AR/paz.pdf
+    - name: Homeland Security, Arizona Department of
+      page_in_doc: 237
+      slug: hla
+      url: https://www.azjlbc.gov/25AR/hla.pdf
+    - name: Homeopathic and Integrated Medicine Examiners, Bd. of
+      page_in_doc: 240
+      slug: hom
+      url: https://www.azjlbc.gov/25AR/hom.pdf
+    - name: House of Representatives
+      page_in_doc: 271
+      slug: leghou
+      url: https://www.azjlbc.gov/25AR/leghou.pdf
+    - name: Housing, Arizona Department of
+      page_in_doc: 241
+      slug: doh
+      url: https://www.azjlbc.gov/25AR/doh.pdf
+    - name: Independent Redistricting Commission
+      page_in_doc: 243
+      slug: irc
+      url: https://www.azjlbc.gov/25AR/irc.pdf
+    - name: Industrial Commission of Arizona
+      page_in_doc: 244
+      slug: ind
+      url: https://www.azjlbc.gov/25AR/ind.pdf
+    - name: Insurance and Financial Institutions, Department of
+      page_in_doc: 246
+      slug: dif
+      url: https://www.azjlbc.gov/25AR/dif.pdf
+    - name: Joint Legislative Budget Committee
+      page_in_doc: 272
+      slug: legjlbc
+      url: https://www.azjlbc.gov/25AR/legjlbc.pdf
+    - name: Supreme Court
+      page_in_doc: 249
+      slug: judspa
+      url: https://www.azjlbc.gov/25AR/judspa.pdf
+    - name: Court of Appeals
+      page_in_doc: 254
+      slug: judcoa
+      url: https://www.azjlbc.gov/25AR/judcoa.pdf
+    - name: Superior Court
+      page_in_doc: 256
+      slug: judsup
+      url: https://www.azjlbc.gov/25AR/judsup.pdf
+    - name: Juvenile Corrections, Department of
+      page_in_doc: 263
+      slug: djc
+      url: https://www.azjlbc.gov/25AR/djc.pdf
+    - name: Land Department, State
+      page_in_doc: 266
+      slug: lan
+      url: https://www.azjlbc.gov/25AR/lan.pdf
+    - name: Legislative Council
+      page_in_doc: 274
+      slug: legleg
+      url: https://www.azjlbc.gov/25AR/legleg.pdf
+    - name: Liquor Licenses and Control, Department of
+      page_in_doc: 277
+      slug: liq
+      url: https://www.azjlbc.gov/25AR/liq.pdf
+    - name: Lottery Commission, Arizona State
+      page_in_doc: 278
+      slug: lot
+      url: https://www.azjlbc.gov/25AR/lot.pdf
+    - name: Massage Therapy, Board of
+      page_in_doc: 283
+      slug: bmt
+      url: https://www.azjlbc.gov/25AR/bmt.pdf
+    - name: Medical Board, Arizona
+      page_in_doc: 284
+      slug: med
+      url: https://www.azjlbc.gov/25AR/med.pdf
+    - name: Mine Inspector, State
+      page_in_doc: 286
+      slug: min
+      url: https://www.azjlbc.gov/25AR/min.pdf
+    - name: Naturopathic Physicians Medical Board
+      page_in_doc: 288
+      slug: nat
+      url: https://www.azjlbc.gov/25AR/nat.pdf
+    - name: Navigable Stream Adjudication Commission, Arizona
+      page_in_doc: 289
+      slug: nav
+      url: https://www.azjlbc.gov/25AR/nav.pdf
+    - name: Nursing, State Board of
+      page_in_doc: 291
+      slug: nur
+      url: https://www.azjlbc.gov/25AR/nur.pdf
+    - name: Nursing Care Institution Administrators and Assisted Living     Facility
+        Managers, Board of Examiners of
+      page_in_doc: 293
+      slug: nci
+      url: https://www.azjlbc.gov/25AR/nci.pdf
+    - name: Occupational Therapy Examiners, Board of
+      page_in_doc: 294
+      slug: occ
+      url: https://www.azjlbc.gov/25AR/occ.pdf
+    - name: Ombudsman-Citizens Aide Office
+      page_in_doc: 275
+      slug: legomb
+      url: https://www.azjlbc.gov/25AR/legomb.pdf
+    - name: Opticians, State Board of Dispensing
+      page_in_doc: 295
+      slug: dis
+      url: https://www.azjlbc.gov/25AR/dis.pdf
+    - name: Optometry, State Board of
+      page_in_doc: 296
+      slug: opt
+      url: https://www.azjlbc.gov/25AR/opt.pdf
+    - name: Osteopathic Examiners in Medicine and Surgery, Arizona    Board of
+      page_in_doc: 297
+      slug: ost
+      url: https://www.azjlbc.gov/25AR/ost.pdf
+    - name: Parks Board, Arizona State
+      page_in_doc: 299
+      slug: spb
+      url: https://www.azjlbc.gov/25AR/spb.pdf
+    - name: Personnel Board, State
+      page_in_doc: 302
+      slug: per
+      url: https://www.azjlbc.gov/25AR/per.pdf
+    - name: Pharmacy, Arizona State Board of
+      page_in_doc: 303
+      slug: pha
+      url: https://www.azjlbc.gov/25AR/pha.pdf
+    - name: Physical Therapy, Board of
+      page_in_doc: 305
+      slug: phy
+      url: https://www.azjlbc.gov/25AR/phy.pdf
+    - name: Pioneers' Home, Arizona
+      page_in_doc: 306
+      slug: pio
+      url: https://www.azjlbc.gov/25AR/pio.pdf
+    - name: Podiatry Examiners, State Board of
+      page_in_doc: 307
+      slug: pod
+      url: https://www.azjlbc.gov/25AR/pod.pdf
+    - name: Power Authority, Arizona
+      page_in_doc: 308
+      slug: apa
+      url: https://www.azjlbc.gov/25AR/apa.pdf
+    - name: Private Postsecondary Education, State Board for
+      page_in_doc: 309
+      slug: pri
+      url: https://www.azjlbc.gov/25AR/pri.pdf
+    - name: Psychologist Examiners, State Board of
+      page_in_doc: 310
+      slug: psy
+      url: https://www.azjlbc.gov/25AR/psy.pdf
+    - name: Public Safety, Department of
+      page_in_doc: 311
+      slug: dps
+      url: https://www.azjlbc.gov/25AR/dps.pdf
+    - name: Public Safety Personnel Retirement System
+      page_in_doc: 321
+      slug: psp
+      url: https://www.azjlbc.gov/25AR/psp.pdf
+    - name: Real Estate Department, State
+      page_in_doc: 323
+      slug: rea
+      url: https://www.azjlbc.gov/25AR/rea.pdf
+    - name: Residential Utility Consumer Office
+      page_in_doc: 324
+      slug: ruc
+      url: https://www.azjlbc.gov/25AR/ruc.pdf
+    - name: Respiratory Care Examiners, Board of
+      page_in_doc: 325
+      slug: res
+      url: https://www.azjlbc.gov/25AR/res.pdf
+    - name: Retirement System, Arizona State
+      page_in_doc: 326
+      slug: ret
+      url: https://www.azjlbc.gov/25AR/ret.pdf
+    - name: Revenue, Department of
+      page_in_doc: 327
+      slug: rev
+      url: https://www.azjlbc.gov/25AR/rev.pdf
+    - name: Secretary of State, Department of State
+      page_in_doc: 331
+      slug: sos
+      url: https://www.azjlbc.gov/25AR/sos.pdf
+    - name: Senate
+      page_in_doc: 276
+      slug: legsen
+      url: https://www.azjlbc.gov/25AR/legsen.pdf
+    - name: Tax Appeals, State Board of
+      page_in_doc: 337
+      slug: tax
+      url: https://www.azjlbc.gov/25AR/tax.pdf
+    - name: Technical Registration, State Board of
+      page_in_doc: 338
+      slug: tec
+      url: https://www.azjlbc.gov/25AR/tec.pdf
+    - name: Tourism, Office of
+      page_in_doc: 340
+      slug: tou
+      url: https://www.azjlbc.gov/25AR/tou.pdf
+    - name: Transportation, Department of
+      page_in_doc: 343
+      slug: dot
+      url: https://www.azjlbc.gov/25AR/dot.pdf
+    - name: Treasurer, State
+      page_in_doc: 351
+      slug: tre
+      url: https://www.azjlbc.gov/25AR/tre.pdf
+    - name: "Tribal Relations, Governor\u2019s Office on"
+      page_in_doc: 359
+      slug: otr
+      url: https://www.azjlbc.gov/25AR/otr.pdf
+    - name: Regents, Arizona Board of
+      page_in_doc: 360
+      slug: unibor
+      url: https://www.azjlbc.gov/25AR/unibor.pdf
+    - name: Arizona State University
+      page_in_doc: 369
+      slug: uniasu
+      url: https://www.azjlbc.gov/25AR/uniasu.pdf
+    - name: Northern Arizona University
+      page_in_doc: 374
+      slug: uninau
+      url: https://www.azjlbc.gov/25AR/uninau.pdf
+    - name: University of Arizona - Main Campus
+      page_in_doc: 379
+      slug: uniumain
+      url: https://www.azjlbc.gov/25AR/uniumain.pdf
+    - name: University of Arizona - Health Sciences Center
+      page_in_doc: 385
+      slug: uniuhsc
+      url: https://www.azjlbc.gov/25AR/uniuhsc.pdf
+    - name: Veterans' Services, Department of
+      page_in_doc: 388
+      slug: vsc
+      url: https://www.azjlbc.gov/25AR/vsc.pdf
+    - name: Veterinary Medical Examining Board, Arizona State
+      page_in_doc: 393
+      slug: vme
+      url: https://www.azjlbc.gov/25AR/vme.pdf
+    - name: Water Infrastructure Finance Authority
+      page_in_doc: 394
+      slug: wifa
+      url: https://www.azjlbc.gov/25AR/wifa.pdf
+    - name: Water Resources, Department of
+      page_in_doc: 397
+      slug: wat
+      url: https://www.azjlbc.gov/25AR/wat.pdf
+    fiscal_year: 2025
+    publisher: jlbc
+    source_sha256: 0b9fb16de42ad77504f87c996ebdfe76ee8c9c39e7caf293e14fb46d733cef99
+    source_url: https://www.azjlbc.gov/25ar/agencyindex.pdf
   jlbc.baseline-cross-cut.2027:
     discovered_at: '2026-05-06T18:03:56+00:00'
     doc_type: baseline-cross-cut
@@ -287,6 +740,462 @@ entries:
     publisher: jlbc
     source_sha256: cbd7f21c22e72d7921ffd93064b4cf8e2d53be04d2836d5cd7f1ba75389a9ae8
     source_url: https://www.azjlbc.gov/budget/27baselinelinks.pdf
+  jlbc.baseline-per-agency.2026:
+    discovered_at: '2026-05-07T20:09:11+00:00'
+    doc_type: baseline-per-agency
+    entries:
+    - name: Accountancy, Arizona State Board of
+      page_in_doc: 1
+      slug: sba
+      url: https://www.azjlbc.gov/26baseline/sba.pdf
+    - name: Acupuncture Board of Examiners
+      page_in_doc: 2
+      slug: bae
+      url: https://www.azjlbc.gov/26baseline/bae.pdf
+    - name: Administration, Arizona Department of
+      page_in_doc: 3
+      slug: doa
+      url: https://www.azjlbc.gov/26baseline/doa.pdf
+    - name: ADOA - Automation Projects Fund
+      page_in_doc: 15
+      slug: doa-apf
+      url: https://www.azjlbc.gov/26baseline/doa-apf.pdf
+    - name: ADOA - School Facilities Division
+      page_in_doc: 24
+      slug: doa-sfd
+      url: https://www.azjlbc.gov/26baseline/doa-sfd.pdf
+    - name: Administrative Hearings, Office of
+      page_in_doc: 32
+      slug: oah
+      url: https://www.azjlbc.gov/26baseline/oah.pdf
+    - name: Agriculture, Arizona Department of
+      page_in_doc: 33
+      slug: agr
+      url: https://www.azjlbc.gov/26baseline/agr.pdf
+    - name: AHCCCS
+      page_in_doc: 40
+      slug: axs
+      url: https://www.azjlbc.gov/26baseline/axs.pdf
+    - name: Arts, Arizona Commission on the
+      page_in_doc: 64
+      slug: art
+      url: https://www.azjlbc.gov/26baseline/art.pdf
+    - name: Athletic Training, Board of
+      page_in_doc: 66
+      slug: bat
+      url: https://www.azjlbc.gov/26baseline/bat.pdf
+    - name: Attorney General - Department of Law
+      page_in_doc: 67
+      slug: att
+      url: https://www.azjlbc.gov/26baseline/att.pdf
+    - name: Auditor General
+      page_in_doc: 305
+      slug: legaud
+      url: https://www.azjlbc.gov/26baseline/legaud.pdf
+    - name: Barbering and Cosmetology Board
+      page_in_doc: 79
+      slug: bcb
+      url: https://www.azjlbc.gov/26baseline/bcb.pdf
+    - name: Behavioral Health Examiners, Board of
+      page_in_doc: 81
+      slug: bhe
+      url: https://www.azjlbc.gov/26baseline/bhe.pdf
+    - name: Charter Schools, State Board for
+      page_in_doc: 83
+      slug: cha
+      url: https://www.azjlbc.gov/26baseline/cha.pdf
+    - name: Child Safety, Department of
+      page_in_doc: 84
+      slug: dcs
+      url: https://www.azjlbc.gov/26baseline/dcs.pdf
+    - name: Chiropractic Examiners, State Board of
+      page_in_doc: 96
+      slug: bce
+      url: https://www.azjlbc.gov/26baseline/bce.pdf
+    - name: Citizens Clean Elections Commission
+      page_in_doc: 97
+      slug: cce
+      url: https://www.azjlbc.gov/26baseline/cce.pdf
+    - name: Commerce Authority, Arizona
+      page_in_doc: 98
+      slug: aca
+      url: https://www.azjlbc.gov/26baseline/aca.pdf
+    - name: Community Colleges, Arizona
+      page_in_doc: 105
+      slug: acc
+      url: https://www.azjlbc.gov/26baseline/acc.pdf
+    - name: Constable Ethics Standards and Training Board
+      page_in_doc: 114
+      slug: cet
+      url: https://www.azjlbc.gov/26baseline/cet.pdf
+    - name: Contractors, Registrar of
+      page_in_doc: 115
+      slug: roc
+      url: https://www.azjlbc.gov/26baseline/roc.pdf
+    - name: Corporation Commission
+      page_in_doc: 117
+      slug: cor
+      url: https://www.azjlbc.gov/26baseline/cor.pdf
+    - name: Corrections, State Department of
+      page_in_doc: 120
+      slug: adc
+      url: https://www.azjlbc.gov/26baseline/adc.pdf
+    - name: County Funding
+      page_in_doc: 131
+      slug: cf
+      url: https://www.azjlbc.gov/26baseline/cf.pdf
+    - name: Criminal Justice Commission, Arizona
+      page_in_doc: 133
+      slug: jus
+      url: https://www.azjlbc.gov/26baseline/jus.pdf
+    - name: Deaf and the Blind, Arizona State Schools for the
+      page_in_doc: 139
+      slug: sdb
+      url: https://www.azjlbc.gov/26baseline/sdb.pdf
+    - name: Deaf and the Hard of Hearing, Commission for the
+      page_in_doc: 144
+      slug: hea
+      url: https://www.azjlbc.gov/26baseline/hea.pdf
+    - name: Dental Examiners, State Board of
+      page_in_doc: 146
+      slug: den
+      url: https://www.azjlbc.gov/26baseline/den.pdf
+    - name: Early Childhood Development and Health Board, Arizona
+      page_in_doc: 148
+      slug: ecdb
+      url: https://www.azjlbc.gov/26baseline/ecdb.pdf
+    - name: Economic Opportunity, Office of
+      page_in_doc: 150
+      slug: oec
+      url: https://www.azjlbc.gov/26baseline/oec.pdf
+    - name: Economic Security, Department of
+      page_in_doc: 153
+      slug: des
+      url: https://www.azjlbc.gov/26baseline/des.pdf
+    - name: Education, State Board of
+      page_in_doc: 173
+      slug: boe
+      url: https://www.azjlbc.gov/26baseline/boe.pdf
+    - name: Education, Department of
+      page_in_doc: 175
+      slug: ade
+      url: https://www.azjlbc.gov/26baseline/ade.pdf
+    - name: Emergency and Military Affairs, Department of
+      page_in_doc: 200
+      slug: ema
+      url: https://www.azjlbc.gov/26baseline/ema.pdf
+    - name: Environmental Quality, Department of
+      page_in_doc: 207
+      slug: deq
+      url: https://www.azjlbc.gov/26baseline/deq.pdf
+    - name: Equal Opportunity, Governor's Office of
+      page_in_doc: 215
+      slug: oeo
+      url: https://www.azjlbc.gov/26baseline/oeo.pdf
+    - name: Equalization, State Board of
+      page_in_doc: 216
+      slug: equ
+      url: https://www.azjlbc.gov/26baseline/equ.pdf
+    - name: Executive Clemency, Board of
+      page_in_doc: 217
+      slug: exe
+      url: https://www.azjlbc.gov/26baseline/exe.pdf
+    - name: Exposition and State Fair Board, Arizona
+      page_in_doc: 219
+      slug: col
+      url: https://www.azjlbc.gov/26baseline/col.pdf
+    - name: Forestry and Fire Management, Arizona Department of
+      page_in_doc: 220
+      slug: for
+      url: https://www.azjlbc.gov/26baseline/for.pdf
+    - name: Game and Fish Department, Arizona
+      page_in_doc: 224
+      slug: fis
+      url: https://www.azjlbc.gov/26baseline/fis.pdf
+    - name: Gaming, Department of
+      page_in_doc: 230
+      slug: gam
+      url: https://www.azjlbc.gov/26baseline/gam.pdf
+    - name: Governor, Office of the
+      page_in_doc: 238
+      slug: gov
+      url: https://www.azjlbc.gov/26baseline/gov.pdf
+    - name: Governor's Office of Strategic Planning and Budgeting
+      page_in_doc: 241
+      slug: osp
+      url: https://www.azjlbc.gov/26baseline/osp.pdf
+    - name: Health Services, Department of
+      page_in_doc: 242
+      slug: dhs
+      url: https://www.azjlbc.gov/26baseline/dhs.pdf
+    - name: Historical Society, Arizona
+      page_in_doc: 258
+      slug: azh
+      url: https://www.azjlbc.gov/26baseline/azh.pdf
+    - name: Historical Society of Arizona, Prescott
+      page_in_doc: 260
+      slug: paz
+      url: https://www.azjlbc.gov/26baseline/paz.pdf
+    - name: Homeland Security, Arizona Department of
+      page_in_doc: 261
+      slug: hla
+      url: https://www.azjlbc.gov/26baseline/hla.pdf
+    - name: Homeopathic and Integrated Medicine Examiners, Bd. of
+      page_in_doc: 264
+      slug: hom
+      url: https://www.azjlbc.gov/26baseline/hom.pdf
+    - name: House of Representatives
+      page_in_doc: 306
+      slug: leghou
+      url: https://www.azjlbc.gov/26baseline/leghou.pdf
+    - name: Housing, Arizona Department of
+      page_in_doc: 265
+      slug: doh
+      url: https://www.azjlbc.gov/26baseline/doh.pdf
+    - name: Independent Redistricting Commission
+      page_in_doc: 270
+      slug: irc
+      url: https://www.azjlbc.gov/26baseline/irc.pdf
+    - name: Industrial Commission of Arizona
+      page_in_doc: 271
+      slug: ind
+      url: https://www.azjlbc.gov/26baseline/ind.pdf
+    - name: Insurance and Financial Institutions, Department of
+      page_in_doc: 273
+      slug: dif
+      url: https://www.azjlbc.gov/26baseline/dif.pdf
+    - name: Joint Legislative Budget Committee
+      page_in_doc: 307
+      slug: legjlbc
+      url: https://www.azjlbc.gov/26baseline/legjlbc.pdf
+    - name: Supreme Court
+      page_in_doc: 279
+      slug: judspa
+      url: https://www.azjlbc.gov/26baseline/judspa.pdf
+    - name: Court of Appeals
+      page_in_doc: 286
+      slug: judcoa
+      url: https://www.azjlbc.gov/26baseline/judcoa.pdf
+    - name: Superior Court
+      page_in_doc: 287
+      slug: judsup
+      url: https://www.azjlbc.gov/26baseline/judsup.pdf
+    - name: Juvenile Corrections, Department of
+      page_in_doc: 295
+      slug: djc
+      url: https://www.azjlbc.gov/26baseline/djc.pdf
+    - name: Land Department, State
+      page_in_doc: 299
+      slug: lan
+      url: https://www.azjlbc.gov/26baseline/lan.pdf
+    - name: Legislative Council
+      page_in_doc: 308
+      slug: legleg
+      url: https://www.azjlbc.gov/26baseline/legleg.pdf
+    - name: Liquor Licenses and Control, Department of
+      page_in_doc: 312
+      slug: liq
+      url: https://www.azjlbc.gov/26baseline/liq.pdf
+    - name: Lottery Commission, Arizona State
+      page_in_doc: 315
+      slug: lot
+      url: https://www.azjlbc.gov/26baseline/lot.pdf
+    - name: Massage Therapy, Board of
+      page_in_doc: 321
+      slug: bmt
+      url: https://www.azjlbc.gov/26baseline/bmt.pdf
+    - name: Medical Board, Arizona
+      page_in_doc: 322
+      slug: med
+      url: https://www.azjlbc.gov/26baseline/med.pdf
+    - name: Mine Inspector, State
+      page_in_doc: 324
+      slug: min
+      url: https://www.azjlbc.gov/26baseline/min.pdf
+    - name: Natural Resource Conservation Board, State
+      page_in_doc: 326
+      slug: nrc
+      url: https://www.azjlbc.gov/26baseline/nrc.pdf
+    - name: Naturopathic Physicians Medical Board
+      page_in_doc: 328
+      slug: nat
+      url: https://www.azjlbc.gov/26baseline/nat.pdf
+    - name: Navigable Stream Adjudication Commission, Arizona
+      page_in_doc: 329
+      slug: nav
+      url: https://www.azjlbc.gov/26baseline/nav.pdf
+    - name: Nursing, State Board of
+      page_in_doc: 331
+      slug: nur
+      url: https://www.azjlbc.gov/26baseline/nur.pdf
+    - name: Nursing Care Institution Administrators and Assisted Living
+      page_in_doc: null
+      slug: nci
+      url: https://www.azjlbc.gov/26baseline/nci.pdf
+    - name: Facility Managers, Board of Examiners of
+      page_in_doc: 334
+      slug: nci
+      url: https://www.azjlbc.gov/26baseline/nci.pdf
+    - name: Occupational Therapy Examiners, Board of
+      page_in_doc: 335
+      slug: occ
+      url: https://www.azjlbc.gov/26baseline/occ.pdf
+    - name: Ombudsman-Citizens Aide Office
+      page_in_doc: 310
+      slug: legomb
+      url: https://www.azjlbc.gov/26baseline/legomb.pdf
+    - name: Opticians, State Board of Dispensing
+      page_in_doc: 336
+      slug: dis
+      url: https://www.azjlbc.gov/26baseline/dis.pdf
+    - name: Optometry, State Board of
+      page_in_doc: 337
+      slug: opt
+      url: https://www.azjlbc.gov/26baseline/opt.pdf
+    - name: Osteopathic Examiners in Medicine and Surgery, Arizona
+      page_in_doc: null
+      slug: ost
+      url: https://www.azjlbc.gov/26baseline/ost.pdf
+    - name: Board of
+      page_in_doc: 338
+      slug: ost
+      url: https://www.azjlbc.gov/26baseline/ost.pdf
+    - name: Parks Board, Arizona State
+      page_in_doc: 340
+      slug: spb
+      url: https://www.azjlbc.gov/26baseline/spb.pdf
+    - name: Personnel Board, State
+      page_in_doc: 344
+      slug: per
+      url: https://www.azjlbc.gov/26baseline/per.pdf
+    - name: Pharmacy, Arizona State Board of
+      page_in_doc: 345
+      slug: pha
+      url: https://www.azjlbc.gov/26baseline/pha.pdf
+    - name: Physical Therapy, Board of
+      page_in_doc: 347
+      slug: phy
+      url: https://www.azjlbc.gov/26baseline/phy.pdf
+    - name: Pioneers' Home, Arizona
+      page_in_doc: 348
+      slug: pio
+      url: https://www.azjlbc.gov/26baseline/pio.pdf
+    - name: Podiatry Examiners, State Board of
+      page_in_doc: 350
+      slug: pod
+      url: https://www.azjlbc.gov/26baseline/pod.pdf
+    - name: Power Authority, Arizona
+      page_in_doc: 351
+      slug: apa
+      url: https://www.azjlbc.gov/26baseline/apa.pdf
+    - name: Private Postsecondary Education, State Board for
+      page_in_doc: 352
+      slug: pri
+      url: https://www.azjlbc.gov/26baseline/pri.pdf
+    - name: Psychologist Examiners, State Board of
+      page_in_doc: 354
+      slug: psy
+      url: https://www.azjlbc.gov/26baseline/psy.pdf
+    - name: Public Safety, Department of
+      page_in_doc: 356
+      slug: dps
+      url: https://www.azjlbc.gov/26baseline/dps.pdf
+    - name: Public Safety Personnel Retirement System
+      page_in_doc: 367
+      slug: psp
+      url: https://www.azjlbc.gov/26baseline/psp.pdf
+    - name: Real Estate Department, State
+      page_in_doc: 370
+      slug: rea
+      url: https://www.azjlbc.gov/26baseline/rea.pdf
+    - name: Residential Utility Consumer Office
+      page_in_doc: 372
+      slug: ruc
+      url: https://www.azjlbc.gov/26baseline/ruc.pdf
+    - name: Respiratory Care Examiners, Board of
+      page_in_doc: 373
+      slug: res
+      url: https://www.azjlbc.gov/26baseline/res.pdf
+    - name: Retirement System, Arizona State
+      page_in_doc: 375
+      slug: ret
+      url: https://www.azjlbc.gov/26baseline/ret.pdf
+    - name: Revenue, Department of
+      page_in_doc: 377
+      slug: rev
+      url: https://www.azjlbc.gov/26baseline/rev.pdf
+    - name: Secretary of State, Department of State
+      page_in_doc: 383
+      slug: sos
+      url: https://www.azjlbc.gov/26baseline/sos.pdf
+    - name: Senate
+      page_in_doc: 311
+      slug: legsen
+      url: https://www.azjlbc.gov/26baseline/legsen.pdf
+    - name: Tax Appeals, State Board of
+      page_in_doc: 389
+      slug: tax
+      url: https://www.azjlbc.gov/26baseline/tax.pdf
+    - name: Technical Registration, State Board of
+      page_in_doc: 390
+      slug: tec
+      url: https://www.azjlbc.gov/26baseline/tec.pdf
+    - name: Tourism, Office of
+      page_in_doc: 391
+      slug: tou
+      url: https://www.azjlbc.gov/26baseline/tou.pdf
+    - name: Transportation, Department of
+      page_in_doc: 394
+      slug: dot
+      url: https://www.azjlbc.gov/26baseline/dot.pdf
+    - name: Treasurer, State
+      page_in_doc: 405
+      slug: tre
+      url: https://www.azjlbc.gov/26baseline/tre.pdf
+    - name: "Tribal Relations, Governor\u2019s Office on"
+      page_in_doc: 411
+      slug: otr
+      url: https://www.azjlbc.gov/26baseline/otr.pdf
+    - name: Regents, Arizona Board of
+      page_in_doc: 412
+      slug: unibor
+      url: https://www.azjlbc.gov/26baseline/unibor.pdf
+    - name: Arizona State University
+      page_in_doc: 421
+      slug: uniasu
+      url: https://www.azjlbc.gov/26baseline/uniasu.pdf
+    - name: Northern Arizona University
+      page_in_doc: 427
+      slug: uninau
+      url: https://www.azjlbc.gov/26baseline/uninau.pdf
+    - name: University of Arizona - Main Campus
+      page_in_doc: 433
+      slug: uniumain
+      url: https://www.azjlbc.gov/26baseline/uniumain.pdf
+    - name: University of Arizona - Health Sciences Center
+      page_in_doc: 441
+      slug: uniuhsc
+      url: https://www.azjlbc.gov/26baseline/uniuhsc.pdf
+    - name: Veterans' Services, Department of
+      page_in_doc: 445
+      slug: vsc
+      url: https://www.azjlbc.gov/26baseline/vsc.pdf
+    - name: Veterinary Medical Examining Board, Arizona State
+      page_in_doc: 449
+      slug: vme
+      url: https://www.azjlbc.gov/26baseline/vme.pdf
+    - name: Water Infrastructure Finance Authority
+      page_in_doc: 450
+      slug: wifa
+      url: https://www.azjlbc.gov/26baseline/wifa.pdf
+    - name: Water Resources, Department of
+      page_in_doc: 456
+      slug: wat
+      url: https://www.azjlbc.gov/26baseline/wat.pdf
+    fiscal_year: 2026
+    publisher: jlbc
+    source_sha256: daf2f724f97cc0355bc2e44efdd6a72be36f1974a62c92ffa4c869c0c361f1a8
+    source_url: https://www.azjlbc.gov/26baseline/agencyindex.pdf
   jlbc.baseline-per-agency.2027:
     discovered_at: '2026-05-06T18:03:56+00:00'
     doc_type: baseline-per-agency

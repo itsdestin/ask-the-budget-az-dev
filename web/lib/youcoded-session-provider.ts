@@ -9,6 +9,11 @@
 // see Bash, Grep, Read, etc. for fallback verification, and those need
 // to render too.
 
+import { promises as fs, readFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { randomUUID } from "node:crypto";
+
 import type {
   Citation,
   LLMProvider,
@@ -29,24 +34,162 @@ const DEFAULT_NAME = "Ask the Budget AZ";
 
 export interface YouCodedSessionProviderOptions
   extends YouCodedClientOptions {
-  /** Default cwd applied to startConversation when no override is given.
-   *  The web server typically passes the conversation's runtime
-   *  directory (where the system-prompt CLAUDE.md is materialized). */
+  /** Default cwd applied to startConversation when no override is given
+   *  AND no system prompt is being materialized. When `systemPromptPath`
+   *  is set, the provider creates a per-conversation runtime dir and
+   *  uses THAT as cwd, ignoring this fallback. */
   defaultCwd?: string;
+  /** Absolute path to `mcp-server/system-prompt.md` (the constrained-
+   *  agent rules for the budget assistant). When set, the provider
+   *  materializes this file as `CLAUDE.md` inside a per-conversation
+   *  runtime tempdir and passes that dir as `cwd` to YouCoded. The
+   *  result: Claude Code reads our budget system prompt instead of the
+   *  developer-facing CLAUDE.md at the project root.
+   *  See docs/superpowers/investigations/2026-05-06-youcoded-remote-api-verification.md
+   *  ("system prompt via cwd CLAUDE.md") for the mechanism. */
+  systemPromptPath?: string;
+  /** Optional path to `data/system-prompt-context.md` (the JLBC primer
+   *  the system prompt references). When set, materialized at
+   *  `<runtime-dir>/data/system-prompt-context.md` so the system
+   *  prompt's relative reference resolves. */
+  systemPromptContextPath?: string;
+  /** Parent directory under which per-conversation runtime dirs are
+   *  created. Defaults to `os.tmpdir()/ask-the-budget-az`. Tests pin
+   *  this to a temp path so they can assert on contents. */
+  runtimeDirRoot?: string;
 }
 
 export class YouCodedSessionProvider implements LLMProvider {
   private readonly client: YouCodedClient;
   private readonly defaultCwd: string | undefined;
+  private readonly systemPromptPath: string | undefined;
+  private readonly systemPromptContextPath: string | undefined;
+  private readonly runtimeDirRoot: string;
+  /** Per-conversation materialized runtime dir, used to clean up on
+   *  endConversation. Only populated when `systemPromptPath` is set. */
+  private runtimeDirByConversation = new Map<string, string>();
   private connectPromise: Promise<void> | null = null;
   /** Per-session UUID-dedup state for assistant_text emissions. Lives
    *  with the provider so multiple turns in one conversation share it
    *  (Claude's growing-message rewrites can span tool-result boundaries). */
   private parserContextByConversation = new Map<string, ParserContext>();
 
+  /** Per-session "first hook event seen" flag. YouCoded fires the first
+   *  hook only after CC has booted past its SessionStart hook, which is
+   *  the same signal YouCoded's own UI uses to enable the InputBar
+   *  (App.tsx setInitializedSessions). The session provider gates
+   *  sendInput on this so the user message isn't sent into CC's
+   *  startup banner where the trailing \r gets absorbed as paste
+   *  content. Map value: array of pending "send when ready" callbacks
+   *  (resolves on the first hook event for that session). Replaced
+   *  with `READY` once ready, so subsequent turns send immediately. */
+  private readyState = new Map<
+    string,
+    "ready" | Array<() => void>
+  >();
+  private hookUnsubscribe: (() => void) | null = null;
+
   constructor(opts: YouCodedSessionProviderOptions = {}) {
     this.client = new YouCodedClient(opts);
     this.defaultCwd = opts.defaultCwd;
+    this.systemPromptPath = opts.systemPromptPath;
+    this.systemPromptContextPath = opts.systemPromptContextPath;
+    this.runtimeDirRoot =
+      opts.runtimeDirRoot ?? join(tmpdir(), "ask-the-budget-az");
+  }
+
+  /** Build a per-conversation tempdir containing CLAUDE.md (and the
+   *  primer it references). Returns the dir path. The caller passes
+   *  this as `cwd` to YouCoded — Claude Code walks up from there
+   *  picking up CLAUDE.md, so our system prompt becomes authoritative
+   *  for this session. */
+  private async materializeRuntimeDir(): Promise<string> {
+    if (!this.systemPromptPath) {
+      throw new Error(
+        "materializeRuntimeDir() requires systemPromptPath in opts",
+      );
+    }
+    const promptText = await fs.readFile(this.systemPromptPath, "utf8");
+    const dir = join(this.runtimeDirRoot, `conv-${randomUUID()}`);
+    await fs.mkdir(dir, { recursive: true });
+    await fs.writeFile(join(dir, "CLAUDE.md"), promptText, "utf8");
+    if (this.systemPromptContextPath) {
+      const contextText = await fs.readFile(
+        this.systemPromptContextPath,
+        "utf8",
+      );
+      const dataDir = join(dir, "data");
+      await fs.mkdir(dataDir, { recursive: true });
+      await fs.writeFile(
+        join(dataDir, "system-prompt-context.md"),
+        contextText,
+        "utf8",
+      );
+    }
+    return dir;
+  }
+
+  /** Subscribe once to global hook events; route the first per-session
+   *  event to whatever's waiting in `readyState[sessionId]`. */
+  private ensureHookSubscription(): void {
+    if (this.hookUnsubscribe) return;
+    this.hookUnsubscribe = this.client.onHookEvent(({ sessionId }) => {
+      const entry = this.readyState.get(sessionId);
+      if (entry === "ready") return; // already flushed
+      this.readyState.set(sessionId, "ready");
+      if (Array.isArray(entry)) {
+        for (const cb of entry) {
+          try {
+            cb();
+          } catch {
+            // Don't let one waiter break the others.
+          }
+        }
+      }
+    });
+  }
+
+  /** Wait for the first hook event for `sessionId` (i.e. CC ready),
+   *  then send the user message + \r. Subsequent turns on the same
+   *  session resolve immediately because readyState is already 'ready'.
+   *  If CC is so slow we time out (30s safety), fail the turn rather
+   *  than hang forever. */
+  private dispatchSendWhenReady(
+    sessionId: string,
+    userMessage: string,
+    fail: (err: Error) => void,
+  ): void {
+    const READY_TIMEOUT_MS = 30_000;
+    const send = () => {
+      try {
+        this.client.sendInput(sessionId, userMessage + "\r");
+      } catch (err) {
+        fail(err as Error);
+      }
+    };
+    const entry = this.readyState.get(sessionId);
+    if (entry === "ready") {
+      send();
+      return;
+    }
+    const waiters = Array.isArray(entry) ? entry : [];
+    let timedOut = false;
+    const timer = setTimeout(() => {
+      timedOut = true;
+      fail(
+        new YouCodedClientError(
+          `Claude session didn't initialize within ${READY_TIMEOUT_MS / 1000}s — ` +
+            `no hook events received. Is YouCoded responsive?`,
+          "request_failed",
+        ),
+      );
+    }, READY_TIMEOUT_MS);
+    waiters.push(() => {
+      if (timedOut) return;
+      clearTimeout(timer);
+      send();
+    });
+    this.readyState.set(sessionId, waiters);
   }
 
   /** Lazy connect — `startConversation` triggers it. Re-uses the same
@@ -67,20 +210,53 @@ export class YouCodedSessionProvider implements LLMProvider {
     opts: StartConversationOpts = {},
   ): Promise<{ conversationId: string }> {
     await this.ensureConnected();
-    const cwd = opts.cwd ?? this.defaultCwd ?? process.cwd();
+    // Subscribe once to hook events — the first per-session event flips
+    // readyState[sid] to 'ready' and flushes any waiting sendTurns.
+    // Subscribing BEFORE createSession avoids missing an early hook
+    // that fires between create and our subscribe call.
+    this.ensureHookSubscription();
+    // Resolve cwd. Priority: explicit opts.cwd > materialized runtime
+    // dir (when systemPromptPath is set) > defaultCwd > process.cwd().
+    // Materialization happens BEFORE createSession so a failure here
+    // doesn't leave an orphan YouCoded session.
+    let cwd = opts.cwd ?? this.defaultCwd ?? process.cwd();
+    let runtimeDir: string | null = null;
+    if (!opts.cwd && this.systemPromptPath) {
+      runtimeDir = await this.materializeRuntimeDir();
+      cwd = runtimeDir;
+    }
     const name = opts.name ?? DEFAULT_NAME;
-    const info = await this.client.createSession({
-      name,
-      cwd,
-      // Budget conversations auto-approve everything: the system prompt
-      // constrains Claude to retrieve/cite for the budget questions, and
-      // the analyst opted into the workflow by opening the chat. We do
-      // NOT want a permission prompt every time Claude calls retrieve.
-      skipPermissions: true,
-    });
+    let info: { id: string };
+    try {
+      info = await this.client.createSession({
+        name,
+        cwd,
+        // Budget conversations auto-approve everything: the system prompt
+        // constrains Claude to retrieve/cite for the budget questions, and
+        // the analyst opted into the workflow by opening the chat. We do
+        // NOT want a permission prompt every time Claude calls retrieve.
+        skipPermissions: true,
+      });
+    } catch (err) {
+      // Roll back the materialized dir if YouCoded refused — keeping
+      // a tempdir that no session points at would just leak disk.
+      if (runtimeDir) {
+        await this.removeRuntimeDirSafely(runtimeDir);
+      }
+      throw err;
+    }
+    if (runtimeDir) {
+      this.runtimeDirByConversation.set(info.id, runtimeDir);
+    }
     this.parserContextByConversation.set(info.id, {
       seenAssistantTextUuids: new Set<string>(),
     });
+    // Seed the ready state with an empty waiter list (the hook handler
+    // flips it to 'ready' on first hook). Done after createSession so
+    // we have the real session id to key on.
+    if (!this.readyState.has(info.id)) {
+      this.readyState.set(info.id, []);
+    }
     return { conversationId: info.id };
   }
 
@@ -106,11 +282,24 @@ export class YouCodedSessionProvider implements LLMProvider {
     const citations: Citation[] = [];
     let stopReason = "unknown";
     let resolved = false;
+    // YouCoded sometimes broadcasts `turn-complete` BEFORE the final
+    // `assistant-text` event in the same WS-message batch (observed:
+    // assistant-thinking → turn-complete → assistant-text → turn-complete).
+    // Finalising synchronously on the first turn-complete unsubscribes
+    // the transcript listener and the trailing assistant-text never
+    // reaches `onEvent` or the accumulator. Defer the finalize via
+    // setImmediate and reschedule on every subsequent turn-complete so
+    // trailing events in the same tick still update state.
+    let pendingFinalize: NodeJS.Immediate | null = null;
+    const FINALIZE_GRACE_MS = 250;
+    let graceTimer: NodeJS.Timeout | null = null;
 
     return new Promise<SendTurnResult>((resolve, reject) => {
       const finalize = (reason: string) => {
         if (resolved) return;
         resolved = true;
+        if (pendingFinalize) clearImmediate(pendingFinalize);
+        if (graceTimer) clearTimeout(graceTimer);
         unsubscribeTranscript();
         unsubscribeDestroyed();
         if (signal) signal.removeEventListener("abort", abortHandler);
@@ -123,6 +312,22 @@ export class YouCodedSessionProvider implements LLMProvider {
           retrievedChunkIds,
           toolCalls: toolCallOrder.map((id) => toolCallsByUseId.get(id)!),
           stopReason: reason,
+        });
+      };
+
+      // Schedule (or reschedule) finalize. Called for every turn-complete.
+      // The setImmediate gives same-tick trailing events a chance to be
+      // processed before unsubscribe; the additional graceTimer covers
+      // events that arrive in subsequent ticks (rare but observed when
+      // YouCoded's transcript-watcher batches a JSONL flush across ticks).
+      const scheduleFinalize = (reason: string) => {
+        if (resolved) return;
+        if (pendingFinalize) clearImmediate(pendingFinalize);
+        if (graceTimer) clearTimeout(graceTimer);
+        pendingFinalize = setImmediate(() => {
+          pendingFinalize = null;
+          // Start the grace window AFTER the current tick drains.
+          graceTimer = setTimeout(() => finalize(reason), FINALIZE_GRACE_MS);
         });
       };
 
@@ -150,6 +355,20 @@ export class YouCodedSessionProvider implements LLMProvider {
       const unsubscribeTranscript = this.client.onTranscriptEvent(
         conversationId,
         (ev: TranscriptEvent) => {
+          // When Claude Code redirects an oversized tool_result to a
+          // sidecar file, `data.toolResult` arrives as a "result
+          // exceeds maximum allowed tokens" message with the path,
+          // not the actual JSON. Inline the file contents in-place
+          // so downstream parsers (parseTranscriptEvent, the chat
+          // reducer's tool blocks, citation-extract) see the real
+          // chunks. Without this, every cite() shows "Couldn't open
+          // source PDF" because the resolved-chunk map is empty.
+          if (ev.type === "tool-result" && ev.data) {
+            const inlined = inlineRedirectedToolResult(ev.data.toolResult);
+            if (inlined !== ev.data.toolResult) {
+              ev.data.toolResult = inlined;
+            }
+          }
           // Pre-emit accumulator updates — these need to happen even
           // when parseTranscriptEvent returns null (deduplicated
           // assistant_text), because the *latest* text per uuid is the
@@ -202,9 +421,10 @@ export class YouCodedSessionProvider implements LLMProvider {
           const pev = parseTranscriptEvent(ev, ctx);
           if (pev) safeOnEvent(onEvent, pev);
 
-          // Turn complete? Resolve.
+          // Turn complete? Schedule a deferred finalize. Don't unsubscribe
+          // synchronously — see comment at `pendingFinalize` declaration.
           if (ev.type === "turn-complete") {
-            finalize(stopReason);
+            scheduleFinalize(stopReason);
           }
         },
       );
@@ -217,27 +437,48 @@ export class YouCodedSessionProvider implements LLMProvider {
         signal.addEventListener("abort", abortHandler, { once: true });
       }
 
-      // Send the user message. Note YouCoded's PTY layer handles the
-      // long-message echo-driven submit logic — we don't append \r
-      // here; the wrapper does the right thing. (See PITFALLS "PTY
-      // Writes" in the youcoded-dev workspace for the rationale.)
-      try {
-        this.client.sendInput(conversationId, userMessage);
-      } catch (err) {
-        fail(err as Error);
-      }
+      // Send the user message with a trailing CR so YouCoded's
+      // pty-worker classifies it as a SUBMIT (PITFALLS "PTY Writes" #2).
+      // CRITICAL: gate on the first hook event for this session before
+      // sending. YouCoded's own UI does this — its InputBar is disabled
+      // until `setInitializedSessions` adds the sessionId, which only
+      // happens on the first hook event (see App.tsx:665-680). Sending
+      // before then races CC's startup banner: the bytes hit the input
+      // bar but the trailing \r gets absorbed as paste content because
+      // CC is mid-render, leaving the message stranded.
+      this.dispatchSendWhenReady(conversationId, userMessage, fail);
     });
   }
 
   async endConversation(conversationId: string): Promise<void> {
     this.parserContextByConversation.delete(conversationId);
+    this.readyState.delete(conversationId);
+    const runtimeDir = this.runtimeDirByConversation.get(conversationId);
+    this.runtimeDirByConversation.delete(conversationId);
     try {
       await this.client.destroySession(conversationId);
     } catch (err) {
       if (err instanceof YouCodedClientError && err.code === "not_connected") {
+        // Still clean up the runtime dir — the session is gone either way.
+        if (runtimeDir) await this.removeRuntimeDirSafely(runtimeDir);
         return;
       }
+      if (runtimeDir) await this.removeRuntimeDirSafely(runtimeDir);
       throw err;
+    }
+    if (runtimeDir) await this.removeRuntimeDirSafely(runtimeDir);
+  }
+
+  /** Best-effort cleanup of a materialized runtime dir. Failures are
+   *  logged but not thrown — a leaked tempdir is annoying but not
+   *  worth poisoning the caller's promise chain over. */
+  private async removeRuntimeDirSafely(dir: string): Promise<void> {
+    try {
+      await fs.rm(dir, { recursive: true, force: true });
+    } catch (err) {
+      process.stderr.write(
+        `[youcoded-session-provider] failed to remove runtime dir ${dir}: ${(err as Error).message}\n`,
+      );
     }
   }
 
@@ -293,6 +534,67 @@ function extractCitation(
     confidence,
     claimSpan,
   };
+}
+
+/** Patterns Claude Code uses when a tool result exceeds its max token
+ *  budget. Two have been seen in the wild:
+ *
+ *    A. Token-limit form:
+ *       "Error: result (88,629 characters) exceeds maximum allowed
+ *        tokens. Output has been saved to <path>.txt."
+ *
+ *    B. Size-limit form (wrapped in <persisted-output> tags, with a
+ *       2KB preview after the path line):
+ *       "<persisted-output>\nOutput too large (67.3KB). Full output
+ *        saved to: <path>.json\n\nPreview (first 2KB): ..."
+ *
+ *  Both stash the real `[{type, text}, ...]` JSON at the path. We
+ *  follow the redirect and return the inlined `text` so downstream
+ *  code (citation extraction, reducer tool blocks) sees the real JSON
+ *  instead of the redirect message + preview. The file extension
+ *  varies (.txt / .json), so the regex captures any common ext.
+ */
+const REDIRECT_RES: RegExp[] = [
+  /Output has been saved to\s+(\S+?\.(?:txt|json|md))\b/,
+  /Full output saved to:\s+(\S+?\.(?:txt|json|md))(?=\s|$)/,
+];
+
+function inlineRedirectedToolResult(raw: string | undefined): string | undefined {
+  if (!raw) return raw;
+  let path: string | null = null;
+  for (const re of REDIRECT_RES) {
+    const m = raw.match(re);
+    if (m) {
+      path = m[1]!.trim();
+      break;
+    }
+  }
+  if (!path) return raw;
+  try {
+    const fileText = readFileSync(path, "utf8");
+    const parts: unknown = JSON.parse(fileText);
+    if (Array.isArray(parts)) {
+      for (const part of parts) {
+        if (
+          part &&
+          typeof part === "object" &&
+          (part as { type?: unknown }).type === "text" &&
+          typeof (part as { text?: unknown }).text === "string"
+        ) {
+          return (part as { text: string }).text;
+        }
+      }
+    }
+    // Fallback: file isn't an array-of-parts; return the raw file
+    // contents — at worst the parser sees a JSON it can't parse,
+    // which is the same end state as not inlining at all.
+    return fileText;
+  } catch (err) {
+    process.stderr.write(
+      `[youcoded-session-provider] failed to inline redirected tool result at ${path}: ${(err as Error).message}\n`,
+    );
+    return raw;
+  }
 }
 
 function extractRetrievedChunkIds(toolResult?: string): string[] {

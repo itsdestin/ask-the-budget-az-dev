@@ -425,3 +425,431 @@ describe("YouCodedSessionProvider", () => {
     await provider.disconnect();
   });
 });
+
+// ---------------------------------------------------------------------------
+// System-prompt materialization
+//
+// Without this, Claude spawns at the budget app's source-code cwd and
+// reads the developer-facing CLAUDE.md, treating itself as a "help me
+// build the budget tool" assistant rather than the budget tool's
+// retrieve/cite-constrained backend. The materialization tests pin
+// down the per-conversation tempdir mechanism documented in
+// `docs/superpowers/investigations/2026-05-06-youcoded-remote-api-verification.md`.
+
+describe("YouCodedSessionProvider — system prompt materialization", () => {
+  let promptDir: string;
+  let promptPath: string;
+  let contextPath: string;
+  let runtimeRoot: string;
+  let nextSession = 0;
+
+  beforeAll(async () => {
+    const fs = await import("node:fs/promises");
+    const os = await import("node:os");
+    const path = await import("node:path");
+    promptDir = await fs.mkdtemp(path.join(os.tmpdir(), "budget-test-src-"));
+    promptPath = path.join(promptDir, "system-prompt.md");
+    contextPath = path.join(promptDir, "system-prompt-context.md");
+    await fs.writeFile(promptPath, "# Budget agent rules\nUse retrieve().\n");
+    await fs.writeFile(contextPath, "# Glossary\nADC = Department of Corrections.\n");
+  });
+
+  afterAll(async () => {
+    const fs = await import("node:fs/promises");
+    await fs.rm(promptDir, { recursive: true, force: true });
+  });
+
+  beforeAll(async () => {
+    const fs = await import("node:fs/promises");
+    const os = await import("node:os");
+    const path = await import("node:path");
+    runtimeRoot = await fs.mkdtemp(path.join(os.tmpdir(), "budget-test-rt-"));
+  });
+
+  afterAll(async () => {
+    const fs = await import("node:fs/promises");
+    await fs.rm(runtimeRoot, { recursive: true, force: true });
+  });
+
+  function makeMaterializingProvider() {
+    return new YouCodedSessionProvider({
+      url: serverUrl,
+      token: "test-token",
+      systemPromptPath: promptPath,
+      systemPromptContextPath: contextPath,
+      runtimeDirRoot: runtimeRoot,
+    });
+  }
+
+  it("materializes CLAUDE.md + data/system-prompt-context.md into a per-conversation runtime dir, and passes that as cwd", async () => {
+    let createPayloadCwd: string | undefined;
+    server.onSessionCreate = (payload) => {
+      createPayloadCwd = payload["cwd"] as string;
+      return {
+        id: `mat-conv-${++nextSession}`,
+        name: "x",
+        cwd: createPayloadCwd ?? "/tmp",
+        permissionMode: "normal",
+        skipPermissions: true,
+        status: "active",
+        createdAt: 1000,
+        provider: "claude",
+      };
+    };
+
+    const provider = makeMaterializingProvider();
+    const { conversationId } = await provider.startConversation();
+    expect(typeof createPayloadCwd).toBe("string");
+    // The cwd YouCoded sees should be a fresh subdir of runtimeRoot,
+    // not the budget app's source tree.
+    expect(createPayloadCwd!.startsWith(runtimeRoot)).toBe(true);
+
+    const fs = await import("node:fs/promises");
+    const path = await import("node:path");
+    const claudeMd = await fs.readFile(
+      path.join(createPayloadCwd!, "CLAUDE.md"),
+      "utf8",
+    );
+    expect(claudeMd).toContain("Budget agent rules");
+    const contextMd = await fs.readFile(
+      path.join(createPayloadCwd!, "data", "system-prompt-context.md"),
+      "utf8",
+    );
+    expect(contextMd).toContain("ADC = Department of Corrections");
+
+    // endConversation cleans up.
+    await provider.endConversation(conversationId);
+    let exists = true;
+    try {
+      await fs.access(createPayloadCwd!);
+    } catch {
+      exists = false;
+    }
+    expect(exists).toBe(false);
+    await provider.disconnect();
+  });
+
+  it("respects an explicit opts.cwd override (no materialization)", async () => {
+    let createPayloadCwd: string | undefined;
+    server.onSessionCreate = (payload) => {
+      createPayloadCwd = payload["cwd"] as string;
+      return {
+        id: `mat-conv-${++nextSession}`,
+        name: "x",
+        cwd: createPayloadCwd ?? "/tmp",
+        permissionMode: "normal",
+        skipPermissions: true,
+        status: "active",
+        createdAt: 1000,
+        provider: "claude",
+      };
+    };
+
+    const provider = makeMaterializingProvider();
+    await provider.startConversation({ cwd: "/explicit/dir" });
+    expect(createPayloadCwd).toBe("/explicit/dir");
+    await provider.disconnect();
+  });
+
+  it("gives concurrent conversations distinct runtime dirs", async () => {
+    const cwds: string[] = [];
+    server.onSessionCreate = (payload) => {
+      cwds.push(payload["cwd"] as string);
+      return {
+        id: `mat-conv-${++nextSession}`,
+        name: "x",
+        cwd: (payload["cwd"] as string) ?? "/tmp",
+        permissionMode: "normal",
+        skipPermissions: true,
+        status: "active",
+        createdAt: 1000,
+        provider: "claude",
+      };
+    };
+
+    const provider = makeMaterializingProvider();
+    const [a, b] = await Promise.all([
+      provider.startConversation(),
+      provider.startConversation(),
+    ]);
+    expect(a.conversationId).not.toBe(b.conversationId);
+    expect(cwds.length).toBe(2);
+    expect(cwds[0]).not.toBe(cwds[1]);
+    await provider.disconnect();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Tool-result redirect inlining
+//
+// When `retrieve()` returns a chunks blob bigger than Claude Code's
+// per-tool-result token budget (observed live: ~88K characters for 20
+// chunks), CC writes the real payload to a sidecar `tool-results/*.txt`
+// and gives the caller a redirect message instead. Without inlining,
+// every cite() call's chunk_id fails to resolve against the empty
+// chunks map and the side-panel shows "Couldn't open source PDF" for
+// every citation.
+
+describe("YouCodedSessionProvider — tool-result redirect inlining", () => {
+  it("follows the 'Output has been saved to <path>' redirect and returns chunk ids from the sidecar", async () => {
+    const fs = await import("node:fs/promises");
+    const os = await import("node:os");
+    const path = await import("node:path");
+
+    // Stage a sidecar file in the exact shape Claude Code writes:
+    // a JSON array of { type: 'text', text: <stringified payload> } parts.
+    const sidecarDir = await fs.mkdtemp(
+      path.join(os.tmpdir(), "budget-redirect-test-"),
+    );
+    const sidecarFile = path.join(
+      sidecarDir,
+      "mcp-ask-the-budget-az-retrieve-12345.txt",
+    );
+    const realPayload = JSON.stringify({
+      chunks: [
+        {
+          chunk_id: "jlbc-baseline-fy2027-s18-0010",
+          doc_id: "jlbc-baseline-fy2027-s18",
+          page_start: 11,
+        },
+        {
+          chunk_id: "jlbc-baseline-fy2027-s18-0011",
+          doc_id: "jlbc-baseline-fy2027-s18",
+          page_start: 12,
+        },
+      ],
+      top_score: 0.62,
+      retrieval_id: "ret-redirect",
+    });
+    await fs.writeFile(
+      sidecarFile,
+      JSON.stringify([{ type: "text", text: realPayload }]),
+    );
+
+    server.onSessionCreate = () => ({
+      id: "redirect-conv",
+      name: "test",
+      cwd: "/tmp",
+      permissionMode: "normal",
+      skipPermissions: true,
+      status: "active",
+      createdAt: 1000,
+      provider: "claude",
+    });
+
+    const provider = makeProvider();
+    const { conversationId } = await provider.startConversation();
+
+    server.onSessionInput = (sessionId) => {
+      setImmediate(() => {
+        const emit = (
+          type: string,
+          data: Record<string, unknown>,
+          uuid: string,
+        ) =>
+          server.emitTranscriptEvent({
+            type,
+            sessionId,
+            uuid,
+            timestamp: Date.now(),
+            data,
+          });
+
+        emit(
+          "tool-use",
+          {
+            toolUseId: "tu-redirect",
+            toolName: "retrieve",
+            toolInput: { query: "aviation" },
+          },
+          "u-1",
+        );
+        // The redirect message Claude Code writes when the real
+        // payload exceeds the per-tool token budget. Note the
+        // `.txt\b` boundary the inliner regex relies on.
+        const redirectMsg =
+          `Error: result (88,629 characters) exceeds maximum allowed tokens. ` +
+          `Output has been saved to ${sidecarFile}.\n` +
+          `Format: JSON array...`;
+        emit(
+          "tool-result",
+          {
+            toolUseId: "tu-redirect",
+            toolResult: redirectMsg,
+            isError: false,
+          },
+          "u-2",
+        );
+        emit(
+          "assistant-text",
+          { text: "ok", model: "claude-opus-4-7" },
+          "u-text",
+        );
+        emit(
+          "turn-complete",
+          {
+            stopReason: "end_turn",
+            model: "claude-opus-4-7",
+            anthropicRequestId: "req_redirect",
+            usage: {
+              inputTokens: 1,
+              outputTokens: 1,
+              cacheReadTokens: 0,
+              cacheCreationTokens: 0,
+            },
+          },
+          "u-end",
+        );
+      });
+    };
+
+    const seenToolResults: string[] = [];
+    const result = await provider.sendTurn({
+      conversationId,
+      userMessage: "x",
+      onEvent: (e) => {
+        if (e.type === "tool_result" && typeof e.output === "string") {
+          seenToolResults.push(e.output);
+        }
+      },
+    });
+
+    // The forwarded tool_result event got the inlined chunks, not
+    // the redirect message — so client-side citation extraction
+    // can build the resolved-chunk map.
+    expect(seenToolResults).toHaveLength(1);
+    expect(seenToolResults[0]).not.toContain("Output has been saved to");
+    expect(seenToolResults[0]).toContain("jlbc-baseline-fy2027-s18-0010");
+
+    // Server-side accumulator picked up both chunk ids — the audit
+    // log will record them.
+    expect(result.retrievedChunkIds).toEqual([
+      "jlbc-baseline-fy2027-s18-0010",
+      "jlbc-baseline-fy2027-s18-0011",
+    ]);
+
+    await provider.disconnect();
+    await fs.rm(sidecarDir, { recursive: true, force: true });
+  });
+
+  it("also handles the <persisted-output> 'Full output saved to:' format with a .json sidecar", async () => {
+    const fs = await import("node:fs/promises");
+    const os = await import("node:os");
+    const path = await import("node:path");
+
+    const sidecarDir = await fs.mkdtemp(
+      path.join(os.tmpdir(), "budget-redirect-test2-"),
+    );
+    const sidecarFile = path.join(
+      sidecarDir,
+      "toolu_01UJBFU2T313QH1RrFp69nkQ.json",
+    );
+    const realPayload = JSON.stringify({
+      chunks: [
+        {
+          chunk_id: "jlbc-baseline-fy2027-s18-0008",
+          doc_id: "jlbc-baseline-fy2027-s18",
+          page_start: 9,
+        },
+      ],
+      top_score: 0.55,
+      retrieval_id: "ret-2",
+    });
+    await fs.writeFile(
+      sidecarFile,
+      JSON.stringify([{ type: "text", text: realPayload }]),
+    );
+
+    server.onSessionCreate = () => ({
+      id: "redirect-conv-2",
+      name: "test",
+      cwd: "/tmp",
+      permissionMode: "normal",
+      skipPermissions: true,
+      status: "active",
+      createdAt: 1000,
+      provider: "claude",
+    });
+
+    const provider = makeProvider();
+    const { conversationId } = await provider.startConversation();
+
+    server.onSessionInput = (sessionId) => {
+      setImmediate(() => {
+        const emit = (
+          type: string,
+          data: Record<string, unknown>,
+          uuid: string,
+        ) =>
+          server.emitTranscriptEvent({
+            type,
+            sessionId,
+            uuid,
+            timestamp: Date.now(),
+            data,
+          });
+
+        emit(
+          "tool-use",
+          {
+            toolUseId: "tu-redirect2",
+            toolName: "retrieve",
+            toolInput: { query: "border security" },
+          },
+          "u-1",
+        );
+        // Format B exactly as observed in transcripts:
+        const redirectMsg =
+          `<persisted-output>\n` +
+          `Output too large (67.3KB). Full output saved to: ${sidecarFile}\n\n` +
+          `Preview (first 2KB):\n[\n  {\n    "type": "text",\n    "text": "..."\n  }\n]`;
+        emit(
+          "tool-result",
+          {
+            toolUseId: "tu-redirect2",
+            toolResult: redirectMsg,
+            isError: false,
+          },
+          "u-2",
+        );
+        emit("assistant-text", { text: "ok" }, "u-text");
+        emit(
+          "turn-complete",
+          {
+            stopReason: "end_turn",
+            model: "claude-opus-4-7",
+            anthropicRequestId: "req_redirect2",
+            usage: {
+              inputTokens: 1,
+              outputTokens: 1,
+              cacheReadTokens: 0,
+              cacheCreationTokens: 0,
+            },
+          },
+          "u-end",
+        );
+      });
+    };
+
+    const seenToolResults: string[] = [];
+    const result = await provider.sendTurn({
+      conversationId,
+      userMessage: "x",
+      onEvent: (e) => {
+        if (e.type === "tool_result" && typeof e.output === "string") {
+          seenToolResults.push(e.output);
+        }
+      },
+    });
+
+    expect(seenToolResults).toHaveLength(1);
+    expect(seenToolResults[0]).not.toContain("Full output saved to");
+    expect(seenToolResults[0]).toContain("jlbc-baseline-fy2027-s18-0008");
+    expect(result.retrievedChunkIds).toEqual([
+      "jlbc-baseline-fy2027-s18-0008",
+    ]);
+
+    await provider.disconnect();
+    await fs.rm(sidecarDir, { recursive: true, force: true });
+  });
+});

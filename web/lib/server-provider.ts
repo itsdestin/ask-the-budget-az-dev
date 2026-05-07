@@ -11,6 +11,8 @@
 // provider itself; the budget app's web layer is stateless beyond
 // holding this reference.
 
+import { resolve } from "node:path";
+
 import {
   YouCodedSessionProvider,
   type YouCodedSessionProviderOptions,
@@ -34,6 +36,18 @@ export function getProvider(): YouCodedSessionProvider {
       opts.tokenPath = process.env.YOUCODED_TOKEN_PATH;
     if (process.env.BUDGET_DEFAULT_CWD)
       opts.defaultCwd = process.env.BUDGET_DEFAULT_CWD;
+    // System-prompt materialization. Without this, Claude spawns in the
+    // budget app's source tree and reads the developer-facing CLAUDE.md,
+    // which makes it think it's helping build the budget tool rather
+    // than acting as the budget tool's research backend. The Next.js
+    // dev server runs from `web/`, so the project root is one level up.
+    const repoRoot = resolve(process.cwd(), "..");
+    opts.systemPromptPath =
+      process.env.BUDGET_SYSTEM_PROMPT_PATH ??
+      resolve(repoRoot, "mcp-server", "system-prompt.md");
+    opts.systemPromptContextPath =
+      process.env.BUDGET_SYSTEM_PROMPT_CONTEXT_PATH ??
+      resolve(repoRoot, "data", "system-prompt-context.md");
     g[GLOBAL_KEY] = new YouCodedSessionProvider(opts);
   }
   return g[GLOBAL_KEY]!;

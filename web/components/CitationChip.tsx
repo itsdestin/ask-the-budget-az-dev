@@ -18,17 +18,59 @@ import { useCitationBus } from "@/state/citation-context";
 
 interface Props {
   citation: Citation;
+  /** When provided, the chip wraps this text inline with an underline,
+   *  appending a small superscript chip number. Used by the
+   *  CitedMarkdownContent renderer so cite()'d claims are highlighted
+   *  in place rather than as a footer row. Without this prop, falls
+   *  back to the pill-only rendering used for unmatched citations. */
+  inlineText?: string;
 }
 
-export default function CitationChip({ citation }: Props) {
+export default function CitationChip({ citation, inlineText }: Props) {
   const [open, setOpen] = useState(false);
   const bus = useCitationBus();
 
-  const tone =
-    citation.confidence === "verbatim"
-      ? "bg-green-600/15 text-green-400 border-green-600/40"
-      : "bg-inset text-fg-2 border-edge";
-  const glyph = citation.confidence === "verbatim" ? "✓" : "≈";
+  const verbatim = citation.confidence === "verbatim";
+  const tone = verbatim
+    ? "bg-green-600/15 text-green-400 border-green-600/40"
+    : "bg-inset text-fg-2 border-edge";
+  const glyph = verbatim ? "✓" : "≈";
+
+  if (inlineText !== undefined) {
+    // Inline-underline rendering. The whole span — text + tiny
+    // superscript chip — is one focusable button so keyboard users
+    // get the same click-to-open-PdfViewer affordance as mouse
+    // users. Underline style differs by confidence (solid for
+    // verbatim, dashed for paraphrase) so the analyst can see at a
+    // glance which kind of citation backs the claim.
+    const underline = verbatim
+      ? "underline decoration-green-500/60 decoration-1 underline-offset-2"
+      : "underline decoration-fg-muted decoration-dashed decoration-1 underline-offset-2";
+    return (
+      <span className="relative inline">
+        <button
+          type="button"
+          onClick={() => bus.select(citation)}
+          onMouseEnter={() => setOpen(true)}
+          onMouseLeave={() => setOpen(false)}
+          onFocus={() => setOpen(true)}
+          onBlur={() => setOpen(false)}
+          className={`inline cursor-pointer text-fg ${underline} hover:opacity-80`}
+          aria-label={`Citation ${citation.index} (${citation.confidence}): ${inlineText}`}
+        >
+          {inlineText}
+          <sup
+            className={`ml-0.5 px-1 py-px text-[9px] font-medium rounded-sm border ${tone} align-super`}
+            aria-hidden
+          >
+            {glyph}
+            {citation.index}
+          </sup>
+        </button>
+        {open && <CitationTooltip citation={citation} />}
+      </span>
+    );
+  }
 
   return (
     <span className="relative inline-block align-baseline">
