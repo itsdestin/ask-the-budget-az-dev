@@ -1,0 +1,172 @@
+@import "tailwindcss";
+@import "highlight.js/styles/github.css";
+
+/* Tell Tailwind v4 where to scan for class names. */
+@source "../app/**/*.{ts,tsx}";
+@source "../components/**/*.{ts,tsx}";
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   Theme tokens — mirrored from YouCoded's globals.css per CLAUDE.md
+   directive (replicate, don't vendor — D9). Light is default; dark
+   activates via [data-theme="dark"] on <html>. Two more themes (creme,
+   midnight) seeded at the same token positions for a future appearance
+   picker; nothing toggles them yet.
+   ═══════════════════════════════════════════════════════════════════════════ */
+
+:root,
+[data-theme="light"] {
+  --canvas: #f2f2f2;
+  --panel: #eaeaea;
+  --inset: #e0e0e0;
+  --well: #f7f7f7;
+  --accent: #1a1a1a;
+  --on-accent: #f2f2f2;
+  --fg: #1a1a1a;
+  --fg-2: #444444;
+  --fg-dim: #666666;
+  --fg-muted: #888888;
+  --fg-faint: #aaaaaa;
+  --edge: #cfcfcf;
+  --edge-dim: #dcdcdc80;
+  --code: #b45309;
+  --link: #2563eb;
+  --link-hover: #1d4ed8;
+  color-scheme: light;
+}
+
+[data-theme="dark"] {
+  --canvas: #111111;
+  --panel: #191919;
+  --inset: #222222;
+  --well: #1c1c1c;
+  --accent: #d4d4d4;
+  --on-accent: #111111;
+  --fg: #e0e0e0;
+  --fg-2: #b0b0b0;
+  --fg-dim: #999999;
+  --fg-muted: #666666;
+  --fg-faint: #444444;
+  --edge: #2e2e2e;
+  --edge-dim: #37373780;
+  --code: #fbbf24;
+  --link: #66aaff;
+  --link-hover: #88ccff;
+  color-scheme: dark;
+}
+
+[data-theme="midnight"] {
+  --canvas: #0d1117;
+  --panel: #161b22;
+  --inset: #21262d;
+  --well: #0d1117;
+  --accent: #b1bac4;
+  --on-accent: #0d1117;
+  --fg: #c9d1d9;
+  --fg-2: #a0aab4;
+  --fg-dim: #8b949e;
+  --fg-muted: #6e7681;
+  --fg-faint: #484f58;
+  --edge: #30363d;
+  --edge-dim: #30363d80;
+  --code: #f0883e;
+  --link: #58a6ff;
+  --link-hover: #79c0ff;
+  color-scheme: dark;
+}
+
+[data-theme="creme"] {
+  --canvas: #f0e6d6;
+  --panel: #ebe1d1;
+  --inset: #ddd1be;
+  --well: #f5ecde;
+  --accent: #3d3229;
+  --on-accent: #f0e6d6;
+  --fg: #2c2418;
+  --fg-2: #5c4f3e;
+  --fg-dim: #7a6e5d;
+  --fg-muted: #9e9283;
+  --fg-faint: #beb3a4;
+  --edge: #cbbfad;
+  --edge-dim: #d4c8b580;
+  --code: #8b4513;
+  --link: #5b4a1e;
+  --link-hover: #3d3219;
+  color-scheme: light;
+}
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   Tailwind @theme — maps the CSS variables above to utility classes
+   (bg-canvas, text-fg, border-edge, etc.). Same surface YouCoded uses,
+   so tool-card / chat-bubble visual mirroring works without a translation
+   layer in components.
+   ═══════════════════════════════════════════════════════════════════════════ */
+@theme {
+  /* Surfaces */
+  --color-canvas: var(--canvas);
+  --color-panel: var(--panel);
+  --color-inset: var(--inset);
+  --color-well: var(--well);
+  --color-accent: var(--accent);
+  --color-on-accent: var(--on-accent);
+
+  /* Text */
+  --color-fg: var(--fg);
+  --color-fg-2: var(--fg-2);
+  --color-fg-dim: var(--fg-dim);
+  --color-fg-muted: var(--fg-muted);
+  --color-fg-faint: var(--fg-faint);
+
+  /* Borders */
+  --color-edge: var(--edge);
+  --color-edge-dim: var(--edge-dim);
+
+  /* Inline code text color */
+  --color-code: var(--code);
+
+  /* Link colors */
+  --color-link: var(--link);
+  --color-link-hover: var(--link-hover);
+
+  /* Status colors — constant across themes (mirrors YouCoded). */
+  --color-green-400: #4caf50;
+  --color-red-400: #dd4444;
+  --color-amber-700: #ff9800;
+
+  /* Typography — system mono everywhere, like YouCoded. */
+  --font-sans: "Cascadia Mono", "Cascadia Code", "Fira Code", "Consolas",
+    "Menlo", monospace;
+  --font-mono: "Cascadia Mono", "Cascadia Code", "Fira Code", "Consolas",
+    "Menlo", monospace;
+}
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   Globals
+   ═══════════════════════════════════════════════════════════════════════════ */
+html,
+body {
+  background: var(--canvas);
+  color: var(--fg);
+  font-family: var(--font-sans);
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+/* Subtle scrollbars that match the theme. */
+::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+::-webkit-scrollbar-thumb {
+  background: var(--edge);
+  border-radius: 8px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: var(--fg-faint);
+}

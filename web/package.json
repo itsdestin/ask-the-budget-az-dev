@@ -2,24 +2,39 @@
   "name": "ask-the-budget-az-web",
   "version": "0.1.0",
   "private": true,
-  "description": "Phase 1c web app — multi-turn chat UI + Node services for Ask the Budget AZ. WS2 ships only the LLMProvider abstraction + YouCodedSessionProvider; Next.js + React UI lands in WS4.",
+  "description": "Phase 1c web app — multi-turn budget Q&A chat UI on top of YouCodedSessionProvider.",
   "type": "module",
   "scripts": {
-    "build": "tsc -p .",
+    "dev": "next dev",
+    "build": "next build",
+    "start": "next start",
     "test": "vitest run",
     "test:watch": "vitest",
-    "typecheck": "tsc -p . --noEmit"
+    "typecheck": "tsc -p . --noEmit",
+    "lint": "next lint"
   },
   "engines": {
     "node": ">=20"
   },
   "dependencies": {
+    "next": "^15.1.0",
+    "react": "^19.0.0",
+    "react-dom": "^19.0.0",
+    "react-markdown": "^10.1.0",
+    "rehype-highlight": "^7.0.2",
+    "remark-gfm": "^4.0.1",
+    "highlight.js": "^11.10.0",
     "ws": "^8.20.0",
     "zod": "^4.4.3"
   },
   "devDependencies": {
+    "@tailwindcss/postcss": "^4.0.0",
     "@types/node": "^24.0.0",
+    "@types/react": "^19.0.0",
+    "@types/react-dom": "^19.0.0",
     "@types/ws": "^8.18.0",
+    "postcss": "^8.4.49",
+    "tailwindcss": "^4.0.0",
     "typescript": "^5.6.0",
     "vitest": "^3.0.0"
   }
