@@ -1,14 +1,15 @@
 "use client";
 
-// Generic ToolCard. v1 (this commit) renders every tool with a simple
-// status-dot header + collapsible JSON input/output. WS4b will add
-// per-tool body views (Bash terminal-style output, Read/Edit diff
-// rendering, retrieve chunk preview, cite chip, etc.) by routing on
-// `block.toolName`.
+// ToolCard shell. The header (status dot, tool name, one-line input
+// summary, expand toggle) lives here; the expanded body is rendered
+// by `tool-views/ToolBody.tsx`, which dispatches per-tool views.
+// Mirrors YouCoded's split between ToolCard.tsx (shell) and
+// tool-views/ToolBody.tsx (per-tool dispatcher) per D9.
 
 import { useState } from "react";
 
 import type { AssistantBlock } from "@/state/chat-types";
+import ToolBody from "./tool-views/ToolBody";
 
 type ToolBlock = Extract<AssistantBlock, { kind: "tool" }>;
 
@@ -58,8 +59,6 @@ export default function ToolCard({ tool }: Props) {
 function ToolHeaderSummary({ tool }: Props) {
   // One-line summary that hints at what the tool was called with so
   // the user can scan the timeline without expanding every card.
-  // For known tools we surface the most relevant input field; the
-  // generic fallback shows the first stringy value.
   const summary = summarizeInput(tool.toolName, tool.input);
   if (!summary) return null;
   return (
@@ -79,13 +78,10 @@ function summarizeInput(
     case "Bash":
       return get("command");
     case "Read":
-      return get("file_path");
     case "Write":
-      return get("file_path");
     case "Edit":
       return get("file_path");
     case "Glob":
-      return get("pattern");
     case "Grep":
       return get("pattern");
     case "WebFetch":
@@ -103,52 +99,5 @@ function summarizeInput(
       }
       return null;
     }
-  }
-}
-
-function ToolBody({ tool }: Props) {
-  return (
-    <div className="border-t border-edge px-3 py-2 text-xs">
-      <div className="text-fg-dim mb-1">input</div>
-      <pre className="bg-canvas border border-edge rounded-sm p-2 overflow-x-auto font-mono text-fg-2 mb-3 max-h-64">
-        {prettyJson(tool.input)}
-      </pre>
-      {tool.output !== undefined ? (
-        <>
-          <div className="text-fg-dim mb-1">
-            {tool.isError ? "error" : "output"}
-          </div>
-          <pre
-            className={`bg-canvas border border-edge rounded-sm p-2 overflow-x-auto font-mono whitespace-pre-wrap max-h-96 ${
-              tool.isError ? "text-red-400" : "text-fg-2"
-            }`}
-          >
-            {tryPrettyJson(tool.output) ?? tool.output}
-          </pre>
-        </>
-      ) : tool.status === "running" ? (
-        <div className="text-fg-muted italic">running…</div>
-      ) : null}
-    </div>
-  );
-}
-
-function prettyJson(v: unknown): string {
-  try {
-    return JSON.stringify(v, null, 2);
-  } catch {
-    return String(v);
-  }
-}
-
-function tryPrettyJson(s: string): string | null {
-  // Tool outputs are sometimes JSON (retrieve, cite, MCP tools) and
-  // sometimes plain text (Bash, Read). Pretty-print only if parseable.
-  const trimmed = s.trim();
-  if (!trimmed.startsWith("{") && !trimmed.startsWith("[")) return null;
-  try {
-    return JSON.stringify(JSON.parse(s), null, 2);
-  } catch {
-    return null;
   }
 }
