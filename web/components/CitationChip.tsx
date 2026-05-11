@@ -31,28 +31,42 @@ export default function CitationChip({ citation, inlineText }: Props) {
   const bus = useCitationBus();
 
   const verbatim = citation.confidence === "verbatim";
-  const tone = verbatim
-    ? "bg-green-600/15 text-green-400 border-green-600/40"
-    : "bg-inset text-fg-2 border-edge";
-  const glyph = verbatim ? "✓" : "≈";
+  const failed = citation.failureReason !== undefined;
+  // Three visual states for the chip: failed (red ✗ — server rejected
+  // the cite, claim is uncited), verbatim (green ✓ — strict source
+  // match), paraphrase (neutral ≈ — supported but reworded). The
+  // failed variant takes priority over the confidence variant; the
+  // user needs to see "this claim has no valid citation" before
+  // anything else.
+  const tone = failed
+    ? "bg-red-600/15 text-red-400 border-red-600/40"
+    : verbatim
+      ? "bg-green-600/15 text-green-400 border-green-600/40"
+      : "bg-inset text-fg-2 border-edge";
+  const glyph = failed ? "✗" : verbatim ? "✓" : "≈";
 
+  // Hover tracking is on the WRAPPING SPAN, not the button. The
+  // tooltip is positioned with a 4px gap above the chip — if we
+  // tracked hover on the button, moving the cursor toward the
+  // tooltip would cross that gap, fire mouseleave on the button,
+  // and close the tooltip before the user could reach it. The span
+  // bounds both chip and tooltip, so the cursor stays "inside"
+  // throughout the traversal.
   if (inlineText !== undefined) {
-    // Inline-underline rendering. The whole span — text + tiny
-    // superscript chip — is one focusable button so keyboard users
-    // get the same click-to-open-PdfViewer affordance as mouse
-    // users. Underline style differs by confidence (solid for
-    // verbatim, dashed for paraphrase) so the analyst can see at a
-    // glance which kind of citation backs the claim.
-    const underline = verbatim
-      ? "underline decoration-green-500/60 decoration-1 underline-offset-2"
-      : "underline decoration-fg-muted decoration-dashed decoration-1 underline-offset-2";
+    const underline = failed
+      ? "underline decoration-red-500/60 decoration-wavy decoration-1 underline-offset-2"
+      : verbatim
+        ? "underline decoration-green-500/60 decoration-1 underline-offset-2"
+        : "underline decoration-fg-muted decoration-dashed decoration-1 underline-offset-2";
     return (
-      <span className="relative inline">
+      <span
+        className="relative inline"
+        onMouseEnter={() => setOpen(true)}
+        onMouseLeave={() => setOpen(false)}
+      >
         <button
           type="button"
           onClick={() => bus.select(citation)}
-          onMouseEnter={() => setOpen(true)}
-          onMouseLeave={() => setOpen(false)}
           onFocus={() => setOpen(true)}
           onBlur={() => setOpen(false)}
           className={`inline cursor-pointer text-fg ${underline} hover:opacity-80`}
@@ -73,12 +87,14 @@ export default function CitationChip({ citation, inlineText }: Props) {
   }
 
   return (
-    <span className="relative inline-block align-baseline">
+    <span
+      className="relative inline-block align-baseline"
+      onMouseEnter={() => setOpen(true)}
+      onMouseLeave={() => setOpen(false)}
+    >
       <button
         type="button"
         onClick={() => bus.select(citation)}
-        onMouseEnter={() => setOpen(true)}
-        onMouseLeave={() => setOpen(false)}
         onFocus={() => setOpen(true)}
         onBlur={() => setOpen(false)}
         className={`inline-flex items-center gap-1 px-1.5 py-px text-[10px] font-medium rounded-sm border ${tone} hover:opacity-80 transition-opacity`}
@@ -145,10 +161,22 @@ function CitationTooltip({ citation }: Props) {
         {r?.fiscalYear != null && <span>FY{r.fiscalYear}</span>}
         {r?.publisher && <span>· {r.publisher}</span>}
         <span className="ml-auto uppercase tracking-wider">
-          {citation.confidence}
+          {citation.failureReason ? "uncited" : citation.confidence}
         </span>
       </div>
-      {verbatimQuote && (
+      {citation.failureReason && (
+        // Surface the server's rejection reason so the user knows
+        // WHY the citation didn't validate (wrong span, wrong chunk,
+        // span out of range, etc.). Plain-text, no copy affordance —
+        // there's nothing to copy when the cite isn't valid.
+        <div className="text-red-300 border-l-2 border-red-600/50 pl-2 mb-2 text-[11px]">
+          <div className="uppercase tracking-wider text-red-400 mb-1">
+            Citation failed
+          </div>
+          <div className="text-red-200/80">{citation.failureReason}</div>
+        </div>
+      )}
+      {verbatimQuote && !citation.failureReason && (
         <blockquote className="text-fg-dim border-l-2 border-edge pl-2 mb-2 italic max-h-24 overflow-y-auto">
           {verbatimQuote}
         </blockquote>
@@ -157,13 +185,15 @@ function CitationTooltip({ citation }: Props) {
         <span className="uppercase tracking-wider">Claim:</span>{" "}
         <span className="text-fg-dim italic">{citation.claimSpan}</span>
       </div>
-      <button
-        type="button"
-        onClick={handleCopy}
-        className="w-full text-[10px] uppercase tracking-wider rounded-sm border border-edge bg-inset hover:bg-canvas py-1"
-      >
-        {copied ? "Copied!" : `Copy citation: ${copyText || "—"}`}
-      </button>
+      {!citation.failureReason && (
+        <button
+          type="button"
+          onClick={handleCopy}
+          className="w-full text-[10px] uppercase tracking-wider rounded-sm border border-edge bg-inset hover:bg-canvas py-1"
+        >
+          {copied ? "Copied!" : `Copy citation: ${copyText || "—"}`}
+        </button>
+      )}
     </div>
   );
 }

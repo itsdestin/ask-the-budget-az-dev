@@ -2,25 +2,34 @@
 
 // pdfjs-dist–backed renderer for a single PDF page with a bbox
 // highlight overlay. Replaces the slice-2 <embed> stub once the
-// worker is in place. The bbox rectangle is the spec §10.2 yellow
-// overlay — painted as an absolutely-positioned <div> on top of
-// the rendered canvas so we keep crisp text rendering and don't
-// have to fight PDF.js's own AnnotationLayer.
+// worker is in place.
+//
+// Bbox coordinate conventions (verified empirically 2026-05-07):
+//
+//   - MinerU (~99% of the corpus): bboxes in a 0-1000 normalized
+//     space PER AXIS, top-left origin. Verified by ratio-checking
+//     "BD-2" page-number and heading bboxes against PyMuPDF
+//     ground truth — values match within ~1pt after dividing by
+//     1000 and multiplying by page dimensions.
+//   - OpenDataLoader (a couple of AGAO docs): bboxes in PDF
+//     user-space points, top-left origin. Standard convention.
+//
+// Both share the top-left origin; the only difference is whether
+// the bbox is normalized to [0, 1000] or expressed in PDF points.
+// We auto-detect by comparing the bbox max to the page's
+// dimensions in points: if any bbox value exceeds the larger page
+// dimension, we know we're in MinerU's normalized space.
 //
 // PDF.js gotchas this component is careful about:
 //
 //  1. Worker is loaded from /pdf.worker.min.mjs. The postinstall
 //     copy step (web/scripts/copy-pdf-worker.mjs) keeps that file
 //     in sync with the version in node_modules.
-//  2. PDF coordinate system has the origin at the bottom-left and
-//     y-axis growing upward. `viewport.convertToViewportRectangle`
-//     does the flip, but its return value isn't necessarily a
-//     "left-top-right-bottom" tuple — we normalize after calling.
-//  3. PDF.js renders aggressively: starting a render on a canvas
+//  2. PDF.js renders aggressively: starting a render on a canvas
 //     that's already rendering throws "Cannot use the same canvas
 //     during multiple render() operations." We cancel the previous
 //     RenderTask via task.cancel() inside the cleanup branch.
-//  4. getDocument().promise resolves once for the whole PDF, but
+//  3. getDocument().promise resolves once for the whole PDF, but
 //     each chip click typically lands on a different page within
 //     the same doc — we cache the loaded doc per docId so page-
 //     switching doesn't re-download the bytes.
@@ -28,21 +37,51 @@
 import { useEffect, useRef, useState } from "react";
 import type {
   PDFDocumentProxy,
+  PDFPageProxy,
   RenderTask,
+  TextItem,
+  TextMarkedContent,
 } from "pdfjs-dist/types/src/display/api";
+import type { PageViewport } from "pdfjs-dist/types/src/display/display_utils";
+
+import { findNormalizedMatch } from "@/lib/citation-extract";
 
 interface Props {
   /** doc_id from the chunk; rendered as `/api/pdf/{docId}`. */
   docId: string;
   /** 1-indexed page number from chunk.page_start. */
   pageNumber: number;
-  /** [x1, y1, x2, y2] in PDF points. Null for non-PDF chunks; the
-   *  page renders without an overlay in that case (still scrolls
-   *  to the right page so the user can find the cited region). */
+  /** [x0, y0, x1, y1]. See coordinate convention notes above. */
   bbox: number[] | null;
-  /** CSS scale applied during rendering; 1.5 is a good legibility
-   *  sweet spot for typical 8.5x11" pages on a desktop monitor. */
-  scale?: number;
+  /** Text strings to search the PDF text layer for, in priority
+   *  order. The first match wins; the renderer emits one tight
+   *  highlight rect per LINE the matched text crosses (so multi-
+   *  line passages don't paint over the gutters). Falls back to
+   *  `bbox` if no string matches.
+   *
+   *  Caller should put the most specific text first — typically
+   *  chunk.text[span_start:span_end] (the exact source quote the
+   *  cite() emitted span offsets for), then chunk.text (full
+   *  chunk) as a fallback when the spanned slice doesn't match
+   *  due to PDF text-extraction quirks. */
+  searchTexts?: string[];
+  /** Width of the parent container in CSS pixels. The page is fit-
+   *  to-width by default; if 0 or undefined, falls back to a
+   *  reasonable default (800px) so the page still renders even
+   *  when the parent forgets to measure. */
+  containerWidth?: number;
+  /** Multiplier applied on top of the fit-to-width scale. 1.0 =
+   *  page exactly fills the container width. >1 zooms in, <1 zooms
+   *  out. The viewer's +/- buttons drive this. */
+  zoomLevel?: number;
+}
+
+/** A single highlight rectangle in viewport (canvas) pixel space. */
+interface HighlightRect {
+  left: number;
+  top: number;
+  width: number;
+  height: number;
 }
 
 let workerConfigured = false;
@@ -63,21 +102,36 @@ async function ensurePdfjsConfigured() {
 
 const docCache = new Map<string, Promise<PDFDocumentProxy>>();
 
+const FALLBACK_CONTAINER_WIDTH = 800;
+const MIN_FIT_WIDTH = 200;
+/** MinerU 3.x normalizes bboxes to a 0–1000 axis space (per-axis,
+ *  not preserving aspect). Verified against PyMuPDF ground truth. */
+const MINERU_NORMALIZE_DIM = 1000;
+
 export default function PdfPage({
   docId,
   pageNumber,
   bbox,
-  scale = 1.5,
+  searchTexts,
+  containerWidth,
+  zoomLevel = 1,
 }: Props) {
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
-  const [overlay, setOverlay] = useState<{
-    left: number;
-    top: number;
-    width: number;
-    height: number;
-  } | null>(null);
+  // Highlights — typically one rect per text line for a multi-line
+  // claim. Empty array when nothing to draw. (We previously stored a
+  // single bounding-box overlay; the array form is needed because
+  // text-layer matches naturally span multiple lines and a single
+  // bounding box would over-paint blank gutters.)
+  const [highlights, setHighlights] = useState<HighlightRect[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
+  // When all text-layer search strategies fail, we no longer paint
+  // the chunk's stored bbox — empirically those bboxes can be wrong
+  // or oversized, producing a yellow rectangle over unrelated text
+  // (2026-05-12 user-reported regression). Surface a small honest
+  // badge instead so the user knows we located the page but not the
+  // exact text.
+  const [notLocated, setNotLocated] = useState(false);
 
   useEffect(() => {
     let cancelled = false;
@@ -86,7 +140,8 @@ export default function PdfPage({
     (async () => {
       setError(null);
       setLoading(true);
-      setOverlay(null);
+      setHighlights([]);
+      setNotLocated(false);
       try {
         const pdfjs = await ensurePdfjsConfigured();
         const url = `/api/pdf/${encodeURIComponent(docId)}`;
@@ -101,13 +156,21 @@ export default function PdfPage({
         const page = await pdf.getPage(pageNumber);
         if (cancelled) return;
 
-        const viewport = page.getViewport({ scale });
+        // Fit-to-width: viewport at scale=1 gives page dimensions in
+        // PDF points (1 pt = 1 px at scale=1). Compute the scale
+        // that makes the rendered width match the container, then
+        // apply the user's zoom multiplier on top.
+        const naturalViewport = page.getViewport({ scale: 1 });
+        const targetWidth = Math.max(
+          MIN_FIT_WIDTH,
+          containerWidth || FALLBACK_CONTAINER_WIDTH,
+        );
+        const fitScale = targetWidth / naturalViewport.width;
+        const renderScale = fitScale * zoomLevel;
+        const viewport = page.getViewport({ scale: renderScale });
+
         const canvas = canvasRef.current;
         if (!canvas) return;
-
-        // Match canvas pixel size to the viewport so 1:1 (no DPR
-        // upscaling for now — PDF.js does the right thing visually
-        // and DPR-aware rendering is a future polish pass).
         canvas.width = viewport.width;
         canvas.height = viewport.height;
         canvas.style.width = `${viewport.width}px`;
@@ -131,22 +194,99 @@ export default function PdfPage({
         await renderTask.promise;
         if (cancelled) return;
 
-        if (bbox && bbox.length >= 4) {
-          // PDF y-axis grows up; convertToViewportRectangle handles
-          // the flip but can return [x1,y2,x2,y1] (i.e. y1 > y2).
-          // Normalize to (left,top,width,height) for a CSS overlay.
-          const rect = viewport.convertToViewportRectangle([
-            bbox[0]!,
-            bbox[1]!,
-            bbox[2]!,
-            bbox[3]!,
-          ]);
-          const left = Math.min(rect[0]!, rect[2]!);
-          const top = Math.min(rect[1]!, rect[3]!);
-          const width = Math.abs(rect[2]! - rect[0]!);
-          const height = Math.abs(rect[3]! - rect[1]!);
-          setOverlay({ left, top, width, height });
+        // Highlight strategy: walk searchTexts in priority order,
+        // first text-layer match wins. Each match produces one tight
+        // highlight rect per LINE the matched text crosses. Falls
+        // back to the chunk's stored bbox (coarse, but always
+        // available) when no string matches.
+        //
+        // Caller (PdfViewer) supplies, in order:
+        //   1. chunk.text[span_start:span_end] — exact source quote
+        //      the cite() emitted offsets for. Tight per-claim.
+        //   2. chunk.text — full chunk. Broader region; fallback
+        //      when the spanned slice doesn't match (rare; chunk
+        //      text comes from the PDF text extractor, but OCR'd
+        //      pages or table cells with reordered items can drift).
+        //
+        // Region constraint: when the chunk has a stored bbox, we
+        // FIRST search only inside that bbox so a phrase that
+        // appears in multiple places on the page (e.g. "FY 2026" or
+        // "$2,587,400" repeated in summary tables) binds to the
+        // occurrence in the chunk's actual region. The bbox-restricted
+        // pass is followed by an unrestricted pass if it finds nothing
+        // — handles cases where the chunk bbox is slightly off and
+        // excludes the cited text. The result is "off by a few lines"
+        // matches collapse to the right line because we no longer
+        // grab the first textually-similar match anywhere on the page.
+        const restrictRect =
+          bbox && bbox.length >= 4
+            ? bboxToViewportRect(bbox, naturalViewport, renderScale)
+            : null;
+
+        let computed: HighlightRect[] = [];
+        const passes: (HighlightRect | null)[] = restrictRect
+          ? [restrictRect, null]
+          : [null];
+        outer: for (const restrictTo of passes) {
+          for (const text of searchTexts ?? []) {
+            if (!text) continue;
+            computed = await findTextRects(
+              page,
+              text,
+              viewport,
+              cancelled,
+              restrictTo,
+            );
+            if (cancelled) return;
+            if (computed.length > 0) break outer;
+          }
         }
+        // Best-effort fallback: try matching individual currency
+        // tokens from the cited slice. Most budget claims hinge on a
+        // distinctive dollar figure (e.g. "$3,500,000") which the
+        // pdfjs text layer renders as a contiguous token even when
+        // the surrounding sentence has whitespace/punctuation drift
+        // that defeated the full-text match. This salvages the
+        // common case where the chunk text says `\$(3,500,000)` (ingest
+        // pipeline's markdown-escaped form) but the PDF text layer
+        // has `($3,500,000)` (accounting-negative convention), which
+        // our normalize doesn't fully bridge. The 2026-05-12 cite-#10
+        // case was this exact shape.
+        if (computed.length === 0) {
+          const citedSlice = (searchTexts ?? [])[0] ?? "";
+          const currencyMatches = citedSlice.match(/\$[\d][\d,.]*/g) ?? [];
+          // De-dup while preserving order so the bbox-restricted pass
+          // remains stable if a dollar amount repeats.
+          const uniqTokens = Array.from(new Set(currencyMatches));
+          for (const restrictTo of passes) {
+            for (const tok of uniqTokens) {
+              const rects = await findTextRects(
+                page,
+                tok,
+                viewport,
+                cancelled,
+                restrictTo,
+              );
+              if (cancelled) return;
+              if (rects.length > 0) {
+                computed = rects;
+                break;
+              }
+            }
+            if (computed.length > 0) break;
+          }
+        }
+        // Final state: no text-layer anchor found by ANY strategy.
+        // We deliberately do NOT fall back to the chunk's stored
+        // bbox — those can be wrong (MinerU mis-detection, oversized
+        // multi-paragraph spans) and painting a yellow rectangle
+        // over unrelated text is worse than painting nothing. Surface
+        // a small "couldn't locate" badge instead via notLocated;
+        // the chip in chat still works for clicking back here.
+        if (computed.length === 0) {
+          setNotLocated(true);
+        }
+        setHighlights(computed);
         setLoading(false);
       } catch (err) {
         if (cancelled) return;
@@ -169,23 +309,34 @@ export default function PdfPage({
         // ignore
       }
     };
-  }, [docId, pageNumber, bbox, scale]);
+    // searchTexts is an array — use a serialized form for the deps
+    // so a freshly-allocated array with identical contents doesn't
+    // re-trigger the effect on every render.
+  }, [
+    docId,
+    pageNumber,
+    bbox,
+    (searchTexts ?? []).join(" "),
+    containerWidth,
+    zoomLevel,
+  ]);
 
   return (
     <div className="relative w-fit mx-auto">
       <canvas ref={canvasRef} aria-label={`PDF page ${pageNumber}`} />
-      {overlay && (
+      {highlights.map((h, i) => (
         <div
-          className="absolute pointer-events-none border-2 border-amber-500 bg-amber-300/30 mix-blend-multiply"
+          key={`hl-${i}`}
+          className="absolute pointer-events-none border border-amber-500 bg-amber-300/30 mix-blend-multiply rounded-sm"
           style={{
-            left: overlay.left,
-            top: overlay.top,
-            width: overlay.width,
-            height: overlay.height,
+            left: h.left,
+            top: h.top,
+            width: h.width,
+            height: h.height,
           }}
           aria-hidden
         />
-      )}
+      ))}
       {loading && !error && (
         <div className="absolute inset-0 flex items-center justify-center bg-canvas/50 text-fg-muted text-sm">
           Loading page…
@@ -196,6 +347,213 @@ export default function PdfPage({
           Couldn&rsquo;t load page {pageNumber}: {error}
         </div>
       )}
+      {notLocated && !loading && !error && (
+        // Honest "we know the page, not the exact text" badge. Sits
+        // at the top of the rendered page so it doesn't obscure
+        // content; click-through is fine (pointer-events default).
+        <div className="absolute top-2 left-1/2 -translate-x-1/2 bg-amber-600/15 border border-amber-600/40 text-amber-300 text-[11px] px-2 py-1 rounded-sm">
+          Citation is on this page — exact text couldn&rsquo;t be pinpointed.
+        </div>
+      )}
     </div>
   );
+}
+
+/** Convert a chunk bbox (MinerU normalized OR ODL points) to a single
+ *  viewport-pixel rect. Pulled out of the main effect so the
+ *  text-layer fallback path can share it. */
+function bboxToViewportRect(
+  bbox: number[],
+  naturalViewport: PageViewport,
+  renderScale: number,
+): HighlightRect {
+  const pageWidthPts = naturalViewport.width;
+  const pageHeightPts = naturalViewport.height;
+  const bboxMax = Math.max(bbox[0]!, bbox[1]!, bbox[2]!, bbox[3]!);
+  const pageMaxDim = Math.max(pageWidthPts, pageHeightPts);
+  const isMineruNormalized = bboxMax > pageMaxDim;
+  let left: number;
+  let top: number;
+  let right: number;
+  let bottom: number;
+  if (isMineruNormalized) {
+    left = (bbox[0]! / MINERU_NORMALIZE_DIM) * pageWidthPts * renderScale;
+    top = (bbox[1]! / MINERU_NORMALIZE_DIM) * pageHeightPts * renderScale;
+    right = (bbox[2]! / MINERU_NORMALIZE_DIM) * pageWidthPts * renderScale;
+    bottom = (bbox[3]! / MINERU_NORMALIZE_DIM) * pageHeightPts * renderScale;
+  } else {
+    left = bbox[0]! * renderScale;
+    top = bbox[1]! * renderScale;
+    right = bbox[2]! * renderScale;
+    bottom = bbox[3]! * renderScale;
+  }
+  return {
+    left: Math.min(left, right),
+    top: Math.min(top, bottom),
+    width: Math.abs(right - left),
+    height: Math.abs(bottom - top),
+  };
+}
+
+/** Type guard that splits `TextContent.items` into the `TextItem`
+ *  entries we care about (`str`, `transform`, geometry) and discards
+ *  `TextMarkedContent` markers, which carry no rendered text. */
+function isTextItem(item: TextItem | TextMarkedContent): item is TextItem {
+  return typeof (item as { str?: unknown }).str === "string";
+}
+
+/** Search the page's text layer for `searchText` and return one
+ *  highlight rect PER LINE the match crosses. Returns [] if no
+ *  match. Caller should then fall back to the next-priority highlight
+ *  source (chunk text, or chunk bbox).
+ *
+ *  Multi-line handling: text items in pdfjs are grouped in reading
+ *  order with vertical position carried by `transform[5]`. We bucket
+ *  matched items by their baseline y and emit one rect per bucket.
+ *  This keeps the highlight visually flush with each line of the
+ *  cited passage instead of painting an over-sized bounding box that
+ *  swallows blank gutters between lines. */
+async function findTextRects(
+  page: PDFPageProxy,
+  searchText: string,
+  viewport: PageViewport,
+  cancelled: boolean,
+  restrictTo: HighlightRect | null = null,
+): Promise<HighlightRect[]> {
+  if (!searchText) return [];
+  const content = await page.getTextContent();
+  if (cancelled) return [];
+  let items = content.items.filter(isTextItem);
+  if (items.length === 0) return [];
+
+  // Optional region constraint: drop text items whose viewport rect
+  // doesn't overlap `restrictTo`. Used to anchor the search to the
+  // chunk's stored bbox so phrases that appear elsewhere on the
+  // page don't steal the match. We require partial overlap (not
+  // full containment) so items that hang slightly outside the bbox
+  // (very common — chunk bboxes from MinerU are tight to text and
+  // PDF text-item rects sometimes extend a pixel past) still count.
+  // Add a small slack (8pt scaled) on every side to be forgiving of
+  // sub-pixel bbox drift.
+  if (restrictTo) {
+    const slack = 8 * (viewport.scale ?? 1);
+    const rx1 = restrictTo.left - slack;
+    const ry1 = restrictTo.top - slack;
+    const rx2 = restrictTo.left + restrictTo.width + slack;
+    const ry2 = restrictTo.top + restrictTo.height + slack;
+    items = items.filter((item) => {
+      const x1 = item.transform[4]!;
+      const y1 = item.transform[5]!;
+      const x2 = x1 + item.width;
+      const y2 = y1 + item.height;
+      const [vx1, vy1, vx2, vy2] = viewport.convertToViewportRectangle([
+        x1,
+        y1,
+        x2,
+        y2,
+      ]);
+      const ix1 = Math.min(vx1, vx2);
+      const iy1 = Math.min(vy1, vy2);
+      const ix2 = Math.max(vx1, vx2);
+      const iy2 = Math.max(vy1, vy2);
+      // Standard 2D rect overlap test.
+      return ix1 < rx2 && ix2 > rx1 && iy1 < ry2 && iy2 > ry1;
+    });
+    if (items.length === 0) return [];
+  }
+
+  // Build a flat string of the page's text content with a parallel
+  // map: each char's index in the flat string → the source item
+  // index. We insert a synthetic space between items that don't
+  // already end with whitespace so word boundaries don't get fused
+  // (`Aviation``Fund` instead of `Aviation Fund`). Same trick the
+  // pdfjs find-bar uses internally.
+  let flat = "";
+  const itemForChar: number[] = [];
+  for (let i = 0; i < items.length; i++) {
+    const item = items[i]!;
+    const start = flat.length;
+    flat += item.str;
+    for (let k = start; k < flat.length; k++) itemForChar.push(i);
+    // Add an inferred space if the item doesn't already end with
+    // whitespace and there's a following item.
+    if (i + 1 < items.length) {
+      const endsInSpace = item.str.endsWith(" ");
+      if (!endsInSpace) {
+        flat += " ";
+        itemForChar.push(i);
+      }
+      if (item.hasEOL) {
+        flat += "\n";
+        itemForChar.push(i);
+      }
+    }
+  }
+
+  const match = findNormalizedMatch(flat, searchText, 0);
+  if (!match) return [];
+
+  // Every char in the original-string match range maps back to a
+  // source item index; collect the unique items that fall inside.
+  const involved = new Set<number>();
+  for (let i = match.start; i < match.end && i < itemForChar.length; i++) {
+    involved.add(itemForChar[i]!);
+  }
+  if (involved.size === 0) return [];
+
+  // Bucket items by baseline y (transform[5]). PDF y-coord is in
+  // user space; items on the same line share a y (within rounding).
+  // `transform[5]` is the bottom of the text in PDF user-space (the
+  // baseline). We round to 0.5pt so anti-aliased baselines on the
+  // same visual line collapse together.
+  const buckets = new Map<number, number[]>();
+  for (const idx of involved) {
+    const item = items[idx]!;
+    const yKey = Math.round(item.transform[5]! * 2) / 2;
+    if (!buckets.has(yKey)) buckets.set(yKey, []);
+    buckets.get(yKey)!.push(idx);
+  }
+
+  // For each line bucket, compute a tight rect covering all items in
+  // that line. transform[4] is the x of the bottom-left corner of
+  // the text in user space; transform[5] is the y of that same
+  // corner (baseline). item.height in user space = approx font size.
+  const rects: HighlightRect[] = [];
+  for (const [, idxs] of buckets) {
+    let minX = Infinity;
+    let maxX = -Infinity;
+    let minY = Infinity;
+    let maxY = -Infinity;
+    for (const idx of idxs) {
+      const item = items[idx]!;
+      const x1 = item.transform[4]!;
+      const y1 = item.transform[5]!;
+      const x2 = x1 + item.width;
+      const y2 = y1 + item.height;
+      // viewport.convertToViewportRectangle handles the y-flip
+      // (PDF user-space is bottom-left origin; viewport is
+      // top-left). Returns [vx1, vy1, vx2, vy2] in canvas pixels.
+      const [vx1, vy1, vx2, vy2] = viewport.convertToViewportRectangle([
+        x1,
+        y1,
+        x2,
+        y2,
+      ]);
+      minX = Math.min(minX, vx1, vx2);
+      maxX = Math.max(maxX, vx1, vx2);
+      minY = Math.min(minY, vy1, vy2);
+      maxY = Math.max(maxY, vy1, vy2);
+    }
+    rects.push({
+      left: minX,
+      top: minY,
+      width: Math.max(1, maxX - minX),
+      height: Math.max(1, maxY - minY),
+    });
+  }
+  // Sort by vertical position so the rendered highlight order tracks
+  // reading order — purely cosmetic for React keys, but keeps DOM
+  // diffs stable across re-renders.
+  rects.sort((a, b) => a.top - b.top);
+  return rects;
 }

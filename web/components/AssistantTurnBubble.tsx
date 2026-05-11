@@ -1,31 +1,38 @@
 "use client";
 
-// Renders one assistant turn — interleaved text + tool blocks, plus
-// a citation row under each text block listing the cite() calls
-// whose `claim_span` was emitted while that text was visible.
+// Renders one assistant turn — interleaved text + tool blocks, with
+// citations rendered as chips inline at the end of the markdown
+// line / paragraph / list-item / table-row containing the cited
+// claim. Anchoring is done by CitedMarkdownContent via sentinel
+// injection (see that file for the full pipeline).
 //
-// Citations render inline (spec §10.1): the matching claim_span in
-// the text gets underlined and a tiny chip appears next to it. When
-// the substring match fails (Claude paraphrased the answer between
-// thought and citation, or a markdown formatting boundary breaks the
-// match), the citation falls back to a footer "Sources" row under
-// the same text block so the chip is never lost.
+// Inline-cite XML tags (`<cite chunk_id=… claim_span="…">…</cite>`)
+// that some models emit instead of calling the cite() MCP tool are
+// extracted here and folded into the same chip stream — they get
+// the same end-of-line placement so the analyst can't tell which
+// path the model used.
 //
-// We also hide the cite() tool calls themselves — they're the
-// substrate for the chips, so showing the raw mcp__ask-the-budget-az__cite
-// ToolCard would be redundant noise.
+// Tool calls for `cite` itself are hidden because the chip IS the
+// user-visible surface for those. Other tool calls (retrieve, Bash,
+// Read, …) still render as cards because the analyst wants to see
+// what Claude looked at.
 
-import { useMemo, useState } from "react";
+import { useMemo } from "react";
 
-import { extractCitations, type Citation } from "@/lib/citation-extract";
+import {
+  extractCitations,
+  extractInlineCiteTags,
+  type Citation,
+  type ResolvedChunk,
+} from "@/lib/citation-extract";
 import type { AssistantBlock, AssistantTurn } from "@/state/chat-types";
-import CitationChip from "./CitationChip";
 import CitedMarkdownContent from "./CitedMarkdownContent";
 import ToolCard from "./ToolCard";
 
-function isCiteToolBlock(
-  block: AssistantBlock,
-): block is Extract<AssistantBlock, { kind: "tool" }> {
+// Plain boolean predicate — see history note in v1 of this file: the
+// `block is …` form narrows the false branch to `never`, breaking
+// `block.toolUseId` on the line after.
+function isCiteToolBlock(block: AssistantBlock): boolean {
   return (
     block.kind === "tool" &&
     (block.toolName === "cite" ||
@@ -35,6 +42,10 @@ function isCiteToolBlock(
 
 interface Props {
   turn: AssistantTurn;
+  /** Conversation-wide chunk lookup so cite() calls referencing a
+   *  chunk_id from an earlier turn still resolve to its metadata.
+   *  Computed once at the ChatThread level and passed in. */
+  conversationResolvedChunks?: Map<string, ResolvedChunk>;
 }
 
 const STOP_NOTE: Record<string, string> = {
@@ -46,71 +57,79 @@ const STOP_NOTE: Record<string, string> = {
   aborted: "Stopped by user.",
 };
 
-export default function AssistantTurnBubble({ turn }: Props) {
-  const citations = useMemo(() => extractCitations(turn), [turn]);
-  const citationsByTextBlock = useMemo(
-    () => assignCitationsToTextBlocks(turn.blocks, citations),
-    [turn.blocks, citations],
+export default function AssistantTurnBubble({
+  turn,
+  conversationResolvedChunks,
+}: Props) {
+  // cite()-tool citations for the turn (resolved against this turn's
+  // retrieve() output, with conversation-wide fallback for cross-turn
+  // chunk references).
+  const toolCitations = useMemo(
+    () => extractCitations(turn, conversationResolvedChunks),
+    [turn, conversationResolvedChunks],
   );
-  // Track which citation indexes were rendered inline (claim_span
-  // substring-matched) — we only show the footer fallback row for
-  // citations that did NOT match inline, so the same chip never
-  // appears twice for a single claim.
-  const [inlineMatchedByBlock, setInlineMatchedByBlock] = useState<
-    Map<string, Set<number>>
-  >(new Map());
-  const recordMatched = (blockUuid: string) => (matched: Set<number>) => {
-    setInlineMatchedByBlock((prev) => {
-      const existing = prev.get(blockUuid);
-      if (existing && setsEqual(existing, matched)) return prev;
-      const next = new Map(prev);
-      next.set(blockUuid, matched);
-      return next;
-    });
-  };
+
+  // For every text block, also extract any inline `<cite>` XML tags
+  // the model emitted in the prose. The renderer feeds the
+  // tag-stripped text to ReactMarkdown; the synthetic citations are
+  // numbered after the tool-call ones to keep chip indexes stable
+  // across the turn. Each gets resolved against the conversation
+  // chunk map so the PdfViewer can navigate.
+  const blockData = useMemo(() => {
+    const out = new Map<
+      string,
+      { renderText: string; citations: Citation[] }
+    >();
+    let nextIndex = toolCitations.length + 1;
+    for (const block of turn.blocks) {
+      if (block.kind !== "text") continue;
+      const { strippedText, citations: rawInlines } = extractInlineCiteTags(
+        block.text,
+      );
+      const renumbered = rawInlines.map((c) => {
+        const renumbered: Citation = { ...c, index: nextIndex++ };
+        const meta = conversationResolvedChunks?.get(renumbered.chunkId);
+        if (meta) renumbered.resolved = meta;
+        return renumbered;
+      });
+      out.set(block.uuid, {
+        renderText: strippedText,
+        citations: renumbered,
+      });
+    }
+    return out;
+  }, [turn.blocks, toolCitations.length, conversationResolvedChunks]);
+
+  // Bucket tool-call citations to the text block whose content (or
+  // immediate predecessor) carries the claim. We assign by claim_span
+  // substring on the raw block text first, then fall back to the
+  // most-recent text block before the cite() tool call. Inline-XML
+  // citations are already scoped to their host block.
+  const toolCitationsByBlock = useMemo(
+    () => assignToolCitationsToTextBlocks(turn.blocks, toolCitations),
+    [turn.blocks, toolCitations],
+  );
 
   return (
     <div className="flex flex-col gap-1">
       {turn.blocks.map((block) => {
         if (block.kind === "text") {
-          const blockCitations = citationsByTextBlock.get(block.uuid) ?? [];
-          const matchedInline =
-            inlineMatchedByBlock.get(block.uuid) ?? new Set<number>();
-          // Footer fallback: only citations that did NOT match inline.
-          // The match is by index in `citations` (the result of
-          // extractCitations), not by chip number — keep both in sync
-          // by comparing on the same array index.
-          const unmatched = blockCitations.filter((c) => {
-            const idx = citations.indexOf(c);
-            return idx < 0 || !matchedInline.has(idx);
-          });
+          const tool = toolCitationsByBlock.get(block.uuid) ?? [];
+          const inline = blockData.get(block.uuid);
+          const blockCitations = [...tool, ...(inline?.citations ?? [])];
+          const renderText = inline?.renderText ?? block.text;
           return (
             <div
               key={block.uuid}
               className="rounded-md bg-well border border-edge-dim p-3 text-fg text-sm"
             >
               <CitedMarkdownContent
-                content={block.text}
+                content={renderText}
                 citations={blockCitations}
-                onMatched={recordMatched(block.uuid)}
               />
-              {unmatched.length > 0 && (
-                <div className="mt-2 pt-2 border-t border-edge-dim flex items-center gap-1.5 flex-wrap">
-                  <span className="text-[10px] uppercase tracking-wider text-fg-muted">
-                    Sources
-                  </span>
-                  {unmatched.map((c) => (
-                    <CitationChip key={c.index} citation={c} />
-                  ))}
-                </div>
-              )}
             </div>
           );
         }
-        // Hide cite() tool calls — the chip is the user-visible
-        // surface. Other tool calls (retrieve, Bash, Read, …) still
-        // render as cards because the analyst wants to see what
-        // Claude looked at.
         if (isCiteToolBlock(block)) return null;
         return <ToolCard key={block.toolUseId} tool={block} />;
       })}
@@ -123,23 +142,12 @@ export default function AssistantTurnBubble({ turn }: Props) {
   );
 }
 
-function setsEqual<T>(a: Set<T>, b: Set<T>): boolean {
-  if (a.size !== b.size) return false;
-  for (const x of a) if (!b.has(x)) return false;
-  return true;
-}
-
-/**
- * Bucket each citation under a text block: prefer the text block
- * whose content contains the citation's `claim_span` as a substring;
- * if none does (e.g. claim_span lost a character to formatting),
- * fall back to the most recent text block emitted before the cite()
- * tool call.
- *
- * Handles edge cases: turn has no text blocks (returns empty), all
- * citations attach to the lone text block, etc.
- */
-function assignCitationsToTextBlocks(
+/** Bucket each tool-call citation under a text block by claim_span
+ *  substring (raw text — CitedMarkdownContent will do its own
+ *  lenient/markdown-aware match later for line-level placement).
+ *  Falls back to the most recent text block emitted before the cite()
+ *  tool call. */
+function assignToolCitationsToTextBlocks(
   blocks: AssistantBlock[],
   citations: Citation[],
 ): Map<string, Citation[]> {
@@ -151,9 +159,8 @@ function assignCitationsToTextBlocks(
   );
   if (textBlocks.length === 0) return out;
 
-  // Build, for each cite tool block, which text block came most
-  // recently before it in arrival order. The reducer preserves
-  // arrival order in `blocks`, so a single forward pass works.
+  // Map each cite() tool block to the most recent preceding text
+  // block. Forward pass — `blocks` is in arrival order.
   const citeToText = new Map<string, string>();
   let lastTextUuid: string | null = null;
   for (const block of blocks) {
@@ -169,9 +176,6 @@ function assignCitationsToTextBlocks(
     }
   }
 
-  // Now re-walk the `blocks` to pull cite() blocks in the order
-  // extractCitations() saw them, and match each Citation to its
-  // tool-use-id via index parity (extractCitations preserves order).
   const citeBlocksInOrder = blocks.filter(
     (b): b is Extract<AssistantBlock, { kind: "tool" }> =>
       b.kind === "tool" &&
@@ -184,8 +188,10 @@ function assignCitationsToTextBlocks(
     const citeBlock = citeBlocksInOrder[i];
     let targetUuid: string | undefined;
 
-    // Prefer claim_span substring match — survives mid-turn re-emits
-    // where Claude reorders cite() calls relative to text growth.
+    // Prefer claim_span substring match on raw text. This is a coarse
+    // first pass — the line-level placement inside CitedMarkdownContent
+    // does its own normalization. Here we just want to pick the right
+    // text block.
     for (const tb of textBlocks) {
       if (tb.text.includes(citation.claimSpan)) {
         targetUuid = tb.uuid;
@@ -196,7 +202,6 @@ function assignCitationsToTextBlocks(
       targetUuid = citeToText.get(citeBlock.toolUseId);
     }
     if (!targetUuid) {
-      // Last fallback: the latest text block in the turn.
       const last = textBlocks[textBlocks.length - 1];
       if (last) targetUuid = last.uuid;
     }

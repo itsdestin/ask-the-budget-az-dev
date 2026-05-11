@@ -6,8 +6,14 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  buildConversationResolvedChunkMap,
   extractCitations,
+  extractInlineCiteTags,
+  findNormalizedMatch,
   formatCopyCitation,
+  injectCiteSentinels,
+  normalizeForMatch,
+  planCitationPlacements,
   type Citation,
 } from "../lib/citation-extract.js";
 import type { AssistantTurn } from "../state/chat-types.js";
@@ -227,6 +233,330 @@ describe("extractCitations", () => {
     expect(citations[0]!.resolved?.docTitle).toBe("JLBC Baseline Book");
   });
 
+  it("extracts failureReason from a cite() that returned ok:false", () => {
+    // The 2026-05-12 red-X chip change: when the cite tool reports
+    // an alignment / bounds rejection, the renderer needs to
+    // surface a failed-chip UI variant. parseCiteAck must thread
+    // the server's error string through to citation.failureReason.
+    const turn = turnWithBlocks([
+      {
+        kind: "tool",
+        toolUseId: "c1",
+        toolName: "cite",
+        input: {
+          chunk_id: "doc-A:p47:s1",
+          span_start: 0,
+          span_end: 50,
+          confidence: "paraphrase",
+          claim_span: "the claim that didn't validate",
+        },
+        status: "complete",
+        output: JSON.stringify({
+          ok: false,
+          error: "paraphrase cite: only 1/8 content words appear...",
+          chunk_text_length: 200,
+          cited_text_preview: "Unrelated section content",
+        }),
+      },
+    ]);
+    const citations = extractCitations(turn);
+    expect(citations).toHaveLength(1);
+    const c = citations[0]!;
+    expect(c.citationId).toBeUndefined();
+    expect(c.failureReason).toContain("paraphrase cite");
+    expect(c.failureReason).toContain("1/8");
+  });
+
+  it("collapses retry chips when the model re-tries a failed cite and succeeds", () => {
+    // The 2026-05-12 UX fix: when the model emits ✗ for a claim
+    // (e.g. verbatim alignment failed) then retries with the same
+    // claim_span and a corrected approach (e.g. paraphrase) that
+    // succeeds, the renderer should show ONLY the successful chip.
+    // The failed attempt is internal-state noise the user
+    // shouldn't see in the final answer.
+    const turn = turnWithBlocks([
+      {
+        kind: "tool",
+        toolUseId: "c1",
+        toolName: "cite",
+        input: {
+          chunk_id: "doc-A:p47:s1",
+          span_start: 0,
+          span_end: 50,
+          confidence: "verbatim",
+          claim_span: "$4,677,100 in FY 2025",
+        },
+        status: "complete",
+        output: JSON.stringify({
+          ok: false,
+          error: "verbatim cite: only 5/10 content words appear...",
+        }),
+      },
+      // Retry with same claim, this time succeeds as paraphrase.
+      {
+        kind: "tool",
+        toolUseId: "c2",
+        toolName: "cite",
+        input: {
+          chunk_id: "doc-A:p47:s1",
+          span_start: 0,
+          span_end: 80,
+          confidence: "paraphrase",
+          claim_span: "$4,677,100 in FY 2025",
+        },
+        status: "complete",
+        output: JSON.stringify({ ok: true, citation_id: "cit-uuid-1" }),
+      },
+    ]);
+    const citations = extractCitations(turn);
+    // Only one chip in the user-visible list — the successful retry.
+    expect(citations).toHaveLength(1);
+    expect(citations[0]!.citationId).toBe("cit-uuid-1");
+    expect(citations[0]!.failureReason).toBeUndefined();
+    // Re-indexed 1-based.
+    expect(citations[0]!.index).toBe(1);
+  });
+
+  it("keeps the LAST failed cite when all attempts for a claim failed", () => {
+    // If the model retries and never recovers, the user still sees
+    // the failed chip (red X) so they know the claim is uncited.
+    // Latest attempt wins because it represents the model's final
+    // judgment of the claim.
+    const turn = turnWithBlocks([
+      {
+        kind: "tool",
+        toolUseId: "c1",
+        toolName: "cite",
+        input: {
+          chunk_id: "doc-A:p47:s1",
+          span_start: 0,
+          span_end: 50,
+          confidence: "verbatim",
+          claim_span: "uncitable claim text",
+        },
+        status: "complete",
+        output: JSON.stringify({ ok: false, error: "first attempt failed" }),
+      },
+      {
+        kind: "tool",
+        toolUseId: "c2",
+        toolName: "cite",
+        input: {
+          chunk_id: "doc-A:p47:s1",
+          span_start: 0,
+          span_end: 80,
+          confidence: "paraphrase",
+          claim_span: "uncitable claim text",
+        },
+        status: "complete",
+        output: JSON.stringify({ ok: false, error: "second attempt failed" }),
+      },
+    ]);
+    const citations = extractCitations(turn);
+    expect(citations).toHaveLength(1);
+    expect(citations[0]!.failureReason).toContain("second attempt failed");
+  });
+
+  it("collapses retry chain where claim_span shape changes (table-row → $X → bare X)", () => {
+    // The 2026-05-12 audit's most user-visible failure: the model
+    // first emits the full markdown table row as claim_span (which
+    // fails alignment because it includes doc metadata), retries
+    // with just the dollar amount ($131,582,200), then retries with
+    // the bare number (131,582,200). All three reference the same
+    // chunk. Without substring-chain dedup, the cell renders 3
+    // chips (✗ ✗ ✓) — but they're all attempts at the same claim.
+    const turn = turnWithBlocks([
+      {
+        kind: "tool",
+        toolUseId: "c1",
+        toolName: "cite",
+        input: {
+          chunk_id: "ema-0000",
+          span_start: 0,
+          span_end: 250,
+          confidence: "paraphrase",
+          claim_span:
+            "| FY 2023 Actual | JLBC FY25 Approps Report | $131,582,200 |",
+        },
+        status: "complete",
+        output: JSON.stringify({ ok: false, error: "overlap below threshold" }),
+      },
+      {
+        kind: "tool",
+        toolUseId: "c2",
+        toolName: "cite",
+        input: {
+          chunk_id: "ema-0000",
+          span_start: 240,
+          span_end: 260,
+          confidence: "verbatim",
+          claim_span: "$131,582,200",
+        },
+        status: "complete",
+        output: JSON.stringify({ ok: false, error: "still below threshold" }),
+      },
+      {
+        kind: "tool",
+        toolUseId: "c3",
+        toolName: "cite",
+        input: {
+          chunk_id: "ema-0000",
+          span_start: 240,
+          span_end: 260,
+          confidence: "verbatim",
+          claim_span: "131,582,200",
+        },
+        status: "complete",
+        output: JSON.stringify({ ok: true, citation_id: "cit-uuid-final" }),
+      },
+    ]);
+    const citations = extractCitations(turn);
+    // Only the successful retry survives — the three forms chain
+    // together as substrings under the same chunk_id.
+    expect(citations).toHaveLength(1);
+    expect(citations[0]!.citationId).toBe("cit-uuid-final");
+  });
+
+  it("does NOT collapse same-chunk cites with non-overlapping claims", () => {
+    // Two distinct facts cited to the same chunk must stay separate.
+    // The substring check only chains cites that contain each other.
+    const turn = turnWithBlocks([
+      {
+        kind: "tool",
+        toolUseId: "c1",
+        toolName: "cite",
+        input: {
+          chunk_id: "doc-A",
+          span_start: 0,
+          span_end: 30,
+          confidence: "verbatim",
+          claim_span: "revenue was up 5 percent",
+        },
+        status: "complete",
+        output: JSON.stringify({ ok: true, citation_id: "cit-1" }),
+      },
+      {
+        kind: "tool",
+        toolUseId: "c2",
+        toolName: "cite",
+        input: {
+          chunk_id: "doc-A",
+          span_start: 40,
+          span_end: 70,
+          confidence: "verbatim",
+          claim_span: "spending grew 3 percent",
+        },
+        status: "complete",
+        output: JSON.stringify({ ok: true, citation_id: "cit-2" }),
+      },
+    ]);
+    const citations = extractCitations(turn);
+    expect(citations).toHaveLength(2);
+  });
+
+  it("preserves separate chips for distinct claim_spans", () => {
+    // Dedup must only collapse repeats of the SAME claim; distinct
+    // claims (even if to the same chunk) stay as separate chips.
+    const turn = turnWithBlocks([
+      {
+        kind: "tool",
+        toolUseId: "c1",
+        toolName: "cite",
+        input: {
+          chunk_id: "doc-A:p47:s1",
+          span_start: 0,
+          span_end: 50,
+          confidence: "verbatim",
+          claim_span: "first distinct claim",
+        },
+        status: "complete",
+        output: JSON.stringify({ ok: true, citation_id: "cit-1" }),
+      },
+      {
+        kind: "tool",
+        toolUseId: "c2",
+        toolName: "cite",
+        input: {
+          chunk_id: "doc-A:p47:s1",
+          span_start: 60,
+          span_end: 100,
+          confidence: "verbatim",
+          claim_span: "second distinct claim",
+        },
+        status: "complete",
+        output: JSON.stringify({ ok: true, citation_id: "cit-2" }),
+      },
+    ]);
+    const citations = extractCitations(turn);
+    expect(citations).toHaveLength(2);
+    expect(citations[0]!.index).toBe(1);
+    expect(citations[1]!.index).toBe(2);
+  });
+
+  it("humanizes the claim_span-too-big MCP schema rejection", () => {
+    // The 2026-05-12 screenshot fix: instead of showing the raw
+    // zod-error blob ("MCP error -32602 ... too_big ... 500 ..."),
+    // surface a one-sentence explanation a non-developer can read.
+    const turn = turnWithBlocks([
+      {
+        kind: "tool",
+        toolUseId: "c1",
+        toolName: "cite",
+        input: {
+          chunk_id: "doc-A:p47:s1",
+          span_start: 0,
+          span_end: 50,
+          confidence: "paraphrase",
+          claim_span: "a claim that was too long",
+        },
+        status: "complete",
+        output:
+          'MCP error -32602: Input validation error: Invalid arguments for tool cite: [\n' +
+          '  {\n    "origin": "string",\n    "code": "too_big",\n    "maximum": 500,\n' +
+          '    "inclusive": true,\n    "path": [\n      "claim_span"\n    ],\n' +
+          '    "message": "Too big: expected string to have <=500 characters"\n  }\n]',
+      },
+    ]);
+    const citations = extractCitations(turn);
+    expect(citations).toHaveLength(1);
+    const reason = citations[0]!.failureReason!;
+    expect(reason).toContain("too long");
+    expect(reason).toContain("500");
+    // No raw error scaffolding leaking through.
+    expect(reason).not.toContain("MCP error");
+    expect(reason).not.toContain("too_big");
+    expect(reason).not.toContain("origin");
+  });
+
+  it("falls back gracefully when an MCP error has no zod payload", () => {
+    // Some MCP errors don't carry a parseable "Invalid arguments
+    // for tool" payload (e.g., transport-level rejections). The
+    // humanizer leaves those alone rather than producing a
+    // misleading paraphrase; the chip still renders as failed.
+    const turn = turnWithBlocks([
+      {
+        kind: "tool",
+        toolUseId: "c1",
+        toolName: "cite",
+        input: {
+          chunk_id: "doc-A:p47:s1",
+          span_start: 0,
+          span_end: 50,
+          confidence: "paraphrase",
+          claim_span: "x".repeat(50),
+        },
+        status: "complete",
+        output:
+          "MCP error -32603: Internal error: subprocess timed out",
+      },
+    ]);
+    const citations = extractCitations(turn);
+    expect(citations).toHaveLength(1);
+    // Raw text preserved because we can't parse a payload from it.
+    expect(citations[0]!.failureReason).toContain("Internal error");
+    expect(citations[0]!.citationId).toBeUndefined();
+  });
+
   it("drops malformed cite() inputs (no chunk_id, no claim_span, bad span)", () => {
     const turn = turnWithBlocks([
       {
@@ -333,5 +663,351 @@ describe("formatCopyCitation", () => {
       claimSpan: "y",
     };
     expect(formatCopyCitation(c)).toBe("chunk loose-chunk");
+  });
+});
+
+describe("buildConversationResolvedChunkMap + cross-turn citation resolution", () => {
+  it("merges retrieve() results across turns; later turns overwrite duplicates", () => {
+    const turn1 = turnWithBlocks([
+      {
+        kind: "tool",
+        toolUseId: "t1-r1",
+        toolName: "retrieve",
+        input: { query: "aviation" },
+        status: "complete",
+        output: RETRIEVE_OUTPUT_OK,
+      },
+    ]);
+    // Second turn re-retrieves the same chunk_id with updated text;
+    // map should reflect the newer metadata.
+    const updated = JSON.stringify({
+      chunks: [
+        {
+          chunk_id: "doc-A:p47:s1",
+          doc_id: "doc-A",
+          doc_title: "JLBC Baseline Book",
+          publisher: "JLBC",
+          fiscal_year: 2024,
+          doc_type: "jlbc-baseline-book",
+          section_path: ["Aviation Fund"],
+          page_start: 99,
+          page_end: 99,
+          bbox: [99, 99, 199, 199],
+          text: "UPDATED TEXT",
+          score: 0.92,
+        },
+      ],
+      top_score: 0.92,
+      retrieval_id: "r-2",
+      bm25_count: 1,
+      dense_count: 1,
+      fused_count: 1,
+    });
+    const turn2 = turnWithBlocks([
+      {
+        kind: "tool",
+        toolUseId: "t2-r1",
+        toolName: "retrieve",
+        input: { query: "aviation" },
+        status: "complete",
+        output: updated,
+      },
+    ]);
+    const map = buildConversationResolvedChunkMap([turn1, turn2]);
+    expect(map.size).toBe(1);
+    const m = map.get("doc-A:p47:s1");
+    expect(m?.pageStart).toBe(99);
+    expect(m?.text).toBe("UPDATED TEXT");
+  });
+
+  it("normalizeForMatch collapses whitespace, folds smart-quotes / dashes / NFKC, lowercases", () => {
+    // Multiple kinds of whitespace + smart quotes + en-dash + NFKC ligature.
+    const input = "  The  \"quote\" is  here–yesﬁne.";
+    const { normalized, indexMap } = normalizeForMatch(input);
+    // Single leading space (from runs collapsed), then text. Final
+    // form should be deterministic across browsers.
+    expect(normalized).toBe(' the "quote" is here-yesfine.');
+    // indexMap is parallel to `normalized`; every entry must be a
+    // valid index into `input`.
+    expect(indexMap.length).toBe(normalized.length);
+    for (const i of indexMap) {
+      expect(i).toBeGreaterThanOrEqual(0);
+      expect(i).toBeLessThan(input.length);
+    }
+  });
+
+  it("findNormalizedMatch survives whitespace, smart-quote, and trailing-punctuation drift", () => {
+    const haystack =
+      "The Aviation Fund balance was “$123 million” as of June 30, 2024.";
+    // Drift: straight quotes; collapsed whitespace; trailing period.
+    const needle = '"$123 million"';
+    const m = findNormalizedMatch(haystack, needle);
+    expect(m).not.toBeNull();
+    const matched = haystack.slice(m!.start, m!.end);
+    // Must include the smart-quotes from the original — we're
+    // returning indices into the original text, not the normalized.
+    expect(matched).toContain("$123 million");
+  });
+
+  it("findNormalizedMatch returns null when the substring genuinely isn't present", () => {
+    expect(findNormalizedMatch("abc", "xyz")).toBeNull();
+  });
+
+  it("findNormalizedMatch tolerates extra whitespace runs in either input", () => {
+    const haystack = "fiscal     year   2026 baseline";
+    const needle = "fiscal year 2026";
+    const m = findNormalizedMatch(haystack, needle);
+    expect(m).not.toBeNull();
+    const matched = haystack.slice(m!.start, m!.end);
+    expect(matched).toMatch(/fiscal\s+year\s+2026/);
+  });
+
+  it("normalizeForMatch strips markdown bold/italic/code so claim_span matches rendered text", () => {
+    // The dominant Opus failure mode (2026-05-07 audit): claim_span
+    // values arrive with markdown formatting tokens (`**`, `_`, etc.)
+    // but the rendered DOM has the tokens stripped.
+    const claimSpanWithMarkdown = "about **$501.9 million** of settlements";
+    const renderedAnswer = "about $501.9 million of settlements";
+    const m = findNormalizedMatch(renderedAnswer, claimSpanWithMarkdown);
+    expect(m).not.toBeNull();
+    expect(renderedAnswer.slice(m!.start, m!.end)).toBe(
+      "about $501.9 million of settlements",
+    );
+  });
+
+  it("normalizeForMatch strips italic markers _ and *", () => {
+    expect(
+      findNormalizedMatch("the value is critical", "the value is _critical_"),
+    ).not.toBeNull();
+    expect(
+      findNormalizedMatch("FY 2026 number", "FY *2026* number"),
+    ).not.toBeNull();
+  });
+
+  it("normalizeForMatch strips backticks around inline code", () => {
+    expect(
+      findNormalizedMatch("section A.R.S. § 35-142 governs", "`A.R.S. § 35-142`"),
+    ).not.toBeNull();
+  });
+
+  it("normalizeForMatch unwraps markdown links to label-only", () => {
+    // [SB1735](url) → SB1735 in normalized form, so a rendered text
+    // containing "SB1735" matches the bracketed claim_span.
+    expect(
+      findNormalizedMatch(
+        "the bill SB1735 passed",
+        "[SB1735](https://example.com)",
+      ),
+    ).not.toBeNull();
+  });
+
+  it("normalizeForMatch treats table pipes as whitespace", () => {
+    // claim_span: a whole markdown table row.
+    const row = "| **FY 2023** | **$6,200,000** | One-time |";
+    // Rendered table: cells separated by spaces in the DOM text content.
+    const rendered = "FY 2023 $6,200,000 One-time";
+    expect(findNormalizedMatch(rendered, row)).not.toBeNull();
+  });
+
+  it("normalizeForMatch collapses both accounting-negative paren conventions", () => {
+    // Two equivalent forms appear in budget docs:
+    //   `$(10,000,000)` — MinerU's dollar-first markdown shape
+    //   `($10,000,000)` — pdfjs text-layer paren-first shape
+    // Both denote a decrease. Collapsing both means a claim that
+    // normalizes to `$10,000,000` matches either accounting form.
+    expect(normalizeForMatch("$(10,000,000)").normalized).toBe("$10,000,000");
+    expect(normalizeForMatch("($10,000,000)").normalized).toBe("$10,000,000");
+    // After backslash strip + paren collapse, the chunk-side shape
+    // matches the PDF-side shape symmetrically.
+    expect(normalizeForMatch("\\$(3,500,000)").normalized).toBe("$3,500,000");
+    // Legitimate parens — like `(Item 9 of Section 116)` — must NOT
+    // be collapsed, because the depth counter only opens when we
+    // see `(` IMMEDIATELY followed by `$` or `$(` immediately
+    // followed by a digit.
+    expect(normalizeForMatch("(Item 9 of Section 116)").normalized)
+      .toBe("(item 9 of section 116)");
+    expect(normalizeForMatch("decrease (Item 116)").normalized)
+      .toBe("decrease (item 116)");
+  });
+
+  it("normalizeForMatch strips CommonMark backslash escapes", () => {
+    // MinerU and other ingest pipelines emit `\$` to prevent `$…$`
+    // from rendering as math. The PDF text layer has the UNESCAPED
+    // form, so without stripping here, findNormalizedMatch fails to
+    // anchor the chunk text to the PDF and PdfPage falls back to the
+    // coarse chunk bbox. This was the 2026-05-11 cite-#14 case.
+    // The 2026-05-12 update added accounting-paren collapse on top
+    // of backslash strip, so `\$(X)` now normalizes to bare `$X`.
+    const { normalized } = normalizeForMatch("\\$(10,000,000)");
+    expect(normalized).toBe("$10,000,000");
+    // Cross-format match works: chunk-text "$(X)" (dollar-first
+    // accounting) against PDF-text "($X)" (paren-first accounting)
+    // both normalize to "$X".
+    const chunkText = "decrease of \\$(10,000,000) from the Fund";
+    const pdfText = "decrease of ($10,000,000) from the Fund";
+    expect(findNormalizedMatch(pdfText, chunkText)).not.toBeNull();
+    // All CommonMark-escapable punctuation gets stripped. The leading
+    // space is from the existing whitespace-collapse logic emitting
+    // when the first chars (`\*` then bare `*`) get stripped — `\*`
+    // strips the backslash, and the bare `*` is then treated as an
+    // italic marker. Same for `_`. Net result: the asterisk/underscore
+    // pair collapses to a single space, then the rest follows.
+    expect(normalizeForMatch("\\* \\_ \\[ \\] \\( \\) \\# \\!").normalized)
+      .toBe(" [ ] ( ) # !");
+  });
+});
+
+describe("planCitationPlacements + injectCiteSentinels", () => {
+  it("anchors a paragraph claim to its source line", () => {
+    const content = [
+      "First paragraph not cited.",
+      "",
+      "The State Aviation Fund got $2,587,400 for FY 2026.",
+    ].join("\n");
+    const placements = planCitationPlacements(content, [
+      { claimSpan: "$2,587,400 for FY 2026" },
+    ]);
+    expect(placements).toEqual([{ citationIndex: 0, lineIndex: 2 }]);
+    const augmented = injectCiteSentinels(content, placements);
+    // Sentinel ends up after the matched line, not at end of content.
+    expect(augmented).toBe(
+      [
+        "First paragraph not cited.",
+        "",
+        "The State Aviation Fund got $2,587,400 for FY 2026. {{cite:0}}",
+      ].join("\n"),
+    );
+  });
+
+  it("anchors a table-row claim to the matching row", () => {
+    const content = [
+      "| Year | Amount | Notes |",
+      "|------|--------|-------|",
+      "| **FY 2023** | **$6,200,000** | One-time |",
+      "| **FY 2024** | **$12,200,000** | Carry-forward |",
+    ].join("\n");
+    // Opus often emits the whole row as claim_span with markdown
+    // pipes and bold markers — both must be stripped during matching.
+    const placements = planCitationPlacements(content, [
+      { claimSpan: "| **FY 2023** | **$6,200,000** | One-time |" },
+    ]);
+    expect(placements[0]?.lineIndex).toBe(2);
+    const augmented = injectCiteSentinels(content, placements);
+    // Chip lands INSIDE the last cell of the matched row — between
+    // the last cell's content and the row-closing `|`. The GFM
+    // table parser eats anything after the row-closing `|`, so an
+    // appended sentinel disappears; injecting before the `|` puts
+    // the sentinel inside the final `<td>` where it renders as a
+    // chip. The 2026-05-12 invisible-cites #1-6 issue was this case.
+    expect(augmented.split("\n")[2]).toBe(
+      "| **FY 2023** | **$6,200,000** | One-time {{cite:0}} |",
+    );
+  });
+
+  it("injects multiple sentinels inside the last cell for table-row claims", () => {
+    // Two cites both anchored to the same table row must BOTH land
+    // inside the last cell; the GFM parser would eat them otherwise.
+    const content = [
+      "| Year | Amount |",
+      "|------|--------|",
+      "| FY 2023 | $6,200,000 |",
+    ].join("\n");
+    const placements = planCitationPlacements(content, [
+      { claimSpan: "| FY 2023 | $6,200,000 |" },
+      { claimSpan: "| FY 2023 | $6,200,000 |" },
+    ]);
+    const augmented = injectCiteSentinels(content, placements);
+    expect(augmented.split("\n")[2]).toBe(
+      "| FY 2023 | $6,200,000 {{cite:0}} {{cite:1}} |",
+    );
+  });
+
+  it("appends unmatched citations to the end of content", () => {
+    const content = "Just a single line.";
+    const placements = planCitationPlacements(content, [
+      { claimSpan: "no such phrase" },
+    ]);
+    expect(placements[0]?.lineIndex).toBe(-1);
+    const augmented = injectCiteSentinels(content, placements);
+    expect(augmented).toBe("Just a single line.\n\n{{cite:0}}");
+  });
+
+  it("groups multiple citations on the same line in original order", () => {
+    const content = "alpha beta gamma";
+    const placements = planCitationPlacements(content, [
+      { claimSpan: "gamma" },
+      { claimSpan: "alpha" },
+    ]);
+    // Both anchor to line 0; injection preserves the citation array
+    // order (cite 0 before cite 1) in the sentinel sequence.
+    const augmented = injectCiteSentinels(content, placements);
+    expect(augmented).toBe("alpha beta gamma {{cite:0}} {{cite:1}}");
+  });
+});
+
+describe("extractInlineCiteTags HTML-entity decoding", () => {
+  it("decodes &quot;, &amp;, &lt;, &gt;, &apos;, &#39; in attribute values", () => {
+    const text = `Claude said <cite chunk_id="c-1" claim_span="he asked &quot;why&quot;? &amp; left">he asked "why"? &amp; left</cite>.`;
+    const { strippedText, citations } = extractInlineCiteTags(text);
+    expect(citations).toHaveLength(1);
+    // claim_span should arrive with literal quotes + ampersand,
+    // matching what's actually rendered in the answer text.
+    expect(citations[0]!.claimSpan).toBe('he asked "why"? & left');
+    // Stripped text keeps the inner content (decoded by the renderer
+    // when the markdown layer sees it, but inner is left as-is here).
+    expect(strippedText).toContain("he asked");
+  });
+
+  it("falls back to inner text when claim_span attr is missing", () => {
+    const text = `Hello <cite chunk_id="c-2">world</cite>.`;
+    const { citations } = extractInlineCiteTags(text);
+    expect(citations).toHaveLength(1);
+    expect(citations[0]!.claimSpan).toBe("world");
+    expect(citations[0]!.chunkId).toBe("c-2");
+  });
+
+  it("emits no citation when neither attr nor inner text is present", () => {
+    expect(extractInlineCiteTags("plain text").citations).toEqual([]);
+  });
+});
+
+describe("buildConversationResolvedChunkMap + cross-turn citation resolution (cont.)", () => {
+  it("extractCitations falls back to additionalResolved for chunks not in this turn", () => {
+    // Turn 1 retrieves the chunk, but no cite. Turn 2 cites it
+    // without re-retrieving. Without the fallback the citation
+    // would render with `resolved=undefined` and the PdfViewer
+    // can't open the source PDF.
+    const turn1 = turnWithBlocks([
+      {
+        kind: "tool",
+        toolUseId: "t1-r1",
+        toolName: "retrieve",
+        input: { query: "aviation" },
+        status: "complete",
+        output: RETRIEVE_OUTPUT_OK,
+      },
+    ]);
+    const turn2 = turnWithBlocks([
+      {
+        kind: "tool",
+        toolUseId: "t2-c1",
+        toolName: "cite",
+        input: {
+          chunk_id: "doc-A:p47:s1",
+          span_start: 0,
+          span_end: 10,
+          confidence: "verbatim",
+          claim_span: "Aviation",
+        },
+        status: "complete",
+      },
+    ]);
+    const conversationMap = buildConversationResolvedChunkMap([turn1, turn2]);
+    const turn2OnlyCitations = extractCitations(turn2);
+    expect(turn2OnlyCitations[0]?.resolved).toBeUndefined();
+
+    const turn2WithFallback = extractCitations(turn2, conversationMap);
+    expect(turn2WithFallback[0]?.resolved?.docId).toBe("doc-A");
+    expect(turn2WithFallback[0]?.resolved?.pageStart).toBe(47);
   });
 });

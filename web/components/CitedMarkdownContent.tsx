@@ -1,35 +1,53 @@
 "use client";
 
-// CitedMarkdownContent — citation-aware variant of MarkdownContent.
-// Renders the same react-markdown pipeline (gfm + highlight + the
-// shared component overrides) but walks every block-level element's
-// rendered children to find string nodes that contain a citation's
-// `claim_span`, splitting and wrapping the match with an inline
-// CitationChip (underline + superscript chip number).
+// CitedMarkdownContent — the chat surface's citation-aware markdown
+// renderer.
 //
-// What this does NOT do:
-//   - Find spans that cross markdown formatting boundaries (e.g. a
-//     claim_span containing **bold** text). The split runs against
-//     post-render text nodes, so a claim_span broken across a
-//     <strong> tag won't match. AssistantTurnBubble's end-of-block
-//     fallback handles those — the chip still appears, just as a
-//     footer row instead of inline.
-//   - Find spans Claude paraphrased (e.g. answer text says
-//     "$2.5M" but claim_span says "$2,500,000"). Same fallback
-//     applies. The system prompt instructs Claude to copy
-//     claim_span verbatim from its answer; this is the recovery
-//     path for when it doesn't.
+// Approach (post-2026-05-07 rework, replacing the prior "walk rendered
+// text nodes for claim_span substring" matcher):
 //
-// Returns the set of citation indexes that actually rendered inline
-// via the `onMatched` callback so the caller can avoid double-
-// rendering matched citations in the footer row.
+//   1. Pre-process: planCitationPlacements() walks the raw markdown
+//      line-by-line and decides which line each citation anchors to.
+//      Matching is done on a normalized + markdown-stripped form of
+//      both the line and the claim_span, so `**$2.5M**` in a cite()
+//      claim_span still finds `$2.5M` in the rendered text.
+//
+//   2. injectCiteSentinels() appends `{{cite:N}}` sentinels to the end
+//      of each matched markdown line (or to the bottom of the content
+//      for unmatched citations). The sentinels are plain text — curly
+//      braces have no special meaning in CommonMark, so they survive
+//      ReactMarkdown intact and land in a text node.
+//
+//   3. ReactMarkdown renders the augmented markdown. Wrapped block
+//      elements (p, li, td, h*, blockquote) walk their children for
+//      `{{cite:N}}` patterns and split each into [text, <CitationChip>,
+//      text]. The chip ends up:
+//        - at end of paragraph (when claim was in a paragraph)
+//        - at end of list item (when claim was in `- foo` line)
+//        - inside the last cell of a table row (when claim was in
+//          `| a | b | c |`)
+//        - in a standalone paragraph at the bottom (unmatched)
+//
+// What this does NOT do (deliberate limitation): inline-underline the
+// matched span. Earlier attempts at underlining inside markdown ran
+// into formatting boundaries (bold/italic/code/table cells) that
+// fragment text nodes and made the underline silently disappear in
+// most real cases. The chip-at-end-of-block placement keeps every
+// citation visibly anchored to the right reading-order context
+// without depending on perfect substring matching, which is what the
+// user actually noticed was broken.
 
-import React, { useMemo, useRef, type ReactNode } from "react";
+import React, { useMemo, type ReactNode } from "react";
 import ReactMarkdown from "react-markdown";
 import rehypeHighlight from "rehype-highlight";
 import remarkGfm from "remark-gfm";
 
-import type { Citation } from "@/lib/citation-extract";
+import {
+  CITE_SENTINEL_RE,
+  injectCiteSentinels,
+  planCitationPlacements,
+  type Citation,
+} from "@/lib/citation-extract";
 
 import CitationChip from "./CitationChip";
 
@@ -39,50 +57,34 @@ const rehypePluginsStable = [rehypeHighlight];
 interface Props {
   content: string;
   citations: Citation[];
-  /** Fired during render with the set of citation indexes that were
-   *  successfully matched and rendered inline. The caller can render
-   *  the unmatched ones as an end-of-block "Sources" footer. */
-  onMatched?: (matchedIndexes: Set<number>) => void;
 }
 
-export default function CitedMarkdownContent({
-  content,
-  citations,
-  onMatched,
-}: Props) {
-  // Per-render state shared across component overrides:
-  //   `matched` — citation indexes already injected (so we don't
-  //   render the same chip twice when claim_span recurs).
-  //   We use a ref to survive across nested renders within a single
-  //   ReactMarkdown pass, then expose the final set to the caller
-  //   via the layout effect below.
-  const matchedRef = useRef<Set<number>>(new Set());
-  matchedRef.current = new Set();
+export default function CitedMarkdownContent({ content, citations }: Props) {
+  // Build the augmented markdown once per (content, citations) change.
+  // Both inputs are stable across re-renders because the parent uses
+  // useMemo for citations, so the augmentation work runs roughly once
+  // per turn, not per keystroke during streaming.
+  const augmentedContent = useMemo(() => {
+    if (citations.length === 0) return content;
+    const placements = planCitationPlacements(content, citations);
+    return injectCiteSentinels(content, placements);
+  }, [content, citations]);
 
-  // Components: take the shared overrides and wrap every text-bearing
-  // block element with the inline-citation walker. Recompute every
-  // render so the closure captures the freshly-reset matchedRef.
+  // Closure that wraps a ReactMarkdown element override and runs the
+  // sentinel-replacement walker on its children. Used for every
+  // text-bearing block element so a sentinel ending up in any of them
+  // gets converted to a chip.
   const components = useMemo(() => {
-    const wrap = (tag: string, render: ChildRenderer) => {
+    const wrap = (render: ChildRenderer) => {
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       return ({ children, ...props }: any) => {
-        const transformed = walkAndInject(
-          children,
-          citations,
-          matchedRef.current,
-        );
+        const transformed = walkAndReplaceSentinels(children, citations);
         return render(transformed, props);
       };
     };
 
-    // The shared overrides live inline below — duplicating
-    // MarkdownContent's keeps both files self-contained and avoids
-    // exporting a private API surface from MarkdownContent. If a
-    // style here drifts from MarkdownContent's, the chat renders
-    // citations differently from any other surface that uses raw
-    // MarkdownContent — keep them in sync via review.
     return {
-      h1: wrap("h1", (children, props) => (
+      h1: wrap((children, props) => (
         <h1
           className="text-xl font-bold mt-6 mb-3 pb-1.5 text-fg border-b border-edge"
           {...props}
@@ -90,7 +92,7 @@ export default function CitedMarkdownContent({
           {children}
         </h1>
       )),
-      h2: wrap("h2", (children, props) => (
+      h2: wrap((children, props) => (
         <h2
           className="text-lg font-bold mt-6 mb-3 pb-1 text-fg border-b border-edge"
           {...props}
@@ -98,22 +100,22 @@ export default function CitedMarkdownContent({
           {children}
         </h2>
       )),
-      h3: wrap("h3", (children, props) => (
+      h3: wrap((children, props) => (
         <h3 className="text-base font-bold mt-5 mb-2 text-fg" {...props}>
           {children}
         </h3>
       )),
-      h4: wrap("h4", (children, props) => (
+      h4: wrap((children, props) => (
         <h4 className="text-sm font-bold mt-4 mb-1.5 text-fg" {...props}>
           {children}
         </h4>
       )),
-      p: wrap("p", (children, props) => (
+      p: wrap((children, props) => (
         <p className="mb-3 last:mb-0 leading-relaxed" {...props}>
           {children}
         </p>
       )),
-      li: wrap("li", (children, props) => (
+      li: wrap((children, props) => (
         <li className="leading-relaxed" {...props}>
           {children}
         </li>
@@ -130,7 +132,7 @@ export default function CitedMarkdownContent({
           {children}
         </ul>
       ),
-      blockquote: wrap("blockquote", (children, props) => (
+      blockquote: wrap((children, props) => (
         <blockquote
           className="border-l-2 border-edge pl-3 my-3 text-fg-dim italic"
           {...props}
@@ -138,7 +140,7 @@ export default function CitedMarkdownContent({
           {children}
         </blockquote>
       )),
-      td: wrap("td", (children, props) => (
+      td: wrap((children, props) => (
         <td className="border border-edge px-3 py-2" {...props}>
           {children}
         </td>
@@ -180,20 +182,13 @@ export default function CitedMarkdownContent({
     };
   }, [citations]);
 
-  // After ReactMarkdown finishes rendering, we know which citations
-  // were matched. Surface that to the parent on the next tick so it
-  // can decide what to render as a footer fallback.
-  React.useLayoutEffect(() => {
-    if (onMatched) onMatched(new Set(matchedRef.current));
-  });
-
   return (
     <ReactMarkdown
       remarkPlugins={remarkPluginsStable}
       rehypePlugins={rehypePluginsStable}
       components={components}
     >
-      {content}
+      {augmentedContent}
     </ReactMarkdown>
   );
 }
@@ -204,21 +199,22 @@ type ChildRenderer = (
   props: any,
 ) => React.ReactElement;
 
-/** Walk the rendered children of one block-level element. For every
- *  string-typed leaf, search for any unmatched citation's claim_span
- *  and split the string into [text, <CitationChip inlineText>, text].
- *  Recurses into nested React elements so citations inside an em/
- *  strong/etc. wrap still get matched — but only at the leaf-string
- *  level, so a claim_span split across formatting won't be matched
- *  here (caught by the footer fallback). */
-function walkAndInject(
+/** Walk a rendered React node tree depth-first. For every leaf string
+ *  child, scan for `{{cite:N}}` sentinels and split the string into
+ *  alternating text + <CitationChip> nodes. Recurses into nested
+ *  elements so a sentinel ending up inside a `<strong>` or `<em>`
+ *  still gets resolved.
+ *
+ *  Sentinels that reference an out-of-range citation index (shouldn't
+ *  happen in practice, but defensive) are rendered as the literal
+ *  sentinel text so the bug is visible rather than silently dropped. */
+function walkAndReplaceSentinels(
   children: ReactNode,
   citations: Citation[],
-  matched: Set<number>,
 ): ReactNode {
   return React.Children.map(children, (child) => {
     if (typeof child === "string") {
-      return splitStringOnCitations(child, citations, matched);
+      return splitStringOnSentinels(child, citations);
     }
     if (typeof child === "number") return child;
     if (child === null || child === undefined) return child;
@@ -226,11 +222,7 @@ function walkAndInject(
       const element = child as React.ReactElement<{ children?: ReactNode }>;
       const props = element.props;
       if (props.children !== undefined) {
-        const newChildren = walkAndInject(
-          props.children,
-          citations,
-          matched,
-        );
+        const newChildren = walkAndReplaceSentinels(props.children, citations);
         return React.cloneElement(element, undefined, newChildren);
       }
       return child;
@@ -239,46 +231,32 @@ function walkAndInject(
   });
 }
 
-function splitStringOnCitations(
+function splitStringOnSentinels(
   text: string,
   citations: Citation[],
-  matched: Set<number>,
-): ReactNode[] {
+): ReactNode {
+  if (!text.includes("{{cite:")) return text;
   const out: ReactNode[] = [];
-  let pos = 0;
-  while (pos < text.length) {
-    let bestIdx = -1;
-    let bestCite = -1;
-    // Find the earliest unmatched citation whose claim_span occurs
-    // in the remaining text. Earliest-first ensures left-to-right
-    // rendering matches the order Claude wrote.
-    for (let i = 0; i < citations.length; i++) {
-      if (matched.has(i)) continue;
-      const span = citations[i]!.claimSpan;
-      if (!span) continue;
-      const idx = text.indexOf(span, pos);
-      if (idx < 0) continue;
-      if (bestIdx < 0 || idx < bestIdx) {
-        bestIdx = idx;
-        bestCite = i;
-      }
+  let lastEnd = 0;
+  // Reset the regex index — global regexes carry state across calls.
+  CITE_SENTINEL_RE.lastIndex = 0;
+  let match: RegExpExecArray | null;
+  while ((match = CITE_SENTINEL_RE.exec(text)) !== null) {
+    const idx = Number.parseInt(match[1]!, 10);
+    const cite = citations[idx];
+    if (match.index > lastEnd) {
+      out.push(text.slice(lastEnd, match.index));
     }
-    if (bestCite < 0) {
-      // No more matches — emit the remainder.
-      out.push(text.slice(pos));
-      break;
+    if (cite) {
+      out.push(<CitationChip key={`cite-${idx}`} citation={cite} />);
+    } else {
+      // Out-of-range — surface the sentinel so the bug is visible.
+      out.push(match[0]);
     }
-    matched.add(bestCite);
-    if (bestIdx > pos) out.push(text.slice(pos, bestIdx));
-    const cite = citations[bestCite]!;
-    out.push(
-      <CitationChip
-        key={`inline-cite-${cite.index}`}
-        citation={cite}
-        inlineText={cite.claimSpan}
-      />,
-    );
-    pos = bestIdx + cite.claimSpan.length;
+    lastEnd = match.index + match[0].length;
   }
-  return out;
+  if (lastEnd < text.length) out.push(text.slice(lastEnd));
+  // Keep the original string when no sentinels were found, so React
+  // doesn't reconcile a wrapping array around plain text needlessly.
+  return out.length > 0 ? out : text;
 }
