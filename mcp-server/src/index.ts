@@ -17,6 +17,7 @@ import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js"
 
 import { loadConfig } from "./config.js";
 import { registerCiteTool } from "./tools/cite.js";
+import { registerListFilterValuesTool } from "./tools/list-filter-values.js";
 import { registerRetrieveTool } from "./tools/retrieve.js";
 
 async function main(): Promise<void> {
@@ -29,6 +30,7 @@ async function main(): Promise<void> {
 
   registerRetrieveTool(server, cfg);
   registerCiteTool(server, cfg);
+  registerListFilterValuesTool(server, cfg);
 
   // stdio transport: YouCoded's MCP host launches us as a subprocess
   // and frames JSON-RPC over stdin/stdout. No HTTP listener here.

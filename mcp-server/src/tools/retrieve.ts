@@ -26,14 +26,37 @@ const filtersSchema = z
       .describe("Restrict to documents covering these fiscal years (any-of)."),
     doc_type: z
       .array(
+        // The enum values below MUST match the `doc_type` values
+        // actually present in the documents table. Pre-2026-05-08
+        // this enum drifted from the DB:
+        //
+        //   - It accepted `baseline-agency` / `approps-report` /
+        //     `baseline-cross-cut` / `primer` — none of which exist
+        //     in the corpus, so any retrieval filtered to one
+        //     returned 0 chunks (silent zero, no error).
+        //   - It rejected the values that DO exist
+        //     (`baseline-per-agency`, `approps-per-agency`,
+        //     `s-pdf`, `bd-pdf`, `bh-pdf`, `detailed-list-pdf`,
+        //     `topic-pdf`) — so when the system prompt told the
+        //     model to filter on those, the call hit a zod
+        //     validation error.
+        //
+        // The fix is to mirror the DB exactly. If a future ingest
+        // adds a new doc_type, extend this enum AND `system-prompt.md`.
+        // The list_filter_values MCP tool is the runtime source of
+        // truth; this enum exists for input validation at the MCP
+        // boundary.
         z.enum([
-          "baseline-cross-cut",
-          "baseline-agency",
-          "approps-report",
+          "baseline-per-agency",
+          "approps-per-agency",
+          "s-pdf",
+          "bd-pdf",
+          "bh-pdf",
+          "detailed-list-pdf",
+          "topic-pdf",
           "afr",
           "governors-budget",
           "budget-bill",
-          "primer",
         ]),
       )
       .optional()

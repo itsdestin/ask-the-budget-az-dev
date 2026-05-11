@@ -66,14 +66,22 @@ interface CiteValidateResponse {
   ok: boolean;
   error?: string;
   chunk_text_length?: number;
+  // When validation fails for an alignment reason, the sidecar echoes
+  // back the first ~500 chars of chunk.text[span_start:span_end]. We
+  // surface this to the model so it can SEE what its span actually
+  // contained and pick a better one on retry.
+  cited_text_preview?: string;
 }
 
 const TOOL_DESCRIPTION =
   "Record that the immediately preceding assistant claim is supported by " +
   "a specific span of a retrieved chunk. Call once per distinct claim. " +
   "Do NOT invent chunk_ids — only use ids returned from a prior retrieve() " +
-  "call. The tool validates chunk_id and span bounds against the database " +
-  "and returns ok:false if either is wrong, so you can self-correct.";
+  "call. The tool validates chunk_id, span bounds, span breadth, and " +
+  "alignment of the cited text with claim_span. Returns ok:false with a " +
+  "descriptive error (and the actual cited-span preview on alignment " +
+  "failures) so you can self-correct by picking a different span or a " +
+  "different chunk.";
 
 interface CiteSuccess {
   ok: true;
@@ -84,6 +92,7 @@ interface CiteFailure {
   ok: false;
   error: string;
   chunk_text_length?: number;
+  cited_text_preview?: string;
 }
 
 export type CiteResult = CiteSuccess | CiteFailure;
@@ -111,6 +120,12 @@ export function makeCiteHandler(
 
     let validate: CiteValidateResponse;
     try {
+      // Forward claim_span + confidence so the sidecar can run the
+      // alignment check (verbatim substring match OR paraphrase
+      // content-word overlap). Without these the sidecar falls back
+      // to the chunk_id + bounds-only validation — useful for
+      // back-compat but it misses the most common failure mode
+      // (right chunk, wrong span).
       validate = await postJson<CiteValidateResponse>(
         cfg,
         "/cite/validate",
@@ -118,6 +133,8 @@ export function makeCiteHandler(
           chunk_id: input.chunk_id,
           span_start: input.span_start,
           span_end: input.span_end,
+          claim_span: input.claim_span,
+          confidence: input.confidence,
         },
         fetcher,
       );
@@ -147,6 +164,14 @@ export function makeCiteHandler(
         error: validate.error ?? "validation failed",
         ...(validate.chunk_text_length !== undefined
           ? { chunk_text_length: validate.chunk_text_length }
+          : {}),
+        // The preview is the model's primary feedback signal for
+        // alignment failures: "here is the text you actually cited;
+        // does it support your claim?" Forwarding it as a structured
+        // field rather than baking it into `error` lets the model
+        // (and future log readers) parse it cleanly.
+        ...(validate.cited_text_preview !== undefined
+          ? { cited_text_preview: validate.cited_text_preview }
           : {}),
       };
     }

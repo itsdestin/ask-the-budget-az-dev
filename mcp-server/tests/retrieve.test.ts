@@ -26,7 +26,7 @@ describe("retrieve input schema", () => {
       query: "balance",
       filters: {
         fiscal_year: [2027],
-        doc_type: ["baseline-cross-cut"],
+        doc_type: ["baseline-per-agency"],
         publisher: ["jlbc"],
         agency_canonical_id: ["agency:adc"],
         fund_canonical_id: ["fund:aviation"],
@@ -36,6 +36,53 @@ describe("retrieve input schema", () => {
     });
     expect(parsed.filters?.fiscal_year).toEqual([2027]);
     expect(parsed.top_k).toBe(10);
+  });
+
+  it("accepts every doc_type value present in the corpus", () => {
+    // Regression: pre-2026-05-08 the enum drifted from the DB and
+    // rejected the values that actually exist in the documents
+    // table. This test pins the enum to the canonical list so a
+    // future ingest doesn't silently break filtering again.
+    const allDocTypes = [
+      "baseline-per-agency",
+      "approps-per-agency",
+      "s-pdf",
+      "bd-pdf",
+      "bh-pdf",
+      "detailed-list-pdf",
+      "topic-pdf",
+      "afr",
+      "governors-budget",
+      "budget-bill",
+    ];
+    for (const dt of allDocTypes) {
+      expect(() =>
+        retrieveInputSchema.parse({
+          query: "x",
+          filters: { doc_type: [dt] },
+        }),
+      ).not.toThrow();
+    }
+  });
+
+  it("rejects doc_type values that DON'T exist in the corpus", () => {
+    // Pre-2026-05-08 these would have been accepted (and produced
+    // silent zero-result retrievals). Pin the rejection so the
+    // enum can't drift back.
+    const invalidDocTypes = [
+      "baseline-agency",      // missing the "per-"
+      "approps-report",        // wrong shape entirely
+      "baseline-cross-cut",    // legacy name
+      "primer",                // doesn't exist in DB
+    ];
+    for (const dt of invalidDocTypes) {
+      expect(() =>
+        retrieveInputSchema.parse({
+          query: "x",
+          filters: { doc_type: [dt] },
+        }),
+      ).toThrow();
+    }
   });
 
   it("rejects fiscal_year with the wrong primitive type", () => {

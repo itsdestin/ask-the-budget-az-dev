@@ -68,7 +68,13 @@ describe("cite input schema", () => {
 });
 
 describe("cite handler", () => {
-  it("returns ok:true with a citation_id when the bridge validates", async () => {
+  it("forwards claim_span+confidence to the bridge alongside the span bounds", async () => {
+    // The 2026-05-11 alignment-check addition: claim_span and
+    // confidence are now part of the validate request so the sidecar
+    // can verify the cited text actually supports the claim. If the
+    // MCP server stops forwarding them, the sidecar silently falls
+    // back to bounds-only validation — which is the exact failure
+    // mode this fix targets.
     const fetcher = vi.fn(async (url: RequestInfo | URL, opts?: RequestInit) => {
       expect(String(url)).toMatch(/\/cite\/validate$/);
       const body = JSON.parse(opts?.body as string);
@@ -76,6 +82,8 @@ describe("cite handler", () => {
         chunk_id: "test-doc::0",
         span_start: 0,
         span_end: 35,
+        claim_span: "ADC's FY 2025 General Fund appropriation was $1.74B.",
+        confidence: "verbatim",
       });
       return new Response(JSON.stringify({ ok: true, chunk_text_length: 200 }), {
         status: 200,
@@ -96,6 +104,47 @@ describe("cite handler", () => {
     expect(decoded.ok).toBe(true);
     expect(typeof decoded.citation_id).toBe("string");
     expect(decoded.citation_id.length).toBe(36); // UUID v4
+  });
+
+  it("surfaces cited_text_preview to the model on alignment failure", async () => {
+    // When the sidecar rejects on alignment, it returns the actual
+    // cited slice so the model knows what its span_start/span_end
+    // pointed at and can pick a better one. The MCP server must
+    // forward this preview field — without it the model sees only
+    // "paraphrase: overlap too low" with no signal on what it
+    // actually cited.
+    const fetcher = vi.fn(
+      async () =>
+        new Response(
+          JSON.stringify({
+            ok: false,
+            error:
+              "paraphrase cite: only 0/4 content words from the claim " +
+              "appear in the cited span (ratio 0.00, threshold 0.60). " +
+              "The cited span likely doesn't support this claim — pick " +
+              "a different chunk or a different span within the same chunk.",
+            chunk_text_length: 800,
+            cited_text_preview:
+              "Operating Budget composition: General Fund $342,500.",
+          }),
+          { status: 200 },
+        ),
+    );
+
+    const handler = makeCiteHandler(loadConfig(), fetcher);
+    const result = await handler({
+      chunk_id: "c1",
+      span_start: 0,
+      span_end: 80,
+      confidence: "paraphrase",
+      claim_span: "$6,000,000 for secure ballot paper",
+    });
+
+    const decoded = JSON.parse(result.content[0]!.text as string);
+    expect(decoded.ok).toBe(false);
+    expect(decoded.error).toContain("paraphrase");
+    expect(decoded.cited_text_preview).toContain("Operating Budget");
+    expect(decoded.chunk_text_length).toBe(800);
   });
 
   it("returns ok:false on unknown chunk_id with the bridge's error", async () => {
