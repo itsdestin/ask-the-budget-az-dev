@@ -10,7 +10,7 @@ A Q&A tool over Arizona state budget documents — JLBC Appropriations Reports, 
 
 **Phases 0, 1a, 1b — ✓ Done** (slice-validated through 2026-05-07). Phase 1c is substantially done; volume ingest pending. **For the canonical, kept-current state see [STATUS.md](STATUS.md).** The phase plans under `docs/superpowers/` capture historical design intent but have not been updated as features shipped.
 
-**Volume ingest** (Phase 1b WS8 prerequisite): hand-off prompt at [`PROMPT-volume-ingest.md`](PROMPT-volume-ingest.md). Targets all four publishers (JLBC + Legislature + Gov + AGAO) per decision D12. Currently 5 docs / 161 chunks (slice); not yet expanded to full corpus.
+**Corpus today (2026-05-12):** **382 documents / 7,755 chunks** across all four publishers (JLBC + Legislature + Gov + AGAO) for FY 2025 (enacted), FY 2026 (baseline + budget bill), and FY 2027 (baseline + executive budget). Older FYs and a few in-cycle gaps (FY26 + FY27 approps reports) are not yet ingested — full breakdown in [STATUS.md](STATUS.md). Hand-off prompt for additional ingest at [`PROMPT-volume-ingest.md`](PROMPT-volume-ingest.md).
 
 For architectural context, see [`docs/superpowers/specs/2026-05-04-ask-the-budget-az-design.md`](docs/superpowers/specs/2026-05-04-ask-the-budget-az-design.md). For the v1 decisions that shape Phase 1b/1c, see [`docs/superpowers/decisions/2026-05-06-phase-1bc-architecture.md`](docs/superpowers/decisions/2026-05-06-phase-1bc-architecture.md).
 

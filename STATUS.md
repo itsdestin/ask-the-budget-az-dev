@@ -15,10 +15,10 @@ plans) to understand current state.
 | Phase | Status | Notes |
 |---|---|---|
 | Phase 0 — Investigation | ✓ Done (2026-05-06) | Findings memo + chunk-shape + data-model docs |
-| Phase 1a — Ingest + chunking | ✓ Done on slice (2026-05-06) | 5 docs / 161 chunks; volume ingest pending |
-| Phase 1b — Storage + retrieval | ✓ Done on slice (2026-05-07) | Hybrid pipeline live; eval (WS8) blocked on volume ingest |
+| Phase 1a — Ingest + chunking | ✓ Done on slice (2026-05-06), volume ingest substantially complete (2026-05-12) | 382 docs / 7,755 chunks; missing older FYs + a few in-cycle gaps |
+| Phase 1b — Storage + retrieval | ✓ Done on slice (2026-05-07), volume-validated implicitly | Hybrid pipeline live and serving 7K+ chunks; eval harness (WS8) still pending |
 | Phase 1c — Synthesis + UI | 🟡 Substantially done | All user-visible surfaces shipped; faithfulness verifier + audit log not built |
-| Volume ingest | 🔴 Not started | Required for Phase 1b WS8 (recall@K eval) and Phase 1c scaling |
+| Volume ingest | 🟡 Mostly done | FY25 + FY26 + FY27 across all 4 publishers; gaps: older FYs (FY24 and back), FY26 Approps Report, FY27 Approps/Budget bill |
 | Phase 2 — Companion + verify-mode | 🔴 Not started | Defers until v1 demonstrates internal value |
 
 ---
@@ -74,8 +74,26 @@ plans) to understand current state.
 ### Not yet implemented (per the Phase 1c plan)
 - **Faithfulness verifier (WS3).** Post-generation NLI-style check that strips claims whose cites don't actually back them. Currently the server-side `/cite/validate` is doing the catch-most-failures work but isn't NLI-grade.
 - **Audit log writer (WS5).** No persistent record of `(retrieval_id, citation_id, claim_span)` tuples for offline review.
-- **Eval expansion (Phase 1b WS8).** Recall@K, citation-faithfulness rates, refusal precision — all blocked on volume ingest.
-- **Volume ingest.** Currently 5 docs / 161 chunks. Target: all four publishers × multiple FYs. Hand-off prompt at [`PROMPT-volume-ingest.md`](PROMPT-volume-ingest.md).
+- **Eval expansion (Phase 1b WS8).** Recall@K, citation-faithfulness rates, refusal precision. No longer blocked on volume ingest (the corpus is now 7K+ chunks across the FY25–FY27 cycle), just unbuilt.
+
+### Volume ingest — current corpus
+**382 documents / 7,755 chunks** as of 2026-05-12. Coverage:
+
+| Publisher | FY 2025 | FY 2026 | FY 2027 |
+|---|---|---|---|
+| JLBC | Approps Report (111 per-agency) | Baseline (110 per-agency + 6 bd-pdf + 7 bh-pdf + 16 detailed-list + 2 topic) | Baseline (110 per-agency + 15 s-pdf + 2 topic) |
+| Legislature | — | budget-bill | — |
+| Governor | — | — | Executive Budget |
+| AGAO | AFR (1) | — | — |
+
+**Known gaps to fill** (none blocking but worth scoping):
+- Older FYs entirely — FY24, FY23, FY22 baselines + approps reports + AFRs
+- FY 2026 Approps Report (summarizes what actually passed in 2025 session)
+- FY 2027 Approps Report / Budget bill (if/when it passes)
+- Older Governor's Budgets (FY26, FY25)
+- AGAO AFRs for FY24 and FY23
+
+Hand-off prompt for additional ingest at [`PROMPT-volume-ingest.md`](PROMPT-volume-ingest.md).
 
 ### Recently fixed (this session) — verify in next dogfood pass
 - Citation hover tooltip (now stays open as cursor crosses the 4px gap)
