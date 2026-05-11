@@ -8,37 +8,69 @@ A Q&A tool over Arizona state budget documents — JLBC Appropriations Reports, 
 
 ## Status
 
-**Phase 0 — Investigation:** ✓ closed 2026-05-06. Outcomes in [`docs/superpowers/investigations/2026-05-06-phase-0-findings.md`](docs/superpowers/investigations/2026-05-06-phase-0-findings.md) (memo), [`2026-05-05-chunk-shape-decisions.md`](docs/superpowers/investigations/2026-05-05-chunk-shape-decisions.md) (chunking), and [`2026-05-06-data-model.md`](docs/superpowers/investigations/2026-05-06-data-model.md) (publisher landscape + cross-doc relationships).
+**Phases 0, 1a, 1b — ✓ Done** (slice-validated through 2026-05-07). Phase 1c is substantially done; volume ingest pending. **For the canonical, kept-current state see [STATUS.md](STATUS.md).** The phase plans under `docs/superpowers/` capture historical design intent but have not been updated as features shipped.
 
-**Phase 1a — Ingest + chunking:** ✓ closed 2026-05-06 (slice-validated). Tag `phase-1a-validated-slice`. 5 docs / 161 chunks / 91.3% agency-stamped / 227 funds. Hand-off contract at [`data/chunks/MANIFEST.md`](data/chunks/MANIFEST.md).
+**Volume ingest** (Phase 1b WS8 prerequisite): hand-off prompt at [`PROMPT-volume-ingest.md`](PROMPT-volume-ingest.md). Targets all four publishers (JLBC + Legislature + Gov + AGAO) per decision D12. Currently 5 docs / 161 chunks (slice); not yet expanded to full corpus.
 
-**Phase 1b — Storage + retrieval:** ✓ shipped on slice (2026-05-07). Postgres + pgvector + ParadeDB; full hybrid pipeline `retrieve(RetrievalRequest) → RetrievalResult` (BM25 → dense → RRF → Voyage rerank-2.5). 373 pytest passing. WS8 (eval / recall@K) blocked on volume corpus and runs concurrent with Phase 1c. See [`docs/superpowers/plans/2026-05-06-phase-1b-storage-and-retrieval.md`](docs/superpowers/plans/2026-05-06-phase-1b-storage-and-retrieval.md).
-
-**Phase 1c — Synthesis + UI:** in progress. Shipped: Budget MCP server with `retrieve` + `cite` tools (`mcp-server/`), FastAPI retrieval sidecar (`retrieval/api.py`), `YouCodedSessionProvider` over `ws://localhost:9900` (`web/lib/`), Next.js chat skeleton with theme tokens mirroring YouCoded (`web/app/`, `web/components/`, `web/state/`). Pending: per-tool tool cards, citation chips, refusal banner, PDF viewer, faithfulness verifier, audit-log writes, eval expansion. 53/53 vitest in `web/`. See [`docs/superpowers/plans/2026-05-06-phase-1c-companion-and-ui.md`](docs/superpowers/plans/2026-05-06-phase-1c-companion-and-ui.md).
-
-**Volume ingest** (Phase 1b WS8 prerequisite): handed off to a desktop session via [`PROMPT-volume-ingest.md`](PROMPT-volume-ingest.md). Targets all four publishers (JLBC + Legislature + Gov + AGAO) per decision D12.
-
-For architectural context across all phases, see [`docs/superpowers/specs/2026-05-04-ask-the-budget-az-design.md`](docs/superpowers/specs/2026-05-04-ask-the-budget-az-design.md). For the v1-specific decisions that shape Phase 1b/1c, see [`docs/superpowers/decisions/2026-05-06-phase-1bc-architecture.md`](docs/superpowers/decisions/2026-05-06-phase-1bc-architecture.md).
+For architectural context, see [`docs/superpowers/specs/2026-05-04-ask-the-budget-az-design.md`](docs/superpowers/specs/2026-05-04-ask-the-budget-az-design.md). For the v1 decisions that shape Phase 1b/1c, see [`docs/superpowers/decisions/2026-05-06-phase-1bc-architecture.md`](docs/superpowers/decisions/2026-05-06-phase-1bc-architecture.md).
 
 ## Running it locally
 
-```bash
-# 1. Postgres + retrieval pipeline (Phase 1b — already populated on the slice)
-cd db && docker compose up -d
-cd .. && uv run python -m db.validate
+After cloning, the one-shot setup is:
 
-# 2. FastAPI retrieval sidecar (Phase 1c WS6) — feeds the Budget MCP server
+```bash
+bash setup.sh                 # installs deps, brings up Postgres
+# bash setup.sh --verify      # ...also runs every test suite
+```
+
+Then create `.env.local` at the repo root (Voyage API key required) and start the three runtime processes in separate terminals:
+
+```bash
+# 1. FastAPI retrieval sidecar (port 9200) — feeds the Budget MCP server
+set -a; source .env.local; set +a
 uv run uvicorn retrieval.api:app --host 127.0.0.1 --port 9200
 
-# 3. Budget MCP server (Phase 1c WS1) — register with YouCoded
-cd mcp-server && npm install && npm run build
-node scripts/register.mjs    # writes ~/.claude.json; restart YouCoded
+# 2. Budget MCP server — registers with YouCoded
+node mcp-server/scripts/register.mjs    # writes ~/.claude.json; restart YouCoded
 
-# 4. Web UI (Phase 1c WS4a) — Next.js dev server
-cd web && npm install && npm run dev
+# 3. Web UI (port 3000) — Next.js dev server
+( cd web && npm run dev )
 # Open http://localhost:3000 (requires YouCoded running; reads
 # the persisted token from ~/.claude/.remote-tokens.json).
 ```
+
+## Moving to a new device
+
+Everything is in this single git repo. To launch on a fresh device:
+
+```bash
+# Prereqs (install once per device): docker, node 20+, npm, python 3.12, uv
+git clone https://github.com/itsdestin/ask-the-budget-az-dev.git
+cd ask-the-budget-az-dev
+bash setup.sh
+```
+
+What setup.sh does NOT bring across (you must handle these manually):
+
+1. **`.env.local`** — `scp` it from a working machine, or recreate by hand. Voyage API key is mandatory for embeddings + reranking.
+2. **The Postgres data** — chunks + embeddings live in `db/data/` (gitignored). Two options:
+
+   ```bash
+   # Option A — fast: copy the volume from a working machine.
+   scp -r olduser@oldhost:/path/to/ask-the-budget-az-dev/db/data ./db/data
+   ( cd db && docker compose restart )
+
+   # Option B — slow: re-run the ingest pipeline. Costs Voyage API calls
+   # and several hours. See PROMPT-volume-ingest.md for the hand-off.
+   ```
+
+3. **Cached PDFs** (optional) — `data/cached-pdfs/` is also gitignored but regenerable from source URLs by the ingest pipeline.
+
+External dependencies that live OUTSIDE the repo:
+- **Docker Desktop** for the Postgres container
+- **YouCoded** (or Claude Code) running on the device — provides the LLM session via `ws://localhost:9900`. Not in this repo.
+
+For the current state of every feature + the open-issues list, see [STATUS.md](STATUS.md).
 
 ## v1 architecture in one paragraph
 
@@ -53,6 +85,7 @@ v1 is a multi-turn budget Q&A web app on Destin's machine that hard-depends on a
 
 ## Quick links
 
+- **[Current status + open issues](STATUS.md)** — the canonical state of the project
 - [Design spec](docs/superpowers/specs/2026-05-04-ask-the-budget-az-design.md) (post-2026-05-06 reframe)
 - [v1 decisions doc](docs/superpowers/decisions/2026-05-06-phase-1bc-architecture.md) — twelve interlocking decisions for Phase 1b/1c
 - [Citation-tool schema](docs/superpowers/decisions/2026-05-06-citation-tool-schema.md) — locked `retrieve()` / `cite()` shape
