@@ -73,9 +73,18 @@ export default function Page() {
           existing `max-w-3xl mx-auto` inside ChatThread, so it doesn't
           stretch awkwardly when the viewer is closed. */}
       <div className="flex-1 min-h-0 flex flex-row">
+        {/* `min-h-0` here is load-bearing: without it the flex-col
+            child (ChatThread) doesn't get a bounded height, its
+            overflow-y-auto can't engage, and the document body
+            scrolls instead — breaking ChatThread's scroll listener
+            and the "stop following bottom when user scrolls up"
+            UX. See ChatThread.tsx for the corresponding fix on its
+            own outer div. */}
         <div
           className={
-            viewerOpen ? "flex-1 min-w-0 flex flex-col border-r border-edge" : "flex-1 flex flex-col"
+            viewerOpen
+              ? "flex-1 min-w-0 min-h-0 flex flex-col border-r border-edge"
+              : "flex-1 min-h-0 flex flex-col"
           }
         >
           <ChatThread state={state} />

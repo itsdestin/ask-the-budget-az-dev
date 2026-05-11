@@ -59,7 +59,10 @@ function parseRetrieveOutput(raw: string | undefined): RetrieveOutput | null {
 }
 
 export default function RetrieveView({ tool }: { tool: ToolBlock }) {
-  const query = (tool.input.query as string) || "";
+  // The card header already shows the query string; we don't echo
+  // it again here. We DO surface filters (they're the most decision-
+  // shaping input the model chose) and the pipeline counters (which
+  // tell the user how the corpus narrowed the result).
   const filters = tool.input.filters as Record<string, unknown> | undefined;
   const error = tool.isError && tool.output ? tool.output : undefined;
   const parsed = error ? null : parseRetrieveOutput(tool.output);
@@ -77,28 +80,31 @@ export default function RetrieveView({ tool }: { tool: ToolBlock }) {
 
   return (
     <div className="space-y-2">
-      <div className="flex items-center gap-2 flex-wrap text-xs">
-        <span className="text-fg-muted">Query</span>
-        <code className="text-fg bg-panel px-1.5 py-0.5 rounded-sm font-mono">
-          {query || "(empty)"}
-        </code>
-        {filterChips.map((c) => (
-          <Chip key={c.label} tone="info">
-            {c.label}: {c.value}
-          </Chip>
-        ))}
-      </div>
+      {filterChips.length > 0 && (
+        <div className="flex items-center gap-1.5 flex-wrap text-xs">
+          <span className="text-fg-muted text-[10px] uppercase tracking-wider">
+            Filters
+          </span>
+          {filterChips.map((c) => (
+            <Chip key={c.label} tone="info">
+              {c.label}: {c.value}
+            </Chip>
+          ))}
+        </div>
+      )}
 
       {parsed && (
         <div className="flex items-center gap-2 flex-wrap text-[11px] text-fg-muted">
-          <span>top_score {parsed.top_score.toFixed(3)}</span>
-          <span>·</span>
           <span>
-            BM25 {parsed.bm25_count} · dense {parsed.dense_count} · fused{" "}
-            {parsed.fused_count}
+            {parsed.chunks.length} chunk
+            {parsed.chunks.length === 1 ? "" : "s"}
           </span>
           <span>·</span>
-          <span>{parsed.chunks.length} chunks returned</span>
+          <span>top score {parsed.top_score.toFixed(2)}</span>
+          <span className="text-fg-faint">
+            ({parsed.bm25_count} bm25 / {parsed.dense_count} dense /{" "}
+            {parsed.fused_count} fused)
+          </span>
         </div>
       )}
 
@@ -169,14 +175,11 @@ function ChunkRow({ chunk, rank }: { chunk: ChunkPreview; rank: number }) {
         </span>
       </div>
       {chunk.section_path.length > 0 && (
-        <div className="text-[10px] text-fg-muted mb-1 font-mono truncate">
+        <div className="text-[10px] text-fg-muted mb-1 truncate">
           {chunk.section_path.join(" › ")}
         </div>
       )}
       <div className="text-fg-dim whitespace-pre-wrap">{snippet}</div>
-      <div className="text-[10px] text-fg-faint font-mono mt-1">
-        {chunk.chunk_id}
-      </div>
     </li>
   );
 }

@@ -57,6 +57,14 @@ export interface YouCodedSessionProviderOptions
    *  created. Defaults to `os.tmpdir()/ask-the-budget-az`. Tests pin
    *  this to a temp path so they can assert on contents. */
   runtimeDirRoot?: string;
+  /** Claude Code model slug to use for every session this provider
+   *  creates. When unset, YouCoded falls back to whatever the user's
+   *  default-model preference is (currently Haiku for new sessions,
+   *  per the YouCoded session manager). For the budget app's
+   *  dogfood loop we want Opus across the board — the
+   *  retrieve→cite→refuse discipline benefits noticeably from the
+   *  larger model on tool-call planning and claim_span fidelity. */
+  model?: string;
 }
 
 export class YouCodedSessionProvider implements LLMProvider {
@@ -65,6 +73,7 @@ export class YouCodedSessionProvider implements LLMProvider {
   private readonly systemPromptPath: string | undefined;
   private readonly systemPromptContextPath: string | undefined;
   private readonly runtimeDirRoot: string;
+  private readonly model: string | undefined;
   /** Per-conversation materialized runtime dir, used to clean up on
    *  endConversation. Only populated when `systemPromptPath` is set. */
   private runtimeDirByConversation = new Map<string, string>();
@@ -96,6 +105,7 @@ export class YouCodedSessionProvider implements LLMProvider {
     this.systemPromptContextPath = opts.systemPromptContextPath;
     this.runtimeDirRoot =
       opts.runtimeDirRoot ?? join(tmpdir(), "ask-the-budget-az");
+    this.model = opts.model;
   }
 
   /** Build a per-conversation tempdir containing CLAUDE.md (and the
@@ -193,8 +203,22 @@ export class YouCodedSessionProvider implements LLMProvider {
   }
 
   /** Lazy connect — `startConversation` triggers it. Re-uses the same
-   *  client connection across many conversations. */
+   *  client connection across many conversations.
+   *
+   *  Stale-connection guard: once the original connectPromise resolves,
+   *  the client may still LOSE its socket (YouCoded restart, network
+   *  blip, idle close). The promise stays fulfilled so a naive cache
+   *  short-circuit would leave the provider thinking it's connected
+   *  while every subsequent request throws "not connected — call
+   *  connect() first". We probe `client.isConnected` BEFORE returning
+   *  the cached promise; if the socket is gone, drop the cache and
+   *  re-handshake. This was the root cause of the 2026-05-08 dead-
+   *  singleton outage where the budget app silently broke after the
+   *  WS server momentarily disappeared. */
   private async ensureConnected(): Promise<void> {
+    if (this.connectPromise && !this.client.isConnected) {
+      this.connectPromise = null;
+    }
     if (!this.connectPromise) {
       this.connectPromise = this.client.connect().catch((err) => {
         // Reset so a retry can try again — otherwise a transient
@@ -236,6 +260,13 @@ export class YouCodedSessionProvider implements LLMProvider {
         // the analyst opted into the workflow by opening the chat. We do
         // NOT want a permission prompt every time Claude calls retrieve.
         skipPermissions: true,
+        // Pin the model for the budget app's constrained-agent flow.
+        // When unset, YouCoded picks its default — currently Haiku
+        // for new sessions, which has been observed to emit inline
+        // <cite> XML tags instead of calling the cite() tool. Opus
+        // is more reliable on tool-call discipline and on producing
+        // verbatim claim_spans.
+        ...(this.model !== undefined ? { model: this.model } : {}),
       });
     } catch (err) {
       // Roll back the materialized dir if YouCoded refused — keeping

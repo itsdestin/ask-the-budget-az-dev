@@ -48,6 +48,13 @@ export function getProvider(): YouCodedSessionProvider {
     opts.systemPromptContextPath =
       process.env.BUDGET_SYSTEM_PROMPT_CONTEXT_PATH ??
       resolve(repoRoot, "data", "system-prompt-context.md");
+    // Pin every conversation to Opus 4.7 unless overridden. The
+    // constrained-agent workflow (retrieve → cite → refuse) is
+    // measurably more reliable on Opus; Haiku has been observed
+    // emitting inline <cite> XML markup instead of calling the
+    // cite() MCP tool, which breaks the chip → PdfViewer flow even
+    // when the model has the right facts.
+    opts.model = process.env.BUDGET_MODEL ?? "claude-opus-4-7";
     g[GLOBAL_KEY] = new YouCodedSessionProvider(opts);
   }
   return g[GLOBAL_KEY]!;

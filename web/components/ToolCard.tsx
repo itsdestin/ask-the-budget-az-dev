@@ -1,13 +1,18 @@
 "use client";
 
-// ToolCard shell. The header (status dot, tool name, one-line input
+// ToolCard shell. The header (status dot, tool label, one-line input
 // summary, expand toggle) lives here; the expanded body is rendered
 // by `tool-views/ToolBody.tsx`, which dispatches per-tool views.
 // Mirrors YouCoded's split between ToolCard.tsx (shell) and
 // tool-views/ToolBody.tsx (per-tool dispatcher) per D9.
+//
+// Display logic — friendly labels + summary text — lives in
+// lib/tool-display.ts so per-tool views can reuse the same naming
+// without re-deriving from raw MCP names.
 
 import { useState } from "react";
 
+import { toolDisplayLabel, toolHeaderSummary } from "@/lib/tool-display";
 import type { AssistantBlock } from "@/state/chat-types";
 import ToolBody from "./tool-views/ToolBody";
 
@@ -31,6 +36,8 @@ const STATUS_LABEL: Record<ToolBlock["status"], string> = {
 
 export default function ToolCard({ tool }: Props) {
   const [open, setOpen] = useState(false);
+  const label = toolDisplayLabel(tool.toolName);
+  const summary = toolHeaderSummary(tool.toolName, tool.input);
 
   return (
     <div className="rounded-md border border-edge bg-panel my-2 overflow-hidden">
@@ -45,59 +52,17 @@ export default function ToolCard({ tool }: Props) {
           }`}
           aria-label={STATUS_LABEL[tool.status]}
         />
-        <span className="font-bold text-fg shrink-0">{tool.toolName}</span>
-        <ToolHeaderSummary tool={tool} />
-        <span className="ml-auto text-fg-muted text-xs select-none">
+        <span className="font-medium text-fg shrink-0">{label}</span>
+        {summary && (
+          <span className="text-fg-dim truncate text-xs min-w-0">
+            {summary}
+          </span>
+        )}
+        <span className="ml-auto text-fg-muted text-xs select-none shrink-0">
           {open ? "−" : "+"}
         </span>
       </button>
       {open && <ToolBody tool={tool} />}
     </div>
   );
-}
-
-function ToolHeaderSummary({ tool }: Props) {
-  // One-line summary that hints at what the tool was called with so
-  // the user can scan the timeline without expanding every card.
-  const summary = summarizeInput(tool.toolName, tool.input);
-  if (!summary) return null;
-  return (
-    <span className="text-fg-dim font-mono truncate text-xs">{summary}</span>
-  );
-}
-
-function summarizeInput(
-  toolName: string,
-  input: Record<string, unknown>,
-): string | null {
-  const get = (k: string): string | null => {
-    const v = input[k];
-    return typeof v === "string" ? v : null;
-  };
-  switch (toolName) {
-    case "Bash":
-      return get("command");
-    case "Read":
-    case "Write":
-    case "Edit":
-      return get("file_path");
-    case "Glob":
-    case "Grep":
-      return get("pattern");
-    case "WebFetch":
-      return get("url");
-    case "WebSearch":
-      return get("query");
-    case "retrieve":
-      return get("query");
-    case "cite":
-      return get("claim_span");
-    default: {
-      // Generic fallback — first string value in input.
-      for (const v of Object.values(input)) {
-        if (typeof v === "string" && v.length > 0) return v;
-      }
-      return null;
-    }
-  }
 }

@@ -168,6 +168,17 @@ export class YouCodedClient {
     this.WebSocketCtor = opts.WebSocketCtor ?? WebSocket;
   }
 
+  /** True when the underlying socket is open AND past auth. Becomes
+   *  false once the server closes the socket (the close handler in
+   *  attachSteadyState() nulls out `this.ws`). The session-provider
+   *  uses this to detect stale connections so a YouCoded restart or
+   *  network blip doesn't leave the singleton stuck in a "connected"
+   *  state that fails every subsequent request with "not connected
+   *  — call connect() first". */
+  get isConnected(): boolean {
+    return this.ws !== null && this.ws.readyState === this.ws.OPEN;
+  }
+
   /** Open the socket and complete the auth handshake. Resolves once the
    *  server returns `auth:ok`. Throws YouCodedClientError on any failure. */
   async connect(): Promise<void> {

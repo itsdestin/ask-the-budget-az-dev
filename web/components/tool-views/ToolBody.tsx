@@ -11,6 +11,7 @@ import type { AssistantBlock } from "@/state/chat-types";
 import MarkdownContent from "../MarkdownContent";
 import CiteView from "./CiteView";
 import DiffView from "./DiffView";
+import ListFilterValuesView from "./ListFilterValuesView";
 import RetrieveView from "./RetrieveView";
 import {
   basename,
@@ -455,6 +456,9 @@ export default function ToolBody({ tool }: { tool: ToolBlock }) {
       case "cite":
       case "mcp__ask-the-budget-az__cite":
         return <CiteView tool={tool} />;
+      case "list_filter_values":
+      case "mcp__ask-the-budget-az__list_filter_values":
+        return <ListFilterValuesView tool={tool} />;
       default:
         return <RawFallbackView tool={tool} />;
     }
