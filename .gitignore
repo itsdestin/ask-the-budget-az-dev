@@ -79,6 +79,9 @@ db/data/
 coverage/
 .nyc_output/
 
+# Visual brainstorming companion sessions (mockups, server state)
+.superpowers/
+
 # Companion app builds
 companion-dist/
 companion-out/
