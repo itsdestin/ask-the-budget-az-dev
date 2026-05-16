@@ -10,7 +10,8 @@
 // ╠═══════════════════════════════════════════════════════════════════════════╣
 // ║ viewBox  : 0 0 240 320   (locked — MASCOT_DIMENSIONS in types.ts)         ║
 // ║ cell/grid: 10px square grid. 240÷10 = 24 cols, 320÷10 = 32 rows.          ║
-// ║            EVERY rect x/y/width/height is a multiple of 10. Arm sets and  ║
+// ║            EVERY rect x/y/width/height is a multiple of 10 (the one       ║
+// ║            <text> baseline is exempt — see its inline note). Arm sets and ║
 // ║            laptop scenes MUST also snap to this 10px grid.                ║
 // ║                                                                           ║
 // ║ LANDMARK BOUNDING BOXES  (x, y, width, height — SVG units)                ║
@@ -21,7 +22,8 @@
 // ║   head        : x=20  y=40  w=200 h=140  (skin mass incl. side panels;    ║
 // ║                 core block 40,40,160,140 + ear panels out to x=20/220)    ║
 // ║   cap         : x=30  y=10  w=180 h=80   (crown 40,10 → brim underside;   ║
-// ║                 crown block 40,20,160,60 + top 50,10,140,10)              ║
+// ║                 crown block 40,20,160,60 + top 50,10,140,10 +             ║
+// ║                 left side panel 30,40,10,40 + right side panel 200,40,10,40)║
 // ║   brim        : x=10  y=80  w=220 h=20   (two rects: 20,80,200,10 +       ║
 // ║                 10,90,220,10)                                             ║
 // ║                                                                           ║
@@ -68,7 +70,8 @@ export default function MascotBody() {
       {/* ── Shirt V — paper-white collar opening, stepped inward ── */}
       <rect fill="var(--canvas)" x={100} y={200} width={40} height={10} />
       <rect fill="var(--canvas)" x={110} y={210} width={20} height={10} />
-      <rect fill="var(--canvas)" x={110} y={220} width={10} height={10} />
+      {/* Dead-paint rect removed: x=110 y=220 w=10 h=10 var(--canvas) was fully
+          overpainted by the tie rect immediately below at identical x/y/w. */}
 
       {/* ── Tie — civic-blue, drops down the shirt front ── */}
       <rect fill="var(--mascot-cap)" x={110} y={220} width={10} height={50} />
@@ -87,7 +90,8 @@ export default function MascotBody() {
 
       {/* ── Cap — civic-blue crown with stepped top and side panels ── */}
       <rect fill="var(--mascot-cap)" x={40} y={20} width={160} height={60} />
-      <rect fill="var(--mascot-cap)" x={50} y={10} width={140} height={10} />
+      {/* Dead-paint rect removed: x=50 y=10 w=140 h=10 var(--mascot-cap) was fully
+          overpainted by the cap-highlight rect immediately below at identical x/y/w. */}
       <rect fill="var(--mascot-cap)" x={30} y={40} width={10} height={40} />
       <rect fill="var(--mascot-cap)" x={200} y={40} width={10} height={40} />
       {/* Cap highlight — light band along the two upper edges */}
@@ -106,10 +110,10 @@ export default function MascotBody() {
       <text
         fill="var(--canvas)"
         x={120}
-        y={64}
+        y={64} // y is the SVG text baseline — intentionally off the 10px rect grid for optical centering in the cap crown
         textAnchor="middle"
-        fontFamily="'Press Start 2P','Courier New',monospace"
-        fontWeight={900}
+        fontFamily="var(--font-mono)" // Use app's loaded monospace stack (Inter/Source Serif 4 are the loaded fonts; "Press Start 2P" was never imported, so it silently fell back to browser default — deterministic stack preferred)
+        fontWeight="bold"
         fontSize={20}
       >
         JLBC
