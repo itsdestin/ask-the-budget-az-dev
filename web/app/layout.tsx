@@ -1,8 +1,22 @@
 import "./globals.css";
 import type { Metadata } from "next";
 import type { ReactNode } from "react";
+import { Source_Serif_4, Inter } from "next/font/google";
 
 import { CitationBusProvider } from "@/state/citation-context";
+
+// Self-hosted, inlined — no FOUT, no CDN dependency. The CSS-variable
+// names match the @theme mapping in globals.css.
+const sourceSerif = Source_Serif_4({
+  subsets: ["latin"],
+  variable: "--font-source-serif",
+  display: "swap",
+});
+const inter = Inter({
+  subsets: ["latin"],
+  variable: "--font-inter",
+  display: "swap",
+});
 
 export const metadata: Metadata = {
   title: "Ask the Budget AZ",
@@ -11,10 +25,8 @@ export const metadata: Metadata = {
 };
 
 export default function RootLayout({ children }: { children: ReactNode }) {
-  // data-theme drives the CSS-variable theme switch in globals.css.
-  // Default light; a later appearance picker (Phase 2) can flip it.
   return (
-    <html lang="en" data-theme="light">
+    <html lang="en" className={`${sourceSerif.variable} ${inter.variable}`}>
       <body className="min-h-screen bg-canvas text-fg">
         <CitationBusProvider>{children}</CitationBusProvider>
       </body>
