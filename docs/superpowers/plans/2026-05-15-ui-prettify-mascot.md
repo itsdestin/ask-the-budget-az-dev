@@ -20,7 +20,7 @@
 - **Run a single test file:** `npm run test -- tests/<file>.test.tsx`
 - **Run the whole suite:** `npm run test`  (must end at **109+ passing** — never fewer than the 109 that exist today, plus whatever this plan adds).
 - **Type check:** `npm run typecheck`
-- **Porting SVG:** the mockup files use literal hex colors and `<symbol>`/`<use>`. React components must instead (a) be plain JSX returning `<g>` or `<svg>`, and (b) replace every literal mascot hex with the matching `var(--mascot-*)` CSS variable from Task 1. The hex→variable mapping is in Task 1's token table.
+- **Mascot artwork — reference only, regenerate as a set:** the committed mockup files in `docs/superpowers/specs/assets/2026-05-15-mascot-reference/` are a **visual reference, NOT assets to copy verbatim**. They were built incrementally across several brainstorm sessions and carry minor cross-session inconsistencies (slightly different proportions, palettes, cell grids). Tasks 4–8 **regenerate the entire mascot art set together** as one coherent pass — same sprite grid, same palette, consistent proportions across body / all poses / both scenes — using the mockups only as the visual target. **Approval gate:** after Task 8 the user reviews the actual rendered components and must approve the full set before Phase D begins (see "Checkpoint: mascot art approval"). Do not treat the mockup `<symbol>` coordinates as ground truth — treat the *look* as the target and regenerate cleanly. React components are plain JSX returning `<g>`/`<svg>`; every mascot fill is a `var(--mascot-*)` CSS variable (Task 1's token table), never a literal hex.
 - **Commit** after each task with the message shown in its final step.
 
 ---
@@ -236,9 +236,9 @@ git commit -m "feat(web): mascot type definitions"
 **Files:**
 - Create: `web/components/mascot/MascotBody.tsx`
 
-The body = base, torso, neck, head, cap, JLBC text, glasses, eyes, mouth — everything *except* arms. Geometry source: the `#body` symbol in `docs/superpowers/specs/assets/2026-05-15-mascot-reference/mascot-pixel-poses.html` (it is the `<symbol id="body" viewBox="0 0 240 320">` block).
+The body = base, torso, neck, head, cap, JLBC text, glasses, eyes, mouth — everything *except* arms. Visual reference: the `#body` symbol in `docs/superpowers/specs/assets/2026-05-15-mascot-reference/mascot-pixel-poses.html`. Per the "Mascot artwork" convention, regenerate it cleanly — match the *look*, not the exact coordinates.
 
-- [ ] **Step 1: Write the component.** Port the `#body` symbol's `<rect>`/`<text>` children into a React component returning a `<g>`. Replace every literal hex with the matching `var(--mascot-*)`:
+- [ ] **Step 1: Write the component.** Build the body as a React component returning a `<g>`, regenerating the pixel-art to match the `#body` reference on a single consistent sprite grid. Every fill is a `var(--mascot-*)` variable:
   - `#3a6ea5` cap → `var(--mascot-cap)` · `#5a8cc4` → `var(--mascot-cap-hi)` · `#2c557f` brim → `var(--mascot-brim)`
   - `#e8c8a4` skin → `var(--mascot-skin)` · `#c8a47e` → `var(--mascot-skin-shadow)` · `#f4dab7` → `var(--mascot-skin-hi)`
   - `#1f2937` suit/frame/eye → `var(--mascot-suit)` for suit fills, `var(--mascot-suit)` for the glasses frame + eyes
@@ -293,9 +293,9 @@ git commit -m "feat(web): MascotBody shared SVG"
 **Files:**
 - Create: `web/components/mascot/poses/ArmsSides.tsx`, `ArmsClasped.tsx`, `ArmsWave.tsx`, `ArmsCrossed.tsx`, `ArmsClipboard.tsx`, `ArmsHips.tsx`
 
-Geometry source: `mascot-pixel-poses.html` symbols `#arms-sides`, `#arms-clasped`, `#arms-wave`, `#arms-crossed`, `#arms-clipboard`, `#arms-hips`. (Note: `ArmsClasped` is the spec's default pose; `ArmsWave` is welcome; `ArmsCrossed` is refusal; `ArmsClipboard` is result-settled.)
+Visual reference: `mascot-pixel-poses.html` symbols `#arms-sides`, `#arms-clasped`, `#arms-wave`, `#arms-crossed`, `#arms-clipboard`, `#arms-hips`. (Note: `ArmsClasped` is the spec's default pose; `ArmsWave` is welcome; `ArmsCrossed` is refusal; `ArmsClipboard` is result-settled.) Regenerate all six on the same sprite grid as `MascotBody` so the arms register cleanly with the shared torso.
 
-- [ ] **Step 1: Write all six components.** Each is the same shape — port one `#arms-*` symbol's children into a `<g>`, swapping hex for `var(--mascot-*)` per Task 4's mapping. The clipboard pose also has a paper/clip in neutral `#a89e8e` + `var(--canvas)` — keep `#a89e8e` literal, paper is `var(--canvas)`. Example:
+- [ ] **Step 1: Write all six components.** Each is the same shape — a React component returning a `<g>` that regenerates one arm set to match its `#arms-*` reference, every fill a `var(--mascot-*)` variable per Task 4's mapping. The clipboard pose also has a paper/clip in neutral `#a89e8e` + `var(--canvas)` — keep `#a89e8e` literal, paper is `var(--canvas)`. Example:
 
 ```tsx
 // Geometry ported from the #arms-clasped symbol in the committed
@@ -504,9 +504,9 @@ git commit -m "feat(web): Mascot component — composition, sizing, idle bob + b
 **Files:**
 - Create: `web/components/mascot/MascotTyping.tsx`
 
-Geometry source: `typing-side-v6-lid-angles.html` — use the shared `#m-body`, `#base-sleek`, `#hand` symbols **plus the lid polygons from card D ("d-comfortable")**. The viewBox is `0 0 360 320`.
+Visual reference: `typing-side-v6-lid-angles.html` — the shared `#m-body`, `#base-sleek`, `#hand` symbols **plus the lid polygons from card D ("d-comfortable")**. The viewBox is `0 0 360 320`. Regenerate the scene cleanly to match card D's look.
 
-- [ ] **Step 1: Write the component.** Port `#m-body` + `#base-sleek` + the card-D lid polygons + `#hand` into one component returning a full `<svg viewBox="0 0 360 320">`. Swap mascot hex for `var(--mascot-*)`; the laptop's silver/screen colors stay literal (they are not themed — they are the laptop's own palette: `#eef0f2`, `#c8ccd0`, `#a8acb2`, `#6a6e74`, `#1a1d22` bezel, `#3a6ea5` screen → use `var(--mascot-cap)` for the screen since it is civic-blue, `#fbf7f0` screen text → `var(--canvas)`). Give the tapping hand group `className="mascot-typing-hand"` and the screen cursor `className="mascot-typing-cursor"`.
+- [ ] **Step 1: Write the component.** Build the side-typing scene as one component returning a full `<svg viewBox="0 0 360 320">` — profile mascot body, the sleek aluminum laptop base, the card-D (~110°) lid, and the typing hand. Swap mascot hex for `var(--mascot-*)`; the laptop's silver/screen colors stay literal (they are not themed — they are the laptop's own palette: `#eef0f2`, `#c8ccd0`, `#a8acb2`, `#6a6e74`, `#1a1d22` bezel, `#3a6ea5` screen → use `var(--mascot-cap)` for the screen since it is civic-blue, `#fbf7f0` screen text → `var(--canvas)`). Give the tapping hand group `className="mascot-typing-hand"` and the screen cursor `className="mascot-typing-cursor"`.
 
 ```tsx
 "use client";
@@ -563,9 +563,9 @@ git commit -m "feat(web): MascotTyping side-typing scene"
 **Files:**
 - Create: `web/components/mascot/MascotPresenting.tsx`
 
-Geometry source: the `#front-presenting` symbol in `typing-side-present-v2.html`. viewBox `0 0 320 320`.
+Visual reference: the `#front-presenting` symbol in `typing-side-present-v2.html`. viewBox `0 0 320 320`. Regenerate cleanly to match.
 
-- [ ] **Step 1: Write the component.** Port `#front-presenting` into a full `<svg viewBox="0 0 320 320">`. Same color rules as Task 7 (mascot hex → `var(--mascot-*)`, laptop silver stays literal, screen → `var(--mascot-cap)`, screen text → `var(--canvas)`, citation chip on screen → `var(--mascot-cap)`). Give the screen cursor `className="mascot-typing-cursor"` (reuse the keyframe from Task 7).
+- [ ] **Step 1: Write the component.** Build the front-presenting scene as one component returning a full `<svg viewBox="0 0 320 320">` — front-facing mascot with the laptop tilted forward, its screen showing an answer + a citation chip. Same color rules as Task 7 (mascot hex → `var(--mascot-*)`, laptop silver stays literal, screen → `var(--mascot-cap)`, screen text → `var(--canvas)`, citation chip on screen → `var(--mascot-cap)`). Give the screen cursor `className="mascot-typing-cursor"` (reuse the keyframe from Task 7).
 
 ```tsx
 "use client";
@@ -604,6 +604,24 @@ Expected: PASS.
 ```bash
 git add web/components/mascot/MascotPresenting.tsx web/tests/mascot.test.tsx
 git commit -m "feat(web): MascotPresenting front-presenting scene"
+```
+
+---
+
+## Checkpoint: mascot art approval
+
+**Stop here. Get the user's approval of the mascot artwork before starting Phase D.**
+
+All mascot art now exists — `MascotBody`, the six pose components, `MascotTyping`, and `MascotPresenting`, regenerated as one coherent set (per the "Mascot artwork" convention). The brainstorm mockups were reference only; the user reviews the **actual rendered components** now.
+
+- [ ] **Step 1: Build a preview.** Create a temporary route `web/app/mascot-preview/page.tsx` that renders, on one page: `<Mascot>` in all six poses at `hero` size (each labeled), `<MascotTyping />`, and `<MascotPresenting />`. (This file is deleted in Step 4.)
+- [ ] **Step 2: Show the user.** Run `npm run dev`, point the user at `http://localhost:3000/mascot-preview`. The user reviews the full set for consistency and quality.
+- [ ] **Step 3: Iterate to approval.** If the user requests changes, revise the relevant Task 4–8 component(s) and re-show. **Do not proceed to Phase D until the user explicitly approves the set.**
+- [ ] **Step 4: Remove the preview route.** Delete `web/app/mascot-preview/`. Run `npm run test` to confirm the suite is still green, then commit:
+
+```bash
+git rm -r web/app/mascot-preview
+git commit -m "chore(web): remove temporary mascot preview route"
 ```
 
 ---
