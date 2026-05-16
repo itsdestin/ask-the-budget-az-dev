@@ -5,8 +5,9 @@ import { Source_Serif_4, Inter } from "next/font/google";
 
 import { CitationBusProvider } from "@/state/citation-context";
 
-// Self-hosted, inlined — no FOUT, no CDN dependency. The CSS-variable
-// names match the @theme mapping in globals.css.
+// Self-hosted and inlined by next/font — no render-blocking CDN request.
+// display:swap shows fallback text instantly, then swaps in the web font.
+// The CSS-variable names match the @theme mapping in globals.css.
 const sourceSerif = Source_Serif_4({
   subsets: ["latin"],
   variable: "--font-source-serif",
