@@ -1,0 +1,223 @@
+<h2>Welcome hero — three layouts</h2>
+<p class="subtitle">What the user sees on first load, before any conversation. Mascot is in the P3c "wave" pose for the welcome state. Pick a layout — or describe a hybrid.</p>
+
+<style>
+  .lgrid { display:grid; grid-template-columns: 1fr; gap: 18px; }
+  .l-card { cursor:pointer; }
+  .l-stage {
+    height: 480px; background: #fbf7f0; border: 1px solid #d8d2c4; border-radius: 8px 8px 0 0;
+    overflow:hidden; position:relative;
+    font: 14px/1.5 'Inter', system-ui, sans-serif; color: #1f2937;
+  }
+  .l-legend { padding: 12px 14px; background:#efe9dc; border-radius: 0 0 8px 8px; color:#1f2937; min-height: 70px; }
+  .l-legend h3 { margin:0 0 3px; font: 700 14px/1.2 'Source Serif Pro', Georgia, serif; }
+  .l-legend p { margin:0; font: 12px/1.5 monospace; }
+
+  /* Shared welcome-state styling */
+  .head-bar { height: 44px; border-bottom: 1px solid #d8d2c4; display:flex; align-items:center; padding: 0 16px; background: rgba(239,233,220,0.5); }
+  .head-bar .brand { font: 700 14px/1 'Source Serif Pro', Georgia, serif; }
+  .head-bar .right { margin-left:auto; font: 11px/1 monospace; color: #6a6e74; }
+
+  .h-headline { font: 700 28px/1.2 'Source Serif Pro', Georgia, serif; color:#1f2937; margin: 0 0 6px; }
+  .h-sub      { font: 14px/1.5 'Inter', sans-serif; color:#54585e; max-width: 520px; margin: 0 0 24px; }
+
+  .h-input    {
+    display:flex; align-items:center; gap: 8px;
+    background: #fff; border: 1.5px solid #d8d2c4; border-radius: 10px;
+    padding: 12px 14px; max-width: 560px;
+  }
+  .h-input input { flex:1; border:none; outline:none; font: 14px/1 'Inter', sans-serif; color: #1f2937; background:transparent; }
+  .h-input .send { background: #3a6ea5; color: #fbf7f0; border:none; border-radius: 6px; padding: 6px 14px; font: 600 12px/1 'Inter', sans-serif; cursor:pointer; }
+
+  .h-chips { display:flex; gap: 8px; flex-wrap: wrap; max-width: 560px; margin-top: 18px; }
+  .h-chip  { background: #efe9dc; border:1px solid #d8d2c4; border-radius: 999px; padding: 6px 12px; font: 12px/1.2 'Inter', sans-serif; color: #1f2937; cursor:pointer; }
+  .h-chip:hover { border-color: #3a6ea5; color: #3a6ea5; }
+  .h-chip-label { font: 600 11px/1 'Inter', sans-serif; color:#6a6e74; text-transform:uppercase; letter-spacing: 0.06em; margin-top:18px; margin-bottom: 6px; }
+
+  .pal-civic {
+    --c-suit:#1f2937; --c-suitH:#303a4a; --c-suitD:#13181f;
+    --c-shirt:#fbf7f0; --c-tie:#3a6ea5;
+    --c-skin:#e8c8a4; --c-skinS:#c8a47e; --c-skinH:#f4dab7;
+    --c-cap:#3a6ea5; --c-capH:#5a8cc4; --c-brim:#2c557f;
+    --c-jlbc:#fbf7f0; --c-frame:#1f2937; --c-eye:#1f2937; --c-eyeW:#fbf7f0;
+    --c-mouth:#8a5f3f;
+  }
+
+  .mascot-svg { shape-rendering: crispEdges; animation: idle-bob 3.2s steps(2, end) infinite; transform-origin: 50% 100%; }
+  @keyframes idle-bob { 0%, 100% { transform: translateY(0); } 50% { transform: translateY(-1px); } }
+  @media (prefers-reduced-motion: reduce) { .mascot-svg { animation: none; } }
+</style>
+
+<svg width="0" height="0" style="position:absolute" aria-hidden="true">
+  <defs>
+    <symbol id="mascot-wave" viewBox="0 0 240 320">
+      <!-- Base -->
+      <rect fill="#cbbfad" x="50"  y="290" width="140" height="20"/>
+      <rect fill="#a89e8e" x="40"  y="300" width="160" height="10"/>
+      <!-- Torso -->
+      <rect fill="var(--c-suit)"  x="80"  y="200" width="80"  height="90"/>
+      <rect fill="var(--c-suitH)" x="80"  y="200" width="10"  height="60"/>
+      <rect fill="var(--c-suitH)" x="150" y="200" width="10"  height="60"/>
+      <rect fill="var(--c-shirt)" x="105" y="200" width="30" height="10"/>
+      <rect fill="var(--c-shirt)" x="113" y="210" width="14" height="10"/>
+      <rect fill="var(--c-shirt)" x="117" y="220" width="6"  height="6"/>
+      <rect fill="var(--c-tie)"   x="116" y="220" width="8" height="50"/>
+      <!-- Neck -->
+      <rect fill="var(--c-skin)"  x="108" y="180" width="24" height="22"/>
+      <!-- Head -->
+      <rect fill="var(--c-skin)"  x="40"  y="40"  width="160" height="140"/>
+      <rect fill="var(--c-skin)"  x="30"  y="50"  width="10"  height="120"/>
+      <rect fill="var(--c-skin)"  x="200" y="50"  width="10"  height="120"/>
+      <rect fill="var(--c-skin)"  x="20"  y="70"  width="10"  height="80"/>
+      <rect fill="var(--c-skin)"  x="210" y="70"  width="10"  height="80"/>
+      <!-- Cap -->
+      <rect fill="var(--c-cap)"   x="40"  y="20"  width="160" height="60"/>
+      <rect fill="var(--c-cap)"   x="50"  y="10"  width="140" height="10"/>
+      <rect fill="var(--c-cap)"   x="30"  y="40"  width="10"  height="40"/>
+      <rect fill="var(--c-cap)"   x="200" y="40"  width="10"  height="40"/>
+      <rect fill="var(--c-capH)"  x="40"  y="20"  width="160" height="6"/>
+      <rect fill="var(--c-capH)"  x="50"  y="10"  width="140" height="6"/>
+      <rect fill="var(--c-brim)"  x="20"  y="80"  width="200" height="10"/>
+      <rect fill="var(--c-brim)"  x="10"  y="90"  width="220" height="10"/>
+      <rect fill="var(--c-skinS)" x="40"  y="100" width="160" height="10"/>
+      <!-- JLBC -->
+      <text fill="var(--c-jlbc)" x="120" y="64" text-anchor="middle"
+            font-family="'Press Start 2P','Courier New',monospace"
+            font-weight="900" font-size="20">JLBC</text>
+      <!-- Glasses -->
+      <rect fill="var(--c-frame)" x="60"  y="120" width="40" height="6"/>
+      <rect fill="var(--c-frame)" x="60"  y="146" width="40" height="6"/>
+      <rect fill="var(--c-frame)" x="60"  y="126" width="6"  height="20"/>
+      <rect fill="var(--c-frame)" x="94"  y="126" width="6"  height="20"/>
+      <rect fill="var(--c-frame)" x="140" y="120" width="40" height="6"/>
+      <rect fill="var(--c-frame)" x="140" y="146" width="40" height="6"/>
+      <rect fill="var(--c-frame)" x="140" y="126" width="6"  height="20"/>
+      <rect fill="var(--c-frame)" x="174" y="126" width="6"  height="20"/>
+      <rect fill="var(--c-frame)" x="100" y="132" width="40" height="6"/>
+      <!-- Eyes + smile -->
+      <rect fill="var(--c-eye)"   x="76"  y="132" width="10" height="8"/>
+      <rect fill="var(--c-eye)"   x="154" y="132" width="10" height="8"/>
+      <rect fill="var(--c-mouth)" x="102" y="166" width="36" height="6"/>
+      <rect fill="var(--c-mouth)" x="98"  y="170" width="6"  height="4"/>
+      <rect fill="var(--c-mouth)" x="136" y="170" width="6"  height="4"/>
+      <!-- Left arm hanging at side -->
+      <rect fill="var(--c-suit)"  x="60"  y="210" width="20" height="56"/>
+      <rect fill="var(--c-suitH)" x="60"  y="210" width="6"  height="40"/>
+      <rect fill="var(--c-skin)"  x="60"  y="266" width="20" height="14"/>
+      <rect fill="var(--c-skinS)" x="60"  y="276" width="20" height="4"/>
+      <!-- Right arm raised (wave) -->
+      <rect fill="var(--c-suit)"  x="160" y="210" width="20" height="20"/>
+      <rect fill="var(--c-suitH)" x="174" y="210" width="6"  height="20"/>
+      <rect fill="var(--c-suit)"  x="170" y="160" width="20" height="60"/>
+      <rect fill="var(--c-suitH)" x="170" y="160" width="6"  height="60"/>
+      <rect fill="var(--c-suit)"  x="166" y="150" width="28" height="14"/>
+      <rect fill="var(--c-skin)"  x="160" y="120" width="40" height="36"/>
+      <rect fill="var(--c-skinS)" x="160" y="146" width="40" height="6"/>
+      <rect fill="var(--c-skinS)" x="170" y="120" width="4"  height="26"/>
+      <rect fill="var(--c-skinS)" x="180" y="120" width="4"  height="26"/>
+      <rect fill="var(--c-skinS)" x="190" y="120" width="4"  height="26"/>
+    </symbol>
+  </defs>
+</svg>
+
+<div class="cards lgrid">
+
+  <!-- ============ LAYOUT A — Centered vertical stack ============ -->
+  <div class="card l-card" data-choice="a-centered" onclick="toggleSelect(this)">
+    <div class="l-stage">
+      <div class="head-bar">
+        <span class="brand">Ask the Budget AZ</span>
+      </div>
+      <div style="padding: 32px 24px; display:flex; flex-direction:column; align-items:center; text-align:center;">
+        <svg class="pal-civic mascot-svg" viewBox="0 0 240 320" style="width: 140px; height: auto; margin-bottom: 8px;">
+          <use href="#mascot-wave"/>
+        </svg>
+        <h1 class="h-headline">Hi — let's look at the budget.</h1>
+        <p class="h-sub">I'll search the JLBC Appropriations Reports, Baseline Books, AGAO Annual Financial Reports, and Governor's Executive Budget. Every claim gets a citation to the source page.</p>
+
+        <div class="h-input" style="width: 100%;">
+          <input type="text" placeholder="Ask a question…">
+          <button class="send">Ask</button>
+        </div>
+
+        <div class="h-chip-label">try one of these</div>
+        <div class="h-chips">
+          <span class="h-chip">What was the FY2025 Aviation Fund balance?</span>
+          <span class="h-chip">How much did ADOT receive in FY2024?</span>
+          <span class="h-chip">Show me General Fund revenue projections</span>
+        </div>
+      </div>
+    </div>
+    <div class="l-legend">
+      <h3>A — Centered stack</h3>
+      <p>Mascot on top, headline + sub, input, then suggestion chips. Most "AI chat app" pattern. Easy to grok; mascot is part of the hero but doesn't dominate.</p>
+    </div>
+  </div>
+
+  <!-- ============ LAYOUT B — Side-by-side (mascot left, copy right) ============ -->
+  <div class="card l-card" data-choice="b-side" onclick="toggleSelect(this)">
+    <div class="l-stage">
+      <div class="head-bar">
+        <span class="brand">Ask the Budget AZ</span>
+      </div>
+      <div style="padding: 28px 32px; display:flex; gap: 32px; align-items:center;">
+        <svg class="pal-civic mascot-svg" viewBox="0 0 240 320" style="width: 220px; height: auto; flex-shrink:0;">
+          <use href="#mascot-wave"/>
+        </svg>
+        <div style="flex:1;">
+          <h1 class="h-headline">Hi — let's look at the budget.</h1>
+          <p class="h-sub">I'll search the JLBC Appropriations Reports, Baseline Books, AGAO Annual Financial Reports, and Governor's Executive Budget. Every claim gets a citation to the source page.</p>
+          <div class="h-input">
+            <input type="text" placeholder="Ask a question…">
+            <button class="send">Ask</button>
+          </div>
+          <div class="h-chip-label">try one of these</div>
+          <div class="h-chips">
+            <span class="h-chip">FY2025 Aviation Fund balance</span>
+            <span class="h-chip">ADOT FY2024 appropriation</span>
+            <span class="h-chip">General Fund revenue projection</span>
+          </div>
+        </div>
+      </div>
+    </div>
+    <div class="l-legend">
+      <h3>B — Side-by-side</h3>
+      <p>Mascot anchors the left, copy and input on the right. Reads more "branded product." Mascot has more presence; uses horizontal space better on wide screens.</p>
+    </div>
+  </div>
+
+  <!-- ============ LAYOUT C — Mascot peeking in, minimal hero ============ -->
+  <div class="card l-card" data-choice="c-minimal" onclick="toggleSelect(this)">
+    <div class="l-stage">
+      <div class="head-bar">
+        <svg class="pal-civic mascot-svg" viewBox="0 0 240 320" style="width: 28px; height: auto; margin-right: 8px;">
+          <use href="#mascot-wave"/>
+        </svg>
+        <span class="brand">Ask the Budget AZ</span>
+      </div>
+      <div style="padding: 60px 24px 24px; display:flex; flex-direction:column; align-items:center; text-align:center; position:relative;">
+        <!-- Big mascot peeking from the bottom-right corner -->
+        <svg class="pal-civic mascot-svg" viewBox="0 0 240 320" style="position:absolute; bottom: -16px; right: -32px; width: 200px; height: auto; opacity:0.92;">
+          <use href="#mascot-wave"/>
+        </svg>
+        <h1 class="h-headline" style="max-width: 520px;">Ask anything about Arizona's state budget.</h1>
+        <p class="h-sub">Cited answers from JLBC, AGAO, and the Governor's Office. Refusal beats hallucination.</p>
+        <div class="h-input" style="width: 100%;">
+          <input type="text" placeholder="Ask a question…">
+          <button class="send">Ask</button>
+        </div>
+        <div class="h-chips" style="justify-content:center;">
+          <span class="h-chip">FY2025 Aviation Fund balance</span>
+          <span class="h-chip">ADOT FY2024 appropriation</span>
+        </div>
+      </div>
+    </div>
+    <div class="l-legend">
+      <h3>C — Minimal (mascot in corner + header chip)</h3>
+      <p>Mascot is a brand mark in the header AND peeks into the corner of the hero. Copy/input is the primary focus; mascot is supporting. Most production-app feel.</p>
+    </div>
+  </div>
+
+</div>
+
+<p class="subtitle" style="margin-top: 18px;">All three use Source Serif for the headline, Inter for body/UI, Cascadia Mono reserved for code and data (not visible here). The header bar pattern (small mascot + brand) is consistent so the conversation state reads as the same app.</p>

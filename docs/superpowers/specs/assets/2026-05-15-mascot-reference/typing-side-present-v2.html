@@ -1,0 +1,399 @@
+<h2>Side-typing → front-presenting cycle (v2)</h2>
+<p class="subtitle">Fixes from v1: glasses now sit on the front of the face (lens clears the profile edge); eye moved forward to where it'd actually be; cycle transition is a hard cut, no fade/spin. Card 4 adds a single pixelated transition frame as an option.</p>
+
+<style>
+  .tgrid { display:grid; grid-template-columns: repeat(2, 1fr); gap: 14px; }
+  .t-card { cursor:pointer; }
+  .t-stage {
+    height: 320px; background: #fbf7f0; border: 1px solid #d8d2c4; border-radius: 8px 8px 0 0;
+    display:flex; align-items:center; justify-content:center;
+    overflow:hidden; position:relative;
+  }
+  .t-stage svg { width: 280px; height: auto; display:block; shape-rendering: crispEdges; }
+  .t-legend { padding: 12px 14px; background:#efe9dc; border-radius: 0 0 8px 8px; color:#1f2937; min-height: 86px; }
+  .t-legend h3 { margin:0 0 3px; font: 700 13px/1.2 'Source Serif Pro', Georgia, serif; }
+  .t-legend p { margin:0; font: 11.5px/1.45 monospace; }
+
+  .pal-civic {
+    --c-suit:#1f2937; --c-suitH:#303a4a; --c-suitD:#13181f;
+    --c-shirt:#fbf7f0; --c-tie:#3a6ea5;
+    --c-skin:#e8c8a4; --c-skinS:#c8a47e; --c-skinH:#f4dab7;
+    --c-cap:#3a6ea5; --c-capH:#5a8cc4; --c-brim:#2c557f;
+    --c-jlbc:#fbf7f0; --c-frame:#1f2937; --c-eye:#1f2937; --c-eyeW:#fbf7f0;
+    --c-mouth:#8a5f3f;
+    --c-laptop:#c8ccd2; --c-laptopD:#8a8e94; --c-laptopE:#5a5e64;
+    --c-screen:#3a6ea5; --c-screenT:#fbf7f0;
+    --c-key:#2a2e34;
+  }
+
+  /* ===== Idle animations on each isolated card ===== */
+  .anim-side .l-finger { animation: tap-side 480ms steps(2, end) infinite; transform-origin: 50% 100%; transform-box: fill-box; }
+  @keyframes tap-side { 0%, 100% { transform: translateY(0); } 50% { transform: translateY(2px); } }
+  .anim-front .l-cursor { animation: blink 600ms steps(2, end) infinite; }
+  @keyframes blink { 0%, 50% { opacity: 1; } 50.01%, 100% { opacity: 0; } }
+
+  /* ===== Cycle (hard cut) — 12s total ===== */
+  .cycle-cut .side-view, .cycle-cut .front-view { position: absolute; }
+  .cycle-cut .side-view  { animation: cut-side 12s steps(1) infinite; }
+  .cycle-cut .front-view { animation: cut-front 12s steps(1) infinite; opacity: 0; }
+  @keyframes cut-side  {  0% { opacity: 1; }  50% { opacity: 0; } 100% { opacity: 1; } }
+  @keyframes cut-front {  0% { opacity: 0; }  50% { opacity: 1; } 100% { opacity: 0; } }
+  .cycle-cut .side-view  .l-finger { animation: tap-side 480ms steps(2, end) infinite; transform-origin: 50% 100%; transform-box: fill-box; }
+  .cycle-cut .front-view .l-cursor { animation: blink 600ms steps(2, end) infinite; }
+
+  /* ===== Cycle (1-frame pixelated transition) — 12s total ===== */
+  .cycle-step .side-view, .cycle-step .front-view, .cycle-step .trans-view {
+    position: absolute;
+  }
+  .cycle-step .side-view  { animation: step-side  12s steps(1) infinite; }
+  .cycle-step .trans-view { animation: step-trans 12s steps(1) infinite; opacity: 0; }
+  .cycle-step .front-view { animation: step-front 12s steps(1) infinite; opacity: 0; }
+  /* side: 0-48% on. transition: 48-52% on. front: 52-98% on. transition: 98-100% on. */
+  @keyframes step-side  {
+    0%   { opacity: 1; }
+    48%  { opacity: 0; }
+    100% { opacity: 0; }
+  }
+  @keyframes step-trans {
+    0%   { opacity: 0; }
+    48%  { opacity: 1; }
+    52%  { opacity: 0; }
+    98%  { opacity: 1; }
+    100% { opacity: 0; }
+  }
+  @keyframes step-front {
+    0%   { opacity: 0; }
+    52%  { opacity: 1; }
+    98%  { opacity: 0; }
+    100% { opacity: 0; }
+  }
+  .cycle-step .side-view  .l-finger { animation: tap-side 480ms steps(2, end) infinite; transform-origin: 50% 100%; transform-box: fill-box; }
+  .cycle-step .front-view .l-cursor { animation: blink 600ms steps(2, end) infinite; }
+
+  @media (prefers-reduced-motion: reduce) {
+    .t-stage svg *, .t-stage svg { animation: none !important; }
+  }
+</style>
+
+<svg width="0" height="0" style="position:absolute" aria-hidden="true">
+  <defs>
+
+    <!-- ============================================================ -->
+    <!-- SIDE VIEW v2: glasses on FRONT of face, eye forward -->
+    <!-- ============================================================ -->
+    <symbol id="side-typing-v2" viewBox="0 0 320 320">
+
+      <!-- Floor shadow -->
+      <ellipse cx="200" cy="298" rx="120" ry="6" fill="#000" opacity=".15"/>
+
+      <!-- ===== Mascot side profile (facing right) ===== -->
+
+      <!-- Back of head / cap silhouette -->
+      <rect fill="var(--c-cap)" x="60"  y="30"  width="110" height="60"/>
+      <rect fill="var(--c-cap)" x="70"  y="20"  width="90"  height="10"/>
+      <rect fill="var(--c-cap)" x="50"  y="50"  width="10"  height="40"/>
+
+      <!-- Cap highlight on top -->
+      <rect fill="var(--c-capH)" x="60" y="30" width="110" height="6"/>
+      <rect fill="var(--c-capH)" x="70" y="20" width="90"  height="6"/>
+
+      <!-- Brim extends forward (right) from forehead -->
+      <rect fill="var(--c-cap)"  x="160" y="80" width="40" height="6"/>
+      <rect fill="var(--c-brim)" x="160" y="86" width="50" height="10"/>
+
+      <!-- Head profile (skin) -->
+      <rect fill="var(--c-skin)" x="60"  y="90"  width="110" height="80"/>
+      <rect fill="var(--c-skin)" x="50"  y="100" width="10"  height="60"/>
+      <rect fill="var(--c-skin)" x="170" y="100" width="6"   height="40"/>
+      <!-- Cap shadow on forehead -->
+      <rect fill="var(--c-skinS)" x="60" y="96" width="116" height="8"/>
+
+      <!-- Ear (back side, near camera) -->
+      <rect fill="var(--c-skinS)" x="70" y="118" width="8" height="16"/>
+
+      <!-- Nose bump (forward, sticks out past face profile at x=176-188) -->
+      <rect fill="var(--c-skin)"  x="176" y="124" width="10" height="14"/>
+      <rect fill="var(--c-skinS)" x="176" y="134" width="10" height="4"/>
+
+      <!-- Mouth (front of face, after the nose) -->
+      <rect fill="var(--c-mouth)" x="168" y="150" width="12" height="3"/>
+
+      <!-- Chin curve / jaw underside -->
+      <rect fill="var(--c-skin)"  x="60"  y="170" width="100" height="10"/>
+      <rect fill="var(--c-skinS)" x="60"  y="170" width="100" height="4"/>
+
+      <!-- ===== Glasses: sit on the front of the face, lens extends past profile edge ===== -->
+      <!-- Temple stem (going back to ear) -->
+      <rect fill="var(--c-frame)" x="78"  y="120" width="64"  height="3"/>
+      <!-- Lens (positioned over the front of the face — top frame) -->
+      <rect fill="var(--c-frame)" x="138" y="118" width="48"  height="4"/>
+      <!-- Lens bottom frame -->
+      <rect fill="var(--c-frame)" x="138" y="138" width="48"  height="4"/>
+      <!-- Lens back vertical (toward ear) -->
+      <rect fill="var(--c-frame)" x="138" y="122" width="4"   height="16"/>
+      <!-- Lens front vertical (in front of the face, clears profile) -->
+      <rect fill="var(--c-frame)" x="182" y="122" width="4"   height="16"/>
+      <!-- Lens interior (slight blue/white tint to read as glass) -->
+      <rect fill="var(--c-eyeW)"  x="142" y="122" width="40"  height="16" opacity=".5"/>
+      <!-- Bridge — small piece going forward past nose bridge -->
+      <rect fill="var(--c-frame)" x="186" y="124" width="4"   height="3"/>
+
+      <!-- Eye (placed at the front of the face, inside the lens) -->
+      <rect fill="var(--c-eye)"   x="162" y="128" width="10" height="6"/>
+
+      <!-- Neck -->
+      <rect fill="var(--c-skin)"  x="100" y="180" width="40" height="14"/>
+
+      <!-- Body in profile (suit) -->
+      <rect fill="var(--c-suit)"  x="70"  y="194" width="80"  height="100"/>
+      <rect fill="var(--c-suitD)" x="70"  y="194" width="14"  height="100"/>
+      <rect fill="var(--c-suitH)" x="140" y="194" width="10"  height="50"/>
+      <rect fill="var(--c-shirt)" x="138" y="194" width="12"  height="20"/>
+      <rect fill="var(--c-tie)"   x="142" y="210" width="6"   height="36"/>
+
+      <!-- Arm extending forward toward laptop -->
+      <rect fill="var(--c-suit)"  x="140" y="216" width="80"  height="20"/>
+      <rect fill="var(--c-suitH)" x="140" y="216" width="80"  height="4"/>
+      <rect fill="var(--c-suitD)" x="214" y="216" width="6"   height="20"/>
+
+      <!-- Hand on keyboard — animated tap -->
+      <g class="l-finger">
+        <rect fill="var(--c-skin)"  x="216" y="236" width="22" height="12"/>
+        <rect fill="var(--c-skinS)" x="216" y="244" width="22" height="4"/>
+      </g>
+
+      <!-- ===== Laptop side view ===== -->
+      <rect fill="var(--c-laptopE)" x="220" y="252" width="10" height="6"/>
+      <rect fill="var(--c-laptop)"  x="220" y="252" width="86" height="14"/>
+      <rect fill="var(--c-laptopD)" x="220" y="264" width="86" height="4"/>
+      <g fill="var(--c-key)">
+        <rect x="232" y="254" width="6" height="2"/>
+        <rect x="242" y="254" width="6" height="2"/>
+        <rect x="252" y="254" width="6" height="2"/>
+        <rect x="262" y="254" width="6" height="2"/>
+        <rect x="272" y="254" width="6" height="2"/>
+        <rect x="282" y="254" width="6" height="2"/>
+        <rect x="292" y="254" width="6" height="2"/>
+      </g>
+      <rect fill="var(--c-laptopD)" x="220" y="180" width="10" height="72"/>
+      <rect fill="var(--c-laptop)"  x="226" y="180" width="6"  height="72"/>
+      <rect fill="var(--c-screen)"  x="216" y="184" width="6"  height="64"/>
+      <rect fill="var(--c-screenT)" x="216" y="194" width="6"  height="2"/>
+      <rect fill="var(--c-screenT)" x="216" y="204" width="6"  height="2"/>
+      <rect fill="var(--c-screenT)" x="216" y="214" width="6"  height="2"/>
+      <rect fill="var(--c-screenT)" x="216" y="224" width="6"  height="2"/>
+    </symbol>
+
+    <!-- ============================================================ -->
+    <!-- FRONT VIEW: unchanged from v1 -->
+    <!-- ============================================================ -->
+    <symbol id="front-presenting" viewBox="0 0 320 320">
+      <ellipse cx="160" cy="306" rx="100" ry="5" fill="#000" opacity=".15"/>
+      <g transform="translate(40, -10)">
+        <rect fill="var(--c-suit)"  x="80"  y="200" width="80"  height="90"/>
+        <rect fill="var(--c-suitH)" x="80"  y="200" width="10"  height="60"/>
+        <rect fill="var(--c-suitH)" x="150" y="200" width="10"  height="60"/>
+        <rect fill="var(--c-shirt)" x="105" y="200" width="30" height="10"/>
+        <rect fill="var(--c-shirt)" x="113" y="210" width="14" height="10"/>
+        <rect fill="var(--c-shirt)" x="117" y="220" width="6"  height="6"/>
+        <rect fill="var(--c-tie)" x="116" y="220" width="8" height="50"/>
+        <rect fill="var(--c-skin)" x="108" y="180" width="24" height="22"/>
+        <rect fill="var(--c-skin)" x="40"  y="40"  width="160" height="140"/>
+        <rect fill="var(--c-skin)" x="30"  y="50"  width="10"  height="120"/>
+        <rect fill="var(--c-skin)" x="200" y="50"  width="10"  height="120"/>
+        <rect fill="var(--c-skin)" x="20"  y="70"  width="10"  height="80"/>
+        <rect fill="var(--c-skin)" x="210" y="70"  width="10"  height="80"/>
+        <rect fill="var(--c-cap)"  x="40"  y="20"  width="160" height="60"/>
+        <rect fill="var(--c-cap)"  x="50"  y="10"  width="140" height="10"/>
+        <rect fill="var(--c-cap)"  x="30"  y="40"  width="10"  height="40"/>
+        <rect fill="var(--c-cap)"  x="200" y="40"  width="10"  height="40"/>
+        <rect fill="var(--c-capH)" x="40"  y="20"  width="160" height="6"/>
+        <rect fill="var(--c-capH)" x="50"  y="10"  width="140" height="6"/>
+        <rect fill="var(--c-brim)" x="20"  y="80"  width="200" height="10"/>
+        <rect fill="var(--c-brim)" x="10"  y="90"  width="220" height="10"/>
+        <rect fill="var(--c-skinS)" x="40" y="100" width="160" height="10"/>
+        <text fill="var(--c-jlbc)" x="120" y="64" text-anchor="middle"
+              font-family="'Press Start 2P','Courier New',monospace"
+              font-weight="900" font-size="20">JLBC</text>
+        <rect fill="var(--c-frame)" x="60"  y="120" width="40" height="6"/>
+        <rect fill="var(--c-frame)" x="60"  y="146" width="40" height="6"/>
+        <rect fill="var(--c-frame)" x="60"  y="126" width="6"  height="20"/>
+        <rect fill="var(--c-frame)" x="94"  y="126" width="6"  height="20"/>
+        <rect fill="var(--c-frame)" x="140" y="120" width="40" height="6"/>
+        <rect fill="var(--c-frame)" x="140" y="146" width="40" height="6"/>
+        <rect fill="var(--c-frame)" x="140" y="126" width="6"  height="20"/>
+        <rect fill="var(--c-frame)" x="174" y="126" width="6"  height="20"/>
+        <rect fill="var(--c-frame)" x="100" y="132" width="40" height="6"/>
+        <rect fill="var(--c-eye)" x="76"  y="132" width="10" height="8"/>
+        <rect fill="var(--c-eye)" x="154" y="132" width="10" height="8"/>
+        <rect fill="var(--c-mouth)" x="102" y="166" width="36" height="6"/>
+        <rect fill="var(--c-mouth)" x="98"  y="170" width="6"  height="4"/>
+        <rect fill="var(--c-mouth)" x="136" y="170" width="6"  height="4"/>
+        <rect fill="var(--c-suit)"  x="60"  y="210" width="20" height="32"/>
+        <rect fill="var(--c-suitH)" x="60"  y="210" width="6"  height="30"/>
+        <rect fill="var(--c-suit)"  x="44"  y="240" width="36" height="18"/>
+        <rect fill="var(--c-skin)"  x="30"  y="242" width="20" height="20"/>
+        <rect fill="var(--c-skinS)" x="30"  y="256" width="20" height="6"/>
+        <rect fill="var(--c-suit)"  x="160" y="210" width="20" height="32"/>
+        <rect fill="var(--c-suitH)" x="174" y="210" width="6"  height="30"/>
+        <rect fill="var(--c-suit)"  x="160" y="240" width="36" height="18"/>
+        <rect fill="var(--c-skin)"  x="190" y="242" width="20" height="20"/>
+        <rect fill="var(--c-skinS)" x="190" y="256" width="20" height="6"/>
+      </g>
+      <rect fill="#000" opacity=".15" x="60" y="288" width="200" height="4"/>
+      <polygon fill="var(--c-laptop)"  points="60,286 260,286 248,260 72,260"/>
+      <polygon fill="var(--c-laptopD)" points="60,286 260,286 256,290 64,290"/>
+      <polygon fill="var(--c-laptopE)" points="76,282 244,282 236,264 84,264"/>
+      <g fill="var(--c-key)">
+        <rect x="84" y="268" width="14" height="3"/>
+        <rect x="104" y="268" width="14" height="3"/>
+        <rect x="124" y="268" width="14" height="3"/>
+        <rect x="144" y="268" width="14" height="3"/>
+        <rect x="164" y="268" width="14" height="3"/>
+        <rect x="184" y="268" width="14" height="3"/>
+        <rect x="204" y="268" width="14" height="3"/>
+        <rect x="222" y="268" width="14" height="3"/>
+        <rect x="88" y="274" width="14" height="3"/>
+        <rect x="108" y="274" width="14" height="3"/>
+        <rect x="128" y="274" width="14" height="3"/>
+        <rect x="148" y="274" width="14" height="3"/>
+        <rect x="168" y="274" width="14" height="3"/>
+        <rect x="188" y="274" width="14" height="3"/>
+        <rect x="208" y="274" width="14" height="3"/>
+        <rect x="226" y="274" width="14" height="3"/>
+      </g>
+      <polygon fill="var(--c-laptopD)" points="72,260 248,260 240,170 80,170"/>
+      <polygon fill="var(--c-laptop)"  points="76,256 244,256 236,174 84,174"/>
+      <polygon fill="var(--c-screen)"  points="84,250 236,250 228,180 92,180"/>
+      <rect fill="var(--c-screenT)" x="94" y="186" width="80"  height="3"/>
+      <rect fill="var(--c-screenT)" x="94" y="196" width="120" height="3"/>
+      <rect fill="var(--c-screenT)" x="94" y="206" width="100" height="3"/>
+      <rect fill="var(--c-screenT)" x="94" y="216" width="90"  height="3"/>
+      <rect fill="var(--c-screenT)" x="94" y="226" width="60"  height="3"/>
+      <rect fill="var(--c-cap)" x="94" y="236" width="40" height="6"/>
+      <text x="114" y="241" text-anchor="middle" font-family="'Courier New',monospace" font-size="5" fill="#fbf7f0" font-weight="700">p.18</text>
+      <rect class="l-cursor" fill="var(--c-screenT)" x="160" y="236" width="3" height="6"/>
+    </symbol>
+
+    <!-- ============================================================ -->
+    <!-- TRANSITION FRAME (3/4 view, single intermediate frame for the pixelated cut) -->
+    <!-- ============================================================ -->
+    <symbol id="trans-mid" viewBox="0 0 320 320">
+      <ellipse cx="180" cy="306" rx="100" ry="5" fill="#000" opacity=".15"/>
+
+      <!-- Mascot rotated 3/4: head + body compressed horizontally, both eyes visible asymmetrically -->
+      <g transform="translate(60, 0)">
+        <!-- Cap -->
+        <rect fill="var(--c-cap)"  x="80"  y="30"  width="100" height="50"/>
+        <rect fill="var(--c-cap)"  x="90"  y="20"  width="80"  height="10"/>
+        <rect fill="var(--c-capH)" x="80"  y="30"  width="100" height="6"/>
+        <!-- Brim asymmetric (more to the right since rotating) -->
+        <rect fill="var(--c-brim)" x="80"  y="80"  width="120" height="10"/>
+        <rect fill="var(--c-brim)" x="80"  y="90"  width="130" height="6"/>
+
+        <!-- Head — narrower than front view -->
+        <rect fill="var(--c-skin)" x="80"  y="50"  width="100" height="130"/>
+        <rect fill="var(--c-skin)" x="74"  y="60"  width="6"   height="110"/>
+        <rect fill="var(--c-skin)" x="180" y="60"  width="6"   height="100"/>
+        <rect fill="var(--c-skinS)" x="80" y="96" width="100" height="10"/>
+
+        <!-- Nose stub right -->
+        <rect fill="var(--c-skin)"  x="184" y="118" width="4" height="14"/>
+        <rect fill="var(--c-skinS)" x="184" y="128" width="4" height="4"/>
+
+        <!-- JLBC squished -->
+        <text fill="var(--c-jlbc)" x="130" y="62" text-anchor="middle"
+              font-family="'Press Start 2P','Courier New',monospace"
+              font-weight="900" font-size="14">JLBC</text>
+
+        <!-- Glasses: 2 lenses, right one bigger (3/4 perspective) -->
+        <rect fill="var(--c-frame)" x="88"  y="120" width="28" height="4"/>
+        <rect fill="var(--c-frame)" x="88"  y="138" width="28" height="4"/>
+        <rect fill="var(--c-frame)" x="88"  y="124" width="4"  height="14"/>
+        <rect fill="var(--c-frame)" x="112" y="124" width="4"  height="14"/>
+        <rect fill="var(--c-eyeW)"  x="92"  y="124" width="20" height="14" opacity=".5"/>
+        <rect fill="var(--c-frame)" x="148" y="118" width="36" height="4"/>
+        <rect fill="var(--c-frame)" x="148" y="140" width="36" height="4"/>
+        <rect fill="var(--c-frame)" x="148" y="122" width="4"  height="18"/>
+        <rect fill="var(--c-frame)" x="180" y="122" width="4"  height="18"/>
+        <rect fill="var(--c-eyeW)"  x="152" y="122" width="28" height="18" opacity=".5"/>
+        <rect fill="var(--c-frame)" x="116" y="128" width="32" height="4"/>
+
+        <!-- Eyes -->
+        <rect fill="var(--c-eye)" x="98"  y="128" width="6" height="6"/>
+        <rect fill="var(--c-eye)" x="162" y="128" width="8" height="6"/>
+
+        <!-- Mouth -->
+        <rect fill="var(--c-mouth)" x="120" y="166" width="30" height="4"/>
+
+        <!-- Neck + torso compressed -->
+        <rect fill="var(--c-skin)" x="118" y="180" width="32" height="20"/>
+        <rect fill="var(--c-suit)" x="90"  y="200" width="90" height="90"/>
+        <rect fill="var(--c-suitH)" x="90" y="200" width="10" height="60"/>
+        <rect fill="var(--c-suitD)" x="170" y="200" width="10" height="60"/>
+        <rect fill="var(--c-tie)"  x="128" y="220" width="8" height="50"/>
+      </g>
+
+      <!-- Laptop in 3/4 — half-turn -->
+      <polygon fill="var(--c-laptop)"  points="100,286 240,286 228,260 110,260"/>
+      <polygon fill="var(--c-laptopD)" points="100,286 240,286 236,290 102,290"/>
+      <polygon fill="var(--c-laptopE)" points="112,282 228,282 222,264 118,264"/>
+      <polygon fill="var(--c-laptopD)" points="110,260 228,260 220,180 116,180"/>
+      <polygon fill="var(--c-laptop)"  points="114,256 224,256 216,184 120,184"/>
+      <polygon fill="var(--c-screen)"  points="120,250 218,250 212,188 126,188"/>
+    </symbol>
+  </defs>
+</svg>
+
+<div class="cards tgrid">
+
+  <div class="card t-card" data-choice="side-only" onclick="toggleSelect(this)">
+    <div class="t-stage">
+      <svg class="pal-civic anim-side" viewBox="0 0 320 320">
+        <use href="#side-typing-v2"/>
+      </svg>
+    </div>
+    <div class="t-legend">
+      <h3>Side typing (fixed)</h3>
+      <p>Glasses extend past the front of the face; eye sits up at the front. Temple stem still goes back toward the ear so the glasses read correctly.</p>
+    </div>
+  </div>
+
+  <div class="card t-card" data-choice="front-only" onclick="toggleSelect(this)">
+    <div class="t-stage">
+      <svg class="pal-civic anim-front" viewBox="0 0 320 320">
+        <use href="#front-presenting"/>
+      </svg>
+    </div>
+    <div class="t-legend">
+      <h3>Front presenting</h3>
+      <p>Unchanged from v1. Hands open at the laptop, screen tilted toward the viewer with a result + citation chip.</p>
+    </div>
+  </div>
+
+  <div class="card t-card" data-choice="cut" onclick="toggleSelect(this)">
+    <div class="t-stage cycle-cut">
+      <svg class="pal-civic side-view"  viewBox="0 0 320 320" style="position:absolute;"><use href="#side-typing-v2"/></svg>
+      <svg class="pal-civic front-view" viewBox="0 0 320 320" style="position:absolute;"><use href="#front-presenting"/></svg>
+    </div>
+    <div class="t-legend">
+      <h3>Cycle — hard cut</h3>
+      <p>Instant snap between side and front. No fade, no scale. Cleanest, most pixel-art-correct.</p>
+    </div>
+  </div>
+
+  <div class="card t-card" data-choice="step" onclick="toggleSelect(this)">
+    <div class="t-stage cycle-step">
+      <svg class="pal-civic side-view"  viewBox="0 0 320 320" style="position:absolute;"><use href="#side-typing-v2"/></svg>
+      <svg class="pal-civic trans-view" viewBox="0 0 320 320" style="position:absolute;"><use href="#trans-mid"/></svg>
+      <svg class="pal-civic front-view" viewBox="0 0 320 320" style="position:absolute;"><use href="#front-presenting"/></svg>
+    </div>
+    <div class="t-legend">
+      <h3>Cycle — 1-frame pixel transition</h3>
+      <p>Side → single 3/4-view frame (~0.5s) → front, and back. Reads as a quick spin in the pixel-art idiom (think Pokemon-evolution stutter).</p>
+    </div>
+  </div>
+
+</div>
+
+<p class="subtitle" style="margin-top: 16px;">Pick a cycle (cut vs. 1-frame transition) — or tell me what's still off about the side profile (brim length, glasses size, etc.).</p>

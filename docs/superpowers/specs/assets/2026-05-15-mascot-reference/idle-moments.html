@@ -1,0 +1,420 @@
+<h2>Idle "moments" — pick the ones that feel right</h2>
+<p class="subtitle">Short pixel-art beats that fire at random intervals (every 8–15s) while the mascot is idle. Each card auto-replays its moment every ~4s so you can see what it does. <strong>Click multiple — multi-select</strong>. The base idle (subtle bob + occasional blink) is always on; these are the flavor on top.</p>
+
+<style>
+  .igrid { display:grid; grid-template-columns: repeat(4, 1fr); gap: 12px; }
+  .i-card { cursor:pointer; }
+  .i-stage {
+    height: 220px; background: #fbf7f0; border: 1px solid #d8d2c4; border-radius: 8px 8px 0 0;
+    display:flex; align-items:flex-end; justify-content:center; padding-bottom: 6px;
+    overflow:hidden; position:relative;
+  }
+  .i-stage svg { width: 130px; height: auto; display:block; shape-rendering: crispEdges; }
+  .i-legend { padding: 10px 12px; background:#efe9dc; border-radius: 0 0 8px 8px; color:#1f2937; min-height: 68px; }
+  .i-legend h3 { margin:0 0 2px; font: 700 12px/1.2 'Source Serif Pro', Georgia, serif; }
+  .i-legend p { margin:0; font: 10.5px/1.4 monospace; }
+
+  .pal-civic {
+    --c-suit:#1f2937; --c-suitH:#303a4a; --c-suitD:#13181f;
+    --c-shirt:#fbf7f0; --c-tie:#3a6ea5;
+    --c-skin:#e8c8a4; --c-skinS:#c8a47e; --c-skinH:#f4dab7;
+    --c-cap:#3a6ea5; --c-capH:#5a8cc4; --c-brim:#2c557f;
+    --c-jlbc:#fbf7f0; --c-frame:#1f2937; --c-eye:#1f2937; --c-eyeW:#fbf7f0;
+    --c-mouth:#8a5f3f;
+  }
+
+  /* Base bob — applies to every card */
+  .i-stage svg { animation: bob 3.2s steps(2, end) infinite; transform-origin: 50% 100%; }
+  @keyframes bob { 0%, 100% { transform: translateY(0); } 50% { transform: translateY(-1px); } }
+
+  /* Each "moment" element is hidden by default and shown briefly via animation */
+  .moment-show { opacity: 0; }
+
+  /* m-blink — eye color swaps to skin (closed) for 150ms every 4s */
+  .m-blink .eye-open  { animation: blink-vis 4s steps(1) infinite; }
+  .m-blink .eye-shut  { animation: blink-hidden 4s steps(1) infinite; opacity: 0; }
+  @keyframes blink-vis    { 0%, 96% { opacity: 1; } 96.01%, 100% { opacity: 0; } }
+  @keyframes blink-hidden { 0%, 96% { opacity: 0; } 96.01%, 100% { opacity: 1; } }
+
+  /* m-look — eyes shift right for 700ms every 4s */
+  .m-look .eye-fwd  { animation: look-fwd 4s steps(1) infinite; }
+  .m-look .eye-side { animation: look-side 4s steps(1) infinite; opacity: 0; }
+  @keyframes look-fwd  { 0%, 60% { opacity: 1; } 60.01%, 85% { opacity: 0; } 85.01%, 100% { opacity: 1; } }
+  @keyframes look-side { 0%, 60% { opacity: 0; } 60.01%, 85% { opacity: 1; } 85.01%, 100% { opacity: 0; } }
+
+  /* m-glasses-push — right arm raises briefly to push up glasses */
+  .m-glasses-push .arms-default { animation: arms-vis 4s steps(1) infinite; }
+  .m-glasses-push .arms-pushing { animation: arms-hidden 4s steps(1) infinite; opacity: 0; }
+  @keyframes arms-vis    { 0%, 55% { opacity: 1; } 55.01%, 80% { opacity: 0; } 80.01%, 100% { opacity: 1; } }
+  @keyframes arms-hidden { 0%, 55% { opacity: 0; } 55.01%, 80% { opacity: 1; } 80.01%, 100% { opacity: 0; } }
+  /* glasses-pushed-up offset */
+  .m-glasses-push .glasses-up { animation: arms-hidden 4s steps(1) infinite; opacity: 0; }
+  .m-glasses-push .glasses-default { animation: arms-vis 4s steps(1) infinite; }
+
+  /* m-coffee — coffee mug appears in right hand, raises to mouth */
+  .m-coffee .mug-down { animation: coffee-down 4s steps(1) infinite; opacity: 0; }
+  .m-coffee .mug-up   { animation: coffee-up   4s steps(1) infinite; opacity: 0; }
+  @keyframes coffee-down { 0%, 50% { opacity: 0; } 50.01%, 70% { opacity: 1; } 70.01%, 100% { opacity: 0; } }
+  @keyframes coffee-up   { 0%, 70% { opacity: 0; } 70.01%, 90% { opacity: 1; } 90.01%, 100% { opacity: 0; } }
+
+  /* m-stretch — both arms raise briefly */
+  .m-stretch .arms-default { animation: arms-vis 4s steps(1) infinite; }
+  .m-stretch .arms-stretch { animation: arms-hidden 4s steps(1) infinite; opacity: 0; }
+
+  /* m-smile — mouth swaps from neutral to wider smile */
+  .m-smile .mouth-default { animation: arms-vis 4s steps(1) infinite; }
+  .m-smile .mouth-wide    { animation: arms-hidden 4s steps(1) infinite; opacity: 0; }
+
+  /* m-lightbulb — bulb appears above head briefly */
+  .m-lightbulb .bulb { animation: bulb 4s steps(1) infinite; opacity: 0; }
+  @keyframes bulb { 0%, 60% { opacity: 0; } 60.01%, 90% { opacity: 1; } 90.01%, 100% { opacity: 0; } }
+
+  /* m-tip-cap — cap briefly tips forward (transform on cap group) */
+  .m-tip-cap .cap-default { animation: arms-vis 4s steps(1) infinite; }
+  .m-tip-cap .cap-tipped  { animation: arms-hidden 4s steps(1) infinite; opacity: 0; }
+
+  @media (prefers-reduced-motion: reduce) {
+    .i-stage svg *, .i-stage svg { animation: none !important; }
+  }
+</style>
+
+<svg width="0" height="0" style="position:absolute" aria-hidden="true">
+  <defs>
+
+    <!-- BASE: front-view mascot body (everything except eyes/mouth/arms/cap, which are per-moment) -->
+    <symbol id="base-body" viewBox="0 0 240 320">
+      <!-- Base -->
+      <rect fill="#cbbfad" x="50"  y="290" width="140" height="20"/>
+      <rect fill="#a89e8e" x="40"  y="300" width="160" height="10"/>
+      <!-- Torso -->
+      <rect fill="var(--c-suit)"  x="80"  y="200" width="80"  height="90"/>
+      <rect fill="var(--c-suitH)" x="80"  y="200" width="10"  height="60"/>
+      <rect fill="var(--c-suitH)" x="150" y="200" width="10"  height="60"/>
+      <!-- Shirt V -->
+      <rect fill="var(--c-shirt)" x="105" y="200" width="30" height="10"/>
+      <rect fill="var(--c-shirt)" x="113" y="210" width="14" height="10"/>
+      <rect fill="var(--c-shirt)" x="117" y="220" width="6"  height="6"/>
+      <!-- Tie -->
+      <rect fill="var(--c-tie)" x="116" y="220" width="8" height="50"/>
+      <!-- Neck -->
+      <rect fill="var(--c-skin)" x="108" y="180" width="24" height="22"/>
+      <!-- Head -->
+      <rect fill="var(--c-skin)" x="40"  y="40"  width="160" height="140"/>
+      <rect fill="var(--c-skin)" x="30"  y="50"  width="10"  height="120"/>
+      <rect fill="var(--c-skin)" x="200" y="50"  width="10"  height="120"/>
+      <rect fill="var(--c-skin)" x="20"  y="70"  width="10"  height="80"/>
+      <rect fill="var(--c-skin)" x="210" y="70"  width="10"  height="80"/>
+    </symbol>
+
+    <!-- Cap (default and tipped) -->
+    <symbol id="cap-default" viewBox="0 0 240 320">
+      <rect fill="var(--c-cap)"  x="40"  y="20"  width="160" height="60"/>
+      <rect fill="var(--c-cap)"  x="50"  y="10"  width="140" height="10"/>
+      <rect fill="var(--c-cap)"  x="30"  y="40"  width="10"  height="40"/>
+      <rect fill="var(--c-cap)"  x="200" y="40"  width="10"  height="40"/>
+      <rect fill="var(--c-capH)" x="40"  y="20"  width="160" height="6"/>
+      <rect fill="var(--c-capH)" x="50"  y="10"  width="140" height="6"/>
+      <rect fill="var(--c-brim)" x="20"  y="80"  width="200" height="10"/>
+      <rect fill="var(--c-brim)" x="10"  y="90"  width="220" height="10"/>
+      <rect fill="var(--c-skinS)" x="40" y="100" width="160" height="10"/>
+      <text fill="var(--c-jlbc)" x="120" y="64" text-anchor="middle"
+            font-family="'Press Start 2P','Courier New',monospace"
+            font-weight="900" font-size="20">JLBC</text>
+    </symbol>
+
+    <!-- Cap tipped (slightly forward / lower) -->
+    <symbol id="cap-tipped" viewBox="0 0 240 320">
+      <rect fill="var(--c-cap)"  x="40"  y="26"  width="160" height="60"/>
+      <rect fill="var(--c-cap)"  x="50"  y="16"  width="140" height="10"/>
+      <rect fill="var(--c-cap)"  x="30"  y="46"  width="10"  height="40"/>
+      <rect fill="var(--c-cap)"  x="200" y="46"  width="10"  height="40"/>
+      <rect fill="var(--c-capH)" x="40"  y="26"  width="160" height="6"/>
+      <rect fill="var(--c-capH)" x="50"  y="16"  width="140" height="6"/>
+      <rect fill="var(--c-brim)" x="14"  y="86"  width="212" height="10"/>
+      <rect fill="var(--c-brim)" x="6"   y="96"  width="228" height="10"/>
+      <rect fill="var(--c-skinS)" x="40" y="106" width="160" height="14"/>
+      <text fill="var(--c-jlbc)" x="120" y="70" text-anchor="middle"
+            font-family="'Press Start 2P','Courier New',monospace"
+            font-weight="900" font-size="20">JLBC</text>
+    </symbol>
+
+    <!-- Glasses default (centered) -->
+    <symbol id="glasses-default" viewBox="0 0 240 320">
+      <rect fill="var(--c-frame)" x="60"  y="120" width="40" height="6"/>
+      <rect fill="var(--c-frame)" x="60"  y="146" width="40" height="6"/>
+      <rect fill="var(--c-frame)" x="60"  y="126" width="6"  height="20"/>
+      <rect fill="var(--c-frame)" x="94"  y="126" width="6"  height="20"/>
+      <rect fill="var(--c-frame)" x="140" y="120" width="40" height="6"/>
+      <rect fill="var(--c-frame)" x="140" y="146" width="40" height="6"/>
+      <rect fill="var(--c-frame)" x="140" y="126" width="6"  height="20"/>
+      <rect fill="var(--c-frame)" x="174" y="126" width="6"  height="20"/>
+      <rect fill="var(--c-frame)" x="100" y="132" width="40" height="6"/>
+    </symbol>
+
+    <!-- Glasses pushed up (slightly higher) -->
+    <symbol id="glasses-up" viewBox="0 0 240 320">
+      <rect fill="var(--c-frame)" x="60"  y="114" width="40" height="6"/>
+      <rect fill="var(--c-frame)" x="60"  y="140" width="40" height="6"/>
+      <rect fill="var(--c-frame)" x="60"  y="120" width="6"  height="20"/>
+      <rect fill="var(--c-frame)" x="94"  y="120" width="6"  height="20"/>
+      <rect fill="var(--c-frame)" x="140" y="114" width="40" height="6"/>
+      <rect fill="var(--c-frame)" x="140" y="140" width="40" height="6"/>
+      <rect fill="var(--c-frame)" x="140" y="120" width="6"  height="20"/>
+      <rect fill="var(--c-frame)" x="174" y="120" width="6"  height="20"/>
+      <rect fill="var(--c-frame)" x="100" y="126" width="40" height="6"/>
+    </symbol>
+
+    <!-- Default mouth (small line) -->
+    <symbol id="mouth-default" viewBox="0 0 240 320">
+      <rect fill="var(--c-mouth)" x="104" y="166" width="32" height="6"/>
+    </symbol>
+
+    <!-- Wide smile -->
+    <symbol id="mouth-wide" viewBox="0 0 240 320">
+      <rect fill="var(--c-mouth)" x="98"  y="164" width="44" height="6"/>
+      <rect fill="var(--c-mouth)" x="92"  y="170" width="8"  height="4"/>
+      <rect fill="var(--c-mouth)" x="140" y="170" width="8"  height="4"/>
+    </symbol>
+
+    <!-- Default arms (clasped front) -->
+    <symbol id="arms-default" viewBox="0 0 240 320">
+      <rect fill="var(--c-suit)"  x="60"  y="210" width="20" height="40"/>
+      <rect fill="var(--c-suit)"  x="160" y="210" width="20" height="40"/>
+      <rect fill="var(--c-suitH)" x="60"  y="210" width="6"  height="30"/>
+      <rect fill="var(--c-suitH)" x="174" y="210" width="6"  height="30"/>
+      <rect fill="var(--c-suit)"  x="74"  y="244" width="44" height="16"/>
+      <rect fill="var(--c-suit)"  x="122" y="244" width="44" height="16"/>
+      <rect fill="var(--c-skin)"  x="100" y="248" width="40" height="14"/>
+      <rect fill="var(--c-skinS)" x="100" y="258" width="40" height="4"/>
+      <rect fill="var(--c-skinS)" x="118" y="248" width="4"  height="14"/>
+    </symbol>
+
+    <!-- Arms pushing glasses (right arm raised to glasses) -->
+    <symbol id="arms-pushing" viewBox="0 0 240 320">
+      <rect fill="var(--c-suit)"  x="60"  y="210" width="20" height="56"/>
+      <rect fill="var(--c-suitH)" x="60"  y="210" width="6"  height="40"/>
+      <rect fill="var(--c-skin)"  x="60"  y="266" width="20" height="14"/>
+      <rect fill="var(--c-suit)"  x="160" y="210" width="20" height="20"/>
+      <rect fill="var(--c-suitH)" x="174" y="210" width="6"  height="20"/>
+      <rect fill="var(--c-suit)"  x="156" y="160" width="20" height="58"/>
+      <rect fill="var(--c-suitH)" x="156" y="160" width="6"  height="50"/>
+      <rect fill="var(--c-skin)"  x="148" y="120" width="32" height="36"/>
+      <rect fill="var(--c-skinS)" x="148" y="146" width="32" height="6"/>
+    </symbol>
+
+    <!-- Arms stretched up (both raised) -->
+    <symbol id="arms-stretch" viewBox="0 0 240 320">
+      <rect fill="var(--c-suit)"  x="60"  y="210" width="20" height="20"/>
+      <rect fill="var(--c-suit)"  x="160" y="210" width="20" height="20"/>
+      <rect fill="var(--c-suit)"  x="54"  y="150" width="20" height="70"/>
+      <rect fill="var(--c-suit)"  x="166" y="150" width="20" height="70"/>
+      <rect fill="var(--c-suitH)" x="54"  y="150" width="6"  height="60"/>
+      <rect fill="var(--c-suitH)" x="180" y="150" width="6"  height="60"/>
+      <rect fill="var(--c-skin)"  x="48"  y="120" width="32" height="34"/>
+      <rect fill="var(--c-skin)"  x="160" y="120" width="32" height="34"/>
+      <rect fill="var(--c-skinS)" x="48"  y="144" width="32" height="6"/>
+      <rect fill="var(--c-skinS)" x="160" y="144" width="32" height="6"/>
+    </symbol>
+
+    <!-- Coffee mug (hand held low at waist) -->
+    <symbol id="mug-down" viewBox="0 0 240 320">
+      <rect fill="#7a3c1f" x="172" y="252" width="24" height="20"/>
+      <rect fill="#5c2a14" x="172" y="252" width="24" height="4"/>
+      <rect fill="#7a3c1f" x="194" y="256" width="6"  height="12"/>
+      <rect fill="#3a1d0f" x="174" y="252" width="20" height="3"/>
+      <rect fill="#fbf7f0" x="178" y="240" width="3" height="6" opacity=".7"/>
+      <rect fill="#fbf7f0" x="184" y="238" width="3" height="6" opacity=".7"/>
+    </symbol>
+
+    <!-- Coffee mug (raised to face level) -->
+    <symbol id="mug-up" viewBox="0 0 240 320">
+      <rect fill="#7a3c1f" x="146" y="160" width="24" height="20"/>
+      <rect fill="#5c2a14" x="146" y="160" width="24" height="4"/>
+      <rect fill="#7a3c1f" x="168" y="164" width="6"  height="12"/>
+      <rect fill="#3a1d0f" x="148" y="160" width="20" height="3"/>
+      <rect fill="#fbf7f0" x="152" y="148" width="3" height="6" opacity=".7"/>
+      <rect fill="#fbf7f0" x="158" y="146" width="3" height="6" opacity=".7"/>
+    </symbol>
+
+    <!-- Light bulb (above head) -->
+    <symbol id="bulb-icon" viewBox="0 0 240 320">
+      <rect fill="#f4c84a" x="112" y="-5" width="16" height="18"/>
+      <rect fill="#f4c84a" x="108" y="-2" width="24" height="12"/>
+      <rect fill="#888c92" x="114" y="12" width="12" height="4"/>
+      <rect fill="#54585e" x="114" y="16" width="12" height="2"/>
+      <!-- Sparkles -->
+      <rect fill="#f4c84a" x="100" y="0"  width="3" height="3"/>
+      <rect fill="#f4c84a" x="138" y="0"  width="3" height="3"/>
+      <rect fill="#f4c84a" x="105" y="-10" width="3" height="3"/>
+      <rect fill="#f4c84a" x="135" y="-10" width="3" height="3"/>
+    </symbol>
+
+    <!-- Eyes default + shifted -->
+    <symbol id="eye-pair-fwd" viewBox="0 0 240 320">
+      <rect fill="var(--c-eye)" x="76"  y="132" width="10" height="8"/>
+      <rect fill="var(--c-eye)" x="154" y="132" width="10" height="8"/>
+    </symbol>
+    <symbol id="eye-pair-side" viewBox="0 0 240 320">
+      <rect fill="var(--c-eye)" x="82"  y="132" width="10" height="8"/>
+      <rect fill="var(--c-eye)" x="160" y="132" width="10" height="8"/>
+    </symbol>
+    <symbol id="eye-pair-shut" viewBox="0 0 240 320">
+      <rect fill="var(--c-skin)" x="76"  y="132" width="10" height="8"/>
+      <rect fill="var(--c-skin)" x="154" y="132" width="10" height="8"/>
+      <rect fill="var(--c-frame)" x="76"  y="134" width="10" height="3"/>
+      <rect fill="var(--c-frame)" x="154" y="134" width="10" height="3"/>
+    </symbol>
+  </defs>
+</svg>
+
+<div class="cards igrid" data-multiselect>
+
+  <div class="card i-card m-blink" data-choice="blink" onclick="toggleSelect(this)">
+    <div class="i-stage">
+      <svg class="pal-civic" viewBox="0 0 240 320">
+        <use href="#base-body"/>
+        <use href="#cap-default"/>
+        <use href="#arms-default"/>
+        <use href="#glasses-default"/>
+        <use href="#mouth-default"/>
+        <g class="eye-open"><use href="#eye-pair-fwd"/></g>
+        <g class="eye-shut"><use href="#eye-pair-shut"/></g>
+      </svg>
+    </div>
+    <div class="i-legend">
+      <h3>Blink</h3>
+      <p>Eyes briefly close. Baseline; should fire every ~3-6s regardless.</p>
+    </div>
+  </div>
+
+  <div class="card i-card m-look" data-choice="look" onclick="toggleSelect(this)">
+    <div class="i-stage">
+      <svg class="pal-civic" viewBox="0 0 240 320">
+        <use href="#base-body"/>
+        <use href="#cap-default"/>
+        <use href="#arms-default"/>
+        <use href="#glasses-default"/>
+        <use href="#mouth-default"/>
+        <g class="eye-fwd"><use href="#eye-pair-fwd"/></g>
+        <g class="eye-side"><use href="#eye-pair-side"/></g>
+      </svg>
+    </div>
+    <div class="i-legend">
+      <h3>Look sideways</h3>
+      <p>Eyes shift right and back. Curious / checking something.</p>
+    </div>
+  </div>
+
+  <div class="card i-card m-glasses-push" data-choice="glasses" onclick="toggleSelect(this)">
+    <div class="i-stage">
+      <svg class="pal-civic" viewBox="0 0 240 320">
+        <use href="#base-body"/>
+        <use href="#cap-default"/>
+        <g class="arms-default"><use href="#arms-default"/></g>
+        <g class="arms-pushing"><use href="#arms-pushing"/></g>
+        <g class="glasses-default"><use href="#glasses-default"/></g>
+        <g class="glasses-up"><use href="#glasses-up"/></g>
+        <use href="#mouth-default"/>
+        <use href="#eye-pair-fwd"/>
+      </svg>
+    </div>
+    <div class="i-legend">
+      <h3>Push up glasses</h3>
+      <p>Right hand briefly raises to nose, glasses shift up a notch. Very analyst.</p>
+    </div>
+  </div>
+
+  <div class="card i-card m-coffee" data-choice="coffee" onclick="toggleSelect(this)">
+    <div class="i-stage">
+      <svg class="pal-civic" viewBox="0 0 240 320">
+        <use href="#base-body"/>
+        <use href="#cap-default"/>
+        <use href="#arms-default"/>
+        <use href="#glasses-default"/>
+        <use href="#mouth-default"/>
+        <use href="#eye-pair-fwd"/>
+        <g class="mug-down"><use href="#mug-down"/></g>
+        <g class="mug-up"><use href="#mug-up"/></g>
+      </svg>
+    </div>
+    <div class="i-legend">
+      <h3>Sip coffee</h3>
+      <p>Mug appears at waist, raises to mouth, gone. Subtle, recurring.</p>
+    </div>
+  </div>
+
+  <div class="card i-card m-stretch" data-choice="stretch" onclick="toggleSelect(this)">
+    <div class="i-stage">
+      <svg class="pal-civic" viewBox="0 0 240 320">
+        <use href="#base-body"/>
+        <use href="#cap-default"/>
+        <g class="arms-default"><use href="#arms-default"/></g>
+        <g class="arms-stretch"><use href="#arms-stretch"/></g>
+        <use href="#glasses-default"/>
+        <use href="#mouth-default"/>
+        <use href="#eye-pair-fwd"/>
+      </svg>
+    </div>
+    <div class="i-legend">
+      <h3>Stretch arms</h3>
+      <p>Both arms raise overhead briefly. Rare — like, once every 30s.</p>
+    </div>
+  </div>
+
+  <div class="card i-card m-smile" data-choice="smile" onclick="toggleSelect(this)">
+    <div class="i-stage">
+      <svg class="pal-civic" viewBox="0 0 240 320">
+        <use href="#base-body"/>
+        <use href="#cap-default"/>
+        <use href="#arms-default"/>
+        <use href="#glasses-default"/>
+        <g class="mouth-default"><use href="#mouth-default"/></g>
+        <g class="mouth-wide"><use href="#mouth-wide"/></g>
+        <use href="#eye-pair-fwd"/>
+      </svg>
+    </div>
+    <div class="i-legend">
+      <h3>Quick smile</h3>
+      <p>Mouth briefly widens. Subtle warmth, no obvious trigger.</p>
+    </div>
+  </div>
+
+  <div class="card i-card m-lightbulb" data-choice="lightbulb" onclick="toggleSelect(this)">
+    <div class="i-stage">
+      <svg class="pal-civic" viewBox="0 0 240 320">
+        <g class="bulb"><use href="#bulb-icon"/></g>
+        <use href="#base-body"/>
+        <use href="#cap-default"/>
+        <use href="#arms-default"/>
+        <use href="#glasses-default"/>
+        <use href="#mouth-default"/>
+        <use href="#eye-pair-fwd"/>
+      </svg>
+    </div>
+    <div class="i-legend">
+      <h3>Lightbulb moment</h3>
+      <p>Bulb + sparkles appear above head briefly. Most "narrative" of the bunch.</p>
+    </div>
+  </div>
+
+  <div class="card i-card m-tip-cap" data-choice="tip-cap" onclick="toggleSelect(this)">
+    <div class="i-stage">
+      <svg class="pal-civic" viewBox="0 0 240 320">
+        <use href="#base-body"/>
+        <g class="cap-default"><use href="#cap-default"/></g>
+        <g class="cap-tipped"><use href="#cap-tipped"/></g>
+        <use href="#arms-default"/>
+        <use href="#glasses-default"/>
+        <use href="#mouth-default"/>
+        <use href="#eye-pair-fwd"/>
+      </svg>
+    </div>
+    <div class="i-legend">
+      <h3>Tip cap</h3>
+      <p>Cap briefly lowers / shifts forward. Like adjusting the hat.</p>
+    </div>
+  </div>
+
+</div>
+
+<p class="subtitle" style="margin-top: 16px;">Multi-select — click as many as you want. Recommended subset: <em>Blink + Look sideways + Push up glasses</em> as a calm baseline; add <em>Sip coffee</em> or <em>Lightbulb</em> if you want more narrative flavor. All are pure pixel-art frame swaps, no smooth tweening.</p>

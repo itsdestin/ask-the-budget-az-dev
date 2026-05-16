@@ -1,0 +1,391 @@
+<h2>§4 — Conversation chrome</h2>
+<p class="subtitle">Header, message bubbles, tool card, citation chips, persistent mascot column, input. Three states: a cited answer, the thinking state, and a refusal. This is the bulk of the day-to-day UI.</p>
+
+<style>
+  .cgrid { display:grid; grid-template-columns: 1fr; gap: 18px; }
+  .c-card { cursor:pointer; }
+  .c-stage {
+    height: 520px; background: #fbf7f0; border: 1px solid #d8d2c4; border-radius: 8px 8px 0 0;
+    overflow:hidden; position:relative;
+    font: 13px/1.5 'Inter', system-ui, sans-serif; color: #1f2937;
+    display:flex; flex-direction:column;
+  }
+  .c-legend { padding: 12px 14px; background:#efe9dc; border-radius: 0 0 8px 8px; color:#1f2937; min-height: 60px; }
+  .c-legend h3 { margin:0 0 3px; font: 700 14px/1.2 'Source Serif Pro', Georgia, serif; }
+  .c-legend p { margin:0; font: 12px/1.5 monospace; }
+
+  /* ===== Header ===== */
+  .cv-header {
+    height: 46px; flex-shrink:0; border-bottom: 1px solid #d8d2c4;
+    display:flex; align-items:center; padding: 0 14px; gap: 8px;
+    background: rgba(239,233,220,0.6);
+  }
+  .cv-header .brand { font: 700 14px/1 'Source Serif Pro', Georgia, serif; color:#1f2937; }
+  .cv-header .right { margin-left:auto; display:flex; gap:12px; align-items:center; }
+  .cv-header .meta  { font: 11px/1 'Cascadia Mono', monospace; color:#6a6e74; }
+  .cv-header .link  { font: 11px/1 'Inter', sans-serif; color:#3a6ea5; text-decoration:underline; cursor:pointer; }
+
+  /* ===== Thread ===== */
+  .cv-thread { flex:1; overflow-y:auto; padding: 18px 18px 18px; position:relative; }
+  .cv-turn { max-width: 620px; margin: 0 auto 20px; }
+
+  /* User message — right aligned, civic-blue */
+  .cv-user { display:flex; justify-content:flex-end; }
+  .cv-user .bubble {
+    background: #3a6ea5; color: #fbf7f0; border-radius: 12px 12px 4px 12px;
+    padding: 9px 14px; font: 13px/1.45 'Inter', sans-serif; max-width: 78%;
+  }
+
+  /* Assistant turn — left, on canvas */
+  .cv-asst { margin-top: 14px; }
+  .cv-asst .ans { font: 13px/1.6 'Inter', sans-serif; color:#1f2937; }
+  .cv-asst .ans .num { font-family: 'Cascadia Mono', monospace; font-weight:600; }
+
+  /* Tool card */
+  .cv-tool {
+    border: 1px solid #d8d2c4; border-radius: 8px; background:#fff;
+    margin-bottom: 12px; overflow:hidden; max-width: 360px;
+  }
+  .cv-tool .tool-head {
+    display:flex; align-items:center; gap:8px; padding: 8px 12px;
+    background:#efe9dc; font: 12px/1 'Inter', sans-serif;
+  }
+  .cv-tool .tool-dot { width:8px; height:8px; border-radius:2px; background:#3a6ea5; }
+  .cv-tool .tool-name { font-weight:600; }
+  .cv-tool .tool-meta { margin-left:auto; font: 11px/1 'Cascadia Mono', monospace; color:#6a6e74; }
+  .cv-tool .tool-body { padding: 8px 12px; font: 11px/1.5 'Cascadia Mono', monospace; color:#54585e; }
+
+  /* Citation chip */
+  .cite {
+    display:inline-flex; align-items:center; gap:3px;
+    background:#e4eef5; border:1px solid #3a6ea5; color:#2c557f;
+    border-radius:999px; padding:1px 7px; font: 11px/1.4 'Cascadia Mono', monospace;
+    vertical-align: baseline; cursor:pointer;
+  }
+  .cite:hover { background:#3a6ea5; color:#fbf7f0; }
+  .cite.failed { background:#f5e4e4; border-color:#c0392b; color:#c0392b; text-decoration:line-through; }
+
+  /* Refusal banner */
+  .cv-refusal {
+    border: 1px solid #d8a93a; background:#faf3df; border-radius:8px;
+    padding: 12px 14px 12px 12px; display:flex; gap:12px; align-items:flex-start;
+    max-width: 560px;
+  }
+  .cv-refusal .r-text { font: 12.5px/1.5 'Inter', sans-serif; color:#7a5c14; }
+  .cv-refusal .r-text strong { color:#5c4410; }
+
+  /* Input */
+  .cv-input {
+    flex-shrink:0; border-top: 1px solid #d8d2c4; padding: 12px 18px 12px 96px;
+    background: rgba(239,233,220,0.4); position:relative;
+  }
+  .cv-input .box {
+    display:flex; align-items:center; gap:8px; background:#fff;
+    border:1.5px solid #d8d2c4; border-radius:10px; padding: 9px 12px;
+  }
+  .cv-input input { flex:1; border:none; outline:none; font:13px/1 'Inter',sans-serif; background:transparent; color:#1f2937; }
+  .cv-input .send { background:#3a6ea5; color:#fbf7f0; border:none; border-radius:6px; padding:6px 14px; font:600 12px/1 'Inter',sans-serif; cursor:pointer; }
+
+  /* Persistent mascot column — bottom-left nook */
+  .cv-mascot-nook {
+    position:absolute; left: 10px; bottom: 8px; width: 78px; height: 92px;
+    display:flex; align-items:flex-end; justify-content:center;
+    z-index: 5;
+  }
+  .cv-mascot-nook svg { width: 72px; height:auto; shape-rendering:crispEdges;
+    animation: nook-bob 3.4s steps(2,end) infinite; transform-origin: 50% 100%; }
+  @keyframes nook-bob { 0%,100%{transform:translateY(0);} 50%{transform:translateY(-1px);} }
+
+  /* Thinking — side typing scene inline */
+  .cv-thinking { max-width: 620px; margin: 0 auto; display:flex; flex-direction:column; align-items:center; }
+  .cv-thinking .scene { width: 280px; }
+  .cv-thinking .label { font: 12px/1.4 'Inter', sans-serif; color:#6a6e74; margin-top: 4px; }
+  .cv-thinking svg .l-finger { animation: tap 460ms steps(2,end) infinite; transform-origin:50% 100%; transform-box:fill-box; }
+  @keyframes tap { 0%,100%{transform:translateY(0);} 50%{transform:translateY(2px);} }
+
+  .pal-civic {
+    --c-suit:#1f2937; --c-suitH:#303a4a; --c-suitD:#13181f;
+    --c-shirt:#fbf7f0; --c-tie:#3a6ea5;
+    --c-skin:#e8c8a4; --c-skinS:#c8a47e; --c-skinH:#f4dab7;
+    --c-cap:#3a6ea5; --c-capH:#5a8cc4; --c-brim:#2c557f;
+    --c-jlbc:#fbf7f0; --c-frame:#1f2937; --c-eye:#1f2937; --c-eyeW:#fbf7f0;
+    --c-mouth:#8a5f3f;
+    --c-lap-hi:#eef0f2; --c-lap:#c8ccd0; --c-lap-mid:#a8acb2; --c-lap-dk:#6a6e74;
+    --c-bezel:#1a1d22; --c-screen:#3a6ea5; --c-screen-txt:#fbf7f0;
+  }
+  @media (prefers-reduced-motion: reduce){ .c-stage svg,.c-stage svg *{animation:none!important;} }
+</style>
+
+<svg width="0" height="0" style="position:absolute" aria-hidden="true">
+  <defs>
+    <!-- Front mascot, clipboard pose (used in nook for "result" state) -->
+    <symbol id="m-clipboard" viewBox="0 0 240 320">
+      <rect fill="#cbbfad" x="50" y="290" width="140" height="20"/>
+      <rect fill="#a89e8e" x="40" y="300" width="160" height="10"/>
+      <rect fill="var(--c-suit)" x="80" y="200" width="80" height="90"/>
+      <rect fill="var(--c-suitH)" x="80" y="200" width="10" height="60"/>
+      <rect fill="var(--c-suitH)" x="150" y="200" width="10" height="60"/>
+      <rect fill="var(--c-shirt)" x="105" y="200" width="30" height="10"/>
+      <rect fill="var(--c-tie)" x="116" y="210" width="8" height="40"/>
+      <rect fill="var(--c-skin)" x="108" y="180" width="24" height="22"/>
+      <rect fill="var(--c-skin)" x="40" y="40" width="160" height="140"/>
+      <rect fill="var(--c-skin)" x="30" y="50" width="10" height="120"/>
+      <rect fill="var(--c-skin)" x="200" y="50" width="10" height="120"/>
+      <rect fill="var(--c-skin)" x="20" y="70" width="10" height="80"/>
+      <rect fill="var(--c-skin)" x="210" y="70" width="10" height="80"/>
+      <rect fill="var(--c-cap)" x="40" y="20" width="160" height="60"/>
+      <rect fill="var(--c-cap)" x="50" y="10" width="140" height="10"/>
+      <rect fill="var(--c-cap)" x="30" y="40" width="10" height="40"/>
+      <rect fill="var(--c-cap)" x="200" y="40" width="10" height="40"/>
+      <rect fill="var(--c-capH)" x="40" y="20" width="160" height="6"/>
+      <rect fill="var(--c-brim)" x="20" y="80" width="200" height="10"/>
+      <rect fill="var(--c-brim)" x="10" y="90" width="220" height="10"/>
+      <rect fill="var(--c-skinS)" x="40" y="100" width="160" height="10"/>
+      <text fill="var(--c-jlbc)" x="120" y="64" text-anchor="middle" font-family="'Press Start 2P','Courier New',monospace" font-weight="900" font-size="20">JLBC</text>
+      <rect fill="var(--c-frame)" x="60" y="120" width="40" height="6"/>
+      <rect fill="var(--c-frame)" x="60" y="146" width="40" height="6"/>
+      <rect fill="var(--c-frame)" x="60" y="126" width="6" height="20"/>
+      <rect fill="var(--c-frame)" x="94" y="126" width="6" height="20"/>
+      <rect fill="var(--c-frame)" x="140" y="120" width="40" height="6"/>
+      <rect fill="var(--c-frame)" x="140" y="146" width="40" height="6"/>
+      <rect fill="var(--c-frame)" x="140" y="126" width="6" height="20"/>
+      <rect fill="var(--c-frame)" x="174" y="126" width="6" height="20"/>
+      <rect fill="var(--c-frame)" x="100" y="132" width="40" height="6"/>
+      <rect fill="var(--c-eye)" x="76" y="132" width="10" height="8"/>
+      <rect fill="var(--c-eye)" x="154" y="132" width="10" height="8"/>
+      <rect fill="var(--c-mouth)" x="104" y="166" width="32" height="6"/>
+      <!-- arms holding clipboard -->
+      <rect fill="var(--c-suit)" x="60" y="210" width="20" height="56"/>
+      <rect fill="var(--c-skin)" x="60" y="266" width="20" height="14"/>
+      <rect fill="var(--c-suit)" x="160" y="210" width="20" height="36"/>
+      <rect fill="var(--c-suit)" x="120" y="240" width="60" height="16"/>
+      <rect fill="var(--c-skin)" x="106" y="244" width="22" height="16"/>
+      <rect fill="#a89e8e" x="92" y="222" width="56" height="40"/>
+      <rect fill="#fbf7f0" x="96" y="226" width="48" height="32"/>
+      <rect fill="#a89e8e" x="112" y="218" width="16" height="8"/>
+      <rect fill="var(--c-skinS)" x="100" y="232" width="40" height="2"/>
+      <rect fill="var(--c-skinS)" x="100" y="240" width="32" height="2"/>
+      <rect fill="var(--c-skinS)" x="100" y="248" width="36" height="2"/>
+    </symbol>
+
+    <!-- Front mascot, crossed arms (used in nook for "refusal" state) -->
+    <symbol id="m-crossed" viewBox="0 0 240 320">
+      <rect fill="#cbbfad" x="50" y="290" width="140" height="20"/>
+      <rect fill="#a89e8e" x="40" y="300" width="160" height="10"/>
+      <rect fill="var(--c-suit)" x="80" y="200" width="80" height="90"/>
+      <rect fill="var(--c-suitH)" x="80" y="200" width="10" height="60"/>
+      <rect fill="var(--c-suitH)" x="150" y="200" width="10" height="60"/>
+      <rect fill="var(--c-shirt)" x="105" y="200" width="30" height="10"/>
+      <rect fill="var(--c-tie)" x="116" y="210" width="8" height="40"/>
+      <rect fill="var(--c-skin)" x="108" y="180" width="24" height="22"/>
+      <rect fill="var(--c-skin)" x="40" y="40" width="160" height="140"/>
+      <rect fill="var(--c-skin)" x="30" y="50" width="10" height="120"/>
+      <rect fill="var(--c-skin)" x="200" y="50" width="10" height="120"/>
+      <rect fill="var(--c-skin)" x="20" y="70" width="10" height="80"/>
+      <rect fill="var(--c-skin)" x="210" y="70" width="10" height="80"/>
+      <rect fill="var(--c-cap)" x="40" y="20" width="160" height="60"/>
+      <rect fill="var(--c-cap)" x="50" y="10" width="140" height="10"/>
+      <rect fill="var(--c-cap)" x="30" y="40" width="10" height="40"/>
+      <rect fill="var(--c-cap)" x="200" y="40" width="10" height="40"/>
+      <rect fill="var(--c-capH)" x="40" y="20" width="160" height="6"/>
+      <rect fill="var(--c-brim)" x="20" y="80" width="200" height="10"/>
+      <rect fill="var(--c-brim)" x="10" y="90" width="220" height="10"/>
+      <rect fill="var(--c-skinS)" x="40" y="100" width="160" height="10"/>
+      <text fill="var(--c-jlbc)" x="120" y="64" text-anchor="middle" font-family="'Press Start 2P','Courier New',monospace" font-weight="900" font-size="20">JLBC</text>
+      <rect fill="var(--c-frame)" x="60" y="120" width="40" height="6"/>
+      <rect fill="var(--c-frame)" x="60" y="146" width="40" height="6"/>
+      <rect fill="var(--c-frame)" x="60" y="126" width="6" height="20"/>
+      <rect fill="var(--c-frame)" x="94" y="126" width="6" height="20"/>
+      <rect fill="var(--c-frame)" x="140" y="120" width="40" height="6"/>
+      <rect fill="var(--c-frame)" x="140" y="146" width="40" height="6"/>
+      <rect fill="var(--c-frame)" x="140" y="126" width="6" height="20"/>
+      <rect fill="var(--c-frame)" x="174" y="126" width="6" height="20"/>
+      <rect fill="var(--c-frame)" x="100" y="132" width="40" height="6"/>
+      <rect fill="var(--c-eye)" x="76" y="132" width="10" height="8"/>
+      <rect fill="var(--c-eye)" x="154" y="132" width="10" height="8"/>
+      <rect fill="var(--c-mouth)" x="106" y="168" width="28" height="4"/>
+      <!-- crossed arms -->
+      <rect fill="var(--c-suit)" x="60" y="210" width="20" height="20"/>
+      <rect fill="var(--c-suit)" x="160" y="210" width="20" height="20"/>
+      <rect fill="var(--c-suit)" x="68" y="232" width="100" height="18"/>
+      <rect fill="var(--c-suit)" x="72" y="218" width="100" height="18"/>
+      <rect fill="var(--c-suitH)" x="72" y="218" width="100" height="4"/>
+      <rect fill="var(--c-skin)" x="60" y="234" width="14" height="14"/>
+      <rect fill="var(--c-skin)" x="166" y="220" width="14" height="14"/>
+    </symbol>
+
+    <!-- Side-typing scene (compact, for the thinking state) -->
+    <symbol id="side-typing" viewBox="0 0 360 320">
+      <ellipse cx="180" cy="298" rx="140" ry="6" fill="#000" opacity=".12"/>
+      <rect fill="var(--c-cap)" x="60" y="30" width="110" height="60"/>
+      <rect fill="var(--c-cap)" x="70" y="20" width="90" height="10"/>
+      <rect fill="var(--c-cap)" x="50" y="50" width="10" height="40"/>
+      <rect fill="var(--c-capH)" x="60" y="30" width="110" height="6"/>
+      <rect fill="var(--c-cap)" x="160" y="80" width="40" height="6"/>
+      <rect fill="var(--c-brim)" x="160" y="86" width="50" height="10"/>
+      <rect fill="var(--c-skin)" x="60" y="90" width="110" height="80"/>
+      <rect fill="var(--c-skin)" x="50" y="100" width="10" height="60"/>
+      <rect fill="var(--c-skin)" x="170" y="100" width="6" height="40"/>
+      <rect fill="var(--c-skinS)" x="60" y="96" width="116" height="8"/>
+      <rect fill="var(--c-skinS)" x="70" y="118" width="8" height="16"/>
+      <rect fill="var(--c-skin)" x="176" y="124" width="10" height="14"/>
+      <rect fill="var(--c-mouth)" x="168" y="150" width="12" height="3"/>
+      <rect fill="var(--c-skin)" x="60" y="170" width="100" height="10"/>
+      <rect fill="var(--c-frame)" x="78" y="120" width="64" height="3"/>
+      <rect fill="var(--c-frame)" x="138" y="118" width="48" height="4"/>
+      <rect fill="var(--c-frame)" x="138" y="138" width="48" height="4"/>
+      <rect fill="var(--c-frame)" x="138" y="122" width="4" height="16"/>
+      <rect fill="var(--c-frame)" x="182" y="122" width="4" height="16"/>
+      <rect fill="var(--c-eyeW)" x="142" y="122" width="40" height="16" opacity=".5"/>
+      <rect fill="var(--c-eye)" x="162" y="128" width="10" height="6"/>
+      <rect fill="var(--c-skin)" x="100" y="180" width="40" height="14"/>
+      <rect fill="var(--c-suit)" x="70" y="194" width="80" height="100"/>
+      <rect fill="var(--c-suitD)" x="70" y="194" width="14" height="100"/>
+      <rect fill="var(--c-suitH)" x="140" y="194" width="10" height="50"/>
+      <rect fill="var(--c-tie)" x="142" y="210" width="6" height="36"/>
+      <rect fill="var(--c-suit)" x="140" y="222" width="60" height="20"/>
+      <rect fill="var(--c-suitH)" x="140" y="222" width="60" height="4"/>
+      <g class="l-finger">
+        <rect fill="var(--c-skin)" x="198" y="240" width="22" height="14"/>
+        <rect fill="var(--c-skinS)" x="198" y="250" width="22" height="4"/>
+      </g>
+      <ellipse cx="238" cy="282" rx="52" ry="3" fill="#000" opacity=".18"/>
+      <rect fill="var(--c-lap-hi)" x="200" y="262" width="84" height="2"/>
+      <rect fill="var(--c-lap-mid)" x="200" y="264" width="84" height="4"/>
+      <rect fill="var(--c-lap)" x="200" y="268" width="84" height="4"/>
+      <rect fill="var(--c-lap-dk)" x="200" y="272" width="84" height="2"/>
+      <g fill="#1f2937">
+        <rect x="204" y="265" width="11" height="2"/><rect x="218" y="265" width="11" height="2"/>
+        <rect x="232" y="265" width="11" height="2"/><rect x="246" y="265" width="11" height="2"/>
+        <rect x="260" y="265" width="11" height="2"/>
+      </g>
+      <rect fill="var(--c-lap-dk)" x="270" y="258" width="14" height="4"/>
+      <polygon fill="var(--c-bezel)" points="232,262 274,262 282,198 240,196"/>
+      <polygon fill="var(--c-lap)" points="274,262 282,260 290,196 282,198"/>
+      <polygon fill="var(--c-screen)" points="236,260 272,260 280,200 244,200"/>
+      <rect fill="var(--c-screen-txt)" x="246" y="208" width="28" height="2"/>
+      <rect fill="var(--c-screen-txt)" x="246" y="214" width="32" height="2"/>
+      <rect fill="var(--c-screen-txt)" x="246" y="220" width="26" height="2"/>
+      <rect fill="var(--c-lap-hi)" x="240" y="192" width="52" height="4"/>
+    </symbol>
+  </defs>
+</svg>
+
+<div class="cards cgrid">
+
+  <!-- ===== STATE 1 — cited answer ===== -->
+  <div class="card c-card" data-choice="answer" onclick="toggleSelect(this)">
+    <div class="c-stage">
+      <div class="cv-header">
+        <svg class="pal-civic" viewBox="0 0 240 320" style="width:24px;height:auto;shape-rendering:crispEdges;"><use href="#m-clipboard"/></svg>
+        <span class="brand">Ask the Budget AZ</span>
+        <div class="right">
+          <span class="link">close source panel</span>
+          <span class="meta">session 4a91c2e8…</span>
+        </div>
+      </div>
+      <div class="cv-thread">
+        <div class="cv-turn">
+          <div class="cv-user"><div class="bubble">What was the Aviation Fund ending balance in FY2025?</div></div>
+          <div class="cv-asst">
+            <div class="cv-tool">
+              <div class="tool-head">
+                <span class="tool-dot"></span>
+                <span class="tool-name">retrieve</span>
+                <span class="tool-meta">4 chunks · 0.8s</span>
+              </div>
+              <div class="tool-body">query: "Aviation Fund ending balance FY2025"<br>filters: { fund: "Aviation Fund", fy: 2025 }</div>
+            </div>
+            <div class="ans">
+              The State Aviation Fund had an ending balance of <span class="num">$42.1&nbsp;million</span> at the close of FY2025 <span class="cite">▣ p.18</span>. Appropriations from the fund totaled <span class="num">$38.4&nbsp;million</span>, primarily for airport development grants <span class="cite">▣ p.19</span>. A prior estimate placed it near <span class="cite failed">▣ p.7</span> but that citation failed verification and was stripped.
+            </div>
+          </div>
+        </div>
+      </div>
+      <div class="cv-input">
+        <div class="box">
+          <input type="text" placeholder="Ask a follow-up…">
+          <button class="send">Ask</button>
+        </div>
+      </div>
+      <div class="cv-mascot-nook">
+        <svg class="pal-civic" viewBox="0 0 240 320"><use href="#m-clipboard"/></svg>
+      </div>
+    </div>
+    <div class="c-legend">
+      <h3>State 1 — Cited answer</h3>
+      <p>User bubble (civic-blue, right). Tool card (collapsible). Answer with inline citation chips — a passing chip and a failed/stripped one (red, struck-through). Mascot in the nook holds the clipboard.</p>
+    </div>
+  </div>
+
+  <!-- ===== STATE 2 — thinking ===== -->
+  <div class="card c-card" data-choice="thinking" onclick="toggleSelect(this)">
+    <div class="c-stage">
+      <div class="cv-header">
+        <svg class="pal-civic" viewBox="0 0 240 320" style="width:24px;height:auto;shape-rendering:crispEdges;"><use href="#m-clipboard"/></svg>
+        <span class="brand">Ask the Budget AZ</span>
+        <div class="right"><span class="meta">session 4a91c2e8…</span></div>
+      </div>
+      <div class="cv-thread">
+        <div class="cv-turn">
+          <div class="cv-user"><div class="bubble">How much did ADOT receive in total appropriations for FY2024?</div></div>
+        </div>
+        <div class="cv-thinking">
+          <svg class="pal-civic scene" viewBox="0 0 360 320"><use href="#side-typing"/></svg>
+          <div class="label">Searching the budget documents…</div>
+        </div>
+      </div>
+      <div class="cv-input">
+        <div class="box">
+          <input type="text" placeholder="Connecting…" disabled>
+          <button class="send" style="opacity:.5;">Ask</button>
+        </div>
+      </div>
+    </div>
+    <div class="c-legend">
+      <h3>State 2 — Thinking</h3>
+      <p>The side-typing scene replaces a spinner — appears inline in the thread while <code>state.isThinking</code>. The nook mascot is hidden here (the typing scene IS the mascot). Input disabled.</p>
+    </div>
+  </div>
+
+  <!-- ===== STATE 3 — refusal ===== -->
+  <div class="card c-card" data-choice="refusal" onclick="toggleSelect(this)">
+    <div class="c-stage">
+      <div class="cv-header">
+        <svg class="pal-civic" viewBox="0 0 240 320" style="width:24px;height:auto;shape-rendering:crispEdges;"><use href="#m-crossed"/></svg>
+        <span class="brand">Ask the Budget AZ</span>
+        <div class="right"><span class="meta">session 4a91c2e8…</span></div>
+      </div>
+      <div class="cv-thread">
+        <div class="cv-turn">
+          <div class="cv-user"><div class="bubble">What will the Aviation Fund balance be in FY2030?</div></div>
+          <div class="cv-asst">
+            <div class="cv-refusal">
+              <svg class="pal-civic" viewBox="0 0 240 320" style="width:48px;height:auto;flex-shrink:0;shape-rendering:crispEdges;"><use href="#m-crossed"/></svg>
+              <div class="r-text">
+                <strong>I can't ground that one.</strong><br>
+                The corpus covers FY2024–FY2026. There's no source document with an FY2030 projection, so I won't guess. Here are the raw chunks I retrieved if you want to look yourself.
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+      <div class="cv-input">
+        <div class="box">
+          <input type="text" placeholder="Ask a follow-up…">
+          <button class="send">Ask</button>
+        </div>
+      </div>
+      <div class="cv-mascot-nook">
+        <svg class="pal-civic" viewBox="0 0 240 320"><use href="#m-crossed"/></svg>
+      </div>
+    </div>
+    <div class="c-legend">
+      <h3>State 3 — Refusal</h3>
+      <p>Refusal banner (amber) with the crossed-arms mascot inline. Header chip + nook mascot also switch to crossed-arms. "Refusal beats hallucination" gets a visible, on-brand voice.</p>
+    </div>
+  </div>
+
+</div>
+
+<p class="subtitle" style="margin-top: 16px;">Click whichever needs discussion, or tell me what to adjust — bubble shape, citation chip style, whether the mascot nook should stay visible during thinking, refusal banner tone, etc.</p>

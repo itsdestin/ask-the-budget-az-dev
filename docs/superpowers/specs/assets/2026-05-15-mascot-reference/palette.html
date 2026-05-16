@@ -1,0 +1,76 @@
+<h2>Pick a "civic-warm" palette direction</h2>
+<p class="subtitle">All three keep mono for body text/data and add a humanist heading font. They differ in the warm anchor color and the accent. Click to select.</p>
+
+<style>
+  .pal { display:grid; grid-template-columns: repeat(3, 1fr); gap: 16px; margin-top: 8px; }
+  .pal .card { cursor:pointer; }
+  .pal .swatch-row { display:flex; height:64px; border-radius:8px 8px 0 0; overflow:hidden; }
+  .pal .swatch { flex:1; display:flex; align-items:flex-end; justify-content:center; font:600 10px/1 monospace; color:#fff; padding-bottom:6px; text-shadow: 0 1px 2px rgba(0,0,0,.4); }
+  .pal .preview { padding: 14px 16px; border-radius: 0 0 8px 8px; }
+  .pal h3 { margin: 0 0 4px; font: 700 15px/1.2 'Source Serif Pro', Georgia, serif; }
+  .pal .meta { font: 11px/1.4 monospace; opacity:.75; margin-bottom: 10px; }
+  .pal .chip { display:inline-block; font: 11px/1 monospace; padding:3px 7px; border-radius: 999px; margin-right: 6px; }
+  .pal .body { font: 12px/1.5 monospace; margin-top: 10px; }
+  .pal .body .emph { font-weight: 700; }
+</style>
+
+<div class="cards pal">
+  <div class="card" data-choice="sand-copper" onclick="toggleSelect(this)">
+    <div class="swatch-row">
+      <div class="swatch" style="background:#f5ecde">canvas</div>
+      <div class="swatch" style="background:#e8d9bf">panel</div>
+      <div class="swatch" style="background:#b87333">copper</div>
+      <div class="swatch" style="background:#3d3229">ink</div>
+    </div>
+    <div class="preview" style="background:#f5ecde; color:#3d3229; border:1px solid #cbbfad;">
+      <h3>Sand &amp; Copper</h3>
+      <div class="meta">warm sand canvas · copper accent · ink text</div>
+      <span class="chip" style="background:#b87333; color:#fff;">cite p.18</span>
+      <span class="chip" style="background:#e8d9bf; color:#3d3229;">retrieve · 4 chunks</span>
+      <div class="body">From the <span class="emph">FY2025 Baseline Book</span>, the Aviation Fund balance was $42.1M.</div>
+    </div>
+    <div class="card-body" style="padding: 8px 14px 14px;">
+      <p>Most "AZ" of the three. Reads adobe / state-archive. Risk: feels rustic if not balanced with crisp type.</p>
+    </div>
+  </div>
+
+  <div class="card" data-choice="paper-sky" onclick="toggleSelect(this)">
+    <div class="swatch-row">
+      <div class="swatch" style="background:#fbf7f0">canvas</div>
+      <div class="swatch" style="background:#efe9dc">panel</div>
+      <div class="swatch" style="background:#3a6ea5">civic-blue</div>
+      <div class="swatch" style="background:#1f2937">ink</div>
+    </div>
+    <div class="preview" style="background:#fbf7f0; color:#1f2937; border:1px solid #d8d2c4;">
+      <h3>Paper &amp; Civic Blue</h3>
+      <div class="meta">cream paper canvas · civic blue accent · slate text</div>
+      <span class="chip" style="background:#3a6ea5; color:#fff;">cite p.18</span>
+      <span class="chip" style="background:#efe9dc; color:#1f2937;">retrieve · 4 chunks</span>
+      <div class="body">From the <span class="emph">FY2025 Baseline Book</span>, the Aviation Fund balance was $42.1M.</div>
+    </div>
+    <div class="card-body" style="padding: 8px 14px 14px;">
+      <p>Closest to "civic-tech default" — 18F-ish. Mascot's hat blue lives here. Safest, most analyst-credible.</p>
+    </div>
+  </div>
+
+  <div class="card" data-choice="sunset-sage" onclick="toggleSelect(this)">
+    <div class="swatch-row">
+      <div class="swatch" style="background:#f7f1e8">canvas</div>
+      <div class="swatch" style="background:#ecdfc8">panel</div>
+      <div class="swatch" style="background:#c75d3a">sunset</div>
+      <div class="swatch" style="background:#5b6b4a">sage</div>
+    </div>
+    <div class="preview" style="background:#f7f1e8; color:#2c2418; border:1px solid #d6c9b1;">
+      <h3>Sunset &amp; Sage</h3>
+      <div class="preview-meta meta">cream canvas · sunset accent · sage secondary</div>
+      <span class="chip" style="background:#c75d3a; color:#fff;">cite p.18</span>
+      <span class="chip" style="background:#5b6b4a; color:#fff;">retrieve · 4 chunks</span>
+      <div class="body">From the <span class="emph">FY2025 Baseline Book</span>, the Aviation Fund balance was $42.1M.</div>
+    </div>
+    <div class="card-body" style="padding: 8px 14px 14px;">
+      <p>Warmest, most distinctive. Two-accent system gives more semantic room (cite vs. tool). Risk: sunset-orange can feel "warning-y" near actual error states.</p>
+    </div>
+  </div>
+</div>
+
+<p class="subtitle" style="margin-top: 18px;">All three pair with the JLBC mascot's existing hat color (#a3c8e0-ish) as a tertiary accent for the mascot chip itself — doesn't have to drive the whole palette.</p>

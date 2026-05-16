@@ -1,0 +1,300 @@
+<h2>P3 civic-warm pixel — six poses with arms</h2>
+<p class="subtitle">Same palette, same head/cap/glasses/torso. Just the arms change. Pick a default pose for the welcome state — the others can become app-state poses later (idle, thinking, citing, refusing).</p>
+
+<style>
+  .pgrid { display:grid; grid-template-columns: repeat(3, 1fr); gap: 14px; }
+  .px-card { cursor:pointer; }
+  .px-stage {
+    height: 300px; background: #fbf7f0; border: 1px solid #d8d2c4; border-radius: 8px 8px 0 0;
+    display:flex; align-items:flex-end; justify-content:center; padding-bottom: 6px;
+    overflow:hidden; position:relative;
+  }
+  .px-stage svg { width: 200px; height: auto; display:block; shape-rendering: crispEdges; }
+  .px-legend { padding: 12px 14px; background:#efe9dc; border-radius: 0 0 8px 8px; color:#1f2937; min-height: 88px; }
+  .px-legend h3 { margin:0 0 3px; font: 700 13px/1.2 'Source Serif Pro', Georgia, serif; }
+  .px-legend p { margin:0; font: 11.5px/1.45 monospace; }
+
+  .pal-civic {
+    --c-base:#cbbfad; --c-base2:#a89e8e;
+    --c-suit:#1f2937; --c-suitH:#303a4a; --c-shirt:#fbf7f0; --c-tie:#3a6ea5;
+    --c-skin:#e8c8a4; --c-skinS:#c8a47e; --c-skinH:#f4dab7;
+    --c-cap:#3a6ea5; --c-capH:#5a8cc4; --c-brim:#2c557f;
+    --c-jlbc:#fbf7f0; --c-frame:#1f2937; --c-eye:#1f2937; --c-eyeW:#fbf7f0;
+    --c-mouth:#8a5f3f;
+    --c-paper:#fbf7f0; --c-pencil:#c08c4a;
+  }
+</style>
+
+<svg width="0" height="0" style="position:absolute" aria-hidden="true">
+  <defs>
+    <!-- ===== Body-without-arms (head, cap, face, torso, base) ===== -->
+    <symbol id="body" viewBox="0 0 240 320">
+      <!-- Base -->
+      <rect fill="var(--c-base)"  x="50"  y="290" width="140" height="20"/>
+      <rect fill="var(--c-base2)" x="40"  y="300" width="160" height="10"/>
+
+      <!-- Torso (narrower so arms can hang outside) -->
+      <rect fill="var(--c-suit)"  x="80"  y="200" width="80"  height="90"/>
+      <rect fill="var(--c-suitH)" x="80"  y="200" width="10"  height="60"/>
+      <rect fill="var(--c-suitH)" x="150" y="200" width="10"  height="60"/>
+
+      <!-- Shirt V -->
+      <rect fill="var(--c-shirt)" x="105" y="200" width="30" height="10"/>
+      <rect fill="var(--c-shirt)" x="113" y="210" width="14" height="10"/>
+      <rect fill="var(--c-shirt)" x="117" y="220" width="6"  height="6"/>
+
+      <!-- Tie -->
+      <rect fill="var(--c-tie)" x="116" y="220" width="8" height="50"/>
+
+      <!-- Neck -->
+      <rect fill="var(--c-skin)" x="108" y="180" width="24" height="22"/>
+
+      <!-- Head -->
+      <rect fill="var(--c-skin)" x="40"  y="40"  width="160" height="140"/>
+      <rect fill="var(--c-skin)" x="30"  y="50"  width="10"  height="120"/>
+      <rect fill="var(--c-skin)" x="200" y="50"  width="10"  height="120"/>
+      <rect fill="var(--c-skin)" x="20"  y="70"  width="10"  height="80"/>
+      <rect fill="var(--c-skin)" x="210" y="70"  width="10"  height="80"/>
+
+      <!-- Cap -->
+      <rect fill="var(--c-cap)"  x="40"  y="20"  width="160" height="60"/>
+      <rect fill="var(--c-cap)"  x="50"  y="10"  width="140" height="10"/>
+      <rect fill="var(--c-cap)"  x="30"  y="40"  width="10"  height="40"/>
+      <rect fill="var(--c-cap)"  x="200" y="40"  width="10"  height="40"/>
+      <rect fill="var(--c-capH)" x="40"  y="20"  width="160" height="6"/>
+      <rect fill="var(--c-capH)" x="50"  y="10"  width="140" height="6"/>
+
+      <!-- Brim -->
+      <rect fill="var(--c-brim)" x="20"  y="80"  width="200" height="10"/>
+      <rect fill="var(--c-brim)" x="10"  y="90"  width="220" height="10"/>
+
+      <!-- Cap shadow -->
+      <rect fill="var(--c-skinS)" x="40" y="100" width="160" height="10"/>
+
+      <!-- JLBC -->
+      <text fill="var(--c-jlbc)" x="120" y="64" text-anchor="middle"
+            font-family="'Press Start 2P','Courier New',monospace"
+            font-weight="900" font-size="20">JLBC</text>
+
+      <!-- Glasses -->
+      <rect fill="var(--c-frame)" x="60"  y="120" width="40" height="6"/>
+      <rect fill="var(--c-frame)" x="60"  y="146" width="40" height="6"/>
+      <rect fill="var(--c-frame)" x="60"  y="126" width="6"  height="20"/>
+      <rect fill="var(--c-frame)" x="94"  y="126" width="6"  height="20"/>
+      <rect fill="var(--c-frame)" x="140" y="120" width="40" height="6"/>
+      <rect fill="var(--c-frame)" x="140" y="146" width="40" height="6"/>
+      <rect fill="var(--c-frame)" x="140" y="126" width="6"  height="20"/>
+      <rect fill="var(--c-frame)" x="174" y="126" width="6"  height="20"/>
+      <rect fill="var(--c-frame)" x="100" y="132" width="40" height="6"/>
+
+      <!-- Eyes -->
+      <rect fill="var(--c-eye)" x="76"  y="132" width="10" height="8"/>
+      <rect fill="var(--c-eye)" x="154" y="132" width="10" height="8"/>
+
+      <!-- Mouth -->
+      <rect fill="var(--c-mouth)" x="104" y="166" width="32" height="6"/>
+    </symbol>
+
+    <!-- ===== Pose 1 — Arms at sides (classic Funko stub arms) ===== -->
+    <symbol id="arms-sides" viewBox="0 0 240 320">
+      <rect fill="var(--c-suit)"  x="60"  y="210" width="20" height="56"/>
+      <rect fill="var(--c-suit)"  x="160" y="210" width="20" height="56"/>
+      <rect fill="var(--c-suitH)" x="60"  y="210" width="6"  height="40"/>
+      <rect fill="var(--c-suitH)" x="174" y="210" width="6"  height="40"/>
+      <!-- Hands -->
+      <rect fill="var(--c-skin)"  x="60"  y="266" width="20" height="14"/>
+      <rect fill="var(--c-skin)"  x="160" y="266" width="20" height="14"/>
+      <rect fill="var(--c-skinS)" x="60"  y="276" width="20" height="4"/>
+      <rect fill="var(--c-skinS)" x="160" y="276" width="20" height="4"/>
+    </symbol>
+
+    <!-- ===== Pose 2 — Hands clasped in front ===== -->
+    <symbol id="arms-clasped" viewBox="0 0 240 320">
+      <!-- Upper arms hanging -->
+      <rect fill="var(--c-suit)"  x="60"  y="210" width="20" height="40"/>
+      <rect fill="var(--c-suit)"  x="160" y="210" width="20" height="40"/>
+      <rect fill="var(--c-suitH)" x="60"  y="210" width="6"  height="30"/>
+      <rect fill="var(--c-suitH)" x="174" y="210" width="6"  height="30"/>
+      <!-- Forearms angle inward toward waist -->
+      <rect fill="var(--c-suit)"  x="74"  y="244" width="44" height="16"/>
+      <rect fill="var(--c-suit)"  x="122" y="244" width="44" height="16"/>
+      <!-- Hands meeting at center -->
+      <rect fill="var(--c-skin)"  x="100" y="248" width="40" height="14"/>
+      <rect fill="var(--c-skinS)" x="100" y="258" width="40" height="4"/>
+      <!-- Subtle line where the two hands meet -->
+      <rect fill="var(--c-skinS)" x="118" y="248" width="4" height="14"/>
+    </symbol>
+
+    <!-- ===== Pose 3 — Friendly wave (right hand up by head) ===== -->
+    <symbol id="arms-wave" viewBox="0 0 240 320">
+      <!-- Left arm hanging -->
+      <rect fill="var(--c-suit)"  x="60"  y="210" width="20" height="56"/>
+      <rect fill="var(--c-suitH)" x="60"  y="210" width="6"  height="40"/>
+      <rect fill="var(--c-skin)"  x="60"  y="266" width="20" height="14"/>
+      <rect fill="var(--c-skinS)" x="60"  y="276" width="20" height="4"/>
+      <!-- Right shoulder -->
+      <rect fill="var(--c-suit)"  x="160" y="210" width="20" height="20"/>
+      <rect fill="var(--c-suitH)" x="174" y="210" width="6"  height="20"/>
+      <!-- Upper arm going up -->
+      <rect fill="var(--c-suit)"  x="170" y="160" width="20" height="60"/>
+      <rect fill="var(--c-suitH)" x="170" y="160" width="6"  height="60"/>
+      <!-- Cuff -->
+      <rect fill="var(--c-suit)"  x="166" y="150" width="28" height="14"/>
+      <!-- Hand raised, fingers spread suggested by single chunky pixel -->
+      <rect fill="var(--c-skin)"  x="160" y="120" width="40" height="36"/>
+      <rect fill="var(--c-skinS)" x="160" y="146" width="40" height="6"/>
+      <!-- Subtle "fingers" division -->
+      <rect fill="var(--c-skinS)" x="170" y="120" width="4"  height="26"/>
+      <rect fill="var(--c-skinS)" x="180" y="120" width="4"  height="26"/>
+      <rect fill="var(--c-skinS)" x="190" y="120" width="4"  height="26"/>
+    </symbol>
+
+    <!-- ===== Pose 4 — Arms crossed ===== -->
+    <symbol id="arms-crossed" viewBox="0 0 240 320">
+      <!-- Shoulders (small stub down before crossing) -->
+      <rect fill="var(--c-suit)"  x="60"  y="210" width="20" height="20"/>
+      <rect fill="var(--c-suit)"  x="160" y="210" width="20" height="20"/>
+      <rect fill="var(--c-suitH)" x="60"  y="210" width="6"  height="20"/>
+      <rect fill="var(--c-suitH)" x="174" y="210" width="6"  height="20"/>
+      <!-- Lower arm — bottom (left arm crosses under right) -->
+      <rect fill="var(--c-suit)"  x="68"  y="232" width="100" height="18"/>
+      <rect fill="var(--c-suitH)" x="68"  y="232" width="100" height="4"/>
+      <!-- Upper arm — top (right arm crosses over) -->
+      <rect fill="var(--c-suit)"  x="72"  y="218" width="100" height="18"/>
+      <rect fill="var(--c-suitH)" x="72"  y="218" width="100" height="4"/>
+      <!-- Hands tucked at elbows -->
+      <rect fill="var(--c-skin)"  x="60"  y="234" width="14" height="14"/>
+      <rect fill="var(--c-skinS)" x="60"  y="244" width="14" height="4"/>
+      <rect fill="var(--c-skin)"  x="166" y="220" width="14" height="14"/>
+      <rect fill="var(--c-skinS)" x="166" y="230" width="14" height="4"/>
+    </symbol>
+
+    <!-- ===== Pose 5 — Holding clipboard ===== -->
+    <symbol id="arms-clipboard" viewBox="0 0 240 320">
+      <!-- Left arm hangs -->
+      <rect fill="var(--c-suit)"  x="60"  y="210" width="20" height="56"/>
+      <rect fill="var(--c-suitH)" x="60"  y="210" width="6"  height="40"/>
+      <rect fill="var(--c-skin)"  x="60"  y="266" width="20" height="14"/>
+      <rect fill="var(--c-skinS)" x="60"  y="276" width="20" height="4"/>
+      <!-- Right arm bent forward across body -->
+      <rect fill="var(--c-suit)"  x="160" y="210" width="20" height="36"/>
+      <rect fill="var(--c-suitH)" x="174" y="210" width="6"  height="30"/>
+      <!-- Forearm horizontal -->
+      <rect fill="var(--c-suit)"  x="120" y="240" width="60" height="16"/>
+      <!-- Hand under clipboard -->
+      <rect fill="var(--c-skin)"  x="106" y="244" width="22" height="16"/>
+      <rect fill="var(--c-skinS)" x="106" y="256" width="22" height="4"/>
+      <!-- Clipboard backing -->
+      <rect fill="var(--c-base2)" x="92"  y="222" width="56" height="40"/>
+      <!-- Paper -->
+      <rect fill="var(--c-paper)" x="96"  y="226" width="48" height="32"/>
+      <!-- Clip at top -->
+      <rect fill="var(--c-base2)" x="112" y="218" width="16" height="8"/>
+      <!-- Lines on paper -->
+      <rect fill="var(--c-skinS)" x="100" y="232" width="40" height="2"/>
+      <rect fill="var(--c-skinS)" x="100" y="240" width="32" height="2"/>
+      <rect fill="var(--c-skinS)" x="100" y="248" width="36" height="2"/>
+    </symbol>
+
+    <!-- ===== Pose 6 — Hands on hips ===== -->
+    <symbol id="arms-hips" viewBox="0 0 240 320">
+      <!-- Upper arm down to elbow -->
+      <rect fill="var(--c-suit)"  x="60"  y="210" width="20" height="40"/>
+      <rect fill="var(--c-suit)"  x="160" y="210" width="20" height="40"/>
+      <rect fill="var(--c-suitH)" x="60"  y="210" width="6"  height="30"/>
+      <rect fill="var(--c-suitH)" x="174" y="210" width="6"  height="30"/>
+      <!-- Forearm angled inward to hip -->
+      <rect fill="var(--c-suit)"  x="74"  y="246" width="22" height="14"/>
+      <rect fill="var(--c-suit)"  x="144" y="246" width="22" height="14"/>
+      <!-- Hand on hip (skin near torso edge) -->
+      <rect fill="var(--c-skin)"  x="86"  y="248" width="14" height="14"/>
+      <rect fill="var(--c-skinS)" x="86"  y="258" width="14" height="4"/>
+      <rect fill="var(--c-skin)"  x="140" y="248" width="14" height="14"/>
+      <rect fill="var(--c-skinS)" x="140" y="258" width="14" height="4"/>
+    </symbol>
+  </defs>
+</svg>
+
+<div class="cards pgrid">
+
+  <div class="card px-card" data-choice="sides" onclick="toggleSelect(this)">
+    <div class="px-stage">
+      <svg class="pal-civic" viewBox="0 0 240 320">
+        <use href="#body"/>
+        <use href="#arms-sides"/>
+      </svg>
+    </div>
+    <div class="px-legend">
+      <h3>P3a — Arms at sides</h3>
+      <p>Classic Funko stub-arms hanging straight down. Most-faithful Funko silhouette. Default neutral pose.</p>
+    </div>
+  </div>
+
+  <div class="card px-card" data-choice="clasped" onclick="toggleSelect(this)">
+    <div class="px-stage">
+      <svg class="pal-civic" viewBox="0 0 240 320">
+        <use href="#body"/>
+        <use href="#arms-clasped"/>
+      </svg>
+    </div>
+    <div class="px-legend">
+      <h3>P3b — Hands clasped front</h3>
+      <p>Politician/analyst pose. Reads composed and ready. Could be the default "thinking" pose.</p>
+    </div>
+  </div>
+
+  <div class="card px-card" data-choice="wave" onclick="toggleSelect(this)">
+    <div class="px-stage">
+      <svg class="pal-civic" viewBox="0 0 240 320">
+        <use href="#body"/>
+        <use href="#arms-wave"/>
+      </svg>
+    </div>
+    <div class="px-legend">
+      <h3>P3c — Friendly wave</h3>
+      <p>Right hand raised next to head. Welcoming. Strong candidate for the empty/welcome state.</p>
+    </div>
+  </div>
+
+  <div class="card px-card" data-choice="crossed" onclick="toggleSelect(this)">
+    <div class="px-stage">
+      <svg class="pal-civic" viewBox="0 0 240 320">
+        <use href="#body"/>
+        <use href="#arms-crossed"/>
+      </svg>
+    </div>
+    <div class="px-legend">
+      <h3>P3d — Arms crossed</h3>
+      <p>Confident, slightly skeptical. Could be the "refusal" pose ("I don't have a source for that").</p>
+    </div>
+  </div>
+
+  <div class="card px-card" data-choice="clipboard" onclick="toggleSelect(this)">
+    <div class="px-stage">
+      <svg class="pal-civic" viewBox="0 0 240 320">
+        <use href="#body"/>
+        <use href="#arms-clipboard"/>
+      </svg>
+    </div>
+    <div class="px-legend">
+      <h3>P3e — Holding clipboard</h3>
+      <p>Analyst at work. Could appear when retrieve() is running, or as a "citing source" pose.</p>
+    </div>
+  </div>
+
+  <div class="card px-card" data-choice="hips" onclick="toggleSelect(this)">
+    <div class="px-stage">
+      <svg class="pal-civic" viewBox="0 0 240 320">
+        <use href="#body"/>
+        <use href="#arms-hips"/>
+      </svg>
+    </div>
+    <div class="px-legend">
+      <h3>P3f — Hands on hips</h3>
+      <p>Confident, slightly heroic. "I've got this." Could be the post-answer success pose.</p>
+    </div>
+  </div>
+
+</div>
+
+<p class="subtitle" style="margin-top: 16px;">All six share the same body — only the arms change. So in the actual app we can swap poses by switching one <code>&lt;use&gt;</code> reference, which sets us up nicely for state-driven mascot animations later.</p>
