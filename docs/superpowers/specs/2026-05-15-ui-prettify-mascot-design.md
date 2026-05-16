@@ -54,10 +54,9 @@ This refresh must not weaken any Core Invariant. Two are directly relevant:
 
 `web/app/globals.css` is **rewritten outright**. The four mirrored YouCoded themes
 (`light`, `dark`, `midnight`, `creme`) and the "mirror YouCoded per D9" comment block
-are removed. The file defines exactly two themes:
-
-- **civic-warm light** (default) — Paper & Civic Blue palette
-- **civic-warm dark** — a navy paper-inversion, civic-warm at night
+are removed. The file defines exactly **one** theme — civic-warm light, the Paper &
+Civic Blue palette. There is no dark mode and no theme switching: the app is internal,
+desktop-first, and the paper aesthetic is the identity.
 
 The existing token *names* are preserved (`--canvas`, `--panel`, `--inset`, `--well`,
 `--accent`, `--on-accent`, `--fg`, `--fg-2`, `--fg-dim`, `--fg-muted`, `--fg-faint`,
@@ -72,12 +71,11 @@ New tokens added:
 - `--success`, `--warning`, `--danger` — semantic status tokens (today only raw
   `green-400` / `amber-700` / `red-400` literals exist).
 
-Light palette anchors: canvas `#fbf7f0`, panel `#efe9dc`, accent / civic-blue
-`#3a6ea5`, fg `#1f2937`. Dark palette anchors: canvas `#161c2a`, panel `#1f2738`,
-accent `#88b8e0`, fg `#e8e6dc`.
+Palette anchors: canvas `#fbf7f0`, panel `#efe9dc`, accent / civic-blue `#3a6ea5`,
+fg `#1f2937`.
 
-`data-theme` on `<html>` still drives the switch. Default `light`. A theme picker is
-**not** in scope; dark mode tokens ship but nothing toggles them yet.
+The `data-theme` attribute on `<html>` is removed — there is only one theme, so the
+tokens live directly on `:root`.
 
 ### Typography
 
@@ -366,7 +364,6 @@ opens with no motion.
 
 ## Deferred
 
-- Theme picker UI (dark mode tokens ship but nothing toggles them).
 - `sides` and `hips` poses (built, unwired).
 - The other idle moments from the brainstorm menu (coffee, look-sideways, lightbulb,
   stretch, smile, tip-cap) — only blink + push-glasses ship in v1.
