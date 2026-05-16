@@ -6,99 +6,59 @@
 @source "../components/**/*.{ts,tsx}";
 
 /* ═══════════════════════════════════════════════════════════════════════════
-   Theme tokens — mirrored from YouCoded's globals.css per CLAUDE.md
-   directive (replicate, don't vendor — D9). Light is default; dark
-   activates via [data-theme="dark"] on <html>. Two more themes (creme,
-   midnight) seeded at the same token positions for a future appearance
-   picker; nothing toggles them yet.
+   Civic-warm theme — the app's own identity. Not tied to YouCoded.
+   One theme, light only: the app is internal and desktop-first.
    ═══════════════════════════════════════════════════════════════════════════ */
+:root {
+  /* Surfaces */
+  --canvas: #fbf7f0;
+  --panel: #efe9dc;
+  --inset: #e4ddcb;
+  --well: #fffdf8;
+  --accent: #3a6ea5;
+  --on-accent: #fbf7f0;
 
-:root,
-[data-theme="light"] {
-  --canvas: #f2f2f2;
-  --panel: #eaeaea;
-  --inset: #e0e0e0;
-  --well: #f7f7f7;
-  --accent: #1a1a1a;
-  --on-accent: #f2f2f2;
-  --fg: #1a1a1a;
-  --fg-2: #444444;
-  --fg-dim: #666666;
-  --fg-muted: #888888;
-  --fg-faint: #aaaaaa;
-  --edge: #cfcfcf;
-  --edge-dim: #dcdcdc80;
+  /* Text */
+  --fg: #1f2937;
+  --fg-2: #54585e;
+  --fg-dim: #6a6e74;
+  --fg-muted: #8a8e94;
+  --fg-faint: #b4b1a8;
+
+  /* Borders */
+  --edge: #d8d2c4;
+  --edge-dim: #d8d2c480;
+
+  /* Inline code text color */
   --code: #b45309;
-  --link: #2563eb;
-  --link-hover: #1d4ed8;
-  color-scheme: light;
-}
 
-[data-theme="dark"] {
-  --canvas: #111111;
-  --panel: #191919;
-  --inset: #222222;
-  --well: #1c1c1c;
-  --accent: #d4d4d4;
-  --on-accent: #111111;
-  --fg: #e0e0e0;
-  --fg-2: #b0b0b0;
-  --fg-dim: #999999;
-  --fg-muted: #666666;
-  --fg-faint: #444444;
-  --edge: #2e2e2e;
-  --edge-dim: #37373780;
-  --code: #fbbf24;
-  --link: #66aaff;
-  --link-hover: #88ccff;
-  color-scheme: dark;
-}
+  /* Links */
+  --link: #3a6ea5;
+  --link-hover: #2c557f;
 
-[data-theme="midnight"] {
-  --canvas: #0d1117;
-  --panel: #161b22;
-  --inset: #21262d;
-  --well: #0d1117;
-  --accent: #b1bac4;
-  --on-accent: #0d1117;
-  --fg: #c9d1d9;
-  --fg-2: #a0aab4;
-  --fg-dim: #8b949e;
-  --fg-muted: #6e7681;
-  --fg-faint: #484f58;
-  --edge: #30363d;
-  --edge-dim: #30363d80;
-  --code: #f0883e;
-  --link: #58a6ff;
-  --link-hover: #79c0ff;
-  color-scheme: dark;
-}
+  /* Semantic status */
+  --success: #3f8f4f;
+  --warning: #c98f1e;
+  --danger: #c0392b;
 
-[data-theme="creme"] {
-  --canvas: #f0e6d6;
-  --panel: #ebe1d1;
-  --inset: #ddd1be;
-  --well: #f5ecde;
-  --accent: #3d3229;
-  --on-accent: #f0e6d6;
-  --fg: #2c2418;
-  --fg-2: #5c4f3e;
-  --fg-dim: #7a6e5d;
-  --fg-muted: #9e9283;
-  --fg-faint: #beb3a4;
-  --edge: #cbbfad;
-  --edge-dim: #d4c8b580;
-  --code: #8b4513;
-  --link: #5b4a1e;
-  --link-hover: #3d3219;
+  /* Mascot palette — source values are the hex literals used in the
+     committed reference mockups; the SVG components read these vars. */
+  --mascot-cap: #3a6ea5;
+  --mascot-cap-hi: #5a8cc4;
+  --mascot-brim: #2c557f;
+  --mascot-skin: #e8c8a4;
+  --mascot-skin-hi: #f4dab7;
+  --mascot-skin-shadow: #c8a47e;
+  --mascot-suit: #1f2937;
+  --mascot-suit-hi: #303a4a;
+  --mascot-suit-shadow: #13181f;
+
   color-scheme: light;
 }
 
 /* ═══════════════════════════════════════════════════════════════════════════
    Tailwind @theme — maps the CSS variables above to utility classes
-   (bg-canvas, text-fg, border-edge, etc.). Same surface YouCoded uses,
-   so tool-card / chat-bubble visual mirroring works without a translation
-   layer in components.
+   (bg-canvas, text-fg, border-edge, etc.).
    ═══════════════════════════════════════════════════════════════════════════ */
 @theme {
   /* Surfaces */
@@ -127,16 +87,26 @@
   --color-link: var(--link);
   --color-link-hover: var(--link-hover);
 
-  /* Status colors — constant across themes (mirrors YouCoded). */
-  --color-green-400: #4caf50;
-  --color-red-400: #dd4444;
-  --color-amber-700: #ff9800;
+  /* Semantic status colors. */
+  --color-success: var(--success);
+  --color-danger: var(--danger);
+  --color-warning: var(--warning);
 
-  /* Typography — system mono everywhere, like YouCoded. */
-  --font-sans: "Cascadia Mono", "Cascadia Code", "Fira Code", "Consolas",
-    "Menlo", monospace;
-  --font-mono: "Cascadia Mono", "Cascadia Code", "Fira Code", "Consolas",
-    "Menlo", monospace;
+  /* Mascot colors — usable as Tailwind classes if needed. */
+  --color-mascot-cap: var(--mascot-cap);
+  --color-mascot-cap-hi: var(--mascot-cap-hi);
+  --color-mascot-brim: var(--mascot-brim);
+  --color-mascot-skin: var(--mascot-skin);
+  --color-mascot-skin-hi: var(--mascot-skin-hi);
+  --color-mascot-skin-shadow: var(--mascot-skin-shadow);
+  --color-mascot-suit: var(--mascot-suit);
+  --color-mascot-suit-hi: var(--mascot-suit-hi);
+  --color-mascot-suit-shadow: var(--mascot-suit-shadow);
+
+  /* Typography — serif for headings, sans for body, mono for code. */
+  --font-serif: var(--font-source-serif), Georgia, "Times New Roman", serif;
+  --font-sans: var(--font-inter), system-ui, -apple-system, sans-serif;
+  --font-mono: "Cascadia Mono", "Cascadia Code", "Fira Code", "Consolas", "Menlo", monospace;
 }
 
 /* ═══════════════════════════════════════════════════════════════════════════
@@ -169,4 +139,22 @@ body {
 }
 ::-webkit-scrollbar-thumb:hover {
   background: var(--fg-faint);
+}
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   Mascot animation — frame-based (steps()), never smooth tweens.
+   prefers-reduced-motion halts all of it (Task 6 / Task 7 apply the
+   classes; this just defines the keyframes).
+   ═══════════════════════════════════════════════════════════════════════════ */
+@keyframes mascot-bob {
+  0%, 100% { transform: translateY(0); }
+  50%      { transform: translateY(-1px); }
+}
+@keyframes mascot-tap {
+  0%, 100% { transform: translateY(0); }
+  50%      { transform: translateY(2px); }
+}
+@keyframes mascot-cursor {
+  0%, 50%        { opacity: 1; }
+  50.01%, 100%   { opacity: 0; }
 }
