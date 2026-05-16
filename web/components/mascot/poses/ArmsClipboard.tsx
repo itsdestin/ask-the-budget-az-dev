@@ -27,7 +27,11 @@ export default function ArmsClipboard() {
       <rect fill="var(--mascot-skin-shadow)" x={100} y={250} width={20} height={10} />
 
       {/* ── Clipboard ── board behind, paper in front, clip on top */}
-      {/* board backing — neutral hardboard, literal hex (not a mascot color) */}
+      {/* board backing — neutral hardboard, literal hex (not a mascot color).
+          This rect is drawn AFTER the forearm (x=120 y=240 w=60) and intentionally
+          overpaints the inner portion of the forearm; only the strip of forearm to
+          the right of the board's right edge (x=150) stays visible. If you resize
+          either the board or the forearm rect, the amount of visible arm changes. */}
       <rect fill="#a89e8e" x={90} y={220} width={60} height={40} />
       {/* paper sheet — paper-white */}
       <rect fill="var(--canvas)" x={100} y={220} width={40} height={30} />

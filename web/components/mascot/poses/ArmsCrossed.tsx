@@ -8,7 +8,7 @@ export default function ArmsCrossed() {
     <g>
       {/* ── Shoulder stubs ── short drop before the arms cross */}
       <rect fill="var(--mascot-suit)" x={60} y={210} width={20} height={20} />
-      <rect fill="var(--mascot-suit)" x={160} y={210} width={20} height={20} />
+      {/* right-side stub zone (x=160 y=210 w=20 h=20) is fully claimed by the right-side hand drawn on top — no suit rect needed here */}
       <rect fill="var(--mascot-suit-hi)" x={60} y={210} width={10} height={20} />
       <rect fill="var(--mascot-suit-hi)" x={170} y={210} width={10} height={20} />
 
@@ -21,10 +21,10 @@ export default function ArmsCrossed() {
       <rect fill="var(--mascot-suit-hi)" x={70} y={210} width={100} height={10} />
 
       {/* ── Hands ── tucked at the opposite elbows */}
-      {/* left hand tucked under the right elbow (on the upper bar) */}
+      {/* right-side hand tucked under the left elbow (on the upper bar, x=160) */}
       <rect fill="var(--mascot-skin)" x={160} y={210} width={20} height={20} />
       <rect fill="var(--mascot-skin-shadow)" x={160} y={220} width={20} height={10} />
-      {/* right hand tucked under the left elbow (on the lower bar) */}
+      {/* left-side hand tucked under the right elbow (on the lower bar, x=60) */}
       <rect fill="var(--mascot-skin)" x={60} y={230} width={20} height={20} />
       <rect fill="var(--mascot-skin-shadow)" x={60} y={240} width={20} height={10} />
     </g>

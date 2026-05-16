@@ -18,6 +18,7 @@ export default function ArmsWave() {
       <rect fill="var(--mascot-suit-hi)" x={170} y={210} width={10} height={20} />
       {/* upper arm running up beside the head */}
       <rect fill="var(--mascot-suit)" x={170} y={160} width={20} height={60} />
+      {/* highlight is a vertical SIDE strip down the inner/left half of the raised arm (same x, half the width) — not a top strip */}
       <rect fill="var(--mascot-suit-hi)" x={170} y={160} width={10} height={60} />
       {/* cuff at the wrist */}
       <rect fill="var(--mascot-suit)" x={160} y={150} width={30} height={10} />
