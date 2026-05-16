@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { renderToString } from "react-dom/server";
+import Mascot from "../components/mascot/Mascot";
 import MascotBody from "../components/mascot/MascotBody";
 import ArmsClasped from "../components/mascot/poses/ArmsClasped";
 import ArmsWave from "../components/mascot/poses/ArmsWave";
@@ -22,6 +23,36 @@ describe("pose components", () => {
     for (const Arms of [ArmsClasped, ArmsWave, ArmsCrossed, ArmsClipboard, ArmsSides, ArmsHips]) {
       const html = renderToString(<svg viewBox="0 0 240 320"><Arms /></svg>);
       expect(html).toContain("var(--mascot-suit)");
+    }
+  });
+});
+
+describe("Mascot", () => {
+  it("renders with role=img and an aria-label", () => {
+    const html = renderToString(<Mascot pose="wave" size="hero" />);
+    expect(html).toContain('role="img"');
+    expect(html).toContain('aria-label="JLBC budget assistant"');
+  });
+
+  it("renders the chip size at 40x54", () => {
+    const html = renderToString(<Mascot pose="clasped" size="chip" />);
+    expect(html).toContain('width="40"');
+    expect(html).toContain('height="54"');
+  });
+
+  it("includes the bob animation class when animate is not false", () => {
+    const html = renderToString(<Mascot pose="clasped" size="hero" />);
+    expect(html).toContain("mascot-animate");
+  });
+
+  it("omits the animation class when animate=false", () => {
+    const html = renderToString(<Mascot pose="clasped" size="hero" animate={false} />);
+    expect(html).not.toContain("mascot-animate");
+  });
+
+  it("renders every pose without throwing", () => {
+    for (const pose of ["sides", "clasped", "wave", "crossed", "clipboard", "hips"] as const) {
+      expect(() => renderToString(<Mascot pose={pose} size="hero" />)).not.toThrow();
     }
   });
 });
