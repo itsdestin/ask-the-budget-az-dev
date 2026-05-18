@@ -3,18 +3,18 @@
 // The front-presenting scene — the brief "here's what I found" beat
 // after a successful turn. Pixel-art regenerated to match the
 // #front-presenting symbol in typing-side-present-v2.html (committed
-// reference folder). viewBox 0 0 320 320.
+// reference folder). viewBox 0 0 320 400.
 //
 // This is the front-VIEW companion to the side-profile MascotTyping
 // scene: same character, same --mascot-* palette, so the two read as
 // the same mascot. The mascot is built on the 10px grid (same grid as
-// MascotBody). The laptop is tilted forward to show its screen to the
-// viewer, so its slabs are <polygon> (grid-exempt by nature — an
-// angled slab cannot land on an axis-aligned grid).
+// MascotBody). Everything — mascot AND laptop — is axis-aligned
+// <rect> pixel art: no <polygon>, so the laptop matches the chunky
+// pixel style of the rest of the figure.
 export default function MascotPresenting() {
   return (
     <svg
-      viewBox="0 0 320 320"
+      viewBox="0 0 320 400"
       role="img"
       aria-label="JLBC budget assistant — presenting results"
       style={{ shapeRendering: "crispEdges" }}
@@ -22,13 +22,26 @@ export default function MascotPresenting() {
     >
       {/* ════════════════ MASCOT — front view ════════════════
           Same character/proportions as MascotBody, shifted right so the
-          figure sits centered above the tilted laptop. Built on the
-          10px grid. */}
+          figure sits centered above the laptop. Built on the 10px grid.
+          Offset from MascotBody is (dx=+40, dy=-10). */}
 
       {/* ── Torso — suit block, highlight strips down both edges ── */}
       <rect fill="var(--mascot-suit)" x={120} y={190} width={80} height={90} />
       <rect fill="var(--mascot-suit-hi)" x={120} y={190} width={10} height={60} />
       <rect fill="var(--mascot-suit-hi)" x={190} y={190} width={10} height={60} />
+
+      {/* ── Legs — standing suit trousers (two legs with a center gap),
+            matching MascotBody's leg design. MascotBody legs span
+            x=86..162 below an x=80 torso; this scene's torso is offset
+            +40 to x=120, so the legs shift to x=126..208. Torso bottom
+            here is y=280, so trousers run 280→348 (68px), shoes
+            348→374 (26px). suit-shadow shoes. ── */}
+      <rect fill="var(--mascot-suit)" x={126} y={280} width={32} height={68} />
+      <rect fill="var(--mascot-suit-hi)" x={126} y={280} width={10} height={58} />
+      <rect fill="var(--mascot-suit)" x={164} y={280} width={32} height={68} />
+      <rect fill="var(--mascot-suit-hi)" x={164} y={280} width={10} height={58} />
+      <rect fill="var(--mascot-suit-shadow)" x={120} y={348} width={40} height={26} />
+      <rect fill="var(--mascot-suit-shadow)" x={162} y={348} width={40} height={26} />
 
       {/* ── Shirt V — paper-white collar opening, stepped inward ── */}
       <rect fill="var(--canvas)" x={140} y={190} width={40} height={10} />
@@ -125,69 +138,62 @@ export default function MascotPresenting() {
       <rect fill="var(--mascot-skin)" x={210} y={232} width={20} height={20} />
       <rect fill="var(--mascot-skin-shadow)" x={210} y={246} width={20} height={6} />
 
-      {/* ════════════════ LAPTOP — tilted forward ════════════════
-          Silver body is NOT themed — literal hex, the same five colors
-          as MascotTyping. The screen fill is civic-blue
-          (var(--mascot-cap)); screen text + the citation chip text are
-          paper-white (var(--canvas)); the citation chip is civic-blue.
-          All laptop slabs are <polygon> — the laptop is tilted toward
-          the viewer, so it is grid-exempt by nature. */}
+      {/* ════════════════ LAPTOP — front-presented, pixel-art ════════════
+          Rebuilt as chunky axis-aligned <rect>s (no <polygon>) so it
+          matches the rest of the mascot's pixel-art style. Drawn
+          straight-on: an upright screen panel above a base/keyboard
+          slab. The silver body is NOT themed — small flat literal-hex
+          palette (#c8ccd0 light silver, #6a6e74 darker shade). Screen
+          fill is civic-blue (var(--mascot-cap)); screen text + the
+          citation chip label are paper-white (var(--canvas)); the
+          citation chip pill is civic-blue. Held in the hands at the
+          keyboard line (hands rest at y≈232..252). */}
 
-      {/* ── Keyboard deck — top face tilted toward the viewer ── */}
-      <polygon fill="#c8ccd0" points="60,286 260,286 248,260 72,260" />
-      <polygon fill="#6a6e74" points="60,286 260,286 256,290 64,290" />
-      {/* recessed key bed */}
-      <polygon fill="#a8acb2" points="76,282 244,282 236,264 84,264" />
-      {/* keycaps — dark trim; grid-exempt: sized to the tilted deck */}
-      <g fill="#1a1d22">
-        <rect x={84} y={268} width={14} height={3} />
-        <rect x={104} y={268} width={14} height={3} />
-        <rect x={124} y={268} width={14} height={3} />
-        <rect x={144} y={268} width={14} height={3} />
-        <rect x={164} y={268} width={14} height={3} />
-        <rect x={184} y={268} width={14} height={3} />
-        <rect x={204} y={268} width={14} height={3} />
-        <rect x={224} y={268} width={14} height={3} />
-        <rect x={88} y={274} width={14} height={3} />
-        <rect x={108} y={274} width={14} height={3} />
-        <rect x={128} y={274} width={14} height={3} />
-        <rect x={148} y={274} width={14} height={3} />
-        <rect x={168} y={274} width={14} height={3} />
-        <rect x={188} y={274} width={14} height={3} />
-        <rect x={208} y={274} width={14} height={3} />
-        <rect x={228} y={274} width={14} height={3} />
-      </g>
-
-      {/* ── Lid — tilted up-and-back. Dark bezel frame, silver back
-            highlight, civic-blue screen inset. ── */}
-      {/* bezel — dark frame face */}
-      <polygon fill="#1a1d22" points="72,260 248,260 240,170 80,170" />
-      {/* silver bezel surround — inset inside the dark frame, gives the screen a silver border */}
-      <polygon fill="#c8ccd0" points="76,256 244,256 236,174 84,174" />
-      {/* screen — civic-blue inset inside the bezel */}
-      <polygon fill="var(--mascot-cap)" points="84,250 236,250 228,180 92,180" />
+      {/* ── Screen panel — upright silver-framed rect, civic-blue inset ── */}
+      {/* dark-silver outer frame */}
+      <rect fill="#6a6e74" x={100} y={170} width={120} height={90} />
+      {/* light-silver bezel surround inside the frame */}
+      <rect fill="#c8ccd0" x={104} y={174} width={112} height={82} />
+      {/* screen — civic-blue inset */}
+      <rect fill="var(--mascot-cap)" x={112} y={182} width={96} height={66} />
 
       {/* ── Screen contents — paper-white answer text, a civic-blue
             citation chip, and a blinking cursor. ── */}
-      <rect fill="var(--canvas)" x={94} y={186} width={80} height={3} />
-      <rect fill="var(--canvas)" x={94} y={196} width={120} height={3} />
-      <rect fill="var(--canvas)" x={94} y={206} width={100} height={3} />
-      <rect fill="var(--canvas)" x={94} y={216} width={90} height={3} />
-      <rect fill="var(--canvas)" x={94} y={226} width={60} height={3} />
+      <rect fill="var(--canvas)" x={120} y={190} width={60} height={4} />
+      <rect fill="var(--canvas)" x={120} y={200} width={80} height={4} />
+      <rect fill="var(--canvas)" x={120} y={210} width={70} height={4} />
+      <rect fill="var(--canvas)" x={120} y={220} width={50} height={4} />
       {/* citation chip — a small civic-blue pill, with a paper-white
           label bar inside it standing in for the cite text */}
-      <rect fill="var(--mascot-cap)" x={94} y={236} width={40} height={8} />
-      <rect fill="var(--canvas)" x={98} y={239} width={32} height={2} />
+      <rect fill="var(--mascot-cap)" x={120} y={232} width={44} height={10} />
+      <rect fill="var(--canvas)" x={124} y={235} width={36} height={4} />
       {/* Blinking cursor — paper-white, reuses the existing
           .mascot-typing-cursor keyframe (already in globals.css) */}
       <rect
         className="mascot-typing-cursor"
         fill="var(--canvas)"
-        x={160}
-        y={236}
-        width={3}
-        height={6}
+        x={186}
+        y={232}
+        width={4}
+        height={8}
       />
+
+      {/* ── Base / keyboard slab — chunky silver rect below the screen.
+            Wider than the screen so the laptop reads as an open
+            clamshell seen straight-on. ── */}
+      {/* light-silver deck */}
+      <rect fill="#c8ccd0" x={90} y={260} width={140} height={16} />
+      {/* dark-silver front lip */}
+      <rect fill="#6a6e74" x={90} y={276} width={140} height={6} />
+      {/* keycap rows — dark trim on the deck, on the 10px-ish grid */}
+      <g fill="#6a6e74">
+        <rect x={100} y={264} width={16} height={4} />
+        <rect x={120} y={264} width={16} height={4} />
+        <rect x={140} y={264} width={16} height={4} />
+        <rect x={160} y={264} width={16} height={4} />
+        <rect x={180} y={264} width={16} height={4} />
+        <rect x={200} y={264} width={16} height={4} />
+      </g>
     </svg>
   );
 }

@@ -1,25 +1,42 @@
 "use client";
 
-// The side-typing scene — the "thinking" state. Mascot in left profile
-// typing on a sleek aluminum laptop (card D, ~110° lid). Pixel-art
-// regenerated to match typing-side-v6-lid-angles.html card D in the
-// committed reference folder. viewBox 0 0 360 320.
+// The side-typing scene — the "thinking" state. Mascot in left profile,
+// SEATED, typing on a laptop resting on his lap. Pixel-art: every part
+// is an axis-aligned <rect> on the 10px grid (no <polygon>), so the
+// laptop matches the chunky pixel style of the rest of the figure.
+// viewBox 0 0 360 380.
 //
 // NOTE: this is a SEPARATE scene from the front-view MascotBody — it is a
 // left-profile view, so it does not reuse MascotBody. It re-uses the same
-// --mascot-* palette so it reads as the same character. Mascot parts snap
-// to the 10px grid; the angled laptop lid uses <polygon> (grid-exempt by
-// nature — an angled slab cannot land on an axis-aligned grid).
+// --mascot-* palette so it reads as the same character.
+//
+// SEATED CONSTRUCTION (side profile, faces RIGHT):
+//   - head + torso stay upright (same blocks as the old standing pose)
+//   - the legs are BENT: a horizontal thigh runs forward from the hip,
+//     a knee, then a vertical shin drops to a foot
+//   - he sits on a plain chunky block/stool (literal-hex grey)
+//   - the laptop rests on the horizontal thighs (his lap) — an L-shaped
+//     open clamshell: a horizontal base slab + an upright screen panel
 export default function MascotTyping() {
   return (
     <svg
-      viewBox="0 0 360 320"
+      viewBox="0 0 360 380"
       role="img"
       aria-label="JLBC budget assistant — searching"
       style={{ shapeRendering: "crispEdges" }}
       className="mascot-typing"
     >
-      {/* ════════════════ MASCOT — left profile ════════════════
+      {/* ════════════════ SEAT — plain chunky block/stool ════════════════
+          A neutral literal-hex grey block he sits on (a prop, not the
+          themed mascot). Sits under the hips; the torso bottom is y=290
+          so the seat top is y=290. */}
+      <rect fill="#6a6e74" x={60} y={290} width={110} height={20} />
+      {/* darker shadow strip down the front face of the stool */}
+      <rect fill="#4a4e54" x={60} y={310} width={110} height={50} />
+      {/* light-silver catch-light along the seat's top edge */}
+      <rect fill="#a8acb2" x={60} y={290} width={110} height={4} />
+
+      {/* ════════════════ MASCOT — left profile, seated ════════════════
           Faces RIGHT (toward the laptop). Cap crown sits up-left, brim
           juts out to the right over the face. Built on the 10px grid. */}
 
@@ -53,9 +70,7 @@ export default function MascotTyping() {
       {/* ── Glasses + eye (Take 3 — clear round glasses) in profile: ONE
             visible lens. Same Take-3 proportions as the front views
             (frame r=19 strokeWidth=3.5, pupil r=8) so the character reads
-            consistent. The single round lens is centered at (160, 130) — at
-            the front of the profile face so it clears the face edge (r=19
-            spans x=141..179, inside the nose nub at x=170..180). ── */}
+            consistent. The single round lens is centered at (160, 130). ── */}
       {/* eyebrow — single short stroke above the lens */}
       <rect fill="var(--mascot-suit-hi)" x={142} y={100} width={36} height={6} />
       {/* temple arm running back over the ear to the cap */}
@@ -72,8 +87,9 @@ export default function MascotTyping() {
       {/* ── Neck — skin block bridging head and torso ── */}
       <rect fill="var(--mascot-skin)" x={100} y={180} width={40} height={20} />
 
-      {/* ── Torso — suit block. Back edge (left) gets the deep shadow strip,
-            front edge (right) gets the lighter highlight strip. ── */}
+      {/* ── Torso — suit block, upright. Back edge (left) gets the deep
+            shadow strip, front edge (right) gets the lighter highlight
+            strip. Torso bottom is y=290 (the hip line). ── */}
       <rect fill="var(--mascot-suit)" x={70} y={200} width={80} height={90} />
       <rect fill="var(--mascot-suit-shadow)" x={70} y={200} width={10} height={90} />
       <rect fill="var(--mascot-suit-hi)" x={140} y={200} width={10} height={50} />
@@ -82,71 +98,88 @@ export default function MascotTyping() {
       <rect fill="var(--canvas)" x={140} y={200} width={10} height={20} />
       <rect fill="var(--mascot-cap)" x={140} y={210} width={10} height={40} />
 
+      {/* ════════════════ SEATED LEGS — bent for sitting ════════════════
+            Thigh runs HORIZONTAL forward (right) from the hip; a knee;
+            then the shin runs DOWN to a foot. Trousers var(--mascot-suit),
+            shoe var(--mascot-suit-shadow). All axis-aligned rects. The
+            thigh top y=290 is the lap surface the laptop rests on. */}
+
+      {/* ── Thigh — horizontal trouser block forward from the hip ── */}
+      <rect fill="var(--mascot-suit)" x={70} y={290} width={150} height={30} />
+      {/* thigh highlight — light strip along the top of the thigh */}
+      <rect fill="var(--mascot-suit-hi)" x={70} y={290} width={150} height={8} />
+
+      {/* ── Shin — vertical trouser block dropping from the knee ── */}
+      <rect fill="var(--mascot-suit)" x={190} y={320} width={30} height={50} />
+      {/* shin shadow — deep strip down the back edge of the shin */}
+      <rect fill="var(--mascot-suit-shadow)" x={190} y={320} width={8} height={50} />
+
+      {/* ── Foot / shoe — suit-shadow nub jutting forward at the shin base ── */}
+      <rect fill="var(--mascot-suit-shadow)" x={190} y={364} width={50} height={16} />
+
       {/* ── Forearm — suit sleeve reaching forward to the keyboard ── */}
-      <rect fill="var(--mascot-suit)" x={140} y={220} width={60} height={20} />
-      <rect fill="var(--mascot-suit-hi)" x={140} y={220} width={60} height={10} />
-      <rect fill="var(--mascot-suit-shadow)" x={190} y={220} width={10} height={20} />
+      <rect fill="var(--mascot-suit)" x={140} y={236} width={70} height={20} />
+      <rect fill="var(--mascot-suit-hi)" x={140} y={236} width={70} height={10} />
+      <rect fill="var(--mascot-suit-shadow)" x={200} y={236} width={10} height={20} />
 
-      {/* ════════════════ LAPTOP — sleek aluminum ════════════════
-          Silver body is NOT themed — literal hex (its own palette).
-          The screen fill is civic-blue (var(--mascot-cap)); screen text
-          is paper-white (var(--canvas)). */}
+      {/* ════════════════ LAPTOP — open clamshell, pixel-art ════════════
+          Rebuilt as chunky axis-aligned <rect>s (no <polygon>) so it
+          matches the rest of the mascot's pixel-art style. In side
+          profile a laptop is an L-shape: a horizontal base slab + an
+          upright screen panel behind it. It rests on the lap — the base
+          slab sits on top of the horizontal thighs (thigh top y=290).
+          The silver body is NOT themed — small flat literal-hex palette
+          (#c8ccd0 light silver, #6a6e74 darker shade). Screen fill is
+          civic-blue (var(--mascot-cap)); screen text is paper-white
+          (var(--canvas)). */}
 
-      {/* ── Base — stacked silver slab, keys on top ── */}
-      <rect fill="#eef0f2" x={200} y={260} width={84} height={2} />
-      <rect fill="#a8acb2" x={200} y={262} width={84} height={6} />
-      <rect fill="#c8ccd0" x={200} y={268} width={84} height={4} />
-      <rect fill="#6a6e74" x={200} y={272} width={84} height={2} />
-      {/* keycaps — dark trim; grid-exempt: laptop-palette elements sized to the slab, not the 10px mascot grid */}
-      <g fill="#1a1d22">
-        <rect x={204} y={264} width={11} height={2} />
-        <rect x={218} y={264} width={11} height={2} />
-        <rect x={232} y={264} width={11} height={2} />
-        <rect x={246} y={264} width={11} height={2} />
-        <rect x={260} y={264} width={11} height={2} />
-        <rect x={274} y={264} width={6} height={2} />
+      {/* ── Base slab — horizontal, resting on the thighs ── */}
+      {/* light-silver deck */}
+      <rect fill="#c8ccd0" x={170} y={272} width={110} height={12} />
+      {/* dark-silver front lip */}
+      <rect fill="#6a6e74" x={170} y={284} width={110} height={6} />
+      {/* keycap rows — dark trim on the deck */}
+      <g fill="#6a6e74">
+        <rect x={180} y={276} width={14} height={4} />
+        <rect x={198} y={276} width={14} height={4} />
+        <rect x={216} y={276} width={14} height={4} />
+        <rect x={234} y={276} width={14} height={4} />
+        <rect x={252} y={276} width={14} height={4} />
       </g>
 
-      {/* ── Hinge — dark silver block where the lid pivots ── */}
-      <rect fill="#6a6e74" x={270} y={258} width={14} height={4} />
+      {/* ── Screen panel — upright rect behind the base, civic-blue inset.
+            Stands up at the back of the base slab (its far/right edge). ── */}
+      {/* dark-silver outer frame */}
+      <rect fill="#6a6e74" x={266} y={182} width={20} height={92} />
+      {/* light-silver bezel surround */}
+      <rect fill="#c8ccd0" x={244} y={182} width={26} height={92} />
+      {/* screen — civic-blue inset facing the mascot (to the left) */}
+      <rect fill="var(--mascot-cap)" x={240} y={188} width={26} height={80} />
 
-      {/* ── Lid — card D, ~110° (slight back lean). Angled slab built from
-            polygons: bezel face turned toward the mascot, silver back,
-            and the civic-blue screen inset. ── */}
-      {/* Bezel — dark front face of the lid, angled up-and-back */}
-      <polygon fill="#1a1d22" points="232,262 274,262 282,198 240,196" />
-      {/* Lid back — silver, the back face of the slab */}
-      <polygon fill="#c8ccd0" points="274,262 282,260 290,196 282,198" />
-      <polygon fill="#a8acb2" points="282,260 284,260 292,196 290,196" />
-      {/* Screen — civic-blue inset inside the bezel */}
-      <polygon fill="var(--mascot-cap)" points="236,260 272,260 280,200 244,200" />
-      {/* Screen text — paper-white lines of "search results" */}
-      <rect fill="var(--canvas)" x={246} y={208} width={28} height={2} />
-      <rect fill="var(--canvas)" x={246} y={214} width={32} height={2} />
-      <rect fill="var(--canvas)" x={246} y={220} width={26} height={2} />
-      <rect fill="var(--canvas)" x={246} y={226} width={30} height={2} />
-      <rect fill="var(--canvas)" x={246} y={232} width={20} height={2} />
+      {/* ── Screen text — paper-white lines of "search results" ── */}
+      <rect fill="var(--canvas)" x={244} y={198} width={18} height={3} />
+      <rect fill="var(--canvas)" x={244} y={206} width={20} height={3} />
+      <rect fill="var(--canvas)" x={244} y={214} width={16} height={3} />
+      <rect fill="var(--canvas)" x={244} y={222} width={19} height={3} />
+      <rect fill="var(--canvas)" x={244} y={230} width={14} height={3} />
       {/* Blinking cursor — paper-white, animated via .mascot-typing-cursor */}
       <rect
         className="mascot-typing-cursor"
         fill="var(--canvas)"
-        x={246}
+        x={244}
         y={240}
-        width={3}
-        height={4}
+        width={4}
+        height={6}
       />
-      {/* Lid top edge — light silver highlight along the lid's far edge */}
-      {/* grid-exempt: trims the angled lid's top edge */}
-      <rect fill="#eef0f2" x={240} y={192} width={52} height={4} />
 
       {/* ── Typing hand — own <g> so transform-box: fill-box gives the tap
             animation a hand-local transform-origin. Skin nub on the keys. ── */}
       <g className="mascot-typing-hand">
-        <rect fill="var(--mascot-skin)" x={198} y={240} width={22} height={14} />
-        <rect fill="var(--mascot-skin-shadow)" x={198} y={250} width={22} height={4} />
+        <rect fill="var(--mascot-skin)" x={196} y={256} width={24} height={16} />
+        <rect fill="var(--mascot-skin-shadow)" x={196} y={268} width={24} height={4} />
         {/* finger separations — thin skin-shadow gaps */}
-        <rect fill="var(--mascot-skin-shadow)" x={206} y={240} width={2} height={14} />
-        <rect fill="var(--mascot-skin-shadow)" x={213} y={240} width={2} height={14} />
+        <rect fill="var(--mascot-skin-shadow)" x={204} y={256} width={2} height={16} />
+        <rect fill="var(--mascot-skin-shadow)" x={211} y={256} width={2} height={16} />
       </g>
     </svg>
   );
