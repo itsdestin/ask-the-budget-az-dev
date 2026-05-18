@@ -147,52 +147,61 @@ export default function MascotPresenting() {
           fill is civic-blue (var(--mascot-cap)); screen text + the
           citation chip label are paper-white (var(--canvas)); the
           citation chip pill is civic-blue. Held in the hands at the
-          keyboard line (hands rest at y≈232..252). */}
+          keyboard line (hands rest at y≈232..252).
 
-      {/* ── Screen panel — upright silver-framed rect, civic-blue inset ── */}
+          SCALED DOWN ~13% from the original draw (screen frame
+          120×90 → 104×78, base 140w → 120w) per user note that the
+          laptop "looks good, but may need to be scaled down slightly."
+          Re-centered on x=160 — the laptop's horizontal center is
+          unchanged, it is just smaller. */}
+
+      {/* ── Screen panel — upright silver-framed rect, civic-blue inset.
+            Frame 104×78 (was 120×90), centered on x=160 → x=108..212. ── */}
       {/* dark-silver outer frame */}
-      <rect fill="#6a6e74" x={100} y={170} width={120} height={90} />
+      <rect fill="#6a6e74" x={108} y={176} width={104} height={78} />
       {/* light-silver bezel surround inside the frame */}
-      <rect fill="#c8ccd0" x={104} y={174} width={112} height={82} />
+      <rect fill="#c8ccd0" x={112} y={180} width={96} height={70} />
       {/* screen — civic-blue inset */}
-      <rect fill="var(--mascot-cap)" x={112} y={182} width={96} height={66} />
+      <rect fill="var(--mascot-cap)" x={118} y={186} width={84} height={56} />
 
       {/* ── Screen contents — paper-white answer text, a civic-blue
-            citation chip, and a blinking cursor. ── */}
-      <rect fill="var(--canvas)" x={120} y={190} width={60} height={4} />
-      <rect fill="var(--canvas)" x={120} y={200} width={80} height={4} />
-      <rect fill="var(--canvas)" x={120} y={210} width={70} height={4} />
-      <rect fill="var(--canvas)" x={120} y={220} width={50} height={4} />
+            citation chip, and a blinking cursor. Re-fit inside the
+            smaller blue panel (x 118..202, y 186..242). ── */}
+      <rect fill="var(--canvas)" x={124} y={194} width={52} height={4} />
+      <rect fill="var(--canvas)" x={124} y={202} width={70} height={4} />
+      <rect fill="var(--canvas)" x={124} y={210} width={60} height={4} />
+      <rect fill="var(--canvas)" x={124} y={218} width={44} height={4} />
       {/* citation chip — a small civic-blue pill, with a paper-white
           label bar inside it standing in for the cite text */}
-      <rect fill="var(--mascot-cap)" x={120} y={232} width={44} height={10} />
-      <rect fill="var(--canvas)" x={124} y={235} width={36} height={4} />
+      <rect fill="var(--mascot-cap)" x={124} y={228} width={40} height={10} />
+      <rect fill="var(--canvas)" x={128} y={231} width={32} height={4} />
       {/* Blinking cursor — paper-white, reuses the existing
           .mascot-typing-cursor keyframe (already in globals.css) */}
       <rect
         className="mascot-typing-cursor"
         fill="var(--canvas)"
-        x={186}
-        y={232}
+        x={182}
+        y={228}
         width={4}
         height={8}
       />
 
       {/* ── Base / keyboard slab — chunky silver rect below the screen.
             Wider than the screen so the laptop reads as an open
-            clamshell seen straight-on. ── */}
+            clamshell seen straight-on. 120w (was 140w), centered on
+            x=160 → x=100..220. ── */}
       {/* light-silver deck */}
-      <rect fill="#c8ccd0" x={90} y={260} width={140} height={16} />
+      <rect fill="#c8ccd0" x={100} y={254} width={120} height={14} />
       {/* dark-silver front lip */}
-      <rect fill="#6a6e74" x={90} y={276} width={140} height={6} />
+      <rect fill="#6a6e74" x={100} y={268} width={120} height={6} />
       {/* keycap rows — dark trim on the deck, on the 10px-ish grid */}
       <g fill="#6a6e74">
-        <rect x={100} y={264} width={16} height={4} />
-        <rect x={120} y={264} width={16} height={4} />
-        <rect x={140} y={264} width={16} height={4} />
-        <rect x={160} y={264} width={16} height={4} />
-        <rect x={180} y={264} width={16} height={4} />
-        <rect x={200} y={264} width={16} height={4} />
+        <rect x={108} y={258} width={14} height={4} />
+        <rect x={126} y={258} width={14} height={4} />
+        <rect x={144} y={258} width={14} height={4} />
+        <rect x={162} y={258} width={14} height={4} />
+        <rect x={180} y={258} width={14} height={4} />
+        <rect x={198} y={258} width={14} height={4} />
       </g>
     </svg>
   );
