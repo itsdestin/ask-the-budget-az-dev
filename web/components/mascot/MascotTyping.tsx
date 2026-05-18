@@ -50,26 +50,24 @@ export default function MascotTyping() {
       {/* ── Jaw shadow — darker skin-shadow strip at the chin ── */}
       <rect fill="var(--mascot-skin-shadow)" x={60} y={170} width={100} height={10} />
 
-      {/* ── Eyebrow — single short dark bar above the lens, on the
-            under-cap skin-shadow band, with a 10px skin gap before the
-            lens frame. Same idiom as the front views (one brow in profile). ── */}
-      <rect fill="var(--mascot-suit-hi)" x={140} y={90} width={40} height={10} />
-
-      {/* ── Glasses — "Take 3" clear glasses in profile: ONE visible lens.
-            A THIN HOLLOW frame (one 10px cell thick) outlining bare SKIN,
-            sitting at the front of the profile face so it clears the face
-            edge (frame right edge lands on the nose nub at x=170..180). ── */}
+      {/* ── Glasses + eye (Take 3 — clear round glasses) in profile: ONE
+            visible lens. Same Take-3 proportions as the front views
+            (frame r=19 strokeWidth=3.5, pupil r=8) so the character reads
+            consistent. The single round lens is centered at (160, 130) — at
+            the front of the profile face so it clears the face edge (r=19
+            spans x=141..179, inside the nose nub at x=170..180). ── */}
+      {/* eyebrow — single short stroke above the lens */}
+      <rect fill="var(--mascot-suit-hi)" x={142} y={100} width={36} height={6} />
       {/* temple arm running back over the ear to the cap */}
-      <rect fill="var(--mascot-suit)" x={80} y={120} width={60} height={10} />
-      {/* forward lens frame — hollow outline, skin shows through interior */}
-      <rect fill="var(--mascot-suit)" x={140} y={110} width={40} height={10} />
-      <rect fill="var(--mascot-suit)" x={140} y={140} width={40} height={10} />
-      <rect fill="var(--mascot-suit)" x={140} y={120} width={10} height={20} />
-      <rect fill="var(--mascot-suit)" x={170} y={120} width={10} height={20} />
-      {/* pupil — solid dark 2×2-cell rect inside the skin lens interior */}
-      <rect data-mascot-eye fill="var(--mascot-suit)" x={150} y={120} width={20} height={20} />
-      {/* glint — sub-grid paper-white catch-light on the upper-front corner */}
-      <rect fill="var(--canvas)" x={164} y={121} width={5} height={5} />
+      <rect fill="var(--mascot-suit)" x={80} y={128} width={62} height={4} />
+      {/* clear (skin-toned) lens fill */}
+      <circle fill="var(--mascot-skin)" cx={160} cy={130} r={19} />
+      {/* thin dark round frame */}
+      <circle fill="none" stroke="var(--mascot-suit)" strokeWidth={3.5} cx={160} cy={130} r={19} />
+      {/* dark round pupil */}
+      <circle data-mascot-eye fill="var(--mascot-suit)" cx={160} cy={130} r={8} />
+      {/* white catch-light glint */}
+      <rect data-mascot-eye fill="var(--canvas)" x={163} y={123} width={4} height={4} />
 
       {/* ── Neck — skin block bridging head and torso ── */}
       <rect fill="var(--mascot-skin)" x={100} y={180} width={40} height={20} />
