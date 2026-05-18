@@ -12,16 +12,16 @@
 // Blanking strategy: before drawing the raised frame we paint var(--mascot-skin)
 // rects over the RESTING frame footprint so the doubled-glasses artifact is
 // eliminated. Blanking covers only the frame rects (top/bottom bars + side
-// strips + bridge). The eyes (data-mascot-eye, x=70 y=130 w=20 and x=150 y=130
-// w=20) sit inside the left/right lens interior — we blank the full interior
-// rows at y=130 h=10 for each lens (x=60..100 and x=140..180) which covers the
-// eye rects; SVG's painter's model means the eye rects underneath are already
-// overdrawn. The hand rect in ArmsPushingGlasses covers the right lens anyway,
-// but blanking remains symmetric for clarity.
+// strips + bridge). The pupils (data-mascot-eye, x=70 y=130 w=20 h=20 and
+// x=150 y=130 w=20 h=20) sit INSIDE each lens interior and are deliberately
+// NOT blanked — when the frame rides up the eyes stay put, which is exactly
+// the "glasses pushed up off the eyes" read. The frame geometry is unchanged
+// by the Take-3 redesign (thin hollow frame, same footprint), so this overlay
+// still lines up without coordinate updates.
 //
-// Resting frame bounding box blankd: x=60 y=120 to x=180 y=160.
-// Blanking is limited to frame footprint; face skin above y=120 and below
-// y=160 is intentionally untouched.
+// Resting frame bounding box blanked: x=60 y=120 to x=180 y=160.
+// Blanking is limited to the frame footprint; face skin and the pupils are
+// intentionally untouched.
 export default function GlassesUp() {
   return (
     <g>

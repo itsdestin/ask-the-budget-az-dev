@@ -19,10 +19,6 @@ export default function MascotTyping() {
       style={{ shapeRendering: "crispEdges" }}
       className="mascot-typing"
     >
-      {/* ── Ground shadow — neutral, literal hex (not a mascot-palette part) ── */}
-      <rect fill="#cbbfad" x={60} y={290} width={150} height={20} />
-      <rect fill="#a89e8e" x={50} y={300} width={170} height={10} />
-
       {/* ════════════════ MASCOT — left profile ════════════════
           Faces RIGHT (toward the laptop). Cap crown sits up-left, brim
           juts out to the right over the face. Built on the 10px grid. */}
@@ -54,18 +50,26 @@ export default function MascotTyping() {
       {/* ── Jaw shadow — darker skin-shadow strip at the chin ── */}
       <rect fill="var(--mascot-skin-shadow)" x={60} y={170} width={100} height={10} />
 
-      {/* ── Glasses — dark frame in profile: temple bar + forward lens ── */}
-      {/* temple arm running back over the ear */}
+      {/* ── Eyebrow — single short dark bar above the lens, on the
+            under-cap skin-shadow band, with a 10px skin gap before the
+            lens frame. Same idiom as the front views (one brow in profile). ── */}
+      <rect fill="var(--mascot-suit-hi)" x={140} y={90} width={40} height={10} />
+
+      {/* ── Glasses — "Take 3" clear glasses in profile: ONE visible lens.
+            A THIN HOLLOW frame (one 10px cell thick) outlining bare SKIN,
+            sitting at the front of the profile face so it clears the face
+            edge (frame right edge lands on the nose nub at x=170..180). ── */}
+      {/* temple arm running back over the ear to the cap */}
       <rect fill="var(--mascot-suit)" x={80} y={120} width={60} height={10} />
-      {/* forward lens — single visible lens in profile */}
+      {/* forward lens frame — hollow outline, skin shows through interior */}
       <rect fill="var(--mascot-suit)" x={140} y={110} width={40} height={10} />
-      <rect fill="var(--mascot-suit)" x={140} y={130} width={40} height={10} />
-      <rect fill="var(--mascot-suit)" x={140} y={120} width={10} height={10} />
-      <rect fill="var(--mascot-suit)" x={170} y={120} width={10} height={10} />
-      {/* lens glass — faint paper-white tint inside the frame */}
-      <rect fill="var(--canvas)" x={150} y={120} width={20} height={10} opacity={0.5} />
-      {/* eye — single eye visible in profile */}
-      <rect data-mascot-eye fill="var(--mascot-suit)" x={160} y={120} width={10} height={10} />
+      <rect fill="var(--mascot-suit)" x={140} y={140} width={40} height={10} />
+      <rect fill="var(--mascot-suit)" x={140} y={120} width={10} height={20} />
+      <rect fill="var(--mascot-suit)" x={170} y={120} width={10} height={20} />
+      {/* pupil — solid dark 2×2-cell rect inside the skin lens interior */}
+      <rect data-mascot-eye fill="var(--mascot-suit)" x={150} y={120} width={20} height={20} />
+      {/* glint — sub-grid paper-white catch-light on the upper-front corner */}
+      <rect fill="var(--canvas)" x={164} y={121} width={5} height={5} />
 
       {/* ── Neck — skin block bridging head and torso ── */}
       <rect fill="var(--mascot-skin)" x={100} y={180} width={40} height={20} />

@@ -1,4 +1,4 @@
-// The shared mascot body: head, cap, glasses, face, torso, base.
+// The shared mascot body: head, cap, glasses, face, torso.
 // Arms are composed on top by Mascot.tsx. Pixel-art regenerated to match
 // the #body symbol in the committed reference mockup
 // (specs/assets/2026-05-15-mascot-reference/mascot-pixel-poses.html);
@@ -15,8 +15,6 @@
 // ║            laptop scenes MUST also snap to this 10px grid.                ║
 // ║                                                                           ║
 // ║ LANDMARK BOUNDING BOXES  (x, y, width, height — SVG units)                ║
-// ║   base shadow : x=40  y=290 w=160 h=30   (two stacked ellipse-less rects: ║
-// ║                 upper 50,290,140,20 + lower 40,300,160,10)                ║
 // ║   torso       : x=80  y=200 w=80  h=90   (suit block, 200→290)            ║
 // ║   neck        : x=110 y=180 w=20  h=20   (skin, behind torso top)         ║
 // ║   head        : x=20  y=40  w=200 h=140  (skin mass incl. side panels;    ║
@@ -47,8 +45,6 @@
 // ║   #303a4a suit highlight → var(--mascot-suit-hi)                           ║
 // ║   #13181f suit shadow    → var(--mascot-suit-shadow)                       ║
 // ║   #fbf7f0 JLBC text/shirt→ var(--canvas)  (paper-white)                    ║
-// ║   #cbbfad / #a89e8e base → LITERAL HEX (neutral ground shadow, NOT a       ║
-// ║                            mascot-palette part — keep literal)            ║
 // ║   mouth (#8a5f3f in ref) → var(--mascot-skin-shadow) (no --mascot-mouth    ║
 // ║                            var exists; darker-skin line reads as a calm   ║
 // ║                            closed mouth)                                  ║
@@ -56,11 +52,6 @@
 export default function MascotBody() {
   return (
     <g>
-      {/* ── Base — neutral ground shadow under the figure. Literal hex on
-            purpose: this is not part of the mascot palette. ── */}
-      <rect fill="#cbbfad" x={50} y={290} width={140} height={20} />
-      <rect fill="#a89e8e" x={40} y={300} width={160} height={10} />
-
       {/* ── Torso — narrower than the head so arm sets hang outside it.
             Suit highlight strips run down the left and right edges. ── */}
       <rect fill="var(--mascot-suit)" x={80} y={200} width={80} height={90} />
@@ -119,24 +110,37 @@ export default function MascotBody() {
         JLBC
       </text>
 
-      {/* ── Glasses — dark frame: left lens, right lens, and bridge ── */}
-      {/* left lens */}
+      {/* ── Eyebrows — short dark bars above each lens frame, with a 10px
+            skin gap between brow and frame. New: gives the face expression. ── */}
+      <rect fill="var(--mascot-suit-hi)" x={60} y={100} width={40} height={10} />
+      <rect fill="var(--mascot-suit-hi)" x={140} y={100} width={40} height={10} />
+
+      {/* ── Glasses — "Take 3" clear glasses: each lens is a THIN HOLLOW
+            frame (one 10px cell thick) outlining a region of bare SKIN, so
+            the head shows through the lens. Built as 4 thin rects per lens
+            (top/bottom/left/right) plus a 10px bridge bar. ── */}
+      {/* left lens frame — hollow outline, skin shows through interior */}
       <rect fill="var(--mascot-suit)" x={60} y={120} width={40} height={10} />
       <rect fill="var(--mascot-suit)" x={60} y={150} width={40} height={10} />
       <rect fill="var(--mascot-suit)" x={60} y={130} width={10} height={20} />
       <rect fill="var(--mascot-suit)" x={90} y={130} width={10} height={20} />
-      {/* right lens */}
+      {/* right lens frame — hollow outline */}
       <rect fill="var(--mascot-suit)" x={140} y={120} width={40} height={10} />
       <rect fill="var(--mascot-suit)" x={140} y={150} width={40} height={10} />
       <rect fill="var(--mascot-suit)" x={140} y={130} width={10} height={20} />
       <rect fill="var(--mascot-suit)" x={170} y={130} width={10} height={20} />
-      {/* bridge */}
+      {/* bridge — 10px-thick bar joining the two lens frames at mid-height */}
       <rect fill="var(--mascot-suit)" x={100} y={130} width={40} height={10} />
 
-      {/* ── Eyes — two separate rects. data-mascot-eye lets a later task's
-            blink animation target each one independently. ── */}
-      <rect data-mascot-eye fill="var(--mascot-suit)" x={70} y={130} width={20} height={10} />
-      <rect data-mascot-eye fill="var(--mascot-suit)" x={150} y={130} width={20} height={10} />
+      {/* ── Pupils — a solid dark 2×2-cell rect inside each lens, so the eye
+            reads clearly against the skin-toned lens interior. data-mascot-eye
+            lets the blink animation target each one independently. ── */}
+      <rect data-mascot-eye fill="var(--mascot-suit)" x={70} y={130} width={20} height={20} />
+      <rect data-mascot-eye fill="var(--mascot-suit)" x={150} y={130} width={20} height={20} />
+      {/* ── Glint — small paper-white catch-light on the upper-outer corner of
+            each pupil so the eye doesn't read flat. Sub-grid (fine eye detail). ── */}
+      <rect fill="var(--canvas)" x={71} y={131} width={5} height={5} />
+      <rect fill="var(--canvas)" x={151} y={131} width={5} height={5} />
 
       {/* ── Mouth — calm closed line. No --mascot-mouth var exists, so we use
             the darker skin-shadow tone (reads as a relaxed closed mouth). ── */}

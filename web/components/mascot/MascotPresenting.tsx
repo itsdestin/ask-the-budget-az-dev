@@ -20,11 +20,6 @@ export default function MascotPresenting() {
       style={{ shapeRendering: "crispEdges" }}
       className="mascot-presenting"
     >
-      {/* ── Ground shadow — neutral, literal hex (not a mascot-palette
-            part). Same colors MascotBody/MascotTyping use. ── */}
-      <rect fill="#cbbfad" x={70} y={290} width={180} height={20} />
-      <rect fill="#a89e8e" x={60} y={300} width={200} height={10} />
-
       {/* ════════════════ MASCOT — front view ════════════════
           Same character/proportions as MascotBody, shifted right so the
           figure sits centered above the tilted laptop. Built on the
@@ -83,23 +78,34 @@ export default function MascotPresenting() {
         JLBC
       </text>
 
-      {/* ── Glasses — dark frame: left lens, right lens, and bridge ── */}
-      {/* left lens */}
+      {/* ── Eyebrows — short dark bars above each lens frame, with a 10px
+            skin gap. Same idiom as MascotBody so the views read identical. ── */}
+      <rect fill="var(--mascot-suit-hi)" x={100} y={90} width={40} height={10} />
+      <rect fill="var(--mascot-suit-hi)" x={180} y={90} width={40} height={10} />
+
+      {/* ── Glasses — "Take 3" clear glasses: each lens is a THIN HOLLOW
+            frame (one 10px cell thick) outlining bare SKIN, so the head shows
+            through the lens. 4 thin rects per lens + a 10px bridge bar. ── */}
+      {/* left lens frame — hollow outline */}
       <rect fill="var(--mascot-suit)" x={100} y={110} width={40} height={10} />
       <rect fill="var(--mascot-suit)" x={100} y={140} width={40} height={10} />
       <rect fill="var(--mascot-suit)" x={100} y={120} width={10} height={20} />
       <rect fill="var(--mascot-suit)" x={130} y={120} width={10} height={20} />
-      {/* right lens */}
+      {/* right lens frame — hollow outline */}
       <rect fill="var(--mascot-suit)" x={180} y={110} width={40} height={10} />
       <rect fill="var(--mascot-suit)" x={180} y={140} width={40} height={10} />
       <rect fill="var(--mascot-suit)" x={180} y={120} width={10} height={20} />
       <rect fill="var(--mascot-suit)" x={210} y={120} width={10} height={20} />
-      {/* bridge */}
+      {/* bridge — 10px-thick bar joining the two lens frames ── */}
       <rect fill="var(--mascot-suit)" x={140} y={120} width={40} height={10} />
 
-      {/* ── Eyes — two separate rects ── */}
-      <rect fill="var(--mascot-suit)" x={110} y={120} width={20} height={10} />
-      <rect fill="var(--mascot-suit)" x={190} y={120} width={20} height={10} />
+      {/* ── Pupils — a solid dark 2×2-cell rect inside each lens so the eye
+            reads clearly against the skin lens interior. ── */}
+      <rect fill="var(--mascot-suit)" x={110} y={120} width={20} height={20} />
+      <rect fill="var(--mascot-suit)" x={190} y={120} width={20} height={20} />
+      {/* ── Glint — sub-grid paper-white catch-light, upper-outer corner. ── */}
+      <rect fill="var(--canvas)" x={111} y={121} width={5} height={5} />
+      <rect fill="var(--canvas)" x={191} y={121} width={5} height={5} />
 
       {/* ── Mouth — calm closed line ── */}
       <rect fill="var(--mascot-skin-shadow)" x={140} y={150} width={40} height={10} />
