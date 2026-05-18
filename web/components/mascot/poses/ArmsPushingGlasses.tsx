@@ -22,7 +22,7 @@ export default function ArmsPushingGlasses() {
       <rect fill="var(--mascot-suit-hi)" x={170} y={210} width={10} height={20} />
       {/* forearm running up beside the head toward the glasses */}
       <rect fill="var(--mascot-suit)" x={150} y={160} width={20} height={60} />
-      {/* vertical SIDE highlight strip down the inner half of the raised arm */}
+      {/* vertical SIDE highlight strip along the outer edge of the raised arm (x=150, matching the outer-edge highlight convention in ArmsSides.tsx) */}
       <rect fill="var(--mascot-suit-hi)" x={150} y={160} width={10} height={50} />
       {/* hand reaching the glasses — sits over the right lens / bridge region */}
       <rect fill="var(--mascot-skin)" x={140} y={120} width={40} height={40} />

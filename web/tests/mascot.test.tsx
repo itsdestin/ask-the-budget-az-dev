@@ -8,6 +8,8 @@ import ArmsCrossed from "../components/mascot/poses/ArmsCrossed";
 import ArmsClipboard from "../components/mascot/poses/ArmsClipboard";
 import ArmsSides from "../components/mascot/poses/ArmsSides";
 import ArmsHips from "../components/mascot/poses/ArmsHips";
+import ArmsPushingGlasses from "../components/mascot/poses/ArmsPushingGlasses";
+import GlassesUp from "../components/mascot/poses/GlassesUp";
 
 describe("MascotBody", () => {
   it("renders the JLBC cap text and does not throw", () => {
@@ -24,6 +26,18 @@ describe("pose components", () => {
       const html = renderToString(<svg viewBox="0 0 240 320"><Arms /></svg>);
       expect(html).toContain("var(--mascot-suit)");
     }
+  });
+});
+
+describe("idle-moment art components", () => {
+  it("ArmsPushingGlasses renders without throwing and contains skin color", () => {
+    const html = renderToString(<svg viewBox="0 0 240 320"><ArmsPushingGlasses /></svg>);
+    expect(html).toContain("var(--mascot-skin)");
+  });
+
+  it("GlassesUp renders without throwing and contains skin color", () => {
+    const html = renderToString(<svg viewBox="0 0 240 320"><GlassesUp /></svg>);
+    expect(html).toContain("var(--mascot-skin)");
   });
 });
 

@@ -54,7 +54,9 @@ export default function Mascot({ pose, size = "hero", animate = true, className 
   // ── Blink ── fires for ~150ms at a random 3–6s gap. ───────────────────────
   useEffect(() => {
     if (!animate) return;
-    if (window.matchMedia?.("(prefers-reduced-motion: reduce)").matches) return;
+    // SSR guard: window is undefined during server-side rendering; bail out so
+    // the effect is a no-op until it runs in the browser.
+    if (typeof window === "undefined" || window.matchMedia?.("(prefers-reduced-motion: reduce)").matches) return;
     // Track BOTH the schedule timer and the inner 150ms blink-off timer so
     // cleanup leaves nothing running — otherwise an unmount mid-blink would
     // try to setState on an unmounted component.
@@ -81,7 +83,9 @@ export default function Mascot({ pose, size = "hero", animate = true, className 
   useEffect(() => {
     if (!animate) return;
     if (!canPushGlasses) return;
-    if (window.matchMedia?.("(prefers-reduced-motion: reduce)").matches) return;
+    // SSR guard: window is undefined during server-side rendering; bail out so
+    // the effect is a no-op until it runs in the browser.
+    if (typeof window === "undefined" || window.matchMedia?.("(prefers-reduced-motion: reduce)").matches) return;
     // Same dual-timer cleanup pattern as blink: clear the schedule timer AND
     // the inner 700ms reset timer on unmount / pose change.
     let scheduleTimer: ReturnType<typeof setTimeout>;
