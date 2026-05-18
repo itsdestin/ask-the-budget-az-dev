@@ -169,3 +169,12 @@ body {
 @media (prefers-reduced-motion: reduce) {
   .mascot-animate { animation: none; }
 }
+
+/* The side-typing scene (MascotTyping). The tapping hand needs its own
+   transform-box so the 2px tap is hand-local, not viewBox-relative. The
+   cursor blink reuses the mascot-cursor keyframes defined above. */
+.mascot-typing-hand   { animation: mascot-tap 460ms steps(2, end) infinite; transform-origin: 50% 100%; transform-box: fill-box; }
+.mascot-typing-cursor { animation: mascot-cursor 600ms steps(2, end) infinite; }
+@media (prefers-reduced-motion: reduce) {
+  .mascot-typing-hand, .mascot-typing-cursor { animation: none; }
+}

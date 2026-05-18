@@ -10,6 +10,7 @@ import ArmsSides from "../components/mascot/poses/ArmsSides";
 import ArmsHips from "../components/mascot/poses/ArmsHips";
 import ArmsPushingGlasses from "../components/mascot/poses/ArmsPushingGlasses";
 import GlassesUp from "../components/mascot/poses/GlassesUp";
+import MascotTyping from "../components/mascot/MascotTyping";
 
 describe("MascotBody", () => {
   it("renders the JLBC cap text and does not throw", () => {
@@ -68,5 +69,13 @@ describe("Mascot", () => {
     for (const pose of ["sides", "clasped", "wave", "crossed", "clipboard", "hips"] as const) {
       expect(() => renderToString(<Mascot pose={pose} size="hero" />)).not.toThrow();
     }
+  });
+});
+
+describe("MascotTyping", () => {
+  it("renders the scene with the laptop and a typing hand", () => {
+    const html = renderToString(<MascotTyping />);
+    expect(html).toContain("mascot-typing-hand");
+    expect(html).toContain('aria-label="JLBC budget assistant — searching"');
   });
 });
