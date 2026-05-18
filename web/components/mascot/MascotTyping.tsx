@@ -29,7 +29,6 @@ export default function MascotTyping() {
 
       {/* ── Cap — civic-blue crown, stepped top + back side panel ── */}
       <rect fill="var(--mascot-cap)" x={60} y={30} width={110} height={60} />
-      <rect fill="var(--mascot-cap)" x={70} y={20} width={90} height={10} />
       <rect fill="var(--mascot-cap)" x={50} y={50} width={10} height={40} />
       {/* Cap highlight — light band along the two upper edges */}
       <rect fill="var(--mascot-cap-hi)" x={60} y={30} width={110} height={10} />
@@ -44,17 +43,15 @@ export default function MascotTyping() {
       <rect fill="var(--mascot-skin)" x={50} y={100} width={10} height={60} />
       {/* Nose — small skin nub pushing out to the right */}
       <rect fill="var(--mascot-skin)" x={170} y={120} width={10} height={20} />
-      {/* Skin shadow — under the cap brim and along the nose underside */}
+      {/* Skin shadow — under the cap brim */}
       <rect fill="var(--mascot-skin-shadow)" x={60} y={90} width={110} height={10} />
-      <rect fill="var(--mascot-skin-shadow)" x={170} y={130} width={10} height={10} />
       {/* Skin highlight — catch-light on the forward cheek */}
       <rect fill="var(--mascot-skin-hi)" x={150} y={140} width={10} height={20} />
 
       {/* ── Mouth — calm closed line on the forward face ── */}
       <rect fill="var(--mascot-skin-shadow)" x={160} y={150} width={10} height={10} />
 
-      {/* ── Jaw underside — thin skin shadow strip at the chin ── */}
-      <rect fill="var(--mascot-skin)" x={60} y={170} width={100} height={10} />
+      {/* ── Jaw shadow — darker skin-shadow strip at the chin ── */}
       <rect fill="var(--mascot-skin-shadow)" x={60} y={170} width={100} height={10} />
 
       {/* ── Glasses — dark frame in profile: temple bar + forward lens ── */}
@@ -98,7 +95,7 @@ export default function MascotTyping() {
       <rect fill="#a8acb2" x={200} y={262} width={84} height={6} />
       <rect fill="#c8ccd0" x={200} y={268} width={84} height={4} />
       <rect fill="#6a6e74" x={200} y={272} width={84} height={2} />
-      {/* keycaps — dark trim */}
+      {/* keycaps — dark trim; grid-exempt: laptop-palette elements sized to the slab, not the 10px mascot grid */}
       <g fill="#1a1d22">
         <rect x={204} y={264} width={11} height={2} />
         <rect x={218} y={264} width={11} height={2} />
@@ -137,6 +134,7 @@ export default function MascotTyping() {
         height={4}
       />
       {/* Lid top edge — light silver highlight along the lid's far edge */}
+      {/* grid-exempt: trims the angled lid's top edge */}
       <rect fill="#eef0f2" x={240} y={192} width={52} height={4} />
 
       {/* ── Typing hand — own <g> so transform-box: fill-box gives the tap
