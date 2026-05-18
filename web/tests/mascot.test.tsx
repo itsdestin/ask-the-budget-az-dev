@@ -11,6 +11,7 @@ import ArmsHips from "../components/mascot/poses/ArmsHips";
 import ArmsPushingGlasses from "../components/mascot/poses/ArmsPushingGlasses";
 import GlassesUp from "../components/mascot/poses/GlassesUp";
 import MascotTyping from "../components/mascot/MascotTyping";
+import MascotPresenting from "../components/mascot/MascotPresenting";
 
 describe("MascotBody", () => {
   it("renders the JLBC cap text and does not throw", () => {
@@ -79,5 +80,12 @@ describe("MascotTyping", () => {
     expect(html).toContain('aria-label="JLBC budget assistant — searching"');
     expect(html).toContain("var(--mascot-skin)");
     expect(html).toContain("var(--mascot-cap)");
+  });
+});
+
+describe("MascotPresenting", () => {
+  it("renders the presenting scene", () => {
+    const html = renderToString(<MascotPresenting />);
+    expect(html).toContain('aria-label="JLBC budget assistant — presenting results"');
   });
 });
