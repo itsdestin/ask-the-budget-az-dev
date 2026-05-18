@@ -1,9 +1,9 @@
 // ArmsWave — P3c. One arm raised in a friendly wave (welcome pose).
-// Arm set regenerated to match the #arms-wave symbol in the committed
-// reference mockup. Conforms to the 10px sprite grid; the left arm hangs
-// from the shoulder line y=210, the right arm rises up beside the head with
-// an open waving hand. The raised hand sits in front of the head core block
-// (head y=40..180) and carries a skin-shadow edge so it reads against the face.
+// Conforms to the 10px sprite grid; arms attach at the shoulder line y=210.
+// The left arm hangs at the side. The right arm is a low, gentle CURVE —
+// a sweep of overlapping suit rects whose offsets step up-and-out (not a
+// hard L), rising to an open mitten hand at about shoulder height, out
+// past the head's right edge so it never covers the face.
 export default function ArmsWave() {
   return (
     <g>
@@ -13,37 +13,30 @@ export default function ArmsWave() {
       <rect fill="var(--mascot-skin)" x={60} y={270} width={20} height={20} />
       <rect fill="var(--mascot-skin-shadow)" x={60} y={280} width={20} height={10} />
 
-      {/* ── Right arm raised ── */}
-      {/* shoulder stub at the shoulder line before the arm bends upward */}
-      <rect fill="var(--mascot-suit)" x={160} y={210} width={20} height={20} />
-      <rect fill="var(--mascot-suit-hi)" x={170} y={210} width={10} height={20} />
-      {/* upper arm running up beside the head */}
-      <rect fill="var(--mascot-suit)" x={170} y={160} width={20} height={60} />
-      {/* highlight is a vertical SIDE strip down the inner/left half of the raised arm (same x, half the width) — not a top strip */}
-      <rect fill="var(--mascot-suit-hi)" x={170} y={160} width={10} height={60} />
-      {/* cuff at the wrist */}
-      <rect fill="var(--mascot-suit)" x={160} y={150} width={30} height={10} />
+      {/* ── Right arm — raised wave ──
+            Three short overlapping segments stepped up-and-out so the
+            silhouette reads as a gentle curve. Consistent limb width;
+            each segment overlaps the next so there are no gaps. */}
+      <rect fill="var(--mascot-suit)" x={158} y={212} width={36} height={22} />
+      <rect fill="var(--mascot-suit-shadow)" x={158} y={226} width={36} height={8} />
+      <rect fill="var(--mascot-suit)" x={178} y={198} width={28} height={22} />
+      <rect fill="var(--mascot-suit)" x={192} y={184} width={24} height={22} />
+      <rect fill="var(--mascot-suit-hi)" x={192} y={184} width={8} height={22} />
 
-      {/* ── Raised hand ── open waving palm above the wrist cuff. Clean
-            pixel-art proportions: a 3×3-cell palm block (30×30, matching the
-            ~2-3 cell hand scale of ArmsClasped/ArmsHips) with three 10px
-            finger nubs on top. The hand sits in front of the head, so a
-            --mascot-skin-shadow edge runs down the LEFT side (the side facing
-            the face) plus along the bottom — this separates the hand
-            silhouette from the skin-colored face behind it. ── */}
-      {/* finger nubs — three 10px-wide nubs rising off the top of the palm */}
-      <rect fill="var(--mascot-skin)" x={160} y={110} width={10} height={10} />
-      <rect fill="var(--mascot-skin)" x={170} y={110} width={10} height={10} />
-      <rect fill="var(--mascot-skin)" x={180} y={110} width={10} height={10} />
-      {/* finger separation gaps — thin skin-shadow lines between the nubs */}
-      <rect fill="var(--mascot-skin-shadow)" x={169} y={110} width={2} height={10} />
-      <rect fill="var(--mascot-skin-shadow)" x={179} y={110} width={2} height={10} />
-      {/* palm block */}
-      <rect fill="var(--mascot-skin)" x={160} y={120} width={30} height={30} />
-      {/* left edge — skin-shadow outline on the side facing the face */}
-      <rect fill="var(--mascot-skin-shadow)" x={160} y={110} width={4} height={40} />
-      {/* bottom edge — skin-shadow crease where the palm meets the cuff */}
-      <rect fill="var(--mascot-skin-shadow)" x={160} y={144} width={30} height={6} />
+      {/* ── Raised hand ── open mitten at the top of the curve: a rounded
+            finger block + a thumb nub, overlapping the forearm so it is
+            firmly attached. A --mascot-skin-shadow left edge + bottom
+            crease separate the hand from the head behind it. */}
+      {/* rounded top row — inset so the mitten top is not a hard corner */}
+      <rect fill="var(--mascot-skin)" x={194} y={158} width={18} height={6} />
+      <rect fill="var(--mascot-skin-hi)" x={194} y={158} width={9} height={6} />
+      {/* main finger block (all fingers merged — mitten) */}
+      <rect fill="var(--mascot-skin)" x={189} y={164} width={28} height={26} />
+      {/* thumb nub, lower-left */}
+      <rect fill="var(--mascot-skin)" x={182} y={172} width={11} height={13} />
+      {/* skin-shadow — left edge + bottom crease */}
+      <rect fill="var(--mascot-skin-shadow)" x={189} y={164} width={4} height={26} />
+      <rect fill="var(--mascot-skin-shadow)" x={189} y={184} width={28} height={6} />
     </g>
   );
 }

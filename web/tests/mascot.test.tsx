@@ -50,10 +50,10 @@ describe("Mascot", () => {
     expect(html).toContain('aria-label="JLBC budget assistant"');
   });
 
-  it("renders the chip size at 40x54", () => {
+  it("renders the chip size at 40x70", () => {
     const html = renderToString(<Mascot pose="clasped" size="chip" />);
     expect(html).toContain('width="40"');
-    expect(html).toContain('height="54"');
+    expect(html).toContain('height="70"');
   });
 
   it("includes the bob animation class when animate is not false", () => {

@@ -13,9 +13,9 @@ export type MascotPose =
 /** Render size. hero = welcome screen, chip = header/nook, tiny = inline. */
 export type MascotSize = "hero" | "chip" | "tiny";
 
-/** Pixel dimensions per size. The SVG viewBox is always 0 0 240 320. */
+/** Pixel dimensions per size. The SVG viewBox is always 0 0 240 420. */
 export const MASCOT_DIMENSIONS: Record<MascotSize, { width: number; height: number }> = {
-  hero: { width: 240, height: 320 },
-  chip: { width: 40, height: 54 },
-  tiny: { width: 24, height: 32 },
+  hero: { width: 240, height: 420 },
+  chip: { width: 40, height: 70 },
+  tiny: { width: 24, height: 42 },
 };

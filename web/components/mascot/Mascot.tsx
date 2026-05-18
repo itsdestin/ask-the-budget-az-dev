@@ -115,7 +115,7 @@ export default function Mascot({ pose, size = "hero", animate = true, className 
 
   return (
     <svg
-      viewBox="0 0 240 320"
+      viewBox="0 0 240 420"
       width={width}
       height={height}
       role="img"

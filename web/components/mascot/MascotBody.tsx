@@ -8,14 +8,16 @@
 // ║ SPRITE SYSTEM — canonical sprite spec. Tasks 5–8 (arm sets + laptop        ║
 // ║ scenes) MUST register against these coordinates. Quantitative, not prose. ║
 // ╠═══════════════════════════════════════════════════════════════════════════╣
-// ║ viewBox  : 0 0 240 320   (locked — MASCOT_DIMENSIONS in types.ts)         ║
-// ║ cell/grid: 10px square grid. 240÷10 = 24 cols, 320÷10 = 32 rows.          ║
+// ║ viewBox  : 0 0 240 420   (locked — MASCOT_DIMENSIONS in types.ts)         ║
+// ║ cell/grid: 10px square grid. 240÷10 = 24 cols, 420÷10 = 42 rows.          ║
 // ║            EVERY rect x/y/width/height is a multiple of 10 (the one       ║
 // ║            <text> baseline is exempt — see its inline note). Arm sets and ║
 // ║            laptop scenes MUST also snap to this 10px grid.                ║
 // ║                                                                           ║
 // ║ LANDMARK BOUNDING BOXES  (x, y, width, height — SVG units)                ║
 // ║   torso       : x=80  y=200 w=80  h=90   (suit block, 200→290)            ║
+// ║   legs        : x=80  y=290 w=82  h=94   (trousers 290→358 + shoes        ║
+// ║                 358→384; two legs with a center gap)                     ║
 // ║   neck        : x=110 y=180 w=20  h=20   (skin, behind torso top)         ║
 // ║   head        : x=20  y=40  w=200 h=140  (skin mass incl. side panels;    ║
 // ║                 core block 40,40,160,140 + ear panels out to x=20/220)    ║
@@ -57,6 +59,16 @@ export default function MascotBody() {
       <rect fill="var(--mascot-suit)" x={80} y={200} width={80} height={90} />
       <rect fill="var(--mascot-suit-hi)" x={80} y={200} width={10} height={60} />
       <rect fill="var(--mascot-suit-hi)" x={150} y={200} width={10} height={60} />
+
+      {/* ── Legs — dark suit trousers (two legs with a center gap), standing.
+            Shoes in the darker suit-shadow tone. Trousers 290→358, the
+            figure ends at the shoe bottom y=384 (viewBox height 420). ── */}
+      <rect fill="var(--mascot-suit)" x={86} y={290} width={32} height={68} />
+      <rect fill="var(--mascot-suit-hi)" x={86} y={290} width={10} height={58} />
+      <rect fill="var(--mascot-suit)" x={124} y={290} width={32} height={68} />
+      <rect fill="var(--mascot-suit-hi)" x={124} y={290} width={10} height={58} />
+      <rect fill="var(--mascot-suit-shadow)" x={80} y={358} width={40} height={26} />
+      <rect fill="var(--mascot-suit-shadow)" x={122} y={358} width={40} height={26} />
 
       {/* ── Shirt V — paper-white collar opening, stepped inward ── */}
       <rect fill="var(--canvas)" x={100} y={200} width={40} height={10} />
