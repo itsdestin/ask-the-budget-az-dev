@@ -155,14 +155,14 @@ export default function MascotPresenting() {
         <rect x={168} y={274} width={14} height={3} />
         <rect x={188} y={274} width={14} height={3} />
         <rect x={208} y={274} width={14} height={3} />
-        <rect x={226} y={274} width={14} height={3} />
+        <rect x={228} y={274} width={14} height={3} />
       </g>
 
       {/* ── Lid — tilted up-and-back. Dark bezel frame, silver back
             highlight, civic-blue screen inset. ── */}
       {/* bezel — dark frame face */}
       <polygon fill="#1a1d22" points="72,260 248,260 240,170 80,170" />
-      {/* lid back highlight — light silver along the lid's outer face */}
+      {/* silver bezel surround — inset inside the dark frame, gives the screen a silver border */}
       <polygon fill="#c8ccd0" points="76,256 244,256 236,174 84,174" />
       {/* screen — civic-blue inset inside the bezel */}
       <polygon fill="var(--mascot-cap)" points="84,250 236,250 228,180 92,180" />

@@ -87,5 +87,8 @@ describe("MascotPresenting", () => {
   it("renders the presenting scene", () => {
     const html = renderToString(<MascotPresenting />);
     expect(html).toContain('aria-label="JLBC budget assistant — presenting results"');
+    expect(html).toContain("var(--mascot-skin)");
+    expect(html).toContain("var(--mascot-cap)");
+    expect(html).toContain("mascot-typing-cursor");
   });
 });
