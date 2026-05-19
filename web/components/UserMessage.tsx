@@ -11,7 +11,7 @@ export default function UserMessage({ turn }: Props) {
     <div className="flex justify-end">
       <div
         className={
-          "max-w-[80%] rounded-md bg-inset border border-edge px-3 py-2 text-fg text-sm whitespace-pre-wrap " +
+          "bg-accent text-on-accent rounded-[12px_12px_4px_12px] px-3.5 py-2 max-w-[78%] font-sans text-sm leading-relaxed whitespace-pre-wrap " +
           (turn.pending ? "opacity-70" : "")
         }
         title={turn.pending ? "sending…" : undefined}

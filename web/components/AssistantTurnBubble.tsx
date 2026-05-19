@@ -121,7 +121,7 @@ export default function AssistantTurnBubble({
           return (
             <div
               key={block.uuid}
-              className="rounded-md bg-well border border-edge-dim p-3 text-fg text-sm"
+              className="p-3 text-fg text-sm font-sans"
             >
               <CitedMarkdownContent
                 content={renderText}
