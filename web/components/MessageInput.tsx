@@ -31,10 +31,12 @@ export default function MessageInput({
     setValue("");
   };
 
+  // Layout-level concerns (border-top, page-edge padding, background) are
+  // owned by the parent so the input shares a single visual container with
+  // the suggestion chips. This component renders only the input itself.
   return (
-    <div className="border-t border-edge bg-panel/60 px-4 py-3">
-      <div className="max-w-3xl mx-auto bg-well border-[1.5px] border-edge rounded-[10px] focus-within:border-accent focus-within:ring-2 focus-within:ring-accent/30 flex gap-2 items-end px-2 py-1.5">
-        <textarea
+    <div className="max-w-3xl mx-auto bg-well border-[1.5px] border-edge rounded-[10px] focus-within:border-accent focus-within:ring-2 focus-within:ring-accent/30 flex gap-2 items-end px-2 py-1.5">
+      <textarea
           ref={ref}
           value={value}
           onChange={(e) => setValue(e.target.value)}
@@ -58,8 +60,7 @@ export default function MessageInput({
           className="bg-accent text-on-accent rounded-md px-3.5 py-1.5 text-xs font-semibold font-sans hover:opacity-90 disabled:opacity-40 disabled:cursor-not-allowed transition-opacity"
         >
           Send
-        </button>
-      </div>
+      </button>
     </div>
   );
 }
