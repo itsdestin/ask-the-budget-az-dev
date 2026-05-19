@@ -200,8 +200,14 @@ body {
 
 /* The typing/presenting scenes size by height; width follows the viewBox
    aspect ratio. They have no intrinsic width/height of their own. */
+/* Match the regular small Mascot's display height (210 = MASCOT_DIMENSIONS.small.height)
+   so the scene scenes swap in place at the bottom-left without a vertical
+   jump. Widths still vary slightly (each scene includes different props
+   — chair / laptop — so its viewBox aspect ratio differs), but bottom and
+   right edges are anchored in ChatThread so the figures land in the same
+   slot. */
 .mascot-typing,
-.mascot-presenting { height: 240px; width: auto; }
+.mascot-presenting { height: 210px; width: auto; }
 
 /* Speech-bubble tail — points left toward the mascot avatar. The
    triangle sits at the top-left of the bubble so a bubble next to
