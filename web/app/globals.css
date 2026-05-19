@@ -185,3 +185,8 @@ body {
 @media (prefers-reduced-motion: reduce) {
   .cite-chip, .cite-chip-firing { transition: none; transform: none; box-shadow: none; }
 }
+
+/* The typing/presenting scenes size by height; width follows the viewBox
+   aspect ratio. They have no intrinsic width/height of their own. */
+.mascot-typing,
+.mascot-presenting { height: 240px; width: auto; }

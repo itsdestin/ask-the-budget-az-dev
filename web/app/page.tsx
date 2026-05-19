@@ -7,9 +7,23 @@ import Footer from "@/components/Footer";
 import MessageInput from "@/components/MessageInput";
 import PdfViewer from "@/components/PdfViewer";
 import Mascot from "@/components/mascot/Mascot";
-import { useMascotPose } from "@/components/mascot/useMascotPose";
+import type { MascotPose } from "@/components/mascot/types";
+import { type MascotState, useMascotPose } from "@/components/mascot/useMascotPose";
 import { useCitationSelected } from "@/state/citation-context";
 import { useChat } from "@/state/use-chat";
+
+/** True when the mascot state carries a `pose` (the idle/result/refusal/error
+ *  variants). Narrows the union so `mascot.pose` is type-safe to read. */
+function hasMascotPose(
+  m: MascotState,
+): m is Extract<MascotState, { pose: MascotPose }> {
+  return (
+    m.kind === "idle" ||
+    m.kind === "result" ||
+    m.kind === "refusal" ||
+    m.kind === "error"
+  );
+}
 
 export default function Page() {
   const { state, send, clearError, starting } = useChat();
@@ -21,14 +35,9 @@ export default function Page() {
 
   // The persistent nook + header mascot need a concrete pose. Only
   // the idle/result/refusal/error variants of MascotState carry a
-  // `pose` field, so narrow on `kind` before reading it; the
-  // welcome/thinking/presenting scenes fall back to "clasped".
-  const hasPose =
-    mascot.kind === "idle" ||
-    mascot.kind === "result" ||
-    mascot.kind === "refusal" ||
-    mascot.kind === "error";
-  const headerPose = hasPose ? mascot.pose : "clasped";
+  // `pose` field, so narrow via the type predicate before reading it;
+  // the welcome/thinking/presenting scenes fall back to "clasped".
+  const headerPose = hasMascotPose(mascot) ? mascot.pose : "clasped";
 
   // The PDF panel is hidden until the first citation chip is
   // clicked, then stays open for the rest of the session. PdfViewer
@@ -122,12 +131,13 @@ export default function Page() {
               scenes (idle/result/refusal/error). Hidden during
               welcome/thinking/presenting, which have their own
               centered mascot art. */}
-          {hasPose && (
+          {hasMascotPose(mascot) && (
             <div className="absolute left-2.5 bottom-2 z-10">
               <Mascot pose={headerPose} size="chip" />
             </div>
           )}
-          {/* pl-24 keeps the input text clear of the nook mascot. */}
+          {/* pl-24 (~96px) keeps the input clear of the nook mascot — the chip
+              mascot is 40px wide at left-2.5; revisit if the chip size changes. */}
           <div className="pl-24">
             <MessageInput
               onSubmit={send}
