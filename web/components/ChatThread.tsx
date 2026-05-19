@@ -164,13 +164,12 @@ export default function ChatThread({ state, mascot }: Props) {
     // it the flex children default to min-height:auto and overflow-y-auto
     // silently never engages, making the page body scroll instead.
     <div className="flex-1 min-h-0 flex flex-row">
-      {/* Left column — persistent mascot avatar, sticky at top as messages scroll. */}
-      <div className="flex-shrink-0 w-40 pl-4 pt-4">
-        {/* sticky top-4: mascot stays at top of the visible thread
-            area while the right-column message list scrolls behind it. */}
-        <div className="sticky top-4">
-          <Mascot pose={avatarPose} size="small" />
-        </div>
+      {/* Left column — persistent mascot avatar pinned at the BOTTOM-LEFT
+          of the chat thread (directly above the input bar). The column
+          spans the chat thread's height via the parent flex-row, and
+          `flex-col justify-end` pushes the mascot to its bottom edge. */}
+      <div className="flex-shrink-0 w-40 pl-4 pb-4 flex flex-col justify-end">
+        <Mascot pose={avatarPose} size="small" />
       </div>
 
       {/* Right column — scrollable message list with speech-bubble bubbles.
