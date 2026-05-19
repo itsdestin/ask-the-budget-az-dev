@@ -159,6 +159,17 @@ export default function ChatThread({ state, mascot }: Props) {
       ? mascot.pose
       : "clasped";
 
+  // Index of the most-recent assistant turn — drives which bubble shows
+  // the speech-bubble tail. Only the latest assistant turn gets the carat;
+  // older assistant turns render as plain bubbles.
+  let lastAssistantIndex = -1;
+  for (let i = state.turns.length - 1; i >= 0; i--) {
+    if (state.turns[i]?.kind === "assistant") {
+      lastAssistantIndex = i;
+      break;
+    }
+  }
+
   return (
     // outer: full flex-1 column-content area, `relative` so the mascot
     // can absolutely position itself against this box. min-h-0 is
@@ -172,7 +183,7 @@ export default function ChatThread({ state, mascot }: Props) {
         className="h-full overflow-y-auto py-6 px-4"
       >
         <div className="max-w-2xl mx-auto flex flex-col gap-5">
-          {state.turns.map((turn) =>
+          {state.turns.map((turn, index) =>
             turn.kind === "user" ? (
               <UserMessage key={turn.id} turn={turn} />
             ) : (
@@ -180,6 +191,7 @@ export default function ChatThread({ state, mascot }: Props) {
                 key={turn.id}
                 turn={turn}
                 conversationResolvedChunks={conversationResolvedChunks}
+                isLatest={index === lastAssistantIndex}
               />
             ),
           )}

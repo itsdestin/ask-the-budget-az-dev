@@ -46,6 +46,11 @@ interface Props {
    *  chunk_id from an earlier turn still resolve to its metadata.
    *  Computed once at the ChatThread level and passed in. */
   conversationResolvedChunks?: Map<string, ResolvedChunk>;
+  /** True only for the most-recent assistant turn in the conversation.
+   *  Drives whether the speech-bubble tail (carat) renders — older
+   *  assistant bubbles stay tail-less so a single tail "points" from the
+   *  mascot to the current message. */
+  isLatest?: boolean;
 }
 
 const STOP_NOTE: Record<string, string> = {
@@ -60,6 +65,7 @@ const STOP_NOTE: Record<string, string> = {
 export default function AssistantTurnBubble({
   turn,
   conversationResolvedChunks,
+  isLatest = false,
 }: Props) {
   // cite()-tool citations for the turn (resolved against this turn's
   // retrieve() output, with conversation-wide fallback for cross-turn
@@ -121,10 +127,15 @@ export default function AssistantTurnBubble({
           return (
             <div
               key={block.uuid}
-              // speech-bubble: left-pointing tail toward the left-column mascot
-              // avatar. relative is needed for the ::before pseudo-element tail.
-              // Only text blocks get this — ToolCard interleaved blocks do not.
-              className="speech-bubble relative bg-panel rounded-lg px-3.5 py-2 text-fg text-sm font-sans max-w-prose"
+              // Bubble visual styling on every assistant text block; the
+              // `speech-bubble` class (which adds the left-pointing carat
+              // via ::before) is applied ONLY on the most-recent assistant
+              // turn so a single tail anchors the conversation to the
+              // mascot. Older turns keep the same bubble look but no tail.
+              className={
+                (isLatest ? "speech-bubble " : "") +
+                "relative bg-panel rounded-lg px-3.5 py-2 text-fg text-sm font-sans max-w-prose"
+              }
             >
               <CitedMarkdownContent
                 content={renderText}
