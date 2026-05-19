@@ -160,34 +160,16 @@ export default function ChatThread({ state, mascot }: Props) {
       : "clasped";
 
   return (
-    // outer: full flex-1 row container. min-h-0 is load-bearing — without
-    // it the flex children default to min-height:auto and overflow-y-auto
-    // silently never engages, making the page body scroll instead.
-    <div className="flex-1 min-h-0 flex flex-row">
-      {/* Left column — persistent mascot avatar pinned at the BOTTOM-LEFT
-          of the chat thread (directly above the input bar). The column
-          spans the chat thread's height via the parent flex-row, and
-          `flex-col justify-end` pushes the mascot to its bottom edge. */}
-      <div className="flex-shrink-0 w-40 pl-4 pb-4 flex flex-col justify-end">
-        <Mascot pose={avatarPose} size="small" />
-      </div>
-
-      {/* Right column — scrollable message list with speech-bubble bubbles.
-          containerRef and endRef live here so the scroll tracking and
-          auto-scroll effects operate on the correct element. */}
+    // outer: full flex-1 column-content area, `relative` so the mascot
+    // can absolutely position itself against this box. min-h-0 is
+    // load-bearing — without it the scrollable child's overflow-y-auto
+    // silently never engages and the page body scrolls instead.
+    <div className="flex-1 min-h-0 relative">
+      {/* Scrollable messages — span the FULL chat viewport width;
+          `max-w-2xl mx-auto` centers the bubbles on the viewport's midline. */}
       <div
         ref={containerRef}
-        // min-h-0 is load-bearing — flex children default to
-        // min-height: auto, which makes overflow-y-auto silently NOT
-        // engage when content grows past the parent's bound. Without
-        // this, the page body scrolls instead of the chat thread,
-        // the scroll listener never fires on the correct element,
-        // and "stop following bottom" doesn't work.
-        // pr-40 balances the w-40 left mascot column so `mx-auto` on the
-        // inner messages container centers messages in the chat viewport
-        // (rather than in just the right column, which would shift them
-        // right of viewport-center).
-        className="flex-1 min-w-0 min-h-0 overflow-y-auto py-6 pr-40"
+        className="h-full overflow-y-auto py-6 px-4"
       >
         <div className="max-w-2xl mx-auto flex flex-col gap-5">
           {state.turns.map((turn) =>
@@ -203,6 +185,17 @@ export default function ChatThread({ state, mascot }: Props) {
           )}
           <div ref={endRef} />
         </div>
+      </div>
+
+      {/* Persistent mascot — absolutely positioned at the BOTTOM-LEFT of
+          the chat thread, aligned to sit ~8px to the left of the messages'
+          left edge. The calc derives from: viewport-center (50%) minus
+          half of max-w-2xl (336px) is the messages' left edge; subtract
+          another 128px (120px mascot + 8px gap) for the mascot's left. */}
+      <div
+        className="absolute bottom-2 z-10 left-[calc(50%-464px)]"
+      >
+        <Mascot pose={avatarPose} size="small" />
       </div>
     </div>
   );
