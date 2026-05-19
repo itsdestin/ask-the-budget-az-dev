@@ -1,10 +1,17 @@
 ---
 title: Web UI Refresh + JLBC Mascot — Design Spec
 date: 2026-05-15
-status: approved
+status: shipped (with post-implementation reconciliation — see bottom)
 authors: Destin Moss, Claude
 audience: design implementers, future contributors
 ---
+
+> **Reading note (2026-05-19):** the spec below is the approved design as
+> authored before implementation. During build the design pivoted on
+> several iterations — single-mascot architecture, speech-bubble messages,
+> seated typing scene, etc. The **Post-implementation reconciliation**
+> section at the bottom records what shipped vs. what is specified above;
+> read that first if you only want to know the current state.
 
 # Web UI Refresh + JLBC Mascot — Design Spec
 
@@ -368,3 +375,106 @@ opens with no motion.
 - The other idle moments from the brainstorm menu (coffee, look-sideways, lightbulb,
   stretch, smile, tip-cap) — only blink + push-glasses ship in v1.
 - Animated transitions beyond the one hard-cut handoff beat.
+
+---
+
+## Post-implementation reconciliation (2026-05-19)
+
+The spec above is the design as approved before implementation. During build the
+design pivoted across several user-feedback iterations. This section records what
+shipped vs. what is specified above — for future contributors reading the spec.
+The branch is `ui-prettify-mascot`.
+
+### 1. Single-mascot architecture (replaces three concurrent placements)
+
+§4 placed three concurrent mascot instances on screen: a header chip mascot, a
+persistent bottom-left "nook" mascot, and the inline scene during thinking.
+**Shipped:** exactly one instance at any moment, position state-driven —
+
+- Welcome → hero mascot centered.
+- Thinking → `MascotTyping` centered.
+- Presenting → `MascotPresenting` centered.
+- Idle / Result / Refusal / Error → a `small` mascot pinned to the **left** of the
+  chat thread, persistent while messages scroll. Messages render to its right.
+
+The header chip and the bottom-left nook are removed entirely. `useMascotPose` still
+drives the choice; the consumer just reads `mascot.kind` and `mascot.pose` and picks
+one render slot.
+
+### 2. Speech-bubble assistant messages (reverses §4's "bare on canvas")
+
+§4 specified the assistant turn would render bare on the canvas (no bubble). The
+single-mascot pivot reintroduced a bubble for each assistant text block — class
+`.speech-bubble` with a left-pointing CSS triangle tail toward the mascot avatar —
+so messages read as spoken by him. Tool cards and citation chips are unchanged.
+
+### 3. MascotTyping is a seated working-loop scene (replaces standing side-typing)
+
+§2 described MascotTyping as a left-profile mascot standing at an aluminum laptop
+with a card-D ~110° lid and a finger-tap loop. **Shipped:** a seated side view at a
+modern task chair, laptop on the lap, with a 12-second behavioral loop — types ~8s
+(mitten hands tapping alternately), pauses, head lifts to "think" with a small
+ponder shift, head returns, typing resumes. The laptop was rebuilt as chunky
+axis-aligned rect pixel-art (no polygons), matching the rest of the mascot's style.
+
+### 4. Take-3 round clear glasses + eyebrows (replaces rectangular pixel glasses)
+
+§2's mascot used rectangular pixel glasses without eyebrows. **Shipped:** round
+`<circle>`-stroke frames with skin-tone "clear" lenses, distinct round pupils with a
+white catch-light glint, and short eyebrow strokes — chosen by user via a 4-take
+comparison page. The push-glasses idle moment was updated so the eyebrows and eyes
+stay fixed; only the frame translates up onto the forehead.
+
+### 5. Take-C low-curved wave arm (replaces straight raised arm)
+
+§2's `wave` pose was a straight raised arm. **Shipped:** a low, three-segment
+stepped-rect curve sweeping out to an open mitten hand at shoulder/chin height,
+never crossing the face — chosen via a 4-take comparison page after one earlier
+4-take round of straight-arm variants was rejected.
+
+### 6. Mascot has legs; canvas grew 320 → 420
+
+§2 sized the mascot at viewBox `0 0 240 320` (head + cap + torso, no legs, base
+shadow). **Shipped:** the figure has standing legs (suit trousers + suit-shadow
+shoes). The shared viewBox is now `0 0 240 420`. `MASCOT_DIMENSIONS` gained a
+`small` size (120×210) used for the left avatar in the has-messages layout. The
+base ground-shadow ellipses are removed.
+
+### 7. Page-shell layout polish (post-Task-18 iteration)
+
+After Task 18's automated checks passed, the user iterated on the shell:
+
+- `html`/`body` have `overflow: hidden` and `overscroll-behavior: none` — the page
+  itself never scrolls; only the chat thread (and the PDF viewer) scroll internally.
+  The outer page `<div>` adds `h-screen overflow-hidden`.
+- The header brand "Ask the Budget AZ" is centered (3-column grid: empty left,
+  centered brand, right-aligned controls).
+- The suggestion chips float on the canvas above the input panel (not inside it),
+  centered via `mx-auto w-fit` inside `overflow-x-auto` — native two-finger
+  trackpad horizontal scroll works when chips overflow.
+- The input bar sits in its own bordered/panel container directly above the footer.
+- The footer is locked at the very bottom of the page.
+
+### 8. Throwaway preview routes removed
+
+During iteration the workspace held several throwaway Next.js routes used as
+side-by-side comparison pages: `/mascot-preview`, `/mascot-glasses`, `/mascot-wave`,
+`/mascot-sit`. These were never committed and have been deleted before the branch
+was wrapped up.
+
+### Not changed
+
+The Core Invariants are intact. The honesty line and the `crossed`-arms refusal
+banner ship as specified. The state→pose decision logic in `useMascotPose`, the
+bob / blink / push-glasses idle moments, and `prefers-reduced-motion` handling all
+match §5. The civic-warm theme + Source Serif 4 / Inter / Cascadia Mono typography
+(§1) shipped as designed.
+
+### Items deferred past this branch
+
+- **Refusal auto-detection wiring (Phase 1c WS5).** The `crossed`/`refusal` mascot
+  path is built and unit-tested; `useMascotPose` takes an explicit
+  `refusalActive: boolean` so WS5 can flip the flag once auto-detection lands. v1
+  passes `false`.
+- **Faithfulness verifier (Phase 1c WS3).** Independent of this refresh.
+- **Eval expansion (Phase 1c WS7).** Blocked on volume corpus.

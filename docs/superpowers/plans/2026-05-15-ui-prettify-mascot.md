@@ -1,5 +1,15 @@
 # Web UI Refresh + JLBC Mascot Implementation Plan
 
+> **Status (2026-05-19): SHIPPED on branch `ui-prettify-mascot` (not yet merged
+> to master).** All 18 tasks complete; full vitest suite 176/176 passing,
+> typecheck clean, production build green. During implementation the design
+> pivoted on user feedback — see the **Post-implementation notes** at the
+> bottom of this file for what shipped differently from the steps below.
+> The unchecked `- [ ]` boxes are left as authored; treat the steps as
+> *historical scaffolding* and the post-implementation notes (plus the
+> spec's reconciliation section) as the source of truth for what is in the
+> code today.
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Give the Ask the Budget AZ web app an independent "civic-warm" visual identity and a pixel-art JLBC mascot that reacts to app state.
@@ -1144,3 +1154,61 @@ git commit -m "fix(web): UI refresh final-verification fixes"
 - **`sides` and `hips` poses** are built and tested but wired to no trigger — they exist for future use. Don't delete them.
 - **Laptop colors are not themed.** The mascot reads `--mascot-*` variables; the laptop's silver palette stays as literal hex (it's the laptop's own identity, not the mascot's). Only the laptop *screen* uses `var(--mascot-cap)` since it's civic-blue.
 - **Never tween pixel art.** Every animation uses `steps()` or discrete state swaps. No `transition` on transforms of mascot sub-parts, no smooth scale/rotate. The one exception is the citation-chip click pop (Task 14) — that's a UI chip, not the mascot.
+
+---
+
+## Post-implementation notes (2026-05-19)
+
+All 18 tasks landed on branch `ui-prettify-mascot`. During implementation the design
+pivoted across several user-feedback iterations. The spec's
+**Post-implementation reconciliation** section is the long-form source of truth;
+this is a compact pointer for anyone reading the plan after the fact.
+
+**What shipped differently from the steps above (high level):**
+
+1. **Single-mascot architecture.** Tasks 16 (page integration) and the post-Task-18
+   iteration removed the header chip mascot and the bottom-left nook entirely.
+   Only one mascot renders at any time — center hero on welcome, center scenes
+   during thinking/presenting, a `small`-size left avatar pinned beside the
+   chat thread for the resting states (idle/result/refusal/error).
+2. **Speech-bubble assistant messages.** Task 12's "bare on canvas" assistant
+   bubble was reversed by the post-Task-18 single-mascot pivot — each assistant
+   text block is now a `.speech-bubble` with a CSS left-pointing tail toward
+   the left-side mascot avatar. `globals.css` carries the `::before` triangle.
+3. **MascotTyping is a seated working-loop.** Task 7's standing side-typing scene
+   was replaced during the art-approval checkpoint with a seated figure on a
+   modern task chair, laptop on the lap, with a 12-second loop (type ~8s →
+   pause → look up + ponder → resume). Generated CSS keyframes
+   (`workHandNear`/`workHandFar`/`workHead`) ship inside `MascotTyping.tsx`
+   via a `<style>` tag — they were too long/scene-specific to live in
+   `globals.css` cleanly.
+4. **Take-3 round glasses + brows.** Replaced the rectangular pixel glasses in
+   `MascotBody` / `MascotPresenting` / `MascotTyping` after a 4-take comparison.
+   The push-glasses idle moment (Task 6 / `GlassesUp.tsx`) was rewritten so
+   eyebrows and eyes stay fixed and only the frame translates up.
+5. **Take-C low curved wave arm.** `ArmsWave` is now a three-segment stepped-rect
+   curve with a mitten hand (no fingers), chosen via a 4-take comparison.
+6. **Mascot got legs; canvas grew 320 → 420.** `MASCOT_DIMENSIONS` (`types.ts`)
+   gained a `small` size (120×210) for the left-column avatar. The base
+   ground-shadow rects were removed.
+7. **Page-shell layout polish (post-Task-18).** `html`/`body` set
+   `overflow: hidden` + `overscroll-behavior: none` — the page itself never
+   scrolls; only the chat thread / PDF viewer scroll internally. Header brand
+   centered (3-col grid). Suggestion chips float on the canvas above the input
+   panel, centered via `mx-auto w-fit` inside `overflow-x-auto` (two-finger
+   horizontal scroll works for arbitrary chip sets). The input bar lives in
+   its own bordered panel; the footer is locked at the very bottom.
+8. **Throwaway preview routes (`/mascot-preview`, `/mascot-glasses`, `/mascot-wave`,
+   `/mascot-sit`) were deleted before wrapping up the branch.
+
+**Deferred past this branch (Phase 1c):**
+
+- WS3 — faithfulness verifier (needs spike).
+- WS5 — audit-log writes and refusal auto-detection. The `crossed`/refusal mascot
+  path is built and unit-tested; `useMascotPose(state, refusalActive)` accepts
+  the explicit boolean so WS5 only has to flip the flag.
+- WS7 — eval expansion (blocked on volume corpus).
+
+**Branch handoff:** `ui-prettify-mascot` (in worktree `~/ask-the-budget-az-worktrees/ui-prettify-mascot/`).
+Final verification (Task 18) is complete on the automated side; manual smoke
+review concluded with the layout-polish iteration above.
