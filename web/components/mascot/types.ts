@@ -10,12 +10,14 @@ export type MascotPose =
   | "clipboard"
   | "hips";
 
-/** Render size. hero = welcome screen, chip = header/nook, tiny = inline. */
-export type MascotSize = "hero" | "chip" | "tiny";
+/** Render size. hero = welcome screen, small = left-column avatar, chip = legacy header/nook, tiny = inline. */
+export type MascotSize = "hero" | "small" | "chip" | "tiny";
 
 /** Pixel dimensions per size. The SVG viewBox is always 0 0 240 420. */
 export const MASCOT_DIMENSIONS: Record<MascotSize, { width: number; height: number }> = {
   hero: { width: 240, height: 420 },
+  // small — persistent left-column avatar in Layout B (has-messages). Proportional to hero's 240×420 viewBox.
+  small: { width: 120, height: 210 },
   chip: { width: 40, height: 70 },
   tiny: { width: 24, height: 42 },
 };

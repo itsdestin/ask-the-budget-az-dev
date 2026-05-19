@@ -196,3 +196,20 @@ body {
    aspect ratio. They have no intrinsic width/height of their own. */
 .mascot-typing,
 .mascot-presenting { height: 240px; width: auto; }
+
+/* Speech-bubble tail — points left toward the mascot avatar. The
+   triangle sits at the top-left of the bubble so a bubble next to
+   the persistent left-side mascot reads as a message FROM him.
+   The `position: relative` is supplied by the Tailwind `relative`
+   utility already on .speech-bubble. */
+.speech-bubble::before {
+  content: "";
+  position: absolute;
+  left: -8px;
+  top: 12px;
+  width: 0;
+  height: 0;
+  border-style: solid;
+  border-width: 8px 8px 8px 0;
+  border-color: transparent var(--panel) transparent transparent;
+}

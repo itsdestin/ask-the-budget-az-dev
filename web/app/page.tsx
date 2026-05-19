@@ -7,24 +7,9 @@ import Footer from "@/components/Footer";
 import MessageInput from "@/components/MessageInput";
 import PdfViewer from "@/components/PdfViewer";
 import SuggestionRow from "@/components/SuggestionRow";
-import Mascot from "@/components/mascot/Mascot";
-import type { MascotPose } from "@/components/mascot/types";
-import { type MascotState, useMascotPose } from "@/components/mascot/useMascotPose";
+import { useMascotPose } from "@/components/mascot/useMascotPose";
 import { useCitationSelected } from "@/state/citation-context";
 import { useChat } from "@/state/use-chat";
-
-/** True when the mascot state carries a `pose` (the idle/result/refusal/error
- *  variants). Narrows the union so `mascot.pose` is type-safe to read. */
-function hasMascotPose(
-  m: MascotState,
-): m is Extract<MascotState, { pose: MascotPose }> {
-  return (
-    m.kind === "idle" ||
-    m.kind === "result" ||
-    m.kind === "refusal" ||
-    m.kind === "error"
-  );
-}
 
 export default function Page() {
   const { state, send, clearError, starting } = useChat();
@@ -32,13 +17,9 @@ export default function Page() {
   // Single decision point for the mascot's scene/pose. The second
   // arg is refusalActive — refusal auto-detection isn't built yet
   // (deferred to Phase 1c WS5), so v1 always passes false.
+  // The mascot is now a SINGLE instance that lives inside ChatThread —
+  // no header chip and no nook mascot. page.tsx only passes the state down.
   const mascot = useMascotPose(state, false);
-
-  // The persistent nook + header mascot need a concrete pose. Only
-  // the idle/result/refusal/error variants of MascotState carry a
-  // `pose` field, so narrow via the type predicate before reading it;
-  // the welcome/thinking/presenting scenes fall back to "clasped".
-  const headerPose = hasMascotPose(mascot) ? mascot.pose : "clasped";
 
   // The PDF panel is hidden until the first citation chip is
   // clicked, then stays open for the rest of the session. PdfViewer
@@ -58,8 +39,8 @@ export default function Page() {
       {/* ── header ─────────────────────────────────────────────── flex-shrink-0 */}
       <header className="flex-shrink-0 border-b border-edge bg-panel/60 px-4 py-2 text-sm text-fg-2">
         <div className="flex items-center justify-between">
+          {/* Brand text only — the mascot is a single instance inside ChatThread. */}
           <div className="flex items-center gap-2">
-            <Mascot pose={headerPose} size="chip" />
             <span className="font-serif font-bold text-fg">
               Ask the Budget AZ
             </span>
@@ -106,9 +87,9 @@ export default function Page() {
 
       {/* ── main content — flex-1, two-column when PDF viewer is open ─────────── */}
       {/* Two-column when the viewer is open; chat takes the full width
-          otherwise. The chat column itself caps content with the
-          existing `max-w-3xl mx-auto` inside ChatThread, so it doesn't
-          stretch awkwardly when the viewer is closed. */}
+          otherwise. ChatThread internally handles a left-mascot / right-messages
+          split for Layout B (has-messages), or a centered layout for welcome/
+          thinking/presenting scenes. */}
       <div className="flex-1 min-h-0 flex flex-row">
         {/* `min-h-0` here is load-bearing: without it the flex-col
             child (ChatThread) doesn't get a bounded height, its
@@ -117,30 +98,19 @@ export default function Page() {
             and the "stop following bottom when user scrolls up"
             UX. See ChatThread.tsx for the corresponding fix on its
             own outer div. */}
+        {/* The chat column no longer needs `relative` since the nook mascot
+            is gone — the single mascot instance lives inside ChatThread. */}
         <div
           className={
-            // `relative` anchors the absolutely-positioned mascot nook
-            // (bottom-left of the chat column) below.
             viewerOpen
-              ? "relative flex-1 min-w-0 min-h-0 flex flex-col border-r border-edge"
-              : "relative flex-1 min-h-0 flex flex-col"
+              ? "flex-1 min-w-0 min-h-0 flex flex-col border-r border-edge"
+              : "flex-1 min-h-0 flex flex-col"
           }
         >
-          {/* Chat column now contains ONLY ChatThread + the nook mascot.
-              MessageInput has moved to page level (below this block). */}
           <ChatThread
             state={state}
             mascot={mascot}
           />
-          {/* Persistent mascot nook — only shown for the resting
-              scenes (idle/result/refusal/error). Hidden during
-              welcome/thinking/presenting, which have their own
-              centered mascot art. */}
-          {hasMascotPose(mascot) && (
-            <div className="absolute left-2.5 bottom-2 z-10">
-              <Mascot pose={headerPose} size="chip" />
-            </div>
-          )}
         </div>
         {viewerOpen && (
           <aside className="flex-1 min-w-0 hidden md:flex md:flex-col">

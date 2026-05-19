@@ -121,7 +121,10 @@ export default function AssistantTurnBubble({
           return (
             <div
               key={block.uuid}
-              className="p-3 text-fg text-sm font-sans"
+              // speech-bubble: left-pointing tail toward the left-column mascot
+              // avatar. relative is needed for the ::before pseudo-element tail.
+              // Only text blocks get this — ToolCard interleaved blocks do not.
+              className="speech-bubble relative bg-panel rounded-lg px-3.5 py-2 text-fg text-sm font-sans max-w-prose"
             >
               <CitedMarkdownContent
                 content={renderText}

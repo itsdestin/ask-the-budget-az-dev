@@ -8,6 +8,7 @@ import AssistantTurnBubble from "./AssistantTurnBubble";
 import UserMessage from "./UserMessage";
 import WelcomeHero from "./WelcomeHero";
 import type { MascotState } from "./mascot/useMascotPose";
+import Mascot from "./mascot/Mascot";
 import MascotTyping from "./mascot/MascotTyping";
 import MascotPresenting from "./mascot/MascotPresenting";
 
@@ -114,54 +115,91 @@ export default function ChatThread({ state, mascot }: Props) {
     endRef.current?.scrollIntoView({ behavior: "smooth", block: "end" });
   }, [state.turns, state.isThinking]);
 
+  // ── Layout A — welcome / centered-scene state ────────────────────────────
+  // No turns yet and not thinking: welcome hero (single instance of mascot,
+  // centered, inside WelcomeHero). Also used for thinking and presenting.
   if (state.turns.length === 0 && !state.isThinking) {
     // Empty thread: show the welcome hero with mascot + sub-copy.
     // Suggestion chips live in SuggestionRow at the page level (above the input bar).
     return <WelcomeHero />;
   }
 
-  return (
-    <div
-      ref={containerRef}
-      // min-h-0 is load-bearing — flex children default to
-      // min-height: auto, which makes overflow-y-auto silently NOT
-      // engage when content grows past the parent's bound. Without
-      // this, the page body scrolls instead of the chat thread,
-      // the scroll listener never fires on the correct element,
-      // and "stop following bottom" doesn't work.
-      className="flex-1 min-h-0 overflow-y-auto px-4 py-6"
-    >
-      <div className="max-w-3xl mx-auto flex flex-col gap-5">
-        {state.turns.map((turn) =>
-          turn.kind === "user" ? (
-            <UserMessage key={turn.id} turn={turn} />
-          ) : (
-            <AssistantTurnBubble
-              key={turn.id}
-              turn={turn}
-              conversationResolvedChunks={conversationResolvedChunks}
-            />
-          ),
-        )}
-        {/* Centered mascot scene: the "presenting results" beat takes
-            priority over the thinking scene (it fires on the
-            isThinking true->false edge), otherwise show the typing
-            scene while the system is searching. */}
+  // Thinking or presenting while turns might already exist — centered scene,
+  // single instance. Presenting takes priority (it fires on the
+  // isThinking true->false edge), then thinking, then fall through to Layout B.
+  if (mascot.kind === "presenting" || state.isThinking) {
+    return (
+      // min-h-0 is load-bearing — see comment in Layout B below.
+      <div className="flex-1 min-h-0 flex flex-col items-center justify-center py-4">
         {mascot.kind === "presenting" ? (
-          <div className="flex flex-col items-center py-4">
-            <MascotPresenting />
-          </div>
+          <MascotPresenting />
         ) : (
-          state.isThinking && (
-            <div className="flex flex-col items-center py-4">
-              <MascotTyping />
-              <span className="font-sans text-fg-muted text-xs mt-2">
-                Searching the budget documents…
-              </span>
-            </div>
-          )
+          <>
+            <MascotTyping />
+            <span className="font-sans text-fg-muted text-xs mt-2">
+              Searching the budget documents…
+            </span>
+          </>
         )}
-        <div ref={endRef} />
+      </div>
+    );
+  }
+
+  // ── Layout B — has-messages, resting state ───────────────────────────────
+  // Two-column layout: left column has the persistent "small" mascot
+  // (sticky so it stays at top of visible thread as messages scroll),
+  // right column has the scrollable message list with speech-bubble styling.
+  // Mascot pose comes from the MascotState when it carries one (idle/result/
+  // refusal/error), otherwise falls back to "clasped".
+  const avatarPose =
+    mascot.kind === "idle" ||
+    mascot.kind === "result" ||
+    mascot.kind === "refusal" ||
+    mascot.kind === "error"
+      ? mascot.pose
+      : "clasped";
+
+  return (
+    // outer: full flex-1 row container. min-h-0 is load-bearing — without
+    // it the flex children default to min-height:auto and overflow-y-auto
+    // silently never engages, making the page body scroll instead.
+    <div className="flex-1 min-h-0 flex flex-row">
+      {/* Left column — persistent mascot avatar, sticky at top as messages scroll. */}
+      <div className="flex-shrink-0 w-40 pl-4 pt-4">
+        {/* sticky top-4: mascot stays at top of the visible thread
+            area while the right-column message list scrolls behind it. */}
+        <div className="sticky top-4">
+          <Mascot pose={avatarPose} size="small" />
+        </div>
+      </div>
+
+      {/* Right column — scrollable message list with speech-bubble bubbles.
+          containerRef and endRef live here so the scroll tracking and
+          auto-scroll effects operate on the correct element. */}
+      <div
+        ref={containerRef}
+        // min-h-0 is load-bearing — flex children default to
+        // min-height: auto, which makes overflow-y-auto silently NOT
+        // engage when content grows past the parent's bound. Without
+        // this, the page body scrolls instead of the chat thread,
+        // the scroll listener never fires on the correct element,
+        // and "stop following bottom" doesn't work.
+        className="flex-1 min-w-0 min-h-0 overflow-y-auto py-6 pr-4"
+      >
+        <div className="max-w-2xl flex flex-col gap-5">
+          {state.turns.map((turn) =>
+            turn.kind === "user" ? (
+              <UserMessage key={turn.id} turn={turn} />
+            ) : (
+              <AssistantTurnBubble
+                key={turn.id}
+                turn={turn}
+                conversationResolvedChunks={conversationResolvedChunks}
+              />
+            ),
+          )}
+          <div ref={endRef} />
+        </div>
       </div>
     </div>
   );
