@@ -28,22 +28,36 @@ interface Props {
 
 export default function CitationChip({ citation, inlineText }: Props) {
   const [open, setOpen] = useState(false);
+  // firing tracks the 250ms "pop" that plays whenever the user clicks
+  // the chip — a brief scale + glow confirms the click registered and
+  // the PDF panel is opening/scrolling. Keeps the existing bus.select
+  // behavior intact; this is purely a visual affordance layered on top.
+  const [firing, setFiring] = useState(false);
   const bus = useCitationBus();
 
   const verbatim = citation.confidence === "verbatim";
   const failed = citation.failureReason !== undefined;
-  // Three visual states for the chip: failed (red ✗ — server rejected
-  // the cite, claim is uncited), verbatim (green ✓ — strict source
-  // match), paraphrase (neutral ≈ — supported but reworded). The
-  // failed variant takes priority over the confidence variant; the
-  // user needs to see "this claim has no valid citation" before
-  // anything else.
+  // Three visual states for the chip: failed (danger ✗ — server
+  // rejected the cite, claim is uncited), verbatim (civic-blue ✓ —
+  // strict source match), paraphrase (neutral ≈ — supported but
+  // reworded). The failed variant takes priority over the confidence
+  // variant; the user needs to see "this claim has no valid citation"
+  // before anything else.
   const tone = failed
-    ? "bg-red-600/15 text-red-400 border-red-600/40"
+    ? "bg-danger/12 text-danger border-danger/50 line-through"
     : verbatim
-      ? "bg-green-600/15 text-green-400 border-green-600/40"
+      ? "bg-accent/12 text-accent border-accent/50 hover:bg-accent hover:text-on-accent"
       : "bg-inset text-fg-2 border-edge";
   const glyph = failed ? "✗" : verbatim ? "✓" : "≈";
+
+  // handleChipClick preserves the existing citation-bus behavior
+  // (bus.select opens/scrolls the PDF panel) and layers the 250ms
+  // firing-pop animation on top. No existing onClick logic is removed.
+  const handleChipClick = () => {
+    bus.select(citation);
+    setFiring(true);
+    setTimeout(() => setFiring(false), 250);
+  };
 
   // Hover tracking is on the WRAPPING SPAN, not the button. The
   // tooltip is positioned with a 4px gap above the chip — if we
@@ -53,10 +67,12 @@ export default function CitationChip({ citation, inlineText }: Props) {
   // bounds both chip and tooltip, so the cursor stays "inside"
   // throughout the traversal.
   if (inlineText !== undefined) {
+    // Underline tones match the chip tones: danger wavy for failed,
+    // civic-blue solid for verbatim, neutral dashed for paraphrase.
     const underline = failed
-      ? "underline decoration-red-500/60 decoration-wavy decoration-1 underline-offset-2"
+      ? "underline decoration-danger/60 decoration-wavy decoration-1 underline-offset-2"
       : verbatim
-        ? "underline decoration-green-500/60 decoration-1 underline-offset-2"
+        ? "underline decoration-accent/60 decoration-1 underline-offset-2"
         : "underline decoration-fg-muted decoration-dashed decoration-1 underline-offset-2";
     return (
       <span
@@ -66,10 +82,10 @@ export default function CitationChip({ citation, inlineText }: Props) {
       >
         <button
           type="button"
-          onClick={() => bus.select(citation)}
+          onClick={handleChipClick}
           onFocus={() => setOpen(true)}
           onBlur={() => setOpen(false)}
-          className={`inline cursor-pointer text-fg ${underline} hover:opacity-80`}
+          className={`cite-chip${firing ? " cite-chip-firing" : ""} inline cursor-pointer text-fg ${underline} hover:opacity-80`}
           aria-label={`Citation ${citation.index} (${citation.confidence}): ${inlineText}`}
         >
           {inlineText}
@@ -94,10 +110,10 @@ export default function CitationChip({ citation, inlineText }: Props) {
     >
       <button
         type="button"
-        onClick={() => bus.select(citation)}
+        onClick={handleChipClick}
         onFocus={() => setOpen(true)}
         onBlur={() => setOpen(false)}
-        className={`inline-flex items-center gap-1 px-1.5 py-px text-[10px] font-medium rounded-sm border ${tone} hover:opacity-80 transition-opacity`}
+        className={`cite-chip${firing ? " cite-chip-firing" : ""} inline-flex items-center gap-1 px-1.5 py-px text-[10px] font-medium rounded-sm border ${tone} hover:opacity-80 transition-opacity`}
         aria-label={`Citation ${citation.index} (${citation.confidence})`}
       >
         <span aria-hidden>{glyph}</span>

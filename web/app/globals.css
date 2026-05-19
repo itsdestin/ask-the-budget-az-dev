@@ -178,3 +178,10 @@ body {
 @media (prefers-reduced-motion: reduce) {
   .mascot-typing-hand, .mascot-typing-cursor { animation: none; }
 }
+
+/* Citation chip — a brief pop when clicked, then it settles. */
+.cite-chip { transition: transform 120ms ease-out; }
+.cite-chip-firing { transform: scale(1.15); box-shadow: 0 0 8px 1px var(--accent); }
+@media (prefers-reduced-motion: reduce) {
+  .cite-chip, .cite-chip-firing { transition: none; transform: none; box-shadow: none; }
+}
