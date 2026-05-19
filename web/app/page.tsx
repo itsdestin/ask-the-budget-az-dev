@@ -119,31 +119,27 @@ export default function Page() {
         )}
       </div>
 
-      {/* ── suggestion row (welcome state only) ───────────────── flex-shrink-0 */}
-      {/* Only rendered when there are no turns — disappears as soon as
-          the user sends their first message. SuggestionRow is a
-          horizontally-scrollable strip pinned above the input bar. */}
-      {state.turns.length === 0 && <SuggestionRow onPick={send} />}
-
-      {/* ── message input bar ─────────────────────────────────── flex-shrink-0 */}
-      {/* Moved OUT of the chat column so it is structurally pinned at the
-          page level, always above the footer. The pl-24 offset that kept
-          the input clear of the nook mascot is no longer needed here
-          because the nook lives inside the chat column above. */}
-      <div className="flex-shrink-0 border-t border-edge bg-panel/60 px-4 py-3">
-        <MessageInput
-          onSubmit={send}
-          disabled={
-            starting || state.isThinking || state.conversationId === null
-          }
-          placeholder={
-            starting
-              ? "Connecting to YouCoded…"
-              : state.conversationId
-                ? undefined
-                : "Couldn't start a conversation. Open YouCoded and reload."
-          }
-        />
+      {/* ── compose row — chips (welcome only) + input share ONE container ─────
+          A single visual row above the footer: the suggestion chips sit
+          atop the input inside one border-bordered panel. No internal
+          divider, tight vertical padding to keep dead space minimal. */}
+      <div className="flex-shrink-0 border-t border-edge bg-panel/60">
+        {state.turns.length === 0 && <SuggestionRow onPick={send} />}
+        <div className="px-4 pt-1 pb-2">
+          <MessageInput
+            onSubmit={send}
+            disabled={
+              starting || state.isThinking || state.conversationId === null
+            }
+            placeholder={
+              starting
+                ? "Connecting to YouCoded…"
+                : state.conversationId
+                  ? undefined
+                  : "Couldn't start a conversation. Open YouCoded and reload."
+            }
+          />
+        </div>
       </div>
 
       {/* ── footer ─────────────────────────────────────────────── flex-shrink-0 */}

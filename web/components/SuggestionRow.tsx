@@ -10,10 +10,13 @@ interface Props {
   onPick: (query: string) => void;
 }
 
+// Lean strip — just the chip row. The shared container (border-top,
+// background, page-level position) is supplied by the parent in page.tsx
+// so the chips and the input live inside ONE visual container.
 export default function SuggestionRow({ onPick }: Props) {
   return (
-    <div className="flex-shrink-0 border-t border-edge bg-panel/30 overflow-x-auto">
-      <div className="flex flex-row gap-2 px-4 py-2 max-w-3xl mx-auto">
+    <div className="overflow-x-auto">
+      <div className="flex flex-row gap-2 px-4 pt-2 pb-1 max-w-3xl mx-auto">
         {SUGGESTIONS.map((q) => (
           <button
             key={q}
