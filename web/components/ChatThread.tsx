@@ -124,28 +124,7 @@ export default function ChatThread({ state, mascot }: Props) {
     return <WelcomeHero />;
   }
 
-  // Thinking or presenting while turns might already exist — centered scene,
-  // single instance. Presenting takes priority (it fires on the
-  // isThinking true->false edge), then thinking, then fall through to Layout B.
-  if (mascot.kind === "presenting" || state.isThinking) {
-    return (
-      // min-h-0 is load-bearing — see comment in Layout B below.
-      <div className="flex-1 min-h-0 flex flex-col items-center justify-center py-4">
-        {mascot.kind === "presenting" ? (
-          <MascotPresenting />
-        ) : (
-          <>
-            <MascotTyping />
-            <span className="font-sans text-fg-muted text-xs mt-2">
-              Searching the budget documents…
-            </span>
-          </>
-        )}
-      </div>
-    );
-  }
-
-  // ── Layout B — has-messages, resting state ───────────────────────────────
+  // ── Layout B — has-messages (incl. thinking/presenting) ────────────────────
   // Two-column layout: left column has the persistent "small" mascot
   // (sticky so it stays at top of visible thread as messages scroll),
   // right column has the scrollable message list with speech-bubble styling.
@@ -200,14 +179,23 @@ export default function ChatThread({ state, mascot }: Props) {
       </div>
 
       {/* Persistent mascot — absolutely positioned at the BOTTOM-LEFT of
-          the chat thread, aligned to sit ~8px to the left of the messages'
-          left edge. The calc derives from: viewport-center (50%) minus
-          half of max-w-2xl (336px) is the messages' left edge; subtract
-          another 128px (120px mascot + 8px gap) for the mascot's left. */}
-      <div
-        className="absolute bottom-2 z-10 left-[calc(50%-464px)]"
-      >
-        <Mascot pose={avatarPose} size="small" />
+          the chat thread. RIGHT-edge anchored so that whichever variant
+          renders here (regular small Mascot / MascotTyping scene /
+          MascotPresenting scene) keeps the same right alignment beside
+          the messages — only the left edge varies with the variant's
+          width. The right edge sits ~16px to the left of the messages'
+          left edge (`max-w-2xl` centered → left edge at `50% - 336px`,
+          so mascot right edge at `50% - 352px` = `right: 50% + 352px`).
+          Thinking/presenting SWAP IN PLACE here rather than taking over
+          the whole thread, so text + tool cards remain visible. */}
+      <div className="absolute bottom-1 z-10 right-[calc(50%+352px)]">
+        {mascot.kind === "presenting" ? (
+          <MascotPresenting />
+        ) : state.isThinking ? (
+          <MascotTyping />
+        ) : (
+          <Mascot pose={avatarPose} size="small" />
+        )}
       </div>
     </div>
   );
