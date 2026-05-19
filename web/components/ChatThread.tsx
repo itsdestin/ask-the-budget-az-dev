@@ -150,52 +150,54 @@ export default function ChatThread({ state, mascot }: Props) {
   }
 
   return (
-    // outer: full flex-1 column-content area, `relative` so the mascot
-    // can absolutely position itself against this box. min-h-0 is
-    // load-bearing — without it the scrollable child's overflow-y-auto
-    // silently never engages and the page body scrolls instead.
-    <div className="flex-1 min-h-0 relative">
+    // outer: full flex-1 column-content area. min-h-0 is load-bearing —
+    // without it the scrollable child's overflow-y-auto silently never
+    // engages and the page body scrolls instead.
+    <div className="flex-1 min-h-0">
       {/* Scrollable messages — span the FULL chat viewport width;
           `max-w-2xl mx-auto` centers the bubbles on the viewport's midline. */}
       <div
         ref={containerRef}
         className="h-full overflow-y-auto py-6 px-4"
       >
-        <div className="max-w-2xl mx-auto flex flex-col gap-5">
-          {state.turns.map((turn, index) =>
-            turn.kind === "user" ? (
-              <UserMessage key={turn.id} turn={turn} />
-            ) : (
-              <AssistantTurnBubble
-                key={turn.id}
-                turn={turn}
-                conversationResolvedChunks={conversationResolvedChunks}
-                isLatest={index === lastAssistantIndex}
-              />
-            ),
-          )}
-          <div ref={endRef} />
-        </div>
-      </div>
+        {/* Relative positioning context for the mascot — establishes the
+            bottom of the SCROLL CONTENT (not the viewport) for the
+            mascot's `bottom-0`. Because the mascot now lives INSIDE the
+            scroll flow, it sits alongside the latest message and scrolls
+            away with it when the user scrolls up to read older messages. */}
+        <div className="relative">
+          <div className="max-w-2xl mx-auto flex flex-col gap-5">
+            {state.turns.map((turn, index) =>
+              turn.kind === "user" ? (
+                <UserMessage key={turn.id} turn={turn} />
+              ) : (
+                <AssistantTurnBubble
+                  key={turn.id}
+                  turn={turn}
+                  conversationResolvedChunks={conversationResolvedChunks}
+                  isLatest={index === lastAssistantIndex}
+                />
+              ),
+            )}
+            <div ref={endRef} />
+          </div>
 
-      {/* Persistent mascot — absolutely positioned at the BOTTOM-LEFT of
-          the chat thread. RIGHT-edge anchored so that whichever variant
-          renders here (regular small Mascot / MascotTyping scene /
-          MascotPresenting scene) keeps the same right alignment beside
-          the messages — only the left edge varies with the variant's
-          width. The right edge sits ~16px to the left of the messages'
-          left edge (`max-w-2xl` centered → left edge at `50% - 336px`,
-          so mascot right edge at `50% - 352px` = `right: 50% + 352px`).
-          Thinking/presenting SWAP IN PLACE here rather than taking over
-          the whole thread, so text + tool cards remain visible. */}
-      <div className="absolute bottom-1 z-10 right-[calc(50%+352px)]">
-        {mascot.kind === "presenting" ? (
-          <MascotPresenting />
-        ) : state.isThinking ? (
-          <MascotTyping />
-        ) : (
-          <Mascot pose={avatarPose} size="small" />
-        )}
+          {/* Mascot — pinned to the BOTTOM-LEFT of the scroll content,
+              alongside the latest message. Right-edge anchored so all
+              three variants (regular small Mascot / MascotTyping /
+              MascotPresenting) share the same right alignment beside the
+              messages — only the left edge varies with the variant's
+              width. Thinking/presenting SWAP IN PLACE here. */}
+          <div className="absolute bottom-0 z-10 right-[calc(50%+352px)]">
+            {mascot.kind === "presenting" ? (
+              <MascotPresenting />
+            ) : state.isThinking ? (
+              <MascotTyping />
+            ) : (
+              <Mascot pose={avatarPose} size="small" />
+            )}
+          </div>
+        </div>
       </div>
     </div>
   );
