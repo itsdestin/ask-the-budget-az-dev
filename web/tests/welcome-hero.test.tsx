@@ -1,12 +1,15 @@
-import { describe, expect, it, vi } from "vitest";
+import { describe, expect, it } from "vitest";
 import { renderToString } from "react-dom/server";
 import WelcomeHero from "../components/WelcomeHero";
 
 describe("WelcomeHero", () => {
-  it("renders the headline, mascot, and three suggestion chips", () => {
-    const html = renderToString(<WelcomeHero onPick={vi.fn()} />);
+  it("renders the headline and mascot (chips moved to SuggestionRow)", () => {
+    // WelcomeHero no longer takes an onPick prop — suggestion chips
+    // live in SuggestionRow at the page level above the input bar.
+    const html = renderToString(<WelcomeHero />);
     expect(html).toContain("let&#x27;s look at the budget");
     expect(html).toContain('aria-label="JLBC budget assistant"');
-    expect(html).toContain("Aviation Fund");
+    // Aviation Fund text is intentionally absent here; it lives in SuggestionRow.
+    expect(html).not.toContain("Aviation Fund");
   });
 });

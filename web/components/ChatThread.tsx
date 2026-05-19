@@ -15,11 +15,9 @@ interface Props {
   state: ChatState;
   // Current mascot scene/pose, decided by useMascotPose() in page.tsx.
   mascot: MascotState;
-  // Fired when the user clicks a starter query in the welcome hero.
-  onPickSuggestion: (q: string) => void;
 }
 
-export default function ChatThread({ state, mascot, onPickSuggestion }: Props) {
+export default function ChatThread({ state, mascot }: Props) {
   const endRef = useRef<HTMLDivElement | null>(null);
   const containerRef = useRef<HTMLDivElement | null>(null);
   // Whether to follow the bottom on new content. Flipped by the
@@ -117,8 +115,9 @@ export default function ChatThread({ state, mascot, onPickSuggestion }: Props) {
   }, [state.turns, state.isThinking]);
 
   if (state.turns.length === 0 && !state.isThinking) {
-    // Empty thread: show the welcome hero with mascot + starter queries.
-    return <WelcomeHero onPick={onPickSuggestion} />;
+    // Empty thread: show the welcome hero with mascot + sub-copy.
+    // Suggestion chips live in SuggestionRow at the page level (above the input bar).
+    return <WelcomeHero />;
   }
 
   return (
