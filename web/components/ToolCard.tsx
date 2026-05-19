@@ -15,6 +15,7 @@ import { useState } from "react";
 import { toolDisplayLabel, toolHeaderSummary } from "@/lib/tool-display";
 import type { AssistantBlock } from "@/state/chat-types";
 import ToolBody from "./tool-views/ToolBody";
+import { toolGlyph } from "./tool-views/primitives";
 
 type ToolBlock = Extract<AssistantBlock, { kind: "tool" }>;
 
@@ -39,26 +40,47 @@ export default function ToolCard({ tool }: Props) {
   const label = toolDisplayLabel(tool.toolName);
   const summary = toolHeaderSummary(tool.toolName, tool.input);
 
+  // Detect error state: status "failed" is the signal in this file.
+  // When failed, shift the accent to danger so the glyph and left border
+  // call out the problem visually without relying on the subtle red dot alone.
+  const isFailed = tool.status === "failed";
+  const glyphColor = isFailed ? "var(--danger)" : "var(--accent)";
+
   return (
-    <div className="rounded-md border border-edge bg-panel my-2 overflow-hidden">
+    <div
+      className={`rounded-lg border border-edge bg-panel my-2 overflow-hidden${
+        isFailed ? " border-l-2" : ""
+      }`}
+      style={isFailed ? { borderLeftColor: "var(--danger)" } : undefined}
+    >
       <button
         type="button"
-        className="w-full flex items-center gap-2 px-3 py-2 text-sm text-fg-2 hover:bg-inset transition-colors"
+        className="w-full flex items-center gap-2 px-3 py-2 text-sm text-fg-2 bg-panel hover:bg-inset transition-colors"
         onClick={() => setOpen((v) => !v)}
       >
+        {/* Pixel-art tool glyph — color follows error state */}
+        <svg
+          viewBox="0 0 12 12"
+          width={12}
+          height={12}
+          style={{ color: glyphColor, flexShrink: 0 }}
+          aria-hidden
+        >
+          {toolGlyph(tool.toolName)}
+        </svg>
         <span
           className={`inline-block w-2 h-2 rounded-full shrink-0 ${
             STATUS_DOT[tool.status]
           }`}
           aria-label={STATUS_LABEL[tool.status]}
         />
-        <span className="font-medium text-fg shrink-0">{label}</span>
+        <span className="font-sans font-semibold text-fg shrink-0">{label}</span>
         {summary && (
           <span className="text-fg-dim truncate text-xs min-w-0">
             {summary}
           </span>
         )}
-        <span className="ml-auto text-fg-muted text-xs select-none shrink-0">
+        <span className="ml-auto font-mono text-fg-muted text-xs select-none shrink-0">
           {open ? "−" : "+"}
         </span>
       </button>

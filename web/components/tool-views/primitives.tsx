@@ -6,6 +6,59 @@
 
 import { useState } from "react";
 
+// Pixel-art SVG glyphs for tool cards. Each glyph is drawn on a
+// 0 0 12 12 coordinate space and returned as a <g> element so the
+// caller can wrap it in <svg viewBox="0 0 12 12" width=12 height=12>.
+// Rects use fill="currentColor" so the caller can tint via CSS color
+// (var(--accent) normally, var(--danger) on error state).
+export function toolGlyph(toolName: string): React.ReactNode {
+  switch (toolName) {
+    case "retrieve":
+      // Magnifier: ring outline (four rects forming the circle) + diagonal handle.
+      return (
+        <g>
+          {/* Ring — top, bottom, left, right arcs approximated as rects */}
+          <rect x="3" y="1" width="4" height="1" fill="currentColor" />
+          <rect x="3" y="6" width="4" height="1" fill="currentColor" />
+          <rect x="1" y="2" width="1" height="4" fill="currentColor" />
+          <rect x="7" y="2" width="1" height="4" fill="currentColor" />
+          {/* Handle — stepped diagonal going bottom-right */}
+          <rect x="8" y="7" width="1" height="2" fill="currentColor" />
+          <rect x="9" y="8" width="2" height="1" fill="currentColor" />
+        </g>
+      );
+    case "cite":
+      // Bookmark/page: a rect page with a triangular notch cut from the bottom
+      // by leaving a gap — two stacked rects make the bookmark shape.
+      return (
+        <g>
+          {/* Page body */}
+          <rect x="2" y="1" width="8" height="1" fill="currentColor" />
+          <rect x="2" y="2" width="1" height="8" fill="currentColor" />
+          <rect x="9" y="2" width="1" height="8" fill="currentColor" />
+          {/* Bottom — two segments with a notch in the middle for bookmark shape */}
+          <rect x="2" y="10" width="3" height="1" fill="currentColor" />
+          <rect x="7" y="10" width="3" height="1" fill="currentColor" />
+          {/* Folded corner mark on page */}
+          <rect x="5" y="4" width="3" height="1" fill="currentColor" />
+          <rect x="5" y="6" width="3" height="1" fill="currentColor" />
+        </g>
+      );
+    case "list_filter_values":
+      // Three stacked horizontal lines — classic list/filter icon.
+      return (
+        <g>
+          <rect x="1" y="2" width="10" height="2" fill="currentColor" />
+          <rect x="2" y="5" width="8" height="2" fill="currentColor" />
+          <rect x="3" y="8" width="6" height="2" fill="currentColor" />
+        </g>
+      );
+    default:
+      // Unknown tool — single filled square as a neutral fallback.
+      return <rect x="2" y="2" width="8" height="8" fill="currentColor" />;
+  }
+}
+
 export function basename(fp: string): string {
   const parts = fp.replace(/\\/g, "/").split("/");
   return parts[parts.length - 1] || fp;
