@@ -6,12 +6,20 @@ import { buildConversationResolvedChunkMap } from "@/lib/citation-extract";
 import type { AssistantTurn, ChatState } from "@/state/chat-types";
 import AssistantTurnBubble from "./AssistantTurnBubble";
 import UserMessage from "./UserMessage";
+import WelcomeHero from "./WelcomeHero";
+import type { MascotState } from "./mascot/useMascotPose";
+import MascotTyping from "./mascot/MascotTyping";
+import MascotPresenting from "./mascot/MascotPresenting";
 
 interface Props {
   state: ChatState;
+  // Current mascot scene/pose, decided by useMascotPose() in page.tsx.
+  mascot: MascotState;
+  // Fired when the user clicks a starter query in the welcome hero.
+  onPickSuggestion: (q: string) => void;
 }
 
-export default function ChatThread({ state }: Props) {
+export default function ChatThread({ state, mascot, onPickSuggestion }: Props) {
   const endRef = useRef<HTMLDivElement | null>(null);
   const containerRef = useRef<HTMLDivElement | null>(null);
   // Whether to follow the bottom on new content. Flipped by the
@@ -109,23 +117,8 @@ export default function ChatThread({ state }: Props) {
   }, [state.turns, state.isThinking]);
 
   if (state.turns.length === 0 && !state.isThinking) {
-    return (
-      <div className="flex-1 flex items-center justify-center text-fg-muted text-sm px-6 py-12">
-        <div className="max-w-md text-center">
-          <h1 className="text-lg font-bold text-fg mb-2">
-            Ask the Budget AZ
-          </h1>
-          <p>
-            Multi-turn Q&amp;A over Arizona state budget documents. Cited
-            answers; refusal beats hallucination.
-          </p>
-          <p className="mt-3 text-xs text-fg-faint">
-            Currently the corpus covers a 5-document slice. Volume ingest
-            is running separately; recall improves as it lands.
-          </p>
-        </div>
-      </div>
-    );
+    // Empty thread: show the welcome hero with mascot + starter queries.
+    return <WelcomeHero onPick={onPickSuggestion} />;
   }
 
   return (
@@ -151,10 +144,23 @@ export default function ChatThread({ state }: Props) {
             />
           ),
         )}
-        {state.isThinking && (
-          <div className="text-fg-muted text-sm italic px-1">
-            Thinking…
+        {/* Centered mascot scene: the "presenting results" beat takes
+            priority over the thinking scene (it fires on the
+            isThinking true->false edge), otherwise show the typing
+            scene while the system is searching. */}
+        {mascot.kind === "presenting" ? (
+          <div className="flex flex-col items-center py-4">
+            <MascotPresenting />
           </div>
+        ) : (
+          state.isThinking && (
+            <div className="flex flex-col items-center py-4">
+              <MascotTyping />
+              <span className="font-sans text-fg-muted text-xs mt-2">
+                Searching the budget documents…
+              </span>
+            </div>
+          )
         )}
         <div ref={endRef} />
       </div>
