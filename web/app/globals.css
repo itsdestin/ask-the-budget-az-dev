@@ -119,6 +119,12 @@ body {
   font-family: var(--font-sans);
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
+  /* The app is a fixed-viewport chat shell — html/body never scroll;
+     only the chat-thread (and the PDF viewer) scroll internally.
+     overscroll-behavior: none stops trackpad/touch from rubber-band
+     scrolling the page or chaining past an inner scroller. */
+  overflow: hidden;
+  overscroll-behavior: none;
 }
 
 * {

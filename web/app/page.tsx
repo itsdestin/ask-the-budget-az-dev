@@ -35,17 +35,19 @@ export default function Page() {
   });
 
   return (
-    <div className="h-screen flex flex-col bg-canvas">
-      {/* ── header ─────────────────────────────────────────────── flex-shrink-0 */}
+    <div className="h-screen overflow-hidden flex flex-col bg-canvas">
+      {/* ── header ─────────────────────────────────────────────── flex-shrink-0
+           3-col grid so the brand is centered in the viewport while the
+           right-side controls stay right-aligned. */}
       <header className="flex-shrink-0 border-b border-edge bg-panel/60 px-4 py-2 text-sm text-fg-2">
-        <div className="flex items-center justify-between">
-          {/* Brand text only — the mascot is a single instance inside ChatThread. */}
-          <div className="flex items-center gap-2">
+        <div className="grid grid-cols-3 items-center">
+          <div />
+          <div className="flex justify-center">
             <span className="font-serif font-bold text-fg">
               Ask the Budget AZ
             </span>
           </div>
-          <div className="flex items-center gap-3">
+          <div className="flex justify-end items-center gap-3">
             {viewerOpen && (
               <button
                 type="button"
