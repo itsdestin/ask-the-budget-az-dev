@@ -119,27 +119,30 @@ export default function Page() {
         )}
       </div>
 
-      {/* ── compose row — chips (welcome only) + input share ONE container ─────
-          A single visual row above the footer: the suggestion chips sit
-          atop the input inside one border-bordered panel. No internal
-          divider, tight vertical padding to keep dead space minimal. */}
-      <div className="flex-shrink-0 border-t border-edge bg-panel/60">
-        {state.turns.length === 0 && <SuggestionRow onPick={send} />}
-        <div className="px-4 pt-1 pb-2">
-          <MessageInput
-            onSubmit={send}
-            disabled={
-              starting || state.isThinking || state.conversationId === null
-            }
-            placeholder={
-              starting
-                ? "Connecting to YouCoded…"
-                : state.conversationId
-                  ? undefined
-                  : "Couldn't start a conversation. Open YouCoded and reload."
-            }
-          />
+      {/* ── suggestion chips (welcome only) — float on the canvas above
+            the input bar, NOT inside its container. No border/background
+            of their own; they just sit on the chat canvas. ────────── */}
+      {state.turns.length === 0 && (
+        <div className="flex-shrink-0">
+          <SuggestionRow onPick={send} />
         </div>
+      )}
+
+      {/* ── input bar — its own bordered/panel container. ─────────────── */}
+      <div className="flex-shrink-0 border-t border-edge bg-panel/60 px-4 pt-2 pb-2">
+        <MessageInput
+          onSubmit={send}
+          disabled={
+            starting || state.isThinking || state.conversationId === null
+          }
+          placeholder={
+            starting
+              ? "Connecting to YouCoded…"
+              : state.conversationId
+                ? undefined
+                : "Couldn't start a conversation. Open YouCoded and reload."
+          }
+        />
       </div>
 
       {/* ── footer ─────────────────────────────────────────────── flex-shrink-0 */}
