@@ -11,6 +11,7 @@
 // ship"). Don't paraphrase without updating the spec.
 
 import { Chip } from "./tool-views/primitives";
+import Mascot from "./mascot/Mascot";
 
 export interface RefusalChunkPreview {
   chunkId: string;
@@ -49,10 +50,11 @@ const COPY: Record<RefusalReason["kind"], { title: string; body: string }> = {
 export default function RefusalBanner({ refusal }: Props) {
   const copy = COPY[refusal.kind];
   return (
-    <div className="rounded-md border border-amber-600/40 bg-amber-600/10 p-3 text-sm text-fg space-y-2">
+    <div className="rounded-md border border-warning/50 bg-warning/10 p-3 text-sm text-fg space-y-2">
       <div className="flex items-center gap-2">
+        <Mascot pose="crossed" size="tiny" />
         <Chip tone="warn">Refusal</Chip>
-        <span className="font-bold text-fg">{copy.title}</span>
+        <span className="font-serif font-bold text-fg">{copy.title}</span>
       </div>
       <p className="text-fg-2">{copy.body}</p>
       {refusal.kind === "no_retrieval" && refusal.corpusSummary && (
