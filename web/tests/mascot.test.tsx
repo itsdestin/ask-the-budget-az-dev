@@ -74,10 +74,10 @@ describe("Mascot", () => {
 });
 
 describe("MascotTyping", () => {
-  it("renders the scene with the laptop and a typing hand", () => {
+  it("renders the seated working-loop scene", () => {
     const html = renderToString(<MascotTyping />);
-    expect(html).toContain("mascot-typing-hand");
     expect(html).toContain('aria-label="JLBC budget assistant — searching"');
+    expect(html).toContain("mascot-typing-cursor");
     expect(html).toContain("var(--mascot-skin)");
     expect(html).toContain("var(--mascot-cap)");
   });
