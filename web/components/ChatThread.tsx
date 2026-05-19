@@ -184,9 +184,13 @@ export default function ChatThread({ state, mascot }: Props) {
         // this, the page body scrolls instead of the chat thread,
         // the scroll listener never fires on the correct element,
         // and "stop following bottom" doesn't work.
-        className="flex-1 min-w-0 min-h-0 overflow-y-auto py-6 pr-4"
+        // pr-40 balances the w-40 left mascot column so `mx-auto` on the
+        // inner messages container centers messages in the chat viewport
+        // (rather than in just the right column, which would shift them
+        // right of viewport-center).
+        className="flex-1 min-w-0 min-h-0 overflow-y-auto py-6 pr-40"
       >
-        <div className="max-w-2xl flex flex-col gap-5">
+        <div className="max-w-2xl mx-auto flex flex-col gap-5">
           {state.turns.map((turn) =>
             turn.kind === "user" ? (
               <UserMessage key={turn.id} turn={turn} />
