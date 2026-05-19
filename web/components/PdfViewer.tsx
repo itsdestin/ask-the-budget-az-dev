@@ -14,12 +14,16 @@ import { useEffect, useMemo, useRef, useState } from "react";
 
 import type { Citation } from "@/lib/citation-extract";
 import { useCitationSelected } from "@/state/citation-context";
+import Mascot from "./mascot/Mascot";
 
 const PdfPage = dynamic(() => import("./PdfPage"), {
   ssr: false,
+  // Civic-tinted shimmer block while pdfjs-dist loads — replaces the
+  // old "Loading PDF viewer…" text with a page-shaped pulse that
+  // makes the loading state visible without a spinner.
   loading: () => (
-    <div className="flex items-center justify-center text-fg-muted text-sm py-12">
-      Loading PDF viewer…
+    <div className="flex items-center justify-center py-8 px-4">
+      <div className="bg-inset animate-pulse rounded w-full" style={{ aspectRatio: "8.5 / 11" }} />
     </div>
   ),
 });
@@ -70,15 +74,9 @@ function EmptyState() {
   return (
     <div className="h-full flex flex-col items-center justify-center text-fg-muted text-sm px-6 py-12 bg-canvas">
       <div className="max-w-sm text-center space-y-2">
-        <h2 className="text-base font-bold text-fg">Source viewer</h2>
-        <p>
-          Click a citation chip in the chat to load the source PDF here. The
-          viewer will jump to the cited page and highlight the cited region.
-        </p>
-        <p className="text-xs text-fg-faint">
-          DOCX-source citations (legislative bills) will get their own viewer
-          in Phase 2.
-        </p>
+        {/* Mascot with clipboard pose — welcoming prompt to click a citation. */}
+        <Mascot pose="clipboard" size="hero" />
+        <p>Click a citation to see its source.</p>
       </div>
     </div>
   );

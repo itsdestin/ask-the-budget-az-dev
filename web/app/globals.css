@@ -179,6 +179,12 @@ body {
   .mascot-typing-hand, .mascot-typing-cursor { animation: none; }
 }
 
+/* Visible keyboard-focus ring — civic-blue, on all interactive elements. */
+:where(button, input, textarea, a):focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
 /* Citation chip — a brief pop when clicked, then it settles. */
 .cite-chip { transition: transform 120ms ease-out; }
 .cite-chip-firing { transform: scale(1.15); box-shadow: 0 0 8px 1px var(--accent); }

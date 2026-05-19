@@ -49,8 +49,7 @@ describe("PdfViewer empty state (SSR)", () => {
         <PdfViewer />
       </CitationBusProvider>,
     );
-    expect(html).toContain("Source viewer");
-    expect(html).toContain("Click a citation chip");
+    expect(html).toContain("Click a citation to see its source.");
   });
 
   it("does not render the lazy PdfPage without a selection", () => {
@@ -102,7 +101,7 @@ describe("PdfViewer bus subscription (client)", () => {
         </CitationBusProvider>,
       );
     });
-    expect(container.textContent).toContain("Source viewer");
+    expect(container.textContent).toContain("Click a citation to see its source.");
 
     await act(async () => {
       busHandle!.select(citation());
@@ -112,7 +111,7 @@ describe("PdfViewer bus subscription (client)", () => {
     // render lives in PdfPage and depends on pdfjs-dist resolving
     // a real PDF over HTTP — that's an integration concern, not a
     // PdfViewer wiring concern.
-    expect(container.textContent).not.toContain("Click a citation chip");
+    expect(container.textContent).not.toContain("Click a citation to see its source.");
     expect(container.textContent).toContain("JLBC Baseline Book");
     expect(container.textContent).toContain("47");
 
