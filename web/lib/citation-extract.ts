@@ -306,6 +306,43 @@ function dedupCitationRetries(citations: Citation[]): Citation[] {
       }
     }
   }
+  // Second pass: FIFO pair FAIL → subsequent OK for the same chunk_id.
+  // Handles the 2026-05-20 case where the model retries by REWRITING
+  // the claim_span entirely (e.g. failed table-row
+  //   "FY 2024-25 | $17,337.2M | Includes $962.8M beginning balance"
+  // → successful prose retry
+  //   "State general fund revenue for fiscal year 2024-2025, including a
+  //    beginning balance of...").
+  // The two strings share NO substring overlap so the first pass misses
+  // them — but they're clearly retries because they hit the same
+  // chunk_id in close emission order, and the second one carries an
+  // ok:true / citation_id while the first failed.
+  // Pairing rule: within a chunk_id, walk in emission order; each
+  // pending FAIL gets paired with the next OK for the same chunk_id.
+  // Risk: model legitimately cites two distinct facts from one chunk
+  // (one fails, one succeeds) — we'd lose the failed chip. Acceptable
+  // tradeoff: the common case (retries) was producing 2-3× chip
+  // pollution; the false-positive case is rare and the user still sees
+  // the OK chip representing real coverage of the chunk.
+  const pendingFailIndicesByChunk = new Map<string, number[]>();
+  for (let i = 0; i < citations.length; i++) {
+    const c = citations[i]!;
+    const isOk = c.citationId !== undefined;
+    if (!isOk) {
+      let pending = pendingFailIndicesByChunk.get(c.chunkId);
+      if (!pending) {
+        pending = [];
+        pendingFailIndicesByChunk.set(c.chunkId, pending);
+      }
+      pending.push(i);
+    } else {
+      const pending = pendingFailIndicesByChunk.get(c.chunkId);
+      if (pending && pending.length > 0) {
+        const failIdx = pending.shift()!;
+        union(failIdx, i);
+      }
+    }
+  }
   // Bucket by root.
   const groups = new Map<number, Citation[]>();
   for (let i = 0; i < citations.length; i++) {

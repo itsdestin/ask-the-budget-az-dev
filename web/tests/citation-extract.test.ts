@@ -492,6 +492,81 @@ describe("extractCitations", () => {
     expect(citations[0]!.citationId).toBe("cit-uuid-final");
   });
 
+  it("collapses retries when the model rewrites claim_span entirely (no substring overlap)", () => {
+    // The 2026-05-20 dogfood case: the model failed 4 cites against the
+    // same budget-bill chunk with table-row claim_spans like
+    //   "FY 2024-25 | $17,337.2M | Includes $962.8M beginning balance"
+    // then retried with completely rewritten prose claim_spans like
+    //   "State general fund revenue for fiscal year 2024-2025, including
+    //    a beginning balance of..."
+    // Neither string contains the other — substring dedup misses them
+    // entirely. FIFO pairing on same-chunk_id FAIL → OK in emission
+    // order is what catches them. User saw 8 chips (4 red ✗ + 4 green
+    // ✓); expected 4 chips (the 4 OKs replacing the 4 FAILs).
+    const turn = turnWithBlocks([
+      {
+        kind: "tool",
+        toolUseId: "f1",
+        toolName: "cite",
+        input: {
+          chunk_id: "bill-A",
+          quote: "irrelevant for this test",
+          confidence: "verbatim",
+          claim_span: "FY 2024-25 | $17,337.2M | beginning balance",
+        },
+        status: "complete",
+        output: JSON.stringify({ ok: false, error: "overlap below threshold" }),
+      },
+      {
+        kind: "tool",
+        toolUseId: "f2",
+        toolName: "cite",
+        input: {
+          chunk_id: "bill-A",
+          quote: "irrelevant",
+          confidence: "verbatim",
+          claim_span: "FY 2025-26 | $17,777.1M | Enacted",
+        },
+        status: "complete",
+        output: JSON.stringify({ ok: false, error: "overlap below threshold" }),
+      },
+      {
+        kind: "tool",
+        toolUseId: "ok1",
+        toolName: "cite",
+        input: {
+          chunk_id: "bill-A",
+          quote: "irrelevant",
+          confidence: "verbatim",
+          claim_span:
+            "State general fund revenue for fiscal year 2024-2025, including a beginning balance",
+        },
+        status: "complete",
+        output: JSON.stringify({ ok: true, citation_id: "cit-fy2425" }),
+      },
+      {
+        kind: "tool",
+        toolUseId: "ok2",
+        toolName: "cite",
+        input: {
+          chunk_id: "bill-A",
+          quote: "irrelevant",
+          confidence: "verbatim",
+          claim_span:
+            "State general fund revenue for fiscal year 2025-2026, including onetime revenues",
+        },
+        status: "complete",
+        output: JSON.stringify({ ok: true, citation_id: "cit-fy2526" }),
+      },
+    ]);
+    const citations = extractCitations(turn);
+    expect(citations).toHaveLength(2);
+    expect(citations.map((c) => c.citationId)).toEqual([
+      "cit-fy2425",
+      "cit-fy2526",
+    ]);
+  });
+
   it("does NOT collapse same-chunk cites with non-overlapping claims", () => {
     // Two distinct facts cited to the same chunk must stay separate.
     // The substring check only chains cites that contain each other.
