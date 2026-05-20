@@ -1,0 +1,15 @@
+// Vitest Snapshot v1, https://vitest.dev/guide/snapshot.html
+
+exports[`mcp-server/system-prompt.md structure > contains the expected top-level sections in order 1`] = `
+[
+  "System prompt — Ask the Budget AZ",
+  "You are a budget research assistant",
+  "Your tools",
+  "Reading budget documents",
+  "Refusal — three cases",
+  "Conversation flow",
+  "What goes into your final answer",
+  "Quick reference",
+  "Domain primer",
+]
+`;
