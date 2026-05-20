@@ -1421,6 +1421,187 @@ def test_cite_validate_offsets_win_when_both_passed():
 
 
 # ---------------------------------------------------------------------------
+# /cite/validate_batch — 2026-05-20 cite-batch addition
+# ---------------------------------------------------------------------------
+# Batch endpoint that validates N cites in one round-trip, with a single
+# bulk DB fetch for all unique chunks. Result order matches input order;
+# entries are independent (one bad cite does NOT poison the batch).
+
+
+@needs_db
+def test_cite_validate_batch_happy_path_all_ok():
+    """Two valid cites against the same live chunk → both ok:true."""
+    with psycopg.connect(os.environ["DATABASE_URL"]) as conn:
+        row = conn.execute(
+            "SELECT chunk_id, text FROM chunks WHERE LENGTH(text) > 100 LIMIT 1"
+        ).fetchone()
+    assert row is not None
+    chunk_id, text = row[0], row[1]
+
+    with TestClient(app) as client:
+        resp = client.post(
+            "/cite/validate_batch",
+            json={
+                "citations": [
+                    {
+                        "chunk_id": chunk_id,
+                        "quote": text[10:30],
+                        "claim_span": text[10:30],
+                        "confidence": "verbatim",
+                    },
+                    {
+                        "chunk_id": chunk_id,
+                        "quote": text[50:80],
+                        "claim_span": text[50:80],
+                        "confidence": "verbatim",
+                    },
+                ]
+            },
+        )
+
+    assert resp.status_code == 200
+    body = resp.json()
+    assert len(body["citations"]) == 2
+    assert body["citations"][0]["ok"] is True
+    assert body["citations"][1]["ok"] is True
+    # Order preserved: derived offsets should match the input quote
+    # positions.
+    assert body["citations"][0]["resolved_span_start"] == 10
+    assert body["citations"][1]["resolved_span_start"] == 50
+
+
+@needs_db
+def test_cite_validate_batch_mixed_ok_and_fail_preserves_order():
+    """A batch with one valid cite, one with unknown chunk_id, and one
+    with a quote-not-in-chunk returns three responses in the same order.
+    A bad cite in the middle must not poison the others."""
+    with psycopg.connect(os.environ["DATABASE_URL"]) as conn:
+        row = conn.execute(
+            "SELECT chunk_id, text FROM chunks WHERE LENGTH(text) > 100 LIMIT 1"
+        ).fetchone()
+    assert row is not None
+    chunk_id, text = row[0], row[1]
+
+    with TestClient(app) as client:
+        resp = client.post(
+            "/cite/validate_batch",
+            json={
+                "citations": [
+                    {
+                        "chunk_id": chunk_id,
+                        "quote": text[10:30],
+                        "claim_span": text[10:30],
+                        "confidence": "verbatim",
+                    },
+                    {
+                        # Invented chunk_id — should return unknown
+                        "chunk_id": "definitely-not-a-real-chunk-XYZ",
+                        "quote": "anything",
+                        "claim_span": "anything",
+                        "confidence": "verbatim",
+                    },
+                    {
+                        "chunk_id": chunk_id,
+                        # Invented quote — should return quote-not-found
+                        "quote": "definitely-not-in-this-chunk-XYZ-99999",
+                        "claim_span": "x",
+                        "confidence": "verbatim",
+                    },
+                ]
+            },
+        )
+
+    body = resp.json()
+    cites = body["citations"]
+    assert len(cites) == 3
+    assert cites[0]["ok"] is True
+    assert cites[1]["ok"] is False
+    assert cites[1]["error"] == "unknown chunk_id"
+    assert cites[2]["ok"] is False
+    assert "quote not found" in cites[2]["error"].lower()
+
+
+def test_cite_validate_batch_empty_input_returns_empty_response():
+    """Empty `citations` array is allowed — returns empty array,
+    not a 4xx. The model may legitimately call cite_batch with zero
+    items if it changed its mind during answer composition."""
+    with TestClient(app) as client:
+        resp = client.post("/cite/validate_batch", json={"citations": []})
+    assert resp.status_code == 200
+    assert resp.json() == {"citations": []}
+
+
+def test_cite_validate_batch_single_db_query_for_repeated_chunk_ids(monkeypatch):
+    """The whole point of the batch endpoint is to avoid N DB queries
+    for N cites. When the model emits 5 cites against the SAME
+    chunk_id (common: multiple facts from one budget table), the bulk
+    fetch should still produce ONE DB row, not 5. We monkeypatch
+    get_connection and count the number of execute() calls."""
+    chunk_text = "Some chunk text with $1,000 mentioned twice $1,000."
+    # We track only the BATCH-endpoint queries (the bulk chunk fetch).
+    # Preflight queries from lifespan startup are filtered out.
+    bulk_fetch_calls = 0
+
+    class FakeConn:
+        def execute(self, sql, *_args):
+            nonlocal bulk_fetch_calls
+            sql_str = str(sql)
+            is_preflight = "SELECT 1 FROM chunks" in sql_str
+            is_bulk_fetch = "= ANY(" in sql_str
+            if is_bulk_fetch:
+                bulk_fetch_calls += 1
+
+            class _Cur:
+                def fetchall(_self):
+                    if is_bulk_fetch:
+                        return [
+                            {
+                                "chunk_id": "c1",
+                                "text": chunk_text,
+                                "doc_type": "test",
+                            }
+                        ]
+                    return []
+
+                def fetchone(_self):
+                    # Preflight expects a non-None row to confirm the
+                    # chunks table is non-empty. Everything else: None.
+                    return (1,) if is_preflight else None
+
+            return _Cur()
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *a):
+            pass
+
+    monkeypatch.setattr(api_module, "get_connection", lambda: FakeConn())
+
+    with TestClient(app) as client:
+        resp = client.post(
+            "/cite/validate_batch",
+            json={
+                "citations": [
+                    {"chunk_id": "c1", "quote": "Some chunk", "claim_span": "x", "confidence": "verbatim"},
+                    {"chunk_id": "c1", "quote": "twice", "claim_span": "y", "confidence": "verbatim"},
+                    {"chunk_id": "c1", "quote": "text", "claim_span": "z", "confidence": "verbatim"},
+                    {"chunk_id": "c1", "quote": "mentioned", "claim_span": "w", "confidence": "verbatim"},
+                    {"chunk_id": "c1", "quote": "$1,000", "claim_span": "v", "confidence": "verbatim"},
+                ]
+            },
+        )
+
+    body = resp.json()
+    assert len(body["citations"]) == 5
+    # All five hit the in-memory text — the BATCH path made exactly
+    # one bulk fetch (the ANY(%s) query), not one fetch per cite.
+    assert bulk_fetch_calls == 1, (
+        f"expected 1 bulk-fetch query, saw {bulk_fetch_calls}"
+    )
+
+
+# ---------------------------------------------------------------------------
 # Unit tests — intent → top_k resolution (Task 10, 2026-05-20)
 # ---------------------------------------------------------------------------
 # The dogfood-hardening plan introduces an optional `intent` field on the

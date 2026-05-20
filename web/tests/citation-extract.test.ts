@@ -1161,3 +1161,245 @@ describe("buildConversationResolvedChunkMap + cross-turn citation resolution (co
     expect(turn2WithFallback[0]?.resolved?.pageStart).toBe(47);
   });
 });
+
+describe("extractCitations — cite_batch tool (2026-05-20)", () => {
+  // cite_batch is the batched-citation tool: one tool_use block carries
+  // N citations in input.citations and N parallel results in
+  // output.citations. Downstream rendering should see N Citation
+  // records, indistinguishable from the model having emitted N
+  // separate cite() blocks.
+
+  it("expands one cite_batch block into N Citation records", () => {
+    const turn = turnWithBlocks([
+      {
+        kind: "tool",
+        toolUseId: "r1",
+        toolName: "retrieve",
+        input: { query: "x" },
+        status: "complete",
+        output: RETRIEVE_OUTPUT_OK,
+      },
+      { kind: "text", uuid: "u1", text: "First claim. Second claim." },
+      {
+        kind: "tool",
+        toolUseId: "cb1",
+        toolName: "cite_batch",
+        input: {
+          citations: [
+            {
+              chunk_id: "doc-A:p47:s1",
+              quote: "first source quote",
+              confidence: "verbatim",
+              claim_span: "First claim.",
+            },
+            {
+              chunk_id: "doc-A:p47:s1",
+              quote: "second source quote",
+              confidence: "paraphrase",
+              claim_span: "Second claim.",
+            },
+          ],
+        },
+        status: "complete",
+        output: JSON.stringify({
+          citations: [
+            { ok: true, citation_id: "cit-1" },
+            { ok: true, citation_id: "cit-2" },
+          ],
+        }),
+      },
+    ]);
+    const citations = extractCitations(turn);
+    expect(citations).toHaveLength(2);
+    expect(citations[0]!.claimSpan).toBe("First claim.");
+    expect(citations[0]!.citationId).toBe("cit-1");
+    expect(citations[1]!.claimSpan).toBe("Second claim.");
+    expect(citations[1]!.citationId).toBe("cit-2");
+    // Indexes 1-based across the whole batch.
+    expect(citations[0]!.index).toBe(1);
+    expect(citations[1]!.index).toBe(2);
+    // Chunk metadata resolves the same way as single-cite blocks.
+    expect(citations[0]!.resolved?.docTitle).toBe("JLBC Baseline Book");
+  });
+
+  it("pairs cite_batch input items with their matching ack by index (mixed ok/fail)", () => {
+    const turn = turnWithBlocks([
+      {
+        kind: "tool",
+        toolUseId: "r1",
+        toolName: "retrieve",
+        input: { query: "x" },
+        status: "complete",
+        output: RETRIEVE_OUTPUT_OK,
+      },
+      { kind: "text", uuid: "u1", text: "A claim. Another claim. Third claim." },
+      {
+        kind: "tool",
+        toolUseId: "cb1",
+        toolName: "mcp__ask-the-budget-az__cite_batch",
+        input: {
+          citations: [
+            {
+              chunk_id: "doc-A:p47:s1",
+              quote: "q1",
+              confidence: "verbatim",
+              claim_span: "A claim.",
+            },
+            {
+              chunk_id: "doc-A:p47:s1",
+              quote: "q2",
+              confidence: "verbatim",
+              claim_span: "Another claim.",
+            },
+            {
+              chunk_id: "doc-A:p47:s1",
+              quote: "q3",
+              confidence: "verbatim",
+              claim_span: "Third claim.",
+            },
+          ],
+        },
+        status: "complete",
+        output: JSON.stringify({
+          citations: [
+            { ok: true, citation_id: "cit-A" },
+            { ok: false, error: "quote not found in chunk.text" },
+            { ok: true, citation_id: "cit-C" },
+          ],
+        }),
+      },
+    ]);
+    const citations = extractCitations(turn);
+    expect(citations).toHaveLength(3);
+    expect(citations[0]!.citationId).toBe("cit-A");
+    expect(citations[1]!.citationId).toBeUndefined();
+    expect(citations[1]!.failureReason).toContain("quote not found");
+    expect(citations[2]!.citationId).toBe("cit-C");
+  });
+
+  it("treats a malformed cite_batch input.citations field as no citations", () => {
+    // Defensive: a bug in the model's output (citations is a string,
+    // an object, missing entirely) shouldn't crash the renderer.
+    const turn = turnWithBlocks([
+      {
+        kind: "tool",
+        toolUseId: "cb1",
+        toolName: "cite_batch",
+        input: {
+          // Should be an array; rendering should drop the whole block.
+          citations: "this isn't an array",
+        },
+        status: "complete",
+        output: JSON.stringify({ citations: [] }),
+      },
+    ]);
+    expect(extractCitations(turn)).toEqual([]);
+  });
+
+  it("handles cite_batch + plain cite() in the same turn", () => {
+    // Belt-and-suspenders: if the model mixes both tool shapes within a
+    // single turn (e.g. one cite_batch covering most claims plus one
+    // standalone cite() afterward), the extractor produces a combined
+    // ordered list with correct dedup behavior.
+    const turn = turnWithBlocks([
+      {
+        kind: "tool",
+        toolUseId: "r1",
+        toolName: "retrieve",
+        input: { query: "x" },
+        status: "complete",
+        output: RETRIEVE_OUTPUT_OK,
+      },
+      { kind: "text", uuid: "u1", text: "Claim one. Claim two. Claim three." },
+      {
+        kind: "tool",
+        toolUseId: "cb1",
+        toolName: "cite_batch",
+        input: {
+          citations: [
+            {
+              chunk_id: "doc-A:p47:s1",
+              quote: "q1",
+              confidence: "verbatim",
+              claim_span: "Claim one.",
+            },
+            {
+              chunk_id: "doc-A:p47:s1",
+              quote: "q2",
+              confidence: "verbatim",
+              claim_span: "Claim two.",
+            },
+          ],
+        },
+        status: "complete",
+        output: JSON.stringify({
+          citations: [
+            { ok: true, citation_id: "cit-1" },
+            { ok: true, citation_id: "cit-2" },
+          ],
+        }),
+      },
+      {
+        kind: "tool",
+        toolUseId: "c3",
+        toolName: "cite",
+        input: {
+          chunk_id: "doc-A:p47:s1",
+          quote: "q3",
+          confidence: "verbatim",
+          claim_span: "Claim three.",
+        },
+        status: "complete",
+        output: JSON.stringify({ ok: true, citation_id: "cit-3" }),
+      },
+    ]);
+    const citations = extractCitations(turn);
+    expect(citations).toHaveLength(3);
+    expect(citations.map((c) => c.citationId)).toEqual([
+      "cit-1",
+      "cit-2",
+      "cit-3",
+    ]);
+  });
+
+  it("treats an entire failed batch ack (MCP error) as one failure on slot 0", () => {
+    // The batch transport-failed at the MCP layer (e.g. schema rejection).
+    // We can't pin the failure to a specific slot — surface as a single
+    // failed chip on slot 0 so the user sees the error rather than
+    // silent disappearance. The fact that we lose specificity here is
+    // an accepted limitation; the alternative (drop all citations
+    // silently) is worse.
+    const turn = turnWithBlocks([
+      {
+        kind: "tool",
+        toolUseId: "cb1",
+        toolName: "cite_batch",
+        input: {
+          citations: [
+            {
+              chunk_id: "doc-A",
+              quote: "q1",
+              confidence: "verbatim",
+              claim_span: "first claim",
+            },
+            {
+              chunk_id: "doc-A",
+              quote: "q2",
+              confidence: "verbatim",
+              claim_span: "second claim",
+            },
+          ],
+        },
+        status: "complete",
+        output: "MCP error -32602: batch too large",
+      },
+    ]);
+    const citations = extractCitations(turn);
+    // Two input items → two Citation records. Slot 0 carries the batch
+    // failure reason; slot 1 is in-flight (no ack). After dedup, both
+    // remain (they have different claimSpans on the same chunk —
+    // neither's claim_span is a substring of the other).
+    expect(citations.length).toBeGreaterThanOrEqual(1);
+    expect(citations[0]!.failureReason).toBeDefined();
+  });
+});

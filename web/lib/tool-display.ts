@@ -26,6 +26,8 @@ export function toolDisplayLabel(toolName: string): string {
       return "Search corpus";
     case "cite":
       return "Cite claim";
+    case "cite_batch":
+      return "Cite claims";
     case "list_filter_values":
       return "Browse filters";
     // Claude Code core tools
@@ -85,6 +87,16 @@ export function toolHeaderSummary(
       // paraphrase cite.
       const conf = str("confidence");
       return conf ? conf : null;
+    }
+    case "cite_batch": {
+      // Surface the batch size so a skimmer sees "Cite claims · 17
+      // citations" rather than just the tool name.
+      const arr = (input as { citations?: unknown }).citations;
+      if (Array.isArray(arr)) {
+        const n = arr.length;
+        return `${n} citation${n === 1 ? "" : "s"}`;
+      }
+      return null;
     }
     case "list_filter_values": {
       const field = str("field");

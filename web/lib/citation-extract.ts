@@ -54,6 +54,13 @@ export interface Citation {
   /** Source-side metadata pulled from a same-turn retrieve() result.
    *  Undefined when no retrieve in the turn surfaced this chunk_id. */
   resolved?: ResolvedChunk;
+  /** When this Citation came from a cite_batch tool_use block, set to
+   *  that block's toolUseId. Used by dedup to suppress FIFO-fail-with-
+   *  OK pairing across entries of the SAME batch (within one batch
+   *  the model emits intentional distinct claims, not retries — the
+   *  cross-block retry heuristic shouldn't fire). Undefined for
+   *  single-cite() blocks. */
+  batchId?: string;
 }
 
 interface RetrieveChunk {
@@ -84,6 +91,15 @@ const RETRIEVE_TOOL_NAMES = new Set<string>([
 const CITE_TOOL_NAMES = new Set<string>([
   "cite",
   "mcp__ask-the-budget-az__cite",
+]);
+
+/** Tool names for the batched-citation tool. One tool_use block carries
+ *  N citations in input.citations and N parallel responses in
+ *  output.citations. Added 2026-05-20 to eliminate per-citation tool
+ *  round-trips that were dominating analyze-shaped answer latency. */
+const CITE_BATCH_TOOL_NAMES = new Set<string>([
+  "cite_batch",
+  "mcp__ask-the-budget-az__cite_batch",
 ]);
 
 /** Parse a JSON tool result string into the retrieve output shape;
@@ -200,8 +216,117 @@ function parseCiteAck(raw: string | undefined): CiteAckResult {
   return {};
 }
 
+/** Parse the cite_batch tool's ack output. Returns an array of per-item
+ *  ack results parallel to the tool's input.citations. The cite_batch
+ *  contract: response shape is `{citations: [{ok, citation_id?, error?}]}`
+ *  with order matching the input. If the raw payload doesn't parse, we
+ *  return [] and the caller treats every input as in-flight (no chip
+ *  fills). Defensive shape check on each item so a malformed entry
+ *  becomes an in-flight slot rather than a crash. */
+function parseCiteBatchAck(raw: string | undefined): CiteAckResult[] {
+  if (!raw) return [];
+  if (raw.startsWith("MCP error")) {
+    // MCP rejected the whole batch (e.g. schema validation). The
+    // single-failure path doesn't tell us which input slot caused it,
+    // so we attribute the failure to slot 0 — the renderer's
+    // dedup-by-emission-order pass will keep it grouped sensibly.
+    return [{ failureReason: humanizeFailureReason(raw) }];
+  }
+  try {
+    const parsed: unknown = JSON.parse(raw);
+    if (
+      typeof parsed === "object" &&
+      parsed !== null &&
+      Array.isArray((parsed as { citations?: unknown }).citations)
+    ) {
+      const items = (parsed as { citations: unknown[] }).citations;
+      return items.map((item) => {
+        if (typeof item !== "object" || item === null) return {};
+        const obj = item as {
+          ok?: unknown;
+          citation_id?: unknown;
+          error?: unknown;
+        };
+        if (obj.ok === true && typeof obj.citation_id === "string") {
+          return { citationId: obj.citation_id };
+        }
+        if (obj.ok === false) {
+          return {
+            failureReason:
+              typeof obj.error === "string" ? obj.error : "cite() rejected",
+          };
+        }
+        return {};
+      });
+    }
+  } catch {
+    // fall through — unrecognized output shape; leave as "in flight"
+  }
+  return [];
+}
+
 function isCitationConfidence(v: unknown): v is CitationConfidence {
   return v === "verbatim" || v === "paraphrase";
+}
+
+/** Build a single Citation record from a raw cite() input + its matching
+ *  ack. Shared between the single-cite path (one block → one Citation)
+ *  and the cite_batch path (one block → N Citations, one per item in
+ *  input.citations). Returns null when the input is malformed (missing
+ *  chunk_id, missing claim_span, missing both offsets and quote) so the
+ *  caller can drop that slot. The caller is responsible for indexing —
+ *  pass the running 1-based index for the citation's place in the
+ *  rendered list. */
+function buildCitationFromInput(
+  input: Record<string, unknown>,
+  ack: CiteAckResult,
+  indexHint: number,
+  resolved: Map<string, ResolvedChunk>,
+  additionalResolved: Map<string, ResolvedChunk> | undefined,
+  batchId: string | undefined,
+): Citation | null {
+  const chunkId = typeof input.chunk_id === "string" ? input.chunk_id : "";
+  const hasOffsets =
+    typeof input.span_start === "number" &&
+    typeof input.span_end === "number";
+  const hasQuote = typeof input.quote === "string" && (input.quote as string).length > 0;
+  const claimSpan =
+    typeof input.claim_span === "string" ? input.claim_span : "";
+  let spanStart: number;
+  let spanEnd: number;
+  if (hasOffsets) {
+    spanStart = input.span_start as number;
+    spanEnd = input.span_end as number;
+  } else if (hasQuote) {
+    // Sentinel — chip-attachment substring search uses claimSpan, not
+    // these offsets; the PDF bbox path uses the sidecar-resolved
+    // offsets that round-trip out of /cite/validate when quote is set.
+    spanStart = 0;
+    spanEnd = Math.max(1, claimSpan.length);
+  } else {
+    spanStart = -1;
+    spanEnd = -1;
+  }
+  const confidence = isCitationConfidence(input.confidence)
+    ? input.confidence
+    : "paraphrase";
+  if (!chunkId || !claimSpan || spanStart < 0 || spanEnd <= spanStart) {
+    return null;
+  }
+  const citation: Citation = {
+    index: indexHint,
+    chunkId,
+    spanStart,
+    spanEnd,
+    confidence,
+    claimSpan,
+  };
+  if (ack.citationId) citation.citationId = ack.citationId;
+  if (ack.failureReason) citation.failureReason = ack.failureReason;
+  if (batchId) citation.batchId = batchId;
+  const meta = resolved.get(chunkId) ?? additionalResolved?.get(chunkId);
+  if (meta) citation.resolved = meta;
+  return citation;
 }
 
 /** Walk every retrieve() tool result in the turn and build a map of
@@ -338,8 +463,19 @@ function dedupCitationRetries(citations: Citation[]): Citation[] {
     } else {
       const pending = pendingFailIndicesByChunk.get(c.chunkId);
       if (pending && pending.length > 0) {
-        const failIdx = pending.shift()!;
-        union(failIdx, i);
+        // Within a single cite_batch the model emits intentional
+        // distinct claims, never retries. Skip pairing a FAIL with a
+        // sibling OK from the SAME batch — that would silently swallow
+        // a failed chip the user is entitled to see. Cross-batch (or
+        // cross-block) pairing still fires as before.
+        const failIdx = pending[0]!;
+        const sameBatch =
+          c.batchId !== undefined &&
+          citations[failIdx]!.batchId === c.batchId;
+        if (!sameBatch) {
+          pending.shift();
+          union(failIdx, i);
+        }
       }
     }
   }
@@ -375,63 +511,58 @@ export function extractCitations(
   const out: Citation[] = [];
   for (const block of turn.blocks) {
     if (block.kind !== "tool") continue;
-    if (!CITE_TOOL_NAMES.has(block.toolName)) continue;
-    const input = block.input;
-    const chunkId = typeof input.chunk_id === "string" ? input.chunk_id : "";
-    // Task 4 (2026-05-20) made offsets optional alongside a new `quote`
-    // field. The MCP-server cite handler forwards quote to the sidecar,
-    // which derives offsets and validates; the model's tool_use input
-    // we see here may carry EITHER (span_start, span_end) OR quote
-    // (but not both — offsets win if so). Accept either shape; for
-    // quote-only inputs fall back to a (0, claimSpan.length) sentinel
-    // so the Citation contract holds (the chip-attachment substring
-    // search uses claimSpan, not these offsets; PDF bbox highlight is
-    // less precise without resolved offsets but the chip still
-    // renders). Same pattern as the inline <cite> XML fallback below.
-    const hasOffsets =
-      typeof input.span_start === "number" &&
-      typeof input.span_end === "number";
-    const hasQuote = typeof input.quote === "string" && input.quote.length > 0;
-    const claimSpan =
-      typeof input.claim_span === "string" ? input.claim_span : "";
-    let spanStart: number;
-    let spanEnd: number;
-    if (hasOffsets) {
-      spanStart = input.span_start as number;
-      spanEnd = input.span_end as number;
-    } else if (hasQuote) {
-      spanStart = 0;
-      spanEnd = Math.max(1, claimSpan.length);
-    } else {
-      spanStart = -1;
-      spanEnd = -1;
-    }
-    const confidence = isCitationConfidence(input.confidence)
-      ? input.confidence
-      : "paraphrase";
-    if (!chunkId || !claimSpan || spanStart < 0 || spanEnd <= spanStart) {
-      // Drop malformed cite() calls; the YouCodedSessionProvider
-      // already logs these, but defensive here too.
+
+    if (CITE_TOOL_NAMES.has(block.toolName)) {
+      // Single-cite path: one block → one Citation. Task 4 (2026-05-20)
+      // made offsets optional alongside a `quote` field; the helper
+      // accepts either shape.
+      const ack = parseCiteAck(block.output);
+      const citation = buildCitationFromInput(
+        block.input,
+        ack,
+        out.length + 1,
+        resolved,
+        additionalResolved,
+        undefined,
+      );
+      if (citation) out.push(citation);
       continue;
     }
-    const citation: Citation = {
-      index: out.length + 1,
-      chunkId,
-      spanStart,
-      spanEnd,
-      confidence,
-      claimSpan,
-    };
-    const ack = parseCiteAck(block.output);
-    if (ack.citationId) citation.citationId = ack.citationId;
-    if (ack.failureReason) citation.failureReason = ack.failureReason;
-    // Prefer this-turn metadata; fall back to anything seen earlier
-    // in the conversation. The current-turn map wins ties so the
-    // most-recent retrieve() output (which may carry updated bbox
-    // or text) gets priority.
-    const meta = resolved.get(chunkId) ?? additionalResolved?.get(chunkId);
-    if (meta) citation.resolved = meta;
-    out.push(citation);
+
+    if (CITE_BATCH_TOOL_NAMES.has(block.toolName)) {
+      // Batched-cite path (cite_batch, added 2026-05-20): one block
+      // carries N citations in input.citations and N parallel acks in
+      // output.citations. We walk both arrays and build one Citation
+      // per item, just as if the model had emitted N separate cite()
+      // tool_use blocks — downstream code (placement, dedup, chip
+      // rendering) doesn't need to know cite_batch existed.
+      // The block's toolUseId becomes each Citation's batchId so the
+      // dedup pass can tell same-batch sibling claims (which are NEVER
+      // retries of each other) from cross-block retries.
+      const batchInput = block.input.citations;
+      if (!Array.isArray(batchInput)) continue;
+      const acks = parseCiteBatchAck(block.output);
+      const batchId = block.toolUseId;
+      for (let i = 0; i < batchInput.length; i++) {
+        const item = batchInput[i];
+        if (typeof item !== "object" || item === null) continue;
+        // Per-item ack OR the batch-level failure as a fallback. When
+        // the batch transport-failed entirely we get an empty acks[]
+        // and the citation appears as "in flight" — same UX as a
+        // single cite that hasn't returned yet.
+        const ack = acks[i] ?? {};
+        const citation = buildCitationFromInput(
+          item as Record<string, unknown>,
+          ack,
+          out.length + 1,
+          resolved,
+          additionalResolved,
+          batchId,
+        );
+        if (citation) out.push(citation);
+      }
+      continue;
+    }
   }
   // Collapse retry chips: if the model emitted ✗ then ✓ for the
   // same claim, render only the ✓ — the ✗ is internal-state noise

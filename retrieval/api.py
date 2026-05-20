@@ -206,6 +206,25 @@ class CiteValidateResponse(BaseModel):
     truncated: bool | None = None
 
 
+class CiteValidateBatchBody(BaseModel):
+    """Wrap N CiteValidateBody calls in a single HTTP request. The
+    sidecar bulk-fetches all unique chunks in one DB round-trip and
+    validates each cite in-memory — the wall-clock win over N
+    sequential /cite/validate calls is both the model-side round-trip
+    elimination (1 LLM turn instead of N) and the server-side DB
+    elimination (1 query instead of N). See cite_batch tool docstring
+    in mcp-server/src/tools/cite-batch.ts for the design rationale."""
+    citations: list[CiteValidateBody]
+
+
+class CiteValidateBatchResponse(BaseModel):
+    """Per-citation responses in the same order as the input array.
+    Length always equals input length; entries are independent (one
+    bad cite does NOT poison the batch). The MCP-side cite_batch tool
+    re-pairs these with the model's tool_use args by index."""
+    citations: list[CiteValidateResponse]
+
+
 class FilterValueOut(BaseModel):
     """One row in the list_values response — a canonical slug, how many
     chunks (or documents) it appears on, and a sample document title so
@@ -931,13 +950,10 @@ def _check_alignment(
     )
 
 
-@app.post("/cite/validate", response_model_exclude_none=True)
-def http_cite_validate(body: CiteValidateBody) -> CiteValidateResponse:
-    """Confirm a chunk_id exists, resolve a quote to offsets (or use
-    explicit offsets), check the span is in bounds, then verify the
-    cited span supports the claim. See docstring on each step for the
-    failure-mode breakdown.
-    """
+def _fetch_chunk_text(chunk_id: str) -> tuple[str, str | None] | None:
+    """Fetch (text, doc_type) for a single chunk_id, or None if missing.
+    Single round-trip; used by /cite/validate. The batch endpoint uses
+    _fetch_chunk_texts (plural) instead — one bulk query for many ids."""
     with get_connection() as conn:
         row = conn.execute(
             """
@@ -945,14 +961,117 @@ def http_cite_validate(body: CiteValidateBody) -> CiteValidateResponse:
             FROM chunks c JOIN documents d ON c.doc_id = d.doc_id
             WHERE c.chunk_id = %s
             """,
-            [body.chunk_id],
+            [chunk_id],
         ).fetchone()
-
     if row is None:
-        return CiteValidateResponse(ok=False, error="unknown chunk_id")
+        return None
+    return (row["text"] or "", row["doc_type"])
 
-    full_text: str = row["text"] or ""
-    doc_type: str | None = row["doc_type"]
+
+def _fetch_chunk_texts(chunk_ids: list[str]) -> dict[str, tuple[str, str | None]]:
+    """Bulk fetch (text, doc_type) for a list of chunk_ids in a single
+    DB round-trip. Returns only the rows that exist; the caller decides
+    how to handle missing ids (typically: emit `unknown chunk_id` in
+    the corresponding response slot). Dedups the input list before
+    querying so a repeated chunk_id costs one row, not N.
+
+    This is the optimization that makes /cite/validate_batch fast:
+    instead of N individual DB queries (one per cite() call), the
+    batch endpoint does one ANY(%s) query for all unique chunks and
+    fans out in-memory. For a typical analyze-shaped answer with 20
+    cites against 4-5 unique chunks, that's 5 DB rows in 1 query
+    instead of 20 queries each fetching 1 row.
+    """
+    if not chunk_ids:
+        return {}
+    unique_ids = list(set(chunk_ids))
+    with get_connection() as conn:
+        rows = conn.execute(
+            """
+            SELECT c.chunk_id, c.text, d.doc_type
+            FROM chunks c JOIN documents d ON c.doc_id = d.doc_id
+            WHERE c.chunk_id = ANY(%s)
+            """,
+            [unique_ids],
+        ).fetchall()
+    return {
+        row["chunk_id"]: (row["text"] or "", row["doc_type"]) for row in rows
+    }
+
+
+@app.post("/cite/validate", response_model_exclude_none=True)
+def http_cite_validate(body: CiteValidateBody) -> CiteValidateResponse:
+    """Validate a single cite() call: chunk_id exists, quote-in-chunk
+    (or explicit offsets), span sanity. The content-word-overlap
+    alignment check that used to live here was retired 2026-05-20 —
+    see _validate_one_cite's docstring for context."""
+    fetched = _fetch_chunk_text(body.chunk_id)
+    if fetched is None:
+        return CiteValidateResponse(ok=False, error="unknown chunk_id")
+    full_text, doc_type = fetched
+    return _validate_one_cite(body, full_text, doc_type)
+
+
+@app.post("/cite/validate_batch", response_model_exclude_none=True)
+def http_cite_validate_batch(
+    body: CiteValidateBatchBody,
+) -> CiteValidateBatchResponse:
+    """Validate N cite() calls in one round-trip.
+
+    Why batch: 2026-05-20 dogfood pass measured cite() round-trip cost
+    at ~3s/call. An analyze-shaped answer with 15-20 cites was therefore
+    eating 45-60s of LLM-turn cycle time just in serial tool round-trips,
+    even before failures and retries kicked in. The model already wants
+    to emit all citations at once after writing its answer; giving it a
+    tool that takes them as a single call collapses those 15-20 round-
+    trips into 1.
+
+    Implementation:
+      1. Bulk-fetch (text, doc_type) for all unique chunk_ids in one
+         DB query.
+      2. Loop in-memory through the input list; for each cite, dispatch
+         to _validate_one_cite (or emit `unknown chunk_id` if the chunk
+         wasn't found in the bulk fetch). Order preserved.
+
+    Empty input is allowed (returns {citations: []}) — the model may
+    call cite_batch with zero items if it changed its mind, and the
+    failure mode "you must provide at least one citation" would be more
+    annoying than helpful.
+    """
+    if not body.citations:
+        return CiteValidateBatchResponse(citations=[])
+
+    chunk_ids = [item.chunk_id for item in body.citations]
+    chunk_map = _fetch_chunk_texts(chunk_ids)
+    out: list[CiteValidateResponse] = []
+    for item in body.citations:
+        fetched = chunk_map.get(item.chunk_id)
+        if fetched is None:
+            out.append(CiteValidateResponse(ok=False, error="unknown chunk_id"))
+            continue
+        full_text, doc_type = fetched
+        out.append(_validate_one_cite(item, full_text, doc_type))
+    return CiteValidateBatchResponse(citations=out)
+
+
+def _validate_one_cite(
+    body: CiteValidateBody,
+    full_text: str,
+    doc_type: str | None,
+) -> CiteValidateResponse:
+    """Pure (DB-free) validation of a single cite call against a chunk's
+    text. Extracted from http_cite_validate so the batch endpoint can
+    fan out across many citations after a single bulk chunk fetch.
+    Caller is responsible for confirming the chunk exists; when it
+    doesn't, dispatch http_cite_validate's `unknown chunk_id` path
+    instead of calling this function.
+
+    `doc_type` is currently unused (the AFR-specific alignment check
+    that consumed it was dropped 2026-05-20); kept as a parameter so a
+    future faithfulness verifier (WS3) can wire back in without
+    re-plumbing the call site.
+    """
+    del doc_type  # explicit acknowledgement that the alignment path retired
     length = len(full_text)
 
     # Resolve quote → offsets. When BOTH quote and offsets are supplied,
