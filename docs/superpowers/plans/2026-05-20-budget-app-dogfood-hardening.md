@@ -26,13 +26,7 @@
 - **Modify:** `tests/test_api.py` — quote-based cite resolves offsets; claim_span over 500 truncates rather than erroring; mutual-exclusion behavior (offsets win when both supplied).
 
 ### Item 3 — `retrieve()` result sizing
-- **Modify:** `retrieval/pipeline.py` — leave `DEFAULT_PIPELINE_TOP_K=20`; introduce per-chunk `TEXT_TRIM_CHARS=1500` slicing in `retrieval/api.py` ONLY (so the eval harness still sees full text). Server adds a boolean `text_truncated` on each ChunkOut when slicing fired.
-- **Modify:** `retrieval/api.py` — `ChunkOut` gains `text_truncated: bool = False`; the handler slices `text` to 1500 chars at marshaling time. Add a new `POST /chunks/{chunk_id}/full` endpoint that returns the un-trimmed text (for the new `expand_chunk` MCP tool).
-- **Create:** `mcp-server/src/tools/expand-chunk.ts` — fourth MCP tool. Takes `chunk_id`; returns full text. Registered alongside `retrieve` / `cite` / `list_filter_values`.
-- **Modify:** `mcp-server/src/index.ts` (or wherever tools register) — register `expand_chunk`.
-- **Modify:** `mcp-server/system-prompt.md` — teach `expand_chunk(chunk_id)` for the rare "I need to see the full chunk" follow-up.
-- **Create:** `mcp-server/tests/expand-chunk.test.ts` — schema + handler.
-- **Modify:** `tests/test_api.py` — chunk text is sliced at 1500 with `text_truncated: true`; `/chunks/{id}/full` returns full text.
+- **Modify:** `retrieval/pipeline.py` — lower `DEFAULT_PIPELINE_TOP_K` from `20` → `15`; update the matching pipeline default test in `tests/test_pipeline.py` (or wherever the default is asserted) so the new value is locked in. Task 7's measurement gates this — if `top_k=15` is NOT comfortably under Claude Code's per-tool-result token budget the plan needs a Path-B revisit (out-of-band; not pre-planned here).
 
 ### Item 4 — `intent` parameter on `retrieve()` + system-prompt routes
 - **Modify:** `mcp-server/src/tools/retrieve.ts` — `retrieveInputShape` gains optional `intent: "lookup" | "compare" | "analyze"`.
@@ -50,13 +44,12 @@
 - **Modify:** `mcp-server/src/lib/bridge.ts` — add structured logging on every call (JSONL line to `BUDGET_BRIDGE_LOG_PATH` or stderr).
 - **Create:** `mcp-server/src/lib/bridge-log.ts` — small helper module that owns the JSONL writer (lazy fs init, swallows write errors). Keeps `bridge.ts` focused on transport.
 - **Modify:** `retrieval/api.py` — `/health` already exists; nothing to add there.
-- **Modify:** `web/lib/youcoded-session-provider.ts` — in `startConversation()`, probe `GET ${RETRIEVAL_BRIDGE_URL}/health` once (using a fresh, per-call fetch with a 2 s timeout). On failure, emit a `provider_event` of type `system_health` so the UI can surface a banner.
-- **Modify:** `web/lib/types.ts` — add `SystemHealthEvent` variant to `ProviderEvent`.
-- **Modify:** `web/lib/transcript-parser.ts` — pass-through (no parsing — health event originates in the provider, not from YouCoded).
+- **Modify:** `web/lib/youcoded-session-provider.ts` — extend `startConversation` to probe `/health` and return result inline. The method returns a `StartConversationResult` (`{ conversationId, health: { ok, reason? } }`); the probe uses a fresh per-call `fetch` with a 2 s `AbortController` timeout. No callback / event-subscription plumbing — synchronous return value only.
+- **Modify:** `web/lib/llm-provider.ts` — declare the new `StartConversationResult` shape on the `LLMProvider` interface so non-YouCoded providers can return `{ ok: true }` without a probe.
 - **Create:** `web/components/SystemHealthBanner.tsx` — top-of-thread banner ("Source documents service offline — start the retrieval sidecar.").
-- **Modify:** `web/app/page.tsx` (or wherever the top-level chat layout lives) — render `SystemHealthBanner` when the latest provider event is `system_health` with `ok=false`.
+- **Modify:** `web/app/page.tsx` (or wherever the top-level chat layout lives) — read `health` from the `startConversation` result (likely held in the chat-state slice that owns `conversationId`) and conditionally render `SystemHealthBanner` when `health.ok === false`.
 - **Create:** `mcp-server/tests/bridge-log.test.ts` — log helper writes JSONL with required fields.
-- **Modify:** `web/tests/youcoded-session-provider.test.ts` — `startConversation` emits `system_health` event on probe failure; does not throw.
+- **Modify:** `web/tests/youcoded-session-provider.test.ts` — `startConversation` returns `health.ok=false` (with a populated `reason`) when the probe fails; does not throw.
 - **Create:** `web/tests/system-health-banner.test.tsx` — renders the expected text when `ok=false`.
 
 ### Item 7 — Setup-friction fixes
@@ -65,10 +58,10 @@
 - **Modify:** `README.md` — add a "Daily startup" section under "Running it locally" with the five-step checklist.
 - **Modify:** `tests/test_api.py` — startup-preflight test (raises on missing env var) using `TestClient`'s lifespan handling.
 
-### Item 8 — `ListFilterValuesView` already exists — verify and harden
-The brief's item 8 says `list_filter_values` renders as `(unknown)`, but the dispatcher in `web/components/tool-views/ToolBody.tsx` already maps both `list_filter_values` and `mcp__ask-the-budget-az__list_filter_values` to `ListFilterValuesView`, and the view file exists at `web/components/tool-views/ListFilterValuesView.tsx`. The most likely cause of past `(unknown)` cards is the **tool-card friendly-name lookup** (not the body view) missing the `list_filter_values` case. Verify which surface was broken in past transcripts before changing code.
-- **Modify:** `web/lib/tool-display.ts` — confirm `list_filter_values` has a friendly label entry; add one if missing.
-- **Modify:** `web/tests/tool-display.test.ts` — extend with a case asserting the friendly label for both raw and prefixed tool names.
+### Item 8 — Defer `(unknown)` tool-card fix; investigate after Item 1 ships
+A check today against `web/lib/tool-display.ts` confirmed the friendly label for `list_filter_values` already exists (around line 29-30: `case "list_filter_values": return "Browse filters";`). The original root-cause hypothesis was wrong. The actual source of the `(unknown)` heading is `web/state/chat-reducer.ts:178`, in the `TOOL_RESULT` action handler: when a `tool_result` event arrives without a matching `tool_use` event for the same `toolUseId`, the reducer creates a synthetic placeholder block with `toolName: "(unknown)"`. This is an "orphan tool_result" sequencing issue, not a labeling issue. Because Item 1's `alwaysLoad: true` eliminates ToolSearch entirely, the orphan case should drop substantially — possibly to zero — without any code change to the reducer. Defer the fix and investigate after Item 1 ships.
+- **Modify:** `web/lib/tool-display.ts` — confirm `list_filter_values` friendly-label scaffolding remains correct (no change expected; the scaffolding is worth confirming as part of Item 8's verification).
+- **Investigation only (no code change up-front):** grep one fresh post-Item-1 dogfood session's JSONL for any `(unknown)` tool blocks; if zero occurrences, declare the issue resolved; if still occurring, file a follow-up to either improve the reducer's name-lookup fallback or investigate YouCoded's transcript sequencing.
 
 ---
 
@@ -549,7 +542,6 @@ Replace `materializeRuntimeDir` with this expanded version:
           "mcp__ask-the-budget-az__retrieve",
           "mcp__ask-the-budget-az__cite",
           "mcp__ask-the-budget-az__list_filter_values",
-          "mcp__ask-the-budget-az__expand_chunk",
         ],
         deny: [
           "Grep",
@@ -1452,9 +1444,9 @@ git commit -m "docs(mcp): system-prompt teaches quote-based cite path; pin H2 sn
 
 ---
 
-## Task 7: Investigate retrieve() response size before changing pipeline
+## Task 7: Measure retrieve() response size at top_k=15 vs. 20 (gate for Task 8)
 
-**Why:** Item 3 of the brief says "do the investigation BEFORE coding the fix." Measure the response size and find Claude Code's per-tool-result limit before deciding on the tuning shape.
+**Why:** Pre-committed decision: Task 8 lowers `DEFAULT_PIPELINE_TOP_K` from 20 → 15 (no per-chunk text trim, no `expand_chunk` tool). Task 7 exists to CONFIRM that top_k=15 fits comfortably under Claude Code's per-tool-result token budget before Task 8 lands the one-line change. If `top_k=15` is NOT comfortably under the cap (unexpected), the plan needs a Path-B revisit, which can happen out-of-band — don't pre-plan it here.
 
 **Files:**
 - Create: `scripts/measure_retrieve_size.py` — one-shot diagnostic script.
@@ -1464,11 +1456,12 @@ git commit -m "docs(mcp): system-prompt teaches quote-based cite path; pin H2 sn
 Create `scripts/measure_retrieve_size.py`:
 
 ```python
-"""One-shot diagnostic: how big is a representative retrieve() response?
+"""One-shot diagnostic: confirm top_k=15 retrieve() responses fit under
+Claude Code's per-tool-result token budget.
 
-Compares response sizes at top_k = 5, 10, 20, 25 against the per-chunk
-text size, so the plan author can decide between (a) lowering top_k,
-(b) trimming per-chunk text, or (c) both.
+Compares response sizes at top_k = 15 and top_k = 20 (the old default).
+Task 8 lowers the default to 15; this script's job is to verify that
+choice is safe before the change lands.
 
 Run with:
     set -a; source .env.local; set +a
@@ -1495,7 +1488,7 @@ def main() -> None:
     embedder = VoyageEmbedder()
     print(f"{'top_k':>6} | {'mean_bytes':>12} | {'median_bytes':>14} | {'max_bytes':>11}")
     print("-" * 60)
-    for top_k in (5, 10, 20, 25):
+    for top_k in (15, 20):
         sizes: list[int] = []
         chunk_texts: list[int] = []
         for q in QUERIES:
@@ -1535,400 +1528,84 @@ if __name__ == "__main__":
 - [ ] **Step 2: Run the measurement**
 
 Run: `uv run python scripts/measure_retrieve_size.py`
-Expected: prints a 4-row table. Capture the output — it informs the next task.
+Expected: prints a 2-row table. Capture the output.
 
-- [ ] **Step 3: Decide the tuning shape**
+- [ ] **Step 3: Confirm top_k=15 fits**
 
-Compare the measurements to Claude Code's 25K-token per-tool-result limit (~100K chars for a JSON payload). If `top_k=20` mean > 80K chars, the trim is needed. The default plan: cap per-chunk text at 1500 chars + add `expand_chunk` tool (Item 3 of the brief's "likely fix shape"). If the measurement shows `top_k=20` is already comfortably under 80K, instead drop the default `top_k` to 15 and skip the per-chunk trim.
+Claude Code's per-tool-result budget is ~25K tokens (~100K chars for JSON). Confirm the `top_k=15` mean and max sizes are comfortably under 80K chars (leaving headroom for response framing). If yes (expected), proceed to Task 8 — it's a one-line change. If no (unexpected — measurements blow the budget even at top_k=15), STOP and surface the gap; a Path-B revisit is needed before Task 8 can land safely.
 
-Record the decision in the commit message of Task 8.
+Record the measurement in the commit message of Task 8 for the audit trail.
 
 - [ ] **Step 4: Commit the script**
 
 ```bash
 git add scripts/measure_retrieve_size.py
-git commit -m "scripts: measure_retrieve_size diagnostic for retrieve() response sizing"
+git commit -m "scripts: measure_retrieve_size diagnostic gating top_k=15 default"
 ```
 
 ---
 
-## Task 8: Trim per-chunk text + add `expand_chunk` tool
+## Task 8: Lower `DEFAULT_PIPELINE_TOP_K` from 20 to 15
 
-**Why:** Most plausible outcome of Task 7's investigation — `top_k=20` over the 7,755-chunk corpus generates payloads that occasionally exceed Claude Code's 25K-token tool-result limit, triggering spillover-to-disk. The model then uses `Read` to re-access the spillover (15 occurrences in past sessions). Trimming each chunk's text in the API response to 1500 chars stays under the limit; an `expand_chunk` tool lets the model fetch full text on demand.
-
-If Task 7's data shows the measurement was actually fine and a top_k drop is sufficient, do that instead (change `DEFAULT_PIPELINE_TOP_K = 20` → `15`) and skip the rest of this task. The instructions below assume the trim path.
+**Why:** Pre-committed Decision Q2. Item 3's payload-sizing concern resolves with a single one-line change — drop the default `top_k` from 20 to 15. No per-chunk text trim, no `expand_chunk` tool, no `text_truncated` field, no new endpoint. Task 7 confirms the new default fits comfortably under Claude Code's per-tool-result token budget before this task lands.
 
 **Files:**
-- Modify: `retrieval/api.py:73-127` (`ChunkOut`), `retrieval/api.py:280-330` (`http_retrieve`).
-- Modify: `retrieval/api.py` — add `GET /chunks/{chunk_id}/full` endpoint.
-- Create: `mcp-server/src/tools/expand-chunk.ts`.
-- Modify: `mcp-server/src/index.ts` — register the new tool.
-- Test: `tests/test_api.py`, `mcp-server/tests/expand-chunk.test.ts`.
+- Modify: `retrieval/pipeline.py` — change `DEFAULT_PIPELINE_TOP_K = 20` → `15`.
+- Modify (or add): the matching default-value assertion in `tests/test_pipeline.py` (or wherever `DEFAULT_PIPELINE_TOP_K` is locked in by a test).
 
-- [ ] **Step 1: Write the failing sidecar test**
+- [ ] **Step 1: Confirm Task 7's gate passed**
 
-Append to `tests/test_api.py`:
+Before touching `pipeline.py`, verify the `scripts/measure_retrieve_size.py` output from Task 7 showed `top_k=15` mean and max sizes comfortably under 80K chars (Claude Code's per-tool-result budget). If the gate did NOT pass, STOP — escalate to a Path-B revisit instead of proceeding.
+
+- [ ] **Step 2: Write the failing test**
+
+Locate the existing assertion on `DEFAULT_PIPELINE_TOP_K`'s value (most likely in `tests/test_pipeline.py`; if no test pins the constant today, append one). The test should look roughly like:
 
 ```python
-@needs_db
-def test_retrieve_truncates_long_chunk_text_to_1500_chars(monkeypatch):
-    """Per-chunk text is sliced to 1500 chars at marshaling time so the
-    full retrieve() payload stays under Claude Code's per-tool-result
-    token budget. The full text remains available via /chunks/{id}/full
-    when the model explicitly needs it (rare).
+def test_default_pipeline_top_k_is_fifteen():
+    """Lowered from 20 to 15 (Decision Q2, 2026-05-20) so retrieve()
+    responses stay comfortably under Claude Code's 25K-token per-tool-
+    result budget without needing a per-chunk text trim. Task 7's
+    measurement confirmed top_k=15 fits with headroom for response
+    framing.
     """
-    long_text = "abc " * 1000  # 4000 chars
-    fake_result = RetrievalResult(
-        chunks=[_fake_chunk("c1", doc_id="d1", text=long_text)],
-        top_score=0.9,
-        reranker_scores=[0.9],
-        bm25_count=1,
-        dense_count=1,
-        fused_count=1,
-    )
-    monkeypatch.setattr(
-        api_module, "retrieve", lambda req, embedder=None: fake_result
-    )
-    monkeypatch.setattr(
-        api_module, "_lookup_doc_titles", lambda ids: {"d1": "Doc"}
-    )
-    monkeypatch.setattr(api_module, "_get_embedder", lambda: None)
+    from retrieval.pipeline import DEFAULT_PIPELINE_TOP_K
 
-    with TestClient(app) as client:
-        resp = client.post("/retrieve", json={"query": "x"})
-
-    body = resp.json()
-    c = body["chunks"][0]
-    assert len(c["text"]) == 1500
-    assert c["text_truncated"] is True
-    # text_length reflects the FULL (untruncated) length so the model
-    # still knows the true chunk size.
-    assert c["text_length"] == 4000
-
-
-@needs_db
-def test_expand_chunk_endpoint_returns_full_text():
-    with psycopg.connect(os.environ["DATABASE_URL"]) as conn:
-        row = conn.execute(
-            "SELECT chunk_id, text FROM chunks WHERE LENGTH(text) > 2000 LIMIT 1"
-        ).fetchone()
-    if row is None:
-        pytest.skip("no chunk > 2000 chars in the corpus")
-    chunk_id, expected = row[0], row[1]
-
-    with TestClient(app) as client:
-        resp = client.get(f"/chunks/{chunk_id}/full")
-
-    assert resp.status_code == 200
-    body = resp.json()
-    assert body["chunk_id"] == chunk_id
-    assert body["text"] == expected
-    assert body["text_length"] == len(expected)
+    assert DEFAULT_PIPELINE_TOP_K == 15
 ```
 
-- [ ] **Step 2: Run tests to verify they fail**
+Run: `uv run pytest tests/test_pipeline.py -k "default_pipeline_top_k_is_fifteen" -v`
+Expected: FAIL (the constant is still 20).
 
-Run: `uv run pytest tests/test_api.py -k "truncates_long or expand_chunk" -v`
-Expected: FAIL (no `text_truncated` field; no `/chunks/{id}/full` endpoint).
+- [ ] **Step 3: Lower the default**
 
-- [ ] **Step 3: Update `ChunkOut` and `http_retrieve` in `retrieval/api.py`**
-
-Add the `text_truncated` field to `ChunkOut`:
+In `retrieval/pipeline.py`, change the single line:
 
 ```python
-class ChunkOut(BaseModel):
-    chunk_id: str
-    doc_id: str
-    doc_title: str
-    publisher: str
-    fiscal_year: int | None
-    doc_type: str
-    section_path: list[str]
-    page_start: int | None
-    page_end: int | None
-    bbox: list[float] | None = None
-    text: str
-    # True when `text` was sliced from the full chunk text. The full
-    # text is still available via GET /chunks/{chunk_id}/full when the
-    # model explicitly needs more context — but the trim keeps the
-    # default retrieve() payload under Claude Code's per-tool-result
-    # token budget so it doesn't get redirected to disk.
-    text_truncated: bool = False
-    text_length: int  # ALWAYS the full chunk length, not the trimmed value
-    score: float
+# Lowered from 20 to 15 (2026-05-20, Decision Q2 — dogfood hardening).
+# Sized so a default retrieve() response stays comfortably under Claude
+# Code's 25K-token per-tool-result budget; eliminates the spillover-to-
+# disk + redundant Read pattern that 31 dogfood sessions exhibited at
+# top_k=20. See scripts/measure_retrieve_size.py for the supporting
+# measurement.
+DEFAULT_PIPELINE_TOP_K = 15
 ```
 
-Add a constant near the top of the file (just below the imports section, where the other tuning constants live):
+- [ ] **Step 4: Run tests to verify they pass**
 
-```python
-# Per-chunk text size cap for the retrieve() response payload. Sized so
-# top_k=20 stays well under Claude Code's 25K-token tool-result budget
-# (measured 2026-05-20; see scripts/measure_retrieve_size.py). Full text
-# is reachable via GET /chunks/{chunk_id}/full when the model needs it.
-RETRIEVE_TEXT_TRIM_CHARS = 1500
-```
+Run: `uv run pytest tests/test_pipeline.py -v`
+Expected: PASS (every test, including the new fifteen assertion).
 
-Update the `chunks=[...]` comprehension in `http_retrieve` to trim:
+Run the full pytest suite as a safety net:
 
-```python
-    return RetrieveResponse(
-        chunks=[
-            ChunkOut(
-                chunk_id=c.chunk_id,
-                doc_id=c.doc_id,
-                doc_title=doc_titles.get(c.doc_id, ""),
-                publisher=c.publisher,
-                fiscal_year=c.fiscal_year,
-                doc_type=c.doc_type,
-                section_path=c.section_path,
-                page_start=c.page,
-                page_end=c.page,
-                bbox=c.bbox,
-                # Slice for the response; the FULL text is recoverable
-                # via /chunks/{chunk_id}/full. We set text_truncated when
-                # slicing actually fired so the model knows.
-                text=(c.text or "")[:RETRIEVE_TEXT_TRIM_CHARS],
-                text_truncated=len(c.text or "") > RETRIEVE_TEXT_TRIM_CHARS,
-                text_length=len(c.text or ""),
-                score=c.score,
-            )
-            for c in result.chunks
-        ],
-        top_score=result.top_score,
-        retrieval_id=str(uuid4()),
-        bm25_count=result.bm25_count,
-        dense_count=result.dense_count,
-        fused_count=result.fused_count,
-    )
-```
+Run: `uv run pytest`
+Expected: PASS across the board. If any retrieval-shape test broke because it hard-coded `top_k=20`, update the affected test to use 15 (or to assert against the constant rather than the literal).
 
-Add a new endpoint at the bottom of the file:
-
-```python
-class ChunkFullResponse(BaseModel):
-    chunk_id: str
-    text: str
-    text_length: int
-
-
-@app.get("/chunks/{chunk_id}/full", response_model_exclude_none=True)
-def http_chunk_full(chunk_id: str) -> ChunkFullResponse:
-    """Return the full (un-trimmed) text of a single chunk. Used by the
-    `expand_chunk` MCP tool when the model needs more context than the
-    1500-char slice retrieve() returns by default. Cheap — single
-    indexed lookup.
-    """
-    with get_connection() as conn:
-        row = conn.execute(
-            "SELECT text FROM chunks WHERE chunk_id = %s",
-            [chunk_id],
-        ).fetchone()
-    if row is None:
-        from fastapi import HTTPException
-
-        raise HTTPException(status_code=404, detail="chunk_id not found")
-    text = row["text"] or ""
-    return ChunkFullResponse(
-        chunk_id=chunk_id, text=text, text_length=len(text)
-    )
-```
-
-- [ ] **Step 4: Run sidecar tests to verify they pass**
-
-Run: `uv run pytest tests/test_api.py -v`
-Expected: PASS (every test, including the two new ones).
-
-- [ ] **Step 5: Create the `expand_chunk` MCP tool**
-
-Create `mcp-server/src/tools/expand-chunk.ts`:
-
-```typescript
-// MCP `expand_chunk` tool — fetch the full (un-trimmed) text of a single
-// chunk. Pairs with retrieve()'s per-chunk text trim (1500 chars) — when
-// the model needs the full chunk text it calls this. Cheap (single
-// indexed lookup at the sidecar).
-
-import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
-import { z } from "zod";
-
-import { loadConfig, type Config } from "../config.js";
-import { getJson, type Fetcher } from "../lib/bridge.js";
-
-export const expandChunkInputShape = {
-  chunk_id: z
-    .string()
-    .min(1)
-    .describe(
-      "Primary key into the chunks table. Must equal a value returned " +
-        "from retrieve() in this conversation. Format: '<doc_id>::<chunk_index>'.",
-    ),
-};
-
-export const expandChunkInputSchema = z.object(expandChunkInputShape);
-export type ExpandChunkInput = z.infer<typeof expandChunkInputSchema>;
-
-interface ChunkFullResponse {
-  chunk_id: string;
-  text: string;
-  text_length: number;
-}
-
-const TOOL_DESCRIPTION =
-  "Fetch the full (un-trimmed) text of a single chunk that retrieve() " +
-  "returned. retrieve() slices each chunk's text to 1500 chars to keep " +
-  "the response payload small; if you need the full chunk to pick a " +
-  "longer quote for cite(), call this. Cheap — single indexed lookup.";
-
-export function makeExpandChunkHandler(
-  cfg: Config = loadConfig(),
-  fetcher: Fetcher = fetch,
-) {
-  return async (input: ExpandChunkInput) => {
-    let result: ChunkFullResponse;
-    try {
-      result = await getJson<ChunkFullResponse>(
-        cfg,
-        `/chunks/${encodeURIComponent(input.chunk_id)}/full`,
-        fetcher,
-      );
-    } catch (err) {
-      return {
-        content: [
-          {
-            type: "text" as const,
-            text:
-              `expand_chunk() failed: ${(err as Error).message}. ` +
-              `Tell the user the retrieval service is unavailable.`,
-          },
-        ],
-        isError: true,
-      };
-    }
-    return {
-      content: [
-        { type: "text" as const, text: JSON.stringify(result, null, 2) },
-      ],
-    };
-  };
-}
-
-export function registerExpandChunkTool(
-  server: McpServer,
-  cfg: Config = loadConfig(),
-  fetcher: Fetcher = fetch,
-): void {
-  server.registerTool(
-    "expand_chunk",
-    {
-      description: TOOL_DESCRIPTION,
-      inputSchema: expandChunkInputShape,
-    },
-    makeExpandChunkHandler(cfg, fetcher),
-  );
-}
-```
-
-- [ ] **Step 6: Register the tool**
-
-Open `mcp-server/src/index.ts`. Find the lines registering the three existing tools and add a fourth:
-
-```typescript
-import { registerExpandChunkTool } from "./tools/expand-chunk.js";
-// ... existing imports ...
-
-// In the function that wires up the server:
-registerRetrieveTool(server);
-registerCiteTool(server);
-registerListFilterValuesTool(server);
-registerExpandChunkTool(server);  // <-- new
-```
-
-- [ ] **Step 7: Write the expand-chunk vitest**
-
-Create `mcp-server/tests/expand-chunk.test.ts`:
-
-```typescript
-import { describe, expect, it, vi } from "vitest";
-
-import { loadConfig } from "../src/config.js";
-import {
-  expandChunkInputSchema,
-  makeExpandChunkHandler,
-} from "../src/tools/expand-chunk.js";
-
-describe("expand_chunk input schema", () => {
-  it("accepts a chunk_id string", () => {
-    const parsed = expandChunkInputSchema.parse({ chunk_id: "doc::0" });
-    expect(parsed.chunk_id).toBe("doc::0");
-  });
-  it("rejects an empty chunk_id", () => {
-    expect(() => expandChunkInputSchema.parse({ chunk_id: "" })).toThrow();
-  });
-});
-
-describe("expand_chunk handler", () => {
-  it("GETs /chunks/{chunk_id}/full and forwards the JSON to the model", async () => {
-    const fetcher = vi.fn(async (url: RequestInfo | URL) => {
-      expect(String(url)).toMatch(/\/chunks\/doc%3A%3A0\/full$/);
-      return new Response(
-        JSON.stringify({
-          chunk_id: "doc::0",
-          text: "full chunk body…",
-          text_length: 16,
-        }),
-        { status: 200 },
-      );
-    });
-    const handler = makeExpandChunkHandler(loadConfig(), fetcher);
-    const result = await handler({ chunk_id: "doc::0" });
-    expect(result.isError).toBeUndefined();
-    const decoded = JSON.parse(result.content[0]!.text as string);
-    expect(decoded.text).toBe("full chunk body…");
-  });
-
-  it("returns isError:true on transport failure", async () => {
-    const fetcher = vi.fn(async () => {
-      throw new TypeError("ECONNREFUSED");
-    });
-    const handler = makeExpandChunkHandler(loadConfig(), fetcher);
-    const result = await handler({ chunk_id: "doc::0" });
-    expect(result.isError).toBe(true);
-    expect(result.content[0]!.text).toMatch(/expand_chunk\(\) failed/);
-  });
-});
-```
-
-- [ ] **Step 8: Update system prompt to teach `expand_chunk`**
-
-In `mcp-server/system-prompt.md`, append a short subsection right after the `list_filter_values` tool description (before `### Standard Claude Code tools`):
-
-```markdown
-### `expand_chunk(chunk_id)`
-
-Returns the FULL text of a single chunk. retrieve() trims each chunk's
-text to 1500 chars to keep its response payload small; if you need more
-text from a specific chunk to pick a longer quote for `cite()`, call
-expand_chunk(). Cheap — single indexed lookup.
-
-**Use it sparingly.** The 1500-char slice covers the vast majority of
-quote needs. Reach for expand_chunk() only when the slice clearly cuts
-off mid-sentence and the support you need is in the cut-off portion.
-```
-
-Also add a line near the cite() tool's `quote` guidance: "If the chunk
-text is truncated (`text_truncated: true`) and you need more, call
-`expand_chunk(chunk_id)` first, then pick the quote from the full text."
-
-- [ ] **Step 9: Run all tests to verify everything still passes**
-
-Run both: `cd mcp-server && npx vitest run` and `uv run pytest tests/test_api.py -v`
-Expected: PASS (vitest + pytest, including the new expand_chunk tests).
-
-- [ ] **Step 10: Commit**
+- [ ] **Step 5: Commit**
 
 ```bash
-git add retrieval/api.py mcp-server/src/tools/expand-chunk.ts mcp-server/src/index.ts mcp-server/tests/expand-chunk.test.ts tests/test_api.py mcp-server/system-prompt.md
-git commit -m "feat(retrieval): trim per-chunk text to 1500 in retrieve(); add expand_chunk tool"
+git add retrieval/pipeline.py tests/test_pipeline.py
+git commit -m "feat(retrieval): lower DEFAULT_PIPELINE_TOP_K 20 -> 15 (Decision Q2)"
 ```
 
 ---
@@ -2161,8 +1838,11 @@ def test_retrieve_without_intent_uses_default_top_k(monkeypatch):
 
     with TestClient(app) as client:
         client.post("/retrieve", json={"query": "x"})
-    # No intent, no top_k → falls through to the body default (20).
-    assert captured["top_k"] == 20
+    # No intent, no top_k → falls through to DEFAULT_PIPELINE_TOP_K
+    # (15 after Task 8 lands; assert against the constant rather than
+    # the literal so this test moves with future tuning).
+    from retrieval.pipeline import DEFAULT_PIPELINE_TOP_K
+    assert captured["top_k"] == DEFAULT_PIPELINE_TOP_K
 ```
 
 - [ ] **Step 2: Run tests to verify they fail**
@@ -2181,7 +1861,7 @@ class RetrieveRequestBody(BaseModel):
     # top_k is optional now: an explicit value overrides the intent's
     # default; absent + intent set → server picks top_k from the
     # _INTENT_TOP_K table; absent + no intent → server uses
-    # DEFAULT_PIPELINE_TOP_K (currently 20).
+    # DEFAULT_PIPELINE_TOP_K (15 after Task 8 lands).
     top_k: int | None = None
     # Route classifier. Tunes top_k server-side and is echoed in the
     # response so the (future) audit log writer can record it.
@@ -2271,8 +1951,7 @@ def http_retrieve(body: RetrieveRequestBody) -> RetrieveResponse:
                 page_start=c.page,
                 page_end=c.page,
                 bbox=c.bbox,
-                text=(c.text or "")[:RETRIEVE_TEXT_TRIM_CHARS],
-                text_truncated=len(c.text or "") > RETRIEVE_TEXT_TRIM_CHARS,
+                text=c.text or "",
                 text_length=len(c.text or ""),
                 score=c.score,
             )
@@ -2849,112 +2528,81 @@ git commit -m "feat(mcp): structured per-call JSONL logging for bridge diagnosti
 
 ---
 
-## Task 14: Session-start health probe + UI banner
+## Task 14: Session-start health probe returned inline from `startConversation`
 
-**Why:** Item 6 (second half). Today's blocking incident was: sidecar wasn't running, user typed a question, got a mid-answer "retrieval service unavailable" error. A pre-flight probe at session start catches this earlier and shows a clear banner.
+**Why:** Item 6 (second half). Today's blocking incident was: sidecar wasn't running, user typed a question, got a mid-answer "retrieval service unavailable" error. A pre-flight probe at session start catches this earlier and shows a clear banner. Per Decision Q1, the probe result is returned **directly from `startConversation`** as `StartConversationResult.health` — no callback / `onGlobalEvent` plumbing, no `SystemHealthEvent` variant, no `transcript-parser.ts` pass-through.
 
 **Files:**
-- Modify: `web/lib/youcoded-session-provider.ts` — add a `/health` probe at the end of `startConversation`.
-- Modify: `web/lib/types.ts` — add a `system_health` `ProviderEvent` variant.
+- Modify: `web/lib/llm-provider.ts` (or wherever `LLMProvider` is declared) — `startConversation` returns `StartConversationResult` instead of a bare `conversationId`.
+- Modify: `web/lib/youcoded-session-provider.ts` — extend `startConversation` to probe `/health` after `createSession` and return `{ conversationId, health }`.
 - Create: `web/components/SystemHealthBanner.tsx`.
-- Modify: `web/app/page.tsx` (or wherever the chat thread is mounted).
+- Modify: `web/app/page.tsx` (or the chat-state slice that owns `conversationId`) — render `<SystemHealthBanner>` when the most recent `startConversation` returned `health.ok === false`.
 - Test: `web/tests/youcoded-session-provider.test.ts`, `web/tests/system-health-banner.test.tsx`.
 
-- [ ] **Step 1: Add the event type**
+- [ ] **Step 1: Declare the new return shape on `LLMProvider`**
 
-In `web/lib/types.ts`, add to the `ProviderEvent` union:
+In `web/lib/llm-provider.ts` (or wherever the interface lives), introduce the result type and update the signature:
 
 ```typescript
-/** Emitted once per startConversation when the retrieval sidecar's
- *  /health probe succeeds or fails. The UI uses this to show a banner
- *  ("Source documents service offline — start the retrieval sidecar.")
- *  BEFORE the user types a question, instead of letting them discover
- *  the issue mid-answer. */
-export interface SystemHealthEvent {
-  type: "system_health";
-  ok: boolean;
-  message: string;
+/** What `startConversation` returns. `health` lets the UI render a
+ *  banner BEFORE the user's first turn when the retrieval sidecar
+ *  isn't reachable — instead of letting them discover the failure
+ *  mid-answer. Non-YouCoded providers (e.g., mock providers used in
+ *  tests) can return `{ ok: true }` without a probe. */
+export interface StartConversationResult {
+  conversationId: string;
+  health: { ok: boolean; reason?: string };
+}
+
+export interface LLMProvider {
+  // ... existing members ...
+  startConversation(opts?: StartConversationOpts): Promise<StartConversationResult>;
 }
 ```
 
-Find the existing `ProviderEvent` union (likely `type ProviderEvent = ...`) and add `| SystemHealthEvent`.
+Any non-YouCoded provider (mocks, future providers) returns `{ conversationId, health: { ok: true } }` since they don't depend on the retrieval sidecar.
 
-- [ ] **Step 2: Probe the sidecar at session start**
+- [ ] **Step 2: Probe the sidecar inside `startConversation`**
 
-In `web/lib/youcoded-session-provider.ts`, after `startConversation`'s `createSession` call and before returning, add a fire-and-forget probe:
-
-```typescript
-    // Side-car health probe. Done after the YouCoded session exists
-    // (so the UI can subscribe to the event) and BEFORE the user sends
-    // their first turn. We don't BLOCK on the result — a slow /health
-    // shouldn't delay the chat. Just emit the event so the UI can
-    // surface a banner when the sidecar is down.
-    void this.probeSidecarHealth().then((ok) => {
-      const event: import("./types.js").SystemHealthEvent = ok
-        ? {
-            type: "system_health",
-            ok: true,
-            message: "Source documents service ready.",
-          }
-        : {
-            type: "system_health",
-            ok: false,
-            message:
-              "Source documents service offline — start the retrieval " +
-              "sidecar (uv run uvicorn retrieval.api:app --port 9200).",
-          };
-      this.emitGlobalEvent(event);
-    });
-```
-
-Add the helper methods on the class:
+In `web/lib/youcoded-session-provider.ts`, after the existing `materialize` + `createSession` logic completes successfully but before the method returns, probe the sidecar synchronously and fold the result into the return value:
 
 ```typescript
-  /** Single GET /health probe with a 2s timeout. Returns true if the
-   *  sidecar responded 200 with `status: "ok"`. We hard-code 2s rather
-   *  than use the bridge timeout — the probe should fail fast at
-   *  startup, not wait the full retrieve timeout. */
-  private async probeSidecarHealth(): Promise<boolean> {
-    const url =
-      (process.env.RETRIEVAL_BRIDGE_URL ?? "http://127.0.0.1:9200") +
-      "/health";
-    const controller = new AbortController();
-    const timer = setTimeout(() => controller.abort(), 2000);
-    try {
-      const resp = await fetch(url, { signal: controller.signal });
-      if (!resp.ok) return false;
-      const body = (await resp.json()) as { status?: string };
-      return body.status === "ok";
-    } catch {
-      return false;
-    } finally {
-      clearTimeout(timer);
+async startConversation(opts?: StartConversationOpts): Promise<StartConversationResult> {
+  // ... existing materializeRuntimeDir + createSession logic produces `info` ...
+
+  // Sidecar /health probe. Done synchronously AFTER createSession (so
+  // failures here can't strand a half-created session) and BEFORE we
+  // return (so the caller sees the result in one place). 2s hard
+  // timeout — the probe must fail fast; we don't want a slow /health
+  // delaying the chat. We return the failure on the result object
+  // rather than emitting an event so the UI doesn't need any
+  // subscription plumbing.
+  const probeUrl =
+    (process.env.RETRIEVAL_BRIDGE_URL ?? "http://127.0.0.1:9200") + "/health";
+  let health: { ok: boolean; reason?: string };
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), 2000);
+  try {
+    const resp = await fetch(probeUrl, { signal: controller.signal });
+    if (resp.ok) {
+      health = { ok: true };
+    } else {
+      health = { ok: false, reason: `HTTP ${resp.status}` };
     }
+  } catch (err) {
+    health = { ok: false, reason: (err as Error).message };
+  } finally {
+    clearTimeout(timer);
   }
 
-  private globalListeners: Array<(e: import("./types.js").ProviderEvent) => void> = [];
-
-  /** Subscribe to provider-scoped (not session-scoped) events like
-   *  system_health. Returns an unsubscribe function. */
-  onGlobalEvent(cb: (e: import("./types.js").ProviderEvent) => void): () => void {
-    this.globalListeners.push(cb);
-    return () => {
-      this.globalListeners = this.globalListeners.filter((c) => c !== cb);
-    };
-  }
-
-  private emitGlobalEvent(e: import("./types.js").ProviderEvent): void {
-    for (const cb of this.globalListeners) {
-      try {
-        cb(e);
-      } catch (err) {
-        process.stderr.write(
-          `[youcoded-session-provider] global listener threw: ${(err as Error).stack ?? err}\n`,
-        );
-      }
-    }
-  }
+  return { conversationId: info.id, health };
+}
 ```
+
+Notes:
+- No event emission, no listener plumbing, no `onGlobalEvent` method, no `SystemHealthEvent` type.
+- A probe failure does NOT throw — `health.ok === false` is the signal the UI checks. Throwing would prevent the user from interacting with the conversation at all (they may still want to type — they'll just have no retrieval support).
+- The class no longer needs `probeSidecarHealth`, `emitGlobalEvent`, or `globalListeners` private members.
 
 - [ ] **Step 3: Add a session-provider test**
 
@@ -2962,7 +2610,7 @@ Append to `web/tests/youcoded-session-provider.test.ts`:
 
 ```typescript
 describe("YouCodedSessionProvider — sidecar health probe", () => {
-  it("emits system_health ok:false when the sidecar is unreachable", async () => {
+  it("startConversation returns health.ok=false when the probe fails", async () => {
     server.onSessionCreate = () => ({
       id: "probe-conv-1",
       name: "x",
@@ -2975,31 +2623,62 @@ describe("YouCodedSessionProvider — sidecar health probe", () => {
     });
 
     const provider = makeProvider();
-    // Point the probe at a port that nothing's listening on.
+    // Point the probe at a port nothing's listening on so the fetch
+    // fails fast (ECONNREFUSED) within the 2s timeout.
     const prev = process.env.RETRIEVAL_BRIDGE_URL;
     process.env.RETRIEVAL_BRIDGE_URL = "http://127.0.0.1:1";
 
-    const seenHealth: Array<{ ok: boolean; message: string }> = [];
-    provider.onGlobalEvent((e) => {
-      if (e.type === "system_health") {
-        seenHealth.push({ ok: e.ok, message: e.message });
-      }
-    });
+    const result = await provider.startConversation();
 
-    await provider.startConversation();
-    // The probe is fired off — wait a few ticks for it to resolve.
-    await new Promise((r) => setTimeout(r, 50));
-
-    expect(seenHealth).toHaveLength(1);
-    expect(seenHealth[0]).toMatchObject({ ok: false });
-    expect(seenHealth[0]!.message).toMatch(/offline/);
+    expect(result.conversationId).toBe("probe-conv-1");
+    expect(result.health.ok).toBe(false);
+    expect(typeof result.health.reason).toBe("string");
+    expect(result.health.reason!.length).toBeGreaterThan(0);
 
     if (prev === undefined) delete process.env.RETRIEVAL_BRIDGE_URL;
     else process.env.RETRIEVAL_BRIDGE_URL = prev;
     await provider.disconnect();
   });
+
+  it("startConversation returns health.ok=true when the sidecar responds 200", async () => {
+    // Spin a tiny test HTTP server that answers /health with 200.
+    const http = await import("node:http");
+    const healthServer = http.createServer((_req, res) => {
+      res.writeHead(200, { "content-type": "application/json" });
+      res.end(JSON.stringify({ status: "ok" }));
+    });
+    await new Promise<void>((resolve) => healthServer.listen(0, resolve));
+    const port = (healthServer.address() as { port: number }).port;
+
+    server.onSessionCreate = () => ({
+      id: "probe-conv-2",
+      name: "x",
+      cwd: "/tmp",
+      permissionMode: "normal",
+      skipPermissions: true,
+      status: "active",
+      createdAt: 1000,
+      provider: "claude",
+    });
+
+    const provider = makeProvider();
+    const prev = process.env.RETRIEVAL_BRIDGE_URL;
+    process.env.RETRIEVAL_BRIDGE_URL = `http://127.0.0.1:${port}`;
+
+    const result = await provider.startConversation();
+    expect(result.health.ok).toBe(true);
+    expect(result.health.reason).toBeUndefined();
+
+    if (prev === undefined) delete process.env.RETRIEVAL_BRIDGE_URL;
+    else process.env.RETRIEVAL_BRIDGE_URL = prev;
+    await provider.disconnect();
+    await new Promise<void>((resolve) => healthServer.close(() => resolve()));
+  });
 });
 ```
+
+Run: `cd web && npx vitest run tests/youcoded-session-provider.test.ts`
+Expected: FAIL on first run (signature mismatch — the existing impl returns a string, not `{conversationId, health}`).
 
 - [ ] **Step 4: Create the UI banner component**
 
@@ -3009,21 +2688,34 @@ Create `web/components/SystemHealthBanner.tsx`:
 "use client";
 
 // Top-of-thread banner that appears when the retrieval sidecar's
-// /health probe fails at session start. Surfacing the failure here —
-// BEFORE the user types a question — saves them from getting a
-// mid-answer "retrieval service unavailable" error.
+// /health probe failed at session start. The probe result is read
+// from the `startConversation` return value (no event subscription) —
+// the chat-state slice that owns `conversationId` also owns this
+// banner's visibility. Surfacing the failure here — BEFORE the user
+// types a question — saves them from getting a mid-answer "retrieval
+// service unavailable" error.
 
 interface Props {
-  message: string;
+  /** Optional underlying reason string from the probe (e.g. "HTTP 500"
+   *  or "ECONNREFUSED"). Surfaced as small dim text after the main
+   *  message so the user has something to paste into a bug report. */
+  reason?: string;
 }
 
-export default function SystemHealthBanner({ message }: Props) {
+const FALLBACK_MESSAGE =
+  "Source documents service offline — start the retrieval sidecar " +
+  "(uv run uvicorn retrieval.api:app --port 9200).";
+
+export default function SystemHealthBanner({ reason }: Props) {
   return (
     <div
       role="alert"
       className="mx-auto max-w-3xl mt-3 mb-2 px-3 py-2 rounded-md border border-warn/30 bg-warn/10 text-warn-fg text-xs"
     >
-      <strong className="font-medium">Heads up:</strong> {message}
+      <strong className="font-medium">Heads up:</strong> {FALLBACK_MESSAGE}
+      {reason ? (
+        <span className="ml-2 opacity-70">({reason})</span>
+      ) : null}
     </div>
   );
 }
@@ -3040,56 +2732,50 @@ import { renderToString } from "react-dom/server";
 import SystemHealthBanner from "../components/SystemHealthBanner";
 
 describe("SystemHealthBanner", () => {
-  it("renders the message inside an alert role", () => {
-    const html = renderToString(
-      <SystemHealthBanner message="Source documents service offline — start the retrieval sidecar." />,
-    );
+  it("renders the offline message inside an alert role", () => {
+    const html = renderToString(<SystemHealthBanner />);
     expect(html).toContain("role=\"alert\"");
     expect(html).toContain("offline");
+  });
+
+  it("surfaces the underlying reason in parentheses when supplied", () => {
+    const html = renderToString(<SystemHealthBanner reason="HTTP 503" />);
+    expect(html).toContain("HTTP 503");
   });
 });
 ```
 
 - [ ] **Step 6: Wire the banner into the chat layout**
 
-Open `web/app/page.tsx` (or the top-level chat layout — confirm via `grep -rn "ChatThread" web/app/`). Add state to track health + render the banner above `<ChatThread>`. Sketch (adapt to the actual file structure):
-
-```typescript
-// At the top of the component:
-const [healthMsg, setHealthMsg] = useState<string | null>(null);
-
-useEffect(() => {
-  const provider = getServerProvider();  // however the page currently retrieves it
-  const unsub = provider.onGlobalEvent((e) => {
-    if (e.type === "system_health") {
-      setHealthMsg(e.ok ? null : e.message);
-    }
-  });
-  return unsub;
-}, []);
-
-// In the JSX, before <ChatThread />:
-{healthMsg && <SystemHealthBanner message={healthMsg} />}
-```
-
-Add the import:
+Open `web/app/page.tsx` (or the top-level chat layout — confirm via `grep -rn "ChatThread" web/app/`). The chat-state slice that owns `conversationId` is the same slice that should hold `health`. When `startConversation` resolves, store both pieces of state:
 
 ```typescript
 import SystemHealthBanner from "@/components/SystemHealthBanner";
+
+// In the chat-state slice (or whatever owns conversationId):
+const [health, setHealth] = useState<{ ok: boolean; reason?: string } | null>(null);
+
+// When starting a conversation:
+const result = await provider.startConversation();
+setConversationId(result.conversationId);
+setHealth(result.health);
+
+// In the JSX, before <ChatThread />:
+{health && !health.ok ? <SystemHealthBanner reason={health.reason} /> : null}
 ```
 
-Note: if the production provider lives in `web/lib/server-provider.ts` and is accessed via a server-side path rather than a client-side singleton, the banner state will need to come through the same channel as other provider events (the existing `ProviderEvent` stream / API route). Trace that wiring first; the goal is "the banner appears when the latest `system_health` event has `ok:false`."
+If the production path holds `conversationId` in a reducer / store rather than `useState`, store `health` in the same shape (same action — `START_CONVERSATION_RESOLVED { conversationId, health }`). The wiring change is "read health from the startConversation result" — no event subscription, no `onGlobalEvent`.
 
 - [ ] **Step 7: Run all tests**
 
 Run: `cd web && npx vitest run`
-Expected: PASS — new probe test, banner test, and all existing tests.
+Expected: PASS — both new probe tests, the banner test, and every existing test.
 
 - [ ] **Step 8: Commit**
 
 ```bash
-git add web/lib/youcoded-session-provider.ts web/lib/types.ts web/components/SystemHealthBanner.tsx web/tests/system-health-banner.test.tsx web/tests/youcoded-session-provider.test.ts web/app/page.tsx
-git commit -m "feat(web): sidecar /health probe at session start + SystemHealthBanner"
+git add web/lib/llm-provider.ts web/lib/youcoded-session-provider.ts web/components/SystemHealthBanner.tsx web/tests/system-health-banner.test.tsx web/tests/youcoded-session-provider.test.ts web/app/page.tsx
+git commit -m "feat(web): sidecar /health probe returned inline from startConversation (Q1)"
 ```
 
 ---
@@ -3291,75 +2977,65 @@ git commit -m "docs(README): add Daily startup checklist with health-banner poin
 
 ---
 
-## Task 17: Verify `list_filter_values` tool-card friendly label
+## Task 17: Investigate `(unknown)` tool card after Item 1 ships (verification-only)
 
-**Why:** Item 8 of the brief. The body view already exists; the most likely root cause of past `(unknown)` cards is the **friendly-name lookup** in `web/lib/tool-display.ts` not knowing about `list_filter_values` (or its prefixed form). Verify which surface was broken in transcripts and fix the tool-display lookup if needed.
+**Why:** Item 8 of the brief. The original root-cause hypothesis was wrong — a check today against `web/lib/tool-display.ts` confirms the friendly label for `list_filter_values` already exists (around line 29-30: `case "list_filter_values": return "Browse filters";`). The actual `(unknown)` heading comes from `web/state/chat-reducer.ts:178`, in the `TOOL_RESULT` action handler: when a `tool_result` event arrives without a matching `tool_use` event for the same `toolUseId`, the reducer creates a synthetic placeholder block with `toolName: "(unknown)"`. This is an "orphan `tool_result`" sequencing case, not a labeling case.
 
-**Files:**
-- Read: `web/lib/tool-display.ts`.
-- Modify: `web/lib/tool-display.ts` (if a case is missing).
-- Modify: `web/tests/tool-display.test.ts`.
+The likely upstream cause is YouCoded's transcript watcher emitting `tool_use` + `tool_result` with a sequencing gap that the lazy-loaded ToolSearch flow exacerbated. Because Tasks 1–3 install `alwaysLoad: true` (which eliminates ToolSearch entirely), the orphan case should drop substantially — possibly to zero — without any code change to the reducer. So this task is **verification only**: no code change up-front, just an investigation step that runs after Item 1 has shipped and one fresh dogfood session has been recorded. It produces either a one-line "resolved" close-out or a follow-up issue with concrete evidence.
 
-- [ ] **Step 1: Read the tool-display module**
+**Files:** None modified up-front. If the investigation finds the issue persists, a follow-up issue is filed — that work is NOT part of this plan.
 
-Run: `cat web/lib/tool-display.ts`
-Expected: a function or map that translates `toolName` strings into friendly labels. Find the cases for `retrieve`, `cite`, `list_filter_values` and their `mcp__ask-the-budget-az__*` prefixed forms.
+- [ ] **Step 1: Wait until Tasks 1–3 have shipped + one fresh dogfood session has been recorded**
 
-- [ ] **Step 2: Decide if a case is missing**
+Tasks 1, 2, and 3 must be merged and a single end-to-end dogfood session run against the new per-conversation `.mcp.json` + `.claude/settings.json`. Until that's true, this task can't produce evidence — skip and return to it after the rest of the plan lands.
 
-If `list_filter_values` and `mcp__ask-the-budget-az__list_filter_values` BOTH map to a friendly label like "Find filter values" — no code change needed; the `(unknown)` cards in past sessions are something else (likely a tool the model invoked that we hadn't anticipated). In that case skip to Step 5.
+- [ ] **Step 2: Locate the new session's JSONL transcript**
 
-If either form is missing — add it. Edit `web/lib/tool-display.ts`:
+YouCoded persists each session's transcript as JSONL under the YouCoded data dir. Identify the transcript file for the session that ran on the new toolset. (A `ls -lt` on the transcripts directory ordered by mtime is usually enough.)
 
-```typescript
-// Friendly label map. The prefixed `mcp__ask-the-budget-az__*` forms
-// are how Claude Code names the tools after MCP registration; the bare
-// forms are what we register them as. Both must map.
-const TOOL_LABELS: Record<string, string> = {
-  retrieve: "Search corpus",
-  "mcp__ask-the-budget-az__retrieve": "Search corpus",
-  cite: "Cite claim",
-  "mcp__ask-the-budget-az__cite": "Cite claim",
-  list_filter_values: "Find filter values",
-  "mcp__ask-the-budget-az__list_filter_values": "Find filter values",
-  expand_chunk: "Expand chunk",
-  "mcp__ask-the-budget-az__expand_chunk": "Expand chunk",
-  Bash: "Shell",
-  Read: "Read file",
-  // … existing entries …
-};
-```
+- [ ] **Step 3: Grep for orphan `tool_result` events**
 
-- [ ] **Step 3: Update the tool-display test**
-
-In `web/tests/tool-display.test.ts`, add cases:
-
-```typescript
-  it("labels list_filter_values (raw and prefixed)", () => {
-    expect(toolLabel("list_filter_values")).toBe("Find filter values");
-    expect(toolLabel("mcp__ask-the-budget-az__list_filter_values")).toBe(
-      "Find filter values",
-    );
-  });
-
-  it("labels expand_chunk (raw and prefixed)", () => {
-    expect(toolLabel("expand_chunk")).toBe("Expand chunk");
-    expect(toolLabel("mcp__ask-the-budget-az__expand_chunk")).toBe(
-      "Expand chunk",
-    );
-  });
-```
-
-- [ ] **Step 4: Run tests to verify**
-
-Run: `cd web && npx vitest run tests/tool-display.test.ts`
-Expected: PASS.
-
-- [ ] **Step 5: Commit**
+The synthetic-block path in `chat-reducer.ts:178` fires when a `tool_result` arrives with a `toolUseId` that has no preceding `tool_use` in the same transcript. Look for that pattern. Rough recipe:
 
 ```bash
-git add web/lib/tool-display.ts web/tests/tool-display.test.ts
-git commit -m "fix(web): list_filter_values + expand_chunk friendly labels (raw + prefixed)"
+# List every tool_use id seen in the transcript.
+jq -c 'select(.type == "tool_use") | .id' < <transcript>.jsonl | sort -u > /tmp/used.txt
+
+# List every tool_result toolUseId.
+jq -c 'select(.type == "tool_result") | .toolUseId' < <transcript>.jsonl | sort -u > /tmp/results.txt
+
+# Orphans = tool_result ids that have no matching tool_use id.
+comm -23 /tmp/results.txt /tmp/used.txt
+```
+
+Adapt the jq paths to whatever field names YouCoded actually uses in its transcripts (check a few lines first). The goal is "count `tool_result` events whose `toolUseId` was never declared in a `tool_use`."
+
+- [ ] **Step 4: Decide based on the count**
+
+**If zero orphans:** Decision Q3's hypothesis is confirmed — `alwaysLoad: true` resolved the orphan-`tool_result` case. Close this task with a one-line note in the commit message ("Q3 resolved: zero orphans observed in post-Item-1 session <transcript-id>"). No code change.
+
+**If one or more orphans:** The fix is NOT a simple labeling change. Two follow-up options to file as a separate issue (NOT to fix inline):
+1. **Reducer name-lookup fallback** — improve `chat-reducer.ts:178` so when a synthetic block is created, a later `tool_use` event with the same `toolUseId` upgrades the synthetic block in place (look up `toolName` across the full event log, including events that arrived after the synthetic block was created). This is a budget-repo change.
+2. **YouCoded transcript sequencing** — investigate whether YouCoded's transcript watcher is emitting `tool_result` before `tool_use` for the same id under specific conditions. This would be a YouCoded-side fix, out of scope for this plan.
+
+Don't write either fix without root-cause confirmation. File the follow-up issue with the orphan count + the specific `toolUseId`s observed.
+
+- [ ] **Step 5: Sanity-check that `tool-display.ts` scaffolding still looks right**
+
+While the transcript is open, double-check that `web/lib/tool-display.ts` still has its `list_filter_values` case present (in case a refactor between brief-writing and execution moved or removed it). No edits expected — this is just a verification glance.
+
+- [ ] **Step 6: Commit the investigation outcome (or no-op)**
+
+If Step 4 declared "zero orphans / resolved," commit a one-line plan annotation so the audit trail records the close-out:
+
+```bash
+git commit --allow-empty -m "chore(plan): Q3/Task 17 resolved — zero orphan tool_result events post-Item-1"
+```
+
+If Step 4 found orphans, the commit instead points at the follow-up issue:
+
+```bash
+git commit --allow-empty -m "chore(plan): Q3/Task 17 — orphans persisted; see issue #<n> for follow-up"
 ```
 
 ---
@@ -3393,7 +3069,7 @@ curl -s -X POST http://127.0.0.1:9200/retrieve \
 kill $SIDECAR_PID
 ```
 
-Expected: JSON with `chunks` (5 entries — `intent: "lookup"` → top_k 5), each chunk's `text` ≤ 1500 chars, top-level `intent: "lookup"`.
+Expected: JSON with `chunks` (5 entries — `intent: "lookup"` → top_k 5) and top-level `intent: "lookup"`. (Chunk text is not trimmed — Decision Q2 dropped the 1500-char slice in favor of just lowering the default `top_k`.)
 
 - [ ] **Step 3: Smoke test a quote-based cite via the sidecar**
 
@@ -3481,23 +3157,22 @@ Scanned for "TBD", "TODO", "implement later", "fill in details", "Add appropriat
 
 - `BudgetMcpServerEntry` (Task 1) uses `command: string, args: string[], env: Record<string, string>`. Task 2 destructures `{ command, args, env }` — matches.
 - `CiteInput` after Task 4 has optional `span_start`, `span_end`, `quote`. Task 5's sidecar `CiteValidateBody` mirrors them. The handler in Task 4 checks `typeof input.span_start === "number"` — matches.
-- `ChunkOut.text_truncated` (Task 8 sidecar) → not consumed by the Node side directly; the model reads the JSON. Consistent.
-- `expand_chunk` registration: Task 8 creates the tool, Task 2's settings.json allow-list already lists `mcp__ask-the-budget-az__expand_chunk` so the permission is in place when Task 8 lands. The pair-order is fine because the deny-list takes effect at YouCoded boot regardless.
-- `SystemHealthEvent` (Task 14): used by `onGlobalEvent` callback in same task. Consistent.
+- `DEFAULT_PIPELINE_TOP_K` (Task 8) is a single integer constant in `retrieval/pipeline.py`; the Node side reads `top_k` off `retrieve()` responses through the existing `ChunkOut` shape — no new type to keep in sync. Consistent.
+- `StartConversationResult` (Task 14): declared on `LLMProvider` in `web/lib/llm-provider.ts`; consumed by the chat-state slice in `web/app/page.tsx`. The probe lives entirely inside `YouCodedSessionProvider.startConversation` — no provider-event variant, no callback type to keep in sync. Consistent.
 
 **5. Test coverage gaps:**
 
 The PDF text-layer match drift (mentioned in STATUS.md "What's open") is NOT touched by this plan — per the brief's "Things explicitly OUT of scope" list. No regression added; no fix attempted. Document and move on.
 
-The faithfulness verifier (WS3) and audit-log writer (WS5) remain unbuilt. This plan adds a `text_truncated` field, an `intent` echo, and JSONL bridge logging — all of which will feed those future workstreams without locking in their shapes. ✓
+The faithfulness verifier (WS3) and audit-log writer (WS5) remain unbuilt. This plan adds an `intent` echo and JSONL bridge logging — both of which will feed those future workstreams without locking in their shapes. ✓
 
 ---
 
 ## Open questions I couldn't resolve from this brief
 
-1. **Task 14's `onGlobalEvent` mechanism.** The brief didn't say how the UI subscribes to provider-scoped events vs. session-scoped ones. The plan adds a parallel `onGlobalEvent` callback path on `YouCodedSessionProvider`. If the web app uses a different (e.g., SSE-via-API-route) plumbing for client-side state, the wiring in Task 14 Step 6 will need to be adapted. The component + the test still hold.
+1. **Task 14's `onGlobalEvent` mechanism.** RESOLVED (Decision Q1, 2026-05-20): the health probe result is returned **directly from `startConversation`** as `StartConversationResult.health` — `{ ok: boolean; reason?: string }`. No callback plumbing, no `SystemHealthEvent` variant on `ProviderEvent`, no `transcript-parser.ts` pass-through, no `onGlobalEvent` subscription. The chat-state slice that owns `conversationId` also owns the banner's visibility. Task 14 has been rewritten accordingly; the `youcoded-session-provider` test now asserts "startConversation returns health.ok=false when probe fails" instead of "emits system_health event."
 
-2. **Task 7's investigation outcome.** Task 8 assumes per-chunk text trim is needed. If the measurement shows top_k=20 is already comfortably under 80K chars, Task 8 should instead lower `DEFAULT_PIPELINE_TOP_K` to 15 and skip the trim. The plan flags this in Task 7 Step 3.
+2. **Task 7's investigation outcome.** RESOLVED (Decision Q2, 2026-05-20): pre-committed to **lower `DEFAULT_PIPELINE_TOP_K` from 20 to 15**, **skip the per-chunk text trim**, and **skip the `expand_chunk` tool entirely**. Task 7 retains a slimmed-down measurement step whose job is now to CONFIRM `top_k=15` fits comfortably under Claude Code's per-tool-result token budget. Task 8 collapses to a one-line constant change plus a matching test. If Task 7's gate fails (unexpected), a Path-B revisit is needed out-of-band — the plan does not pre-plan that path.
 
-3. **Task 17's verification.** The brief says `list_filter_values` rendered as `(unknown)`. The body view exists and the dispatcher maps it correctly today, so the most-likely culprit is `tool-display.ts`. If verification of past transcripts shows a different root cause (e.g., the tool block's `kind` field), the fix shape changes — but the test scaffold is unchanged.
+3. **Task 17's verification.** RESOLVED (Decision Q3, 2026-05-20): the friendly label already exists in `web/lib/tool-display.ts` (around line 29-30: `case "list_filter_values": return "Browse filters";`). The original hypothesis was wrong. The actual `(unknown)` source is `web/state/chat-reducer.ts:178`, in the `TOOL_RESULT` action handler — an orphan-`tool_result` sequencing case that should drop substantially (possibly to zero) once Item 1's `alwaysLoad: true` eliminates ToolSearch. Task 17 has been rewritten as a verification-only investigation that runs after Item 1 ships: grep a fresh post-Item-1 transcript for orphan `tool_result` events, declare resolved if zero, file a follow-up issue (NOT fix inline) if any persist.
 
