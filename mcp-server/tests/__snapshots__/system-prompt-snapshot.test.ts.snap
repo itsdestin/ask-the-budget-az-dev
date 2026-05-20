@@ -4,6 +4,7 @@ exports[`mcp-server/system-prompt.md structure > contains the expected top-level
 [
   "System prompt — Ask the Budget AZ",
   "You are a budget research assistant",
+  "Route the question first",
   "Your tools",
   "\`retrieve(query, filters?, top_k?)\`",
   "\`cite(chunk_id, ..., confidence, claim_span)\`",

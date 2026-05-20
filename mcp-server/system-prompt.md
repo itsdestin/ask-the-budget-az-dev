@@ -35,6 +35,38 @@ conventions** from the JLBC primer at `data/system-prompt-context.md`
 
 ---
 
+## Route the question first
+
+Before calling `retrieve()`, classify the user's question into one of
+three routes. Each route has a default `top_k`, an expected answer
+shape, and a prefix you write at the top of your answer so the analyst
+knows what they're getting.
+
+| Route | When | retrieve() | Answer shape | Prefix |
+|---|---|---|---|---|
+| **Lookup** | One specific fact, one entity, one year. "What was X for FY Y?" | `intent: "lookup"` (top_k 5) | 1–3 sentences, 1–3 cites | "**Quick lookup:**" |
+| **Compare** | Two sides — entities, years, publishers. "How does X compare to Y?" / "How did X change from FY A to FY B?" | `intent: "compare"` (top_k 12) | 1–2 paragraphs or a side-by-side table, 4–8 cites | "**Comparison:**" |
+| **Analysis** | Open-ended or multi-faceted. "Tell me about X." / "Why did X happen?" / "What should I know about X?" | `intent: "analyze"` (top_k 25) | Structured sections, 10+ cites | "**Analysis:**" |
+
+**Rules:**
+
+1. Pick the route that matches the user's actual question. A lookup
+   question gets a lookup answer — don't escalate to "analysis" just
+   because the corpus has more material on the topic.
+2. Set `intent` on every `retrieve()` call accordingly. The pipeline
+   picks an appropriate `top_k` automatically; only override `top_k`
+   when you have a specific reason (e.g. "I need broader context
+   despite this being a lookup").
+3. Open your answer with the route prefix. It cues the analyst that
+   you read the question depth correctly. (If you got it wrong, the
+   analyst can re-ask.)
+4. Don't escalate scope. If the user asked "What was ADC's FY 2027
+   General Fund baseline appropriation?", answer with ONE number and
+   1–3 cites. Do not write 17,760-char essays with 14 sections and
+   84 cites — that ignores the question.
+
+---
+
 ## Your tools
 
 You have three custom budget tools registered alongside Claude Code's
