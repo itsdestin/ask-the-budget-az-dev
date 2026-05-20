@@ -39,6 +39,35 @@ node mcp-server/scripts/register.mjs    # writes ~/.claude.json; restart YouCode
 # the persisted token from ~/.claude/.remote-tokens.json).
 ```
 
+### Daily startup (after a reboot or first launch of the day)
+
+Run these in order; each step's success unblocks the next. The
+SystemHealthBanner at the top of the chat surfaces problems at the
+sidecar layer; the steps below cover everything below it.
+
+1. **Docker Desktop running.** Check the system tray icon. Postgres
+   lives in a container — without Docker the sidecar can't connect.
+2. **Postgres container up.**
+   ```bash
+   cd db && docker compose up -d
+   ```
+3. **Retrieval sidecar (port 9200).** Auto-loads `.env.local`; fails
+   fast at startup if `VOYAGE_API_KEY` is missing or Postgres is
+   unreachable.
+   ```bash
+   uv run uvicorn retrieval.api:app --host 127.0.0.1 --port 9200
+   ```
+4. **YouCoded running.** Open the YouCoded UI on the device. The
+   budget app needs `ws://localhost:9900` reachable.
+5. **Web UI (port 3000).**
+   ```bash
+   ( cd web && npm run dev )
+   ```
+
+Open http://localhost:3000. If the SystemHealthBanner says the source
+documents service is offline, step 3 didn't succeed — re-run it and
+read its stderr for the specific failure reason.
+
 ## Moving to a new device
 
 Everything is in this single git repo. To launch on a fresh device:
