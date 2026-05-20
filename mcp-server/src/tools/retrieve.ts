@@ -106,8 +106,11 @@ export const retrieveInputShape = {
     .describe(
       "Number of chunks to return after rerank. When `intent` is set, " +
         "the server overrides this with the intent's default top_k " +
-        "(lookup→5, compare→12, analyze→25); pass top_k explicitly to " +
-        "override.",
+        "(lookup→5, compare→12, analyze→18); pass top_k explicitly to " +
+        "override. NOTE: the FIRST retrieve() of any session is capped " +
+        "to 5 chunks regardless of this value (progressive-retrieval " +
+        "discipline — see deep_dive for the opt-out). Subsequent calls " +
+        "honor this field normally.",
     ),
   // Added 2026-05-20: route classifier that hints at the analysis depth
   // the user is asking for. Tunes top_k server-side and is recorded in
@@ -120,8 +123,27 @@ export const retrieveInputShape = {
       "Question-depth classifier set by Claude based on the user's " +
         "question. 'lookup' = one specific fact (top_k 5, terse answer). " +
         "'compare' = side-by-side of two entities/years (top_k 12). " +
-        "'analyze' = open-ended overview (top_k 25, structured answer). " +
-        "Optional; omit when unsure.",
+        "'analyze' = open-ended overview (top_k 18, structured answer). " +
+        "Optional; omit when unsure. NOTE: the FIRST retrieve() of any " +
+        "session is capped to 5 chunks regardless of intent — see " +
+        "deep_dive for the opt-out. After that, intent is honored.",
+    ),
+  // Added 2026-05-20: opt-out for the first-call cap. Set true when the
+  // analyst explicitly requested thorough/comprehensive coverage and
+  // the model needs the full retrieve breadth on the very first call.
+  // Default false (cap fires). On second+ calls, has no effect.
+  deep_dive: z
+    .boolean()
+    .optional()
+    .describe(
+      "Set true ONLY when the analyst explicitly asked for thorough / " +
+        "comprehensive / 'deep dive' coverage and you need the full " +
+        "intent-resolved top_k on the very FIRST retrieve() of the " +
+        "session. By default, the first retrieve() is capped to 5 " +
+        "chunks so you can sample before pulling more (call retrieve() " +
+        "again with a sharper query or higher top_k once you see what " +
+        "the sample contains). Most questions don't need this. " +
+        "Only has an effect on the first retrieve() of a session.",
     ),
 };
 
@@ -162,7 +184,33 @@ const TOOL_DESCRIPTION =
   "question implies them (a specific fiscal year, agency, publisher, etc.). " +
   "Returns chunks with chunk_id values that you must echo back into cite() " +
   "calls — never invent a chunk_id. If `top_score` < 0.30, do NOT cite; " +
-  "respond with the refusal phrase from the system prompt.";
+  "respond with the refusal phrase from the system prompt. " +
+  "PROGRESSIVE RETRIEVAL: the FIRST retrieve() of any session is capped " +
+  "at 5 chunks regardless of what you pass — sample first, expand only " +
+  "if the sample isn't enough. The response carries `first_call_capped: " +
+  "true` on that call so you know. To opt out (analyst explicitly asked " +
+  "for thorough / comprehensive / deep-dive coverage), pass " +
+  "`deep_dive: true` on the first call.";
+
+/** Module-level state — one MCP server process per Claude Code session,
+ *  so a simple boolean is enough to track "is this the first retrieve()
+ *  of the session." Resets when the process restarts (i.e. on new
+ *  session), which is exactly the semantics we want. */
+let isFirstRetrieveCall = true;
+
+/** How small the first retrieve() of a session is forced to be. Matches
+ *  lookup's top_k so a question whose first call lands well doesn't
+ *  need a follow-up. The number is tunable; named so callers /
+ *  tests / observers can refer to it without re-deriving "5". */
+export const FIRST_CALL_TOP_K_CAP = 5;
+
+/** Test-only reset. Production never resets — the MCP server process
+ *  is short-lived (one per session) and the natural restart on a new
+ *  session is the intended trigger. Tests need this to exercise the
+ *  cap independently. */
+export function resetFirstCallStateForTests(): void {
+  isFirstRetrieveCall = true;
+}
 
 /** Build the retrieve tool callback. `fetcher` is injected for tests
  *  so they can stub the HTTP boundary without spinning a real server. */
@@ -171,17 +219,35 @@ export function makeRetrieveHandler(
   fetcher: Fetcher = fetch,
 ) {
   return async (input: RetrieveInput) => {
-    // Only forward top_k and intent when the caller supplied them. When
-    // both are omitted, the sidecar uses its own DEFAULT_PIPELINE_TOP_K
-    // (15 since 2026-05-20, Task 8). Pre-filling top_k on the client
-    // side would shadow that default and bake the old value of 20
-    // into every conversation, defeating Decision Q2.
+    // Progressive-retrieval discipline: the first retrieve() of a
+    // session is capped to FIRST_CALL_TOP_K_CAP regardless of the
+    // model's requested top_k or intent. This forces a small sample
+    // first so the model can read it and decide whether to expand.
+    // Opt-out: model sets `deep_dive: true` when the analyst
+    // explicitly asked for thorough coverage. After the first call,
+    // the flag flips and pass-through behavior resumes.
+    const firstCallCappedNow =
+      isFirstRetrieveCall && input.deep_dive !== true;
+    // Flip the flag NOW (before the await) so concurrent retrieve()
+    // calls in the same turn don't all see "first call" — only the
+    // earliest dispatch wins the cap.
+    if (isFirstRetrieveCall) isFirstRetrieveCall = false;
+
     const body: Record<string, unknown> = {
       query: input.query,
       filters: input.filters ?? null,
     };
-    if (input.top_k !== undefined) body.top_k = input.top_k;
-    if (input.intent !== undefined) body.intent = input.intent;
+    if (firstCallCappedNow) {
+      // Hard override — wins over both input.top_k and intent's
+      // resolved default. Forward `intent` anyway so the audit log
+      // sees the model's classification, but the explicit top_k=5
+      // takes precedence in the sidecar's resolution chain.
+      body.top_k = FIRST_CALL_TOP_K_CAP;
+      if (input.intent !== undefined) body.intent = input.intent;
+    } else {
+      if (input.top_k !== undefined) body.top_k = input.top_k;
+      if (input.intent !== undefined) body.intent = input.intent;
+    }
 
     let result: RetrieveBridgeResponse;
     try {
@@ -208,6 +274,15 @@ export function makeRetrieveHandler(
       };
     }
 
+    // Augment the response with the first_call_capped flag so the
+    // model can tell why the result is smaller than its ask. We
+    // include this signal only when the cap actually fired — second-
+    // and-later calls (and first-call deep_dive opt-outs) return the
+    // sidecar's response unchanged.
+    const responseToModel = firstCallCappedNow
+      ? { ...result, first_call_capped: true }
+      : result;
+
     return {
       content: [
         {
@@ -215,7 +290,7 @@ export function makeRetrieveHandler(
           // The model parses this JSON. Pretty-printing aids debug
           // visibility without measurably costing tokens — chunks
           // are bounded by `top_k`.
-          text: JSON.stringify(result, null, 2),
+          text: JSON.stringify(responseToModel, null, 2),
         },
       ],
     };

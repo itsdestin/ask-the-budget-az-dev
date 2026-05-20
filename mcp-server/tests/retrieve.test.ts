@@ -2,11 +2,13 @@
 // handler behavior with a stubbed fetcher so no real HTTP / Postgres /
 // Voyage call is made — these run in any environment.
 
-import { describe, expect, it, vi } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import { loadConfig } from "../src/config.js";
 import {
+  FIRST_CALL_TOP_K_CAP,
   makeRetrieveHandler,
+  resetFirstCallStateForTests,
   retrieveInputSchema,
   type RetrieveBridgeResponse,
 } from "../src/tools/retrieve.js";
@@ -190,7 +192,17 @@ function makeFakeFetch(
 }
 
 describe("retrieve handler", () => {
+  // Reset the module-level "first call of session" flag before each
+  // test so each test starts in a known state. Production never
+  // resets — a real session ends when the MCP process dies.
+  beforeEach(() => {
+    resetFirstCallStateForTests();
+  });
+
   it("forwards query+filters+top_k to the bridge and returns the JSON payload", async () => {
+    // The pass-through path: model passes top_k=10 AND deep_dive:true,
+    // so the first-call cap is bypassed and the body carries the
+    // model's requested top_k unchanged.
     const fetcher = vi.fn(async (url: RequestInfo | URL, opts?: RequestInit) => {
       // Confirm the URL points at /retrieve and the body shape is right.
       expect(String(url)).toMatch(/\/retrieve$/);
@@ -207,6 +219,7 @@ describe("retrieve handler", () => {
       query: "Aviation Fund",
       filters: { fiscal_year: [2027] },
       top_k: 10,
+      deep_dive: true,
     });
 
     expect(result.isError).toBeUndefined();
@@ -214,6 +227,7 @@ describe("retrieve handler", () => {
     expect(result.content[0]!.type).toBe("text");
 
     const decoded = JSON.parse(result.content[0]!.text as string);
+    // No first_call_capped marker on the deep_dive-bypassed call.
     expect(decoded).toEqual(fakeBridgeResponse);
     expect(fetcher).toHaveBeenCalledTimes(1);
   });
@@ -224,6 +238,11 @@ describe("retrieve handler", () => {
     // default of 15 (Task 8 / Decision Q2). The contract is now: if
     // the caller passes neither top_k nor intent, the body has no
     // top_k field and the sidecar uses DEFAULT_PIPELINE_TOP_K.
+    //
+    // After the 2026-05-20 first-call cap landed, this contract only
+    // holds when deep_dive=true bypasses the cap, OR on second+ calls.
+    // We test the deep_dive bypass path here; the second-call path is
+    // covered by the dedicated cap test below.
     const fetcher = vi.fn(async (_u: RequestInfo | URL, opts?: RequestInit) => {
       const body = JSON.parse(opts?.body as string);
       expect(body.filters).toBeNull();
@@ -233,7 +252,7 @@ describe("retrieve handler", () => {
     });
 
     const handler = makeRetrieveHandler(loadConfig(), fetcher);
-    await handler({ query: "x" });
+    await handler({ query: "x", deep_dive: true });
     expect(fetcher).toHaveBeenCalledTimes(1);
   });
 
@@ -257,5 +276,90 @@ describe("retrieve handler", () => {
     const result = await handler({ query: "x" });
     expect(result.isError).toBe(true);
     expect(result.content[0]!.text).toMatch(/transport error/);
+  });
+
+  // -------------------------------------------------------------------
+  // Progressive retrieval — first-call top_k cap (2026-05-20)
+  // -------------------------------------------------------------------
+
+  it("caps top_k to FIRST_CALL_TOP_K_CAP on the first call of a session", async () => {
+    // Model passed top_k=25 (analyze breadth). Cap fires regardless.
+    const fetcher = vi.fn(async (_url: RequestInfo | URL, opts?: RequestInit) => {
+      const body = JSON.parse(opts?.body as string);
+      expect(body.top_k).toBe(FIRST_CALL_TOP_K_CAP);
+      return new Response(JSON.stringify(fakeBridgeResponse), { status: 200 });
+    });
+
+    const handler = makeRetrieveHandler(loadConfig(), fetcher);
+    const result = await handler({ query: "x", top_k: 25 });
+
+    // Response carries first_call_capped:true so the model knows the
+    // result was sampled, not its full ask.
+    const decoded = JSON.parse(result.content[0]!.text as string);
+    expect(decoded.first_call_capped).toBe(true);
+  });
+
+  it("caps top_k on the first call even when intent is set (intent forwarded for audit)", async () => {
+    const fetcher = vi.fn(async (_url: RequestInfo | URL, opts?: RequestInit) => {
+      const body = JSON.parse(opts?.body as string);
+      // top_k is the explicit cap (sidecar's resolution: explicit wins).
+      expect(body.top_k).toBe(FIRST_CALL_TOP_K_CAP);
+      // intent still flows for the audit log; sidecar ignores its
+      // implicit top_k because the explicit one wins.
+      expect(body.intent).toBe("analyze");
+      return new Response(JSON.stringify(fakeBridgeResponse), { status: 200 });
+    });
+
+    const handler = makeRetrieveHandler(loadConfig(), fetcher);
+    await handler({ query: "x", intent: "analyze" });
+  });
+
+  it("bypasses the cap when deep_dive:true is supplied on the first call", async () => {
+    // Analyst explicitly asked for thorough coverage — model passes
+    // deep_dive:true and the cap doesn't fire.
+    const fetcher = vi.fn(async (_url: RequestInfo | URL, opts?: RequestInit) => {
+      const body = JSON.parse(opts?.body as string);
+      expect(body.top_k).toBe(25);
+      expect(body.intent).toBe("analyze");
+      return new Response(JSON.stringify(fakeBridgeResponse), { status: 200 });
+    });
+
+    const handler = makeRetrieveHandler(loadConfig(), fetcher);
+    const result = await handler({
+      query: "x",
+      intent: "analyze",
+      top_k: 25,
+      deep_dive: true,
+    });
+
+    // No first_call_capped marker — the cap didn't fire.
+    const decoded = JSON.parse(result.content[0]!.text as string);
+    expect(decoded.first_call_capped).toBeUndefined();
+  });
+
+  it("does NOT cap second and later retrieves; pass-through behavior resumes", async () => {
+    // First call gets capped (consumed by the discipline). Second call
+    // honors whatever the model passes — top_k=20, intent, etc.
+    const fetcher = vi.fn(async (_url: RequestInfo | URL, opts?: RequestInit) => {
+      return new Response(JSON.stringify(fakeBridgeResponse), { status: 200 });
+    });
+    const handler = makeRetrieveHandler(loadConfig(), fetcher);
+
+    // First call — capped.
+    await handler({ query: "first", top_k: 30 });
+    const firstBody = JSON.parse((fetcher.mock.calls[0]?.[1] as RequestInit)?.body as string);
+    expect(firstBody.top_k).toBe(FIRST_CALL_TOP_K_CAP);
+
+    // Second call — pass-through, model's top_k honored.
+    await handler({ query: "second", top_k: 30 });
+    const secondBody = JSON.parse((fetcher.mock.calls[1]?.[1] as RequestInit)?.body as string);
+    expect(secondBody.top_k).toBe(30);
+
+    // Third call with intent — sidecar will resolve intent's top_k
+    // (the body just carries intent, no explicit top_k).
+    await handler({ query: "third", intent: "analyze" });
+    const thirdBody = JSON.parse((fetcher.mock.calls[2]?.[1] as RequestInit)?.body as string);
+    expect(thirdBody.top_k).toBeUndefined();
+    expect(thirdBody.intent).toBe("analyze");
   });
 });
