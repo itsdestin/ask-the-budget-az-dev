@@ -1186,49 +1186,82 @@ export function injectCiteSentinels(
 ): string {
   if (placements.length === 0) return content;
   const lines = content.split("\n");
-  // Bucket by line — preserves original cite order within each line.
-  const perLine = new Map<number, number[]>();
+  // Two buckets per line: end-of-line placements (column null) and
+  // per-sentence placements (column set). End-of-line still goes
+  // through the table-row carve-out; per-sentence injections splice
+  // into the line at the sentence's end column. Sentence placements
+  // are applied right-to-left so earlier column offsets stay valid.
+  const eolPerLine = new Map<number, number[]>();
+  const sentencePerLine = new Map<
+    number,
+    Array<{ column: number; citationIndex: number }>
+  >();
   const unmatched: number[] = [];
+
   for (const p of placements) {
     if (p.lineIndex < 0 || p.lineIndex >= lines.length) {
       unmatched.push(p.citationIndex);
+      continue;
+    }
+    if (p.column == null) {
+      if (!eolPerLine.has(p.lineIndex)) eolPerLine.set(p.lineIndex, []);
+      eolPerLine.get(p.lineIndex)!.push(p.citationIndex);
     } else {
-      if (!perLine.has(p.lineIndex)) perLine.set(p.lineIndex, []);
-      perLine.get(p.lineIndex)!.push(p.citationIndex);
+      if (!sentencePerLine.has(p.lineIndex))
+        sentencePerLine.set(p.lineIndex, []);
+      sentencePerLine.get(p.lineIndex)!.push({
+        column: p.column,
+        citationIndex: p.citationIndex,
+      });
     }
   }
-  for (const [lineIdx, citIdxs] of perLine) {
+
+  // Apply per-sentence injections first. Group items at the same
+  // column into a single splice (preserving citation-index order
+  // within the group), then process groups right-to-left (descending
+  // column) so earlier column offsets stay valid during splicing.
+  for (const [lineIdx, items] of sentencePerLine) {
+    // Group by column. Map preserves insertion order, so items at the
+    // same column accumulate in their original citation-index order.
+    const byColumn = new Map<number, number[]>();
+    for (const it of items) {
+      if (!byColumn.has(it.column)) byColumn.set(it.column, []);
+      byColumn.get(it.column)!.push(it.citationIndex);
+    }
+    // Sort columns descending so we splice from the right.
+    const columns = Array.from(byColumn.keys()).sort((a, b) => b - a);
+    let line = lines[lineIdx]!;
+    for (const col of columns) {
+      const citIdxs = byColumn.get(col)!;
+      const sentinel = citIdxs.map((i) => `{{cite:${i}}}`).join(" ");
+      // Insert " {{cite:N}}..." immediately after the sentence's end
+      // column. Adding a leading space keeps the chip visually
+      // separated from the sentence's terminating punctuation.
+      line = line.slice(0, col) + " " + sentinel + line.slice(col);
+    }
+    lines[lineIdx] = line;
+  }
+
+  // Then apply end-of-line / table-row injections (existing behavior).
+  for (const [lineIdx, citIdxs] of eolPerLine) {
     const sentinels = citIdxs.map((i) => `{{cite:${i}}}`).join(" ");
     const raw = lines[lineIdx]!;
     const stripped = raw.replace(/\s+$/u, "");
-    // Markdown table row: starts with `|` (possibly after whitespace)
-    // AND ends with `|`. The GFM parser eats anything between the
-    // closing `|` and the newline (or adds it as an extra-column
-    // cell that gets truncated to match the header column count),
-    // so a sentinel appended AFTER the closing `|` silently
-    // disappears. Inject BEFORE the closing `|` instead, which
-    // puts the sentinel inside the last cell where the chip can
-    // render. The 2026-05-12 audit's invisible cites #1-6 were
-    // this case.
     if (/^\s*\|/.test(stripped) && /\|\s*$/.test(stripped)) {
-      // Walk back from the end past optional whitespace to find the
-      // closing `|`, then insert the sentinel just before it. The
-      // cell content typically already has a trailing space before
-      // the `|`; strip it so we don't end up with double spacing.
+      // Table row: inject inside the last cell (existing carve-out).
       const closeIdx = stripped.lastIndexOf("|");
       const before = stripped.slice(0, closeIdx).replace(/\s+$/u, "");
-      lines[lineIdx] = before + " " + sentinels + " " + stripped.slice(closeIdx);
+      lines[lineIdx] =
+        before + " " + sentinels + " " + stripped.slice(closeIdx);
     } else {
-      // Non-table line: append sentinels at the end. Non-breaking
-      // space prefix glues chips to the last token visually.
+      // Non-table line: append at end of line.
       lines[lineIdx] = stripped + " " + sentinels;
     }
   }
+
   let result = lines.join("\n");
   if (unmatched.length > 0) {
     const sentinels = unmatched.map((i) => `{{cite:${i}}}`).join(" ");
-    // Separate from the answer body with a blank line so the chip
-    // group doesn't hug the last paragraph awkwardly.
     result += "\n\n" + sentinels;
   }
   return result;

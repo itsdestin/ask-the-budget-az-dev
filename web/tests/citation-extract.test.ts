@@ -1588,4 +1588,17 @@ describe("planCitationPlacements per-sentence iteration", () => {
     expect(placements).toHaveLength(1);
     expect(placements[0]!.lineIndex).toBe(-1);
   });
+
+  it("injects sentinels after each matching sentence, not just end-of-line", () => {
+    const content = "The Fund got $5M in FY25. The Fund also got $5M in FY26.";
+    const placements = planCitationPlacements(content, [
+      { claimSpan: "$5M" },
+    ]);
+    const augmented = injectCiteSentinels(content, placements);
+    // Chip appears after BOTH sentence-terminating periods, not just
+    // at end-of-line. Sentinels grouped by citation index.
+    expect(augmented).toBe(
+      "The Fund got $5M in FY25. {{cite:0}} The Fund also got $5M in FY26. {{cite:0}}",
+    );
+  });
 });
