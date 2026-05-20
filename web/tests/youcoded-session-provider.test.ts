@@ -577,6 +577,143 @@ describe("YouCodedSessionProvider — system prompt materialization", () => {
     expect(cwds[0]).not.toBe(cwds[1]);
     await provider.disconnect();
   });
+
+  it("writes .mcp.json with alwaysLoad:true and a per-session .claude/settings.json deny list", async () => {
+    // Stage a synthetic global ~/.claude.json the loader can read.
+    const fs = await import("node:fs/promises");
+    const os = await import("node:os");
+    const path = await import("node:path");
+    const globalCfgDir = await fs.mkdtemp(
+      path.join(os.tmpdir(), "budget-globalcfg-"),
+    );
+    const globalCfgPath = path.join(globalCfgDir, "config.json");
+    await fs.writeFile(
+      globalCfgPath,
+      JSON.stringify({
+        mcpServers: {
+          "ask-the-budget-az": {
+            command: "/test/node",
+            args: ["/test/mcp/dist/index.js"],
+            env: { RETRIEVAL_BRIDGE_URL: "http://127.0.0.1:9200" },
+          },
+        },
+      }),
+      "utf8",
+    );
+
+    let createPayloadCwd: string | undefined;
+    server.onSessionCreate = (payload) => {
+      createPayloadCwd = payload["cwd"] as string;
+      return {
+        id: `mat-conv-${++nextSession}`,
+        name: "x",
+        cwd: createPayloadCwd ?? "/tmp",
+        permissionMode: "normal",
+        skipPermissions: true,
+        status: "active",
+        createdAt: 1000,
+        provider: "claude",
+      };
+    };
+
+    const provider = new YouCodedSessionProvider({
+      url: serverUrl,
+      token: "test-token",
+      systemPromptPath: promptPath,
+      systemPromptContextPath: contextPath,
+      runtimeDirRoot: runtimeRoot,
+      globalMcpConfigPath: globalCfgPath,
+    });
+
+    await provider.startConversation();
+    expect(typeof createPayloadCwd).toBe("string");
+
+    // .mcp.json should declare the budget server eagerly loaded.
+    const mcpJsonRaw = await fs.readFile(
+      path.join(createPayloadCwd!, ".mcp.json"),
+      "utf8",
+    );
+    const mcpJson = JSON.parse(mcpJsonRaw);
+    expect(mcpJson.mcpServers["ask-the-budget-az"]).toMatchObject({
+      command: "/test/node",
+      args: ["/test/mcp/dist/index.js"],
+      env: { RETRIEVAL_BRIDGE_URL: "http://127.0.0.1:9200" },
+      alwaysLoad: true,
+    });
+
+    // .claude/settings.json should allow Bash + Read + the three
+    // budget MCP tools (D5: general tools stay enabled) and deny the
+    // tools past sessions never used legitimately.
+    const settingsRaw = await fs.readFile(
+      path.join(createPayloadCwd!, ".claude", "settings.json"),
+      "utf8",
+    );
+    const settings = JSON.parse(settingsRaw);
+    expect(settings.permissions.allow).toEqual(
+      expect.arrayContaining([
+        "Bash",
+        "Read",
+        "mcp__ask-the-budget-az__retrieve",
+        "mcp__ask-the-budget-az__cite",
+        "mcp__ask-the-budget-az__list_filter_values",
+      ]),
+    );
+    expect(settings.permissions.deny).toEqual(
+      expect.arrayContaining([
+        "Grep",
+        "Write",
+        "Edit",
+        "WebFetch",
+        "WebSearch",
+      ]),
+    );
+    // ToolSearch is NOT in either list — alwaysLoad eliminates need
+    // for it and denying could break lazy-loading for anything we
+    // haven't eager-loaded.
+    expect(settings.permissions.allow).not.toContain("ToolSearch");
+    expect(settings.permissions.deny).not.toContain("ToolSearch");
+
+    await provider.disconnect();
+    await fs.rm(globalCfgDir, { recursive: true, force: true });
+  });
+
+  it("throws a clear error when the budget MCP server isn't in the global config", async () => {
+    const fs = await import("node:fs/promises");
+    const os = await import("node:os");
+    const path = await import("node:path");
+    const globalCfgDir = await fs.mkdtemp(
+      path.join(os.tmpdir(), "budget-globalcfg-empty-"),
+    );
+    const globalCfgPath = path.join(globalCfgDir, "config.json");
+    await fs.writeFile(globalCfgPath, JSON.stringify({}), "utf8");
+
+    server.onSessionCreate = () => ({
+      id: "should-never-reach",
+      name: "x",
+      cwd: "/tmp",
+      permissionMode: "normal",
+      skipPermissions: true,
+      status: "active",
+      createdAt: 1000,
+      provider: "claude",
+    });
+
+    const provider = new YouCodedSessionProvider({
+      url: serverUrl,
+      token: "test-token",
+      systemPromptPath: promptPath,
+      systemPromptContextPath: contextPath,
+      runtimeDirRoot: runtimeRoot,
+      globalMcpConfigPath: globalCfgPath,
+    });
+
+    await expect(provider.startConversation()).rejects.toThrow(
+      /Budget MCP server isn't registered/,
+    );
+
+    await provider.disconnect();
+    await fs.rm(globalCfgDir, { recursive: true, force: true });
+  });
 });
 
 // ---------------------------------------------------------------------------
@@ -851,5 +988,80 @@ describe("YouCodedSessionProvider — tool-result redirect inlining", () => {
 
     await provider.disconnect();
     await fs.rm(sidecarDir, { recursive: true, force: true });
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Sidecar /health probe (Decision Q1)
+//
+// startConversation runs a 2-second probe of the retrieval sidecar's
+// /health endpoint and returns the result inline so the UI can render
+// a banner BEFORE the user types a question. No event plumbing — the
+// probe outcome is just a field on the return value.
+
+describe("YouCodedSessionProvider — sidecar health probe", () => {
+  it("startConversation returns health.ok=false when the probe fails", async () => {
+    server.onSessionCreate = () => ({
+      id: "probe-conv-1",
+      name: "x",
+      cwd: "/tmp",
+      permissionMode: "normal",
+      skipPermissions: true,
+      status: "active",
+      createdAt: 1000,
+      provider: "claude",
+    });
+
+    const provider = makeProvider();
+    // Point the probe at a port nothing's listening on so the fetch
+    // fails fast (ECONNREFUSED) within the 2s timeout.
+    const prev = process.env.RETRIEVAL_BRIDGE_URL;
+    process.env.RETRIEVAL_BRIDGE_URL = "http://127.0.0.1:1";
+
+    const result = await provider.startConversation();
+
+    expect(result.conversationId).toBe("probe-conv-1");
+    expect(result.health.ok).toBe(false);
+    expect(typeof result.health.reason).toBe("string");
+    expect(result.health.reason!.length).toBeGreaterThan(0);
+
+    if (prev === undefined) delete process.env.RETRIEVAL_BRIDGE_URL;
+    else process.env.RETRIEVAL_BRIDGE_URL = prev;
+    await provider.disconnect();
+  });
+
+  it("startConversation returns health.ok=true when the sidecar responds 200", async () => {
+    // Spin a tiny test HTTP server that answers /health with 200.
+    const http = await import("node:http");
+    const healthServer = http.createServer((_req, res) => {
+      res.writeHead(200, { "content-type": "application/json" });
+      res.end(JSON.stringify({ status: "ok" }));
+    });
+    await new Promise<void>((resolve) => healthServer.listen(0, resolve));
+    const port = (healthServer.address() as { port: number }).port;
+
+    server.onSessionCreate = () => ({
+      id: "probe-conv-2",
+      name: "x",
+      cwd: "/tmp",
+      permissionMode: "normal",
+      skipPermissions: true,
+      status: "active",
+      createdAt: 1000,
+      provider: "claude",
+    });
+
+    const provider = makeProvider();
+    const prev = process.env.RETRIEVAL_BRIDGE_URL;
+    process.env.RETRIEVAL_BRIDGE_URL = `http://127.0.0.1:${port}`;
+
+    const result = await provider.startConversation();
+    expect(result.health.ok).toBe(true);
+    expect(result.health.reason).toBeUndefined();
+
+    if (prev === undefined) delete process.env.RETRIEVAL_BRIDGE_URL;
+    else process.env.RETRIEVAL_BRIDGE_URL = prev;
+    await provider.disconnect();
+    await new Promise<void>((resolve) => healthServer.close(() => resolve()));
   });
 });

@@ -28,6 +28,13 @@ export function getProvider(): YouCodedSessionProvider {
   const g = globalThis as unknown as GlobalWithProvider;
   if (!g[GLOBAL_KEY]) {
     const opts: YouCodedSessionProviderOptions = {};
+    // INVARIANT (Task 3 of 2026-05-20 dogfood-hardening plan): production
+    // MUST NOT set `globalMcpConfigPath` here. The loader's default of
+    // `$HOME/.claude.json` is the contract — overriding it here would point
+    // the per-session .mcp.json materialization at the wrong global config
+    // and break every conversation's MCP eager-load. Tests inject their own
+    // fixture path; production falls through to the default.
+    //
     // Allow .env.local overrides without leaking process.env into the
     // library — the lib stays pure and consumable from non-Next hosts.
     if (process.env.YOUCODED_WS_URL) opts.url = process.env.YOUCODED_WS_URL;

@@ -4,7 +4,7 @@
 // /api/conversations/:id/messages, parses the SSE stream, and pumps
 // every event into the chat reducer.
 
-import { useCallback, useEffect, useReducer, useRef } from "react";
+import { useCallback, useEffect, useReducer, useRef, useState } from "react";
 
 import type { ProviderEvent } from "@/lib/types";
 import { chatActionFromProviderEvent, chatReducer } from "./chat-reducer";
@@ -17,6 +17,13 @@ interface UseChatResult {
   clearError: () => void;
   /** True until /api/conversations has resolved with a conversationId. */
   starting: boolean;
+  /** Sidecar /health probe result from session start. Populated once
+   *  /api/conversations resolves. When `ok` is false the UI renders a
+   *  top-of-thread <SystemHealthBanner> so the user sees the problem
+   *  before they ask a question (Decision Q1 — probe is RETURNED
+   *  inline from startConversation, not event-emitted). `null` until
+   *  the response arrives. */
+  health: { ok: boolean; reason?: string } | null;
 }
 
 export function useChat(): UseChatResult {
@@ -24,6 +31,10 @@ export function useChat(): UseChatResult {
   const startingRef = useRef(true);
   const startedRef = useRef(false);
   const conversationIdRef = useRef<string | null>(null);
+  // Sidecar health probe result returned by POST /api/conversations.
+  // Held in a useState so a state transition (null → ok / null → fail)
+  // re-renders Page and shows/hides the SystemHealthBanner.
+  const [health, setHealth] = useState<UseChatResult["health"]>(null);
 
   // Lazy-create a conversation on first mount. If creation fails we
   // surface the error via the reducer so the UI can render a banner
@@ -40,7 +51,10 @@ export function useChat(): UseChatResult {
           body: JSON.stringify({}),
         });
         const body = (await resp.json()) as
-          | { conversationId: string }
+          | {
+              conversationId: string;
+              health?: { ok: boolean; reason?: string };
+            }
           | { error: string; message?: string };
         if (!resp.ok || !("conversationId" in body)) {
           const msg =
@@ -52,6 +66,11 @@ export function useChat(): UseChatResult {
           return;
         }
         conversationIdRef.current = body.conversationId;
+        // Capture the sidecar /health probe result the server attached.
+        // Server-side providers added in Phase 2/3 (mock, Anthropic
+        // direct) may not include it; default to ok=true so we never
+        // show a false-positive banner on those code paths.
+        setHealth(body.health ?? { ok: true });
         dispatch({
           type: "CONVERSATION_STARTED",
           conversationId: body.conversationId,
@@ -102,6 +121,7 @@ export function useChat(): UseChatResult {
     send,
     clearError,
     starting: startingRef.current,
+    health,
   };
 }
 

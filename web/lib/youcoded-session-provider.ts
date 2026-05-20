@@ -20,6 +20,7 @@ import type {
   SendTurnArgs,
   SendTurnResult,
   StartConversationOpts,
+  StartConversationResult,
   ToolCallSummary,
 } from "./llm-provider.js";
 import { parseTranscriptEvent, type ParserContext } from "./transcript-parser.js";
@@ -29,6 +30,7 @@ import {
   YouCodedClientError,
   type YouCodedClientOptions,
 } from "./youcoded-client.js";
+import { loadBudgetMcpServerEntry } from "./mcp-config-loader.js";
 
 const DEFAULT_NAME = "Ask the Budget AZ";
 
@@ -39,31 +41,22 @@ export interface YouCodedSessionProviderOptions
    *  is set, the provider creates a per-conversation runtime dir and
    *  uses THAT as cwd, ignoring this fallback. */
   defaultCwd?: string;
-  /** Absolute path to `mcp-server/system-prompt.md` (the constrained-
-   *  agent rules for the budget assistant). When set, the provider
-   *  materializes this file as `CLAUDE.md` inside a per-conversation
-   *  runtime tempdir and passes that dir as `cwd` to YouCoded. The
-   *  result: Claude Code reads our budget system prompt instead of the
-   *  developer-facing CLAUDE.md at the project root.
-   *  See docs/superpowers/investigations/2026-05-06-youcoded-remote-api-verification.md
-   *  ("system prompt via cwd CLAUDE.md") for the mechanism. */
+  /** Absolute path to `mcp-server/system-prompt.md`. See class docstring. */
   systemPromptPath?: string;
-  /** Optional path to `data/system-prompt-context.md` (the JLBC primer
-   *  the system prompt references). When set, materialized at
-   *  `<runtime-dir>/data/system-prompt-context.md` so the system
-   *  prompt's relative reference resolves. */
+  /** Optional path to `data/system-prompt-context.md`. */
   systemPromptContextPath?: string;
   /** Parent directory under which per-conversation runtime dirs are
-   *  created. Defaults to `os.tmpdir()/ask-the-budget-az`. Tests pin
-   *  this to a temp path so they can assert on contents. */
+   *  created. Defaults to `os.tmpdir()/ask-the-budget-az`. */
   runtimeDirRoot?: string;
-  /** Claude Code model slug to use for every session this provider
-   *  creates. When unset, YouCoded falls back to whatever the user's
-   *  default-model preference is (currently Haiku for new sessions,
-   *  per the YouCoded session manager). For the budget app's
-   *  dogfood loop we want Opus across the board — the
-   *  retrieve→cite→refuse discipline benefits noticeably from the
-   *  larger model on tool-call planning and claim_span fidelity. */
+  /** Path to the user's global ~/.claude.json. Tests inject a fixture
+   *  path; production callers omit and the loader defaults to
+   *  $HOME/.claude.json. We materialize a per-session .mcp.json that
+   *  copies this file's `mcpServers["ask-the-budget-az"]` entry and
+   *  adds `alwaysLoad: true` — eager-loading the budget tools
+   *  eliminates ToolSearch round-trips at session start (verified on
+   *  branch test-alwaysload, commit 6d47efa). */
+  globalMcpConfigPath?: string;
+  /** Claude Code model slug to use for every session. */
   model?: string;
 }
 
@@ -73,6 +66,7 @@ export class YouCodedSessionProvider implements LLMProvider {
   private readonly systemPromptPath: string | undefined;
   private readonly systemPromptContextPath: string | undefined;
   private readonly runtimeDirRoot: string;
+  private readonly globalMcpConfigPath: string | undefined;
   private readonly model: string | undefined;
   /** Per-conversation materialized runtime dir, used to clean up on
    *  endConversation. Only populated when `systemPromptPath` is set. */
@@ -105,24 +99,37 @@ export class YouCodedSessionProvider implements LLMProvider {
     this.systemPromptContextPath = opts.systemPromptContextPath;
     this.runtimeDirRoot =
       opts.runtimeDirRoot ?? join(tmpdir(), "ask-the-budget-az");
+    this.globalMcpConfigPath = opts.globalMcpConfigPath;
     this.model = opts.model;
   }
 
-  /** Build a per-conversation tempdir containing CLAUDE.md (and the
-   *  primer it references). Returns the dir path. The caller passes
-   *  this as `cwd` to YouCoded — Claude Code walks up from there
-   *  picking up CLAUDE.md, so our system prompt becomes authoritative
-   *  for this session. */
+  /** Build a per-conversation tempdir containing CLAUDE.md (the system
+   *  prompt), data/system-prompt-context.md (the JLBC primer), .mcp.json
+   *  (eager-loads the budget MCP server so ToolSearch isn't invoked at
+   *  session start), and .claude/settings.json (allow-list for Bash/Read
+   *  + budget tools; deny-list for tools past dogfood sessions never
+   *  used legitimately). Returns the dir path. */
   private async materializeRuntimeDir(): Promise<string> {
     if (!this.systemPromptPath) {
       throw new Error(
         "materializeRuntimeDir() requires systemPromptPath in opts",
       );
     }
+    // Load the budget MCP server entry from the global ~/.claude.json
+    // FIRST so we fail fast (before any tempdir is made) when the user
+    // hasn't run `node mcp-server/scripts/register.mjs`. Throws a
+    // registration-hint message the user can act on.
+    const entry = await loadBudgetMcpServerEntry(this.globalMcpConfigPath);
+
     const promptText = await fs.readFile(this.systemPromptPath, "utf8");
     const dir = join(this.runtimeDirRoot, `conv-${randomUUID()}`);
     await fs.mkdir(dir, { recursive: true });
+
+    // 1. CLAUDE.md (the system prompt) — Claude Code reads this from cwd.
     await fs.writeFile(join(dir, "CLAUDE.md"), promptText, "utf8");
+
+    // 2. data/system-prompt-context.md (the JLBC primer the system prompt
+    //    references). Optional; only materialized when the path was passed.
     if (this.systemPromptContextPath) {
       const contextText = await fs.readFile(
         this.systemPromptContextPath,
@@ -136,6 +143,70 @@ export class YouCodedSessionProvider implements LLMProvider {
         "utf8",
       );
     }
+
+    // 3. .mcp.json — eager-load the budget MCP server. The `alwaysLoad`
+    //    flag tells Claude Code to register every budget tool at session
+    //    start instead of through ToolSearch's lazy-resolve path.
+    //    Verified 2026-05-19 on branch test-alwaysload: 0 ToolSearch
+    //    calls in a 287-line transcript vs. 1-25 per past session.
+    const mcpJson = {
+      mcpServers: {
+        "ask-the-budget-az": {
+          command: entry.command,
+          args: entry.args,
+          env: entry.env,
+          alwaysLoad: true,
+        },
+      },
+    };
+    await fs.writeFile(
+      join(dir, ".mcp.json"),
+      JSON.stringify(mcpJson, null, 2),
+      "utf8",
+    );
+
+    // 4. .claude/settings.json — explicit allow/deny per dogfood audit.
+    //    Decision D5: general tools (Bash, Read) stay enabled — they're
+    //    fallback verification paths. The deny list removes tools the
+    //    audit showed were never legitimately used in budget sessions.
+    //    ToolSearch is NOT denied — denying it could break lazy-load
+    //    fallback for any tool we haven't eager-loaded. (We just don't
+    //    NEED it now that alwaysLoad covers the budget tools.)
+    const settings = {
+      permissions: {
+        allow: [
+          "Bash",
+          "Read",
+          "mcp__ask-the-budget-az__retrieve",
+          "mcp__ask-the-budget-az__cite",
+          "mcp__ask-the-budget-az__list_filter_values",
+        ],
+        deny: [
+          "Grep",
+          "Write",
+          "Edit",
+          "MultiEdit",
+          "NotebookEdit",
+          "Glob",
+          "PowerShell",
+          "WebFetch",
+          "WebSearch",
+          "mcp__windows-control__*",
+          "mcp__gmessages__*",
+          "mcp__imessages__*",
+          "mcp__todoist__*",
+          "mcp__spotify-services__*",
+        ],
+      },
+    };
+    const claudeDir = join(dir, ".claude");
+    await fs.mkdir(claudeDir, { recursive: true });
+    await fs.writeFile(
+      join(claudeDir, "settings.json"),
+      JSON.stringify(settings, null, 2),
+      "utf8",
+    );
+
     return dir;
   }
 
@@ -232,7 +303,7 @@ export class YouCodedSessionProvider implements LLMProvider {
 
   async startConversation(
     opts: StartConversationOpts = {},
-  ): Promise<{ conversationId: string }> {
+  ): Promise<StartConversationResult> {
     await this.ensureConnected();
     // Subscribe once to hook events — the first per-session event flips
     // readyState[sid] to 'ready' and flushes any waiting sendTurns.
@@ -288,7 +359,33 @@ export class YouCodedSessionProvider implements LLMProvider {
     if (!this.readyState.has(info.id)) {
       this.readyState.set(info.id, []);
     }
-    return { conversationId: info.id };
+
+    // Sidecar /health probe. Done synchronously AFTER createSession (so
+    // failures here can't strand a half-created session) and BEFORE we
+    // return (so the caller sees the result in one place). 2s hard
+    // timeout — the probe must fail fast; we don't want a slow /health
+    // delaying the chat. We return the failure on the result object
+    // rather than emitting an event so the UI doesn't need any
+    // subscription plumbing.
+    const probeUrl =
+      (process.env.RETRIEVAL_BRIDGE_URL ?? "http://127.0.0.1:9200") + "/health";
+    let health: { ok: boolean; reason?: string };
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), 2000);
+    try {
+      const resp = await fetch(probeUrl, { signal: controller.signal });
+      if (resp.ok) {
+        health = { ok: true };
+      } else {
+        health = { ok: false, reason: `HTTP ${resp.status}` };
+      }
+    } catch (err) {
+      health = { ok: false, reason: (err as Error).message };
+    } finally {
+      clearTimeout(timer);
+    }
+
+    return { conversationId: info.id, health };
   }
 
   async sendTurn(args: SendTurnArgs): Promise<SendTurnResult> {

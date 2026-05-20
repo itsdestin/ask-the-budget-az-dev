@@ -179,7 +179,10 @@ def test_retrieve_marshals_chunks_to_schema_shape(monkeypatch):
     assert resp.status_code == 200
     body = resp.json()
 
-    # Top-level shape per schema doc.
+    # Top-level shape per schema doc. `intent` joined in Task 10
+    # (2026-05-20) — it's echoed back from the request so the future
+    # audit-log writer (WS5) can pick it up; null here because this
+    # test doesn't pass an intent.
     assert set(body.keys()) == {
         "chunks",
         "top_score",
@@ -187,7 +190,9 @@ def test_retrieve_marshals_chunks_to_schema_shape(monkeypatch):
         "bm25_count",
         "dense_count",
         "fused_count",
+        "intent",
     }
+    assert body["intent"] is None
     assert body["top_score"] == 0.9
     assert body["bm25_count"] == 42
     assert body["dense_count"] == 37
@@ -328,11 +333,17 @@ def test_cite_validate_rejects_unknown_chunk_id(monkeypatch):
     server-side check catches it cleanly so Claude sees the error in
     the tool result and self-corrects."""
 
+    # FakeConn returns a non-None row for the startup preflight's
+    # `SELECT 1 FROM chunks LIMIT 1` and None for everything else
+    # (so the cite/validate lookup behaves like an unknown chunk_id).
+    # Without the preflight-aware branch the lifespan would sys.exit(1)
+    # before the test even gets to call /cite/validate.
     class FakeConn:
-        def execute(self, *_args, **_kw):
+        def execute(self, sql, *_args, **_kw):
+            is_preflight = "SELECT 1 FROM chunks" in str(sql)
             class _Cur:
                 def fetchone(self):
-                    return None
+                    return (1,) if is_preflight else None
 
             return _Cur()
 
@@ -506,11 +517,15 @@ def test_doc_metadata_returns_404_for_unknown_doc(monkeypatch):
     """Hallucinated doc_ids hit 404 cleanly (the Next.js route relays
     that to the browser as a 404 too — no PDF panel painted)."""
 
+    # FakeConn returns a non-None row for the startup preflight's
+    # `SELECT 1 FROM chunks LIMIT 1` and None for everything else
+    # (so the docs lookup behaves like an unknown doc_id).
     class FakeConn:
-        def execute(self, *_args, **_kw):
+        def execute(self, sql, *_args, **_kw):
+            is_preflight = "SELECT 1 FROM chunks" in str(sql)
             class _Cur:
                 def fetchone(self):
-                    return None
+                    return (1,) if is_preflight else None
 
             return _Cur()
 
@@ -1268,3 +1283,247 @@ def test_verbatim_threshold_lowered_to_070(monkeypatch):
         )
     body = resp.json()
     assert body["ok"] is True, body
+
+
+@needs_db
+def test_cite_validate_accepts_quote_and_derives_offsets():
+    """Quote-based cite: the server scans chunk.text for the quoted
+    substring and derives span_start/span_end. The validation then
+    proceeds the same way as if the caller had passed offsets directly.
+    """
+    # Pick any chunk from the embedded corpus. The test is robust to
+    # corpus drift: we look up the chunk's text and pick a substring.
+    with psycopg.connect(os.environ["DATABASE_URL"]) as conn:
+        row = conn.execute(
+            "SELECT chunk_id, text FROM chunks WHERE LENGTH(text) > 100 LIMIT 1"
+        ).fetchone()
+    assert row is not None, "embedded corpus has no chunks > 100 chars"
+    chunk_id, text = row[0], row[1]
+    # Quote a slice we know is present (chars 20..60 of the chunk).
+    quote = text[20:60]
+
+    with TestClient(app) as client:
+        resp = client.post(
+            "/cite/validate",
+            json={
+                "chunk_id": chunk_id,
+                "quote": quote,
+                "claim_span": quote,  # verbatim — the claim IS the quote
+                "confidence": "verbatim",
+            },
+        )
+
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["ok"] is True, body
+    # The sidecar echoes back the derived offsets so the UI can attach
+    # the bbox highlight at the right position.
+    assert body["resolved_span_start"] == 20
+    assert body["resolved_span_end"] == 60
+
+
+@needs_db
+def test_cite_validate_quote_not_found_returns_error():
+    with psycopg.connect(os.environ["DATABASE_URL"]) as conn:
+        row = conn.execute("SELECT chunk_id FROM chunks LIMIT 1").fetchone()
+    assert row is not None
+    chunk_id = row[0]
+
+    with TestClient(app) as client:
+        resp = client.post(
+            "/cite/validate",
+            json={
+                "chunk_id": chunk_id,
+                "quote": "definitely-not-in-this-chunk-XYZ-12345",
+                "claim_span": "x",
+                "confidence": "verbatim",
+            },
+        )
+
+    body = resp.json()
+    assert body["ok"] is False
+    assert "quote not found" in body["error"].lower()
+
+
+@needs_db
+def test_cite_validate_soft_clamps_claim_span_over_500():
+    """Past sessions had 7 cite calls rejected at the 500-char boundary.
+    The sidecar should now truncate (and flag truncated:true) rather than
+    reject."""
+    with psycopg.connect(os.environ["DATABASE_URL"]) as conn:
+        row = conn.execute(
+            "SELECT chunk_id, text FROM chunks WHERE LENGTH(text) > 50 LIMIT 1"
+        ).fetchone()
+    assert row is not None
+    chunk_id, text = row[0], row[1]
+    quote = text[:30]
+
+    with TestClient(app) as client:
+        resp = client.post(
+            "/cite/validate",
+            json={
+                "chunk_id": chunk_id,
+                "quote": quote,
+                # A 750-char claim_span — schema allows up to 2000 now;
+                # server soft-clamps to 500.
+                "claim_span": "x" * 750,
+                "confidence": "paraphrase",
+            },
+        )
+
+    body = resp.json()
+    # The validation itself will probably fail on alignment (claim is
+    # "xxxxx", quote is from the chunk) — but `truncated` should still
+    # be true regardless of the alignment outcome.
+    assert body.get("truncated") is True
+
+
+@needs_db
+def test_cite_validate_offsets_win_when_both_passed():
+    """Back-compat: if a caller sends both offsets AND quote, offsets win
+    and the quote field is ignored."""
+    with psycopg.connect(os.environ["DATABASE_URL"]) as conn:
+        row = conn.execute(
+            "SELECT chunk_id, text FROM chunks WHERE LENGTH(text) > 100 LIMIT 1"
+        ).fetchone()
+    assert row is not None
+    chunk_id, text = row[0], row[1]
+
+    with TestClient(app) as client:
+        resp = client.post(
+            "/cite/validate",
+            json={
+                "chunk_id": chunk_id,
+                "span_start": 0,
+                "span_end": 40,
+                # An obviously-wrong quote — if the server used the
+                # quote path, this would fail "quote not found". The
+                # test passes only if offsets win.
+                "quote": "definitely-not-in-the-chunk-quote-XYZ",
+                "claim_span": text[:40],
+                "confidence": "verbatim",
+            },
+        )
+
+    body = resp.json()
+    # ok is True if the offset slice matches the claim; if it doesn't,
+    # we still expect an alignment-flavored error, not "quote not found".
+    assert "quote not found" not in (body.get("error") or "").lower()
+
+
+# ---------------------------------------------------------------------------
+# Unit tests — intent → top_k resolution (Task 10, 2026-05-20)
+# ---------------------------------------------------------------------------
+# The dogfood-hardening plan introduces an optional `intent` field on the
+# /retrieve body. The sidecar maps it to top_k via the _INTENT_TOP_K table
+# (lookup→5, compare→12, analyze→25) when the caller hasn't passed an
+# explicit top_k. Explicit top_k always wins; absent intent + absent
+# top_k falls back to DEFAULT_PIPELINE_TOP_K. The intent value is echoed
+# on the response so the audit-log writer (WS5) picks it up.
+
+
+def test_retrieve_intent_lookup_uses_top_k_5(monkeypatch):
+    captured: dict = {}
+
+    def fake_retrieve(req, embedder=None):
+        captured["top_k"] = req.top_k
+        return RetrievalResult()
+
+    monkeypatch.setattr(api_module, "retrieve", fake_retrieve)
+    monkeypatch.setattr(api_module, "_lookup_doc_titles", lambda ids: {})
+    monkeypatch.setattr(api_module, "_get_embedder", lambda: None)
+
+    with TestClient(app) as client:
+        resp = client.post(
+            "/retrieve", json={"query": "x", "intent": "lookup"}
+        )
+
+    assert resp.status_code == 200
+    assert captured["top_k"] == 5
+    # Audit-log fields surface intent in the response so the writer (WS5)
+    # picks it up.
+    assert resp.json()["intent"] == "lookup"
+
+
+def test_retrieve_intent_analyze_uses_top_k_25(monkeypatch):
+    captured: dict = {}
+    def fake_retrieve(req, embedder=None):
+        captured["top_k"] = req.top_k
+        return RetrievalResult()
+    monkeypatch.setattr(api_module, "retrieve", fake_retrieve)
+    monkeypatch.setattr(api_module, "_lookup_doc_titles", lambda ids: {})
+    monkeypatch.setattr(api_module, "_get_embedder", lambda: None)
+
+    with TestClient(app) as client:
+        client.post("/retrieve", json={"query": "x", "intent": "analyze"})
+    assert captured["top_k"] == 25
+
+
+def test_retrieve_explicit_top_k_wins_over_intent(monkeypatch):
+    captured: dict = {}
+    def fake_retrieve(req, embedder=None):
+        captured["top_k"] = req.top_k
+        return RetrievalResult()
+    monkeypatch.setattr(api_module, "retrieve", fake_retrieve)
+    monkeypatch.setattr(api_module, "_lookup_doc_titles", lambda ids: {})
+    monkeypatch.setattr(api_module, "_get_embedder", lambda: None)
+
+    with TestClient(app) as client:
+        client.post(
+            "/retrieve",
+            json={"query": "x", "intent": "lookup", "top_k": 30},
+        )
+    assert captured["top_k"] == 30
+
+
+def test_retrieve_without_intent_uses_default_top_k(monkeypatch):
+    captured: dict = {}
+    def fake_retrieve(req, embedder=None):
+        captured["top_k"] = req.top_k
+        return RetrievalResult()
+    monkeypatch.setattr(api_module, "retrieve", fake_retrieve)
+    monkeypatch.setattr(api_module, "_lookup_doc_titles", lambda ids: {})
+    monkeypatch.setattr(api_module, "_get_embedder", lambda: None)
+
+    with TestClient(app) as client:
+        client.post("/retrieve", json={"query": "x"})
+    # No intent, no top_k → falls through to DEFAULT_PIPELINE_TOP_K
+    # (15 after Task 8 lands; assert against the constant rather than
+    # the literal so this test moves with future tuning).
+    from retrieval.pipeline import DEFAULT_PIPELINE_TOP_K
+    assert captured["top_k"] == DEFAULT_PIPELINE_TOP_K
+
+
+def test_lifespan_preflight_exits_when_voyage_key_missing(monkeypatch):
+    """The sidecar should fail fast at startup when VOYAGE_API_KEY isn't
+    set, not crash mid-request.
+
+    We call the lifespan async-context-manager directly rather than via
+    TestClient because Starlette + anyio wrap SystemExit raised inside
+    lifespan into a BaseExceptionGroup, which makes `pytest.raises(SystemExit)`
+    on the TestClient context messier than necessary. The direct-call
+    path tests the same code (the lifespan body itself) without the
+    TaskGroup wrapper.
+    """
+    import asyncio
+
+    monkeypatch.delenv("VOYAGE_API_KEY", raising=False)
+    monkeypatch.setenv("DATABASE_URL", os.environ.get("DATABASE_URL", ""))
+
+    async def _enter_lifespan():
+        async with api_module.lifespan(app):
+            pass
+
+    with pytest.raises(SystemExit):
+        asyncio.run(_enter_lifespan())
+
+
+@needs_db
+def test_lifespan_preflight_passes_when_env_complete(monkeypatch):
+    """When the env is set and the DB is reachable, startup should
+    succeed and /health returns ok."""
+    monkeypatch.setenv("VOYAGE_API_KEY", os.environ.get("VOYAGE_API_KEY", "fake-key"))
+    with TestClient(app) as client:
+        resp = client.get("/health")
+    assert resp.status_code == 200
+    assert resp.json()["status"] == "ok"

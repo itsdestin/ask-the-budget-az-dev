@@ -104,8 +104,24 @@ export const retrieveInputShape = {
     .max(50)
     .optional()
     .describe(
-      "Number of chunks to return after rerank. Default 20 matches the " +
-        "spec's hybrid pipeline; raise it only when you need broader context.",
+      "Number of chunks to return after rerank. When `intent` is set, " +
+        "the server overrides this with the intent's default top_k " +
+        "(lookup→5, compare→12, analyze→25); pass top_k explicitly to " +
+        "override.",
+    ),
+  // Added 2026-05-20: route classifier that hints at the analysis depth
+  // the user is asking for. Tunes top_k server-side and is recorded in
+  // the audit log so future eval can correlate answer quality with
+  // routing decisions.
+  intent: z
+    .enum(["lookup", "compare", "analyze"])
+    .optional()
+    .describe(
+      "Question-depth classifier set by Claude based on the user's " +
+        "question. 'lookup' = one specific fact (top_k 5, terse answer). " +
+        "'compare' = side-by-side of two entities/years (top_k 12). " +
+        "'analyze' = open-ended overview (top_k 25, structured answer). " +
+        "Optional; omit when unsure.",
     ),
 };
 
@@ -155,11 +171,17 @@ export function makeRetrieveHandler(
   fetcher: Fetcher = fetch,
 ) {
   return async (input: RetrieveInput) => {
-    const body = {
+    // Only forward top_k and intent when the caller supplied them. When
+    // both are omitted, the sidecar uses its own DEFAULT_PIPELINE_TOP_K
+    // (15 since 2026-05-20, Task 8). Pre-filling top_k on the client
+    // side would shadow that default and bake the old value of 20
+    // into every conversation, defeating Decision Q2.
+    const body: Record<string, unknown> = {
       query: input.query,
       filters: input.filters ?? null,
-      top_k: input.top_k ?? 20,
     };
+    if (input.top_k !== undefined) body.top_k = input.top_k;
+    if (input.intent !== undefined) body.intent = input.intent;
 
     let result: RetrieveBridgeResponse;
     try {

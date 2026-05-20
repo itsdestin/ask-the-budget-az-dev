@@ -30,6 +30,12 @@ dependencies = [
     # uvloop / httptools where available for snappier loop performance.
     "fastapi>=0.115",
     "uvicorn[standard]>=0.32",
+    # Phase 1c dogfood-hardening (2026-05-20): load .env.local on
+    # sidecar startup so VOYAGE_API_KEY doesn't have to be re-exported
+    # in every shell that runs `uv run uvicorn`. Reading via load_dotenv
+    # also short-circuits the "user forgot to source the env file"
+    # failure mode that bricked an entire dogfood session.
+    "python-dotenv>=1.0",
 ]
 
 [dependency-groups]

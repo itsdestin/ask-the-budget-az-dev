@@ -31,7 +31,13 @@ from retrieval.types import RetrievalFilters, RetrievedChunk
 BM25_TOP_K = 200
 DENSE_TOP_K = 100
 FUSED_TOP_K = 50
-DEFAULT_PIPELINE_TOP_K = 20
+# Lowered from 20 to 15 (2026-05-20, Decision Q2 — dogfood hardening).
+# Sized so a default retrieve() response stays comfortably under Claude
+# Code's 25K-token per-tool-result budget; eliminates the spillover-to-
+# disk + redundant Read pattern that 31 dogfood sessions exhibited at
+# top_k=20. See scripts/measure_retrieve_size.py for the supporting
+# measurement.
+DEFAULT_PIPELINE_TOP_K = 15
 
 
 @dataclass(frozen=True)

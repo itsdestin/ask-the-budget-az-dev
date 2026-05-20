@@ -72,11 +72,28 @@ def _reset_pool():
 
 
 def test_top_k_defaults_match_spec():
-    """Spec §3.4: BM25 top 200, dense top 100, fused top 50, rerank top 20."""
+    """Spec §3.4: BM25 top 200, dense top 100, fused top 50, rerank top 15.
+
+    Rerank top-K lowered from 20 → 15 on 2026-05-20 (Decision Q2, dogfood
+    hardening). See `test_default_pipeline_top_k_is_fifteen` for the
+    locked-in constant assertion.
+    """
     assert BM25_TOP_K == 200
     assert DENSE_TOP_K == 100
     assert FUSED_TOP_K == 50
-    assert RetrievalRequest(query="x").top_k == 20
+    assert RetrievalRequest(query="x").top_k == 15
+
+
+def test_default_pipeline_top_k_is_fifteen():
+    """Lowered from 20 to 15 (Decision Q2, 2026-05-20) so retrieve()
+    responses stay comfortably under Claude Code's 25K-token per-tool-
+    result budget without needing a per-chunk text trim. Task 7's
+    measurement confirmed top_k=15 fits with headroom for response
+    framing.
+    """
+    from retrieval.pipeline import DEFAULT_PIPELINE_TOP_K
+
+    assert DEFAULT_PIPELINE_TOP_K == 15
 
 
 def test_request_to_filters_round_trip():
