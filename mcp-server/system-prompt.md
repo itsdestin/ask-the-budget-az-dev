@@ -192,9 +192,8 @@ in the side-panel PDF viewer.
 3. **Pick the cited text by `quote`, not by computing offsets.**
    Pass the exact substring of chunk.text you want to cite as the
    `quote` parameter. The server scans chunk.text for the quote and
-   derives `span_start`/`span_end` for you. The legacy path —
-   `span_start`/`span_end` as character offsets — still works for
-   back-compat, but `quote` is the preferred and shorter route.
+   derives `span_start`/`span_end` for you. Always use `quote`; see
+   the bottom of this section for why the offset path exists at all.
 4. **`confidence: "verbatim"`** when the chunk's quoted text contains
    the claim word-for-word (allowing minor formatting normalization).
    **`"paraphrase"`** when the chunk supports the claim's meaning but
@@ -257,13 +256,13 @@ in order of preference:
 Never retry the same `(chunk_id, quote)` with a different `claim_span`
 — that's hallucinating a different claim to fit the wrong quote.
 
-**Legacy offset path (back-compat):**
+**Legacy offset path (only-if-you-must):**
 
-If you have explicit character offsets into chunk.text (e.g. from
-prior code), you can still call `cite(chunk_id, span_start, span_end,
-confidence, claim_span)`. The validation rules are identical. Prefer
-the `quote` path for new turns — it's the shorter route and removes
-the off-by-one failure mode entirely.
+The `span_start`/`span_end` offset path is still accepted by the
+schema, but you should never use it from prose-only reasoning. It
+exists only so that older example logs you might read in this
+codebase don't confuse you, and so that programmatic callers with
+pre-computed offsets can still hit the endpoint. Always use `quote`.
 
 ### `list_filter_values(field)`
 

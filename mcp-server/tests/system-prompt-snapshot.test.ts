@@ -1,12 +1,14 @@
-// Pin the system prompt's structural H1/H2 headings so future edits
+// Pin the system prompt's structural H1/H2/H3 headings so future edits
 // surface a visible diff. NOT a behavioral test — the prompt's content
 // is regression-tested via dogfood sessions, not unit tests — but
 // catching accidental section deletions (e.g. losing the Refusal
-// section) before they ship is cheap.
+// section, or one of its three H3 sub-cases) before they ship is cheap.
 //
-// Regex `/^##? /` matches H1 (`# `) and H2 (`## `) only. H3
-// sub-headings (e.g. inside the cite() section) are intentionally
-// NOT pinned so we can rework them freely.
+// Regex `/^#{1,3} /` matches H1 (`# `), H2 (`## `), and H3 (`### `).
+// H3 coverage is load-bearing for the Refusal sub-cases
+// (refusal_no_retrieval, refusal_synthesis, refusal_out_of_scope) and
+// the Retrieval recipes section, which would otherwise disappear
+// silently under a future edit.
 
 import { readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
@@ -23,7 +25,7 @@ describe("mcp-server/system-prompt.md structure", () => {
     const text = readFileSync(promptPath, "utf8");
     const headings = text
       .split("\n")
-      .filter((l) => /^##? /.test(l))
+      .filter((l) => /^#{1,3} /.test(l))
       .map((l) => l.replace(/^#+\s+/, "").trim());
     expect(headings).toMatchSnapshot();
   });
