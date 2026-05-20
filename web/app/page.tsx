@@ -7,12 +7,13 @@ import Footer from "@/components/Footer";
 import MessageInput from "@/components/MessageInput";
 import PdfViewer from "@/components/PdfViewer";
 import SuggestionRow from "@/components/SuggestionRow";
+import SystemHealthBanner from "@/components/SystemHealthBanner";
 import { useMascotPose } from "@/components/mascot/useMascotPose";
 import { useCitationSelected } from "@/state/citation-context";
 import { useChat } from "@/state/use-chat";
 
 export default function Page() {
-  const { state, send, clearError, starting } = useChat();
+  const { state, send, clearError, starting, health } = useChat();
 
   // Single decision point for the mascot's scene/pose. The second
   // arg is refusalActive — refusal auto-detection isn't built yet
@@ -66,6 +67,17 @@ export default function Page() {
           </div>
         </div>
       </header>
+
+      {/* ── sidecar health banner (conditional) ─────────────────── flex-shrink-0
+           Surfaced from the /api/conversations response, which carries the
+           probe result from YouCodedSessionProvider.startConversation
+           (Decision Q1). Shown BEFORE the user types their first question
+           so they don't discover a dead sidecar mid-answer. */}
+      {health && !health.ok && (
+        <div className="flex-shrink-0">
+          <SystemHealthBanner reason={health.reason} />
+        </div>
+      )}
 
       {/* ── error banner (conditional) ─────────────────────────── flex-shrink-0 */}
       {state.error && (

@@ -990,3 +990,78 @@ describe("YouCodedSessionProvider — tool-result redirect inlining", () => {
     await fs.rm(sidecarDir, { recursive: true, force: true });
   });
 });
+
+// ---------------------------------------------------------------------------
+// Sidecar /health probe (Decision Q1)
+//
+// startConversation runs a 2-second probe of the retrieval sidecar's
+// /health endpoint and returns the result inline so the UI can render
+// a banner BEFORE the user types a question. No event plumbing — the
+// probe outcome is just a field on the return value.
+
+describe("YouCodedSessionProvider — sidecar health probe", () => {
+  it("startConversation returns health.ok=false when the probe fails", async () => {
+    server.onSessionCreate = () => ({
+      id: "probe-conv-1",
+      name: "x",
+      cwd: "/tmp",
+      permissionMode: "normal",
+      skipPermissions: true,
+      status: "active",
+      createdAt: 1000,
+      provider: "claude",
+    });
+
+    const provider = makeProvider();
+    // Point the probe at a port nothing's listening on so the fetch
+    // fails fast (ECONNREFUSED) within the 2s timeout.
+    const prev = process.env.RETRIEVAL_BRIDGE_URL;
+    process.env.RETRIEVAL_BRIDGE_URL = "http://127.0.0.1:1";
+
+    const result = await provider.startConversation();
+
+    expect(result.conversationId).toBe("probe-conv-1");
+    expect(result.health.ok).toBe(false);
+    expect(typeof result.health.reason).toBe("string");
+    expect(result.health.reason!.length).toBeGreaterThan(0);
+
+    if (prev === undefined) delete process.env.RETRIEVAL_BRIDGE_URL;
+    else process.env.RETRIEVAL_BRIDGE_URL = prev;
+    await provider.disconnect();
+  });
+
+  it("startConversation returns health.ok=true when the sidecar responds 200", async () => {
+    // Spin a tiny test HTTP server that answers /health with 200.
+    const http = await import("node:http");
+    const healthServer = http.createServer((_req, res) => {
+      res.writeHead(200, { "content-type": "application/json" });
+      res.end(JSON.stringify({ status: "ok" }));
+    });
+    await new Promise<void>((resolve) => healthServer.listen(0, resolve));
+    const port = (healthServer.address() as { port: number }).port;
+
+    server.onSessionCreate = () => ({
+      id: "probe-conv-2",
+      name: "x",
+      cwd: "/tmp",
+      permissionMode: "normal",
+      skipPermissions: true,
+      status: "active",
+      createdAt: 1000,
+      provider: "claude",
+    });
+
+    const provider = makeProvider();
+    const prev = process.env.RETRIEVAL_BRIDGE_URL;
+    process.env.RETRIEVAL_BRIDGE_URL = `http://127.0.0.1:${port}`;
+
+    const result = await provider.startConversation();
+    expect(result.health.ok).toBe(true);
+    expect(result.health.reason).toBeUndefined();
+
+    if (prev === undefined) delete process.env.RETRIEVAL_BRIDGE_URL;
+    else process.env.RETRIEVAL_BRIDGE_URL = prev;
+    await provider.disconnect();
+    await new Promise<void>((resolve) => healthServer.close(() => resolve()));
+  });
+});

@@ -88,12 +88,25 @@ export interface ToolCallSummary {
   isError?: boolean;
 }
 
+/** What `startConversation` returns. `health` lets the UI render a
+ *  banner BEFORE the user's first turn when the retrieval sidecar
+ *  isn't reachable — instead of letting them discover the failure
+ *  mid-answer. Non-YouCoded providers (e.g., mock providers used in
+ *  tests) can return `{ ok: true }` without a probe. */
+export interface StartConversationResult {
+  conversationId: string;
+  health: { ok: boolean; reason?: string };
+}
+
 export interface LLMProvider {
   /** Open a new conversation. The returned id is opaque — the caller
-   *  passes it back to `sendTurn` and `endConversation`. */
-  startConversation(opts?: StartConversationOpts): Promise<{
-    conversationId: string;
-  }>;
+   *  passes it back to `sendTurn` and `endConversation`. The `health`
+   *  field reports whether the retrieval sidecar (the source of every
+   *  budget answer) is reachable; the UI uses it to render a banner
+   *  BEFORE the user types their first question. */
+  startConversation(
+    opts?: StartConversationOpts,
+  ): Promise<StartConversationResult>;
 
   /** Send one user message and stream the assistant turn until
    *  `turn_complete`. Resolves with the accumulated state. */

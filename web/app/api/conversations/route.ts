@@ -9,7 +9,11 @@
 //   { name?: string, cwd?: string }
 //
 // Response:
-//   200 { conversationId: string }
+//   200 { conversationId: string, health: { ok: boolean, reason?: string } }
+//     health.ok=false means the retrieval sidecar /health probe failed
+//     during session start. The client renders a SystemHealthBanner so
+//     the user sees the problem BEFORE they try to ask a question (see
+//     Decision Q1 — probe result returned inline, no event plumbing).
 //   503 { error: "youcoded_not_running" } — when YouCoded isn't reachable
 //   503 { error: "no_token" }              — when ~/.claude/.remote-tokens.json is missing
 //   500 { error: string }                  — anything else
@@ -37,11 +41,14 @@ export async function POST(req: Request): Promise<NextResponse> {
 
   try {
     const provider = getProvider();
-    const { conversationId } = await provider.startConversation({
+    // startConversation now returns both the id AND a sidecar-health
+    // probe result; pass both through so the client can render a
+    // top-of-thread banner when health.ok=false.
+    const { conversationId, health } = await provider.startConversation({
       ...(body.name !== undefined ? { name: body.name } : {}),
       ...(body.cwd !== undefined ? { cwd: body.cwd } : {}),
     });
-    return NextResponse.json({ conversationId });
+    return NextResponse.json({ conversationId, health });
   } catch (err) {
     return errorResponse(err);
   }

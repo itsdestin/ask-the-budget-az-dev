@@ -20,6 +20,7 @@ import type {
   SendTurnArgs,
   SendTurnResult,
   StartConversationOpts,
+  StartConversationResult,
   ToolCallSummary,
 } from "./llm-provider.js";
 import { parseTranscriptEvent, type ParserContext } from "./transcript-parser.js";
@@ -302,7 +303,7 @@ export class YouCodedSessionProvider implements LLMProvider {
 
   async startConversation(
     opts: StartConversationOpts = {},
-  ): Promise<{ conversationId: string }> {
+  ): Promise<StartConversationResult> {
     await this.ensureConnected();
     // Subscribe once to hook events — the first per-session event flips
     // readyState[sid] to 'ready' and flushes any waiting sendTurns.
@@ -358,7 +359,33 @@ export class YouCodedSessionProvider implements LLMProvider {
     if (!this.readyState.has(info.id)) {
       this.readyState.set(info.id, []);
     }
-    return { conversationId: info.id };
+
+    // Sidecar /health probe. Done synchronously AFTER createSession (so
+    // failures here can't strand a half-created session) and BEFORE we
+    // return (so the caller sees the result in one place). 2s hard
+    // timeout — the probe must fail fast; we don't want a slow /health
+    // delaying the chat. We return the failure on the result object
+    // rather than emitting an event so the UI doesn't need any
+    // subscription plumbing.
+    const probeUrl =
+      (process.env.RETRIEVAL_BRIDGE_URL ?? "http://127.0.0.1:9200") + "/health";
+    let health: { ok: boolean; reason?: string };
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), 2000);
+    try {
+      const resp = await fetch(probeUrl, { signal: controller.signal });
+      if (resp.ok) {
+        health = { ok: true };
+      } else {
+        health = { ok: false, reason: `HTTP ${resp.status}` };
+      }
+    } catch (err) {
+      health = { ok: false, reason: (err as Error).message };
+    } finally {
+      clearTimeout(timer);
+    }
+
+    return { conversationId: info.id, health };
   }
 
   async sendTurn(args: SendTurnArgs): Promise<SendTurnResult> {
