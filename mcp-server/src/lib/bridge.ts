@@ -19,7 +19,11 @@
 // pool stays consistent and this isn't a problem. The retry-once-on-
 // transport-error logic below handles transient network blips.
 
+import { homedir } from "node:os";
+import { join } from "node:path";
+
 import type { Config } from "../config.js";
+import { logBridgeCall, type BridgeLogRecord } from "./bridge-log.js";
 
 export class BridgeError extends Error {
   constructor(
@@ -30,6 +34,16 @@ export class BridgeError extends Error {
     super(message);
     this.name = "BridgeError";
   }
+}
+
+/** Where bridge-call records are appended. Default: under the user's
+ *  ~/.claude/ask-the-budget-az dir; overridable via env so an
+ *  operator can redirect logs without rebuilding. */
+function bridgeLogPath(): string {
+  return (
+    process.env.BUDGET_BRIDGE_LOG_PATH ??
+    join(homedir(), ".claude", "ask-the-budget-az", "bridge.log")
+  );
 }
 
 export type Fetcher = typeof fetch;
@@ -72,6 +86,7 @@ export async function postJson<T>(
     body: JSON.stringify(body),
   };
 
+  const started = Date.now();
   let lastErr: Error | null = null;
   for (let attempt = 0; attempt < 2; attempt++) {
     try {
@@ -83,25 +98,80 @@ export async function postJson<T>(
       );
       if (!resp.ok) {
         const text = (await resp.text()).slice(0, 500);
+        // Log the http-error outcome before throwing.
+        const outcome: BridgeLogRecord["outcome"] =
+          resp.status >= 500 ? "http_5xx" : "http_4xx";
+        void logBridgeCall(
+          {
+            timestamp: new Date().toISOString(),
+            endpoint: path,
+            durationMs: Date.now() - started,
+            outcome,
+            httpStatus: resp.status,
+            errorCategory: text.slice(0, 80),
+          },
+          bridgeLogPath(),
+        );
         throw new BridgeError(
           `bridge ${resp.status} on ${path}: ${text}`,
           resp.status,
           text,
         );
       }
-      return (await resp.json()) as T;
+      const json = (await resp.json()) as T;
+      // Look for a retrieval_id without typing the generic — best-effort.
+      const retrievalId =
+        (json as { retrieval_id?: unknown })?.retrieval_id;
+      void logBridgeCall(
+        {
+          timestamp: new Date().toISOString(),
+          endpoint: path,
+          durationMs: Date.now() - started,
+          outcome: "ok",
+          httpStatus: resp.status,
+          errorCategory: null,
+          retrievalId:
+            typeof retrievalId === "string" ? retrievalId : undefined,
+        },
+        bridgeLogPath(),
+      );
+      return json;
     } catch (err) {
       if (err instanceof BridgeError) throw err;
       if (err instanceof Error && err.name === "AbortError") {
+        void logBridgeCall(
+          {
+            timestamp: new Date().toISOString(),
+            endpoint: path,
+            durationMs: Date.now() - started,
+            outcome: "timeout",
+            httpStatus: null,
+            errorCategory: `timeout_${cfg.bridgeTimeoutMs}ms`,
+          },
+          bridgeLogPath(),
+        );
         throw new BridgeError(
           `bridge timeout after ${cfg.bridgeTimeoutMs}ms on ${path}`,
         );
       }
       lastErr = err as Error;
-      // Loop body falls through to next attempt; if attempt 1 also
-      // fails, we throw the wrapped error after the loop exits.
+      // Loop body falls through to next attempt; transient transport
+      // errors are retried once.
     }
   }
+  // Both attempts failed at the transport layer (fetch threw before
+  // getting a response). Log the transport_error outcome.
+  void logBridgeCall(
+    {
+      timestamp: new Date().toISOString(),
+      endpoint: path,
+      durationMs: Date.now() - started,
+      outcome: "transport_error",
+      httpStatus: null,
+      errorCategory: lastErr?.message?.slice(0, 80) ?? "unknown",
+    },
+    bridgeLogPath(),
+  );
   throw new BridgeError(
     `bridge transport error on ${path}: ${lastErr?.message ?? "unknown"}`,
   );
