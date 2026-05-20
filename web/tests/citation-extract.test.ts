@@ -101,6 +101,81 @@ describe("extractCitations", () => {
     expect(c.resolved?.bbox).toEqual([10, 20, 100, 40]);
   });
 
+  it("accepts quote-only cite() calls (no offsets) — Task 4 quote path", () => {
+    // Regression test for the citation-chip drop observed 2026-05-20:
+    // the model now uses the additive `quote` field instead of computing
+    // span_start/span_end. The extractor must NOT silently drop these
+    // citations; chip attachment uses claim_span (substring search in
+    // the answer text), so the (0, claimSpan.length) sentinel is fine.
+    const turn = turnWithBlocks([
+      {
+        kind: "tool",
+        toolUseId: "r1",
+        toolName: "retrieve",
+        input: { query: "Aviation Fund" },
+        status: "complete",
+        output: RETRIEVE_OUTPUT_OK,
+      },
+      { kind: "text", uuid: "u1", text: "Balance was $123M." },
+      {
+        kind: "tool",
+        toolUseId: "c1",
+        toolName: "cite",
+        input: {
+          chunk_id: "doc-A:p47:s1",
+          // No span_start/span_end — only `quote`.
+          quote: "Aviation Fund balance was $123,456,789.",
+          confidence: "verbatim",
+          claim_span: "$123M.",
+        },
+        status: "complete",
+        output: JSON.stringify({ ok: true, citation_id: "cit-uuid-2" }),
+      },
+    ]);
+    const citations = extractCitations(turn);
+    expect(citations).toHaveLength(1);
+    const c = citations[0]!;
+    expect(c.chunkId).toBe("doc-A:p47:s1");
+    expect(c.claimSpan).toBe("$123M.");
+    expect(c.citationId).toBe("cit-uuid-2");
+    // Sentinel offsets cover the full claim_span — the actual PDF
+    // highlight relies on the resolved range the sidecar derives, not
+    // these. The chip-attachment substring search uses claimSpan.
+    expect(c.spanStart).toBe(0);
+    expect(c.spanEnd).toBeGreaterThan(0);
+  });
+
+  it("drops cite() calls that supply neither offsets nor quote", () => {
+    // Belt-and-suspenders: the MCP handler rejects these before the
+    // HTTP call (Task 4), but if a malformed cite() somehow lands in
+    // the transcript the extractor still drops it.
+    const turn = turnWithBlocks([
+      {
+        kind: "tool",
+        toolUseId: "r1",
+        toolName: "retrieve",
+        input: { query: "x" },
+        status: "complete",
+        output: RETRIEVE_OUTPUT_OK,
+      },
+      { kind: "text", uuid: "u1", text: "Some claim." },
+      {
+        kind: "tool",
+        toolUseId: "c1",
+        toolName: "cite",
+        input: {
+          chunk_id: "doc-A:p47:s1",
+          // No span_start, no span_end, no quote — malformed.
+          confidence: "verbatim",
+          claim_span: "Some claim.",
+        },
+        status: "complete",
+        output: JSON.stringify({ ok: false, error: "no offsets or quote" }),
+      },
+    ]);
+    expect(extractCitations(turn)).toEqual([]);
+  });
+
   it("normalizes a missing bbox to null (e.g. DOCX chunks)", () => {
     const turn = turnWithBlocks([
       {

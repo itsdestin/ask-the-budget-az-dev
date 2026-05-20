@@ -341,12 +341,34 @@ export function extractCitations(
     if (!CITE_TOOL_NAMES.has(block.toolName)) continue;
     const input = block.input;
     const chunkId = typeof input.chunk_id === "string" ? input.chunk_id : "";
-    const spanStart =
-      typeof input.span_start === "number" ? input.span_start : -1;
-    const spanEnd =
-      typeof input.span_end === "number" ? input.span_end : -1;
+    // Task 4 (2026-05-20) made offsets optional alongside a new `quote`
+    // field. The MCP-server cite handler forwards quote to the sidecar,
+    // which derives offsets and validates; the model's tool_use input
+    // we see here may carry EITHER (span_start, span_end) OR quote
+    // (but not both — offsets win if so). Accept either shape; for
+    // quote-only inputs fall back to a (0, claimSpan.length) sentinel
+    // so the Citation contract holds (the chip-attachment substring
+    // search uses claimSpan, not these offsets; PDF bbox highlight is
+    // less precise without resolved offsets but the chip still
+    // renders). Same pattern as the inline <cite> XML fallback below.
+    const hasOffsets =
+      typeof input.span_start === "number" &&
+      typeof input.span_end === "number";
+    const hasQuote = typeof input.quote === "string" && input.quote.length > 0;
     const claimSpan =
       typeof input.claim_span === "string" ? input.claim_span : "";
+    let spanStart: number;
+    let spanEnd: number;
+    if (hasOffsets) {
+      spanStart = input.span_start as number;
+      spanEnd = input.span_end as number;
+    } else if (hasQuote) {
+      spanStart = 0;
+      spanEnd = Math.max(1, claimSpan.length);
+    } else {
+      spanStart = -1;
+      spanEnd = -1;
+    }
     const confidence = isCitationConfidence(input.confidence)
       ? input.confidence
       : "paraphrase";
