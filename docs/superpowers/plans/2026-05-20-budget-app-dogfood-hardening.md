@@ -660,15 +660,15 @@ Append to `mcp-server/tests/cite.test.ts` inside `describe("cite input schema", 
     expect(parsed.span_end).toBeUndefined();
   });
 
-  it("rejects a payload with neither quote nor span offsets", () => {
-    expect(() =>
-      citeInputSchema.parse({
-        chunk_id: "doc::0",
-        confidence: "verbatim",
-        claim_span: "x",
-      }),
-    ).toThrow(/quote|span_start/);
-  });
+  // Plan amendment (2026-05-20): the "rejects a payload with neither quote
+  // nor span offsets" schema test originally lived here, but the schema as
+  // designed in Step 3 makes all of quote/span_start/span_end optional and
+  // does NOT enforce "at least one of" — the plan's own commentary in
+  // Step 3 acknowledges this ("the handler also validates this at runtime").
+  // The invariant IS tested at the handler layer in Step 5 ("rejects
+  // locally when neither quote nor span_start/span_end is supplied"), so
+  // the schema-level test was redundant. Dropped to keep the schema tests
+  // honest about what the schema actually enforces.
 
   it("accepts an over-500-char claim_span up to the new 2000 ceiling (server will truncate to 500)", () => {
     const parsed = citeInputSchema.parse({
