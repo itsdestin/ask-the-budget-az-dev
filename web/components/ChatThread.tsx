@@ -191,8 +191,14 @@ export default function ChatThread({ state, mascot }: Props) {
                 />
               ),
             )}
-            <div ref={endRef} />
           </div>
+          {/* endRef sits OUTSIDE the gap-5 messages container — inside it,
+              the gap-5 added a hidden 20px between the last bubble and the
+              sentinel, which inflated the visible gap to the input bar
+              well past the intended pb-2 (8px). The parent here has no
+              gap, so this sentinel adds 0 visual space; scrollIntoView()
+              still pins the bottom-of-content correctly. */}
+          <div ref={endRef} />
 
           {/* Mascot — pinned to the BOTTOM-LEFT of the scroll content,
               alongside the latest message. Right-edge anchored so all
