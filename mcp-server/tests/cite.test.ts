@@ -54,16 +54,44 @@ describe("cite input schema", () => {
     ).toThrow();
   });
 
-  it("rejects an over-long claim_span (>500 chars)", () => {
+  // Plan amendment (2026-05-20, Task 4): the 500-char schema ceiling
+  // was relaxed to 2000 (server soft-clamps to 500 + flags `truncated`).
+  // The schema test that locked in the 500 boundary is updated to lock
+  // in the new 2000 boundary — same intent (reject pathologically long
+  // claim_spans at the schema layer), new threshold.
+  it("rejects an over-long claim_span (>2000 chars)", () => {
     expect(() =>
       citeInputSchema.parse({
         chunk_id: "c",
         span_start: 0,
         span_end: 5,
         confidence: "verbatim",
-        claim_span: "x".repeat(501),
+        claim_span: "x".repeat(2001),
       }),
     ).toThrow();
+  });
+
+  it("accepts a quote-only payload (no span_start/span_end)", () => {
+    const parsed = citeInputSchema.parse({
+      chunk_id: "doc::0",
+      quote: "Aviation Fund balance was $123,456.",
+      confidence: "verbatim",
+      claim_span: "Aviation Fund balance was $123,456.",
+    });
+    expect(parsed.quote).toBe("Aviation Fund balance was $123,456.");
+    expect(parsed.span_start).toBeUndefined();
+    expect(parsed.span_end).toBeUndefined();
+  });
+
+  it("accepts an over-500-char claim_span up to the new 2000 ceiling (server will truncate to 500)", () => {
+    const parsed = citeInputSchema.parse({
+      chunk_id: "doc::0",
+      span_start: 0,
+      span_end: 5,
+      confidence: "verbatim",
+      claim_span: "x".repeat(750),
+    });
+    expect(parsed.claim_span.length).toBe(750);
   });
 });
 
@@ -231,5 +259,50 @@ describe("cite handler", () => {
     });
     expect(result.isError).toBe(true);
     expect(result.content[0]!.text).toMatch(/cite\(\) failed to validate/);
+  });
+
+  it("forwards a quote-based cite to the bridge with quote in the body", async () => {
+    const fetcher = vi.fn(async (url: RequestInfo | URL, opts?: RequestInit) => {
+      expect(String(url)).toMatch(/\/cite\/validate$/);
+      const body = JSON.parse(opts?.body as string);
+      expect(body.quote).toBe("Aviation Fund balance was $123,456.");
+      expect(body.span_start).toBeUndefined();
+      expect(body.span_end).toBeUndefined();
+      return new Response(
+        JSON.stringify({
+          ok: true,
+          chunk_text_length: 500,
+          resolved_span_start: 42,
+          resolved_span_end: 77,
+        }),
+        { status: 200 },
+      );
+    });
+
+    const handler = makeCiteHandler(loadConfig(), fetcher);
+    const result = await handler({
+      chunk_id: "doc::0",
+      quote: "Aviation Fund balance was $123,456.",
+      confidence: "verbatim",
+      claim_span: "Aviation Fund balance was $123,456.",
+    });
+
+    expect(result.isError).toBeUndefined();
+    const decoded = JSON.parse(result.content[0]!.text as string);
+    expect(decoded.ok).toBe(true);
+  });
+
+  it("rejects locally when neither quote nor span_start/span_end is supplied", async () => {
+    const fetcher = vi.fn(async () => new Response("{}"));
+    const handler = makeCiteHandler(loadConfig(), fetcher);
+    const result = await handler({
+      chunk_id: "doc::0",
+      confidence: "verbatim",
+      claim_span: "x",
+    } as never);
+    const decoded = JSON.parse(result.content[0]!.text as string);
+    expect(decoded.ok).toBe(false);
+    expect(decoded.error).toMatch(/quote|span_start/);
+    expect(fetcher).not.toHaveBeenCalled();
   });
 });
