@@ -178,7 +178,13 @@ export default function ChatThread({ state, mascot }: Props) {
             so it sits alongside the latest message and scrolls away with
             it when the user scrolls up to read older messages). */}
         <div className="relative min-h-full flex flex-col justify-end">
-          <div className="max-w-2xl mx-auto w-full flex flex-col gap-5">
+          {/* max-w-3xl (768px) so the messages column matches the input
+              box's max-w-3xl exactly — same width, same horizontal
+              padding (px-4 on both their respective parents), same
+              mx-auto centering. That makes the user-bubble right edge
+              line up with the input's right edge, and the assistant-
+              bubble left edge line up with the input's left edge. */}
+          <div className="max-w-3xl mx-auto w-full flex flex-col gap-5">
             {state.turns.map((turn, index) =>
               turn.kind === "user" ? (
                 <UserMessage key={turn.id} turn={turn} />
@@ -223,7 +229,9 @@ export default function ChatThread({ state, mascot }: Props) {
               distance from the visible figure's right edge. translateX
               shifts each by that empty-right amount so the visible right
               edge of every variant lands at the SVG-right anchor (= 16px
-              left of the messages column):
+              left of the messages column — anchor is `50%+400px` because
+              the message column is max-w-3xl = 768px, half = 384, +16
+              gap = 400):
                 small Mascot   : fig right at x=230 of 240 vb → 10 vb
                                  empty → ×0.5 scale = 5px
                 MascotTyping   : fig right at x=254 of 360 vb → 106 vb
@@ -242,7 +250,7 @@ export default function ChatThread({ state, mascot }: Props) {
               interactive elements of its own so this is safe. */}
           <div
             className={
-              "absolute bottom-0 z-10 right-[calc(50%+352px)] pointer-events-none " +
+              "absolute bottom-0 z-10 right-[calc(50%+400px)] pointer-events-none " +
               (mascot.kind === "presenting"
                 ? "translate-x-[26px] translate-y-[14px]"
                 : state.isThinking
