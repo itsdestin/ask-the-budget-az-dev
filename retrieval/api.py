@@ -267,10 +267,18 @@ class ListValuesResponse(BaseModel):
 # Intent → default top_k. Picked from the dogfood-hardening plan
 # (2026-05-20): tight for lookup (analyst wants one number), broader
 # for analyze (analyst wants context).
+#
+# analyze lowered 25 → 18 on 2026-05-20 because the original 25 was
+# producing ~50K-char retrieve responses that hit Claude Code's
+# spillover threshold (Read of a tool-results .txt file, +5-10s of
+# round-trip latency). 18 still gives broader context than compare's
+# 12 but stays under the spillover line. Combined with the route-
+# classifier prompt update that biases "Show me X" toward Lookup,
+# most dogfood queries no longer hit the analyze path at all.
 _INTENT_TOP_K: dict[str, int] = {
     "lookup": 5,
     "compare": 12,
-    "analyze": 25,
+    "analyze": 18,
 }
 
 
