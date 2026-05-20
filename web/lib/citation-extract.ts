@@ -1165,6 +1165,46 @@ export function planCitationPlacements(
       }
     }
 
+    // Second pass: key-fact-token match. Adds chips to sentences that
+    // restate the citation's load-bearing figure in different wording.
+    // We skip any sentence already covered by the claim_span pass (the
+    // anti-duplicate rule).
+    const keyFact = extractKeyFact(span);
+    if (keyFact) {
+      const normKeyFact = normalizeForMatch(keyFact).normalized;
+      // Track (lineIdx, sentenceEnd) already placed in pass 1 so we
+      // don't double-chip the same sentence.
+      const alreadyPlacedSentences = new Set<string>();
+      for (const p of out) {
+        if (p.citationIndex !== i) continue;
+        if (p.lineIndex < 0) continue;
+        alreadyPlacedSentences.add(`${p.lineIndex}:${p.column ?? "eol"}`);
+      }
+      for (let lineIdx = 0; lineIdx < lines.length; lineIdx++) {
+        const raw = lines[lineIdx]!;
+        const isTableRow =
+          /^\s*\|/.test(raw.trim()) && /\|\s*$/.test(raw.trim());
+        if (isTableRow) continue; // table rows only match via claim_span
+        const matches = Array.from(raw.matchAll(SENTENCE_RE));
+        for (const m of matches) {
+          const sentence = m[0];
+          const sentenceStart = m.index!;
+          const sentenceEndExclusive = sentenceStart + sentence.length;
+          const sentenceKey = `${lineIdx}:${sentenceEndExclusive}`;
+          if (alreadyPlacedSentences.has(sentenceKey)) continue;
+          const normalizedSentence = normalizeForMatch(sentence).normalized;
+          if (normalizedSentence.includes(normKeyFact)) {
+            out.push({
+              citationIndex: i,
+              lineIndex: lineIdx,
+              column: sentenceEndExclusive,
+            });
+            anyMatched = true;
+          }
+        }
+      }
+    }
+
     if (!anyMatched) {
       out.push({ citationIndex: i, lineIndex: -1, column: null });
     }

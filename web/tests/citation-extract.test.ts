@@ -1601,4 +1601,45 @@ describe("planCitationPlacements per-sentence iteration", () => {
       "The Fund got $5M in FY25. {{cite:0}} The Fund also got $5M in FY26. {{cite:0}}",
     );
   });
+
+  it("places a chip on a sentence whose wording differs but contains the key-fact token", () => {
+    // Model emits claim_span = "$3,300,000 for the Dark Sky Discovery Center"
+    // but the second sentence restates the fact in different prose. The
+    // key-fact token ($3,300,000) is the bridge.
+    const content = [
+      "The Baseline cuts $3,300,000 for the Dark Sky Discovery Center.",
+      "That $3,300,000 reduction removes one-time funding from FY 2027.",
+    ].join("\n");
+    const placements = planCitationPlacements(content, [
+      { claimSpan: "$3,300,000 for the Dark Sky Discovery Center" },
+    ]);
+    expect(placements).toHaveLength(2);
+    expect(placements[0]!.lineIndex).toBe(0);
+    expect(placements[1]!.lineIndex).toBe(1);
+  });
+
+  it("anti-duplicate: a sentence covered by claim_span match isn't double-chipped via key fact", () => {
+    // Sentence contains BOTH the literal claim_span AND the key-fact
+    // token. Only one chip for this citation in that sentence.
+    const content = "The Baseline cuts $3,300,000 for the Dark Sky Discovery Center.";
+    const placements = planCitationPlacements(content, [
+      { claimSpan: "$3,300,000 for the Dark Sky Discovery Center" },
+    ]);
+    expect(placements).toHaveLength(1);
+  });
+
+  it("does not match bare years as key facts", () => {
+    // Year alone is too noisy to be a placement signal.
+    const content = [
+      "JLBC's FY 2027 baseline includes a $5M increase.",
+      "Section 9 of HB 2729 in 2027 also references the increase.",
+    ].join("\n");
+    const placements = planCitationPlacements(content, [
+      { claimSpan: "$5M increase in FY 2027" },
+    ]);
+    // Only the first sentence contains "$5M". The second's "2027" alone
+    // is not a key-fact token, so it doesn't match.
+    expect(placements).toHaveLength(1);
+    expect(placements[0]!.lineIndex).toBe(0);
+  });
 });
