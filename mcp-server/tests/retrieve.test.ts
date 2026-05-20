@@ -124,6 +124,27 @@ describe("retrieve input schema", () => {
       }),
     ).toThrow();
   });
+
+  it("accepts an intent value", () => {
+    for (const intent of ["lookup", "compare", "analyze"]) {
+      const parsed = retrieveInputSchema.parse({
+        query: "x",
+        intent,
+      });
+      expect(parsed.intent).toBe(intent);
+    }
+  });
+
+  it("rejects an unknown intent value", () => {
+    expect(() =>
+      retrieveInputSchema.parse({ query: "x", intent: "random" }),
+    ).toThrow();
+  });
+
+  it("accepts a payload without intent (back-compat)", () => {
+    const parsed = retrieveInputSchema.parse({ query: "x" });
+    expect(parsed.intent).toBeUndefined();
+  });
 });
 
 // ---------------------------------------------------------------------------

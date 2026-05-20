@@ -104,8 +104,24 @@ export const retrieveInputShape = {
     .max(50)
     .optional()
     .describe(
-      "Number of chunks to return after rerank. Default 20 matches the " +
-        "spec's hybrid pipeline; raise it only when you need broader context.",
+      "Number of chunks to return after rerank. When `intent` is set, " +
+        "the server overrides this with the intent's default top_k " +
+        "(lookup→5, compare→12, analyze→25); pass top_k explicitly to " +
+        "override.",
+    ),
+  // Added 2026-05-20: route classifier that hints at the analysis depth
+  // the user is asking for. Tunes top_k server-side and is recorded in
+  // the audit log so future eval can correlate answer quality with
+  // routing decisions.
+  intent: z
+    .enum(["lookup", "compare", "analyze"])
+    .optional()
+    .describe(
+      "Question-depth classifier set by Claude based on the user's " +
+        "question. 'lookup' = one specific fact (top_k 5, terse answer). " +
+        "'compare' = side-by-side of two entities/years (top_k 12). " +
+        "'analyze' = open-ended overview (top_k 25, structured answer). " +
+        "Optional; omit when unsure.",
     ),
 };
 
@@ -155,11 +171,17 @@ export function makeRetrieveHandler(
   fetcher: Fetcher = fetch,
 ) {
   return async (input: RetrieveInput) => {
-    const body = {
+    // Strictly additive: preserve the existing top_k=20 default so
+    // current callers (and the existing "defaults top_k to 20" test)
+    // stay green. `intent` is passed through only when set; the
+    // sidecar (Task 10) will resolve it to a top_k server-side and
+    // — when both are present — `intent` wins per the schema doc.
+    const body: Record<string, unknown> = {
       query: input.query,
       filters: input.filters ?? null,
       top_k: input.top_k ?? 20,
     };
+    if (input.intent !== undefined) body.intent = input.intent;
 
     let result: RetrieveBridgeResponse;
     try {
