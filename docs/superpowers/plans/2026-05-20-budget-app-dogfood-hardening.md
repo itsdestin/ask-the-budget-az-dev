@@ -1463,8 +1463,16 @@ Compares response sizes at top_k = 15 and top_k = 20 (the old default).
 Task 8 lowers the default to 15; this script's job is to verify that
 choice is safe before the change lands.
 
-Run with:
+Run with (bash / Git Bash / WSL):
     set -a; source .env.local; set +a
+    uv run python scripts/measure_retrieve_size.py
+
+Or (PowerShell — host shell on Windows):
+    Get-Content .env.local | ForEach-Object {
+      if ($_ -match '^\s*([^#=]+?)\s*=\s*(.+?)\s*$') {
+        [Environment]::SetEnvironmentVariable($matches[1], $matches[2], 'Process')
+      }
+    }
     uv run python scripts/measure_retrieve_size.py
 """
 from __future__ import annotations
@@ -2145,7 +2153,7 @@ Find: `the trust contract`
 Replace: "the rules below"
 
 Find: `the validator`
-Replace: "the cite tool's check"
+Replace: "the response" (NOT "the cite tool's check" — that's almost-but-not-quite the same as "the cite tool's response" which Step 1 already bans, and risks leaking back into user-visible prose. Keep the replacement neutral.)
 
 Find: `cited_text_preview`
 Replace: "the actual span text"
@@ -2810,23 +2818,22 @@ uv sync
 
 - [ ] **Step 2: Load dotenv at the top of `retrieval/api.py`**
 
-Edit `retrieval/api.py` — add at the very top of the file (BEFORE `from __future__ import annotations`):
+Edit `retrieval/api.py` — add the dotenv import + call **immediately AFTER** `from __future__ import annotations`. Per PEP 236, the `__future__` import must precede every executable statement except the module docstring, comments, blank lines, and other future imports — so dotenv has to come after it. Verified current location: `from __future__ import annotations` is at `retrieval/api.py:31`.
+
+Place the block immediately after that line:
 
 ```python
-"""FastAPI sidecar exposing the Phase 1b retrieval pipeline over HTTP.
-...existing docstring...
-"""
+from __future__ import annotations
+
 # Load .env.local on import so subsequent os.environ reads (VOYAGE_API_KEY,
 # DATABASE_URL) work whether or not the user remembered to `set -a;
-# source .env.local; set +a`. Done at import time (not inside lifespan)
-# so it's already in effect by the time pydantic / psycopg read env
-# vars during module load.
+# source .env.local; set +a` (bash) / `Get-Content .env.local | ...` (pwsh).
+# Done at import time (not inside lifespan) so it's already in effect by
+# the time pydantic / psycopg read env vars during module load.
 from dotenv import load_dotenv
 load_dotenv(".env.local")
 load_dotenv()  # fallback to .env if .env.local missing
 ```
-
-(Place this BEFORE the `from __future__ import annotations` line if needed for syntactic ordering; CPython accepts the future import after a docstring + a few statements.)
 
 - [ ] **Step 3: Add startup preflight to `lifespan`**
 
@@ -3046,6 +3053,8 @@ git commit --allow-empty -m "chore(plan): Q3/Task 17 — orphans persisted; see 
 
 **Files:** none modified — verification only.
 
+> **Shell runner.** This project's primary host shell on Windows is PowerShell, but the bash snippets below also work in Git Bash / WSL — pick whichever runner you actually have open. The two diverge wherever we need to (a) load `.env.local`, (b) launch the sidecar in the background, or (c) kill it by PID. Each step shows both. The `curl`, `uv`, and `npx` commands are identical across runners.
+
 - [ ] **Step 1: Run every test suite**
 
 ```bash
@@ -3058,6 +3067,8 @@ Expected: every suite PASSes. Capture any failures and fix before continuing.
 
 - [ ] **Step 2: Smoke test the retrieve pipeline end-to-end**
 
+Bash (Git Bash / WSL):
+
 ```bash
 set -a; source .env.local; set +a
 uv run uvicorn retrieval.api:app --port 9200 &
@@ -3069,9 +3080,30 @@ curl -s -X POST http://127.0.0.1:9200/retrieve \
 kill $SIDECAR_PID
 ```
 
+PowerShell:
+
+```powershell
+# Load .env.local into the current process env.
+Get-Content .env.local | ForEach-Object {
+  if ($_ -match '^\s*([^#=]+?)\s*=\s*(.+?)\s*$') {
+    [Environment]::SetEnvironmentVariable($matches[1], $matches[2], 'Process')
+  }
+}
+# Background sidecar via Start-Process so we have a PID to stop.
+$sidecar = Start-Process uv -ArgumentList "run","uvicorn","retrieval.api:app","--port","9200" -PassThru -NoNewWindow
+Start-Sleep -Seconds 2
+curl.exe -s -X POST http://127.0.0.1:9200/retrieve `
+  -H 'content-type: application/json' `
+  -d '{"query": "Aviation Fund balance", "intent": "lookup"}' |
+  Select-Object -First 200
+Stop-Process -Id $sidecar.Id
+```
+
 Expected: JSON with `chunks` (5 entries — `intent: "lookup"` → top_k 5) and top-level `intent: "lookup"`. (Chunk text is not trimmed — Decision Q2 dropped the 1500-char slice in favor of just lowering the default `top_k`.)
 
 - [ ] **Step 3: Smoke test a quote-based cite via the sidecar**
+
+Bash:
 
 ```bash
 set -a; source .env.local; set +a
@@ -3092,16 +3124,64 @@ curl -s -X POST http://127.0.0.1:9200/cite/validate \
 kill $SIDECAR_PID
 ```
 
+PowerShell:
+
+```powershell
+Get-Content .env.local | ForEach-Object {
+  if ($_ -match '^\s*([^#=]+?)\s*=\s*(.+?)\s*$') {
+    [Environment]::SetEnvironmentVariable($matches[1], $matches[2], 'Process')
+  }
+}
+$sidecar = Start-Process uv -ArgumentList "run","uvicorn","retrieval.api:app","--port","9200" -PassThru -NoNewWindow
+Start-Sleep -Seconds 2
+# Pull a chunk_id + 60-char substring (chars 20..80) from a live retrieve.
+$retrieveJson = curl.exe -s -X POST http://127.0.0.1:9200/retrieve `
+  -H 'content-type: application/json' `
+  -d '{"query": "Aviation Fund balance"}'
+$retrieve = $retrieveJson | ConvertFrom-Json
+$chunkId = $retrieve.chunks[0].chunk_id
+$quote = $retrieve.chunks[0].text.Substring(20, 60)
+Write-Host "chunk_id: $chunkId"
+Write-Host "quote: $quote"
+# Build the body via ConvertTo-Json so escaping is correct.
+$body = @{
+  chunk_id   = $chunkId
+  quote      = $quote
+  claim_span = $quote
+  confidence = "verbatim"
+} | ConvertTo-Json -Compress
+curl.exe -s -X POST http://127.0.0.1:9200/cite/validate `
+  -H 'content-type: application/json' `
+  -d $body
+Stop-Process -Id $sidecar.Id
+```
+
 Expected: `{"ok": true, ...}` with `resolved_span_start: 20, resolved_span_end: 80`.
 
 - [ ] **Step 4: Visual check — start the web app and verify the new behavior**
 
+Bash (two terminals):
+
 ```bash
-# In one terminal:
+# Terminal 1:
 set -a; source .env.local; set +a
 uv run uvicorn retrieval.api:app --port 9200
-# In another:
+# Terminal 2:
 ( cd web && npm run dev )
+```
+
+PowerShell (two terminals):
+
+```powershell
+# Terminal 1:
+Get-Content .env.local | ForEach-Object {
+  if ($_ -match '^\s*([^#=]+?)\s*=\s*(.+?)\s*$') {
+    [Environment]::SetEnvironmentVariable($matches[1], $matches[2], 'Process')
+  }
+}
+uv run uvicorn retrieval.api:app --port 9200
+# Terminal 2:
+cd web; npm run dev
 ```
 
 Open http://localhost:3000. Confirm:
