@@ -102,6 +102,37 @@ const CITE_BATCH_TOOL_NAMES = new Set<string>([
   "mcp__ask-the-budget-az__cite_batch",
 ]);
 
+/** Extract the "key fact" token from a claim_span — the load-bearing
+ *  numeric figure that the citation is really about (e.g. a dollar
+ *  amount or percentage). Returned by `planCitationPlacements` as a
+ *  secondary placement key so sentences that restate a fact in
+ *  different wording still get the citation's chip.
+ *
+ *  Returns null when there's nothing distinctive enough to safely match
+ *  on. We intentionally do NOT match bare years or small integers —
+ *  too many false positives in budget prose where years and small
+ *  ordinals appear everywhere.
+ *
+ *  Currency match supports the dollar-amount-with-suffix shorthand
+ *  the model often uses ("$5 million", "$5M") in addition to the
+ *  long form ("$5,000,000"). Longest match wins so "$3,300,000" beats
+ *  "$3,300" within the same claim_span. */
+export function extractKeyFact(claimSpan: string): string | null {
+  // Currency: $ followed by digits and optional thousand separators,
+  // optionally trailed by a "million" / "billion" / "M" / "B" suffix.
+  // The /g + reduce(longest) pattern handles "Up from $5M to $123,456,789"
+  // by picking $123,456,789.
+  const currency = claimSpan.match(
+    /\$[\d][\d,.]*(?:\s?(?:million|billion|M|B))?/gi,
+  );
+  if (currency && currency.length > 0) {
+    return currency.reduce((a, b) => (b.length > a.length ? b : a));
+  }
+  const pct = claimSpan.match(/\d+(?:\.\d+)?\s?%/);
+  if (pct) return pct[0];
+  return null;
+}
+
 /** Parse a JSON tool result string into the retrieve output shape;
  *  returns null on any failure (silent — non-retrieve tools or
  *  errored retrievals just don't contribute resolved chunks). */

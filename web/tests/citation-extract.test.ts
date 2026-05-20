@@ -9,6 +9,7 @@ import {
   buildConversationResolvedChunkMap,
   extractCitations,
   extractInlineCiteTags,
+  extractKeyFact,
   findNormalizedMatch,
   formatCopyCitation,
   injectCiteSentinels,
@@ -1513,5 +1514,36 @@ describe("extractCitations — cite_batch tool (2026-05-20)", () => {
     // neither's claim_span is a substring of the other).
     expect(citations.length).toBeGreaterThanOrEqual(1);
     expect(citations[0]!.failureReason).toBeDefined();
+  });
+});
+
+describe("extractKeyFact", () => {
+  it("returns the longest currency token in claim_span", () => {
+    expect(extractKeyFact("$3,300,000 for the Dark Sky Discovery Center"))
+      .toBe("$3,300,000");
+  });
+
+  it("picks the longest of multiple currency tokens", () => {
+    expect(extractKeyFact("Up from $5M to $123,456,789 in FY 2027"))
+      .toBe("$123,456,789");
+  });
+
+  it("returns a percentage when no currency is present", () => {
+    expect(extractKeyFact("an increase of 12.5% over the prior year"))
+      .toBe("12.5%");
+  });
+
+  it("returns null when the claim has no currency or percentage", () => {
+    expect(extractKeyFact("Aviation Fund growth in FY 2027")).toBeNull();
+  });
+
+  it("returns null for bare years and small integers (too noisy)", () => {
+    expect(extractKeyFact("Section 9 of HB 2729 in 2027")).toBeNull();
+  });
+
+  it("matches '5 million' / '$5M' shorthand forms", () => {
+    expect(extractKeyFact("about $5 million in carry-forward"))
+      .toBe("$5 million");
+    expect(extractKeyFact("about $5M in carry-forward")).toBe("$5M");
   });
 });
