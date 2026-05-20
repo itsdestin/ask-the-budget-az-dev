@@ -158,7 +158,13 @@ export default function ChatThread({ state, mascot }: Props) {
           `max-w-2xl mx-auto` centers the bubbles on the viewport's midline. */}
       <div
         ref={containerRef}
-        className="h-full overflow-y-auto py-6 px-4"
+        // Asymmetric vertical padding: pt-6 keeps the top breathable so
+        // older messages (scrolled-up history) don't crash into the
+        // header, but pb-2 tightens the gap between the latest message
+        // and the input bar — with bottom-anchored messages, pb is what
+        // separates the bottom-most bubble from the input panel border
+        // and 24px felt too floaty.
+        className="h-full overflow-y-auto pt-6 pb-2 px-4"
       >
         {/* Bottom-anchored message column. `min-h-full + justify-end`
             makes the inner column at least as tall as the scroll viewport
