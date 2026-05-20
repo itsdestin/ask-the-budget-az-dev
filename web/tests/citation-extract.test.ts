@@ -101,6 +101,118 @@ describe("extractCitations", () => {
     expect(c.resolved?.bbox).toEqual([10, 20, 100, 40]);
   });
 
+  it("uses ack-provided resolved offsets over input sentinel for quote-only cite()", () => {
+    // Regression test for the "Citation is on this page — exact text
+    // couldn't be pinpointed" cluster the user reported 2026-05-20.
+    // Quote-only cites have no span_start/span_end on the input, so
+    // the extractor previously fell back to a (0, claim_span.length)
+    // sentinel — pointing the PDF text-layer search at the FIRST
+    // chunk_text chars instead of the cited quote. Fix: the cite tool
+    // now passes the sidecar's resolved_span_start/end through on
+    // success; the extractor reads those and uses them as the
+    // Citation's spanStart/spanEnd.
+    const turn = turnWithBlocks([
+      {
+        kind: "tool",
+        toolUseId: "r1",
+        toolName: "retrieve",
+        input: { query: "x" },
+        status: "complete",
+        output: RETRIEVE_OUTPUT_OK,
+      },
+      { kind: "text", uuid: "u1", text: "Balance was $123M." },
+      {
+        kind: "tool",
+        toolUseId: "c1",
+        toolName: "cite",
+        input: {
+          chunk_id: "doc-A:p47:s1",
+          quote: "balance was $123M as of June 30, 2024",
+          confidence: "verbatim",
+          claim_span: "$123M.",
+        },
+        status: "complete",
+        output: JSON.stringify({
+          ok: true,
+          citation_id: "cit-uuid-resolved",
+          // Sidecar-derived offsets. With these, spanStart/spanEnd
+          // point at the actual quote position in chunk.text — NOT
+          // the (0, 6) sentinel that would result from claim_span
+          // length alone.
+          resolved_span_start: 14,
+          resolved_span_end: 52,
+        }),
+      },
+    ]);
+    const citations = extractCitations(turn);
+    expect(citations).toHaveLength(1);
+    const c = citations[0]!;
+    expect(c.citationId).toBe("cit-uuid-resolved");
+    expect(c.spanStart).toBe(14);
+    expect(c.spanEnd).toBe(52);
+  });
+
+  it("threads resolved offsets through cite_batch entries too", () => {
+    // Same regression, batched path. Each entry's resolved offsets
+    // come back in cite_batch's response.citations[i] alongside the
+    // citation_id.
+    const turn = turnWithBlocks([
+      {
+        kind: "tool",
+        toolUseId: "r1",
+        toolName: "retrieve",
+        input: { query: "x" },
+        status: "complete",
+        output: RETRIEVE_OUTPUT_OK,
+      },
+      { kind: "text", uuid: "u1", text: "First. Second." },
+      {
+        kind: "tool",
+        toolUseId: "cb1",
+        toolName: "cite_batch",
+        input: {
+          citations: [
+            {
+              chunk_id: "doc-A:p47:s1",
+              quote: "q1 text",
+              confidence: "verbatim",
+              claim_span: "First.",
+            },
+            {
+              chunk_id: "doc-A:p47:s1",
+              quote: "q2 text",
+              confidence: "verbatim",
+              claim_span: "Second.",
+            },
+          ],
+        },
+        status: "complete",
+        output: JSON.stringify({
+          citations: [
+            {
+              ok: true,
+              citation_id: "cb-cit-1",
+              resolved_span_start: 5,
+              resolved_span_end: 25,
+            },
+            {
+              ok: true,
+              citation_id: "cb-cit-2",
+              resolved_span_start: 100,
+              resolved_span_end: 130,
+            },
+          ],
+        }),
+      },
+    ]);
+    const citations = extractCitations(turn);
+    expect(citations).toHaveLength(2);
+    expect(citations[0]!.spanStart).toBe(5);
+    expect(citations[0]!.spanEnd).toBe(25);
+    expect(citations[1]!.spanStart).toBe(100);
+    expect(citations[1]!.spanEnd).toBe(130);
+  });
+
   it("accepts quote-only cite() calls (no offsets) — Task 4 quote path", () => {
     // Regression test for the citation-chip drop observed 2026-05-20:
     // the model now uses the additive `quote` field instead of computing

@@ -132,6 +132,13 @@ interface SidecarBatchResponse {
 interface CiteBatchItemSuccess {
   ok: true;
   citation_id: string;
+  // Same passthrough as the single-cite tool: the sidecar derives
+  // these from the quote (or echoes them from the explicit offset
+  // path). The web UI uses them to drive its PDF text-layer search.
+  // Threaded through here because the model's tool_result is the only
+  // channel the UI reads.
+  resolved_span_start?: number;
+  resolved_span_end?: number;
 }
 
 interface CiteBatchItemFailure {
@@ -275,7 +282,21 @@ export function makeCiteBatchHandler(
         continue;
       }
       if (sc.ok) {
-        out[slot] = { ok: true, citation_id: randomUUID() };
+        out[slot] = {
+          ok: true,
+          citation_id: randomUUID(),
+          // Pass through sidecar-derived offsets so the UI can find
+          // the cited text in the PDF text layer. Without these, the
+          // PdfPage falls back to a sentinel (0, claim_span.length)
+          // range that doesn't actually point at the cited text and
+          // shows the "couldn't pinpoint" badge.
+          ...(sc.resolved_span_start !== undefined
+            ? { resolved_span_start: sc.resolved_span_start }
+            : {}),
+          ...(sc.resolved_span_end !== undefined
+            ? { resolved_span_end: sc.resolved_span_end }
+            : {}),
+        };
       } else {
         out[slot] = {
           ok: false,
