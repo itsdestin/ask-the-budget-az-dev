@@ -1,6 +1,6 @@
 # Project Status
 
-**Last updated:** 2026-05-19
+**Last updated:** 2026-05-20
 
 This file is the single source of truth for what's shipped, what's
 open, and what's blocked. The phase plans under `docs/superpowers/`
@@ -22,7 +22,7 @@ source. When something ships, update only this file.
 | Phase 0 — Investigation | ✓ Done (2026-05-06) | Findings memo + chunk-shape + data-model docs |
 | Phase 1a — Ingest + chunking | ✓ Done on slice (2026-05-06), volume ingest substantially complete (2026-05-12) | 382 docs / 7,755 chunks; missing older FYs + a few in-cycle gaps |
 | Phase 1b — Storage + retrieval | ✓ Done on slice (2026-05-07), volume-validated implicitly | Hybrid pipeline live and serving 7K+ chunks; eval harness (WS8) still pending |
-| Phase 1c — Synthesis + UI | 🟡 Substantially done | All user-visible surfaces shipped; faithfulness verifier + audit log not built |
+| Phase 1c — Synthesis + UI | 🟡 Substantially done | All user-visible surfaces shipped; 2026-05-19/20 dogfood-hardening pass landed Items 1-8 plus four follow-up fix waves; faithfulness verifier (WS3) + audit log (WS5) still not built |
 | Volume ingest | 🟡 Mostly done | FY25 + FY26 + FY27 across all 4 publishers; gaps: older FYs (FY24 and back), FY26 Approps Report, FY27 Approps/Budget bill |
 | Phase 2 — Companion + verify-mode | 🔴 Not started | Defers until v1 demonstrates internal value |
 
@@ -32,63 +32,100 @@ source. When something ships, update only this file.
 
 ### Retrieval sidecar (`retrieval/api.py`)
 - FastAPI service on `127.0.0.1:9200`
-- `POST /retrieve` — BM25 + dense + RRF + Voyage rerank, returns chunks with `text_length` for span-bound checks
-- `POST /cite/validate` — chunk_id existence + span bounds + span-breadth + content-alignment
+- `POST /retrieve` — BM25 + dense + RRF + Voyage rerank. Accepts optional `intent: "lookup" | "compare" | "analyze"` (resolves to default top_k 5 / 12 / 18 when no explicit top_k passed) and echoes intent in the response. Default `top_k` when no intent + no explicit value is 15 (was 20 through 2026-05-19; lowered after dogfood showed spillover at top_k=20).
+- `POST /cite/validate` — chunk_id existence + quote-in-chunk-text + span sanity (negative / inverted / oversized). **The content-word-overlap alignment check was DROPPED 2026-05-20** — it was a string-overlap heuristic that produced ~40% false rejections on faithful-but-differently-worded claim_spans. Real faithfulness validation will come from WS3 (NLI verifier, unbuilt).
+- `POST /cite/validate_batch` — validates N citations in one round-trip with bulk DB fetch (one `WHERE chunk_id = ANY(%s)` query for all unique chunks). Powers the MCP `cite_batch` tool.
 - `POST /list_values` — returns canonical_id slugs with chunk counts + sample doc titles
 - `GET /docs/{doc_id}` — document metadata for the PDF viewer
-- 41 pytest passing
+- Sidecar startup loads `.env.local` via python-dotenv; lifespan preflight validates `VOYAGE_API_KEY` + `DATABASE_URL` + chunks-table-non-empty before accepting requests, exiting with a clear stderr message on any failure.
+- **55 pytest passing**
 
-### Citation validator behavior
-- **AFR currency-only path** when `doc_type=afr` (raw table cells have no English; check dollar amounts only)
-- **Verbatim cite path:** strict substring fast-path, then ≥70% content-word overlap
-- **Paraphrase cite path:** ≥60% content-word overlap
-- **Auto-clamp** small `span_end` overflows (≤ max(50 chars, 5%))
-- **Normalize** strips CommonMark backslash escapes, collapses both `$(X)` and `($X)` accounting-negatives, expands `$X million` ↔ `$X,000,000`, canonicalizes currency tokens to bare-number form
-- On any failure, echoes the first ~500 chars of the cited slice back to the model
+### Citation `cite()` / `cite_batch()` behavior
+- `cite()` accepts either explicit `span_start`/`span_end` offsets OR a `quote: string` field (server scans chunk.text for the quote and derives the offsets). Quote is the preferred path; offsets are legacy. `claim_span.max` is 2000 chars on the schema; server soft-clamps to 500 with `truncated: true` flag.
+- `cite_batch({citations: [...]})` is the multi-citation companion: collapses N serial round-trips into one. The model's tool_use carries an array of single-cite shapes; the response is a parallel array of single-cite results. System prompt steers toward `cite_batch` whenever an answer has more than one citation.
+- Both tools return `resolved_span_start` / `resolved_span_end` on success — the sidecar-derived position of the cited text inside chunk.text. The web UI uses these for precise PDF text-layer highlighting.
+- The locked schema decision doc (`docs/superpowers/decisions/2026-05-06-citation-tool-schema.md`) has a 2026-05-20 amendment header documenting all of the above.
 
 ### MCP server (`mcp-server/`)
-- Three tools registered: `retrieve`, `cite`, `list_filter_values`
-- System prompt (~1000 lines) covers: constrained-agent contract, filter dimensions + agency cheat sheet, doc lifecycle (Governor → Baseline → Approps → AFR), 3-year table structure, AFR accuracy hierarchy, retrieval recipes, claim-span anti-patterns, refusal cases
-- 32 vitest passing
+- Four tools registered: `retrieve`, `cite`, `cite_batch`, `list_filter_values`
+- Per-conversation `.mcp.json` materialization with `alwaysLoad: true` on the budget MCP server (eliminates ToolSearch round-trips for the budget tools). Per-conversation `.claude/settings.json` allow/deny — allow: Bash, Read, the four budget MCP tools; deny: Grep, Write, Edit, MultiEdit, NotebookEdit, Glob, PowerShell, WebFetch, WebSearch, ToolSearch, plus glob denies for unrelated MCP servers (`windows-control`, `gmessages`, `imessages`, `todoist`, `spotify-services`).
+- `retrieve()` first-call cap: the FIRST retrieve() of any session is capped to 5 chunks regardless of input top_k/intent. Response carries `first_call_capped: true`. Bypassable with `deep_dive: true` for explicit thorough-coverage requests. Subsequent retrieves are uncapped.
+- System prompt (~1300 lines) covers: constrained-agent contract, "tools are preloaded — do NOT call ToolSearch" notice, **progressive retrieval pattern** (first call samples, model expands if needed), **Route-the-question-first classifier** (lookup/compare/analyze → answer FORMAT, not retrieve breadth), **Output hygiene** (banned leak categories: internal vocabulary, corpus mechanics, retry narration), cite() quote recipe, filter dimensions + agency cheat sheet, doc lifecycle (Governor → Baseline → Approps → AFR), 3-year table structure, AFR accuracy hierarchy, retrieval recipes, refusal cases.
+- Structured per-call JSONL logging at `~/.claude/ask-the-budget-az/bridge.log` (timestamp, endpoint, duration, outcome, httpStatus, errorCategory, retrievalId). One line per /retrieve and /cite/validate(_batch) call.
+- **57 vitest passing**
 
 ### Web app (`web/`)
 - Next.js multi-turn chat UI on `127.0.0.1:3000`
 - Citation rendering:
   - Inline-underlined chips for successful cites; red-X wavy-underline for failed
-  - Retry chips collapse via chunk_id + substring-chain dedup
+  - Retry chips collapse via two-pass dedup: (1) chunk_id + substring-chain union-find; (2) FIFO-pair fail→ok across blocks for the same chunk_id (handles claim_span-rewritten retries). Suppresses pairing within a single `cite_batch` (same `batchId`) — sibling claims in a batch are intentional distinct citations, not retries.
   - Tooltip shows verbatim quote (success) or claim-vs-actual-cited side-by-side (failure)
   - MCP zod errors humanized (not raw JSON)
   - Markdown table-row claims inject sentinel inside the last cell
-- Tool cards: friendly labels (Search corpus, Cite claim, Shell, …) with per-tool body views (RetrieveView, CiteView, ListFilterValuesView, EditView, ShellView, …). Single status indicator on the header (pixel-glyph color encodes running/complete/failed); pulses while running.
-- PDF viewer:
-  - pdfjs-dist canvas render with bbox highlight
-  - Multi-pass text-layer search (claim slice → full chunk → individual currency tokens)
-  - "Couldn't pinpoint" badge instead of misleading chunk-bbox fallback
-- ChatThread auto-scroll: event-driven (wheel/touch/keyboard) detection, only follows bottom when the user is actually at bottom. Messages anchor to the BOTTOM of the viewport (first message lands above the input bar; new turns push history upward).
-- **UI refresh + JLBC mascot (shipped 2026-05-19, branch `ui-prettify-mascot`):**
-  - Civic-warm theme tokens (`--canvas`, `--panel`, `--accent`, `--mascot-*`)
-  - Single-mascot architecture: one persistent mascot instance, swapped in place at the bottom-left between idle / typing / presenting / refusal poses (variants are pixel-aligned both vertically AND horizontally so swaps don't jump)
-  - Seated typing scene with 12-second behavior loop (type, pause, look up, look back down)
-  - Welcome hero (centered mascot + intro) on empty thread; suggestion chips above the input
-  - Speech-bubble assistant messages with carat tail only on the most-recent turn
-  - Page pinned (only chat thread + PDF viewer scroll); footer carries the honesty line ("Answers are cited, not guaranteed. Verify against sources.")
-  - Message-column edges aligned exactly with input-box edges (both `max-w-3xl`)
-  - Session-id chip removed from header
-- 176 vitest passing
+  - Citation `spanStart`/`spanEnd` resolution order: ack's `resolved_span_start/end` (preferred) → explicit input offsets (legacy) → `(0, claim_span.length)` sentinel (only for in-flight or pre-fix calls; produces "couldn't pinpoint" badges in the PDF viewer).
+- Tool cards: friendly labels (Search corpus, Cite claim, Cite claims, Browse filters, Shell, …) with per-tool body views (RetrieveView, CiteView, ListFilterValuesView, EditView, ShellView, …). Single status indicator on the header (pixel-glyph color encodes running/complete/failed); pulses while running.
+- PDF viewer (`web/components/PdfPage.tsx`):
+  - pdfjs-dist canvas render with bbox-restricted text-layer search
+  - Multi-pass match strategy: chunk.text\[span_start:span_end\] → full chunk.text → individual currency tokens; bbox-restricted first, then unrestricted
+  - "Couldn't pinpoint" badge instead of misleading chunk-bbox fallback when all matches fail
+  - "Couldn't open source PDF" error when chunk's source isn't a PDF (DOCX legislative bills currently — DOCX viewer is Phase 2)
+- ChatThread auto-scroll: event-driven detection, only follows bottom when the user is at bottom. Messages anchor to the BOTTOM of the viewport.
+- UI refresh + JLBC mascot (shipped 2026-05-19, branch `ui-prettify-mascot`):
+  - Civic-warm theme tokens; single-mascot architecture with pixel-aligned variant swaps (idle / typing / presenting / refusal); seated typing scene with 12-second behavior loop; welcome hero on empty thread; suggestion chips; speech-bubble assistant messages; page pinned (only chat thread + PDF viewer scroll); footer honesty line.
+- Sidecar `/health` probe at session start; renders a `SystemHealthBanner` above the chat thread when the probe fails (e.g. sidecar not running). Returned inline from `startConversation` as `{conversationId, health}` — no event-subscription plumbing.
+- **197 vitest passing**
+
+---
+
+## 2026-05-19 → 2026-05-20 hardening pass
+
+Substantial reliability + UX work landed across this window. Each item ships as a feature branch merged with `--no-ff`; the merge commit is the entry point for the audit trail. All work in worktrees per CLAUDE.md convention, cleaned up after merge.
+
+### Items 1-7 of the original dogfood-hardening plan (merge `1939347`, 2026-05-19/20)
+
+| Item | What | Most-relevant file(s) |
+|---|---|---|
+| 1 | Per-session `.mcp.json` (alwaysLoad:true) + `.claude/settings.json` allow/deny (eliminates ToolSearch) | `web/lib/youcoded-session-provider.ts`, `web/lib/mcp-config-loader.ts` |
+| 2 | `cite()` accepts `quote` (server derives offsets); `claim_span` relaxed 500→2000 with server soft-clamp | `mcp-server/src/tools/cite.ts`, `retrieval/api.py` `http_cite_validate` |
+| 3 | `DEFAULT_PIPELINE_TOP_K` lowered 20→15 (measurement-gated by `scripts/measure_retrieve_size.py`) | `retrieval/pipeline.py` |
+| 4 | `intent` parameter on `retrieve()` (lookup/compare/analyze → top_k 5/12/25); routes table in system prompt | `mcp-server/src/tools/retrieve.ts`, `retrieval/api.py` |
+| 5 | Output-hygiene prompt rewrite — three banned leak categories + dogfood-test plan | `mcp-server/system-prompt.md`, `docs/superpowers/investigations/2026-05-20-prompt-rewrite-dogfood-tests.md` |
+| 6 | Bridge JSONL logging + session-start `/health` probe + SystemHealthBanner | `mcp-server/src/lib/bridge-log.ts`, `web/components/SystemHealthBanner.tsx` |
+| 7 | Sidecar `python-dotenv` auto-loads `.env.local` + startup preflight + README "Daily startup" checklist | `retrieval/api.py` `lifespan`, `README.md` |
+
+Plan doc at `docs/superpowers/plans/2026-05-20-budget-app-dogfood-hardening.md` (historical — captures the pre-execution design + open-question resolutions Q1/Q2/Q3).
+
+### Follow-up fix waves (after Items 1-7 shipped)
+
+Each wave responded to specific issues surfaced during dogfood verification of the previous wave.
+
+**Wave A — Citation-extract patches (commits `5981dbb`, `4620ec3`).** Quote-only cite() calls were being silently dropped at the UI extraction layer because the extractor required numeric offsets. Patched to accept quote-only with a sentinel range; added FIFO-pair-fail→OK dedup for retries that rewrite claim_span entirely.
+
+**Wave B — `cite-batch` branch (merge `3c6bf04`).** Dropped `_check_alignment` from `/cite/validate` (~40%→~5% false-rejection rate; removed the dominant retry-loop latency source). Added the `cite_batch` MCP tool + matching `/cite/validate_batch` sidecar endpoint with bulk DB fetch — collapses N serial cite round-trips into one for analyze-shaped answers. Web `citation-extract.ts` walks the batched input/output arrays; new `batchId` field disambiguates same-batch siblings from cross-block retries in the dedup pass.
+
+**Wave C — `cite-resolved-offsets` branch (merge `2c570e6`).** Threads sidecar-derived `resolved_span_start` / `resolved_span_end` through the cite + cite_batch tool responses to the web UI, fixing the "Citation is on this page — exact text couldn't be pinpointed" badge cluster. Also denies `ToolSearch` in `.claude/settings.json` (alwaysLoad wasn't fully eliminating model-side ToolSearch habit), tightens the route classifier to default-to-Lookup for "Show me X" / "What is X" wording, lowers analyze top_k 25→18 to stay under Claude Code's spillover threshold.
+
+**Wave D — `first-call-cap` branch (merge `af6a673`).** Progressive retrieval: first retrieve() of any session is capped to 5 chunks regardless of intent/top_k. Bypass via `deep_dive: true` for explicit thorough-coverage requests. After the first call, pass-through behavior. Route classifier rewritten to be about answer FORMAT, not retrieve sizing — breadth comes from iterative follow-up retrieves, not one-shot top_k.
 
 ---
 
 ## What's open
 
 ### Modeling / behavior gaps
-- **Model occasionally writes verbose `claim_spans` that don't substring-match the rendered answer.** Latest prompt rule explicitly forbids this, but no measurement yet of whether the rule sticks.
-- **Model still emits meta-commentary in answer prose when its cites fail** ("…the chip attachments fail. Treat those numerical values as cited…"). User-visible UX leak — should never happen if the cites just work.
-- **Some PDF text-layer matches still fall back to the "couldn't pinpoint" badge.** Likely causes: chunk text formatting drift (e.g. tabs in chunk vs spaces in PDF, ligature differences), or the cited region isn't actually present in the PDF text layer due to OCR drift. Needs case-by-case investigation.
+- **Model meta-narration leaks** ("Retrying the cites…", "All cites anchored", "Task tracking isn't relevant…") still appear in user-visible answer prose despite Task 12's Output-hygiene rewrite. The prompt-only fix isn't sufficient; needs another pass and possibly a mechanism-level intervention (e.g. stripping retry-narration text in the renderer before display).
+- **Model occasionally writes verbose `claim_spans` that don't substring-match the rendered answer** — soft-fixed by the cite_batch + resolved-offsets work but not eliminated; chip attachment still fails when the model rewrites prose between cite() and final emission.
+
+### PDF viewer accuracy (failure mode catalog from 2026-05-20 analysis)
+- **A. Source isn't a PDF (DOCX legislative bills).** Current UI shows "Couldn't open source PDF" with a useless error. **Fix queued (#55):** render chunk text + section path inline instead, so the analyst can verify the cite even without a PDF viewer.
+- **B. PDF exists, text-layer search fails to find the quote.** "Couldn't pinpoint" badge. Improved twice (resolved-offsets passthrough, multi-pass normalization) but still fires on formatting drift / OCR / line-break collapse. **Architectural fix queued (#57):** capture chunk_text→PDF-coord mapping during ingest, store per-chunk, look up directly at render time. ~1-2 days of ingest pipeline + retrieve plumbing + client rewrite. Should drive "couldn't pinpoint" to ~zero.
+- **C. PDF exists, chunk's stored bbox is wrong** (MinerU mis-detection). Rare; surfaced as "couldn't pinpoint" with no highlight. Ingest QA loop is out of scope for the viewer.
+- **D. Citation references a chunk_id from a prior turn with no metadata** in the current turn's retrieve. `buildConversationResolvedChunkMap` exists for cross-turn fallback but is sometimes missing chunks. **Diagnosis queued (#56):** verify whether the cross-turn map is consulted, identify where the lookup fails.
 
 ### Not yet implemented (per the Phase 1c plan)
-- **Faithfulness verifier (WS3).** Post-generation NLI-style check that strips claims whose cites don't actually back them. Currently the server-side `/cite/validate` is doing the catch-most-failures work but isn't NLI-grade.
-- **Audit log writer (WS5).** No persistent record of `(retrieval_id, citation_id, claim_span)` tuples for offline review.
-- **Eval expansion (Phase 1b WS8).** Recall@K, citation-faithfulness rates, refusal precision. No longer blocked on volume ingest (the corpus is now 7K+ chunks across the FY25–FY27 cycle), just unbuilt.
+- **Faithfulness verifier (WS3).** Post-generation NLI-style check that strips claims whose cites don't actually back them. Core Invariant 2 says "citations are verified, not just emitted" — current enforcement is chunk_id + quote-in-chunk-text (catches invented chunks/quotes, not semantic faithfulness). The dropped `_check_alignment` was a string-overlap proxy, not real faithfulness. WS3 is the real fix.
+- **Audit log writer (WS5).** No persistent record of `(retrieval_id, citation_id, claim_span, intent)` tuples for offline review. Schema-side hooks are in place — `retrieval_id` flows through retrieve() responses, `intent` echoes back, JSONL bridge log captures call-level data — but no DB writer.
+- **Eval expansion (Phase 1b WS8).** Recall@K, citation-faithfulness rates, refusal precision. Unbuilt.
+- **DOCX viewer (Phase 2).** Bills are DOCX; the Phase 2 plan adds an inline DOCX viewer. Until then, #55 (text-only fallback) is the stopgap.
 
 ### Volume ingest — current corpus
 **382 documents / 7,755 chunks** as of 2026-05-12. Coverage:
@@ -109,13 +146,23 @@ source. When something ships, update only this file.
 
 Hand-off prompt for additional ingest at [`PROMPT-volume-ingest.md`](PROMPT-volume-ingest.md).
 
-### Recently fixed (this session) — verify in next dogfood pass
-- Citation hover tooltip (now stays open as cursor crosses the 4px gap)
-- Auto-scroll fighting user scroll
-- Tool-card raw MCP names
-- "Citations 1-6 invisible" bug (markdown table sentinel placement)
-- 3-chip-per-cell retry pile-up (now collapses to one chip per chunk)
-- Raw MCP zod errors in chip tooltips (now humanized)
+### Open follow-up tasks (tracked in TaskList)
+- **#45** — Investigate `(unknown)` tool card after Item 1 ships (verification-only; needs a fresh dogfood transcript)
+- **#47** — BM25 query parser crashes on apostrophes (`Governor's`, `Children's`, etc. — ParadeDB parses `'` as a quote delimiter, whole retrieve() call aborts)
+- **#55** — DOCX chunk fallback (render chunk text inline when no PDF backing)
+- **#56** — Diagnose cross-turn metadata gap
+- **#57** — Capture chunk→PDF coord map during ingest (architectural PDF-accuracy fix)
+- **#58** — Post-mortem: 2026-05-20 dogfood revealed 4 distinct fix categories worth documenting
+
+### Recently fixed — verify in next dogfood pass
+- Citation chips weren't rendering at all (citation-extract required offsets; now accepts quote-only)
+- Failed retries weren't collapsing with their successful replacements (FIFO-pair-fail→OK dedup)
+- 40% cite() false-rejection rate (dropped alignment heuristic)
+- 60s+ tool round-trips on analyze-shaped answers (cite_batch single round-trip)
+- "Couldn't pinpoint" PDF badges (resolved-offsets passthrough)
+- ToolSearch round-trips at session start (added to deny list)
+- "Show me X" classifying as Analyze and pulling 25 chunks (route-classifier defaults to Lookup; analyze lowered 25→18)
+- First retrieve always pulling too many chunks regardless of question shape (progressive-retrieval first-call cap)
 
 ---
 
@@ -151,6 +198,7 @@ See [README.md → Moving to a new device](README.md#moving-to-a-new-device) for
 - `setup.sh` — one-shot installer for everything regenerable. Run after `git clone`. Does NOT restore DB data.
 - `bash setup.sh --verify` — runs all test suites (pytest + 2× vitest). Use before merging non-trivial work.
 - All three services run in separate processes; `npm` is in `mcp-server/` and `web/`; `uv` drives Python.
+- README's "Daily startup" section is the canonical reference for the launch order: Docker → Postgres → sidecar → YouCoded → web UI.
 
 ---
 
@@ -162,6 +210,8 @@ See [README.md → Moving to a new device](README.md#moving-to-a-new-device) for
 - [PROMPT-volume-ingest.md](PROMPT-volume-ingest.md) — hand-off prompt for the volume-ingest task
 - [docs/superpowers/specs/2026-05-04-ask-the-budget-az-design.md](docs/superpowers/specs/2026-05-04-ask-the-budget-az-design.md) — overall design spec (historical)
 - [docs/superpowers/decisions/2026-05-06-phase-1bc-architecture.md](docs/superpowers/decisions/2026-05-06-phase-1bc-architecture.md) — twelve interlocking decisions for Phase 1b/1c
-- [docs/superpowers/decisions/2026-05-06-citation-tool-schema.md](docs/superpowers/decisions/2026-05-06-citation-tool-schema.md) — locked schema for `retrieve()` + `cite()`
+- [docs/superpowers/decisions/2026-05-06-citation-tool-schema.md](docs/superpowers/decisions/2026-05-06-citation-tool-schema.md) — locked schema for `retrieve()` + `cite()` (amended 2026-05-20 — quote, cite_batch, dropped alignment, resolved offsets, progressive retrieval)
+- [docs/superpowers/plans/2026-05-20-budget-app-dogfood-hardening.md](docs/superpowers/plans/2026-05-20-budget-app-dogfood-hardening.md) — 18-task plan for the dogfood-hardening pass (historical; Items 1-7 shipped + four follow-up fix waves)
+- [docs/superpowers/investigations/2026-05-20-prompt-rewrite-dogfood-tests.md](docs/superpowers/investigations/2026-05-20-prompt-rewrite-dogfood-tests.md) — dogfood-test plan for the output-hygiene rewrite
 - [docs/superpowers/plans/](docs/superpowers/plans/) — phase plans (historical; not kept in sync with shipped features)
 - [data/chunks/MANIFEST.md](data/chunks/MANIFEST.md) — Phase 1a → Phase 1b hand-off contract

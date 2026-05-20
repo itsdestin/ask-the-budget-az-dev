@@ -1,11 +1,41 @@
 ---
 title: Citation tool schema (cite()) — locked for Phase 1b/1c
 date: 2026-05-06
-status: decided
+status: decided (amended 2026-05-20 — see top of doc)
 authors: Destin Moss, Claude
 audience: Phase 1b WS6 (retrieval), Phase 1c WS1 (MCP server), Phase 1c WS3 (system prompt + UI rendering)
 supersedes_in_part:
   - docs/superpowers/decisions/2026-05-06-phase-1bc-architecture.md (D6 sketch — this doc closes its open item)
+---
+
+> ## 2026-05-20 amendments (Phase 1c dogfood hardening)
+>
+> The schema below is the **2026-05-06 baseline**. The 2026-05-20 dogfood pass surfaced several reliability and latency issues that motivated substantive amendments. Both the original (offset-based) shape and the new (quote-based) shape are still accepted; the new shape is preferred.
+>
+> **`cite()` input changes:**
+>
+> - **New `quote: string` field (optional).** The exact substring of chunk.text the model wants to cite. Server scans chunk.text for it and derives `span_start`/`span_end`. Avoids the off-by-one failure mode the offset path produced.
+> - **`span_start` and `span_end` are now optional.** Either `(span_start, span_end)` OR `quote` is required (handler validates this at runtime; the schema can't express "exactly one of"). When both are supplied, offsets win (back-compat).
+> - **`claim_span.max` raised 500 → 2000.** Server soft-clamps to 500 and flags `truncated: true` instead of rejecting.
+>
+> **`cite()` response changes:**
+>
+> - **`resolved_span_start` / `resolved_span_end` added to the success response.** Sidecar-derived positions of the cited text inside chunk.text. The web UI uses these to drive the PDF text-layer search; without them, quote-only cites had to fall back to a `(0, claim_span.length)` sentinel that produced "couldn't pinpoint" badges.
+>
+> **`cite()` validation changes:**
+>
+> - **Content-word-overlap alignment check (`_check_alignment`) was dropped.** The check was a string-overlap heuristic, not a real faithfulness check (Invariant 2's actual guarantor is WS3 / NLI verifier, still unbuilt). It produced ~40% false rejections on faithful-but-differently-worded claim_spans and dominated query latency through retry loops.
+> - What `/cite/validate` still enforces: chunk_id exists in the corpus, quote appears verbatim in chunk.text, span sanity (negative / inverted / `> SPAN_BREADTH_LIMIT`).
+>
+> **New companion tool: `cite_batch({citations: [...]})`.** Registers N citations in one MCP round-trip with bulk DB fetch. The model's `cite_batch` tool_use carries an array of single-cite shapes; the response is a parallel array of single-cite results. System prompt steers the model toward `cite_batch` whenever an answer has more than one citation. `cite` (single) stays registered for back-compat.
+>
+> **`retrieve()` schema additions:**
+>
+> - **New `intent: "lookup" | "compare" | "analyze"` field (optional).** Question-depth classifier that maps to per-route default top_k (5 / 12 / 18) when no explicit top_k is supplied.
+> - **New `deep_dive: boolean` field (optional).** First-call-cap bypass — the FIRST retrieve() of any session is capped to 5 chunks regardless of intent/top_k unless deep_dive:true is passed.
+>
+> **For the current state of these contracts**, read `retrieval/api.py` (sidecar models), `mcp-server/src/tools/cite.ts`, `mcp-server/src/tools/cite-batch.ts`, and `mcp-server/src/tools/retrieve.ts`. The text below is preserved as the **2026-05-06 baseline** so the schema-evolution audit trail stays legible.
+
 ---
 
 # Citation tool schema (`cite()`)
