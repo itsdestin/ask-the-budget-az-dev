@@ -218,11 +218,17 @@ describe("retrieve handler", () => {
     expect(fetcher).toHaveBeenCalledTimes(1);
   });
 
-  it("defaults top_k to 20 and filters to null when omitted", async () => {
+  it("omits top_k from the request body when caller omits it (sidecar default wins)", async () => {
+    // Updated 2026-05-20 (Task 9): the Node handler used to default
+    // top_k to 20 client-side, but that shadowed the sidecar's new
+    // default of 15 (Task 8 / Decision Q2). The contract is now: if
+    // the caller passes neither top_k nor intent, the body has no
+    // top_k field and the sidecar uses DEFAULT_PIPELINE_TOP_K.
     const fetcher = vi.fn(async (_u: RequestInfo | URL, opts?: RequestInit) => {
       const body = JSON.parse(opts?.body as string);
       expect(body.filters).toBeNull();
-      expect(body.top_k).toBe(20);
+      expect(body.top_k).toBeUndefined();
+      expect(body.intent).toBeUndefined();
       return new Response(JSON.stringify(fakeBridgeResponse), { status: 200 });
     });
 

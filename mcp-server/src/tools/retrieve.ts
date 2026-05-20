@@ -171,16 +171,16 @@ export function makeRetrieveHandler(
   fetcher: Fetcher = fetch,
 ) {
   return async (input: RetrieveInput) => {
-    // Strictly additive: preserve the existing top_k=20 default so
-    // current callers (and the existing "defaults top_k to 20" test)
-    // stay green. `intent` is passed through only when set; the
-    // sidecar (Task 10) will resolve it to a top_k server-side and
-    // — when both are present — `intent` wins per the schema doc.
+    // Only forward top_k and intent when the caller supplied them. When
+    // both are omitted, the sidecar uses its own DEFAULT_PIPELINE_TOP_K
+    // (15 since 2026-05-20, Task 8). Pre-filling top_k on the client
+    // side would shadow that default and bake the old value of 20
+    // into every conversation, defeating Decision Q2.
     const body: Record<string, unknown> = {
       query: input.query,
       filters: input.filters ?? null,
-      top_k: input.top_k ?? 20,
     };
+    if (input.top_k !== undefined) body.top_k = input.top_k;
     if (input.intent !== undefined) body.intent = input.intent;
 
     let result: RetrieveBridgeResponse;
