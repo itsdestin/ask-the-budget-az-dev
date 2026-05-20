@@ -333,11 +333,17 @@ def test_cite_validate_rejects_unknown_chunk_id(monkeypatch):
     server-side check catches it cleanly so Claude sees the error in
     the tool result and self-corrects."""
 
+    # FakeConn returns a non-None row for the startup preflight's
+    # `SELECT 1 FROM chunks LIMIT 1` and None for everything else
+    # (so the cite/validate lookup behaves like an unknown chunk_id).
+    # Without the preflight-aware branch the lifespan would sys.exit(1)
+    # before the test even gets to call /cite/validate.
     class FakeConn:
-        def execute(self, *_args, **_kw):
+        def execute(self, sql, *_args, **_kw):
+            is_preflight = "SELECT 1 FROM chunks" in str(sql)
             class _Cur:
                 def fetchone(self):
-                    return None
+                    return (1,) if is_preflight else None
 
             return _Cur()
 
@@ -511,11 +517,15 @@ def test_doc_metadata_returns_404_for_unknown_doc(monkeypatch):
     """Hallucinated doc_ids hit 404 cleanly (the Next.js route relays
     that to the browser as a 404 too — no PDF panel painted)."""
 
+    # FakeConn returns a non-None row for the startup preflight's
+    # `SELECT 1 FROM chunks LIMIT 1` and None for everything else
+    # (so the docs lookup behaves like an unknown doc_id).
     class FakeConn:
-        def execute(self, *_args, **_kw):
+        def execute(self, sql, *_args, **_kw):
+            is_preflight = "SELECT 1 FROM chunks" in str(sql)
             class _Cur:
                 def fetchone(self):
-                    return None
+                    return (1,) if is_preflight else None
 
             return _Cur()
 
@@ -1482,3 +1492,38 @@ def test_retrieve_without_intent_uses_default_top_k(monkeypatch):
     # the literal so this test moves with future tuning).
     from retrieval.pipeline import DEFAULT_PIPELINE_TOP_K
     assert captured["top_k"] == DEFAULT_PIPELINE_TOP_K
+
+
+def test_lifespan_preflight_exits_when_voyage_key_missing(monkeypatch):
+    """The sidecar should fail fast at startup when VOYAGE_API_KEY isn't
+    set, not crash mid-request.
+
+    We call the lifespan async-context-manager directly rather than via
+    TestClient because Starlette + anyio wrap SystemExit raised inside
+    lifespan into a BaseExceptionGroup, which makes `pytest.raises(SystemExit)`
+    on the TestClient context messier than necessary. The direct-call
+    path tests the same code (the lifespan body itself) without the
+    TaskGroup wrapper.
+    """
+    import asyncio
+
+    monkeypatch.delenv("VOYAGE_API_KEY", raising=False)
+    monkeypatch.setenv("DATABASE_URL", os.environ.get("DATABASE_URL", ""))
+
+    async def _enter_lifespan():
+        async with api_module.lifespan(app):
+            pass
+
+    with pytest.raises(SystemExit):
+        asyncio.run(_enter_lifespan())
+
+
+@needs_db
+def test_lifespan_preflight_passes_when_env_complete(monkeypatch):
+    """When the env is set and the DB is reachable, startup should
+    succeed and /health returns ok."""
+    monkeypatch.setenv("VOYAGE_API_KEY", os.environ.get("VOYAGE_API_KEY", "fake-key"))
+    with TestClient(app) as client:
+        resp = client.get("/health")
+    assert resp.status_code == 200
+    assert resp.json()["status"] == "ok"

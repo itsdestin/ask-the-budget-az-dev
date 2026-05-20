@@ -30,6 +30,15 @@ Env:
 """
 from __future__ import annotations
 
+# Load .env.local on import so subsequent os.environ reads (VOYAGE_API_KEY,
+# DATABASE_URL) work whether or not the user remembered to `set -a;
+# source .env.local; set +a` (bash) / `Get-Content .env.local | ...` (pwsh).
+# Done at import time (not inside lifespan) so it's already in effect by
+# the time pydantic / psycopg read env vars during module load.
+from dotenv import load_dotenv
+load_dotenv(".env.local")
+load_dotenv()  # fallback to .env if .env.local missing
+
 import html
 import os
 import re
@@ -253,11 +262,50 @@ _INTENT_TOP_K: dict[str, int] = {
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    # Embedder is constructed lazily on the first /retrieve call (see
-    # `_get_embedder` below) so unit tests can monkey-patch retrieve()
-    # without needing a Voyage API key. The first production request
-    # pays a one-time SDK-init cost (~tens of ms); subsequent calls
-    # reuse the cached client on app.state.
+    # Preflight: validate the environment before the sidecar accepts
+    # requests. Three checks; fail fast on any.
+    #
+    # 1. VOYAGE_API_KEY present — every /retrieve and rerank call needs it.
+    # 2. DATABASE_URL reachable — `SELECT 1` confirms libpq can connect.
+    # 3. The chunks table has at least one embedded row — sanity check that
+    #    the corpus actually loaded (catches a freshly-built but unseeded DB).
+    #
+    # On any failure we log a clear message and sys.exit(1) so the user
+    # sees the problem at uvicorn startup instead of mid-request.
+    import sys
+
+    if not os.environ.get("VOYAGE_API_KEY"):
+        sys.stderr.write(
+            "\n[retrieval-sidecar] VOYAGE_API_KEY is not set.\n"
+            "  Add it to .env.local (the sidecar auto-loads that file)\n"
+            "  or export it before running `uv run uvicorn retrieval.api:app`.\n\n"
+        )
+        sys.exit(1)
+    if not os.environ.get("DATABASE_URL"):
+        sys.stderr.write(
+            "\n[retrieval-sidecar] DATABASE_URL is not set.\n"
+            "  Check db/.env (it should set DATABASE_URL to your Postgres URI).\n\n"
+        )
+        sys.exit(1)
+    try:
+        with get_connection() as conn:
+            row = conn.execute("SELECT 1 FROM chunks LIMIT 1").fetchone()
+            if row is None:
+                sys.stderr.write(
+                    "\n[retrieval-sidecar] connected to Postgres but the "
+                    "chunks table is empty.\n"
+                    "  Run the ingest pipeline (or restore db/data from a "
+                    "working machine) before starting the sidecar.\n\n"
+                )
+                sys.exit(1)
+    except Exception as err:  # psycopg.OperationalError + a few others
+        sys.stderr.write(
+            f"\n[retrieval-sidecar] could not connect to Postgres: {err}.\n"
+            "  Is Docker running?  (cd db && docker compose up -d)\n\n"
+        )
+        sys.exit(1)
+
+    # Embedder is constructed lazily on first /retrieve.
     app.state.embedder = None
     yield
 
