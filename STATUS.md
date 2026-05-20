@@ -1,12 +1,17 @@
 # Project Status
 
-**Last updated:** 2026-05-12
+**Last updated:** 2026-05-19
 
 This file is the single source of truth for what's shipped, what's
 open, and what's blocked. The phase plans under `docs/superpowers/`
 remain as the historical record of design intent — but those plans
 have NOT been updated as features shipped, so use this file (not the
 plans) to understand current state.
+
+`CLAUDE.md` auto-imports this file via `@STATUS.md`, so every Claude
+Code session sees the latest contents in context. **Do not duplicate
+status info into CLAUDE.md** — every duplication is a future drift
+source. When something ships, update only this file.
 
 ---
 
@@ -54,13 +59,22 @@ plans) to understand current state.
   - Tooltip shows verbatim quote (success) or claim-vs-actual-cited side-by-side (failure)
   - MCP zod errors humanized (not raw JSON)
   - Markdown table-row claims inject sentinel inside the last cell
-- Tool cards: friendly labels (Search corpus, Cite claim, Shell, …) with per-tool body views (RetrieveView, CiteView, ListFilterValuesView, EditView, ShellView, …)
+- Tool cards: friendly labels (Search corpus, Cite claim, Shell, …) with per-tool body views (RetrieveView, CiteView, ListFilterValuesView, EditView, ShellView, …). Single status indicator on the header (pixel-glyph color encodes running/complete/failed); pulses while running.
 - PDF viewer:
   - pdfjs-dist canvas render with bbox highlight
   - Multi-pass text-layer search (claim slice → full chunk → individual currency tokens)
   - "Couldn't pinpoint" badge instead of misleading chunk-bbox fallback
-- ChatThread auto-scroll: event-driven (wheel/touch/keyboard) detection, only follows bottom when the user is actually at bottom
-- 154 vitest passing
+- ChatThread auto-scroll: event-driven (wheel/touch/keyboard) detection, only follows bottom when the user is actually at bottom. Messages anchor to the BOTTOM of the viewport (first message lands above the input bar; new turns push history upward).
+- **UI refresh + JLBC mascot (shipped 2026-05-19, branch `ui-prettify-mascot`):**
+  - Civic-warm theme tokens (`--canvas`, `--panel`, `--accent`, `--mascot-*`)
+  - Single-mascot architecture: one persistent mascot instance, swapped in place at the bottom-left between idle / typing / presenting / refusal poses (variants are pixel-aligned both vertically AND horizontally so swaps don't jump)
+  - Seated typing scene with 12-second behavior loop (type, pause, look up, look back down)
+  - Welcome hero (centered mascot + intro) on empty thread; suggestion chips above the input
+  - Speech-bubble assistant messages with carat tail only on the most-recent turn
+  - Page pinned (only chat thread + PDF viewer scroll); footer carries the honesty line ("Answers are cited, not guaranteed. Verify against sources.")
+  - Message-column edges aligned exactly with input-box edges (both `max-w-3xl`)
+  - Session-id chip removed from header
+- 176 vitest passing
 
 ---
 

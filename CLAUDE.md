@@ -10,7 +10,7 @@ The system's job is **retrieval with auditable provenance**. Answer generation i
 
 Read `docs/superpowers/specs/2026-05-04-ask-the-budget-az-design.md` before any non-trivial change. The invariants section is load-bearing. Also read `docs/superpowers/decisions/2026-05-06-phase-1bc-architecture.md` for the v1 architectural decisions that shape Phase 1b/1c.
 
-**Current project status lives in [`STATUS.md`](STATUS.md), not here.** STATUS.md is the source of truth for what's shipped, what's open, and what's blocked. The Project Phases table below is a stable map of the phases; its per-row status text can lag behind reality. When the user asks "where do we stand" or "what's left," read STATUS.md FIRST.
+**Current project status: @STATUS.md** (auto-loaded into every Claude Code session via the `@file` import). `STATUS.md` is the **single source of truth** for what's shipped, what's open, and what's blocked. The Project Phases table below is a stable conceptual map of the phases (their design intent + where each runs) — it intentionally carries **no status**. If you want to describe what's shipped/open/blocked, that data lives in STATUS.md and **only** in STATUS.md. Do not re-record status here; do not infer status from this file. When STATUS.md and CLAUDE.md disagree about status, STATUS.md is right by construction (this file says nothing about status).
 
 ## v1 in one paragraph
 
@@ -60,19 +60,23 @@ Sub-repo code goes in the relevant sub-repo. Workspace-level artifacts (specs, p
 
 ## Active handoffs
 
-**Volume ingest for the FY25/FY26/FY27 cycle is substantially done** (2026-05-12) — 382 docs / 7,755 chunks across all four publishers. Nothing in Phase 1b/1c is blocked on it. The only remaining ingest work is **historical-year backfill** (FY24 and older baselines/approps/AFRs, plus a few in-cycle gaps listed in `STATUS.md`). That backfill, when scheduled, runs via the same handoff prompt at [`PROMPT-volume-ingest.md`](PROMPT-volume-ingest.md) — a self-contained prompt for a desktop session with a beefier GPU. Do NOT describe historical backfill as a blocker for any current workstream.
+Long-running handoff prompts that may need to be picked up live as standalone files at the repo root. See `STATUS.md` for which handoffs are active vs. done.
+
+- [`PROMPT-volume-ingest.md`](PROMPT-volume-ingest.md) — corpus expansion. Self-contained prompt for a desktop session with a beefier GPU. Used both for the original FY25/FY26/FY27 ingest and (when scheduled) for historical-year backfill (FY24 and older).
 
 ## Project Phases
 
-| Phase | Status | What happens | Where it runs |
-|---|---|---|---|
-| **Phase 0 — Investigation** | ✓ closed 2026-05-06 | Per-doc-type extractor routing decision, 157-agency canonical catalog, JLBC four-layout structure mapped, chunk-shape decisions D1–D7. | Destin's machine |
-| **Phase 1a — Ingest + chunking** | ✓ closed 2026-05-06 (slice-validated) | Tag `phase-1a-validated-slice` at `9ba0385`. 5 docs / 161 chunks / 91.3% agency-stamped / 227 funds. Pipeline proven on real source. Hand-off at `data/chunks/MANIFEST.md`. | Destin's machine |
-| **Phase 1b — Storage + retrieval** | ✓ shipped on slice 2026-05-07, serving the volume corpus since 2026-05-12; WS8 (eval) unbuilt | Postgres + pgvector + ParadeDB schema (D2 array agency stamping). WS1 (infra), WS2 (loader), WS3 (Voyage embeddings), WS4 (BM25), WS5 (dense), WS6 (RRF + Voyage rerank-2.5 + `retrieve()`), WS7 (public API via `retrieval/__init__.py`) all merged to master. **Volume corpus loaded: 382 docs / 7,755 chunks across FY25/26/27 × JLBC + Legislature + Governor + AGAO.** WS8 (eval set + recall@K) is **unbuilt, not blocked** — the corpus is ready. Plan at `docs/superpowers/plans/2026-05-06-phase-1b-storage-and-retrieval.md`. | Destin's machine |
-| **Phase 1c — Synthesis + UI** | in progress (reframed 2026-05-06) | **Shipped:** WS1 Budget MCP server (`mcp-server/`) ✓; WS6 FastAPI retrieval sidecar (`retrieval/api.py`, bundled with WS1) ✓; WS2 `LLMProvider` + `YouCodedSessionProvider` (`web/lib/`) ✓; WS4a Next.js chat skeleton (`web/app/`, `web/components/`, `web/state/`, generic ToolCard with JSON fallback) ✓; WS4b per-tool ToolBody views + CitationChip + RefusalBanner ✓; WS4c PdfViewer with bus subscription, `/api/pdf/[doc_id]` Range serving, pdfjs-dist canvas render + bbox highlight ✓; **WS4d UI refresh + JLBC mascot** (civic-warm theme, single-mascot architecture, seated typing scene, welcome hero + suggestion chips, speech-bubble messages, page pinned, bottom-anchored messages, message-column edges aligned with input-box edges) — **shipped (merged to master 2026-05-19)**; plan at `docs/superpowers/plans/2026-05-15-ui-prettify-mascot.md`, spec at `docs/superpowers/specs/2026-05-15-ui-prettify-mascot-design.md` (read the "Post-implementation reconciliation" section for what shipped vs. what was originally specified). **176/176 vitest passing, 345/345 pytest passing** (vitest count up from 109 thanks to the mascot/UI test additions). **Pending (all unbuilt, none blocked):** WS3 (faithfulness verifier — needs spike), WS5 (audit log writes — schema exists, no writer; this also unlocks refusal auto-detection wiring into the already-built `RefusalBanner` AND the already-built `crossed`-arms mascot path: `useMascotPose(state, refusalActive)` accepts the boolean, v1 passes `false`), WS7 (eval expansion — corpus is loaded, harness unbuilt). Plan at `docs/superpowers/plans/2026-05-06-phase-1c-companion-and-ui.md`. | Destin's machine + running YouCoded |
-| **Phase 2 — Standalone companion + first deploy** | not started | Build standalone companion (lifts YouCoded PTY/wrapper into separate process). Add DOCX viewer + verify mode. Deploy to free-tier hosting. Onboard 2-3 trusted analysts. | Vercel/Supabase + each analyst's machine |
-| **Phase 3 — Internal pilot** | not started | Wider JLBC use. Tier 2 entity resolution. Eval set expansion. | Same |
-| **Phase 4 — Public-launch consideration** | not started | Gated on hard metrics in the spec. | Same, plus public host |
+This table is a **conceptual map** of the phases — what each phase IS and where it runs. Status (closed, in-progress, blocked) is intentionally absent; that data lives in `STATUS.md`.
+
+| Phase | What it is | Where it runs |
+|---|---|---|
+| **Phase 0 — Investigation** | Per-doc-type extractor routing, 157-agency canonical catalog, JLBC four-layout structure mapping, chunk-shape decisions D1–D7. | Destin's machine |
+| **Phase 1a — Ingest + chunking** | Per-publisher extractor + chunking pipeline. Hand-off contract at `data/chunks/MANIFEST.md`. | Destin's machine |
+| **Phase 1b — Storage + retrieval** | Postgres + pgvector + ParadeDB hybrid pipeline (D2 array agency stamping). BM25 + dense + RRF + Voyage rerank-2.5. Public API at `retrieval/__init__.py`. Plan at `docs/superpowers/plans/2026-05-06-phase-1b-storage-and-retrieval.md`. | Destin's machine |
+| **Phase 1c — Synthesis + UI** | Budget MCP server (`mcp-server/`) + FastAPI retrieval sidecar (`retrieval/api.py`) + Next.js chat UI (`web/`). Hard-depends on a running YouCoded instance for the Claude Code session. Plan at `docs/superpowers/plans/2026-05-06-phase-1c-companion-and-ui.md`. | Destin's machine + running YouCoded |
+| **Phase 2 — Standalone companion + first deploy** | Lift YouCoded PTY/wrapper into a separate process. Add DOCX viewer + verify mode. Deploy to free-tier hosting. Onboard 2-3 trusted analysts. | Vercel/Supabase + each analyst's machine |
+| **Phase 3 — Internal pilot** | Wider JLBC use. Tier 2 entity resolution. Eval set expansion. | Same |
+| **Phase 4 — Public-launch consideration** | Gated on hard metrics in the spec. | Same, plus public host |
 
 ## Documentation Structure
 
