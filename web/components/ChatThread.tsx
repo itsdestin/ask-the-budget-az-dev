@@ -204,31 +204,50 @@ export default function ChatThread({ state, mascot }: Props) {
               alongside the latest message. Right-edge anchored so all
               three variants (regular small Mascot / MascotTyping /
               MascotPresenting) share the same right alignment beside the
-              messages — only the left edge varies with the variant's
-              width. Thinking/presenting SWAP IN PLACE here.
+              messages. Thinking/presenting SWAP IN PLACE here.
 
               Per-variant translateY pushes the SVG down by the amount of
-              empty space below the figure in each viewBox, so the
-              VISIBLE feet/chair/laptop-shoes of every variant land at
-              the same y as the bubble bottom (= 8px above the input
-              bar, matching the messages' pb-2 gap).
+              EMPTY space BELOW the figure in each viewBox, so the visible
+              feet/chair/shoes of every variant land at the same y as the
+              bubble bottom (= 8px above the input bar):
                 small Mascot   : figure ends at y=384 of 420 viewBox →
                                  36 vb units empty → ×0.5 scale = 18px
                 MascotTyping   : chair legs end at y=374 of 390 vb-bot →
                                  16 vb units empty → ×0.512 scale ≈ 8px
                 MascotPresenting: shoes end at y=374 of 400 viewBox →
                                  26 vb units empty → ×0.525 scale ≈ 14px
-              Because each variant gets its own offset, the visual feet
-              land at the SAME y in all three — so the variants still
-              swap without a vertical jump. */}
+
+              Per-variant translateX does the same on the RIGHT edge: each
+              variant has different empty space to the RIGHT of its figure
+              inside its viewBox, so the SVG's right edge sits a different
+              distance from the visible figure's right edge. translateX
+              shifts each by that empty-right amount so the visible right
+              edge of every variant lands at the SVG-right anchor (= 16px
+              left of the messages column):
+                small Mascot   : fig right at x=230 of 240 vb → 10 vb
+                                 empty → ×0.5 scale = 5px
+                MascotTyping   : fig right at x=254 of 360 vb → 106 vb
+                                 empty → ×0.512 scale ≈ 54px
+                MascotPresenting: fig right at x=270 of 320 vb → 50 vb
+                                 empty → ×0.525 scale ≈ 26px
+              Because each variant uses its OWN x/y offsets, visible
+              feet/right-edges land at the SAME position in all three
+              variants — swapping still has no jump.
+
+              pointer-events-none: typing's +54px translateX extends the
+              SVG bounding box ~38px into the messages column. The empty
+              SVG space is invisible (no fill), but the wrapper div would
+              normally intercept clicks; pointer-events-none lets clicks
+              fall through to the messages underneath. The mascot has no
+              interactive elements of its own so this is safe. */}
           <div
             className={
-              "absolute bottom-0 z-10 right-[calc(50%+352px)] " +
+              "absolute bottom-0 z-10 right-[calc(50%+352px)] pointer-events-none " +
               (mascot.kind === "presenting"
-                ? "translate-y-[14px]"
+                ? "translate-x-[26px] translate-y-[14px]"
                 : state.isThinking
-                  ? "translate-y-[8px]"
-                  : "translate-y-[18px]")
+                  ? "translate-x-[54px] translate-y-[8px]"
+                  : "translate-x-[5px] translate-y-[18px]")
             }
           >
             {mascot.kind === "presenting" ? (
