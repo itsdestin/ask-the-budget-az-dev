@@ -120,6 +120,53 @@ describe("PdfViewer bus subscription (client)", () => {
     });
   });
 
+  it("renders CitedTextPanel beneath the loaded PDF page", async () => {
+    const dom = new JSDOM("<!doctype html><html><body></body></html>");
+    const { window } = dom;
+    (globalThis as unknown as { IS_REACT_ACT_ENVIRONMENT: boolean })
+      .IS_REACT_ACT_ENVIRONMENT = true;
+    (globalThis as unknown as { window: Window }).window =
+      window as unknown as Window;
+    (globalThis as unknown as { document: Document }).document =
+      window.document;
+    (globalThis as unknown as { HTMLElement: typeof HTMLElement }).HTMLElement =
+      window.HTMLElement;
+
+    const container = window.document.createElement("div");
+    window.document.body.appendChild(container);
+
+    let busHandle: ReturnType<typeof useCitationBus> | null = null;
+    function BusProbe() {
+      busHandle = useCitationBus();
+      return null;
+    }
+
+    let root: Root | null = null;
+    await act(async () => {
+      root = createRoot(container);
+      root.render(
+        <CitationBusProvider>
+          <BusProbe />
+          <PdfViewer />
+        </CitationBusProvider>,
+      );
+    });
+
+    await act(async () => {
+      busHandle!.select(citation());
+    });
+
+    // Verify panel heading is in the DOM. The PdfPage canvas is loaded
+    // via next/dynamic so it may render later; we don't assert on it.
+    expect(container.innerHTML).toContain("Cited text from this chunk");
+    // Cited span (chunkText.slice(0, 5) = "hello") is present.
+    expect(container.innerHTML).toContain("hello");
+
+    await act(async () => {
+      root!.unmount();
+    });
+  });
+
   it("ignores citations whose resolved.docId / pageStart are missing", async () => {
     const dom = new JSDOM("<!doctype html><html><body></body></html>");
     const { window } = dom;
