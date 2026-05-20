@@ -1071,62 +1071,103 @@ export function findNormalizedMatch(
 export const CITE_SENTINEL_RE = /\{\{cite:(\d+)\}\}/g;
 
 /** Per-citation placement decision used by the renderer to inject
- *  end-of-line chip sentinels into the markdown source. */
+ *  chip sentinels into the markdown source. A single citation can
+ *  produce MULTIPLE placements — one per sentence whose normalized
+ *  text contains the citation's claim_span or its key-fact token. */
 export interface CitationPlacement {
   /** Index in the citations array we were given. */
   citationIndex: number;
   /** Source-markdown line index this citation will anchor to, or -1
-   *  when no line contained the claim_span (chip drops to end-of-content). */
+   *  when no line/sentence contained the claim_span (chip drops to
+   *  end-of-content). */
   lineIndex: number;
+  /** Column offset (in the ORIGINAL, non-normalized line) of the END
+   *  of the matched sentence. When null, the sentinel goes at end-of-
+   *  line (back-compat for tables and bullet lines where a sentence
+   *  isn't a useful anchor). */
+  column?: number | null;
 }
 
-/** Decide where to place each citation's chip in the source markdown.
- *  For every citation, find the first line of `content` whose
- *  normalized + markdown-stripped form contains the citation's
- *  normalized + markdown-stripped claim_span. Citations that find no
- *  matching line return lineIndex -1 (caller appends them at end of
- *  content as a fallback).
+/** Regex over a single markdown line that captures one sentence per
+ *  match. A sentence ends at [.!?]+ followed by whitespace or
+ *  end-of-string (possibly with trailing quotes/parens), so decimal
+ *  points inside numbers like "$3.3M" or "1.5%" are NOT treated as
+ *  sentence terminators. The trailing `|[^\n]+$` catches a tail
+ *  fragment with no terminating punctuation (the last segment on the
+ *  line, which we still want to consider for matching). */
+const SENTENCE_RE = /[^\n]+?(?:[.!?]+["')\]]*(?=\s|$))|[^\n]+$/g;
+
+/** Plan chip placements for each citation. Walks every line, then every
+ *  sentence inside that line, and emits a CitationPlacement for any
+ *  sentence whose normalized text contains the citation's claim_span.
+ *  Table rows and bullet lines are treated as single sentences — we
+ *  return one placement at the LINE level (no column) for those so the
+ *  existing table-row carve-out in `injectCiteSentinels` keeps working.
  *
- *  Why line-level (not character-level): a chip rendered at the end
- *  of the markdown LINE containing the claim ends up:
- *    - at end of paragraph (when the claim is in a paragraph)
- *    - at end of list item (when the claim is in `- foo` line)
- *    - inside the last cell of a table row (when the claim is in `| a | b |`)
- *  All three are reading-order-correct anchoring without us having to
- *  understand markdown structure deeply. The alternative (character-
- *  level injection) trips on bold/italic/code boundaries and table
- *  cells, which is exactly what made the original inline-underline
- *  matcher unreliable. */
+ *  Citations whose claim_span doesn't match any sentence on any line
+ *  emit a single placement with lineIndex -1 (caller appends them at
+ *  end of content as a fallback). */
 export function planCitationPlacements(
   content: string,
   citations: { claimSpan: string }[],
 ): CitationPlacement[] {
   if (!content || citations.length === 0) return [];
   const lines = content.split("\n");
-  const normalizedLines = lines.map((line) => normalizeForMatch(line).normalized);
   const out: CitationPlacement[] = [];
   for (let i = 0; i < citations.length; i++) {
     const span = citations[i]!.claimSpan;
     if (!span) {
-      out.push({ citationIndex: i, lineIndex: -1 });
+      out.push({ citationIndex: i, lineIndex: -1, column: null });
       continue;
     }
     const normSpan = normalizeForMatch(span).normalized;
-    // Outer punctuation tolerance — claim_spans often have trailing
-    // periods or quotes that weren't in the source line.
     const trimmed = normSpan.replace(/^[\s.,;:!?]+|[\s.,;:!?]+$/g, "");
     if (!trimmed) {
-      out.push({ citationIndex: i, lineIndex: -1 });
+      out.push({ citationIndex: i, lineIndex: -1, column: null });
       continue;
     }
-    let lineIdx = -1;
-    for (let j = 0; j < normalizedLines.length; j++) {
-      if (normalizedLines[j]!.includes(trimmed)) {
-        lineIdx = j;
-        break;
+
+    let anyMatched = false;
+    for (let lineIdx = 0; lineIdx < lines.length; lineIdx++) {
+      const raw = lines[lineIdx]!;
+      const isTableRow =
+        /^\s*\|/.test(raw.trim()) && /\|\s*$/.test(raw.trim());
+      // Table rows: treat the whole row as one sentence at line-level
+      // anchoring (no column). The existing table carve-out in
+      // injectCiteSentinels handles closing-pipe injection.
+      if (isTableRow) {
+        const normalizedLine = normalizeForMatch(raw).normalized;
+        if (normalizedLine.includes(trimmed)) {
+          out.push({ citationIndex: i, lineIndex: lineIdx, column: null });
+          anyMatched = true;
+        }
+        continue;
+      }
+
+      // Walk sentences within this line. Each sentence gets matched
+      // against the claim_span; matches emit one placement at the end
+      // of the matched sentence.
+      const matches = Array.from(raw.matchAll(SENTENCE_RE));
+      if (matches.length === 0) continue;
+      for (const m of matches) {
+        const sentence = m[0];
+        const sentenceStart = m.index!;
+        const sentenceEndExclusive = sentenceStart + sentence.length;
+        const normalizedSentence = normalizeForMatch(sentence).normalized;
+        if (normalizedSentence.includes(trimmed)) {
+          out.push({
+            citationIndex: i,
+            lineIndex: lineIdx,
+            column: sentenceEndExclusive,
+          });
+          anyMatched = true;
+        }
       }
     }
-    out.push({ citationIndex: i, lineIndex: lineIdx });
+
+    if (!anyMatched) {
+      out.push({ citationIndex: i, lineIndex: -1, column: null });
+    }
   }
   return out;
 }

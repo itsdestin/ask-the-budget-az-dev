@@ -1130,7 +1130,9 @@ describe("planCitationPlacements + injectCiteSentinels", () => {
     const placements = planCitationPlacements(content, [
       { claimSpan: "$2,587,400 for FY 2026" },
     ]);
-    expect(placements).toEqual([{ citationIndex: 0, lineIndex: 2 }]);
+    expect(placements).toEqual([
+      { citationIndex: 0, lineIndex: 2, column: expect.any(Number) },
+    ]);
     const augmented = injectCiteSentinels(content, placements);
     // Sentinel ends up after the matched line, not at end of content.
     expect(augmented).toBe(
@@ -1545,5 +1547,45 @@ describe("extractKeyFact", () => {
     expect(extractKeyFact("about $5 million in carry-forward"))
       .toBe("$5 million");
     expect(extractKeyFact("about $5M in carry-forward")).toBe("$5M");
+  });
+});
+
+describe("planCitationPlacements per-sentence iteration", () => {
+  it("places a chip on EVERY sentence whose normalized text contains the claim_span", () => {
+    const content = [
+      "JLBC reports a $3.3M decrease for the Dark Sky Discovery Center.",
+      "The $3.3M removes one-time funding from FY 2027.",
+    ].join("\n");
+    const placements = planCitationPlacements(content, [
+      { claimSpan: "$3.3M" },
+    ]);
+    // Two placements for the SAME citation — one per matching sentence.
+    expect(placements).toHaveLength(2);
+    expect(placements[0]!.citationIndex).toBe(0);
+    expect(placements[1]!.citationIndex).toBe(0);
+    expect(placements[0]!.lineIndex).toBe(0);
+    expect(placements[1]!.lineIndex).toBe(1);
+  });
+
+  it("multiple sentences on the same line each get their own placement", () => {
+    const content =
+      "The Fund got $5M in FY25. The Fund also got $5M in FY26.";
+    const placements = planCitationPlacements(content, [
+      { claimSpan: "$5M" },
+    ]);
+    expect(placements).toHaveLength(2);
+    // Both placements anchor to line 0 with different column offsets.
+    expect(placements[0]!.lineIndex).toBe(0);
+    expect(placements[1]!.lineIndex).toBe(0);
+    expect(placements[0]!.column).not.toBe(placements[1]!.column);
+  });
+
+  it("falls back to (lineIndex: -1) when no sentence on any line matches", () => {
+    const content = "Aviation Fund grew in FY 2027.";
+    const placements = planCitationPlacements(content, [
+      { claimSpan: "no such phrase" },
+    ]);
+    expect(placements).toHaveLength(1);
+    expect(placements[0]!.lineIndex).toBe(-1);
   });
 });
