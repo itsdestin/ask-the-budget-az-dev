@@ -17,6 +17,7 @@ import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js"
 
 import { loadConfig } from "./config.js";
 import { registerCiteTool } from "./tools/cite.js";
+import { registerCiteBatchTool } from "./tools/cite-batch.js";
 import { registerListFilterValuesTool } from "./tools/list-filter-values.js";
 import { registerRetrieveTool } from "./tools/retrieve.js";
 
@@ -30,6 +31,10 @@ async function main(): Promise<void> {
 
   registerRetrieveTool(server, cfg);
   registerCiteTool(server, cfg);
+  // cite_batch (2026-05-20): registers N citations in one round-trip.
+  // System prompt steers the model toward this for multi-citation
+  // answers; single-citation answers still use cite().
+  registerCiteBatchTool(server, cfg);
   registerListFilterValuesTool(server, cfg);
 
   // stdio transport: YouCoded's MCP host launches us as a subprocess

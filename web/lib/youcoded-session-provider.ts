@@ -179,6 +179,7 @@ export class YouCodedSessionProvider implements LLMProvider {
           "Read",
           "mcp__ask-the-budget-az__retrieve",
           "mcp__ask-the-budget-az__cite",
+          "mcp__ask-the-budget-az__cite_batch",
           "mcp__ask-the-budget-az__list_filter_values",
         ],
         deny: [

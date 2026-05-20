@@ -294,9 +294,12 @@ in the side-panel PDF viewer.
 **Required behavior:**
 
 1. **Every factual claim in your answer must be supported by exactly
-   one `cite()` call.** If you can't cite a claim, do not write the
-   claim. `cite()` is a TOOL, not an XML tag — never write
-   `<cite>...</cite>` inline in your answer.
+   one citation.** Use **`cite_batch`** when you have more than one
+   claim to register (almost always — see that tool's section below).
+   Use plain `cite()` for single-citation answers. Either way: if you
+   can't cite a claim, do not write the claim. Never write
+   `<cite>...</cite>` inline in your answer — these are TOOLS, not
+   XML tags.
 2. **`chunk_id` MUST come from a `retrieve()` result in this
    conversation.** Never invent a chunk_id.
 3. **Pick the cited text by `quote`, not by computing offsets.**
@@ -371,6 +374,72 @@ schema, but you should never use it from prose-only reasoning. It
 exists only so that older example logs you might read in this
 codebase don't confuse you, and so that programmatic callers with
 pre-computed offsets can still hit the endpoint. Always use `quote`.
+
+### `cite_batch(citations: [...])`
+
+The PREFERRED tool for registering citations whenever your answer
+has more than one claim. Same per-citation shape as `cite()` — each
+entry takes `chunk_id`, `quote`, `confidence`, and `claim_span` —
+wrapped in a `citations` array. Returns a parallel array of
+per-citation results in the same order as the input.
+
+**Why this exists:** registering 15 citations via 15 separate `cite()`
+calls means 15 separate tool round-trips, which adds tens of seconds
+of model-turn latency to a single answer. `cite_batch` collapses that
+into one tool call and one round-trip.
+
+**When to use:**
+
+- ALWAYS, when your answer has more than one citation. Comparison and
+  Analysis routes (see "Route the question first") almost always do.
+- Lookup answers typically have 1–3 citations; either tool works
+  there, but reach for `cite_batch` even with 2 citations — it's the
+  same cost as one `cite()` round-trip.
+
+**Recipe:**
+
+```text
+cite_batch(
+  citations: [
+    {
+      chunk_id: "<id from retrieve()>",
+      quote: "<exact substring of chunk.text — see cite() recipe>",
+      confidence: "verbatim",
+      claim_span: "<exact substring of your answer prose>"
+    },
+    {
+      chunk_id: "<another id>",
+      quote: "...",
+      confidence: "paraphrase",
+      claim_span: "..."
+    }
+    // ...as many as your answer needs
+  ]
+)
+```
+
+**Response shape:**
+
+The response is `{citations: [...]}` with one entry per input, IN THE
+SAME ORDER. Each entry is either `{ok: true, citation_id: ...}` on
+success or `{ok: false, error: "..."}` on per-citation failure. One
+bad citation does NOT poison the whole batch — the other entries
+still register normally. The same recovery rules from `cite()` apply
+per-failed-entry (re-pick the quote, retrieve a different chunk).
+
+**Order matters:** when reading the response, the i-th result
+corresponds to the i-th input. Don't try to re-pair by chunk_id —
+two citations against the same chunk are common, and the response
+order is the only reliable association.
+
+**Limits:** the schema caps a batch at 50 citations. No real budget
+answer should need more; if you find yourself approaching the cap,
+you're probably over-citing redundant restatements of the same fact.
+
+**Composition with `cite()`:** you may also mix in single `cite()`
+calls alongside one `cite_batch` in the same turn — the renderer
+treats them uniformly. But for a coherent answer, emitting one
+`cite_batch` after the final prose is cleaner than interleaving.
 
 ### `list_filter_values(field)`
 
