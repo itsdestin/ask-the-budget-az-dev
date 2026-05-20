@@ -67,7 +67,14 @@ class RetrieveFiltersBody(BaseModel):
 class RetrieveRequestBody(BaseModel):
     query: str
     filters: RetrieveFiltersBody | None = None
-    top_k: int = 20
+    # top_k is optional now: an explicit value overrides the intent's
+    # default; absent + intent set → server picks top_k from the
+    # _INTENT_TOP_K table; absent + no intent → server uses
+    # DEFAULT_PIPELINE_TOP_K (15 after Task 8 lands).
+    top_k: int | None = None
+    # Route classifier. Tunes top_k server-side and is echoed in the
+    # response so the (future) audit log writer can record it.
+    intent: str | None = None
 
 
 class ChunkOut(BaseModel):
@@ -125,6 +132,10 @@ class RetrieveResponse(BaseModel):
     bm25_count: int
     dense_count: int
     fused_count: int
+    # Echo of the caller's intent (None when not provided). Surfaced
+    # here so the audit-log writer picks it up without re-parsing the
+    # request body.
+    intent: str | None = None
 
 
 class DocMetadataResponse(BaseModel):
@@ -222,6 +233,20 @@ class ListValuesResponse(BaseModel):
 
 
 # ---------------------------------------------------------------------------
+# Retrieval tuning constants
+# ---------------------------------------------------------------------------
+
+# Intent → default top_k. Picked from the dogfood-hardening plan
+# (2026-05-20): tight for lookup (analyst wants one number), broader
+# for analyze (analyst wants context).
+_INTENT_TOP_K: dict[str, int] = {
+    "lookup": 5,
+    "compare": 12,
+    "analyze": 25,
+}
+
+
+# ---------------------------------------------------------------------------
 # App + embedder cache
 # ---------------------------------------------------------------------------
 
@@ -294,6 +319,20 @@ def http_retrieve(body: RetrieveRequestBody) -> RetrieveResponse:
     field names + types here are the *visible* contract to the model.
     """
     f = body.filters or RetrieveFiltersBody()
+    # Resolve top_k:
+    #   explicit body.top_k    > body.intent's default > DEFAULT
+    # The explicit-wins rule keeps back-compat for callers that have
+    # always passed top_k; the intent path is only consulted when the
+    # caller hasn't decided. DEFAULT_PIPELINE_TOP_K covers the no-intent
+    # back-compat case.
+    if body.top_k is not None:
+        resolved_top_k = body.top_k
+    elif body.intent and body.intent in _INTENT_TOP_K:
+        resolved_top_k = _INTENT_TOP_K[body.intent]
+    else:
+        from retrieval.pipeline import DEFAULT_PIPELINE_TOP_K
+        resolved_top_k = DEFAULT_PIPELINE_TOP_K
+
     req = RetrievalRequest(
         query=body.query,
         fiscal_year=f.fiscal_year,
@@ -302,7 +341,7 @@ def http_retrieve(body: RetrieveRequestBody) -> RetrieveResponse:
         agency_canonical_id=f.agency_canonical_id,
         fund_canonical_id=f.fund_canonical_id,
         is_table=f.is_table,
-        top_k=body.top_k,
+        top_k=resolved_top_k,
     )
     result = retrieve(req, embedder=_get_embedder())
 
@@ -336,6 +375,10 @@ def http_retrieve(body: RetrieveRequestBody) -> RetrieveResponse:
         bm25_count=result.bm25_count,
         dense_count=result.dense_count,
         fused_count=result.fused_count,
+        # Echo the caller's intent (None when not provided) so the
+        # future audit-log writer can pick it up from the response
+        # without re-parsing the request body.
+        intent=body.intent,
     )
 
 

@@ -179,7 +179,10 @@ def test_retrieve_marshals_chunks_to_schema_shape(monkeypatch):
     assert resp.status_code == 200
     body = resp.json()
 
-    # Top-level shape per schema doc.
+    # Top-level shape per schema doc. `intent` joined in Task 10
+    # (2026-05-20) — it's echoed back from the request so the future
+    # audit-log writer (WS5) can pick it up; null here because this
+    # test doesn't pass an intent.
     assert set(body.keys()) == {
         "chunks",
         "top_score",
@@ -187,7 +190,9 @@ def test_retrieve_marshals_chunks_to_schema_shape(monkeypatch):
         "bm25_count",
         "dense_count",
         "fused_count",
+        "intent",
     }
+    assert body["intent"] is None
     assert body["top_score"] == 0.9
     assert body["bm25_count"] == 42
     assert body["dense_count"] == 37
@@ -1394,3 +1399,86 @@ def test_cite_validate_offsets_win_when_both_passed():
     # ok is True if the offset slice matches the claim; if it doesn't,
     # we still expect an alignment-flavored error, not "quote not found".
     assert "quote not found" not in (body.get("error") or "").lower()
+
+
+# ---------------------------------------------------------------------------
+# Unit tests — intent → top_k resolution (Task 10, 2026-05-20)
+# ---------------------------------------------------------------------------
+# The dogfood-hardening plan introduces an optional `intent` field on the
+# /retrieve body. The sidecar maps it to top_k via the _INTENT_TOP_K table
+# (lookup→5, compare→12, analyze→25) when the caller hasn't passed an
+# explicit top_k. Explicit top_k always wins; absent intent + absent
+# top_k falls back to DEFAULT_PIPELINE_TOP_K. The intent value is echoed
+# on the response so the audit-log writer (WS5) picks it up.
+
+
+def test_retrieve_intent_lookup_uses_top_k_5(monkeypatch):
+    captured: dict = {}
+
+    def fake_retrieve(req, embedder=None):
+        captured["top_k"] = req.top_k
+        return RetrievalResult()
+
+    monkeypatch.setattr(api_module, "retrieve", fake_retrieve)
+    monkeypatch.setattr(api_module, "_lookup_doc_titles", lambda ids: {})
+    monkeypatch.setattr(api_module, "_get_embedder", lambda: None)
+
+    with TestClient(app) as client:
+        resp = client.post(
+            "/retrieve", json={"query": "x", "intent": "lookup"}
+        )
+
+    assert resp.status_code == 200
+    assert captured["top_k"] == 5
+    # Audit-log fields surface intent in the response so the writer (WS5)
+    # picks it up.
+    assert resp.json()["intent"] == "lookup"
+
+
+def test_retrieve_intent_analyze_uses_top_k_25(monkeypatch):
+    captured: dict = {}
+    def fake_retrieve(req, embedder=None):
+        captured["top_k"] = req.top_k
+        return RetrievalResult()
+    monkeypatch.setattr(api_module, "retrieve", fake_retrieve)
+    monkeypatch.setattr(api_module, "_lookup_doc_titles", lambda ids: {})
+    monkeypatch.setattr(api_module, "_get_embedder", lambda: None)
+
+    with TestClient(app) as client:
+        client.post("/retrieve", json={"query": "x", "intent": "analyze"})
+    assert captured["top_k"] == 25
+
+
+def test_retrieve_explicit_top_k_wins_over_intent(monkeypatch):
+    captured: dict = {}
+    def fake_retrieve(req, embedder=None):
+        captured["top_k"] = req.top_k
+        return RetrievalResult()
+    monkeypatch.setattr(api_module, "retrieve", fake_retrieve)
+    monkeypatch.setattr(api_module, "_lookup_doc_titles", lambda ids: {})
+    monkeypatch.setattr(api_module, "_get_embedder", lambda: None)
+
+    with TestClient(app) as client:
+        client.post(
+            "/retrieve",
+            json={"query": "x", "intent": "lookup", "top_k": 30},
+        )
+    assert captured["top_k"] == 30
+
+
+def test_retrieve_without_intent_uses_default_top_k(monkeypatch):
+    captured: dict = {}
+    def fake_retrieve(req, embedder=None):
+        captured["top_k"] = req.top_k
+        return RetrievalResult()
+    monkeypatch.setattr(api_module, "retrieve", fake_retrieve)
+    monkeypatch.setattr(api_module, "_lookup_doc_titles", lambda ids: {})
+    monkeypatch.setattr(api_module, "_get_embedder", lambda: None)
+
+    with TestClient(app) as client:
+        client.post("/retrieve", json={"query": "x"})
+    # No intent, no top_k → falls through to DEFAULT_PIPELINE_TOP_K
+    # (15 after Task 8 lands; assert against the constant rather than
+    # the literal so this test moves with future tuning).
+    from retrieval.pipeline import DEFAULT_PIPELINE_TOP_K
+    assert captured["top_k"] == DEFAULT_PIPELINE_TOP_K
