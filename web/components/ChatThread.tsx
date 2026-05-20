@@ -160,13 +160,19 @@ export default function ChatThread({ state, mascot }: Props) {
         ref={containerRef}
         className="h-full overflow-y-auto py-6 px-4"
       >
-        {/* Relative positioning context for the mascot — establishes the
-            bottom of the SCROLL CONTENT (not the viewport) for the
-            mascot's `bottom-0`. Because the mascot now lives INSIDE the
-            scroll flow, it sits alongside the latest message and scrolls
-            away with it when the user scrolls up to read older messages. */}
-        <div className="relative">
-          <div className="max-w-2xl mx-auto flex flex-col gap-5">
+        {/* Bottom-anchored message column. `min-h-full + justify-end`
+            makes the inner column at least as tall as the scroll viewport
+            and pushes its content (the messages) to the bottom — so the
+            first message of a session lands just above the input bar,
+            and subsequent turns grow the column UPWARD instead of filling
+            top-down. When content exceeds the viewport, the wrapper grows
+            past min-h-full and scrolling works normally.
+            Also serves as the relative positioning context for the mascot
+            (`bottom-0` below pins it to the bottom of the SCROLL CONTENT
+            so it sits alongside the latest message and scrolls away with
+            it when the user scrolls up to read older messages). */}
+        <div className="relative min-h-full flex flex-col justify-end">
+          <div className="max-w-2xl mx-auto w-full flex flex-col gap-5">
             {state.turns.map((turn, index) =>
               turn.kind === "user" ? (
                 <UserMessage key={turn.id} turn={turn} />

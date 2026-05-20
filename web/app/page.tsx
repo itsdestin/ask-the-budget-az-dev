@@ -58,14 +58,11 @@ export default function Page() {
                 close source panel
               </button>
             )}
-            {state.conversationId && (
-              <span
-                className="text-xs text-fg-muted truncate max-w-[16ch]"
-                title={state.conversationId}
-              >
-                session {state.conversationId.slice(0, 8)}…
-              </span>
-            )}
+            {/* Session-id chip removed — it's an internal identifier with no
+                value to an analyst at-a-glance and just adds header clutter.
+                state.conversationId is still tracked in state and used
+                everywhere it's actually needed (audit log writes, debugging,
+                conversation continuation), it's just not surfaced in the UI. */}
           </div>
         </div>
       </header>

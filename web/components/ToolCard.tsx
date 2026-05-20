@@ -23,16 +23,21 @@ interface Props {
   tool: ToolBlock;
 }
 
-const STATUS_DOT: Record<ToolBlock["status"], string> = {
-  running: "bg-amber-700 animate-pulse",
-  complete: "bg-green-400",
-  failed: "bg-red-400",
-};
-
 const STATUS_LABEL: Record<ToolBlock["status"], string> = {
   running: "running",
   complete: "complete",
   failed: "failed",
+};
+
+// Glyph color encodes status on its own — running uses --warning (amber),
+// failed uses --danger (red), complete falls back to --accent (civic blue).
+// We dropped the separate colored circle dot that previously sat next to
+// the glyph; having two status indicators side-by-side was redundant and
+// visually noisy. The square pixel-glyph is now the single source of truth.
+const STATUS_GLYPH_COLOR: Record<ToolBlock["status"], string> = {
+  running: "var(--warning)",
+  complete: "var(--accent)",
+  failed: "var(--danger)",
 };
 
 export default function ToolCard({ tool }: Props) {
@@ -40,11 +45,11 @@ export default function ToolCard({ tool }: Props) {
   const label = toolDisplayLabel(tool.toolName);
   const summary = toolHeaderSummary(tool.toolName, tool.input);
 
-  // Detect error state: status "failed" is the signal in this file.
-  // When failed, shift the accent to danger so the glyph and left border
-  // call out the problem visually without relying on the subtle red dot alone.
+  // Failed status still drives the left-border accent in addition to the
+  // glyph color, because a failed tool is the case worth shouting about
+  // and the border picks it up even when the glyph is small.
   const isFailed = tool.status === "failed";
-  const glyphColor = isFailed ? "var(--danger)" : "var(--accent)";
+  const glyphColor = STATUS_GLYPH_COLOR[tool.status];
 
   return (
     <div
@@ -58,22 +63,21 @@ export default function ToolCard({ tool }: Props) {
         className="w-full flex items-center gap-2 px-3 py-2 text-sm text-fg-2 bg-panel hover:bg-inset transition-colors"
         onClick={() => setOpen((v) => !v)}
       >
-        {/* Pixel-art tool glyph — color follows error state */}
+        {/* Pixel-art tool glyph — color encodes status (running=warning,
+            complete=accent, failed=danger). Pulses while running. This
+            single square replaces the previous glyph + colored-circle pair
+            so the header has one status indicator instead of two. */}
         <svg
           viewBox="0 0 12 12"
           width={12}
           height={12}
           style={{ color: glyphColor, flexShrink: 0 }}
-          aria-hidden
+          className={tool.status === "running" ? "animate-pulse" : undefined}
+          role="img"
+          aria-label={STATUS_LABEL[tool.status]}
         >
           {toolGlyph(tool.toolName)}
         </svg>
-        <span
-          className={`inline-block w-2 h-2 rounded-full shrink-0 ${
-            STATUS_DOT[tool.status]
-          }`}
-          aria-label={STATUS_LABEL[tool.status]}
-        />
         <span className="font-sans font-semibold text-fg shrink-0">{label}</span>
         {summary && (
           <span className="text-fg-dim truncate text-xs min-w-0">
