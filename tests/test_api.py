@@ -1268,3 +1268,129 @@ def test_verbatim_threshold_lowered_to_070(monkeypatch):
         )
     body = resp.json()
     assert body["ok"] is True, body
+
+
+@needs_db
+def test_cite_validate_accepts_quote_and_derives_offsets():
+    """Quote-based cite: the server scans chunk.text for the quoted
+    substring and derives span_start/span_end. The validation then
+    proceeds the same way as if the caller had passed offsets directly.
+    """
+    # Pick any chunk from the embedded corpus. The test is robust to
+    # corpus drift: we look up the chunk's text and pick a substring.
+    with psycopg.connect(os.environ["DATABASE_URL"]) as conn:
+        row = conn.execute(
+            "SELECT chunk_id, text FROM chunks WHERE LENGTH(text) > 100 LIMIT 1"
+        ).fetchone()
+    assert row is not None, "embedded corpus has no chunks > 100 chars"
+    chunk_id, text = row[0], row[1]
+    # Quote a slice we know is present (chars 20..60 of the chunk).
+    quote = text[20:60]
+
+    with TestClient(app) as client:
+        resp = client.post(
+            "/cite/validate",
+            json={
+                "chunk_id": chunk_id,
+                "quote": quote,
+                "claim_span": quote,  # verbatim — the claim IS the quote
+                "confidence": "verbatim",
+            },
+        )
+
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["ok"] is True, body
+    # The sidecar echoes back the derived offsets so the UI can attach
+    # the bbox highlight at the right position.
+    assert body["resolved_span_start"] == 20
+    assert body["resolved_span_end"] == 60
+
+
+@needs_db
+def test_cite_validate_quote_not_found_returns_error():
+    with psycopg.connect(os.environ["DATABASE_URL"]) as conn:
+        row = conn.execute("SELECT chunk_id FROM chunks LIMIT 1").fetchone()
+    assert row is not None
+    chunk_id = row[0]
+
+    with TestClient(app) as client:
+        resp = client.post(
+            "/cite/validate",
+            json={
+                "chunk_id": chunk_id,
+                "quote": "definitely-not-in-this-chunk-XYZ-12345",
+                "claim_span": "x",
+                "confidence": "verbatim",
+            },
+        )
+
+    body = resp.json()
+    assert body["ok"] is False
+    assert "quote not found" in body["error"].lower()
+
+
+@needs_db
+def test_cite_validate_soft_clamps_claim_span_over_500():
+    """Past sessions had 7 cite calls rejected at the 500-char boundary.
+    The sidecar should now truncate (and flag truncated:true) rather than
+    reject."""
+    with psycopg.connect(os.environ["DATABASE_URL"]) as conn:
+        row = conn.execute(
+            "SELECT chunk_id, text FROM chunks WHERE LENGTH(text) > 50 LIMIT 1"
+        ).fetchone()
+    assert row is not None
+    chunk_id, text = row[0], row[1]
+    quote = text[:30]
+
+    with TestClient(app) as client:
+        resp = client.post(
+            "/cite/validate",
+            json={
+                "chunk_id": chunk_id,
+                "quote": quote,
+                # A 750-char claim_span — schema allows up to 2000 now;
+                # server soft-clamps to 500.
+                "claim_span": "x" * 750,
+                "confidence": "paraphrase",
+            },
+        )
+
+    body = resp.json()
+    # The validation itself will probably fail on alignment (claim is
+    # "xxxxx", quote is from the chunk) — but `truncated` should still
+    # be true regardless of the alignment outcome.
+    assert body.get("truncated") is True
+
+
+@needs_db
+def test_cite_validate_offsets_win_when_both_passed():
+    """Back-compat: if a caller sends both offsets AND quote, offsets win
+    and the quote field is ignored."""
+    with psycopg.connect(os.environ["DATABASE_URL"]) as conn:
+        row = conn.execute(
+            "SELECT chunk_id, text FROM chunks WHERE LENGTH(text) > 100 LIMIT 1"
+        ).fetchone()
+    assert row is not None
+    chunk_id, text = row[0], row[1]
+
+    with TestClient(app) as client:
+        resp = client.post(
+            "/cite/validate",
+            json={
+                "chunk_id": chunk_id,
+                "span_start": 0,
+                "span_end": 40,
+                # An obviously-wrong quote — if the server used the
+                # quote path, this would fail "quote not found". The
+                # test passes only if offsets win.
+                "quote": "definitely-not-in-the-chunk-quote-XYZ",
+                "claim_span": text[:40],
+                "confidence": "verbatim",
+            },
+        )
+
+    body = resp.json()
+    # ok is True if the offset slice matches the claim; if it doesn't,
+    # we still expect an alignment-flavored error, not "quote not found".
+    assert "quote not found" not in (body.get("error") or "").lower()

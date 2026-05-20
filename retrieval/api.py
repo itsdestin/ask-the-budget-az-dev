@@ -153,16 +153,19 @@ class DocMetadataResponse(BaseModel):
 
 class CiteValidateBody(BaseModel):
     chunk_id: str
-    span_start: int
-    span_end: int
+    # Either (span_start, span_end) OR quote must be supplied. The MCP
+    # handler also enforces this; the dual-layer check catches calls
+    # from any other future client too.
+    span_start: int | None = None
+    span_end: int | None = None
+    # Preferred path post-2026-05-20: the model pastes the exact
+    # substring of chunk.text it wants to cite, and the server scans
+    # for it. Avoids the 21-occurrence Bash-script workaround past
+    # sessions used to compute offsets.
+    quote: str | None = None
     # claim_span and confidence are optional for back-compat — when both
     # are present, /cite/validate ALSO checks that the cited span
-    # actually supports the claim (verbatim substring match for
-    # verbatim cites, content-word overlap threshold for paraphrase).
-    # This is the fix for the 2026-05-11 citation audit, which found
-    # ~40% of cite() calls pointed at spans that didn't contain the
-    # claimed support — a chunk_id and span-bounds pass alone was not
-    # enough to catch them.
+    # actually supports the claim.
     claim_span: str | None = None
     confidence: str | None = None
 
@@ -171,10 +174,16 @@ class CiteValidateResponse(BaseModel):
     ok: bool
     error: str | None = None
     chunk_text_length: int | None = None
-    # When validation fails for an alignment reason, echo the first
-    # ~500 chars of `chunk.text[span_start:span_end]` so the model can
-    # see what it actually cited and pick a better span on retry.
     cited_text_preview: str | None = None
+    # When the caller passed a `quote`, the server derives offsets and
+    # echoes them back so the UI can attach the bbox highlight at the
+    # right position. None when the caller passed offsets directly.
+    resolved_span_start: int | None = None
+    resolved_span_end: int | None = None
+    # True when claim_span was over 500 chars and the server truncated
+    # it before running alignment. The UI still uses the (truncated)
+    # claim_span for chip attachment.
+    truncated: bool | None = None
 
 
 class FilterValueOut(BaseModel):
@@ -833,29 +842,10 @@ def _check_alignment(
 
 @app.post("/cite/validate", response_model_exclude_none=True)
 def http_cite_validate(body: CiteValidateBody) -> CiteValidateResponse:
-    """Confirm a chunk_id exists, the (span_start, span_end) range is
-    within `chunk.text`'s length, and — if claim_span + confidence are
-    provided — that the cited span actually supports the claim.
-
-    Failure modes returned with `ok: false`:
-
-      * `unknown chunk_id` — chunk_id wasn't found.
-      * `span out of range` — chunk exists but the span doesn't fit.
-        `chunk_text_length` accompanies this so the model can see the
-        actual bound and self-correct.
-      * `span too broad` — cited span exceeds SPAN_BREADTH_LIMIT
-        chars. Forces the model to narrow the citation so the PDF
-        highlight is meaningful.
-      * `verbatim cite: ... not a substring` — when confidence is
-        "verbatim", the normalized claim_span is not found in the
-        normalized cited text.
-      * `paraphrase cite: ... overlap below threshold` — when
-        confidence is "paraphrase", fewer than 60% of the claim's
-        content words appear in the cited text.
-
-    On any alignment failure the response includes
-    `cited_text_preview` (first 500 chars of the cited span) so the
-    model can see what it actually cited and recover.
+    """Confirm a chunk_id exists, resolve a quote to offsets (or use
+    explicit offsets), check the span is in bounds, then verify the
+    cited span supports the claim. See docstring on each step for the
+    failure-mode breakdown.
     """
     with get_connection() as conn:
         row = conn.execute(
@@ -871,27 +861,63 @@ def http_cite_validate(body: CiteValidateBody) -> CiteValidateResponse:
         return CiteValidateResponse(ok=False, error="unknown chunk_id")
 
     full_text: str = row["text"] or ""
-    # doc_type comes from the JOIN; can be None only if a chunk
-    # references a missing documents row (shouldn't happen with a
-    # consistent ingest, but defensively typed).
     doc_type: str | None = row["doc_type"]
     length = len(full_text)
-    # Negative starts and inverted ranges are still hard errors.
-    if body.span_start < 0 or body.span_end <= body.span_start:
+
+    # Resolve quote → offsets. When BOTH quote and offsets are supplied,
+    # offsets win (back-compat per the brief's disposition rule). When
+    # only quote is supplied, we scan chunk.text and derive the offsets.
+    resolved_span_start = body.span_start
+    resolved_span_end = body.span_end
+    if resolved_span_start is None or resolved_span_end is None:
+        if not body.quote:
+            return CiteValidateResponse(
+                ok=False,
+                error=(
+                    "cite() requires either (span_start, span_end) OR "
+                    "quote. Pass the exact quoted substring of chunk.text "
+                    "as `quote` and the server derives the offsets."
+                ),
+                chunk_text_length=length,
+            )
+        idx = full_text.find(body.quote)
+        if idx < 0:
+            return CiteValidateResponse(
+                ok=False,
+                error=(
+                    "quote not found in chunk.text — the substring you "
+                    "supplied as `quote` does not appear verbatim in the "
+                    "chunk. Pick text that exists in the chunk (read the "
+                    "retrieve() result's `text` field) or retrieve a "
+                    "different chunk."
+                ),
+                chunk_text_length=length,
+            )
+        resolved_span_start = idx
+        resolved_span_end = idx + len(body.quote)
+
+    # Soft-clamp claim_span to 500 chars. Past sessions had 7 cite calls
+    # rejected at the 500-char boundary; truncating-and-flagging is
+    # better than rejecting outright because the UI's chip-attachment
+    # substring search still works on the truncated form.
+    truncated_flag: bool | None = None
+    claim_span_effective = body.claim_span
+    if claim_span_effective is not None and len(claim_span_effective) > 500:
+        claim_span_effective = claim_span_effective[:500]
+        truncated_flag = True
+
+    # Negative starts and inverted ranges remain hard errors.
+    if resolved_span_start < 0 or resolved_span_end <= resolved_span_start:
         return CiteValidateResponse(
             ok=False,
             error="span out of range",
             chunk_text_length=length,
+            truncated=truncated_flag,
         )
-    # Auto-clamp small overflows. The model frequently picks rounded
-    # span_end values (1500, 2000) that slightly exceed chunk length;
-    # those are imprecision, not "wrong cite", and rejecting them
-    # forces a retry that produces the same content. Beyond
-    # max(SPAN_END_CLAMP_ABS, length * SPAN_END_CLAMP_RATIO) we still
-    # reject so the model fixes a genuinely-wrong span.
-    effective_span_end = body.span_end
-    if body.span_end > length:
-        overflow = body.span_end - length
+    # Auto-clamp small overflows (unchanged behavior).
+    effective_span_end = resolved_span_end
+    if resolved_span_end > length:
+        overflow = resolved_span_end - length
         clamp_budget = max(
             SPAN_END_CLAMP_ABS, int(length * SPAN_END_CLAMP_RATIO)
         )
@@ -902,36 +928,34 @@ def http_cite_validate(body: CiteValidateBody) -> CiteValidateResponse:
                 ok=False,
                 error="span out of range",
                 chunk_text_length=length,
+                truncated=truncated_flag,
             )
 
-    cited = full_text[body.span_start : effective_span_end]
-    cited_len = effective_span_end - body.span_start
+    cited = full_text[resolved_span_start:effective_span_end]
+    cited_len = effective_span_end - resolved_span_start
     preview = cited[:500]
 
-    # Span breadth — fail before the alignment check so the model
-    # gets a single targeted error rather than two.
     if cited_len > SPAN_BREADTH_LIMIT:
         return CiteValidateResponse(
             ok=False,
             error=(
                 f"span too broad: {cited_len} chars cited "
                 f"(limit {SPAN_BREADTH_LIMIT}). Narrow span_start / "
-                "span_end to the specific sentence or table row that "
-                "supports the claim — broad spans produce useless "
-                "PDF highlights and usually indicate uncertainty about "
-                "where the support actually is."
+                "span_end (or pick a shorter quote) to the specific "
+                "sentence or table row that supports the claim — broad "
+                "spans produce useless PDF highlights and usually "
+                "indicate uncertainty about where the support is."
             ),
             chunk_text_length=length,
             cited_text_preview=preview,
+            resolved_span_start=resolved_span_start,
+            resolved_span_end=effective_span_end,
+            truncated=truncated_flag,
         )
 
-    # Alignment check — only when both claim_span and confidence
-    # were provided. Back-compat: callers that don't pass them get
-    # the old chunk_id + bounds behavior. doc_type drives the AFR
-    # currency-only path; see _check_afr_alignment.
-    if body.claim_span is not None and body.confidence is not None:
+    if claim_span_effective is not None and body.confidence is not None:
         alignment_error = _check_alignment(
-            cited, body.claim_span, body.confidence, doc_type,
+            cited, claim_span_effective, body.confidence, doc_type,
         )
         if alignment_error is not None:
             return CiteValidateResponse(
@@ -939,6 +963,15 @@ def http_cite_validate(body: CiteValidateBody) -> CiteValidateResponse:
                 error=alignment_error,
                 chunk_text_length=length,
                 cited_text_preview=preview,
+                resolved_span_start=resolved_span_start,
+                resolved_span_end=effective_span_end,
+                truncated=truncated_flag,
             )
 
-    return CiteValidateResponse(ok=True, chunk_text_length=length)
+    return CiteValidateResponse(
+        ok=True,
+        chunk_text_length=length,
+        resolved_span_start=resolved_span_start,
+        resolved_span_end=effective_span_end,
+        truncated=truncated_flag,
+    )
