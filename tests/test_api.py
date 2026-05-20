@@ -1635,7 +1635,12 @@ def test_retrieve_intent_lookup_uses_top_k_5(monkeypatch):
     assert resp.json()["intent"] == "lookup"
 
 
-def test_retrieve_intent_analyze_uses_top_k_25(monkeypatch):
+def test_retrieve_intent_analyze_uses_top_k_18(monkeypatch):
+    # Lowered from 25 → 18 on 2026-05-20: 25 produced ~50K-char
+    # responses that hit Claude Code's spillover threshold, adding a
+    # Read round-trip and 5-10s of latency to every analyze query.
+    # 18 stays under the spillover line while still wider than
+    # compare's 12.
     captured: dict = {}
     def fake_retrieve(req, embedder=None):
         captured["top_k"] = req.top_k
@@ -1646,7 +1651,7 @@ def test_retrieve_intent_analyze_uses_top_k_25(monkeypatch):
 
     with TestClient(app) as client:
         client.post("/retrieve", json={"query": "x", "intent": "analyze"})
-    assert captured["top_k"] == 25
+    assert captured["top_k"] == 18
 
 
 def test_retrieve_explicit_top_k_wins_over_intent(monkeypatch):

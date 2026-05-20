@@ -169,9 +169,15 @@ export class YouCodedSessionProvider implements LLMProvider {
     //    Decision D5: general tools (Bash, Read) stay enabled — they're
     //    fallback verification paths. The deny list removes tools the
     //    audit showed were never legitimately used in budget sessions.
-    //    ToolSearch is NOT denied — denying it could break lazy-load
-    //    fallback for any tool we haven't eager-loaded. (We just don't
-    //    NEED it now that alwaysLoad covers the budget tools.)
+    //
+    //    ToolSearch deny added 2026-05-20: alwaysLoad:true on the
+    //    .mcp.json above is supposed to eager-load the budget MCP
+    //    server's tools at session start, but dogfood showed the model
+    //    still calling ToolSearch first (likely a habit from its
+    //    training distribution rather than a Claude Code bug). Each
+    //    ToolSearch is a wasted LLM round-trip. Denying it forces
+    //    Claude Code onto whatever the .mcp.json registered + the
+    //    allow list; the model adapts within a turn.
     const settings = {
       permissions: {
         allow: [
@@ -192,6 +198,7 @@ export class YouCodedSessionProvider implements LLMProvider {
           "PowerShell",
           "WebFetch",
           "WebSearch",
+          "ToolSearch",
           "mcp__windows-control__*",
           "mcp__gmessages__*",
           "mcp__imessages__*",

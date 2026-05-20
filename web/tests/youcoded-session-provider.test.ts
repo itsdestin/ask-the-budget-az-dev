@@ -668,11 +668,13 @@ describe("YouCodedSessionProvider — system prompt materialization", () => {
         "WebSearch",
       ]),
     );
-    // ToolSearch is NOT in either list — alwaysLoad eliminates need
-    // for it and denying could break lazy-loading for anything we
-    // haven't eager-loaded.
+    // ToolSearch is in the DENY list (added 2026-05-20). Dogfood
+    // showed the model habitually calling ToolSearch at session start
+    // even with alwaysLoad:true set on the budget MCP server — each
+    // call is a wasted LLM round-trip. Denying forces the model onto
+    // whatever the .mcp.json registered + the allow list above.
     expect(settings.permissions.allow).not.toContain("ToolSearch");
-    expect(settings.permissions.deny).not.toContain("ToolSearch");
+    expect(settings.permissions.deny).toContain("ToolSearch");
 
     await provider.disconnect();
     await fs.rm(globalCfgDir, { recursive: true, force: true });

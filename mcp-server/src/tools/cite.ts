@@ -115,6 +115,16 @@ const TOOL_DESCRIPTION =
 interface CiteSuccess {
   ok: true;
   citation_id: string;
+  // Sidecar-derived offsets (always present when the cite call was
+  // quote-only; same as input when offsets were supplied). These are
+  // the canonical position of the cited text inside chunk.text — the
+  // web UI uses them to drive its PDF text-layer search instead of
+  // falling back to a sentinel (0, claim_span.length) range that
+  // doesn't actually point at the cited text. Threaded through here
+  // because the model's tool_result is the only channel the UI reads;
+  // we're not asking the model to do anything with them.
+  resolved_span_start?: number;
+  resolved_span_end?: number;
 }
 
 interface CiteFailure {
@@ -204,7 +214,20 @@ export function makeCiteHandler(
 
     let result: CiteResult;
     if (validate.ok) {
-      result = { ok: true, citation_id: randomUUID() };
+      result = {
+        ok: true,
+        citation_id: randomUUID(),
+        // Pass through the sidecar's derived offsets so the UI can
+        // find the cited text in the PDF text layer. Without these,
+        // quote-only cites fall back to a useless sentinel range and
+        // the PdfPage shows "exact text couldn't be pinpointed."
+        ...(validate.resolved_span_start !== undefined
+          ? { resolved_span_start: validate.resolved_span_start }
+          : {}),
+        ...(validate.resolved_span_end !== undefined
+          ? { resolved_span_end: validate.resolved_span_end }
+          : {}),
+      };
     } else {
       result = {
         ok: false,

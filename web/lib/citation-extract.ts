@@ -131,6 +131,15 @@ interface CiteAckResult {
    *  humanizeFailureReason; server-side validator errors (which are
    *  already human-readable) pass through unchanged. */
   failureReason?: string;
+  /** Sidecar-derived position of the cited text inside chunk.text.
+   *  Present on success when the cite tool returns the new
+   *  resolved_span_start/resolved_span_end fields (added 2026-05-20
+   *  to both cite + cite_batch). Drives the PDF text-layer search;
+   *  without this the renderer falls back to a (0, claim_span.length)
+   *  sentinel that doesn't actually point at the cited text and
+   *  produces "couldn't pinpoint" badges. */
+  resolvedSpanStart?: number;
+  resolvedSpanEnd?: number;
 }
 
 /** Translate a raw cite()-tool failure string into something a user
@@ -199,9 +208,18 @@ function parseCiteAck(raw: string | undefined): CiteAckResult {
         ok?: unknown;
         citation_id?: unknown;
         error?: unknown;
+        resolved_span_start?: unknown;
+        resolved_span_end?: unknown;
       };
       if (obj.ok === true && typeof obj.citation_id === "string") {
-        return { citationId: obj.citation_id };
+        const result: CiteAckResult = { citationId: obj.citation_id };
+        if (typeof obj.resolved_span_start === "number") {
+          result.resolvedSpanStart = obj.resolved_span_start;
+        }
+        if (typeof obj.resolved_span_end === "number") {
+          result.resolvedSpanEnd = obj.resolved_span_end;
+        }
+        return result;
       }
       if (obj.ok === false) {
         return {
@@ -246,9 +264,18 @@ function parseCiteBatchAck(raw: string | undefined): CiteAckResult[] {
           ok?: unknown;
           citation_id?: unknown;
           error?: unknown;
+          resolved_span_start?: unknown;
+          resolved_span_end?: unknown;
         };
         if (obj.ok === true && typeof obj.citation_id === "string") {
-          return { citationId: obj.citation_id };
+          const result: CiteAckResult = { citationId: obj.citation_id };
+          if (typeof obj.resolved_span_start === "number") {
+            result.resolvedSpanStart = obj.resolved_span_start;
+          }
+          if (typeof obj.resolved_span_end === "number") {
+            result.resolvedSpanEnd = obj.resolved_span_end;
+          }
+          return result;
         }
         if (obj.ok === false) {
           return {
@@ -292,15 +319,29 @@ function buildCitationFromInput(
   const hasQuote = typeof input.quote === "string" && (input.quote as string).length > 0;
   const claimSpan =
     typeof input.claim_span === "string" ? input.claim_span : "";
+  // Resolution order (best → worst):
+  //   1. Sidecar-derived offsets echoed back through the ack
+  //      (post-2026-05-20 cite + cite_batch contract). These point at
+  //      the EXACT cited text in chunk.text, which is what the PDF
+  //      text-layer search needs.
+  //   2. Explicit offsets the model supplied on the input (legacy
+  //      offset path — same semantics, just no quote round-trip).
+  //   3. Quote-only with no ack offsets yet (in-flight or older tool
+  //      version): fall back to a sentinel (0, claim_span.length). The
+  //      chip will render but its PDF highlight will be imprecise; the
+  //      "couldn't pinpoint" badge surfaces in that case.
   let spanStart: number;
   let spanEnd: number;
-  if (hasOffsets) {
+  if (
+    typeof ack.resolvedSpanStart === "number" &&
+    typeof ack.resolvedSpanEnd === "number"
+  ) {
+    spanStart = ack.resolvedSpanStart;
+    spanEnd = ack.resolvedSpanEnd;
+  } else if (hasOffsets) {
     spanStart = input.span_start as number;
     spanEnd = input.span_end as number;
   } else if (hasQuote) {
-    // Sentinel — chip-attachment substring search uses claimSpan, not
-    // these offsets; the PDF bbox path uses the sidecar-resolved
-    // offsets that round-trip out of /cite/validate when quote is set.
     spanStart = 0;
     spanEnd = Math.max(1, claimSpan.length);
   } else {
