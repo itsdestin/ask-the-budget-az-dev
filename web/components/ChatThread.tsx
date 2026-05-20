@@ -205,8 +205,32 @@ export default function ChatThread({ state, mascot }: Props) {
               three variants (regular small Mascot / MascotTyping /
               MascotPresenting) share the same right alignment beside the
               messages — only the left edge varies with the variant's
-              width. Thinking/presenting SWAP IN PLACE here. */}
-          <div className="absolute bottom-0 z-10 right-[calc(50%+352px)]">
+              width. Thinking/presenting SWAP IN PLACE here.
+
+              Per-variant translateY pushes the SVG down by the amount of
+              empty space below the figure in each viewBox, so the
+              VISIBLE feet/chair/laptop-shoes of every variant land at
+              the same y as the bubble bottom (= 8px above the input
+              bar, matching the messages' pb-2 gap).
+                small Mascot   : figure ends at y=384 of 420 viewBox →
+                                 36 vb units empty → ×0.5 scale = 18px
+                MascotTyping   : chair legs end at y=374 of 390 vb-bot →
+                                 16 vb units empty → ×0.512 scale ≈ 8px
+                MascotPresenting: shoes end at y=374 of 400 viewBox →
+                                 26 vb units empty → ×0.525 scale ≈ 14px
+              Because each variant gets its own offset, the visual feet
+              land at the SAME y in all three — so the variants still
+              swap without a vertical jump. */}
+          <div
+            className={
+              "absolute bottom-0 z-10 right-[calc(50%+352px)] " +
+              (mascot.kind === "presenting"
+                ? "translate-y-[14px]"
+                : state.isThinking
+                  ? "translate-y-[8px]"
+                  : "translate-y-[18px]")
+            }
+          >
             {mascot.kind === "presenting" ? (
               <MascotPresenting />
             ) : state.isThinking ? (
