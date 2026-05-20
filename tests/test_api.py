@@ -925,10 +925,18 @@ def test_check_alignment_paraphrase_fail_low_overlap():
     assert "content words" in err
 
 
-def test_cite_validate_paraphrase_misalignment_returns_preview(monkeypatch):
-    """Full end-to-end: a paraphrase cite that fails alignment must
-    return cited_text_preview so the model can see what its span
-    actually contained and pick a better one on retry."""
+def test_cite_validate_alignment_check_no_longer_rejects(monkeypatch):
+    """Regression / contract: as of 2026-05-20, /cite/validate no
+    longer enforces a content-word-overlap check between claim_span
+    and the cited chunk text. The dogfood pass that day showed a ~40%
+    false-rejection rate on claims that were semantically faithful but
+    used different wording (abbreviated dollars, markdown-table
+    formatting, etc.) — the resulting retry loop dominated query
+    latency. The check was a string-overlap heuristic, not a real
+    faithfulness check; the actual NLI verifier (WS3) will live
+    elsewhere. So a claim_span with NO word overlap against the cited
+    span (here: `$6,000,000 one-time for secure ballot paper` vs an
+    Operating Budget paragraph) now passes."""
     chunk_text = (
         "Operating Budget. The budget includes $4,677,100 and 38.4 FTE "
         "Positions in FY 2025 for the operating budget. These amounts "
@@ -965,10 +973,7 @@ def test_cite_validate_paraphrase_misalignment_returns_preview(monkeypatch):
         )
 
     body = resp.json()
-    assert body["ok"] is False
-    assert "paraphrase" in body["error"]
-    # Preview must echo the cited slice so the model knows what to fix.
-    assert body["cited_text_preview"].startswith("Operating Budget")
+    assert body["ok"] is True, body
 
 
 def test_cite_validate_verbatim_substring_passes(monkeypatch):
@@ -1150,10 +1155,16 @@ def test_afr_alignment_passes_when_dollar_amounts_match(monkeypatch):
     assert body["ok"] is True, body
 
 
-def test_afr_alignment_rejects_when_claim_dollar_amounts_absent(monkeypatch):
-    """AFR path must still reject when the claim's dollar amounts
-    DON'T match the cited span — wholly-wrong cites can't sneak
-    through just because we relaxed the English overlap check."""
+def test_afr_alignment_no_longer_rejects_wrong_dollar_amounts(monkeypatch):
+    """Regression / contract: as of 2026-05-20, /cite/validate dropped
+    its content-overlap alignment check (including the AFR-specific
+    dollar-amount variant). A claim with dollar amounts that don't
+    appear in the cited AFR span — e.g. claim says `$75,000,000` but
+    chunk has only `3,000,000.00 / 2,313,971.39` — now returns ok:true.
+    The trade-off is accepted because the check was a string-overlap
+    heuristic, not real faithfulness validation (WS3 is that), and the
+    false-rejection rate it produced was hurting dogfood badly. See
+    the http_cite_validate comment block for the full rationale."""
     chunk_text = (
         "MAA MA2573 MA OPIOID REMEDIATION 3,000,000.00 2,313,971.39 | "
         "FUND TOTAL 3,000,000.00 2,313,971.39 686,028.61"
@@ -1174,9 +1185,7 @@ def test_afr_alignment_rejects_when_claim_dollar_amounts_absent(monkeypatch):
             },
         )
     body = resp.json()
-    assert body["ok"] is False
-    assert "afr cite" in body["error"]
-    assert "$75,000,000" in body["error"]
+    assert body["ok"] is True, body
 
 
 def test_afr_alignment_ignores_year_and_small_numbers(monkeypatch):

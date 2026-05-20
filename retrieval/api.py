@@ -1044,21 +1044,28 @@ def http_cite_validate(body: CiteValidateBody) -> CiteValidateResponse:
             truncated=truncated_flag,
         )
 
-    if claim_span_effective is not None and body.confidence is not None:
-        alignment_error = _check_alignment(
-            cited, claim_span_effective, body.confidence, doc_type,
-        )
-        if alignment_error is not None:
-            return CiteValidateResponse(
-                ok=False,
-                error=alignment_error,
-                chunk_text_length=length,
-                cited_text_preview=preview,
-                resolved_span_start=resolved_span_start,
-                resolved_span_end=effective_span_end,
-                truncated=truncated_flag,
-            )
-
+    # The content-word-overlap alignment check used to live here, but
+    # dogfood (2026-05-20) showed it had a ~40% false-rejection rate —
+    # the model often picks quotes whose words don't textually overlap
+    # the user-facing answer prose (e.g. cites a chunk with
+    # "$17,337,200" while writing "$17.3M" in the answer; cites a
+    # narrative chunk while writing the claim as a markdown table row).
+    # The retry loop the rejection triggered added 30-60s per query and
+    # produced apologetic meta-narration in the visible answer.
+    #
+    # The check was a STRING-OVERLAP HEURISTIC, not a real faithfulness
+    # check (Invariant 2's actual guarantor — WS3 / NLI verifier — is
+    # still unbuilt). What it caught: cosmetic mismatches between the
+    # model's wording and the chunk's wording. What it missed:
+    # semantically-wrong-but-overlap-passing citations. Removing it does
+    # not lose protection we had; it surfaces what we never had to
+    # begin with.
+    #
+    # What we keep (real protection):
+    #   - chunk_id must exist in the corpus (catches invented chunks)
+    #   - quote must appear verbatim in chunk.text (catches invented
+    #     quotes — the only way the model can fake a citation today)
+    #   - span_out_of_range / span_too_broad sanity checks
     return CiteValidateResponse(
         ok=True,
         chunk_text_length=length,
