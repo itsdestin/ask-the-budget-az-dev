@@ -39,12 +39,15 @@ import type {
   PDFDocumentProxy,
   PDFPageProxy,
   RenderTask,
-  TextItem,
-  TextMarkedContent,
 } from "pdfjs-dist/types/src/display/api";
 import type { PageViewport } from "pdfjs-dist/types/src/display/display_utils";
 
-import { findNormalizedMatch } from "@/lib/citation-extract";
+import {
+  TextLayerSearchStrategy,
+  type ChunkCoordMap,
+  type HighlightRect,
+  type HighlightStrategy,
+} from "@/lib/highlight-strategy";
 
 interface Props {
   /** doc_id from the chunk; rendered as `/api/pdf/{docId}`. */
@@ -74,14 +77,12 @@ interface Props {
    *  page exactly fills the container width. >1 zooms in, <1 zooms
    *  out. The viewer's +/- buttons drive this. */
   zoomLevel?: number;
-}
-
-/** A single highlight rectangle in viewport (canvas) pixel space. */
-interface HighlightRect {
-  left: number;
-  top: number;
-  width: number;
-  height: number;
+  /** Optional per-chunk coord map from a future #57 ingest pipeline.
+   *  Today: always undefined. */
+  coordMap?: ChunkCoordMap;
+  /** Optional strategy override — tests pass a fake; production uses
+   *  TextLayerSearchStrategy. */
+  strategy?: HighlightStrategy;
 }
 
 let workerConfigured = false;
@@ -115,6 +116,8 @@ export default function PdfPage({
   searchTexts,
   containerWidth,
   zoomLevel = 1,
+  coordMap,
+  strategy,
 }: Props) {
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   // Highlights — typically one rect per text line for a multi-line
@@ -194,98 +197,30 @@ export default function PdfPage({
         await renderTask.promise;
         if (cancelled) return;
 
-        // Highlight strategy: walk searchTexts in priority order,
-        // first text-layer match wins. Each match produces one tight
-        // highlight rect per LINE the matched text crosses. Falls
-        // back to the chunk's stored bbox (coarse, but always
-        // available) when no string matches.
-        //
-        // Caller (PdfViewer) supplies, in order:
-        //   1. chunk.text[span_start:span_end] — exact source quote
-        //      the cite() emitted offsets for. Tight per-claim.
-        //   2. chunk.text — full chunk. Broader region; fallback
-        //      when the spanned slice doesn't match (rare; chunk
-        //      text comes from the PDF text extractor, but OCR'd
-        //      pages or table cells with reordered items can drift).
-        //
-        // Region constraint: when the chunk has a stored bbox, we
-        // FIRST search only inside that bbox so a phrase that
-        // appears in multiple places on the page (e.g. "FY 2026" or
-        // "$2,587,400" repeated in summary tables) binds to the
-        // occurrence in the chunk's actual region. The bbox-restricted
-        // pass is followed by an unrestricted pass if it finds nothing
-        // — handles cases where the chunk bbox is slightly off and
-        // excludes the cited text. The result is "off by a few lines"
-        // matches collapse to the right line because we no longer
-        // grab the first textually-similar match anywhere on the page.
+        // Highlight strategy. Default is TextLayerSearchStrategy
+        // (text-layer search restricted to the chunk's bbox if any);
+        // tests + the future #57 path can pass a different strategy.
+        // Strict bbox: when a chunk has a stored bbox, the strategy
+        // does NOT fall back to whole-page search on miss — we want
+        // an honest "couldn't pinpoint" badge instead of a yellow
+        // rectangle on the wrong text.
+        const activeStrategy = strategy ?? new TextLayerSearchStrategy();
         const restrictRect =
           bbox && bbox.length >= 4
             ? bboxToViewportRect(bbox, naturalViewport, renderScale)
             : null;
-
-        let computed: HighlightRect[] = [];
-        const passes: (HighlightRect | null)[] = restrictRect
-          ? [restrictRect, null]
-          : [null];
-        outer: for (const restrictTo of passes) {
-          for (const text of searchTexts ?? []) {
-            if (!text) continue;
-            computed = await findTextRects(
-              page,
-              text,
-              viewport,
-              cancelled,
-              restrictTo,
-            );
-            if (cancelled) return;
-            if (computed.length > 0) break outer;
-          }
-        }
-        // Best-effort fallback: try matching individual currency
-        // tokens from the cited slice. Most budget claims hinge on a
-        // distinctive dollar figure (e.g. "$3,500,000") which the
-        // pdfjs text layer renders as a contiguous token even when
-        // the surrounding sentence has whitespace/punctuation drift
-        // that defeated the full-text match. This salvages the
-        // common case where the chunk text says `\$(3,500,000)` (ingest
-        // pipeline's markdown-escaped form) but the PDF text layer
-        // has `($3,500,000)` (accounting-negative convention), which
-        // our normalize doesn't fully bridge. The 2026-05-12 cite-#10
-        // case was this exact shape.
-        if (computed.length === 0) {
-          const citedSlice = (searchTexts ?? [])[0] ?? "";
-          const currencyMatches = citedSlice.match(/\$[\d][\d,.]*/g) ?? [];
-          // De-dup while preserving order so the bbox-restricted pass
-          // remains stable if a dollar amount repeats.
-          const uniqTokens = Array.from(new Set(currencyMatches));
-          for (const restrictTo of passes) {
-            for (const tok of uniqTokens) {
-              const rects = await findTextRects(
-                page,
-                tok,
-                viewport,
-                cancelled,
-                restrictTo,
-              );
-              if (cancelled) return;
-              if (rects.length > 0) {
-                computed = rects;
-                break;
-              }
-            }
-            if (computed.length > 0) break;
-          }
-        }
-        // Final state: no text-layer anchor found by ANY strategy.
-        // We deliberately do NOT fall back to the chunk's stored
-        // bbox — those can be wrong (MinerU mis-detection, oversized
-        // multi-paragraph spans) and painting a yellow rectangle
-        // over unrelated text is worse than painting nothing. Surface
-        // a small "couldn't locate" badge instead via notLocated;
-        // the chip in chat still works for clicking back here.
-        if (computed.length === 0) {
-          setNotLocated(true);
-        }
+        const quote = (searchTexts ?? [])[0] ?? "";
+        const fullChunkText = (searchTexts ?? [])[1] ?? "";
+        const computed = await activeStrategy.resolve({
+          page,
+          viewport,
+          quote,
+          fullChunkText,
+          bbox: restrictRect,
+          coordMap,
+        });
+        if (cancelled) return;
+        if (computed.length === 0) setNotLocated(true);
         setHighlights(computed);
         setLoading(false);
       } catch (err) {
@@ -319,6 +254,8 @@ export default function PdfPage({
     (searchTexts ?? []).join(" "),
     containerWidth,
     zoomLevel,
+    coordMap,
+    strategy,
   ]);
 
   return (
@@ -395,165 +332,3 @@ function bboxToViewportRect(
   };
 }
 
-/** Type guard that splits `TextContent.items` into the `TextItem`
- *  entries we care about (`str`, `transform`, geometry) and discards
- *  `TextMarkedContent` markers, which carry no rendered text. */
-function isTextItem(item: TextItem | TextMarkedContent): item is TextItem {
-  return typeof (item as { str?: unknown }).str === "string";
-}
-
-/** Search the page's text layer for `searchText` and return one
- *  highlight rect PER LINE the match crosses. Returns [] if no
- *  match. Caller should then fall back to the next-priority highlight
- *  source (chunk text, or chunk bbox).
- *
- *  Multi-line handling: text items in pdfjs are grouped in reading
- *  order with vertical position carried by `transform[5]`. We bucket
- *  matched items by their baseline y and emit one rect per bucket.
- *  This keeps the highlight visually flush with each line of the
- *  cited passage instead of painting an over-sized bounding box that
- *  swallows blank gutters between lines. */
-async function findTextRects(
-  page: PDFPageProxy,
-  searchText: string,
-  viewport: PageViewport,
-  cancelled: boolean,
-  restrictTo: HighlightRect | null = null,
-): Promise<HighlightRect[]> {
-  if (!searchText) return [];
-  const content = await page.getTextContent();
-  if (cancelled) return [];
-  let items = content.items.filter(isTextItem);
-  if (items.length === 0) return [];
-
-  // Optional region constraint: drop text items whose viewport rect
-  // doesn't overlap `restrictTo`. Used to anchor the search to the
-  // chunk's stored bbox so phrases that appear elsewhere on the
-  // page don't steal the match. We require partial overlap (not
-  // full containment) so items that hang slightly outside the bbox
-  // (very common — chunk bboxes from MinerU are tight to text and
-  // PDF text-item rects sometimes extend a pixel past) still count.
-  // Add a small slack (8pt scaled) on every side to be forgiving of
-  // sub-pixel bbox drift.
-  if (restrictTo) {
-    const slack = 8 * (viewport.scale ?? 1);
-    const rx1 = restrictTo.left - slack;
-    const ry1 = restrictTo.top - slack;
-    const rx2 = restrictTo.left + restrictTo.width + slack;
-    const ry2 = restrictTo.top + restrictTo.height + slack;
-    items = items.filter((item) => {
-      const x1 = item.transform[4]!;
-      const y1 = item.transform[5]!;
-      const x2 = x1 + item.width;
-      const y2 = y1 + item.height;
-      const [vx1, vy1, vx2, vy2] = viewport.convertToViewportRectangle([
-        x1,
-        y1,
-        x2,
-        y2,
-      ]);
-      const ix1 = Math.min(vx1, vx2);
-      const iy1 = Math.min(vy1, vy2);
-      const ix2 = Math.max(vx1, vx2);
-      const iy2 = Math.max(vy1, vy2);
-      // Standard 2D rect overlap test.
-      return ix1 < rx2 && ix2 > rx1 && iy1 < ry2 && iy2 > ry1;
-    });
-    if (items.length === 0) return [];
-  }
-
-  // Build a flat string of the page's text content with a parallel
-  // map: each char's index in the flat string → the source item
-  // index. We insert a synthetic space between items that don't
-  // already end with whitespace so word boundaries don't get fused
-  // (`Aviation``Fund` instead of `Aviation Fund`). Same trick the
-  // pdfjs find-bar uses internally.
-  let flat = "";
-  const itemForChar: number[] = [];
-  for (let i = 0; i < items.length; i++) {
-    const item = items[i]!;
-    const start = flat.length;
-    flat += item.str;
-    for (let k = start; k < flat.length; k++) itemForChar.push(i);
-    // Add an inferred space if the item doesn't already end with
-    // whitespace and there's a following item.
-    if (i + 1 < items.length) {
-      const endsInSpace = item.str.endsWith(" ");
-      if (!endsInSpace) {
-        flat += " ";
-        itemForChar.push(i);
-      }
-      if (item.hasEOL) {
-        flat += "\n";
-        itemForChar.push(i);
-      }
-    }
-  }
-
-  const match = findNormalizedMatch(flat, searchText, 0);
-  if (!match) return [];
-
-  // Every char in the original-string match range maps back to a
-  // source item index; collect the unique items that fall inside.
-  const involved = new Set<number>();
-  for (let i = match.start; i < match.end && i < itemForChar.length; i++) {
-    involved.add(itemForChar[i]!);
-  }
-  if (involved.size === 0) return [];
-
-  // Bucket items by baseline y (transform[5]). PDF y-coord is in
-  // user space; items on the same line share a y (within rounding).
-  // `transform[5]` is the bottom of the text in PDF user-space (the
-  // baseline). We round to 0.5pt so anti-aliased baselines on the
-  // same visual line collapse together.
-  const buckets = new Map<number, number[]>();
-  for (const idx of involved) {
-    const item = items[idx]!;
-    const yKey = Math.round(item.transform[5]! * 2) / 2;
-    if (!buckets.has(yKey)) buckets.set(yKey, []);
-    buckets.get(yKey)!.push(idx);
-  }
-
-  // For each line bucket, compute a tight rect covering all items in
-  // that line. transform[4] is the x of the bottom-left corner of
-  // the text in user space; transform[5] is the y of that same
-  // corner (baseline). item.height in user space = approx font size.
-  const rects: HighlightRect[] = [];
-  for (const [, idxs] of buckets) {
-    let minX = Infinity;
-    let maxX = -Infinity;
-    let minY = Infinity;
-    let maxY = -Infinity;
-    for (const idx of idxs) {
-      const item = items[idx]!;
-      const x1 = item.transform[4]!;
-      const y1 = item.transform[5]!;
-      const x2 = x1 + item.width;
-      const y2 = y1 + item.height;
-      // viewport.convertToViewportRectangle handles the y-flip
-      // (PDF user-space is bottom-left origin; viewport is
-      // top-left). Returns [vx1, vy1, vx2, vy2] in canvas pixels.
-      const [vx1, vy1, vx2, vy2] = viewport.convertToViewportRectangle([
-        x1,
-        y1,
-        x2,
-        y2,
-      ]);
-      minX = Math.min(minX, vx1, vx2);
-      maxX = Math.max(maxX, vx1, vx2);
-      minY = Math.min(minY, vy1, vy2);
-      maxY = Math.max(maxY, vy1, vy2);
-    }
-    rects.push({
-      left: minX,
-      top: minY,
-      width: Math.max(1, maxX - minX),
-      height: Math.max(1, maxY - minY),
-    });
-  }
-  // Sort by vertical position so the rendered highlight order tracks
-  // reading order — purely cosmetic for React keys, but keeps DOM
-  // diffs stable across re-renders.
-  rects.sort((a, b) => a.top - b.top);
-  return rects;
-}

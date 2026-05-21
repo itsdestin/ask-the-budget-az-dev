@@ -13,7 +13,9 @@ import dynamic from "next/dynamic";
 import { useEffect, useMemo, useRef, useState } from "react";
 
 import type { Citation } from "@/lib/citation-extract";
+import { formatCopyCitation } from "@/lib/citation-extract";
 import { useCitationSelected } from "@/state/citation-context";
+import CitedTextPanel from "./CitedTextPanel";
 import Mascot from "./mascot/Mascot";
 
 const PdfPage = dynamic(() => import("./PdfPage"), {
@@ -207,14 +209,22 @@ function Loaded({ selected }: { selected: SelectedDoc }) {
             pageNumber={page}
             bbox={bbox}
             searchTexts={searchTexts}
-            // Subtract horizontal padding (12px each side from p-3)
-            // so the canvas actually fits without forcing a
-            // horizontal scrollbar at zoom=1.
             containerWidth={Math.max(0, containerWidth - 24)}
             zoomLevel={zoom}
           />
         )}
       </div>
+      {/* CitedTextPanel renders below the PDF scroller — always visible
+          so the analyst can read the verbatim source text even when
+          the PDF text-layer search misses ("couldn't pinpoint" cases).
+          r.text is the chunk text stored at index time; spanStart/End
+          are the sidecar-resolved offsets that bound the cited span. */}
+      <CitedTextPanel
+        chunkText={r.text ?? ""}
+        spanStart={citation.spanStart}
+        spanEnd={citation.spanEnd}
+        sourceLabel={formatCopyCitation(citation)}
+      />
     </div>
   );
 }

@@ -1111,6 +1111,38 @@ def _validate_one_cite(
                 ),
                 chunk_text_length=length,
             )
+
+        # Duplicate-quote check. When the model picks a quote that
+        # appears in multiple places in chunk.text we silently bind to
+        # the first occurrence today — which is how the PDF highlight
+        # sometimes lands on the wrong dollar amount. Bounce the cite
+        # back with positions so the model picks a longer / more
+        # surrounding-context quote that's unique within the chunk.
+        # We list up to 3 positions then `…` so the error stays readable
+        # when the quote is degenerate (e.g. "$5M" appearing 20 times
+        # in a per-agency summary).
+        positions = [idx]
+        next_pos = idx + 1
+        while len(positions) < 3:
+            found = full_text.find(body.quote, next_pos)
+            if found == -1:
+                break
+            positions.append(found)
+            next_pos = found + 1
+        has_more = full_text.find(body.quote, positions[-1] + 1) != -1
+        if len(positions) > 1:
+            suffix = ", …" if has_more else ""
+            pos_str = ", ".join(str(p) for p in positions) + suffix
+            return CiteValidateResponse(
+                ok=False,
+                error=(
+                    f"quote appears multiple times in chunk.text "
+                    f"(positions: {pos_str}). Extend the quote with more "
+                    "surrounding context so it's unique within this chunk."
+                ),
+                chunk_text_length=length,
+            )
+
         resolved_span_start = idx
         resolved_span_end = idx + len(body.quote)
 

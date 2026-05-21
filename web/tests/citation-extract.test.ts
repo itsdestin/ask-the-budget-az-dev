@@ -9,6 +9,7 @@ import {
   buildConversationResolvedChunkMap,
   extractCitations,
   extractInlineCiteTags,
+  extractKeyFact,
   findNormalizedMatch,
   formatCopyCitation,
   injectCiteSentinels,
@@ -1129,7 +1130,9 @@ describe("planCitationPlacements + injectCiteSentinels", () => {
     const placements = planCitationPlacements(content, [
       { claimSpan: "$2,587,400 for FY 2026" },
     ]);
-    expect(placements).toEqual([{ citationIndex: 0, lineIndex: 2 }]);
+    expect(placements).toEqual([
+      { citationIndex: 0, lineIndex: 2, column: expect.any(Number) },
+    ]);
     const augmented = injectCiteSentinels(content, placements);
     // Sentinel ends up after the matched line, not at end of content.
     expect(augmented).toBe(
@@ -1513,5 +1516,130 @@ describe("extractCitations — cite_batch tool (2026-05-20)", () => {
     // neither's claim_span is a substring of the other).
     expect(citations.length).toBeGreaterThanOrEqual(1);
     expect(citations[0]!.failureReason).toBeDefined();
+  });
+});
+
+describe("extractKeyFact", () => {
+  it("returns the longest currency token in claim_span", () => {
+    expect(extractKeyFact("$3,300,000 for the Dark Sky Discovery Center"))
+      .toBe("$3,300,000");
+  });
+
+  it("picks the longest of multiple currency tokens", () => {
+    expect(extractKeyFact("Up from $5M to $123,456,789 in FY 2027"))
+      .toBe("$123,456,789");
+  });
+
+  it("returns a percentage when no currency is present", () => {
+    expect(extractKeyFact("an increase of 12.5% over the prior year"))
+      .toBe("12.5%");
+  });
+
+  it("returns null when the claim has no currency or percentage", () => {
+    expect(extractKeyFact("Aviation Fund growth in FY 2027")).toBeNull();
+  });
+
+  it("returns null for bare years and small integers (too noisy)", () => {
+    expect(extractKeyFact("Section 9 of HB 2729 in 2027")).toBeNull();
+  });
+
+  it("matches '5 million' / '$5M' shorthand forms", () => {
+    expect(extractKeyFact("about $5 million in carry-forward"))
+      .toBe("$5 million");
+    expect(extractKeyFact("about $5M in carry-forward")).toBe("$5M");
+  });
+});
+
+describe("planCitationPlacements per-sentence iteration", () => {
+  it("places a chip on EVERY sentence whose normalized text contains the claim_span", () => {
+    const content = [
+      "JLBC reports a $3.3M decrease for the Dark Sky Discovery Center.",
+      "The $3.3M removes one-time funding from FY 2027.",
+    ].join("\n");
+    const placements = planCitationPlacements(content, [
+      { claimSpan: "$3.3M" },
+    ]);
+    // Two placements for the SAME citation — one per matching sentence.
+    expect(placements).toHaveLength(2);
+    expect(placements[0]!.citationIndex).toBe(0);
+    expect(placements[1]!.citationIndex).toBe(0);
+    expect(placements[0]!.lineIndex).toBe(0);
+    expect(placements[1]!.lineIndex).toBe(1);
+  });
+
+  it("multiple sentences on the same line each get their own placement", () => {
+    const content =
+      "The Fund got $5M in FY25. The Fund also got $5M in FY26.";
+    const placements = planCitationPlacements(content, [
+      { claimSpan: "$5M" },
+    ]);
+    expect(placements).toHaveLength(2);
+    // Both placements anchor to line 0 with different column offsets.
+    expect(placements[0]!.lineIndex).toBe(0);
+    expect(placements[1]!.lineIndex).toBe(0);
+    expect(placements[0]!.column).not.toBe(placements[1]!.column);
+  });
+
+  it("falls back to (lineIndex: -1) when no sentence on any line matches", () => {
+    const content = "Aviation Fund grew in FY 2027.";
+    const placements = planCitationPlacements(content, [
+      { claimSpan: "no such phrase" },
+    ]);
+    expect(placements).toHaveLength(1);
+    expect(placements[0]!.lineIndex).toBe(-1);
+  });
+
+  it("injects sentinels after each matching sentence, not just end-of-line", () => {
+    const content = "The Fund got $5M in FY25. The Fund also got $5M in FY26.";
+    const placements = planCitationPlacements(content, [
+      { claimSpan: "$5M" },
+    ]);
+    const augmented = injectCiteSentinels(content, placements);
+    // Chip appears after BOTH sentence-terminating periods, not just
+    // at end-of-line. Sentinels grouped by citation index.
+    expect(augmented).toBe(
+      "The Fund got $5M in FY25. {{cite:0}} The Fund also got $5M in FY26. {{cite:0}}",
+    );
+  });
+
+  it("places a chip on a sentence whose wording differs but contains the key-fact token", () => {
+    // Model emits claim_span = "$3,300,000 for the Dark Sky Discovery Center"
+    // but the second sentence restates the fact in different prose. The
+    // key-fact token ($3,300,000) is the bridge.
+    const content = [
+      "The Baseline cuts $3,300,000 for the Dark Sky Discovery Center.",
+      "That $3,300,000 reduction removes one-time funding from FY 2027.",
+    ].join("\n");
+    const placements = planCitationPlacements(content, [
+      { claimSpan: "$3,300,000 for the Dark Sky Discovery Center" },
+    ]);
+    expect(placements).toHaveLength(2);
+    expect(placements[0]!.lineIndex).toBe(0);
+    expect(placements[1]!.lineIndex).toBe(1);
+  });
+
+  it("anti-duplicate: a sentence covered by claim_span match isn't double-chipped via key fact", () => {
+    // Sentence contains BOTH the literal claim_span AND the key-fact
+    // token. Only one chip for this citation in that sentence.
+    const content = "The Baseline cuts $3,300,000 for the Dark Sky Discovery Center.";
+    const placements = planCitationPlacements(content, [
+      { claimSpan: "$3,300,000 for the Dark Sky Discovery Center" },
+    ]);
+    expect(placements).toHaveLength(1);
+  });
+
+  it("does not match bare years as key facts", () => {
+    // Year alone is too noisy to be a placement signal.
+    const content = [
+      "JLBC's FY 2027 baseline includes a $5M increase.",
+      "Section 9 of HB 2729 in 2027 also references the increase.",
+    ].join("\n");
+    const placements = planCitationPlacements(content, [
+      { claimSpan: "$5M increase in FY 2027" },
+    ]);
+    // Only the first sentence contains "$5M". The second's "2027" alone
+    // is not a key-fact token, so it doesn't match.
+    expect(placements).toHaveLength(1);
+    expect(placements[0]!.lineIndex).toBe(0);
   });
 });

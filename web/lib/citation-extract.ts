@@ -102,6 +102,37 @@ const CITE_BATCH_TOOL_NAMES = new Set<string>([
   "mcp__ask-the-budget-az__cite_batch",
 ]);
 
+/** Extract the "key fact" token from a claim_span — the load-bearing
+ *  numeric figure that the citation is really about (e.g. a dollar
+ *  amount or percentage). Returned by `planCitationPlacements` as a
+ *  secondary placement key so sentences that restate a fact in
+ *  different wording still get the citation's chip.
+ *
+ *  Returns null when there's nothing distinctive enough to safely match
+ *  on. We intentionally do NOT match bare years or small integers —
+ *  too many false positives in budget prose where years and small
+ *  ordinals appear everywhere.
+ *
+ *  Currency match supports the dollar-amount-with-suffix shorthand
+ *  the model often uses ("$5 million", "$5M") in addition to the
+ *  long form ("$5,000,000"). Longest match wins so "$3,300,000" beats
+ *  "$3,300" within the same claim_span. */
+export function extractKeyFact(claimSpan: string): string | null {
+  // Currency: $ followed by digits and optional thousand separators,
+  // optionally trailed by a "million" / "billion" / "M" / "B" suffix.
+  // The /g + reduce(longest) pattern handles "Up from $5M to $123,456,789"
+  // by picking $123,456,789.
+  const currency = claimSpan.match(
+    /\$[\d][\d,.]*(?:\s?(?:million|billion|M|B))?/gi,
+  );
+  if (currency && currency.length > 0) {
+    return currency.reduce((a, b) => (b.length > a.length ? b : a));
+  }
+  const pct = claimSpan.match(/\d+(?:\.\d+)?\s?%/);
+  if (pct) return pct[0];
+  return null;
+}
+
 /** Parse a JSON tool result string into the retrieve output shape;
  *  returns null on any failure (silent — non-retrieve tools or
  *  errored retrievals just don't contribute resolved chunks). */
@@ -1040,62 +1071,143 @@ export function findNormalizedMatch(
 export const CITE_SENTINEL_RE = /\{\{cite:(\d+)\}\}/g;
 
 /** Per-citation placement decision used by the renderer to inject
- *  end-of-line chip sentinels into the markdown source. */
+ *  chip sentinels into the markdown source. A single citation can
+ *  produce MULTIPLE placements — one per sentence whose normalized
+ *  text contains the citation's claim_span or its key-fact token. */
 export interface CitationPlacement {
   /** Index in the citations array we were given. */
   citationIndex: number;
   /** Source-markdown line index this citation will anchor to, or -1
-   *  when no line contained the claim_span (chip drops to end-of-content). */
+   *  when no line/sentence contained the claim_span (chip drops to
+   *  end-of-content). */
   lineIndex: number;
+  /** Column offset (in the ORIGINAL, non-normalized line) of the END
+   *  of the matched sentence. When null, the sentinel goes at end-of-
+   *  line (back-compat for tables and bullet lines where a sentence
+   *  isn't a useful anchor). */
+  column?: number | null;
 }
 
-/** Decide where to place each citation's chip in the source markdown.
- *  For every citation, find the first line of `content` whose
- *  normalized + markdown-stripped form contains the citation's
- *  normalized + markdown-stripped claim_span. Citations that find no
- *  matching line return lineIndex -1 (caller appends them at end of
- *  content as a fallback).
+/** Regex over a single markdown line that captures one sentence per
+ *  match. A sentence ends at [.!?]+ followed by whitespace or
+ *  end-of-string (possibly with trailing quotes/parens), so decimal
+ *  points inside numbers like "$3.3M" or "1.5%" are NOT treated as
+ *  sentence terminators. The trailing `|[^\n]+$` catches a tail
+ *  fragment with no terminating punctuation (the last segment on the
+ *  line, which we still want to consider for matching). */
+const SENTENCE_RE = /[^\n]+?(?:[.!?]+["')\]]*(?=\s|$))|[^\n]+$/g;
+
+/** Plan chip placements for each citation. Walks every line, then every
+ *  sentence inside that line, and emits a CitationPlacement for any
+ *  sentence whose normalized text contains the citation's claim_span.
+ *  Table rows and bullet lines are treated as single sentences — we
+ *  return one placement at the LINE level (no column) for those so the
+ *  existing table-row carve-out in `injectCiteSentinels` keeps working.
  *
- *  Why line-level (not character-level): a chip rendered at the end
- *  of the markdown LINE containing the claim ends up:
- *    - at end of paragraph (when the claim is in a paragraph)
- *    - at end of list item (when the claim is in `- foo` line)
- *    - inside the last cell of a table row (when the claim is in `| a | b |`)
- *  All three are reading-order-correct anchoring without us having to
- *  understand markdown structure deeply. The alternative (character-
- *  level injection) trips on bold/italic/code boundaries and table
- *  cells, which is exactly what made the original inline-underline
- *  matcher unreliable. */
+ *  Citations whose claim_span doesn't match any sentence on any line
+ *  emit a single placement with lineIndex -1 (caller appends them at
+ *  end of content as a fallback). */
 export function planCitationPlacements(
   content: string,
   citations: { claimSpan: string }[],
 ): CitationPlacement[] {
   if (!content || citations.length === 0) return [];
   const lines = content.split("\n");
-  const normalizedLines = lines.map((line) => normalizeForMatch(line).normalized);
   const out: CitationPlacement[] = [];
   for (let i = 0; i < citations.length; i++) {
     const span = citations[i]!.claimSpan;
     if (!span) {
-      out.push({ citationIndex: i, lineIndex: -1 });
+      out.push({ citationIndex: i, lineIndex: -1, column: null });
       continue;
     }
     const normSpan = normalizeForMatch(span).normalized;
-    // Outer punctuation tolerance — claim_spans often have trailing
-    // periods or quotes that weren't in the source line.
     const trimmed = normSpan.replace(/^[\s.,;:!?]+|[\s.,;:!?]+$/g, "");
     if (!trimmed) {
-      out.push({ citationIndex: i, lineIndex: -1 });
+      out.push({ citationIndex: i, lineIndex: -1, column: null });
       continue;
     }
-    let lineIdx = -1;
-    for (let j = 0; j < normalizedLines.length; j++) {
-      if (normalizedLines[j]!.includes(trimmed)) {
-        lineIdx = j;
-        break;
+
+    let anyMatched = false;
+    for (let lineIdx = 0; lineIdx < lines.length; lineIdx++) {
+      const raw = lines[lineIdx]!;
+      const isTableRow =
+        /^\s*\|/.test(raw.trim()) && /\|\s*$/.test(raw.trim());
+      // Table rows: treat the whole row as one sentence at line-level
+      // anchoring (no column). The existing table carve-out in
+      // injectCiteSentinels handles closing-pipe injection.
+      if (isTableRow) {
+        const normalizedLine = normalizeForMatch(raw).normalized;
+        if (normalizedLine.includes(trimmed)) {
+          out.push({ citationIndex: i, lineIndex: lineIdx, column: null });
+          anyMatched = true;
+        }
+        continue;
+      }
+
+      // Walk sentences within this line. Each sentence gets matched
+      // against the claim_span; matches emit one placement at the end
+      // of the matched sentence.
+      const matches = Array.from(raw.matchAll(SENTENCE_RE));
+      if (matches.length === 0) continue;
+      for (const m of matches) {
+        const sentence = m[0];
+        const sentenceStart = m.index!;
+        const sentenceEndExclusive = sentenceStart + sentence.length;
+        const normalizedSentence = normalizeForMatch(sentence).normalized;
+        if (normalizedSentence.includes(trimmed)) {
+          out.push({
+            citationIndex: i,
+            lineIndex: lineIdx,
+            column: sentenceEndExclusive,
+          });
+          anyMatched = true;
+        }
       }
     }
-    out.push({ citationIndex: i, lineIndex: lineIdx });
+
+    // Second pass: key-fact-token match. Adds chips to sentences that
+    // restate the citation's load-bearing figure in different wording.
+    // We skip any sentence already covered by the claim_span pass (the
+    // anti-duplicate rule).
+    const keyFact = extractKeyFact(span);
+    if (keyFact) {
+      const normKeyFact = normalizeForMatch(keyFact).normalized;
+      // Track (lineIdx, sentenceEnd) already placed in pass 1 so we
+      // don't double-chip the same sentence.
+      const alreadyPlacedSentences = new Set<string>();
+      for (const p of out) {
+        if (p.citationIndex !== i) continue;
+        if (p.lineIndex < 0) continue;
+        alreadyPlacedSentences.add(`${p.lineIndex}:${p.column ?? "eol"}`);
+      }
+      for (let lineIdx = 0; lineIdx < lines.length; lineIdx++) {
+        const raw = lines[lineIdx]!;
+        const isTableRow =
+          /^\s*\|/.test(raw.trim()) && /\|\s*$/.test(raw.trim());
+        if (isTableRow) continue; // table rows only match via claim_span
+        const matches = Array.from(raw.matchAll(SENTENCE_RE));
+        for (const m of matches) {
+          const sentence = m[0];
+          const sentenceStart = m.index!;
+          const sentenceEndExclusive = sentenceStart + sentence.length;
+          const sentenceKey = `${lineIdx}:${sentenceEndExclusive}`;
+          if (alreadyPlacedSentences.has(sentenceKey)) continue;
+          const normalizedSentence = normalizeForMatch(sentence).normalized;
+          if (normalizedSentence.includes(normKeyFact)) {
+            out.push({
+              citationIndex: i,
+              lineIndex: lineIdx,
+              column: sentenceEndExclusive,
+            });
+            anyMatched = true;
+          }
+        }
+      }
+    }
+
+    if (!anyMatched) {
+      out.push({ citationIndex: i, lineIndex: -1, column: null });
+    }
   }
   return out;
 }
@@ -1114,49 +1226,82 @@ export function injectCiteSentinels(
 ): string {
   if (placements.length === 0) return content;
   const lines = content.split("\n");
-  // Bucket by line — preserves original cite order within each line.
-  const perLine = new Map<number, number[]>();
+  // Two buckets per line: end-of-line placements (column null) and
+  // per-sentence placements (column set). End-of-line still goes
+  // through the table-row carve-out; per-sentence injections splice
+  // into the line at the sentence's end column. Sentence placements
+  // are applied right-to-left so earlier column offsets stay valid.
+  const eolPerLine = new Map<number, number[]>();
+  const sentencePerLine = new Map<
+    number,
+    Array<{ column: number; citationIndex: number }>
+  >();
   const unmatched: number[] = [];
+
   for (const p of placements) {
     if (p.lineIndex < 0 || p.lineIndex >= lines.length) {
       unmatched.push(p.citationIndex);
+      continue;
+    }
+    if (p.column == null) {
+      if (!eolPerLine.has(p.lineIndex)) eolPerLine.set(p.lineIndex, []);
+      eolPerLine.get(p.lineIndex)!.push(p.citationIndex);
     } else {
-      if (!perLine.has(p.lineIndex)) perLine.set(p.lineIndex, []);
-      perLine.get(p.lineIndex)!.push(p.citationIndex);
+      if (!sentencePerLine.has(p.lineIndex))
+        sentencePerLine.set(p.lineIndex, []);
+      sentencePerLine.get(p.lineIndex)!.push({
+        column: p.column,
+        citationIndex: p.citationIndex,
+      });
     }
   }
-  for (const [lineIdx, citIdxs] of perLine) {
+
+  // Apply per-sentence injections first. Group items at the same
+  // column into a single splice (preserving citation-index order
+  // within the group), then process groups right-to-left (descending
+  // column) so earlier column offsets stay valid during splicing.
+  for (const [lineIdx, items] of sentencePerLine) {
+    // Group by column. Map preserves insertion order, so items at the
+    // same column accumulate in their original citation-index order.
+    const byColumn = new Map<number, number[]>();
+    for (const it of items) {
+      if (!byColumn.has(it.column)) byColumn.set(it.column, []);
+      byColumn.get(it.column)!.push(it.citationIndex);
+    }
+    // Sort columns descending so we splice from the right.
+    const columns = Array.from(byColumn.keys()).sort((a, b) => b - a);
+    let line = lines[lineIdx]!;
+    for (const col of columns) {
+      const citIdxs = byColumn.get(col)!;
+      const sentinel = citIdxs.map((i) => `{{cite:${i}}}`).join(" ");
+      // Insert " {{cite:N}}..." immediately after the sentence's end
+      // column. Adding a leading space keeps the chip visually
+      // separated from the sentence's terminating punctuation.
+      line = line.slice(0, col) + " " + sentinel + line.slice(col);
+    }
+    lines[lineIdx] = line;
+  }
+
+  // Then apply end-of-line / table-row injections (existing behavior).
+  for (const [lineIdx, citIdxs] of eolPerLine) {
     const sentinels = citIdxs.map((i) => `{{cite:${i}}}`).join(" ");
     const raw = lines[lineIdx]!;
     const stripped = raw.replace(/\s+$/u, "");
-    // Markdown table row: starts with `|` (possibly after whitespace)
-    // AND ends with `|`. The GFM parser eats anything between the
-    // closing `|` and the newline (or adds it as an extra-column
-    // cell that gets truncated to match the header column count),
-    // so a sentinel appended AFTER the closing `|` silently
-    // disappears. Inject BEFORE the closing `|` instead, which
-    // puts the sentinel inside the last cell where the chip can
-    // render. The 2026-05-12 audit's invisible cites #1-6 were
-    // this case.
     if (/^\s*\|/.test(stripped) && /\|\s*$/.test(stripped)) {
-      // Walk back from the end past optional whitespace to find the
-      // closing `|`, then insert the sentinel just before it. The
-      // cell content typically already has a trailing space before
-      // the `|`; strip it so we don't end up with double spacing.
+      // Table row: inject inside the last cell (existing carve-out).
       const closeIdx = stripped.lastIndexOf("|");
       const before = stripped.slice(0, closeIdx).replace(/\s+$/u, "");
-      lines[lineIdx] = before + " " + sentinels + " " + stripped.slice(closeIdx);
+      lines[lineIdx] =
+        before + " " + sentinels + " " + stripped.slice(closeIdx);
     } else {
-      // Non-table line: append sentinels at the end. Non-breaking
-      // space prefix glues chips to the last token visually.
+      // Non-table line: append at end of line.
       lines[lineIdx] = stripped + " " + sentinels;
     }
   }
+
   let result = lines.join("\n");
   if (unmatched.length > 0) {
     const sentinels = unmatched.map((i) => `{{cite:${i}}}`).join(" ");
-    // Separate from the answer body with a blank line so the chip
-    // group doesn't hug the last paragraph awkwardly.
     result += "\n\n" + sentinels;
   }
   return result;

@@ -1354,6 +1354,149 @@ def test_cite_validate_quote_not_found_returns_error():
     assert "quote not found" in body["error"].lower()
 
 
+def test_cite_validate_rejects_duplicate_quote(monkeypatch):
+    """When the cited quote appears multiple times in chunk.text the
+    sidecar bounces the cite back with positions, so the model picks a
+    longer (unique) quote. Otherwise we silently bind to the first
+    occurrence and the PDF highlight lands on the wrong dollar amount.
+    """
+
+    class FakeConn:
+        def execute(self, sql, *_args, **_kw):
+            is_preflight = "SELECT 1 FROM chunks" in str(sql)
+
+            class _Cur:
+                def fetchone(_self):
+                    if is_preflight:
+                        return (1,)
+                    # Chunk text where "$5,000,000" appears twice.
+                    return {
+                        "text": "Item A: $5,000,000 in FY 2025. Item B: $5,000,000 in FY 2026.",
+                        "doc_type": "jlbc-baseline-book",
+                    }
+
+            return _Cur()
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *_args):
+            return False
+
+    monkeypatch.setattr(api_module, "get_connection", lambda: FakeConn())
+
+    with TestClient(app) as client:
+        resp = client.post(
+            "/cite/validate",
+            json={
+                "chunk_id": "c1",
+                "quote": "$5,000,000",
+                "claim_span": "$5,000,000 in FY 2025",
+                "confidence": "verbatim",
+            },
+        )
+
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["ok"] is False
+    assert "multiple times" in body["error"]
+    # Both occurrence positions surfaced for the model.
+    assert "positions:" in body["error"]
+
+
+def test_cite_validate_unique_quote_still_validates(monkeypatch):
+    """Regression — a quote appearing exactly once is not rejected by
+    the new duplicate check."""
+
+    class FakeConn:
+        def execute(self, sql, *_args, **_kw):
+            is_preflight = "SELECT 1 FROM chunks" in str(sql)
+
+            class _Cur:
+                def fetchone(_self):
+                    if is_preflight:
+                        return (1,)
+                    return {
+                        "text": "The Aviation Fund balance was $123,456 as of June 30, 2024.",
+                        "doc_type": "jlbc-baseline-book",
+                    }
+
+            return _Cur()
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *_args):
+            return False
+
+    monkeypatch.setattr(api_module, "get_connection", lambda: FakeConn())
+
+    with TestClient(app) as client:
+        resp = client.post(
+            "/cite/validate",
+            json={
+                "chunk_id": "c1",
+                "quote": "$123,456",
+                "claim_span": "$123,456",
+                "confidence": "verbatim",
+            },
+        )
+
+    body = resp.json()
+    assert body["ok"] is True, body
+
+
+def test_cite_validate_duplicate_quote_caps_positions_at_3(monkeypatch):
+    """A degenerate quote that appears many times surfaces up to 3
+    positions then '…' — keeps the error string readable."""
+
+    class FakeConn:
+        def execute(self, sql, *_args, **_kw):
+            is_preflight = "SELECT 1 FROM chunks" in str(sql)
+
+            class _Cur:
+                def fetchone(_self):
+                    if is_preflight:
+                        return (1,)
+                    # "$X" appears 5 times.
+                    return {
+                        "text": "$X here $X there $X again $X once more $X last",
+                        "doc_type": "jlbc-baseline-book",
+                    }
+
+            return _Cur()
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *_args):
+            return False
+
+    monkeypatch.setattr(api_module, "get_connection", lambda: FakeConn())
+
+    with TestClient(app) as client:
+        resp = client.post(
+            "/cite/validate",
+            json={
+                "chunk_id": "c1",
+                "quote": "$X",
+                "claim_span": "$X here",
+                "confidence": "verbatim",
+            },
+        )
+
+    body = resp.json()
+    assert body["ok"] is False
+    err = body["error"]
+    # Three positions then ellipsis (more occurrences than we list).
+    assert "positions:" in err
+    assert "…" in err
+    # Count commas inside the parenthesized positions list: 3 numbers
+    # joined by ", " plus one ", …" tail = 3 commas inside the parens.
+    inside = err.split("(", 1)[1].split(")", 1)[0]
+    assert inside.count(",") == 3, inside
+
+
 @needs_db
 def test_cite_validate_soft_clamps_claim_span_over_500():
     """Past sessions had 7 cite calls rejected at the 500-char boundary.
