@@ -107,6 +107,8 @@ Each wave responded to specific issues surfaced during dogfood verification of t
 
 **Wave D — `first-call-cap` branch (merge `af6a673`).** Progressive retrieval: first retrieve() of any session is capped to 5 chunks regardless of intent/top_k. Bypass via `deep_dive: true` for explicit thorough-coverage requests. After the first call, pass-through behavior. Route classifier rewritten to be about answer FORMAT, not retrieve sizing — breadth comes from iterative follow-up retrieves, not one-shot top_k.
 
+**Wave E — `citation-accuracy` branch (merge `400d674`).** Three connected improvements to citation handling. (1) Per-sentence chip placement: `planCitationPlacements` walks every sentence and places a chip wherever the claim_span or the citation's key-fact token (largest currency / percentage) appears, with anti-duplicate guard. `CitationPlacement` gains an optional `column` field; `injectCiteSentinels` splices sentinels mid-line via right-to-left injection. Restated facts across multiple sentences now each get their own chip. (2) Strict-bbox PDF highlight: text-layer search extracted into a new `HighlightStrategy` interface (`web/lib/highlight-strategy.ts`) with `TextLayerSearchStrategy` as the default and a `CoordMapStrategy` placeholder for the #57 follow-up. When a chunk has a bbox, search is strictly bbox-restricted — no whole-page fallback. A miss surfaces "couldn't pinpoint" instead of a silent wrong highlight. (3) Always-visible `CitedTextPanel` below the PDF page renders the chunk's verbatim text with the cited span underlined — verify-by-eye surface for both happy and miss cases. Plus a sidecar-side change: `_validate_one_cite` now rejects quotes that appear multiple times in chunk.text, returning up to 3 positions in the error so the model picks a longer, unique quote on retry. Plan at `docs/superpowers/plans/2026-05-20-citation-accuracy-and-per-sentence-chips.md`. Spec at `docs/superpowers/specs/2026-05-20-citation-accuracy-and-per-sentence-chips-design.md`.
+
 ---
 
 ## What's open
@@ -115,11 +117,12 @@ Each wave responded to specific issues surfaced during dogfood verification of t
 - **Model meta-narration leaks** ("Retrying the cites…", "All cites anchored", "Task tracking isn't relevant…") still appear in user-visible answer prose despite Task 12's Output-hygiene rewrite. The prompt-only fix isn't sufficient; needs another pass and possibly a mechanism-level intervention (e.g. stripping retry-narration text in the renderer before display).
 - **Model occasionally writes verbose `claim_spans` that don't substring-match the rendered answer** — soft-fixed by the cite_batch + resolved-offsets work but not eliminated; chip attachment still fails when the model rewrites prose between cite() and final emission.
 
-### PDF viewer accuracy (failure mode catalog from 2026-05-20 analysis)
-- **A. Source isn't a PDF (DOCX legislative bills).** Current UI shows "Couldn't open source PDF" with a useless error. **Fix queued (#55):** render chunk text + section path inline instead, so the analyst can verify the cite even without a PDF viewer.
-- **B. PDF exists, text-layer search fails to find the quote.** "Couldn't pinpoint" badge. Improved twice (resolved-offsets passthrough, multi-pass normalization) but still fires on formatting drift / OCR / line-break collapse. **Architectural fix queued (#57):** capture chunk_text→PDF-coord mapping during ingest, store per-chunk, look up directly at render time. ~1-2 days of ingest pipeline + retrieve plumbing + client rewrite. Should drive "couldn't pinpoint" to ~zero.
-- **C. PDF exists, chunk's stored bbox is wrong** (MinerU mis-detection). Rare; surfaced as "couldn't pinpoint" with no highlight. Ingest QA loop is out of scope for the viewer.
+### PDF viewer accuracy (failure mode catalog — updated post-Wave E)
+- **A. Source isn't a PDF (DOCX legislative bills).** UI still shows "Couldn't open source PDF" but the new always-visible `CitedTextPanel` below the viewer now shows the chunk's verbatim text with the cited span underlined, so the analyst can verify the cite even without a PDF viewer. #55's broader DOCX viewer is still a separate concern.
+- **B. PDF exists, text-layer search fails to find the quote.** "Couldn't pinpoint" badge — same surface, but now the CitedTextPanel underneath shows the cited span in chunk text, so a miss is recoverable rather than dead-end. **Architectural fix still queued (#57):** capture chunk_text→PDF-coord mapping during ingest. Wave E added the `HighlightStrategy` interface so #57 can drop in as a `CoordMapStrategy` without rewriting `PdfPage`.
+- **C. PDF exists, chunk's stored bbox is wrong** (MinerU mis-detection). Now produces an honest "couldn't pinpoint" badge instead of a silent wrong highlight, since Wave E removed the unrestricted-search fallback. Ingest QA still out of scope.
 - **D. Citation references a chunk_id from a prior turn with no metadata** in the current turn's retrieve. `buildConversationResolvedChunkMap` exists for cross-turn fallback but is sometimes missing chunks. **Diagnosis queued (#56):** verify whether the cross-turn map is consulted, identify where the lookup fails.
+- **E. Quote is ambiguous (appears multiple times in chunk.text).** Used to silently bind to the first occurrence → wrong-bbox highlight. Wave E rejects these at validate time so the model must pick a longer, unique quote.
 
 ### Not yet implemented (per the Phase 1c plan)
 - **Faithfulness verifier (WS3).** Post-generation NLI-style check that strips claims whose cites don't actually back them. Core Invariant 2 says "citations are verified, not just emitted" — current enforcement is chunk_id + quote-in-chunk-text (catches invented chunks/quotes, not semantic faithfulness). The dropped `_check_alignment` was a string-overlap proxy, not real faithfulness. WS3 is the real fix.
@@ -155,6 +158,10 @@ Hand-off prompt for additional ingest at [`PROMPT-volume-ingest.md`](PROMPT-volu
 - **#58** — Post-mortem: 2026-05-20 dogfood revealed 4 distinct fix categories worth documenting
 
 ### Recently fixed — verify in next dogfood pass
+- Restated facts across multiple sentences only chipped the first occurrence (per-sentence placement + key-fact-token rule)
+- Wrong yellow rectangle when bbox-restricted search missed (strict-bbox, no whole-page fallback)
+- Source text only visible inside the PDF (always-visible `CitedTextPanel` below the page)
+- Quote-ambiguity silent wrong highlights (sidecar duplicate-quote rejection)
 - Citation chips weren't rendering at all (citation-extract required offsets; now accepts quote-only)
 - Failed retries weren't collapsing with their successful replacements (FIFO-pair-fail→OK dedup)
 - 40% cite() false-rejection rate (dropped alignment heuristic)
