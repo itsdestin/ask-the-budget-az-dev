@@ -56,4 +56,48 @@ describe("CitedTextPanel", () => {
     expect(html).toContain("Whole chunk text here.");
     expect(html).not.toContain("<mark");
   });
+
+  it("collapses to a context window around the cited span by default", () => {
+    // Long chunk where the cited span is buried in the middle. The
+    // default-collapsed window should show only ~200 chars on either
+    // side of the cite, with ellipses + an expand button.
+    const before = "a".repeat(500);
+    const cited = "$2,587,400";
+    const after = "b".repeat(500);
+    const chunkText = before + cited + after;
+    const html = renderToString(
+      <CitedTextPanel
+        chunkText={chunkText}
+        spanStart={500}
+        spanEnd={510}
+        sourceLabel="src"
+      />,
+    );
+    // Cited span still rendered with mark.
+    expect(html).toContain("<mark");
+    expect(html).toContain("$2,587,400");
+    // Both ellipses appear (truncated on both sides).
+    expect(html).toContain("…");
+    // The toggle button is rendered with the expand label.
+    expect(html).toContain("Show full chunk");
+    // Far edges of the chunk are NOT rendered (only ~200 chars before
+    // and after the cited span survive the window).
+    expect(html).not.toContain("a".repeat(300));
+    expect(html).not.toContain("b".repeat(300));
+  });
+
+  it("does not show toggle button when chunk fits within the collapsed window", () => {
+    const html = renderToString(
+      <CitedTextPanel
+        chunkText="Short chunk with $2,587,400 cited in it."
+        spanStart={17}
+        spanEnd={27}
+        sourceLabel="src"
+      />,
+    );
+    // Chunk is well under 200 chars on either side of the cite, so no
+    // truncation occurs and no toggle is rendered.
+    expect(html).not.toContain("Show full chunk");
+    expect(html).not.toContain("…");
+  });
 });
