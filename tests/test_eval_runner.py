@@ -6,6 +6,7 @@ run).
 """
 from __future__ import annotations
 
+import json
 import pathlib
 
 from eval.run_eval import (
@@ -174,3 +175,52 @@ def test_run_one_query_refusal_fail(monkeypatch):
 
     result = run_one_query(query, refusal_threshold=0.30)
     assert result.status == "fail"
+
+
+def test_write_json_output(tmp_path):
+    """The JSON writer emits a file readable by EvalResult.model_validate."""
+    from eval.run_eval import write_json_output
+    from eval.schema import EvalSummary, PerQueryResult
+
+    summary = EvalSummary(
+        recall_at_5=0.8,
+        recall_at_20=0.9,
+        fallback_rate=0.1,
+        latency_p50_ms=1000,
+        latency_p95_ms=2000,
+        refusal_precision=1.0,
+        refusal_recall=1.0,
+        by_type={
+            "lookup": {"recall_at_5": 0.83, "recall_at_20": 0.92, "count": 1},
+            "refusal": {"precision": 1.0, "count": 1},
+        },
+    )
+    per_query = [
+        PerQueryResult(
+            id="q-001",
+            type="lookup",
+            status="pass",
+            matched_via="chunk_id",
+            rank=2,
+            latency_ms=850,
+            top_score=0.84,
+            top_chunk_ids=["chunk-A"],
+        )
+    ]
+    out_path = tmp_path / "result.json"
+    write_json_output(
+        out_path,
+        git_sha="abc1234",
+        timestamp="2026-05-20T18:30Z",
+        summary=summary,
+        per_query=per_query,
+    )
+
+    # Round-trip the file: write then re-load via EvalResult.
+    with open(out_path) as f:
+        loaded = json.load(f)
+    from eval.schema import EvalResult
+    result = EvalResult.model_validate(loaded)
+    assert result.git_sha == "abc1234"
+    assert result.summary.recall_at_5 == 0.8
+    assert len(result.per_query) == 1

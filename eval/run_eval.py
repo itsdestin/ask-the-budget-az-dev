@@ -127,3 +127,88 @@ def _git_sha() -> str:
         ).strip()
     except subprocess.CalledProcessError:
         return "unknown"
+
+
+def write_json_output(
+    path: Path,
+    git_sha: str,
+    timestamp: str,
+    summary: Any,  # EvalSummary
+    per_query: list[PerQueryResult],
+) -> None:
+    """Write a result file as JSON. Atomic write: write to a tmp path,
+    then rename — keeps a partial-write from clobbering an existing
+    result if the runner crashes mid-stream."""
+    from eval.schema import EvalResult
+
+    result = EvalResult(
+        git_sha=git_sha,
+        timestamp=timestamp,
+        summary=summary,
+        per_query=per_query,
+    )
+    payload = result.model_dump(exclude_none=True)
+    tmp = path.with_suffix(path.suffix + ".tmp")
+    with open(tmp, "w", encoding="utf-8") as f:
+        json.dump(payload, f, indent=2, ensure_ascii=False)
+    tmp.replace(path)
+
+
+def main() -> None:
+    parser = argparse.ArgumentParser(description="Run the retrieval eval")
+    parser.add_argument(
+        "--queries", default="eval/queries.yaml",
+        help="Path to queries.yaml",
+    )
+    parser.add_argument(
+        "--threshold", type=float, default=DEFAULT_REFUSAL_THRESHOLD,
+        help="Refusal threshold to score against",
+    )
+    parser.add_argument(
+        "--results-dir", default="eval/results",
+        help="Directory to write result files into",
+    )
+    args = parser.parse_args()
+
+    print(f"Loading queries from {args.queries}...")
+    queries = load_queries(args.queries)
+    print(f"Loaded {len(queries)} queries.")
+
+    print(f"Running retrieval (threshold={args.threshold})...")
+    per_query: list[PerQueryResult] = []
+    for i, q in enumerate(queries, start=1):
+        result = run_one_query(q, args.threshold)
+        per_query.append(result)
+        marker = "✓" if result.status == "pass" else "✗"
+        print(
+            f"  [{i:>3}/{len(queries)}] {marker} {q.id} ({q.type}, "
+            f"{result.latency_ms}ms)"
+        )
+
+    summary = aggregate_metrics(per_query)
+
+    timestamp = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H%MZ")
+    git_sha = _git_sha()
+    results_dir = Path(args.results_dir)
+    results_dir.mkdir(parents=True, exist_ok=True)
+    json_path = results_dir / f"{timestamp}-{git_sha}.json"
+    write_json_output(
+        json_path,
+        git_sha=git_sha,
+        timestamp=timestamp,
+        summary=summary,
+        per_query=per_query,
+    )
+
+    # Markdown summary writer is Task 7.
+    print(f"\nWrote {json_path}.")
+    print(
+        f"  recall@5  {summary.recall_at_5:.2%}  "
+        f"recall@20  {summary.recall_at_20:.2%}  "
+        f"latency p95 {summary.latency_p95_ms}ms  "
+        f"refusal precision {summary.refusal_precision:.2%}"
+    )
+
+
+if __name__ == "__main__":
+    main()
