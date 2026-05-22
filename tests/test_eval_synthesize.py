@@ -137,3 +137,69 @@ def test_synthesize_lookup_query_calls_anthropic(monkeypatch):
     call_kwargs = mock_client.messages.create.call_args.kwargs
     prompt_text = call_kwargs["messages"][0]["content"]
     assert "$2,587,400" in prompt_text  # chunk text reached the prompt
+
+
+def test_synthesize_comparison_query():
+    """Comparison query takes a chunk PAIR and produces one query
+    with two expected_chunks."""
+    from eval.synthesize_queries import synthesize_comparison_query
+
+    chunk_a = {
+        "chunk_id": "fy24-jlbc-baseline-adc::3",
+        "text": "FY 2024 ADC appropriation was $1.5B from the General Fund.",
+        "publisher": "jlbc",
+        "doc_type": "baseline-per-agency",
+        "fiscal_year": 2024,
+        "agency_canonical_ids": ["agency:adc"],
+    }
+    chunk_b = {
+        "chunk_id": "fy26-jlbc-baseline-adc::3",
+        "text": "FY 2026 ADC appropriation was $1.7B from the General Fund.",
+        "publisher": "jlbc",
+        "doc_type": "baseline-per-agency",
+        "fiscal_year": 2026,
+        "agency_canonical_ids": ["agency:adc"],
+    }
+
+    mock_client = MagicMock()
+    mock_client.messages.create.return_value = MagicMock(
+        content=[
+            MagicMock(
+                text='{"query": "How did ADC appropriations change FY24 to FY26?", "anchor_text_a": "$1.5B", "anchor_text_b": "$1.7B"}'
+            )
+        ]
+    )
+
+    query = synthesize_comparison_query(
+        chunk_a, chunk_b, mock_client, q_id="q-026"
+    )
+
+    assert query.type == "comparison"
+    assert query.expected_refusal is False
+    assert len(query.expected_chunks) == 2
+    assert query.expected_chunks[0].chunk_id == chunk_a["chunk_id"]
+    assert query.expected_chunks[1].chunk_id == chunk_b["chunk_id"]
+    assert query.expected_chunks[0].dimensions.fiscal_year == 2024
+    assert query.expected_chunks[1].dimensions.fiscal_year == 2026
+
+
+def test_synthesize_refusal_query():
+    """Refusal query has no seed chunk; Claude generates an out-of-
+    scope question independently."""
+    from eval.synthesize_queries import synthesize_refusal_query
+
+    mock_client = MagicMock()
+    mock_client.messages.create.return_value = MagicMock(
+        content=[
+            MagicMock(
+                text='{"query": "What is the right tax policy for Arizona?"}'
+            )
+        ]
+    )
+
+    query = synthesize_refusal_query(mock_client, q_id="q-031")
+
+    assert query.type == "refusal"
+    assert query.expected_refusal is True
+    assert query.expected_chunks == []
+    assert "tax policy" in query.query.lower()
