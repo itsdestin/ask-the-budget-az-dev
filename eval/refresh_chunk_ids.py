@@ -41,6 +41,10 @@ def find_anchor_match(
     """Find a successor chunk whose text contains anchor_text and
     whose dimensions match. Returns the chunk_id, or None if no
     candidate contains the anchor."""
+    # Explicit ::text casts on the agency parameter: psycopg can't
+    # infer the type of a bare %s used solely in `%s IS NULL`, and
+    # crashes with IndeterminateDatatype. Both occurrences of the
+    # parameter need the cast so the planner has a concrete type.
     sql = """
         SELECT c.chunk_id, c.text
         FROM chunks c
@@ -48,7 +52,7 @@ def find_anchor_match(
         WHERE d.publisher = %s
           AND c.doc_type = %s
           AND c.fiscal_year = %s
-          AND (%s IS NULL OR %s = ANY(c.agency_canonical_ids))
+          AND (%s::text IS NULL OR %s::text = ANY(c.agency_canonical_ids))
     """
     with get_connection() as conn:
         rows = conn.execute(
@@ -70,6 +74,8 @@ def find_cosine_match(
     candidates match the dimensions."""
     import voyageai
 
+    # See find_anchor_match for the ::text rationale — same psycopg
+    # IndeterminateDatatype trap.
     sql = """
         SELECT c.chunk_id, c.embedding <=> %s::vector AS distance
         FROM chunks c
@@ -77,7 +83,7 @@ def find_cosine_match(
         WHERE d.publisher = %s
           AND c.doc_type = %s
           AND c.fiscal_year = %s
-          AND (%s IS NULL OR %s = ANY(c.agency_canonical_ids))
+          AND (%s::text IS NULL OR %s::text = ANY(c.agency_canonical_ids))
           AND c.embedding IS NOT NULL
         ORDER BY distance ASC
         LIMIT 1
@@ -143,8 +149,14 @@ def refresh_queries_file(path: str) -> dict[str, int]:
             expected["chunk_id"] = new_id
             refreshed += 1
 
-    with open(path, "w", encoding="utf-8") as f:
-        yaml.dump(data, f)
+    # Only rewrite the file when we actually changed something —
+    # ruamel.yaml's round-trip mode is structure-preserving for chunk-
+    # id edits but still re-formats blank lines between entries, which
+    # makes every "no-op" run produce a noisy git diff. Skipping the
+    # write keeps zero-change invocations idempotent.
+    if refreshed > 0:
+        with open(path, "w", encoding="utf-8") as f:
+            yaml.dump(data, f)
 
     return {
         "refreshed": refreshed,
@@ -155,6 +167,15 @@ def refresh_queries_file(path: str) -> dict[str, int]:
 
 
 def main() -> None:
+    # Windows-friendly: ensure stdout can encode the ✓/⚠/✗ glyphs we
+    # print. Default cp1252 console crashes on these. Safe no-op on
+    # POSIX where stdout is already utf-8.
+    import sys
+    try:
+        sys.stdout.reconfigure(encoding="utf-8")
+    except Exception:
+        pass
+
     parser = argparse.ArgumentParser(
         description="Refresh stale chunk_ids in eval/queries.yaml"
     )
