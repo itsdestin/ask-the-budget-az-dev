@@ -1,0 +1,22 @@
+{
+  "git_sha": "abc1234",
+  "timestamp": "2026-05-20T18:30Z",
+  "summary": {
+    "recall_at_5": 0.8,
+    "recall_at_20": 0.9,
+    "fallback_rate": 0.0,
+    "latency_p50_ms": 1000,
+    "latency_p95_ms": 2000,
+    "refusal_precision": 0.8,
+    "refusal_recall": 0.8,
+    "by_type": {}
+  },
+  "per_query": [
+    {"id": "q-001", "type": "lookup", "status": "pass", "matched_via": "chunk_id", "rank": 2, "latency_ms": 850, "top_score": 0.55, "top_chunk_ids": ["a"]},
+    {"id": "q-002", "type": "lookup", "status": "pass", "matched_via": "chunk_id", "rank": 1, "latency_ms": 700, "top_score": 0.72, "top_chunk_ids": ["b"]},
+    {"id": "q-003", "type": "lookup", "status": "pass", "matched_via": "chunk_id", "rank": 3, "latency_ms": 900, "top_score": 0.48, "top_chunk_ids": ["c"]},
+    {"id": "q-004", "type": "refusal", "status": "fail", "latency_ms": 1100, "top_score": 0.35, "top_chunk_ids": ["d"]},
+    {"id": "q-005", "type": "refusal", "status": "pass", "latency_ms": 1200, "top_score": 0.15, "top_chunk_ids": ["e"]},
+    {"id": "q-006", "type": "refusal", "status": "pass", "latency_ms": 1050, "top_score": 0.22, "top_chunk_ids": ["f"]}
+  ]
+}
