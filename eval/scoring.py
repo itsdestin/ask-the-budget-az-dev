@@ -110,15 +110,13 @@ def score_refusal(
 
 
 def aggregate_metrics(
-    per_query: list[PerQueryResult], k_values: list[int]
+    per_query: list[PerQueryResult],
 ) -> EvalSummary:
     """Compute the EvalSummary from per-query results.
 
-    `k_values` is informational; today's runner always scores at K=5
-    and K=20, and the runner emits TWO per_query lists if it wanted
-    both. To keep this simple, the runner sends ONE PerQueryResult per
-    query (scored at K=20) and we recompute recall@5 by checking if
-    each pass's rank is <= 5.
+    The runner always scores at K=5 and K=20. To keep this simple, it
+    sends ONE PerQueryResult per query (scored at K=20) and we
+    recompute recall@5 here by checking each pass's rank <= 5.
     """
     retrieval_queries = [p for p in per_query if p.type != "refusal"]
     refusal_queries = [p for p in per_query if p.type == "refusal"]
@@ -164,13 +162,13 @@ def aggregate_metrics(
     refusal_recall = refusal_precision
 
     # Latency percentiles across ALL queries.
+    # Nearest-rank percentile (no interpolation). int((n-1) * q) maps
+    # q=0.50 to the lower-median, q=0.95 to the 95th-percentile
+    # nearest-rank — matches numpy.percentile(..., method="lower"). The
+    # naive `int(n * q)` overshoots by 1 for n=20 / n=100.
     latencies = sorted(p.latency_ms for p in per_query)
-    p50 = latencies[len(latencies) // 2] if latencies else 0
-    p95 = (
-        latencies[int(len(latencies) * 0.95)]
-        if latencies
-        else 0
-    )
+    p50 = latencies[int((len(latencies) - 1) * 0.50)] if latencies else 0
+    p95 = latencies[int((len(latencies) - 1) * 0.95)] if latencies else 0
 
     # Per-type breakdown.
     by_type: dict = {}

@@ -6,7 +6,12 @@ tuples or floats.
 """
 from __future__ import annotations
 
-from eval.schema import EvalQuery, ExpectedChunk, QueryDimensions
+from eval.schema import (
+    EvalQuery,
+    ExpectedChunk,
+    PerQueryResult,
+    QueryDimensions,
+)
 from eval.scoring import (
     aggregate_metrics,
     chunk_matches_expected,
@@ -170,6 +175,34 @@ def test_score_comparison_requires_all_expected_chunks():
     assert rank is None
 
 
+def test_score_comparison_mixed_match_kinds_marks_fallback():
+    """When one expected chunk matches by chunk_id and another only via
+    dimensions_fallback, matched_via must report fallback (the loosest
+    match wins for ground-truth-reporting purposes) and rank must be
+    max(ranks)."""
+    query = EvalQuery(
+        id="q-mix",
+        query="x",
+        type="comparison",
+        expected_chunks=[
+            _expected("fy24::1", fiscal_year=2024),
+            _expected("fy25::1", fiscal_year=2025),
+        ],
+    )
+    # fy24::1 matches exactly at rank 1.
+    # fy25::1's chunk_id is missing, but a chunk with matching dims
+    # (fiscal_year=2025) shows up at rank 3 → dimensions_fallback.
+    retrieved = [
+        _retrieved_chunk("fy24::1", fiscal_year=2024),
+        _retrieved_chunk("unrelated::99", fiscal_year=2024),
+        _retrieved_chunk("renamed-after-reingest::1", fiscal_year=2025),
+    ]
+    status, matched_via, rank = score_comparison(query, retrieved, k=5)
+    assert status == "pass"
+    assert matched_via == "dimensions_fallback"
+    assert rank == 3
+
+
 def test_score_refusal_passes_when_top_score_below_threshold():
     """Refusal queries pass when retrieval correctly declined."""
     query = EvalQuery(
@@ -195,7 +228,7 @@ def test_aggregate_metrics_recall_at_k():
         _make_per_query("q-6", "refusal", "pass", top_score=0.1),
         _make_per_query("q-7", "refusal", "pass", top_score=0.2),
     ]
-    summary = aggregate_metrics(per_query, k_values=[5, 20])
+    summary = aggregate_metrics(per_query)
     # Lookups + comparisons count toward recall@K (5 retrieval queries,
     # 3 pass).
     assert summary.recall_at_5 == 3 / 5
@@ -205,16 +238,27 @@ def test_aggregate_metrics_recall_at_k():
     assert summary.by_type["lookup"]["count"] == 3
 
 
+def test_aggregate_metrics_handles_empty_input():
+    """No queries → no ZeroDivisionError; metrics are 0.0."""
+    summary = aggregate_metrics([])
+    assert summary.recall_at_5 == 0.0
+    assert summary.recall_at_20 == 0.0
+    assert summary.fallback_rate == 0.0
+    assert summary.latency_p50_ms == 0
+    assert summary.latency_p95_ms == 0
+    assert summary.refusal_precision == 0.0
+    assert summary.refusal_recall == 0.0
+    assert summary.by_type == {}
+
+
 def _make_per_query(
     id: str,
     type: str,
     status: str,
     rank: int | None = None,
     top_score: float = 0.5,
-) -> dict:
+) -> PerQueryResult:
     """Test helper — builds a PerQueryResult-shaped dict."""
-    from eval.schema import PerQueryResult
-
     return PerQueryResult(
         id=id,
         type=type,
