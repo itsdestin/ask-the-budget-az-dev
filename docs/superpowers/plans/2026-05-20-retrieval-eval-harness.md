@@ -783,6 +783,10 @@ def score_comparison(
                 break
         if not found:
             return "fail", None, None
+    # Worst rank — comparison passes only when ALL expected chunks are
+    # in top K, so the bottleneck is the worst-positioned one. This
+    # makes recall@5 for a comparison query mean "both chunks within
+    # top 5," not "either chunk within top 5."
     return (
         "pass",
         "dimensions_fallback" if any_fallback else "chunk_id",
@@ -1107,17 +1111,20 @@ from __future__ import annotations
 
 import argparse
 import json
-import os
 import re
 import sys
 from datetime import datetime, timezone
 from typing import Any
 
 from anthropic import Anthropic
-import psycopg
-from psycopg.rows import dict_row
 
 from eval.schema import EvalQuery, ExpectedChunk, QueryDimensions
+# Re-export the pooled connection helper at module scope so tests can
+# monkeypatch it as `eval.synthesize_queries.get_connection`. The pool
+# helper runs `register_vector` on each connection — required for the
+# refresh tool's cosine fallback (find_cosine_match casts a Python list
+# to ::vector) and harmless here.
+from db.connection import get_connection
 
 # The model the synthesizer uses. Hardcoded — bumping this is a
 # deliberate decision, not a config tweak.
@@ -1127,13 +1134,6 @@ SYNTH_MODEL = "claude-opus-4-7"
 DEFAULT_LOOKUP_COUNT = 25
 DEFAULT_COMPARISON_COUNT = 5
 DEFAULT_REFUSAL_COUNT = 5
-
-
-def get_connection() -> psycopg.Connection:
-    """Opens a psycopg connection from DATABASE_URL. Extracted so the
-    tests can monkeypatch it."""
-    url = os.environ["DATABASE_URL"]
-    return psycopg.connect(url, row_factory=dict_row)
 
 
 def sample_lookup_chunks(n: int) -> list[dict]:
@@ -1809,7 +1809,10 @@ def test_run_one_query_lookup_pass(monkeypatch):
         expected_refusal=False,
     )
 
-    def fake_retrieve(query_text, top_k=20, **_):
+    def fake_retrieve(req, **_):
+        # The real retrieve() takes a RetrievalRequest; mocks accept it
+        # via the `req` positional. Returning plain dicts is fine —
+        # _chunk_to_dict in run_one_query passes them through.
         from types import SimpleNamespace
         return SimpleNamespace(
             chunks=[
@@ -1856,7 +1859,7 @@ def test_run_one_query_lookup_fail(monkeypatch):
         ],
     )
 
-    def fake_retrieve(query_text, top_k=20, **_):
+    def fake_retrieve(req, **_):
         from types import SimpleNamespace
         return SimpleNamespace(
             chunks=[
@@ -1893,7 +1896,7 @@ def test_run_one_query_refusal_pass(monkeypatch):
         expected_refusal=True,
     )
 
-    def fake_retrieve(query_text, top_k=20, **_):
+    def fake_retrieve(req, **_):
         from types import SimpleNamespace
         return SimpleNamespace(
             chunks=[
@@ -1925,7 +1928,7 @@ def test_run_one_query_refusal_fail(monkeypatch):
         id="q-032", query="x", type="refusal", expected_refusal=True
     )
 
-    def fake_retrieve(query_text, top_k=20, **_):
+    def fake_retrieve(req, **_):
         from types import SimpleNamespace
         return SimpleNamespace(chunks=[], top_score=0.55)
 
@@ -1965,6 +1968,8 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
+import dataclasses
+
 from ruamel.yaml import YAML
 
 from eval.schema import EvalQuery, EvalResult, PerQueryResult
@@ -1975,8 +1980,10 @@ from eval.scoring import (
     score_refusal,
 )
 
-# The Python retrieve() entry point (see retrieval/__init__.py).
-from retrieval import retrieve  # noqa: E402
+# The Python retrieve() entry point (see retrieval/__init__.py). Both
+# `retrieve` and `RetrievalRequest` are imported here so tests can
+# monkeypatch the name `retrieve` on this module.
+from retrieval import retrieve, RetrievalRequest  # noqa: E402
 
 
 DEFAULT_TOP_K = 20
@@ -1991,17 +1998,49 @@ def load_queries(path: str) -> list[EvalQuery]:
     return [EvalQuery.model_validate(q) for q in raw]
 
 
+def _chunk_to_dict(c: Any) -> dict:
+    """Normalize a retrieved chunk to a plain dict for scoring.
+
+    Real retrieve() returns RetrievedChunk dataclasses; tests may pass
+    plain dicts via the mocked retrieve(). Accept both — the scoring
+    functions in eval/scoring.py work against dicts because mocks are
+    simpler that way.
+    """
+    if dataclasses.is_dataclass(c):
+        return dataclasses.asdict(c)
+    return c
+
+
 def run_one_query(
     query: EvalQuery, refusal_threshold: float
 ) -> PerQueryResult:
     """Call retrieve() and score the result. retrieve() is at module
-    level so tests can monkeypatch it."""
-    start = time.monotonic()
-    result = retrieve(query.query, top_k=DEFAULT_TOP_K)
-    elapsed_ms = int((time.monotonic() - start) * 1000)
+    level so tests can monkeypatch it.
 
-    chunks = result.chunks
-    top_score = result.top_score
+    One bad query (e.g. ParadeDB parser crash on an apostrophe, see
+    STATUS.md #47) should NOT abort the whole eval. We catch any
+    exception from retrieve(), record it as a fail with the exception
+    class name in top_chunk_ids for diagnosis, and continue.
+    """
+    start = time.monotonic()
+    try:
+        req = RetrievalRequest(query=query.query, top_k=DEFAULT_TOP_K)
+        result = retrieve(req)
+        chunks = [_chunk_to_dict(c) for c in result.chunks]
+        top_score = result.top_score
+    except Exception as exc:
+        elapsed_ms = int((time.monotonic() - start) * 1000)
+        return PerQueryResult(
+            id=query.id,
+            type=query.type,
+            status="fail",
+            matched_via=None,
+            rank=None,
+            latency_ms=elapsed_ms,
+            top_score=0.0,
+            top_chunk_ids=[f"<retrieve error: {type(exc).__name__}: {exc}>"],
+        )
+    elapsed_ms = int((time.monotonic() - start) * 1000)
 
     if query.type == "lookup":
         status, matched_via, rank = score_lookup(
@@ -2507,13 +2546,22 @@ Then modify the `main()` function in `eval/run_eval.py` — find the section tha
     delta = None
     prev_path = find_previous_result(results_dir, json_path.name)
     if prev_path:
+        # Schema may have evolved since the previous run was written. A
+        # validation failure here must NOT abort the current run — we
+        # log it, skip the delta, and continue.
         from eval.schema import EvalResult
-        with open(prev_path) as f:
-            prev_data = json.load(f)
-        prev_result = EvalResult.model_validate(prev_data)
-        delta = compute_delta(
-            summary, prev_result.summary, per_query, prev_result.per_query
-        )
+        try:
+            with open(prev_path) as f:
+                prev_data = json.load(f)
+            prev_result = EvalResult.model_validate(prev_data)
+            delta = compute_delta(
+                summary, prev_result.summary, per_query, prev_result.per_query
+            )
+        except Exception as exc:
+            print(
+                f"  (skipping delta vs {prev_path.name}: "
+                f"{type(exc).__name__}: {exc})"
+            )
 
     write_md_output(
         md_path,
@@ -2768,21 +2816,14 @@ Invocation:
 from __future__ import annotations
 
 import argparse
-import os
 import sys
 from typing import Optional
 
-import psycopg
-from psycopg.rows import dict_row
-
 from eval.schema import QueryDimensions
-
-
-def get_connection() -> psycopg.Connection:
-    """Open a psycopg connection from DATABASE_URL. Extracted so tests
-    can monkeypatch it."""
-    url = os.environ["DATABASE_URL"]
-    return psycopg.connect(url, row_factory=dict_row)
+# Re-export the pooled connection helper for monkeypatching in tests.
+# The pool's configure callback runs `register_vector(conn)` so the
+# cosine-similarity SQL below can cast a Python list to ::vector.
+from db.connection import get_connection
 
 
 def chunk_exists(chunk_id: str) -> bool:
@@ -3225,9 +3266,14 @@ Reads the most recent eval result file, sweeps candidate thresholds,
 computes precision/recall for each, recommends the threshold that
 maximizes the combined score.
 
-The recommended threshold is a SUGGESTION — actually updating
-`REFUSAL_RERANKER_THRESHOLD` in retrieval/pipeline.py is a manual
-edit Destin makes after reviewing the sweep.
+The recommended threshold is a SUGGESTION. The runtime threshold is
+currently embedded in the MCP system prompt at
+`mcp-server/system-prompt.md` (lines mentioning `refusal_no_retrieval
+— top_score < 0.30`, with a second reference in the rules table).
+Updating it means editing those prompt lines, NOT flipping a Python
+constant. The original Phase 1b plan envisioned a constant in
+retrieval/pipeline.py named REFUSAL_RERANKER_THRESHOLD; that was
+never built and the prompt holds the value instead.
 
 Invocation:
     uv run python -m eval.calibrate_refusal
@@ -3271,10 +3317,13 @@ def compute_sweep(
             if p["top_score"] < threshold
         )
         would_refuse_total = would_refuse_correct + would_refuse_incorrect
+        # Precision: of queries the threshold would cause to refuse, what
+        # share were correct refusals? Denominator is would_refuse_total
+        # (NOT total_refusal — that would be recall).
         if would_refuse_total == 0:
             refusal_precision = 0.0
         else:
-            refusal_precision = would_refuse_correct / total_refusal if total_refusal else 0.0
+            refusal_precision = would_refuse_correct / would_refuse_total
 
         # Retrieval pass rate: of retrieval queries, how many still
         # have top_score >= threshold (i.e., we DIDN'T accidentally
@@ -3353,8 +3402,13 @@ def main() -> None:
 
     pick = recommend_threshold(table)
     print(
-        f"\nRecommended: set REFUSAL_RERANKER_THRESHOLD in retrieval/"
-        f"pipeline.py to {pick['threshold']:.2f}"
+        f"\nRecommended threshold: {pick['threshold']:.2f}"
+    )
+    print(
+        "To apply: edit the `top_score < 0.30` references in "
+        "mcp-server/system-prompt.md (the `refusal_no_retrieval` "
+        "section + the rules table) to use the new value, then re-run "
+        "the dogfood tests."
     )
     print(
         f"Justified by: {result_path} (refusal_precision="
@@ -3473,9 +3527,11 @@ uv run python -m eval.calibrate_refusal
 ```
 
 This sweeps candidate thresholds against the most recent eval result
-and recommends the one with the best precision/recall balance.
-Updating `REFUSAL_RERANKER_THRESHOLD` in `retrieval/pipeline.py` is a
-manual decision based on the sweep.
+and recommends the one with the best precision/recall balance. The
+runtime threshold currently lives in the MCP system prompt
+(`mcp-server/system-prompt.md` — search for `refusal_no_retrieval —
+top_score < 0.30` and the rules-table reference); updating it means
+editing those prompt lines, not flipping a Python constant.
 
 ## Adding queries
 
@@ -3559,7 +3615,18 @@ uv run python -m eval.run_eval
 
 Expected: a new pair of files appears in `eval/results/`. The summary line at the end shows non-zero recall numbers. If recall@5 is below 50% on lookup queries, that's a meaningful finding — capture in the PR description as a Phase 1b WS8 pass-bar observation.
 
-- [ ] **Step 4: Open the PR**
+- [ ] **Step 4: Update STATUS.md inside the worktree (before opening the PR)**
+
+The status change is part of the diff under review — not a follow-up commit on master.
+
+Open `STATUS.md`. Move the WS8 entry out of "Not yet implemented" and into "What's shipped" with a short paragraph describing the eval harness (synthesizer, runner, refresh tool, calibration tool, ~35 queries, JSON+MD result files, `eval/README.md`). Update the Phase 1b row in the phase summary table to note WS8 is now done.
+
+```bash
+git add STATUS.md
+git commit -m "docs(STATUS): eval harness shipped — WS8 done"
+```
+
+- [ ] **Step 5: Open the PR**
 
 ```bash
 git push -u origin eval-harness
@@ -3574,6 +3641,7 @@ Implements the design at `docs/superpowers/specs/2026-05-20-retrieval-eval-harne
 - `eval/refresh_chunk_ids.py` — post-reingest fixer (anchor_text → cosine similarity fallback)
 - `eval/calibrate_refusal.py` — threshold sweep + recommendation
 - `eval/README.md` + `CLAUDE.md` reminder
+- `STATUS.md` updated to reflect WS8 shipping
 
 Layer 2 (end-to-end agent eval with faithfulness scoring) is deferred until WS3 (faithfulness verifier) lands — separate spec.
 
@@ -3583,8 +3651,7 @@ Layer 2 (end-to-end agent eval with faithfulness scoring) is deferred until WS3 
 - [x] No regressions in the broader test suite (`uv run pytest -q`)
 - [x] First real synthesis run produced eval/queries.yaml (committed)
 - [x] First real eval-against-corpus run produced eval/results/<...>.{json,md} (committed)
-- [ ] Manual: re-run after merge to confirm hot-reload of any Python changes worked
-- [ ] Manual: run `uv run python -m eval.calibrate_refusal` and confirm the recommendation matches expectations
+- [ ] Manual: run `uv run python -m eval.calibrate_refusal` against the first real result and confirm the recommendation makes sense
 
 ## Cost
 
@@ -3595,7 +3662,7 @@ EOF
 )"
 ```
 
-- [ ] **Step 5: Clean up after merge**
+- [ ] **Step 6: Clean up after merge**
 
 Once the PR is merged:
 
@@ -3605,10 +3672,6 @@ git fetch origin && git pull origin master
 git worktree remove --force ~/ask-the-budget-az-worktrees/eval-harness
 git branch -D eval-harness
 ```
-
-- [ ] **Step 6: Update STATUS.md**
-
-In `STATUS.md`, move the WS8 entry out of "Not yet implemented" and into "Shipped". Add a short paragraph under "What's shipped" describing the eval harness. Commit and push to master.
 
 ---
 
