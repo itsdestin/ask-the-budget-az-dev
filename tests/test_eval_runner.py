@@ -9,6 +9,8 @@ from __future__ import annotations
 import json
 import pathlib
 
+import pytest
+
 from eval.run_eval import (
     load_queries,
     run_one_query,
@@ -224,3 +226,105 @@ def test_write_json_output(tmp_path):
     assert result.git_sha == "abc1234"
     assert result.summary.recall_at_5 == 0.8
     assert len(result.per_query) == 1
+
+
+def test_write_md_output_includes_metrics_and_failures(tmp_path):
+    """The MD writer produces a human-readable summary with the key
+    metrics + a per-failure analysis section."""
+    from eval.run_eval import write_md_output
+    from eval.schema import EvalSummary, PerQueryResult
+
+    summary = EvalSummary(
+        recall_at_5=0.8,
+        recall_at_20=0.9,
+        fallback_rate=0.1,
+        latency_p50_ms=1000,
+        latency_p95_ms=2000,
+        refusal_precision=1.0,
+        refusal_recall=1.0,
+        by_type={
+            "lookup": {"recall_at_5": 0.83, "recall_at_20": 0.92, "count": 2}
+        },
+    )
+    per_query = [
+        PerQueryResult(
+            id="q-001",
+            type="lookup",
+            status="pass",
+            matched_via="chunk_id",
+            rank=2,
+            latency_ms=850,
+            top_score=0.84,
+            top_chunk_ids=["chunk-A"],
+        ),
+        PerQueryResult(
+            id="q-024",
+            type="lookup",
+            status="fail",
+            latency_ms=920,
+            top_score=0.41,
+            top_chunk_ids=["unrelated::1", "unrelated::2"],
+        ),
+    ]
+    out_path = tmp_path / "result.md"
+    write_md_output(
+        out_path,
+        git_sha="abc1234",
+        timestamp="2026-05-20T18:30Z",
+        summary=summary,
+        per_query=per_query,
+        previous=None,
+    )
+    content = out_path.read_text()
+    assert "recall@5" in content.lower()
+    assert "80%" in content or "0.80" in content
+    # Failures section lists q-024.
+    assert "q-024" in content
+    # Top chunks for the failure are shown for diagnosis.
+    assert "unrelated::1" in content
+
+
+def test_compute_delta_vs_previous():
+    """compute_delta returns a dict of metric deltas + per-query
+    pass/fail transitions."""
+    from eval.run_eval import compute_delta
+    from eval.schema import EvalSummary, PerQueryResult
+
+    prev_summary = EvalSummary(
+        recall_at_5=0.7, recall_at_20=0.85,
+        fallback_rate=0.1, latency_p50_ms=1100, latency_p95_ms=1900,
+        refusal_precision=0.8, refusal_recall=0.8,
+        by_type={},
+    )
+    curr_summary = EvalSummary(
+        recall_at_5=0.8, recall_at_20=0.85,
+        fallback_rate=0.1, latency_p50_ms=1000, latency_p95_ms=2000,
+        refusal_precision=1.0, refusal_recall=1.0,
+        by_type={},
+    )
+    prev_per_query = [
+        PerQueryResult(
+            id="q-001", type="lookup", status="pass",
+            latency_ms=900, top_score=0.8, top_chunk_ids=[]
+        ),
+        PerQueryResult(
+            id="q-019", type="lookup", status="fail",
+            latency_ms=1000, top_score=0.3, top_chunk_ids=[]
+        ),
+    ]
+    curr_per_query = [
+        PerQueryResult(
+            id="q-001", type="lookup", status="pass",
+            latency_ms=850, top_score=0.84, top_chunk_ids=[]
+        ),
+        PerQueryResult(
+            id="q-019", type="lookup", status="pass",
+            latency_ms=950, top_score=0.7, top_chunk_ids=[]
+        ),
+    ]
+    delta = compute_delta(
+        curr_summary, prev_summary, curr_per_query, prev_per_query
+    )
+    assert delta["recall_at_5_delta"] == pytest.approx(0.1)
+    assert "q-019" in delta["new_passes"]
+    assert delta["new_failures"] == []
