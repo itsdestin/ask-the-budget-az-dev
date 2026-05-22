@@ -8,10 +8,6 @@ Two surfaces:
     refresh tool).
   * `EvalResult` (with EvalSummary, PerQueryResult) — the JSON shape
     written per run to `eval/results/<UTC-ISO>-<git-sha>.json`.
-
-Models are frozen-ish (Pydantic v2 default = frozen=False, but we don't
-mutate them after construction in the runner — they're built once and
-serialized).
 """
 from __future__ import annotations
 
@@ -59,6 +55,9 @@ class EvalQuery(BaseModel):
     type: Literal["lookup", "comparison", "refusal"]
     expected_chunks: list[ExpectedChunk] = Field(default_factory=list)
     expected_refusal: bool = False
+    # Provenance — which model generated this query, when. Lets us
+    # tell synthesizer-generated entries from hand-edited ones and
+    # spot eval-set drift when the model is bumped.
     synthesized_by: Optional[str] = None
     synthesized_at: Optional[str] = None
 
@@ -67,7 +66,7 @@ class PerQueryResult(BaseModel):
     """One row of `eval/results/<file>.json::per_query`."""
 
     id: str
-    type: str
+    type: Literal["lookup", "comparison", "refusal"]
     status: Literal["pass", "fail"]
     # `chunk_id` when an expected chunk's chunk_id was in top K.
     # `dimensions_fallback` when chunk_id was missing but a returned

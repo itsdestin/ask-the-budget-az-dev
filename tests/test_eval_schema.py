@@ -29,7 +29,10 @@ def test_query_dimensions_round_trip():
     assert dims.publisher == "jlbc"
     assert dims.fiscal_year == 2026
     # Agency is optional (some chunks are cross-agency).
-    QueryDimensions(publisher="jlbc", doc_type="topic", fiscal_year=2026)
+    no_agency = QueryDimensions(
+        publisher="jlbc", doc_type="topic", fiscal_year=2026
+    )
+    assert no_agency.agency is None
 
 
 def test_expected_chunk_with_anchor_text():
@@ -132,6 +135,25 @@ def test_per_query_result_fail_has_no_rank():
     assert r.status == "fail"
     assert r.matched_via is None
     assert r.rank is None
+
+
+def test_per_query_result_round_trip_preserves_none_fields():
+    """A fail PerQueryResult has matched_via=None and rank=None. Round-
+    tripping through model_dump → model_validate must preserve those
+    Nones — otherwise the runner's JSON output would drift the moment
+    we reload a saved result."""
+    r = PerQueryResult(
+        id="q-024",
+        type="lookup",
+        status="fail",
+        latency_ms=920,
+        top_score=0.41,
+        top_chunk_ids=["different::1", "other::2"],
+    )
+    again = PerQueryResult.model_validate(r.model_dump())
+    assert again == r
+    assert again.matched_via is None
+    assert again.rank is None
 
 
 def test_eval_result_full_round_trip():
