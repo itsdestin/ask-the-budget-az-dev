@@ -105,9 +105,13 @@ perfect" while letting most refusals through).
 
 The runtime threshold currently lives in the MCP system prompt
 (`mcp-server/system-prompt.md` — search for `refusal_no_retrieval —
-top_score < 0.30`). Updating it means editing those prompt lines, not
-flipping a Python constant. **The calibration output's recall number
-is the load-bearing one**: if recall is low at every threshold, the
+top_score < 0.65`; set to 0.65 on 2026-05-22 after the first
+calibration sweep recommended 0.70, with 0.65 picked as a slightly
+more conservative starting point — catches 60% of refusals at the
+cost of refusing ~7% of legitimate retrieval queries on this eval
+set). Updating it means editing those prompt lines, not flipping a
+Python constant. **The calibration output's recall number is the
+load-bearing one**: if recall is low at every threshold, the
 retrieval-layer mechanism can't reliably refuse the failure modes
 in your eval set — investing in a query classifier or
 faithfulness verifier will be much higher leverage than tweaking the

@@ -7,11 +7,12 @@ maximizes the combined score.
 The recommended threshold is a SUGGESTION. The runtime threshold is
 currently embedded in the MCP system prompt at
 `mcp-server/system-prompt.md` (lines mentioning `refusal_no_retrieval
-— top_score < 0.30`, with a second reference in the rules table).
-Updating it means editing those prompt lines, NOT flipping a Python
-constant. The original Phase 1b plan envisioned a constant in
-retrieval/pipeline.py named REFUSAL_RERANKER_THRESHOLD; that was
-never built and the prompt holds the value instead.
+— top_score < 0.65`, with a second reference in the rules table —
+0.65 set 2026-05-22 after the first calibration sweep). Updating it
+means editing those prompt lines, NOT flipping a Python constant. The
+original Phase 1b plan envisioned a constant in retrieval/pipeline.py
+named REFUSAL_RERANKER_THRESHOLD; that was never built and the prompt
+holds the value instead.
 
 Invocation:
     uv run python -m eval.calibrate_refusal
@@ -189,7 +190,7 @@ def main() -> None:
         f"\nRecommended threshold: {pick['threshold']:.2f}"
     )
     print(
-        "To apply: edit the `top_score < 0.30` references in "
+        "To apply: edit the `top_score < 0.65` references in "
         "mcp-server/system-prompt.md (the `refusal_no_retrieval` "
         "section + the rules table) to use the new value, then re-run "
         "the dogfood tests."

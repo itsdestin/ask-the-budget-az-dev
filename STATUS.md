@@ -168,7 +168,7 @@ Hand-off prompt for additional ingest at [`PROMPT-volume-ingest.md`](PROMPT-volu
 
 ### Recently fixed — verify in next dogfood pass
 - BM25 query parser crashed on apostrophes (#47) — fixed by sanitizing tantivy/Lucene special chars before query string reaches pg_search. 14 of 34 eval queries previously aborted; now 0 crash.
-- MCP refusal threshold (`top_score < 0.30` in mcp-server/system-prompt.md) effectively dead — Voyage rerank scores never go below ~0.56 on the current corpus. Eval calibration recommends 0.60. Threshold update is its own decision.
+- MCP refusal threshold raised from 0.30 → **0.65** in mcp-server/system-prompt.md (2026-05-22). Old 0.30 was effectively dead — Voyage rerank scores on the current corpus sit at 0.56–0.93, never below 0.56. Calibration recommended 0.70 (refusal recall 0.80, precision 0.67, retrieval pass-rate 0.93); 0.65 picked as a slightly more conservative starting point (refusal recall 0.60, retrieval pass-rate 0.93). Dogfood for real failure modes; re-calibrate after any meaningful corpus or rerank-model change.
 - Restated facts across multiple sentences only chipped the first occurrence (per-sentence placement + key-fact-token rule)
 - Wrong yellow rectangle when bbox-restricted search missed (strict-bbox, no whole-page fallback)
 - Source text only visible inside the PDF (always-visible `CitedTextPanel` below the page)

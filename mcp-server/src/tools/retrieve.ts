@@ -6,7 +6,7 @@
 // that's the only structured way to hand the chunk list back through
 // the MCP transport so Claude can reason over it. The system prompt
 // (mcp-server/system-prompt.md) tells Claude how to consume that
-// payload (parse JSON, cite by chunk_id, refuse on top_score < 0.30).
+// payload (parse JSON, cite by chunk_id, refuse on top_score < 0.65).
 
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";

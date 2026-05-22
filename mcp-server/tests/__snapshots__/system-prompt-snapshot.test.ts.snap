@@ -23,7 +23,7 @@ exports[`mcp-server/system-prompt.md structure > contains the expected top-level
   "Accuracy hierarchy for actuals",
   "Retrieval recipes",
   "Refusal — three cases",
-  "\`refusal_no_retrieval\` — top_score < 0.30",
+  "\`refusal_no_retrieval\` — top_score < 0.65",
   "\`refusal_synthesis\` — corpus knows pieces but you can't combine them",
   "\`refusal_out_of_scope\` — editorial / policy questions",
   "Conversation flow",

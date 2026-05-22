@@ -35,7 +35,14 @@ from retrieval import retrieve, RetrievalRequest  # noqa: E402
 
 
 DEFAULT_TOP_K = 20
-DEFAULT_REFUSAL_THRESHOLD = 0.30
+# Matches the runtime threshold in mcp-server/system-prompt.md
+# (refusal_no_retrieval — top_score < 0.65). Keeping the eval's default
+# in sync with the prompt means the runner's refusal_precision /
+# refusal_recall reflect what production would actually do. Override
+# via --threshold to evaluate alternate values without changing the
+# prompt. Was 0.30 through 2026-05-22 (when the prompt was bumped to
+# 0.65); the original 0.30 was a placeholder, never calibrated.
+DEFAULT_REFUSAL_THRESHOLD = 0.65
 
 
 def load_queries(path: str) -> list[EvalQuery]:
