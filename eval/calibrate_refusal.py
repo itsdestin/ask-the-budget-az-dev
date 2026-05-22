@@ -68,6 +68,18 @@ def compute_sweep(
         else:
             refusal_precision = would_refuse_correct / would_refuse_total
 
+        # Recall: of all queries that SHOULD have been refused, how
+        # many actually scored below the threshold? Without this,
+        # combined_score is biased toward "don't false-refuse" and
+        # silently allows "refuse-too-little" to be hidden — which
+        # is exactly the failure mode we caught when reviewing the
+        # first real eval run (threshold 0.60 had precision 1.00 but
+        # caught only 1 of 5 refusals).
+        if total_refusal == 0:
+            refusal_recall = 0.0
+        else:
+            refusal_recall = would_refuse_correct / total_refusal
+
         # Retrieval pass rate: of retrieval queries, how many still
         # have top_score >= threshold (i.e., we DIDN'T accidentally
         # refuse them)?
@@ -80,13 +92,25 @@ def compute_sweep(
             retrieval_passes / total_retrieval if total_retrieval else 0.0
         )
 
+        # Three-way average: precision + recall + retrieval_pass_rate.
+        # Equal-weighted because none of these three should be sacrificed
+        # for the others — high precision with low recall is dangerous
+        # (most refusals leak through); high recall with low pass rate
+        # is also bad (we'd refuse legitimate questions). Future work
+        # could use F1 for precision/recall and weight against pass rate
+        # separately; equal-average is the honest v1.
+        combined_score = (
+            refusal_precision + refusal_recall + retrieval_pass_rate
+        ) / 3
+
         table.append(
             {
                 "threshold": threshold,
                 "refusal_precision": refusal_precision,
+                "refusal_recall": refusal_recall,
                 "retrieval_passes": retrieval_passes,
                 "retrieval_pass_rate": retrieval_pass_rate,
-                "combined_score": (refusal_precision + retrieval_pass_rate) / 2,
+                "combined_score": combined_score,
             }
         )
     return table
@@ -148,14 +172,15 @@ def main() -> None:
         f"\nSweeping candidate thresholds against {result_path}:\n"
     )
     print(
-        f"  {'threshold':>10}  {'refusal_precision':>18}  "
-        f"{'retrieval_pass_rate':>20}  {'combined':>10}"
+        f"  {'threshold':>10}  {'precision':>10}  {'recall':>10}  "
+        f"{'pass_rate':>10}  {'combined':>10}"
     )
     for row in table:
         print(
             f"  {row['threshold']:>10.2f}  "
-            f"{row['refusal_precision']:>18.2f}  "
-            f"{row['retrieval_pass_rate']:>20.2f}  "
+            f"{row['refusal_precision']:>10.2f}  "
+            f"{row['refusal_recall']:>10.2f}  "
+            f"{row['retrieval_pass_rate']:>10.2f}  "
             f"{row['combined_score']:>10.2f}"
         )
 
@@ -170,9 +195,25 @@ def main() -> None:
         "the dogfood tests."
     )
     print(
-        f"Justified by: {result_path} (refusal_precision="
-        f"{pick['refusal_precision']:.2f}, retrieval_pass_rate="
-        f"{pick['retrieval_pass_rate']:.2f})"
+        f"Justified by: {result_path}"
+    )
+    print(
+        f"  refusal_precision={pick['refusal_precision']:.2f} "
+        f"refusal_recall={pick['refusal_recall']:.2f} "
+        f"retrieval_pass_rate={pick['retrieval_pass_rate']:.2f}"
+    )
+    # Count refusal queries from the source data for the explanation.
+    with open(result_path, encoding="utf-8") as f:
+        _data = json.load(f)
+    _refusal_count = sum(1 for p in _data["per_query"] if p["type"] == "refusal")
+
+    print(
+        f"  → Of {_refusal_count} refusal queries in the eval set, "
+        f"this threshold would correctly refuse "
+        f"{pick['refusal_recall'] * 100:.0f}% of them. The rest still "
+        f"pass through and would be answered by Claude — addressing those "
+        f"belongs in a query-classifier or faithfulness-verifier layer, "
+        f"not the retrieval threshold."
     )
 
 

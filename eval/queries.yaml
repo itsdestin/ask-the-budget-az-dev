@@ -1,9 +1,25 @@
-# Eval query set for Ask the Budget AZ retrieval harness.
+# Eval query set for Ask the Budget AZ Layer 1 retrieval eval.
 #
-# 34 queries: 24 lookup + 5 comparison + 5 refusal.
-# First seed set generated 2026-05-21 via a subagent-driven session
-# (the synthesize_queries.py CLI requires an Anthropic API key in
-# .env.local; was not configured at generation time).
+# 34 queries: 24 lookup + 5 comparison + 5 refusal. First seed set
+# generated 2026-05-21 via subagent-driven synthesis (the
+# synthesize_queries.py CLI requires an Anthropic API key not present
+# in .env.local at generation time).
+#
+# IMPORTANT: This is a Layer 1 regression detector, not a usefulness
+# measure. Lookup/comparison queries were synthesized FROM chunks —
+# by construction, the chunk IS the correct answer. The 86% recall@5
+# baseline is an UPPER BOUND, not representative of real analyst
+# usage. Trust deltas across runs, not absolute numbers. See
+# eval/README.md for the full caveat.
+#
+# Refusal queries (q-030 through q-034) test only corpus-boundary
+# cases (wrong jurisdiction, fictional entity, future FY). They do
+# NOT test editorial framing — "should we raise taxes" type questions
+# legitimately retrieve relevant chunks; the editorial framing should
+# be declined at the LLM layer, not at retrieval. q-030 and q-031
+# straddle this line and are kept for transparency, but their
+# "failure" to be refused at the retrieval threshold isn't a
+# retrieval bug.
 #
 # Each lookup/comparison entry points at a real chunk in the live
 # corpus and carries an anchor_text verbatim-copied from that chunk
