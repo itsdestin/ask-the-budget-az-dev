@@ -280,6 +280,15 @@ def write_md_output(
 
 
 def main() -> None:
+    # Windows-friendly: ensure stdout can encode the ✓/✗/Δ/⚠ glyphs
+    # we print throughout the runner. Default cp1252 console crashes
+    # on these. Safe no-op on POSIX where stdout is already utf-8.
+    import sys
+    try:
+        sys.stdout.reconfigure(encoding="utf-8")
+    except Exception:
+        pass  # Non-stream stdout (e.g. captured in tests) lacks reconfigure
+
     parser = argparse.ArgumentParser(description="Run the retrieval eval")
     parser.add_argument(
         "--queries", default="eval/queries.yaml",
