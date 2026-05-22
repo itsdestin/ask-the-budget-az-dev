@@ -23,7 +23,12 @@ import argparse
 import json
 from pathlib import Path
 
-DEFAULT_THRESHOLDS = [0.10, 0.15, 0.20, 0.25, 0.30, 0.35, 0.40]
+# Sweep spans the observed Voyage rerank-2.5 score distribution. The
+# original 0.10-0.40 window (from the plan) was entirely below the
+# corpus's actual top_scores (~0.50-0.95), so every threshold tied
+# at 0% refusal precision. Widening to 0.10-0.90 in 0.05 steps
+# surfaces meaningful tradeoffs.
+DEFAULT_THRESHOLDS = [round(0.10 + i * 0.05, 2) for i in range(17)]
 
 
 def compute_sweep(
