@@ -16,7 +16,7 @@ import pytest
 psycopg = pytest.importorskip("psycopg")
 
 from db.connection import close_pool, get_connection
-from retrieval.bm25 import bm25_query
+from retrieval.bm25 import _sanitize_bm25_query, bm25_query
 from retrieval.types import RetrievalFilters
 
 # Heuristic: the validated slice has 161 chunks, the volume corpus targets
@@ -69,6 +69,100 @@ def test_bm25_empty_query_returns_empty_list():
     """Whitespace-only query short-circuits before SQL — no DB hit needed."""
     assert bm25_query("") == []
     assert bm25_query("   \n\t  ") == []
+
+
+# ---------------------------------------------------------------------------
+# Sanitization (STATUS.md #47) — pure unit tests, no DB call
+# ---------------------------------------------------------------------------
+
+
+def test_sanitize_strips_apostrophes():
+    """The load-bearing case: bare apostrophes in possessives must go.
+    Pg_search reads them as phrase-quote delimiters and crashes the query."""
+    assert _sanitize_bm25_query("Arizona's budget") == "Arizona s budget"
+    assert _sanitize_bm25_query("DES's appropriation") == "DES s appropriation"
+    assert _sanitize_bm25_query("Governor's FY 2027") == "Governor s FY 2027"
+
+
+def test_sanitize_strips_other_tantivy_specials():
+    """Other Lucene/tantivy operators are also stripped to avoid future
+    parser crashes from quotes, brackets, colons, wildcards, etc."""
+    assert "[" not in _sanitize_bm25_query("fund [balance]")
+    assert "(" not in _sanitize_bm25_query("(General Fund)")
+    assert ":" not in _sanitize_bm25_query("agency:DES")
+    assert "*" not in _sanitize_bm25_query("approp*")
+    assert "?" not in _sanitize_bm25_query("What is FY27?")
+
+
+def test_sanitize_preserves_safe_punctuation():
+    """Commas, periods, hyphens, dollar signs — all fine in tantivy."""
+    out = _sanitize_bm25_query("FY 2026 budget: $1.2B, $400M general fund.")
+    # Colon goes (tantivy field separator); dollar/comma/period/hyphen stay.
+    assert "$1.2B" in out
+    assert "," in out
+    assert "." in out
+    assert ":" not in out
+
+
+def test_sanitize_collapses_whitespace():
+    """Substitution can introduce double spaces — collapse them."""
+    assert _sanitize_bm25_query("a   b") == "a b"
+    assert _sanitize_bm25_query("a''b") == "a b"
+
+
+def test_sanitize_handles_all_specials_input():
+    """Pathological input of only special chars sanitizes to empty string.
+    bm25_query catches this and short-circuits to [] (next test below)."""
+    assert _sanitize_bm25_query("''''") == ""
+    assert _sanitize_bm25_query("()[]{}") == ""
+
+
+def test_bm25_apostrophe_query_does_not_raise(monkeypatch):
+    """Regression test for STATUS.md #47. The pre-fix behavior was
+    InternalError_: could not parse query string — an exception that
+    aborted the whole retrieve() call. After the fix, the query goes
+    through (and either returns hits or [] from the DB, never raises
+    a ParadeDB parse error).
+
+    Stubbed at the DB layer so this runs without a live ParadeDB.
+    """
+    captured: dict[str, object] = {}
+
+    class FakeRow(dict):
+        """Stand-in for a psycopg dict_row. Just needs to subscript."""
+
+    class FakeCursor:
+        def __init__(self, sql: str, bind: list):
+            captured["sql"] = sql
+            captured["bind"] = bind
+
+        def fetchall(self):
+            return []
+
+    class FakeConn:
+        def execute(self, sql, bind):
+            return FakeCursor(sql, bind)
+
+    bm25_query("Arizona's FY 2026 budget", conn=FakeConn())  # type: ignore[arg-type]
+
+    # The query arg passed to the DB must have had the apostrophe stripped.
+    assert "Arizona's" not in captured["bind"][0]
+    assert "Arizona s FY 2026 budget" == captured["bind"][0]
+
+
+def test_bm25_pathological_query_short_circuits(monkeypatch):
+    """A query made entirely of stripped characters reduces to empty;
+    bm25_query should return [] without issuing SQL."""
+    calls = []
+
+    class FakeConn:
+        def execute(self, sql, bind):
+            calls.append((sql, bind))
+            raise AssertionError("should not have issued SQL")
+
+    result = bm25_query("''''", conn=FakeConn())  # type: ignore[arg-type]
+    assert result == []
+    assert calls == []
 
 
 # ---------------------------------------------------------------------------
@@ -200,6 +294,22 @@ def test_bm25_combined_filters_intersect():
         assert r.fiscal_year == 2027
         assert r.publisher == "jlbc"
         assert r.doc_type == "baseline-cross-cut"
+
+
+@needs_corpus
+def test_bm25_apostrophe_query_against_live_paradedb():
+    """End-to-end check: a query containing apostrophes (the exact shape
+    that crashed in the 2026-05-22 eval) runs without raising and returns
+    a non-empty result set. This is the integration counterpart to the
+    unit tests above."""
+    # Phrasing taken from eval q-014 — used to crash with InternalError_.
+    results = bm25_query(
+        "What does the Governor's FY 2027 budget glossary say PASARR and FMAP stand for?",
+        top_k=10,
+    )
+    # No assertion about specific chunks (corpus drift is fine); just that
+    # we got past the parser and the search executed.
+    assert isinstance(results, list)
 
 
 @needs_corpus

@@ -18,6 +18,40 @@ from retrieval.types import RetrievalFilters, RetrievedChunk
 
 DEFAULT_TOP_K = 200
 
+# ParadeDB / tantivy query-parser special characters that, when present
+# bare inside the query string, cause `could not parse query string`
+# errors. The apostrophe is the load-bearing case (STATUS.md #47):
+# `Arizona's budget` is interpreted as an unterminated phrase delimiter
+# (`'s budget` opens a quote that never closes). Bare double-quotes,
+# brackets, braces, parens, colons, carets, tildes, slashes, and
+# wildcards have analogous failure modes — none of them appear in
+# natural-language analyst questions in a useful way, so we strip the
+# whole set to a single space rather than try to preserve them.
+#
+# We intentionally do NOT strip `+ - !` because (a) `+` and `-` are
+# common in numeric tokens like "$1.2M+" and (b) tantivy only treats
+# them as operators when they prefix a term, and even then the failure
+# mode is a parser warning, not a crash.
+_BM25_SPECIAL_CHARS = set("'\"()[]{}^~:/\\?*")
+
+
+def _sanitize_bm25_query(query: str) -> str:
+    """Replace tantivy/Lucene parser special chars with spaces.
+
+    Pragmatic fix for STATUS.md #47. The pg_search query parser inherits
+    Lucene-style semantics: bare apostrophes are read as phrase-quote
+    delimiters and crash the whole retrieve() call. Stripping them is
+    lossy (`Arizona's` -> `Arizona s`) but the BM25 tokenizer drops
+    the orphaned single `s`, and the dense+rerank legs of the hybrid
+    pipeline are unaffected — they see the original query string and
+    do the heavy lifting on possessives.
+
+    Returns the cleaned string with consecutive spaces collapsed.
+    """
+    out = "".join(" " if ch in _BM25_SPECIAL_CHARS else ch for ch in query)
+    # Collapse runs of whitespace introduced by the substitution.
+    return " ".join(out.split())
+
 
 def bm25_query(
     query: str,
@@ -42,6 +76,14 @@ def bm25_query(
     if not query.strip():
         return []
 
+    # Strip apostrophes + other tantivy specials before handing to pg_search.
+    # See `_sanitize_bm25_query` docstring and STATUS.md #47.
+    cleaned_query = _sanitize_bm25_query(query)
+    if not cleaned_query:
+        # If sanitation reduced the query to nothing (pathological input
+        # of only special chars), there's nothing meaningful to search.
+        return []
+
     where_clauses, params, _ = build_filter_clauses(filters or RetrievalFilters())
 
     # ParadeDB pg_search syntax (v0.23+):
@@ -60,7 +102,7 @@ def bm25_query(
         ORDER BY bm25_score DESC
         LIMIT %s
     """
-    bind = [query, *params, top_k]
+    bind = [cleaned_query, *params, top_k]
 
     if conn is None:
         from db.connection import get_connection
