@@ -68,6 +68,42 @@ Open http://localhost:3000. If the SystemHealthBanner says the source
 documents service is offline, step 3 didn't succeed — re-run it and
 read its stderr for the specific failure reason.
 
+## Eval / regression detection
+
+A retrieval-only eval harness lives at [`eval/`](eval/README.md). It
+runs in ~30-90 seconds and produces a JSON + Markdown result file
+diffable against previous runs — the regression alarm for retrieval
+pipeline changes.
+
+**Run it whenever you change** `retrieval/`, `ingest/`, `chunking/`,
+or `mcp-server/system-prompt.md`. Commit the resulting
+`eval/results/<UTC-ISO>-<git-sha>.{json,md}` files alongside the
+change so regressions are visible in PR diffs.
+
+```bash
+set -a; source .env.local; set +a
+uv run python -m eval.run_eval
+```
+
+This is "Layer 1" — measures retrieval-pipeline regressions, not
+end-to-end usefulness to analysts. The
+[eval/README.md](eval/README.md) calls out the caveats (lookup
+queries were synthesized FROM chunks, so the recall numbers are an
+upper bound; trust deltas across runs, not absolute values). Layer 2
+(open-ended analyst-query eval with LLM-as-judge or rubric scoring)
+is a future workstream — see the README for what it would look like.
+
+Two companion tools live alongside the runner:
+- `uv run python -m eval.refresh_chunk_ids` — run after a re-ingest;
+  walks `eval/queries.yaml` and repoints any stale chunk_ids at their
+  successors (anchor-text match → cosine-similarity fallback).
+- `uv run python -m eval.calibrate_refusal` — sweeps refusal
+  thresholds against the most recent result and reports refusal
+  precision, recall, and retrieval pass-rate at each. Useful when the
+  rerank model changes or the corpus shifts; the runtime threshold
+  lives in `mcp-server/system-prompt.md` so applying the
+  recommendation is a manual prompt edit.
+
 ## Moving to a new device
 
 Everything is in this single git repo. To launch on a fresh device:

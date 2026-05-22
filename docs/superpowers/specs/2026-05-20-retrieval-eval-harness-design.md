@@ -1,12 +1,60 @@
 ---
 title: Retrieval Eval Harness (Layer 1) — Design Spec
 date: 2026-05-20
-status: drafted
+status: shipped
 authors: Destin Moss, Claude
 audience: implementer of `eval/`, future implementer of Layer 2 agent eval (post-WS3)
 supersedes_in_part:
   - docs/superpowers/plans/2026-05-06-phase-1b-storage-and-retrieval.md WS8 — closes the deferred eval workstream with a richer design
 ---
+
+> **2026-05-22 amendment header.** ✓ Shipped (merge `3a26c19`).
+> For current state see [STATUS.md](../../../STATUS.md) and
+> [eval/README.md](../../../eval/README.md). What diverged from
+> this spec during execution:
+>
+> - **Refusal scope split.** The spec mixed corpus-boundary and
+>   editorial refusals; Layer 1's README now explicitly limits
+>   the refusal queries to corpus-boundary cases (wrong
+>   jurisdiction, fictional entity, future FY). Editorial framing
+>   ("should we...", policy opinions) belongs in a future query-
+>   classifier layer, not retrieval. Two of the 5 refusal queries
+>   in `eval/queries.yaml` (q-030, q-031) straddle this line and
+>   are kept for transparency, but their "failure" to be refused
+>   at the retrieval threshold isn't a retrieval bug.
+> - **Calibration formula changed.** `combined_score` is now
+>   `(precision + recall + retrieval_pass_rate) / 3` (was
+>   `(precision + retrieval_pass_rate) / 2`). Surfaces refusal
+>   recall instead of hiding it — the first calibration sweep
+>   recommended threshold 0.60 with refusal recall 0.20 (catching
+>   1 of 5 refusals) under the old formula; the new formula
+>   correctly recommends 0.70 (recall 0.80).
+> - **Construction-bias caveat made explicit.** Lookup queries
+>   were synthesized FROM chunks, so the 86% recall@5 baseline is
+>   an upper bound, not representative of real analyst usage. The
+>   README now frames this as "Layer 1 retrieval regression
+>   detector," not "the eval system." Layer 2 (open-ended analyst
+>   queries with set-based ground truth + LLM-as-judge or rubric
+>   scoring) is a separate workstream.
+> - **Synthesizer ran via subagent, not the Anthropic CLI.**
+>   `.env.local` lacked an `ANTHROPIC_API_KEY` at execution time,
+>   so a subagent walked the sampled chunks and wrote
+>   `eval/queries.yaml` inline. The CLI path is still wired and
+>   unit-tested; future re-syntheses can use either.
+> - **Detour fixes landed in the same branch.** BM25 apostrophe
+>   sanitizer (closed STATUS.md #47 — 14 of 34 queries had been
+>   crashing); Windows stdout encoding fix on all three CLI
+>   tools; `::text` casts on agency-filter SQL in the refresh
+>   tool (psycopg `IndeterminateDatatype`; mocked tests missed
+>   it).
+> - **Plan-side patches before execution.** The original plan had
+>   a `retrieve()` signature bug (called as a string, not
+>   `RetrievalRequest`), a `RetrievedChunk`-vs-dict shape bug,
+>   and an inverted precision/recall formula in calibration. All
+>   patched in commit `c61202b` before the implementer started.
+>
+> The base spec below is left intact as the original design
+> record; STATUS.md and eval/README.md are the current truth.
 
 # Retrieval Eval Harness — Layer 1
 

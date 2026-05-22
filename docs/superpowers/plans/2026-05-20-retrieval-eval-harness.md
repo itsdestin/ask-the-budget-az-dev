@@ -1,5 +1,15 @@
 # Retrieval Eval Harness (Layer 1) Implementation Plan
 
+> **2026-05-22 amendment header.** ✓ Shipped (merge `3a26c19`).
+> For current state see [STATUS.md](../../../STATUS.md) and
+> [eval/README.md](../../../eval/README.md). For what diverged
+> during execution (refusal scope split, calibration formula
+> change, subagent-driven synthesis, BM25 apostrophe detour fix,
+> etc.), read the matching amendment header on the spec at
+> [docs/superpowers/specs/2026-05-20-retrieval-eval-harness-design.md](../specs/2026-05-20-retrieval-eval-harness-design.md).
+> The plan body below is left intact as the original execution
+> record; the 13 tasks (Task 0 through Task 12) all landed.
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Build a retrieval-only eval harness — `eval/queries.yaml` (~35 LLM-synthesized queries with hybrid chunk_id + dimensions + anchor_text ground truth), `run_eval.py` runner emitting git-committed JSON+MD per run, `refresh_chunk_ids.py` post-reingest fixer, and `calibrate_refusal.py` threshold sweep — so retrieval changes can be measured in 30 seconds instead of dogfooded.
