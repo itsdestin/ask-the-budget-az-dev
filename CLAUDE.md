@@ -44,6 +44,8 @@ cd <repo> && git fetch origin && git pull origin master
 
 **Pushing to master green-lights closing the dev server.** If you started a local dev server to verify a change, shut it down once the commit lands on `origin/master`. Don't leave orphan processes.
 
+**Run the eval after any change to `retrieval/`, `ingest/`, `chunking/`, or `mcp-server/system-prompt.md`.** Command: `uv run python -m eval.run_eval`. Takes ~30-90 seconds; commit the resulting `eval/results/<...>.{json,md}` files alongside the code change so regressions are visible in PR diffs. After re-ingest, run `uv run python -m eval.refresh_chunk_ids` first to repair any stale chunk_ids.
+
 **Clean up worktrees after merging.** `git worktree remove <path>` then `git branch -D <branch>`. Stale worktrees confuse future sessions.
 
 **Sample primary sources go in `samples/raw-<format>/` and are committed.** When the user uploads a primary-source document (legislative bill DOCX, agency report, etc.) that can't be auto-fetched from a public URL the way JLBC PDFs can, drop it under `samples/raw-<format>/` (e.g. `samples/raw-docx/`) and commit it. These files are load-bearing for the slice and Phase 1b's retrieval tests; treating them as gitignored runtime data means they're lost on every worktree create / fresh clone, and the user has to re-upload. PDFs are different — they live under `samples/raw-pdfs/` (gitignored) because the DownloadCache fetches them from public URLs on demand.
