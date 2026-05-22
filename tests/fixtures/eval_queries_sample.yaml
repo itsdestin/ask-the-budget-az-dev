@@ -1,0 +1,22 @@
+- id: q-001
+  query: "What was AHCCCS's FY26 appropriation?"
+  type: lookup
+  expected_chunks:
+    - chunk_id: "fy26-jlbc-baseline-ahccs::3"
+      dimensions:
+        publisher: jlbc
+        doc_type: baseline-per-agency
+        fiscal_year: 2026
+        agency: "agency:ahccs"
+      anchor_text: "$2,587,400"
+  expected_refusal: false
+  synthesized_by: claude-opus-4-7
+  synthesized_at: "2026-05-20T18:00Z"
+
+- id: q-002
+  query: "What's the right tax policy for Arizona?"
+  type: refusal
+  expected_chunks: []
+  expected_refusal: true
+  synthesized_by: claude-opus-4-7
+  synthesized_at: "2026-05-20T18:00Z"
