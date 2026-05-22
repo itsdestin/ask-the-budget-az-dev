@@ -1,0 +1,536 @@
+# Eval query set for Ask the Budget AZ Layer 1 retrieval eval.
+#
+# 34 queries: 24 lookup + 5 comparison + 5 refusal. First seed set
+# generated 2026-05-21 via subagent-driven synthesis (the
+# synthesize_queries.py CLI requires an Anthropic API key not present
+# in .env.local at generation time).
+#
+# IMPORTANT: This is a Layer 1 regression detector, not a usefulness
+# measure. Lookup/comparison queries were synthesized FROM chunks —
+# by construction, the chunk IS the correct answer. The 86% recall@5
+# baseline is an UPPER BOUND, not representative of real analyst
+# usage. Trust deltas across runs, not absolute numbers. See
+# eval/README.md for the full caveat.
+#
+# Refusal queries (q-030 through q-034) test only corpus-boundary
+# cases (wrong jurisdiction, fictional entity, future FY). They do
+# NOT test editorial framing — "should we raise taxes" type questions
+# legitimately retrieve relevant chunks; the editorial framing should
+# be declined at the LLM layer, not at retrieval. q-030 and q-031
+# straddle this line and are kept for transparency, but their
+# "failure" to be refused at the retrieval threshold isn't a
+# retrieval bug.
+#
+# Each lookup/comparison entry points at a real chunk in the live
+# corpus and carries an anchor_text verbatim-copied from that chunk
+# so the refresh tool can re-bind the entry after a re-chunk.
+# Refusal entries have expected_chunks=[] and expected_refusal=true.
+
+- id: q-001
+  query: What is Arizona's FY 2026 employer contribution rate for the Elected Officials Retirement Plan, and what portion of it goes toward paying down unfunded liability?
+  type: lookup
+  expected_chunks:
+    - chunk_id: jlbc-baseline-fy2026-crr-0013
+      dimensions:
+        publisher: jlbc
+        doc_type: topic-pdf
+        fiscal_year: 2026
+      anchor_text: "FY 2026 EORP employer contribution rate is 70.70%"
+  expected_refusal: false
+  synthesized_by: claude-opus-4-7
+  synthesized_at: "2026-05-21T00:00Z"
+
+- id: q-002
+  query: How much did the FY 2026 budget bill appropriate to the State Natural Resource Conservation Board, and what were the line items inside that appropriation?
+  type: lookup
+  expected_chunks:
+    - chunk_id: legislature-budget-bill-fy2026-sb1735-2025-0053
+      dimensions:
+        publisher: legislature
+        doc_type: budget-bill
+        fiscal_year: 2026
+        agency: "agency:nrc"
+      anchor_text: "state natural resource\n\nconservation board"
+  expected_refusal: false
+  synthesized_by: claude-opus-4-7
+  synthesized_at: "2026-05-21T00:00Z"
+
+- id: q-003
+  query: What does the Governor's FY 2027 Executive Budget propose for the Department of Real Estate's General Fund spending?
+  type: lookup
+  expected_chunks:
+    - chunk_id: governor-governors-budget-fy2027-1093
+      dimensions:
+        publisher: governor
+        doc_type: governors-budget
+        fiscal_year: 2027
+        agency: "agency:gov:real-estate-department-of"
+      anchor_text: "Real Estate, Department of"
+  expected_refusal: false
+  synthesized_by: claude-opus-4-7
+  synthesized_at: "2026-05-21T00:00Z"
+
+- id: q-004
+  query: In the FY 2025 AFR, what was the Utility Regulation Revolving Fund's total general appropriation authority?
+  type: lookup
+  expected_chunks:
+    - chunk_id: agao-afr-fy2025-0076
+      dimensions:
+        publisher: agao
+        doc_type: afr
+        fiscal_year: 2025
+        agency: "agency:sba"
+      anchor_text: "UTILITY REGULATION REVOLVING FUND TOTAL"
+  expected_refusal: false
+  synthesized_by: claude-opus-4-7
+  synthesized_at: "2026-05-21T00:00Z"
+
+- id: q-005
+  query: Did DES receive any supplemental General Fund money for summer food benefits in the FY 2025 budget cycle? If so, how much, and is the appropriation subject to reversion?
+  type: lookup
+  expected_chunks:
+    - chunk_id: legislature-budget-bill-fy2026-sb1735-2025-0098
+      dimensions:
+        publisher: legislature
+        doc_type: budget-bill
+        fiscal_year: 2026
+        agency: "agency:des"
+      anchor_text: "department of economic security for summer food benefits"
+  expected_refusal: false
+  synthesized_by: claude-opus-4-7
+  synthesized_at: "2026-05-21T00:00Z"
+
+- id: q-006
+  query: What General Appropriations Act footnotes apply to the Attorney General's Medicaid Fraud Control Unit and Internet Crimes Against Children appropriations in FY 2027?
+  type: lookup
+  expected_chunks:
+    - chunk_id: jlbc-baseline-fy2027-att-0010
+      dimensions:
+        publisher: jlbc
+        doc_type: baseline-per-agency
+        fiscal_year: 2027
+        agency: "agency:att"
+      anchor_text: "medicaid fraud control unit within the criminal division"
+  expected_refusal: false
+  synthesized_by: claude-opus-4-7
+  synthesized_at: "2026-05-21T00:00Z"
+
+- id: q-007
+  query: How does the FY 2027 Executive Budget describe the mission and statutory basis of the Citizens Clean Elections Commission?
+  type: lookup
+  expected_chunks:
+    - chunk_id: governor-governors-budget-fy2027-1148
+      dimensions:
+        publisher: governor
+        doc_type: governors-budget
+        fiscal_year: 2027
+        agency: "agency:cce"
+      anchor_text: "Citizens Clean Elections Act is a campaign finance reform measure"
+  expected_refusal: false
+  synthesized_by: claude-opus-4-7
+  synthesized_at: "2026-05-21T00:00Z"
+
+- id: q-008
+  query: According to the FY 2025 AFR, what supplemental and lapsed-reversion adjustments affected the largest funds (those with net appropriations near $145 million)?
+  type: lookup
+  expected_chunks:
+    - chunk_id: agao-afr-fy2025-0075
+      dimensions:
+        publisher: agao
+        doc_type: afr
+        fiscal_year: 2025
+      anchor_text: "SUPPLEMENTAL"
+  expected_refusal: false
+  synthesized_by: claude-opus-4-7
+  synthesized_at: "2026-05-21T00:00Z"
+
+- id: q-009
+  query: What was the ending fund balance of the DOR Unclaimed Property Fund as reported in the FY 2025 AFR?
+  type: lookup
+  expected_chunks:
+    - chunk_id: agao-afr-fy2025-0116
+      dimensions:
+        publisher: agao
+        doc_type: afr
+        fiscal_year: 2025
+        agency: "agency:sba"
+      anchor_text: "1520-DOR UNCLAIMED PROPERTY FUND"
+  expected_refusal: false
+  synthesized_by: claude-opus-4-7
+  synthesized_at: "2026-05-21T00:00Z"
+
+- id: q-010
+  query: How much did the FY 2026 budget bill appropriate to the Arizona State Board of Nursing, and how was it split between the board's own fund and the General Fund?
+  type: lookup
+  expected_chunks:
+    - chunk_id: legislature-budget-bill-fy2026-sb1735-2025-0056
+      dimensions:
+        publisher: legislature
+        doc_type: budget-bill
+        fiscal_year: 2026
+        agency: "agency:nur"
+      anchor_text: "Student registered nurse"
+  expected_refusal: false
+  synthesized_by: claude-opus-4-7
+  synthesized_at: "2026-05-21T00:00Z"
+
+- id: q-011
+  query: In the FY 2025 AFR, what were the major appropriation line items showing roughly $145 million in net appropriations with $644,000 in continuing authority?
+  type: lookup
+  expected_chunks:
+    - chunk_id: agao-afr-fy2025-0013
+      dimensions:
+        publisher: agao
+        doc_type: afr
+        fiscal_year: 2025
+      anchor_text: "469,573\t145,379,273\t144,735,272\t644,000"
+  expected_refusal: false
+  synthesized_by: claude-opus-4-7
+  synthesized_at: "2026-05-21T00:00Z"
+
+- id: q-012
+  query: What water infrastructure projects does the Governor's FY 2027 Executive Budget propose for the Water Infrastructure Finance Authority, and what are the dollar amounts?
+  type: lookup
+  expected_chunks:
+    - chunk_id: governor-governors-budget-fy2027-1334
+      dimensions:
+        publisher: governor
+        doc_type: governors-budget
+        fiscal_year: 2027
+        agency: "agency:wif"
+      anchor_text: "Gilbert Rehabilitation and Drilling of Water Wells"
+  expected_refusal: false
+  synthesized_by: claude-opus-4-7
+  synthesized_at: "2026-05-21T00:00Z"
+
+- id: q-013
+  query: What was the Board of Regents' approved General Fund appropriation in FY 2025, and how did the Arizona Promise Program funding change from FY 2024?
+  type: lookup
+  expected_chunks:
+    - chunk_id: jlbc-approps-fy2025-unibor-0000
+      dimensions:
+        publisher: jlbc
+        doc_type: approps-per-agency
+        fiscal_year: 2025
+        agency: "agency:unibor"
+      anchor_text: "Arizona Promise Program"
+  expected_refusal: false
+  synthesized_by: claude-opus-4-7
+  synthesized_at: "2026-05-21T00:00Z"
+
+- id: q-014
+  query: What does the Governor's FY 2027 budget glossary say PASARR and FMAP stand for?
+  type: lookup
+  expected_chunks:
+    - chunk_id: governor-governors-budget-fy2027-1390
+      dimensions:
+        publisher: governor
+        doc_type: governors-budget
+        fiscal_year: 2027
+        agency: "agency:gov:capital-projects"
+      anchor_text: "Pre-admission Screening and Annual"
+  expected_refusal: false
+  synthesized_by: claude-opus-4-7
+  synthesized_at: "2026-05-21T00:00Z"
+
+- id: q-015
+  query: Why does the FY 2025 ADOA budget show a roughly $1.65 million increase from the AFIS Collections Fund, and how much of that was treated as one-time?
+  type: lookup
+  expected_chunks:
+    - chunk_id: jlbc-approps-fy2025-doa-0024
+      dimensions:
+        publisher: jlbc
+        doc_type: approps-per-agency
+        fiscal_year: 2025
+        agency: "agency:doa"
+      anchor_text: "operation and maintenance of the upgraded AFIS system"
+  expected_refusal: false
+  synthesized_by: claude-opus-4-7
+  synthesized_at: "2026-05-21T00:00Z"
+
+- id: q-016
+  query: Which counties received school safety interoperability funding in FY 2026, and what amount did Yavapai County get?
+  type: lookup
+  expected_chunks:
+    - chunk_id: legislature-budget-bill-fy2026-sb1735-2025-0118
+      dimensions:
+        publisher: legislature
+        doc_type: budget-bill
+        fiscal_year: 2026
+        agency: "agency:doa"
+      anchor_text: "$600,000 to Yavapai county"
+  expected_refusal: false
+  synthesized_by: claude-opus-4-7
+  synthesized_at: "2026-05-21T00:00Z"
+
+- id: q-017
+  query: In the FY 2025 AFR, what general appropriations were made from the Prison Construction and Operations Fund, and what continuing authority was carried over from Fire and Life Safety Upgrades?
+  type: lookup
+  expected_chunks:
+    - chunk_id: agao-afr-fy2025-0088
+      dimensions:
+        publisher: agao
+        doc_type: afr
+        fiscal_year: 2025
+        agency: "agency:sba"
+      anchor_text: "PRISON CONSTRUCTION AND OPERATIONS FUND TOTAL"
+  expected_refusal: false
+  synthesized_by: claude-opus-4-7
+  synthesized_at: "2026-05-21T00:00Z"
+
+- id: q-018
+  query: How much wildfire mitigation funding did the Department of Forestry and Fire Management receive in FY 2026, and how long is that money available before it lapses?
+  type: lookup
+  expected_chunks:
+    - chunk_id: legislature-budget-bill-fy2026-sb1735-2025-0034
+      dimensions:
+        publisher: legislature
+        doc_type: budget-bill
+        fiscal_year: 2026
+        agency: "agency:for"
+      anchor_text: "wildfire mitigation line item is exempt"
+  expected_refusal: false
+  synthesized_by: claude-opus-4-7
+  synthesized_at: "2026-05-21T00:00Z"
+
+- id: q-019
+  query: According to the FY 2025 AFR, what was the largest single net-appropriation amount in the table (in the $650-700 million range) and what were its expenditures and remaining authority?
+  type: lookup
+  expected_chunks:
+    - chunk_id: agao-afr-fy2025-0071
+      dimensions:
+        publisher: agao
+        doc_type: afr
+        fiscal_year: 2025
+      anchor_text: "695,270,431\t560,634,909\t134,635,522"
+  expected_refusal: false
+  synthesized_by: claude-opus-4-7
+  synthesized_at: "2026-05-21T00:00Z"
+
+- id: q-020
+  query: What changes did the FY 2027 AHCCCS Baseline make to the Critical Access Hospital program, and how many CAHs qualified for funding in FY 2025?
+  type: lookup
+  expected_chunks:
+    - chunk_id: jlbc-baseline-fy2027-axs-0068
+      dimensions:
+        publisher: jlbc
+        doc_type: baseline-per-agency
+        fiscal_year: 2027
+        agency: "agency:axs"
+      anchor_text: "Remove One-Time Supplemental Pool Increase"
+  expected_refusal: false
+  synthesized_by: claude-opus-4-7
+  synthesized_at: "2026-05-21T00:00Z"
+
+- id: q-021
+  query: In the Governor's FY 2027 budget, how is the Department of Education's appropriation broken out by program area, and what's the largest single program?
+  type: lookup
+  expected_chunks:
+    - chunk_id: governor-governors-budget-fy2027-0288
+      dimensions:
+        publisher: governor
+        doc_type: governors-budget
+        fiscal_year: 2027
+      anchor_text: "Agency Total - Appropriated Funds"
+  expected_refusal: false
+  synthesized_by: claude-opus-4-7
+  synthesized_at: "2026-05-21T00:00Z"
+
+- id: q-022
+  query: Did the Secretary of State get any supplemental funding for the FY 2025 special primary and general elections to fill the congressional district 7 vacancy?
+  type: lookup
+  expected_chunks:
+    - chunk_id: legislature-budget-bill-fy2026-sb1735-2025-0101
+      dimensions:
+        publisher: legislature
+        doc_type: budget-bill
+        fiscal_year: 2026
+        agency: "agency:leghou"
+      anchor_text: "vacancy in the United States house of representatives for Arizona's congressional district 7"
+  expected_refusal: false
+  synthesized_by: claude-opus-4-7
+  synthesized_at: "2026-05-21T00:00Z"
+
+- id: q-023
+  query: What reporting does the FY 2025 Appropriations Report require from the Department of Corrections regarding bed capacity and monthly expenditures?
+  type: lookup
+  expected_chunks:
+    - chunk_id: jlbc-approps-fy2025-adc-0012
+      dimensions:
+        publisher: jlbc
+        doc_type: approps-per-agency
+        fiscal_year: 2025
+        agency: "agency:adc"
+      anchor_text: "report on bed capacity to the joint legislative budget committee"
+  expected_refusal: false
+  synthesized_by: claude-opus-4-7
+  synthesized_at: "2026-05-21T00:00Z"
+
+- id: q-024
+  query: How does the Governor's FY 2027 budget describe the Arizona State Schools for the Deaf and the Blind's program structure, and what one-time appropriation does the Executive Budget remove?
+  type: lookup
+  expected_chunks:
+    - chunk_id: governor-governors-budget-fy2027-1165
+      dimensions:
+        publisher: governor
+        doc_type: governors-budget
+        fiscal_year: 2027
+        agency: "agency:sdb"
+      anchor_text: "Supplemental Early Childhood Therapies"
+  expected_refusal: false
+  synthesized_by: claude-opus-4-7
+  synthesized_at: "2026-05-21T00:00Z"
+
+# Comparison queries (q-025 through q-029)
+
+- id: q-025
+  query: How did DES's General Fund obligations for the Developmental Disabilities program change between the FY 2026 and FY 2027 Baselines, and what one-time administrative items dropped out?
+  type: comparison
+  expected_chunks:
+    - chunk_id: jlbc-baseline-fy2026-des-0065
+      dimensions:
+        publisher: jlbc
+        doc_type: baseline-per-agency
+        fiscal_year: 2026
+        agency: "agency:des"
+      anchor_text: "state match transfer from AHCCCS"
+    - chunk_id: jlbc-baseline-fy2027-des-0043
+      dimensions:
+        publisher: jlbc
+        doc_type: baseline-per-agency
+        fiscal_year: 2027
+        agency: "agency:des"
+      anchor_text: "one-time funding for summer food benefits administration"
+  expected_refusal: false
+  synthesized_by: claude-opus-4-7
+  synthesized_at: "2026-05-21T00:00Z"
+
+- id: q-026
+  query: How did the Attorney General's fund landscape evolve between the FY 2026 and FY 2027 Baselines, particularly around revolving funds and the Child and Family Advocacy Centers line item?
+  type: comparison
+  expected_chunks:
+    - chunk_id: jlbc-baseline-fy2026-att-0040
+      dimensions:
+        publisher: jlbc
+        doc_type: baseline-per-agency
+        fiscal_year: 2026
+        agency: "agency:att"
+      anchor_text: "Anti-Racketeering Revolving Fund"
+    - chunk_id: jlbc-baseline-fy2027-att-0019
+      dimensions:
+        publisher: jlbc
+        doc_type: baseline-per-agency
+        fiscal_year: 2027
+        agency: "agency:att"
+      anchor_text: "Child and Family Advocacy Centers"
+  expected_refusal: false
+  synthesized_by: claude-opus-4-7
+  synthesized_at: "2026-05-21T00:00Z"
+
+- id: q-027
+  query: How did the Department of Corrections' Community Corrections program in FY 2026 compare to inmate health care contracted services in FY 2027 in terms of program scale?
+  type: comparison
+  expected_chunks:
+    - chunk_id: jlbc-baseline-fy2026-adc-0004
+      dimensions:
+        publisher: jlbc
+        doc_type: baseline-per-agency
+        fiscal_year: 2026
+        agency: "agency:adc"
+      anchor_text: "Community Corrections Program Expenditures"
+    - chunk_id: jlbc-baseline-fy2027-adc-0024
+      dimensions:
+        publisher: jlbc
+        doc_type: baseline-per-agency
+        fiscal_year: 2027
+        agency: "agency:adc"
+      anchor_text: "Inmate Health Care Contracted Services"
+  expected_refusal: false
+  synthesized_by: claude-opus-4-7
+  synthesized_at: "2026-05-21T00:00Z"
+
+- id: q-028
+  query: How did DES's federal pass-through and child support fund activity differ between the FY 2026 and FY 2027 Baselines?
+  type: comparison
+  expected_chunks:
+    - chunk_id: jlbc-baseline-fy2026-des-0088
+      dimensions:
+        publisher: jlbc
+        doc_type: baseline-per-agency
+        fiscal_year: 2026
+        agency: "agency:des"
+      anchor_text: "Public Assistance Collections Fund"
+    - chunk_id: jlbc-baseline-fy2027-des-0010
+      dimensions:
+        publisher: jlbc
+        doc_type: baseline-per-agency
+        fiscal_year: 2027
+        agency: "agency:des"
+      anchor_text: "Child Support Enforcement Administration Fund"
+  expected_refusal: false
+  synthesized_by: claude-opus-4-7
+  synthesized_at: "2026-05-21T00:00Z"
+
+- id: q-029
+  query: How did the community college funding mechanism described in the JLBC Baselines change between FY 2026 (tribal community colleges) and FY 2027 (rural county allocation)?
+  type: comparison
+  expected_chunks:
+    - chunk_id: jlbc-baseline-fy2026-acc-0024
+      dimensions:
+        publisher: jlbc
+        doc_type: baseline-per-agency
+        fiscal_year: 2026
+        agency: "agency:acc"
+      anchor_text: "Tribal Community Colleges"
+    - chunk_id: jlbc-baseline-fy2027-acc-0024
+      dimensions:
+        publisher: jlbc
+        doc_type: baseline-per-agency
+        fiscal_year: 2027
+        agency: "agency:acc"
+      anchor_text: "Rural County Allocation"
+  expected_refusal: false
+  synthesized_by: claude-opus-4-7
+  synthesized_at: "2026-05-21T00:00Z"
+
+# Refusal queries (q-030 through q-034) — out-of-scope by construction
+
+- id: q-030
+  query: Should Arizona raise or lower its income tax rate to better fund K-12 education?
+  type: refusal
+  expected_chunks: []
+  expected_refusal: true
+  synthesized_by: claude-opus-4-7
+  synthesized_at: "2026-05-21T00:00Z"
+
+- id: q-031
+  query: What's the best policy recommendation for handling Arizona's water shortage in the next decade?
+  type: refusal
+  expected_chunks: []
+  expected_refusal: true
+  synthesized_by: claude-opus-4-7
+  synthesized_at: "2026-05-21T00:00Z"
+
+- id: q-032
+  query: What will the AHCCCS General Fund appropriation be in FY 2030?
+  type: refusal
+  expected_chunks: []
+  expected_refusal: true
+  synthesized_by: claude-opus-4-7
+  synthesized_at: "2026-05-21T00:00Z"
+
+- id: q-033
+  query: What did the Arizona Office of Cybersecurity Defense spend on threat-intelligence operations in FY 2026?
+  type: refusal
+  expected_chunks: []
+  expected_refusal: true
+  synthesized_by: claude-opus-4-7
+  synthesized_at: "2026-05-21T00:00Z"
+
+- id: q-034
+  query: What was the City of Tucson's General Fund ending balance in FY 2026?
+  type: refusal
+  expected_chunks: []
+  expected_refusal: true
+  synthesized_by: claude-opus-4-7
+  synthesized_at: "2026-05-21T00:00Z"

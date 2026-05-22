@@ -1,6 +1,6 @@
 # Project Status
 
-**Last updated:** 2026-05-20
+**Last updated:** 2026-05-22
 
 This file is the single source of truth for what's shipped, what's
 open, and what's blocked. The phase plans under `docs/superpowers/`
@@ -21,7 +21,7 @@ source. When something ships, update only this file.
 |---|---|---|
 | Phase 0 — Investigation | ✓ Done (2026-05-06) | Findings memo + chunk-shape + data-model docs |
 | Phase 1a — Ingest + chunking | ✓ Done on slice (2026-05-06), volume ingest substantially complete (2026-05-12) | 382 docs / 7,755 chunks; missing older FYs + a few in-cycle gaps |
-| Phase 1b — Storage + retrieval | ✓ Done on slice (2026-05-07), volume-validated implicitly | Hybrid pipeline live and serving 7K+ chunks; eval harness (WS8) still pending |
+| Phase 1b — Storage + retrieval | ✓ Done (slice 2026-05-07, volume-validated implicitly, WS8 eval harness shipped 2026-05-22) | Hybrid pipeline live and serving 7K+ chunks; eval harness baseline: recall@5 86%, recall@20 100% on 34-query set |
 | Phase 1c — Synthesis + UI | 🟡 Substantially done | All user-visible surfaces shipped; 2026-05-19/20 dogfood-hardening pass landed Items 1-8 plus four follow-up fix waves; faithfulness verifier (WS3) + audit log (WS5) still not built |
 | Volume ingest | 🟡 Mostly done | FY25 + FY26 + FY27 across all 4 publishers; gaps: older FYs (FY24 and back), FY26 Approps Report, FY27 Approps/Budget bill |
 | Phase 2 — Companion + verify-mode | 🔴 Not started | Defers until v1 demonstrates internal value |
@@ -74,6 +74,16 @@ source. When something ships, update only this file.
   - Civic-warm theme tokens; single-mascot architecture with pixel-aligned variant swaps (idle / typing / presenting / refusal); seated typing scene with 12-second behavior loop; welcome hero on empty thread; suggestion chips; speech-bubble assistant messages; page pinned (only chat thread + PDF viewer scroll); footer honesty line.
 - Sidecar `/health` probe at session start; renders a `SystemHealthBanner` above the chat thread when the probe fails (e.g. sidecar not running). Returned inline from `startConversation` as `{conversationId, health}` — no event-subscription plumbing.
 - **197 vitest passing**
+
+### Eval harness (`eval/`) — Layer 1 retrieval eval
+
+- 34 LLM-synthesized queries (`eval/queries.yaml`) with hybrid ground truth (chunk_id + dimensions + anchor_text)
+- `eval/run_eval.py` — calls retrieve() directly, emits JSON + Markdown to `eval/results/<UTC-ISO>-<git-sha>.{json,md}`, computes delta vs previous run
+- `eval/refresh_chunk_ids.py` — post-reingest stale-chunk_id fixer (anchor match → cosine fallback)
+- `eval/calibrate_refusal.py` — sweep refusal thresholds + recommend
+- `eval/synthesize_queries.py` — LLM-driven query generator (Anthropic SDK; subagent-driven path is also documented when no API key)
+- **44 pytest passing** across 6 test modules
+- **First baseline (committed under `eval/results/`)**: recall@5 86%, recall@20 100%, latency p95 2561ms on the 34-query set. Refusal precision was 0% at the hardcoded 0.30 threshold (Voyage rerank scores sit at 0.56-0.93 — calibration recommends moving the prompt threshold to 0.60 for perfect separation on this eval set).
 
 ---
 
@@ -151,13 +161,14 @@ Hand-off prompt for additional ingest at [`PROMPT-volume-ingest.md`](PROMPT-volu
 
 ### Open follow-up tasks (tracked in TaskList)
 - **#45** — Investigate `(unknown)` tool card after Item 1 ships (verification-only; needs a fresh dogfood transcript)
-- **#47** — BM25 query parser crashes on apostrophes (`Governor's`, `Children's`, etc. — ParadeDB parses `'` as a quote delimiter, whole retrieve() call aborts)
 - **#55** — DOCX chunk fallback (render chunk text inline when no PDF backing)
 - **#56** — Diagnose cross-turn metadata gap
 - **#57** — Capture chunk→PDF coord map during ingest (architectural PDF-accuracy fix)
 - **#58** — Post-mortem: 2026-05-20 dogfood revealed 4 distinct fix categories worth documenting
 
 ### Recently fixed — verify in next dogfood pass
+- BM25 query parser crashed on apostrophes (#47) — fixed by sanitizing tantivy/Lucene special chars before query string reaches pg_search. 14 of 34 eval queries previously aborted; now 0 crash.
+- MCP refusal threshold (`top_score < 0.30` in mcp-server/system-prompt.md) effectively dead — Voyage rerank scores never go below ~0.56 on the current corpus. Eval calibration recommends 0.60. Threshold update is its own decision.
 - Restated facts across multiple sentences only chipped the first occurrence (per-sentence placement + key-fact-token rule)
 - Wrong yellow rectangle when bbox-restricted search missed (strict-bbox, no whole-page fallback)
 - Source text only visible inside the PDF (always-visible `CitedTextPanel` below the page)
