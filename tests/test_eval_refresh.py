@@ -135,3 +135,98 @@ def test_find_anchor_match_returns_none_when_no_anchor_hit(monkeypatch):
         dims=dims, anchor_text="missing anchor phrase"
     )
     assert match is None
+
+
+def test_refresh_yaml_round_trips_and_updates_chunk_id(tmp_path, monkeypatch):
+    """Full refresh against a sample yaml: stale chunk_id is replaced
+    with an anchor match, the YAML is written back preserving structure."""
+    from eval.refresh_chunk_ids import refresh_queries_file
+
+    # Sample YAML with a stale chunk_id.
+    yaml_text = """\
+- id: q-001
+  query: "What was AHCCCS FY26 GF appropriation?"
+  type: lookup
+  expected_chunks:
+    - chunk_id: "stale-chunk::1"
+      dimensions:
+        publisher: jlbc
+        doc_type: baseline-per-agency
+        fiscal_year: 2026
+        agency: "agency:ahccs"
+      anchor_text: "$2,587,400"
+  expected_refusal: false
+  synthesized_by: claude-opus-4-7
+  synthesized_at: "2026-05-20T18:00Z"
+"""
+    queries_path = tmp_path / "queries.yaml"
+    queries_path.write_text(yaml_text)
+
+    # Mock DB: stale-chunk::1 doesn't exist; one candidate matches anchor.
+    import eval.refresh_chunk_ids as refresh
+
+    def fake_chunk_exists(chunk_id):
+        return chunk_id != "stale-chunk::1"
+
+    def fake_find_anchor_match(dims, anchor_text):
+        if anchor_text == "$2,587,400":
+            return "new-chunk::5"
+        return None
+
+    def fake_find_cosine_match(dims, query_text):
+        return None  # not reached
+
+    monkeypatch.setattr(refresh, "chunk_exists", fake_chunk_exists)
+    monkeypatch.setattr(refresh, "find_anchor_match", fake_find_anchor_match)
+    monkeypatch.setattr(refresh, "find_cosine_match", fake_find_cosine_match)
+
+    summary = refresh_queries_file(str(queries_path))
+    assert summary["refreshed"] == 1
+    assert summary["manual_review"] == 0
+    assert summary["unchanged"] == 0
+
+    # Re-read the YAML and confirm the chunk_id was updated in place.
+    from ruamel.yaml import YAML
+    yaml = YAML()
+    with open(queries_path) as f:
+        updated = yaml.load(f)
+    assert updated[0]["expected_chunks"][0]["chunk_id"] == "new-chunk::5"
+
+
+def test_refresh_flags_manual_review_when_no_match(tmp_path, monkeypatch):
+    """When neither anchor nor cosine finds a match, the query is left
+    untouched and counted as manual_review."""
+    from eval.refresh_chunk_ids import refresh_queries_file
+
+    yaml_text = """\
+- id: q-001
+  query: "x"
+  type: lookup
+  expected_chunks:
+    - chunk_id: "stale::1"
+      dimensions:
+        publisher: jlbc
+        doc_type: baseline-per-agency
+        fiscal_year: 2026
+        agency: "agency:gone"
+      anchor_text: "missing"
+  expected_refusal: false
+"""
+    queries_path = tmp_path / "queries.yaml"
+    queries_path.write_text(yaml_text)
+
+    import eval.refresh_chunk_ids as refresh
+    monkeypatch.setattr(refresh, "chunk_exists", lambda cid: False)
+    monkeypatch.setattr(refresh, "find_anchor_match", lambda *a: None)
+    monkeypatch.setattr(refresh, "find_cosine_match", lambda *a: None)
+
+    summary = refresh_queries_file(str(queries_path))
+    assert summary["manual_review"] == 1
+    assert summary["refreshed"] == 0
+
+    # The YAML was not modified.
+    from ruamel.yaml import YAML
+    yaml = YAML()
+    with open(queries_path) as f:
+        unchanged = yaml.load(f)
+    assert unchanged[0]["expected_chunks"][0]["chunk_id"] == "stale::1"
