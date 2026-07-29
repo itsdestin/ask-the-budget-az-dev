@@ -59,6 +59,7 @@ dev = [
 [tool.pytest.ini_options]
 markers = [
     "network: tests that fetch from the live JLBC URLs via the download cache",
+    "slow: downloads/loads real ONNX models",
 ]
 
 # PyTorch CUDA wheels for Nvidia GPU acceleration.
