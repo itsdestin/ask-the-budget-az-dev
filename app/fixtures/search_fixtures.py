@@ -6,7 +6,8 @@ corpus doc_id. Plan 4's PDF panel keys on doc_id + page, so an un-namespaced
 id (two of these started life as real ids) would pull up a genuine PDF page
 next to this file's fabricated snippet — exactly the sort of unauditable
 citation the repo forbids. Titles, snippets, and pages stay realistic on
-purpose: once the id is namespaced they read as obvious fixture data.
+purpose — the containment comes from the namespaced id: nothing can resolve
+these rows against a real document.
 """
 
 FIXTURE_ROWS = [

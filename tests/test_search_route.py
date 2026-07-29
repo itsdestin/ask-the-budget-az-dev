@@ -46,5 +46,6 @@ def test_field_constraints_reject_bad_input():
     # before the route body runs, so they are 422s, not the route's own 400.
     c = client()
     assert c.post("/api/search", json={"query": "budget", "top_k": 0}).status_code == 422
+    assert c.post("/api/search", json={"query": "budget", "top_k": 101}).status_code == 422
     assert c.post("/api/search",
                   json={"query": "budget", "corpus": "bogus"}).status_code == 422
