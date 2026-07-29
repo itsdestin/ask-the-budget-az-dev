@@ -1,0 +1,11 @@
+/* Scaffold-only baseline. Task 7 replaces this with the design-system tokens
+   ported from webapp/reference/DESIGN-SYSTEM.md. */
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+}

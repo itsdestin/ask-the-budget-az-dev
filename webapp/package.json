@@ -1,0 +1,33 @@
+{
+  "name": "ask-the-budget-az-webapp",
+  "private": true,
+  "version": "0.0.0",
+  "type": "module",
+  "//react-router-dom": "No release of react-router is npm-audit-clean right now, so this is the least-bad pick, not an oversight. 7.18.x carries exactly one open advisory (GHSA-qwww-vcr4-c8h2, RSC-mode CSRF bypass) which cannot apply here: this is a client-only SPA with no RSC and no server actions. Every version <=7.17.0 instead carries 14 advisories (SSR XSS, open redirects, turbo-stream RCE) that WERE fixed in 7.18.0, so downgrading is strictly worse. Re-run `npm audit` after any bump; drop this note once the RSC fix ships.",
+  "//jsdom": "Held at ^26 (engines: node>=18). jsdom 27+ requires node ^20.19/^22.12/>=24 and jsdom 30 drops node 20 entirely; this project targets node 20+.",
+  "scripts": {
+    "dev": "vite",
+    "build": "tsc -b && vite build",
+    "preview": "vite preview",
+    "test": "vitest run",
+    "test:watch": "vitest"
+  },
+  "dependencies": {
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1",
+    "react-router-dom": "^7.18.2"
+  },
+  "devDependencies": {
+    "@testing-library/dom": "^10.4.1",
+    "@testing-library/jest-dom": "^7.0.0",
+    "@testing-library/react": "^16.3.2",
+    "@types/node": "^22.20.1",
+    "@types/react": "^18.3.31",
+    "@types/react-dom": "^18.3.7",
+    "@vitejs/plugin-react": "^5.2.0",
+    "jsdom": "^26.1.0",
+    "typescript": "~5.7.3",
+    "vite": "^6.4.3",
+    "vitest": "^3.2.7"
+  }
+}
