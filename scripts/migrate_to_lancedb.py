@@ -24,13 +24,22 @@ import json
 import os
 import sys
 import time
+from pathlib import Path
 from typing import Any
 
 import psycopg
 from psycopg.rows import dict_row
 
-from retrieval.local_embedder import LocalEmbedder
-from store.chunk_store import ChunkStore
+# Repo root on sys.path so `retrieval.*` / `store.*` resolve when this is
+# invoked as a plain script (`uv run python scripts/...`), which puts
+# scripts/ — not the root — on the path. Same prologue as
+# scripts/embed_corpus.py and friends.
+ROOT = Path(__file__).resolve().parent.parent
+if str(ROOT) not in sys.path:
+    sys.path.insert(0, str(ROOT))
+
+from retrieval.local_embedder import LocalEmbedder  # noqa: E402
+from store.chunk_store import ChunkStore  # noqa: E402
 
 # Column names verified against db/migrations/0001_initial_schema.sql
 # (chunks.* + documents.publisher). ORDER BY chunk_id makes the run
