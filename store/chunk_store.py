@@ -10,8 +10,8 @@ added by search paths; retrieval code adapts them to RetrievedChunk
 Concurrency model (spec S6): any number of reader processes; writers
 are externally serialized by the ingest lock (Plan 3). This class does
 NOT itself lock. Readers never create or mutate tables — only the write
-paths (upsert_chunks / build_fts_index / ensure_tables) do — so a
-read-only process on the office share never writes to it.
+paths (upsert_chunks / build_fts_index / optimize / ensure_tables) do —
+so a read-only process on the office share never writes to it.
 """
 from __future__ import annotations
 
@@ -26,13 +26,6 @@ from store.schema import chunk_schema
 
 DEFAULT_DIM = 384  # BAAI/bge-small-en-v1.5
 CORPUS_TABLES = ("budget_chunks", "fiscal_note_chunks")
-
-# WHY: LanceDB search results carry the relevance value under different
-# names depending on query type and version (vector -> _distance,
-# FTS -> _score, hybrid/reranked -> _relevance_score). We probe in order
-# rather than hardcoding one key.
-_FTS_SCORE_KEYS = ("_score", "score", "_relevance_score")
-
 
 def _sql_str(value: str) -> str:
     """Render a Python string as a SQL string literal, safely quoted.
@@ -220,8 +213,11 @@ class ChunkStore:
         if where:
             q = q.where(where, prefilter=True)
         out = q.to_list()
+        # WHY no alias-probing here: .select() above names _score explicitly,
+        # so if LanceDB ever renames the FTS relevance column the query fails
+        # loudly at the select — a fallback key could never be reached.
         for r in out:
-            r["_score"] = self._pop_fts_score(r)
+            r["_score"] = self._pop_required(r, "_score")
         return out
 
     @staticmethod
@@ -240,22 +236,6 @@ class ChunkStore:
             )
         value = row.pop(key)
         return float(value) if value is not None else 0.0
-
-    @classmethod
-    def _pop_fts_score(cls, row: dict[str, Any]) -> float:
-        """Pull the BM25 relevance value out of a raw FTS result row.
-
-        WHY a helper: the column name varies across LanceDB versions and
-        query paths, so we probe the known aliases before giving up.
-        """
-        for key in _FTS_SCORE_KEYS:
-            if key in row:
-                return cls._pop_required(row, key)
-        raise RuntimeError(
-            "LanceDB FTS result carries no relevance column (looked for "
-            f"{', '.join(_FTS_SCORE_KEYS)}), so hits cannot be ranked. "
-            f"Columns present: {sorted(row)}."
-        )
 
     # -- filters --------------------------------------------------------
     @staticmethod

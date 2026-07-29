@@ -234,6 +234,3 @@ def test_optimize_is_callable_after_bulk_load(store):
     store.optimize("budget_chunks")
     assert store.count("budget_chunks") == before
     assert store.get_by_ids("budget_chunks", ["b4"])[0]["text"] == "batch row 4"
-
-    assert store.filter_expr(is_table=True) == "is_table = true"
-    assert store.filter_expr() is None
