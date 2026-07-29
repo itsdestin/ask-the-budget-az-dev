@@ -1,0 +1,54 @@
+/* App chrome — CSS lifted from the approved JLBC mockup (webapp/reference/index.html).
+ *
+ * Rules below are copied from that file's <style> block with their original
+ * selectors and class names intact, so the mockup's markup keeps working here
+ * unmodified (spec S12: port, don't redesign). Every deviation is commented.
+ *
+ * Scope for now: the base/body reset the tokens assume + the sticky header and
+ * pill nav. Page-level CSS (hero, gateway cards, content cards, footer) arrives
+ * with the Home / Search / Fiscal Notes ports.
+ */
+
+/* ===== base — verbatim from the mockup ===== */
+*{box-sizing:border-box;} html{scroll-behavior:smooth;}
+body{margin:0;font-family:var(--font);color:var(--ink);background:var(--canvas);line-height:1.6;-webkit-font-smoothing:antialiased;}
+a{color:var(--navy);text-decoration:none;} a:hover{text-decoration:underline;}
+img{display:block;max-width:100%;} h1,h2,h3,h4{margin:0;line-height:1.2;}
+.wrap{max-width:var(--maxw);margin:0 auto;padding:0 22px;}
+
+/* ===== shared chrome: header — verbatim from the mockup ===== */
+header.site{background:#fff;border-bottom:3px solid var(--navy-900);position:sticky;top:0;z-index:50;}
+.head{display:flex;align-items:center;gap:14px;min-height:84px;position:relative;}
+.logo img{height:60px;width:auto;}
+
+nav.primary{flex:1 1 auto;display:flex;flex-wrap:nowrap;align-items:center;justify-content:center;gap:2px 4px;min-width:0;}
+.nav-item{position:relative;}
+.nav-item>a{display:inline-flex;align-items:center;gap:6px;color:var(--ink-2);font-weight:700;font-size:14px;padding:7px 10px;border-radius:var(--r-pill);white-space:nowrap;transition:background .15s,color .15s;}
+.nav-item>a:hover,.nav-item:hover>a,.nav-item:focus-within>a{background:var(--navy-100);color:var(--navy);text-decoration:none;}
+/* Deviation: the mockup marks the wrapper (`.nav-item.active>a`), but react-router's
+   NavLink can only put the "active" class on the <a> it renders. Same declarations,
+   moved one level down. Must stay AFTER the :hover rule above — equal specificity,
+   so source order is what keeps the active pill from graying out on hover. */
+.nav-item>a.active{background:var(--az-gold);color:#fff;}
+.home-ic{width:18px;height:18px;display:block;}
+
+/* Deviation: the mockup's `.caret` / `.dropdown` rules are not ported — this app has
+   four flat surfaces and no submenus, so that CSS would be dead weight. Lift it from
+   reference/index.html if nav ever grows dropdowns. */
+
+@media (max-width:600px){
+  .logo img{height:50px;}
+  /* The mockup also has `nav.primary .wrap{overflow-x:auto}` here, but it matches
+     nothing (there is no .wrap inside nav) — dropped rather than reinterpreted. */
+}
+
+/* ===== Settings stub (replaced by the real Settings surface in Plan 5) =====
+   No mockup counterpart exists yet, so this borrows the mockup's own `.card` panel
+   and reuses its existing values: the 34px/12px page padding from `main .wrap`, the
+   19px/800 navy heading from `.card .head-row h2`, and the 14px `--ink-2` body copy
+   from `.item p`. No new colors, sizes, or fonts are introduced. */
+.card{background:var(--card);border:1px solid var(--line);border-radius:var(--r-lg);box-shadow:var(--shadow-sm);overflow:hidden;}
+.stub-page .wrap{padding-top:34px;padding-bottom:12px;}
+.stub{padding:20px 24px;}
+.stub h1{font-size:19px;color:var(--navy);font-weight:800;}
+.stub p{margin:8px 0 0;font-size:14px;color:var(--ink-2);}
