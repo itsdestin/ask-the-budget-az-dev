@@ -89,6 +89,9 @@ and exposes it to anyone using AI Mode later.
 | S14 | **Dropped ideas** (considered, rejected): rebuilding the MCP layer on spec 2026-07-28; an MCP shim for staff to use personal claude.ai/ChatGPT subscriptions (web clients require a publicly reachable endpoint — tunnels fail the zero-maintenance and IT-policy tests; user opted to drop the desktop-app variant too); Electron shell; Voyage as an optional upgrade rung. | Recorded so future sessions don't re-litigate. |
 | S15 | **Custom-provider escape hatch (admin-enabled).** Admin page "Provider" panel: **OpenRouter (default, recommended)** vs **Custom endpoint** (base URL + API key + exact model ID — any OpenAI-compatible chat-completions endpoint: direct OpenAI/Anthropic/Google compat endpoints, Azure/Bedrock-style gateways, local Ollama on future hardware). The custom pane explains in plain language why someone would use it (state-approved endpoint, OpenRouter terms change, local models) and states the caveats **in the UI itself**: per-user cost tracking degrades from exact dollars to token counts; no model catalog/recommendations/live pricing; the model must support tool calling or AI Mode fails; self-support territory. One click returns to OpenRouter. Harness-side this is only a configurable `base_url`/`api_key`/`model` triple — the protocol is identical. | Future-proofs the sole-key decision (S4/S13) without adding a second supported vendor; costs ~3 lines in the harness plus one admin panel. Added 2026-07-29 at user request. |
 | S16 | **Two analyst-facing AI tiers: "Standard" (default) and "Deep Research".** Each tier = an admin-assigned model (S13) **plus a harness effort budget**: Standard keeps the tight progressive-retrieval posture (low step cap ~15, first-call cap active) for quick lookups; Deep Research raises the step cap (~50) and permits `deep_dive` retrieval for broad multi-year sweeps. Every **new** inquiry defaults to Standard; the tier toggle sits on the AI Mode input with plain copy: Deep Research "for open-ended, historical, broad-scope research — e.g. 'a comprehensive accounting of appropriated vs actual expenditures for all border-enforcement programs across the past 10 fiscal years'"; Standard "for quick lookups — e.g. 'how much did we spend on X last year?' or 'did we appropriate money for xyz in FY 2020?'". Ship-time model guidance (illustrative, finalized against the live catalog at implementation): Deep Research = a cost-effective frontier-class open model (e.g. Kimi K3-class); Standard = best opus-level-performance-per-dollar open model (e.g. Qwen-class). Deliberately NOT first-party flagship models (Fable/Opus/GPT) — open-weight alternatives deliver most of the quality at a fraction of the per-token cost. The usage ledger records the tier per call so the admin sees cost by tier. | Cost management that survives Destin's departure: the default path is cheap, the expensive path is a deliberate, explained choice, and the admin can retune either tier's model without touching code. Added 2026-07-29 at user request. |
+| S17 | **Corpus backup + one-click restore.** Before every ingest/refresh write, the app snapshots the LanceDB folder (zip to `<data_dir>\backups\`, rotating last 5). Admin page gets a "Restore last good corpus" action listing snapshots by date with plain-language confirmation. Restore takes the ingest lock like any writer. | The corpus is the app's crown jewels on one shared folder with no technical successor; <1 GB makes snapshots nearly free, and the worst data disaster becomes a two-click recovery. Added 2026-07-29. |
+| S18 | **Share-relocation repair flow.** Each install stores the shared-data path in per-machine config (`%LOCALAPPDATA%`), not hardcoded. When the share is unreachable at launch or mid-session, the app shows a repair screen — "Can't find the shared data folder; browse to its new location" — with a folder picker that validates the target (LanceDB present) before accepting. | Over a multi-year horizon IT WILL migrate file servers; without this every install dies simultaneously with no fix path a non-technical user can execute. Added 2026-07-29. |
+| S19 | **Per-user spend limits (enforced) + org-wide protections.** Admin sets an optional default per-user monthly dollar limit, per-user overrides, and an exemption list (e.g. the director) — all on the admin page. A user at their limit gets AI Mode disabled until month rollover with a clear in-UI message ("You've reached your monthly AI usage limit ($X) — ask <admin> to raise it"); a warning shows at 80%; search is never affected. The org-wide soft budget banner stays warn-only (S11). Enforcement uses the exact-cost ledger, so limits are active only on OpenRouter; on a custom endpoint (S15) the limits panel shows "inactive — exact costs unavailable" to the admin. The quickstart + admin key explainer also instruct setting a hard monthly credit limit on the OpenRouter dashboard when creating the key — true org-wide enforcement at the provider, zero code. | Real cost control that survives handoff: per-user fairness in-app, catastrophic-spend protection at the provider. Added 2026-07-29 at user request. |
 
 ## Architecture
 
@@ -125,6 +128,10 @@ JLBC Insight (working name) — one Python process
 - Conversations are per-user, per-machine local — never on the share.
 - Migration: one-time script (run by Destin) exports Postgres → re-embeds
   locally → writes LanceDB. Eval harness is the acceptance gate.
+  The source PDFs themselves (currently gitignored in
+  `data/cached-pdfs/` on Destin's machine) are copied to
+  `<data_dir>\pdfs\` as an explicit Plan 3 task — the viewer depends
+  on them and they are not covered by the chunk migration.
 
 ### Retrieval specifics
 
@@ -143,7 +150,10 @@ JLBC Insight (working name) — one Python process
 - Upload page: drag-and-drop PDF/DOCX, corpus choice, small metadata form
   pre-filled by filename/first-page heuristics. Carries the Invariant 8
   public-record-only notice and the required "This document is public
-  record" checkbox.
+  record" checkbox. Duplicate detection by content hash: re-uploading
+  an existing document shows "already in the corpus (added <date> by
+  <user>)" with an explicit re-process option instead of silently
+  double-ingesting.
 - Queue states: `queued → extracting → chunking → embedding → live`, with
   per-doc progress in the GUI; journal persisted in LanceDB so restarts
   resume. Failed docs quarantine with reason + retry button; the queue
@@ -166,15 +176,19 @@ JLBC Insight (working name) — one Python process
   default vs custom endpoint, caveats stated in the UI); the S13/S16
   model pickers — one slot per tier (Standard / Deep Research), each
   with live-validated recommendations + tool-calling-filtered
-  full-catalog search; optional soft monthly budget → warning banner
-  (never a cutoff); corpus health + queue; admin transfer; log
-  locations.
+  full-catalog search; the S19 spend-limits panel (default per-user
+  monthly limit, per-user overrides, exemption list); optional
+  org-wide soft monthly budget → warning banner (warn-only; per-user
+  limits are the enforced layer); corpus health + queue; the S17
+  "Restore last good corpus" action; admin transfer; log locations.
 
 ### Error handling
 
 - Launch health ladder (server → share → DB → models), each failure a
   plain-English full-page message; never a stack trace.
 - Share offline: banner + auto-retry; atomic writes mean no corruption.
+  Persistently unreachable share → the S18 repair screen (browse to
+  the data folder's new location) instead of a dead app.
 - OpenRouter failure: in-chat error + retry; key-invalid notices go to the
   admin page; AI Mode failures never affect search.
 - Scraper failure: loud error, corpus stays last-good.
@@ -196,7 +210,11 @@ web component tests (citation extraction, chip dedup, PDF matching).
 Retired: WS/YouCoded-provider tests, MCP server vitest.
 New: harness loop vs mocked OpenRouter (tool loop, retry, truncation,
 read-only tool-surface invariant), queue state machine (crash-resume, lock
-contention), cost ledger, scraper fixtures, launcher smoke.
+contention), cost ledger + per-user limit enforcement, scraper fixtures,
+backup/restore round-trip, launcher smoke. Plan 3 adds a small
+fiscal-note eval set (~10–15 coordinator-triage-shaped queries:
+"find prior notes similar to this request") so the fiscal-note corpus
+has a measured quality bar, not an assumed one.
 
 Hard gates before handoff:
 
