@@ -40,6 +40,8 @@ dependencies = [
     # tool preserves YAML structure/comments via ruamel.yaml during in-place edits.
     "anthropic>=0.40",
     "ruamel.yaml>=0.18",
+    "lancedb>=0.36.0",
+    "fastembed>=0.8.0",
 ]
 
 [dependency-groups]
