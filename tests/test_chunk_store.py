@@ -127,3 +127,113 @@ def test_is_table_filter_renders_bare_bool(store):
 
     assert store.filter_expr(is_table=True) == "is_table = true"
     assert store.filter_expr() is None
+
+
+def test_unknown_table_name_raises(tmp_path):
+    """A typo'd corpus name must fail loudly. It used to CREATE the typo
+    table and then report 0 rows / no hits, which looks like an empty
+    corpus rather than a bug."""
+    s = ChunkStore(root=tmp_path, dim=8)
+    for call in (
+        lambda: s.count("budget_chunk"),          # missing trailing s
+        lambda: s.get_by_ids("nope", ["c1"]),
+        lambda: s.vector_search("nope", [1, 0, 0, 0, 0, 0, 0, 0], top_k=1),
+        lambda: s.fts_search("nope", "x", top_k=1),
+        lambda: s.optimize("nope"),
+        lambda: s.upsert_chunks("nope", [_row("c1", "t", [1] + [0] * 7)]),
+        lambda: s.build_fts_index("nope"),
+    ):
+        with pytest.raises(ValueError, match="Unknown corpus table"):
+            call()
+    assert s._db.table_names() == []
+
+
+def test_reads_do_not_create_tables(tmp_path):
+    """Readers must not write to the shared data dir (spec S6)."""
+    s = ChunkStore(root=tmp_path, dim=8)
+    assert s.count("budget_chunks") == 0
+    assert s.get_by_ids("budget_chunks", ["c1"]) == []
+    assert s.vector_search("budget_chunks", [1, 0, 0, 0, 0, 0, 0, 0], top_k=3) == []
+    assert s.fts_search("budget_chunks", "anything", top_k=3) == []
+    s.optimize("budget_chunks")
+    assert s._db.table_names() == []
+
+    # ...but the write paths do create.
+    s.ensure_tables()
+    assert sorted(s._db.table_names()) == ["budget_chunks", "fiscal_note_chunks"]
+
+
+def test_cached_handle_sees_another_writers_rows(tmp_path):
+    """The handle cache must not pin a reader to a stale table version —
+    a second process appending rows has to become visible."""
+    reader = ChunkStore(root=tmp_path, dim=8)
+    writer = ChunkStore(root=tmp_path, dim=8)
+    writer.upsert_chunks("budget_chunks", [_row("c1", "first", [1] + [0] * 7)])
+    assert reader.count("budget_chunks") == 1          # populates the cache
+
+    writer.upsert_chunks("budget_chunks", [_row("c2", "second", [0, 1] + [0] * 6)])
+    assert reader.count("budget_chunks") == 2
+    assert {r["chunk_id"] for r in reader.get_by_ids("budget_chunks", ["c1", "c2"])} \
+        == {"c1", "c2"}
+
+
+def test_results_omit_the_vector_column(store):
+    """The 384-float vector is dead weight in results; consumers never read
+    it. The score columns must still come through."""
+    v = store.vector_search("budget_chunks", [1, 0, 0, 0, 0, 0, 0, 0], top_k=1)
+    assert "vector" not in v[0] and "_score" in v[0]
+    f = store.fts_search("budget_chunks", "caseworkers", top_k=1)
+    assert "vector" not in f[0] and "_score" in f[0]
+    g = store.get_by_ids("budget_chunks", ["c1"])
+    assert "vector" not in g[0]
+    # Everything else survived the projection.
+    assert g[0]["publisher"] == "jlbc" and g[0]["token_count"] == 42
+
+
+def test_dim_mismatch_raises_plain_language_error(tmp_path):
+    """Task 11 switches to a 768-dim model; opening an old 8-dim table with
+    the new dim must explain itself rather than surfacing a Rust cast error."""
+    ChunkStore(root=tmp_path, dim=8).ensure_tables()
+    with pytest.raises(ValueError, match="8-dimensional vectors"):
+        ChunkStore(root=tmp_path, dim=768).count("budget_chunks")
+
+
+def test_filter_expr_drops_none_entries(store):
+    """A None inside a filter list used to render as 'None' and match
+    nothing, silently emptying the result set."""
+    assert store.filter_expr(publisher=["jlbc", None]) == "publisher IN ('jlbc')"
+    assert store.filter_expr(fiscal_year=[None]) is None
+    assert store.filter_expr(agency_canonical_id=[None, "ahcccs"]) == \
+        "array_has_any(agency_canonical_ids, ['ahcccs'])"
+
+    where = store.filter_expr(publisher=["jlbc", None])
+    hits = store.vector_search("budget_chunks", [1, 0, 0, 0, 0, 0, 0, 0],
+                               top_k=5, where=where)
+    assert {h["chunk_id"] for h in hits} == {"c1", "c3"}
+
+
+def test_upsert_dedupes_within_one_batch(store):
+    """The delete clause removes each id once, so a duplicated chunk_id in a
+    single batch would otherwise land twice."""
+    store.upsert_chunks("budget_chunks", [
+        _row("dup", "first", [0, 0, 0, 1, 0, 0, 0, 0]),
+        _row("dup", "second", [0, 0, 0, 1, 0, 0, 0, 0]),
+    ])
+    got = store.get_by_ids("budget_chunks", ["dup"])
+    assert len(got) == 1 and got[0]["text"] == "second"   # last one wins
+
+
+def test_optimize_is_callable_after_bulk_load(store):
+    """Task 10's migration compacts after its batches; just pin that the
+    call works and preserves the data."""
+    for i in range(5):
+        store.upsert_chunks("budget_chunks", [
+            _row(f"b{i}", f"batch row {i}", [0, 0, 0, 0, 1, 0, 0, 0]),
+        ])
+    before = store.count("budget_chunks")
+    store.optimize("budget_chunks")
+    assert store.count("budget_chunks") == before
+    assert store.get_by_ids("budget_chunks", ["b4"])[0]["text"] == "batch row 4"
+
+    assert store.filter_expr(is_table=True) == "is_table = true"
+    assert store.filter_expr() is None
