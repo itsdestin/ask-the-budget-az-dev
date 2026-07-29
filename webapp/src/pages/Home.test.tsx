@@ -26,6 +26,20 @@ describe("Home", () => {
     expect(navigate).toHaveBeenCalledWith("/search?q=dcs%20caseworkers");
   });
 
+  it("does not route a blank hero search", () => {
+    render(
+      <MemoryRouter>
+        <Home />
+      </MemoryRouter>,
+    );
+    const box = screen.getByPlaceholderText(/search/i);
+    // Whitespace-only counts as blank: /search queries on mount from ?q=, so routing
+    // here would fire a pointless request and show an empty results page.
+    fireEvent.change(box, { target: { value: "   " } });
+    fireEvent.submit(box.closest("form")!);
+    expect(navigate).not.toHaveBeenCalled();
+  });
+
   it("links the feature cards to the three surfaces", () => {
     render(
       <MemoryRouter>

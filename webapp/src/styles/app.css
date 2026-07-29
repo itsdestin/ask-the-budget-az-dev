@@ -108,12 +108,14 @@ nav.primary{flex:1 1 auto;display:flex;flex-wrap:nowrap;align-items:center;justi
 .page-home .snap-tag{margin:12px auto 0;font-size:clamp(15px,1.7vw,19px);color:#e2e5f6;font-weight:700;max-width:48ch;}
 
 /* New rule (the mockup had no hero-level search form — its search box sat in the center
-   gateway card). Two declarations only, both borrowed rather than invented:
-   `max-width:48ch` is `.snap-tag`'s own width, so the pill lines up with the subtitle
-   above it, and it lands at ~410px — within a pixel or two of the width the mockup's
-   search field actually had inside its 1.5fr card (1096px inner wrap − 32px of gaps ÷
-   3.5fr ≈ 456px column − 44px card padding ≈ 412px). The pill's own top spacing still
-   comes from the ported `.search-field{margin-top:14px}` below. */
+   gateway card). Two declarations only, and the width is measured, not invented: at the
+   16px this form inherits, `48ch` ≈ 405px, which is the width the mockup's search field
+   actually had inside its 1.5fr card (1096px inner wrap − 32px of gaps ÷ 3.5fr ≈ 456px
+   column − 44px card padding ≈ 412px). It is deliberately NOT "the same 48ch as
+   `.snap-tag`" — `ch` resolves against each element's own font-size, and `.snap-tag`
+   runs at the clamp's ~19px, so its 48ch is ~455px. The two are independent numbers
+   that happen to share a unit. The pill's top spacing still comes from the ported
+   `.search-field{margin-top:14px}` below. */
 .page-home .hero-search{max-width:48ch;margin:0 auto;}
 
 /* The mockup's search pill, verbatim. */
