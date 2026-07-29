@@ -45,10 +45,12 @@ from store.chunk_store import ChunkStore
 # ("governor's office" returns hits — the tokenizer is bag-of-words with
 # no phrase-quote state to leave unterminated, which was the entire #47
 # mechanism on tantivy), and `+ - ! ^ ~ : ( ) [ ] { } \ * ? /` are NOT
-# operators here — they pass through as literal token characters.
+# operators here — the tokenizer treats them as word boundaries and
+# splits on them ("alpha^beta" matches a doc containing "alpha beta").
 #
-# `+ - !` are still excluded from the set (matching bm25.py) so numeric
-# tokens like "$1.2M+" and "FY2026-27" survive intact.
+# `+ - !` stay out of the set to match bm25.py, but on Lance it makes no
+# difference to matching either way: "FY2026-27" tokenizes to
+# fy2026 + 27 whether or not the sanitizer strips the hyphen.
 #
 # The alternative to sanitizing is rebuilding the index with positions
 # (FTS(with_position=True) in store/chunk_store.py), which would make

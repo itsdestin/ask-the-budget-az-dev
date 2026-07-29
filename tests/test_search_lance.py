@@ -83,8 +83,9 @@ def test_bm25_quoted_phrase_does_not_crash(store):
 def test_sanitize_strips_the_bm25_char_set():
     """Pins the exact char set, so a future edit cannot silently narrow it.
     Apostrophes still go (kept identical to bm25.py's #47 set for cutover
-    comparability), while `+ - !` deliberately survive for tokens like
-    "$1.2M+" and "FY2026-27"."""
+    comparability), while `+ - !` stay unstripped to match bm25.py — on
+    Lance the tokenizer splits on them anyway, so stripping or keeping
+    them changes nothing about matching."""
     assert _sanitize("governor's office") == "governor s office"
     assert _sanitize('"provider rates"') == "provider rates"
     assert _sanitize("$1.2M+ FY2026-27 !x") == "$1.2M+ FY2026-27 !x"
