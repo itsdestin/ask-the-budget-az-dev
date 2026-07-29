@@ -49,6 +49,26 @@ Share writes exist only in the ingest worker, which the harness cannot
 reach through any tool, and all share-write code paths go through the
 single-writer lock module, which logs its caller.
 
+**New Invariant 8 — public-record documents only.** The corpus is
+solely for documents that are already public record: baseline books,
+appropriations reports, fiscal notes, bills, executive budget requests,
+agency budget requests, and Annual Financial Reports (AFRs).
+Confidential state data must never be uploaded: AI Mode transmits
+retrieved chunk text to external inference providers
+(OpenRouter/custom endpoints), whose data-retention practices are
+inconsistent and likely insufficient for confidential state data.
+Enforcement is by clear communication at every ingest point, not
+detection (the app cannot reliably classify confidentiality):
+(a) the upload page carries an always-visible notice stating the
+public-record-only rule and the reason, with the intended document
+types listed; (b) the upload metadata form includes a required
+"This document is public record" checkbox — a deliberate moment, not
+buried fine print; (c) the quickstart/handoff doc and the admin page's
+key explainer repeat the rule. The notice also states the flip side
+honestly: search-only mode never sends document content anywhere, but
+uploading confidential material still places it on the shared drive
+and exposes it to anyone using AI Mode later.
+
 ## Decisions (settled during brainstorming)
 
 | # | Decision | Rationale |
@@ -121,7 +141,9 @@ JLBC Insight (working name) — one Python process
 ### Ingest specifics
 
 - Upload page: drag-and-drop PDF/DOCX, corpus choice, small metadata form
-  pre-filled by filename/first-page heuristics.
+  pre-filled by filename/first-page heuristics. Carries the Invariant 8
+  public-record-only notice and the required "This document is public
+  record" checkbox.
 - Queue states: `queued → extracting → chunking → embedding → live`, with
   per-doc progress in the GUI; journal persisted in LanceDB so restarts
   resume. Failed docs quarantine with reason + retry button; the queue
