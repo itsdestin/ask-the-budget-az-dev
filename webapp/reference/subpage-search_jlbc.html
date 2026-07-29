@@ -1,0 +1,476 @@
+<!DOCTYPE html>
+<html lang="en"><head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Search — JLBC</title>
+<!--
+  TEMPLATE 1 — DOCUMENT LIST (year-accordion variant)
+  First JLBC sub-page. Reuses the homepage design system verbatim:
+  - same :root tokens, same white header + collapsing search, same centered gov strip, same footer
+  WHAT'S NEW (the reusable sub-page pieces):
+  - .subhero  : a shallow Capitol-photo band (heavier overlay than home, ~half height) with a
+                breadcrumb, page title, one-line description, and a few summary chips
+  - .doc      : a downloadable-document row (file icon + title + sub + PDF/date pill)
+  - .acc      : a CSS-only year accordion (checkbox + label + grid-rows 0fr/1fr; NO JavaScript)
+  HTML + CSS ONLY. Logos + capitol-bg are the same local files next to this page.
+-->
+<style>
+  :root {
+    --navy:#2b2f63; --navy-700:#232752; --navy-900:#181b3d; --navy-100:#e7e8f2;
+    --az-red:#2f55c4; --az-red-100:#e1e6fa;
+    --az-gold:#1b6fc4; --az-gold-d:#145aa6; --az-gold-100:#dceaf7;
+    --copper:#3d6a99; --copper-100:#e3ebf3;
+    --teal:#1782b3; --teal-100:#dbeef8;
+    --ink:#21243f; --ink-2:#4a4e6a; --ink-3:#757895;
+    --line:#e6e6ef; --canvas:#f5f5fa; --card:#fff;
+    --r-lg:22px; --r-md:16px; --r-sm:12px; --r-pill:999px; --gap:22px;
+    --shadow:0 1px 2px rgba(27,27,61,.05),0 10px 26px rgba(27,27,61,.08);
+    --shadow-sm:0 1px 2px rgba(27,27,61,.06),0 3px 10px rgba(27,27,61,.05);
+    --maxw:1140px; --font:"Nunito","Segoe UI",system-ui,-apple-system,sans-serif;
+  }
+  *{box-sizing:border-box;} html{scroll-behavior:smooth;}
+  body{margin:0;font-family:var(--font);color:var(--ink);background:var(--canvas);line-height:1.6;-webkit-font-smoothing:antialiased;}
+  a{color:var(--navy);text-decoration:none;} a:hover{text-decoration:underline;}
+  img{display:block;max-width:100%;} h1,h2,h3,h4{margin:0;line-height:1.2;}
+  .wrap{max-width:var(--maxw);margin:0 auto;padding:0 22px;}
+
+  /* ===== shared chrome: gov strip ===== */
+  .gov{background:var(--navy-900);color:#c8cae4;font-size:13px;}
+  .gov .wrap{display:flex;align-items:center;justify-content:center;gap:9px;min-height:34px;flex-wrap:wrap;}
+  .gov strong{color:#fff;font-weight:700;}
+  .gov .dot{width:5px;height:5px;border-radius:50%;background:var(--az-gold);}
+  .gov a{color:#b7bbe9;}
+  .gov .azstar{width:13px;height:13px;color:var(--az-gold);flex:0 0 auto;}
+
+  /* ===== shared chrome: header ===== */
+  header.site{background:#fff;border-bottom:3px solid var(--navy-900);position:sticky;top:0;z-index:50;}
+  .head{display:flex;align-items:center;gap:14px;min-height:84px;position:relative;}
+  .logo img{height:60px;width:auto;}
+  nav.primary{flex:1 1 auto;display:flex;flex-wrap:nowrap;align-items:center;justify-content:center;gap:2px 4px;min-width:0;}
+  .nav-item{position:relative;}
+  .nav-item>a{display:inline-flex;align-items:center;gap:6px;color:var(--ink-2);font-weight:700;font-size:14px;padding:7px 10px;border-radius:var(--r-pill);white-space:nowrap;transition:background .15s,color .15s;}
+  .nav-item>a:hover,.nav-item:hover>a,.nav-item:focus-within>a{background:var(--navy-100);color:var(--navy);text-decoration:none;}
+  .nav-item.active>a{background:var(--az-gold);color:#fff;}
+  .caret{width:9px;height:9px;opacity:.7;}
+  .home-ic{width:18px;height:18px;display:block;}
+  .dropdown{position:absolute;top:calc(100% + 9px);left:0;min-width:248px;background:#fff;border:1px solid var(--line);border-radius:var(--r-md);box-shadow:var(--shadow);padding:8px;z-index:60;opacity:0;visibility:hidden;transform:translateY(6px);transition:opacity .16s,transform .16s,visibility .16s;}
+  .nav-item:hover .dropdown,.nav-item:focus-within .dropdown{opacity:1;visibility:visible;transform:translateY(0);}
+  .dropdown a{display:block;color:var(--ink-2);font-size:14px;font-weight:600;padding:9px 12px;border-radius:var(--r-sm);}
+  .dropdown a:hover{background:var(--canvas);color:var(--navy);text-decoration:none;}
+
+  /* collapsing search (identical to home) */
+  .search-toggle{position:absolute;width:1px;height:1px;opacity:0;pointer-events:none;}
+  .search-icon-btn{flex:0 0 auto;width:42px;height:42px;border-radius:var(--r-pill);display:grid;place-items:center;background:var(--canvas);border:2px solid var(--line);color:var(--navy);cursor:pointer;transition:border-color .15s,background .15s,opacity .15s;}
+  .search-icon-btn:hover{border-color:var(--az-gold);background:#fff;}
+  .search-icon-btn svg{width:18px;height:18px;}
+  .search-expand{position:absolute;top:50%;left:80px;right:0;transform:translateY(-50%) scaleX(.98);transform-origin:right center;
+    display:flex;align-items:center;gap:10px;background:#fff;border:2px solid var(--az-gold);border-radius:var(--r-pill);
+    padding:9px 16px;box-shadow:var(--shadow);z-index:40;opacity:0;visibility:hidden;pointer-events:none;
+    transition:opacity .16s ease,transform .16s ease,visibility .16s;}
+  .search-expand .s-ic{color:var(--ink-3);flex:0 0 auto;width:18px;height:18px;}
+  .search-expand input{flex:1;border:0;outline:0;background:transparent;font-size:15px;font-family:inherit;color:var(--ink);min-width:0;}
+  .search-close{flex:0 0 auto;cursor:pointer;color:var(--ink-3);display:grid;place-items:center;width:26px;height:26px;border-radius:var(--r-pill);}
+  .search-close:hover{background:var(--canvas);color:var(--navy);}
+  .search-close svg{width:16px;height:16px;}
+  #search-toggle:checked ~ .search-expand{opacity:1;visibility:visible;pointer-events:auto;transform:translateY(-50%) scaleX(1);}
+  #search-toggle:checked ~ .search-icon-btn{opacity:0;visibility:hidden;}
+
+  /* ===== NEW: sub-page hero band ===== */
+  .subhero{position:relative;overflow:hidden;color:#fff;
+    background:linear-gradient(105deg,rgba(18,21,48,.94) 0%,rgba(20,23,52,.86) 60%,rgba(20,23,52,.78) 100%),url('capitol-bg.jpg') center 28% / cover no-repeat;}
+  .subhero .wrap{position:relative;z-index:2;padding:32px 22px 34px;}
+  .subhero h1{font-size:clamp(24px,3.2vw,34px);font-weight:800;letter-spacing:-.4px;}
+  .subhero .lead{margin:10px 0 0;font-size:clamp(14px,1.5vw,16.5px);color:#d9dcf2;font-weight:600;max-width:66ch;line-height:1.5;min-height:3em;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;}
+  .subhero .chips{display:flex;flex-wrap:wrap;gap:8px;margin-top:16px;min-height:31px;}
+  .subhero .chip{display:inline-flex;align-items:center;gap:7px;background:rgba(255,255,255,.1);border:1px solid rgba(255,255,255,.2);border-radius:var(--r-pill);padding:6px 13px;font-size:12.5px;font-weight:700;color:#eef0fb;}
+  .subhero .chip svg{width:14px;height:14px;color:#9fc4ee;flex:0 0 auto;}
+
+  /* ===== main layout ===== */
+  main .wrap{padding:30px 22px 12px;display:grid;grid-template-columns:1fr 320px;gap:var(--gap);align-items:start;}
+  .card{background:var(--card);border:1px solid var(--line);border-radius:var(--r-lg);box-shadow:var(--shadow-sm);overflow:hidden;}
+  .card + .card{margin-top:var(--gap);}
+  /* card header: icon + title + count + description all in ONE bordered block */
+  .card-head{position:relative;}
+  .card-head::after{content:"";position:absolute;left:20px;right:20px;bottom:0;height:2px;border-radius:999px;background:var(--az-gold-100);}
+  .card .head-row{display:flex;align-items:center;gap:12px;padding:20px 24px 12px;}
+  .card .head-row .ic{width:40px;height:40px;border-radius:13px;display:grid;place-items:center;flex:0 0 40px;background:var(--az-gold-100);color:var(--az-gold-d);}
+  .card .head-row h2{font-size:19px;color:var(--navy);font-weight:800;}
+  .card .head-row .count{margin-left:auto;font-size:12.5px;font-weight:800;color:var(--ink-3);background:var(--canvas);border-radius:var(--r-pill);padding:4px 12px;}
+  .intro{font-size:14.5px;color:var(--ink-2);padding:0 24px 18px;margin:0;}
+  .intro b{color:var(--navy);}
+
+  /* ===== NEW: document row ===== */
+  .doc{display:flex;align-items:center;gap:15px;padding:14px 22px;border-bottom:1px solid var(--line);transition:background .15s;color:inherit;}
+  .doc:last-child{border-bottom:0;}
+  .doc:hover{background:#fafafe;text-decoration:none;}
+  .doc-ic{flex:0 0 40px;width:40px;height:40px;border-radius:12px;display:grid;place-items:center;background:var(--az-gold-100);color:var(--az-gold-d);}
+  .doc-ic svg{width:19px;height:19px;}
+  .doc-main{flex:1;min-width:0;}
+  .doc-title{display:block;font-size:15.5px;font-weight:700;color:var(--navy);}
+  .doc:hover .doc-title{color:var(--az-gold-d);}
+  .doc-sub{display:block;font-size:13px;color:var(--ink-3);font-weight:600;margin-top:2px;}
+  .doc-pill{flex:0 0 auto;display:inline-flex;align-items:center;gap:7px;font-size:12px;font-weight:800;color:var(--ink-2);background:var(--canvas);border:1px solid var(--line);border-radius:var(--r-pill);padding:6px 13px;white-space:nowrap;}
+  .doc:hover .doc-pill{border-color:var(--az-gold);color:var(--az-gold-d);}
+  .doc-pill svg{width:13px;height:13px;}
+
+  /* ===== CSS-only accordion — Option B "beads" (2b, h30): compact section pill (left) +
+     count/chevron tab (right), INSET 12px so each sits on the frame's rounded top border at its
+     vertical centre with the corner showing in the gap beyond it. Bubble height is small (30px)
+     but the TEXT stays 14/12.5. Bottom border is the divider that drops down on open. ===== */
+  .acc{position:relative;margin:0 16px 10px;}
+  .acc-toggle{position:absolute;width:1px;height:1px;margin:-1px;padding:0;border:0;clip:rect(0 0 0 0);overflow:hidden;}
+  /* header is transparent — no full-width hover fill (it would mask the frame top) */
+  .acc-head{position:relative;z-index:2;display:flex;align-items:center;gap:10px;padding:7px 4px;cursor:pointer;user-select:none;}
+  .acc-head:hover .acc-yr{filter:brightness(.97);}
+  .acc-yr{display:inline-flex;align-items:center;flex:0 0 auto;height:30px;padding:0 13px;margin-left:12px;border-radius:var(--r-pill);background:var(--navy-100);color:var(--navy);font-weight:800;font-size:14px;letter-spacing:.01em;transition:background .15s,color .15s,filter .15s;}
+  /* count + chevron tab on the right end of the line, also inset 12px */
+  .acc-tab{margin-left:auto;margin-right:12px;display:inline-flex;align-items:center;gap:8px;height:30px;padding:0 12px;border-radius:var(--r-pill);background:var(--card);border:1px solid var(--line);color:var(--ink-3);font-weight:800;font-size:12.5px;white-space:nowrap;transition:border-color .15s,color .15s;}
+  .acc-head:hover .acc-tab{border-color:var(--az-gold);color:var(--az-gold-d);}
+  .acc-meta{font-size:12.5px;font-weight:800;color:inherit;}
+  .acc-chev{width:15px;height:15px;color:inherit;transition:transform .28s;flex:0 0 auto;}
+  .acc-toggle:checked ~ .acc-head .acc-chev{transform:rotate(180deg);}
+  .acc-toggle:checked ~ .acc-head .acc-yr{background:var(--az-gold);color:#fff;}
+  .acc-toggle:focus-visible ~ .acc-head .acc-yr{outline:2px solid var(--az-gold);outline-offset:2px;}
+  .acc-body{display:grid;grid-template-rows:0fr;transition:grid-template-rows .28s ease,margin-top .28s ease;}
+  /* the grid item IS the frame box. closed = only the bottom border (the divider). open = grows
+     (bottom border drops), top/sides fade in, and it lifts so the border runs through the pills'
+     centre; the pills sit inset 12px so the rounded corners show in the gaps beyond them. */
+  .acc-body > div{overflow:hidden;min-height:0;margin:0 4px;
+    border:2px solid transparent;border-bottom-color:var(--az-gold-100);border-radius:16px;
+    transition:border-color .28s ease;}
+  .acc-toggle:checked ~ .acc-body{grid-template-rows:1fr;margin-top:-23px;}
+  .acc-toggle:checked ~ .acc-body > div{border-color:var(--az-gold-100);}
+  .acc-body .tray{padding:29px 14px 8px 16px;}
+  .acc-body .tray .doc{padding:13px 10px;border-bottom:1px solid var(--line);}
+  .acc-body .tray .doc:last-child{border-bottom:0;}
+  .acc-body .tray .doc:hover{background:#fafafe;border-radius:10px;}
+  .acc-note{padding:10px 10px 4px;font-size:13.5px;color:var(--ink-3);font-weight:600;}
+  .acc-note a{font-weight:800;color:var(--az-gold-d);}
+
+  /* ===== sidebar (reused) =====
+     Not sticky: the sidebar scrolls with the page so document cards never slide
+     underneath a pinned bubble. */
+  .side .card{position:static;}
+  .quick{padding:10px;}
+  .quick .qh{padding:14px 16px 10px;font-size:13px;font-weight:800;text-transform:uppercase;letter-spacing:.1em;color:var(--ink-3);}
+  .quick a.qlink{display:flex;align-items:center;gap:12px;padding:12px 16px;border-radius:var(--r-md);color:var(--navy);font-weight:700;font-size:14.5px;transition:background .15s,transform .12s;}
+  .quick a.qlink:hover{background:var(--navy-100);text-decoration:none;transform:translateX(2px);}
+  .quick a.qlink .dotic{width:32px;height:32px;border-radius:10px;display:grid;place-items:center;flex:0 0 32px;}
+  .quick a.qlink .arr{margin-left:auto;color:var(--ink-3);transition:transform .15s,color .15s;}
+  .quick a.qlink:hover .arr{transform:translateX(3px);color:var(--az-red);}
+  .c-navy{background:var(--navy-100);color:var(--navy);} .c-red{background:var(--az-red-100);color:var(--az-red);}
+  .c-gold{background:var(--az-gold-100);color:var(--az-gold-d);} .c-copper{background:var(--copper-100);color:var(--copper);}
+  .c-teal{background:var(--teal-100);color:var(--teal);}
+  .promo{margin-top:var(--gap);background:linear-gradient(150deg,var(--navy-700),var(--navy-900));border-radius:var(--r-lg);padding:24px;color:#fff;position:relative;overflow:hidden;box-shadow:var(--shadow);}
+  .promo::after{content:"";position:absolute;right:-30px;top:-30px;width:120px;height:120px;border-radius:50%;background:rgba(27,111,196,.35);}
+  .promo h3{font-size:18px;position:relative;z-index:2;}
+  .promo p{margin:8px 0 16px;font-size:13.5px;color:#cdcfe8;position:relative;z-index:2;}
+  .promo a{position:relative;z-index:2;display:inline-flex;align-items:center;gap:8px;background:var(--az-gold);color:#fff;font-weight:800;font-size:14px;padding:11px 18px;border-radius:var(--r-pill);}
+  .promo a:hover{text-decoration:none;filter:brightness(1.04);}
+
+  /* ===== shared chrome: footer ===== */
+  footer.site{background:var(--navy-900);color:#b6b9dc;margin-top:22px;}
+  .foot{display:flex;flex-wrap:wrap;justify-content:space-between;align-items:flex-start;gap:16px 48px;padding:22px 0 16px;}
+  .foot .fb .azleg{height:42px;width:auto;margin-bottom:16px;background:#fff;padding:8px 12px;border-radius:12px;}
+  .foot .fb .name{color:#fff;font-weight:800;font-size:17px;}
+  .foot .fb p{font-size:13.5px;color:#8e91bd;margin:8px 0 0;max-width:46ch;}
+  .foot h4{color:#fff;font-size:12.5px;text-transform:uppercase;letter-spacing:.1em;margin-bottom:11px;}
+  .foot .line{font-size:14px;color:#b6b9dc;margin:0;display:flex;gap:8px;align-items:center;}
+  .foot .line svg{color:var(--az-gold);flex:0 0 auto;}
+  .foot a{color:#b6b9dc;} .foot a:hover{color:#fff;}
+  .foot .contact-row{display:flex;flex-wrap:wrap;gap:7px 24px;}
+  .foot .contact-row+.contact-row{margin-top:9px;}
+  .foot-bottom{border-top:1px solid #2a2d57;padding:14px 0;display:flex;flex-wrap:wrap;gap:12px;justify-content:space-between;align-items:center;font-size:12.5px;color:#7e81ad;}
+  .foot-bottom a{color:#b7bbe9;}
+  .foot-bottom .copyline{display:inline-flex;align-items:center;gap:10px;}
+  .foot-bottom .jlbc-mini{height:28px;width:auto;background:#fff;padding:4px 7px;border-radius:8px;}
+  .foot-bottom .azleg-btn{display:inline-flex;align-items:center;gap:9px;background:#fff;padding:7px 13px;border-radius:11px;transition:transform .15s,box-shadow .15s;}
+  .foot-bottom .azleg-btn:hover{box-shadow:0 5px 16px rgba(0,0,0,.28);transform:translateY(-1px);text-decoration:none;}
+  .foot-bottom .azleg-btn img{height:28px;width:auto;}
+  .foot-bottom .azleg-btn .foot-ext{width:15px;height:15px;color:var(--navy);opacity:.65;flex:0 0 auto;}
+
+  /* ===== NEW: page search field (reuses header .search-expand look) ===== */
+  .search-wrap{max-width:680px;margin:0 auto;}
+  .big-search-card{padding:22px 24px;}
+  /* rounded pill, azure border on focus-within, magnifier + input + azure button */
+  .big-search{display:flex;align-items:center;gap:12px;background:#fff;border:2px solid var(--line);
+    border-radius:var(--r-pill);padding:8px 8px 8px 18px;transition:border-color .15s,box-shadow .15s;}
+  .big-search:focus-within{border-color:var(--az-gold);box-shadow:0 0 0 3px var(--az-gold-100);}
+  .big-search .s-ic{color:var(--ink-3);flex:0 0 auto;width:20px;height:20px;}
+  .big-search input{flex:1;border:0;outline:0;background:transparent;font-family:inherit;font-size:16px;color:var(--ink);min-width:0;}
+  .big-search .s-btn{flex:0 0 auto;display:inline-flex;align-items:center;gap:7px;background:var(--az-gold);color:#fff;
+    font-family:inherit;font-weight:800;font-size:14.5px;border:0;border-radius:var(--r-pill);padding:11px 20px;cursor:pointer;
+    transition:filter .15s;}
+  .big-search .s-btn:hover{filter:brightness(1.04);}
+  .big-search .s-btn svg{width:16px;height:16px;}
+
+  /* ===== semantic search UI (additions) ===== */
+  .search-wrap{max-width:760px;}
+  .filters{display:flex;flex-wrap:wrap;align-items:center;gap:8px;margin-top:16px;padding-top:14px;border-top:1px solid var(--line);}
+  .filters .flabel{font-size:11px;font-weight:800;text-transform:uppercase;letter-spacing:.09em;color:var(--ink-3);margin-right:2px;}
+  .fchip{font-family:inherit;font-size:12.5px;font-weight:700;color:var(--ink-2);background:var(--canvas);border:1.5px solid var(--line);border-radius:var(--r-pill);padding:5px 12px;cursor:pointer;transition:background .13s,border-color .13s,color .13s;}
+  .fchip:hover{border-color:var(--az-gold);color:var(--az-gold-d);}
+  .fchip.on{background:var(--az-gold);border-color:var(--az-gold);color:#fff;}
+  select.fyear{font-family:inherit;font-size:12.5px;font-weight:700;color:var(--ink-2);background:var(--canvas);border:1.5px solid var(--line);border-radius:var(--r-pill);padding:5px 12px;cursor:pointer;}
+  .search-status{max-width:760px;margin:16px auto 0;font-size:13.5px;font-weight:700;color:var(--ink-3);min-height:20px;text-align:center;}
+  .search-status .err{color:var(--az-red);}
+  .mode-note{max-width:760px;margin:5px auto 0;text-align:center;font-size:11.5px;color:var(--ink-3);font-weight:600;}
+  /* result rows reuse the site's .doc styling; add a relevance meter + highlight */
+  .doc .rel{flex:0 0 auto;display:inline-flex;align-items:center;gap:7px;margin-left:8px;font-size:11px;font-weight:800;color:var(--ink-3);}
+  .doc .rel .bar{width:50px;height:6px;border-radius:3px;background:#edeef4;overflow:hidden;}
+  .doc .rel .bar i{display:block;height:100%;background:var(--az-gold);}
+  .doc-title mark,.doc-sub mark{background:#fdeec2;color:inherit;border-radius:2px;padding:0 1px;}
+  .empty{padding:26px 24px;text-align:center;color:var(--ink-2);font-weight:600;}
+  .examples-row{display:flex;flex-wrap:wrap;gap:8px;padding:0 24px 20px;}
+  .examples-row a{font-size:13px;font-weight:700;color:var(--az-gold-d);background:var(--az-gold-100);border-radius:var(--r-pill);padding:6px 13px;cursor:pointer;}
+  .examples-row a:hover{text-decoration:none;filter:brightness(.97);}
+
+  /* ===== report grouping (Baseline / Appropriations results collapse under their annual report) ===== */
+  .grp{margin:12px 14px;border:1px solid var(--line);border-radius:var(--r-lg);overflow:hidden;box-shadow:var(--shadow-sm);}
+  #results>.grp:first-child{margin-top:14px;}
+  /* A standalone (non-grouped) result floats as its OWN tile — same border/radius/shadow/margin as a
+     report group card — so single results don't read as flat edge-to-edge rows. Scoped to DIRECT
+     children of #results: the `.doc` rows nested inside a group body or "more results" tray stay flat. */
+  #results>.doc{margin:12px 14px;border:1px solid var(--line);border-radius:var(--r-lg);box-shadow:var(--shadow-sm);}
+  #results>.doc:first-child{margin-top:14px;}
+  #results>.doc:hover{background:#fafafe;}
+  .grp>.doc{border-bottom:0;}
+  .ctx{margin:0 14px 14px;border:1px dashed #cdd3e6;border-radius:var(--r-md);background:#fafbff;}
+  .ctx-row{display:flex;align-items:center;gap:10px;padding:11px 14px;flex-wrap:wrap;}
+  .ctx-row .badge{display:inline-flex;align-items:center;gap:7px;font-size:12.5px;font-weight:800;color:var(--navy);}
+  .ctx-row .badge svg{width:15px;height:15px;color:var(--az-gold-d);flex:0 0 auto;}
+  .ctx-row .spacer{flex:1;}
+  .grp-full,.grp-more{display:inline-flex;align-items:center;gap:6px;font-family:inherit;font-size:12px;font-weight:800;color:var(--ink-2);background:var(--card);border:1px solid var(--line);border-radius:var(--r-pill);padding:6px 13px;cursor:pointer;white-space:nowrap;}
+  .grp-full svg,.grp-more svg{width:13px;height:13px;transition:transform .18s;}
+  .grp-full:hover,.grp-more:hover{border-color:var(--az-gold);color:var(--az-gold-d);}
+  .grp-full{background:var(--az-gold);border-color:var(--az-gold);color:#fff;}
+  .grp-full:hover{background:var(--az-gold-d);color:#fff;}
+  .grp-more.open svg{transform:rotate(180deg);}
+  .ctx .tray{display:none;border-top:1px dashed #cdd3e6;}
+  .ctx .tray.open{display:block;}
+  .ctx .tray .doc{padding:11px 14px;}
+  .ctx .tray .doc:not(:last-child){border-bottom:1px dashed #e3e7f1;}
+
+  /* ===== report-format chooser modal ===== */
+  #reportModal{position:fixed;inset:0;background:rgba(24,27,61,.42);display:none;align-items:center;justify-content:center;padding:20px;z-index:1000;}
+  #reportModal.open{display:flex;}
+  #reportModal .modal{width:100%;max-width:440px;background:var(--card);border-radius:var(--r-lg);box-shadow:0 18px 50px rgba(27,27,61,.28);overflow:hidden;animation:rmpop .16s ease;}
+  @keyframes rmpop{from{opacity:0;transform:translateY(8px) scale(.98);}to{opacity:1;transform:none;}}
+  #reportModal .mhead{padding:18px 20px 14px;border-bottom:1px solid var(--line);display:flex;align-items:flex-start;gap:12px;}
+  #reportModal .mic{flex:0 0 38px;width:38px;height:38px;border-radius:11px;background:var(--navy);color:#fff;display:grid;place-items:center;}
+  #reportModal .mic svg{width:18px;height:18px;}
+  #reportModal .mt{flex:1;min-width:0;}
+  #reportModal .mt b{display:block;font-size:16px;color:var(--navy);font-weight:900;}
+  #reportModal .mt span{display:block;font-size:13px;color:var(--ink-3);font-weight:600;margin-top:1px;}
+  #reportModal .mx{flex:0 0 auto;width:30px;height:30px;border-radius:50%;border:0;background:var(--canvas);color:var(--ink-3);cursor:pointer;display:grid;place-items:center;}
+  #reportModal .mx:hover{background:#eceef6;color:var(--ink);} #reportModal .mx svg{width:15px;height:15px;}
+  #reportModal .mbody{padding:14px;display:flex;flex-direction:column;gap:12px;}
+  #reportModal .choice{display:flex;gap:13px;padding:15px;border:1.5px solid var(--line);border-radius:var(--r-md);text-decoration:none;color:inherit;transition:border-color .15s,background .15s,box-shadow .15s;}
+  #reportModal .choice:hover{border-color:var(--az-gold);background:#f7fbff;box-shadow:var(--shadow-sm);text-decoration:none;}
+  #reportModal .choice .cic{flex:0 0 40px;width:40px;height:40px;border-radius:11px;display:grid;place-items:center;}
+  #reportModal .choice.linked .cic{background:var(--az-gold-100);color:var(--az-gold-d);}
+  #reportModal .choice.single .cic{background:#fbe9e7;color:#c0392b;}
+  #reportModal .choice .cic svg{width:20px;height:20px;}
+  #reportModal .choice .cc{flex:1;min-width:0;}
+  #reportModal .choice .cc b{display:block;font-size:15px;color:var(--navy);font-weight:800;}
+  #reportModal .choice .cc p{margin:5px 0 0;font-size:13px;color:var(--ink-2);font-weight:600;line-height:1.5;}
+  #reportModal .choice .cc .best{display:block;margin-top:6px;font-size:12px;color:var(--ink-3);font-weight:700;}
+  #reportModal .choice .carr{flex:0 0 auto;align-self:center;color:var(--ink-3);}
+  #reportModal .choice:hover .carr{color:var(--az-gold-d);} #reportModal .choice .carr svg{width:18px;height:18px;}
+
+  /* ===== responsive ===== */
+  @media (max-width:980px){
+    main .wrap{grid-template-columns:1fr;}
+    .side .card{position:static;}
+  }
+  @media (max-width:900px){ .foot{grid-template-columns:1fr 1fr;} }
+  @media (max-width:760px){
+    nav.primary{display:none;}
+    .doc{flex-wrap:wrap;} .doc-pill{margin-left:53px;}
+  }
+  @media (max-width:600px){
+    .foot{grid-template-columns:1fr;} .logo img{height:50px;}
+  }
+  @media (max-width:520px){ .search-expand{left:0;} }
+  /* custom clear-X — clearly pressable (replaces the faint native type=search clear) */
+  input[type=search]::-webkit-search-cancel-button{-webkit-appearance:none;appearance:none;}
+  .clr-x{flex:0 0 auto;display:none;align-items:center;justify-content:center;width:30px;height:30px;border-radius:50%;border:1px solid var(--line);background:var(--canvas);color:var(--ink-2);cursor:pointer;padding:0;transition:background .14s,color .14s,border-color .14s,transform .08s;}
+  .clr-x:hover{background:var(--navy-100);color:var(--navy);border-color:var(--navy);}
+  .clr-x:active{transform:scale(.88);}
+  .clr-x svg{width:15px;height:15px;}
+  .clr-x.show{display:inline-flex;}
+</style>
+<style></style></head>
+<body>
+
+<header class="site">
+  <div class="wrap head">
+    <a class="logo" href="index.html" aria-label="JLBC home"><img src="jlbc-logo.png" alt="JLBC — Joint Legislative Budget Committee"></a>
+
+    <nav class="primary" aria-label="Primary">
+      <div class="nav-item"><a href="index.html" aria-label="JLBC Home" title="JLBC Home"><svg class="home-ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 11.5 12 4l9 7.5"></path><path d="M5 10v9h14v-9"></path></svg></a></div>
+
+      <div class="nav-item">
+        <a href="subpage-current-year.html">Annual Budgets <svg class="caret" viewBox="0 0 10 6" fill="none" stroke="currentColor" stroke-width="1.7"><path d="m1 1 4 4 4-4"></path></svg></a>
+        <div class="dropdown"><a href="subpage-current-year.html">Current Year</a><a href="subpage-prior-years.html">Prior Years</a><a href="subpage-historical-comparisons.html">Historical Comparisons</a><a href="subpage-process.html">Budget Process</a><a href="subpage-annual-reports.html">Annual Reports</a></div>
+      </div>
+
+      <div class="nav-item"><a href="subpage-monthly-fiscal-highlights.html">Monthly Highlights</a></div>
+
+      <div class="nav-item">
+        <a href="subpage-fiscal-notes.html">Fiscal Notes <svg class="caret" viewBox="0 0 10 6" fill="none" stroke="currentColor" stroke-width="1.7"><path d="m1 1 4 4 4-4"></path></svg></a>
+        <div class="dropdown"><a href="subpage-fiscal-notes.html">Fiscal Notes</a><a href="subpage-ballot-initiatives.html">Ballot Initiatives</a></div>
+      </div>
+
+      <div class="nav-item">
+        <a href="subpage-state-revenue-reports.html">State Revenues <svg class="caret" viewBox="0 0 10 6" fill="none" stroke="currentColor" stroke-width="1.7"><path d="m1 1 4 4 4-4"></path></svg></a>
+        <div class="dropdown"><a href="subpage-monthly-fiscal-highlights.html">Monthly Fiscal Highlights</a><a href="subpage-fac-meeting.html">FAC Meetings</a><a href="subpage-tax-handbook.html">Tax Handbook</a><a href="subpage-tax-credit-reviews.html">Tax Credit Reviews</a><a href="subpage-forecasting-process.html">Forecasting Process</a><a href="subpage-state-revenue-reports.html">Reports</a><a href="subpage-historical-revenues.html">Historical Revenues</a></div>
+      </div>
+
+      <div class="nav-item"><a href="subpage-budget-units.html">Budget Units</a></div>
+      <div class="nav-item"><a href="subpage-jlbc-meetings.html">Meetings</a></div>
+
+      <div class="nav-item">
+        <a href="subpage-jlbc-background.html">About <svg class="caret" viewBox="0 0 10 6" fill="none" stroke="currentColor" stroke-width="1.7"><path d="m1 1 4 4 4-4"></path></svg></a>
+        <div class="dropdown"><a href="subpage-jlbc-background.html">JLBC</a><a href="subpage-jccr-background.html">JCCR</a><a href="subpage-staff-positions.html">Staff Positions</a><a href="subpage-jlbc-staff.html">Staff Assignments</a><a href="subpage-jlbc-careers.html">JLBC Careers</a><a href="subpage-fiscal-links.html">Fiscal Links</a><a href="subpage-public-records-request.html">Public Records Request Portal</a></div>
+      </div>
+    </nav>
+
+    <a class="search-icon-btn" href="subpage-search_jlbc.html" aria-label="Search the JLBC library" title="Search"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="7"></circle><path d="m21 21-4.3-4.3"></path></svg></a>
+  </div>
+</header>
+
+
+<!-- ===== sub-page hero band ===== -->
+<section class="subhero" aria-label="Page header">
+  <div class="wrap">
+    <h1>Comprehensive Document Search</h1>
+    <p class="lead">JLBC's document search encompasses all JLBC publications, along with related budget documents from the Governor's office and various state agencies.</p>
+    <div class="chips">
+      <span class="chip"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M6 2h9l5 5v15H6z"></path><path d="M14 2v6h6"></path></svg> <span id="docCountChip">419 documents</span></span>
+      <span class="chip"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="7"></circle><path d="m21 21-4.3-4.3"></path></svg> OSPB, GAO, and agency-specific budget documents<br></span>
+    </div>
+  </div>
+</section>
+
+<main>
+  <!-- Single centered column; shared two-column grid is bypassed for this utility page. -->
+  <div class="wrap" style="display:block;">
+    <div class="search-wrap">
+
+      <section class="card big-search-card">
+        <!-- Real search field. JS (assets/search/search.js) embeds the query in-browser and ranks
+             the document index. Falls back to keyword-only when opened from file://. -->
+        <form class="big-search" id="searchForm" role="search">
+          <svg class="s-ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="7"></circle><path d="m21 21-4.3-4.3"></path></svg>
+          <input id="q" type="search" placeholder="e.g. how much does the Medicaid program get?" aria-label="Search the JLBC library" autocomplete="off">
+          <button type="button" class="clr-x" id="qclear" aria-label="Clear search"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"><path d="M6 6l12 12M18 6 6 18"></path></svg></button>
+          <button type="submit" class="s-btn">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="7"></circle><path d="m21 21-4.3-4.3"></path></svg>
+            Search
+          </button>
+        </form>
+        <div class="filters">
+          <span class="flabel">Filter</span>
+          <span id="typeFilters" style="display:contents;"><button class="fchip" type="button" data-type="Fiscal Notes">Fiscal Notes (96)</button><button class="fchip" type="button" data-type="Appropriations Report">Appropriations Report (41)</button><button class="fchip" type="button" data-type="Tax Handbook">Tax Handbook (28)</button><button class="fchip" type="button" data-type="Report">Report (26)</button><button class="fchip" type="button" data-type="Presentation">Presentation (22)</button><button class="fchip" type="button" data-type="Baseline">Baseline (21)</button><button class="fchip" type="button" data-type="Ballot Initiatives">Ballot Initiatives (20)</button><button class="fchip" type="button" data-type="Historical Comparisons">Historical Comparisons (13)</button><button class="fchip" type="button" data-type="Monthly Fiscal Highlights">Monthly Fiscal Highlights (11)</button><button class="fchip" type="button" data-type="Meeting Agenda">Meeting Agenda (9)</button></span>
+          <select id="yearFilter" class="fyear" aria-label="Filter by fiscal year"><option value="">All years</option><option value="2027">FY 2027</option><option value="2026">FY 2026</option><option value="2025">FY 2025</option><option value="2024">FY 2024</option><option value="2023">FY 2023</option><option value="2022">FY 2022</option><option value="2021">FY 2021</option><option value="2020">FY 2020</option><option value="2019">FY 2019</option><option value="2018">FY 2018</option><option value="2017">FY 2017</option><option value="2016">FY 2016</option><option value="2015">FY 2015</option><option value="2014">FY 2014</option><option value="2013">FY 2013</option><option value="2012">FY 2012</option><option value="2011">FY 2011</option><option value="2010">FY 2010</option><option value="2009">FY 2009</option><option value="2008">FY 2008</option><option value="2007">FY 2007</option><option value="2006">FY 2006</option><option value="2005">FY 2005</option><option value="2004">FY 2004</option><option value="2003">FY 2003</option><option value="2002">FY 2002</option><option value="1999">FY 1999</option><option value="1998">FY 1998</option><option value="1997">FY 1997</option><option value="1996">FY 1996</option><option value="1995">FY 1995</option><option value="1994">FY 1994</option><option value="1993">FY 1993</option><option value="1992">FY 1992</option><option value="1991">FY 1991</option><option value="1990">FY 1990</option><option value="1989">FY 1989</option><option value="1988">FY 1988</option><option value="1987">FY 1987</option><option value="1986">FY 1986</option><option value="1985">FY 1985</option><option value="1984">FY 1984</option></select>
+        </div>
+      </section>
+
+      <div id="status" class="search-status">419 documents · ready for instant semantic search</div>
+      <p id="modeNote" class="mode-note"></p>
+
+      <!-- Default state: example queries to try -->
+      <!-- Results -->
+      <section class="card" id="resultsCard" hidden="">
+        <div class="card-head">
+          <div class="head-row">
+            <span class="ic"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 11.5 12 4l9 7.5"></path><path d="M5 10v9h14v-9"></path></svg></span>
+            <h2>Results</h2><span class="count" id="resultsCount"></span>
+          </div>
+        </div>
+        <div id="results"></div>
+      </section>
+
+    </div>
+  </div>
+</main>
+
+<footer class="site">
+  <div class="wrap foot">
+    <div class="fb">
+      <div class="name">Joint Legislative Budget Committee</div>
+      <p>This public website is maintained by the JLBC, the fiscal research arm of the Arizona Legislature.</p>
+    </div>
+    <div class="col"><h4>Contact</h4>
+      <div class="contact-row">
+        <span class="line"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 16.9v3a2 2 0 0 1-2.2 2 19.8 19.8 0 0 1-8.6-3.1 19.5 19.5 0 0 1-6-6A19.8 19.8 0 0 1 2 4.2 2 2 0 0 1 4 2h3a2 2 0 0 1 2 1.7c.1.9.4 1.8.7 2.6a2 2 0 0 1-.5 2.1L8 9.6a16 16 0 0 0 6 6l1.2-1.2a2 2 0 0 1 2.1-.5c.8.3 1.7.6 2.6.7A2 2 0 0 1 22 16.9Z"></path></svg><a href="tel:+16029265491">(602) 926-5491</a></span>
+        <span class="line"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="5" width="18" height="14" rx="3"></rect><path d="m3 7 9 6 9-6"></path></svg><a href="mailto:jlbcwebmaster@azleg.gov">jlbcwebmaster@azleg.gov</a></span>
+      </div>
+      <div class="contact-row">
+        <span class="line"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 21s-7-5.2-7-11a7 7 0 0 1 14 0c0 5.8-7 11-7 11Z"></path><circle cx="12" cy="10" r="2.5"></circle></svg><a href="https://www.google.com/maps/search/?api=1&amp;query=1716%20West%20Adams%2C%20Phoenix%2C%20AZ%2085007" target="_blank" rel="noopener">1716 West Adams, Phoenix, AZ 85007</a></span>
+      </div>
+    </div>
+  </div>
+  <div class="wrap foot-bottom">
+    <div class="copyline"><img class="jlbc-mini" src="jlbc-logo.png" alt="JLBC"> © 2026 Arizona Joint Legislative Budget Committee</div>
+    <a class="azleg-btn" href="https://www.azleg.gov/" target="_blank" rel="noopener" aria-label="Arizona State Legislature — opens azleg.gov">
+      <img src="azleg-logo.png" alt="Arizona State Legislature">
+      <svg class="foot-ext" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M7 17 17 7M9 7h8v8"></path></svg>
+    </a>
+  </div>
+</footer>
+
+<!-- report-format chooser (shown when a grouped result's "Full report" is clicked; populated by search.js) -->
+<div id="reportModal" role="dialog" aria-modal="true" aria-label="Open the full report">
+  <div class="modal">
+    <div class="mhead">
+      <span class="mic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 4h13a2 2 0 0 1 2 2v14H6a2 2 0 0 1-2-2z"></path><path d="M4 18a2 2 0 0 1 2-2h13"></path></svg></span>
+      <span class="mt"><b id="rmTitle">Full report</b><span>Choose how you'd like to open it</span></span>
+      <button class="mx" id="rmClose" aria-label="Close"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4"><path d="M6 6l12 12M18 6 6 18"></path></svg></button>
+    </div>
+    <div class="mbody">
+      <a class="choice linked" id="rmLinked" href="#" target="_blank" rel="noopener">
+        <span class="cic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M10 13a5 5 0 0 0 7 0l2-2a5 5 0 0 0-7-7l-1 1"></path><path d="M14 11a5 5 0 0 0-7 0l-2 2a5 5 0 0 0 7 7l1-1"></path></svg></span>
+        <span class="cc">
+          <b>Linked Table of Contents</b>
+          <p>An index page where each agency and section is a link that opens its own smaller PDF.</p>
+          <span class="best">Best for jumping straight to one agency or section without downloading the whole report.</span>
+        </span>
+        <span class="carr"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M5 12h14M13 6l6 6-6 6"></path></svg></span>
+      </a>
+      <a class="choice single" id="rmSingle" href="#" target="_blank" rel="noopener">
+        <span class="cic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M6 2h9l5 5v15H6z"></path><path d="M14 2v6h6"></path><path d="M9 13h6M9 17h6"></path></svg></span>
+        <span class="cc">
+          <b>Single File PDF</b>
+          <p>The complete report as one document — every agency and summary in a single PDF.</p>
+          <span class="best">Best for reading start to finish, searching the whole report, or printing. Largest download.</span>
+        </span>
+        <span class="carr"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M5 12h14M13 6l6 6-6 6"></path></svg></span>
+      </a>
+    </div>
+  </div>
+</div>
+
+<!-- search data (metadata for all docs; loads via <script> so keyword search works from file://) -->
+<script src="assets/search/index-lite.js?v=34"></script>
+<!-- search engine (classic script so it loads from file:// too; semantic over http, keyword fallback on file://) -->
+<script src="assets/search/search.js?v=34"></script>
+
+<script>
+/* clear-X for the main search box (clear value, reset results, refocus) */
+(function(){
+  var q=document.getElementById('q'), cx=document.getElementById('qclear'); if(!q||!cx) return;
+  function tog(){ cx.classList.toggle('show', q.value.length>0); }
+  q.addEventListener('input', tog); tog();
+  cx.addEventListener('click', function(){
+    q.value=''; tog(); q.focus();
+    var rc=document.getElementById('resultsCard'); if(rc) rc.hidden=true;
+    q.dispatchEvent(new Event('input'));
+  });
+})();
+</script>
+
+
+
+</body></html>

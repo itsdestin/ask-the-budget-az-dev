@@ -1,0 +1,758 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Fiscal Notes — JLBC</title>
+<!--
+  GENERATED FILE — do not hand-edit the results area or the appended styles/script.
+  This page is produced by  fiscal-notes-build/build.py  from  fiscal-notes-build/base.html
+  + the cached live data in  fiscal-notes-build/live/.  To change content, re-run the builder
+  (see fiscal-notes-build/BUILD.md). Page chrome (header, hero, footer) is editable in base.html.
+
+  Design: a filter sidebar (search box + All/House/Senate switcher + Legislative-Session list)
+  driving a per-session card directory. A small JS block does live text filtering (bill-number
+  prefix or title keyword) and the "search all sessions" scope toggle — the second deliberate JS
+  feature on the site after the search page. Everything else is HTML + CSS.
+-->
+<style>
+  :root {
+    --navy:#2b2f63; --navy-700:#232752; --navy-900:#181b3d; --navy-100:#e7e8f2;
+    --az-red:#2f55c4; --az-red-100:#e1e6fa;
+    --az-gold:#1b6fc4; --az-gold-d:#145aa6; --az-gold-100:#dceaf7;
+    --copper:#3d6a99; --copper-100:#e3ebf3;
+    --teal:#1782b3; --teal-100:#dbeef8;
+    --ink:#21243f; --ink-2:#4a4e6a; --ink-3:#757895;
+    --line:#e6e6ef; --canvas:#f5f5fa; --card:#fff;
+    --r-lg:22px; --r-md:16px; --r-sm:12px; --r-pill:999px; --gap:22px;
+    --shadow:0 1px 2px rgba(27,27,61,.05),0 10px 26px rgba(27,27,61,.08);
+    --shadow-sm:0 1px 2px rgba(27,27,61,.06),0 3px 10px rgba(27,27,61,.05);
+    --maxw:1140px; --font:"Nunito","Segoe UI",system-ui,-apple-system,sans-serif;
+  }
+  *{box-sizing:border-box;} html{scroll-behavior:smooth;}
+  body{margin:0;font-family:var(--font);color:var(--ink);background:var(--canvas);line-height:1.6;-webkit-font-smoothing:antialiased;}
+  a{color:var(--navy);text-decoration:none;} a:hover{text-decoration:underline;}
+  img{display:block;max-width:100%;} h1,h2,h3,h4{margin:0;line-height:1.2;}
+  .wrap{max-width:var(--maxw);margin:0 auto;padding:0 22px;}
+
+  /* ===== shared chrome: gov strip ===== */
+  .gov{background:var(--navy-900);color:#c8cae4;font-size:13px;}
+  .gov .wrap{display:flex;align-items:center;justify-content:center;gap:9px;min-height:34px;flex-wrap:wrap;}
+  .gov strong{color:#fff;font-weight:700;}
+  .gov .dot{width:5px;height:5px;border-radius:50%;background:var(--az-gold);}
+  .gov a{color:#b7bbe9;}
+  .gov .azstar{width:13px;height:13px;color:var(--az-gold);flex:0 0 auto;}
+
+  /* ===== shared chrome: header ===== */
+  header.site{background:#fff;border-bottom:3px solid var(--navy-900);position:sticky;top:0;z-index:50;}
+  .head{display:flex;align-items:center;gap:14px;min-height:84px;position:relative;}
+  .logo img{height:60px;width:auto;}
+  nav.primary{flex:1 1 auto;display:flex;flex-wrap:nowrap;align-items:center;justify-content:center;gap:2px 4px;min-width:0;}
+  .nav-item{position:relative;}
+  .nav-item>a{display:inline-flex;align-items:center;gap:6px;color:var(--ink-2);font-weight:700;font-size:14px;padding:7px 10px;border-radius:var(--r-pill);white-space:nowrap;transition:background .15s,color .15s;}
+  .nav-item>a:hover,.nav-item:hover>a,.nav-item:focus-within>a{background:var(--navy-100);color:var(--navy);text-decoration:none;}
+  .nav-item.active>a{background:var(--az-gold);color:#fff;}
+  .caret{width:9px;height:9px;opacity:.7;}
+  .home-ic{width:18px;height:18px;display:block;}
+  .dropdown{position:absolute;top:calc(100% + 9px);left:0;min-width:248px;background:#fff;border:1px solid var(--line);border-radius:var(--r-md);box-shadow:var(--shadow);padding:8px;z-index:60;opacity:0;visibility:hidden;transform:translateY(6px);transition:opacity .16s,transform .16s,visibility .16s;}
+  .nav-item:hover .dropdown,.nav-item:focus-within .dropdown{opacity:1;visibility:visible;transform:translateY(0);}
+  .dropdown a{display:block;color:var(--ink-2);font-size:14px;font-weight:600;padding:9px 12px;border-radius:var(--r-sm);}
+  .dropdown a:hover{background:var(--canvas);color:var(--navy);text-decoration:none;}
+
+  /* collapsing search (identical to home) */
+  .search-toggle{position:absolute;width:1px;height:1px;opacity:0;pointer-events:none;}
+  .search-icon-btn{flex:0 0 auto;width:42px;height:42px;border-radius:var(--r-pill);display:grid;place-items:center;background:var(--canvas);border:2px solid var(--line);color:var(--navy);cursor:pointer;transition:border-color .15s,background .15s,opacity .15s;}
+  .search-icon-btn:hover{border-color:var(--az-gold);background:#fff;}
+  .search-icon-btn svg{width:18px;height:18px;}
+  .search-expand{position:absolute;top:50%;left:80px;right:0;transform:translateY(-50%) scaleX(.98);transform-origin:right center;
+    display:flex;align-items:center;gap:10px;background:#fff;border:2px solid var(--az-gold);border-radius:var(--r-pill);
+    padding:9px 16px;box-shadow:var(--shadow);z-index:40;opacity:0;visibility:hidden;pointer-events:none;
+    transition:opacity .16s ease,transform .16s ease,visibility .16s;}
+  .search-expand .s-ic{color:var(--ink-3);flex:0 0 auto;width:18px;height:18px;}
+  .search-expand input{flex:1;border:0;outline:0;background:transparent;font-size:15px;font-family:inherit;color:var(--ink);min-width:0;}
+  .search-close{flex:0 0 auto;cursor:pointer;color:var(--ink-3);display:grid;place-items:center;width:26px;height:26px;border-radius:var(--r-pill);}
+  .search-close:hover{background:var(--canvas);color:var(--navy);}
+  .search-close svg{width:16px;height:16px;}
+  #search-toggle:checked ~ .search-expand{opacity:1;visibility:visible;pointer-events:auto;transform:translateY(-50%) scaleX(1);}
+  #search-toggle:checked ~ .search-icon-btn{opacity:0;visibility:hidden;}
+
+  /* ===== NEW: sub-page hero band ===== */
+  .subhero{position:relative;overflow:hidden;color:#fff;
+    background:linear-gradient(105deg,rgba(18,21,48,.94) 0%,rgba(20,23,52,.86) 60%,rgba(20,23,52,.78) 100%),url('capitol-bg.jpg') center 28% / cover no-repeat;}
+  .subhero .wrap{position:relative;z-index:2;padding:32px 22px 34px;}
+  .subhero h1{font-size:clamp(24px,3.2vw,34px);font-weight:800;letter-spacing:-.4px;}
+  .subhero .lead{margin:10px 0 0;font-size:clamp(14px,1.5vw,16.5px);color:#d9dcf2;font-weight:600;max-width:66ch;line-height:1.5;min-height:3em;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;}
+  .subhero .chips{display:flex;flex-wrap:wrap;gap:8px;margin-top:16px;min-height:31px;}
+  .subhero .chip{display:inline-flex;align-items:center;gap:7px;background:rgba(255,255,255,.1);border:1px solid rgba(255,255,255,.2);border-radius:var(--r-pill);padding:6px 13px;font-size:12.5px;font-weight:700;color:#eef0fb;}
+  .subhero .chip svg{width:14px;height:14px;color:#9fc4ee;flex:0 0 auto;}
+
+  /* ===== main layout ===== */
+  main .wrap{padding:30px 22px 12px;display:grid;grid-template-columns:1fr 320px;gap:var(--gap);align-items:start;}
+  .card{background:var(--card);border:1px solid var(--line);border-radius:var(--r-lg);box-shadow:var(--shadow-sm);overflow:hidden;}
+  .card + .card{margin-top:var(--gap);}
+  /* card header: icon + title + count + description all in ONE bordered block */
+  .card-head{position:relative;}
+  .card-head::after{content:"";position:absolute;left:20px;right:20px;bottom:0;height:2px;border-radius:999px;background:var(--az-gold-100);}
+  .card .head-row{display:flex;align-items:center;gap:12px;padding:20px 24px 12px;}
+  .card .head-row .ic{width:40px;height:40px;border-radius:13px;display:grid;place-items:center;flex:0 0 40px;background:var(--az-gold-100);color:var(--az-gold-d);}
+  .card .head-row h2{font-size:19px;color:var(--navy);font-weight:800;}
+  .card .head-row .count{margin-left:auto;font-size:12.5px;font-weight:800;color:var(--ink-3);background:var(--canvas);border-radius:var(--r-pill);padding:4px 12px;}
+  .intro{font-size:14.5px;color:var(--ink-2);padding:0 24px 18px;margin:0;}
+  .intro b{color:var(--navy);}
+
+  /* ===== NEW: document row ===== */
+  .doc{display:flex;align-items:center;gap:15px;padding:14px 22px;border-bottom:1px solid var(--line);transition:background .15s;color:inherit;}
+  .doc:last-child{border-bottom:0;}
+  .doc:hover{background:#fafafe;text-decoration:none;}
+  .doc-ic{flex:0 0 40px;width:40px;height:40px;border-radius:12px;display:grid;place-items:center;background:var(--az-gold-100);color:var(--az-gold-d);}
+  .doc-ic svg{width:19px;height:19px;}
+  .doc-main{flex:1;min-width:0;}
+  .doc-title{display:block;font-size:15.5px;font-weight:700;color:var(--navy);}
+  .doc:hover .doc-title{color:var(--az-gold-d);}
+  .doc-sub{display:block;font-size:13px;color:var(--ink-3);font-weight:600;margin-top:2px;}
+  .doc-pill{flex:0 0 auto;display:inline-flex;align-items:center;gap:7px;font-size:12px;font-weight:800;color:var(--ink-2);background:var(--canvas);border:1px solid var(--line);border-radius:var(--r-pill);padding:6px 13px;white-space:nowrap;}
+  .doc:hover .doc-pill{border-color:var(--az-gold);color:var(--az-gold-d);}
+  .doc-pill svg{width:13px;height:13px;}
+
+  /* ===== CSS-only accordion — Option B "beads" (2b, h30): compact section pill (left) +
+     count/chevron tab (right), INSET 12px so each sits on the frame's rounded top border at its
+     vertical centre with the corner showing in the gap beyond it. Bubble height is small (30px)
+     but the TEXT stays 14/12.5. Bottom border is the divider that drops down on open. ===== */
+  .acc{position:relative;margin:0 16px 10px;}
+  .acc-toggle{position:absolute;width:1px;height:1px;margin:-1px;padding:0;border:0;clip:rect(0 0 0 0);overflow:hidden;}
+  /* header is transparent — no full-width hover fill (it would mask the frame top) */
+  .acc-head{position:relative;z-index:2;display:flex;align-items:center;gap:10px;padding:7px 4px;cursor:pointer;user-select:none;}
+  .acc-head:hover .acc-yr{filter:brightness(.97);}
+  .acc-yr{display:inline-flex;align-items:center;flex:0 0 auto;height:30px;padding:0 13px;margin-left:12px;border-radius:var(--r-pill);background:var(--navy-100);color:var(--navy);font-weight:800;font-size:14px;letter-spacing:.01em;transition:background .15s,color .15s,filter .15s;}
+  /* count + chevron tab on the right end of the line, also inset 12px */
+  .acc-tab{margin-left:auto;margin-right:12px;display:inline-flex;align-items:center;gap:8px;height:30px;padding:0 12px;border-radius:var(--r-pill);background:var(--card);border:1px solid var(--line);color:var(--ink-3);font-weight:800;font-size:12.5px;white-space:nowrap;transition:border-color .15s,color .15s;}
+  .acc-head:hover .acc-tab{border-color:var(--az-gold);color:var(--az-gold-d);}
+  .acc-meta{font-size:12.5px;font-weight:800;color:inherit;}
+  .acc-chev{width:15px;height:15px;color:inherit;transition:transform .28s;flex:0 0 auto;}
+  .acc-toggle:checked ~ .acc-head .acc-chev{transform:rotate(180deg);}
+  .acc-toggle:checked ~ .acc-head .acc-yr{background:var(--az-gold);color:#fff;}
+  .acc-toggle:focus-visible ~ .acc-head .acc-yr{outline:2px solid var(--az-gold);outline-offset:2px;}
+  .acc-body{display:grid;grid-template-rows:0fr;transition:grid-template-rows .28s ease,margin-top .28s ease;}
+  /* the grid item IS the frame box. closed = only the bottom border (the divider). open = grows
+     (bottom border drops), top/sides fade in, and it lifts so the border runs through the pills'
+     centre; the pills sit inset 12px so the rounded corners show in the gaps beyond them. */
+  .acc-body > div{overflow:hidden;min-height:0;margin:0 4px;
+    border:2px solid transparent;border-bottom-color:var(--az-gold-100);border-radius:16px;
+    transition:border-color .28s ease;}
+  .acc-toggle:checked ~ .acc-body{grid-template-rows:1fr;margin-top:-23px;}
+  .acc-toggle:checked ~ .acc-body > div{border-color:var(--az-gold-100);}
+  .acc-body .tray{padding:29px 14px 8px 16px;}
+  .acc-body .tray .doc{padding:13px 10px;border-bottom:1px solid var(--line);}
+  .acc-body .tray .doc:last-child{border-bottom:0;}
+  .acc-body .tray .doc:hover{background:#fafafe;border-radius:10px;}
+  .acc-note{padding:10px 10px 4px;font-size:13.5px;color:var(--ink-3);font-weight:600;}
+  .acc-note a{font-weight:800;color:var(--az-gold-d);}
+  /* ===== filterable "Earlier Sessions" archive (CSS-only era filter, no JS) ===== */
+  .tray-filter{padding-top:6px;}
+  .era-radio{position:absolute;width:1px;height:1px;margin:-1px;padding:0;border:0;clip:rect(0 0 0 0);overflow:hidden;}
+  .era-bar{display:flex;flex-wrap:wrap;align-items:center;gap:8px;padding:2px 4px 14px;}
+  .era-lbl{font-size:11px;font-weight:800;color:var(--ink-3);text-transform:uppercase;letter-spacing:.07em;margin-right:2px;}
+  .era-chip{cursor:pointer;font-size:12.5px;font-weight:800;color:var(--ink-2);background:#fff;border:1px solid var(--line);border-radius:var(--r-pill);padding:6px 13px;transition:background .15s,color .15s,border-color .15s;}
+  .era-chip:hover{border-color:var(--az-gold);color:var(--az-gold-d);}
+  #fn-all:checked ~ .era-bar label[for="fn-all"],
+  #fn-e3:checked ~ .era-bar label[for="fn-e3"],
+  #fn-e2:checked ~ .era-bar label[for="fn-e2"],
+  #fn-e1:checked ~ .era-bar label[for="fn-e1"]{background:var(--az-gold);color:#fff;border-color:var(--az-gold);}
+  #fn-e3:checked ~ .era-list .yr-mini:not(.era-3),
+  #fn-e2:checked ~ .era-list .yr-mini:not(.era-2),
+  #fn-e1:checked ~ .era-list .yr-mini:not(.era-1){display:none;}
+  .yr-mini + .yr-mini{margin-top:2px;}
+  .yr-mini-h{font-size:12px;font-weight:800;color:var(--navy);text-transform:uppercase;letter-spacing:.05em;padding:10px 10px 4px;}
+
+  /* ===== sidebar (reused) =====
+     Not sticky: the sidebar scrolls with the page so document cards never slide
+     underneath a pinned bubble. */
+  .side .card{position:static;}
+  .quick{padding:10px;}
+  .quick .qh{padding:14px 16px 10px;font-size:13px;font-weight:800;text-transform:uppercase;letter-spacing:.1em;color:var(--ink-3);}
+  .quick a.qlink{display:flex;align-items:center;gap:12px;padding:12px 16px;border-radius:var(--r-md);color:var(--navy);font-weight:700;font-size:14.5px;transition:background .15s,transform .12s;}
+  .quick a.qlink:hover{background:var(--navy-100);text-decoration:none;transform:translateX(2px);}
+  .quick a.qlink .dotic{width:32px;height:32px;border-radius:10px;display:grid;place-items:center;flex:0 0 32px;}
+  .quick a.qlink .arr{margin-left:auto;color:var(--ink-3);transition:transform .15s,color .15s;}
+  .quick a.qlink:hover .arr{transform:translateX(3px);color:var(--az-red);}
+  .c-navy{background:var(--navy-100);color:var(--navy);} .c-red{background:var(--az-red-100);color:var(--az-red);}
+  .c-gold{background:var(--az-gold-100);color:var(--az-gold-d);} .c-copper{background:var(--copper-100);color:var(--copper);}
+  .c-teal{background:var(--teal-100);color:var(--teal);}
+  .promo{margin:0 0 var(--gap);background:linear-gradient(150deg,var(--navy-700),var(--navy-900));border-radius:var(--r-lg);padding:24px;color:#fff;position:relative;overflow:hidden;box-shadow:var(--shadow);}
+  .promo::after{content:"";position:absolute;right:-30px;top:-30px;width:120px;height:120px;border-radius:50%;background:rgba(27,111,196,.35);}
+  .promo h3{font-size:18px;position:relative;z-index:2;}
+  .promo p{margin:8px 0 16px;font-size:13.5px;color:#cdcfe8;position:relative;z-index:2;}
+  .promo a{position:relative;z-index:2;display:inline-flex;align-items:center;gap:8px;background:var(--az-gold);color:#fff;font-weight:800;font-size:14px;padding:11px 18px;border-radius:var(--r-pill);}
+  .promo a:hover{text-decoration:none;filter:brightness(1.04);}
+
+  /* ===== shared chrome: footer ===== */
+  footer.site{background:var(--navy-900);color:#b6b9dc;margin-top:22px;}
+  .foot{display:flex;flex-wrap:wrap;justify-content:space-between;align-items:flex-start;gap:16px 48px;padding:22px 0 16px;}
+  .foot .fb .azleg{height:42px;width:auto;margin-bottom:16px;background:#fff;padding:8px 12px;border-radius:12px;}
+  .foot .fb .name{color:#fff;font-weight:800;font-size:17px;}
+  .foot .fb p{font-size:13.5px;color:#8e91bd;margin:8px 0 0;max-width:46ch;}
+  .foot h4{color:#fff;font-size:12.5px;text-transform:uppercase;letter-spacing:.1em;margin-bottom:11px;}
+  .foot .line{font-size:14px;color:#b6b9dc;margin:0;display:flex;gap:8px;align-items:center;}
+  .foot .line svg{color:var(--az-gold);flex:0 0 auto;}
+  .foot a{color:#b6b9dc;} .foot a:hover{color:#fff;}
+  .foot .contact-row{display:flex;flex-wrap:wrap;gap:7px 24px;}
+  .foot .contact-row+.contact-row{margin-top:9px;}
+  .foot-bottom{border-top:1px solid #2a2d57;padding:14px 0;display:flex;flex-wrap:wrap;gap:12px;justify-content:space-between;align-items:center;font-size:12.5px;color:#7e81ad;}
+  .foot-bottom a{color:#b7bbe9;}
+  .foot-bottom .copyline{display:inline-flex;align-items:center;gap:10px;}
+  .foot-bottom .jlbc-mini{height:28px;width:auto;background:#fff;padding:4px 7px;border-radius:8px;}
+  .foot-bottom .azleg-btn{display:inline-flex;align-items:center;gap:9px;background:#fff;padding:7px 13px;border-radius:11px;transition:transform .15s,box-shadow .15s;}
+  .foot-bottom .azleg-btn:hover{box-shadow:0 5px 16px rgba(0,0,0,.28);transform:translateY(-1px);text-decoration:none;}
+  .foot-bottom .azleg-btn img{height:28px;width:auto;}
+  .foot-bottom .azleg-btn .foot-ext{width:15px;height:15px;color:var(--navy);opacity:.65;flex:0 0 auto;}
+
+  /* ===== NEW: two-column bill grid (House | Senate) ===== */
+  .bills{display:grid;grid-template-columns:1fr 1fr;gap:0;}
+  .bills .bcol{border-right:1px solid var(--line);}
+  .bills .bcol:last-child{border-right:0;}
+  .bcol-head{display:flex;align-items:center;gap:9px;padding:14px 22px;background:var(--canvas);border-bottom:1px solid var(--line);font-size:13px;font-weight:800;text-transform:uppercase;letter-spacing:.08em;color:var(--ink-3);}
+  .bcol-head svg{width:16px;height:16px;color:var(--az-gold-d);flex:0 0 auto;}
+  .bill{display:flex;align-items:flex-start;gap:13px;padding:14px 22px;border-bottom:1px solid var(--line);transition:background .15s;}
+  .bill:last-child{border-bottom:0;}
+  .bill:hover{background:#fafafe;}
+  .bill-main{flex:1;min-width:0;}
+  .bill-no{display:inline-block;font-size:13px;font-weight:800;color:#fff;background:var(--navy);border-radius:var(--r-pill);padding:3px 11px;letter-spacing:.01em;}
+  .bill-no:hover{background:var(--az-gold-d);text-decoration:none;}
+  .bill-desc{display:block;font-size:13.5px;color:var(--ink-2);font-weight:600;margin-top:7px;}
+  .bill-pill{flex:0 0 auto;display:inline-flex;align-items:center;gap:6px;font-size:11.5px;font-weight:800;color:var(--ink-2);background:var(--canvas);border:1px solid var(--line);border-radius:var(--r-pill);padding:5px 11px;white-space:nowrap;margin-top:1px;}
+  .bill:hover .bill-pill{border-color:var(--az-gold);color:var(--az-gold-d);}
+  .bill-pill svg{width:12px;height:12px;}
+
+  /* ===== responsive ===== */
+  @media (max-width:980px){
+    main .wrap{grid-template-columns:1fr;}
+    .side .card{position:static;}
+  }
+  @media (max-width:900px){ .foot{grid-template-columns:1fr 1fr;} }
+  @media (max-width:760px){
+    nav.primary{display:none;}
+    .doc{flex-wrap:wrap;} .doc-pill{margin-left:53px;}
+    .bills{grid-template-columns:1fr;}
+    .bills .bcol{border-right:0;border-bottom:1px solid var(--line);}
+    .bills .bcol:last-child{border-bottom:0;}
+  }
+  @media (max-width:600px){
+    .foot{grid-template-columns:1fr;} .logo img{height:50px;}
+  }
+  @media (max-width:520px){ .search-expand{left:0;} }
+</style>
+</head>
+<body>
+
+<header class="site">
+  <div class="wrap head">
+    <a class="logo" href="index.html" aria-label="JLBC home"><img src="jlbc-logo.png" alt="JLBC — Joint Legislative Budget Committee" /></a>
+
+    <nav class="primary" aria-label="Primary">
+      <div class="nav-item"><a href="index.html" aria-label="JLBC Home" title="JLBC Home"><svg class="home-ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 11.5 12 4l9 7.5"/><path d="M5 10v9h14v-9"/></svg></a></div>
+
+      <div class="nav-item">
+        <a href="subpage-current-year.html">Annual Budgets <svg class="caret" viewBox="0 0 10 6" fill="none" stroke="currentColor" stroke-width="1.7"><path d="m1 1 4 4 4-4"/></svg></a>
+        <div class="dropdown"><a href="subpage-current-year.html">Current Year</a><a href="subpage-prior-years.html">Prior Years</a><a href="subpage-historical-comparisons.html">Historical Comparisons</a><a href="subpage-process.html">Budget Process</a><a href="subpage-annual-reports.html">Annual Reports</a></div>
+      </div>
+
+      <div class="nav-item"><a href="subpage-monthly-fiscal-highlights.html">Monthly Highlights</a></div>
+
+      <div class="nav-item active">
+        <a href="document-placeholder.html">Fiscal Notes <svg class="caret" viewBox="0 0 10 6" fill="none" stroke="currentColor" stroke-width="1.7"><path d="m1 1 4 4 4-4"/></svg></a>
+        <div class="dropdown"><a href="subpage-fiscal-notes.html">Fiscal Notes</a><a href="subpage-ballot-initiatives.html">Ballot Initiatives</a></div>
+      </div>
+
+      <div class="nav-item">
+        <a href="document-placeholder.html">State Revenues <svg class="caret" viewBox="0 0 10 6" fill="none" stroke="currentColor" stroke-width="1.7"><path d="m1 1 4 4 4-4"/></svg></a>
+        <div class="dropdown"><a href="subpage-monthly-fiscal-highlights.html">Monthly Fiscal Highlights</a><a href="subpage-fac-meeting.html">FAC Meetings</a><a href="subpage-tax-handbook.html">Tax Handbook</a><a href="subpage-tax-credit-reviews.html">Tax Credit Reviews</a><a href="subpage-forecasting-process.html">Forecasting Process</a><a href="subpage-state-revenue-reports.html">Reports</a><a href="subpage-historical-revenues.html">Historical Revenues</a></div>
+      </div>
+
+      <div class="nav-item"><a href="subpage-budget-units.html">Budget Units</a></div>
+      <div class="nav-item"><a href="subpage-jlbc-meetings.html">Meetings</a></div>
+
+      <div class="nav-item">
+        <a href="document-placeholder.html">About <svg class="caret" viewBox="0 0 10 6" fill="none" stroke="currentColor" stroke-width="1.7"><path d="m1 1 4 4 4-4"/></svg></a>
+        <div class="dropdown"><a href="subpage-jlbc-background.html">JLBC</a><a href="subpage-jccr-background.html">JCCR</a><a href="subpage-staff-positions.html">Staff Positions</a><a href="subpage-jlbc-staff.html">Staff Assignments</a><a href="subpage-jlbc-careers.html">JLBC Careers</a><a href="subpage-fiscal-links.html">Fiscal Links</a><a href="subpage-public-records-request.html">Public Records Request Portal</a></div>
+      </div>
+    </nav>
+
+    <a class="search-icon-btn" href="subpage-search_jlbc.html" aria-label="Search the JLBC library" title="Search"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="7"/><path d="m21 21-4.3-4.3"/></svg></a>
+  </div>
+</header>
+
+
+<!-- ===== sub-page hero band ===== -->
+<section class="subhero" aria-label="Page header">
+  <div class="wrap">
+    <h1>Fiscal Notes</h1>
+    <p class="lead">Independent fiscal-impact analyses of pending legislation &mdash; each bill's effect on state revenues, spending, and the General Fund.</p>
+    <div class="chips">
+      <span class="chip"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="4" width="18" height="18" rx="3"/><path d="M16 2v4M8 2v4M3 10h18"/></svg> 57th Legislature, 2nd Reg. Session</span>
+      <span class="chip"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M6 2h9l5 5v15H6z"/><path d="M14 2v6h6"/></svg> House &amp; Senate bills</span>
+    </div>
+  </div>
+</section>
+
+<main>
+  <div class="wrap">
+    <div class="col-main">
+      <section class="card">
+        <div class="card-head">
+          <div class="head-row">
+            <span class="ic"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M6 2h9l5 5v15H6z"/><path d="M14 2v6h6M9 13h6M9 17h6"/></svg></span>
+            <h2>57th Legislature, 2nd Regular Session</h2><span class="count">By chamber</span>
+          </div>
+          <p class="intro">Fiscal notes are prepared by JLBC Staff as bills advance through the Legislature. Bills are grouped by chamber below &mdash; <b>select any bill</b> to view its fiscal note PDF.</p>
+        </div>
+
+        <div class="bills">
+          <!-- House column -->
+          <div class="bcol">
+            <div class="bcol-head"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 11.5 12 4l9 7.5"/><path d="M5 10v9h14v-9"/></svg> House Bills</div>
+            <div class="bill"><div class="bill-main"><a class="bill-no" href="https://www.azleg.gov/legtext/57leg/2R/fiscal/HB2011.DOCX.pdf" target="_blank" rel="noopener">HB 2011</a><span class="bill-desc">individual income tax; subtraction; adoption</span></div><a class="bill-pill" href="https://www.azleg.gov/legtext/57leg/2R/fiscal/HB2011.DOCX.pdf" target="_blank" rel="noopener"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 3v12m0 0 4-4m-4 4-4-4M5 21h14"/></svg> Fiscal Note &middot; PDF</a></div>
+            <div class="bill"><div class="bill-main"><a class="bill-no" href="https://www.azleg.gov/legtext/57leg/2R/fiscal/HB2012.DOCX.pdf" target="_blank" rel="noopener">HB 2012</a><span class="bill-desc">vehicle registration; fees; alternative fuel</span></div><a class="bill-pill" href="https://www.azleg.gov/legtext/57leg/2R/fiscal/HB2012.DOCX.pdf" target="_blank" rel="noopener"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 3v12m0 0 4-4m-4 4-4-4M5 21h14"/></svg> Fiscal Note &middot; PDF</a></div>
+            <div class="bill"><div class="bill-main"><a class="bill-no" href="https://www.azleg.gov/legtext/57leg/2R/fiscal/HB2075.DOCX.pdf" target="_blank" rel="noopener">HB 2075</a><span class="bill-desc">school districts; employment contracts; publication</span></div><a class="bill-pill" href="https://www.azleg.gov/legtext/57leg/2R/fiscal/HB2075.DOCX.pdf" target="_blank" rel="noopener"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 3v12m0 0 4-4m-4 4-4-4M5 21h14"/></svg> Fiscal Note &middot; PDF</a></div>
+            <div class="bill"><div class="bill-main"><a class="bill-no" href="https://www.azleg.gov/legtext/57leg/2R/fiscal/HB2080.DOCX.pdf" target="_blank" rel="noopener">HB 2080</a><span class="bill-desc">municipal general plan; adoption</span></div><a class="bill-pill" href="https://www.azleg.gov/legtext/57leg/2R/fiscal/HB2080.DOCX.pdf" target="_blank" rel="noopener"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 3v12m0 0 4-4m-4 4-4-4M5 21h14"/></svg> Fiscal Note &middot; PDF</a></div>
+            <div class="bill"><div class="bill-main"><a class="bill-no" href="https://www.azleg.gov/legtext/57leg/2R/fiscal/HB2091.DOCX.pdf" target="_blank" rel="noopener">HB 2091</a><span class="bill-desc">financial surveillance fund; insurer examinations</span></div><a class="bill-pill" href="https://www.azleg.gov/legtext/57leg/2R/fiscal/HB2091.DOCX.pdf" target="_blank" rel="noopener"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 3v12m0 0 4-4m-4 4-4-4M5 21h14"/></svg> Fiscal Note &middot; PDF</a></div>
+            <div class="bill"><div class="bill-main"><a class="bill-no" href="https://www.azleg.gov/legtext/57leg/2R/fiscal/HB2113.DOCX.pdf" target="_blank" rel="noopener">HB 2113</a><span class="bill-desc">public service corporation; rates; intervenor</span></div><a class="bill-pill" href="https://www.azleg.gov/legtext/57leg/2R/fiscal/HB2113.DOCX.pdf" target="_blank" rel="noopener"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 3v12m0 0 4-4m-4 4-4-4M5 21h14"/></svg> Fiscal Note &middot; PDF</a></div>
+            <div class="bill"><div class="bill-main"><a class="bill-no" href="https://www.azleg.gov/legtext/57leg/2R/fiscal/HB2114.DOCX.pdf" target="_blank" rel="noopener">HB 2114</a><span class="bill-desc">motorcycle registration requirements; safety fund</span></div><a class="bill-pill" href="https://www.azleg.gov/legtext/57leg/2R/fiscal/HB2114.DOCX.pdf" target="_blank" rel="noopener"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 3v12m0 0 4-4m-4 4-4-4M5 21h14"/></svg> Fiscal Note &middot; PDF</a></div>
+            <div class="bill"><div class="bill-main"><a class="bill-no" href="https://www.azleg.gov/legtext/57leg/2R/fiscal/HB2130.DOCX.pdf" target="_blank" rel="noopener">HB 2130</a><span class="bill-desc">ADOA; personnel; financial systems</span></div><a class="bill-pill" href="https://www.azleg.gov/legtext/57leg/2R/fiscal/HB2130.DOCX.pdf" target="_blank" rel="noopener"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 3v12m0 0 4-4m-4 4-4-4M5 21h14"/></svg> Fiscal Note &middot; PDF</a></div>
+            <div class="bill"><div class="bill-main"><a class="bill-no" href="https://www.azleg.gov/legtext/57leg/2R/fiscal/HB2134.DOCX.pdf" target="_blank" rel="noopener">HB 2134</a><span class="bill-desc">critical infrastructure; foreign adversaries; prohibition</span></div><a class="bill-pill" href="https://www.azleg.gov/legtext/57leg/2R/fiscal/HB2134.DOCX.pdf" target="_blank" rel="noopener"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 3v12m0 0 4-4m-4 4-4-4M5 21h14"/></svg> Fiscal Note &middot; PDF</a></div>
+            <div class="bill"><div class="bill-main"><a class="bill-no" href="https://www.azleg.gov/legtext/57leg/2R/fiscal/HB2165.DOCX.pdf" target="_blank" rel="noopener">HB 2165</a><span class="bill-desc">veterans; state park fees; exemption</span></div><a class="bill-pill" href="https://www.azleg.gov/legtext/57leg/2R/fiscal/HB2165.DOCX.pdf" target="_blank" rel="noopener"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 3v12m0 0 4-4m-4 4-4-4M5 21h14"/></svg> Fiscal Note &middot; PDF</a></div>
+            <div class="bill"><div class="bill-main"><a class="bill-no" href="https://www.azleg.gov/legtext/57leg/2R/fiscal/HB2177.DOCX.pdf" target="_blank" rel="noopener">HB 2177</a><span class="bill-desc">AHCCCS; waivers; American Indians; services</span></div><a class="bill-pill" href="https://www.azleg.gov/legtext/57leg/2R/fiscal/HB2177.DOCX.pdf" target="_blank" rel="noopener"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 3v12m0 0 4-4m-4 4-4-4M5 21h14"/></svg> Fiscal Note &middot; PDF</a></div>
+            <div class="bill"><div class="bill-main"><a class="bill-no" href="https://www.azleg.gov/legtext/57leg/2R/fiscal/HB2240.DOCX.pdf" target="_blank" rel="noopener">HB 2240</a><span class="bill-desc">tuition waiver; children; veterans; disabilities</span></div><a class="bill-pill" href="https://www.azleg.gov/legtext/57leg/2R/fiscal/HB2240.DOCX.pdf" target="_blank" rel="noopener"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 3v12m0 0 4-4m-4 4-4-4M5 21h14"/></svg> Fiscal Note &middot; PDF</a></div>
+            <div class="bill"><div class="bill-main"><a class="bill-no" href="https://www.azleg.gov/legtext/57leg/2R/fiscal/HB2251.DOCX.pdf" target="_blank" rel="noopener">HB 2251</a><span class="bill-desc">midwifery; prescriptions; naturopathic medical board</span></div><a class="bill-pill" href="https://www.azleg.gov/legtext/57leg/2R/fiscal/HB2251.DOCX.pdf" target="_blank" rel="noopener"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 3v12m0 0 4-4m-4 4-4-4M5 21h14"/></svg> Fiscal Note &middot; PDF</a></div>
+            <div class="bill"><div class="bill-main"><a class="bill-no" href="https://www.azleg.gov/legtext/57leg/2R/fiscal/HB2259.DOCX.pdf" target="_blank" rel="noopener">HB 2259</a><span class="bill-desc">TPT; distribution; HURF</span></div><a class="bill-pill" href="https://www.azleg.gov/legtext/57leg/2R/fiscal/HB2259.DOCX.pdf" target="_blank" rel="noopener"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 3v12m0 0 4-4m-4 4-4-4M5 21h14"/></svg> Fiscal Note &middot; PDF</a></div>
+            <div class="bill"><div class="bill-main"><a class="bill-no" href="https://www.azleg.gov/legtext/57leg/2R/fiscal/HB2265.DOCX.pdf" target="_blank" rel="noopener">HB 2265</a><span class="bill-desc">courts; fees; assessments</span></div><a class="bill-pill" href="https://www.azleg.gov/legtext/57leg/2R/fiscal/HB2265.DOCX.pdf" target="_blank" rel="noopener"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 3v12m0 0 4-4m-4 4-4-4M5 21h14"/></svg> Fiscal Note &middot; PDF</a></div>
+            <div class="bill"><div class="bill-main"><a class="bill-no" href="https://www.azleg.gov/legtext/57leg/2R/fiscal/HB2273.DOCX.pdf" target="_blank" rel="noopener">HB 2273</a><span class="bill-desc">income tax rebate; net revenues</span></div><a class="bill-pill" href="https://www.azleg.gov/legtext/57leg/2R/fiscal/HB2273.DOCX.pdf" target="_blank" rel="noopener"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 3v12m0 0 4-4m-4 4-4-4M5 21h14"/></svg> Fiscal Note &middot; PDF</a></div>
+            <div class="bill"><div class="bill-main"><a class="bill-no" href="https://www.azleg.gov/legtext/57leg/2R/fiscal/HB2292.DOCX.pdf" target="_blank" rel="noopener">HB 2292</a><span class="bill-desc">wildfire prevention authority; fund</span></div><a class="bill-pill" href="https://www.azleg.gov/legtext/57leg/2R/fiscal/HB2292.DOCX.pdf" target="_blank" rel="noopener"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 3v12m0 0 4-4m-4 4-4-4M5 21h14"/></svg> Fiscal Note &middot; PDF</a></div>
+            <div class="bill"><div class="bill-main"><a class="bill-no" href="https://www.azleg.gov/legtext/57leg/2R/fiscal/HB2307.DOCX.pdf" target="_blank" rel="noopener">HB 2307</a><span class="bill-desc">dangerous incompetent defendants; study committee</span></div><a class="bill-pill" href="https://www.azleg.gov/legtext/57leg/2R/fiscal/HB2307.DOCX.pdf" target="_blank" rel="noopener"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 3v12m0 0 4-4m-4 4-4-4M5 21h14"/></svg> Fiscal Note &middot; PDF</a></div>
+            <div class="bill"><div class="bill-main"><a class="bill-no" href="https://www.azleg.gov/legtext/57leg/2R/fiscal/HB2322.DOCX.pdf" target="_blank" rel="noopener">HB 2322</a><span class="bill-desc">DCS; investigations; interviews; recording</span></div><a class="bill-pill" href="https://www.azleg.gov/legtext/57leg/2R/fiscal/HB2322.DOCX.pdf" target="_blank" rel="noopener"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 3v12m0 0 4-4m-4 4-4-4M5 21h14"/></svg> Fiscal Note &middot; PDF</a></div>
+            <div class="bill"><div class="bill-main"><a class="bill-no" href="https://www.azleg.gov/legtext/57leg/2R/fiscal/HB2333.DOCX.pdf" target="_blank" rel="noopener">HB 2333</a><span class="bill-desc">insurance; prosthetics; orthotics; reporting requirements</span></div><a class="bill-pill" href="https://www.azleg.gov/legtext/57leg/2R/fiscal/HB2333.DOCX.pdf" target="_blank" rel="noopener"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 3v12m0 0 4-4m-4 4-4-4M5 21h14"/></svg> Fiscal Note &middot; PDF</a></div>
+            <div class="bill"><div class="bill-main"><a class="bill-no" href="https://www.azleg.gov/legtext/57leg/2R/fiscal/HB2344.DOCX.pdf" target="_blank" rel="noopener">HB 2344</a><span class="bill-desc">local government investment pool; treasurer</span></div><a class="bill-pill" href="https://www.azleg.gov/legtext/57leg/2R/fiscal/HB2344.DOCX.pdf" target="_blank" rel="noopener"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 3v12m0 0 4-4m-4 4-4-4M5 21h14"/></svg> Fiscal Note &middot; PDF</a></div>
+            <div class="bill"><div class="bill-main"><a class="bill-no" href="https://www.azleg.gov/legtext/57leg/2R/fiscal/HB2348.DOCX.pdf" target="_blank" rel="noopener">HB 2348</a><span class="bill-desc">appropriations; DEMA</span></div><a class="bill-pill" href="https://www.azleg.gov/legtext/57leg/2R/fiscal/HB2348.DOCX.pdf" target="_blank" rel="noopener"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 3v12m0 0 4-4m-4 4-4-4M5 21h14"/></svg> Fiscal Note &middot; PDF</a></div>
+            <div class="bill"><div class="bill-main"><a class="bill-no" href="https://www.azleg.gov/legtext/57leg/2R/fiscal/HB2367.DOCX.pdf" target="_blank" rel="noopener">HB 2367</a><span class="bill-desc">neighborhood electric vehicles; VLT; exemption</span></div><a class="bill-pill" href="https://www.azleg.gov/legtext/57leg/2R/fiscal/HB2367.DOCX.pdf" target="_blank" rel="noopener"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 3v12m0 0 4-4m-4 4-4-4M5 21h14"/></svg> Fiscal Note &middot; PDF</a></div>
+            <div class="bill"><div class="bill-main"><a class="bill-no" href="https://www.azleg.gov/legtext/57leg/2R/fiscal/HB2402.DOCX.pdf" target="_blank" rel="noopener">HB 2402</a><span class="bill-desc">ambulance services; certificates of necessity</span></div><a class="bill-pill" href="https://www.azleg.gov/legtext/57leg/2R/fiscal/HB2402.DOCX.pdf" target="_blank" rel="noopener"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 3v12m0 0 4-4m-4 4-4-4M5 21h14"/></svg> Fiscal Note &middot; PDF</a></div>
+            <div class="bill"><div class="bill-main"><a class="bill-no" href="https://www.azleg.gov/legtext/57leg/2R/fiscal/HB2404.DOCX.pdf" target="_blank" rel="noopener">HB 2404</a><span class="bill-desc">authorized transporters (NOW: transportation; mental health; patients)</span></div><a class="bill-pill" href="https://www.azleg.gov/legtext/57leg/2R/fiscal/HB2404.DOCX.pdf" target="_blank" rel="noopener"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 3v12m0 0 4-4m-4 4-4-4M5 21h14"/></svg> Fiscal Note &middot; PDF</a></div>
+            <div class="bill"><div class="bill-main"><a class="bill-no" href="https://www.azleg.gov/legtext/57leg/2R/fiscal/HB2408.DOCX.pdf" target="_blank" rel="noopener">HB 2408</a><span class="bill-desc">nursing board; regulatory actions; expungement</span></div><a class="bill-pill" href="https://www.azleg.gov/legtext/57leg/2R/fiscal/HB2408.DOCX.pdf" target="_blank" rel="noopener"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 3v12m0 0 4-4m-4 4-4-4M5 21h14"/></svg> Fiscal Note &middot; PDF</a></div>
+            <div class="bill"><div class="bill-main"><a class="bill-no" href="https://www.azleg.gov/legtext/57leg/2R/fiscal/HB2409.DOCX.pdf" target="_blank" rel="noopener">HB 2409</a><span class="bill-desc">artificial intelligence; statewide education program</span></div><a class="bill-pill" href="https://www.azleg.gov/legtext/57leg/2R/fiscal/HB2409.DOCX.pdf" target="_blank" rel="noopener"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 3v12m0 0 4-4m-4 4-4-4M5 21h14"/></svg> Fiscal Note &middot; PDF</a></div>
+            <div class="bill"><div class="bill-main"><a class="bill-no" href="https://www.azleg.gov/legtext/57leg/2R/fiscal/HB2415.DOCX.pdf" target="_blank" rel="noopener">HB 2415</a><span class="bill-desc">kratom products; narcotic drugs</span></div><a class="bill-pill" href="https://www.azleg.gov/legtext/57leg/2R/fiscal/HB2415.DOCX.pdf" target="_blank" rel="noopener"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 3v12m0 0 4-4m-4 4-4-4M5 21h14"/></svg> Fiscal Note &middot; PDF</a></div>
+            <div class="bill"><div class="bill-main"><a class="bill-no" href="https://www.azleg.gov/legtext/57leg/2R/fiscal/HB2433.DOCX.pdf" target="_blank" rel="noopener">HB 2433</a><span class="bill-desc">medicare supplement insurance; ALS; ESRD</span></div><a class="bill-pill" href="https://www.azleg.gov/legtext/57leg/2R/fiscal/HB2433.DOCX.pdf" target="_blank" rel="noopener"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 3v12m0 0 4-4m-4 4-4-4M5 21h14"/></svg> Fiscal Note &middot; PDF</a></div>
+            <div class="bill"><div class="bill-main"><a class="bill-no" href="https://www.azleg.gov/legtext/57leg/2R/fiscal/HB2447.DOCX.pdf" target="_blank" rel="noopener">HB 2447</a><span class="bill-desc">insurance; reimbursement rates; nurse anesthetist</span></div><a class="bill-pill" href="https://www.azleg.gov/legtext/57leg/2R/fiscal/HB2447.DOCX.pdf" target="_blank" rel="noopener"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 3v12m0 0 4-4m-4 4-4-4M5 21h14"/></svg> Fiscal Note &middot; PDF</a></div>
+            <div class="bill"><div class="bill-main"><a class="bill-no" href="https://www.azleg.gov/legtext/57leg/2R/fiscal/HB2611.DOCX.pdf" target="_blank" rel="noopener">HB 2611</a><span class="bill-desc">group homes; safety; training; rights</span></div><a class="bill-pill" href="https://www.azleg.gov/legtext/57leg/2R/fiscal/HB2611.DOCX.pdf" target="_blank" rel="noopener"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 3v12m0 0 4-4m-4 4-4-4M5 21h14"/></svg> Fiscal Note &middot; PDF</a></div>
+            <div class="bill"><div class="bill-main"><a class="bill-no" href="https://www.azleg.gov/legtext/57leg/2R/fiscal/HB2616.DOCX.pdf" target="_blank" rel="noopener">HB 2616</a><span class="bill-desc">tuition waivers; ABOR; community colleges</span></div><a class="bill-pill" href="https://www.azleg.gov/legtext/57leg/2R/fiscal/HB2616.DOCX.pdf" target="_blank" rel="noopener"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 3v12m0 0 4-4m-4 4-4-4M5 21h14"/></svg> Fiscal Note &middot; PDF</a></div>
+            <div class="bill"><div class="bill-main"><a class="bill-no" href="https://www.azleg.gov/legtext/57leg/2R/fiscal/HB2672.DOCX.pdf" target="_blank" rel="noopener">HB 2672</a><span class="bill-desc">small school adjustment; overrides; revisions</span></div><a class="bill-pill" href="https://www.azleg.gov/legtext/57leg/2R/fiscal/HB2672.DOCX.pdf" target="_blank" rel="noopener"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 3v12m0 0 4-4m-4 4-4-4M5 21h14"/></svg> Fiscal Note &middot; PDF</a></div>
+            <div class="bill"><div class="bill-main"><a class="bill-no" href="https://www.azleg.gov/legtext/57leg/2R/fiscal/HB2673.DOCX.pdf" target="_blank" rel="noopener">HB 2673</a><span class="bill-desc">mental illness; prisoners; diagnosis; treatment</span></div><a class="bill-pill" href="https://www.azleg.gov/legtext/57leg/2R/fiscal/HB2673.DOCX.pdf" target="_blank" rel="noopener"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 3v12m0 0 4-4m-4 4-4-4M5 21h14"/></svg> Fiscal Note &middot; PDF</a></div>
+            <div class="bill"><div class="bill-main"><a class="bill-no" href="https://www.azleg.gov/legtext/57leg/2R/fiscal/HB2725.DOCX.pdf" target="_blank" rel="noopener">HB 2725</a><span class="bill-desc">AHCCCS; prescription drug coverage</span></div><a class="bill-pill" href="https://www.azleg.gov/legtext/57leg/2R/fiscal/HB2725.DOCX.pdf" target="_blank" rel="noopener"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 3v12m0 0 4-4m-4 4-4-4M5 21h14"/></svg> Fiscal Note &middot; PDF</a></div>
+            <div class="bill"><div class="bill-main"><a class="bill-no" href="https://www.azleg.gov/legtext/57leg/2R/fiscal/HB2772.DOCX.pdf" target="_blank" rel="noopener">HB 2772</a><span class="bill-desc">license; driver; nonoperating; medical indicia</span></div><a class="bill-pill" href="https://www.azleg.gov/legtext/57leg/2R/fiscal/HB2772.DOCX.pdf" target="_blank" rel="noopener"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 3v12m0 0 4-4m-4 4-4-4M5 21h14"/></svg> Fiscal Note &middot; PDF</a></div>
+            <div class="bill"><div class="bill-main"><a class="bill-no" href="https://www.azleg.gov/legtext/57leg/2R/fiscal/HB2809.DOCX.pdf" target="_blank" rel="noopener">HB 2809</a><span class="bill-desc">statewide cybersecurity encryption system; requirements</span></div><a class="bill-pill" href="https://www.azleg.gov/legtext/57leg/2R/fiscal/HB2809.DOCX.pdf" target="_blank" rel="noopener"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 3v12m0 0 4-4m-4 4-4-4M5 21h14"/></svg> Fiscal Note &middot; PDF</a></div>
+            <div class="bill"><div class="bill-main"><a class="bill-no" href="https://www.azleg.gov/legtext/57leg/2R/fiscal/HB2812.DOCX.pdf" target="_blank" rel="noopener">HB 2812</a><span class="bill-desc">accumulated sick leave; payments (NOW: DPS; appropriation)</span></div><a class="bill-pill" href="https://www.azleg.gov/legtext/57leg/2R/fiscal/HB2812.DOCX.pdf" target="_blank" rel="noopener"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 3v12m0 0 4-4m-4 4-4-4M5 21h14"/></svg> Fiscal Note &middot; PDF</a></div>
+            <div class="bill"><div class="bill-main"><a class="bill-no" href="https://www.azleg.gov/legtext/57leg/2R/fiscal/HB2838.DOCX.pdf" target="_blank" rel="noopener">HB 2838</a><span class="bill-desc">education workforce innovation; pilot program</span></div><a class="bill-pill" href="https://www.azleg.gov/legtext/57leg/2R/fiscal/HB2838.DOCX.pdf" target="_blank" rel="noopener"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 3v12m0 0 4-4m-4 4-4-4M5 21h14"/></svg> Fiscal Note &middot; PDF</a></div>
+            <div class="bill"><div class="bill-main"><a class="bill-no" href="https://www.azleg.gov/legtext/57leg/2R/fiscal/HB2873.DOCX.pdf" target="_blank" rel="noopener">HB 2873</a><span class="bill-desc">competitive sealed bidding; questions; answers</span></div><a class="bill-pill" href="https://www.azleg.gov/legtext/57leg/2R/fiscal/HB2873.DOCX.pdf" target="_blank" rel="noopener"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 3v12m0 0 4-4m-4 4-4-4M5 21h14"/></svg> Fiscal Note &middot; PDF</a></div>
+            <div class="bill"><div class="bill-main"><a class="bill-no" href="https://www.azleg.gov/legtext/57leg/2R/fiscal/HB2895.DOCX.pdf" target="_blank" rel="noopener">HB 2895</a><span class="bill-desc">Native American language; instruction; certification</span></div><a class="bill-pill" href="https://www.azleg.gov/legtext/57leg/2R/fiscal/HB2895.DOCX.pdf" target="_blank" rel="noopener"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 3v12m0 0 4-4m-4 4-4-4M5 21h14"/></svg> Fiscal Note &middot; PDF</a></div>
+            <div class="bill"><div class="bill-main"><a class="bill-no" href="https://www.azleg.gov/legtext/57leg/2R/fiscal/HB2917.DOCX.pdf" target="_blank" rel="noopener">HB 2917</a><span class="bill-desc">firefighter cancer registry</span></div><a class="bill-pill" href="https://www.azleg.gov/legtext/57leg/2R/fiscal/HB2917.DOCX.pdf" target="_blank" rel="noopener"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 3v12m0 0 4-4m-4 4-4-4M5 21h14"/></svg> Fiscal Note &middot; PDF</a></div>
+            <div class="bill"><div class="bill-main"><a class="bill-no" href="https://www.azleg.gov/legtext/57leg/2R/fiscal/HB2939.DOCX.pdf" target="_blank" rel="noopener">HB 2939</a><span class="bill-desc">qualified facilities; tax credit; amount</span></div><a class="bill-pill" href="https://www.azleg.gov/legtext/57leg/2R/fiscal/HB2939.DOCX.pdf" target="_blank" rel="noopener"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 3v12m0 0 4-4m-4 4-4-4M5 21h14"/></svg> Fiscal Note &middot; PDF</a></div>
+            <div class="bill"><div class="bill-main"><a class="bill-no" href="https://www.azleg.gov/legtext/57leg/2R/fiscal/HB2944.DOCX.pdf" target="_blank" rel="noopener">HB 2944</a><span class="bill-desc">impaired persons; court-ordered stabilization</span></div><a class="bill-pill" href="https://www.azleg.gov/legtext/57leg/2R/fiscal/HB2944.DOCX.pdf" target="_blank" rel="noopener"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 3v12m0 0 4-4m-4 4-4-4M5 21h14"/></svg> Fiscal Note &middot; PDF</a></div>
+            <div class="bill"><div class="bill-main"><a class="bill-no" href="https://www.azleg.gov/legtext/57leg/2R/fiscal/HB2957.DOCX.pdf" target="_blank" rel="noopener">HB 2957</a><span class="bill-desc">driver license; enhanced; mobile; prohibition</span></div><a class="bill-pill" href="https://www.azleg.gov/legtext/57leg/2R/fiscal/HB2957.DOCX.pdf" target="_blank" rel="noopener"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 3v12m0 0 4-4m-4 4-4-4M5 21h14"/></svg> Fiscal Note &middot; PDF</a></div>
+            <div class="bill"><div class="bill-main"><a class="bill-no" href="https://www.azleg.gov/legtext/57leg/2R/fiscal/HB2965.DOCX.pdf" target="_blank" rel="noopener">HB 2965</a><span class="bill-desc">covered entities; 340B drugs; distribution</span></div><a class="bill-pill" href="https://www.azleg.gov/legtext/57leg/2R/fiscal/HB2965.DOCX.pdf" target="_blank" rel="noopener"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 3v12m0 0 4-4m-4 4-4-4M5 21h14"/></svg> Fiscal Note &middot; PDF</a></div>
+            <div class="bill"><div class="bill-main"><a class="bill-no" href="https://www.azleg.gov/legtext/57leg/2R/fiscal/HB2980.DOCX.pdf" target="_blank" rel="noopener">HB 2980</a><span class="bill-desc">home; community-based services; mental illness</span></div><a class="bill-pill" href="https://www.azleg.gov/legtext/57leg/2R/fiscal/HB2980.DOCX.pdf" target="_blank" rel="noopener"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 3v12m0 0 4-4m-4 4-4-4M5 21h14"/></svg> Fiscal Note &middot; PDF</a></div>
+            <div class="bill"><div class="bill-main"><a class="bill-no" href="https://www.azleg.gov/legtext/57leg/2R/fiscal/HB4001.DOCX.pdf" target="_blank" rel="noopener">HB 4001</a><span class="bill-desc">alternative nicotine products; regulation</span></div><a class="bill-pill" href="https://www.azleg.gov/legtext/57leg/2R/fiscal/HB4001.DOCX.pdf" target="_blank" rel="noopener"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 3v12m0 0 4-4m-4 4-4-4M5 21h14"/></svg> Fiscal Note &middot; PDF</a></div>
+            <div class="bill"><div class="bill-main"><a class="bill-no" href="https://www.azleg.gov/legtext/57leg/2R/fiscal/HB4026.DOCX.pdf" target="_blank" rel="noopener">HB 4026</a><span class="bill-desc">public infrastructure improvements; distribution limit</span></div><a class="bill-pill" href="https://www.azleg.gov/legtext/57leg/2R/fiscal/HB4026.DOCX.pdf" target="_blank" rel="noopener"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 3v12m0 0 4-4m-4 4-4-4M5 21h14"/></svg> Fiscal Note &middot; PDF</a></div>
+            <div class="bill"><div class="bill-main"><a class="bill-no" href="https://www.azleg.gov/legtext/57leg/2R/fiscal/HB4037.DOCX.pdf" target="_blank" rel="noopener">HB 4037</a><span class="bill-desc">individual income tax; credit; education</span></div><a class="bill-pill" href="https://www.azleg.gov/legtext/57leg/2R/fiscal/HB4037.DOCX.pdf" target="_blank" rel="noopener"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 3v12m0 0 4-4m-4 4-4-4M5 21h14"/></svg> Fiscal Note &middot; PDF</a></div>
+            <div class="bill"><div class="bill-main"><a class="bill-no" href="https://www.azleg.gov/legtext/57leg/2R/fiscal/HB4044.DOCX.pdf" target="_blank" rel="noopener">HB 4044</a><span class="bill-desc">public safety parity fund</span></div><a class="bill-pill" href="https://www.azleg.gov/legtext/57leg/2R/fiscal/HB4044.DOCX.pdf" target="_blank" rel="noopener"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 3v12m0 0 4-4m-4 4-4-4M5 21h14"/></svg> Fiscal Note &middot; PDF</a></div>
+            <div class="bill"><div class="bill-main"><a class="bill-no" href="https://www.azleg.gov/legtext/57leg/2R/fiscal/HB4049.DOCX.pdf" target="_blank" rel="noopener">HB 4049</a><span class="bill-desc">attorney general; legal counsel; exemption</span></div><a class="bill-pill" href="https://www.azleg.gov/legtext/57leg/2R/fiscal/HB4049.DOCX.pdf" target="_blank" rel="noopener"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 3v12m0 0 4-4m-4 4-4-4M5 21h14"/></svg> Fiscal Note &middot; PDF</a></div>
+            <div class="bill"><div class="bill-main"><a class="bill-no" href="https://www.azleg.gov/legtext/57leg/2R/fiscal/HB4092.DOCX.pdf" target="_blank" rel="noopener">HB 4092</a><span class="bill-desc">peace officers; cameras; disclosures; recordings</span></div><a class="bill-pill" href="https://www.azleg.gov/legtext/57leg/2R/fiscal/HB4092.DOCX.pdf" target="_blank" rel="noopener"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 3v12m0 0 4-4m-4 4-4-4M5 21h14"/></svg> Fiscal Note &middot; PDF</a></div>
+            <div class="bill"><div class="bill-main"><a class="bill-no" href="https://www.azleg.gov/legtext/57leg/2R/fiscal/HCR2016.DOCX.pdf" target="_blank" rel="noopener">HCR 2016</a><span class="bill-desc">voting centers; precinct voting</span></div><a class="bill-pill" href="https://www.azleg.gov/legtext/57leg/2R/fiscal/HCR2016.DOCX.pdf" target="_blank" rel="noopener"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 3v12m0 0 4-4m-4 4-4-4M5 21h14"/></svg> Fiscal Note &middot; PDF</a></div>
+            <div class="bill"><div class="bill-main"><a class="bill-no" href="https://www.azleg.gov/legtext/57leg/2R/fiscal/HCR2040.DOCX.pdf" target="_blank" rel="noopener">HCR 2040</a><span class="bill-desc">minimum wage; exception; homeless</span></div><a class="bill-pill" href="https://www.azleg.gov/legtext/57leg/2R/fiscal/HCR2040.DOCX.pdf" target="_blank" rel="noopener"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 3v12m0 0 4-4m-4 4-4-4M5 21h14"/></svg> Fiscal Note &middot; PDF</a></div>
+          </div>
+
+          <!-- Senate column -->
+          <div class="bcol">
+            <div class="bcol-head"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 11.5 12 4l9 7.5"/><path d="M5 10v9h14v-9"/></svg> Senate Bills</div>
+            <div class="bill"><div class="bill-main"><a class="bill-no" href="https://www.azleg.gov/legtext/57leg/2R/fiscal/SB1009.DOCX.pdf" target="_blank" rel="noopener">SB 1009</a><span class="bill-desc">high school students; AED training</span></div><a class="bill-pill" href="https://www.azleg.gov/legtext/57leg/2R/fiscal/SB1009.DOCX.pdf" target="_blank" rel="noopener"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 3v12m0 0 4-4m-4 4-4-4M5 21h14"/></svg> Fiscal Note &middot; PDF</a></div>
+            <div class="bill"><div class="bill-main"><a class="bill-no" href="https://www.azleg.gov/legtext/57leg/2R/fiscal/SB1016.DOCX.pdf" target="_blank" rel="noopener">SB 1016</a><span class="bill-desc">employers; medical products; religious exemption</span></div><a class="bill-pill" href="https://www.azleg.gov/legtext/57leg/2R/fiscal/SB1016.DOCX.pdf" target="_blank" rel="noopener"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 3v12m0 0 4-4m-4 4-4-4M5 21h14"/></svg> Fiscal Note &middot; PDF</a></div>
+            <div class="bill"><div class="bill-main"><a class="bill-no" href="https://www.azleg.gov/legtext/57leg/2R/fiscal/SB1035.DOCX.pdf" target="_blank" rel="noopener">SB 1035</a><span class="bill-desc">state department of corrections; appropriation</span></div><a class="bill-pill" href="https://www.azleg.gov/legtext/57leg/2R/fiscal/SB1035.DOCX.pdf" target="_blank" rel="noopener"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 3v12m0 0 4-4m-4 4-4-4M5 21h14"/></svg> Fiscal Note &middot; PDF</a></div>
+            <div class="bill"><div class="bill-main"><a class="bill-no" href="https://www.azleg.gov/legtext/57leg/2R/fiscal/SB1050.DOCX.pdf" target="_blank" rel="noopener">SB 1050</a><span class="bill-desc">veterans; lifetime state park pass</span></div><a class="bill-pill" href="https://www.azleg.gov/legtext/57leg/2R/fiscal/SB1050.DOCX.pdf" target="_blank" rel="noopener"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 3v12m0 0 4-4m-4 4-4-4M5 21h14"/></svg> Fiscal Note &middot; PDF</a></div>
+            <div class="bill"><div class="bill-main"><a class="bill-no" href="https://www.azleg.gov/legtext/57leg/2R/fiscal/SB1086.DOCX.pdf" target="_blank" rel="noopener">SB 1086</a><span class="bill-desc">AHCCCS; noncontracting providers; reimbursement</span></div><a class="bill-pill" href="https://www.azleg.gov/legtext/57leg/2R/fiscal/SB1086.DOCX.pdf" target="_blank" rel="noopener"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 3v12m0 0 4-4m-4 4-4-4M5 21h14"/></svg> Fiscal Note &middot; PDF</a></div>
+            <div class="bill"><div class="bill-main"><a class="bill-no" href="https://www.azleg.gov/legtext/57leg/2R/fiscal/SB1092.DOCX.pdf" target="_blank" rel="noopener">SB 1092</a><span class="bill-desc">dangerous crimes against children; probation</span></div><a class="bill-pill" href="https://www.azleg.gov/legtext/57leg/2R/fiscal/SB1092.DOCX.pdf" target="_blank" rel="noopener"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 3v12m0 0 4-4m-4 4-4-4M5 21h14"/></svg> Fiscal Note &middot; PDF</a></div>
+            <div class="bill"><div class="bill-main"><a class="bill-no" href="https://www.azleg.gov/legtext/57leg/2R/fiscal/SB1106.PDF" target="_blank" rel="noopener">SB 1106</a><span class="bill-desc">internal revenue code; conformity; deductions</span></div><a class="bill-pill" href="https://www.azleg.gov/legtext/57leg/2R/fiscal/SB1106.PDF" target="_blank" rel="noopener"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 3v12m0 0 4-4m-4 4-4-4M5 21h14"/></svg> Fiscal Note &middot; PDF</a></div>
+            <div class="bill"><div class="bill-main"><a class="bill-no" href="https://www.azleg.gov/legtext/57leg/2R/fiscal/SB1115.DOCX.pdf" target="_blank" rel="noopener">SB 1115</a><span class="bill-desc">AHCCCS; remote work; prohibition</span></div><a class="bill-pill" href="https://www.azleg.gov/legtext/57leg/2R/fiscal/SB1115.DOCX.pdf" target="_blank" rel="noopener"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 3v12m0 0 4-4m-4 4-4-4M5 21h14"/></svg> Fiscal Note &middot; PDF</a></div>
+            <div class="bill"><div class="bill-main"><a class="bill-no" href="https://www.azleg.gov/legtext/57leg/2R/fiscal/SB1116.DOCX.pdf" target="_blank" rel="noopener">SB 1116</a><span class="bill-desc">AHCCCS; claims review; behavioral health</span></div><a class="bill-pill" href="https://www.azleg.gov/legtext/57leg/2R/fiscal/SB1116.DOCX.pdf" target="_blank" rel="noopener"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 3v12m0 0 4-4m-4 4-4-4M5 21h14"/></svg> Fiscal Note &middot; PDF</a></div>
+            <div class="bill"><div class="bill-main"><a class="bill-no" href="https://www.azleg.gov/legtext/57leg/2R/fiscal/SB1122.DOCX.pdf" target="_blank" rel="noopener">SB 1122</a><span class="bill-desc">AHCCCS; prior authorization; behavioral health</span></div><a class="bill-pill" href="https://www.azleg.gov/legtext/57leg/2R/fiscal/SB1122.DOCX.pdf" target="_blank" rel="noopener"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 3v12m0 0 4-4m-4 4-4-4M5 21h14"/></svg> Fiscal Note &middot; PDF</a></div>
+            <div class="bill"><div class="bill-main"><a class="bill-no" href="https://www.azleg.gov/legtext/57leg/2R/fiscal/SB1135.DOCX.pdf" target="_blank" rel="noopener">SB 1135</a><span class="bill-desc">death benefits; burial costs</span></div><a class="bill-pill" href="https://www.azleg.gov/legtext/57leg/2R/fiscal/SB1135.DOCX.pdf" target="_blank" rel="noopener"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 3v12m0 0 4-4m-4 4-4-4M5 21h14"/></svg> Fiscal Note &middot; PDF</a></div>
+            <div class="bill"><div class="bill-main"><a class="bill-no" href="https://www.azleg.gov/legtext/57leg/2R/fiscal/SB1136.DOCX.pdf" target="_blank" rel="noopener">SB 1136</a><span class="bill-desc">workers' compensation; death benefits; remarriage</span></div><a class="bill-pill" href="https://www.azleg.gov/legtext/57leg/2R/fiscal/SB1136.DOCX.pdf" target="_blank" rel="noopener"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 3v12m0 0 4-4m-4 4-4-4M5 21h14"/></svg> Fiscal Note &middot; PDF</a></div>
+            <div class="bill"><div class="bill-main"><a class="bill-no" href="https://www.azleg.gov/legtext/57leg/2R/fiscal/SB1138.DOCX.pdf" target="_blank" rel="noopener">SB 1138</a><span class="bill-desc">automated license plate readers</span></div><a class="bill-pill" href="https://www.azleg.gov/legtext/57leg/2R/fiscal/SB1138.DOCX.pdf" target="_blank" rel="noopener"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 3v12m0 0 4-4m-4 4-4-4M5 21h14"/></svg> Fiscal Note &middot; PDF</a></div>
+            <div class="bill"><div class="bill-main"><a class="bill-no" href="https://www.azleg.gov/legtext/57leg/2R/fiscal/SB1172.DOCX.pdf" target="_blank" rel="noopener">SB 1172</a><span class="bill-desc">DCS; intake hotline; multiple reports</span></div><a class="bill-pill" href="https://www.azleg.gov/legtext/57leg/2R/fiscal/SB1172.DOCX.pdf" target="_blank" rel="noopener"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 3v12m0 0 4-4m-4 4-4-4M5 21h14"/></svg> Fiscal Note &middot; PDF</a></div>
+            <div class="bill"><div class="bill-main"><a class="bill-no" href="https://www.azleg.gov/legtext/57leg/2R/fiscal/SB1174.DOCX.pdf" target="_blank" rel="noopener">SB 1174</a><span class="bill-desc">DCS; intake hotline; case history</span></div><a class="bill-pill" href="https://www.azleg.gov/legtext/57leg/2R/fiscal/SB1174.DOCX.pdf" target="_blank" rel="noopener"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 3v12m0 0 4-4m-4 4-4-4M5 21h14"/></svg> Fiscal Note &middot; PDF</a></div>
+            <div class="bill"><div class="bill-main"><a class="bill-no" href="https://www.azleg.gov/legtext/57leg/2R/fiscal/SB1179.DOCX.pdf" target="_blank" rel="noopener">SB 1179</a><span class="bill-desc">group home monitoring program; continuation</span></div><a class="bill-pill" href="https://www.azleg.gov/legtext/57leg/2R/fiscal/SB1179.DOCX.pdf" target="_blank" rel="noopener"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 3v12m0 0 4-4m-4 4-4-4M5 21h14"/></svg> Fiscal Note &middot; PDF</a></div>
+            <div class="bill"><div class="bill-main"><a class="bill-no" href="https://www.azleg.gov/legtext/57leg/2R/fiscal/SB1209.DOCX.pdf" target="_blank" rel="noopener">SB 1209</a><span class="bill-desc">nonoperating identification; fees; homeless exemption</span></div><a class="bill-pill" href="https://www.azleg.gov/legtext/57leg/2R/fiscal/SB1209.DOCX.pdf" target="_blank" rel="noopener"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 3v12m0 0 4-4m-4 4-4-4M5 21h14"/></svg> Fiscal Note &middot; PDF</a></div>
+            <div class="bill"><div class="bill-main"><a class="bill-no" href="https://www.azleg.gov/legtext/57leg/2R/fiscal/SB1216.DOCX.pdf" target="_blank" rel="noopener">SB 1216</a><span class="bill-desc">traumatic event counseling</span></div><a class="bill-pill" href="https://www.azleg.gov/legtext/57leg/2R/fiscal/SB1216.DOCX.pdf" target="_blank" rel="noopener"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 3v12m0 0 4-4m-4 4-4-4M5 21h14"/></svg> Fiscal Note &middot; PDF</a></div>
+            <div class="bill"><div class="bill-main"><a class="bill-no" href="https://www.azleg.gov/legtext/57leg/2R/fiscal/SB1270.DOCX.pdf" target="_blank" rel="noopener">SB 1270</a><span class="bill-desc">correctional officers; supplemental contributions</span></div><a class="bill-pill" href="https://www.azleg.gov/legtext/57leg/2R/fiscal/SB1270.DOCX.pdf" target="_blank" rel="noopener"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 3v12m0 0 4-4m-4 4-4-4M5 21h14"/></svg> Fiscal Note &middot; PDF</a></div>
+            <div class="bill"><div class="bill-main"><a class="bill-no" href="https://www.azleg.gov/legtext/57leg/2R/fiscal/SB1330.DOCX.pdf" target="_blank" rel="noopener">SB 1330</a><span class="bill-desc">family court; right to jury</span></div><a class="bill-pill" href="https://www.azleg.gov/legtext/57leg/2R/fiscal/SB1330.DOCX.pdf" target="_blank" rel="noopener"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 3v12m0 0 4-4m-4 4-4-4M5 21h14"/></svg> Fiscal Note &middot; PDF</a></div>
+            <div class="bill"><div class="bill-main"><a class="bill-no" href="https://www.azleg.gov/legtext/57leg/2R/fiscal/SB1332.DOCX.pdf" target="_blank" rel="noopener">SB 1332</a><span class="bill-desc">light rail expansion; participation; prohibition</span></div><a class="bill-pill" href="https://www.azleg.gov/legtext/57leg/2R/fiscal/SB1332.DOCX.pdf" target="_blank" rel="noopener"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 3v12m0 0 4-4m-4 4-4-4M5 21h14"/></svg> Fiscal Note &middot; PDF</a></div>
+            <div class="bill"><div class="bill-main"><a class="bill-no" href="https://www.azleg.gov/legtext/57leg/2R/fiscal/SB1346.DOCX.pdf" target="_blank" rel="noopener">SB 1346</a><span class="bill-desc">AHCCCS; fee-for-service; claims</span></div><a class="bill-pill" href="https://www.azleg.gov/legtext/57leg/2R/fiscal/SB1346.DOCX.pdf" target="_blank" rel="noopener"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 3v12m0 0 4-4m-4 4-4-4M5 21h14"/></svg> Fiscal Note &middot; PDF</a></div>
+            <div class="bill"><div class="bill-main"><a class="bill-no" href="https://www.azleg.gov/legtext/57leg/2R/fiscal/SB1347.DOCX.pdf" target="_blank" rel="noopener">SB 1347</a><span class="bill-desc">health insurance; fertility preservation; coverage</span></div><a class="bill-pill" href="https://www.azleg.gov/legtext/57leg/2R/fiscal/SB1347.DOCX.pdf" target="_blank" rel="noopener"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 3v12m0 0 4-4m-4 4-4-4M5 21h14"/></svg> Fiscal Note &middot; PDF</a></div>
+            <div class="bill"><div class="bill-main"><a class="bill-no" href="https://www.azleg.gov/legtext/57leg/2R/fiscal/SB1365.DOCX.pdf" target="_blank" rel="noopener">SB 1365</a><span class="bill-desc">citrus; fruit; vegetable; fund; posting</span></div><a class="bill-pill" href="https://www.azleg.gov/legtext/57leg/2R/fiscal/SB1365.DOCX.pdf" target="_blank" rel="noopener"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 3v12m0 0 4-4m-4 4-4-4M5 21h14"/></svg> Fiscal Note &middot; PDF</a></div>
+            <div class="bill"><div class="bill-main"><a class="bill-no" href="https://www.azleg.gov/legtext/57leg/2R/fiscal/SB1401.DOCX.pdf" target="_blank" rel="noopener">SB 1401</a><span class="bill-desc">special plate; golf tournament charity</span></div><a class="bill-pill" href="https://www.azleg.gov/legtext/57leg/2R/fiscal/SB1401.DOCX.pdf" target="_blank" rel="noopener"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 3v12m0 0 4-4m-4 4-4-4M5 21h14"/></svg> Fiscal Note &middot; PDF</a></div>
+            <div class="bill"><div class="bill-main"><a class="bill-no" href="https://www.azleg.gov/legtext/57leg/2R/fiscal/SB1421.DOCX.pdf" target="_blank" rel="noopener">SB 1421</a><span class="bill-desc">undocumented aliens; financial services</span></div><a class="bill-pill" href="https://www.azleg.gov/legtext/57leg/2R/fiscal/SB1421.DOCX.pdf" target="_blank" rel="noopener"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 3v12m0 0 4-4m-4 4-4-4M5 21h14"/></svg> Fiscal Note &middot; PDF</a></div>
+            <div class="bill"><div class="bill-main"><a class="bill-no" href="https://www.azleg.gov/legtext/57leg/2R/fiscal/SB1504.DOCX.pdf" target="_blank" rel="noopener">SB 1504</a><span class="bill-desc">PSPRS; service requirement; cost-of-living adjustment</span></div><a class="bill-pill" href="https://www.azleg.gov/legtext/57leg/2R/fiscal/SB1504.DOCX.pdf" target="_blank" rel="noopener"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 3v12m0 0 4-4m-4 4-4-4M5 21h14"/></svg> Fiscal Note &middot; PDF</a></div>
+            <div class="bill"><div class="bill-main"><a class="bill-no" href="https://www.azleg.gov/legtext/57leg/2R/fiscal/SB1519.DOCX.pdf" target="_blank" rel="noopener">SB 1519</a><span class="bill-desc">off-highway vehicles; weight</span></div><a class="bill-pill" href="https://www.azleg.gov/legtext/57leg/2R/fiscal/SB1519.DOCX.pdf" target="_blank" rel="noopener"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 3v12m0 0 4-4m-4 4-4-4M5 21h14"/></svg> Fiscal Note &middot; PDF</a></div>
+            <div class="bill"><div class="bill-main"><a class="bill-no" href="https://www.azleg.gov/legtext/57leg/2R/fiscal/SB1611.DOCX.pdf" target="_blank" rel="noopener">SB 1611</a><span class="bill-desc">American Indian health program; administration</span></div><a class="bill-pill" href="https://www.azleg.gov/legtext/57leg/2R/fiscal/SB1611.DOCX.pdf" target="_blank" rel="noopener"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 3v12m0 0 4-4m-4 4-4-4M5 21h14"/></svg> Fiscal Note &middot; PDF</a></div>
+            <div class="bill"><div class="bill-main"><a class="bill-no" href="https://www.azleg.gov/legtext/57leg/2R/fiscal/SB1624.DOCX.pdf" target="_blank" rel="noopener">SB 1624</a><span class="bill-desc">photo radar enforcement; civil penalty</span></div><a class="bill-pill" href="https://www.azleg.gov/legtext/57leg/2R/fiscal/SB1624.DOCX.pdf" target="_blank" rel="noopener"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 3v12m0 0 4-4m-4 4-4-4M5 21h14"/></svg> Fiscal Note &middot; PDF</a></div>
+            <div class="bill"><div class="bill-main"><a class="bill-no" href="https://www.azleg.gov/legtext/57leg/2R/fiscal/SB1629.DOCX.pdf" target="_blank" rel="noopener">SB 1629</a><span class="bill-desc">behavioral health; contracts; network adequacy</span></div><a class="bill-pill" href="https://www.azleg.gov/legtext/57leg/2R/fiscal/SB1629.DOCX.pdf" target="_blank" rel="noopener"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 3v12m0 0 4-4m-4 4-4-4M5 21h14"/></svg> Fiscal Note &middot; PDF</a></div>
+            <div class="bill"><div class="bill-main"><a class="bill-no" href="https://www.azleg.gov/legtext/57leg/2R/fiscal/SB1630.DOCX.pdf" target="_blank" rel="noopener">SB 1630</a><span class="bill-desc">home; community-based services; mental illness</span></div><a class="bill-pill" href="https://www.azleg.gov/legtext/57leg/2R/fiscal/SB1630.DOCX.pdf" target="_blank" rel="noopener"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 3v12m0 0 4-4m-4 4-4-4M5 21h14"/></svg> Fiscal Note &middot; PDF</a></div>
+            <div class="bill"><div class="bill-main"><a class="bill-no" href="https://www.azleg.gov/legtext/57leg/2R/fiscal/SB1633.DOCX.pdf" target="_blank" rel="noopener">SB 1633</a><span class="bill-desc">income tax; subtraction; primary residence</span></div><a class="bill-pill" href="https://www.azleg.gov/legtext/57leg/2R/fiscal/SB1633.DOCX.pdf" target="_blank" rel="noopener"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 3v12m0 0 4-4m-4 4-4-4M5 21h14"/></svg> Fiscal Note &middot; PDF</a></div>
+            <div class="bill"><div class="bill-main"><a class="bill-no" href="https://www.azleg.gov/legtext/57leg/2R/fiscal/SB1641.DOCX.pdf" target="_blank" rel="noopener">SB 1641</a><span class="bill-desc">marijuana producers; licensure</span></div><a class="bill-pill" href="https://www.azleg.gov/legtext/57leg/2R/fiscal/SB1641.DOCX.pdf" target="_blank" rel="noopener"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 3v12m0 0 4-4m-4 4-4-4M5 21h14"/></svg> Fiscal Note &middot; PDF</a></div>
+            <div class="bill"><div class="bill-main"><a class="bill-no" href="https://www.azleg.gov/legtext/57leg/2R/fiscal/SB1658.DOCX.pdf" target="_blank" rel="noopener">SB 1658</a><span class="bill-desc">legal decision-making; jury trial</span></div><a class="bill-pill" href="https://www.azleg.gov/legtext/57leg/2R/fiscal/SB1658.DOCX.pdf" target="_blank" rel="noopener"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 3v12m0 0 4-4m-4 4-4-4M5 21h14"/></svg> Fiscal Note &middot; PDF</a></div>
+            <div class="bill"><div class="bill-main"><a class="bill-no" href="https://www.azleg.gov/legtext/57leg/2R/fiscal/SB1665.DOCX.pdf" target="_blank" rel="noopener">SB 1665</a><span class="bill-desc">state agencies; hiring practices; appeals</span></div><a class="bill-pill" href="https://www.azleg.gov/legtext/57leg/2R/fiscal/SB1665.DOCX.pdf" target="_blank" rel="noopener"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 3v12m0 0 4-4m-4 4-4-4M5 21h14"/></svg> Fiscal Note &middot; PDF</a></div>
+            <div class="bill"><div class="bill-main"><a class="bill-no" href="https://www.azleg.gov/legtext/57leg/2R/fiscal/SB1672.DOCX.pdf" target="_blank" rel="noopener">SB 1672</a><span class="bill-desc">AHCCCS; antipsychotic drugs; authorization</span></div><a class="bill-pill" href="https://www.azleg.gov/legtext/57leg/2R/fiscal/SB1672.DOCX.pdf" target="_blank" rel="noopener"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 3v12m0 0 4-4m-4 4-4-4M5 21h14"/></svg> Fiscal Note &middot; PDF</a></div>
+            <div class="bill"><div class="bill-main"><a class="bill-no" href="https://www.azleg.gov/legtext/57leg/2R/fiscal/SB1713.DOCX.pdf" target="_blank" rel="noopener">SB 1713</a><span class="bill-desc">AHCCCS; procurement; contracting</span></div><a class="bill-pill" href="https://www.azleg.gov/legtext/57leg/2R/fiscal/SB1713.DOCX.pdf" target="_blank" rel="noopener"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 3v12m0 0 4-4m-4 4-4-4M5 21h14"/></svg> Fiscal Note &middot; PDF</a></div>
+            <div class="bill"><div class="bill-main"><a class="bill-no" href="https://www.azleg.gov/legtext/57leg/2R/fiscal/SB1751.DOCX.pdf" target="_blank" rel="noopener">SB 1751</a><span class="bill-desc">death sentence; choice; firing squad</span></div><a class="bill-pill" href="https://www.azleg.gov/legtext/57leg/2R/fiscal/SB1751.DOCX.pdf" target="_blank" rel="noopener"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 3v12m0 0 4-4m-4 4-4-4M5 21h14"/></svg> Fiscal Note &middot; PDF</a></div>
+            <div class="bill"><div class="bill-main"><a class="bill-no" href="https://www.azleg.gov/legtext/57leg/2R/fiscal/SB1776.DOCX.pdf" target="_blank" rel="noopener">SB 1776</a><span class="bill-desc">traditional healing services; AHCCCS</span></div><a class="bill-pill" href="https://www.azleg.gov/legtext/57leg/2R/fiscal/SB1776.DOCX.pdf" target="_blank" rel="noopener"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 3v12m0 0 4-4m-4 4-4-4M5 21h14"/></svg> Fiscal Note &middot; PDF</a></div>
+            <div class="bill"><div class="bill-main"><a class="bill-no" href="https://www.azleg.gov/legtext/57leg/2R/fiscal/SB1812.DOCX.pdf" target="_blank" rel="noopener">SB 1812</a><span class="bill-desc">luxury tax; ready-to-drink spirits product</span></div><a class="bill-pill" href="https://www.azleg.gov/legtext/57leg/2R/fiscal/SB1812.DOCX.pdf" target="_blank" rel="noopener"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 3v12m0 0 4-4m-4 4-4-4M5 21h14"/></svg> Fiscal Note &middot; PDF</a></div>
+            <div class="bill"><div class="bill-main"><a class="bill-no" href="https://www.azleg.gov/legtext/57leg/2R/fiscal/SB1813.DOCX.pdf" target="_blank" rel="noopener">SB 1813</a><span class="bill-desc">state hospital; governing board</span></div><a class="bill-pill" href="https://www.azleg.gov/legtext/57leg/2R/fiscal/SB1813.DOCX.pdf" target="_blank" rel="noopener"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 3v12m0 0 4-4m-4 4-4-4M5 21h14"/></svg> Fiscal Note &middot; PDF</a></div>
+            <div class="bill"><div class="bill-main"><a class="bill-no" href="https://www.azleg.gov/legtext/57leg/2R/fiscal/SCR1001.DOCX.pdf" target="_blank" rel="noopener">SCR 1001</a><span class="bill-desc">citizenship; identification; contributions; early voting</span></div><a class="bill-pill" href="https://www.azleg.gov/legtext/57leg/2R/fiscal/SCR1001.DOCX.pdf" target="_blank" rel="noopener"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 3v12m0 0 4-4m-4 4-4-4M5 21h14"/></svg> Fiscal Note &middot; PDF</a></div>
+          </div>
+        </div>
+
+        <div class="acc">
+          <input class="acc-toggle" type="checkbox" id="fnold">
+          <label class="acc-head" for="fnold">
+            <span class="acc-yr">Earlier Sessions &mdash; 2008 to 2025</span>
+            <span class="acc-tab"><span class="acc-meta">18 sessions</span><svg class="acc-chev" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><path d="m6 9 6 6 6-6"/></svg></span>
+          </label>
+          <div class="acc-body"><div><div class="tray tray-filter">
+            <input class="era-radio" type="radio" name="fn-era" id="fn-all" checked>
+            <input class="era-radio" type="radio" name="fn-era" id="fn-e3">
+            <input class="era-radio" type="radio" name="fn-era" id="fn-e2">
+            <input class="era-radio" type="radio" name="fn-era" id="fn-e1">
+            <div class="era-bar">
+              <span class="era-lbl">Filter</span>
+              <label class="era-chip" for="fn-all">All</label>
+              <label class="era-chip" for="fn-e3">2020&ndash;25</label>
+              <label class="era-chip" for="fn-e2">2014&ndash;19</label>
+              <label class="era-chip" for="fn-e1">2008&ndash;13</label>
+            </div>
+            <div class="era-list">
+              <div class="yr-mini era-3">
+                <div class="yr-mini-h">2025 Regular Session</div>
+                <div class="bills">
+                  <div class="bcol"><div class="bcol-head"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 11.5 12 4l9 7.5"/><path d="M5 10v9h14v-9"/></svg> House Bills</div>
+                  <div class="bill"><div class="bill-main"><a class="bill-no" href="document-placeholder.html">HB 2100</a><span class="bill-desc">Income tax; rate reduction; phased implementation</span></div><a class="bill-pill" href="document-placeholder.html"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 3v12m0 0 4-4m-4 4-4-4M5 21h14"/></svg> Fiscal Note &middot; PDF</a></div>
+                  <div class="bill"><div class="bill-main"><a class="bill-no" href="document-placeholder.html">HB 2117</a><span class="bill-desc">TPT exemption; manufacturing equipment</span></div><a class="bill-pill" href="document-placeholder.html"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 3v12m0 0 4-4m-4 4-4-4M5 21h14"/></svg> Fiscal Note &middot; PDF</a></div>
+                  <div class="bill"><div class="bill-main"><a class="bill-no" href="document-placeholder.html">HB 2134</a><span class="bill-desc">School facilities; building renewal grant fund</span></div><a class="bill-pill" href="document-placeholder.html"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 3v12m0 0 4-4m-4 4-4-4M5 21h14"/></svg> Fiscal Note &middot; PDF</a></div>
+                  </div>
+                  <div class="bcol"><div class="bcol-head"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 11.5 12 4l9 7.5"/><path d="M5 10v9h14v-9"/></svg> Senate Bills</div>
+                  <div class="bill"><div class="bill-main"><a class="bill-no" href="document-placeholder.html">SB 1000</a><span class="bill-desc">Property tax; assessment ratio; valuation</span></div><a class="bill-pill" href="document-placeholder.html"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 3v12m0 0 4-4m-4 4-4-4M5 21h14"/></svg> Fiscal Note &middot; PDF</a></div>
+                  <div class="bill"><div class="bill-main"><a class="bill-no" href="document-placeholder.html">SB 1013</a><span class="bill-desc">Universities; capital appropriation; research</span></div><a class="bill-pill" href="document-placeholder.html"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 3v12m0 0 4-4m-4 4-4-4M5 21h14"/></svg> Fiscal Note &middot; PDF</a></div>
+                  <div class="bill"><div class="bill-main"><a class="bill-no" href="document-placeholder.html">SB 1026</a><span class="bill-desc">Transportation; highway construction allocation</span></div><a class="bill-pill" href="document-placeholder.html"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 3v12m0 0 4-4m-4 4-4-4M5 21h14"/></svg> Fiscal Note &middot; PDF</a></div>
+                  </div>
+                </div>
+              </div>
+              <div class="yr-mini era-3">
+                <div class="yr-mini-h">2024 Regular Session</div>
+                <div class="bills">
+                  <div class="bcol"><div class="bcol-head"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 11.5 12 4l9 7.5"/><path d="M5 10v9h14v-9"/></svg> House Bills</div>
+                  <div class="bill"><div class="bill-main"><a class="bill-no" href="document-placeholder.html">HB 2168</a><span class="bill-desc">Correctional officers; retirement contribution rates</span></div><a class="bill-pill" href="document-placeholder.html"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 3v12m0 0 4-4m-4 4-4-4M5 21h14"/></svg> Fiscal Note &middot; PDF</a></div>
+                  <div class="bill"><div class="bill-main"><a class="bill-no" href="document-placeholder.html">HB 2185</a><span class="bill-desc">Health care; AHCCCS eligibility expansion</span></div><a class="bill-pill" href="document-placeholder.html"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 3v12m0 0 4-4m-4 4-4-4M5 21h14"/></svg> Fiscal Note &middot; PDF</a></div>
+                  <div class="bill"><div class="bill-main"><a class="bill-no" href="document-placeholder.html">HB 2202</a><span class="bill-desc">Water infrastructure; supply development fund</span></div><a class="bill-pill" href="document-placeholder.html"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 3v12m0 0 4-4m-4 4-4-4M5 21h14"/></svg> Fiscal Note &middot; PDF</a></div>
+                  </div>
+                  <div class="bcol"><div class="bcol-head"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 11.5 12 4l9 7.5"/><path d="M5 10v9h14v-9"/></svg> Senate Bills</div>
+                  <div class="bill"><div class="bill-main"><a class="bill-no" href="document-placeholder.html">SB 1052</a><span class="bill-desc">Child care; assistance program; subsidy rates</span></div><a class="bill-pill" href="document-placeholder.html"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 3v12m0 0 4-4m-4 4-4-4M5 21h14"/></svg> Fiscal Note &middot; PDF</a></div>
+                  <div class="bill"><div class="bill-main"><a class="bill-no" href="document-placeholder.html">SB 1065</a><span class="bill-desc">Tax credits; small business investment</span></div><a class="bill-pill" href="document-placeholder.html"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 3v12m0 0 4-4m-4 4-4-4M5 21h14"/></svg> Fiscal Note &middot; PDF</a></div>
+                  <div class="bill"><div class="bill-main"><a class="bill-no" href="document-placeholder.html">SB 1078</a><span class="bill-desc">Public safety; personnel; sworn officer pay plan</span></div><a class="bill-pill" href="document-placeholder.html"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 3v12m0 0 4-4m-4 4-4-4M5 21h14"/></svg> Fiscal Note &middot; PDF</a></div>
+                  </div>
+                </div>
+              </div>
+              <div class="yr-mini era-3">
+                <div class="yr-mini-h">2023 Regular Session</div>
+                <div class="bills">
+                  <div class="bcol"><div class="bcol-head"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 11.5 12 4l9 7.5"/><path d="M5 10v9h14v-9"/></svg> House Bills</div>
+                  <div class="bill"><div class="bill-main"><a class="bill-no" href="document-placeholder.html">HB 2236</a><span class="bill-desc">K-12 education; per-pupil base level funding</span></div><a class="bill-pill" href="document-placeholder.html"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 3v12m0 0 4-4m-4 4-4-4M5 21h14"/></svg> Fiscal Note &middot; PDF</a></div>
+                  <div class="bill"><div class="bill-main"><a class="bill-no" href="document-placeholder.html">HB 2253</a><span class="bill-desc">Vehicle license tax; distribution formula</span></div><a class="bill-pill" href="document-placeholder.html"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 3v12m0 0 4-4m-4 4-4-4M5 21h14"/></svg> Fiscal Note &middot; PDF</a></div>
+                  <div class="bill"><div class="bill-main"><a class="bill-no" href="document-placeholder.html">HB 2270</a><span class="bill-desc">Universities; tuition assistance; appropriation</span></div><a class="bill-pill" href="document-placeholder.html"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 3v12m0 0 4-4m-4 4-4-4M5 21h14"/></svg> Fiscal Note &middot; PDF</a></div>
+                  </div>
+                  <div class="bcol"><div class="bcol-head"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 11.5 12 4l9 7.5"/><path d="M5 10v9h14v-9"/></svg> Senate Bills</div>
+                  <div class="bill"><div class="bill-main"><a class="bill-no" href="document-placeholder.html">SB 1104</a><span class="bill-desc">Pension systems; employer contribution rates</span></div><a class="bill-pill" href="document-placeholder.html"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 3v12m0 0 4-4m-4 4-4-4M5 21h14"/></svg> Fiscal Note &middot; PDF</a></div>
+                  <div class="bill"><div class="bill-main"><a class="bill-no" href="document-placeholder.html">SB 1117</a><span class="bill-desc">Medicaid; provider reimbursement rates</span></div><a class="bill-pill" href="document-placeholder.html"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 3v12m0 0 4-4m-4 4-4-4M5 21h14"/></svg> Fiscal Note &middot; PDF</a></div>
+                  <div class="bill"><div class="bill-main"><a class="bill-no" href="document-placeholder.html">SB 1130</a><span class="bill-desc">Rainy day fund; deposit requirement</span></div><a class="bill-pill" href="document-placeholder.html"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 3v12m0 0 4-4m-4 4-4-4M5 21h14"/></svg> Fiscal Note &middot; PDF</a></div>
+                  </div>
+                </div>
+              </div>
+              <div class="yr-mini era-3">
+                <div class="yr-mini-h">2022 Regular Session</div>
+                <div class="bills">
+                  <div class="bcol"><div class="bcol-head"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 11.5 12 4l9 7.5"/><path d="M5 10v9h14v-9"/></svg> House Bills</div>
+                  <div class="bill"><div class="bill-main"><a class="bill-no" href="document-placeholder.html">HB 2304</a><span class="bill-desc">Public buildings; deferred maintenance fund</span></div><a class="bill-pill" href="document-placeholder.html"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 3v12m0 0 4-4m-4 4-4-4M5 21h14"/></svg> Fiscal Note &middot; PDF</a></div>
+                  <div class="bill"><div class="bill-main"><a class="bill-no" href="document-placeholder.html">HB 2321</a><span class="bill-desc">Unemployment insurance; benefit adjustment</span></div><a class="bill-pill" href="document-placeholder.html"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 3v12m0 0 4-4m-4 4-4-4M5 21h14"/></svg> Fiscal Note &middot; PDF</a></div>
+                  <div class="bill"><div class="bill-main"><a class="bill-no" href="document-placeholder.html">HB 2338</a><span class="bill-desc">Highway user revenue fund; allocations</span></div><a class="bill-pill" href="document-placeholder.html"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 3v12m0 0 4-4m-4 4-4-4M5 21h14"/></svg> Fiscal Note &middot; PDF</a></div>
+                  </div>
+                  <div class="bcol"><div class="bcol-head"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 11.5 12 4l9 7.5"/><path d="M5 10v9h14v-9"/></svg> Senate Bills</div>
+                  <div class="bill"><div class="bill-main"><a class="bill-no" href="document-placeholder.html">SB 1156</a><span class="bill-desc">Corrections; inmate health care contract</span></div><a class="bill-pill" href="document-placeholder.html"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 3v12m0 0 4-4m-4 4-4-4M5 21h14"/></svg> Fiscal Note &middot; PDF</a></div>
+                  <div class="bill"><div class="bill-main"><a class="bill-no" href="document-placeholder.html">SB 1169</a><span class="bill-desc">Lottery; revenue distribution; beneficiaries</span></div><a class="bill-pill" href="document-placeholder.html"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 3v12m0 0 4-4m-4 4-4-4M5 21h14"/></svg> Fiscal Note &middot; PDF</a></div>
+                  <div class="bill"><div class="bill-main"><a class="bill-no" href="document-placeholder.html">SB 1182</a><span class="bill-desc">Sales tax; online marketplace collection</span></div><a class="bill-pill" href="document-placeholder.html"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 3v12m0 0 4-4m-4 4-4-4M5 21h14"/></svg> Fiscal Note &middot; PDF</a></div>
+                  </div>
+                </div>
+              </div>
+              <div class="yr-mini era-3">
+                <div class="yr-mini-h">2021 Regular Session</div>
+                <div class="bills">
+                  <div class="bcol"><div class="bcol-head"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 11.5 12 4l9 7.5"/><path d="M5 10v9h14v-9"/></svg> House Bills</div>
+                  <div class="bill"><div class="bill-main"><a class="bill-no" href="document-placeholder.html">HB 2372</a><span class="bill-desc">Income tax; rate reduction; phased implementation</span></div><a class="bill-pill" href="document-placeholder.html"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 3v12m0 0 4-4m-4 4-4-4M5 21h14"/></svg> Fiscal Note &middot; PDF</a></div>
+                  <div class="bill"><div class="bill-main"><a class="bill-no" href="document-placeholder.html">HB 2389</a><span class="bill-desc">TPT exemption; manufacturing equipment</span></div><a class="bill-pill" href="document-placeholder.html"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 3v12m0 0 4-4m-4 4-4-4M5 21h14"/></svg> Fiscal Note &middot; PDF</a></div>
+                  <div class="bill"><div class="bill-main"><a class="bill-no" href="document-placeholder.html">HB 2406</a><span class="bill-desc">School facilities; building renewal grant fund</span></div><a class="bill-pill" href="document-placeholder.html"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 3v12m0 0 4-4m-4 4-4-4M5 21h14"/></svg> Fiscal Note &middot; PDF</a></div>
+                  </div>
+                  <div class="bcol"><div class="bcol-head"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 11.5 12 4l9 7.5"/><path d="M5 10v9h14v-9"/></svg> Senate Bills</div>
+                  <div class="bill"><div class="bill-main"><a class="bill-no" href="document-placeholder.html">SB 1208</a><span class="bill-desc">Property tax; assessment ratio; valuation</span></div><a class="bill-pill" href="document-placeholder.html"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 3v12m0 0 4-4m-4 4-4-4M5 21h14"/></svg> Fiscal Note &middot; PDF</a></div>
+                  <div class="bill"><div class="bill-main"><a class="bill-no" href="document-placeholder.html">SB 1221</a><span class="bill-desc">Universities; capital appropriation; research</span></div><a class="bill-pill" href="document-placeholder.html"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 3v12m0 0 4-4m-4 4-4-4M5 21h14"/></svg> Fiscal Note &middot; PDF</a></div>
+                  <div class="bill"><div class="bill-main"><a class="bill-no" href="document-placeholder.html">SB 1234</a><span class="bill-desc">Transportation; highway construction allocation</span></div><a class="bill-pill" href="document-placeholder.html"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 3v12m0 0 4-4m-4 4-4-4M5 21h14"/></svg> Fiscal Note &middot; PDF</a></div>
+                  </div>
+                </div>
+              </div>
+              <div class="yr-mini era-3">
+                <div class="yr-mini-h">2020 Regular Session</div>
+                <div class="bills">
+                  <div class="bcol"><div class="bcol-head"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 11.5 12 4l9 7.5"/><path d="M5 10v9h14v-9"/></svg> House Bills</div>
+                  <div class="bill"><div class="bill-main"><a class="bill-no" href="document-placeholder.html">HB 2440</a><span class="bill-desc">Correctional officers; retirement contribution rates</span></div><a class="bill-pill" href="document-placeholder.html"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 3v12m0 0 4-4m-4 4-4-4M5 21h14"/></svg> Fiscal Note &middot; PDF</a></div>
+                  <div class="bill"><div class="bill-main"><a class="bill-no" href="document-placeholder.html">HB 2457</a><span class="bill-desc">Health care; AHCCCS eligibility expansion</span></div><a class="bill-pill" href="document-placeholder.html"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 3v12m0 0 4-4m-4 4-4-4M5 21h14"/></svg> Fiscal Note &middot; PDF</a></div>
+                  <div class="bill"><div class="bill-main"><a class="bill-no" href="document-placeholder.html">HB 2474</a><span class="bill-desc">Water infrastructure; supply development fund</span></div><a class="bill-pill" href="document-placeholder.html"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 3v12m0 0 4-4m-4 4-4-4M5 21h14"/></svg> Fiscal Note &middot; PDF</a></div>
+                  </div>
+                  <div class="bcol"><div class="bcol-head"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 11.5 12 4l9 7.5"/><path d="M5 10v9h14v-9"/></svg> Senate Bills</div>
+                  <div class="bill"><div class="bill-main"><a class="bill-no" href="document-placeholder.html">SB 1260</a><span class="bill-desc">Child care; assistance program; subsidy rates</span></div><a class="bill-pill" href="document-placeholder.html"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 3v12m0 0 4-4m-4 4-4-4M5 21h14"/></svg> Fiscal Note &middot; PDF</a></div>
+                  <div class="bill"><div class="bill-main"><a class="bill-no" href="document-placeholder.html">SB 1273</a><span class="bill-desc">Tax credits; small business investment</span></div><a class="bill-pill" href="document-placeholder.html"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 3v12m0 0 4-4m-4 4-4-4M5 21h14"/></svg> Fiscal Note &middot; PDF</a></div>
+                  <div class="bill"><div class="bill-main"><a class="bill-no" href="document-placeholder.html">SB 1286</a><span class="bill-desc">Public safety; personnel; sworn officer pay plan</span></div><a class="bill-pill" href="document-placeholder.html"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 3v12m0 0 4-4m-4 4-4-4M5 21h14"/></svg> Fiscal Note &middot; PDF</a></div>
+                  </div>
+                </div>
+              </div>
+              <div class="yr-mini era-2">
+                <div class="yr-mini-h">2019 Regular Session</div>
+                <div class="bills">
+                  <div class="bcol"><div class="bcol-head"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 11.5 12 4l9 7.5"/><path d="M5 10v9h14v-9"/></svg> House Bills</div>
+                  <div class="bill"><div class="bill-main"><a class="bill-no" href="document-placeholder.html">HB 2508</a><span class="bill-desc">K-12 education; per-pupil base level funding</span></div><a class="bill-pill" href="document-placeholder.html"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 3v12m0 0 4-4m-4 4-4-4M5 21h14"/></svg> Fiscal Note &middot; PDF</a></div>
+                  <div class="bill"><div class="bill-main"><a class="bill-no" href="document-placeholder.html">HB 2525</a><span class="bill-desc">Vehicle license tax; distribution formula</span></div><a class="bill-pill" href="document-placeholder.html"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 3v12m0 0 4-4m-4 4-4-4M5 21h14"/></svg> Fiscal Note &middot; PDF</a></div>
+                  <div class="bill"><div class="bill-main"><a class="bill-no" href="document-placeholder.html">HB 2542</a><span class="bill-desc">Universities; tuition assistance; appropriation</span></div><a class="bill-pill" href="document-placeholder.html"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 3v12m0 0 4-4m-4 4-4-4M5 21h14"/></svg> Fiscal Note &middot; PDF</a></div>
+                  </div>
+                  <div class="bcol"><div class="bcol-head"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 11.5 12 4l9 7.5"/><path d="M5 10v9h14v-9"/></svg> Senate Bills</div>
+                  <div class="bill"><div class="bill-main"><a class="bill-no" href="document-placeholder.html">SB 1312</a><span class="bill-desc">Pension systems; employer contribution rates</span></div><a class="bill-pill" href="document-placeholder.html"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 3v12m0 0 4-4m-4 4-4-4M5 21h14"/></svg> Fiscal Note &middot; PDF</a></div>
+                  <div class="bill"><div class="bill-main"><a class="bill-no" href="document-placeholder.html">SB 1325</a><span class="bill-desc">Medicaid; provider reimbursement rates</span></div><a class="bill-pill" href="document-placeholder.html"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 3v12m0 0 4-4m-4 4-4-4M5 21h14"/></svg> Fiscal Note &middot; PDF</a></div>
+                  <div class="bill"><div class="bill-main"><a class="bill-no" href="document-placeholder.html">SB 1338</a><span class="bill-desc">Rainy day fund; deposit requirement</span></div><a class="bill-pill" href="document-placeholder.html"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 3v12m0 0 4-4m-4 4-4-4M5 21h14"/></svg> Fiscal Note &middot; PDF</a></div>
+                  </div>
+                </div>
+              </div>
+              <div class="yr-mini era-2">
+                <div class="yr-mini-h">2018 Regular Session</div>
+                <div class="bills">
+                  <div class="bcol"><div class="bcol-head"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 11.5 12 4l9 7.5"/><path d="M5 10v9h14v-9"/></svg> House Bills</div>
+                  <div class="bill"><div class="bill-main"><a class="bill-no" href="document-placeholder.html">HB 2576</a><span class="bill-desc">Public buildings; deferred maintenance fund</span></div><a class="bill-pill" href="document-placeholder.html"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 3v12m0 0 4-4m-4 4-4-4M5 21h14"/></svg> Fiscal Note &middot; PDF</a></div>
+                  <div class="bill"><div class="bill-main"><a class="bill-no" href="document-placeholder.html">HB 2593</a><span class="bill-desc">Unemployment insurance; benefit adjustment</span></div><a class="bill-pill" href="document-placeholder.html"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 3v12m0 0 4-4m-4 4-4-4M5 21h14"/></svg> Fiscal Note &middot; PDF</a></div>
+                  <div class="bill"><div class="bill-main"><a class="bill-no" href="document-placeholder.html">HB 2610</a><span class="bill-desc">Highway user revenue fund; allocations</span></div><a class="bill-pill" href="document-placeholder.html"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 3v12m0 0 4-4m-4 4-4-4M5 21h14"/></svg> Fiscal Note &middot; PDF</a></div>
+                  </div>
+                  <div class="bcol"><div class="bcol-head"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 11.5 12 4l9 7.5"/><path d="M5 10v9h14v-9"/></svg> Senate Bills</div>
+                  <div class="bill"><div class="bill-main"><a class="bill-no" href="document-placeholder.html">SB 1364</a><span class="bill-desc">Corrections; inmate health care contract</span></div><a class="bill-pill" href="document-placeholder.html"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 3v12m0 0 4-4m-4 4-4-4M5 21h14"/></svg> Fiscal Note &middot; PDF</a></div>
+                  <div class="bill"><div class="bill-main"><a class="bill-no" href="document-placeholder.html">SB 1377</a><span class="bill-desc">Lottery; revenue distribution; beneficiaries</span></div><a class="bill-pill" href="document-placeholder.html"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 3v12m0 0 4-4m-4 4-4-4M5 21h14"/></svg> Fiscal Note &middot; PDF</a></div>
+                  <div class="bill"><div class="bill-main"><a class="bill-no" href="document-placeholder.html">SB 1390</a><span class="bill-desc">Sales tax; online marketplace collection</span></div><a class="bill-pill" href="document-placeholder.html"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 3v12m0 0 4-4m-4 4-4-4M5 21h14"/></svg> Fiscal Note &middot; PDF</a></div>
+                  </div>
+                </div>
+              </div>
+              <div class="yr-mini era-2">
+                <div class="yr-mini-h">2017 Regular Session</div>
+                <div class="bills">
+                  <div class="bcol"><div class="bcol-head"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 11.5 12 4l9 7.5"/><path d="M5 10v9h14v-9"/></svg> House Bills</div>
+                  <div class="bill"><div class="bill-main"><a class="bill-no" href="document-placeholder.html">HB 2644</a><span class="bill-desc">Income tax; rate reduction; phased implementation</span></div><a class="bill-pill" href="document-placeholder.html"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 3v12m0 0 4-4m-4 4-4-4M5 21h14"/></svg> Fiscal Note &middot; PDF</a></div>
+                  <div class="bill"><div class="bill-main"><a class="bill-no" href="document-placeholder.html">HB 2661</a><span class="bill-desc">TPT exemption; manufacturing equipment</span></div><a class="bill-pill" href="document-placeholder.html"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 3v12m0 0 4-4m-4 4-4-4M5 21h14"/></svg> Fiscal Note &middot; PDF</a></div>
+                  <div class="bill"><div class="bill-main"><a class="bill-no" href="document-placeholder.html">HB 2678</a><span class="bill-desc">School facilities; building renewal grant fund</span></div><a class="bill-pill" href="document-placeholder.html"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 3v12m0 0 4-4m-4 4-4-4M5 21h14"/></svg> Fiscal Note &middot; PDF</a></div>
+                  </div>
+                  <div class="bcol"><div class="bcol-head"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 11.5 12 4l9 7.5"/><path d="M5 10v9h14v-9"/></svg> Senate Bills</div>
+                  <div class="bill"><div class="bill-main"><a class="bill-no" href="document-placeholder.html">SB 1416</a><span class="bill-desc">Property tax; assessment ratio; valuation</span></div><a class="bill-pill" href="document-placeholder.html"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 3v12m0 0 4-4m-4 4-4-4M5 21h14"/></svg> Fiscal Note &middot; PDF</a></div>
+                  <div class="bill"><div class="bill-main"><a class="bill-no" href="document-placeholder.html">SB 1429</a><span class="bill-desc">Universities; capital appropriation; research</span></div><a class="bill-pill" href="document-placeholder.html"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 3v12m0 0 4-4m-4 4-4-4M5 21h14"/></svg> Fiscal Note &middot; PDF</a></div>
+                  <div class="bill"><div class="bill-main"><a class="bill-no" href="document-placeholder.html">SB 1442</a><span class="bill-desc">Transportation; highway construction allocation</span></div><a class="bill-pill" href="document-placeholder.html"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 3v12m0 0 4-4m-4 4-4-4M5 21h14"/></svg> Fiscal Note &middot; PDF</a></div>
+                  </div>
+                </div>
+              </div>
+              <div class="yr-mini era-2">
+                <div class="yr-mini-h">2016 Regular Session</div>
+                <div class="bills">
+                  <div class="bcol"><div class="bcol-head"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 11.5 12 4l9 7.5"/><path d="M5 10v9h14v-9"/></svg> House Bills</div>
+                  <div class="bill"><div class="bill-main"><a class="bill-no" href="document-placeholder.html">HB 2712</a><span class="bill-desc">Correctional officers; retirement contribution rates</span></div><a class="bill-pill" href="document-placeholder.html"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 3v12m0 0 4-4m-4 4-4-4M5 21h14"/></svg> Fiscal Note &middot; PDF</a></div>
+                  <div class="bill"><div class="bill-main"><a class="bill-no" href="document-placeholder.html">HB 2729</a><span class="bill-desc">Health care; AHCCCS eligibility expansion</span></div><a class="bill-pill" href="document-placeholder.html"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 3v12m0 0 4-4m-4 4-4-4M5 21h14"/></svg> Fiscal Note &middot; PDF</a></div>
+                  <div class="bill"><div class="bill-main"><a class="bill-no" href="document-placeholder.html">HB 2746</a><span class="bill-desc">Water infrastructure; supply development fund</span></div><a class="bill-pill" href="document-placeholder.html"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 3v12m0 0 4-4m-4 4-4-4M5 21h14"/></svg> Fiscal Note &middot; PDF</a></div>
+                  </div>
+                  <div class="bcol"><div class="bcol-head"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 11.5 12 4l9 7.5"/><path d="M5 10v9h14v-9"/></svg> Senate Bills</div>
+                  <div class="bill"><div class="bill-main"><a class="bill-no" href="document-placeholder.html">SB 1468</a><span class="bill-desc">Child care; assistance program; subsidy rates</span></div><a class="bill-pill" href="document-placeholder.html"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 3v12m0 0 4-4m-4 4-4-4M5 21h14"/></svg> Fiscal Note &middot; PDF</a></div>
+                  <div class="bill"><div class="bill-main"><a class="bill-no" href="document-placeholder.html">SB 1481</a><span class="bill-desc">Tax credits; small business investment</span></div><a class="bill-pill" href="document-placeholder.html"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 3v12m0 0 4-4m-4 4-4-4M5 21h14"/></svg> Fiscal Note &middot; PDF</a></div>
+                  <div class="bill"><div class="bill-main"><a class="bill-no" href="document-placeholder.html">SB 1494</a><span class="bill-desc">Public safety; personnel; sworn officer pay plan</span></div><a class="bill-pill" href="document-placeholder.html"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 3v12m0 0 4-4m-4 4-4-4M5 21h14"/></svg> Fiscal Note &middot; PDF</a></div>
+                  </div>
+                </div>
+              </div>
+              <div class="yr-mini era-2">
+                <div class="yr-mini-h">2015 Regular Session</div>
+                <div class="bills">
+                  <div class="bcol"><div class="bcol-head"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 11.5 12 4l9 7.5"/><path d="M5 10v9h14v-9"/></svg> House Bills</div>
+                  <div class="bill"><div class="bill-main"><a class="bill-no" href="document-placeholder.html">HB 2780</a><span class="bill-desc">K-12 education; per-pupil base level funding</span></div><a class="bill-pill" href="document-placeholder.html"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 3v12m0 0 4-4m-4 4-4-4M5 21h14"/></svg> Fiscal Note &middot; PDF</a></div>
+                  <div class="bill"><div class="bill-main"><a class="bill-no" href="document-placeholder.html">HB 2797</a><span class="bill-desc">Vehicle license tax; distribution formula</span></div><a class="bill-pill" href="document-placeholder.html"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 3v12m0 0 4-4m-4 4-4-4M5 21h14"/></svg> Fiscal Note &middot; PDF</a></div>
+                  <div class="bill"><div class="bill-main"><a class="bill-no" href="document-placeholder.html">HB 2114</a><span class="bill-desc">Universities; tuition assistance; appropriation</span></div><a class="bill-pill" href="document-placeholder.html"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 3v12m0 0 4-4m-4 4-4-4M5 21h14"/></svg> Fiscal Note &middot; PDF</a></div>
+                  </div>
+                  <div class="bcol"><div class="bcol-head"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 11.5 12 4l9 7.5"/><path d="M5 10v9h14v-9"/></svg> Senate Bills</div>
+                  <div class="bill"><div class="bill-main"><a class="bill-no" href="document-placeholder.html">SB 1520</a><span class="bill-desc">Pension systems; employer contribution rates</span></div><a class="bill-pill" href="document-placeholder.html"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 3v12m0 0 4-4m-4 4-4-4M5 21h14"/></svg> Fiscal Note &middot; PDF</a></div>
+                  <div class="bill"><div class="bill-main"><a class="bill-no" href="document-placeholder.html">SB 1533</a><span class="bill-desc">Medicaid; provider reimbursement rates</span></div><a class="bill-pill" href="document-placeholder.html"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 3v12m0 0 4-4m-4 4-4-4M5 21h14"/></svg> Fiscal Note &middot; PDF</a></div>
+                  <div class="bill"><div class="bill-main"><a class="bill-no" href="document-placeholder.html">SB 1546</a><span class="bill-desc">Rainy day fund; deposit requirement</span></div><a class="bill-pill" href="document-placeholder.html"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 3v12m0 0 4-4m-4 4-4-4M5 21h14"/></svg> Fiscal Note &middot; PDF</a></div>
+                  </div>
+                </div>
+              </div>
+              <div class="yr-mini era-2">
+                <div class="yr-mini-h">2014 Regular Session</div>
+                <div class="bills">
+                  <div class="bcol"><div class="bcol-head"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 11.5 12 4l9 7.5"/><path d="M5 10v9h14v-9"/></svg> House Bills</div>
+                  <div class="bill"><div class="bill-main"><a class="bill-no" href="document-placeholder.html">HB 2148</a><span class="bill-desc">Public buildings; deferred maintenance fund</span></div><a class="bill-pill" href="document-placeholder.html"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 3v12m0 0 4-4m-4 4-4-4M5 21h14"/></svg> Fiscal Note &middot; PDF</a></div>
+                  <div class="bill"><div class="bill-main"><a class="bill-no" href="document-placeholder.html">HB 2165</a><span class="bill-desc">Unemployment insurance; benefit adjustment</span></div><a class="bill-pill" href="document-placeholder.html"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 3v12m0 0 4-4m-4 4-4-4M5 21h14"/></svg> Fiscal Note &middot; PDF</a></div>
+                  <div class="bill"><div class="bill-main"><a class="bill-no" href="document-placeholder.html">HB 2182</a><span class="bill-desc">Highway user revenue fund; allocations</span></div><a class="bill-pill" href="document-placeholder.html"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 3v12m0 0 4-4m-4 4-4-4M5 21h14"/></svg> Fiscal Note &middot; PDF</a></div>
+                  </div>
+                  <div class="bcol"><div class="bcol-head"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 11.5 12 4l9 7.5"/><path d="M5 10v9h14v-9"/></svg> Senate Bills</div>
+                  <div class="bill"><div class="bill-main"><a class="bill-no" href="document-placeholder.html">SB 1572</a><span class="bill-desc">Corrections; inmate health care contract</span></div><a class="bill-pill" href="document-placeholder.html"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 3v12m0 0 4-4m-4 4-4-4M5 21h14"/></svg> Fiscal Note &middot; PDF</a></div>
+                  <div class="bill"><div class="bill-main"><a class="bill-no" href="document-placeholder.html">SB 1585</a><span class="bill-desc">Lottery; revenue distribution; beneficiaries</span></div><a class="bill-pill" href="document-placeholder.html"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 3v12m0 0 4-4m-4 4-4-4M5 21h14"/></svg> Fiscal Note &middot; PDF</a></div>
+                  <div class="bill"><div class="bill-main"><a class="bill-no" href="document-placeholder.html">SB 1598</a><span class="bill-desc">Sales tax; online marketplace collection</span></div><a class="bill-pill" href="document-placeholder.html"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 3v12m0 0 4-4m-4 4-4-4M5 21h14"/></svg> Fiscal Note &middot; PDF</a></div>
+                  </div>
+                </div>
+              </div>
+              <div class="yr-mini era-1">
+                <div class="yr-mini-h">2013 Regular Session</div>
+                <div class="bills">
+                  <div class="bcol"><div class="bcol-head"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 11.5 12 4l9 7.5"/><path d="M5 10v9h14v-9"/></svg> House Bills</div>
+                  <div class="bill"><div class="bill-main"><a class="bill-no" href="document-placeholder.html">HB 2216</a><span class="bill-desc">Income tax; rate reduction; phased implementation</span></div><a class="bill-pill" href="document-placeholder.html"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 3v12m0 0 4-4m-4 4-4-4M5 21h14"/></svg> Fiscal Note &middot; PDF</a></div>
+                  <div class="bill"><div class="bill-main"><a class="bill-no" href="document-placeholder.html">HB 2233</a><span class="bill-desc">TPT exemption; manufacturing equipment</span></div><a class="bill-pill" href="document-placeholder.html"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 3v12m0 0 4-4m-4 4-4-4M5 21h14"/></svg> Fiscal Note &middot; PDF</a></div>
+                  <div class="bill"><div class="bill-main"><a class="bill-no" href="document-placeholder.html">HB 2250</a><span class="bill-desc">School facilities; building renewal grant fund</span></div><a class="bill-pill" href="document-placeholder.html"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 3v12m0 0 4-4m-4 4-4-4M5 21h14"/></svg> Fiscal Note &middot; PDF</a></div>
+                  </div>
+                  <div class="bcol"><div class="bcol-head"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 11.5 12 4l9 7.5"/><path d="M5 10v9h14v-9"/></svg> Senate Bills</div>
+                  <div class="bill"><div class="bill-main"><a class="bill-no" href="document-placeholder.html">SB 1024</a><span class="bill-desc">Property tax; assessment ratio; valuation</span></div><a class="bill-pill" href="document-placeholder.html"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 3v12m0 0 4-4m-4 4-4-4M5 21h14"/></svg> Fiscal Note &middot; PDF</a></div>
+                  <div class="bill"><div class="bill-main"><a class="bill-no" href="document-placeholder.html">SB 1037</a><span class="bill-desc">Universities; capital appropriation; research</span></div><a class="bill-pill" href="document-placeholder.html"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 3v12m0 0 4-4m-4 4-4-4M5 21h14"/></svg> Fiscal Note &middot; PDF</a></div>
+                  <div class="bill"><div class="bill-main"><a class="bill-no" href="document-placeholder.html">SB 1050</a><span class="bill-desc">Transportation; highway construction allocation</span></div><a class="bill-pill" href="document-placeholder.html"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 3v12m0 0 4-4m-4 4-4-4M5 21h14"/></svg> Fiscal Note &middot; PDF</a></div>
+                  </div>
+                </div>
+              </div>
+              <div class="yr-mini era-1">
+                <div class="yr-mini-h">2012 Regular Session</div>
+                <div class="bills">
+                  <div class="bcol"><div class="bcol-head"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 11.5 12 4l9 7.5"/><path d="M5 10v9h14v-9"/></svg> House Bills</div>
+                  <div class="bill"><div class="bill-main"><a class="bill-no" href="document-placeholder.html">HB 2284</a><span class="bill-desc">Correctional officers; retirement contribution rates</span></div><a class="bill-pill" href="document-placeholder.html"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 3v12m0 0 4-4m-4 4-4-4M5 21h14"/></svg> Fiscal Note &middot; PDF</a></div>
+                  <div class="bill"><div class="bill-main"><a class="bill-no" href="document-placeholder.html">HB 2301</a><span class="bill-desc">Health care; AHCCCS eligibility expansion</span></div><a class="bill-pill" href="document-placeholder.html"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 3v12m0 0 4-4m-4 4-4-4M5 21h14"/></svg> Fiscal Note &middot; PDF</a></div>
+                  <div class="bill"><div class="bill-main"><a class="bill-no" href="document-placeholder.html">HB 2318</a><span class="bill-desc">Water infrastructure; supply development fund</span></div><a class="bill-pill" href="document-placeholder.html"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 3v12m0 0 4-4m-4 4-4-4M5 21h14"/></svg> Fiscal Note &middot; PDF</a></div>
+                  </div>
+                  <div class="bcol"><div class="bcol-head"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 11.5 12 4l9 7.5"/><path d="M5 10v9h14v-9"/></svg> Senate Bills</div>
+                  <div class="bill"><div class="bill-main"><a class="bill-no" href="document-placeholder.html">SB 1076</a><span class="bill-desc">Child care; assistance program; subsidy rates</span></div><a class="bill-pill" href="document-placeholder.html"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 3v12m0 0 4-4m-4 4-4-4M5 21h14"/></svg> Fiscal Note &middot; PDF</a></div>
+                  <div class="bill"><div class="bill-main"><a class="bill-no" href="document-placeholder.html">SB 1089</a><span class="bill-desc">Tax credits; small business investment</span></div><a class="bill-pill" href="document-placeholder.html"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 3v12m0 0 4-4m-4 4-4-4M5 21h14"/></svg> Fiscal Note &middot; PDF</a></div>
+                  <div class="bill"><div class="bill-main"><a class="bill-no" href="document-placeholder.html">SB 1102</a><span class="bill-desc">Public safety; personnel; sworn officer pay plan</span></div><a class="bill-pill" href="document-placeholder.html"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 3v12m0 0 4-4m-4 4-4-4M5 21h14"/></svg> Fiscal Note &middot; PDF</a></div>
+                  </div>
+                </div>
+              </div>
+              <div class="yr-mini era-1">
+                <div class="yr-mini-h">2011 Regular Session</div>
+                <div class="bills">
+                  <div class="bcol"><div class="bcol-head"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 11.5 12 4l9 7.5"/><path d="M5 10v9h14v-9"/></svg> House Bills</div>
+                  <div class="bill"><div class="bill-main"><a class="bill-no" href="document-placeholder.html">HB 2352</a><span class="bill-desc">K-12 education; per-pupil base level funding</span></div><a class="bill-pill" href="document-placeholder.html"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 3v12m0 0 4-4m-4 4-4-4M5 21h14"/></svg> Fiscal Note &middot; PDF</a></div>
+                  <div class="bill"><div class="bill-main"><a class="bill-no" href="document-placeholder.html">HB 2369</a><span class="bill-desc">Vehicle license tax; distribution formula</span></div><a class="bill-pill" href="document-placeholder.html"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 3v12m0 0 4-4m-4 4-4-4M5 21h14"/></svg> Fiscal Note &middot; PDF</a></div>
+                  <div class="bill"><div class="bill-main"><a class="bill-no" href="document-placeholder.html">HB 2386</a><span class="bill-desc">Universities; tuition assistance; appropriation</span></div><a class="bill-pill" href="document-placeholder.html"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 3v12m0 0 4-4m-4 4-4-4M5 21h14"/></svg> Fiscal Note &middot; PDF</a></div>
+                  </div>
+                  <div class="bcol"><div class="bcol-head"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 11.5 12 4l9 7.5"/><path d="M5 10v9h14v-9"/></svg> Senate Bills</div>
+                  <div class="bill"><div class="bill-main"><a class="bill-no" href="document-placeholder.html">SB 1128</a><span class="bill-desc">Pension systems; employer contribution rates</span></div><a class="bill-pill" href="document-placeholder.html"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 3v12m0 0 4-4m-4 4-4-4M5 21h14"/></svg> Fiscal Note &middot; PDF</a></div>
+                  <div class="bill"><div class="bill-main"><a class="bill-no" href="document-placeholder.html">SB 1141</a><span class="bill-desc">Medicaid; provider reimbursement rates</span></div><a class="bill-pill" href="document-placeholder.html"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 3v12m0 0 4-4m-4 4-4-4M5 21h14"/></svg> Fiscal Note &middot; PDF</a></div>
+                  <div class="bill"><div class="bill-main"><a class="bill-no" href="document-placeholder.html">SB 1154</a><span class="bill-desc">Rainy day fund; deposit requirement</span></div><a class="bill-pill" href="document-placeholder.html"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 3v12m0 0 4-4m-4 4-4-4M5 21h14"/></svg> Fiscal Note &middot; PDF</a></div>
+                  </div>
+                </div>
+              </div>
+              <div class="yr-mini era-1">
+                <div class="yr-mini-h">2010 Regular Session</div>
+                <div class="bills">
+                  <div class="bcol"><div class="bcol-head"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 11.5 12 4l9 7.5"/><path d="M5 10v9h14v-9"/></svg> House Bills</div>
+                  <div class="bill"><div class="bill-main"><a class="bill-no" href="document-placeholder.html">HB 2420</a><span class="bill-desc">Public buildings; deferred maintenance fund</span></div><a class="bill-pill" href="document-placeholder.html"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 3v12m0 0 4-4m-4 4-4-4M5 21h14"/></svg> Fiscal Note &middot; PDF</a></div>
+                  <div class="bill"><div class="bill-main"><a class="bill-no" href="document-placeholder.html">HB 2437</a><span class="bill-desc">Unemployment insurance; benefit adjustment</span></div><a class="bill-pill" href="document-placeholder.html"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 3v12m0 0 4-4m-4 4-4-4M5 21h14"/></svg> Fiscal Note &middot; PDF</a></div>
+                  <div class="bill"><div class="bill-main"><a class="bill-no" href="document-placeholder.html">HB 2454</a><span class="bill-desc">Highway user revenue fund; allocations</span></div><a class="bill-pill" href="document-placeholder.html"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 3v12m0 0 4-4m-4 4-4-4M5 21h14"/></svg> Fiscal Note &middot; PDF</a></div>
+                  </div>
+                  <div class="bcol"><div class="bcol-head"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 11.5 12 4l9 7.5"/><path d="M5 10v9h14v-9"/></svg> Senate Bills</div>
+                  <div class="bill"><div class="bill-main"><a class="bill-no" href="document-placeholder.html">SB 1180</a><span class="bill-desc">Corrections; inmate health care contract</span></div><a class="bill-pill" href="document-placeholder.html"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 3v12m0 0 4-4m-4 4-4-4M5 21h14"/></svg> Fiscal Note &middot; PDF</a></div>
+                  <div class="bill"><div class="bill-main"><a class="bill-no" href="document-placeholder.html">SB 1193</a><span class="bill-desc">Lottery; revenue distribution; beneficiaries</span></div><a class="bill-pill" href="document-placeholder.html"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 3v12m0 0 4-4m-4 4-4-4M5 21h14"/></svg> Fiscal Note &middot; PDF</a></div>
+                  <div class="bill"><div class="bill-main"><a class="bill-no" href="document-placeholder.html">SB 1206</a><span class="bill-desc">Sales tax; online marketplace collection</span></div><a class="bill-pill" href="document-placeholder.html"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 3v12m0 0 4-4m-4 4-4-4M5 21h14"/></svg> Fiscal Note &middot; PDF</a></div>
+                  </div>
+                </div>
+              </div>
+              <div class="yr-mini era-1">
+                <div class="yr-mini-h">2009 Regular Session</div>
+                <div class="bills">
+                  <div class="bcol"><div class="bcol-head"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 11.5 12 4l9 7.5"/><path d="M5 10v9h14v-9"/></svg> House Bills</div>
+                  <div class="bill"><div class="bill-main"><a class="bill-no" href="document-placeholder.html">HB 2488</a><span class="bill-desc">Income tax; rate reduction; phased implementation</span></div><a class="bill-pill" href="document-placeholder.html"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 3v12m0 0 4-4m-4 4-4-4M5 21h14"/></svg> Fiscal Note &middot; PDF</a></div>
+                  <div class="bill"><div class="bill-main"><a class="bill-no" href="document-placeholder.html">HB 2505</a><span class="bill-desc">TPT exemption; manufacturing equipment</span></div><a class="bill-pill" href="document-placeholder.html"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 3v12m0 0 4-4m-4 4-4-4M5 21h14"/></svg> Fiscal Note &middot; PDF</a></div>
+                  <div class="bill"><div class="bill-main"><a class="bill-no" href="document-placeholder.html">HB 2522</a><span class="bill-desc">School facilities; building renewal grant fund</span></div><a class="bill-pill" href="document-placeholder.html"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 3v12m0 0 4-4m-4 4-4-4M5 21h14"/></svg> Fiscal Note &middot; PDF</a></div>
+                  </div>
+                  <div class="bcol"><div class="bcol-head"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 11.5 12 4l9 7.5"/><path d="M5 10v9h14v-9"/></svg> Senate Bills</div>
+                  <div class="bill"><div class="bill-main"><a class="bill-no" href="document-placeholder.html">SB 1232</a><span class="bill-desc">Property tax; assessment ratio; valuation</span></div><a class="bill-pill" href="document-placeholder.html"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 3v12m0 0 4-4m-4 4-4-4M5 21h14"/></svg> Fiscal Note &middot; PDF</a></div>
+                  <div class="bill"><div class="bill-main"><a class="bill-no" href="document-placeholder.html">SB 1245</a><span class="bill-desc">Universities; capital appropriation; research</span></div><a class="bill-pill" href="document-placeholder.html"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 3v12m0 0 4-4m-4 4-4-4M5 21h14"/></svg> Fiscal Note &middot; PDF</a></div>
+                  <div class="bill"><div class="bill-main"><a class="bill-no" href="document-placeholder.html">SB 1258</a><span class="bill-desc">Transportation; highway construction allocation</span></div><a class="bill-pill" href="document-placeholder.html"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 3v12m0 0 4-4m-4 4-4-4M5 21h14"/></svg> Fiscal Note &middot; PDF</a></div>
+                  </div>
+                </div>
+              </div>
+              <div class="yr-mini era-1">
+                <div class="yr-mini-h">2008 Regular Session</div>
+                <div class="bills">
+                  <div class="bcol"><div class="bcol-head"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 11.5 12 4l9 7.5"/><path d="M5 10v9h14v-9"/></svg> House Bills</div>
+                  <div class="bill"><div class="bill-main"><a class="bill-no" href="document-placeholder.html">HB 2556</a><span class="bill-desc">Correctional officers; retirement contribution rates</span></div><a class="bill-pill" href="document-placeholder.html"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 3v12m0 0 4-4m-4 4-4-4M5 21h14"/></svg> Fiscal Note &middot; PDF</a></div>
+                  <div class="bill"><div class="bill-main"><a class="bill-no" href="document-placeholder.html">HB 2573</a><span class="bill-desc">Health care; AHCCCS eligibility expansion</span></div><a class="bill-pill" href="document-placeholder.html"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 3v12m0 0 4-4m-4 4-4-4M5 21h14"/></svg> Fiscal Note &middot; PDF</a></div>
+                  <div class="bill"><div class="bill-main"><a class="bill-no" href="document-placeholder.html">HB 2590</a><span class="bill-desc">Water infrastructure; supply development fund</span></div><a class="bill-pill" href="document-placeholder.html"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 3v12m0 0 4-4m-4 4-4-4M5 21h14"/></svg> Fiscal Note &middot; PDF</a></div>
+                  </div>
+                  <div class="bcol"><div class="bcol-head"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 11.5 12 4l9 7.5"/><path d="M5 10v9h14v-9"/></svg> Senate Bills</div>
+                  <div class="bill"><div class="bill-main"><a class="bill-no" href="document-placeholder.html">SB 1284</a><span class="bill-desc">Child care; assistance program; subsidy rates</span></div><a class="bill-pill" href="document-placeholder.html"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 3v12m0 0 4-4m-4 4-4-4M5 21h14"/></svg> Fiscal Note &middot; PDF</a></div>
+                  <div class="bill"><div class="bill-main"><a class="bill-no" href="document-placeholder.html">SB 1297</a><span class="bill-desc">Tax credits; small business investment</span></div><a class="bill-pill" href="document-placeholder.html"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 3v12m0 0 4-4m-4 4-4-4M5 21h14"/></svg> Fiscal Note &middot; PDF</a></div>
+                  <div class="bill"><div class="bill-main"><a class="bill-no" href="document-placeholder.html">SB 1310</a><span class="bill-desc">Public safety; personnel; sworn officer pay plan</span></div><a class="bill-pill" href="document-placeholder.html"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 3v12m0 0 4-4m-4 4-4-4M5 21h14"/></svg> Fiscal Note &middot; PDF</a></div>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div></div></div>
+        </div>
+      </section>
+    </div>
+
+    <aside class="side">
+      <div class="promo">
+        <h3>Ballot initiatives</h3>
+        <p>See JLBC Staff's fiscal analyses of ballot propositions referred to Arizona voters.</p>
+        <a href="subpage-ballot-initiatives.html">Ballot Initiatives &rarr;</a>
+      </div>
+      <section class="card">
+        <div class="quick">
+          <div class="qh">Related Pages</div>
+          <a class="qlink" href="subpage-current-year.html"><span class="dotic c-copper"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="4" width="18" height="18" rx="3"/><path d="M16 2v4M8 2v4M3 10h18"/></svg></span>Annual Budgets<span class="arr">&rarr;</span></a>
+          <a class="qlink" href="subpage-tax-handbook.html"><span class="dotic c-gold"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M6 2h9l5 5v15H6z"/><path d="M14 2v6h6"/></svg></span>Tax Handbook<span class="arr">&rarr;</span></a>
+          <a class="qlink" href="subpage-monthly-fiscal-highlights.html"><span class="dotic c-navy"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 3v18h18"/><path d="m7 14 4-4 3 3 5-6"/></svg></span>Monthly Fiscal Highlights<span class="arr">&rarr;</span></a>
+        </div>
+      </section>
+    </aside>
+  </div>
+</main>
+
+<footer class="site">
+  <div class="wrap foot">
+    <div class="fb">
+      <div class="name">Joint Legislative Budget Committee</div>
+      <p>This public website is maintained by the JLBC, the fiscal research arm of the Arizona Legislature.</p>
+    </div>
+    <div class="col"><h4>Contact</h4>
+      <div class="contact-row">
+        <span class="line"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 16.9v3a2 2 0 0 1-2.2 2 19.8 19.8 0 0 1-8.6-3.1 19.5 19.5 0 0 1-6-6A19.8 19.8 0 0 1 2 4.2 2 2 0 0 1 4 2h3a2 2 0 0 1 2 1.7c.1.9.4 1.8.7 2.6a2 2 0 0 1-.5 2.1L8 9.6a16 16 0 0 0 6 6l1.2-1.2a2 2 0 0 1 2.1-.5c.8.3 1.7.6 2.6.7A2 2 0 0 1 22 16.9Z"/></svg><a href="tel:+16029265491">(602) 926-5491</a></span>
+        <span class="line"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="5" width="18" height="14" rx="3"/><path d="m3 7 9 6 9-6"/></svg><a href="mailto:jlbcwebmaster@azleg.gov">jlbcwebmaster@azleg.gov</a></span>
+      </div>
+      <div class="contact-row">
+        <span class="line"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 21s-7-5.2-7-11a7 7 0 0 1 14 0c0 5.8-7 11-7 11Z"/><circle cx="12" cy="10" r="2.5"/></svg><a href="https://www.google.com/maps/search/?api=1&amp;query=1716%20West%20Adams%2C%20Phoenix%2C%20AZ%2085007" target="_blank" rel="noopener">1716 West Adams, Phoenix, AZ 85007</a></span>
+      </div>
+    </div>
+  </div>
+  <div class="wrap foot-bottom">
+    <div class="copyline"><img class="jlbc-mini" src="jlbc-logo.png" alt="JLBC" /> &copy; 2026 Arizona Joint Legislative Budget Committee</div>
+    <a class="azleg-btn" href="https://www.azleg.gov/" target="_blank" rel="noopener" aria-label="Arizona State Legislature — opens azleg.gov">
+      <img src="azleg-logo.png" alt="Arizona State Legislature" />
+      <svg class="foot-ext" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M7 17 17 7M9 7h8v8"/></svg>
+    </a>
+  </div>
+</footer>
+
+</body>
+</html>
