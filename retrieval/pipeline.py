@@ -21,7 +21,9 @@ Top-K defaults match spec §3.4:
 - Dense: top 100 ANN candidates
 - Fused: top 50 after RRF (caller can shrink to fewer for cheaper
   rerank, but quality drops if less than ~20)
-- Reranked: top 20 returned to caller (`req.top_k` default)
+- Reranked: top `req.top_k` returned to caller (default
+  DEFAULT_PIPELINE_TOP_K = 15; lowered from 20 on 2026-05-19 after
+  dogfood showed context spillover)
 """
 from __future__ import annotations
 

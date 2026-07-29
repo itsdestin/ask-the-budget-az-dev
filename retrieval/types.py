@@ -49,7 +49,7 @@ class RetrievedChunk:
     """One row returned by a retrieval helper.
 
     Score semantics depend on the producer:
-    - BM25: ParadeDB BM25 score (positive, unbounded; higher = better)
+    - BM25: LanceDB native FTS BM25 score (positive, unbounded; higher = better)
     - Dense: cosine similarity (1 - cosine distance), 0..1 range
     - Reranker: raw local cross-encoder logit (roughly -10..10, NOT 0..1)
 
