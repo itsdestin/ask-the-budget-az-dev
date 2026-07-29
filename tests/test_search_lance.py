@@ -2,7 +2,13 @@
 Vectors are hand-made; no models involved."""
 import pytest
 
-from retrieval.search_lance import bm25_query_lance, dense_query_lance
+from retrieval.search_lance import (
+    _sanitize,
+    _where,
+    bm25_query_lance,
+    dense_query_lance,
+    row_to_chunk,
+)
 from retrieval.types import RetrievalFilters
 from store.chunk_store import ChunkStore
 
@@ -52,11 +58,38 @@ def test_bm25_respects_filters(store):
 
 def test_bm25_sanitizes_special_chars(store):
     # Apostrophes/specials crashed tantivy before (#47) — must not raise.
+    # NOTE: on Lance this passes even without _sanitize (apostrophes are
+    # harmless there); test_bm25_quoted_phrase_does_not_crash below is the
+    # one that actually pins the sanitizer. Kept because it is spec'd.
     hits = bm25_query_lance(
         "governor's office", store=store, corpus="budget_chunks",
         top_k=5, filters=RetrievalFilters(),
     )
     assert isinstance(hits, list)
+
+
+def test_bm25_quoted_phrase_does_not_crash(store):
+    """THE reason _sanitize exists on Lance. Without it this raises
+    `RuntimeError: position is not found but required for phrase queries`
+    — an all-quoted query parses as a phrase query, and build_fts_index
+    creates the index without token positions. An LLM caller emits quoted
+    phrases constantly, so this is the common path, not an edge case."""
+    hits = bm25_query_lance('"ahcccs provider rates"', store=store,
+                            corpus="budget_chunks", top_k=5,
+                            filters=RetrievalFilters())
+    assert [c.chunk_id for c in hits] == ["c1"]
+
+
+def test_sanitize_strips_the_bm25_char_set():
+    """Pins the exact char set, so a future edit cannot silently narrow it.
+    Apostrophes still go (kept identical to bm25.py's #47 set for cutover
+    comparability), while `+ - !` deliberately survive for tokens like
+    "$1.2M+" and "FY2026-27"."""
+    assert _sanitize("governor's office") == "governor s office"
+    assert _sanitize('"provider rates"') == "provider rates"
+    assert _sanitize("$1.2M+ FY2026-27 !x") == "$1.2M+ FY2026-27 !x"
+    assert _sanitize("a(b)c[d]e{f}g^h~i:j/k?l*m") == "a b c d e f g h i j k l m"
+    assert _sanitize("   ") == ""
 
 
 def test_dense_missing_anchor_stays_none(store):
@@ -76,3 +109,39 @@ def test_bm25_of_only_specials_returns_empty(store):
         "?*[]", store=store, corpus="budget_chunks", top_k=5,
         filters=RetrievalFilters(),
     ) == []
+
+
+def test_dense_respects_filters(store):
+    """Filtering the dense leg goes through a different LanceDB code path
+    (prefiltered ANN vs prefiltered FTS) even though _where is shared, so
+    it needs its own coverage. The query vector points AT c1; the filter
+    must still exclude it."""
+    hits = dense_query_lance(
+        [1, 0, 0, 0], store=store, corpus="budget_chunks",
+        top_k=10, filters=RetrievalFilters(fiscal_year=[2025], is_table=True),
+    )
+    assert [c.chunk_id for c in hits] == ["c2"]
+
+
+def test_empty_filters_produce_no_where_clause(store):
+    """An unfiltered query must pass where=None, not a vacuous 'TRUE'-ish
+    expression — filter_expr returns None for no filters and the search
+    methods branch on falsiness."""
+    assert _where(store, RetrievalFilters()) is None
+    assert _where(store, RetrievalFilters(publisher=["agao"])) == \
+        "publisher IN ('agao')"
+
+
+def test_malformed_source_anchor_names_the_chunk():
+    """A bare JSONDecodeError ("Expecting value: line 1 column 1") cannot be
+    traced to a row among ~100k chunks; the error must name the chunk and
+    the fix."""
+    row = dict(
+        chunk_id="c9", doc_id="d9", text="t", section_path=[], page=None,
+        bbox=None, source_anchor="{'page': 1}",  # str() of a dict, not JSON
+        agency_canonical_ids=[], fund_canonical_id=None, fund_mentions=[],
+        fiscal_year=None, doc_type="afr", is_table=False, table_html=None,
+        token_count=1, publisher="jlbc",
+    )
+    with pytest.raises(ValueError, match=r"chunk 'c9' has a malformed source_anchor"):
+        row_to_chunk(row, 1.0)
