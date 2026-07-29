@@ -71,12 +71,17 @@ def leg_session(y: int) -> str:
 def parse_session_html(html: str) -> list[dict]:
     """copied from build.py's per-file loop (lines 25-32).
 
-    Two behaviors that MUST be preserved, because the ~98-bill total depends
-    on them:
+    Two behaviors that MUST be preserved, because the export total depends on
+    them (2126 bills across 28 sessions, ~37-135 per session):
       1. Rows whose link is not under `/fiscal/` are skipped — that filter is
          what restricts the list to bills that actually have a fiscal note.
       2. Duplicate (bill number, href) pairs are dropped; the cached JLBC
          pages repeat some rows.
+
+    Note this dedupes on the PAIR (number, href), not the number alone, so a
+    bill with both an original and a revised note keeps both rows (e.g. 2025
+    SB 1010 -> SB1010.DOCX.pdf and SB1010R.DOCX.pdf). `bill_number` is
+    therefore NOT unique within a session — 93 such extra rows corpus-wide.
     """
     rows: list[dict] = []
     seen: set[tuple[str, str]] = set()
@@ -107,8 +112,9 @@ def main() -> None:
     sessions = []
     for f in sorted(REFERENCE.glob("live/*.html")):
         year = int(f.stem[:4])
-        # errors='replace' matches build.py — a couple of cached pages have
-        # stray non-UTF-8 bytes and must not crash the export.
+        # errors="replace" mirrors build.py's read. (All 28 currently-cached
+        # pages do decode as strict UTF-8; this only keeps the two readers
+        # byte-for-byte equivalent.)
         bills = parse_session_html(f.read_text(encoding="utf-8", errors="replace"))
         if not bills:
             continue   # build.py's `if rows:` — skip sessions with no fiscal notes

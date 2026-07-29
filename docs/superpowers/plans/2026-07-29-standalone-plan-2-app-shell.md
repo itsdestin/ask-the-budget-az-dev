@@ -46,12 +46,15 @@ POST /api/search
 
 GET /api/fiscal-notes
   -> { "sessions": [ { "year": int, "name": str,
-                       "bills": [ { "bill_number": str, "title": str, "chamber": "H"|"S" } ] } ] }
+                       "bills": [ { "bill_number": str, "title": str, "chamber": "H"|"S",
+                                    "fiscal_note_url": str } ] } ] }
 
 GET /health -> { "ok": bool, "provider": str }
 ```
 
 The `provider` field exists so the UI (and tests) can tell stub from real — the UI shows a small dev-only badge when `provider == "stub"`.
+
+`fiscal_note_url` was added to the bill shape in Task 3 (additive — no existing field changed). It comes straight from `build.py`'s parsed data, which already captured the PDF link the mockup page renders as its "PDF" button, so surfacing it costs nothing and saves Plans 3/4 a re-parse. Two consequences for consumers: the session name is `leg_session()`'s label (`"57th Legislature, 1st Reg. Session (2025)"`), and **`bill_number` is not unique within a session** — a bill with an original *and* a revised fiscal note appears as two rows distinguished only by `fiscal_note_url` (93 such rows corpus-wide), so don't key on `bill_number` alone.
 
 ---
 
