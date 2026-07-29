@@ -9,9 +9,10 @@ module-level top-level code (no `main()`, no `if __name__ == "__main__"`
 guard), and its last two lines WRITE `webapp/reference/subpage-fiscal-notes.html`.
 `import build` would therefore rewrite a read-only vendored file as a side
 effect. So the 3 parse pieces below (PAIR, spaced, the per-file row loop)
-plus the display helpers (ch, ordinal, leg_session) are transcribed verbatim
-from build.py lines 15-46 — behavior is identical, only the output format
-changes. build.py itself is the citation for these regexes.
+plus the display helpers (ch, ordinal, leg_session, numkey) are transcribed
+(reformatted and type-annotated, behavior identical) from build.py lines 15-52
+— only the output format changes. build.py itself is the citation for these
+regexes.
 
 Run:  uv run python scripts/export_fiscal_notes_snapshot.py
 """
@@ -21,10 +22,13 @@ import json
 import re
 from pathlib import Path
 
-REFERENCE = Path("webapp/reference/fiscal-notes-build")
-OUT = Path("app/data/fiscal-notes-snapshot.json")
+# Anchored to the repo root (not the cwd) like the sibling scripts, so the
+# export reads and writes the right files from any working directory.
+ROOT = Path(__file__).resolve().parents[1]
+REFERENCE = ROOT / "webapp/reference/fiscal-notes-build"
+OUT = ROOT / "app/data/fiscal-notes-snapshot.json"
 
-# --- copied verbatim from build.py (lines 15-19) -----------------------------
+# --- transcribed from build.py (lines 15-19) ---------------------------------
 # Matches an azjlbc.gov fiscal-notes table row: the bill-number cell's closing
 # anchor, then the adjacent title cell's link. re.S so the title can wrap lines.
 PAIR = re.compile(
@@ -111,6 +115,8 @@ def numkey(no: str) -> tuple[int, str]:
 def main() -> None:
     sessions = []
     for f in sorted(REFERENCE.glob("live/*.html")):
+        # build.py's `int(basename(fp)[:4])` — the year is the filename's first
+        # 4 digits, so a suffixed cache file like "2026-partial.html" still works.
         year = int(f.stem[:4])
         # errors="replace" mirrors build.py's read. (All 28 currently-cached
         # pages do decode as strict UTF-8; this only keeps the two readers
@@ -132,6 +138,18 @@ def main() -> None:
         })
     # Newest session first — the mockup page lists sessions in reverse order.
     sessions.sort(key=lambda s: s["year"], reverse=True)
+
+    # Refuse to clobber the committed snapshot with an empty one. Parsing zero
+    # sessions means the input wasn't found (e.g. the vendored cache moved or
+    # was emptied), not that Arizona stopped writing fiscal notes — so this is
+    # always a bug to fix, never a result to save.
+    if not sessions:
+        raise SystemExit(
+            f"refusing to write an empty snapshot: no bills parsed from "
+            f"{REFERENCE / 'live'} (expected 28 *.html session pages). "
+            f"Left {OUT} untouched."
+        )
+
     OUT.parent.mkdir(parents=True, exist_ok=True)
     OUT.write_text(json.dumps({"sessions": sessions}, indent=1), encoding="utf-8")
     # ASCII-only print: the Windows console default codepage mangles an em dash.

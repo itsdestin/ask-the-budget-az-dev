@@ -290,9 +290,15 @@ def test_bills_have_contract_fields():
         for b in s["bills"]:
             assert b["bill_number"] and b["title"]
             assert b["chamber"] in ("H", "S")
+            assert b["fiscal_note_url"].startswith("https://")
             total += 1
-    assert total >= 90  # mockup reconciled ~98 real bills
+    assert total == 2126  # frozen artifact: 28 sessions, ~37-135 bills each
 ```
+
+> Updated in Task 3 to the real counts. The plan originally guessed `>= 90`
+> from a "~98 bills" figure that turned out to be **per-session**, not the
+> corpus total. Exact assertions are correct here because the snapshot is
+> frozen — see the shipped test for the reasoning.
 
 - [ ] **Step 3: Run to verify failure**
 
@@ -351,10 +357,10 @@ if __name__ == "__main__":
     main()
 ```
 
-The `<adapt: ...>` block is the one deliberate judgment call in this plan: `build.py`'s function names aren't known until Step 1's read. Wire `parse_session_html` to whatever build.py actually provides, preserving its behavior. If build.py's parser filters to fiscal-note-bearing bills, keep that filter (the ~98-bill count in the test reflects it).
+The `<adapt: ...>` block is the one deliberate judgment call in this plan: `build.py`'s function names aren't known until Step 1's read. Wire `parse_session_html` to whatever build.py actually provides, preserving its behavior. If build.py's parser filters to fiscal-note-bearing bills, keep that filter (the bill count in the test reflects it). **Resolved in Task 3:** build.py has no separable parse function — it parses at module scope and writes a vendored HTML file on import — so the parse pieces were transcribed into the exporter instead of imported. The `/fiscal/` href filter and the `(bill_number, href)` dedupe are the two behaviors the count depends on; total is **2126 bills across 28 sessions**.
 
 Run: `uv run python scripts/export_fiscal_notes_snapshot.py`
-Expected: `wrote app/data/fiscal-notes-snapshot.json — ~98 bills`
+Expected: `wrote <repo>/app/data/fiscal-notes-snapshot.json - 2126 bills across 28 sessions`
 
 - [ ] **Step 5: Run tests to verify they pass**
 
@@ -1028,7 +1034,7 @@ git commit -m "feat(webapp): fiscal notes page — session directory + chamber/t
 
 Run: `cd webapp && npm run build`, then `uv run uvicorn app.main:create_app --factory --port 9300`
 Open `http://127.0.0.1:9300`.
-Expected: home renders with hero; searching navigates to `/search` and shows grouped stub results with the "stub data" badge; `/fiscal-notes` shows the real ~98-bill snapshot; hard-refresh on `/fiscal-notes` works (SPA fallback).
+Expected: home renders with hero; searching navigates to `/search` and shows grouped stub results with the "stub data" badge; `/fiscal-notes` shows the real 2126-bill / 28-session snapshot; hard-refresh on `/fiscal-notes` works (SPA fallback).
 
 - [ ] **Step 2: Full test suites**
 
