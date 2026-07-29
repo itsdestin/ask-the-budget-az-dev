@@ -158,13 +158,14 @@ class ChunkStore:
         parts: list[str] = []
 
         def _in(col: str, vals: list) -> str:
-            # WHY the bool check comes first: bool is a subclass of int in
-            # Python, so `isinstance(True, int)` is True and a bare numeric
-            # branch would render it as the invalid SQL literal `True`.
+            # Numbers render bare; everything else is a quoted string literal.
+            # No bool special-case is needed: is_table is the only boolean
+            # column and it has its own scalar branch below, so vals here is
+            # only ever ints or strings. (Even a stray bool would be fine —
+            # DataFusion accepts a bare `True`; it is the *quoted* 'True' that
+            # fails, so the one thing to avoid is routing bools to _sql_str.)
             rendered = ", ".join(
-                str(v) if isinstance(v, (int, float)) and not isinstance(v, bool)
-                else _sql_str(v)
-                for v in vals
+                str(v) if isinstance(v, (int, float)) else _sql_str(v) for v in vals
             )
             return f"{col} IN ({rendered})"
 

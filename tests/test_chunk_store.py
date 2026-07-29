@@ -85,17 +85,45 @@ def test_empty_table_created_on_demand(tmp_path):
 def test_values_with_apostrophes_do_not_break_sql(store):
     """LanceDB filters are SQL strings with no parameter binding, so a
     fund name like "land's fund" must be escaped, not interpolated raw
-    (raw yields 'Unterminated string literal'). Guards _sql_str."""
+    (raw yields 'Unterminated string literal').
+
+    The apostrophe-bearing chunk_id is deliberate: it exercises all three
+    _sql_str call sites — upsert_chunks' delete clause, get_by_ids, and
+    filter_expr.
+    """
+    cid = "doc'1#c4"
     store.upsert_chunks("budget_chunks", [
-        _row("c4", "apostrophe row", [0, 0, 1, 0, 0, 0, 0, 0],
+        _row(cid, "apostrophe row", [0, 0, 1, 0, 0, 0, 0, 0],
              fund_canonical_id="land's fund",
              agency_canonical_ids=["o'brien"]),
     ])
-    got = store.get_by_ids("budget_chunks", ["c4"])
-    assert [r["chunk_id"] for r in got] == ["c4"]
+    got = store.get_by_ids("budget_chunks", [cid])
+    assert [r["chunk_id"] for r in got] == [cid]
 
     where = store.filter_expr(fund_canonical_id=["land's fund"],
                               agency_canonical_id=["o'brien"])
     hits = store.vector_search("budget_chunks", [0, 0, 1, 0, 0, 0, 0, 0],
                                top_k=5, where=where)
-    assert [h["chunk_id"] for h in hits] == ["c4"]
+    assert [h["chunk_id"] for h in hits] == [cid]
+
+    # Re-upserting must replace, not duplicate — proves the delete clause
+    # actually matched the escaped id rather than silently matching nothing.
+    store.upsert_chunks("budget_chunks", [
+        _row(cid, "REPLACED", [0, 0, 1, 0, 0, 0, 0, 0]),
+    ])
+    got = store.get_by_ids("budget_chunks", [cid])
+    assert len(got) == 1 and got[0]["text"] == "REPLACED"
+
+
+def test_is_table_filter_renders_bare_bool(store):
+    """is_table must render as a bare `false`, not a quoted `'False'` —
+    DataFusion rejects the quoted form. Also pins that is_table=False is
+    treated as a real filter, not as 'no filter' (it is falsy)."""
+    where = store.filter_expr(is_table=False)
+    assert where == "is_table = false"
+    hits = store.vector_search("budget_chunks", [1, 0, 0, 0, 0, 0, 0, 0],
+                               top_k=5, where=where)
+    assert {h["chunk_id"] for h in hits} == {"c1", "c2", "c3"}
+
+    assert store.filter_expr(is_table=True) == "is_table = true"
+    assert store.filter_expr() is None
