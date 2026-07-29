@@ -5,6 +5,17 @@ RRF-fused candidates, returns top_k RetrievedChunk re-scored by the
 cross-encoder, descending. Score semantics change vs Voyage (raw
 logits, roughly -10..10, NOT 0..1) — the refusal threshold is
 re-calibrated in a later task and consumers must not assume 0..1.
+
+512-token ceiling: this cross-encoder's tokenizer truncates the
+(query, passage) pair at 512 WordPiece tokens ('longest_first',
+direction right), so only roughly the first ~500 tokens of each chunk
+influence its score. Our chunker targets 512 *cl100k* tokens and allows
+up to 1024 (chunking/builders/narrative_chunk.py), and WordPiece runs
+hotter than cl100k on this corpus (spot-measured 1.05-1.35x on
+numeral-dense JLBC prose — dollar figures fragment into many subword
+pieces), so long chunks are judged on their openings alone. Voyage
+rerank-2.5 read the whole passage, so this is a real behavioral delta:
+a diagnostic worth checking if the G1 eval gate misses.
 """
 from __future__ import annotations
 
@@ -56,9 +67,17 @@ class LocalReranker:
         """
         if not chunks:
             return []
+        if top_k <= 0:
+            # A negative top_k would silently slice as chunks[:-1] and drop a
+            # result; zero would return nothing. Both are caller bugs, and a
+            # quietly short candidate list would corrupt Task 12's threshold
+            # calibration, so fail loudly instead.
+            raise ValueError(f"top_k must be >= 1, got {top_k}")
         scores = list(self._model.rerank(query, [c.text for c in chunks]))
         rescored = [
-            replace(c, score=float(s)) for c, s in zip(chunks, scores)
+            # strict=True: a short score iterable would otherwise silently
+            # drop candidates off the end with no downstream backstop.
+            replace(c, score=float(s)) for c, s in zip(chunks, scores, strict=True)
         ]
         rescored.sort(key=lambda c: (-c.score, c.chunk_id))
         return rescored[:top_k]

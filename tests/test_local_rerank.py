@@ -35,6 +35,28 @@ def test_empty_input_returns_empty():
     assert rr.rerank("q", [], top_k=5) == []
 
 
+class ShortScoreCrossEncoder:
+    """Returns fewer scores than documents — the silent-drop failure mode."""
+
+    def rerank(self, query, documents):
+        return iter([0.5])
+
+
+def test_short_score_iterable_raises_instead_of_dropping():
+    rr = LocalReranker(model=ShortScoreCrossEncoder())
+    chunks = [_chunk("a", "one"), _chunk("b", "two")]
+    with pytest.raises(ValueError):
+        rr.rerank("q", chunks, top_k=2)
+
+
+@pytest.mark.parametrize("bad_top_k", [0, -1])
+def test_nonpositive_top_k_raises(bad_top_k):
+    # top_k=-1 would slice [:-1] and silently drop the last chunk.
+    rr = LocalReranker(model=FakeCrossEncoder())
+    with pytest.raises(ValueError, match="top_k"):
+        rr.rerank("q", [_chunk("a", "one")], top_k=bad_top_k)
+
+
 @pytest.mark.slow
 def test_real_model_prefers_relevant_text():
     rr = LocalReranker()

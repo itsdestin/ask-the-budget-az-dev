@@ -36,6 +36,20 @@ def test_embed_batch_documents_uses_passage_path():
     assert fake.calls[0] == ("passage", ["a", "b"])
 
 
+def test_injected_fake_keeps_declared_dim():
+    # The fake has no fastembed registry entry, so an explicit dim is the
+    # only way to state one — and it must not be second-guessed.
+    assert LocalEmbedder(model=FakeModel(), dim=2).dim == 2
+    assert LocalEmbedder(model=FakeModel()).dim is None
+
+
+def test_dim_mismatch_raises_before_any_download():
+    # bge-base emits 768. Passing the small model's 384 must fail fast —
+    # this test would take minutes if the guard ran after model construction.
+    with pytest.raises(ValueError, match="768"):
+        LocalEmbedder(model_name="BAAI/bge-base-en-v1.5", dim=384)
+
+
 @pytest.mark.slow
 def test_real_model_dim():
     emb = LocalEmbedder()
