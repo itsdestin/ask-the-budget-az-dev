@@ -17,9 +17,10 @@ test("header has nav pills for the app's surfaces", () => {
 
 // Pins the one CSS deviation from the mockup: it styles the azure pill via
 // `.nav-item.active>a`, we style `.nav-item>a.active` because NavLink can only put
-// the class on the anchor. If NavLink ever stops emitting "active" (or the `end`
-// prop is dropped, making Home match every route), this fails instead of shipping
-// a header with two lit pills or none.
+// the class on the anchor. Two things are pinned: NavLink still emits the "active"
+// class at all, and exactly one pill is lit for a given route. (It does NOT pin the
+// `end` prop — react-router 7.18 never prefix-matches "/", so removing `end` would
+// still pass; `end` is kept in Header.tsx as future-proofing, not as behavior here.)
 test("only the current surface gets the mockup's azure active pill", () => {
   render(
     <MemoryRouter initialEntries={["/fiscal-notes"]}>
@@ -30,8 +31,10 @@ test("only the current surface gets the mockup's azure active pill", () => {
   expect(screen.getByRole("link", { name: "Home" })).not.toHaveClass("active");
 });
 
-// Guards the ported chrome: the mockup's CSS is keyed to these exact selectors, so
-// renaming a class here would silently unstyle the header.
+// Guards the MARKUP side of the port only: the ported CSS is keyed to this selector
+// chain, so renaming a class in Header.tsx would silently unstyle the header. It does
+// not verify styling end-to-end — a rename in app.css alone still passes (jsdom
+// applies no stylesheet), so keep the two files in step by hand.
 test("keeps the mockup's header markup hooks", () => {
   const { container } = render(
     <MemoryRouter>

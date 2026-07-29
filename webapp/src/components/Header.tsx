@@ -1,4 +1,4 @@
-import { NavLink } from "react-router-dom";
+import { Link, NavLink } from "react-router-dom";
 
 // Ported from the mockup's `header.site` block (webapp/reference/index.html):
 // sticky white bar, 3px navy-900 bottom border, logo left, centered inline pill
@@ -22,14 +22,20 @@ export function Header() {
   return (
     <header className="site" data-testid="header">
       <div className="wrap head">
-        <NavLink className="logo" to="/" aria-label="JLBC home">
+        {/* Link, not NavLink: the logo is branding, so it wants no active styling —
+            NavLink would also mark it aria-current="page" at "/" alongside the Home
+            pill, and any future `.logo.active` rule would apply to it by surprise. */}
+        <Link className="logo" to="/" aria-label="JLBC home">
           {/* Served from webapp/public/, copied from reference/assets/. */}
           <img src="/jlbc-logo.png" alt="JLBC — Joint Legislative Budget Committee" />
-        </NavLink>
+        </Link>
         <nav className="primary" aria-label="Primary">
           {/* Home is the mockup's icon-only house pill; aria-label carries the
-              accessible name since there is no visible text. `end` keeps it from
-              matching every route (NavLink treats "/" as a prefix otherwise). */}
+              accessible name since there is no visible text. `end` is belt-and-braces:
+              react-router 7.18 already never prefix-matches "/" (its prefix branch
+              requires the next char to be "/"), so `end` is a no-op here today — it's
+              kept explicit so a future router version can't quietly light this pill on
+              every route. */}
           <div className="nav-item">
             <NavLink to="/" end aria-label="Home" title="Home">
               <svg

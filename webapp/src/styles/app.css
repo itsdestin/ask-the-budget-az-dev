@@ -5,8 +5,34 @@
  * unmodified (spec S12: port, don't redesign). Every deviation is commented.
  *
  * Scope for now: the base/body reset the tokens assume + the sticky header and
- * pill nav. Page-level CSS (hero, gateway cards, content cards, footer) arrives
- * with the Home / Search / Fiscal Notes ports.
+ * pill nav.
+ *
+ * ===== CSS CONVENTION FOR THE PAGE PORTS (Tasks 8-10) — read before adding CSS =====
+ *
+ * The three mockup sources (reference/index.html, reference/subpage-search_jlbc.html,
+ * reference/fiscal-notes-build/base.html) share ~74 selectors, and at least 9 of them
+ * carry CONFLICTING declarations for the same selector. Verified examples:
+ *   main .wrap        home `padding:34px 22px 12px; grid-template-columns:1fr 340px`
+ *                     vs sub-pages `padding:30px 22px 12px; …1fr 320px`
+ *   .card .head-row   home `padding:20px 24px` + `position:relative`
+ *                     vs sub-pages `padding:20px 24px 12px`
+ *   plus .qlink sizing and .ic background differences
+ * In the mockup these never collide because each page is a standalone file with its
+ * own <style>. Here they WOULD collide: whichever file Vite bundles last wins, and one
+ * page silently restyles another.
+ *
+ * Convention, from Task 8 on:
+ *   1. Every page's root <main> carries a page class — `page-home`, `page-search`,
+ *      `page-fiscal-notes`.
+ *   2. Page-specific rules — and ANY rule whose declarations differ between mockup
+ *      sources — are ported PREFIXED with that page class
+ *      (e.g. `.page-home main .wrap{…340px}` / `.page-search main .wrap{…320px}`).
+ *   3. Only genuinely shared primitives (base reset, header, the `.card` base) stay
+ *      unprefixed, and each lives in a block labeled `shared:`.
+ *
+ * Splitting into per-page CSS FILES would NOT prevent this: Vite concatenates every
+ * imported stylesheet into one global sheet, so file boundaries provide no isolation.
+ * Selector scoping is the thing that isolates — do not swap it for separate files.
  */
 
 /* ===== base — verbatim from the mockup ===== */
@@ -42,13 +68,23 @@ nav.primary{flex:1 1 auto;display:flex;flex-wrap:nowrap;align-items:center;justi
      nothing (there is no .wrap inside nav) — dropped rather than reinterpreted. */
 }
 
-/* ===== Settings stub (replaced by the real Settings surface in Plan 5) =====
-   No mockup counterpart exists yet, so this borrows the mockup's own `.card` panel
-   and reuses its existing values: the 34px/12px page padding from `main .wrap`, the
-   19px/800 navy heading from `.card .head-row h2`, and the 14px `--ink-2` body copy
-   from `.item p`. No new colors, sizes, or fonts are introduced. */
+/* ===== shared: card primitive — verbatim from the mockup =====
+   The `.card` base is identical across all three mockup sources, so it is shared and
+   unprefixed. Task 8 should MOVE/extend this rule (and add `.card .head-row` etc. per
+   the convention above), NOT re-declare `.card` further down the file. */
 .card{background:var(--card);border:1px solid var(--line);border-radius:var(--r-lg);box-shadow:var(--shadow-sm);overflow:hidden;}
-.stub-page .wrap{padding-top:34px;padding-bottom:12px;}
+
+/* ===== Settings stub (replaced by the real Settings surface in Plan 5) =====
+   No mockup counterpart exists yet, so this borrows the mockup's `.card` panel above
+   and reuses existing mockup values: the 34px/12px page padding from home's
+   `main .wrap`, the 19px/800 navy heading from `.card .head-row h2`, and the 14px
+   `--ink-2` / `margin:4px 0 0` body copy from `.item p`. No new colors, sizes, or
+   fonts are introduced. */
+/* `display:block` is explicit because Task 8 ports the mockup's
+   `main .wrap{display:grid;grid-template-columns:1fr 340px}`. Without this the stub's
+   single card would inherit that grid and sit in a 1fr column with a phantom 340px
+   sidebar column beside it — a layout bug with no visible cause. */
+.stub-page .wrap{display:block;padding-top:34px;padding-bottom:12px;}
 .stub{padding:20px 24px;}
 .stub h1{font-size:19px;color:var(--navy);font-weight:800;}
-.stub p{margin:8px 0 0;font-size:14px;color:var(--ink-2);}
+.stub p{margin:4px 0 0;font-size:14px;color:var(--ink-2);}
