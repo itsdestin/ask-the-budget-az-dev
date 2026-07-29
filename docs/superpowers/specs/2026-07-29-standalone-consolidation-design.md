@@ -65,9 +65,10 @@ single-writer lock module, which logs its caller.
 | S10 | **Fiscal notes become a full RAG corpus** with in-app refresh: port the mockup's `fiscal-notes-build/build.py` scraping into the app; refresh diffs azjlbc.gov sessions, downloads only new note PDFs, feeds the normal ingest queue. | Stays current across sessions with zero maintenance; scraper breakage degrades to last-good corpus, loudly but harmlessly. |
 | S11 | **Per-user cost tracking + soft-gated admin surface.** Users are Windows usernames. Every OpenRouter call logs exact billed cost (OpenRouter usage accounting) to a ledger on the share. Users see only their own total. One designated admin (username in `settings.json`, transferable) gets an Admin page. | Non-technical admin manages the key and sees costs without advertising individual spend office-wide. Explicitly *not* real security — accepted trade. |
 | S12 | **Port, don't redesign (UI).** Home/search/fiscal-notes reuse the JLBC Website Revamp's actual structure and design tokens; AI Mode reuses the existing ask-the-budget chat surfaces. New-build UI (upload, Settings, Admin) is assembled from mockup components. Where chat renders inside mockup-styled pages, chat components adopt the mockup's navy token values — structure from each source, one palette. | Both UIs are already validated; novelty is risk. |
-| S13 | **Model selection is admin-only, live-validated.** A shipped recommendation list (~4 models across quality/cost tiers, analyst-readable descriptions) sets the app-wide default from the Admin page; users never pick models. The list is validated against OpenRouter's live model catalog (`/api/v1/models`) whenever the admin page opens: live pricing shown, vanished models greyed out. Catalog and picker filter to **tool-calling-capable models only** (the harness requires function calling). An "advanced" searchable full-catalog picker sits below the recommendations. If the configured model starts failing (deprecated/outage), the app auto-falls-back down the recommendation order and posts an admin-page notice — AI Mode degrades to a different model, never to a dead feature. | One less concept for users; predictable costs; a hardcoded-only list would rot and break AI Mode with no maintainer. |
+| S13 | **Model selection is admin-only, live-validated.** Analysts never see model names — they choose a *tier* (S16); the admin assigns a model to each tier from a shipped recommendation list (analyst-readable descriptions, per-tier). The list is validated against OpenRouter's live model catalog (`/api/v1/models`) whenever the admin page opens: live pricing shown, vanished models greyed out. Catalog and picker filter to **tool-calling-capable models only** (the harness requires function calling). An "advanced" searchable full-catalog picker sits below the recommendations. If the configured model starts failing (deprecated/outage), the app auto-falls-back down the recommendation order and posts an admin-page notice — AI Mode degrades to a different model, never to a dead feature. | One less concept for users; predictable costs; a hardcoded-only list would rot and break AI Mode with no maintainer. |
 | S14 | **Dropped ideas** (considered, rejected): rebuilding the MCP layer on spec 2026-07-28; an MCP shim for staff to use personal claude.ai/ChatGPT subscriptions (web clients require a publicly reachable endpoint — tunnels fail the zero-maintenance and IT-policy tests; user opted to drop the desktop-app variant too); Electron shell; Voyage as an optional upgrade rung. | Recorded so future sessions don't re-litigate. |
 | S15 | **Custom-provider escape hatch (admin-enabled).** Admin page "Provider" panel: **OpenRouter (default, recommended)** vs **Custom endpoint** (base URL + API key + exact model ID — any OpenAI-compatible chat-completions endpoint: direct OpenAI/Anthropic/Google compat endpoints, Azure/Bedrock-style gateways, local Ollama on future hardware). The custom pane explains in plain language why someone would use it (state-approved endpoint, OpenRouter terms change, local models) and states the caveats **in the UI itself**: per-user cost tracking degrades from exact dollars to token counts; no model catalog/recommendations/live pricing; the model must support tool calling or AI Mode fails; self-support territory. One click returns to OpenRouter. Harness-side this is only a configurable `base_url`/`api_key`/`model` triple — the protocol is identical. | Future-proofs the sole-key decision (S4/S13) without adding a second supported vendor; costs ~3 lines in the harness plus one admin panel. Added 2026-07-29 at user request. |
+| S16 | **Two analyst-facing AI tiers: "Standard" (default) and "Deep Research".** Each tier = an admin-assigned model (S13) **plus a harness effort budget**: Standard keeps the tight progressive-retrieval posture (low step cap ~15, first-call cap active) for quick lookups; Deep Research raises the step cap (~50) and permits `deep_dive` retrieval for broad multi-year sweeps. Every **new** inquiry defaults to Standard; the tier toggle sits on the AI Mode input with plain copy: Deep Research "for open-ended, historical, broad-scope research — e.g. 'a comprehensive accounting of appropriated vs actual expenditures for all border-enforcement programs across the past 10 fiscal years'"; Standard "for quick lookups — e.g. 'how much did we spend on X last year?' or 'did we appropriate money for xyz in FY 2020?'". Ship-time model guidance (illustrative, finalized against the live catalog at implementation): Deep Research = a cost-effective frontier-class open model (e.g. Kimi K3-class); Standard = best opus-level-performance-per-dollar open model (e.g. Qwen-class). Deliberately NOT first-party flagship models (Fable/Opus/GPT) — open-weight alternatives deliver most of the quality at a fraction of the per-token cost. The usage ledger records the tier per call so the admin sees cost by tier. | Cost management that survives Destin's departure: the default path is cheap, the expensive path is a deliberate, explained choice, and the admin can retune either tier's model without touching code. Added 2026-07-29 at user request. |
 
 ## Architecture
 
@@ -132,18 +133,20 @@ JLBC Insight (working name) — one Python process
 
 ### Cost tracking / admin
 
-- Ledger row: username, timestamp, model, tokens in/out, billed cost
-  (billed cost is null on custom endpoints — S15 — and the UI labels
-  those totals "tokens; exact dollar costs unavailable on custom
-  endpoints").
+- Ledger row: username, timestamp, tier (S16), model, tokens in/out,
+  billed cost (billed cost is null on custom endpoints — S15 — and the
+  UI labels those totals "tokens; exact dollar costs unavailable on
+  custom endpoints").
 - Settings page (everyone): own monthly usage; AI Mode availability
   explainer.
-- Admin page (admin username only): monthly/per-user/per-model costs;
-  key add/replace/test; the S15 Provider panel (OpenRouter default vs
-  custom endpoint, caveats stated in the UI); the S13 model picker
-  (live-validated recommendations + tool-calling-filtered full-catalog
-  search); optional soft monthly budget → warning banner (never a
-  cutoff); corpus health + queue; admin transfer; log locations.
+- Admin page (admin username only): monthly/per-user/per-model/per-tier
+  costs; key add/replace/test; the S15 Provider panel (OpenRouter
+  default vs custom endpoint, caveats stated in the UI); the S13/S16
+  model pickers — one slot per tier (Standard / Deep Research), each
+  with live-validated recommendations + tool-calling-filtered
+  full-catalog search; optional soft monthly budget → warning banner
+  (never a cutoff); corpus health + queue; admin transfer; log
+  locations.
 
 ### Error handling
 
