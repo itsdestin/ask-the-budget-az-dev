@@ -1,10 +1,20 @@
-"""Top-level retrieval pipeline: BM25 + dense -> RRF -> Voyage rerank -> top-K.
+"""Top-level retrieval pipeline: BM25 + dense -> RRF -> rerank -> top-K.
 
-Phase 1b WS6 Task 6.3. Composes `bm25_query`, `dense_query`, `rrf_fuse`,
-and `rerank_chunks` into a single `retrieve(RetrievalRequest)` ->
-`RetrievalResult` API. Phase 1c's Budget MCP server wraps this; the
-Phase 1b WS8 eval harness calls it directly (single-shot, deterministic
-per-query measurement).
+Composes the LanceDB search legs (`bm25_query_lance`, `dense_query_lance`),
+`rrf_fuse`, and the local cross-encoder reranker into a single
+`retrieve(RetrievalRequest)` -> `RetrievalResult` API. Phase 1c's Budget
+MCP server wraps this; the eval harness calls it directly (single-shot,
+deterministic per-query measurement).
+
+Plan 1 swapped the substrate underneath this module — Postgres
+(ParadeDB BM25 + pgvector ANN) and Voyage (embeddings + rerank-2.5) are
+gone, replaced by an embedded LanceDB store and local ONNX models. The
+public shapes (`RetrievalRequest`, `RetrievalResult`) are unchanged; the
+`conn` and `rerank_client` parameters are gone because there is no
+server and no external API to point them at. One score-semantics change
+leaks through: reranker scores are raw cross-encoder logits (roughly
+-10..10), not Voyage's 0..1, so refusal thresholds must be calibrated
+against this distribution.
 
 Top-K defaults match spec §3.4:
 - BM25: top 200 lexical candidates
@@ -15,17 +25,15 @@ Top-K defaults match spec §3.4:
 """
 from __future__ import annotations
 
-from dataclasses import dataclass, field, replace
-from typing import Any
+import threading
+from dataclasses import dataclass, field
 
-import psycopg
-
-from db.embeddings import VoyageEmbedder
-from retrieval.bm25 import bm25_query
-from retrieval.dense import dense_query
-from retrieval.rerank import rerank_chunks
+from retrieval.local_embedder import LocalEmbedder
+from retrieval.local_rerank import LocalReranker
 from retrieval.rrf import RankedList, rrf_fuse
+from retrieval.search_lance import bm25_query_lance, dense_query_lance
 from retrieval.types import RetrievalFilters, RetrievedChunk
+from store.chunk_store import ChunkStore
 
 # Default top-K caps at each stage (see spec §3.4).
 BM25_TOP_K = 200
@@ -38,13 +46,55 @@ FUSED_TOP_K = 50
 # top_k=20. See scripts/measure_retrieve_size.py for the supporting
 # measurement.
 DEFAULT_PIPELINE_TOP_K = 15
+# The corpus a request targets when it doesn't say. One LanceDB table per
+# corpus (store.chunk_store.CORPUS_TABLES); budget documents are the
+# default because every caller today is asking about the budget.
+DEFAULT_CORPUS = "budget_chunks"
+
+# Process-wide lazily-built collaborators. WHY singletons: constructing
+# LocalEmbedder / LocalReranker loads ONNX weights (~3.6s cold for the
+# pair) and holds them in memory, so building them per call would make
+# every query pay a model load.
+_default_store: ChunkStore | None = None
+_default_embedder: LocalEmbedder | None = None
+_default_reranker: LocalReranker | None = None
+# WHY a lock: FastAPI runs sync endpoints in a threadpool, so two
+# concurrent first requests would otherwise each build a full model stack
+# — double the cold start and double the resident memory, with one copy
+# then orphaned. ORT sessions are thread-safe to USE; only construction
+# races.
+_defaults_lock = threading.Lock()
+
+
+def _get_store() -> ChunkStore:
+    global _default_store
+    with _defaults_lock:
+        if _default_store is None:
+            _default_store = ChunkStore()
+        return _default_store
+
+
+def _get_embedder() -> LocalEmbedder:
+    global _default_embedder
+    with _defaults_lock:
+        if _default_embedder is None:
+            _default_embedder = LocalEmbedder()
+        return _default_embedder
+
+
+def _get_reranker() -> LocalReranker:
+    global _default_reranker
+    with _defaults_lock:
+        if _default_reranker is None:
+            _default_reranker = LocalReranker()
+        return _default_reranker
 
 
 @dataclass(frozen=True)
 class RetrievalRequest:
     """Public input shape — what Phase 1c's Budget MCP server `retrieve()`
     tool will accept (after JSON deserialization). Matches the filter
-    dimensions on `RetrievalFilters` plus `query` and `top_k`.
+    dimensions on `RetrievalFilters` plus `query`, `top_k`, and `corpus`.
     """
 
     query: str
@@ -56,6 +106,7 @@ class RetrievalRequest:
     fund_mentions: list[str] | None = None
     is_table: bool | None = None
     top_k: int = DEFAULT_PIPELINE_TOP_K
+    corpus: str = DEFAULT_CORPUS
 
     def to_filters(self) -> RetrievalFilters:
         return RetrievalFilters(
@@ -75,6 +126,10 @@ class RetrievalResult:
     is the reranker score of the highest-ranked chunk (drives the spec §11
     refusal threshold check at the MCP-tool boundary in Phase 1c).
 
+    NOTE post-Plan-1: those scores are raw cross-encoder logits (roughly
+    -10..10, negatives are normal), not Voyage's 0..1 — any threshold
+    compared against `top_score` has to be calibrated for this scale.
+
     `bm25_count` / `dense_count` / `fused_count` are diagnostics — they
     let the eval harness and the audit log capture how many candidates
     each stage produced before rerank.
@@ -91,9 +146,9 @@ class RetrievalResult:
 def retrieve(
     req: RetrievalRequest,
     *,
-    conn: psycopg.Connection[Any] | None = None,
-    embedder: VoyageEmbedder | None = None,
-    rerank_client: Any | None = None,
+    store: ChunkStore | None = None,
+    embedder: LocalEmbedder | None = None,
+    reranker: LocalReranker | None = None,
     bm25_top_k: int = BM25_TOP_K,
     dense_top_k: int = DENSE_TOP_K,
     fused_top_k: int = FUSED_TOP_K,
@@ -104,41 +159,49 @@ def retrieve(
     """Run the full hybrid retrieval pipeline for one query.
 
     Stages:
-    1. Lexical: ParadeDB BM25 over chunk text (filtered).
-    2. Dense:   pgvector cosine ANN over Voyage embeddings (same filters).
+    1. Lexical: LanceDB FTS (BM25) over chunk text (filtered).
+    2. Dense:   LanceDB cosine ANN over local ONNX embeddings (same filters).
     3. Fuse:    RRF combines the two ranked lists, optional per-list weights.
-    4. Rerank:  Voyage rerank-2.5 reorders fused top-50 to final top-K.
+    4. Rerank:  local cross-encoder reorders fused top-50 to final top-K.
 
-    Empty / whitespace-only queries return an empty result without
-    making any API calls.
+    Empty / whitespace-only queries return an empty result without opening
+    the store or loading a model.
 
-    `embedder` and `rerank_client` are optional: by default both are
-    constructed from VOYAGE_API_KEY. Tests inject mocks. When `embedder`
-    is provided and `rerank_client` is None, the rerank step reuses
-    `embedder.client` (one Voyage SDK Client serves both endpoints).
+    `store`, `embedder`, and `reranker` are optional: each defaults to a
+    process-wide singleton built on first use. Only the ones actually
+    needed get built — a caller that injects a store and an embedder never
+    pays for a model it won't use, and a query with no candidates never
+    builds the reranker at all. Tests inject fakes for all three.
 
-    `conn` is optional: when None, the BM25 + dense helpers each grab
-    a pooled connection. Pass an explicit conn to share one for the
-    whole pipeline (e.g. tests that want to wrap retrieval in a
-    transaction).
+    Score semantics: the returned chunks carry raw cross-encoder logits
+    (not 0..1). See the module docstring.
     """
     if not req.query.strip():
         return RetrievalResult()
 
+    if store is None:
+        store = _get_store()
+    if embedder is None:
+        embedder = _get_embedder()
+
     filters = req.to_filters()
 
-    if embedder is None:
-        embedder = VoyageEmbedder()
-
-    bm25_hits = bm25_query(
-        req.query, top_k=bm25_top_k, filters=filters, conn=conn
-    )
-    dense_hits = dense_query(
+    bm25_hits = bm25_query_lance(
         req.query,
+        store=store,
+        corpus=req.corpus,
+        top_k=bm25_top_k,
+        filters=filters,
+    )
+    # The dense leg doesn't own a model — the caller embeds the query and
+    # passes the vector in, so the store stays model-agnostic.
+    qvec = embedder.embed_one(req.query, input_type="query")
+    dense_hits = dense_query_lance(
+        qvec,
+        store=store,
+        corpus=req.corpus,
         top_k=dense_top_k,
         filters=filters,
-        conn=conn,
-        embedder=embedder,
     )
 
     fused = rrf_fuse(
@@ -151,22 +214,18 @@ def retrieve(
     )
 
     if not fused:
+        # Return before touching the reranker: it is the expensive stage,
+        # and there is nothing for it to score.
         return RetrievalResult(
             bm25_count=len(bm25_hits),
             dense_count=len(dense_hits),
             fused_count=0,
         )
 
-    # Reuse the embedder's Voyage client when the caller hasn't passed
-    # a separate rerank client — saves one client construction.
-    rerank_client_arg = rerank_client or getattr(embedder, "client", None)
+    if reranker is None:
+        reranker = _get_reranker()
 
-    reranked = rerank_chunks(
-        req.query,
-        fused,
-        top_k=req.top_k,
-        client=rerank_client_arg,
-    )
+    reranked = reranker.rerank(req.query, fused, top_k=req.top_k)
 
     return RetrievalResult(
         chunks=reranked,
