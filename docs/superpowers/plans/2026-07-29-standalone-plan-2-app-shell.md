@@ -296,8 +296,8 @@ def test_bills_have_contract_fields():
 ```
 
 > Updated in Task 3 to the real counts. The plan originally guessed `>= 90`
-> from a "~98 bills" figure that turned out to be **per-session**, not the
-> corpus total. Exact assertions are correct here because the snapshot is
+> from a "~98 bills" figure that predated reading build.py and was simply
+> wrong. Exact assertions are correct here because the snapshot is
 > frozen — see the shipped test for the reasoning.
 
 - [ ] **Step 3: Run to verify failure**

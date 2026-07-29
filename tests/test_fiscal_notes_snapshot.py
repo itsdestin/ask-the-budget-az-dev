@@ -11,7 +11,7 @@ SNAPSHOT = Path(__file__).resolve().parents[1] / "app/data/fiscal-notes-snapshot
 # someone re-derived it — which should be a deliberate, reviewed act that updates
 # these numbers in the same commit, not a silent diff.
 EXPECTED_SESSIONS = 28    # live/*.html cache covers 1999-2026
-EXPECTED_BILLS = 2126     # ~37-135 per session (the "~98" in Plan 2 was per-session)
+EXPECTED_BILLS = 2126     # 37-135 per session; Plan 2's pre-read "~98" guess was just wrong
 
 
 def test_snapshot_exists_and_has_sessions():
