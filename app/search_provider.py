@@ -25,6 +25,11 @@ class StubSearchProvider:
     name = "stub"
 
     def search(self, query, *, top_k, corpus, filters):
+        # Deliberately ignores `query` and `corpus`: there is no ranking or
+        # text matching here, so every search returns the same fixture rows.
+        # Filters (and top_k) are the only inputs that change the output —
+        # they are what the Plan 2 filter UI needs to exercise. Real relevance
+        # arrives with LanceSearchProvider in Task 12.
         out = []
         for row in FIXTURE_ROWS:
             if filters.get("publisher") and row["publisher"] not in filters["publisher"]:
@@ -35,5 +40,8 @@ class StubSearchProvider:
                 continue
             if filters.get("agency") and not set(row["agencies"]) & set(filters["agency"]):
                 continue
-            out.append(dict(row))
+            # Copy the row AND its `agencies` list: a plain dict(row) shares the
+            # same list object, so a caller mutating result["agencies"] would
+            # corrupt FIXTURE_ROWS for the whole process.
+            out.append({**row, "agencies": list(row["agencies"])})
         return out[:top_k]

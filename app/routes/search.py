@@ -37,4 +37,6 @@ def search(body: SearchBody, request: Request):
         # instead of having to distinguish None from an empty list.
         filters=body.filters.model_dump(exclude_none=True),
     )
+    # Frozen-contract note: `total` is the count of rows actually returned,
+    # AFTER top_k truncation — it is not a corpus-wide count of matches.
     return {"results": results, "total": len(results), "provider": provider.name}

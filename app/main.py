@@ -52,7 +52,8 @@ def create_app(
         # Unmatched /api/ paths must fail as a JSON 404. Falling through to
         # index.html would hand fetch() callers HTML, and JSON.parse would
         # report the useless "Unexpected token '<'" instead of a clear 404.
-        if path.startswith("api/"):
+        # Bare "api" is checked too, so /api itself 404s instead of serving HTML.
+        if path == "api" or path.startswith("api/"):
             raise HTTPException(status_code=404, detail="Unknown API route")
         if resolved and (resolved / "index.html").is_file():
             candidate = (resolved / path).resolve()

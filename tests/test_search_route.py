@@ -35,4 +35,16 @@ def test_empty_query_is_400():
 
 def test_top_k_caps_results():
     r = client().post("/api/search", json={"query": "budget", "top_k": 2}).json()
-    assert r["total"] <= 2
+    # Exactly 2: there are more than 2 unfiltered fixture rows, so top_k is
+    # doing the truncating (a <= assert would also pass on an empty corpus).
+    assert r["total"] == 2
+    assert len(r["results"]) == 2
+
+
+def test_field_constraints_reject_bad_input():
+    # Pins the Field() constraints on SearchBody: pydantic rejects these
+    # before the route body runs, so they are 422s, not the route's own 400.
+    c = client()
+    assert c.post("/api/search", json={"query": "budget", "top_k": 0}).status_code == 422
+    assert c.post("/api/search",
+                  json={"query": "budget", "corpus": "bogus"}).status_code == 422

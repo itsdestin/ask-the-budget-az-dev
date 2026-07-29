@@ -37,6 +37,9 @@ def test_traversal_cannot_escape_static_dir(tmp_path):
     (tmp_path / "secret.txt").write_text("TOP-SECRET")
     client = TestClient(create_app(static_dir=dist))
     r = client.get("/%2e%2e/secret.txt")
+    # 200 + index.html, i.e. the traversal was absorbed by the SPA fallback.
+    # Asserting the status too keeps this from passing on an unrelated error page.
+    assert r.status_code == 200
     assert "TOP-SECRET" not in r.text
 
 
@@ -63,3 +66,27 @@ def test_api_routes_are_not_shadowed_by_catch_all():
     missing = client.get("/api/nonexistent")
     assert missing.status_code == 404
     assert missing.json()["detail"] == "Unknown API route"
+
+    # Bare /api must 404 as JSON too, not fall through to the SPA.
+    bare = client.get("/api")
+    assert bare.status_code == 404
+    assert bare.json()["detail"] == "Unknown API route"
+
+
+class _FalsyProvider:
+    """Provider that is falsy but perfectly valid — pins the `is None` check."""
+
+    name = "fake"
+
+    def __bool__(self):
+        return False
+
+    def search(self, query, *, top_k, corpus, filters):
+        return []
+
+
+def test_falsy_injected_provider_is_not_replaced_by_stub():
+    # Regression guard: `provider or StubSearchProvider()` (which Task 12's plan
+    # text still shows) would silently discard this provider because it is falsy.
+    client = TestClient(create_app(provider=_FalsyProvider()))
+    assert client.get("/health").json()["provider"] == "fake"
