@@ -24,8 +24,10 @@ from retrieval.pipeline import (
     DEFAULT_CORPUS,
     DENSE_TOP_K,
     FUSED_TOP_K,
+    NO_RESULTS_TOP_SCORE,
     RetrievalRequest,
     RetrievalResult,
+    reset_default_collaborators,
     retrieve,
 )
 from retrieval.types import RetrievedChunk
@@ -145,10 +147,13 @@ def _no_real_collaborators(monkeypatch):
     monkeypatch.setattr("retrieval.pipeline.ChunkStore", _boom("ChunkStore"))
     monkeypatch.setattr("retrieval.pipeline.LocalEmbedder", _boom("LocalEmbedder"))
     monkeypatch.setattr("retrieval.pipeline.LocalReranker", _boom("LocalReranker"))
-    # Globals may have been populated by an earlier test's counting fakes.
-    monkeypatch.setattr("retrieval.pipeline._default_store", None)
-    monkeypatch.setattr("retrieval.pipeline._default_embedder", None)
-    monkeypatch.setattr("retrieval.pipeline._default_reranker", None)
+    # Singletons may have been populated by an earlier test's counting fakes.
+    # Cleared through the public hook (not by nulling the globals) so this
+    # fixture exercises the same path Task 9's tests will use, and again on
+    # the way out so no fake instance leaks into another module's tests.
+    reset_default_collaborators()
+    yield
+    reset_default_collaborators()
 
 
 def _run(req: RetrievalRequest, **kw) -> RetrievalResult:
@@ -227,7 +232,7 @@ def test_empty_query_short_circuits(monkeypatch):
     result = retrieve(RetrievalRequest(query=""))
     assert isinstance(result, RetrievalResult)
     assert result.chunks == []
-    assert result.top_score == 0.0
+    assert result.top_score == NO_RESULTS_TOP_SCORE
     assert result.bm25_count == 0
 
 
@@ -308,19 +313,68 @@ def test_rrf_weights_shift_the_fused_order(seams):
     assert result.chunks[0].chunk_id == "c2"
 
 
-def test_no_candidates_returns_counts_and_skips_rerank(monkeypatch):
-    """Both legs empty -> no rerank call at all (the reranker is the
-    expensive stage; running it on an empty list is pure waste)."""
+@pytest.fixture()
+def empty_seams(monkeypatch):
+    """Both legs return nothing — the over-filtered / empty-corpus case."""
     s = Seams(bm25=[], dense=[])
     monkeypatch.setattr("retrieval.pipeline.bm25_query_lance", s.bm25)
     monkeypatch.setattr("retrieval.pipeline.dense_query_lance", s.dense)
-    reranker = FakeReranker()
+    return s
 
-    result = _run(RetrievalRequest(query="nonexistent"), reranker=reranker)
+
+def test_no_candidates_never_builds_the_reranker(empty_seams):
+    """Both legs empty -> the reranker is not merely un-CALLED, it is never
+    CONSTRUCTED. No reranker is injected here, so the autouse fixture's
+    exploding LocalReranker constructor is the assertion — the previous
+    version of this test injected a fake and could only prove `.rerank()`
+    wasn't called, which a version that eagerly built the model would still
+    have passed."""
+    result = retrieve(
+        RetrievalRequest(query="nonexistent"),
+        store=object(),
+        embedder=FakeEmbedder(),
+    )
     assert result.chunks == []
-    assert result.top_score == 0.0
     assert result.fused_count == 0
-    assert reranker.calls == []
+    assert result.bm25_count == 0
+    assert result.dense_count == 0
+
+
+def test_no_results_top_score_is_below_every_real_logit(empty_seams):
+    """THE refusal-safety invariant. Reranker scores are raw cross-encoder
+    logits: measured on the migrated corpus, genuine hits land at +2.27..+7.72
+    and a pure-gibberish query at -11.12. If "found nothing" reported 0.0 (as
+    it did under Voyage's 0..1 scale) it would outrank that gibberish hit, and
+    Task 12's threshold — which will sit at or below 0 — would read an empty
+    result as a confident one.
+
+    Reachable without contrivance: over-filtering (fiscal_year=[1999]) or any
+    query against the still-empty fiscal_note_chunks table.
+    """
+    result = retrieve(
+        RetrievalRequest(query="over-filtered", fiscal_year=[1999]),
+        store=object(),
+        embedder=FakeEmbedder(),
+    )
+    assert result.top_score == NO_RESULTS_TOP_SCORE
+    # Below the worst real logit ever measured, with room to spare.
+    assert result.top_score < -11.12
+    # Every plausible calibrated threshold must refuse this result.
+    for threshold in (-5.0, -1.0, 0.0, 0.65, 2.0):
+        assert result.top_score < threshold
+
+
+def test_no_results_sentinel_is_json_serializable():
+    """WHY not float("-inf"): api.py hands top_score to clients. Measured on
+    the pinned pydantic/fastapi, -inf serializes to JSON `null` through a
+    response model (breaking the MCP server's `top_score < threshold`) and
+    raises ValueError through a bare JSONResponse (allow_nan=False). A finite
+    floor has neither failure mode."""
+    import json
+    import math
+
+    assert math.isfinite(NO_RESULTS_TOP_SCORE)
+    assert json.dumps({"top_score": NO_RESULTS_TOP_SCORE}, allow_nan=False)
 
 
 def test_top_k_is_forwarded_to_the_reranker(seams):
@@ -330,15 +384,30 @@ def test_top_k_is_forwarded_to_the_reranker(seams):
     assert len(result.chunks) == 2
 
 
-def test_stage_top_k_overrides_reach_the_legs(seams):
+def test_stage_top_k_and_rrf_k_overrides_reach_their_stages(seams, monkeypatch):
+    """Covers rrf_k too: it used to be possible to delete `k=rrf_k` from the
+    rrf_fuse call without failing a single test. The spy's keyword-only
+    signature makes that a TypeError."""
+    from retrieval import rrf as rrf_module
+
+    real_fuse = rrf_module.rrf_fuse
+    seen: dict[str, int] = {}
+
+    def spy(ranked_lists, *, k, top_k):
+        seen.update(k=k, top_k=top_k)
+        return real_fuse(ranked_lists, k=k, top_k=top_k)
+
+    monkeypatch.setattr("retrieval.pipeline.rrf_fuse", spy)
     _run(
         RetrievalRequest(query="fund"),
         bm25_top_k=7,
         dense_top_k=9,
         fused_top_k=1,
+        rrf_k=13,
     )
     assert seams.bm25_calls[0]["top_k"] == 7
     assert seams.dense_calls[0]["top_k"] == 9
+    assert seen == {"k": 13, "top_k": 1}
 
 
 def test_fused_top_k_caps_the_rerank_candidate_list(seams):
@@ -452,3 +521,194 @@ def test_missing_reranker_does_not_build_a_store_or_embedder(seams, monkeypatch)
     )
     assert built == ["reranker"]
     assert len(result.chunks) == 3
+
+
+def test_concurrent_first_calls_build_each_collaborator_once(monkeypatch):
+    """Pins `_defaults_lock`. Without it this test fails: FastAPI runs sync
+    endpoints in a threadpool, so N simultaneous first requests would each
+    sail past the `is None` check before any of them assigned the global and
+    build N full model stacks (N x ~3.6s cold start, N x resident memory,
+    N-1 of them promptly orphaned).
+
+    Deterministic by construction: each fake constructor sleeps well past the
+    thread-start jitter, so if the lock were removed every thread would be
+    inside a constructor at the same moment.
+    """
+    import threading
+    import time
+
+    from retrieval.pipeline import _get_embedder, _get_reranker, _get_store
+
+    counts = {"store": 0, "embedder": 0, "reranker": 0}
+    counts_lock = threading.Lock()
+
+    def slow_ctor(name):
+        def ctor(*a, **kw):
+            with counts_lock:
+                counts[name] += 1
+            # Hold the window open: any racer that got past the `is None`
+            # check will be inside its own constructor while we sleep.
+            time.sleep(0.2)
+            return f"{name}-instance"
+
+        return ctor
+
+    monkeypatch.setattr("retrieval.pipeline.ChunkStore", slow_ctor("store"))
+    monkeypatch.setattr("retrieval.pipeline.LocalEmbedder", slow_ctor("embedder"))
+    monkeypatch.setattr("retrieval.pipeline.LocalReranker", slow_ctor("reranker"))
+
+    got: list[tuple] = []
+    got_lock = threading.Lock()
+    start = threading.Barrier(8)
+
+    def worker():
+        start.wait()  # release all threads at once
+        trio = (_get_store(), _get_embedder(), _get_reranker())
+        with got_lock:
+            got.append(trio)
+
+    threads = [threading.Thread(target=worker) for _ in range(8)]
+    for t in threads:
+        t.start()
+    for t in threads:
+        t.join(timeout=30)
+    assert not any(t.is_alive() for t in threads), "getter deadlocked"
+
+    assert counts == {"store": 1, "embedder": 1, "reranker": 1}
+    # Every thread must have received the SAME instances, not just one each.
+    assert len(got) == 8
+    assert all(trio is got[0] or trio == got[0] for trio in got)
+
+
+def test_reset_default_collaborators_forces_a_rebuild(seams, monkeypatch):
+    """The public hook Task 9's tests use instead of poking private globals."""
+    built: list[str] = []
+
+    def counting(name):
+        def ctor(*a, **kw):
+            built.append(name)
+            return {"store": object, "embedder": FakeEmbedder, "reranker": FakeReranker}[
+                name
+            ]()
+
+        return ctor
+
+    monkeypatch.setattr("retrieval.pipeline.ChunkStore", counting("store"))
+    monkeypatch.setattr("retrieval.pipeline.LocalEmbedder", counting("embedder"))
+    monkeypatch.setattr("retrieval.pipeline.LocalReranker", counting("reranker"))
+
+    retrieve(RetrievalRequest(query="fund"))
+    assert sorted(built) == ["embedder", "reranker", "store"]
+
+    reset_default_collaborators()
+    retrieve(RetrievalRequest(query="fund"))
+    assert sorted(built) == ["embedder", "embedder", "reranker", "reranker", "store", "store"]
+
+
+# ---------------------------------------------------------------------------
+# Integration: retrieve() over a REAL ChunkStore + real search legs
+# ---------------------------------------------------------------------------
+
+
+def _row(chunk_id: str, text: str, vector: list[float], **over) -> dict:
+    row = dict(
+        chunk_id=chunk_id, doc_id=f"d-{chunk_id}", text=text,
+        section_path=["Aviation"], page=1, bbox=None,
+        source_anchor='{"page": 1}', agency_canonical_ids=["adot"],
+        fund_canonical_id="fund:aviation", fund_mentions=["aviation-fund"],
+        fiscal_year=2027, doc_type="baseline-per-agency", is_table=False,
+        table_html=None, token_count=6, publisher="jlbc", vector=vector,
+    )
+    row.update(over)
+    return row
+
+
+def test_retrieve_end_to_end_over_a_real_store(tmp_path):
+    """The only test that runs retrieve() through a REAL ChunkStore and the
+    REAL Lance search legs — everything else in this file monkeypatches both
+    legs, and test_search_lance.py exercises the legs but never goes through
+    retrieve(). Without this, a signature/kwarg mismatch between the pipeline
+    and the store (wrong `where=`, a renamed score column, a filter that
+    silently matches nothing) would pass the whole unit suite.
+
+    dim=4 hand-made vectors and fake models keep it fast — no ONNX, no
+    downloads.
+    """
+    from store.chunk_store import ChunkStore as RealChunkStore
+
+    store = RealChunkStore(root=tmp_path, dim=4)
+    store.upsert_chunks("budget_chunks", [
+        _row("c1", "aviation fund balance by agency", [1, 0, 0, 0]),
+        _row("c2", "child safety caseworkers", [0, 1, 0, 0],
+             publisher="agao", fiscal_year=2025),
+        _row("c3", "aviation revenues", [0, 0, 1, 0]),
+    ])
+    store.build_fts_index("budget_chunks")
+
+    # Query vector points exactly at c1.
+    result = retrieve(
+        RetrievalRequest(query="aviation fund balance", top_k=2),
+        store=store,
+        embedder=FakeEmbedder(vector=[1.0, 0.0, 0.0, 0.0]),
+        reranker=FakeReranker(),  # preserves fused order
+    )
+
+    ids = [c.chunk_id for c in result.chunks]
+    assert ids[0] == "c1", f"expected c1 to win both legs, got {ids}"
+    assert len(result.chunks) == 2  # top_k respected
+    # Real rows round-tripped: the JSON source_anchor was decoded and the
+    # denormalized publisher survived.
+    assert result.chunks[0].source_anchor == {"page": 1}
+    assert result.chunks[0].publisher == "jlbc"
+    assert result.chunks[0].fund_mentions == ["aviation-fund"]
+    # Counts reflect real search behavior, not fakes.
+    assert result.bm25_count >= 1
+    assert result.dense_count == 3  # unfiltered ANN sees every row
+    assert result.fused_count >= 2
+    assert result.top_score == result.chunks[0].score
+
+
+def test_retrieve_filters_narrow_a_real_store(tmp_path):
+    """A filter must reach BOTH real legs through the store's SQL builder —
+    the prefiltered-FTS and prefiltered-ANN code paths are different inside
+    LanceDB, so a filter honored by only one would leak chunks via RRF."""
+    from store.chunk_store import ChunkStore as RealChunkStore
+
+    store = RealChunkStore(root=tmp_path, dim=4)
+    store.upsert_chunks("budget_chunks", [
+        _row("c1", "aviation fund balance", [1, 0, 0, 0]),
+        _row("c2", "aviation fund balance", [1, 0, 0, 0],
+             publisher="agao", fiscal_year=2025),
+    ])
+    store.build_fts_index("budget_chunks")
+
+    result = retrieve(
+        RetrievalRequest(query="aviation fund balance", publisher=["agao"]),
+        store=store,
+        embedder=FakeEmbedder(vector=[1.0, 0.0, 0.0, 0.0]),
+        reranker=FakeReranker(),
+    )
+    assert [c.chunk_id for c in result.chunks] == ["c2"]
+    assert all(c.publisher == "agao" for c in result.chunks)
+
+
+def test_over_filtered_real_store_returns_the_no_results_sentinel(tmp_path):
+    """The production path to the sentinel: a real store, a real query, and a
+    filter that legitimately matches nothing."""
+    from store.chunk_store import ChunkStore as RealChunkStore
+
+    store = RealChunkStore(root=tmp_path, dim=4)
+    store.upsert_chunks("budget_chunks", [
+        _row("c1", "aviation fund balance", [1, 0, 0, 0]),
+    ])
+    store.build_fts_index("budget_chunks")
+
+    result = retrieve(
+        RetrievalRequest(query="aviation fund balance", fiscal_year=[1999]),
+        store=store,
+        embedder=FakeEmbedder(vector=[1.0, 0.0, 0.0, 0.0]),
+        # No reranker: nothing survives the filter, so it must never be built.
+    )
+    assert result.chunks == []
+    assert result.fused_count == 0
+    assert result.top_score == NO_RESULTS_TOP_SCORE

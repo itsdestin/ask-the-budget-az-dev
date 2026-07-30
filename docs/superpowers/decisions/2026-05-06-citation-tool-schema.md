@@ -181,7 +181,7 @@ Closes the "Citation tool schema final field names + types" open item from the a
     text: string;                      // chunk content; the model cites into this via span_start/span_end
     score: number;                     // post-rerank score, 0..1
   }>;
-  top_score: number;                   // max(score) across chunks; 0 if no results
+  top_score: number;                   // max(score) across chunks; -1e9 (NO_RESULTS_TOP_SCORE) if no results — post-Plan-1 these are raw cross-encoder logits, so 0 would outrank a genuinely-bad hit (~-11)
   retrieval_id: string;                // UUID; recorded against the conversation's queries table row
 }
 ```

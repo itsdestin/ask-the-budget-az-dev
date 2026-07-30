@@ -14,16 +14,20 @@ public shapes (`RetrievalRequest`, `RetrievalResult`) are unchanged; the
 server and no external API to point them at. One score-semantics change
 leaks through: reranker scores are raw cross-encoder logits (roughly
 -10..10), not Voyage's 0..1, so refusal thresholds must be calibrated
-against this distribution.
+against this distribution. That change also forced the no-results
+sentinel to move — `top_score` used to be 0.0 when nothing was found,
+which sat below every threshold on Voyage's 0..1 scale but now outranks
+a genuinely-bad hit. See NO_RESULTS_TOP_SCORE.
 
-Top-K defaults match spec §3.4:
+Top-K caps at each stage (spec §3.4 for the first three; the reranked
+default was deliberately lowered below the spec's 20):
 - BM25: top 200 lexical candidates
 - Dense: top 100 ANN candidates
 - Fused: top 50 after RRF (caller can shrink to fewer for cheaper
   rerank, but quality drops if less than ~20)
 - Reranked: top `req.top_k` returned to caller (default
-  DEFAULT_PIPELINE_TOP_K = 15; lowered from 20 on 2026-05-19 after
-  dogfood showed context spillover)
+  DEFAULT_PIPELINE_TOP_K = 15; lowered from the spec's 20 on 2026-05-20
+  after dogfood showed context spillover)
 """
 from __future__ import annotations
 
@@ -52,6 +56,26 @@ DEFAULT_PIPELINE_TOP_K = 15
 # corpus (store.chunk_store.CORPUS_TABLES); budget documents are the
 # default because every caller today is asking about the budget.
 DEFAULT_CORPUS = "budget_chunks"
+
+# `top_score` when the pipeline found nothing. Deliberately NOT 0.0.
+#
+# WHY: reranker scores are raw cross-encoder logits, and 0.0 sits ABOVE a
+# genuinely-irrelevant hit. Measured on the migrated corpus: real hits score
+# +2.27..+7.72, a pure-gibberish query scores -11.12. With 0.0 as the
+# sentinel, "found nothing" would outrank "found garbage", so a threshold
+# calibrated at or below 0 (Task 12) would read an empty result as a
+# confident one. That is not a corner case — it is reachable by ordinary
+# over-filtering (fiscal_year=[1999]) and by any query against the
+# legitimately-empty fiscal_note_chunks table.
+#
+# WHY a finite floor instead of float("-inf"): api.py returns this field to
+# clients. Measured on pydantic 2.13.3 / fastapi 0.136.1 — a pydantic
+# response model serializes -inf to JSON `null`, which reaches the MCP
+# server as a non-number and breaks its `top_score < threshold` comparison;
+# and handing -inf to FastAPI's JSONResponse directly raises ValueError
+# outright, because that renderer sets allow_nan=False. -1e9 is an ordinary
+# float everywhere, JSON-legal, and ~1e8 below any reachable logit.
+NO_RESULTS_TOP_SCORE = -1e9
 
 # Process-wide lazily-built collaborators. WHY singletons: constructing
 # LocalEmbedder / LocalReranker loads ONNX weights (~3.6s cold for the
@@ -92,6 +116,21 @@ def _get_reranker() -> LocalReranker:
         return _default_reranker
 
 
+def reset_default_collaborators() -> None:
+    """Drop the process-wide store/embedder/reranker so the next call rebuilds.
+
+    Public because tests (and the sidecar's lifespan hooks, if it ever needs
+    to swap models without a restart) must not have to reach into private
+    globals to get a clean slate. Takes the same lock as the getters so a
+    concurrent first request can't observe a half-cleared set.
+    """
+    global _default_store, _default_embedder, _default_reranker
+    with _defaults_lock:
+        _default_store = None
+        _default_embedder = None
+        _default_reranker = None
+
+
 @dataclass(frozen=True)
 class RetrievalRequest:
     """Public input shape — what Phase 1c's Budget MCP server `retrieve()`
@@ -130,7 +169,10 @@ class RetrievalResult:
 
     NOTE post-Plan-1: those scores are raw cross-encoder logits (roughly
     -10..10, negatives are normal), not Voyage's 0..1 — any threshold
-    compared against `top_score` has to be calibrated for this scale.
+    compared against `top_score` has to be calibrated for this scale. When
+    there are no results at all, `top_score` is NO_RESULTS_TOP_SCORE
+    (-1e9), which is below every real logit; it is NOT 0.0, because 0.0
+    would rank an empty result above a bad one.
 
     `bm25_count` / `dense_count` / `fused_count` are diagnostics — they
     let the eval harness and the audit log capture how many candidates
@@ -138,7 +180,7 @@ class RetrievalResult:
     """
 
     chunks: list[RetrievedChunk] = field(default_factory=list)
-    top_score: float = 0.0
+    top_score: float = NO_RESULTS_TOP_SCORE
     reranker_scores: list[float] = field(default_factory=list)
     bm25_count: int = 0
     dense_count: int = 0
@@ -217,7 +259,8 @@ def retrieve(
 
     if not fused:
         # Return before touching the reranker: it is the expensive stage,
-        # and there is nothing for it to score.
+        # and there is nothing for it to score. top_score is left at the
+        # NO_RESULTS_TOP_SCORE default — see that constant for why it isn't 0.
         return RetrievalResult(
             bm25_count=len(bm25_hits),
             dense_count=len(dense_hits),
@@ -231,7 +274,9 @@ def retrieve(
 
     return RetrievalResult(
         chunks=reranked,
-        top_score=reranked[0].score if reranked else 0.0,
+        # `reranked` can only be empty if the reranker dropped everything;
+        # that is still "no results", so it gets the same sentinel.
+        top_score=reranked[0].score if reranked else NO_RESULTS_TOP_SCORE,
         reranker_scores=[c.score for c in reranked],
         bm25_count=len(bm25_hits),
         dense_count=len(dense_hits),

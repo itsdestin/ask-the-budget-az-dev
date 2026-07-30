@@ -21,8 +21,10 @@ from retrieval.pipeline import (
     DEFAULT_PIPELINE_TOP_K,
     DENSE_TOP_K,
     FUSED_TOP_K,
+    NO_RESULTS_TOP_SCORE,
     RetrievalRequest,
     RetrievalResult,
+    reset_default_collaborators,
     retrieve,
 )
 from retrieval.rrf import DEFAULT_K, RankedList, rrf_fuse
@@ -37,6 +39,7 @@ __all__ = [
     "RetrievedChunk",
     # Top-level pipeline
     "retrieve",
+    "reset_default_collaborators",
     # Stage helpers (callable directly when you want one stage only)
     "bm25_query_lance",
     "dense_query_lance",
@@ -53,4 +56,5 @@ __all__ = [
     "DEFAULT_PIPELINE_TOP_K",
     "DEFAULT_CORPUS",
     "DEFAULT_K",
+    "NO_RESULTS_TOP_SCORE",
 ]
