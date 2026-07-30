@@ -149,7 +149,11 @@ export function ResultCard({ family }: { family: FamilyGroup }) {
   // the best agency section IS the headline and the whole report is only ever
   // the .grp-full button — search.js's CASE B, always.
   const [headline, ...siblings] = family.docs;
-  const passages = headline.chunks;
+  // The headline row already shows chunks[0] (its snippet, score, page), so
+  // the tray holds only the REST — rendering all of them would duplicate the
+  // row above it, and a one-passage document would get a toggle that reveals
+  // a copy of what's already on screen.
+  const morePassages = headline.chunks.slice(1);
 
   return (
     <article className="grp">
@@ -178,14 +182,16 @@ export function ResultCard({ family }: { family: FamilyGroup }) {
               Full report (PDF)
             </a>
           )}
-          {passages.length > 0 && (
+          {morePassages.length > 0 && (
             <button
               type="button"
               className={passagesOpen ? "grp-more open" : "grp-more"}
               aria-expanded={passagesOpen}
               onClick={() => setPassagesOpen((v) => !v)}
             >
-              {passages.length === 1 ? "1 matching passage" : `${passages.length} matching passages`}
+              {morePassages.length === 1
+                ? "1 more passage"
+                : `${morePassages.length} more passages`}
               <ChevronIcon />
             </button>
           )}
@@ -196,7 +202,7 @@ export function ResultCard({ family }: { family: FamilyGroup }) {
             readers, and a wide query can carry hundreds of passages. */}
         {passagesOpen && (
         <div className="tray open">
-          {passages.map((chunk) => (
+          {morePassages.map((chunk) => (
             // href="#" + data-chunk-id is the agreed stub: Plan 4 swaps this
             // for the PDF side panel keyed on that id. Out of the tab order
             // until then.

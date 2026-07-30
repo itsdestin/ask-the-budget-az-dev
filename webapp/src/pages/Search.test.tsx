@@ -22,13 +22,15 @@ test("runs the ?q= query on mount and groups results by document", async () => {
   await waitFor(() =>
     expect(screen.getByText("FY 2027 Baseline — AHCCCS")).toBeInTheDocument(),
   );
-  // The headline row shows the best chunk's page pill; the SECOND passage sits
-  // in the collapsed tray (Destin 2026-07-30: passages begin collapsed), so
-  // only p. 14 is visible until the toggle opens it.
+  // The headline row shows the best chunk inline; the SECOND passage sits in
+  // the collapsed tray (Destin 2026-07-30: passages begin collapsed), so only
+  // p. 14 is visible until the toggle opens it. The tray holds only the REST
+  // (slice(1)) — p. 14 must not be duplicated inside it.
   expect(screen.getByText(/p\.\s*14/)).toBeInTheDocument();
   expect(screen.queryByText(/p\.\s*15/)).not.toBeInTheDocument();
-  fireEvent.click(screen.getByRole("button", { name: /2 matching passages/i }));
-  expect(screen.getAllByText(/p\.\s*1[45]/).length).toBeGreaterThanOrEqual(2);
+  fireEvent.click(screen.getByRole("button", { name: /1 more passage/i }));
+  expect(screen.getByText(/p\.\s*15/)).toBeInTheDocument();
+  expect(screen.getAllByText(/p\.\s*14/)).toHaveLength(1);
   expect(api.search).toHaveBeenCalledWith("ahcccs", expect.anything(), "budget");
 });
 

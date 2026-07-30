@@ -104,9 +104,20 @@ class LanceSearchProvider:
                     for doc_id, meta in raw.items()
                     if meta.get("source_url")
                 }
-            except Exception:
+            except Exception as e:
                 # Missing/corrupt sidecar degrades to unlinked rows; the search
-                # itself must keep working (the corpus is the load-bearing part).
+                # itself must keep working (the corpus is the load-bearing
+                # part). Say WHY on stderr — silently unlinked rows on a real
+                # deployment would be undiagnosable (same posture as
+                # _default_provider's fallback note).
+                import sys
+
+                print(
+                    f"jlbc-insight: documents.json unavailable "
+                    f"({type(e).__name__}: {e}) — search rows will not link "
+                    "to source PDFs.",
+                    file=sys.stderr,
+                )
                 self._doc_urls = {}
         return self._doc_urls.get(doc_id)
 
