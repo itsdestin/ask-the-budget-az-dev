@@ -78,3 +78,12 @@ TIER_BUDGETS = MappingProxyType(
 
 # The tier a conversation gets when nobody chose one.
 DEFAULT_TIER = "standard"
+
+# S19: fraction of a user's monthly dollar limit at which
+# `harness/ledger.py`'s `check_limit()` starts returning "warn" instead
+# of "allowed". Named (not inlined as 0.8) because that function and,
+# later, an admin-page usage panel (Plan 5) must never disagree on where
+# "getting close to the limit" starts — the same failure mode this
+# module exists to prevent for REFUSAL_THRESHOLD above, applied here to
+# a second number two layers would otherwise each hardcode.
+WARN_THRESHOLD_RATIO = 0.8
