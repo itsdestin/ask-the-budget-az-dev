@@ -94,20 +94,20 @@ export function FilterBar({ selected, years, onToggle, onToggleBucket, onYearCha
     );
   }
 
-  // ONE `.filters` row for all three groups, not one row per group. The mockup's
-  // `.filters` rule is a single bordered strip, so stacking three would draw
-  // divider lines the mockup never has. Grouping uses the mockup's own idiom:
-  // `<span style="display:contents">` so everything lays out as items of the one
-  // flex row.
+  // One LABELED ROW per dimension (label column + its chips), not the mockup's
+  // single wrapped strip: with three groups and nine chips, wrapping let the
+  // TYPE / FISCAL YEAR labels land mid-row inside a soup of pills (Destin
+  // 2026-07-30: "make the filters look better organized"). The grid keeps
+  // every label at the left edge with its own chips beside it.
   return (
     <div className="filters">
-      <span style={{ display: "contents" }}>
-        <span className="flabel">Publisher</span>
+      <span className="flabel">Publisher</span>
+      <div className="fgroup">
         {PUBLISHERS.map((p) => chip("publisher", p.value, p.label))}
-      </span>
+      </div>
 
-      <span style={{ display: "contents" }}>
-        <span className="flabel">Type</span>
+      <span className="flabel">Type</span>
+      <div className="fgroup">
         {FILTER_BUCKETS.map((bucket) => (
           <button
             key={bucket.label}
@@ -119,10 +119,10 @@ export function FilterBar({ selected, years, onToggle, onToggleBucket, onYearCha
             {bucket.label}
           </button>
         ))}
-      </span>
+      </div>
 
-      <span style={{ display: "contents" }}>
-        <span className="flabel">Fiscal year</span>
+      <span className="flabel">Fiscal year</span>
+      <div className="fgroup">
         {/* The mockup's `select.fyear`, "All years" first, "FY 2027" wording. */}
         <select
           className="fyear"
@@ -137,7 +137,7 @@ export function FilterBar({ selected, years, onToggle, onToggleBucket, onYearCha
             </option>
           ))}
         </select>
-      </span>
+      </div>
     </div>
   );
 }
