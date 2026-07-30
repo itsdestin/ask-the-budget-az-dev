@@ -182,6 +182,102 @@ def test_unknown_keys_in_json_do_not_crash_load(tmp_path):
     assert settings.tiers["standard"].model == "qwen/qwen3-max"
 
 
+@pytest.mark.parametrize("bad_provider", ["oops", 5, True, [1, 2]])
+def test_provider_field_wrong_type_falls_back_to_defaults(tmp_path, bad_provider):
+    """Valid JSON, wrong shape: `provider` as a truthy non-dict must not
+    crash the load — same tolerance _tiers_from_dict already had, applied
+    to the provider triple too. Regression for a real defect: only
+    falsy non-dicts ("", 0, False) happened to route through the old
+    `raw.get("provider") or {}` fallback; a truthy string/int/bool/list
+    called .get() on a non-dict and raised.
+    """
+    path = tmp_path / "settings.json"
+    path.write_text(json.dumps({"provider": bad_provider}), encoding="utf-8")
+    reset_settings_cache()
+    settings = load_settings()  # must not raise
+    assert settings.provider == ProviderConfig()
+
+
+def test_provider_field_explicit_null_falls_back_to_defaults(tmp_path):
+    path = tmp_path / "settings.json"
+    path.write_text(json.dumps({"provider": None}), encoding="utf-8")
+    reset_settings_cache()
+    settings = load_settings()
+    assert settings.provider == ProviderConfig()
+
+
+def test_tiers_entry_wrong_type_falls_back_to_default_for_that_tier(tmp_path):
+    """A non-dict value under one tier name must not crash the load and
+    must not poison the other, well-formed tier."""
+    path = tmp_path / "settings.json"
+    path.write_text(
+        json.dumps(
+            {"tiers": {"standard": "oops", "deep_research": {"model": "kimi-k3"}}}
+        ),
+        encoding="utf-8",
+    )
+    reset_settings_cache()
+    settings = load_settings()  # must not raise
+    assert settings.tiers["standard"] == TierConfig()  # default, not crashed
+    assert settings.tiers["deep_research"] == TierConfig(model="kimi-k3")
+
+
+def test_explicit_null_on_each_provider_string_field_falls_back_to_default(tmp_path):
+    """str(None) == "None" is the bug this guards against: dict.get's
+    default only fires when a key is ABSENT, so an explicit JSON null on
+    base_url/api_key/provider must still resolve to this module's own
+    default, never the literal text "None"."""
+    path = tmp_path / "settings.json"
+    path.write_text(
+        json.dumps({"provider": {"base_url": None, "api_key": None, "provider": None}}),
+        encoding="utf-8",
+    )
+    reset_settings_cache()
+    settings = load_settings()
+    assert settings.provider == ProviderConfig()
+
+
+def test_explicit_null_api_key_does_not_leak_as_the_string_none(tmp_path):
+    """The critical case: an admin "clearing" api_key by setting it to
+    JSON null must produce an EMPTY key, not the truthy string "None" —
+    otherwise ai_available() reports the tier available (its `if not
+    settings.provider.api_key` check doesn't fire on a non-empty string)
+    and the harness would go on to send the literal text "None" as a
+    bearer token instead of refusing honestly.
+    """
+    path = tmp_path / "settings.json"
+    path.write_text(
+        json.dumps(
+            {
+                "provider": {"api_key": None, "provider": "openrouter"},
+                "tiers": {"standard": {"model": "qwen/qwen3-max"}},
+            }
+        ),
+        encoding="utf-8",
+    )
+    reset_settings_cache()
+    settings = load_settings()
+    assert settings.provider.api_key == ""
+    assert ai_available(settings, tier="standard") == (False, "no API key configured")
+
+
+def test_explicit_null_on_tier_model_and_admin_username_falls_back_to_default(tmp_path):
+    path = tmp_path / "settings.json"
+    path.write_text(
+        json.dumps(
+            {
+                "tiers": {"standard": {"model": None}},
+                "admin_username": None,
+            }
+        ),
+        encoding="utf-8",
+    )
+    reset_settings_cache()
+    settings = load_settings()
+    assert settings.tiers["standard"].model == ""
+    assert settings.admin_username == ""
+
+
 def test_corrupt_json_surfaces_reason_via_ai_available(tmp_path):
     """A half-written or hand-broken file must not crash AI checks.
 

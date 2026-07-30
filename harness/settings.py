@@ -87,7 +87,13 @@ class Settings:
     and `user_limits` are plain dicts rather than e.g. frozen mapping
     types — this file is small, hand-editable, and rewritten wholesale
     via save_settings() rather than mutated in place, so the extra
-    immutability machinery would buy nothing but ceremony.
+    immutability machinery would buy nothing but ceremony. One
+    consequence worth knowing: the `tiers`/`user_limits` dict fields make
+    `Settings` itself unhashable despite `frozen=True` — `frozen` here
+    buys attribute-reassignment safety, not hashability or deep
+    immutability, so don't put a `Settings` in a set or use one as a dict
+    key. (`ProviderConfig` and `TierConfig`, with only str fields, ARE
+    hashable — it's specifically the container that isn't.)
     """
 
     provider: ProviderConfig = field(default_factory=ProviderConfig)
@@ -163,16 +169,40 @@ def ai_available(settings: Settings, tier: str) -> tuple[bool, str | None]:
 # code is updated to notice it.
 
 
-def _provider_from_dict(d: dict[str, Any]) -> ProviderConfig:
+def _str_or(d: dict[str, Any], key: str, default: str) -> str:
+    """d.get(key, default), but ALSO falling back to default on an explicit
+    JSON null. Plain dict.get only substitutes its default when the key is
+    ABSENT — a present `"key": null` (a natural way to hand-edit-clear a
+    field, e.g. an admin "unsetting" api_key) sails through as `None`, and
+    `str(None)` is the literal three-character string "None". For api_key
+    specifically that string is truthy, so `ai_available()`'s `if not
+    settings.provider.api_key` check would not fire and the harness would
+    go on to send "None" as a bearer token instead of refusing honestly.
+    """
+    value = d.get(key, default)
+    return default if value is None else str(value)
+
+
+def _provider_from_dict(raw: Any) -> ProviderConfig:
+    # WHY the isinstance guard here (unlike a bare str(d.get(...)) call):
+    # `Settings.provider` and `ProviderConfig.provider` share a field name
+    # at two nesting levels, so an admin hand-editing "the provider" quite
+    # naturally writes `"provider": "custom"` at the TOP level — the wrong
+    # nesting, but valid JSON. Without this guard that shape reaches
+    # dict-only code (`.get()` on a str) and raises, which is exactly the
+    # "never crash AI availability over a config typo" contract this
+    # module exists to uphold. Mirrors _tiers_from_dict's guard below.
+    if not isinstance(raw, dict):
+        return ProviderConfig()
     return ProviderConfig(
-        base_url=str(d.get("base_url", _DEFAULT_BASE_URL)),
-        api_key=str(d.get("api_key", "")),
-        provider=str(d.get("provider", _DEFAULT_PROVIDER)),
+        base_url=_str_or(raw, "base_url", _DEFAULT_BASE_URL),
+        api_key=_str_or(raw, "api_key", ""),
+        provider=_str_or(raw, "provider", _DEFAULT_PROVIDER),
     )
 
 
 def _tier_from_dict(d: dict[str, Any]) -> TierConfig:
-    return TierConfig(model=str(d.get("model", "")))
+    return TierConfig(model=_str_or(d, "model", ""))
 
 
 def _tiers_from_dict(raw: Any) -> dict[str, TierConfig]:
@@ -205,9 +235,9 @@ def _settings_from_dict(raw: dict[str, Any]) -> Settings:
     exempt_users = tuple(str(u) for u in exempt_raw) if isinstance(exempt_raw, list) else ()
 
     return Settings(
-        provider=_provider_from_dict(raw.get("provider") or {}),
+        provider=_provider_from_dict(raw.get("provider")),
         tiers=_tiers_from_dict(raw.get("tiers")),
-        admin_username=str(raw.get("admin_username", "")),
+        admin_username=_str_or(raw, "admin_username", ""),
         default_monthly_limit_usd=default_limit,
         user_limits=user_limits,
         exempt_users=exempt_users,
@@ -310,15 +340,21 @@ def load_settings(path: Path | None = None) -> Settings:
 
 
 def save_settings(settings: Settings, path: Path | None = None) -> None:
-    """Write settings.json atomically (tmp file + os.replace).
+    """Write settings.json via tmp-file + os.replace, to reduce (not
+    eliminate) the window where a concurrent reader sees a partial file.
 
     This file lives on an office SMB share and is read by every harness
     process plus, later, an admin page that writes it live while other
-    people may be mid-chat. A plain open()+write() leaves a window where
-    a concurrent reader sees a truncated/partial JSON document and every
-    load_settings() in that window degrades AI Mode office-wide.
-    os.replace() is a single filesystem rename, so a concurrent reader
-    only ever sees the complete old file or the complete new one.
+    people may be mid-chat. A plain open()+write() leaves an obvious
+    window where a concurrent reader sees a truncated/partial JSON
+    document and every load_settings() in that window degrades AI Mode
+    office-wide — tmp-file + os.replace() closes that specific hole. On
+    a genuinely POSIX or NTFS-local filesystem os.replace() is a single
+    atomic rename. On an SMB share, whether the rename lands atomically
+    depends on the server-side filesystem and the SMB dialect/client in
+    play — this module has no way to verify that for whatever share it
+    ends up on, so treat this as "much safer than a direct write," not
+    as a provable cross-network guarantee.
     """
     target = path or settings_path()
     target.parent.mkdir(parents=True, exist_ok=True)
