@@ -1,5 +1,6 @@
 import { useState } from "react";
 import type { SearchResult } from "../api";
+import { familyOf, familyTitle } from "../reportFamilies";
 import { publisherLabel } from "./FilterBar";
 
 // ResultCard — one REPORT FAMILY's worth of hits, restructured 2026-07-30 to
@@ -34,6 +35,8 @@ export interface DocGroup {
   /** The document's own source PDF/DOCX URL (from documents.json); null when
    *  unknown — the row then renders unlinked rather than guessing. */
   doc_url: string | null;
+  /** The mockup index's meta line; null when the doc isn't in it. */
+  doc_meta: string | null;
   chunks: SearchResult[];
 }
 
@@ -111,14 +114,17 @@ function DocRow({ doc, showPublisher = false }: { doc: DocGroup; showPublisher?:
       </span>
       <div className="doc-main">
         <span className="doc-title">{doc.doc_title}</span>
-        {/* The mockup's sub line showed the doc's subtitle; ours shows the best
-            matching passage — this corpus is passage-indexed, and the snippet
-            is the search scent the mockup got from its subtitle. */}
-        <span className="doc-sub">{best.snippet}</span>
+        {/* The mockup's one-line meta ("category · doc_type · FY"), straight
+            from its index via doc_meta. NOT the passage text — Destin
+            (2026-07-30): rows read like the mockup's; retrieval passages are
+            a tack-on behind the collapsed tray. Fallback when the doc isn't
+            in the mockup index: our family vocabulary + year. */}
+        <span className="doc-sub">
+          {doc.doc_meta ?? familyTitle(familyOf(doc.doc_type), doc.fiscal_year)}
+        </span>
       </div>
       <RelMeter score={best.score} />
       {showPublisher && <span className="doc-pill">{publisherLabel(doc.publisher)}</span>}
-      {best.page !== null && <span className="doc-pill">p. {best.page}</span>}
       {doc.doc_url && (
         <span className="doc-pill">
           <OpenIcon /> Open
@@ -149,11 +155,10 @@ export function ResultCard({ family }: { family: FamilyGroup }) {
   // the best agency section IS the headline and the whole report is only ever
   // the .grp-full button — search.js's CASE B, always.
   const [headline, ...siblings] = family.docs;
-  // The headline row already shows chunks[0] (its snippet, score, page), so
-  // the tray holds only the REST — rendering all of them would duplicate the
-  // row above it, and a one-passage document would get a toggle that reveals
-  // a copy of what's already on screen.
-  const morePassages = headline.chunks.slice(1);
+  // The tray holds ALL of the headline's passages: since 2026-07-30 the doc
+  // row shows the mockup's meta line (not passage text), so nothing in the
+  // tray duplicates the row above it.
+  const passages = headline.chunks;
 
   return (
     <article className="grp">
@@ -182,16 +187,16 @@ export function ResultCard({ family }: { family: FamilyGroup }) {
               Full report (PDF)
             </a>
           )}
-          {morePassages.length > 0 && (
+          {passages.length > 0 && (
             <button
               type="button"
               className={passagesOpen ? "grp-more open" : "grp-more"}
               aria-expanded={passagesOpen}
               onClick={() => setPassagesOpen((v) => !v)}
             >
-              {morePassages.length === 1
-                ? "1 more passage"
-                : `${morePassages.length} more passages`}
+              {passages.length === 1
+                ? "1 matching passage"
+                : `${passages.length} matching passages`}
               <ChevronIcon />
             </button>
           )}
@@ -202,7 +207,7 @@ export function ResultCard({ family }: { family: FamilyGroup }) {
             readers, and a wide query can carry hundreds of passages. */}
         {passagesOpen && (
         <div className="tray open">
-          {morePassages.map((chunk) => (
+          {passages.map((chunk) => (
             // href="#" + data-chunk-id is the agreed stub: Plan 4 swaps this
             // for the PDF side panel keyed on that id. Out of the tab order
             // until then.

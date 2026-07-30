@@ -16,6 +16,10 @@ export interface SearchResult {
   /** The document's own source PDF/DOCX URL (additive contract field,
    *  2026-07-30 — from Plan 1's documents.json sidecar); null when unknown. */
   doc_url: string | null;
+  /** The website mockup index's meta line for this document ("Agency Budget
+   *  Detail · Appropriations Report · FY 2025"); additive, null when the doc
+   *  isn't in the mockup index. */
+  doc_meta: string | null;
 }
 
 export interface SearchResponse {
