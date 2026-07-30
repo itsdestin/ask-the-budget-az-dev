@@ -73,7 +73,8 @@ Health check:
 ```bash
 curl http://127.0.0.1:9200/health
 # { "status": "ok", "version": "0.1.0", "corpus_chunks": 7755,
-#   "data_dir": "…/data/insight-data" }
+#   "documents_metadata": 382, "data_dir": "…/data/insight-data" }
+# (503 + { "status": "degraded", "error": … } if the corpus is unreachable)
 ```
 
 ### 3. Register with YouCoded

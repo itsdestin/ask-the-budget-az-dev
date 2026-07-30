@@ -232,6 +232,28 @@ def test_health_endpoint_returns_ok(corpus_dir):
     assert body["data_dir"] == str(corpus_dir)
 
 
+def test_health_reports_degraded_with_the_real_error(monkeypatch):
+    """A dead share must not surface as a bare 500 that throws the reason
+    away. 503 (so the web app's `resp.ok` probe still shows its banner)
+    plus the actual exception text in the body — never a guessed cause.
+
+    Patched AFTER startup so the preflight isn't the thing that fails."""
+
+    def unreachable():
+        raise OSError(r"[WinError 53] The network path was not found: \\JLBC-share")
+
+    with TestClient(app) as client:
+        monkeypatch.setattr(api_module, "_store", unreachable)
+        resp = client.get("/health")
+
+    assert resp.status_code == 503
+    body = resp.json()
+    assert body["status"] == "degraded"
+    assert body["version"] == app.version
+    assert "WinError 53" in body["error"]
+    assert "JLBC-share" in body["error"]
+
+
 def test_health_counts_the_documents_sidecar_when_present(fresh_corpus):
     """documents_metadata is the diagnostic for "why won't my citations open
     a PDF" — it must reflect the file, not a hardcoded 0."""
@@ -501,8 +523,9 @@ def test_retrieve_filters_pass_through_to_pipeline(monkeypatch):
 def test_retrieve_end_to_end_over_the_real_store():
     """The one /retrieve test that goes through the REAL pipeline and the
     REAL store (fake models only): it would catch a store/pipeline wiring
-    break that every monkeypatched test above sails past. doc_title is
-    derived from the doc_id slug — there is no documents table yet."""
+    break that every monkeypatched test above sails past. This fixture has
+    no documents.json, so doc_title takes the slug-humanizer fallback (the
+    sidecar-present path is test_doc_titles_prefer_the_real_ingest_title)."""
     with TestClient(app) as client:
         resp = client.post(
             "/retrieve", json={"query": "ahcccs provider rates", "top_k": 3}
@@ -807,29 +830,133 @@ def _list_values(field: str):
 
 def test_list_values_agency_counts_chunks_and_samples_a_title(fresh_corpus):
     """agency_canonical_ids is an array column, so one chunk can count
-    toward several agencies (the Postgres version unnested it). Sample
-    title comes from the highest fiscal year the agency appears in — that
-    is what makes an opaque slug like `agency:axs` recognizable."""
+    toward several agencies (the Postgres version unnested it).
+
+    No documents.json in this fixture, so the sample title takes the
+    slug-humanizer FALLBACK. The sidecar-present path — the one that
+    actually makes `agency:axs` recognizable — is the next test."""
     fresh_corpus([
         _row("a1", "axs chunk", agency_canonical_ids=["agency:axs"]),
         _row("a2", "axs + adc chunk",
              agency_canonical_ids=["agency:axs", "agency:adc"]),
-        _row("a3", "older adc chunk", agency_canonical_ids=["agency:adc"],
-             fiscal_year=2025, doc_id="jlbc-approps-fy2025-adc"),
+        _row("a3", "adc chunk in the adc book", agency_canonical_ids=["agency:adc"],
+             doc_id="jlbc-approps-fy2025-adc"),
+        _row("a4", "another adc chunk in the adc book",
+             agency_canonical_ids=["agency:adc"], doc_id="jlbc-approps-fy2025-adc"),
     ])
 
     body = _list_values("agency")
     assert body["field"] == "agency"
     values = {v["canonical_id"]: v for v in body["values"]}
     assert values["agency:axs"]["chunk_count"] == 2
-    assert values["agency:adc"]["chunk_count"] == 2
-    # Sorted by chunk_count desc; ties broken by canonical_id for stability.
+    assert values["agency:adc"]["chunk_count"] == 3
+    # Sorted by chunk_count desc.
     assert [v["canonical_id"] for v in body["values"]] == [
         "agency:adc",
         "agency:axs",
     ]
-    # FY2027 doc wins the sample over the FY2025 one.
-    assert values["agency:adc"]["sample_doc_title"] == "JLBC Baseline FY 2027 Axs"
+    # adc's sample is the document that is ABOUT adc (2 of its chunks) — not
+    # the axs book that mentions it once.
+    assert values["agency:adc"]["sample_doc_title"] == "JLBC Approps FY 2025 Adc"
+    assert values["agency:axs"]["sample_doc_title"] == "JLBC Baseline FY 2027 Axs"
+
+
+def test_list_values_samples_the_most_populated_document(fresh_corpus):
+    """THE sample-selection rule, and the reason it isn't the Postgres
+    "newest document" rule: on the real corpus the newest document
+    mentioning nearly every agency is the FY2027 Governor's Budget — one
+    cross-cutting book titled "GOVERNOR FY2027 fy2027", which explains
+    nothing about `agency:axs`. Here the cross-cutting doc is even NEWER and
+    still must lose to the book that is actually about the agency."""
+    fresh_corpus(
+        [
+            _row("g1", "governor mentions axs", doc_id="governor-budget-fy2028",
+                 fiscal_year=2028, agency_canonical_ids=["agency:axs"]),
+            _row("b1", "axs book chunk", doc_id="jlbc-baseline-fy2027-axs",
+                 agency_canonical_ids=["agency:axs"]),
+            _row("b2", "axs book chunk two", doc_id="jlbc-baseline-fy2027-axs",
+                 agency_canonical_ids=["agency:axs"]),
+        ],
+        documents={
+            "governor-budget-fy2028": {**_SIDECAR_DOC,
+                                       "title": "GOVERNOR FY2028 fy2028"},
+            "jlbc-baseline-fy2027-axs": _SIDECAR_DOC,
+        },
+    )
+    values = {v["canonical_id"]: v for v in _list_values("agency")["values"]}
+    assert values["agency:axs"]["chunk_count"] == 3
+    assert values["agency:axs"]["sample_doc_title"] == "JLBC FY2027 — AHCCCS"
+
+
+def test_list_values_sample_titles_come_from_the_sidecar(fresh_corpus):
+    """THE point of sample_doc_title: it exists to explain an opaque
+    canonical_id, so it has to be the real ingest title. A humanized slug
+    ("JLBC Baseline FY 2027 Axs") is exactly as opaque as `agency:axs`,
+    which is what FilterValueOut's docstring and the MCP tool's own test
+    (mcp-server/tests/list-filter-values.test.ts, asserting the sample
+    contains "AHCCCS") expect to be fixed by the sidecar."""
+    fresh_corpus(
+        [
+            _row("s1", "axs chunk", agency_canonical_ids=["agency:axs"],
+                 fund_canonical_id="fund:ahcccs"),
+            _row("s2", "older adc chunk", agency_canonical_ids=["agency:adc"],
+                 doc_id="jlbc-approps-fy2025-adc", fiscal_year=2025,
+                 doc_type="approps-per-agency", fund_canonical_id=None),
+        ],
+        documents={
+            "jlbc-baseline-fy2027-axs": _SIDECAR_DOC,
+            "jlbc-approps-fy2025-adc": {**_SIDECAR_DOC,
+                                        "title": "JLBC FY2025 — Corrections"},
+        },
+    )
+
+    agencies = {
+        v["canonical_id"]: v["sample_doc_title"]
+        for v in _list_values("agency")["values"]
+    }
+    assert agencies["agency:axs"] == "JLBC FY2027 — AHCCCS"
+    assert agencies["agency:adc"] == "JLBC FY2025 — Corrections"
+
+    funds = {
+        v["canonical_id"]: v["sample_doc_title"]
+        for v in _list_values("fund")["values"]
+    }
+    assert funds["fund:ahcccs"] == "JLBC FY2027 — AHCCCS"
+
+    # doc_type / publisher take MIN(title) over the group's REAL titles.
+    doc_types = {
+        v["canonical_id"]: v["sample_doc_title"]
+        for v in _list_values("doc_type")["values"]
+    }
+    assert doc_types["baseline-per-agency"] == "JLBC FY2027 — AHCCCS"
+    assert doc_types["approps-per-agency"] == "JLBC FY2025 — Corrections"
+    publishers = {
+        v["canonical_id"]: v["sample_doc_title"]
+        for v in _list_values("publisher")["values"]
+    }
+    # Two jlbc docs; MIN over the real titles picks the FY2025 one
+    # alphabetically ("JLBC FY2025 …" < "JLBC FY2027 …").
+    assert publishers["jlbc"] == "JLBC FY2025 — Corrections"
+
+
+def test_list_values_sample_title_falls_back_per_document(fresh_corpus):
+    """Per-doc fallback, not all-or-nothing: a document the sidecar hasn't
+    caught up with still gets a humanized-slug sample while its neighbours
+    keep their real titles."""
+    fresh_corpus(
+        [
+            _row("m1", "axs chunk", agency_canonical_ids=["agency:axs"]),
+            _row("m2", "adc chunk", agency_canonical_ids=["agency:adc"],
+                 doc_id="jlbc-approps-fy2025-adc", fiscal_year=2025),
+        ],
+        documents={"jlbc-baseline-fy2027-axs": _SIDECAR_DOC},
+    )
+    agencies = {
+        v["canonical_id"]: v["sample_doc_title"]
+        for v in _list_values("agency")["values"]
+    }
+    assert agencies["agency:axs"] == "JLBC FY2027 — AHCCCS"
+    assert agencies["agency:adc"] == "JLBC Approps FY 2025 Adc"
 
 
 def test_list_values_fund_skips_rows_without_a_fund(fresh_corpus):

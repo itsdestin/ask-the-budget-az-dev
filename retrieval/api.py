@@ -9,11 +9,19 @@ Plan 1 (2026-07-29) took Postgres and Voyage out from under this file:
 storage is now an embedded LanceDB directory (`store.chunk_store`) and
 the embedder + reranker are local ONNX models owned by
 `retrieval.pipeline`'s process-wide singletons. Endpoint paths and
-response fields are unchanged apart from three noted places: `/health`
-reports the corpus instead of a Voyage key, `top_score` uses the
-no-results sentinel (`retrieval.pipeline.NO_RESULTS_TOP_SCORE`) instead
-of 0.0, and `/docs/{doc_id}` omits the PDF-locating fields that lived on
-the un-migrated `documents` table (see http_doc_metadata).
+response fields are unchanged apart from three noted places:
+
+* `/health` reports the corpus (`corpus_chunks`, `documents_metadata`,
+  `data_dir`) instead of a Voyage key, and answers 503 + `status:
+  "degraded"` with the real error text when the corpus is unreachable.
+* `top_score` uses the no-results sentinel
+  (`retrieval.pipeline.NO_RESULTS_TOP_SCORE`) instead of 0.0.
+* `/docs/{doc_id}`'s document-level fields (title, source_format,
+  source_blob_path, source_url, page_count) come from the documents.json
+  sidecar rather than a Postgres table. Present whenever that file is —
+  the normal case — and omitted when a corpus was copied without it,
+  which `/health`'s `documents_metadata: 0` names. `page_count` is null
+  either way; the ingest never populated it.
 
 Endpoints:
 
@@ -62,6 +70,7 @@ from typing import Any
 from uuid import uuid4
 
 from fastapi import FastAPI, HTTPException
+from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field
 
 from retrieval import pipeline
@@ -421,8 +430,8 @@ app = FastAPI(
 # ---------------------------------------------------------------------------
 
 
-@app.get("/health")
-def health() -> dict[str, Any]:
+@app.get("/health", response_model=None)
+def health() -> dict[str, Any] | JSONResponse:
     """Liveness probe. The dev script polls this before launching the
     MCP server so the first `retrieve` call doesn't race with startup.
 
@@ -433,14 +442,42 @@ def health() -> dict[str, Any]:
     the other half of the corpus: 0 here means documents.json is missing or
     unreadable, which is exactly the state in which citation chips can't
     open a PDF.
+
+    Reading the corpus can fail (unreachable share, deleted folder), and
+    this is the one endpoint where the failure IS the payload — see the
+    except branch.
     """
-    return {
-        "status": "ok",
-        "version": app.version,
-        "corpus_chunks": _store().count(DEFAULT_CORPUS),
-        "documents_metadata": len(_document_metadata()),
-        "data_dir": str(data_dir()),
-    }
+    try:
+        return {
+            "status": "ok",
+            "version": app.version,
+            "corpus_chunks": _store().count(DEFAULT_CORPUS),
+            "documents_metadata": len(_document_metadata()),
+            "data_dir": str(data_dir()),
+        }
+    except Exception as err:
+        # WHY answer instead of propagating: a bare 500 throws the reason
+        # away (a traceback in the sidecar's log, nothing anywhere a user
+        # looks) and reads as "the sidecar is down" when the sidecar is up
+        # and the folder it reads is not. The real exception text goes in
+        # the body verbatim — never a guessed cause.
+        #
+        # WHY 503 rather than 200: the web app's session-start probe gates
+        # purely on `resp.ok` (youcoded-session-provider.ts), so a 200 would
+        # be read as healthy and the SystemHealthBanner would stay hidden
+        # while every query returned nothing. 503 keeps the banner honest
+        # AND carries the detail for anyone who curls it.
+        #
+        # data_dir() is deliberately not echoed here: resolving it is one of
+        # the things that can raise.
+        return JSONResponse(
+            status_code=503,
+            content={
+                "status": "degraded",
+                "version": app.version,
+                "error": f"{type(err).__name__}: {err}",
+            },
+        )
 
 
 # ---------------------------------------------------------------------------
@@ -651,6 +688,10 @@ def http_doc_metadata(doc_id: str) -> DocMetadataResponse:
         # sql_str, not an f-string: LanceDB filters are SQL text with no
         # parameter binding, and doc_id arrives from the client.
         where=f"doc_id = {sql_str(doc_id)}",
+        # limit=1: these columns are document-level, repeated identically on
+        # every chunk. Without it, asking about the Governor's budget pulled
+        # back 1,395 copies of the same four values.
+        limit=1,
     )
     if not entry and not chunk_rows:
         raise HTTPException(status_code=404, detail="doc_id not found")
@@ -682,7 +723,6 @@ def http_doc_metadata(doc_id: str) -> DocMetadataResponse:
 # really a metadata question.
 _LIST_VALUES_COLUMNS = [
     "doc_id",
-    "fiscal_year",
     "agency_canonical_ids",
     "fund_canonical_id",
     "doc_type",
@@ -690,18 +730,21 @@ _LIST_VALUES_COLUMNS = [
 ]
 
 
-def _sample_is_better(
-    candidate: tuple[int, str], incumbent: tuple[int, str] | None
-) -> bool:
-    """Sample-document tie-break: highest fiscal year wins, then lowest
-    doc_id. Mirrors the Postgres `ORDER BY fiscal_year DESC NULLS LAST` and
-    adds the doc_id tiebreak so the same corpus always yields the same
-    sample (the SQL left that arbitrary)."""
-    if incumbent is None:
-        return True
-    if candidate[0] != incumbent[0]:
-        return candidate[0] > incumbent[0]
-    return candidate[1] < incumbent[1]
+def _most_populated_doc(chunks_per_doc: dict[str, int]) -> str:
+    """The document contributing the most chunks to one canonical_id; ties
+    break on lowest doc_id so the same corpus always yields the same sample.
+
+    WHY most-populated and not highest-fiscal-year (which is what the
+    Postgres query did): measured on the real corpus, the newest document
+    mentioning almost any agency is the FY2027 Governor's Budget — one
+    cross-cutting book that touches nearly all 134 agencies and is titled
+    "GOVERNOR FY2027 fy2027". Sampling it tells the model nothing about
+    `agency:axs`, which is the entire job of this field. Most-populated
+    picks the document that is actually ABOUT the agency: "JLBC FY2025 —
+    AHCCCS". This is also what FilterValueOut's docstring has always
+    claimed the rule was.
+    """
+    return min(chunks_per_doc.items(), key=lambda kv: (-kv[1], kv[0]))[0]
 
 
 def _values_by_chunk(
@@ -712,16 +755,24 @@ def _values_by_chunk(
     agency_canonical_ids is an array column, so a chunk can count toward
     several agencies, exactly as the Postgres unnest() did."""
     counts: dict[str, int] = {}
-    samples: dict[str, tuple[int, str]] = {}
+    # canonical_id -> doc_id -> how many of that doc's chunks carry it.
+    per_doc: dict[str, dict[str, int]] = {}
     for row in rows:
-        # NULL fiscal_year sorts last, like `NULLS LAST` in the old SQL.
-        rank = row["fiscal_year"] if row["fiscal_year"] is not None else -1
-        candidate = (rank, row["doc_id"])
         for value in values_of(row):
             counts[value] = counts.get(value, 0) + 1
-            if _sample_is_better(candidate, samples.get(value)):
-                samples[value] = candidate
-    return _sorted_values(counts, {k: _title_from_doc_id(v[1]) for k, v in samples.items()})
+            docs = per_doc.setdefault(value, {})
+            docs[row["doc_id"]] = docs.get(row["doc_id"], 0) + 1
+    samples = {
+        value: _most_populated_doc(docs) for value, docs in per_doc.items()
+    }
+    # _lookup_doc_titles, NOT the slug humanizer: the whole point of the
+    # sample title is to make an opaque canonical_id ('agency:axs')
+    # recognizable, and a humanized slug ('JLBC Baseline FY 2027 Axs') is
+    # just as opaque. The real ingest title says AHCCCS.
+    titles = _lookup_doc_titles(list(samples.values()))
+    return _sorted_values(
+        counts, {value: titles[doc_id] for value, doc_id in samples.items()}
+    )
 
 
 def _values_by_document(
@@ -739,10 +790,15 @@ def _values_by_document(
     for row in rows:
         doc_ids.setdefault(row[column], set()).add(row["doc_id"])
     counts = {value: len(ids) for value, ids in doc_ids.items()}
-    # `MIN(title)` in the old SQL — alphabetically first title in the group.
+    # `MIN(title)` in the old SQL — alphabetically first title in the group,
+    # taken over the REAL titles (see _values_by_chunk for why not the slug
+    # humanizer). MIN over humanized slugs would also have picked a
+    # different document than MIN over real titles.
+    looked_up = _lookup_doc_titles(
+        sorted({d for ids in doc_ids.values() for d in ids})
+    )
     titles = {
-        value: min(_title_from_doc_id(d) for d in ids)
-        for value, ids in doc_ids.items()
+        value: min(looked_up[d] for d in ids) for value, ids in doc_ids.items()
     }
     return _sorted_values(counts, titles)
 
@@ -772,8 +828,11 @@ def http_list_values(body: ListValuesBody) -> ListValuesResponse:
     guessing the canonical_id and risking a silent zero-match.
 
     Why a sample title: canonical_ids like `agency:axs` (AHCCCS) or
-    `agency:tre` (Treasurer) are opaque without context. The newest
-    document for that agency tells the model what it is.
+    `agency:tre` (Treasurer) are opaque without context. The document
+    contributing the most chunks to that slug is the one that is actually
+    about it, so its title ("JLBC FY2025 — AHCCCS") names the thing. Titles
+    come from the documents.json sidecar; without that file they degrade to
+    humanized slugs, which is honest but much less useful.
 
     Implementation note: this was four SQL aggregate queries; on LanceDB it
     is one projected scan plus a Python group-by. Measured on the real

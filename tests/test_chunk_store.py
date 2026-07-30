@@ -65,6 +65,26 @@ def test_scan_returns_every_row_not_a_default_page(store):
     assert len(rows) == 14  # 3 fixture rows + 11 added
 
 
+def test_scan_limit_caps_the_rows(store):
+    """`limit` is for callers reading document-level columns that every
+    chunk repeats (the sidecar's /docs endpoint): one row is a full answer,
+    so it must not drag back a 1,395-chunk document."""
+    store.upsert_chunks("budget_chunks", [
+        _row(f"L{i}", f"limit row {i}", [0, 0, 0, 0, 0, 1, 0, 0],
+             doc_id="same-doc")
+        for i in range(4)
+    ])
+    rows = store.scan(
+        "budget_chunks", ["doc_id", "publisher"],
+        where="doc_id = 'same-doc'", limit=1,
+    )
+    assert len(rows) == 1
+    assert rows[0] == {"doc_id": "same-doc", "publisher": "jlbc"}
+    # Same filter, no limit → all four.
+    assert len(store.scan("budget_chunks", ["doc_id"],
+                          where="doc_id = 'same-doc'")) == 4
+
+
 def test_scan_on_absent_table_returns_empty(tmp_path):
     """Reader safety (spec S6): scanning a corpus that was never ingested
     returns [] and does NOT create the table."""

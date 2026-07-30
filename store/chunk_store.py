@@ -183,6 +183,7 @@ class ChunkStore:
 
     def scan(
         self, name: str, columns: list[str], *, where: str | None = None,
+        limit: int | None = None,
     ) -> list[dict[str, Any]]:
         """Unranked projection scan: every matching row, listed columns only.
 
@@ -198,17 +199,27 @@ class ChunkStore:
         sql_str() so a value containing an apostrophe can't break (or
         rewrite) the expression.
 
-        WHY the explicit limit: LanceDB query builders apply a default row
-        limit (10 for vector search). A plain scan returns everything on
-        lancedb 0.36, but relying on that would SILENTLY truncate these
-        endpoints if the default ever started applying here — a truncated
-        /list_values looks like a small corpus, not like a bug. Passing the
-        row count as the limit removes the question.
+        `limit` caps the rows returned. Pass it when the caller only needs a
+        sample — /docs reads document-level columns that every chunk of a
+        document repeats, so limit=1 is a full answer and skips dragging
+        1,395 identical rows out of the Governor's-budget document.
+
+        WHY limit=None still passes an explicit limit: LanceDB query
+        builders apply a default row limit (10 for vector search). A plain
+        scan returns everything on lancedb 0.36, but relying on that would
+        SILENTLY truncate a full scan if the default ever started applying
+        here — a truncated /list_values looks like a small corpus, not like
+        a bug. Passing the row count removes the question (and is skipped
+        entirely, saving a count_rows round trip, when a limit is given).
         """
         tbl = self._open(name)
         if tbl is None:
             return []
-        q = tbl.search().select(columns).limit(tbl.count_rows())
+        q = (
+            tbl.search()
+            .select(columns)
+            .limit(tbl.count_rows() if limit is None else limit)
+        )
         if where:
             q = q.where(where)
         return q.to_list()
