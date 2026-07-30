@@ -3,7 +3,13 @@ integration test hits the real model."""
 import numpy as np
 import pytest
 
-from retrieval.local_embedder import LocalEmbedder
+from retrieval.local_embedder import (
+    DEFAULT_LOCAL_MODEL,
+    QUERY_INSTRUCTION_PREFIXES,
+    LocalEmbedder,
+)
+
+BGE_PREFIX = "Represent this sentence for searching relevant passages: "
 
 
 class FakeModel:
@@ -34,6 +40,37 @@ def test_embed_batch_documents_uses_passage_path():
     out = emb.embed_batch(["a", "b"], input_type="document")
     assert out == [[0.0, 1.0], [0.0, 1.0]]
     assert fake.calls[0] == ("passage", ["a", "b"])
+
+
+def test_query_gets_bge_instruction_prefix_and_passages_do_not():
+    # The asymmetry IS the point: BGE's card documents the instruction for
+    # queries only, and prefixing passages would both hurt quality and
+    # invalidate every vector already written to LanceDB.
+    fake = FakeModel()
+    emb = LocalEmbedder(model=fake, model_name=DEFAULT_LOCAL_MODEL)
+    emb.embed_batch(["what is x"], input_type="query")
+    emb.embed_batch(["a passage"], input_type="document")
+    assert fake.calls == [
+        ("query", [BGE_PREFIX + "what is x"]),
+        ("passage", ["a passage"]),
+    ]
+
+
+def test_non_prefix_model_leaves_the_query_untouched():
+    # Only models whose card documents an instruction are in the registry;
+    # everyone else must pass through verbatim.
+    fake = FakeModel()
+    emb = LocalEmbedder(model=fake, model_name="sentence-transformers/all-MiniLM-L6-v2")
+    assert emb.query_prefix == ""
+    emb.embed_one("what is x", input_type="query")
+    assert fake.calls == [("query", ["what is x"])]
+
+
+def test_prefix_registry_entries_end_in_a_space():
+    # The trailing space is part of the documented instruction — dropping it
+    # glues the instruction onto the first query word.
+    for name, prefix in QUERY_INSTRUCTION_PREFIXES.items():
+        assert prefix.endswith(" "), name
 
 
 def test_injected_fake_keeps_declared_dim():

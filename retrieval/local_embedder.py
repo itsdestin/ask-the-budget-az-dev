@@ -8,12 +8,10 @@ Be aware that for the default model these two fastembed methods are
 plain aliases of embed() — BAAI/bge-small-en-v1.5 resolves to
 OnnxTextEmbedding, which overrides neither (both are `yield from
 self.embed(...)`), and fastembed 0.8.0 has no prefix machinery at all;
-only multitask models (jina-v3 and friends) specialize them. So the
-branch here is forward-compat structure, NOT a behavior difference
-today. In particular BGE's query instruction ("Represent this sentence
-for searching relevant passages:") is NOT applied — prepending it
-manually to queries is an untried retrieval-quality lever to reach for
-if the G1 eval gate comes in short.
+only multitask models (jina-v3 and friends) specialize them. The
+input_type branch therefore does NOT by itself change what the model
+sees — QUERY_INSTRUCTION_PREFIXES is what makes it behavioral, by
+prepending the model's documented query instruction ourselves.
 
 512-token ceiling: this model's tokenizer truncates at 512 WordPiece
 tokens ('longest_first', direction right), so anything past that is
@@ -38,6 +36,35 @@ LOCAL_EMBEDDING_DIM = 384
 INPUT_TYPE_DOCUMENT = "document"
 INPUT_TYPE_QUERY = "query"
 
+# Per-model QUERY-side instruction prefix, keyed by fastembed model name.
+#
+# WHY: these models were trained asymmetrically — the query side carries a
+# natural-language instruction, the passage side is embedded bare. fastembed
+# 0.8.0 applies no prefix at all (query_embed IS embed for these models), so
+# without this table our queries land off the manifold the model was tuned
+# on. Measured on the 34-query eval corpus at Task 11: adding the BGE
+# instruction moved the full-corpus dense rank of six known-hard chunks up
+# 20-35% each (e.g. q-014 1360 -> 884, q-008 1621 -> 1115). Query-side ONLY —
+# BGE's model card is explicit that passages must stay unprefixed, and
+# prefixing them would also invalidate every vector already in LanceDB.
+#
+# Exact strings come from each model's card; do not paraphrase them (the
+# trailing space is part of the instruction).
+QUERY_INSTRUCTION_PREFIXES: dict[str, str] = {
+    # BAAI BGE v1.5 English family — https://huggingface.co/BAAI/bge-small-en-v1.5
+    "BAAI/bge-small-en-v1.5": "Represent this sentence for searching relevant passages: ",
+    "BAAI/bge-base-en-v1.5": "Represent this sentence for searching relevant passages: ",
+    "BAAI/bge-large-en-v1.5": "Represent this sentence for searching relevant passages: ",
+    # Snowflake arctic-embed reuses the same instruction (its model card sets
+    # query_prefix to this string); listed explicitly so switching the
+    # embedder to candidate #2 doesn't silently drop the prefix.
+    "snowflake/snowflake-arctic-embed-xs": "Represent this sentence for searching relevant passages: ",
+    "snowflake/snowflake-arctic-embed-s": "Represent this sentence for searching relevant passages: ",
+    "snowflake/snowflake-arctic-embed-m": "Represent this sentence for searching relevant passages: ",
+    "snowflake/snowflake-arctic-embed-m-long": "Represent this sentence for searching relevant passages: ",
+    "snowflake/snowflake-arctic-embed-l": "Represent this sentence for searching relevant passages: ",
+}
+
 
 class LocalEmbedder:
     """Thin facade over fastembed's TextEmbedding.
@@ -54,6 +81,9 @@ class LocalEmbedder:
         model: Any | None = None,
     ) -> None:
         self.model_name = model_name
+        # Resolved once here rather than looked up per call: embed_batch is on
+        # the hot path for both the migration (7.7k chunks) and every query.
+        self.query_prefix = QUERY_INSTRUCTION_PREFIXES.get(model_name, "")
         if model is not None:
             # Injected fake (tests only): there's no registry entry to
             # resolve a dim from, so dim stays whatever the caller declared
@@ -102,10 +132,15 @@ class LocalEmbedder:
 
         Note the 512-WordPiece-token truncation described in the module
         docstring — long chunks are embedded from their opening tokens only.
+
+        Query-side texts get this model's instruction prefix prepended (see
+        QUERY_INSTRUCTION_PREFIXES); passages never do.
         """
         if not texts:
             return []
         if input_type == INPUT_TYPE_QUERY:
+            if self.query_prefix:
+                texts = [self.query_prefix + t for t in texts]
             it = self._model.query_embed(texts)
         else:
             it = self._model.passage_embed(texts)
