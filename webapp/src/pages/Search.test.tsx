@@ -8,6 +8,7 @@ const RESULT = {
   snippet: "…provider rate increases…", page: 14, score: 0.91,
   doc_type: "baseline-per-agency", fiscal_year: 2027, publisher: "jlbc",
   agencies: ["ahcccs"],
+  doc_url: "https://www.azjlbc.gov/27baseline/axs.pdf",
 };
 
 test("runs the ?q= query on mount and groups results by document", async () => {
@@ -21,9 +22,61 @@ test("runs the ?q= query on mount and groups results by document", async () => {
   await waitFor(() =>
     expect(screen.getByText("FY 2027 Baseline — AHCCCS")).toBeInTheDocument(),
   );
-  // Two chunks, one document -> one card with two page hits.
-  expect(screen.getAllByText(/p\.\s*1[45]/)).toHaveLength(2);
+  // The headline row shows the best chunk's page pill; the SECOND passage sits
+  // in the collapsed tray (Destin 2026-07-30: passages begin collapsed), so
+  // only p. 14 is visible until the toggle opens it.
+  expect(screen.getByText(/p\.\s*14/)).toBeInTheDocument();
+  expect(screen.queryByText(/p\.\s*15/)).not.toBeInTheDocument();
+  fireEvent.click(screen.getByRole("button", { name: /2 matching passages/i }));
+  expect(screen.getAllByText(/p\.\s*1[45]/).length).toBeGreaterThanOrEqual(2);
   expect(api.search).toHaveBeenCalledWith("ahcccs", expect.anything(), "budget");
+});
+
+test("the headline row links to the document's own source PDF", async () => {
+  vi.spyOn(api, "search").mockResolvedValue({
+    results: [RESULT], total: 1, provider: "stub",
+  });
+  render(<MemoryRouter initialEntries={["/search?q=x"]}><Search /></MemoryRouter>);
+  const row = await screen.findByRole("link", { name: /FY 2027 Baseline — AHCCCS/ });
+  expect(row).toHaveAttribute("href", "https://www.azjlbc.gov/27baseline/axs.pdf");
+  expect(row).toHaveAttribute("target", "_blank");
+});
+
+test("a row with no doc_url renders unlinked, not as a dead link", async () => {
+  vi.spyOn(api, "search").mockResolvedValue({
+    results: [{ ...RESULT, doc_url: null }], total: 1, provider: "stub",
+  });
+  render(<MemoryRouter initialEntries={["/search?q=x"]}><Search /></MemoryRouter>);
+  await waitFor(() =>
+    expect(screen.getByText("FY 2027 Baseline — AHCCCS")).toBeInTheDocument(),
+  );
+  expect(
+    screen.queryByRole("link", { name: /FY 2027 Baseline — AHCCCS/ }),
+  ).not.toBeInTheDocument();
+});
+
+test("sibling documents of the same report start collapsed and expand", async () => {
+  vi.spyOn(api, "search").mockResolvedValue({
+    results: [
+      RESULT,
+      {
+        ...RESULT, chunk_id: "c9", doc_id: "d2", score: 0.5,
+        doc_title: "FY 2027 Baseline — DCS", page: 4,
+        doc_url: "https://www.azjlbc.gov/27baseline/dcs.pdf",
+      },
+    ],
+    total: 2, provider: "stub",
+  });
+  render(<MemoryRouter initialEntries={["/search?q=x"]}><Search /></MemoryRouter>);
+  await waitFor(() =>
+    expect(screen.getByText("FY 2027 Baseline — AHCCCS")).toBeInTheDocument(),
+  );
+  // The sibling is behind the collapsed "more" tray…
+  expect(screen.queryByText("FY 2027 Baseline — DCS")).not.toBeInTheDocument();
+  fireEvent.click(screen.getByRole("button", { name: /1 more document/i }));
+  // …and is a real link once revealed.
+  const sibling = screen.getByRole("link", { name: /FY 2027 Baseline — DCS/ });
+  expect(sibling).toHaveAttribute("href", "https://www.azjlbc.gov/27baseline/dcs.pdf");
 });
 
 test("publisher filter chip re-queries", async () => {
@@ -223,13 +276,15 @@ test("results group under their report family with a full-PDF link", async () =>
   });
   render(<MemoryRouter initialEntries={["/search?q=x"]}><Search /></MemoryRouter>);
 
-  // One family card for both documents…
-  await waitFor(() => expect(screen.getByText("FY 2027 Baseline")).toBeInTheDocument());
+  // One family card: the best document is the headline, the family identity
+  // lives in the "Part of the …" badge, the sibling waits in a collapsed tray.
+  await waitFor(() =>
+    expect(screen.getByText(/Part of the FY 2027 Baseline/)).toBeInTheDocument(),
+  );
   expect(screen.getByText("FY 2027 Baseline — AHCCCS")).toBeInTheDocument();
-  expect(screen.getByText("FY 2027 Baseline — DCS")).toBeInTheDocument();
-  expect(screen.getByText(/2 documents · 2 matching passages/)).toBeInTheDocument();
+  expect(screen.queryByText("FY 2027 Baseline — DCS")).not.toBeInTheDocument();
 
-  // …with the hand-verified single-file PDF link (reportFamilies.ts).
+  // The hand-verified single-file PDF link (reportFamilies.ts).
   const link = screen.getByRole("link", { name: /full report \(pdf\)/i });
   expect(link).toHaveAttribute(
     "href",

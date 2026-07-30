@@ -41,8 +41,16 @@ POST /api/search
     "filters"?: { "fiscal_year"?: int[], "publisher"?: str[], "doc_type"?: str[], "agency"?: str[] } }
   -> { "results": [ { "chunk_id": str, "doc_id": str, "doc_title": str, "snippet": str,
                       "page": int|null, "score": float, "doc_type": str,
-                      "fiscal_year": int|null, "publisher": str, "agencies": str[] } ],
+                      "fiscal_year": int|null, "publisher": str, "agencies": str[],
+                      "doc_url": str|null } ],
        "total": int, "provider": "stub"|"lance" }
+
+> `doc_url` added 2026-07-30 (additive): the document's own source PDF/DOCX URL
+> from Plan 1's documents.json sidecar — what lets a search row link to the
+> individual agency narrative section like the website mockup's rows. Null when
+> the sidecar has no record (stub rows always); consumers must render unlinked
+> rather than guess. `score` note: since Plan 1, raw cross-encoder logits
+> (±~10), not 0..1.
 
 GET /api/fiscal-notes
   -> { "sessions": [ { "year": int, "name": str,

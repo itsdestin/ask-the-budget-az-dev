@@ -58,6 +58,7 @@ export function groupByDoc(results: SearchResult[]): DocGroup[] {
         publisher: r.publisher,
         fiscal_year: r.fiscal_year,
         doc_type: r.doc_type,
+        doc_url: r.doc_url,
         chunks: [],
       };
       byDoc.set(r.doc_id, group);

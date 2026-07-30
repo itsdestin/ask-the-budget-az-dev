@@ -78,6 +78,38 @@ class LanceSearchProvider:
 
     name = "lance"
 
+    def __init__(self) -> None:
+        # doc_id -> source_url map, loaded lazily from Plan 1's documents.json
+        # sidecar. None until first use; {} if the sidecar is missing (rows then
+        # carry doc_url=None and the UI renders unlinked rows — degraded, not
+        # broken).
+        self._doc_urls: dict[str, str] | None = None
+
+    def _doc_url(self, doc_id: str) -> str | None:
+        """The document's own source PDF/DOCX URL (azjlbc.gov, gao.az.gov, …).
+
+        This is what lets a search row link to the individual agency narrative
+        section the way the website mockup's rows did — the sidecar records the
+        exact URL each document was ingested FROM, so there is no fuzzy
+        matching involved (auditability invariant)."""
+        if self._doc_urls is None:
+            try:
+                import json
+
+                from store.config import documents_path
+
+                raw = json.loads(documents_path().read_text(encoding="utf-8"))
+                self._doc_urls = {
+                    doc_id: meta["source_url"]
+                    for doc_id, meta in raw.items()
+                    if meta.get("source_url")
+                }
+            except Exception:
+                # Missing/corrupt sidecar degrades to unlinked rows; the search
+                # itself must keep working (the corpus is the load-bearing part).
+                self._doc_urls = {}
+        return self._doc_urls.get(doc_id)
+
     # /api/search's corpus values -> LanceDB table names (store/chunk_store.py's
     # CORPUS_TABLES). The route's pydantic pattern only admits these two.
     _CORPUS_TABLE = {"budget": "budget_chunks", "fiscal_notes": "fiscal_note_chunks"}
@@ -108,6 +140,11 @@ class LanceSearchProvider:
                 "fiscal_year": c.fiscal_year,
                 "publisher": c.publisher,
                 "agencies": list(c.agency_canonical_ids),
+                # Additive contract field (2026-07-30): the document's own
+                # source URL, so result rows can link to the individual agency
+                # narrative PDF like the mockup's rows did. None when the
+                # sidecar has no record.
+                "doc_url": self._doc_url(c.doc_id),
             }
             for c in result.chunks
         ]
