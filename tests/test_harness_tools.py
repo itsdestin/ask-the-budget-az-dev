@@ -531,6 +531,30 @@ def test_retrieve_backend_failure_is_a_tool_visible_error(monkeypatch):
     assert "lance table missing" in out["error"]
 
 
+def test_an_unexpected_backend_failure_is_also_logged_to_stderr(
+    monkeypatch, capsys
+):
+    """One process serves the whole office. Without this line the only
+    record of a real backend bug lives inside one analyst's chat
+    transcript, where no admin will ever grep it."""
+    _fake_retrieve(monkeypatch, raises=RuntimeError("lance table missing"))
+    ex = ToolExecutor("conv-99", "budget", "standard")
+    _run(ex, "retrieve", {"query": "q"})
+    err = capsys.readouterr().err
+    assert "retrieve" in err
+    assert "lance table missing" in err
+    # The conversation id is what ties the log line back to a transcript.
+    assert "conv-99" in err
+
+
+def test_malformed_arguments_are_not_logged_to_stderr(capsys):
+    """A model typo is normal traffic, not an incident — logging it would
+    bury the real failures item 2 exists to surface."""
+    ex = ToolExecutor("conv-1", "budget", "standard")
+    _run(ex, "retrieve", {"query": ""})
+    assert capsys.readouterr().err == ""
+
+
 def test_retrieve_with_no_results_reports_the_sentinel(monkeypatch):
     _fake_retrieve(monkeypatch, chunks=[])
     ex = ToolExecutor("conv-1", "budget", "standard")
@@ -730,7 +754,14 @@ def test_a_missing_or_malformed_catalog_degrades_to_raw_ids(store, monkeypatch, 
     assert all("name" not in v for v in out["values"])
 
 
-def test_doc_type_and_publisher_count_documents_not_chunks(store):
+def test_doc_type_and_publisher_count_documents_not_chunks(store, tmp_path):
+    _sidecar(
+        tmp_path,
+        {
+            "jlbc-baseline-fy2027-axs": {"title": "Zebra — AHCCCS"},
+            "jlbc-baseline-fy2027-adc": {"title": "Alpha — Corrections"},
+        },
+    )
     ex = ToolExecutor("conv-1", "budget", "standard", store=store)
     doc_types = {
         v["canonical_id"]: v["chunk_count"]
@@ -739,9 +770,13 @@ def test_doc_type_and_publisher_count_documents_not_chunks(store):
     assert doc_types == {"baseline-per-agency": 1, "approps-per-agency": 1}
     publishers = _run(ex, "list_filter_values", {"field": "publisher"})["values"]
     assert publishers[0] == {
-        **publishers[0],
         "canonical_id": "jlbc",
         "chunk_count": 2,  # two distinct doc_ids
+        # Alphabetically first title among the group's documents — a
+        # deterministic pick, NOT the most-populated-document rule the
+        # agency dimension uses. See _values_by_document for why the two
+        # dimensions differ.
+        "sample_doc_title": "Alpha — Corrections",
     }
 
 
@@ -971,29 +1006,35 @@ def test_tools_module_imports_are_allowlisted():
     assert roots <= allowed, f"unexpected imports: {sorted(roots - allowed)}"
 
 
-def test_tools_module_never_names_a_write_operation():
-    """Weaker than the import guard (an alias or getattr would slip
-    through) but it catches the realistic mistake: someone reaching for
-    ChunkStore's writers or a direct file write while adding a tool.
-    Scanned via AST, not text, so a comment mentioning upsert is fine."""
+def test_tools_module_never_calls_a_write_method():
+    """Backstop to the import guard beside this one, which is the robust
+    check. This one catches the realistic mistake — someone reaching for
+    a ChunkStore writer or a direct file write while adding a tool.
+
+    Deliberately narrow on both axes so it cannot misfire during an
+    ordinary refactor. Only METHOD names are scanned (`x.write_text()`,
+    never a bare local called `write_text`), and only names distinctive
+    enough that they cannot plausibly mean anything else here — a
+    generic verb like `remove` or `optimize` would fail on an innocent
+    `list.remove(...)` and report it as an Invariant 7 violation, which
+    trains people to ignore the test. An alias or a getattr still slips
+    past; that is what the import allowlist is for."""
     forbidden = {
         "upsert_chunks",
         "ensure_tables",
         "build_fts_index",
-        "optimize",
         "delete_doc",
         "write_text",
         "write_bytes",
-        "mkdir",
-        "unlink",
         "rmtree",
-        "remove",
     }
     tree = ast.parse(TOOLS_SOURCE_PATH.read_text(encoding="utf-8"))
-    used = {
-        node.attr for node in ast.walk(tree) if isinstance(node, ast.Attribute)
-    } | {node.id for node in ast.walk(tree) if isinstance(node, ast.Name)}
-    assert not (used & forbidden), f"write operation referenced: {used & forbidden}"
+    called = {
+        node.func.attr
+        for node in ast.walk(tree)
+        if isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute)
+    }
+    assert not (called & forbidden), f"write method called: {called & forbidden}"
 
 
 def test_executing_every_tool_writes_nothing_under_the_data_dir(

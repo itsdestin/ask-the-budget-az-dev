@@ -202,6 +202,15 @@ def _agency_names() -> dict[str, str]:
 
     REMOVE THE GUARD once Plan 3 is merged — noted for Plan 5. It hides
     real breakage the moment the module is a dependency we can count on.
+
+    SCOPE: this guards STRUCTURE, not CORRECTNESS. A catalog that
+    imports cleanly and type-checks fine but maps `agency:tre` to the
+    wrong agency passes here untouched, and a wrong name looks exactly
+    as authoritative to the model (and to the analyst reading the
+    answer) as a right one. Nothing in this module can tell the
+    difference; correctness of the mapping is Plan 3's to own, and if it
+    ever needs verifying, that belongs in a test against the catalog
+    itself, not in a defensive import here.
     """
     try:
         from chunking.agency_catalog import id_to_name  # type: ignore[attr-defined]
@@ -840,6 +849,19 @@ def _values_by_document(rows: list[dict[str, Any]], column: str) -> list[dict[st
     Inherited semantics, kept deliberately: these two have always been
     counted as distinct documents rather than chunks, and changing it
     would silently change what the model reads off the same field name.
+
+    The sample title is the ALPHABETICALLY FIRST title in the group
+    (`min` over the strings) — deliberately NOT the most-populated-doc
+    rule its sibling `_values_by_chunk` uses, and the difference is not
+    an oversight. That rule exists to answer "which document is actually
+    ABOUT `agency:axs`", because the id itself is opaque. These two
+    dimensions have no such question: every document of doc_type `afr`
+    is equally an AFR, and the value is already self-describing. All the
+    sample owes the model here is a concrete example, so the only
+    property that matters is that it is STABLE between calls on the same
+    corpus — which alphabetical-first is, and cheaply. (It is also what
+    the original SQL's `MIN(title)` did, so the model reads the same
+    sample it always has.)
     """
     doc_ids: dict[str, set[str]] = {}
     for row in rows:
@@ -977,6 +999,21 @@ class ToolExecutor:
         except _ArgumentError as err:
             return _error(str(err))
         except Exception as err:  # noqa: BLE001 — see docstring
+            # Also say it OUT LOUD. Swallowing the exception is right for
+            # the conversation but wrong for the operator: one process
+            # serves the whole office, so without this line the only
+            # record of a genuine backend failure (a store hiccup, a
+            # corrupt table) lives inside one analyst's chat transcript,
+            # where nobody will ever grep it. Malformed arguments are
+            # deliberately NOT logged above — those are ordinary model
+            # traffic and would bury the real failures. The conversation
+            # id is included so a log line can be tied back to the
+            # transcript that shows what the model did next.
+            print(
+                f"harness.tools: {name}() failed in conversation "
+                f"{self.conversation_id!r} — {type(err).__name__}: {err}",
+                file=sys.stderr,
+            )
             return _error(
                 f"{name}() failed: {type(err).__name__}: {err}. "
                 "Tell the analyst this part of the system is unavailable "
