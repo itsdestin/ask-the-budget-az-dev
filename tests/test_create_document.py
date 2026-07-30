@@ -207,6 +207,40 @@ def test_a_short_row_is_padded_rather_than_dropped():
     assert [c.text for c in row.cells] == ["only", "", ""]
 
 
+@pytest.mark.parametrize(
+    "first_line, expected_text, expected_style",
+    [
+        ("- Agency | Amount", "Agency | Amount", "List Bullet"),
+        ("* Agency | Amount", "Agency | Amount", "List Bullet"),
+        ("## Costs | FY2027", "Costs | FY2027", "Heading 2"),
+        ("# Revenue | Expense", "Revenue | Expense", "Heading 1"),
+    ],
+)
+def test_a_piped_bullet_or_heading_is_not_mistaken_for_a_table_header(
+    first_line, expected_text, expected_style
+):
+    """A pipe inside bullet or heading TEXT used to misclassify the line as
+    a table header row, so the bullet marker survived as a literal "- Agency"
+    cell and the list item was gone. No text technically vanished, but the
+    analyst got a malformed table where a bullet should be — a silent drop in
+    spirit. Heading/bullet now win the classification."""
+    doc = _render(f"{first_line}\n| --- |\n| ADC | 1 |")
+    first = _body_paragraphs(doc)[0]
+    assert (first.text, first.style.name) == (expected_text, expected_style)
+    assert doc.tables == []
+    # The stray table fragments still survive verbatim as plain text.
+    rendered = [t.strip() for t in _all_text(doc)]
+    assert "| --- |" in rendered and "| ADC | 1 |" in rendered
+
+
+def test_a_genuine_table_after_a_heading_still_renders():
+    # Regression guard for the fix above: the heading and the table are on
+    # separate lines, which is the normal shape, and must be unaffected.
+    doc = _render("## Costs\n\n| Agency | FY2027 |\n| --- | --- |\n| ADC | $1 |")
+    assert _body_paragraphs(doc)[0].style.name == "Heading 2"
+    assert [c.text for c in doc.tables[0].rows[1].cells] == ["ADC", "$1"]
+
+
 def test_text_after_a_table_returns_to_normal_paragraphs():
     doc = _render("| a |\n| --- |\n| x |\n\nAfter the table.")
     assert doc.tables[0].rows[1].cells[0].text == "x"
@@ -368,6 +402,68 @@ def test_a_hostile_title_produces_a_safe_contained_filename(title):
 def test_a_reserved_windows_device_name_is_not_used_bare():
     _, path = documents.materialize("NUL", "body", "md", user="u")
     assert path.stem.upper() != "NUL"
+
+
+@pytest.mark.parametrize(
+    "title, expected_stem",
+    [
+        # The filter is str.isalnum(), which is Unicode-aware, so letters
+        # from any script survive. Pinned because the module comment claims
+        # exactly this.
+        ("预算报告", "预算报告"),
+        ("Réunion budgétaire", "Réunion-budgétaire"),
+        # ...and anything NOT alphanumeric or in "-_." is replaced, even
+        # when a URL or a filesystem would have tolerated it.
+        ("unicode~tilde", "unicode-tilde"),
+        ("memo (draft)", "memo-draft"),
+        ("A&B, Inc.", "A-B-Inc"),
+    ],
+)
+def test_the_filename_allowlist_is_unicode_alphanumerics_plus_dash_dot_underscore(
+    title, expected_stem
+):
+    _, path = documents.materialize(title, "body", "md", user="u")
+    assert path.stem == expected_stem
+
+
+def test_a_unicode_filename_downloads_with_an_rfc_5987_header():
+    """The other half of the Unicode decision: a non-ASCII filename is
+    legal on disk and legal in the header, because Starlette falls back to
+    the `filename*=utf-8''…` form rather than emitting raw bytes."""
+    token, _ = documents.materialize("预算报告", "body", "md", user="u")
+    r = client().get(f"/api/documents/{token}")
+    assert r.status_code == 200
+    assert "filename*=utf-8''" in r.headers["content-disposition"]
+
+
+# ---------------------------------------------------------------------------
+# A failed write must never leave a registered token
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize("fmt", ["docx", "md"])
+def test_a_failed_write_registers_no_token(fmt, monkeypatch):
+    """Registration happens strictly AFTER the bytes land. A refactor that
+    minted the token first would hand the model a download link to a file
+    that does not exist (or, worse, to a half-written .docx Word refuses to
+    open) — and the tool result would say ok:true.
+
+    Reaching into the private registry on purpose: the public `lookup()`
+    needs a token, and the whole point is that no token was ever returned.
+    """
+    if fmt == "docx":
+        monkeypatch.setattr(
+            documents, "_render_docx", lambda *a, **k: (_ for _ in ()).throw(OSError("disk full"))
+        )
+    else:
+        def boom(*a, **k):
+            raise OSError("disk full")
+
+        monkeypatch.setattr(Path, "write_text", boom)
+
+    with pytest.raises(OSError):
+        documents.materialize("Memo", "# Body", fmt, user="u")
+    assert documents._registry == {}
 
 
 # ---------------------------------------------------------------------------

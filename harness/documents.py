@@ -155,12 +155,21 @@ def lookup(token: str) -> Artifact | None:
 # up in two hostile places: a filesystem path and an HTTP header. This is
 # the only point where a model-supplied string gets anywhere near either.
 
-# Kept deliberately tighter than "what NTFS accepts": exactly the
-# characters `urllib.parse.quote` leaves untouched, so an ASCII title
-# always yields the simple `filename="…"` Content-Disposition form rather
-# than an RFC 5987 escape, and so `/ \ : * ? " < > |`, control characters
+# The filename allowlist is: **Unicode alphanumerics** (`str.isalnum()`,
+# which is script-aware — a Chinese or accented title keeps its letters
+# and yields e.g. `预算报告.md`) **plus these three punctuation marks**.
+# Everything else is replaced, so `/ \ : * ? " < > |`, control characters
 # and CR/LF (header injection) cannot survive by construction — they are
-# not on the list, so they are replaced rather than looked for.
+# not on the list, rather than being individually looked for.
+#
+# WHY allow non-ASCII: modern Windows and SMB handle it fine, and
+# Starlette emits the RFC 5987 `filename*=utf-8''…` Content-Disposition
+# form automatically for any name that isn't URL-safe, so the header is
+# correct either way. The tradeoff is only that a title with non-ASCII
+# characters — or with `~`, `&`, `(`, `,`, which ARE dropped despite
+# being legal in filenames — takes that encoded header form instead of
+# the plain `filename="…"` one. Both are widely supported; a narrower
+# list is not worth mangling a legitimate title over.
 _KEEP = set("-_.")
 # Windows refuses these names with ANY extension — `NUL.docx` is still the
 # null device, and writing to it silently succeeds while producing no file.
@@ -289,11 +298,24 @@ def _render_docx(title: str, body_markdown: str, target: Path) -> None:
             index += 1
             continue
 
-        # Tables first: a table row is only a table row when the NEXT
-        # line is a separator, otherwise it is ordinary text containing
-        # pipe characters and must survive as such.
+        # Classify headings and bullets FIRST, because their text may
+        # legitimately contain a pipe: "- Agency | Amount" is a bullet, and
+        # treating it as a table header row (which it structurally
+        # resembles, if the next line happens to be dashes) produced a
+        # malformed table whose first cell was the literal "- Agency" —
+        # the list item gone, the marker showing as garbled text. No text
+        # technically vanished, but a memo where a bullet became a broken
+        # table is the "no silent drops" rule failing in spirit.
+        heading = _HEADING_RE.match(stripped)
+        bullet = None if heading else _BULLET_RE.match(stripped)
+
+        # A table row is only a table row when the NEXT line is a
+        # separator; otherwise it is ordinary text containing pipe
+        # characters and must survive as such.
         if (
-            _is_table_row(stripped)
+            not heading
+            and not bullet
+            and _is_table_row(stripped)
             and index + 1 < len(lines)
             and _TABLE_SEPARATOR_RE.match(lines[index + 1].strip())
             and "|" in lines[index + 1]
@@ -306,14 +328,12 @@ def _render_docx(title: str, body_markdown: str, target: Path) -> None:
             _add_table(doc, rows)
             continue
 
-        heading = _HEADING_RE.match(stripped)
         if heading:
             level = len(heading.group(1))
             _add_runs(doc.add_heading("", level=level), heading.group(2))
             index += 1
             continue
 
-        bullet = _BULLET_RE.match(stripped)
         if bullet:
             _add_runs(doc.add_paragraph(style="List Bullet"), bullet.group(1))
             index += 1
