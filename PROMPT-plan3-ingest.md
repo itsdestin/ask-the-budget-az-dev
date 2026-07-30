@@ -72,8 +72,11 @@ Python deps: NONE new (Plan 4 adds httpx; don't touch pyproject/uv.lock).
 
 All 16 tasks committed; a real PDF uploaded through the GUI reaching
 `live` and searchable with a real title; one live fiscal-note refresh
-ingesting real note PDFs; the Add-a-JLBC-book flow discovering a real
-TOC (dry-run listing is enough — don't re-ingest an existing book);
+ingesting real note PDFs; the Add-a-JLBC-book flow: catalog built with
+pinned counts (41 approps + 21 baseline editions) AND a real dry-run
+discover against the live site (listing only — don't re-ingest an
+existing book); Task 15's redesign block is binding — catalog-first,
+never guess URLs, HEAD-verify everything, walk BOTH index PDFs;
 fiscal-note eval baseline committed; STATUS.md
 updated; branch merged `--no-ff` + pushed; worktree removed; short report
 (what shipped, corpus counts, deviations, follow-ups).
