@@ -167,6 +167,173 @@ nav.primary{flex:1 1 auto;display:flex;flex-wrap:nowrap;align-items:center;justi
   .page-home .snap-h1{white-space:normal;}
 }
 
+/* ===== page-search — ported from reference/subpage-search_jlbc.html =====
+ * Every rule below is copied from that file's <style> block with its declarations
+ * unchanged, prefixed with `.page-search` per the convention at the top of this
+ * file. Where a selector also exists in reference/index.html with DIFFERENT values
+ * (`main .wrap`, `.card .head-row`, `.ic`), these copies carry the SEARCH page's
+ * values — that is what the prefix protects.
+ *
+ * NOT ported, and why:
+ *   `.examples-row`      its four example queries were written for JLBC's own index.
+ *   `#reportModal*`, `.grp-full`, `.grp-more`
+ *                        the "open the full report" chooser + per-group collapse —
+ *                        both open PDFs, which is Plan 4's viewer panel.
+ *   `select.fyear`       fiscal year is a chip row here (plan) — see FilterBar.tsx.
+ *   `.mode-note`         a semantic-vs-keyword mode caption this app has no modes for.
+ *   `#results>.doc`      its "a lone result floats as its own tile" rules: every
+ *                        result here is rendered inside a `.grp`, so nothing matches.
+ *   `.doc-title mark`, `.doc-sub mark`
+ *                        query-term highlighting — the API returns snippets as-is
+ *                        and this page does not re-tokenize them.
+ *   `.acc*`, `.quick*`, `.promo*`, `.side`, `.gov*`, `.intro`, footer blocks
+ *                        other sections of that page / shared chrome this app drops.
+ *   `.search-toggle`/`.search-expand`
+ *                        dead in the mockup itself (DESIGN-SYSTEM.md §5).
+ */
+
+/* Sub-page hero band. Verbatim, with the same one path edit home needed:
+   url('capitol-bg.jpg') → url('/capitol-bg.jpg'), served from webapp/public/. */
+.page-search .subhero{position:relative;overflow:hidden;color:#fff;
+  background:linear-gradient(105deg,rgba(18,21,48,.94) 0%,rgba(20,23,52,.86) 60%,rgba(20,23,52,.78) 100%),url('/capitol-bg.jpg') center 28% / cover no-repeat;}
+/* Three classes, so this beats the two-class `.page-search .wrap` below on
+   specificity regardless of source order — the hero's wrap keeps its own padding. */
+.page-search .subhero .wrap{position:relative;z-index:2;padding:32px 22px 34px;}
+.page-search .subhero h1{font-size:clamp(24px,3.2vw,34px);font-weight:800;letter-spacing:-.4px;}
+.page-search .subhero .lead{margin:10px 0 0;font-size:clamp(14px,1.5vw,16.5px);color:#d9dcf2;font-weight:600;max-width:66ch;line-height:1.5;min-height:3em;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;}
+.page-search .subhero .chips{display:flex;flex-wrap:wrap;gap:8px;margin-top:16px;min-height:31px;}
+.page-search .subhero .chip{display:inline-flex;align-items:center;gap:7px;background:rgba(255,255,255,.1);border:1px solid rgba(255,255,255,.2);border-radius:var(--r-pill);padding:6px 13px;font-size:12.5px;font-weight:700;color:#eef0fb;}
+.page-search .subhero .chip svg{width:14px;height:14px;color:#9fc4ee;flex:0 0 auto;}
+
+/* `main .wrap`, search-page values. The mockup's two-column grid
+   (`display:grid;grid-template-columns:1fr 320px`) is deliberately absent: the
+   mockup's OWN search page overrides it inline (`<div class="wrap"
+   style="display:block">`) because this utility page is one centered column with
+   no sidebar. So `display:block` is the mockup's effective value here, not a
+   redesign — and its `@media (max-width:980px)` grid collapse has nothing to
+   collapse. */
+.page-search .wrap{padding:30px 22px 12px;display:block;}
+
+/* The mockup declares `.search-wrap{max-width:680px}` and then overrides it with
+   `max-width:760px` in its later "semantic search UI (additions)" block; 760px is
+   the value that actually renders. */
+.page-search .search-wrap{max-width:760px;margin:0 auto;}
+
+/* The page's big search pill (its `.big-search`, a different component from home's
+   `.search-field` — see the note in components/SearchIcon.tsx). */
+.page-search .big-search-card{padding:22px 24px;}
+.page-search .big-search{display:flex;align-items:center;gap:12px;background:#fff;border:2px solid var(--line);
+  border-radius:var(--r-pill);padding:8px 8px 8px 18px;transition:border-color .15s,box-shadow .15s;}
+.page-search .big-search:focus-within{border-color:var(--az-gold);box-shadow:0 0 0 3px var(--az-gold-100);}
+.page-search .big-search .s-ic{color:var(--ink-3);flex:0 0 auto;width:20px;height:20px;}
+.page-search .big-search input{flex:1;border:0;outline:0;background:transparent;font-family:inherit;font-size:16px;color:var(--ink);min-width:0;}
+.page-search .big-search .s-btn{flex:0 0 auto;display:inline-flex;align-items:center;gap:7px;background:var(--az-gold);color:#fff;
+  font-family:inherit;font-weight:800;font-size:14.5px;border:0;border-radius:var(--r-pill);padding:11px 20px;cursor:pointer;
+  transition:filter .15s;}
+.page-search .big-search .s-btn:hover{filter:brightness(1.04);}
+.page-search .big-search .s-btn svg{width:16px;height:16px;}
+
+/* The mockup's custom clear-X. Deviation: the mockup kills the native
+   type=search clear button GLOBALLY; this copy is scoped to the page because
+   home's hero input is also type=search and has no `.clr-x` of its own —
+   un-scoping it would silently remove home's clear button. */
+.page-search input[type=search]::-webkit-search-cancel-button{-webkit-appearance:none;appearance:none;}
+.page-search .clr-x{flex:0 0 auto;display:none;align-items:center;justify-content:center;width:30px;height:30px;border-radius:50%;border:1px solid var(--line);background:var(--canvas);color:var(--ink-2);cursor:pointer;padding:0;transition:background .14s,color .14s,border-color .14s,transform .08s;}
+.page-search .clr-x:hover{background:var(--navy-100);color:var(--navy);border-color:var(--navy);}
+.page-search .clr-x:active{transform:scale(.88);}
+.page-search .clr-x svg{width:15px;height:15px;}
+.page-search .clr-x.show{display:inline-flex;}
+
+/* Filter chip strip inside the search card. */
+.page-search .filters{display:flex;flex-wrap:wrap;align-items:center;gap:8px;margin-top:16px;padding-top:14px;border-top:1px solid var(--line);}
+.page-search .filters .flabel{font-size:11px;font-weight:800;text-transform:uppercase;letter-spacing:.09em;color:var(--ink-3);margin-right:2px;}
+.page-search .fchip{font-family:inherit;font-size:12.5px;font-weight:700;color:var(--ink-2);background:var(--canvas);border:1.5px solid var(--line);border-radius:var(--r-pill);padding:5px 12px;cursor:pointer;transition:background .13s,border-color .13s,color .13s;}
+.page-search .fchip:hover{border-color:var(--az-gold);color:var(--az-gold-d);}
+.page-search .fchip.on{background:var(--az-gold);border-color:var(--az-gold);color:#fff;}
+
+/* Status line under the card (loading / counts / error). */
+.page-search .search-status{max-width:760px;margin:16px auto 0;font-size:13.5px;font-weight:700;color:var(--ink-3);min-height:20px;text-align:center;}
+.page-search .search-status .err{color:var(--az-red);}
+
+/* New rule: the "stub data" flag. The mockup has no fake-data state to copy, so
+   every value is borrowed from one it does define — `#fdeec2` is the single warm
+   color in the whole stylesheet (its `mark` highlight background, used by
+   `.doc-title mark,.doc-sub mark`), and the pill's geometry and type are the
+   `.card .head-row .count` chip's (4px 12px, 12.5px/800, `--r-pill`). The 8px
+   gap is the `.filters` gap. Nothing here is invented. It disappears on its own
+   in Task 12: it only renders while the backend reports provider "stub". */
+.page-search .stub-badge{display:inline-block;margin-left:8px;background:#fdeec2;color:var(--ink-2);border-radius:var(--r-pill);padding:4px 12px;font-size:12.5px;font-weight:800;}
+
+/* Results panel header — the shared `.card` primitive plus this page's head-row
+   values (home's differ; see the convention note at the top of the file). */
+.page-search .card-head{position:relative;}
+.page-search .card-head::after{content:"";position:absolute;left:20px;right:20px;bottom:0;height:2px;border-radius:999px;background:var(--az-gold-100);}
+/* The mockup spaces its cards with `.card + .card{margin-top:var(--gap)}`, which
+   can't fire here because the status line sits between the two cards. Same value,
+   re-hung on the selector that does match. */
+.page-search .search-status + .card{margin-top:var(--gap);}
+.page-search .card .head-row{display:flex;align-items:center;gap:12px;padding:20px 24px 12px;}
+.page-search .card .head-row .ic{width:40px;height:40px;border-radius:13px;display:grid;place-items:center;flex:0 0 40px;background:var(--az-gold-100);color:var(--az-gold-d);}
+/* The mockup sizes this one icon with width/height ATTRIBUTES on the <svg>
+   (`width="20" height="20"`); expressed as CSS because the shared SearchIcon
+   component takes a class, not a size. Same 20px. */
+.page-search .card .head-row .ic svg{width:20px;height:20px;}
+.page-search .card .head-row h2{font-size:19px;color:var(--navy);font-weight:800;}
+.page-search .card .head-row .count{margin-left:auto;font-size:12.5px;font-weight:800;color:var(--ink-3);background:var(--canvas);border-radius:var(--r-pill);padding:4px 12px;}
+
+/* Document rows — the mockup's `.doc`, used both for a group's document header and
+   for each chunk hit inside it. */
+.page-search .doc{display:flex;align-items:center;gap:15px;padding:14px 22px;border-bottom:1px solid var(--line);transition:background .15s;color:inherit;}
+.page-search .doc:last-child{border-bottom:0;}
+.page-search .doc:hover{background:#fafafe;text-decoration:none;}
+.page-search .doc-ic{flex:0 0 40px;width:40px;height:40px;border-radius:12px;display:grid;place-items:center;background:var(--az-gold-100);color:var(--az-gold-d);}
+.page-search .doc-ic svg{width:19px;height:19px;}
+.page-search .doc-main{flex:1;min-width:0;}
+.page-search .doc-title{display:block;font-size:15.5px;font-weight:700;color:var(--navy);}
+.page-search .doc:hover .doc-title{color:var(--az-gold-d);}
+.page-search .doc-sub{display:block;font-size:13px;color:var(--ink-3);font-weight:600;margin-top:2px;}
+.page-search .doc-pill{flex:0 0 auto;display:inline-flex;align-items:center;gap:7px;font-size:12px;font-weight:800;color:var(--ink-2);background:var(--canvas);border:1px solid var(--line);border-radius:var(--r-pill);padding:6px 13px;white-space:nowrap;}
+.page-search .doc:hover .doc-pill{border-color:var(--az-gold);color:var(--az-gold-d);}
+.page-search .doc-pill svg{width:13px;height:13px;}
+
+/* Relevance meter on a chunk row (the mockup's `.doc .rel`). */
+.page-search .doc .rel{flex:0 0 auto;display:inline-flex;align-items:center;gap:7px;margin-left:8px;font-size:11px;font-weight:800;color:var(--ink-3);}
+.page-search .doc .rel .bar{width:50px;height:6px;border-radius:3px;background:#edeef4;overflow:hidden;}
+.page-search .doc .rel .bar i{display:block;height:100%;background:var(--az-gold);}
+
+/* Grouped results: one `.grp` tile per document, its hits in the dashed `.ctx`
+   box. `#results` → `.results` is the only edit — an id inside a component is a
+   page-wide uniqueness claim the component can't keep. */
+.page-search .grp{margin:12px 14px;border:1px solid var(--line);border-radius:var(--r-lg);overflow:hidden;box-shadow:var(--shadow-sm);}
+.page-search .results>.grp:first-child{margin-top:14px;}
+.page-search .grp>.doc{border-bottom:0;}
+/* New rules: the group's document header row can't be clicked until Plan 4's PDF
+   panel exists, so cancel the mockup's three hover affordances on THAT row only —
+   the chunk rows nested in `.ctx` keep them, being real links. Each declaration
+   just restates the corresponding base rule's own value. */
+.page-search .grp>.doc:hover{background:transparent;}
+.page-search .grp>.doc:hover .doc-title{color:var(--navy);}
+.page-search .grp>.doc:hover .doc-pill{border-color:var(--line);color:var(--ink-2);}
+.page-search .ctx{margin:0 14px 14px;border:1px dashed #cdd3e6;border-radius:var(--r-md);background:#fafbff;}
+.page-search .ctx-row{display:flex;align-items:center;gap:10px;padding:11px 14px;flex-wrap:wrap;}
+.page-search .ctx-row .badge{display:inline-flex;align-items:center;gap:7px;font-size:12.5px;font-weight:800;color:var(--navy);}
+.page-search .ctx-row .badge svg{width:15px;height:15px;color:var(--az-gold-d);flex:0 0 auto;}
+.page-search .ctx-row .spacer{flex:1;}
+/* The display:none/`.open` pair is ported as-is even though ResultCard always
+   renders `tray open` — leaving the collapse mechanism intact costs two lines and
+   is what Plan 4 would reuse to fold very large groups. */
+.page-search .ctx .tray{display:none;border-top:1px dashed #cdd3e6;}
+.page-search .ctx .tray.open{display:block;}
+.page-search .ctx .tray .doc{padding:11px 14px;}
+.page-search .ctx .tray .doc:not(:last-child){border-bottom:1px dashed #e3e7f1;}
+
+.page-search .empty{padding:26px 24px;text-align:center;color:var(--ink-2);font-weight:600;}
+
+@media (max-width:760px){
+  .page-search .doc{flex-wrap:wrap;}
+  .page-search .doc-pill{margin-left:53px;}
+}
+
 /* ===== Settings stub (replaced by the real Settings surface in Plan 5) =====
    No mockup counterpart exists yet, so this borrows the mockup's `.card` panel above
    and reuses existing mockup values: the 34px/12px page padding from home's

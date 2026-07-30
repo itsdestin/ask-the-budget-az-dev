@@ -1,5 +1,8 @@
 import { useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
+// The mockup's magnifier glyph, shared with the search page (Task 9) so the two
+// pages can't drift apart. Sizing still comes from each page's own CSS.
+import { SearchIcon } from "../components/SearchIcon";
 
 // Home — ported from the approved JLBC mockup's home page (webapp/reference/index.html),
 // trimmed to this app's three surfaces (spec S12: port, don't redesign).
@@ -64,17 +67,7 @@ export function Home() {
             }}
           >
             <div className="search-field">
-              <svg
-                className="s-ic"
-                viewBox="0 0 24 24"
-                fill="none"
-                stroke="currentColor"
-                strokeWidth="2"
-                aria-hidden="true"
-              >
-                <circle cx="11" cy="11" r="7" />
-                <path d="m21 21-4.3-4.3" />
-              </svg>
+              <SearchIcon className="s-ic" />
               <input
                 type="search"
                 name="q"
@@ -102,16 +95,7 @@ export function Home() {
           <Link className="m-card a-gold" to="/search" aria-label="Budget Library">
             <div className="cardhead">
               <span className="ic">
-                <svg
-                  viewBox="0 0 24 24"
-                  fill="none"
-                  stroke="currentColor"
-                  strokeWidth="2"
-                  aria-hidden="true"
-                >
-                  <circle cx="11" cy="11" r="7" />
-                  <path d="m21 21-4.3-4.3" />
-                </svg>
+                <SearchIcon />
               </span>
               {/* <h2>, not <div>: gives the page a heading outline under the hero's h1.
                   Visually identical — the base reset zeroes heading margins and `.t`
