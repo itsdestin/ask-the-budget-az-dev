@@ -27,7 +27,14 @@ def _default_provider() -> SearchProvider:
     repo's data/insight-data) whether budget_chunks has rows. Fresh checkouts,
     CI, and dev machines that haven't run the Plan 1 migration have none, and
     get the stub plus an honest stderr note saying WHY — a silent fallback
-    would leave "why is my search returning fake rows" undiagnosable."""
+    would leave "why is my search returning fake rows" undiagnosable.
+
+    Deliberate tradeoff: corpus availability is checked ONCE, at app startup.
+    A corpus migrated while the server runs is not picked up (restart to use
+    it), and a share that goes offline mid-session surfaces per-request as the
+    search route's 503, not as a fallback to stub — swapping in fake rows
+    mid-session because the share hiccuped would be far worse than an honest
+    error. Plan 5's launcher owns any fancier health ladder."""
     try:
         from store.chunk_store import ChunkStore
 

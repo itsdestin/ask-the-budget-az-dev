@@ -123,13 +123,18 @@ export function ResultCard({ family }: { family: FamilyGroup }) {
                   <div className="doc-main">
                     <span className="doc-sub">{chunk.snippet}</span>
                   </div>
-                  {/* Relevance meter. Score treated as a 0–1 fraction for the bar
-                      and clamped (a real provider's scale is its own business);
-                      the number prints as-is — no "%", that would be a claim the
-                      API does not make. */}
+                  {/* Relevance meter. The real provider emits raw cross-encoder
+                      LOGITS (roughly -10..10, negatives normal) — a plain 0–1
+                      clamp would pin every real bar at 100%. The sigmoid is that
+                      model's own probability reading of its logit, so the bar
+                      shows an honest 0–1 without inventing a scale (and the
+                      stub's 0.67–0.95 fixture scores land at sensible 66–72%
+                      widths through the same formula). The printed number stays
+                      the RAW score — no "%", that would be a claim the API does
+                      not make. */}
                   <span className="rel" title="relevance score (provider-defined scale)">
                     <span className="bar">
-                      <i style={{ width: `${Math.min(Math.max(chunk.score, 0), 1) * 100}%` }} />
+                      <i style={{ width: `${(1 / (1 + Math.exp(-chunk.score))) * 100}%` }} />
                     </span>
                     {chunk.score.toFixed(2)}
                   </span>

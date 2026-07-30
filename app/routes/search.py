@@ -31,12 +31,23 @@ def search(body: SearchBody, request: Request):
     if not body.query.strip():
         raise HTTPException(status_code=400, detail="query is empty")
     provider = request.app.state.provider
-    results = provider.search(
-        body.query, top_k=body.top_k, corpus=body.corpus,
-        # exclude_none so providers can test `filters.get(k)` for "not set"
-        # instead of having to distinguish None from an empty list.
-        filters=body.filters.model_dump(exclude_none=True),
-    )
+    try:
+        results = provider.search(
+            body.query, top_k=body.top_k, corpus=body.corpus,
+            # exclude_none so providers can test `filters.get(k)` for "not set"
+            # instead of having to distinguish None from an empty list.
+            filters=body.filters.model_dump(exclude_none=True),
+        )
+    except Exception as e:
+        # A provider failure mid-request (network share offline, model weights
+        # missing, LanceDB lock) would otherwise escape as FastAPI's PLAIN-TEXT
+        # "Internal Server Error" — which the web client can't parse, so the
+        # user would see a bare "search failed: 500". A JSON 503 with the real
+        # cause rides the client's existing `detail` plumbing instead.
+        raise HTTPException(
+            status_code=503,
+            detail=f"Search backend failed: {type(e).__name__}: {e}",
+        ) from e
     # Frozen-contract note: `total` is the count of rows actually returned,
     # AFTER top_k truncation — it is not a corpus-wide count of matches.
     return {"results": results, "total": len(results), "provider": provider.name}

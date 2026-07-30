@@ -96,3 +96,60 @@ def test_falsy_injected_provider_is_not_replaced_by_stub():
     # text still shows) would silently discard this provider because it is falsy.
     client = TestClient(create_app(provider=_FalsyProvider()))
     assert client.get("/health").json()["provider"] == "fake"
+
+
+class _FakeStore:
+    """Stands in for ChunkStore so the probe's three branches run model-free."""
+
+    behavior = "empty"  # overridden per test: "empty" | "populated" | "broken"
+
+    def __init__(self, **kw):
+        if self.behavior == "broken":
+            raise RuntimeError("share unreachable")
+
+    def count(self, name):
+        return 7755 if self.behavior == "populated" else 0
+
+
+def _probe_with(monkeypatch, behavior):
+    from app import main as app_main
+
+    _FakeStore.behavior = behavior
+    monkeypatch.setattr("store.chunk_store.ChunkStore", _FakeStore)
+    return app_main._default_provider()
+
+
+def test_default_provider_uses_real_provider_when_corpus_has_rows(monkeypatch):
+    assert _probe_with(monkeypatch, "populated").name == "lance"
+
+
+def test_default_provider_falls_back_to_stub_on_empty_corpus(monkeypatch, capsys):
+    assert _probe_with(monkeypatch, "empty").name == "stub"
+    # The fallback must say WHY on stderr, not happen silently.
+    assert "budget_chunks table is empty" in capsys.readouterr().err
+
+
+def test_default_provider_falls_back_to_stub_when_probe_raises(monkeypatch, capsys):
+    assert _probe_with(monkeypatch, "broken").name == "stub"
+    assert "share unreachable" in capsys.readouterr().err
+
+
+class _ExplodingProvider:
+    """Provider whose search dies mid-request — the share-offline scenario."""
+
+    name = "lance"
+
+    def search(self, query, *, top_k, corpus, filters):
+        raise OSError("network share unreachable")
+
+
+def test_provider_failure_is_a_json_503_not_a_plain_500():
+    # Without the route's try/except this would be FastAPI's PLAIN-TEXT
+    # "Internal Server Error", which the web client's detail plumbing can't
+    # parse — the user would see a bare status code with no cause.
+    client = TestClient(
+        create_app(provider=_ExplodingProvider()), raise_server_exceptions=False
+    )
+    r = client.post("/api/search", json={"query": "budget"})
+    assert r.status_code == 503
+    assert "network share unreachable" in r.json()["detail"]
