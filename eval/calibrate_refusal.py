@@ -6,13 +6,13 @@ maximizes the combined score.
 
 The recommended threshold is a SUGGESTION. The runtime threshold is
 currently embedded in the MCP system prompt at
-`mcp-server/system-prompt.md` (lines mentioning `refusal_no_retrieval
-— top_score < 0.65`, with a second reference in the rules table —
-0.65 set 2026-05-22 after the first calibration sweep). Updating it
-means editing those prompt lines, NOT flipping a Python constant. The
-original Phase 1b plan envisioned a constant in retrieval/pipeline.py
-named REFUSAL_RERANKER_THRESHOLD; that was never built and the prompt
-holds the value instead.
+`mcp-server/system-prompt.md` (the `refusal_no_retrieval` section plus
+a second reference in the rules table — 1.9 set 2026-07-30 for the
+local L-12 reranker's logit scale; previously 0.65 on Voyage's 0..1
+scale, set 2026-05-22). Updating it means editing those prompt lines,
+NOT flipping a Python constant. The original Phase 1b plan envisioned
+a constant in retrieval/pipeline.py named REFUSAL_RERANKER_THRESHOLD;
+that was never built and the prompt holds the value instead.
 
 Invocation:
     uv run python -m eval.calibrate_refusal
@@ -24,23 +24,53 @@ import argparse
 import json
 from pathlib import Path
 
-# Sweep spans the observed Voyage rerank-2.5 score distribution. The
-# original 0.10-0.40 window (from the plan) was entirely below the
-# corpus's actual top_scores (~0.50-0.95), so every threshold tied
-# at 0% refusal precision. Widening to 0.10-0.90 in 0.05 steps
-# surfaces meaningful tradeoffs.
-DEFAULT_THRESHOLDS = [round(0.10 + i * 0.05, 2) for i in range(17)]
+# Post-Plan-1 the scores are raw cross-encoder logits (roughly -10..10,
+# negatives normal), not Voyage's 0..1 — so a fixed grid goes stale the
+# moment the model changes. Instead the sweep derives its range from the
+# scores actually present in the result file being calibrated: min..max
+# of top_score in 25 even steps. This survived one scale change already
+# (Voyage 0.30-grid → 0.50-0.95 reality, 2026-05-22); deriving from data
+# means it survives the next one too.
+SWEEP_STEPS = 25
+
+# Scores at or below this are the pipeline's "found nothing at all"
+# sentinel (NO_RESULTS_TOP_SCORE = -1e9) or the eval's crashed-retrieve
+# marker — not real model output. They must not stretch the sweep range.
+_SENTINEL_FLOOR = -1e8
+
+
+def thresholds_from_scores(per_query: list[dict]) -> list[float]:
+    """Derive sweep thresholds from the observed top_score distribution,
+    excluding sentinel values."""
+    scores = sorted(
+        p["top_score"] for p in per_query if p["top_score"] > _SENTINEL_FLOOR
+    )
+    if not scores:
+        raise ValueError(
+            "No real top_scores in this result file (every query hit the "
+            "no-results sentinel) — nothing to calibrate against."
+        )
+    lo, hi = scores[0], scores[-1]
+    if lo == hi:
+        return [round(lo, 2)]
+    step = (hi - lo) / SWEEP_STEPS
+    return [round(lo + i * step, 2) for i in range(SWEEP_STEPS + 1)]
 
 
 def compute_sweep(
-    result_path: str, thresholds: list[float] = DEFAULT_THRESHOLDS
+    result_path: str, thresholds: list[float] | None = None
 ) -> list[dict]:
     """For each candidate threshold, recompute refusal_precision and
-    retrieval_pass_rate from the result file's per_query data."""
+    retrieval_pass_rate from the result file's per_query data.
+
+    Thresholds default to a data-derived grid (thresholds_from_scores);
+    pass an explicit list to pin specific candidates."""
     with open(result_path, encoding="utf-8") as f:
         data = json.load(f)
 
     per_query = data["per_query"]
+    if thresholds is None:
+        thresholds = thresholds_from_scores(per_query)
     refusal_queries = [p for p in per_query if p["type"] == "refusal"]
     retrieval_queries = [p for p in per_query if p["type"] != "refusal"]
     total_refusal = len(refusal_queries)
@@ -190,7 +220,7 @@ def main() -> None:
         f"\nRecommended threshold: {pick['threshold']:.2f}"
     )
     print(
-        "To apply: edit the `top_score < 0.65` references in "
+        "To apply: edit the `top_score < <threshold>` references in "
         "mcp-server/system-prompt.md (the `refusal_no_retrieval` "
         "section + the rules table) to use the new value, then re-run "
         "the dogfood tests."
