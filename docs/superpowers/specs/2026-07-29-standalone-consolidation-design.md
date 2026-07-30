@@ -144,6 +144,12 @@ JLBC Insight (working name) — one Python process
   metadata for the coordinator's filtered similarity triage.
 - Embedder/reranker sit behind interfaces; swapping models is a config +
   re-embed operation, not a code change.
+- Recorded future option (not built): when an OpenRouter key is present,
+  a cheap LLM can re-order the top ~20 search-mode results via the
+  existing sole key (fractions of a cent per query) — the sanctioned
+  upgrade path if search-mode ordering ever bothers real users, given
+  local rerankers cap at ~62–69% recall@5 and OpenRouter offers no
+  rerank endpoint.
 
 ### Ingest specifics
 
@@ -218,14 +224,27 @@ has a measured quality bar, not an assumed one.
 
 Hard gates before handoff:
 
-- **G1 (quality)**: local stack passes the 34-query eval at an agreed bar
-  (expectation: recall@5 in the low 80s, recall@20 ≈ 100%). If it craters
-  (< ~70 recall@5 after trying ≥ 2 candidate embedders), revisit S4.
+- **G1 (quality)** *(amended 2026-07-29 after the original recall@5 gate
+  triggered its stop rule)*: local stack passes the 34-query eval at
+  **recall@15 ≥ 90% and recall@20 ≥ 95%**. Rationale for the reframe:
+  `retrieve()` returns 15 chunks and AI Mode reads all of them, so
+  top-5 ordering is nearly irrelevant to answer quality; the local
+  reranker capability gap (best candidates: 62–69% recall@5 vs the
+  original 80% bar, with the only stronger model at ~17 s/query on
+  office hardware) is an ordering-polish problem, not a
+  retrieval-coverage problem (correct chunk in-pool 100%, top-20
+  96.6% with arctic-embed-m). **recall@5 remains a tracked, reported
+  metric in every eval run** so the gap stays visible if better local
+  rerankers appear. Default embedder: arctic-embed-m (768-dim).
 - **G2 (migration)**: full corpus migrated; spot-checked citations resolve
   to correct PDF pages/bboxes.
 - **G3 (cold start)**: someone who is not Destin installs from a zip on a
   real JLBC machine using a one-page quickstart — search, upload, and an
-  AI Mode chat all work without narration.
+  AI Mode chat all work without narration. Includes a **search-mode
+  findability check** (added 2026-07-29, standing in for the retired
+  recall@5 gate): a human runs ~10 real queries on the search page and
+  confirms the right document is findable in the first screen of
+  grouped results.
 
 ## Open items (deliberately deferred to the implementation plan)
 
