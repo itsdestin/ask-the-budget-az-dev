@@ -402,29 +402,21 @@ nav.primary{flex:1 1 auto;display:flex;flex-wrap:nowrap;align-items:center;justi
    it scroll internally is the fix. The mockup's own `@media (max-width:860px)` escape does
    not help: it keys on WIDTH, and a 1366x768 laptop is wide enough to keep the rail sticky.
    116px = the header's 100px sticky offset (above) + 16px of breathing room. */
-/* Added: the rail is ~760px tall with all four groups; the scroll clamp lives on an INNER
-   wrapper (`.fnrail-scroll`), not on `.fnside` itself, so the scrollbar rides inside the
-   card's 8px padding instead of flush against the border where it clipped the rounded
-   top corner (Destin flagged it). 134px = header's 100px sticky offset + 16px breathing
-   room + the card's own ~18px of border+padding. `margin-right:-6px` lets the bar sit in
-   the card's padding lane so the groups keep (almost) their full width while scrolling. */
-.page-fiscal-notes .fnrail-scroll{max-height:calc(100vh - 134px);overflow-y:auto;margin-right:-6px;}
-/* Both scroll containers on this page are OURS — the static mockup never scrolled, so it
-   has no scrollbar treatment to port. Untreated, Windows' default ~17px bars overlap the
-   cards and shove the session rows off-center (Destin flagged it). NO
-   `scrollbar-gutter:stable` here: reserving the lane up front was what squeezed the year
-   rows narrower than the chamber control above them. Instead `.yscroll` extends 8px into
-   its `.fgrp`'s right padding (margin-right:-8px), so the bar occupies that padding lane
-   and the rows keep their designed width. */
-.page-fiscal-notes .fnrail-scroll,
-.page-fiscal-notes .yscroll{scrollbar-width:thin;scrollbar-color:var(--line) transparent;}
-.page-fiscal-notes .yscroll{margin-right:-8px;}
-.page-fiscal-notes .fnrail-scroll::-webkit-scrollbar,
+/* Destin's call (2026-07-29): the rail itself does NOT scroll — the session list is the
+   page's only scroll container. With the list capped at 5 rows (below), the whole rail is
+   ~490px tall, which fits under the sticky header even on a 768px-tall laptop, so the old
+   viewport clamp is no longer needed.
+   The list's scrollbar is OURS (the static mockup never scrolled) — thin, token-colored,
+   and riding in the `.fgrp`'s 8px right padding (margin-right:-8px) so the year rows keep
+   their designed width instead of being squeezed narrower than the chamber control. */
+.page-fiscal-notes .yscroll{scrollbar-width:thin;scrollbar-color:var(--line) transparent;margin-right:-8px;}
 .page-fiscal-notes .yscroll::-webkit-scrollbar{width:8px;}
-.page-fiscal-notes .fnrail-scroll::-webkit-scrollbar-thumb,
 .page-fiscal-notes .yscroll::-webkit-scrollbar-thumb{background:var(--line);border-radius:999px;}
-.page-fiscal-notes .fnrail-scroll::-webkit-scrollbar-track,
 .page-fiscal-notes .yscroll::-webkit-scrollbar-track{background:transparent;}
+/* Destin's call (2026-07-29): show ~5 years by default, not the mockup's 330px (~8).
+   One `.frow` = ~16.8px line + 16px padding + 2px border ≈ 35px; 5 × 35 = 175, +3 so the
+   fifth row never clips on font-metric rounding. */
+.page-fiscal-notes .yscroll{max-height:178px;}
 .page-fiscal-notes .fnside .fgrp{padding:8px 8px 14px;}
 .page-fiscal-notes .fnside .fgrp+.fgrp{border-top:1px solid var(--line);}
 .page-fiscal-notes .fnside .flbl{font-size:11px;font-weight:800;text-transform:uppercase;letter-spacing:.08em;color:var(--ink-3);padding:6px 8px 8px;}
