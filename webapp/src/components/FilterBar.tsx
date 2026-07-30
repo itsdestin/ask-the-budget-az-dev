@@ -1,24 +1,41 @@
 import type { SearchFilters } from "../api";
+import { FILTER_BUCKETS } from "../reportFamilies";
 
 // FilterBar — the mockup's `.filters` strip at the bottom of the big search card
 // (webapp/reference/subpage-search_jlbc.html), with its `.flabel` / `.fchip` /
-// `.fchip.on` classes so its CSS applies unmodified (spec S12).
+// `.fchip.on` / `select.fyear` classes so its CSS applies unmodified (spec S12).
 //
-// It holds no state: chips render from `selected` and report clicks back up, so
-// Search.tsx stays the single owner of the filter object it sends to the API.
+// It holds no state: everything renders from `selected` and reports changes back
+// up, so Search.tsx stays the single owner of the filter object it sends to the
+// API.
+//
+// Three dimensions:
+//   publisher   — fixed chip list (the corpus's four publishers)
+//   doc_type    — CURATED bucket chips (reportFamilies.ts), the mockup's own
+//                 approach: a fixed, always-visible set, each toggling its whole
+//                 slug family. Replaces the earlier result-derived raw-slug
+//                 chips at Destin's direction (2026-07-29).
+//   fiscal_year — the mockup's `select.fyear` dropdown. Options come from the
+//                 data (the mockup hardcoded 43 years because its index was a
+//                 static file); the selected year is always kept as an option so
+//                 a set filter can never lose its own control (same dead-end
+//                 rule as before, different widget).
+//
+// `agency` is the fourth backend filter and stays unexposed: there is no
+// agency-name vocabulary to build chips from yet.
+//
+// NO COUNTS on the chips: the mockup's chip counts ("Baseline Books (21)") are
+// corpus-wide numbers from its local index. This API has no facets/aggregate
+// endpoint, and deriving counts from the current result page would show
+// per-search numbers where the mockup showed corpus totals — a quiet lie.
+// Counts can return with a facets endpoint later.
 
-// The three filter dimensions this bar drives. They are the names of the backend's
-// filter fields (app/routes/search.py's SearchFilters), NOT display strings — they
-// are sent over the wire as-is. `agency` is the fourth backend filter and is
-// deliberately absent: there is no agency-name vocabulary to build chips from yet
-// (agency codes like "ahcccs" arrive per-result), so it stays unexposed rather
-// than shipping a chip row of raw codes.
 export type FilterKey = "publisher" | "fiscal_year" | "doc_type";
 
 // The corpus's four publishers, from data/ingest-plan.yaml (`publisher:` values:
-// jlbc, governor, agao, legislature). Fixed list — unlike years and doc types,
-// these do not depend on what the current search happened to return, so all four
-// stay clickable even when the result set contains none of them.
+// jlbc, governor, agao, legislature). Fixed list — these do not depend on what
+// the current search happened to return, so all four stay clickable even when
+// the result set contains none of them.
 const PUBLISHERS: { value: string; label: string }[] = [
   { value: "jlbc", label: "JLBC" },
   { value: "governor", label: "Governor" },
@@ -35,27 +52,29 @@ export function publisherLabel(value: string): string {
 
 interface FilterBarProps {
   selected: SearchFilters;
-  /** Fiscal years offered as chips (accumulated from results by Search.tsx). */
+  /** Fiscal years offered in the dropdown (accumulated from results by Search.tsx). */
   years: number[];
-  /** Doc types offered as chips (accumulated from results by Search.tsx). */
-  docTypes: string[];
   onToggle: (key: FilterKey, value: string | number) => void;
+  /** Toggle a curated bucket's whole slug list in the doc_type filter. */
+  onToggleBucket: (slugs: string[]) => void;
+  /** Set the (single) fiscal-year filter; null clears it. */
+  onYearChange: (year: number | null) => void;
 }
 
-export function FilterBar({ selected, years, docTypes, onToggle }: FilterBarProps) {
-  // INVARIANT: anything you can turn on, you can always turn off.
-  //
-  // The year and type options come from whatever the last response contained, but
-  // a filter STAYS SET when the query changes. So a filter that now matches
-  // nothing (search "roads" with type=afr, get 0 rows) would offer no chips at
-  // all — the filter would still be applied and sent, with no visible way to
-  // clear it, and the page would just claim "no matches". Unioning the SELECTED
-  // values into the offered ones guarantees a set filter is always on screen and
-  // always clickable. (Publisher needs no such fix: it is a fixed list.)
-  const yearOpts = [...new Set([...years, ...(selected.fiscal_year ?? [])])].sort(
+export function FilterBar({ selected, years, onToggle, onToggleBucket, onYearChange }: FilterBarProps) {
+  // A set filter must always keep its own control on screen (the dead-end rule):
+  // the year options come from results, but a year chosen under an earlier query
+  // may not appear in the next query's results — union the selection in.
+  const selectedYear = selected.fiscal_year?.[0] ?? null;
+  const yearOpts = [...new Set([...years, ...(selectedYear !== null ? [selectedYear] : [])])].sort(
     (a, b) => b - a, // newest fiscal year first, matching Search.tsx's ordering
   );
-  const typeOpts = [...new Set([...docTypes, ...(selected.doc_type ?? [])])].sort();
+
+  // A bucket chip is "on" when every one of its slugs is in the filter. Partial
+  // overlap can't happen through this UI (buckets are the only doc_type control
+  // and their slug sets don't intersect), so this reads as plain on/off.
+  const selectedTypes = selected.doc_type ?? [];
+  const bucketOn = (slugs: string[]) => slugs.every((s) => selectedTypes.includes(s));
 
   function chip(key: FilterKey, value: string | number, label: string) {
     const on = ((selected[key] ?? []) as (string | number)[]).includes(value);
@@ -76,12 +95,10 @@ export function FilterBar({ selected, years, docTypes, onToggle }: FilterBarProp
   }
 
   // ONE `.filters` row for all three groups, not one row per group. The mockup's
-  // `.filters` rule is a single bordered strip (`border-top` + `margin-top:16px`),
-  // so stacking three of them would draw three divider lines the mockup never
-  // has. Grouping inside it uses the mockup's own idiom: it wraps its type chips
-  // in `<span style="display:contents">` so they still lay out as items of the
-  // one flex row. Same trick here, one span per dimension, each introduced by the
-  // mockup's `.flabel`.
+  // `.filters` rule is a single bordered strip, so stacking three would draw
+  // divider lines the mockup never has. Grouping uses the mockup's own idiom:
+  // `<span style="display:contents">` so everything lays out as items of the one
+  // flex row.
   return (
     <div className="filters">
       <span style={{ display: "contents" }}>
@@ -89,36 +106,38 @@ export function FilterBar({ selected, years, docTypes, onToggle }: FilterBarProp
         {PUBLISHERS.map((p) => chip("publisher", p.value, p.label))}
       </span>
 
-      {/* Years and types only appear once a response has shown they exist — no
-          invented option lists. The mockup hardcoded 43 <option> years because its
-          index was a static file; this corpus's coverage is whatever has been
-          ingested, so the chips come from the data. */}
-      {yearOpts.length > 0 && (
-        <span style={{ display: "contents" }}>
-          <span className="flabel">Fiscal year</span>
-          {/* "FY 2027" is the mockup's own year wording (its `select.fyear`
-              options read `FY 2027`, `FY 2026`, …). */}
-          {yearOpts.map((y) => chip("fiscal_year", y, `FY ${y}`))}
-        </span>
-      )}
+      <span style={{ display: "contents" }}>
+        <span className="flabel">Type</span>
+        {FILTER_BUCKETS.map((bucket) => (
+          <button
+            key={bucket.label}
+            type="button"
+            className={bucketOn(bucket.slugs) ? "fchip on" : "fchip"}
+            aria-pressed={bucketOn(bucket.slugs)}
+            onClick={() => onToggleBucket(bucket.slugs)}
+          >
+            {bucket.label}
+          </button>
+        ))}
+      </span>
 
-      {typeOpts.length > 0 && (
-        <span style={{ display: "contents" }}>
-          <span className="flabel">Type</span>
-          {/* Labels are the raw contract values ("baseline-per-agency", from
-              data/ingest-plan.yaml's `doc_type:` keys — the same strings the
-              search fixtures return). There is no display-name vocabulary for
-              doc_type anywhere in the repo, so prettifying them here would be
-              inventing document-category names. Swap in a label map when the
-              corpus vocabulary is finalized.
-
-              NOTE: the enum comment in db/migrations/0001_initial_schema.sql is
-              NOT a usable source for that map — it is already stale (it says
-              `baseline-agency`, the data says `baseline-per-agency`). Don't
-              build labels from it without reconciling the two first. */}
-          {typeOpts.map((t) => chip("doc_type", t, t))}
-        </span>
-      )}
+      <span style={{ display: "contents" }}>
+        <span className="flabel">Fiscal year</span>
+        {/* The mockup's `select.fyear`, "All years" first, "FY 2027" wording. */}
+        <select
+          className="fyear"
+          aria-label="Filter by fiscal year"
+          value={selectedYear ?? ""}
+          onChange={(e) => onYearChange(e.target.value === "" ? null : Number(e.target.value))}
+        >
+          <option value="">All years</option>
+          {yearOpts.map((y) => (
+            <option key={y} value={y}>
+              FY {y}
+            </option>
+          ))}
+        </select>
+      </span>
     </div>
   );
 }

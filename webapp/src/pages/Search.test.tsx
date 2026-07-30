@@ -125,24 +125,29 @@ test("resubmitting the identical query re-runs the search", async () => {
 });
 
 // Regression guard: a filter you set must stay clearable even when it matches
-// nothing. Year/type chips are derived from the results, and the derived list is
+// nothing. Year options are derived from the results, and the derived list is
 // RESET when the query changes — but the filter itself persists. So searching
 // again under a filter that now excludes every row used to erase that filter's
-// own chip, leaving it applied and still sent to the API with no way to undo it.
+// own option, leaving it applied and still sent to the API with no way to undo
+// it.
 //
-// NOTE for whoever edits this: the failure needs the QUERY to change. Toggling a
+// NOTE for whoever edits this: the failure needs the QUERY to change. Choosing a
 // filter on the same query can't reproduce it, because the facet list accumulates
 // within a query (see mergeFacets in Search.tsx).
-test("a filter kept across a new query stays visible and clearable", async () => {
+test("a year filter kept across a new query stays selectable and clearable", async () => {
   const spy = vi
     .spyOn(api, "search")
-    // Only the FIRST search finds anything, and it is what offers the FY 2027 chip.
+    // Only the FIRST search finds anything, and it is what offers FY 2027.
     .mockResolvedValueOnce({ results: [RESULT], total: 1, provider: "stub" })
     .mockResolvedValue({ results: [], total: 0, provider: "stub" });
 
   render(<MemoryRouter initialEntries={["/search?q=ahcccs"]}><Search /></MemoryRouter>);
 
-  fireEvent.click(await screen.findByRole("button", { name: /FY 2027/ }));
+  const dropdown = await screen.findByLabelText(/filter by fiscal year/i);
+  await waitFor(() =>
+    expect(screen.getByRole("option", { name: "FY 2027" })).toBeInTheDocument(),
+  );
+  fireEvent.change(dropdown, { target: { value: "2027" } });
   await waitFor(() =>
     expect(spy).toHaveBeenLastCalledWith(
       "ahcccs",
@@ -152,7 +157,7 @@ test("a filter kept across a new query stays visible and clearable", async () =>
   );
 
   // Search for something else. FY 2027 stays selected, but the new (empty)
-  // response offers no years at all — the moment the chip used to disappear.
+  // response offers no years at all — the moment the option used to disappear.
   const box = screen.getByLabelText(/search arizona budget documents/i);
   fireEvent.change(box, { target: { value: "roads" } });
   fireEvent.submit(box);
@@ -164,12 +169,94 @@ test("a filter kept across a new query stays visible and clearable", async () =>
     ),
   );
 
-  const stillThere = screen.getByRole("button", { name: /FY 2027/ });
-  expect(stillThere).toHaveAttribute("aria-pressed", "true");
+  // The selected year is still an option and still selected.
+  expect(screen.getByRole("option", { name: "FY 2027" })).toBeInTheDocument();
+  expect(dropdown).toHaveValue("2027");
   // The empty state blames the filter, not the corpus.
   expect(screen.getByText(/with the filters above/i)).toBeInTheDocument();
 
-  // And it really does undo: the dimension is dropped, not sent as an empty array.
-  fireEvent.click(stillThere);
+  // And it really does undo: "All years" drops the dimension entirely, not
+  // sending an empty array.
+  fireEvent.change(dropdown, { target: { value: "" } });
   await waitFor(() => expect(spy).toHaveBeenLastCalledWith("roads", {}, "budget"));
+});
+
+// The curated type buckets (reportFamilies.ts): one chip toggles its whole slug
+// family through the doc_type filter, and toggling off drops the dimension.
+test("a type bucket chip sends its whole slug family", async () => {
+  const spy = vi
+    .spyOn(api, "search")
+    .mockResolvedValue({ results: [], total: 0, provider: "stub" });
+
+  render(<MemoryRouter initialEntries={["/search?q=x"]}><Search /></MemoryRouter>);
+  await waitFor(() => expect(spy).toHaveBeenCalled());
+
+  // Bucket chips are a fixed curated set — visible before any results exist.
+  const chip = screen.getByRole("button", { name: /baseline books/i });
+  fireEvent.click(chip);
+  await waitFor(() =>
+    expect(spy).toHaveBeenLastCalledWith(
+      "x",
+      expect.objectContaining({
+        doc_type: ["baseline-per-agency", "baseline-cross-cut"],
+      }),
+      "budget",
+    ),
+  );
+  expect(chip).toHaveAttribute("aria-pressed", "true");
+
+  fireEvent.click(chip);
+  await waitFor(() => expect(spy).toHaveBeenLastCalledWith("x", {}, "budget"));
+});
+
+// Family grouping (Destin, 2026-07-29): documents of the same report and year
+// share one card titled for the report, with a link to its full single-file PDF
+// when a hand-verified URL exists.
+test("results group under their report family with a full-PDF link", async () => {
+  vi.spyOn(api, "search").mockResolvedValue({
+    results: [
+      RESULT,
+      { ...RESULT, chunk_id: "c9", doc_id: "d2", doc_title: "FY 2027 Baseline — DCS", page: 4 },
+    ],
+    total: 2,
+    provider: "stub",
+  });
+  render(<MemoryRouter initialEntries={["/search?q=x"]}><Search /></MemoryRouter>);
+
+  // One family card for both documents…
+  await waitFor(() => expect(screen.getByText("FY 2027 Baseline")).toBeInTheDocument());
+  expect(screen.getByText("FY 2027 Baseline — AHCCCS")).toBeInTheDocument();
+  expect(screen.getByText("FY 2027 Baseline — DCS")).toBeInTheDocument();
+  expect(screen.getByText(/2 documents · 2 matching passages/)).toBeInTheDocument();
+
+  // …with the hand-verified single-file PDF link (reportFamilies.ts).
+  const link = screen.getByRole("link", { name: /full report \(pdf\)/i });
+  expect(link).toHaveAttribute(
+    "href",
+    "https://www.azjlbc.gov/budget/27baselinesinglefile.pdf",
+  );
+  expect(link).toHaveAttribute("target", "_blank");
+});
+
+// No verified URL for a family -> no button at all. A guessed link behind an
+// "open the report" action would violate the auditability invariants.
+test("families without a known single-file PDF get no full-report link", async () => {
+  vi.spyOn(api, "search").mockResolvedValue({
+    results: [
+      {
+        ...RESULT,
+        doc_id: "d3",
+        doc_title: "FY 2026 Budget Bill (SB 1735)",
+        doc_type: "budget-bill",
+        fiscal_year: 2026,
+        publisher: "legislature",
+      },
+    ],
+    total: 1,
+    provider: "stub",
+  });
+  render(<MemoryRouter initialEntries={["/search?q=x"]}><Search /></MemoryRouter>);
+
+  await waitFor(() => expect(screen.getByText("FY 2026 Budget Bill")).toBeInTheDocument());
+  expect(screen.queryByRole("link", { name: /full report/i })).not.toBeInTheDocument();
 });

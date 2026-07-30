@@ -256,6 +256,17 @@ nav.primary{flex:1 1 auto;display:flex;flex-wrap:nowrap;align-items:center;justi
 .page-search .fchip{font-family:inherit;font-size:12.5px;font-weight:700;color:var(--ink-2);background:var(--canvas);border:1.5px solid var(--line);border-radius:var(--r-pill);padding:5px 12px;cursor:pointer;transition:background .13s,border-color .13s,color .13s;}
 .page-search .fchip:hover{border-color:var(--az-gold);color:var(--az-gold-d);}
 .page-search .fchip.on{background:var(--az-gold);border-color:var(--az-gold);color:#fff;}
+/* The mockup's fiscal-year dropdown (`select.fyear`), declarations verbatim. */
+.page-search select.fyear{font-family:inherit;font-size:12.5px;font-weight:700;color:var(--ink-2);background:var(--canvas);border:1.5px solid var(--line);border-radius:var(--r-pill);padding:5px 12px;cursor:pointer;}
+
+/* The mockup's `.grp-full` "Full report" action. Its base rule (shared with the
+   unported `.grp-more` collapse button) and its gold override are merged here —
+   net computed values identical to the mockup. Ported as an <a> (it links
+   straight to the report's single-file PDF, per Destin 2026-07-29), so hover
+   also cancels the base `a:hover` underline the mockup's <button> never had. */
+.page-search .grp-full{display:inline-flex;align-items:center;gap:6px;font-family:inherit;font-size:12px;font-weight:800;border-radius:var(--r-pill);padding:6px 13px;cursor:pointer;white-space:nowrap;background:var(--az-gold);border:1px solid var(--az-gold);color:#fff;}
+.page-search .grp-full svg{width:13px;height:13px;transition:transform .18s;}
+.page-search .grp-full:hover{background:var(--az-gold-d);color:#fff;text-decoration:none;}
 
 /* Status line under the card (loading / counts / error). */
 .page-search .search-status{max-width:760px;margin:16px auto 0;font-size:13.5px;font-weight:700;color:var(--ink-3);min-height:20px;text-align:center;}

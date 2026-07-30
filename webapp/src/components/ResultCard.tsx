@@ -1,24 +1,23 @@
 import type { SearchResult } from "../api";
 import { publisherLabel } from "./FilterBar";
 
-// ResultCard — one document's worth of hits, using the mockup's grouped-result
-// markup from webapp/reference/subpage-search_jlbc.html (spec S12):
+// ResultCard — one REPORT FAMILY's worth of hits (Destin, 2026-07-29: results
+// group by fiscal year + document type, the way the mockup's engine grouped
+// under annual reports). Mockup markup from subpage-search_jlbc.html (S12):
 //
-//   .grp            the bordered, rounded group tile
-//   .doc + .doc-ic / .doc-main / .doc-title / .doc-sub / .doc-pill
-//                   the mockup's document row — used twice here: once as the
-//                   group's document header, and once per chunk hit inside it
+//   .grp            the bordered, rounded group tile — one per report family
+//   .grp > .doc     the family header row (.doc-ic / .doc-title / .doc-sub /
+//                   .doc-pill), plus the mockup's `.grp-full` "Full report"
+//                   action — here a real link to the report's single-file PDF
+//                   when a hand-verified URL exists (reportFamilies.ts)
 //   .ctx / .ctx-row / .badge / .spacer / .tray
-//                   the dashed "context" box the mockup nests a group's extra
-//                   hits inside
-//   .rel / .bar     the mockup's relevance meter (`.doc .rel`)
+//                   the dashed context box; one .ctx-row per matched DOCUMENT
+//                   (the per-agency page), its chunk hits in the .tray below
+//   .rel / .bar     the mockup's relevance meter
 //
-// The mockup's search JavaScript was not vendored (only its HTML + CSS are in
-// reference/), so this markup is reconstructed from what those CSS rules are
-// shaped for: `.grp > .doc` has its bottom border removed — i.e. exactly ONE
-// document row sits directly in the group — and `.ctx .tray .doc` re-pads and
-// dash-separates the rows nested one level deeper. Hence: header row in `.grp`,
-// chunk rows in `.ctx .tray`.
+// This is the mockup's own hierarchy read correctly: its engine collapsed a
+// Baseline year's ~110 per-agency documents into one group, with the matched
+// sub-documents as rows inside it (see the vendored search.js, familyOf).
 
 /** One document and every chunk of it that matched, best chunk first. */
 export interface DocGroup {
@@ -30,10 +29,18 @@ export interface DocGroup {
   chunks: SearchResult[];
 }
 
-// The mockup's document glyph, from the `.doc-ic` rows and the `.subhero` chip in
-// subpage-search_jlbc.html. Not extracted to a shared component the way the
-// magnifier was: Home's fiscal-note card draws the same outline PLUS two inner
-// lines, so they are different glyphs, and merging them would change one page's art.
+/** One report family (e.g. "FY 2027 Baseline") and its matched documents. */
+export interface FamilyGroup {
+  key: string;
+  title: string;
+  publisher: string;
+  fiscal_year: number | null;
+  docs: DocGroup[];
+  /** The report's full single-file PDF — null when no hand-verified URL exists. */
+  fullPdfUrl: string | null;
+}
+
+// The mockup's document glyph, from the `.doc-ic` rows in subpage-search_jlbc.html.
 function DocIcon() {
   return (
     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden="true">
@@ -43,87 +50,97 @@ function DocIcon() {
   );
 }
 
-export function ResultCard({ group }: { group: DocGroup }) {
-  const hits = group.chunks.length;
+export function ResultCard({ family }: { family: FamilyGroup }) {
+  const passages = family.docs.reduce((n, d) => n + d.chunks.length, 0);
 
   return (
     <article className="grp">
-      {/* Document header. A <div>, not the mockup's <a>: opening the source PDF is
-          Plan 4's viewer panel, and an anchor that navigates nowhere is worse than
-          no anchor. app.css cancels the `.doc:hover` tint for this row so it does
-          not advertise a click it cannot perform. */}
+      {/* Family header. A <div>, not an anchor: the family itself isn't a
+          document. The one action lives in the explicit button beside it. */}
       <div className="doc">
         <span className="doc-ic">
           <DocIcon />
         </span>
         <div className="doc-main">
-          <span className="doc-title">{group.doc_title}</span>
-          {/* Raw doc_type — see the note in FilterBar.tsx: there is no display-name
-              vocabulary for it, so the contract value is shown rather than invented prose. */}
-          <span className="doc-sub">{group.doc_type}</span>
+          <span className="doc-title">{family.title}</span>
+          <span className="doc-sub">
+            {family.docs.length === 1 ? "1 document" : `${family.docs.length} documents`} ·{" "}
+            {passages === 1 ? "1 matching passage" : `${passages} matching passages`}
+          </span>
         </div>
-        {/* Publisher + fiscal-year badges in the mockup's `.doc-pill` pills. The FY
-            pill is omitted (not rendered as "FY null") when the document has no
-            fiscal year — the API models it as nullable and the AFR-style documents
-            legitimately have none. */}
-        <span className="doc-pill">{publisherLabel(group.publisher)}</span>
-        {group.fiscal_year !== null && (
-          <span className="doc-pill">FY {group.fiscal_year}</span>
+        <span className="doc-pill">{publisherLabel(family.publisher)}</span>
+        {/* The mockup's `.grp-full` "Full report" action. The mockup opened a
+            format-chooser modal; per Destin (2026-07-29) this links straight to
+            the report's full single-file PDF. Rendered ONLY when a hand-verified
+            URL exists for this family+year (reportFamilies.ts) — no button is
+            better than a guessed link. External: azjlbc.gov. */}
+        {family.fullPdfUrl && (
+          <a
+            className="grp-full"
+            href={family.fullPdfUrl}
+            target="_blank"
+            rel="noopener noreferrer"
+          >
+            <DocIcon />
+            Full report (PDF)
+          </a>
         )}
       </div>
 
       <div className="ctx">
-        <div className="ctx-row">
-          <span className="badge">
-            <DocIcon />
-            {hits === 1 ? "1 matching passage" : `${hits} matching passages`}
-          </span>
-          <span className="spacer" />
-        </div>
-        {/* `tray open`: the mockup's tray is display:none until an "open" class is
-            added (it hid a group's extra hits behind a "more results" button).
-            Here every hit is shown, because each one is a distinct page citation
-            and that is what the user searched for — the collapse mechanism is left
-            in the CSS untouched in case Plan 4 wants it back for huge groups. */}
-        <div className="tray open">
-          {group.chunks.map((chunk) => (
-            // href="#" + data-chunk-id is the agreed stub: Plan 4 swaps this for
-            // the PDF side panel keyed on that id. preventDefault stops the "#"
-            // from scrolling the page to the top in the meantime.
-            <a
-              className="doc"
-              href="#"
-              data-chunk-id={chunk.chunk_id}
-              key={chunk.chunk_id}
-              onClick={(e) => e.preventDefault()}
-              // Out of the tab order until Plan 4 wires the viewer: keyboard users
-              // would otherwise tab through one focusable do-nothing link per
-              // passage per document to get past the results. Same reasoning as the
-              // document header row, which avoids being an anchor at all — remove
-              // this when the click does something.
-              tabIndex={-1}
-            >
-              <div className="doc-main">
-                <span className="doc-sub">{chunk.snippet}</span>
-              </div>
-              {/* Relevance meter. The bar width treats the score as a 0–1 fraction
-                  and clamps it: the stub provider emits 0.95…0.67, but the real
-                  provider's scale is its own business, and an unclamped 1.4 would
-                  paint outside the 50px track. The number is printed as-is (no
-                  "%" — the scale is provider-defined, so a percentage would be a
-                  claim the API does not make). */}
-              <span className="rel" title="relevance score (provider-defined scale)">
-                <span className="bar">
-                  <i style={{ width: `${Math.min(Math.max(chunk.score, 0), 1) * 100}%` }} />
-                </span>
-                {chunk.score.toFixed(2)}
+        {family.docs.map((doc) => (
+          <div key={doc.doc_id}>
+            {/* One labelled row per matched document (the per-agency page). */}
+            <div className="ctx-row">
+              <span className="badge">
+                <DocIcon />
+                {doc.doc_title}
               </span>
-              {/* Page badge. `page` is nullable in the contract; a chunk with no
-                  page gets no pill rather than "p. null". */}
-              {chunk.page !== null && <span className="doc-pill">p. {chunk.page}</span>}
-            </a>
-          ))}
-        </div>
+              <span className="spacer" />
+              {doc.chunks.length > 1 && (
+                <span className="doc-pill">{doc.chunks.length} passages</span>
+              )}
+            </div>
+            {/* `tray open`: the mockup's tray is display:none until opened (it hid
+                extra hits behind a "more results" button). Every hit shows here —
+                each is a distinct page citation, which is what the user searched
+                for. The collapse CSS stays untouched in case Plan 4 wants it. */}
+            <div className="tray open">
+              {doc.chunks.map((chunk) => (
+                // href="#" + data-chunk-id is the agreed stub: Plan 4 swaps this
+                // for the PDF side panel keyed on that id.
+                <a
+                  className="doc"
+                  href="#"
+                  data-chunk-id={chunk.chunk_id}
+                  key={chunk.chunk_id}
+                  onClick={(e) => e.preventDefault()}
+                  // Out of the tab order until Plan 4 wires the viewer: keyboard
+                  // users would otherwise tab through one focusable do-nothing
+                  // link per passage. Remove when the click does something.
+                  tabIndex={-1}
+                >
+                  <div className="doc-main">
+                    <span className="doc-sub">{chunk.snippet}</span>
+                  </div>
+                  {/* Relevance meter. Score treated as a 0–1 fraction for the bar
+                      and clamped (a real provider's scale is its own business);
+                      the number prints as-is — no "%", that would be a claim the
+                      API does not make. */}
+                  <span className="rel" title="relevance score (provider-defined scale)">
+                    <span className="bar">
+                      <i style={{ width: `${Math.min(Math.max(chunk.score, 0), 1) * 100}%` }} />
+                    </span>
+                    {chunk.score.toFixed(2)}
+                  </span>
+                  {/* `page` is nullable; a chunk with no page gets no pill rather
+                      than "p. null". */}
+                  {chunk.page !== null && <span className="doc-pill">p. {chunk.page}</span>}
+                </a>
+              ))}
+            </div>
+          </div>
+        ))}
       </div>
     </article>
   );

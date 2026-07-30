@@ -6,8 +6,9 @@ import { useSearchParams } from "react-router-dom";
 import * as api from "../api";
 import type { SearchFilters, SearchResponse, SearchResult } from "../api";
 import { FilterBar, type FilterKey } from "../components/FilterBar";
-import { ResultCard, type DocGroup } from "../components/ResultCard";
+import { ResultCard, type DocGroup, type FamilyGroup } from "../components/ResultCard";
 import { SearchIcon } from "../components/SearchIcon";
+import { familyOf, familyTitle, fullPdfUrl } from "../reportFamilies";
 
 // Budget Search — ported from the approved mockup's search page
 // (webapp/reference/subpage-search_jlbc.html), keeping its class names so its CSS
@@ -20,9 +21,10 @@ import { SearchIcon } from "../components/SearchIcon";
 //   - `.examples-row` (its "try one of these" query pills): the example queries were
 //     written for JLBC's own document index; inventing four for this corpus would be
 //     making up content.
-//   - `#reportModal`, `.grp-full` / `.grp-more` (its "open the full report" chooser
-//     and per-group collapse): both open PDFs, which is Plan 4's viewer panel.
-//   - `select.fyear`: replaced by fiscal-year chips per the plan — see FilterBar.tsx.
+//   - `#reportModal` (the TOC-vs-single-file format chooser) and `.grp-more` (the
+//     per-group collapse): per Destin (2026-07-29), `.grp-full` links STRAIGHT to
+//     the report's single-file PDF instead of opening the chooser — see
+//     reportFamilies.ts. Per-chunk PDF opening is still Plan 4's viewer panel.
 //   - `.acc*` (the year accordion) and the sidebar/footer blocks: not part of this page.
 
 /** What the page is currently showing. One state, so "loading" and "error" and
@@ -35,11 +37,12 @@ type Phase =
   | { kind: "ready"; res: SearchResponse }
   | { kind: "error"; message: string };
 
-/** Chip options harvested from results, remembered per query (see mergeFacets). */
+/** Year options harvested from results, remembered per query (see mergeFacets).
+ *  Years are the only derived facet left: publishers and type buckets are fixed
+ *  curated lists (FilterBar.tsx / reportFamilies.ts). */
 interface Facets {
   q: string;
   years: number[];
-  docTypes: string[];
 }
 
 /** Collapse a flat result list into one entry per document, best chunk first.
@@ -72,6 +75,38 @@ export function groupByDoc(results: SearchResult[]): DocGroup[] {
   return groups;
 }
 
+/** Collapse documents into report families ("FY 2027 Baseline") — the grouping
+ *  the mockup's engine used and Destin asked for: a Baseline year's per-agency
+ *  pages and summary sections are ONE report to an analyst, not 100 documents.
+ *  Families order by their best document's best chunk, same posture as
+ *  groupByDoc. Exported for its unit test. */
+export function groupByFamily(results: SearchResult[]): FamilyGroup[] {
+  const docs = groupByDoc(results);
+  const byFamily = new Map<string, FamilyGroup>();
+  for (const doc of docs) {
+    const family = familyOf(doc.doc_type);
+    const key = `${family}:${doc.fiscal_year ?? "any"}`;
+    let group = byFamily.get(key);
+    if (!group) {
+      group = {
+        key,
+        title: familyTitle(family, doc.fiscal_year),
+        publisher: doc.publisher,
+        fiscal_year: doc.fiscal_year,
+        docs: [],
+        fullPdfUrl: fullPdfUrl(family, doc.fiscal_year),
+      };
+      byFamily.set(key, group);
+    }
+    group.docs.push(doc);
+  }
+  // groupByDoc already emitted docs best-first, so a family's first doc holds its
+  // best chunk — order families by that.
+  return [...byFamily.values()].sort(
+    (a, b) => b.docs[0].chunks[0].score - a.docs[0].chunks[0].score,
+  );
+}
+
 /** Fold a response's fiscal years and doc types into the chip options.
  *
  *  WHY the options ACCUMULATE instead of being rebuilt from the latest response:
@@ -80,17 +115,14 @@ export function groupByDoc(results: SearchResult[]): DocGroup[] {
  *  disappears — a dead end). They reset when the query itself changes, since a new
  *  search is a new set of documents. */
 function mergeFacets(prev: Facets, q: string, results: SearchResult[]): Facets {
-  const base: Facets = prev.q === q ? prev : { q, years: [], docTypes: [] };
+  const base: Facets = prev.q === q ? prev : { q, years: [] };
   const years = new Set(base.years);
-  const docTypes = new Set(base.docTypes);
   for (const r of results) {
     if (r.fiscal_year !== null) years.add(r.fiscal_year);
-    docTypes.add(r.doc_type);
   }
   return {
     q,
     years: [...years].sort((a, b) => b - a), // newest fiscal year first
-    docTypes: [...docTypes].sort(),
   };
 }
 
@@ -119,6 +151,28 @@ function toggleFilter(
   return next;
 }
 
+/** Toggle a curated type bucket: all of its slugs in, or all of them out.
+ *  (Buckets are the only doc_type control, so mixed states can't arise.) */
+function toggleBucket(prev: SearchFilters, slugs: string[]): SearchFilters {
+  const next: SearchFilters = { ...prev };
+  const current = prev.doc_type ?? [];
+  const on = slugs.every((s) => current.includes(s));
+  const updated = on
+    ? current.filter((s) => !slugs.includes(s))
+    : [...new Set([...current, ...slugs])];
+  if (updated.length) next.doc_type = updated;
+  else delete next.doc_type;
+  return next;
+}
+
+/** Set (or clear, with null) the single-select fiscal-year filter. */
+function setYearFilter(prev: SearchFilters, year: number | null): SearchFilters {
+  const next: SearchFilters = { ...prev };
+  if (year === null) delete next.fiscal_year;
+  else next.fiscal_year = [year];
+  return next;
+}
+
 export function Search() {
   const [params, setParams] = useSearchParams();
   // The URL is the source of truth for the query — that's what makes a results
@@ -131,7 +185,7 @@ export function Search() {
   const box = useRef<HTMLInputElement>(null);
   const [filters, setFilters] = useState<SearchFilters>({});
   const [phase, setPhase] = useState<Phase>({ kind: "idle" });
-  const [facets, setFacets] = useState<Facets>({ q: "", years: [], docTypes: [] });
+  const [facets, setFacets] = useState<Facets>({ q: "", years: [] });
 
   // Retry counter. WHY it exists: the search runs off ?q=, so re-submitting the
   // SAME text writes the same ?q= — `query` never changes, the effect never
@@ -195,7 +249,10 @@ export function Search() {
   // during a refetch. Errors show no results panel at all.
   const shown =
     phase.kind === "ready" ? phase.res : phase.kind === "loading" ? phase.prev : undefined;
-  const groups = shown ? groupByDoc(shown.results) : [];
+  const families = shown ? groupByFamily(shown.results) : [];
+  // Analysts still count in documents (the per-agency pages), so the status and
+  // header keep a document count even though the cards group one level higher.
+  const docCount = families.reduce((n, f) => n + f.docs.length, 0);
 
   return (
     <main className="page-search" data-testid="search">
@@ -292,8 +349,9 @@ export function Search() {
             <FilterBar
               selected={filters}
               years={facets.q === query ? facets.years : []}
-              docTypes={facets.q === query ? facets.docTypes : []}
               onToggle={(key, value) => setFilters((prev) => toggleFilter(prev, key, value))}
+              onToggleBucket={(slugs) => setFilters((prev) => toggleBucket(prev, slugs))}
+              onYearChange={(year) => setFilters((prev) => setYearFilter(prev, year))}
             />
           </section>
 
@@ -323,7 +381,7 @@ export function Search() {
             {phase.kind === "ready" && (
               <>
                 {phase.res.total} {phase.res.total === 1 ? "match" : "matches"} in{" "}
-                {groups.length} {groups.length === 1 ? "document" : "documents"}
+                {docCount} {docCount === 1 ? "document" : "documents"}
                 {/* Dev honesty: say so when the rows are fixtures rather than the
                     real corpus. Task 12 swaps in LanceSearchProvider and this
                     badge stops rendering on its own. */}
@@ -351,7 +409,7 @@ export function Search() {
                   </span>
                   <h2>Results</h2>
                   <span className="count">
-                    {groups.length} {groups.length === 1 ? "document" : "documents"}
+                    {docCount} {docCount === 1 ? "document" : "documents"}
                   </span>
                 </div>
               </div>
@@ -359,7 +417,7 @@ export function Search() {
                   a page-wide uniqueness claim a component can't keep. Same rules,
                   ported onto the class. */}
               <div className="results">
-                {groups.length === 0 ? (
+                {families.length === 0 ? (
                   // Two messages, because "nothing in the corpus matched" and "your
                   // filters excluded everything" are different facts and the second
                   // one is actionable. Saying the first when filters are on would
@@ -370,7 +428,7 @@ export function Search() {
                       : "No matches in the corpus for that search."}
                   </p>
                 ) : (
-                  groups.map((group) => <ResultCard key={group.doc_id} group={group} />)
+                  families.map((family) => <ResultCard key={family.key} family={family} />)
                 )}
               </div>
             </section>
