@@ -7,7 +7,7 @@ The design is settled — do not re-litigate it; the spec records every decision
 
 1. `STATUS.md` (auto-loaded) — Plans 1 and 2 shipped; read both ship sections
 2. `docs/superpowers/specs/2026-07-29-standalone-consolidation-design.md` — S6, S10, S17, Invariant 8, ingest section
-3. `docs/superpowers/plans/2026-07-30-standalone-plan-3-ingest.md` — YOUR plan (15 tasks). Its **Ground truth** block cites exact shipped signatures/gotchas from the 2026-07-30 codebase review — treat those as binding facts, verify against the code as you go.
+3. `docs/superpowers/plans/2026-07-30-standalone-plan-3-ingest.md` — YOUR plan (16 tasks). Its **Ground truth** block cites exact shipped signatures/gotchas from the 2026-07-30 codebase review — treat those as binding facts, verify against the code as you go.
 
 ## What you're building
 
@@ -70,8 +70,10 @@ Python deps: NONE new (Plan 4 adds httpx; don't touch pyproject/uv.lock).
 
 ## Done looks like
 
-All 15 tasks committed; a real PDF uploaded through the GUI reaching
+All 16 tasks committed; a real PDF uploaded through the GUI reaching
 `live` and searchable with a real title; one live fiscal-note refresh
-ingesting real note PDFs; fiscal-note eval baseline committed; STATUS.md
+ingesting real note PDFs; the Add-a-JLBC-book flow discovering a real
+TOC (dry-run listing is enough — don't re-ingest an existing book);
+fiscal-note eval baseline committed; STATUS.md
 updated; branch merged `--no-ff` + pushed; worktree removed; short report
 (what shipped, corpus counts, deviations, follow-ups).

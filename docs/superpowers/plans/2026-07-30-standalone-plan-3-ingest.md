@@ -40,6 +40,7 @@
 | Modify `chunking/entity_stamper.py` | D2 multi-agency resolution for table chunks (`stamp_multi` path); consume `agency_catalog` loader |
 | Modify `ingest/cache.py` | Real extension in `_relative_for_sha`; atomic manifest writes |
 | Create `app/routes/upload.py`, `app/routes/jobs.py` | Upload endpoint (Invariant 8 + dedup), queue status/retry/cancel API |
+| Create `app/routes/books.py` | "Add a JLBC book": TOC discovery → bulk enqueue (Task 15) |
 | Modify `app/routes/fiscal_notes.py` | Live directory source (mtime-checked) with committed snapshot fallback; drop `lru_cache` |
 | Create `webapp/src/pages/Upload.tsx` (+ `api.ts` additions, `app.css` `page-upload` block) | Drop zone, Invariant 8 notice + required checkbox, metadata form, queue list w/ progress + retry/cancel |
 | Modify `webapp/src/pages/FiscalNotes.tsx` (rail block only) | Wire the reserved `.fside-search.is-disabled` input to `api.search(q, {}, "fiscal_notes")` |
@@ -407,7 +408,16 @@ def test_cancel_kills_subprocess(tmp_path, slow_fake_mineru):
 
 ---
 
-### Task 15: End-to-end + STATUS + merge
+### Task 15: "Add a JLBC book" — bulk ingest from the linked TOC
+
+**Files:** Create `app/routes/books.py`; Modify `webapp/src/pages/Upload.tsx` (second panel), `api.ts`; Tests `tests/test_books_route.py`, Upload.test.tsx additions.
+
+- [ ] Step 1 — failing tests: `POST /api/books/discover {book: "baseline"|"approps", fiscal_year}` → derives the index URL via `ingest/url_conventions.py`, runs `ingest.discovery.discover(...)` (injected fake walker in tests using `data/discovery-cache.yaml` shapes), returns `{documents: [{slug, name, url, doc_type}], count}` without downloading anything; `POST /api/books/ingest {book, fiscal_year}` → 202, enqueues one job per discovered document (doc_ids via `make_doc_id`, dedup rules from Task 10 apply — already-ingested docs are skipped with counts reported `{queued: n, skipped_existing: m}`); discovery failure (site changed / URL 404) → honest 502-style detail, nothing queued. UI: an "Add a JLBC book" panel on the Upload page — book-type + FY selectors → *Check availability* renders "Found 112 documents for FY 2028 Baseline" with the list collapsed → *Add all to queue* → queue list shows them; the overnight-expectation copy repeats here.
+- [ ] Step 2 — fail. Step 3 — implement (downloads happen inside each job via `DownloadCache.fetch(url)`, not at discovery time; the Invariant 8 checkbox is replaced by static notice text for this flow — JLBC-published documents are public record by definition, state that in the panel copy). Step 4 — PASS. Step 5 — commit `feat(ingest): Add-a-JLBC-book — TOC discovery to bulk queue (annual-cadence handoff path)`.
+
+---
+
+### Task 16: End-to-end + STATUS + merge
 
 - [ ] E2E on the dev machine: upload a small real PDF through the GUI → job runs to `live` → doc searchable on the Search page with its real title; run one live fiscal-note refresh for 2026 → directory updates, a few note PDFs ingest, rail search returns results; `bash setup.sh --verify` + `cd webapp && npx vitest run` green; run the budget eval (`uv run python -m eval.run_eval`) to prove no retrieval regression (CLAUDE.md rule — ingest changes touch the corpus path) and commit results.
 - [ ] STATUS.md: Plan 3 section (what shipped, corpus counts incl. fiscal_note_chunks, known follow-ups); note Postgres/Docker now needed for NOTHING (migration-era only).
@@ -417,6 +427,6 @@ def test_cancel_kills_subprocess(tmp_path, slow_fake_mineru):
 
 ## Self-review notes
 
-- Spec coverage: S6 (Task 3), S10 (Task 12), S17 (Task 4), Invariant 8 (Tasks 10–11), dup detection (Task 10), PDF copy to share (Task 8 write phase), real titles (Task 5), fiscal-note eval (Task 13), D2 (Task 9), agency catalog follow-up (Task 1), validation gate (Task 14). MinerU weight bundling itself is Plan 5 (packaging) — this plan only honors `JLBC_MINERU_MODELS` when set.
+- Spec coverage: S6 (Task 3), S10 (Task 12), S17 (Task 4), Invariant 8 (Tasks 10–11), dup detection (Task 10), PDF copy to share (Task 8 write phase), real titles (Task 5), fiscal-note eval (Task 13), D2 (Task 9), agency catalog follow-up (Task 1), validation gate (Task 14), annual-cadence book ingest via TOC discovery (Task 15 — added 2026-07-30 after Destin asked how staff add a new year's Baseline; the discovery machinery existed but had no GUI path). MinerU weight bundling itself is Plan 5 (packaging) — this plan only honors `JLBC_MINERU_MODELS` when set.
 - Deliberate scope cuts: no tiered fast-then-refine extraction (user chose background-queue-is-fine); refresh limited to newest 2 session years per run (older sessions are immutable); `fiscal-notes-directory.json` full-rewrite (tiny file, atomic).
 - Type-consistency check: `write_doc` signature matches worker call; `JobView` fields match jobs.py dataclass; `resolve_all` return feeds `chunk_to_lance_row(agency_ids=…)`.
