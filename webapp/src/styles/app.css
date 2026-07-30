@@ -403,6 +403,20 @@ nav.primary{flex:1 1 auto;display:flex;flex-wrap:nowrap;align-items:center;justi
    not help: it keys on WIDTH, and a 1366x768 laptop is wide enough to keep the rail sticky.
    116px = the header's 100px sticky offset (above) + 16px of breathing room. */
 .page-fiscal-notes .fnside{max-height:calc(100vh - 116px);overflow-y:auto;}
+/* Added: both scroll containers on this page (the rail clamp above and `.yscroll`) are
+   OURS — the static mockup never scrolled, so it has no scrollbar treatment to port.
+   Untreated, Windows' default ~17px bars overlap the rail card's rounded corner and the
+   session rows, shoving the count pills off-center (Destin flagged it). `thin` +
+   token colors keep the bar inside the card unobtrusively; `scrollbar-gutter:stable`
+   reserves the bar's lane up front so rows don't shift when content grows past the cap. */
+.page-fiscal-notes .fnside,
+.page-fiscal-notes .yscroll{scrollbar-width:thin;scrollbar-color:var(--line) transparent;scrollbar-gutter:stable;}
+.page-fiscal-notes .fnside::-webkit-scrollbar,
+.page-fiscal-notes .yscroll::-webkit-scrollbar{width:8px;}
+.page-fiscal-notes .fnside::-webkit-scrollbar-thumb,
+.page-fiscal-notes .yscroll::-webkit-scrollbar-thumb{background:var(--line);border-radius:999px;}
+.page-fiscal-notes .fnside::-webkit-scrollbar-track,
+.page-fiscal-notes .yscroll::-webkit-scrollbar-track{background:transparent;}
 .page-fiscal-notes .fnside .fgrp{padding:8px 8px 14px;}
 .page-fiscal-notes .fnside .fgrp+.fgrp{border-top:1px solid var(--line);}
 .page-fiscal-notes .fnside .flbl{font-size:11px;font-weight:800;text-transform:uppercase;letter-spacing:.08em;color:var(--ink-3);padding:6px 8px 8px;}
@@ -513,7 +527,11 @@ nav.primary{flex:1 1 auto;display:flex;flex-wrap:nowrap;align-items:center;justi
    error color, as on the search page's status line. */
 .page-fiscal-notes .fnnote{font-size:12.5px;font-weight:700;color:var(--ink-3);margin:0;}
 .page-fiscal-notes .fnside .fnnote{padding:6px 8px 0;}
-.page-fiscal-notes .fnmain>.fnnote{padding:0 2px;}
+/* The status line sits ABOVE the `.fnlayout` grid, spanning both columns: inside
+   `.fnmain` it pushed the first session card down so the rail's top edge floated
+   above the card beside it (Destin flagged the misalignment). 12px of margin keeps
+   the note clear of both columns; 2px side padding aligns it with the `.yg` edge. */
+.page-fiscal-notes .fnstatus{padding:0 2px;margin:0 0 12px;}
 .page-fiscal-notes .fnnote .err{color:var(--az-red);}
 /* The Plan-3 semantic-search box is genuinely `disabled`; same borrowed dimming as above. */
 .page-fiscal-notes .fside-search.is-disabled{opacity:.65;cursor:not-allowed;}

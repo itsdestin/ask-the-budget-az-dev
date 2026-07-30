@@ -470,6 +470,21 @@ export function FiscalNotes() {
       </section>
 
       <div className="wrap fnwrap">
+        {/* The status line lives ABOVE the grid, spanning both columns: inside `.fnmain`
+            it pushed the first session card down, leaving the rail's top edge floating
+            higher than the card it sits beside (Destin flagged the misalignment). Up
+            here both grid columns start level, directly under the note.
+            role="status" makes it a live region, so the load, the result count and any
+            error are announced as they replace each other instead of only being drawn
+            (same posture as the search page's status line). */}
+        <p className="fnnote fnstatus" role="status">
+          {phase.kind === "error" ? (
+            // The message is the backend's own `detail`, passed through untouched.
+            <span className="err">{phase.message}</span>
+          ) : (
+            status()
+          )}
+        </p>
         <div className="fnlayout">
           <aside className="fnside">
             <div className="fgrp">
@@ -588,18 +603,6 @@ export function FiscalNotes() {
           </aside>
 
           <div className="fnmain">
-            {/* role="status" makes this a live region, so the load, the result count and any
-                error are announced as they replace each other instead of only being drawn
-                (same posture as the search page's status line). */}
-            <p className="fnnote" role="status">
-              {phase.kind === "error" ? (
-                // The message is the backend's own `detail`, passed through untouched.
-                <span className="err">{phase.message}</span>
-              ) : (
-                status()
-              )}
-            </p>
-
             {phase.kind === "error" ? (
               // Reuses the page's one standalone action pill rather than inventing a button.
               <div className="allbar">
