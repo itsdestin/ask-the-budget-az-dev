@@ -134,8 +134,8 @@ Task 3 amendments recorded there: `fiscal_note_url` on bills, real
   baseline for Plans 3/4/5):** results group by report family; each card =
   a linked headline row (best agency document, title ONLY — the mockup
   index's display title via exact source-URL join, 373/382 docs; `doc_url`
-  from Plan 1's documents.json; relevance BAR with no visible number —
-  sigmoid of the reranker logit; "Open" pill) → a collapsed "Matching
+  from Plan 1's documents.json; "Open" pill; NO relevance display — number
+  and bar both removed, ranking speaks through result order) → a collapsed "Matching
   passages" card (snippets + page pills, `data-chunk-id` stubs for Plan 4's
   viewer) → a bottom "Part of the FY YYYY <family>" card with collapsed
   sibling documents and the **Full report** chooser (the mockup's modal:
@@ -152,9 +152,9 @@ Task 3 amendments recorded there: `fiscal_note_url` on bills, real
   search engine (`assets/search/search.js` — report families, curated
   buckets, ranking blend) and its 419-doc URL index (`index-lite.js`), kept
   as input for retrieval tuning and the report-format chooser follow-up.
-- **UI score display:** the relevance bar maps Plan 1's raw cross-encoder
-  logits through a sigmoid (the model's own probability reading); no numeric
-  score is displayed anywhere (Destin, 2026-07-30).
+- **UI score display:** none — scores (raw cross-encoder logits) drive
+  ordering only; the relevance number and bar were both removed at Destin's
+  direction (2026-07-30).
 - **Tests:** 24 app pytest (`tests/test_app_server.py`, `test_search_route`,
   `test_fiscal_notes_route`, `test_fiscal_notes_snapshot`,
   `test_lance_provider`) + 39 webapp vitest. `setup.sh` now installs/builds

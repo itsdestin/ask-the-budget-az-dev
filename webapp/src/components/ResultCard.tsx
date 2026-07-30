@@ -21,7 +21,7 @@ import { type ReportFormats } from "../reportFamilies";
 //     `.grp-more` toggle, sibling documents of the same report behind another.
 //
 // Mockup classes kept: .grp / .doc / .doc-ic / .doc-main / .doc-title /
-// .doc-sub / .doc-pill / .rel / .bar / .ctx / .ctx-row / .badge / .spacer /
+// .doc-sub / .doc-pill / .ctx / .ctx-row / .badge / .spacer /
 // .tray(.open) / .grp-full / .grp-more.
 
 /** One document and every chunk of it that matched, best chunk first. */
@@ -88,28 +88,13 @@ function OpenIcon() {
   );
 }
 
-/** The relevance meter: BAR ONLY (Destin 2026-07-30: no visible percentage
- *  numbers). The fill width is the sigmoid of the reranker's raw logit — the
- *  model's own probability reading — so the bar stays meaningful across the
- *  logit scale without printing a numeric claim. */
-function RelMeter({ score }: { score: number }) {
-  const pct = Math.round((1 / (1 + Math.exp(-score))) * 100);
-  return (
-    <span className="rel" title="relevance (best matching passage)">
-      <span className="bar">
-        <i style={{ width: `${pct}%` }} />
-      </span>
-    </span>
-  );
-}
-
 /** One document row — the mockup's docRow reduced per Destin (2026-07-30):
- *  title + relevance bar + Open pill. No sub-line (the mockup-index titles
- *  already carry agency/report/year), no publisher pill, no % number.
+ *  title + Open pill only. No sub-line (the mockup-index titles already
+ *  carry agency/report/year), no publisher pill, no relevance display at all
+ *  (Destin 2026-07-30 — ranking speaks through result ORDER).
  *  A real link to the document's own PDF when the URL is known; an unlinked
  *  row otherwise (never a dead href). */
 function DocRow({ doc }: { doc: DocGroup }) {
-  const best = doc.chunks[0];
   const body = (
     <>
       <span className="doc-ic">
@@ -118,7 +103,6 @@ function DocRow({ doc }: { doc: DocGroup }) {
       <div className="doc-main">
         <span className="doc-title">{doc.doc_title}</span>
       </div>
-      <RelMeter score={best.score} />
       {doc.doc_url && (
         <span className="doc-pill">
           <OpenIcon /> Open
@@ -304,7 +288,6 @@ export function ResultCard({ family }: { family: FamilyGroup }) {
                   <div className="doc-main">
                     <span className="doc-sub">{chunk.snippet}</span>
                   </div>
-                  <RelMeter score={chunk.score} />
                   {chunk.page !== null && <span className="doc-pill">p. {chunk.page}</span>}
                 </a>
               ))}

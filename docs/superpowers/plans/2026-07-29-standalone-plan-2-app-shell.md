@@ -70,16 +70,17 @@ the final shape. Final behavior:
   engine's query-side ranking heuristics live in the vendored
   `webapp/reference/assets/search/search.js` as future tuning input only.
 - **Each result card**: (1) a linked headline row — the best-matching agency
-  document, title only (the mockup index's display title via the URL join),
-  relevance BAR (sigmoid of the logit, no visible number), an "Open" pill
-  linking `doc_url`; (2) a "Matching passages" dashed card, collapsed —
-  snippets + page pills + bars, `data-chunk-id` stubs for Plan 4's viewer;
+  document, title only (the mockup index's display title via the URL join)
+  plus an "Open" pill linking `doc_url`; NO relevance display of any kind
+  (number and bar both removed — ranking speaks through result order);
+  (2) a "Matching passages" dashed card, collapsed — snippets + page pills,
+  `data-chunk-id` stubs for Plan 4's viewer;
   (3) a bottom "Part of the FY YYYY <family>" card with collapsed sibling
   documents and the **Full report** action → the mockup's two-format chooser
   modal (Linked TOC vs Single File PDF; URLs hand-verified per family in
   `reportFamilies.ts`; one format → direct link; none → no card).
-  NO publisher pills, NO taglines/meta lines, NO percentage numbers (all
-  removed at Destin's direction).
+  NO publisher pills, NO taglines/meta lines, NO relevance numbers or bars
+  (all removed at Destin's direction).
 - **Filters**: publisher chips + curated always-visible type buckets (slug
   families) + the mockup's FY `select.fyear` dropdown. No chip counts until a
   facets endpoint exists.
