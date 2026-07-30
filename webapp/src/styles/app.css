@@ -384,8 +384,7 @@ nav.primary{flex:1 1 auto;display:flex;flex-wrap:nowrap;align-items:center;justi
    url('capitol-bg.jpg') → url('/capitol-bg.jpg'), served from webapp/public/. */
 .page-fiscal-notes .subhero{position:relative;overflow:hidden;color:#fff;
   background:linear-gradient(105deg,rgba(18,21,48,.94) 0%,rgba(20,23,52,.86) 60%,rgba(20,23,52,.78) 100%),url('/capitol-bg.jpg') center 28% / cover no-repeat;}
-/* Three classes, so this beats any two-class `.page-fiscal-notes .wrap` rule on specificity
-   regardless of source order — the hero's wrap keeps its own padding. */
+/* The hero's own padding; the shared `.wrap` base still supplies max-width + centering. */
 .page-fiscal-notes .subhero .wrap{position:relative;z-index:2;padding:32px 22px 34px;}
 .page-fiscal-notes .subhero h1{font-size:clamp(24px,3.2vw,34px);font-weight:800;letter-spacing:-.4px;}
 .page-fiscal-notes .subhero .lead{margin:10px 0 0;font-size:clamp(14px,1.5vw,16.5px);color:#d9dcf2;font-weight:600;max-width:66ch;line-height:1.5;min-height:3em;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;}
@@ -397,6 +396,13 @@ nav.primary{flex:1 1 auto;display:flex;flex-wrap:nowrap;align-items:center;justi
 .page-fiscal-notes .wrap.fnwrap{display:block;padding:28px 22px 22px;}
 .page-fiscal-notes .fnlayout{display:grid;grid-template-columns:248px 1fr;gap:var(--gap);align-items:start;}
 .page-fiscal-notes .fnside{background:#fff;border:1px solid var(--line);border-radius:var(--r-lg);box-shadow:var(--shadow-sm);padding:8px;position:sticky;top:100px;}
+/* Added: the rail is ~760px tall with all four groups, and being `position:sticky` it never
+   scrolls with the page — so on a 768px-tall screen (or any zoomed viewport) its bottom
+   group is simply unreachable. Clamping it to the space below the sticky header and letting
+   it scroll internally is the fix. The mockup's own `@media (max-width:860px)` escape does
+   not help: it keys on WIDTH, and a 1366x768 laptop is wide enough to keep the rail sticky.
+   116px = the header's 100px sticky offset (above) + 16px of breathing room. */
+.page-fiscal-notes .fnside{max-height:calc(100vh - 116px);overflow-y:auto;}
 .page-fiscal-notes .fnside .fgrp{padding:8px 8px 14px;}
 .page-fiscal-notes .fnside .fgrp+.fgrp{border-top:1px solid var(--line);}
 .page-fiscal-notes .fnside .flbl{font-size:11px;font-weight:800;text-transform:uppercase;letter-spacing:.08em;color:var(--ink-3);padding:6px 8px 8px;}
@@ -405,6 +411,12 @@ nav.primary{flex:1 1 auto;display:flex;flex-wrap:nowrap;align-items:center;justi
 
 /* ===== filter rail: search box ===== */
 .page-fiscal-notes .fside-search{display:flex;align-items:center;gap:8px;background:var(--canvas);border:1px solid var(--line);border-radius:var(--r-pill);padding:8px 12px;margin:2px 4px 6px;}
+/* Added: the input inside sets `outline:0`, so without this a keyboard user gets NO visible
+   focus indicator on the page's primary control (WCAG 2.4.7). The declarations are the
+   pattern both sibling pages already use for their own search pills — home's
+   `.search-field:focus-within` (navy border, white fill, navy-100 ring) with the search
+   page's 3px ring width, since this pill's 1px border is thinner than home's 2px. */
+.page-fiscal-notes .fside-search:focus-within{border-color:var(--navy);background:#fff;box-shadow:0 0 0 3px var(--navy-100);}
 .page-fiscal-notes .fside-search svg{width:16px;height:16px;color:var(--ink-3);}
 .page-fiscal-notes .fside-search input{border:0;background:transparent;outline:0;font-family:inherit;font-size:13.5px;flex:1;min-width:0;color:var(--ink);}
 .page-fiscal-notes .clr-x{flex:0 0 auto;display:none;align-items:center;justify-content:center;width:24px;height:24px;border-radius:50%;border:1px solid var(--line);background:#fff;color:var(--ink-2);cursor:pointer;padding:0;transition:background .14s,color .14s,border-color .14s,transform .08s;}

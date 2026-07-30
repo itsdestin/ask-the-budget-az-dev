@@ -4,6 +4,7 @@ import { memo, useEffect, useMemo, useRef, useState } from "react";
 // made through the module object.
 import * as api from "../api";
 import type { Bill, Session } from "../api";
+import { SearchIcon } from "../components/SearchIcon";
 
 // Fiscal Notes — ported from the GENERATED mockup page,
 // `webapp/reference/subpage-fiscal-notes.html`, keeping its class names so its CSS
@@ -60,6 +61,15 @@ import type { Bill, Session } from "../api";
 //     referrer to azleg.gov.
 //  8. The hero's `aria-label="Page header"` is dropped — a landmark named "Page header"
 //     says nothing a heading doesn't.
+//  9. `.yg-meta` counts what the card is SHOWING; the artifact bakes in the pre-filter total.
+//     The mockup has no choice — its count is static text and CSS cannot recount rows, so
+//     after a filter its "112 Fiscal Notes" sits above however few rows survived. Since this
+//     port removes filtered rows, the rendered number and the rendered rows are the same set
+//     by construction. A deliberate honesty divergence, not a redesign: same element, same
+//     wording, same three chamber nouns. The `.frow-n` rail counts deviate the other way on
+//     purpose — they follow the chamber lens but NOT the query, because a session's inventory
+//     is a different quantity from "matches" (which the status line states outright). Both
+//     halves are pinned by tests.
 //
 // Shared chrome (`header.site`, `footer.site`) lives in components/Header.tsx or is dropped
 // app-wide; not this page's business.
@@ -214,19 +224,10 @@ interface Card {
   bills: Bill[];
 }
 
-// ---------------------------------------------------------------------------
-// Icons — copied verbatim from subpage-fiscal-notes.html. The mockup repeats them inline;
-// hoisting keeps the copies from drifting apart.
-// ---------------------------------------------------------------------------
-
-function MagnifierIcon() {
-  return (
-    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden="true">
-      <circle cx="11" cy="11" r="7" />
-      <path d="m21 21-4.3-4.3" />
-    </svg>
-  );
-}
+// The magnifier in `.fside-search` and `.allbtn` is components/SearchIcon.tsx — the same
+// circle-r7 + m21 21 path pair this page's mockup uses, already extracted for exactly this
+// reason ("four hand-copied path pairs is four chances for them to drift apart"). It needs no
+// className here: `.fside-search svg` and `.allbtn svg` size it.
 
 // ---------------------------------------------------------------------------
 // Rows
@@ -476,7 +477,7 @@ export function FiscalNotes() {
                   clicking the pill focuses the box; the visible-label duty is carried by the
                   placeholder plus the aria-label. */}
               <label className="fside-search">
-                <MagnifierIcon />
+                <SearchIcon />
                 <input
                   ref={box}
                   type="text"
@@ -572,7 +573,7 @@ export function FiscalNotes() {
             <div className="fgrp">
               <div className="flbl">Coming soon</div>
               <label className="fside-search is-disabled">
-                <MagnifierIcon />
+                <SearchIcon />
                 <input
                   type="text"
                   disabled
@@ -628,7 +629,7 @@ export function FiscalNotes() {
                       onClick={() => setSearchAll((v) => !v)}
                     >
                       <span className="all-off">
-                        <MagnifierIcon /> Search all legislative sessions
+                        <SearchIcon /> Search all legislative sessions
                       </span>
                       <span className="all-on">↩ Search only the selected session</span>
                     </button>

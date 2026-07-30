@@ -267,6 +267,43 @@ test("the sort menu reorders the list", async () => {
 });
 
 // ---------------------------------------------------------------------------
+// Count semantics — the two deliberate divergences from the artifact (deviation 9)
+// ---------------------------------------------------------------------------
+
+// The rail's `.frow-n` is a session INVENTORY, so it follows the chamber lens but must ignore
+// the typed query — "matches" is what the status line reports. Pinned because "make the
+// counts consistent" is exactly the refactor that would silently break it.
+test("the rail's session counts narrow by chamber but not by the typed query", async () => {
+  const { container } = mount();
+  await waitFor(() => screen.getByText("HB2001"));
+  const counts = () => [...container.querySelectorAll(".frow-n")].map((el) => el.textContent);
+  // 2026 has one House + one Senate bill; 2025 has one House bill.
+  expect(counts()).toEqual(["2", "1"]);
+
+  fireEvent.change(screen.getByPlaceholderText(BOX), { target: { value: "ahcccs" } });
+  expect(counts()).toEqual(["2", "1"]);
+
+  fireEvent.click(screen.getByRole("button", { name: /^house$/i }));
+  expect(counts()).toEqual(["1", "1"]);
+  fireEvent.click(screen.getByRole("button", { name: /^senate$/i }));
+  expect(counts()).toEqual(["1", "0"]);
+});
+
+// With no query the mockup keeps the selected session's card and only hides its rows, so an
+// empty chamber must still render the card — with a count that tells the truth about it.
+test("with no query, a chamber-emptied session still shows its card", async () => {
+  const { container } = mount();
+  await waitFor(() => screen.getByText("HB2001"));
+  fireEvent.click(screen.getByRole("button", { name: /2025 legislative session/i }));
+  fireEvent.click(screen.getByRole("button", { name: /^senate$/i }));
+
+  expect(screen.getByText("2025 Legislative Session")).toBeInTheDocument();
+  // `.yg-meta` counts what is rendered, not the pre-filter total the artifact bakes in.
+  expect(screen.getByText("0 Senate Notes")).toBeInTheDocument();
+  expect(container.querySelectorAll(".fbill")).toHaveLength(0);
+});
+
+// ---------------------------------------------------------------------------
 // Titles: the AZ strike/NOW convention
 // ---------------------------------------------------------------------------
 
