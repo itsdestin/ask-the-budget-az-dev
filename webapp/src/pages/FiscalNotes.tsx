@@ -487,6 +487,10 @@ export function FiscalNotes() {
         </p>
         <div className="fnlayout">
           <aside className="fnside">
+            {/* Inner scroller so the rail's scrollbar rides INSIDE the card's 8px padding,
+                clear of the rounded corners — with overflow on `.fnside` itself the bar sat
+                flush against the border and clipped the top corner (Destin flagged it). */}
+            <div className="fnrail-scroll">
             <div className="fgrp">
               {/* The mockup wraps the input in the `<label class="fside-search">` itself, so
                   clicking the pill focuses the box; the visible-label duty is carried by the
@@ -599,6 +603,7 @@ export function FiscalNotes() {
               <p className="fnnote" id="fn-semantic-hint">
                 Unlocks when the fiscal-note corpus is ingested.
               </p>
+            </div>
             </div>
           </aside>
 
