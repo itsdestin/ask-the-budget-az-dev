@@ -382,11 +382,13 @@ export function Search() {
             )}
             {phase.kind === "ready" && (
               <>
-                {phase.res.total} {phase.res.total === 1 ? "match" : "matches"} in{" "}
-                {docCount} {docCount === 1 ? "document" : "documents"}
-                {/* Dev honesty: say so when the rows are fixtures rather than the
-                    real corpus. Task 12 swaps in LanceSearchProvider and this
-                    badge stops rendering on its own. */}
+                {/* The counts moved into the Results header's pill (Destin
+                    2026-07-30) — repeating them here said the same thing twice
+                    one inch apart. The line still announces (role="status")
+                    via the stub badge or stays quiet; min-height keeps the
+                    layout from jumping. */}
+                {/* Dev honesty: say so when the rows are fixtures rather than
+                    the real corpus. */}
                 {phase.res.provider === "stub" && <span className="stub-badge">stub data</span>}
               </>
             )}
@@ -410,7 +412,10 @@ export function Search() {
                     <SearchIcon />
                   </span>
                   <h2>Results</h2>
+                  {/* Both counts live here now, mockup-meta style with the
+                      divider dot: "20 matches · 7 documents". */}
                   <span className="count">
+                    {shown.total} {shown.total === 1 ? "match" : "matches"} ·{" "}
                     {docCount} {docCount === 1 ? "document" : "documents"}
                   </span>
                 </div>
