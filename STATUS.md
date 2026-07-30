@@ -125,12 +125,24 @@ Task 3 amendments recorded there: `fiscal_note_url` on bills, real
   Revamp mockup per S12 (verbatim `:root` tokens; page-scoped CSS convention
   documented in `webapp/src/styles/app.css` — the three mockup sources
   conflict on ~74 shared selectors). Pages: Home (hero search + gateway
-  cards), Budget Search (results grouped by report family with hand-verified
-  "Full report (PDF)" links for Baseline FY26/27 + Approps FY25, curated
-  filter buckets + FY dropdown + publisher chips, retry/stale-while-revalidate
-  states), Fiscal Notes (28-session / 2,126-bill directory from the committed
-  snapshot — Plan 3 swaps in the live corpus behind the same contract; safe
-  `<strike>/NOW:` title rendering; session rail tuned live with Destin).
+  cards), Budget Search (see next bullet), Fiscal Notes (28-session /
+  2,126-bill directory from the committed snapshot — Plan 3 swaps in the live
+  corpus behind the same contract; safe `<strike>/NOW:` title rendering;
+  session rail tuned live with Destin).
+- **Budget Search — FINAL UI (iterated live with Destin 2026-07-30; the
+  "As shipped" section of the Plan 2 doc + the spec's S12 amendment are the
+  baseline for Plans 3/4/5):** results group by report family; each card =
+  a linked headline row (best agency document, title ONLY — the mockup
+  index's display title via exact source-URL join, 373/382 docs; `doc_url`
+  from Plan 1's documents.json; relevance BAR with no visible number —
+  sigmoid of the reranker logit; "Open" pill) → a collapsed "Matching
+  passages" card (snippets + page pills, `data-chunk-id` stubs for Plan 4's
+  viewer) → a bottom "Part of the FY YYYY <family>" card with collapsed
+  sibling documents and the **Full report** chooser (the mockup's modal:
+  Linked TOC vs Single File PDF, hand-verified URLs per family in
+  `webapp/src/reportFamilies.ts`). NO publisher pills, NO taglines, NO
+  percentages (removed at Destin's direction). Filters: publisher chips +
+  curated type buckets + FY dropdown; retry + stale-while-revalidate states.
 - **Fiscal-notes snapshot:** `scripts/export_fiscal_notes_snapshot.py`
   (parser transcribed from the vendored mockup generator) → committed
   `app/data/fiscal-notes-snapshot.json`, exact-count pinned (28 / 2,126).
@@ -141,23 +153,23 @@ Task 3 amendments recorded there: `fiscal_note_url` on bills, real
   buckets, ranking blend) and its 419-doc URL index (`index-lite.js`), kept
   as input for retrieval tuning and the report-format chooser follow-up.
 - **UI score display:** the relevance bar maps Plan 1's raw cross-encoder
-  logits through a sigmoid (the model's own probability reading); the
-  printed number stays the raw score.
+  logits through a sigmoid (the model's own probability reading); no numeric
+  score is displayed anywhere (Destin, 2026-07-30).
 - **Tests:** 24 app pytest (`tests/test_app_server.py`, `test_search_route`,
   `test_fiscal_notes_route`, `test_fiscal_notes_snapshot`,
   `test_lance_provider`) + 39 webapp vitest. `setup.sh` now installs/builds
   `webapp/` and `--verify` runs its suite.
-- **Known follow-ups:** book-vs-agency-page open actions (in-app viewer path
-  via Plan 4 + doc-metadata table via Plan 3; the vendored `index-lite.js`
-  is the URL join source; needs a written design doc); doc titles are
-  best-effort slug humanizations ("JLBC Baseline FY 2026 Axs") until Plan 3
-  writes real titles into `documents.json` — the agency canonical-id → name
-  catalog lives in the chunking pipeline, not yet reusable standalone;
-  filter-chip counts need a facets endpoint (corpus-wide numbers, not
-  per-search); Nunito is named but never loaded by the mockup (one `<link>`
-  if the approved look was really Nunito); `db/migrations/0001` doc_type
-  enum comment is stale vs live data (`baseline-agency` vs
-  `baseline-per-agency`).
+- **Known follow-ups:** book-vs-agency-page open actions SHIPPED as external
+  azjlbc.gov links (agency rows via the sidecar URL, whole books via the
+  chooser modal) — the remaining piece is Plan 4 swapping them to the in-app
+  viewer over `pdfs/` (offline-first per spec S7); doc titles come from the
+  mockup-index URL join (373/382 docs) with the slug humanizer covering the
+  9 unmatched — Plan 3's ingest should write real titles into
+  `documents.json` for docs the website never indexed; filter-chip counts
+  need a facets endpoint (corpus-wide numbers, not per-search); Nunito is
+  named but never loaded by the mockup (one `<link>` if the approved look
+  was really Nunito); `db/migrations/0001` doc_type enum comment is stale
+  vs live data (`baseline-agency` vs `baseline-per-agency`).
 
 ---
 

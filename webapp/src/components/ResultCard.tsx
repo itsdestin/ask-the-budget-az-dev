@@ -1,7 +1,6 @@
 import { useEffect, useState } from "react";
 import type { SearchResult } from "../api";
-import { familyOf, familyTitle, type ReportFormats } from "../reportFamilies";
-import { publisherLabel } from "./FilterBar";
+import { type ReportFormats } from "../reportFamilies";
 
 // ResultCard — one REPORT FAMILY's worth of hits, restructured 2026-07-30 to
 // match the WEBSITE MOCKUP'S search experience (Destin: "this ui should much
@@ -35,7 +34,8 @@ export interface DocGroup {
   /** The document's own source PDF/DOCX URL (from documents.json); null when
    *  unknown — the row then renders unlinked rather than guessing. */
   doc_url: string | null;
-  /** The mockup index's meta line; null when the doc isn't in it. */
+  /** The mockup index's meta line. Kept in the contract for Plans 3/4 but NOT
+   *  rendered — Destin (2026-07-30): the taglines mostly restated the title. */
   doc_meta: string | null;
   chunks: SearchResult[];
 }
@@ -88,15 +88,14 @@ function OpenIcon() {
   );
 }
 
-/** The relevance meter, mockup order (percentage, then bar). The percentage is
- *  the sigmoid of the reranker's raw logit — the model's own probability
- *  reading — which is what makes "%" an honest claim here (the mockup's scores
- *  were already 0–1; ours are ±logits). */
+/** The relevance meter: BAR ONLY (Destin 2026-07-30: no visible percentage
+ *  numbers). The fill width is the sigmoid of the reranker's raw logit — the
+ *  model's own probability reading — so the bar stays meaningful across the
+ *  logit scale without printing a numeric claim. */
 function RelMeter({ score }: { score: number }) {
   const pct = Math.round((1 / (1 + Math.exp(-score))) * 100);
   return (
-    <span className="rel" title="model confidence (best matching passage)">
-      {pct}%
+    <span className="rel" title="relevance (best matching passage)">
       <span className="bar">
         <i style={{ width: `${pct}%` }} />
       </span>
@@ -104,9 +103,12 @@ function RelMeter({ score }: { score: number }) {
   );
 }
 
-/** One document row — the mockup's docRow: a real link to the document's own
- *  PDF when the URL is known, an unlinked row otherwise (never a dead href). */
-function DocRow({ doc, showPublisher = false }: { doc: DocGroup; showPublisher?: boolean }) {
+/** One document row — the mockup's docRow reduced per Destin (2026-07-30):
+ *  title + relevance bar + Open pill. No sub-line (the mockup-index titles
+ *  already carry agency/report/year), no publisher pill, no % number.
+ *  A real link to the document's own PDF when the URL is known; an unlinked
+ *  row otherwise (never a dead href). */
+function DocRow({ doc }: { doc: DocGroup }) {
   const best = doc.chunks[0];
   const body = (
     <>
@@ -115,17 +117,8 @@ function DocRow({ doc, showPublisher = false }: { doc: DocGroup; showPublisher?:
       </span>
       <div className="doc-main">
         <span className="doc-title">{doc.doc_title}</span>
-        {/* The mockup's one-line meta ("category · doc_type · FY"), straight
-            from its index via doc_meta. NOT the passage text — Destin
-            (2026-07-30): rows read like the mockup's; retrieval passages are
-            a tack-on behind the collapsed tray. Fallback when the doc isn't
-            in the mockup index: our family vocabulary + year. */}
-        <span className="doc-sub">
-          {doc.doc_meta ?? familyTitle(familyOf(doc.doc_type), doc.fiscal_year)}
-        </span>
       </div>
       <RelMeter score={best.score} />
-      {showPublisher && <span className="doc-pill">{publisherLabel(doc.publisher)}</span>}
       {doc.doc_url && (
         <span className="doc-pill">
           <OpenIcon /> Open
@@ -269,7 +262,7 @@ export function ResultCard({ family }: { family: FamilyGroup }) {
 
   return (
     <article className="grp">
-      <DocRow doc={headline} showPublisher />
+      <DocRow doc={headline} />
 
       {/* Card layout per Destin (2026-07-30): the passages dropdown is its own
           dashed card; the "Part of X / More from this report" card — with the
