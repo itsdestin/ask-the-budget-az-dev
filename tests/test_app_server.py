@@ -1,10 +1,16 @@
 from fastapi.testclient import TestClient
 
 from app.main import create_app
+from app.search_provider import StubSearchProvider
+
+# Since Task 12, a bare create_app() PROBES for a migrated corpus and serves
+# real retrieval when one exists — so any test that pins stub behavior must
+# inject the stub explicitly, or it would pass or fail depending on whether
+# the machine running it has corpus data.
 
 
 def test_health_reports_provider():
-    client = TestClient(create_app())
+    client = TestClient(create_app(provider=StubSearchProvider()))
     r = client.get("/health")
     assert r.status_code == 200
     body = r.json()
@@ -58,7 +64,7 @@ def test_real_static_asset_is_served_not_swallowed_by_fallback(tmp_path):
 def test_api_routes_are_not_shadowed_by_catch_all():
     # Pinning test: the `/{path:path}` catch-all is registered last, so a real
     # /api/* route still wins, and an unknown /api path is a JSON 404 (not HTML).
-    client = TestClient(create_app())
+    client = TestClient(create_app(provider=StubSearchProvider()))
     r = client.post("/api/search", json={"query": "budget"})
     assert r.status_code == 200
     assert r.json()["provider"] == "stub"

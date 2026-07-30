@@ -1,10 +1,14 @@
 from fastapi.testclient import TestClient
 
 from app.main import create_app
+from app.search_provider import StubSearchProvider
 
 
 def client():
-    return TestClient(create_app())
+    # Inject the stub explicitly: these tests pin fixture behavior, and since
+    # Task 12 a bare create_app() serves real retrieval on machines that have
+    # a migrated corpus.
+    return TestClient(create_app(provider=StubSearchProvider()))
 
 
 def test_search_returns_contract_shape():

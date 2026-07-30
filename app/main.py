@@ -9,6 +9,7 @@ unmatched /api/ paths get a JSON 404 instead.
 """
 from __future__ import annotations
 
+import sys
 from pathlib import Path
 
 from fastapi import FastAPI, HTTPException
@@ -16,7 +17,31 @@ from fastapi.responses import FileResponse, HTMLResponse
 
 from app.routes.fiscal_notes import router as fiscal_notes_router
 from app.routes.search import router as search_router
-from app.search_provider import SearchProvider, StubSearchProvider
+from app.search_provider import LanceSearchProvider, SearchProvider, StubSearchProvider
+
+
+def _default_provider() -> SearchProvider:
+    """Real corpus present -> real provider; else the fixture stub.
+
+    The probe asks LanceDB (store/config.py's data dir — JLBC_DATA_DIR, or the
+    repo's data/insight-data) whether budget_chunks has rows. Fresh checkouts,
+    CI, and dev machines that haven't run the Plan 1 migration have none, and
+    get the stub plus an honest stderr note saying WHY — a silent fallback
+    would leave "why is my search returning fake rows" undiagnosable."""
+    try:
+        from store.chunk_store import ChunkStore
+
+        if ChunkStore().count("budget_chunks") > 0:
+            return LanceSearchProvider()
+        reason = "budget_chunks table is empty"
+    except Exception as e:  # missing table, missing deps, unreadable data dir…
+        reason = f"{type(e).__name__}: {e}"
+    print(
+        f"jlbc-insight: no usable corpus ({reason}) — serving stub search fixtures. "
+        "Set JLBC_DATA_DIR to a migrated data dir for real retrieval.",
+        file=sys.stderr,
+    )
+    return StubSearchProvider()
 
 DEFAULT_STATIC_DIR = Path(__file__).resolve().parent.parent / "webapp" / "dist"
 # Sentinel: distinguishes "caller passed nothing" (use the real webapp/dist)
@@ -32,8 +57,8 @@ def create_app(
     app = FastAPI(title="JLBC Insight")
     # Explicit None check, not `provider or ...`: an injected provider object
     # could be falsy (e.g. a fake defining __len__/__bool__) and get silently
-    # swapped for the stub, which would be a baffling test failure.
-    app.state.provider = StubSearchProvider() if provider is None else provider
+    # swapped for the default, which would be a baffling test failure.
+    app.state.provider = _default_provider() if provider is None else provider
 
     # Route-registration order is load-bearing: FastAPI matches in registration
     # order, so the `/{path:path}` catch-all below MUST be registered after
