@@ -182,10 +182,11 @@ nav.primary{flex:1 1 auto;display:flex;flex-wrap:nowrap;align-items:center;justi
  *
  * NOT ported, and why:
  *   `.examples-row`      its four example queries were written for JLBC's own index.
- *   `#reportModal*`, `.grp-full`, `.grp-more`
- *                        the "open the full report" chooser + per-group collapse —
- *                        both open PDFs, which is Plan 4's viewer panel.
- *   `select.fyear`       fiscal year is a chip row here (plan) — see FilterBar.tsx.
+ *   `#reportModal*`      the two-format chooser modal — `.grp-full` (ported below)
+ *                        links straight to the single-file PDF instead
+ *                        (Destin 2026-07-29). `.grp-more` ported 2026-07-30 with
+ *                        the collapsed-tray behavior.
+ *   `select.fyear`       PORTED after all (2026-07-29, Destin) — see FilterBar.tsx.
  *   `.mode-note`         a semantic-vs-keyword mode caption this app has no modes for.
  *   `#results>.doc`      its "a lone result floats as its own tile" rules: every
  *                        result here is rendered inside a `.grp`, so nothing matches.
@@ -324,25 +325,33 @@ nav.primary{flex:1 1 auto;display:flex;flex-wrap:nowrap;align-items:center;justi
 .page-search .grp{margin:12px 14px;border:1px solid var(--line);border-radius:var(--r-lg);overflow:hidden;box-shadow:var(--shadow-sm);}
 .page-search .results>.grp:first-child{margin-top:14px;}
 .page-search .grp>.doc{border-bottom:0;}
-/* New rules: the group's document header row can't be clicked until Plan 4's PDF
-   panel exists, so cancel the mockup's three hover affordances on THAT row only —
-   the chunk rows nested in `.ctx` keep them, being real links. Each declaration
-   just restates the corresponding base rule's own value. */
-.page-search .grp>.doc:hover{background:transparent;}
-.page-search .grp>.doc:hover .doc-title{color:var(--navy);}
-.page-search .grp>.doc:hover .doc-pill{border-color:var(--line);color:var(--ink-2);}
+/* The headline row is a REAL LINK again (2026-07-30: it opens the document's
+   own source PDF, like the mockup's rows), so the mockup's hover affordances
+   apply to it unmodified. Only an UNLINKED row (stub data, or a document the
+   sidecar has no URL for) cancels them — hover styling on a non-link would
+   advertise a click that does nothing. */
+.page-search .doc.doc-unlinked:hover{background:transparent;}
+.page-search .doc.doc-unlinked:hover .doc-title{color:var(--navy);}
+.page-search .doc.doc-unlinked:hover .doc-pill{border-color:var(--line);color:var(--ink-2);}
+.page-search .doc.doc-unlinked{cursor:default;}
 .page-search .ctx{margin:0 14px 14px;border:1px dashed #cdd3e6;border-radius:var(--r-md);background:#fafbff;}
 .page-search .ctx-row{display:flex;align-items:center;gap:10px;padding:11px 14px;flex-wrap:wrap;}
 .page-search .ctx-row .badge{display:inline-flex;align-items:center;gap:7px;font-size:12.5px;font-weight:800;color:var(--navy);}
 .page-search .ctx-row .badge svg{width:15px;height:15px;color:var(--az-gold-d);flex:0 0 auto;}
 .page-search .ctx-row .spacer{flex:1;}
-/* The display:none/`.open` pair is ported as-is even though ResultCard always
-   renders `tray open` — leaving the collapse mechanism intact costs two lines and
-   is what Plan 4 would reuse to fold very large groups. */
+/* Trays start collapsed and open via the `.grp-more` toggle, exactly the
+   mockup's mechanism (Destin 2026-07-30: passages begin collapsed). */
 .page-search .ctx .tray{display:none;border-top:1px dashed #cdd3e6;}
 .page-search .ctx .tray.open{display:block;}
 .page-search .ctx .tray .doc{padding:11px 14px;}
 .page-search .ctx .tray .doc:not(:last-child){border-bottom:1px dashed #e3e7f1;}
+/* The mockup's `.grp-more` collapse toggle — base declarations verbatim from
+   its shared `.grp-full,.grp-more` rule (the gold override above applies only
+   to .grp-full), plus its chevron rotation on `.open`. */
+.page-search .grp-more{display:inline-flex;align-items:center;gap:6px;font-size:12px;font-weight:800;color:var(--ink-2);background:var(--card);border:1px solid var(--line);border-radius:var(--r-pill);padding:6px 13px;cursor:pointer;white-space:nowrap;font-family:inherit;}
+.page-search .grp-more svg{width:13px;height:13px;transition:transform .18s;}
+.page-search .grp-more:hover{border-color:var(--az-gold);color:var(--az-gold-d);}
+.page-search .grp-more.open svg{transform:rotate(180deg);}
 
 .page-search .empty{padding:26px 24px;text-align:center;color:var(--ink-2);font-weight:600;}
 

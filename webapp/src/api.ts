@@ -13,6 +13,9 @@ export interface SearchResult {
   fiscal_year: number | null;
   publisher: string;
   agencies: string[];
+  /** The document's own source PDF/DOCX URL (additive contract field,
+   *  2026-07-30 — from Plan 1's documents.json sidecar); null when unknown. */
+  doc_url: string | null;
 }
 
 export interface SearchResponse {

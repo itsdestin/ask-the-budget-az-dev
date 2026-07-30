@@ -42,7 +42,14 @@ def _fake_result(chunks):
     )
 
 
-def test_provider_maps_retrieval_result_to_contract(monkeypatch):
+def _sidecar(tmp_path, monkeypatch, records):
+    """Point the provider's documents.json lookup at a tmp sidecar."""
+    p = tmp_path / "documents.json"
+    p.write_text(__import__("json").dumps(records), encoding="utf-8")
+    monkeypatch.setattr("store.config.documents_path", lambda: p)
+
+
+def test_provider_maps_retrieval_result_to_contract(monkeypatch, tmp_path):
     captured = {}
 
     def fake_retrieve(req, **kw):
@@ -50,6 +57,11 @@ def test_provider_maps_retrieval_result_to_contract(monkeypatch):
         return _fake_result([_chunk()])
 
     monkeypatch.setattr("app.search_provider.retrieve", fake_retrieve)
+    _sidecar(tmp_path, monkeypatch, {
+        "jlbc-baseline-fy2027-ahcccs": {
+            "source_url": "https://www.azjlbc.gov/27baseline/axs.pdf",
+        },
+    })
 
     out = LanceSearchProvider().search(
         "ahcccs rates",
@@ -71,6 +83,9 @@ def test_provider_maps_retrieval_result_to_contract(monkeypatch):
             "fiscal_year": 2027,
             "publisher": "jlbc",
             "agencies": ["ahcccs"],
+            # From the documents.json sidecar — the row's link to the
+            # individual agency narrative PDF.
+            "doc_url": "https://www.azjlbc.gov/27baseline/axs.pdf",
         }
     ]
 
@@ -85,16 +100,25 @@ def test_provider_maps_retrieval_result_to_contract(monkeypatch):
     assert req.agency_canonical_id is None  # unset filter stays unset
 
 
-def test_snippet_truncates_long_text(monkeypatch):
+def test_snippet_truncates_long_text(monkeypatch, tmp_path):
     monkeypatch.setattr(
         "app.search_provider.retrieve",
         lambda req, **kw: _fake_result([_chunk(text="x" * 1000)]),
     )
+    _sidecar(tmp_path, monkeypatch, {})
     out = LanceSearchProvider().search("q", top_k=5, corpus="budget", filters={})
     assert len(out[0]["snippet"]) == 280
 
 
-def test_fiscal_notes_corpus_maps_to_its_table(monkeypatch):
+def test_missing_sidecar_degrades_to_unlinked_rows(monkeypatch, tmp_path):
+    # No documents.json at all -> doc_url is None, search still works.
+    monkeypatch.setattr("app.search_provider.retrieve", lambda req, **kw: _fake_result([_chunk()]))
+    monkeypatch.setattr("store.config.documents_path", lambda: tmp_path / "absent.json")
+    out = LanceSearchProvider().search("q", top_k=5, corpus="budget", filters={})
+    assert out[0]["doc_url"] is None
+
+
+def test_fiscal_notes_corpus_maps_to_its_table(monkeypatch, tmp_path):
     captured = {}
 
     def fake_retrieve(req, **kw):
@@ -102,6 +126,7 @@ def test_fiscal_notes_corpus_maps_to_its_table(monkeypatch):
         return _fake_result([])
 
     monkeypatch.setattr("app.search_provider.retrieve", fake_retrieve)
+    _sidecar(tmp_path, monkeypatch, {})
     out = LanceSearchProvider().search("q", top_k=5, corpus="fiscal_notes", filters={})
     assert out == []
     assert captured["req"].corpus == "fiscal_note_chunks"

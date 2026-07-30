@@ -21,10 +21,10 @@ import { familyOf, familyTitle, fullPdfUrl } from "../reportFamilies";
 //   - `.examples-row` (its "try one of these" query pills): the example queries were
 //     written for JLBC's own document index; inventing four for this corpus would be
 //     making up content.
-//   - `#reportModal` (the TOC-vs-single-file format chooser) and `.grp-more` (the
-//     per-group collapse): per Destin (2026-07-29), `.grp-full` links STRAIGHT to
-//     the report's single-file PDF instead of opening the chooser — see
-//     reportFamilies.ts. Per-chunk PDF opening is still Plan 4's viewer panel.
+//   - `#reportModal` (the TOC-vs-single-file format chooser): per Destin
+//     (2026-07-29), `.grp-full` links STRAIGHT to the single-file PDF instead —
+//     see reportFamilies.ts. `.grp-more` IS ported (2026-07-30) as the
+//     collapsed-tray toggle in ResultCard. Per-chunk opening is Plan 4's viewer.
 //   - `.acc*` (the year accordion) and the sidebar/footer blocks: not part of this page.
 
 /** What the page is currently showing. One state, so "loading" and "error" and
@@ -58,6 +58,7 @@ export function groupByDoc(results: SearchResult[]): DocGroup[] {
         publisher: r.publisher,
         fiscal_year: r.fiscal_year,
         doc_type: r.doc_type,
+        doc_url: r.doc_url,
         chunks: [],
       };
       byDoc.set(r.doc_id, group);

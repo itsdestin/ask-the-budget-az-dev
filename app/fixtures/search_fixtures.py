@@ -11,10 +11,18 @@ these rows against a real document.
 """
 
 FIXTURE_ROWS = [
+    # doc_url=None on every fixture: stub rows must never link anywhere (the
+    # namespaced ids resolve to no real document), and None is exactly what the
+    # real provider emits when the sidecar has no record — same degraded shape.
+    #
+    # Scores are LOGIT-scale (6.5 down to 0.1), matching the real reranker's
+    # raw cross-encoder output — NOT 0..1. The UI shows sigmoid(score) as a
+    # confidence %; fixture scores on a 0..1 scale would all sigmoid into a
+    # meaningless 50-72% band and the stub would look nothing like real data.
     dict(chunk_id=f"stub-{i:03d}", doc_id=doc_id, doc_title=title,
-         snippet=snippet, page=page, score=round(0.95 - i * 0.07, 2),
+         snippet=snippet, page=page, score=round(6.5 - i * 1.6, 1),
          doc_type=doc_type, fiscal_year=fy, publisher=publisher,
-         agencies=agencies)
+         agencies=agencies, doc_url=None)
     for i, (doc_id, title, snippet, page, doc_type, fy, publisher, agencies) in enumerate([
         ("stub-jlbc-baseline-fy2027-ahcccs", "FY 2027 Baseline — AHCCCS",
          "…provider rate increases of $58.1 million from the General Fund…",
