@@ -23,13 +23,18 @@ test("runs the ?q= query on mount and groups results by document", async () => {
     <MemoryRouter initialEntries={["/search?q=ahcccs"]}><Search /></MemoryRouter>,
   );
   await waitFor(() => expect(screen.getByText(TITLE)).toBeInTheDocument());
-  // The row shows the mockup's TITLE + META line only — no passage text, no
-  // page pill (Destin 2026-07-30: rows read like the mockup's; retrieval
-  // passages are a tack-on). ALL passages live in the collapsed tray.
+  // The row shows the TITLE only — no tagline/meta, no passage text, no
+  // publisher pill, no visible percentage (Destin 2026-07-30: the mockup-index
+  // titles already carry agency/report/year). Passages live in the collapsed
+  // tray.
   expect(
-    screen.getByText("Agency Budget Detail · Baseline Book · FY 2027"),
-  ).toBeInTheDocument();
+    screen.queryByText("Agency Budget Detail · Baseline Book · FY 2027"),
+  ).not.toBeInTheDocument();
   expect(screen.queryByText(/provider rate increases/)).not.toBeInTheDocument();
+  expect(screen.queryByText(/%/)).not.toBeInTheDocument();
+  // No publisher pill in the RESULTS (the filter strip's JLBC chip is separate
+  // and must stay).
+  expect(document.querySelector(".results")?.textContent).not.toContain("JLBC");
   expect(screen.queryByText(/p\.\s*1[45]/)).not.toBeInTheDocument();
   fireEvent.click(screen.getByRole("button", { name: /2 passages/i }));
   expect(screen.getAllByText(/p\.\s*1[45]/)).toHaveLength(2);

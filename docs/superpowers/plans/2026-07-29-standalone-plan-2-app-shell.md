@@ -53,8 +53,41 @@ POST /api/search
 > mockup index's meta line for the doc ("Agency Budget Detail · Appropriations
 > Report · FY 2025"), joined by exact source URL; `doc_title` now carries the
 > mockup index's display title when joined (373/382 docs), the slug humanizer
-> otherwise. `score` note: since Plan 1, raw cross-encoder logits (±~10),
-> not 0..1.
+> otherwise. `doc_meta` is currently NOT rendered (Destin trimmed the row
+> taglines) but stays in the contract for Plans 3/4. `score` note: since
+> Plan 1, raw cross-encoder logits (±~10), not 0..1.
+
+## As shipped — final search UI (2026-07-30, supersedes Task 9/12's inline sketches)
+
+The search page went through a live design iteration with Destin after the
+plan's 13 tasks completed. **The shipped `webapp/src` is authoritative**; the
+code blocks inside Tasks 9 and 12 below are the historical starting point, not
+the final shape. Final behavior:
+
+- **Results group by report family** (`webapp/src/reportFamilies.ts`:
+  fiscal_year + doc_type family, e.g. "FY 2026 Baseline"), families ordered by
+  best chunk score. The retrieval ORDER is Plan 1's pipeline; the mockup
+  engine's query-side ranking heuristics live in the vendored
+  `webapp/reference/assets/search/search.js` as future tuning input only.
+- **Each result card**: (1) a linked headline row — the best-matching agency
+  document, title only (the mockup index's display title via the URL join),
+  relevance BAR (sigmoid of the logit, no visible number), an "Open" pill
+  linking `doc_url`; (2) a "Matching passages" dashed card, collapsed —
+  snippets + page pills + bars, `data-chunk-id` stubs for Plan 4's viewer;
+  (3) a bottom "Part of the FY YYYY <family>" card with collapsed sibling
+  documents and the **Full report** action → the mockup's two-format chooser
+  modal (Linked TOC vs Single File PDF; URLs hand-verified per family in
+  `reportFamilies.ts`; one format → direct link; none → no card).
+  NO publisher pills, NO taglines/meta lines, NO percentage numbers (all
+  removed at Destin's direction).
+- **Filters**: publisher chips + curated always-visible type buckets (slug
+  families) + the mockup's FY `select.fyear` dropdown. No chip counts until a
+  facets endpoint exists.
+- **Provider**: startup probe picks LanceSearchProvider (real corpus) or the
+  stub; mid-request failures surface as JSON 503 with the real cause.
+
+Plans 3/4/5 should treat this section + the spec's S12 amendment as the search
+page's baseline.
 
 GET /api/fiscal-notes
   -> { "sessions": [ { "year": int, "name": str,
