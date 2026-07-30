@@ -92,7 +92,13 @@ Spec: `docs/superpowers/specs/2026-07-29-standalone-consolidation-design.md`
   `optimize()` (`cleanup_old_versions` not exposed — matters for the SMB
   share); ingest-side title quality is poor for a few docs ("GOVERNOR
   FY2027 fy2027") — Plan 3; expose fastembed `parallel=` for faster bulk
-  re-embeds — Plan 3.
+  re-embeds — Plan 3; PRE-EXISTING test-isolation debt (predates Plan 1,
+  verified on pre-merge master): when `.env.local` exists, dotenv loading
+  during the api tests leaks `DATABASE_URL` into the process env, which
+  un-skips the legacy Postgres suites (test_connection/test_loader/
+  test_embeddings) mid-run and they fail with UndefinedTable against a
+  schema they don't own — run suites without `.env.local` (fresh-clone
+  behavior) or fix the skip gates to snapshot env at collection time.
 
 ---
 
