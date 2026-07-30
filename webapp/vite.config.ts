@@ -18,5 +18,11 @@ export default defineConfig({
     environment: "jsdom",
     setupFiles: ["./src/test-setup.ts"],
     globals: true,
+    // Reset every vi.spyOn/vi.fn to its original implementation after each test.
+    // Without this a spy set up in one test survives into the next one, so tests
+    // pass or fail depending on the order they run in — and a mock chain like
+    // mockResolvedValueOnce(...).mockResolvedValue(...) silently inherits leftover
+    // queued responses from an earlier test.
+    restoreMocks: true,
   },
 });

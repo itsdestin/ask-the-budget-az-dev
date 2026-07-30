@@ -29,7 +29,9 @@ import { SearchIcon } from "../components/SearchIcon";
  *  "results" can never be true at the same time. */
 type Phase =
   | { kind: "idle" }
-  | { kind: "loading" }
+  // `prev` is the response still on screen while a new one is fetched — see the
+  // stale-while-revalidate note in the component.
+  | { kind: "loading"; prev?: SearchResponse }
   | { kind: "ready"; res: SearchResponse }
   | { kind: "error"; message: string };
 
@@ -59,12 +61,15 @@ export function groupByDoc(results: SearchResult[]): DocGroup[] {
     }
     group.chunks.push(r);
   }
-  // A Map iterates in insertion order, so documents come out in the order the
-  // provider first mentioned them — i.e. still ranked by their best hit. Chunks
-  // are re-sorted by score anyway so a provider that returns them ungrouped or
-  // unordered still reads correctly.
-  for (const group of byDoc.values()) group.chunks.sort((a, b) => b.score - a.score);
-  return [...byDoc.values()];
+  // Sort chunks within each document, then the documents by their best chunk.
+  // ONE posture for both, rather than trusting the provider's insertion order for
+  // groups while defensively re-sorting chunks: a provider that returns rows
+  // ungrouped or unordered (or a future one that re-ranks) then still produces
+  // best-document-first, which is the only order this page claims to show.
+  const groups = [...byDoc.values()];
+  for (const group of groups) group.chunks.sort((a, b) => b.score - a.score);
+  groups.sort((a, b) => b.chunks[0].score - a.chunks[0].score);
+  return groups;
 }
 
 /** Fold a response's fiscal years and doc types into the chip options.
@@ -128,6 +133,14 @@ export function Search() {
   const [phase, setPhase] = useState<Phase>({ kind: "idle" });
   const [facets, setFacets] = useState<Facets>({ q: "", years: [], docTypes: [] });
 
+  // Retry counter. WHY it exists: the search runs off ?q=, so re-submitting the
+  // SAME text writes the same ?q= — `query` never changes, the effect never
+  // re-runs, and the click appears to do nothing. That is a dead end after a
+  // failed search, where re-running the identical query is exactly what the user
+  // wants. Bumping this on every submit/retry gives the effect something that
+  // always changes, so the request always fires.
+  const [attempt, setAttempt] = useState(0);
+
   // Keep the box in step with the URL if ?q= changes underneath us (back button, or
   // a second search arriving from elsewhere in the app).
   useEffect(() => setText(query), [query]);
@@ -142,7 +155,15 @@ export function Search() {
     // `ignore` — so when the OLD (slower) request finally answers, it returns here
     // and does nothing instead of overwriting the newer results.
     let ignore = false;
-    setPhase({ kind: "loading" });
+    // Stale-while-revalidate: keep the results that are already on screen while the
+    // next response is in flight (they render dimmed). Blanking the panel on every
+    // chip toggle would make the list flash and the page jump back up — on the
+    // page's primary interaction. Invisible with the stub's instant fixtures, very
+    // visible once a real provider takes network time.
+    setPhase((p) => ({
+      kind: "loading",
+      prev: p.kind === "ready" ? p.res : p.kind === "loading" ? p.prev : undefined,
+    }));
     api.search(query, filters, "budget").then(
       (res) => {
         if (ignore) return;
@@ -161,9 +182,20 @@ export function Search() {
     };
     // `filters` is a state object, so its identity only changes when a chip is
     // toggled — it is safe as a dependency and is what re-runs the search.
-  }, [query, filters]);
+    // `attempt` re-runs an identical query on demand (see its declaration).
+  }, [query, filters, attempt]);
 
-  const groups = phase.kind === "ready" ? groupByDoc(phase.res.results) : [];
+  /** Bump the attempt counter so the effect refetches even if nothing else changed. */
+  function runSearch(next?: string) {
+    if (next !== undefined) setParams({ q: next });
+    setAttempt((a) => a + 1);
+  }
+
+  // The response being displayed: the fresh one, or the previous one still held
+  // during a refetch. Errors show no results panel at all.
+  const shown =
+    phase.kind === "ready" ? phase.res : phase.kind === "loading" ? phase.prev : undefined;
+  const groups = shown ? groupByDoc(shown.results) : [];
 
   return (
     <main className="page-search" data-testid="search">
@@ -217,8 +249,9 @@ export function Search() {
                 // backend rejects ("query is empty") and show an error for something
                 // the user hasn't typed yet.
                 if (!next) return;
-                // Writing ?q= is what triggers the fetch (the effect above watches it).
-                setParams({ q: next });
+                // Writes ?q= AND bumps the attempt counter, so submitting the same
+                // text again really does re-run the search.
+                runSearch(next);
               }}
             >
               <SearchIcon className="s-ic" />
@@ -265,13 +298,28 @@ export function Search() {
           </section>
 
           {/* The mockup's status line under the card. Every phase says something
-              true; none of them leaves the page blank. */}
-          <div className="search-status">
+              true; none of them leaves the page blank.
+
+              role="status" makes this a live region, so a screen reader announces
+              "Searching…", the result count, and errors as they replace each other.
+              Without it the only feedback for the whole search is visual, and a
+              non-sighted user gets silence after pressing Search. */}
+          <div className="search-status" role="status">
             {phase.kind === "idle" && "Type a search above to query the budget corpus."}
             {phase.kind === "loading" && "Searching…"}
-            {/* `.err` is the mockup's own error color on this line. The message is
-                the backend's, passed through untouched. */}
-            {phase.kind === "error" && <span className="err">{phase.message}</span>}
+            {phase.kind === "error" && (
+              <>
+                {/* `.err` is the mockup's own error color on this line. The message
+                    is the backend's, passed through untouched. */}
+                <span className="err">{phase.message}</span>{" "}
+                {/* Retry re-runs the identical query, which the URL alone cannot do
+                    (see the attempt counter). Styled as a filter chip — the mockup's
+                    only small inline button — rather than a new button design. */}
+                <button type="button" className="fchip" onClick={() => runSearch()}>
+                  Retry
+                </button>
+              </>
+            )}
             {phase.kind === "ready" && (
               <>
                 {phase.res.total} {phase.res.total === 1 ? "match" : "matches"} in{" "}
@@ -284,8 +332,14 @@ export function Search() {
             )}
           </div>
 
-          {phase.kind === "ready" && (
-            <section className="card">
+          {/* Rendered whenever there is a response to show — including the previous
+              one during a refetch, dimmed via `.stale` and marked aria-busy so the
+              list neither disappears nor silently lies about being current. */}
+          {shown && (
+            <section
+              className={phase.kind === "loading" ? "card stale" : "card"}
+              aria-busy={phase.kind === "loading"}
+            >
               <div className="card-head">
                 <div className="head-row">
                   <span className="ic">

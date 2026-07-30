@@ -96,6 +96,12 @@ export function ResultCard({ group }: { group: DocGroup }) {
               data-chunk-id={chunk.chunk_id}
               key={chunk.chunk_id}
               onClick={(e) => e.preventDefault()}
+              // Out of the tab order until Plan 4 wires the viewer: keyboard users
+              // would otherwise tab through one focusable do-nothing link per
+              // passage per document to get past the results. Same reasoning as the
+              // document header row, which avoids being an anchor at all — remove
+              // this when the click does something.
+              tabIndex={-1}
             >
               <div className="doc-main">
                 <span className="doc-sub">{chunk.snippet}</span>

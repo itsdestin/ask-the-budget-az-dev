@@ -329,6 +329,14 @@ nav.primary{flex:1 1 auto;display:flex;flex-wrap:nowrap;align-items:center;justi
 
 .page-search .empty{padding:26px 24px;text-align:center;color:var(--ink-2);font-weight:600;}
 
+/* New rule: the results panel while a new response is in flight. The mockup has no
+   stale/refetching state to copy, so only two values are needed and both are
+   borrowed — .15s is the mockup's own `.doc` transition duration, and opacity is
+   the one property that dims a whole panel without touching any ported color.
+   .55 is a judgement call (clearly "not current" while still readable); it is the
+   single invented number on this page and it carries no brand meaning. */
+.page-search .card.stale{opacity:.55;transition:opacity .15s;}
+
 @media (max-width:760px){
   .page-search .doc{flex-wrap:wrap;}
   .page-search .doc-pill{margin-left:53px;}
