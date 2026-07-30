@@ -4,12 +4,15 @@ import { Search } from "./Search";
 import * as api from "../api";
 
 const RESULT = {
-  chunk_id: "c1", doc_id: "d1", doc_title: "FY 2027 Baseline — AHCCCS",
+  chunk_id: "c1", doc_id: "d1",
+  doc_title: "Health Care Cost Containment System, Arizona — FY 2027 Baseline",
   snippet: "…provider rate increases…", page: 14, score: 0.91,
   doc_type: "baseline-per-agency", fiscal_year: 2027, publisher: "jlbc",
   agencies: ["ahcccs"],
   doc_url: "https://www.azjlbc.gov/27baseline/axs.pdf",
+  doc_meta: "Agency Budget Detail · Baseline Book · FY 2027",
 };
+const TITLE = /Health Care Cost Containment System/;
 
 test("runs the ?q= query on mount and groups results by document", async () => {
   vi.spyOn(api, "search").mockResolvedValue({
@@ -19,18 +22,17 @@ test("runs the ?q= query on mount and groups results by document", async () => {
   render(
     <MemoryRouter initialEntries={["/search?q=ahcccs"]}><Search /></MemoryRouter>,
   );
-  await waitFor(() =>
-    expect(screen.getByText("FY 2027 Baseline — AHCCCS")).toBeInTheDocument(),
-  );
-  // The headline row shows the best chunk inline; the SECOND passage sits in
-  // the collapsed tray (Destin 2026-07-30: passages begin collapsed), so only
-  // p. 14 is visible until the toggle opens it. The tray holds only the REST
-  // (slice(1)) — p. 14 must not be duplicated inside it.
-  expect(screen.getByText(/p\.\s*14/)).toBeInTheDocument();
-  expect(screen.queryByText(/p\.\s*15/)).not.toBeInTheDocument();
-  fireEvent.click(screen.getByRole("button", { name: /1 more passage/i }));
-  expect(screen.getByText(/p\.\s*15/)).toBeInTheDocument();
-  expect(screen.getAllByText(/p\.\s*14/)).toHaveLength(1);
+  await waitFor(() => expect(screen.getByText(TITLE)).toBeInTheDocument());
+  // The row shows the mockup's TITLE + META line only — no passage text, no
+  // page pill (Destin 2026-07-30: rows read like the mockup's; retrieval
+  // passages are a tack-on). ALL passages live in the collapsed tray.
+  expect(
+    screen.getByText("Agency Budget Detail · Baseline Book · FY 2027"),
+  ).toBeInTheDocument();
+  expect(screen.queryByText(/provider rate increases/)).not.toBeInTheDocument();
+  expect(screen.queryByText(/p\.\s*1[45]/)).not.toBeInTheDocument();
+  fireEvent.click(screen.getByRole("button", { name: /2 matching passages/i }));
+  expect(screen.getAllByText(/p\.\s*1[45]/)).toHaveLength(2);
   expect(api.search).toHaveBeenCalledWith("ahcccs", expect.anything(), "budget");
 });
 
@@ -39,7 +41,7 @@ test("the headline row links to the document's own source PDF", async () => {
     results: [RESULT], total: 1, provider: "stub",
   });
   render(<MemoryRouter initialEntries={["/search?q=x"]}><Search /></MemoryRouter>);
-  const row = await screen.findByRole("link", { name: /FY 2027 Baseline — AHCCCS/ });
+  const row = await screen.findByRole("link", { name: TITLE });
   expect(row).toHaveAttribute("href", "https://www.azjlbc.gov/27baseline/axs.pdf");
   expect(row).toHaveAttribute("target", "_blank");
 });
@@ -50,10 +52,10 @@ test("a row with no doc_url renders unlinked, not as a dead link", async () => {
   });
   render(<MemoryRouter initialEntries={["/search?q=x"]}><Search /></MemoryRouter>);
   await waitFor(() =>
-    expect(screen.getByText("FY 2027 Baseline — AHCCCS")).toBeInTheDocument(),
+    expect(screen.getByText(TITLE)).toBeInTheDocument(),
   );
   expect(
-    screen.queryByRole("link", { name: /FY 2027 Baseline — AHCCCS/ }),
+    screen.queryByRole("link", { name: TITLE }),
   ).not.toBeInTheDocument();
 });
 
@@ -63,7 +65,7 @@ test("sibling documents of the same report start collapsed and expand", async ()
       RESULT,
       {
         ...RESULT, chunk_id: "c9", doc_id: "d2", score: 0.5,
-        doc_title: "FY 2027 Baseline — DCS", page: 4,
+        doc_title: "Child Safety, Department of — FY 2027 Baseline", page: 4,
         doc_url: "https://www.azjlbc.gov/27baseline/dcs.pdf",
       },
     ],
@@ -71,13 +73,13 @@ test("sibling documents of the same report start collapsed and expand", async ()
   });
   render(<MemoryRouter initialEntries={["/search?q=x"]}><Search /></MemoryRouter>);
   await waitFor(() =>
-    expect(screen.getByText("FY 2027 Baseline — AHCCCS")).toBeInTheDocument(),
+    expect(screen.getByText(TITLE)).toBeInTheDocument(),
   );
   // The sibling is behind the collapsed "more" tray…
-  expect(screen.queryByText("FY 2027 Baseline — DCS")).not.toBeInTheDocument();
+  expect(screen.queryByText(/Child Safety, Department of/)).not.toBeInTheDocument();
   fireEvent.click(screen.getByRole("button", { name: /1 more document/i }));
   // …and is a real link once revealed.
-  const sibling = screen.getByRole("link", { name: /FY 2027 Baseline — DCS/ });
+  const sibling = screen.getByRole("link", { name: /Child Safety, Department of/ });
   expect(sibling).toHaveAttribute("href", "https://www.azjlbc.gov/27baseline/dcs.pdf");
 });
 
@@ -116,7 +118,7 @@ test("keeps the previous results on screen while refetching", async () => {
 
   render(<MemoryRouter initialEntries={["/search?q=ahcccs"]}><Search /></MemoryRouter>);
   await waitFor(() =>
-    expect(screen.getByText("FY 2027 Baseline — AHCCCS")).toBeInTheDocument(),
+    expect(screen.getByText(TITLE)).toBeInTheDocument(),
   );
 
   // Narrow by publisher; the second request is now hanging.
@@ -125,7 +127,7 @@ test("keeps the previous results on screen while refetching", async () => {
 
   // The old results are STILL rendered (not replaced by a blank panel), and the
   // panel says it is busy so the stale rows aren't presented as current.
-  expect(screen.getByText("FY 2027 Baseline — AHCCCS")).toBeInTheDocument();
+  expect(screen.getByText(TITLE)).toBeInTheDocument();
   expect(screen.getByText("Searching…")).toBeInTheDocument();
   expect(document.querySelector(".card.stale")).toHaveAttribute("aria-busy", "true");
 
@@ -155,7 +157,7 @@ test("a failed search surfaces the backend detail and can be retried", async () 
   fireEvent.click(screen.getByRole("button", { name: /retry/i }));
 
   await waitFor(() =>
-    expect(screen.getByText("FY 2027 Baseline — AHCCCS")).toBeInTheDocument(),
+    expect(screen.getByText(TITLE)).toBeInTheDocument(),
   );
   // Same query, second request actually issued.
   expect(spy).toHaveBeenCalledTimes(2);
@@ -271,7 +273,7 @@ test("results group under their report family with a full-PDF link", async () =>
   vi.spyOn(api, "search").mockResolvedValue({
     results: [
       RESULT,
-      { ...RESULT, chunk_id: "c9", doc_id: "d2", doc_title: "FY 2027 Baseline — DCS", page: 4 },
+      { ...RESULT, chunk_id: "c9", doc_id: "d2", doc_title: "Child Safety, Department of — FY 2027 Baseline", page: 4 },
     ],
     total: 2,
     provider: "stub",
@@ -283,8 +285,8 @@ test("results group under their report family with a full-PDF link", async () =>
   await waitFor(() =>
     expect(screen.getByText(/Part of the FY 2027 Baseline/)).toBeInTheDocument(),
   );
-  expect(screen.getByText("FY 2027 Baseline — AHCCCS")).toBeInTheDocument();
-  expect(screen.queryByText("FY 2027 Baseline — DCS")).not.toBeInTheDocument();
+  expect(screen.getByText(TITLE)).toBeInTheDocument();
+  expect(screen.queryByText(/Child Safety, Department of/)).not.toBeInTheDocument();
 
   // The hand-verified single-file PDF link (reportFamilies.ts).
   const link = screen.getByRole("link", { name: /full report \(pdf\)/i });

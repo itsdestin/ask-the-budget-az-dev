@@ -59,6 +59,7 @@ export function groupByDoc(results: SearchResult[]): DocGroup[] {
         fiscal_year: r.fiscal_year,
         doc_type: r.doc_type,
         doc_url: r.doc_url,
+        doc_meta: r.doc_meta,
         chunks: [],
       };
       byDoc.set(r.doc_id, group);

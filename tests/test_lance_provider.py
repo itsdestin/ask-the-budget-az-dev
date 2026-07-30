@@ -49,6 +49,16 @@ def _sidecar(tmp_path, monkeypatch, records):
     monkeypatch.setattr("store.config.documents_path", lambda: p)
 
 
+def _mockup_index(tmp_path, monkeypatch, entries):
+    """Point the provider's mockup-index lookup at a tmp index-lite.js."""
+    p = tmp_path / "index-lite.js"
+    p.write_text(
+        "window.JLBC_DOCS=" + __import__("json").dumps(entries) + ";",
+        encoding="utf-8",
+    )
+    monkeypatch.setattr("app.search_provider.MOCKUP_INDEX_PATH", p)
+
+
 def test_provider_maps_retrieval_result_to_contract(monkeypatch, tmp_path):
     captured = {}
 
@@ -62,6 +72,15 @@ def test_provider_maps_retrieval_result_to_contract(monkeypatch, tmp_path):
             "source_url": "https://www.azjlbc.gov/27baseline/axs.pdf",
         },
     })
+    # A mini mockup index whose URL matches the sidecar's (different CASE on
+    # purpose — the join must be case-insensitive, real data mixes 25AR/25ar).
+    _mockup_index(tmp_path, monkeypatch, [{
+        "url": "https://www.azjlbc.gov/27baseline/AXS.pdf",
+        "title": "Health Care Cost Containment System, Arizona — FY 2027 Baseline",
+        "category": "Agency Budget Detail",
+        "doc_type": "Baseline Book",
+        "fiscal_year": 2027,
+    }])
 
     out = LanceSearchProvider().search(
         "ahcccs rates",
@@ -70,12 +89,13 @@ def test_provider_maps_retrieval_result_to_contract(monkeypatch, tmp_path):
         filters={"publisher": ["jlbc"], "fiscal_year": [2027]},
     )
 
-    # The frozen contract's ten row fields, mapped from the chunk.
+    # The frozen contract's row fields, mapped from the chunk + the mockup
+    # index join (title and meta are the WEBSITE MOCKUP'S own strings).
     assert out == [
         {
             "chunk_id": "c1",
             "doc_id": "jlbc-baseline-fy2027-ahcccs",
-            "doc_title": "JLBC Baseline FY 2027 Ahcccs",  # best-effort humanizer
+            "doc_title": "Health Care Cost Containment System, Arizona — FY 2027 Baseline",
             "snippet": "provider rate increases of $58.1 million from the General Fund",
             "page": 14,
             "score": 4.2,
@@ -86,6 +106,8 @@ def test_provider_maps_retrieval_result_to_contract(monkeypatch, tmp_path):
             # From the documents.json sidecar — the row's link to the
             # individual agency narrative PDF.
             "doc_url": "https://www.azjlbc.gov/27baseline/axs.pdf",
+            # The mockup docRow's meta recipe: category · doc_type · FY.
+            "doc_meta": "Agency Budget Detail · Baseline Book · FY 2027",
         }
     ]
 
