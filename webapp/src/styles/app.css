@@ -314,10 +314,9 @@ nav.primary{flex:1 1 auto;display:flex;flex-wrap:nowrap;align-items:center;justi
 .page-search .doc:hover .doc-pill{border-color:var(--az-gold);color:var(--az-gold-d);}
 .page-search .doc-pill svg{width:13px;height:13px;}
 
-/* Relevance meter on a chunk row (the mockup's `.doc .rel`). */
-.page-search .doc .rel{flex:0 0 auto;display:inline-flex;align-items:center;gap:7px;margin-left:8px;font-size:11px;font-weight:800;color:var(--ink-3);}
-.page-search .doc .rel .bar{width:50px;height:6px;border-radius:3px;background:#edeef4;overflow:hidden;}
-.page-search .doc .rel .bar i{display:block;height:100%;background:var(--az-gold);}
+/* The mockup's `.doc .rel` relevance meter is NOT ported: the visible score
+   display (number, then bar-only) was removed entirely at Destin's direction
+   (2026-07-30) — ranking speaks through result order. */
 
 /* Grouped results: one `.grp` tile per document, its hits in the dashed `.ctx`
    box. `#results` → `.results` is the only edit — an id inside a component is a
