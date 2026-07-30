@@ -15,6 +15,7 @@ from pathlib import Path
 from fastapi import FastAPI, HTTPException
 from fastapi.responses import FileResponse, HTMLResponse
 
+from app.routes.documents import router as documents_router
 from app.routes.fiscal_notes import router as fiscal_notes_router
 from app.routes.search import router as search_router
 from app.search_provider import LanceSearchProvider, SearchProvider, StubSearchProvider
@@ -72,6 +73,7 @@ def create_app(
     # every real router or it swallows /api/* and /health.
     app.include_router(search_router)
     app.include_router(fiscal_notes_router)
+    app.include_router(documents_router)
 
     @app.get("/health")
     def health():
