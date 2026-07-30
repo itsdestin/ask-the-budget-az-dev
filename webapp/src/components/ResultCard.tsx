@@ -1,6 +1,6 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import type { SearchResult } from "../api";
-import { familyOf, familyTitle } from "../reportFamilies";
+import { familyOf, familyTitle, type ReportFormats } from "../reportFamilies";
 import { publisherLabel } from "./FilterBar";
 
 // ResultCard — one REPORT FAMILY's worth of hits, restructured 2026-07-30 to
@@ -47,8 +47,9 @@ export interface FamilyGroup {
   publisher: string;
   fiscal_year: number | null;
   docs: DocGroup[];
-  /** The report's full single-file PDF — null when no hand-verified URL exists. */
-  fullPdfUrl: string | null;
+  /** Both whole-report format URLs (single-file PDF + linked TOC) — nulls when
+   *  no hand-verified URLs exist (reportFamilies.ts). */
+  formats: ReportFormats;
 }
 
 // The mockup's glyphs (search.js FILE_IC / BOOK_IC / CHEV_IC / OPEN_IC),
@@ -143,100 +144,191 @@ function DocRow({ doc, showPublisher = false }: { doc: DocGroup; showPublisher?:
   );
 }
 
+/** The mockup's report-format chooser (#reportModal): Linked Table of
+ *  Contents vs Single File PDF, copy verbatim from the vendored
+ *  subpage-search_jlbc.html. Rendered only while open. */
+function ReportChooser({
+  title,
+  formats,
+  onClose,
+}: {
+  title: string;
+  formats: ReportFormats;
+  onClose: () => void;
+}) {
+  // The mockup closes on Escape, backdrop click, the X, or either choice.
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") onClose();
+    };
+    document.addEventListener("keydown", onKey);
+    return () => document.removeEventListener("keydown", onKey);
+  }, [onClose]);
+
+  return (
+    <div
+      className="report-modal open"
+      role="dialog"
+      aria-modal="true"
+      aria-label="Open the full report"
+      onClick={(e) => {
+        if (e.target === e.currentTarget) onClose();
+      }}
+    >
+      <div className="modal">
+        <div className="mhead">
+          <span className="mic">
+            <BookIcon />
+          </span>
+          <span className="mt">
+            <b>{title}</b>
+            <span>Choose how you'd like to open it</span>
+          </span>
+          <button className="mx" type="button" aria-label="Close" onClick={onClose}>
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.4" aria-hidden="true">
+              <path d="M6 6l12 12M18 6 6 18" />
+            </svg>
+          </button>
+        </div>
+        <div className="mbody">
+          {formats.linkedToc && (
+            <a
+              className="choice linked"
+              href={formats.linkedToc}
+              target="_blank"
+              rel="noopener noreferrer"
+              onClick={onClose}
+            >
+              <span className="cic">
+                {/* The mockup's link-chain glyph, path verbatim. */}
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden="true">
+                  <path d="M10 13a5 5 0 0 0 7 0l2-2a5 5 0 0 0-7-7l-1 1" />
+                  <path d="M14 11a5 5 0 0 0-7 0l-2 2a5 5 0 0 0 7 7l1-1" />
+                </svg>
+              </span>
+              <span className="cc">
+                <b>Linked Table of Contents</b>
+                <p>An index page where each agency and section is a link that opens its own smaller PDF.</p>
+                <span className="best">
+                  Best for jumping straight to one agency or section without downloading the whole report.
+                </span>
+              </span>
+              <span className="carr">
+                <OpenIcon />
+              </span>
+            </a>
+          )}
+          {formats.singleFile && (
+            <a
+              className="choice single"
+              href={formats.singleFile}
+              target="_blank"
+              rel="noopener noreferrer"
+              onClick={onClose}
+            >
+              <span className="cic">
+                <DocIcon />
+              </span>
+              <span className="cc">
+                <b>Single File PDF</b>
+                <p>The complete report as one document — every agency and summary in a single PDF.</p>
+                <span className="best">
+                  Best for reading start to finish, searching the whole report, or printing. Largest download.
+                </span>
+              </span>
+              <span className="carr">
+                <OpenIcon />
+              </span>
+            </a>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
 export function ResultCard({ family }: { family: FamilyGroup }) {
   // Both trays start CLOSED, like the mockup's "N more results" collapse
   // (Destin 2026-07-30: "the passages sections should begin collapsed").
   const [passagesOpen, setPassagesOpen] = useState(false);
   const [moreOpen, setMoreOpen] = useState(false);
+  const [chooserOpen, setChooserOpen] = useState(false);
 
   // The headline is the family's best document; the rest are siblings. Our
   // provider only returns per-document narrative sections (never whole-book
   // rows), so the mockup's agency-page promotion is satisfied structurally:
-  // the best agency section IS the headline and the whole report is only ever
-  // the .grp-full button — search.js's CASE B, always.
+  // the best agency section IS the headline; the whole report lives in the
+  // report card below — search.js's CASE B, always.
   const [headline, ...siblings] = family.docs;
-  // The tray holds ALL of the headline's passages: since 2026-07-30 the doc
-  // row shows the mockup's meta line (not passage text), so nothing in the
-  // tray duplicates the row above it.
   const passages = headline.chunks;
+
+  const { singleFile, linkedToc } = family.formats;
+  const bothFormats = Boolean(singleFile && linkedToc);
+  const oneFormat = singleFile ?? linkedToc;
+  const hasReportCard = Boolean(oneFormat) || siblings.length > 0;
 
   return (
     <article className="grp">
       <DocRow doc={headline} showPublisher />
 
-      <div className="ctx">
-        <div className="ctx-row">
-          <span className="badge">
-            <BookIcon />
-            {/* "Part of the FY 2026 Baseline" for report families (mockup
-                wording); a standalone document (AFR, budget bill) IS its
-                family, so just name it. */}
-            {family.docs.length > 1 || family.fullPdfUrl
-              ? `Part of the ${family.title}`
-              : family.title}
-          </span>
-          <span className="spacer" />
-          {family.fullPdfUrl && (
-            <a
-              className="grp-full"
-              href={family.fullPdfUrl}
-              target="_blank"
-              rel="noopener noreferrer"
-            >
-              <BookIcon />
-              Full report (PDF)
-            </a>
-          )}
-          {passages.length > 0 && (
+      {/* Card layout per Destin (2026-07-30): the passages dropdown is its own
+          dashed card; the "Part of X / More from this report" card — with the
+          Full report action — sits at the BOTTOM of the result. */}
+      {passages.length > 0 && (
+        <div className="ctx">
+          <div className="ctx-row">
+            <span className="badge">
+              <DocIcon />
+              Matching passages
+            </span>
+            <span className="spacer" />
             <button
               type="button"
               className={passagesOpen ? "grp-more open" : "grp-more"}
               aria-expanded={passagesOpen}
               onClick={() => setPassagesOpen((v) => !v)}
             >
-              {passages.length === 1
-                ? "1 matching passage"
-                : `${passages.length} matching passages`}
+              {passages.length === 1 ? "1 passage" : `${passages.length} passages`}
               <ChevronIcon />
             </button>
+          </div>
+          {/* Collapsed until opened; MOUNTED only while open (hidden-but-
+              present rows would still be found by tests and screen readers,
+              and a wide query can carry hundreds of passages). */}
+          {passagesOpen && (
+            <div className="tray open">
+              {passages.map((chunk) => (
+                // href="#" + data-chunk-id is the agreed stub: Plan 4 swaps
+                // this for the PDF side panel keyed on that id.
+                <a
+                  className="doc"
+                  href="#"
+                  data-chunk-id={chunk.chunk_id}
+                  key={chunk.chunk_id}
+                  onClick={(e) => e.preventDefault()}
+                  tabIndex={-1}
+                >
+                  <div className="doc-main">
+                    <span className="doc-sub">{chunk.snippet}</span>
+                  </div>
+                  <RelMeter score={chunk.score} />
+                  {chunk.page !== null && <span className="doc-pill">p. {chunk.page}</span>}
+                </a>
+              ))}
+            </div>
           )}
         </div>
-        {/* Collapsed until the button above opens it — the mockup's tray. The
-            content is MOUNTED only while open (not merely display:none'd):
-            hidden-but-present rows would still be found by tests and screen
-            readers, and a wide query can carry hundreds of passages. */}
-        {passagesOpen && (
-        <div className="tray open">
-          {passages.map((chunk) => (
-            // href="#" + data-chunk-id is the agreed stub: Plan 4 swaps this
-            // for the PDF side panel keyed on that id. Out of the tab order
-            // until then.
-            <a
-              className="doc"
-              href="#"
-              data-chunk-id={chunk.chunk_id}
-              key={chunk.chunk_id}
-              onClick={(e) => e.preventDefault()}
-              tabIndex={-1}
-            >
-              <div className="doc-main">
-                <span className="doc-sub">{chunk.snippet}</span>
-              </div>
-              <RelMeter score={chunk.score} />
-              {chunk.page !== null && <span className="doc-pill">p. {chunk.page}</span>}
-            </a>
-          ))}
-        </div>
-        )}
+      )}
 
-        {siblings.length > 0 && (
-          <>
-            <div className="ctx-row">
-              <span className="badge">
-                <DocIcon />
-                More from this report
-              </span>
-              <span className="spacer" />
+      {hasReportCard && (
+        <div className="ctx">
+          <div className="ctx-row">
+            <span className="badge">
+              <BookIcon />
+              {`Part of the ${family.title}`}
+            </span>
+            <span className="spacer" />
+            {siblings.length > 0 && (
               <button
                 type="button"
                 className={moreOpen ? "grp-more open" : "grp-more"}
@@ -246,21 +338,42 @@ export function ResultCard({ family }: { family: FamilyGroup }) {
                 {siblings.length === 1 ? "1 more document" : `${siblings.length} more documents`}
                 <ChevronIcon />
               </button>
-            </div>
-            {/* Sibling rows are linked docRows showing each document's best
-                passage; their FURTHER passages aren't nested here (a tray
-                inside a tray) — Plan 4's viewer is where a document's full
-                match list belongs. Mounted only while open, same as above. */}
-            {moreOpen && (
-              <div className="tray open">
-                {siblings.map((doc) => (
-                  <DocRow key={doc.doc_id} doc={doc} />
-                ))}
-              </div>
             )}
-          </>
-        )}
-      </div>
+            {/* The mockup's Full report behavior (search.js openReport): both
+                formats -> the chooser modal; exactly one -> open it directly,
+                a one-option chooser would be pointless. */}
+            {bothFormats ? (
+              <button type="button" className="grp-full" onClick={() => setChooserOpen(true)}>
+                <BookIcon />
+                Full report
+              </button>
+            ) : oneFormat ? (
+              <a className="grp-full" href={oneFormat} target="_blank" rel="noopener noreferrer">
+                <BookIcon />
+                Full report
+              </a>
+            ) : null}
+          </div>
+          {/* Sibling rows are linked docRows; their further passages aren't
+              nested here — Plan 4's viewer owns a document's full match list.
+              Mounted only while open, same as the passages tray. */}
+          {moreOpen && (
+            <div className="tray open">
+              {siblings.map((doc) => (
+                <DocRow key={doc.doc_id} doc={doc} />
+              ))}
+            </div>
+          )}
+        </div>
+      )}
+
+      {chooserOpen && (
+        <ReportChooser
+          title={family.title}
+          formats={family.formats}
+          onClose={() => setChooserOpen(false)}
+        />
+      )}
     </article>
   );
 }

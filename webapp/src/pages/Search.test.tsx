@@ -31,7 +31,7 @@ test("runs the ?q= query on mount and groups results by document", async () => {
   ).toBeInTheDocument();
   expect(screen.queryByText(/provider rate increases/)).not.toBeInTheDocument();
   expect(screen.queryByText(/p\.\s*1[45]/)).not.toBeInTheDocument();
-  fireEvent.click(screen.getByRole("button", { name: /2 matching passages/i }));
+  fireEvent.click(screen.getByRole("button", { name: /2 passages/i }));
   expect(screen.getAllByText(/p\.\s*1[45]/)).toHaveLength(2);
   expect(api.search).toHaveBeenCalledWith("ahcccs", expect.anything(), "budget");
 });
@@ -288,13 +288,22 @@ test("results group under their report family with a full-PDF link", async () =>
   expect(screen.getByText(TITLE)).toBeInTheDocument();
   expect(screen.queryByText(/Child Safety, Department of/)).not.toBeInTheDocument();
 
-  // The hand-verified single-file PDF link (reportFamilies.ts).
-  const link = screen.getByRole("link", { name: /full report \(pdf\)/i });
-  expect(link).toHaveAttribute(
+  // "Full report" opens the mockup's format chooser (both hand-verified
+  // formats exist for this report) — Linked TOC vs Single File PDF.
+  fireEvent.click(screen.getByRole("button", { name: /full report/i }));
+  const dialog = screen.getByRole("dialog", { name: /open the full report/i });
+  expect(dialog).toBeInTheDocument();
+  expect(screen.getByRole("link", { name: /linked table of contents/i })).toHaveAttribute(
+    "href",
+    "https://www.azjlbc.gov/budget/27baselinelinks.pdf",
+  );
+  expect(screen.getByRole("link", { name: /single file pdf/i })).toHaveAttribute(
     "href",
     "https://www.azjlbc.gov/budget/27baselinesinglefile.pdf",
   );
-  expect(link).toHaveAttribute("target", "_blank");
+  // Escape closes it, like the mockup.
+  fireEvent.keyDown(document, { key: "Escape" });
+  expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
 });
 
 // No verified URL for a family -> no button at all. A guessed link behind an
@@ -316,6 +325,12 @@ test("families without a known single-file PDF get no full-report link", async (
   });
   render(<MemoryRouter initialEntries={["/search?q=x"]}><Search /></MemoryRouter>);
 
-  await waitFor(() => expect(screen.getByText("FY 2026 Budget Bill")).toBeInTheDocument());
+  // A standalone document with no verified report formats and no siblings gets
+  // NO report card at all — no "Part of…" badge, no Full report action.
+  await waitFor(() =>
+    expect(screen.getByText(/FY 2026 Budget Bill \(SB 1735\)/)).toBeInTheDocument(),
+  );
+  expect(screen.queryByText(/part of the/i)).not.toBeInTheDocument();
   expect(screen.queryByRole("link", { name: /full report/i })).not.toBeInTheDocument();
+  expect(screen.queryByRole("button", { name: /full report/i })).not.toBeInTheDocument();
 });

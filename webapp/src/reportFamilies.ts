@@ -35,24 +35,46 @@ export function familyTitle(family: string, fiscalYear: number | null): string {
   return fiscalYear === null ? family : `FY ${fiscalYear} ${family}`;
 }
 
-/** Curated map: family + fiscal year → the report's full single-file PDF.
+/** The two canonical ways JLBC publishes a whole annual report — the mockup's
+ *  format-chooser pair (search.js reportFormats): a "linked Table of Contents"
+ *  index page whose every agency/section opens its own smaller PDF, and the
+ *  complete single-file PDF. */
+export interface ReportFormats {
+  singleFile: string | null;
+  linkedToc: string | null;
+}
+
+/** Curated map: family + fiscal year → both whole-report format URLs.
  *
  *  HAND-VERIFIED, exact-match only: each URL was looked up by title in the
- *  vendored site index (webapp/reference/assets/search/index-lite.js — entries
- *  "FY 2027 Baseline Book (Single File PDF)", "FY 2026 Baseline Book (Single
- *  File)", "FY 2025 Appropriations Report"). No fuzzy matching: a wrong PDF
- *  behind an "open the report" button would violate the repo's auditability
- *  invariants, so families without a verified URL simply get no button.
- *  Extend this map (and hand-verify) when new report years are ingested. */
-const FULL_PDF_URLS: Record<string, string> = {
-  "Baseline:2027": "https://www.azjlbc.gov/budget/27baselinesinglefile.pdf",
-  "Baseline:2026": "https://www.azjlbc.gov/26baseline/26baselinesinglefile.pdf",
-  "Appropriations Report:2025": "https://www.azjlbc.gov/25ar/fy2025approprpt.pdf",
+ *  vendored site index (webapp/reference/assets/search/index-lite.js —
+ *  "FY 2027 Baseline Book (Single File PDF)" / "(Version with Individual
+ *  Links)", "FY 2026 Baseline Book (Single File)" / "(with Links)",
+ *  "FY 2025 Appropriations Report" / "(Table of Contents)"). No fuzzy
+ *  matching: a wrong PDF behind an "open the report" button would violate the
+ *  repo's auditability invariants, so families without verified URLs simply
+ *  get no button. Extend (and hand-verify) when new report years are
+ *  ingested. */
+const REPORT_FORMATS: Record<string, ReportFormats> = {
+  "Baseline:2027": {
+    singleFile: "https://www.azjlbc.gov/budget/27baselinesinglefile.pdf",
+    linkedToc: "https://www.azjlbc.gov/budget/27baselinelinks.pdf",
+  },
+  "Baseline:2026": {
+    singleFile: "https://www.azjlbc.gov/26baseline/26baselinesinglefile.pdf",
+    linkedToc: "https://www.azjlbc.gov/26baseline/26baselinelinks.pdf",
+  },
+  "Appropriations Report:2025": {
+    singleFile: "https://www.azjlbc.gov/25ar/fy2025approprpt.pdf",
+    linkedToc: "https://www.azjlbc.gov/25ar/apprpttoc.pdf",
+  },
 };
 
-export function fullPdfUrl(family: string, fiscalYear: number | null): string | null {
-  if (fiscalYear === null) return null;
-  return FULL_PDF_URLS[`${family}:${fiscalYear}`] ?? null;
+const NO_FORMATS: ReportFormats = { singleFile: null, linkedToc: null };
+
+export function reportFormats(family: string, fiscalYear: number | null): ReportFormats {
+  if (fiscalYear === null) return NO_FORMATS;
+  return REPORT_FORMATS[`${family}:${fiscalYear}`] ?? NO_FORMATS;
 }
 
 /** The curated filter buckets shown as chips on the search page — the mockup's

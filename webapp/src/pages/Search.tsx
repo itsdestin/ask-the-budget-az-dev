@@ -8,7 +8,7 @@ import type { SearchFilters, SearchResponse, SearchResult } from "../api";
 import { FilterBar, type FilterKey } from "../components/FilterBar";
 import { ResultCard, type DocGroup, type FamilyGroup } from "../components/ResultCard";
 import { SearchIcon } from "../components/SearchIcon";
-import { familyOf, familyTitle, fullPdfUrl } from "../reportFamilies";
+import { familyOf, familyTitle, reportFormats } from "../reportFamilies";
 
 // Budget Search — ported from the approved mockup's search page
 // (webapp/reference/subpage-search_jlbc.html), keeping its class names so its CSS
@@ -96,7 +96,7 @@ export function groupByFamily(results: SearchResult[]): FamilyGroup[] {
         publisher: doc.publisher,
         fiscal_year: doc.fiscal_year,
         docs: [],
-        fullPdfUrl: fullPdfUrl(family, doc.fiscal_year),
+        formats: reportFormats(family, doc.fiscal_year),
       };
       byFamily.set(key, group);
     }
