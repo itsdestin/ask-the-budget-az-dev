@@ -194,6 +194,14 @@ def compute_delta(
 
     return {
         "recall_at_5_delta": curr_summary.recall_at_5 - prev_summary.recall_at_5,
+        # None when the previous run predates recall@15 (added 2026-07-30 with
+        # the G1 amendment) — a missing baseline is not a zero delta.
+        "recall_at_15_delta": (
+            curr_summary.recall_at_15 - prev_summary.recall_at_15
+            if curr_summary.recall_at_15 is not None
+            and prev_summary.recall_at_15 is not None
+            else None
+        ),
         "recall_at_20_delta": curr_summary.recall_at_20
         - prev_summary.recall_at_20,
         "latency_p95_delta_ms": curr_summary.latency_p95_ms
@@ -217,8 +225,12 @@ def write_md_output(
     lines: list[str] = []
     lines.append(f"# Eval result — {timestamp} ({git_sha})\n")
     lines.append("## Summary\n")
-    lines.append(f"- **recall@5:** {summary.recall_at_5:.0%}")
-    lines.append(f"- **recall@20:** {summary.recall_at_20:.0%}")
+    lines.append(f"- **recall@5:** {summary.recall_at_5:.0%} (tracked, not gated)")
+    if summary.recall_at_15 is not None:
+        lines.append(
+            f"- **recall@15:** {summary.recall_at_15:.0%} (gate G1: >= 90%)"
+        )
+    lines.append(f"- **recall@20:** {summary.recall_at_20:.0%} (gate G1: >= 95%)")
     lines.append(f"- **fallback rate:** {summary.fallback_rate:.0%} of passes")
     lines.append(
         f"- **latency:** p50 {summary.latency_p50_ms}ms, p95 "
@@ -231,18 +243,22 @@ def write_md_output(
 
     if summary.by_type:
         lines.append("## By type\n")
-        lines.append("| Type | Count | recall@5 | recall@20 | Notes |")
-        lines.append("|---|---|---|---|---|")
+        lines.append(
+            "| Type | Count | recall@5 | recall@15 | recall@20 | Notes |"
+        )
+        lines.append("|---|---|---|---|---|---|")
         for type_name, bucket in summary.by_type.items():
             if "recall_at_5" in bucket:
+                at_15 = bucket.get("recall_at_15")
                 lines.append(
                     f"| {type_name} | {bucket['count']} | "
                     f"{bucket['recall_at_5']:.0%} | "
+                    f"{(f'{at_15:.0%}' if at_15 is not None else '—')} | "
                     f"{bucket['recall_at_20']:.0%} | |"
                 )
             else:
                 lines.append(
-                    f"| {type_name} | {bucket['count']} | — | — | "
+                    f"| {type_name} | {bucket['count']} | — | — | — | "
                     f"precision: {bucket.get('precision', 0):.0%} |"
                 )
         lines.append("")
@@ -252,6 +268,12 @@ def write_md_output(
         lines.append(
             f"- recall@5: {previous['recall_at_5_delta']:+.0%}"
         )
+        if previous.get("recall_at_15_delta") is not None:
+            lines.append(
+                f"- recall@15: {previous['recall_at_15_delta']:+.0%}"
+            )
+        else:
+            lines.append("- recall@15: n/a (previous run predates the metric)")
         lines.append(
             f"- recall@20: {previous['recall_at_20_delta']:+.0%}"
         )
@@ -377,6 +399,7 @@ def main() -> None:
     print(f"  {md_path}")
     print(
         f"\n  recall@5  {summary.recall_at_5:.2%}  "
+        f"recall@15  {summary.recall_at_15:.2%}  "
         f"recall@20  {summary.recall_at_20:.2%}  "
         f"latency p95 {summary.latency_p95_ms}ms  "
         f"refusal precision {summary.refusal_precision:.2%}"

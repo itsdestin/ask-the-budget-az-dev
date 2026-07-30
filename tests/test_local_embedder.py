@@ -5,10 +5,13 @@ import pytest
 
 from retrieval.local_embedder import (
     DEFAULT_LOCAL_MODEL,
+    LOCAL_EMBEDDING_DIM,
     QUERY_INSTRUCTION_PREFIXES,
     LocalEmbedder,
 )
 
+# Shared by BGE v1.5 and arctic-embed (verified against arctic-embed-m's
+# config_sentence_transformers.json, which sets exactly this query prompt).
 BGE_PREFIX = "Represent this sentence for searching relevant passages: "
 
 
@@ -81,14 +84,26 @@ def test_injected_fake_keeps_declared_dim():
 
 
 def test_dim_mismatch_raises_before_any_download():
-    # bge-base emits 768. Passing the small model's 384 must fail fast —
-    # this test would take minutes if the guard ran after model construction.
-    with pytest.raises(ValueError, match="768"):
-        LocalEmbedder(model_name="BAAI/bge-base-en-v1.5", dim=384)
+    # bge-small emits 384. Passing 768 (the current default's width) must
+    # fail fast — this test would take minutes if the guard ran after model
+    # construction.
+    with pytest.raises(ValueError, match="384"):
+        LocalEmbedder(model_name="BAAI/bge-small-en-v1.5", dim=768)
+
+
+def test_declared_dim_matches_the_store_default():
+    # Pins the one drift that breaks retrieval silently at the seam: the
+    # pipeline builds its store as a bare ChunkStore(), so if DEFAULT_DIM and
+    # the default model's real width disagree, _check_dim refuses to open the
+    # table the migration wrote — and the failure surfaces as "corpus is
+    # empty," nowhere near the constant that caused it.
+    from store.chunk_store import DEFAULT_DIM
+
+    assert LOCAL_EMBEDDING_DIM == DEFAULT_DIM
 
 
 @pytest.mark.slow
 def test_real_model_dim():
     emb = LocalEmbedder()
     vec = emb.embed_one("arizona state budget", input_type="query")
-    assert len(vec) == emb.dim == 384
+    assert len(vec) == emb.dim == 768

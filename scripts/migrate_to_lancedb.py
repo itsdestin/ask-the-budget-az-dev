@@ -19,7 +19,7 @@ Re-runnable: upsert semantics; safe to interrupt and restart.
 
 NOTE the embeddings are NOT copied from Postgres: the old column holds
 1024-dim voyage-3-large vectors, and this migration's whole point is to
-replace them with 384-dim local BGE vectors. Text is re-embedded, which
+replace them with 768-dim local arctic-embed-m vectors. Text is re-embedded,
 is why the run is CPU-bound rather than IO-bound.
 """
 from __future__ import annotations

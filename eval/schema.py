@@ -83,6 +83,14 @@ class EvalSummary(BaseModel):
     """Aggregate metrics across all queries in a run."""
 
     recall_at_5: float
+    # recall@15 is the gating metric: spec gate G1 was amended 2026-07-30 to
+    # "recall@15 >= 90% and recall@20 >= 95%" because retrieve() returns 15
+    # chunks and AI Mode reads all of them, so top-5 ordering barely affects
+    # answer quality. Optional/None ONLY so result files written before that
+    # amendment still validate here — without that, the delta-vs-previous
+    # section would silently vanish on the first run after the change.
+    # Every run from 2026-07-30 on sets it.
+    recall_at_15: Optional[float] = None
     recall_at_20: float
     fallback_rate: float  # share of passes that used dimensions fallback
     latency_p50_ms: int

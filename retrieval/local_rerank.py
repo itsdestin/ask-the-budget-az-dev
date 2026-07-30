@@ -24,7 +24,13 @@ from typing import Any
 
 from retrieval.types import RetrievedChunk
 
-DEFAULT_LOCAL_RERANK_MODEL = "Xenova/ms-marco-MiniLM-L-6-v2"
+# WHY L-12 over L-6: the 2026-07-30 reranker sweep showed L-12 is the ONLY
+# fastembed cross-encoder that clears the amended G1 gate (recall@15 >= 90%
+# on the arctic candidate pool); L-6 and jina-turbo both land at 89.66%.
+# L-12 costs ~2x L-6 per candidate (measured 4.9s at a 50-candidate pool,
+# 2.7s mean / 3.1s max at 20), which is why the fused pool default dropped
+# to 20 (see retrieval/pipeline.py FUSED_TOP_K).
+DEFAULT_LOCAL_RERANK_MODEL = "Xenova/ms-marco-MiniLM-L-12-v2"
 
 
 class LocalReranker:

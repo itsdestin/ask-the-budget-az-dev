@@ -24,7 +24,11 @@ from lancedb.index import FTS
 from store.config import data_dir
 from store.schema import chunk_schema
 
-DEFAULT_DIM = 384  # BAAI/bge-small-en-v1.5
+# Must stay in lockstep with retrieval.local_embedder.DEFAULT_LOCAL_MODEL /
+# LOCAL_EMBEDDING_DIM: retrieval/pipeline.py builds its singleton as a bare
+# ChunkStore(), so if this drifts from the model's real width, _check_dim
+# refuses to open the table the migration just wrote.
+DEFAULT_DIM = 768  # snowflake/snowflake-arctic-embed-m
 CORPUS_TABLES = ("budget_chunks", "fiscal_note_chunks")
 
 def sql_str(value: str) -> str:
@@ -56,7 +60,7 @@ class ChunkStore:
         # separate round trip on the SMB share — which every query pays 1-3
         # times over. See _open() for the staleness guard that makes it safe.
         self._handles: dict[str, Any] = {}
-        # Every column except the 384-float vector, which no consumer reads
+        # Every column except the vector, which no consumer reads
         # back — projecting it away keeps result payloads small.
         self._columns = [f.name for f in chunk_schema(dim=dim) if f.name != "vector"]
 

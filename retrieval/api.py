@@ -837,7 +837,7 @@ def http_list_values(body: ListValuesBody) -> ListValuesResponse:
     Implementation note: this was four SQL aggregate queries; on LanceDB it
     is one projected scan plus a Python group-by. Measured on the real
     7,755-chunk corpus with these six columns: ~60ms for the scan, which is
-    cheaper than it sounds because the 384-float vector and the chunk text
+    cheaper than it sounds because the vector column and the chunk text
     are projected away.
     """
     field = body.field.strip().lower()

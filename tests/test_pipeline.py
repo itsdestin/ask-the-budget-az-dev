@@ -170,15 +170,18 @@ def _run(req: RetrievalRequest, **kw) -> RetrievalResult:
 
 
 def test_top_k_defaults_match_spec():
-    """Spec §3.4: BM25 top 200, dense top 100, fused top 50, rerank top 15.
+    """Spec §3.4 with two deliberate lowerings: BM25 top 200, dense top
+    100, fused top 20, rerank top 15.
 
-    Rerank top-K lowered from 20 → 15 on 2026-05-20 (Decision Q2, dogfood
-    hardening). See `test_default_pipeline_top_k_is_fifteen` for the
-    locked-in constant assertion.
+    Rerank top-K lowered 20 → 15 on 2026-05-20 (Decision Q2, dogfood
+    hardening). Fused lowered 50 → 20 on 2026-07-30 with the L-12
+    reranker swap — the local cross-encoder makes a 50-candidate rerank
+    cost ~4.9s/query, over the ~3s interactive budget (see FUSED_TOP_K's
+    WHY comment in retrieval/pipeline.py).
     """
     assert BM25_TOP_K == 200
     assert DENSE_TOP_K == 100
-    assert FUSED_TOP_K == 50
+    assert FUSED_TOP_K == 20
     assert RetrievalRequest(query="x").top_k == 15
 
 

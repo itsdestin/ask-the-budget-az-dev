@@ -43,7 +43,7 @@ from store.chunk_store import ChunkStore
 # Must match ChunkStore's default dim: the pipeline builds its singleton as
 # a bare `ChunkStore()`, and opening a table whose vectors are a different
 # width raises (by design — see _check_dim).
-DIM = 384
+DIM = 768
 
 
 # ---------------------------------------------------------------------------
@@ -52,7 +52,7 @@ DIM = 384
 
 
 def _vec(seed: int) -> list[float]:
-    """One-hot 384-float vector. Hand-made so no embedding model is needed;
+    """One-hot DIM-wide vector. Hand-made so no embedding model is needed;
     the exact direction only matters for the ANN ordering, which no test
     here asserts on."""
     v = [0.0] * DIM
@@ -87,7 +87,7 @@ def _row(chunk_id: str, text: str, *, seed: int = 0, **over) -> dict:
 
 
 class FakeEmbedder:
-    """Stands in for LocalEmbedder. Returns a fixed 384-float vector — the
+    """Stands in for LocalEmbedder. Returns a fixed DIM-wide vector — the
     width has to be right or LanceDB rejects the ANN query."""
 
     def embed_one(self, text: str, *, input_type: str = "document") -> list[float]:

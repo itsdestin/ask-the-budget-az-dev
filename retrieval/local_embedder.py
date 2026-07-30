@@ -5,7 +5,7 @@ embed_batch(texts, input_type=...).
 
 input_type mapping: "document" -> passage_embed, "query" -> query_embed.
 Be aware that for the default model these two fastembed methods are
-plain aliases of embed() — BAAI/bge-small-en-v1.5 resolves to
+plain aliases of embed() — snowflake-arctic-embed-m resolves to
 OnnxTextEmbedding, which overrides neither (both are `yield from
 self.embed(...)`), and fastembed 0.8.0 has no prefix machinery at all;
 only multitask models (jina-v3 and friends) specialize them. The
@@ -13,25 +13,42 @@ input_type branch therefore does NOT by itself change what the model
 sees — QUERY_INSTRUCTION_PREFIXES is what makes it behavioral, by
 prepending the model's documented query instruction ourselves.
 
+Why arctic-embed-m and not bge-small (Task 11, 2026-07-30): measured on
+the 34-query eval, swapping bge-small -> arctic-embed-m lifted recall@20
+from 89.66% to 96.55% and took the share of queries whose correct chunk
+reaches the reranker's candidate pool at all from 96.6% to 100%. It costs
+768-dim vectors and ~35 min to re-embed the 7,755-chunk corpus. It does
+NOT move recall@5 (62.07% either way) — that number is bounded by the
+local cross-encoder's ordering, not by candidate generation, which is why
+spec gate G1 was amended to recall@15/@20.
+
 512-token ceiling: this model's tokenizer truncates at 512 WordPiece
 tokens ('longest_first', direction right), so anything past that is
 silently dropped from the vector. Our chunker targets 512 *cl100k*
 tokens and allows up to 1024 (chunking/builders/narrative_chunk.py),
-and WordPiece runs hotter than cl100k on this corpus — spot-measured
-1.05-1.35x on numeral-dense JLBC prose, because dollar figures and long
-numerals fragment into many subword pieces. Long chunks therefore lose
-their tails. Voyage-3-large had a 32K context and never truncated, so
-this is a real behavioral delta: check it first if G1 recall misses.
+and WordPiece runs hotter than cl100k on this corpus. Measured on the
+five AFR table chunks the Task 11 diagnosis singled out, every one hit
+the 512-WordPiece cap — including one at just 383 cl100k tokens, i.e. a
+ratio of 1.34x or worse, because dollar figures and long numerals
+fragment into many subword pieces. Long chunks therefore lose their
+tails. Voyage-3-large had a 32K context and never truncated. Note what
+this does and does not cost: the answer span itself survived in all five
+(anchor text landed at WordPiece position 30-309), so truncation deletes
+the REST of the table — the rows that would make the chunk
+distinguishable — rather than the answer. A long-context embedder
+(arctic-embed-m-long, nomic-embed-text-v1.5) is the untried lever here.
 """
 from __future__ import annotations
 
 from typing import Any
 
-DEFAULT_LOCAL_MODEL = "BAAI/bge-small-en-v1.5"
+DEFAULT_LOCAL_MODEL = "snowflake/snowflake-arctic-embed-m"
 # Expected dim for DEFAULT_LOCAL_MODEL. The real dim is resolved from
 # fastembed's registry at construction time (see __init__); this constant
-# is the documented expectation, not the source of truth.
-LOCAL_EMBEDDING_DIM = 384
+# is the documented expectation, not the source of truth. Must stay in
+# lockstep with store.chunk_store.DEFAULT_DIM — a mismatch means the
+# pipeline's bare ChunkStore() cannot open the table the migration wrote.
+LOCAL_EMBEDDING_DIM = 768
 
 INPUT_TYPE_DOCUMENT = "document"
 INPUT_TYPE_QUERY = "query"

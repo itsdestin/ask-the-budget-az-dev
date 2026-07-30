@@ -248,7 +248,7 @@ def test_cached_handle_sees_another_writers_rows(tmp_path):
 
 
 def test_results_omit_the_vector_column(store):
-    """The 384-float vector is dead weight in results; consumers never read
+    """The vector column is dead weight in results; consumers never read
     it. The score columns must still come through."""
     v = store.vector_search("budget_chunks", [1, 0, 0, 0, 0, 0, 0, 0], top_k=1)
     assert "vector" not in v[0] and "_score" in v[0]

@@ -23,8 +23,9 @@ Top-K caps at each stage (spec §3.4 for the first three; the reranked
 default was deliberately lowered below the spec's 20):
 - BM25: top 200 lexical candidates
 - Dense: top 100 ANN candidates
-- Fused: top 50 after RRF (caller can shrink to fewer for cheaper
-  rerank, but quality drops if less than ~20)
+- Fused: top 20 after RRF (lowered from the spec's 50 on 2026-07-30 —
+  the local cross-encoder's per-candidate cost makes 50 unaffordable;
+  see the FUSED_TOP_K comment)
 - Reranked: top `req.top_k` returned to caller (default
   DEFAULT_PIPELINE_TOP_K = 15; lowered from the spec's 20 on 2026-05-20
   after dogfood showed context spillover)
@@ -44,7 +45,13 @@ from store.chunk_store import ChunkStore
 # Default top-K caps at each stage (see spec §3.4).
 BM25_TOP_K = 200
 DENSE_TOP_K = 100
-FUSED_TOP_K = 50
+# Lowered from the spec's 50 on 2026-07-30 with the L-12 reranker swap:
+# the local cross-encoder pays ~130-250ms PER candidate on an i5 CPU, so a
+# 50-candidate pool costs ~4.9s of rerank per query — over the ~3s
+# interactive-search budget. 20 candidates measured 2.7s mean / 3.1s max,
+# and the fused-20 pool still passes the amended G1 gate (recall@15/@20 —
+# see eval/results/ for the run this was decided on).
+FUSED_TOP_K = 20
 # Lowered from 20 to 15 (2026-05-20, Decision Q2 — dogfood hardening).
 # Sized so a default retrieve() response stays comfortably under Claude
 # Code's 25K-token per-tool-result budget; eliminates the spillover-to-
