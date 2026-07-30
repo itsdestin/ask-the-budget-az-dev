@@ -99,6 +99,16 @@ step "Installing web/ dependencies (npm ci)"
 ( cd web && npm ci )
 
 # -----------------------------------------------------------------------------
+# Webapp (the consolidated app's SPA — Plan 2)
+# -----------------------------------------------------------------------------
+
+step "Installing webapp/ dependencies (npm ci)"
+( cd webapp && npm ci )
+
+step "Building webapp (vite)"
+( cd webapp && npm run build )
+
+# -----------------------------------------------------------------------------
 # Postgres
 # -----------------------------------------------------------------------------
 
@@ -155,6 +165,9 @@ if [ "$VERIFY" -eq 1 ]; then
 
     step "Running web tests (vitest)"
     ( cd web && npm test -- --run )
+
+    step "Running webapp tests (vitest)"
+    ( cd webapp && npx vitest run )
 fi
 
 # -----------------------------------------------------------------------------

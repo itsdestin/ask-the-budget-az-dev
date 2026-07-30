@@ -1,0 +1,30 @@
+/* Design tokens — COPIED VERBATIM from the approved JLBC mockup.
+ *
+ * Source: webapp/reference/index.html, the `:root { … }` block at the top of its
+ * <style> element (identical in reference/subpage-search_jlbc.html and
+ * reference/fiscal-notes-build/base.html). Documented in reference/DESIGN-SYSTEM.md §2.
+ *
+ * WHY verbatim: spec S12 says this app must visibly BE the mockup's design, so
+ * these values are copied, never reinterpreted. Do not "tidy" a hex code, rename
+ * a variable, or add a token that the mockup does not define — every page ported
+ * in Tasks 8-10 lifts the mockup's CSS unmodified and expects these exact names.
+ *
+ * NOTE on the font: the mockup names "Nunito" first but loads NO webfont (no
+ * @font-face, no Google Fonts <link> anywhere in reference/). It renders Nunito
+ * only where the OS has it installed and otherwise falls back to Segoe UI. This
+ * port mirrors that behavior exactly rather than introducing a font load the
+ * mockup never had.
+ */
+:root {
+  --navy:#2b2f63; --navy-700:#232752; --navy-900:#181b3d; --navy-100:#e7e8f2;
+  --az-red:#2f55c4; --az-red-100:#e1e6fa;
+  --az-gold:#1b6fc4; --az-gold-d:#145aa6; --az-gold-100:#dceaf7;
+  --copper:#3d6a99; --copper-100:#e3ebf3;
+  --teal:#1782b3; --teal-100:#dbeef8;
+  --ink:#21243f; --ink-2:#4a4e6a; --ink-3:#757895;
+  --line:#e6e6ef; --canvas:#f5f5fa; --card:#fff;
+  --r-lg:22px; --r-md:16px; --r-sm:12px; --r-pill:999px; --gap:22px;
+  --shadow:0 1px 2px rgba(27,27,61,.05),0 10px 26px rgba(27,27,61,.08);
+  --shadow-sm:0 1px 2px rgba(27,27,61,.06),0 3px 10px rgba(27,27,61,.05);
+  --maxw:1140px; --font:"Nunito","Segoe UI",system-ui,-apple-system,sans-serif;
+}

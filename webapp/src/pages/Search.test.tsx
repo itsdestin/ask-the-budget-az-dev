@@ -1,0 +1,262 @@
+import { render, screen, waitFor, fireEvent } from "@testing-library/react";
+import { MemoryRouter } from "react-router-dom";
+import { Search } from "./Search";
+import * as api from "../api";
+
+const RESULT = {
+  chunk_id: "c1", doc_id: "d1", doc_title: "FY 2027 Baseline — AHCCCS",
+  snippet: "…provider rate increases…", page: 14, score: 0.91,
+  doc_type: "baseline-per-agency", fiscal_year: 2027, publisher: "jlbc",
+  agencies: ["ahcccs"],
+};
+
+test("runs the ?q= query on mount and groups results by document", async () => {
+  vi.spyOn(api, "search").mockResolvedValue({
+    results: [RESULT, { ...RESULT, chunk_id: "c2", page: 15 }],
+    total: 2, provider: "stub",
+  });
+  render(
+    <MemoryRouter initialEntries={["/search?q=ahcccs"]}><Search /></MemoryRouter>,
+  );
+  await waitFor(() =>
+    expect(screen.getByText("FY 2027 Baseline — AHCCCS")).toBeInTheDocument(),
+  );
+  // Two chunks, one document -> one card with two page hits.
+  expect(screen.getAllByText(/p\.\s*1[45]/)).toHaveLength(2);
+  expect(api.search).toHaveBeenCalledWith("ahcccs", expect.anything(), "budget");
+});
+
+test("publisher filter chip re-queries", async () => {
+  const spy = vi.spyOn(api, "search").mockResolvedValue({
+    results: [], total: 0, provider: "stub",
+  });
+  render(<MemoryRouter initialEntries={["/search?q=x"]}><Search /></MemoryRouter>);
+  await waitFor(() => expect(spy).toHaveBeenCalled());
+  fireEvent.click(screen.getByRole("button", { name: /jlbc/i }));
+  await waitFor(() =>
+    expect(spy).toHaveBeenLastCalledWith(
+      "x", expect.objectContaining({ publisher: ["jlbc"] }), "budget",
+    ),
+  );
+});
+
+test("empty results show honest message, not blank", async () => {
+  vi.spyOn(api, "search").mockResolvedValue({ results: [], total: 0, provider: "stub" });
+  render(<MemoryRouter initialEntries={["/search?q=zz"]}><Search /></MemoryRouter>);
+  await waitFor(() =>
+    expect(screen.getByText(/no matches/i)).toBeInTheDocument(),
+  );
+});
+
+// Toggling a filter must not blank the results while the new response is in
+// flight. With the stub's instant fixtures the gap is invisible, so only a test
+// that HOLDS the second request open can pin it — and a real provider on a slow
+// network is exactly this test in slow motion.
+test("keeps the previous results on screen while refetching", async () => {
+  let releaseSecond: (r: { results: typeof RESULT[]; total: number; provider: string }) => void;
+  const spy = vi
+    .spyOn(api, "search")
+    .mockResolvedValueOnce({ results: [RESULT], total: 1, provider: "stub" })
+    .mockImplementationOnce(() => new Promise((resolve) => { releaseSecond = resolve; }));
+
+  render(<MemoryRouter initialEntries={["/search?q=ahcccs"]}><Search /></MemoryRouter>);
+  await waitFor(() =>
+    expect(screen.getByText("FY 2027 Baseline — AHCCCS")).toBeInTheDocument(),
+  );
+
+  // Narrow by publisher; the second request is now hanging.
+  fireEvent.click(screen.getByRole("button", { name: /jlbc/i }));
+  await waitFor(() => expect(spy).toHaveBeenCalledTimes(2));
+
+  // The old results are STILL rendered (not replaced by a blank panel), and the
+  // panel says it is busy so the stale rows aren't presented as current.
+  expect(screen.getByText("FY 2027 Baseline — AHCCCS")).toBeInTheDocument();
+  expect(screen.getByText("Searching…")).toBeInTheDocument();
+  expect(document.querySelector(".card.stale")).toHaveAttribute("aria-busy", "true");
+
+  releaseSecond!({ results: [RESULT], total: 1, provider: "stub" });
+  await waitFor(() =>
+    expect(document.querySelector(".card.stale")).not.toBeInTheDocument(),
+  );
+});
+
+// A failed search must be recoverable. The search runs off ?q=, so re-submitting
+// the same text writes an identical ?q= and used to change nothing at all — the
+// error was a dead end for the one action that would fix a transient failure.
+test("a failed search surfaces the backend detail and can be retried", async () => {
+  const spy = vi
+    .spyOn(api, "search")
+    .mockRejectedValueOnce(new Error("search: index is rebuilding"))
+    .mockResolvedValue({ results: [RESULT], total: 1, provider: "stub" });
+
+  render(<MemoryRouter initialEntries={["/search?q=ahcccs"]}><Search /></MemoryRouter>);
+
+  // The api client's message reaches the screen verbatim — not replaced by a guess.
+  await waitFor(() =>
+    expect(screen.getByText(/index is rebuilding/)).toBeInTheDocument(),
+  );
+  expect(spy).toHaveBeenCalledTimes(1);
+
+  fireEvent.click(screen.getByRole("button", { name: /retry/i }));
+
+  await waitFor(() =>
+    expect(screen.getByText("FY 2027 Baseline — AHCCCS")).toBeInTheDocument(),
+  );
+  // Same query, second request actually issued.
+  expect(spy).toHaveBeenCalledTimes(2);
+  expect(spy).toHaveBeenLastCalledWith("ahcccs", {}, "budget");
+  // The error is gone, not stacked under the results.
+  expect(screen.queryByText(/index is rebuilding/)).not.toBeInTheDocument();
+});
+
+// Same dead end, reached through the search box instead of the Retry button:
+// pressing Search again on unchanged text must re-run the query.
+test("resubmitting the identical query re-runs the search", async () => {
+  const spy = vi
+    .spyOn(api, "search")
+    .mockResolvedValue({ results: [RESULT], total: 1, provider: "stub" });
+
+  render(<MemoryRouter initialEntries={["/search?q=ahcccs"]}><Search /></MemoryRouter>);
+  await waitFor(() => expect(spy).toHaveBeenCalledTimes(1));
+
+  // Text untouched, so ?q= will be written with the value it already has.
+  fireEvent.submit(screen.getByLabelText(/search arizona budget documents/i));
+  await waitFor(() => expect(spy).toHaveBeenCalledTimes(2));
+});
+
+// Regression guard: a filter you set must stay clearable even when it matches
+// nothing. Year options are derived from the results, and the derived list is
+// RESET when the query changes — but the filter itself persists. So searching
+// again under a filter that now excludes every row used to erase that filter's
+// own option, leaving it applied and still sent to the API with no way to undo
+// it.
+//
+// NOTE for whoever edits this: the failure needs the QUERY to change. Choosing a
+// filter on the same query can't reproduce it, because the facet list accumulates
+// within a query (see mergeFacets in Search.tsx).
+test("a year filter kept across a new query stays selectable and clearable", async () => {
+  const spy = vi
+    .spyOn(api, "search")
+    // Only the FIRST search finds anything, and it is what offers FY 2027.
+    .mockResolvedValueOnce({ results: [RESULT], total: 1, provider: "stub" })
+    .mockResolvedValue({ results: [], total: 0, provider: "stub" });
+
+  render(<MemoryRouter initialEntries={["/search?q=ahcccs"]}><Search /></MemoryRouter>);
+
+  const dropdown = await screen.findByLabelText(/filter by fiscal year/i);
+  await waitFor(() =>
+    expect(screen.getByRole("option", { name: "FY 2027" })).toBeInTheDocument(),
+  );
+  fireEvent.change(dropdown, { target: { value: "2027" } });
+  await waitFor(() =>
+    expect(spy).toHaveBeenLastCalledWith(
+      "ahcccs",
+      expect.objectContaining({ fiscal_year: [2027] }),
+      "budget",
+    ),
+  );
+
+  // Search for something else. FY 2027 stays selected, but the new (empty)
+  // response offers no years at all — the moment the option used to disappear.
+  const box = screen.getByLabelText(/search arizona budget documents/i);
+  fireEvent.change(box, { target: { value: "roads" } });
+  fireEvent.submit(box);
+  await waitFor(() =>
+    expect(spy).toHaveBeenLastCalledWith(
+      "roads",
+      expect.objectContaining({ fiscal_year: [2027] }),
+      "budget",
+    ),
+  );
+
+  // The selected year is still an option and still selected.
+  expect(screen.getByRole("option", { name: "FY 2027" })).toBeInTheDocument();
+  expect(dropdown).toHaveValue("2027");
+  // The empty state blames the filter, not the corpus.
+  expect(screen.getByText(/with the filters above/i)).toBeInTheDocument();
+
+  // And it really does undo: "All years" drops the dimension entirely, not
+  // sending an empty array.
+  fireEvent.change(dropdown, { target: { value: "" } });
+  await waitFor(() => expect(spy).toHaveBeenLastCalledWith("roads", {}, "budget"));
+});
+
+// The curated type buckets (reportFamilies.ts): one chip toggles its whole slug
+// family through the doc_type filter, and toggling off drops the dimension.
+test("a type bucket chip sends its whole slug family", async () => {
+  const spy = vi
+    .spyOn(api, "search")
+    .mockResolvedValue({ results: [], total: 0, provider: "stub" });
+
+  render(<MemoryRouter initialEntries={["/search?q=x"]}><Search /></MemoryRouter>);
+  await waitFor(() => expect(spy).toHaveBeenCalled());
+
+  // Bucket chips are a fixed curated set — visible before any results exist.
+  const chip = screen.getByRole("button", { name: /baseline books/i });
+  fireEvent.click(chip);
+  await waitFor(() =>
+    expect(spy).toHaveBeenLastCalledWith(
+      "x",
+      expect.objectContaining({
+        doc_type: ["baseline-per-agency", "baseline-cross-cut"],
+      }),
+      "budget",
+    ),
+  );
+  expect(chip).toHaveAttribute("aria-pressed", "true");
+
+  fireEvent.click(chip);
+  await waitFor(() => expect(spy).toHaveBeenLastCalledWith("x", {}, "budget"));
+});
+
+// Family grouping (Destin, 2026-07-29): documents of the same report and year
+// share one card titled for the report, with a link to its full single-file PDF
+// when a hand-verified URL exists.
+test("results group under their report family with a full-PDF link", async () => {
+  vi.spyOn(api, "search").mockResolvedValue({
+    results: [
+      RESULT,
+      { ...RESULT, chunk_id: "c9", doc_id: "d2", doc_title: "FY 2027 Baseline — DCS", page: 4 },
+    ],
+    total: 2,
+    provider: "stub",
+  });
+  render(<MemoryRouter initialEntries={["/search?q=x"]}><Search /></MemoryRouter>);
+
+  // One family card for both documents…
+  await waitFor(() => expect(screen.getByText("FY 2027 Baseline")).toBeInTheDocument());
+  expect(screen.getByText("FY 2027 Baseline — AHCCCS")).toBeInTheDocument();
+  expect(screen.getByText("FY 2027 Baseline — DCS")).toBeInTheDocument();
+  expect(screen.getByText(/2 documents · 2 matching passages/)).toBeInTheDocument();
+
+  // …with the hand-verified single-file PDF link (reportFamilies.ts).
+  const link = screen.getByRole("link", { name: /full report \(pdf\)/i });
+  expect(link).toHaveAttribute(
+    "href",
+    "https://www.azjlbc.gov/budget/27baselinesinglefile.pdf",
+  );
+  expect(link).toHaveAttribute("target", "_blank");
+});
+
+// No verified URL for a family -> no button at all. A guessed link behind an
+// "open the report" action would violate the auditability invariants.
+test("families without a known single-file PDF get no full-report link", async () => {
+  vi.spyOn(api, "search").mockResolvedValue({
+    results: [
+      {
+        ...RESULT,
+        doc_id: "d3",
+        doc_title: "FY 2026 Budget Bill (SB 1735)",
+        doc_type: "budget-bill",
+        fiscal_year: 2026,
+        publisher: "legislature",
+      },
+    ],
+    total: 1,
+    provider: "stub",
+  });
+  render(<MemoryRouter initialEntries={["/search?q=x"]}><Search /></MemoryRouter>);
+
+  await waitFor(() => expect(screen.getByText("FY 2026 Budget Bill")).toBeInTheDocument());
+  expect(screen.queryByRole("link", { name: /full report/i })).not.toBeInTheDocument();
+});

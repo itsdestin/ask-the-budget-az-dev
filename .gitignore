@@ -94,4 +94,10 @@ companion-out/
 # from a stable URL. Auto-regenerated on every `npm install`; not worth
 # ~1.2 MB of git history.
 web/public/pdf.worker.min.mjs
+
+# Vite webapp (Plan 2). Root-level node_modules/ + dist/ patterns already match
+# these, but pin them explicitly so the webapp build output can never be staged.
+webapp/node_modules/
+webapp/dist/
+
 .youcoded/

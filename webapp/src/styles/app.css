@@ -1,0 +1,585 @@
+/* App chrome — CSS lifted from the approved JLBC mockup (webapp/reference/index.html).
+ *
+ * Rules below are copied from that file's <style> block with their original
+ * selectors and class names intact, so the mockup's markup keeps working here
+ * unmodified (spec S12: port, don't redesign). Every deviation is commented.
+ *
+ * Scope for now: the base/body reset the tokens assume + the sticky header and
+ * pill nav.
+ *
+ * ===== CSS CONVENTION FOR THE PAGE PORTS (Tasks 8-10) — read before adding CSS =====
+ *
+ * The three mockup sources (reference/index.html, reference/subpage-search_jlbc.html,
+ * reference/fiscal-notes-build/base.html) share ~74 selectors, and at least 9 of them
+ * carry CONFLICTING declarations for the same selector. Verified examples:
+ *   main .wrap        home `padding:34px 22px 12px; grid-template-columns:1fr 340px`
+ *                     vs sub-pages `padding:30px 22px 12px; …1fr 320px`
+ *   .card .head-row   home `padding:20px 24px` + `position:relative`
+ *                     vs sub-pages `padding:20px 24px 12px`
+ *   plus .qlink sizing and .ic background differences
+ * In the mockup these never collide because each page is a standalone file with its
+ * own <style>. Here they WOULD collide: whichever file Vite bundles last wins, and one
+ * page silently restyles another.
+ *
+ * Convention, from Task 8 on:
+ *   1. Every page's root <main> carries a page class — `page-home`, `page-search`,
+ *      `page-fiscal-notes`.
+ *   2. Page-specific rules — and ANY rule whose declarations differ between mockup
+ *      sources — are ported PREFIXED with that page class. The page class sits ON the
+ *      <main> element, so a mockup `main .wrap{…}` becomes `.page-home .wrap{…}` —
+ *      NOT `.page-home main .wrap{…}`, which would need a second nested <main> and
+ *      match nothing. Task 8 fixed this example after hitting it.
+ *   3. Only genuinely shared primitives (base reset, header, the `.card` base) stay
+ *      unprefixed, and each lives in a block labeled `shared:`.
+ *
+ * Splitting into per-page CSS FILES would NOT prevent this: Vite concatenates every
+ * imported stylesheet into one global sheet, so file boundaries provide no isolation.
+ * Selector scoping is the thing that isolates — do not swap it for separate files.
+ */
+
+/* ===== base — verbatim from the mockup ===== */
+*{box-sizing:border-box;} html{scroll-behavior:smooth;}
+/* Added (Destin, 2026-07-29): the page must never pan left/right — a horizontal trackpad
+   swipe over empty space was dragging the whole window sideways. Every layout in this app
+   is width-contained (`.wrap` max-width 1140px, centered), so ANY horizontal document
+   scroll is a stray few-pixel overflow, never real content. `clip` forbids the axis
+   outright without creating a scroll container (unlike `hidden`). */
+html{overflow-x:clip;}
+body{margin:0;font-family:var(--font);color:var(--ink);background:var(--canvas);line-height:1.6;-webkit-font-smoothing:antialiased;}
+a{color:var(--navy);text-decoration:none;} a:hover{text-decoration:underline;}
+img{display:block;max-width:100%;} h1,h2,h3,h4{margin:0;line-height:1.2;}
+.wrap{max-width:var(--maxw);margin:0 auto;padding:0 22px;}
+
+/* ===== shared chrome: header — verbatim from the mockup ===== */
+header.site{background:#fff;border-bottom:3px solid var(--navy-900);position:sticky;top:0;z-index:50;}
+.head{display:flex;align-items:center;gap:14px;min-height:84px;position:relative;}
+.logo img{height:60px;width:auto;}
+
+nav.primary{flex:1 1 auto;display:flex;flex-wrap:nowrap;align-items:center;justify-content:center;gap:2px 4px;min-width:0;}
+.nav-item{position:relative;}
+.nav-item>a{display:inline-flex;align-items:center;gap:6px;color:var(--ink-2);font-weight:700;font-size:14px;padding:7px 10px;border-radius:var(--r-pill);white-space:nowrap;transition:background .15s,color .15s;}
+.nav-item>a:hover,.nav-item:hover>a,.nav-item:focus-within>a{background:var(--navy-100);color:var(--navy);text-decoration:none;}
+/* Deviation: the mockup marks the wrapper (`.nav-item.active>a`), but react-router's
+   NavLink can only put the "active" class on the <a> it renders. Same declarations,
+   moved one level down. Must stay AFTER the :hover rule above — equal specificity,
+   so source order is what keeps the active pill from graying out on hover. */
+.nav-item>a.active{background:var(--az-gold);color:#fff;}
+.home-ic{width:18px;height:18px;display:block;}
+
+/* Deviation: the mockup's `.caret` / `.dropdown` rules are not ported — this app has
+   four flat surfaces and no submenus, so that CSS would be dead weight. Lift it from
+   reference/index.html if nav ever grows dropdowns. */
+
+@media (max-width:600px){
+  .logo img{height:50px;}
+  /* The mockup also has `nav.primary .wrap{overflow-x:auto}` here, but it matches
+     nothing (there is no .wrap inside nav) — dropped rather than reinterpreted. */
+}
+
+/* ===== shared: card primitive — verbatim from the mockup =====
+   The `.card` base is identical across all three mockup sources, so it is shared and
+   unprefixed. Extend it here (adding `.card .head-row` etc. per the convention above)
+   rather than re-declaring `.card` further down the file. Task 8 needed nothing from
+   it: home's gateway cards are the mockup's separate `.m-card`, not `.card`, so the
+   first real consumers will be the Task 9/10 panels. */
+.card{background:var(--card);border:1px solid var(--line);border-radius:var(--r-lg);box-shadow:var(--shadow-sm);overflow:hidden;}
+
+/* ===== page-home — ported from reference/index.html's home CSS =====
+ * Every rule below is copied from that file's <style> block with its declarations
+ * unchanged, prefixed with `.page-home` per the convention at the top of this file.
+ * The prefix is what stops these from colliding with Tasks 9/10 (the search page and
+ * the fiscal-notes page redefine several of the same names with different values).
+ *
+ * NOT ported: `main .wrap{padding:34px 22px 12px;display:grid;
+ * grid-template-columns:1fr 340px;gap:var(--gap);align-items:start}` and its
+ * `@media (max-width:900px)` collapse. That grid existed to hold the Quick Links /
+ * promo sidebar next to the news cards, and Home.tsx drops all of it, so the hero and
+ * the gateway cards are full-width — as they already are in the mockup, where both
+ * live OUTSIDE <main> and therefore outside that grid. Porting a grid with nothing in
+ * its second column would just add a phantom 340px gutter.
+ * Also not ported: `.gov-pill*` and `.credit-*` (see the dropped-content notes in
+ * Home.tsx), and `.card + .card` / `.item*` / `.upd-*` / `.meeting*` / `.quick*` /
+ * `.promo*` / `.cal*` / the stripe+chip color helpers, which style only dropped
+ * sections.
+ */
+
+/* Hero. `url('capitol-bg.jpg')` → `url('/capitol-bg.jpg')` is the one edit: the file is
+   served from webapp/public/ (copied from reference/assets/), not from beside the HTML. */
+.page-home .snapshot{position:relative;overflow:hidden;color:#fff;border-top:8px solid var(--navy-900);border-bottom:8px solid var(--navy-900);
+  background:radial-gradient(64% 130% at 0% 50%,rgba(18,21,48,.56) 0%,rgba(18,21,48,0) 66%),radial-gradient(64% 130% at 100% 50%,rgba(18,21,48,.56) 0%,rgba(18,21,48,0) 66%),linear-gradient(180deg,rgba(18,21,48,.82) 0%,rgba(20,23,52,.52) 55%,rgba(20,23,52,.4) 100%),url('/capitol-bg.jpg') center 40% / cover no-repeat;}
+/* The 108px bottom padding is what the gateway cards' -62px lift eats into — the two
+   values are a pair, so neither may be tuned alone. */
+.page-home .snapshot .wrap{position:relative;z-index:2;padding:64px 22px 108px;text-align:center;}
+.page-home .snap-h1{font-size:clamp(26px,4vw,44px);font-weight:800;letter-spacing:-.5px;white-space:nowrap;margin:0 auto;}
+.page-home .snap-tag{margin:12px auto 0;font-size:clamp(15px,1.7vw,19px);color:#e2e5f6;font-weight:700;max-width:48ch;}
+
+/* New rule (the mockup had no hero-level search form — its search box sat in the center
+   gateway card). Two declarations only, and the width is measured, not invented: at the
+   16px this form inherits, `48ch` ≈ 405px, which is the width the mockup's search field
+   actually had inside its 1.5fr card (1096px inner wrap − 32px of gaps ÷ 3.5fr ≈ 456px
+   column − 44px card padding ≈ 412px). It is deliberately NOT "the same 48ch as
+   `.snap-tag`" — `ch` resolves against each element's own font-size, and `.snap-tag`
+   runs at the clamp's ~19px, so its 48ch is ~455px. The two are independent numbers
+   that happen to share a unit. The pill's top spacing still comes from the ported
+   `.search-field{margin-top:14px}` below. */
+.page-home .hero-search{max-width:48ch;margin:0 auto;}
+
+/* The mockup's search pill, verbatim. */
+.page-home .search-field{display:flex;align-items:center;gap:10px;background:var(--canvas);border:2px solid var(--line);border-radius:var(--r-pill);padding:11px 12px 11px 16px;margin-top:14px;transition:border-color .15s,box-shadow .15s,background .15s;}
+.page-home .search-field:focus-within{border-color:var(--navy);background:#fff;box-shadow:0 0 0 4px var(--navy-100);}
+.page-home .search-field .s-ic{color:var(--ink-3);flex:0 0 auto;width:19px;height:19px;}
+.page-home .search-field input{flex:1;border:0;outline:0;background:transparent;font-size:15.5px;font-family:inherit;color:var(--ink);min-width:0;}
+.page-home .search-field button{flex:0 0 auto;border:0;cursor:pointer;font-family:inherit;font-weight:800;font-size:14px;color:#fff;background:var(--az-gold);border-radius:var(--r-pill);padding:9px 18px;transition:filter .15s;}
+.page-home .search-field button:hover{filter:brightness(1.05);}
+
+/* Gateway cards overlapping the hero's lower navy band. */
+.page-home .metric-overlap{position:relative;z-index:5;margin-top:-62px;}
+/* Two deviations from `.m-cards{grid-template-columns:1fr 1.5fr 1fr;align-items:center}`:
+   the 1.5fr center column and the vertical centering both existed for one reason — the
+   mockup's own header comment says "the three boxes are VERTICALLY CENTERED against the
+   taller search box", i.e. the center card WAS the wider/taller search card. That card is
+   now the hero's search pill, so all three cards are peers: equal columns, and stretch so
+   they share one height instead of floating at ragged centers. Gap unchanged. */
+.page-home .m-cards{display:grid;grid-template-columns:1fr 1fr 1fr;gap:16px;align-items:stretch;}
+.page-home .m-cards .m-card{display:flex;flex-direction:column;text-decoration:none;background:#fff;border:1px solid var(--line);border-radius:var(--r-md);padding:20px;box-shadow:var(--shadow);transition:transform .15s,box-shadow .15s,border-color .15s;min-height:160px;}
+.page-home .m-cards .m-card:hover{transform:translateY(-3px);box-shadow:0 6px 22px rgba(27,27,61,.13);border-color:var(--az-gold);text-decoration:none;}
+.page-home .cardhead{display:flex;align-items:center;gap:12px;}
+.page-home .m-cards .m-card .ic{width:44px;height:44px;border-radius:13px;display:grid;place-items:center;flex:0 0 44px;}
+.page-home .m-cards .m-card .ic svg{width:22px;height:22px;}
+.page-home .m-cards .m-card.a-gold .ic{background:var(--az-gold-100);color:var(--az-gold-d);}
+.page-home .m-cards .m-card.a-red .ic{background:var(--az-red-100);color:var(--az-red);}
+.page-home .m-cards .m-card.a-teal .ic{background:var(--teal-100);color:var(--teal);}
+.page-home .m-cards .m-card .t{font-size:17px;font-weight:800;color:var(--navy);}
+.page-home .m-cards .m-card .d{font-size:13px;color:var(--ink-2);font-weight:600;margin:12px 0 0;flex:1;}
+.page-home .m-cards .m-card .arr{display:inline-flex;align-items:center;gap:6px;font-size:13px;font-weight:800;color:var(--az-gold-d);margin-top:12px;}
+.page-home .m-cards .m-card:hover .arr{gap:10px;}
+
+/* New rules: the AI Mode card is inert until Plan 4, and the mockup has no disabled
+   state to copy (every gateway card there is a live link). Kept to the minimum, with
+   the values still coming from the mockup: `opacity:.65` is the dimming it already uses
+   for a de-emphasized element (`.foot-bottom .azleg-btn .foot-ext{opacity:.65}`), and
+   the hover no-op re-states the `.m-card` base's own border/shadow — exactly the trick
+   the mockup itself plays in `.search-card:hover{transform:none;…}` to stop a
+   non-navigating card from lifting under the cursor. */
+.page-home .m-cards .m-card.is-disabled{opacity:.65;cursor:not-allowed;}
+.page-home .m-cards .m-card.is-disabled:hover{transform:none;border-color:var(--line);box-shadow:var(--shadow);}
+
+/* Mobile collapse, verbatim minus the `.search-card{order:-1;margin-bottom:0}` line,
+   which pulled the center search card to the top of the stack — there is no search card
+   here. */
+@media (max-width:760px){
+  .page-home .m-cards{grid-template-columns:1fr;}
+  .page-home .metric-overlap{margin-top:-34px;}
+  .page-home .snap-h1{white-space:normal;}
+}
+
+/* ===== page-search — ported from reference/subpage-search_jlbc.html =====
+ * Every rule below is copied from that file's <style> block with its declarations
+ * unchanged, prefixed with `.page-search` per the convention at the top of this
+ * file. Where a selector also exists in reference/index.html with DIFFERENT values
+ * (`main .wrap`, `.card .head-row`, `.ic`), these copies carry the SEARCH page's
+ * values — that is what the prefix protects.
+ *
+ * NOT ported, and why:
+ *   `.examples-row`      its four example queries were written for JLBC's own index.
+ *   `#reportModal*`, `.grp-full`, `.grp-more`
+ *                        the "open the full report" chooser + per-group collapse —
+ *                        both open PDFs, which is Plan 4's viewer panel.
+ *   `select.fyear`       fiscal year is a chip row here (plan) — see FilterBar.tsx.
+ *   `.mode-note`         a semantic-vs-keyword mode caption this app has no modes for.
+ *   `#results>.doc`      its "a lone result floats as its own tile" rules: every
+ *                        result here is rendered inside a `.grp`, so nothing matches.
+ *   `.doc-title mark`, `.doc-sub mark`
+ *                        query-term highlighting — the API returns snippets as-is
+ *                        and this page does not re-tokenize them.
+ *   `.acc*`, `.quick*`, `.promo*`, `.side`, `.gov*`, `.intro`, footer blocks
+ *                        other sections of that page / shared chrome this app drops.
+ *   `.search-toggle`/`.search-expand`
+ *                        dead in the mockup itself (DESIGN-SYSTEM.md §5).
+ */
+
+/* Sub-page hero band. Verbatim, with the same one path edit home needed:
+   url('capitol-bg.jpg') → url('/capitol-bg.jpg'), served from webapp/public/. */
+.page-search .subhero{position:relative;overflow:hidden;color:#fff;
+  background:linear-gradient(105deg,rgba(18,21,48,.94) 0%,rgba(20,23,52,.86) 60%,rgba(20,23,52,.78) 100%),url('/capitol-bg.jpg') center 28% / cover no-repeat;}
+/* Three classes, so this beats the two-class `.page-search .wrap` below on
+   specificity regardless of source order — the hero's wrap keeps its own padding. */
+.page-search .subhero .wrap{position:relative;z-index:2;padding:32px 22px 34px;}
+.page-search .subhero h1{font-size:clamp(24px,3.2vw,34px);font-weight:800;letter-spacing:-.4px;}
+.page-search .subhero .lead{margin:10px 0 0;font-size:clamp(14px,1.5vw,16.5px);color:#d9dcf2;font-weight:600;max-width:66ch;line-height:1.5;min-height:3em;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;}
+.page-search .subhero .chips{display:flex;flex-wrap:wrap;gap:8px;margin-top:16px;min-height:31px;}
+.page-search .subhero .chip{display:inline-flex;align-items:center;gap:7px;background:rgba(255,255,255,.1);border:1px solid rgba(255,255,255,.2);border-radius:var(--r-pill);padding:6px 13px;font-size:12.5px;font-weight:700;color:#eef0fb;}
+.page-search .subhero .chip svg{width:14px;height:14px;color:#9fc4ee;flex:0 0 auto;}
+
+/* `main .wrap`, search-page values. The mockup's two-column grid
+   (`display:grid;grid-template-columns:1fr 320px`) is deliberately absent: the
+   mockup's OWN search page overrides it inline (`<div class="wrap"
+   style="display:block">`) because this utility page is one centered column with
+   no sidebar. So `display:block` is the mockup's effective value here, not a
+   redesign — and its `@media (max-width:980px)` grid collapse has nothing to
+   collapse. */
+.page-search .wrap{padding:30px 22px 12px;display:block;}
+
+/* The mockup declares `.search-wrap{max-width:680px}` and then overrides it with
+   `max-width:760px` in its later "semantic search UI (additions)" block; 760px is
+   the value that actually renders. */
+.page-search .search-wrap{max-width:760px;margin:0 auto;}
+
+/* The page's big search pill (its `.big-search`, a different component from home's
+   `.search-field` — see the note in components/SearchIcon.tsx). */
+.page-search .big-search-card{padding:22px 24px;}
+.page-search .big-search{display:flex;align-items:center;gap:12px;background:#fff;border:2px solid var(--line);
+  border-radius:var(--r-pill);padding:8px 8px 8px 18px;transition:border-color .15s,box-shadow .15s;}
+.page-search .big-search:focus-within{border-color:var(--az-gold);box-shadow:0 0 0 3px var(--az-gold-100);}
+.page-search .big-search .s-ic{color:var(--ink-3);flex:0 0 auto;width:20px;height:20px;}
+.page-search .big-search input{flex:1;border:0;outline:0;background:transparent;font-family:inherit;font-size:16px;color:var(--ink);min-width:0;}
+.page-search .big-search .s-btn{flex:0 0 auto;display:inline-flex;align-items:center;gap:7px;background:var(--az-gold);color:#fff;
+  font-family:inherit;font-weight:800;font-size:14.5px;border:0;border-radius:var(--r-pill);padding:11px 20px;cursor:pointer;
+  transition:filter .15s;}
+.page-search .big-search .s-btn:hover{filter:brightness(1.04);}
+.page-search .big-search .s-btn svg{width:16px;height:16px;}
+
+/* The mockup's custom clear-X. Deviation: the mockup kills the native
+   type=search clear button GLOBALLY; this copy is scoped to the page because
+   home's hero input is also type=search and has no `.clr-x` of its own —
+   un-scoping it would silently remove home's clear button. */
+.page-search input[type=search]::-webkit-search-cancel-button{-webkit-appearance:none;appearance:none;}
+.page-search .clr-x{flex:0 0 auto;display:none;align-items:center;justify-content:center;width:30px;height:30px;border-radius:50%;border:1px solid var(--line);background:var(--canvas);color:var(--ink-2);cursor:pointer;padding:0;transition:background .14s,color .14s,border-color .14s,transform .08s;}
+.page-search .clr-x:hover{background:var(--navy-100);color:var(--navy);border-color:var(--navy);}
+.page-search .clr-x:active{transform:scale(.88);}
+.page-search .clr-x svg{width:15px;height:15px;}
+.page-search .clr-x.show{display:inline-flex;}
+
+/* Filter chip strip inside the search card. */
+.page-search .filters{display:flex;flex-wrap:wrap;align-items:center;gap:8px;margin-top:16px;padding-top:14px;border-top:1px solid var(--line);}
+.page-search .filters .flabel{font-size:11px;font-weight:800;text-transform:uppercase;letter-spacing:.09em;color:var(--ink-3);margin-right:2px;}
+.page-search .fchip{font-family:inherit;font-size:12.5px;font-weight:700;color:var(--ink-2);background:var(--canvas);border:1.5px solid var(--line);border-radius:var(--r-pill);padding:5px 12px;cursor:pointer;transition:background .13s,border-color .13s,color .13s;}
+.page-search .fchip:hover{border-color:var(--az-gold);color:var(--az-gold-d);}
+.page-search .fchip.on{background:var(--az-gold);border-color:var(--az-gold);color:#fff;}
+/* The mockup's fiscal-year dropdown (`select.fyear`), declarations verbatim. */
+.page-search select.fyear{font-family:inherit;font-size:12.5px;font-weight:700;color:var(--ink-2);background:var(--canvas);border:1.5px solid var(--line);border-radius:var(--r-pill);padding:5px 12px;cursor:pointer;}
+
+/* The mockup's `.grp-full` "Full report" action. Its base rule (shared with the
+   unported `.grp-more` collapse button) and its gold override are merged here —
+   net computed values identical to the mockup. Ported as an <a> (it links
+   straight to the report's single-file PDF, per Destin 2026-07-29), so hover
+   also cancels the base `a:hover` underline the mockup's <button> never had. */
+.page-search .grp-full{display:inline-flex;align-items:center;gap:6px;font-family:inherit;font-size:12px;font-weight:800;border-radius:var(--r-pill);padding:6px 13px;cursor:pointer;white-space:nowrap;background:var(--az-gold);border:1px solid var(--az-gold);color:#fff;}
+.page-search .grp-full svg{width:13px;height:13px;transition:transform .18s;}
+.page-search .grp-full:hover{background:var(--az-gold-d);color:#fff;text-decoration:none;}
+
+/* Status line under the card (loading / counts / error). */
+.page-search .search-status{max-width:760px;margin:16px auto 0;font-size:13.5px;font-weight:700;color:var(--ink-3);min-height:20px;text-align:center;}
+.page-search .search-status .err{color:var(--az-red);}
+
+/* New rule: the "stub data" flag. The mockup has no fake-data state to copy, so
+   every value is borrowed from one it does define — `#fdeec2` is the single warm
+   color in the whole stylesheet (its `mark` highlight background, used by
+   `.doc-title mark,.doc-sub mark`), and the pill's geometry and type are the
+   `.card .head-row .count` chip's (4px 12px, 12.5px/800, `--r-pill`). The 8px
+   gap is the `.filters` gap. Nothing here is invented. It disappears on its own
+   in Task 12: it only renders while the backend reports provider "stub". */
+.page-search .stub-badge{display:inline-block;margin-left:8px;background:#fdeec2;color:var(--ink-2);border-radius:var(--r-pill);padding:4px 12px;font-size:12.5px;font-weight:800;}
+
+/* Results panel header — the shared `.card` primitive plus this page's head-row
+   values (home's differ; see the convention note at the top of the file). */
+.page-search .card-head{position:relative;}
+.page-search .card-head::after{content:"";position:absolute;left:20px;right:20px;bottom:0;height:2px;border-radius:999px;background:var(--az-gold-100);}
+/* The mockup spaces its cards with `.card + .card{margin-top:var(--gap)}`, which
+   can't fire here because the status line sits between the two cards. Same value,
+   re-hung on the selector that does match. */
+.page-search .search-status + .card{margin-top:var(--gap);}
+.page-search .card .head-row{display:flex;align-items:center;gap:12px;padding:20px 24px 12px;}
+.page-search .card .head-row .ic{width:40px;height:40px;border-radius:13px;display:grid;place-items:center;flex:0 0 40px;background:var(--az-gold-100);color:var(--az-gold-d);}
+/* The mockup sizes this one icon with width/height ATTRIBUTES on the <svg>
+   (`width="20" height="20"`); expressed as CSS because the shared SearchIcon
+   component takes a class, not a size. Same 20px. */
+.page-search .card .head-row .ic svg{width:20px;height:20px;}
+.page-search .card .head-row h2{font-size:19px;color:var(--navy);font-weight:800;}
+.page-search .card .head-row .count{margin-left:auto;font-size:12.5px;font-weight:800;color:var(--ink-3);background:var(--canvas);border-radius:var(--r-pill);padding:4px 12px;}
+
+/* Document rows — the mockup's `.doc`, used both for a group's document header and
+   for each chunk hit inside it. */
+.page-search .doc{display:flex;align-items:center;gap:15px;padding:14px 22px;border-bottom:1px solid var(--line);transition:background .15s;color:inherit;}
+.page-search .doc:last-child{border-bottom:0;}
+.page-search .doc:hover{background:#fafafe;text-decoration:none;}
+.page-search .doc-ic{flex:0 0 40px;width:40px;height:40px;border-radius:12px;display:grid;place-items:center;background:var(--az-gold-100);color:var(--az-gold-d);}
+.page-search .doc-ic svg{width:19px;height:19px;}
+.page-search .doc-main{flex:1;min-width:0;}
+.page-search .doc-title{display:block;font-size:15.5px;font-weight:700;color:var(--navy);}
+.page-search .doc:hover .doc-title{color:var(--az-gold-d);}
+.page-search .doc-sub{display:block;font-size:13px;color:var(--ink-3);font-weight:600;margin-top:2px;}
+.page-search .doc-pill{flex:0 0 auto;display:inline-flex;align-items:center;gap:7px;font-size:12px;font-weight:800;color:var(--ink-2);background:var(--canvas);border:1px solid var(--line);border-radius:var(--r-pill);padding:6px 13px;white-space:nowrap;}
+.page-search .doc:hover .doc-pill{border-color:var(--az-gold);color:var(--az-gold-d);}
+.page-search .doc-pill svg{width:13px;height:13px;}
+
+/* Relevance meter on a chunk row (the mockup's `.doc .rel`). */
+.page-search .doc .rel{flex:0 0 auto;display:inline-flex;align-items:center;gap:7px;margin-left:8px;font-size:11px;font-weight:800;color:var(--ink-3);}
+.page-search .doc .rel .bar{width:50px;height:6px;border-radius:3px;background:#edeef4;overflow:hidden;}
+.page-search .doc .rel .bar i{display:block;height:100%;background:var(--az-gold);}
+
+/* Grouped results: one `.grp` tile per document, its hits in the dashed `.ctx`
+   box. `#results` → `.results` is the only edit — an id inside a component is a
+   page-wide uniqueness claim the component can't keep. */
+.page-search .grp{margin:12px 14px;border:1px solid var(--line);border-radius:var(--r-lg);overflow:hidden;box-shadow:var(--shadow-sm);}
+.page-search .results>.grp:first-child{margin-top:14px;}
+.page-search .grp>.doc{border-bottom:0;}
+/* New rules: the group's document header row can't be clicked until Plan 4's PDF
+   panel exists, so cancel the mockup's three hover affordances on THAT row only —
+   the chunk rows nested in `.ctx` keep them, being real links. Each declaration
+   just restates the corresponding base rule's own value. */
+.page-search .grp>.doc:hover{background:transparent;}
+.page-search .grp>.doc:hover .doc-title{color:var(--navy);}
+.page-search .grp>.doc:hover .doc-pill{border-color:var(--line);color:var(--ink-2);}
+.page-search .ctx{margin:0 14px 14px;border:1px dashed #cdd3e6;border-radius:var(--r-md);background:#fafbff;}
+.page-search .ctx-row{display:flex;align-items:center;gap:10px;padding:11px 14px;flex-wrap:wrap;}
+.page-search .ctx-row .badge{display:inline-flex;align-items:center;gap:7px;font-size:12.5px;font-weight:800;color:var(--navy);}
+.page-search .ctx-row .badge svg{width:15px;height:15px;color:var(--az-gold-d);flex:0 0 auto;}
+.page-search .ctx-row .spacer{flex:1;}
+/* The display:none/`.open` pair is ported as-is even though ResultCard always
+   renders `tray open` — leaving the collapse mechanism intact costs two lines and
+   is what Plan 4 would reuse to fold very large groups. */
+.page-search .ctx .tray{display:none;border-top:1px dashed #cdd3e6;}
+.page-search .ctx .tray.open{display:block;}
+.page-search .ctx .tray .doc{padding:11px 14px;}
+.page-search .ctx .tray .doc:not(:last-child){border-bottom:1px dashed #e3e7f1;}
+
+.page-search .empty{padding:26px 24px;text-align:center;color:var(--ink-2);font-weight:600;}
+
+/* New rule: the results panel while a new response is in flight. The mockup has no
+   stale/refetching state to copy, so only two values are needed and both are
+   borrowed — .15s is the mockup's own `.doc` transition duration, and opacity is
+   the one property that dims a whole panel without touching any ported color.
+   .55 is a judgement call (clearly "not current" while still readable); it is the
+   single invented number on this page and it carries no brand meaning. */
+.page-search .card.stale{opacity:.55;transition:opacity .15s;}
+
+@media (max-width:760px){
+  .page-search .doc{flex-wrap:wrap;}
+  .page-search .doc-pill{margin-left:53px;}
+}
+
+/* ===== page-fiscal-notes — ported from reference/subpage-fiscal-notes.html =====
+ * SOURCE: the GENERATED page, not `fiscal-notes-build/base.html`. base.html's own line 2
+ * says "DO NOT point this at the generated page": `build.py` replaces its entire <main>
+ * and appends the ~130 lines of layout CSS this block ports. base.html's body — the
+ * `.bills`/`.bcol`/`.bill*` two-column grid, the `.acc*` accordion, the `.era*` filter,
+ * `.yr-mini*`, and the `aside.side`/`.quick*` sidebar — is a SUPERSEDED layout. Those
+ * rules WERE ported here once and have been removed; do not reintroduce them from
+ * base.html's <style>, which still carries the whole dead set (the generated page inherits
+ * it wholesale, so "present in the vendored file" is not evidence a rule is live).
+ *
+ * Every rule below is copied from subpage-fiscal-notes.html's <style> with its declarations
+ * unchanged, prefixed with `.page-fiscal-notes` per the convention at the top of this file.
+ *
+ * NOT ported, and why:
+ *   `.fnr` + the ~120 `#fnY-1999:checked ~ …` / `#fnC-*` / `#fnS-*` / `#fnAll:checked`
+ *   selectors            the hidden-radio machinery. One rule per YEAR cannot be written
+ *                        for a payload whose years come from the API, and the page's pinned
+ *                        test needs filtered rows GONE, not `display:none`. Every
+ *                        declaration they carried lives below on an `.on` class instead.
+ *   `.ym-h,.ym-s{display:none}`, `.sortcur{display:none}`,
+ *   `#fnC-house:checked ~ … .b-s{display:none}`
+ *                        the "emit every variant, hide all but one" swaps. React renders
+ *                        only the applicable variant, so porting these would hide the one
+ *                        thing on screen.
+ *   `.fbill{order:var(--na…)}` the CSS-only sort. Sorting happens in JS; same four orders.
+ *   `main .wrap{display:grid;grid-template-columns:1fr 320px}`
+ *                        base.html's content grid, which `.fnwrap` overrides to
+ *                        `display:block` on this very page. The effective value is ported
+ *                        directly rather than porting a rule and then its own override.
+ *   `.gov*`, `header.site`, `footer.site`, `.foot*`, `.dropdown`, `.caret`,
+ *   `.search-toggle`/`.search-expand`
+ *                        shared chrome handled app-wide above, or dead in the mockup itself
+ *                        (DESIGN-SYSTEM.md §5).
+ *   `@media (max-width:900px|760px|600px|520px)`
+ *                        they only re-flow the footer, the logo, base.html's dead body and
+ *                        the dead `.search-expand`. This layout's own breakpoint is 860px.
+ */
+
+/* Sub-page hero band. Verbatim, with the same one path edit home and search needed:
+   url('capitol-bg.jpg') → url('/capitol-bg.jpg'), served from webapp/public/. */
+.page-fiscal-notes .subhero{position:relative;overflow:hidden;color:#fff;
+  background:linear-gradient(105deg,rgba(18,21,48,.94) 0%,rgba(20,23,52,.86) 60%,rgba(20,23,52,.78) 100%),url('/capitol-bg.jpg') center 28% / cover no-repeat;}
+/* The hero's own padding; the shared `.wrap` base still supplies max-width + centering. */
+.page-fiscal-notes .subhero .wrap{position:relative;z-index:2;padding:32px 22px 34px;}
+.page-fiscal-notes .subhero h1{font-size:clamp(24px,3.2vw,34px);font-weight:800;letter-spacing:-.4px;}
+.page-fiscal-notes .subhero .lead{margin:10px 0 0;font-size:clamp(14px,1.5vw,16.5px);color:#d9dcf2;font-weight:600;max-width:66ch;line-height:1.5;min-height:3em;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;}
+.page-fiscal-notes .subhero .chips{display:flex;flex-wrap:wrap;gap:8px;margin-top:16px;min-height:31px;}
+.page-fiscal-notes .subhero .chip{display:inline-flex;align-items:center;gap:7px;background:rgba(255,255,255,.1);border:1px solid rgba(255,255,255,.2);border-radius:var(--r-pill);padding:6px 13px;font-size:12.5px;font-weight:700;color:#eef0fb;}
+.page-fiscal-notes .subhero .chip svg{width:14px;height:14px;color:#9fc4ee;flex:0 0 auto;}
+
+/* ===== layout: filter rail + session cards ===== */
+.page-fiscal-notes .wrap.fnwrap{display:block;padding:28px 22px 22px;}
+.page-fiscal-notes .fnlayout{display:grid;grid-template-columns:248px 1fr;gap:var(--gap);align-items:start;}
+.page-fiscal-notes .fnside{background:#fff;border:1px solid var(--line);border-radius:var(--r-lg);box-shadow:var(--shadow-sm);padding:8px;position:sticky;top:100px;}
+/* Added: the rail is ~760px tall with all four groups, and being `position:sticky` it never
+   scrolls with the page — so on a 768px-tall screen (or any zoomed viewport) its bottom
+   group is simply unreachable. Clamping it to the space below the sticky header and letting
+   it scroll internally is the fix. The mockup's own `@media (max-width:860px)` escape does
+   not help: it keys on WIDTH, and a 1366x768 laptop is wide enough to keep the rail sticky.
+   116px = the header's 100px sticky offset (above) + 16px of breathing room. */
+/* Destin's call (2026-07-29): the rail itself does NOT scroll — the session list is the
+   page's only scroll container. With the list capped at 5 rows (below), the whole rail is
+   ~490px tall, which fits under the sticky header even on a 768px-tall laptop, so the old
+   viewport clamp is no longer needed.
+   The list's scrollbar is OURS (the static mockup never scrolled) — thin, token-colored,
+   and riding in the `.fgrp`'s 8px right padding (margin-right:-8px) so the year rows keep
+   their designed width instead of being squeezed narrower than the chamber control. */
+.page-fiscal-notes .yscroll{scrollbar-width:thin;scrollbar-color:var(--line) transparent;margin-right:-8px;}
+/* Vertical-only (Destin, 2026-07-29): `overflow-y:auto` alone silently computes the
+   x-axis to auto too, giving the list left/right "give"; and a horizontal swipe that the
+   list can't consume chains up and pans the page. Lock the axis and stop the chaining. */
+.page-fiscal-notes .yscroll{overflow-x:hidden;overscroll-behavior-x:none;}
+.page-fiscal-notes .yscroll::-webkit-scrollbar{width:8px;}
+.page-fiscal-notes .yscroll::-webkit-scrollbar-thumb{background:var(--line);border-radius:999px;}
+.page-fiscal-notes .yscroll::-webkit-scrollbar-track{background:transparent;}
+.page-fiscal-notes .fnside .fgrp{padding:8px 8px 14px;}
+.page-fiscal-notes .fnside .fgrp+.fgrp{border-top:1px solid var(--line);}
+.page-fiscal-notes .fnside .flbl{font-size:11px;font-weight:800;text-transform:uppercase;letter-spacing:.08em;color:var(--ink-3);padding:6px 8px 8px;}
+.page-fiscal-notes .fnmain{display:flex;flex-direction:column;gap:var(--gap);min-width:0;}
+.page-fiscal-notes .yg{background:#fff;border:1px solid var(--line);border-radius:var(--r-lg);box-shadow:var(--shadow-sm);overflow:hidden;}
+
+/* ===== filter rail: search box ===== */
+.page-fiscal-notes .fside-search{display:flex;align-items:center;gap:8px;background:var(--canvas);border:1px solid var(--line);border-radius:var(--r-pill);padding:8px 12px;margin:2px 4px 6px;}
+/* Added: the input inside sets `outline:0`, so without this a keyboard user gets NO visible
+   focus indicator on the page's primary control (WCAG 2.4.7). The declarations are the
+   pattern both sibling pages already use for their own search pills — home's
+   `.search-field:focus-within` (navy border, white fill, navy-100 ring) with the search
+   page's 3px ring width, since this pill's 1px border is thinner than home's 2px. */
+.page-fiscal-notes .fside-search:focus-within{border-color:var(--navy);background:#fff;box-shadow:0 0 0 3px var(--navy-100);}
+.page-fiscal-notes .fside-search svg{width:16px;height:16px;color:var(--ink-3);}
+.page-fiscal-notes .fside-search input{border:0;background:transparent;outline:0;font-family:inherit;font-size:13.5px;flex:1;min-width:0;color:var(--ink);}
+.page-fiscal-notes .clr-x{flex:0 0 auto;display:none;align-items:center;justify-content:center;width:24px;height:24px;border-radius:50%;border:1px solid var(--line);background:#fff;color:var(--ink-2);cursor:pointer;padding:0;transition:background .14s,color .14s,border-color .14s,transform .08s;}
+.page-fiscal-notes .clr-x:hover{background:var(--navy-100);color:var(--navy);border-color:var(--navy);}
+.page-fiscal-notes .clr-x:active{transform:scale(.88);}
+.page-fiscal-notes .clr-x svg{width:13px;height:13px;}
+.page-fiscal-notes .clr-x.show{display:inline-flex;}
+
+/* ===== filter rail: chamber segmented control + session list ===== */
+.page-fiscal-notes .chswitch{display:grid;grid-template-columns:1fr 1fr 1fr;gap:3px;background:var(--canvas);border:1px solid var(--line);border-radius:var(--r-pill);padding:4px;margin:0 4px;}
+.page-fiscal-notes .chseg{cursor:pointer;text-align:center;font-size:13px;font-weight:800;color:var(--ink-2);border-radius:var(--r-pill);padding:8px 4px;transition:.13s;}
+.page-fiscal-notes .chseg:hover{color:var(--az-gold-d);}
+.page-fiscal-notes .yscroll{max-height:330px;overflow-y:auto;padding-right:2px;}
+/* Destin's call (2026-07-29): show ~5 years, not the mockup's 330px (~9). MUST sit after
+   the verbatim rule above — same specificity, so source order decides, and a first
+   attempt placed earlier in the file silently lost to the 330px. One `.frow` ≈ 35px
+   (16.8px line + 16px padding + 2px border); 5 × 35 = 175, +3 for font-metric rounding. */
+.page-fiscal-notes .yscroll{max-height:178px;}
+.page-fiscal-notes .frow{display:flex;align-items:center;justify-content:space-between;gap:8px;cursor:pointer;font-size:14px;font-weight:700;color:var(--ink-2);border:1px solid transparent;border-radius:var(--r-md);padding:8px 12px;transition:.13s;}
+.page-fiscal-notes .frow:hover{background:var(--navy-100);color:var(--navy);}
+.page-fiscal-notes .frow-n{font-size:11px;font-weight:800;background:var(--canvas);border:1px solid var(--line);border-radius:var(--r-pill);padding:1px 8px;color:var(--ink-3);}
+
+/* Selected states. Each declaration block is copied UNCHANGED from the generated page's
+   corresponding `:checked ~` rule; only the selector moved onto `.on`, because React drives
+   selection from state and there is no checked radio to hang them off:
+     `#fnC-all:checked ~ .fnlayout .chseg[for=fnC-all]`     → `.chseg.on`
+     `#fnY-2026:checked ~ .fnlayout .frow[for=fnY-2026]`    → `.frow.on`
+     `… .frow[for=fnY-2026] .frow-n`                        → `.frow.on .frow-n`
+   The mockup emits the year pair 28 times (once per session); one class covers them all. */
+.page-fiscal-notes .chseg.on{background:var(--navy);color:#fff;}
+.page-fiscal-notes .frow.on{background:var(--az-gold);color:#fff;border-color:var(--az-gold);}
+.page-fiscal-notes .frow.on .frow-n{background:rgba(255,255,255,.25);color:#fff;}
+
+/* ===== session card: header, count, bill rows ===== */
+.page-fiscal-notes .yg-head{display:flex;align-items:center;gap:12px;padding:15px 18px;border-bottom:1px solid var(--line);}
+.page-fiscal-notes .yg-ttl{display:flex;flex-direction:column;gap:2px;min-width:0;}
+.page-fiscal-notes .yg-yr{font-size:18px;font-weight:800;color:var(--navy);}
+.page-fiscal-notes .yg-meta{font-size:12.5px;font-weight:700;color:var(--ink-3);}
+.page-fiscal-notes .fnlist{display:flex;flex-direction:column;}
+.page-fiscal-notes .fbill{display:flex;align-items:center;gap:14px;padding:11px 18px;border-bottom:1px solid var(--line);color:inherit;transition:background .14s;}
+.page-fiscal-notes .fbill:hover{background:#fafafe;text-decoration:none;}
+.page-fiscal-notes .fbill-no{flex:0 0 auto;font-size:12.5px;font-weight:800;color:#fff;background:var(--navy);border-radius:var(--r-pill);padding:4px 12px;letter-spacing:.01em;min-width:78px;text-align:center;}
+.page-fiscal-notes .fbill:hover .fbill-no{background:var(--az-gold-d);}
+.page-fiscal-notes .fbill-desc{flex:1;min-width:0;font-size:14px;font-weight:600;color:var(--ink-2);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+.page-fiscal-notes .fbill-dl{flex:0 0 auto;font-size:11.5px;font-weight:800;color:var(--ink-3);background:var(--canvas);border:1px solid var(--line);border-radius:var(--r-pill);padding:5px 12px;white-space:nowrap;}
+.page-fiscal-notes .fbill-dl::before{content:"\2193";margin-right:5px;font-weight:800;}
+.page-fiscal-notes .fbill:hover .fbill-dl{border-color:var(--az-gold);color:var(--az-gold-d);}
+
+/* ===== sort control (CSS-only menu: :hover / :focus-within) ===== */
+.page-fiscal-notes .sortctl{position:relative;margin-left:auto;flex:0 0 auto;outline:0;}
+.page-fiscal-notes .sortbtn{display:inline-flex;align-items:center;gap:7px;cursor:pointer;font-size:12.5px;font-weight:800;color:var(--ink-2);background:var(--canvas);border:1px solid var(--line);border-radius:var(--r-pill);padding:7px 13px;white-space:nowrap;transition:.14s;}
+.page-fiscal-notes .sortctl:hover .sortbtn,.page-fiscal-notes .sortctl:focus-within .sortbtn{border-color:var(--az-gold);color:var(--az-gold-d);}
+.page-fiscal-notes .sb-chev{width:10px;height:6px;opacity:.7;transition:transform .2s;}
+.page-fiscal-notes .sortctl:hover .sb-chev,.page-fiscal-notes .sortctl:focus-within .sb-chev{transform:rotate(180deg);}
+.page-fiscal-notes .sortmenu{position:absolute;top:100%;right:0;margin-top:6px;min-width:228px;background:#fff;border:1px solid var(--line);border-radius:var(--r-md);box-shadow:var(--shadow);padding:6px;z-index:30;opacity:0;visibility:hidden;transform:translateY(5px);transition:opacity .15s,transform .15s,visibility .15s;}
+.page-fiscal-notes .sortctl:hover .sortmenu,.page-fiscal-notes .sortctl:focus-within .sortmenu{opacity:1;visibility:visible;transform:translateY(0);}
+.page-fiscal-notes .sortopt{display:block;font-size:13.5px;font-weight:700;color:var(--ink-2);padding:9px 12px;border-radius:var(--r-sm);cursor:pointer;white-space:nowrap;}
+.page-fiscal-notes .sortopt:hover{background:var(--canvas);color:var(--navy);}
+/* `#fnS-na:checked ~ .fnlayout .o-na{…}` — same declarations, moved onto `.on` (see above). */
+.page-fiscal-notes .sortopt.on{background:var(--az-gold-100);color:var(--az-gold-d);}
+
+/* ===== "search all sessions" scope pill ===== */
+.page-fiscal-notes .allbar{display:flex;justify-content:center;padding:2px 0;}
+.page-fiscal-notes .allbtn{display:inline-flex;align-items:center;gap:9px;cursor:pointer;font-size:13.5px;font-weight:800;color:var(--az-gold-d);background:#fff;border:1px solid var(--az-gold-100);border-radius:var(--r-pill);padding:11px 20px;box-shadow:var(--shadow-sm);transition:.14s;}
+.page-fiscal-notes .allbtn:hover{border-color:var(--az-gold);background:var(--az-gold-100);}
+.page-fiscal-notes .allbtn svg{width:16px;height:16px;flex:0 0 auto;}
+.page-fiscal-notes .all-off,.page-fiscal-notes .all-on{display:inline-flex;align-items:center;gap:9px;}
+.page-fiscal-notes .all-on{display:none;}
+/* The three `#fnAll:checked ~ .fnlayout …` rules, declarations unchanged, on `.on`. */
+.page-fiscal-notes .allbtn.on{color:var(--navy);border-color:var(--navy-100);background:var(--navy-100);}
+.page-fiscal-notes .allbtn.on .all-off{display:none;}
+.page-fiscal-notes .allbtn.on .all-on{display:inline-flex;}
+
+/* ===== button adaptations =====
+   The mockup's controls are `<label>`s over hidden radios; here they are real `<button>`s
+   (see deviation 1 in FiscalNotes.tsx). These are only the UA-default resets a <label> did
+   not need — no ported value is changed, and nothing new is invented:
+     - font-family: buttons do not inherit the page font.
+     - background/border: a <button> would otherwise draw the UA's gray face + bevel over
+       the mockup's transparent labels. `.frow` already declares its 1px transparent border,
+       and `.allbtn`/`.sortbtn` already declare both, so they need neither.
+     - width/text-align: a <label> filled its line; an inline-block <button> shrinks to fit.
+     - `.allbtn:disabled` reuses the `opacity:.65` + `cursor:not-allowed` pair Home already
+       ported for its inert gateway card (`.m-card.is-disabled`), and re-states the base
+       border/background so the pill does not light up under the cursor while inert —
+       exactly the trick the mockup plays in `.search-card:hover{transform:none;…}`. */
+.page-fiscal-notes .chseg,.page-fiscal-notes .frow,.page-fiscal-notes .sortopt{font-family:inherit;background:transparent;width:100%;}
+.page-fiscal-notes .chseg,.page-fiscal-notes .sortopt{border:0;}
+.page-fiscal-notes .sortopt{text-align:left;}
+.page-fiscal-notes .allbtn{font-family:inherit;}
+.page-fiscal-notes .allbtn:disabled{opacity:.65;cursor:not-allowed;}
+.page-fiscal-notes .allbtn:disabled:hover{border-color:var(--az-gold-100);background:#fff;}
+
+/* ===== new: the status/hint note line =====
+   The mockup reports no filter result anywhere and has no note style. Rather than pick new
+   values, this reuses `.yg-meta`'s three declarations verbatim (this page's own count text);
+   only the padding that positions it in each column is added, harmonized with the
+   neighbouring `.fnside .flbl` (0 8px) and `.yg` card edge (0 2px). `--az-red` is the app's
+   error color, as on the search page's status line. */
+.page-fiscal-notes .fnnote{font-size:12.5px;font-weight:700;color:var(--ink-3);margin:0;}
+.page-fiscal-notes .fnside .fnnote{padding:6px 8px 0;}
+/* The status line sits ABOVE the `.fnlayout` grid: inside `.fnmain` it pushed the first
+   session card down so the rail's top edge floated above the card beside it. The left
+   margin (rail width + grid gap) starts the copy at the RESULTS column's left edge, not
+   the rail's — both Destin-flagged. 12px bottom margin keeps the note clear of the grid;
+   2px side padding aligns it with the `.yg` card edge. */
+.page-fiscal-notes .fnstatus{padding:0 2px;margin:0 0 12px calc(248px + var(--gap));}
+.page-fiscal-notes .fnnote .err{color:var(--az-red);}
+/* The Plan-3 semantic-search box is genuinely `disabled`; same borrowed dimming as above. */
+.page-fiscal-notes .fside-search.is-disabled{opacity:.65;cursor:not-allowed;}
+.page-fiscal-notes .fside-search.is-disabled input{cursor:not-allowed;}
+
+/* Responsive, verbatim — this layout's own breakpoint. */
+@media (max-width:860px){
+  .page-fiscal-notes .fnlayout{grid-template-columns:1fr;}
+  .page-fiscal-notes .fnside{position:static;}
+  /* One column here — the status line goes back to the shared left edge. */
+  .page-fiscal-notes .fnstatus{margin-left:0;}
+}
+
+/* ===== Settings stub (replaced by the real Settings surface in Plan 5) =====
+   No mockup counterpart exists yet, so this borrows the mockup's `.card` panel above
+   and reuses existing mockup values: the 34px/12px page padding from home's
+   `main .wrap`, the 19px/800 navy heading from `.card .head-row h2`, and the 14px
+   `--ink-2` / `margin:4px 0 0` body copy from `.item p`. No new colors, sizes, or
+   fonts are introduced. */
+/* `display:block` is explicit belt-and-braces. Task 8 ended up NOT porting the
+   mockup's `main .wrap{display:grid;grid-template-columns:1fr 340px}` — home's
+   sidebar sections were dropped, so nothing needs the second column — but any page
+   that later ports a `.page-*` grid onto `.wrap` would otherwise leave this stub's
+   single card sitting in a 1fr column with a phantom sidebar column beside it. */
+.stub-page .wrap{display:block;padding-top:34px;padding-bottom:12px;}
+.stub{padding:20px 24px;}
+.stub h1{font-size:19px;color:var(--navy);font-weight:800;}
+.stub p{margin:4px 0 0;font-size:14px;color:var(--ink-2);}

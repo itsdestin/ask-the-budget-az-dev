@@ -1,0 +1,385 @@
+<!DOCTYPE html>
+<html lang="en"><head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>JLBC — Home Mockup A2c (Capitol framed by two navy bands)</title>
+<!--
+  HOME MOCKUP A2c — variant of A2b.
+  - The Capitol hero is framed top AND bottom by matching thin navy bands
+    (the banner navy), so the image reads as a framed unit.
+  - "Official website…" strip is now a translucent glass PILL inside the hero.
+  - Hero photo is a bit taller.
+  - The banner star now serves as the divider between the text and azleg.gov.
+  - NO "Arizona Legislature" pill in the hero.
+  - Each gateway box: icon + title share ONE ROW (title inline, not below).
+  - Hero title "Joint Legislative Budget Committee" forced to a SINGLE LINE.
+  - The three boxes are VERTICALLY CENTERED against the taller search box.
+  HTML + CSS only (except the existing search page).
+-->
+<style>
+  :root {
+    --navy:#2b2f63; --navy-700:#232752; --navy-900:#181b3d; --navy-100:#e7e8f2;
+    --az-red:#2f55c4; --az-red-100:#e1e6fa;
+    --az-gold:#1b6fc4; --az-gold-d:#145aa6; --az-gold-100:#dceaf7;
+    --copper:#3d6a99; --copper-100:#e3ebf3;
+    --teal:#1782b3; --teal-100:#dbeef8;
+    --ink:#21243f; --ink-2:#4a4e6a; --ink-3:#757895;
+    --line:#e6e6ef; --canvas:#f5f5fa; --card:#fff;
+    --r-lg:22px; --r-md:16px; --r-sm:12px; --r-pill:999px; --gap:22px;
+    --shadow:0 1px 2px rgba(27,27,61,.05),0 10px 26px rgba(27,27,61,.08);
+    --shadow-sm:0 1px 2px rgba(27,27,61,.06),0 3px 10px rgba(27,27,61,.05);
+    --maxw:1140px; --font:"Nunito","Segoe UI",system-ui,-apple-system,sans-serif;
+  }
+  *{box-sizing:border-box;} html{scroll-behavior:smooth;}
+  body{margin:0;font-family:var(--font);color:var(--ink);background:var(--canvas);line-height:1.6;-webkit-font-smoothing:antialiased;}
+  a{color:var(--navy);text-decoration:none;} a:hover{text-decoration:underline;}
+  img{display:block;max-width:100%;} h1,h2,h3,h4{margin:0;line-height:1.2;}
+  .wrap{max-width:var(--maxw);margin:0 auto;padding:0 22px;}
+
+  .gov{background:var(--navy-900);color:#c8cae4;font-size:13px;}
+  .gov .wrap{display:flex;align-items:center;justify-content:center;gap:9px;min-height:34px;flex-wrap:wrap;}
+  .gov strong{color:#fff;font-weight:700;}
+  .gov .dot{width:5px;height:5px;border-radius:50%;background:var(--az-gold);}
+  .gov a{color:#b7bbe9;}
+  .gov .azstar{width:13px;height:13px;color:var(--az-gold);flex:0 0 auto;}
+
+  header.site{background:#fff;border-bottom:3px solid var(--navy-900);position:sticky;top:0;z-index:50;}
+  .head{display:flex;align-items:center;gap:14px;min-height:84px;position:relative;}
+  .logo img{height:60px;width:auto;}
+
+  nav.primary{flex:1 1 auto;display:flex;flex-wrap:nowrap;align-items:center;justify-content:center;gap:2px 4px;min-width:0;}
+  .nav-item{position:relative;}
+  .nav-item>a{display:inline-flex;align-items:center;gap:6px;color:var(--ink-2);font-weight:700;font-size:14px;padding:7px 10px;border-radius:var(--r-pill);white-space:nowrap;transition:background .15s,color .15s;}
+  .nav-item>a:hover,.nav-item:hover>a,.nav-item:focus-within>a{background:var(--navy-100);color:var(--navy);text-decoration:none;}
+  .nav-item.active>a{background:var(--az-gold);color:#fff;}
+  .caret{width:9px;height:9px;opacity:.7;}
+  .home-ic{width:18px;height:18px;display:block;}
+  .dropdown{position:absolute;top:calc(100% + 9px);left:0;min-width:248px;background:#fff;border:1px solid var(--line);border-radius:var(--r-md);box-shadow:var(--shadow);padding:8px;z-index:60;opacity:0;visibility:hidden;transform:translateY(6px);transition:opacity .16s,transform .16s,visibility .16s;}
+  .nav-item:hover .dropdown,.nav-item:focus-within .dropdown{opacity:1;visibility:visible;transform:translateY(0);}
+  .dropdown a{display:block;color:var(--ink-2);font-size:14px;font-weight:600;padding:9px 12px;border-radius:var(--r-sm);}
+  .dropdown a:hover{background:var(--canvas);color:var(--navy);text-decoration:none;}
+  .search-icon-btn{flex:0 0 auto;width:42px;height:42px;border-radius:var(--r-pill);display:grid;place-items:center;background:var(--canvas);border:2px solid var(--line);color:var(--navy);cursor:pointer;transition:border-color .15s,background .15s;}
+  .search-icon-btn:hover{border-color:var(--az-gold);background:#fff;}
+  .search-icon-btn svg{width:18px;height:18px;}
+
+  /* ===== HERO — centered, single-line title, no pill ===== */
+  .snapshot{position:relative;overflow:hidden;color:#fff;border-top:8px solid var(--navy-900);border-bottom:8px solid var(--navy-900);
+    background:radial-gradient(64% 130% at 0% 50%,rgba(18,21,48,.56) 0%,rgba(18,21,48,0) 66%),radial-gradient(64% 130% at 100% 50%,rgba(18,21,48,.56) 0%,rgba(18,21,48,0) 66%),linear-gradient(180deg,rgba(18,21,48,.82) 0%,rgba(20,23,52,.52) 55%,rgba(20,23,52,.4) 100%),url('capitol-bg.jpg') center 40% / cover no-repeat;}
+  .snapshot .wrap{position:relative;z-index:2;padding:64px 22px 108px;text-align:center;}
+  .gov-pill{display:inline-flex;align-items:center;gap:11px;background:rgba(24,27,61,.4);border:1px solid rgba(255,255,255,.2);border-radius:var(--r-pill);padding:7px 18px;font-size:13px;font-weight:700;color:#eef0fb;margin:16px auto 0;}
+  .gov-pill .azstar{width:13px;height:13px;color:var(--az-gold);flex:0 0 auto;}
+  .gov-pill a{color:#fff;font-weight:800;}
+  .gov-pill a:hover{text-decoration:underline;}
+  .credit-toggle{position:absolute;width:1px;height:1px;opacity:0;pointer-events:none;}
+  .credit-btn{position:absolute;right:9px;bottom:9px;z-index:7;width:19px;height:19px;border-radius:50%;display:grid;place-items:center;cursor:pointer;background:rgba(255,255,255,.16);border:1px solid rgba(255,255,255,.36);color:#fff;font:italic 700 11px/1 Georgia,"Times New Roman",serif;transition:background .15s,border-color .15s;}
+  .credit-btn:hover{background:rgba(255,255,255,.32);border-color:rgba(255,255,255,.6);}
+  .credit-modal{position:fixed;inset:0;z-index:80;display:none;align-items:center;justify-content:center;}
+  #credit-toggle:checked ~ .credit-modal{display:flex;}
+  .credit-scrim{position:absolute;inset:0;background:rgba(15,17,40,.55);cursor:pointer;}
+  .credit-card{position:relative;z-index:1;max-width:340px;margin:22px;background:#fff;border-radius:var(--r-md);box-shadow:var(--shadow);padding:20px 22px;}
+  .credit-card p{margin:0 0 14px;font-size:14px;line-height:1.55;color:var(--ink-2);}
+  .credit-card a{color:var(--az-gold-d);font-weight:700;overflow-wrap:anywhere;}
+  .credit-card a:hover{text-decoration:underline;}
+  .credit-close{display:inline-block;cursor:pointer;font-weight:800;font-size:13px;color:var(--navy);background:var(--canvas);border:1px solid var(--line);border-radius:var(--r-pill);padding:7px 16px;}
+  .credit-close:hover{background:var(--navy-100);}
+  .snap-h1{font-size:clamp(26px,4vw,44px);font-weight:800;letter-spacing:-.5px;white-space:nowrap;margin:0 auto;}
+  .snap-tag{margin:12px auto 0;font-size:clamp(15px,1.7vw,19px);color:#e2e5f6;font-weight:700;max-width:48ch;}
+
+  /* ===== Overlap gateway cards (icon+title inline; bottom-aligned) ===== */
+  .metric-overlap{position:relative;z-index:5;margin-top:-62px;}
+  .m-cards{display:grid;grid-template-columns:1fr 1.5fr 1fr;gap:16px;align-items:center;}
+  .m-cards .m-card{display:flex;flex-direction:column;text-decoration:none;background:#fff;border:1px solid var(--line);border-radius:var(--r-md);padding:20px;box-shadow:var(--shadow);transition:transform .15s,box-shadow .15s,border-color .15s;min-height:160px;}
+  .m-cards .m-card:hover{transform:translateY(-3px);box-shadow:0 6px 22px rgba(27,27,61,.13);border-color:var(--az-gold);text-decoration:none;}
+  .cardhead{display:flex;align-items:center;gap:12px;}
+  .m-cards .m-card .ic{width:44px;height:44px;border-radius:13px;display:grid;place-items:center;flex:0 0 44px;}
+  .m-cards .m-card .ic svg{width:22px;height:22px;}
+  .m-cards .m-card.a-gold .ic{background:var(--az-gold-100);color:var(--az-gold-d);}
+  .m-cards .m-card.a-red .ic{background:var(--az-red-100);color:var(--az-red);}
+  .m-cards .m-card.a-teal .ic{background:var(--teal-100);color:var(--teal);}
+  .m-cards .m-card .t{font-size:17px;font-weight:800;color:var(--navy);}
+  .m-cards .m-card .d{font-size:13px;color:var(--ink-2);font-weight:600;margin:12px 0 0;flex:1;}
+  .m-cards .m-card .arr{display:inline-flex;align-items:center;gap:6px;font-size:13px;font-weight:800;color:var(--az-gold-d);margin-top:12px;}
+  .m-cards .m-card:hover .arr{gap:10px;}
+
+  /* center card: search form, taller + lifted above siblings */
+  .m-cards .search-card{min-height:200px;margin-bottom:0;padding:22px 22px 20px;border-color:#d6def0;box-shadow:0 8px 30px rgba(27,27,61,.16);}
+  .m-cards .search-card:hover{transform:none;border-color:#d6def0;box-shadow:0 8px 30px rgba(27,27,61,.16);}
+  .search-field{display:flex;align-items:center;gap:10px;background:var(--canvas);border:2px solid var(--line);border-radius:var(--r-pill);padding:11px 12px 11px 16px;margin-top:14px;transition:border-color .15s,box-shadow .15s,background .15s;}
+  .search-field:focus-within{border-color:var(--navy);background:#fff;box-shadow:0 0 0 4px var(--navy-100);}
+  .search-field .s-ic{color:var(--ink-3);flex:0 0 auto;width:19px;height:19px;}
+  .search-field input{flex:1;border:0;outline:0;background:transparent;font-size:15.5px;font-family:inherit;color:var(--ink);min-width:0;}
+  .search-field button{flex:0 0 auto;border:0;cursor:pointer;font-family:inherit;font-weight:800;font-size:14px;color:#fff;background:var(--az-gold);border-radius:var(--r-pill);padding:9px 18px;transition:filter .15s;}
+  .search-field button:hover{filter:brightness(1.05);}
+  @media (max-width:760px){.m-cards{grid-template-columns:1fr;} .metric-overlap{margin-top:-34px;} .m-cards .search-card{order:-1;margin-bottom:0;} .snap-h1{white-space:normal;}}
+
+  /* ===== main content ===== */
+  main .wrap{padding:34px 22px 12px;display:grid;grid-template-columns:1fr 340px;gap:var(--gap);align-items:start;}
+  .card{background:var(--card);border:1px solid var(--line);border-radius:var(--r-lg);box-shadow:var(--shadow-sm);overflow:hidden;}
+  .card + .card{margin-top:var(--gap);}
+  .card .head-row{display:flex;align-items:center;gap:12px;padding:20px 24px;position:relative;}
+  .card .head-row::after{content:"";position:absolute;left:20px;right:20px;bottom:0;height:2px;border-radius:999px;background:var(--az-gold-100);}
+  .card .head-row .ic{width:40px;height:40px;border-radius:13px;display:grid;place-items:center;flex:0 0 40px;}
+  .card .head-row h2{font-size:19px;color:var(--navy);font-weight:800;}
+  .card .head-row .count{margin-left:auto;font-size:12.5px;font-weight:800;color:var(--ink-3);background:var(--canvas);border-radius:var(--r-pill);padding:4px 12px;}
+  .item{display:flex;gap:16px;padding:18px 24px;border-bottom:1px solid var(--line);transition:background .15s;}
+  .item:last-child{border-bottom:0;} .item:hover{background:#fafafe;}
+  .item .stripe{flex:0 0 6px;border-radius:var(--r-pill);align-self:stretch;}
+  .item .meta{display:flex;align-items:center;gap:10px;margin:5px 0 0;flex-wrap:wrap;}
+  .pill{font-size:11.5px;font-weight:800;letter-spacing:.04em;text-transform:uppercase;padding:3px 11px;border-radius:var(--r-pill);display:inline-flex;align-items:center;gap:5px;flex:0 0 auto;white-space:nowrap;}
+  .pill svg{width:12px;height:12px;flex:0 0 auto;}
+  a.pill{cursor:pointer;text-decoration:none;}
+  a.pill:hover{text-decoration:none;box-shadow:0 2px 8px rgba(27,27,61,.12);}
+  .item .ib{flex:1;min-width:0;}
+  .trow{display:flex;align-items:flex-start;justify-content:space-between;gap:12px;}
+  .trow h3{flex:1;min-width:0;}
+  .item .date{font-size:12.5px;color:var(--ink-3);font-weight:700;}
+  .item h3{font-size:16.5px;color:var(--navy);font-weight:700;}
+  .item h3 a{color:inherit;} .item h3 a:hover{color:var(--az-red);}
+  .item p{margin:4px 0 0;font-size:14px;color:var(--ink-2);}
+  .c-navy{background:var(--navy-100);color:var(--navy);} .c-red{background:var(--az-red-100);color:var(--az-red);}
+  .c-gold{background:var(--az-gold-100);color:var(--az-gold-d);} .c-copper{background:var(--copper-100);color:var(--copper);}
+  .c-teal{background:var(--teal-100);color:var(--teal);}
+  /* Budget & Revenue Updates — fully clickable cards with a tinted header band */
+  .upd-grid{display:grid;grid-template-columns:1fr 1fr;gap:14px;padding:18px 24px;}
+  .upd-card{border:1px solid var(--line);border-radius:var(--r-md);overflow:hidden;background:#fff;text-decoration:none;color:inherit;display:flex;flex-direction:column;transition:transform .15s,box-shadow .15s,border-color .15s;}
+  .upd-card:hover{transform:translateY(-3px);box-shadow:0 8px 24px rgba(27,27,61,.14);border-color:var(--az-gold);text-decoration:none;}
+  .upd-band{display:flex;align-items:center;justify-content:space-between;gap:8px;padding:9px 14px;background:var(--navy-100);color:var(--navy);}
+  .upd-card.mfh .upd-band{background:var(--az-red-100);color:var(--az-red);}
+  .upd-lbl{display:inline-flex;align-items:center;gap:6px;font-size:10.5px;font-weight:800;letter-spacing:.04em;text-transform:uppercase;}
+  .upd-lbl svg{width:13px;height:13px;flex:0 0 auto;}
+  .upd-band .upd-date{font-size:11px;font-weight:800;opacity:.85;}
+  .upd-body{padding:14px 16px;}
+  .upd-body h3{font-size:14.5px;font-weight:800;color:var(--navy);}
+  .upd-body p{margin:5px 0 0;font-size:12.5px;color:var(--ink-2);}
+  /* Committee Meetings reuse the same cards; JCCR uses the teal accent */
+  .upd-card.jccr .upd-band{background:var(--teal-100);color:var(--teal);}
+  .upd-body .sep{color:var(--ink-3);margin:0 4px;}
+  .upd-ag{color:var(--az-gold-d);font-weight:800;}
+  @media(max-width:620px){ .upd-grid{grid-template-columns:1fr;} }
+  .s-navy{background:var(--navy);} .s-red{background:var(--az-red);} .s-gold{background:var(--az-gold);}
+  .s-copper{background:var(--copper);} .s-teal{background:var(--teal);}
+  .meeting{display:flex;gap:16px;padding:18px 24px;border-bottom:1px solid var(--line);align-items:center;}
+  .meeting:last-child{border-bottom:0;} .meeting:hover{background:#fafafe;}
+  .cal{flex:0 0 58px;width:58px;border-radius:14px;overflow:hidden;border:1px solid var(--line);text-align:center;}
+  .cal .m{background:var(--navy);color:#fff;font-size:11px;font-weight:800;padding:4px 0;text-transform:uppercase;letter-spacing:.08em;}
+  .cal .d{font-size:22px;font-weight:800;color:var(--navy);padding:5px 0;}
+  .meeting .info h3{font-size:16px;color:var(--navy);font-weight:700;}
+  .meeting .info p{margin:2px 0 0;font-size:13.5px;color:var(--ink-3);font-weight:600;}
+  .meeting .info .ag{display:inline-flex;align-items:center;gap:6px;margin-top:6px;font-size:11.5px;font-weight:800;color:var(--copper);background:var(--copper-100);padding:3px 11px;border-radius:var(--r-pill);}
+  .meeting .info .ag:hover{text-decoration:none;filter:brightness(.97);} .meeting .info .ag svg{width:12px;height:12px;}
+  .side .card{position:static;}
+  .quick{padding:10px;}
+  .quick .qh{padding:14px 16px 10px;font-size:13px;font-weight:800;text-transform:uppercase;letter-spacing:.1em;color:var(--ink-3);}
+  .quick a.qlink{display:flex;align-items:center;gap:12px;padding:13px 16px;border-radius:var(--r-md);color:var(--navy);font-weight:700;font-size:15px;transition:background .15s,transform .12s;}
+  .quick a.qlink:hover{background:var(--navy-100);text-decoration:none;transform:translateX(2px);}
+  .quick a.qlink .dotic{width:34px;height:34px;border-radius:11px;display:grid;place-items:center;flex:0 0 34px;}
+  .quick a.qlink .arr{margin-left:auto;color:var(--ink-3);transition:transform .15s,color .15s;}
+  .quick a.qlink:hover .arr{transform:translateX(3px);color:var(--az-red);}
+  .promo{margin-top:var(--gap);background:linear-gradient(150deg,var(--navy-700),var(--navy-900));border-radius:var(--r-lg);padding:24px;color:#fff;position:relative;overflow:hidden;box-shadow:var(--shadow);}
+  .promo::after{content:"";position:absolute;right:-30px;top:-30px;width:120px;height:120px;border-radius:50%;background:rgba(27,111,196,.35);}
+  .promo h3{font-size:18px;position:relative;z-index:2;}
+  .promo p{margin:8px 0 16px;font-size:13.5px;color:#cdcfe8;position:relative;z-index:2;}
+  .promo a{position:relative;z-index:2;display:inline-flex;align-items:center;gap:8px;background:var(--az-gold);color:#fff;font-weight:800;font-size:14px;padding:11px 18px;border-radius:var(--r-pill);}
+  .promo a:hover{text-decoration:none;filter:brightness(1.04);}
+
+  footer.site{background:var(--navy-900);color:#b6b9dc;margin-top:22px;}
+  .foot{display:flex;flex-wrap:wrap;justify-content:space-between;align-items:flex-start;gap:16px 48px;padding:22px 0 16px;}
+  .foot .fb .name{color:#fff;font-weight:800;font-size:17px;}
+  .foot .fb p{font-size:13.5px;color:#8e91bd;margin:8px 0 0;max-width:46ch;}
+  .foot h4{color:#fff;font-size:12.5px;text-transform:uppercase;letter-spacing:.1em;margin-bottom:11px;}
+  .foot .line{font-size:14px;color:#b6b9dc;margin:0;display:flex;gap:8px;align-items:center;}
+  .foot .line svg{color:var(--az-gold);flex:0 0 auto;}
+  .foot a{color:#b6b9dc;} .foot a:hover{color:#fff;}
+  .foot .contact-row{display:flex;flex-wrap:wrap;gap:7px 24px;}
+  .foot .contact-row+.contact-row{margin-top:9px;}
+  .foot-bottom{border-top:1px solid #2a2d57;padding:14px 0;display:flex;flex-wrap:wrap;gap:12px;justify-content:space-between;align-items:center;font-size:12.5px;color:#7e81ad;}
+  .foot-bottom a{color:#b7bbe9;}
+  .foot-bottom .copyline{display:inline-flex;align-items:center;gap:10px;}
+  .foot-bottom .jlbc-mini{height:28px;width:auto;background:#fff;padding:4px 7px;border-radius:8px;}
+  .foot-bottom .azleg-btn{display:inline-flex;align-items:center;gap:9px;background:#fff;padding:7px 13px;border-radius:11px;transition:transform .15s,box-shadow .15s;}
+  .foot-bottom .azleg-btn:hover{box-shadow:0 5px 16px rgba(0,0,0,.28);transform:translateY(-1px);text-decoration:none;}
+  .foot-bottom .azleg-btn img{height:28px;width:auto;}
+  .foot-bottom .azleg-btn .foot-ext{width:15px;height:15px;color:var(--navy);opacity:.65;flex:0 0 auto;}
+
+  @media (max-width:900px){
+    main .wrap{grid-template-columns:1fr;}
+    .foot{grid-template-columns:1fr 1fr;}
+  }
+  @media (max-width:600px){
+    nav.primary .wrap{overflow-x:auto;flex-wrap:nowrap;}
+    .nav-item>a{white-space:nowrap;} .dropdown{display:none;}
+    .foot{grid-template-columns:1fr;} .logo img{height:50px;}
+  }
+</style>
+<style></style></head>
+<body>
+
+<header class="site">
+  <div class="wrap head">
+    <a class="logo" href="index.html" aria-label="JLBC home"><img src="jlbc-logo.png" alt="JLBC — Joint Legislative Budget Committee"></a>
+    <nav class="primary" aria-label="Primary">
+      <div class="nav-item active"><a href="index.html" aria-label="JLBC Home" title="JLBC Home"><svg class="home-ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 11.5 12 4l9 7.5"></path><path d="M5 10v9h14v-9"></path></svg></a></div>
+      <div class="nav-item">
+        <a href="subpage-current-year.html">Annual Budgets <svg class="caret" viewBox="0 0 10 6" fill="none" stroke="currentColor" stroke-width="1.7"><path d="m1 1 4 4 4-4"></path></svg></a>
+        <div class="dropdown"><a href="subpage-current-year.html">Current Year</a><a href="subpage-prior-years.html">Prior Years</a><a href="subpage-historical-comparisons.html">Historical Comparisons</a><a href="subpage-process.html">Budget Process</a><a href="subpage-annual-reports.html">Annual Reports</a></div>
+      </div>
+      <div class="nav-item"><a href="subpage-monthly-fiscal-highlights.html">Monthly Highlights</a></div>
+      <div class="nav-item">
+        <a href="subpage-fiscal-notes.html">Fiscal Notes <svg class="caret" viewBox="0 0 10 6" fill="none" stroke="currentColor" stroke-width="1.7"><path d="m1 1 4 4 4-4"></path></svg></a>
+        <div class="dropdown"><a href="subpage-fiscal-notes.html">Fiscal Notes</a><a href="subpage-ballot-initiatives.html">Ballot Initiatives</a></div>
+      </div>
+      <div class="nav-item">
+        <a href="subpage-state-revenue-reports.html">State Revenues <svg class="caret" viewBox="0 0 10 6" fill="none" stroke="currentColor" stroke-width="1.7"><path d="m1 1 4 4 4-4"></path></svg></a>
+        <div class="dropdown"><a href="subpage-monthly-fiscal-highlights.html">Monthly Fiscal Highlights</a><a href="subpage-fac-meeting.html">FAC Meetings</a><a href="subpage-tax-handbook.html">Tax Handbook</a><a href="subpage-tax-credit-reviews.html">Tax Credit Reviews</a><a href="subpage-forecasting-process.html">Forecasting Process</a><a href="subpage-state-revenue-reports.html">Reports</a><a href="subpage-historical-revenues.html">Historical Revenues</a></div>
+      </div>
+      <div class="nav-item"><a href="subpage-budget-units.html">Budget Units</a></div>
+      <div class="nav-item"><a href="subpage-jlbc-meetings.html">Meetings</a></div>
+      <div class="nav-item">
+        <a href="subpage-jlbc-background.html">About <svg class="caret" viewBox="0 0 10 6" fill="none" stroke="currentColor" stroke-width="1.7"><path d="m1 1 4 4 4-4"></path></svg></a>
+        <div class="dropdown"><a href="subpage-jlbc-background.html">JLBC</a><a href="subpage-jccr-background.html">JCCR</a><a href="subpage-staff-positions.html">Staff Positions</a><a href="subpage-jlbc-staff.html">Staff Assignments</a><a href="subpage-jlbc-careers.html">JLBC Careers</a><a href="subpage-fiscal-links.html">Fiscal Links</a><a href="subpage-public-records-request.html">Public Records Request Portal</a></div>
+      </div>
+    </nav>
+    <a class="search-icon-btn" href="subpage-search_jlbc.html" aria-label="Search the JLBC library" title="Search"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="7"></circle><path d="m21 21-4.3-4.3"></path></svg></a>
+  </div>
+</header>
+
+<!-- ===== HERO (centered, single-line title, no pill) ===== -->
+<section class="snapshot" aria-label="Fiscal snapshot">
+  <div class="wrap">
+    <h1 class="snap-h1">Joint Legislative Budget Committee</h1>
+    <div class="gov-pill"><span>Fiscal Policy Analysis for the Arizona State Legislature</span><svg class="azstar" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M12 2l2.9 6.3 6.9.7-5.1 4.6 1.4 6.8L12 17.8 5.9 20.4l1.4-6.8L2.2 9l6.9-.7L12 2z"></path></svg><a href="https://www.azleg.gov/" target="_blank" rel="noopener">azleg.gov ↗</a></div>
+  </div>
+  <!-- hero background-image credit: CSS-only (i) popover -->
+  <input type="checkbox" id="credit-toggle" class="credit-toggle" aria-hidden="true">
+  <label for="credit-toggle" class="credit-btn" title="Background image source" aria-label="Background image source">i</label>
+  <div class="credit-modal" role="dialog" aria-label="Background image source">
+    <label for="credit-toggle" class="credit-scrim" aria-label="Close"></label>
+    <div class="credit-card">
+      <p>Background Image Source from Arizona Memory Project (<a href="https://azmemory.azlibrary.gov/assets/display/1581392-max?u=b00dd8db4119c71fe84c97d8745eaf79" target="_blank" rel="noopener">https://azmemory.azlibrary.gov/assets/display/1581392-max?u=b00dd8db4119c71fe84c97d8745eaf79</a>) and Modified with Gemini.</p>
+      <label for="credit-toggle" class="credit-close">Close</label>
+    </div>
+  </div>
+</section>
+
+<div class="wrap metric-overlap">
+  <div class="m-cards">
+    <a class="m-card a-teal" href="subpage-process.html">
+      <div class="cardhead"><span class="ic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 6h16M4 12h16M4 18h10"></path></svg></span><div class="t">The Budget Process</div></div>
+      <p class="d">See how Arizona's legislative and executive branches coordinate to draft, review, and enact the state's annual budget.</p>
+      <span class="arr">Learn more →</span>
+    </a>
+
+    <!-- center card = live search bar -->
+    <form class="m-card a-gold search-card" action="subpage-search_jlbc.html" method="get" role="search">
+      <div class="cardhead"><span class="ic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="7"></circle><path d="m21 21-4.3-4.3"></path></svg></span><div class="t">Comprehensive Document Search</div></div>
+      <p class="d">Explore every JLBC report and publication, along with related budget documents from individual state agencies, OSPB, and GAO.</p>
+      <div class="search-field">
+        <svg class="s-ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="7"></circle><path d="m21 21-4.3-4.3"></path></svg>
+        <input type="search" name="q" placeholder="Search budgets, reports, fiscal notes…" aria-label="Search the JLBC library">
+        <button type="submit">Search</button>
+      </div>
+    </form>
+
+    <a class="m-card a-red" href="subpage-fiscal-notes.html">
+      <div class="cardhead"><span class="ic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M6 2h9l5 5v15H6z"></path><path d="M14 2v6h6"></path><path d="M10 13h4M12 11v6"></path></svg></span><div class="t">Bill Analysis</div></div>
+      <p class="d">Read JLBC's fiscal notes, which analyze the revenue and expenditure impacts of proposed legislation.</p>
+      <span class="arr">View fiscal notes →</span>
+    </a>
+  </div>
+</div>
+
+<main>
+  <div class="wrap">
+    <div class="col-main">
+      <section class="card">
+        <div class="head-row">
+          <span class="ic c-navy"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 3v18h18"></path><path d="m7 14 4-4 3 3 5-6"></path></svg></span>
+          <h2>Budget &amp; Revenue Updates</h2>
+        </div>
+        <div class="upd-grid">
+          <a class="upd-card" href="https://www.azjlbc.gov/budget/houseandsenateplanasengrossed061126.pdf" target="_blank" rel="noopener">
+            <div class="upd-band"><span class="upd-lbl"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M6 2h9l5 5v15H6z"></path><path d="M14 2v6h6M9 13h6M9 17h6"></path></svg>Annual Budget</span><span class="upd-date">Jun 11, 2026</span></div>
+            <div class="upd-body"><h3>FY 2027 House and Senate Budget Bills — As Engrossed</h3><p>The FY 2027 budget as passed by the House and Senate, engrossed for transmittal.</p></div>
+          </a>
+          <a class="upd-card mfh" href="https://www.azjlbc.gov/mfh/mfh-may-26.pdf" target="_blank" rel="noopener">
+            <div class="upd-band"><span class="upd-lbl"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 3v18h18"></path><path d="m7 14 4-4 3 3 5-6"></path></svg>Monthly Highlights</span><span class="upd-date">May 28, 2026</span></div>
+            <div class="upd-body"><h3>Monthly Fiscal Highlights — May</h3><p>JLBC's monthly review of Arizona General Fund revenue collections and the state economy.</p></div>
+          </a>
+          <a class="upd-card" href="https://www.azjlbc.gov/budget/27baseline-execcomparison011926.pdf" target="_blank" rel="noopener">
+            <div class="upd-band"><span class="upd-lbl"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M6 2h9l5 5v15H6z"></path><path d="M14 2v6h6M9 13h6M9 17h6"></path></svg>Annual Budget</span><span class="upd-date">Jan 19, 2026</span></div>
+            <div class="upd-body"><h3>FY 2027 Baseline Slideshow with Executive Comparison</h3><p>Side-by-side of the JLBC Baseline and the Executive budget recommendation for FY 2027.</p></div>
+          </a>
+          <a class="upd-card" href="https://www.azjlbc.gov/budget/27baselinelinks.pdf" target="_blank" rel="noopener">
+            <div class="upd-band"><span class="upd-lbl"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M6 2h9l5 5v15H6z"></path><path d="M14 2v6h6M9 13h6M9 17h6"></path></svg>Annual Budget</span><span class="upd-date">Jan 16, 2026</span></div>
+            <div class="upd-body"><h3>FY 2027 Baseline Book</h3><p>JLBC's FY 2027 Baseline — the starting-point projection of revenue and spending for the fiscal year.</p></div>
+          </a>
+        </div>
+      </section>
+
+      <section class="card">
+        <div class="head-row">
+          <span class="ic c-copper"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="4" width="18" height="18" rx="3"></rect><path d="M16 2v4M8 2v4M3 10h18"></path></svg></span>
+          <h2>Committee Meetings</h2><span class="count">2 agendas</span>
+        </div>
+        <div class="upd-grid">
+          <a class="upd-card" href="https://www.azjlbc.gov/meetings/jlbcag050626.pdf" target="_blank" rel="noopener">
+            <div class="upd-band"><span class="upd-lbl"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="4" width="18" height="18" rx="3"></rect><path d="M16 2v4M8 2v4M3 10h18"></path></svg>JLBC</span><span class="upd-date">May 06, 2026</span></div>
+            <div class="upd-body"><h3>Joint Legislative Budget Committee</h3><p>Regular Meeting <span class="sep">·</span><span class="upd-ag">View Agenda</span></p></div>
+          </a>
+          <a class="upd-card jccr" href="https://www.azjlbc.gov/meetings/jccrag050626.pdf" target="_blank" rel="noopener">
+            <div class="upd-band"><span class="upd-lbl"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="4" width="18" height="18" rx="3"></rect><path d="M16 2v4M8 2v4M3 10h18"></path></svg>JCCR</span><span class="upd-date">May 06, 2026</span></div>
+            <div class="upd-body"><h3>Joint Committee on Capital Review</h3><p>Regular Meeting <span class="sep">·</span><span class="upd-ag">View Agenda</span></p></div>
+          </a>
+        </div>
+      </section>
+    </div>
+
+    <aside class="side">
+      <section class="card">
+        <div class="quick">
+          <div class="qh">Quick Links</div>
+          <a class="qlink" href="subpage-current-year.html"><span class="dotic c-navy"><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M6 2h9l5 5v15H6z"></path><path d="M14 2v6h6"></path></svg></span>Current Year Budget<span class="arr">→</span></a>
+          <a class="qlink" href="subpage-monthly-fiscal-highlights.html"><span class="dotic c-red"><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 12a9 9 0 1 0 18 0 9 9 0 0 0-18 0Z"></path><path d="M12 7v5l3 2"></path></svg></span>Monthly Fiscal Highlights<span class="arr">→</span></a>
+          <a class="qlink" href="subpage-jlbc-meetings.html"><span class="dotic c-copper"><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="4" width="18" height="18" rx="3"></rect><path d="M16 2v4M8 2v4M3 10h18"></path></svg></span>Meeting Agendas<span class="arr">→</span></a>
+          <a class="qlink" href="subpage-jlbc-staff.html"><span class="dotic c-teal"><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"></path><circle cx="9" cy="7" r="4"></circle></svg></span>JLBC Staff Assignments<span class="arr">→</span></a>
+          <a class="qlink" href="subpage-jlbc-careers.html"><span class="dotic c-gold"><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="7" width="20" height="14" rx="3"></rect><path d="M8 7V5a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path></svg></span>JLBC Careers<span class="arr">→</span></a>
+        </div>
+      </section>
+      <div class="promo">
+        <h3>Track the budget</h3>
+        <p>Follow JLBC's analyses, reports, and revenue updates throughout the legislative session.</p>
+        <a href="subpage-current-year.html">Browse Annual Budgets →</a>
+      </div>
+    </aside>
+  </div>
+</main>
+
+<footer class="site">
+  <div class="wrap foot">
+    <div class="fb">
+      <div class="name">Joint Legislative Budget Committee</div>
+      <p>This public website is maintained by the JLBC, the fiscal research arm of the Arizona Legislature.</p>
+    </div>
+    <div class="col"><h4>Contact</h4>
+      <div class="contact-row">
+        <span class="line"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 16.9v3a2 2 0 0 1-2.2 2 19.8 19.8 0 0 1-8.6-3.1 19.5 19.5 0 0 1-6-6A19.8 19.8 0 0 1 2 4.2 2 2 0 0 1 4 2h3a2 2 0 0 1 2 1.7c.1.9.4 1.8.7 2.6a2 2 0 0 1-.5 2.1L8 9.6a16 16 0 0 0 6 6l1.2-1.2a2 2 0 0 1 2.1-.5c.8.3 1.7.6 2.6.7A2 2 0 0 1 22 16.9Z"></path></svg><a href="tel:+16029265491">(602) 926-5491</a></span>
+        <span class="line"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="5" width="18" height="14" rx="3"></rect><path d="m3 7 9 6 9-6"></path></svg><a href="mailto:jlbcwebmaster@azleg.gov">jlbcwebmaster@azleg.gov</a></span>
+      </div>
+      <div class="contact-row">
+        <span class="line"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 21s-7-5.2-7-11a7 7 0 0 1 14 0c0 5.8-7 11-7 11Z"></path><circle cx="12" cy="10" r="2.5"></circle></svg><a href="https://www.google.com/maps/search/?api=1&amp;query=1716%20West%20Adams%2C%20Phoenix%2C%20AZ%2085007" target="_blank" rel="noopener">1716 West Adams, Phoenix, AZ 85007</a></span>
+      </div>
+    </div>
+  </div>
+  <div class="wrap foot-bottom">
+    <div class="copyline"><img class="jlbc-mini" src="jlbc-logo.png" alt="JLBC"> © 2026 Arizona Joint Legislative Budget Committee</div>
+    <a class="azleg-btn" href="https://www.azleg.gov/" target="_blank" rel="noopener" aria-label="Arizona State Legislature — opens azleg.gov">
+      <img src="azleg-logo.png" alt="Arizona State Legislature">
+      <svg class="foot-ext" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M7 17 17 7M9 7h8v8"></path></svg>
+    </a>
+  </div>
+</footer>
+
+
+
+
+</body></html>

@@ -26,6 +26,7 @@ source. When something ships, update only this file.
 | Volume ingest | 🟡 Mostly done | FY25 + FY26 + FY27 across all 4 publishers; gaps: older FYs (FY24 and back), FY26 Approps Report, FY27 Approps/Budget bill |
 | Phase 2 — Companion + verify-mode | 🔴 Not started | Defers until v1 demonstrates internal value |
 | Standalone consolidation — Plan 1 (storage + retrieval) | ✓ Shipped (2026-07-30) | Postgres/pgvector/ParadeDB → embedded LanceDB; Voyage → local ONNX models. See the section below |
+| Standalone consolidation — Plan 2 (app server + search UI) | ✓ Shipped (2026-07-30) | New `app/` (port 9300) + `webapp/` SPA: home, budget search (real corpus), fiscal notes directory. See the section below |
 
 ---
 
@@ -99,6 +100,64 @@ Spec: `docs/superpowers/specs/2026-07-29-standalone-consolidation-design.md`
   test_embeddings) mid-run and they fail with UndefinedTable against a
   schema they don't own — run suites without `.env.local` (fresh-clone
   behavior) or fix the skip gates to snapshot env at collection time.
+
+---
+
+## Standalone consolidation — Plan 2 shipped (2026-07-30)
+
+Spec: `docs/superpowers/specs/2026-07-29-standalone-consolidation-design.md`
+(S1, S9, S12). Plan: `docs/superpowers/plans/2026-07-29-standalone-plan-2-app-shell.md`
+(its frozen API-contract block is what Plans 3/4 build against — note the
+Task 3 amendments recorded there: `fiscal_note_url` on bills, real
+`leg_session()` names, non-unique `bill_number`).
+
+- **App server (`app/`, port 9300):** FastAPI factory serving the built SPA
+  (SPA fallback for client-side routes, JSON 404s under /api/, traversal-safe
+  static serving) + `POST /api/search` + `GET /api/fiscal-notes` + `/health`.
+  Provider seam: `_default_provider()` probes the LanceDB corpus once at
+  startup — real `LanceSearchProvider` (Plan 1 stack) when `budget_chunks`
+  has rows, fixture `StubSearchProvider` otherwise with the reason on stderr.
+  Startup-only by design: a share outage mid-session surfaces as an honest
+  JSON 503 from the search route, never a silent swap to fake rows. Run:
+  `uv run uvicorn app.main:create_app --factory --port 9300` (set
+  `JLBC_DATA_DIR` for a non-default corpus location).
+- **Webapp (`webapp/`):** Vite + React 18 SPA ported from the JLBC Website
+  Revamp mockup per S12 (verbatim `:root` tokens; page-scoped CSS convention
+  documented in `webapp/src/styles/app.css` — the three mockup sources
+  conflict on ~74 shared selectors). Pages: Home (hero search + gateway
+  cards), Budget Search (results grouped by report family with hand-verified
+  "Full report (PDF)" links for Baseline FY26/27 + Approps FY25, curated
+  filter buckets + FY dropdown + publisher chips, retry/stale-while-revalidate
+  states), Fiscal Notes (28-session / 2,126-bill directory from the committed
+  snapshot — Plan 3 swaps in the live corpus behind the same contract; safe
+  `<strike>/NOW:` title rendering; session rail tuned live with Destin).
+- **Fiscal-notes snapshot:** `scripts/export_fiscal_notes_snapshot.py`
+  (parser transcribed from the vendored mockup generator) → committed
+  `app/data/fiscal-notes-snapshot.json`, exact-count pinned (28 / 2,126).
+- **Vendored references:** `webapp/reference/` now holds the mockup pages
+  (including the GENERATED `subpage-fiscal-notes.html` — base.html's body is
+  a superseded scaffold, do not port from it) plus the mockup's in-browser
+  search engine (`assets/search/search.js` — report families, curated
+  buckets, ranking blend) and its 419-doc URL index (`index-lite.js`), kept
+  as input for retrieval tuning and the report-format chooser follow-up.
+- **UI score display:** the relevance bar maps Plan 1's raw cross-encoder
+  logits through a sigmoid (the model's own probability reading); the
+  printed number stays the raw score.
+- **Tests:** 24 app pytest (`tests/test_app_server.py`, `test_search_route`,
+  `test_fiscal_notes_route`, `test_fiscal_notes_snapshot`,
+  `test_lance_provider`) + 39 webapp vitest. `setup.sh` now installs/builds
+  `webapp/` and `--verify` runs its suite.
+- **Known follow-ups:** book-vs-agency-page open actions (in-app viewer path
+  via Plan 4 + doc-metadata table via Plan 3; the vendored `index-lite.js`
+  is the URL join source; needs a written design doc); doc titles are
+  best-effort slug humanizations ("JLBC Baseline FY 2026 Axs") until Plan 3
+  writes real titles into `documents.json` — the agency canonical-id → name
+  catalog lives in the chunking pipeline, not yet reusable standalone;
+  filter-chip counts need a facets endpoint (corpus-wide numbers, not
+  per-search); Nunito is named but never loaded by the mockup (one `<link>`
+  if the approved look was really Nunito); `db/migrations/0001` doc_type
+  enum comment is stale vs live data (`baseline-agency` vs
+  `baseline-per-agency`).
 
 ---
 
