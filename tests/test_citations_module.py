@@ -204,6 +204,51 @@ def test_fetch_chunk_texts_raises_on_an_unknown_corpus_name(store):
         fetch_chunk_texts(["b1"], corpus="budget_chunkz", store=store)
 
 
+def test_fetch_chunk_texts_checks_the_corpus_name_before_the_empty_guard(store):
+    """Regression: the `no chunk_ids -> return {}` short-circuit used to
+    return before anything touched the store, so the store's own name
+    check never ran and a typo'd corpus passed silently. The name is a
+    caller-supplied constant — it is wrong or right regardless of how
+    many citations came with it."""
+    with pytest.raises(ValueError, match="Unknown corpus table"):
+        fetch_chunk_texts([], corpus="budget_chunkz", store=store)
+
+
+def test_validate_cites_checks_the_corpus_name_on_an_empty_batch(store):
+    """Same regression one layer up, and the sharper case: a zero-citation
+    batch is a DOCUMENTED normal path (the model may hand over none), so
+    without an explicit check the expected-empty case and the typo case
+    are indistinguishable. harness/tools.py picks the corpus per call,
+    which is exactly who this protects."""
+    with pytest.raises(ValueError, match="Unknown corpus table"):
+        validate_cites([], corpus="budget_chunkz", store=store)
+
+
+def test_validate_cite_raises_on_an_unknown_corpus_name(store):
+    """The single-cite wrapper inherits the same guarantee."""
+    with pytest.raises(ValueError, match="Unknown corpus table"):
+        validate_cite(
+            CiteValidateBody(chunk_id="b1", quote="x"),
+            corpus="budget_chunkz",
+            store=store,
+        )
+
+
+def test_empty_input_still_returns_empty_for_a_VALID_corpus(store):
+    """The guard only rejects bad names — a legitimately-empty call must
+    still be a cheap no-op that never reads the store."""
+    calls: list[str] = []
+
+    class Counting:
+        def get_by_ids(self, corpus, ids):
+            calls.append(corpus)
+            return []
+
+    assert fetch_chunk_texts([], corpus="fiscal_note_chunks", store=Counting()) == {}
+    assert validate_cites([], corpus="fiscal_note_chunks", store=Counting()) == []
+    assert calls == []
+
+
 def test_validate_cite_reports_unknown_chunk_when_the_table_is_absent(tmp_path):
     """Valid corpus name, table never created (fiscal_note_chunks before
     Plan 3's ingest has run): reads return nothing, so every cite comes
@@ -214,6 +259,25 @@ def test_validate_cite_reports_unknown_chunk_when_the_table_is_absent(tmp_path):
         CiteValidateBody(chunk_id="fn1", quote="anything"),
         corpus="fiscal_note_chunks",
         store=empty,
+    )
+    assert out.ok is False
+    assert out.error == "unknown chunk_id"
+
+
+def test_validate_cite_reports_unknown_chunk_when_the_table_is_empty(tmp_path):
+    """The realistic near-term state of `fiscal_note_chunks`: the schema
+    exists but nothing has been ingested. That takes a DIFFERENT branch
+    inside ChunkStore._open than the never-created case above (a real
+    table handle, zero matching rows), and `unknown chunk_id` is a
+    model-facing contract string, so pin both branches."""
+    created = ChunkStore(root=tmp_path, dim=DIM)
+    created.ensure_tables()
+    assert created.count("fiscal_note_chunks") == 0
+
+    out = validate_cite(
+        CiteValidateBody(chunk_id="fn1", quote="anything"),
+        corpus="fiscal_note_chunks",
+        store=created,
     )
     assert out.ok is False
     assert out.error == "unknown chunk_id"

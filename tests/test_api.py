@@ -1024,6 +1024,22 @@ def test_list_values_normalizes_field_case_and_whitespace(fresh_corpus):
 # ---------------------------------------------------------------------------
 # /cite/validate behavior over stored chunks
 # ---------------------------------------------------------------------------
+# WHICH LAYER OWNS WHAT (the two files overlap on ~20 scenarios, so read
+# this before trimming either as duplication):
+#
+#   tests/test_citations_module.py is the SOURCE OF TRUTH for validation
+#   logic — quote resolution, ambiguity, span clamps, claim_span
+#   truncation, corpus selection. It calls retrieval.citations directly.
+#
+#   THIS file tests the HTTP framing around it: that the routes wire the
+#   right function to the right path, marshal JSON in and out, omit None
+#   fields (response_model_exclude_none), preserve batch ordering over
+#   the wire, and hand the endpoint's own store singleton down.
+#
+# The overlap is deliberate — these cases are the model-facing contract,
+# and the sidecar is a separate deployable that can break independently
+# of the module. Delete a case here only if the same behavior is still
+# pinned in test_citations_module.py.
 
 
 def test_cite_validate_alignment_check_no_longer_rejects(put_chunk):

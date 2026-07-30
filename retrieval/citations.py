@@ -61,7 +61,7 @@ from pydantic import BaseModel
 
 from retrieval import pipeline
 from retrieval.pipeline import DEFAULT_CORPUS
-from store.chunk_store import ChunkStore
+from store.chunk_store import CORPUS_TABLES, ChunkStore
 
 # ---------------------------------------------------------------------------
 # Request / response shapes
@@ -140,6 +140,31 @@ UNKNOWN_CHUNK_ID_ERROR = "unknown chunk_id"
 # ---------------------------------------------------------------------------
 
 
+def _require_known_corpus(corpus: str) -> None:
+    """Reject a typo'd corpus name, always — before any early return.
+
+    WHY this is checked here and not left to the store: both entry points
+    below short-circuit on empty input without reading anything, so a bad
+    name on a zero-item call would sail straight past the store's own
+    check and look like a successful no-op. And a zero-citation call is a
+    DOCUMENTED normal path (see validate_cites), so without this the
+    expected-empty case and the caller-typo case are indistinguishable.
+    The corpus name is a caller-supplied constant — it is wrong or right
+    regardless of how many chunk_ids came with it.
+
+    The list of valid names has one home, `store.chunk_store.CORPUS_TABLES`,
+    which is what the store's own validator reads too. We re-state the
+    message rather than call that validator because it is private to the
+    store package; the wording is kept identical so a caller never sees
+    two different errors for the same mistake.
+    """
+    if corpus not in CORPUS_TABLES:
+        raise ValueError(
+            f"Unknown corpus table {corpus!r}. "
+            f"Valid names are: {', '.join(CORPUS_TABLES)}."
+        )
+
+
 def fetch_chunk_texts(
     chunk_ids: Sequence[str],
     *,
@@ -160,12 +185,14 @@ def fetch_chunk_texts(
     and on the office share each read is a network round trip.
 
     `corpus` names the LanceDB table (see store.chunk_store.CORPUS_TABLES).
-    An unknown name raises from the store rather than quietly returning
-    nothing, so a typo can't look like a corpus full of missing chunks.
+    An unknown name raises rather than quietly returning nothing, so a
+    typo can't look like a corpus full of missing chunks — including on
+    an empty call, which never reaches the store at all.
 
     doc_type used to require a JOIN against `documents`; on LanceDB it is
     denormalized onto the chunk row, so it comes along for free.
     """
+    _require_known_corpus(corpus)
     if not chunk_ids:
         return {}
     unique_ids = list(set(chunk_ids))
@@ -220,8 +247,10 @@ def validate_cites(
 
     Empty input is allowed (returns []) — the model may hand over zero
     citations if it changed its mind, and "you must provide at least one
-    citation" would be more annoying than helpful.
+    citation" would be more annoying than helpful. The corpus name is
+    still validated first, so an empty batch can't mask a typo.
     """
+    _require_known_corpus(corpus)
     if not bodies:
         return []
     chunk_map = fetch_chunk_texts(
@@ -252,12 +281,12 @@ def validate_cite_against_text(
     doesn't, emit the `unknown chunk_id` response instead of calling this
     function.
 
-    `doc_type` is currently unused (the AFR-specific alignment check
-    that consumed it was dropped 2026-05-20); kept as a parameter so a
-    future faithfulness verifier (WS3) can wire back in without
-    re-plumbing the call site.
+    `doc_type` is deliberately accepted and never read. The AFR-specific
+    alignment check that used to consume it was dropped 2026-05-20, but
+    the parameter stays so a future faithfulness verifier (WS3) can start
+    using it without re-plumbing every call site. Nothing below branches
+    on it, so no chunk gets a different verdict because of its doc_type.
     """
-    del doc_type  # explicit acknowledgement that the alignment path retired
     length = len(full_text)
 
     # Resolve quote → offsets. When BOTH quote and offsets are supplied,
