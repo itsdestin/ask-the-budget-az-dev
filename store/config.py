@@ -1,0 +1,46 @@
+"""Shared-data directory resolution.
+
+One env var controls where ALL shared state lives (LanceDB, pdfs,
+settings, locks): JLBC_DATA_DIR. In production this points at the
+office network share (e.g. \\\\JLBC-share\\...\\jlbc-insight-data).
+On a dev machine it's unset and falls back to data/insight-data inside
+the repo (gitignored), so tests and dev never touch a share.
+"""
+from __future__ import annotations
+
+import os
+from pathlib import Path
+
+_ENV_VAR = "JLBC_DATA_DIR"
+
+# Document-level metadata (title, source_format, source_blob_path, …), keyed
+# by doc_id. A JSON sidecar rather than a LanceDB table because it is ~382
+# small records that every layer wants whole: the sidecar reads it to answer
+# /docs, and one file is trivially copyable alongside `lancedb/` when the
+# corpus travels to another machine. Written by
+# scripts/migrate_to_lancedb.py (and by ingest once Plan 3 owns it).
+DOCUMENTS_FILE = "documents.json"
+
+
+def data_dir() -> Path:
+    """Resolve (and create if needed) the shared-data root directory."""
+    raw = os.environ.get(_ENV_VAR)
+    if raw:
+        root = Path(raw)
+    else:
+        # WHY repo-relative: dev machines have no share; keeping the dev
+        # corpus inside data/ (already gitignored) means zero setup.
+        root = Path(__file__).resolve().parent.parent / "data" / "insight-data"
+    root.mkdir(parents=True, exist_ok=True)
+    return root
+
+
+def documents_path() -> Path:
+    """Path to the documents-metadata sidecar (may not exist yet).
+
+    One definition, two callers — the migration writes this path and the
+    retrieval sidecar reads it. Two copies of the literal filename is
+    exactly the kind of drift that ends with a writer and a reader
+    disagreeing silently.
+    """
+    return data_dir() / DOCUMENTS_FILE

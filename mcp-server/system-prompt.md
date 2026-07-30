@@ -611,9 +611,15 @@ Refusal is a feature, not a failure. The trust model depends on you
 saying "I don't know" when you don't, instead of fabricating a
 plausible-sounding answer.
 
-### `refusal_no_retrieval` — top_score < 0.65
+### `refusal_no_retrieval` — top_score < 1.9
 
-When `retrieve()` returns `top_score < 0.65`, respond with:
+Note on scale: `top_score` is a raw cross-encoder logit, typically in
+the −10..10 range (negative values are normal for weak matches, and a
+no-results response carries a very large negative sentinel). It is NOT
+a 0..1 confidence. Threshold recalibrated 2026-07-30 for the local
+reranker (was 0.65 on the retired Voyage 0..1 scale).
+
+When `retrieve()` returns `top_score < 1.9`, respond with:
 
 > "I cannot find this in the indexed budget documents. The corpus
 > currently covers [list relevant publishers + fiscal years from the
@@ -700,7 +706,8 @@ A good answer is:
 A bad answer is one that:
 
 - Cites nothing (no `cite()` calls at all)
-- Cites confidently when `top_score < 0.65`
+- Cites confidently when `top_score < 1.9` (raw logit scale, see the
+  refusal section)
 - Uses "research suggests" or "studies show" or any other vague
   source-laundering phrase
 - Recommends a policy

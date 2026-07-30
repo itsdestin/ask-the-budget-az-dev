@@ -114,9 +114,16 @@ def aggregate_metrics(
 ) -> EvalSummary:
     """Compute the EvalSummary from per-query results.
 
-    The runner always scores at K=5 and K=20. To keep this simple, it
-    sends ONE PerQueryResult per query (scored at K=20) and we
-    recompute recall@5 here by checking each pass's rank <= 5.
+    The runner always scores at K=20. To keep this simple, it sends ONE
+    PerQueryResult per query (scored at K=20) and we recompute the shallower
+    cutoffs here by checking each pass's rank against them.
+
+    K=15 is the gating cutoff (spec gate G1, amended 2026-07-30 to
+    "recall@15 >= 90% and recall@20 >= 95%") because it is exactly what
+    retrieve() returns — DEFAULT_PIPELINE_TOP_K in retrieval/pipeline.py. K=5
+    stays reported but no longer gates: it measures the local cross-encoder's
+    ordering polish, which the Task 11 sweep showed is capped at 62-69%
+    regardless of candidate quality.
     """
     retrieval_queries = [p for p in per_query if p.type != "refusal"]
     refusal_queries = [p for p in per_query if p.type == "refusal"]
@@ -126,6 +133,11 @@ def aggregate_metrics(
         1
         for p in retrieval_queries
         if p.status == "pass" and p.rank is not None and p.rank <= 5
+    )
+    passes_at_15 = sum(
+        1
+        for p in retrieval_queries
+        if p.status == "pass" and p.rank is not None and p.rank <= 15
     )
     passes_at_20 = sum(
         1 for p in retrieval_queries if p.status == "pass"
@@ -181,9 +193,15 @@ def aggregate_metrics(
             for p in bucket
             if p.status == "pass" and p.rank is not None and p.rank <= 5
         )
+        passes_15 = sum(
+            1
+            for p in bucket
+            if p.status == "pass" and p.rank is not None and p.rank <= 15
+        )
         passes_20 = sum(1 for p in bucket if p.status == "pass")
         by_type[type_name] = {
             "recall_at_5": passes_5 / len(bucket),
+            "recall_at_15": passes_15 / len(bucket),
             "recall_at_20": passes_20 / len(bucket),
             "count": len(bucket),
         }
@@ -196,6 +214,7 @@ def aggregate_metrics(
     total_retrieval = len(retrieval_queries)
     return EvalSummary(
         recall_at_5=passes_at_5 / total_retrieval if total_retrieval else 0.0,
+        recall_at_15=passes_at_15 / total_retrieval if total_retrieval else 0.0,
         recall_at_20=passes_at_20 / total_retrieval
         if total_retrieval
         else 0.0,

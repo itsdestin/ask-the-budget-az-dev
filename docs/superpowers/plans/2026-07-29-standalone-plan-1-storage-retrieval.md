@@ -1371,7 +1371,7 @@ Expected: completes in a few minutes (ONNX warm-up + 34 queries); writes results
 
 - [ ] **Step 3 (only if G1 missed): try the second candidate embedder**
 
-Change `DEFAULT_LOCAL_MODEL` in `retrieval/local_embedder.py` to `"snowflake/snowflake-arctic-embed-m"` (dim 768 — update `LOCAL_EMBEDDING_DIM`, and pass `dim=768` consistently; the `ChunkStore` table must be rebuilt: delete `<data_dir>/lancedb` and re-run Task 10 Step 5). Re-run the eval. If BOTH candidates land recall@5 < 0.70, STOP — spec says revisit decision S4 with the user before writing more code.
+Change `DEFAULT_LOCAL_MODEL` in `retrieval/local_embedder.py` to `"snowflake/snowflake-arctic-embed-m"` (dim 768 resolves automatically from the fastembed registry — as-built, `LocalEmbedder` auto-resolves `dim` from `model_name`, so no dim constant or argument needs touching; the `ChunkStore` table must be rebuilt: delete `<data_dir>/lancedb` and re-run Task 10 Step 5). Re-run the eval. If BOTH candidates land recall@5 < 0.70, STOP — spec says revisit decision S4 with the user before writing more code.
 
 - [ ] **Step 4: Commit the results**
 

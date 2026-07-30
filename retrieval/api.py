@@ -1,58 +1,82 @@
-"""FastAPI sidecar exposing the Phase 1b retrieval pipeline over HTTP.
+"""FastAPI sidecar exposing the retrieval pipeline over HTTP.
 
-Phase 1c WS1 + WS6. The Node MCP server (`mcp-server/`) calls this from
-its `retrieve` tool handler — keeping the per-call latency low (no
-Python cold-start per request) while letting the MCP server stay free
-of Postgres / Voyage SDK concerns.
+The Node MCP server (`mcp-server/`) calls this from its `retrieve` tool
+handler — keeping the per-call latency low (no Python cold-start per
+request) while letting the MCP server stay free of storage and
+embedding-model concerns.
 
-Three endpoints:
+Plan 1 (2026-07-29) took Postgres and Voyage out from under this file:
+storage is now an embedded LanceDB directory (`store.chunk_store`) and
+the embedder + reranker are local ONNX models owned by
+`retrieval.pipeline`'s process-wide singletons. Endpoint paths and
+response fields are unchanged apart from three noted places:
 
-* `GET /health` — liveness probe used by the dev script + MCP server
-  startup check.
-* `POST /retrieve` — runs the full BM25 + dense + RRF + Voyage rerank
+* `/health` reports the corpus (`corpus_chunks`, `documents_metadata`,
+  `data_dir`) instead of a Voyage key, and answers 503 + `status:
+  "degraded"` with the real error text when the corpus is unreachable.
+* `top_score` uses the no-results sentinel
+  (`retrieval.pipeline.NO_RESULTS_TOP_SCORE`) instead of 0.0.
+* `/docs/{doc_id}`'s document-level fields (title, source_format,
+  source_blob_path, source_url, page_count) come from the documents.json
+  sidecar rather than a Postgres table. Present whenever that file is —
+  the normal case — and omitted when a corpus was copied without it,
+  which `/health`'s `documents_metadata: 0` names. `page_count` is null
+  either way; the ingest never populated it.
+
+Endpoints:
+
+* `GET /health` — liveness probe used by the dev script, the MCP server
+  startup check, and the web app's session-start banner.
+* `POST /retrieve` — runs the full BM25 + dense + RRF + local rerank
   pipeline (`retrieval.pipeline.retrieve`) and returns the schema-doc
   shape from `docs/superpowers/decisions/2026-05-06-citation-tool-schema.md`
   (chunks, top_score, retrieval_id, plus per-stage diagnostics for the
   audit log).
-* `POST /cite/validate` — confirms a chunk_id exists and the offset
-  span is within `chunk.text`'s length. Catches hallucinated chunk_ids
-  and out-of-range spans server-side so the model sees the error in
-  the tool result and can self-correct.
+* `POST /cite/validate` + `/cite/validate_batch` — confirm a chunk_id
+  exists and the offset span is within `chunk.text`'s length. Catches
+  hallucinated chunk_ids and out-of-range spans server-side so the model
+  sees the error in the tool result and can self-correct.
+* `GET /docs/{doc_id}` — per-document metadata.
+* `POST /list_values` — which canonical_ids actually exist in the corpus.
 
 Run with:
 
-    uvicorn retrieval.api:app --host localhost --port 9200
+    uvicorn retrieval.api:app --host 127.0.0.1 --port 9200
 
 Env:
-    DATABASE_URL — required (db/.env.example).
-    VOYAGE_API_KEY — required for the embedder + reranker.
+    JLBC_DATA_DIR — optional; the shared-data folder holding `lancedb/`.
+      Unset falls back to `data/insight-data` inside the repo.
     BUDGET_RETRIEVAL_PORT — informational only (uvicorn arg).
 """
 from __future__ import annotations
 
-# Load .env.local on import so subsequent os.environ reads (VOYAGE_API_KEY,
-# DATABASE_URL) work whether or not the user remembered to `set -a;
-# source .env.local; set +a` (bash) / `Get-Content .env.local | ...` (pwsh).
-# Done at import time (not inside lifespan) so it's already in effect by
-# the time pydantic / psycopg read env vars during module load.
+# Load .env.local on import so subsequent os.environ reads (JLBC_DATA_DIR)
+# work whether or not the user remembered to `set -a; source .env.local;
+# set +a` (bash) / `Get-Content .env.local | ...` (pwsh). Done at import
+# time (not inside lifespan) so it's already in effect by the time
+# store.config resolves the data directory.
 from dotenv import load_dotenv
 load_dotenv(".env.local")
 load_dotenv()  # fallback to .env if .env.local missing
 
 import html
-import os
+import json
 import re
+import sys
+import threading
 import unicodedata
 from contextlib import asynccontextmanager
 from typing import Any
 from uuid import uuid4
 
-from fastapi import FastAPI
+from fastapi import FastAPI, HTTPException
+from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field
 
-from db.connection import get_connection
-from db.embeddings import VoyageEmbedder
-from retrieval.pipeline import RetrievalRequest, retrieve
+from retrieval import pipeline
+from retrieval.pipeline import DEFAULT_CORPUS, RetrievalRequest, retrieve
+from store.chunk_store import ChunkStore, sql_str
+from store.config import data_dir, documents_path
 
 # ---------------------------------------------------------------------------
 # Request / response shapes
@@ -79,8 +103,12 @@ class RetrieveRequestBody(BaseModel):
     # top_k is optional now: an explicit value overrides the intent's
     # default; absent + intent set → server picks top_k from the
     # _INTENT_TOP_K table; absent + no intent → server uses
-    # DEFAULT_PIPELINE_TOP_K (15 after Task 8 lands).
-    top_k: int | None = None
+    # DEFAULT_PIPELINE_TOP_K (15).
+    #
+    # ge=1 because a top_k of 0 or negative used to travel all the way to
+    # the reranker and surface as an opaque 500. A 422 naming `top_k` tells
+    # the caller what it did wrong.
+    top_k: int | None = Field(default=None, ge=1)
     # Route classifier. Tunes top_k server-side and is echoed in the
     # response so the (future) audit log writer can record it.
     intent: str | None = None
@@ -150,25 +178,32 @@ class RetrieveResponse(BaseModel):
 class DocMetadataResponse(BaseModel):
     """Metadata about an ingested document. Returned by GET /docs/{doc_id}.
 
-    `source_blob_path` is the on-disk path the ingest pipeline saved
-    the original artifact to (relative to the project root or
-    absolute, depending on how ingest was run). Phase 1c WS4c reads
-    it from the Next.js `/api/pdf/[doc_id]` route to stream the PDF
-    bytes back to PDF.js with HTTP Range support. The endpoint is
-    metadata-only — actual file bytes flow through Next.js because
-    Phase 1 is single-machine (Next + sidecar share the filesystem)
-    and Node has cleaner Range-streaming primitives than uvicorn.
+    Field names are unchanged from the Postgres version, but four of them
+    are now optional: `source_format`, `source_blob_path`, `page_count`,
+    `source_url`. They live in the documents.json sidecar (see
+    _document_metadata) rather than in the chunk table, so they are present
+    whenever that file is — which is the normal case — and omitted
+    (`response_model_exclude_none=True`) when a corpus was copied without
+    it. `page_count` is null even in the sidecar: the ingest pipeline never
+    populated that column.
+
+    Omission rather than invention is deliberate: a fabricated path would
+    make the Next.js `/api/pdf/[doc_id]` route fail with
+    "source_blob_missing <fabricated path>", sending the next person
+    hunting for a file that was never there.
     """
 
     doc_id: str
     title: str
     publisher: str
     doc_type: str
-    fiscal_year: int
-    source_format: str
-    source_blob_path: str
-    page_count: int | None
-    source_url: str | None
+    # Nullable in the chunk schema, so nullable here — a document ingested
+    # without a fiscal year must not 500 the endpoint.
+    fiscal_year: int | None = None
+    source_format: str | None = None
+    source_blob_path: str | None = None
+    page_count: int | None = None
+    source_url: str | None = None
 
 
 class CiteValidateBody(BaseModel):
@@ -208,11 +243,11 @@ class CiteValidateResponse(BaseModel):
 
 class CiteValidateBatchBody(BaseModel):
     """Wrap N CiteValidateBody calls in a single HTTP request. The
-    sidecar bulk-fetches all unique chunks in one DB round-trip and
+    sidecar bulk-fetches all unique chunks in one store read and
     validates each cite in-memory — the wall-clock win over N
     sequential /cite/validate calls is both the model-side round-trip
-    elimination (1 LLM turn instead of N) and the server-side DB
-    elimination (1 query instead of N). See cite_batch tool docstring
+    elimination (1 LLM turn instead of N) and the server-side read
+    elimination (1 store read instead of N). See cite_batch tool docstring
     in mcp-server/src/tools/cite-batch.ts for the design rationale."""
     citations: list[CiteValidateBody]
 
@@ -283,57 +318,103 @@ _INTENT_TOP_K: dict[str, int] = {
 
 
 # ---------------------------------------------------------------------------
-# App + embedder cache
+# App + shared store
 # ---------------------------------------------------------------------------
+
+
+def _store() -> ChunkStore:
+    """The process-wide ChunkStore — the SAME object `retrieve()` searches.
+
+    WHY not build one here: a second ChunkStore would open a second set of
+    LanceDB table handles for the same files (each one a round trip on the
+    office share), and the same mistake applied to the models would put a
+    second copy of the ONNX weights in memory. One owner for the whole
+    process, which is `retrieval.pipeline`.
+
+    `_get_store` is underscore-private *within the retrieval package*, not
+    across a real boundary — api.py is that package's own HTTP front end,
+    and the pipeline exposes `reset_default_collaborators()` publicly as
+    the matching reset hook. Wrapping it in this one-line function keeps
+    every call site (and the tests' spy seam) in one place.
+    """
+    return pipeline._get_store()
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     # Preflight: validate the environment before the sidecar accepts
-    # requests. Three checks; fail fast on any.
+    # requests. Two checks now that there is no database and no API key —
+    # fail fast on either, with a message that names the real problem.
     #
-    # 1. VOYAGE_API_KEY present — every /retrieve and rerank call needs it.
-    # 2. DATABASE_URL reachable — `SELECT 1` confirms libpq can connect.
-    # 3. The chunks table has at least one embedded row — sanity check that
-    #    the corpus actually loaded (catches a freshly-built but unseeded DB).
-    #
-    # On any failure we log a clear message and sys.exit(1) so the user
-    # sees the problem at uvicorn startup instead of mid-request.
-    import sys
-
-    if not os.environ.get("VOYAGE_API_KEY"):
-        sys.stderr.write(
-            "\n[retrieval-sidecar] VOYAGE_API_KEY is not set.\n"
-            "  Add it to .env.local (the sidecar auto-loads that file)\n"
-            "  or export it before running `uv run uvicorn retrieval.api:app`.\n\n"
-        )
-        sys.exit(1)
-    if not os.environ.get("DATABASE_URL"):
-        sys.stderr.write(
-            "\n[retrieval-sidecar] DATABASE_URL is not set.\n"
-            "  Check db/.env (it should set DATABASE_URL to your Postgres URI).\n\n"
-        )
-        sys.exit(1)
+    # 1. The shared data folder resolves and is writable. Writable, not just
+    #    readable, because that folder holds every piece of shared state —
+    #    the LanceDB tables, the ingest lock, settings — so a dead VPN or a
+    #    permissions change on the office share is better surfaced here, by
+    #    name, than as a mid-request failure later.
+    # 2. The budget corpus has at least one chunk — catches the "fresh
+    #    machine, forgot to copy the lancedb folder" case, which would
+    #    otherwise answer every question with nothing.
     try:
-        with get_connection() as conn:
-            row = conn.execute("SELECT 1 FROM chunks LIMIT 1").fetchone()
-            if row is None:
-                sys.stderr.write(
-                    "\n[retrieval-sidecar] connected to Postgres but the "
-                    "chunks table is empty.\n"
-                    "  Run the ingest pipeline (or restore db/data from a "
-                    "working machine) before starting the sidecar.\n\n"
-                )
-                sys.exit(1)
-    except Exception as err:  # psycopg.OperationalError + a few others
+        root = data_dir()
+        # Unique probe name: two sidecars starting at once must not delete
+        # each other's probe and report a phantom permissions failure.
+        probe = root / f".sidecar-write-probe-{uuid4().hex[:8]}"
+        probe.write_text("ok", encoding="utf-8")
+        probe.unlink(missing_ok=True)
+    except OSError as err:
         sys.stderr.write(
-            f"\n[retrieval-sidecar] could not connect to Postgres: {err}.\n"
-            "  Is Docker running?  (cd db && docker compose up -d)\n\n"
+            f"\n[retrieval-sidecar] cannot use the shared data folder: {err}\n"
+            "  That folder is JLBC_DATA_DIR (unset means data/insight-data\n"
+            "  inside the repo). Check the path exists and is writable.\n\n"
         )
         sys.exit(1)
 
-    # Embedder is constructed lazily on first /retrieve.
-    app.state.embedder = None
+    try:
+        chunk_count = _store().count(DEFAULT_CORPUS)
+    except Exception as err:
+        sys.stderr.write(
+            f"\n[retrieval-sidecar] could not open the chunk store in {root}: "
+            f"{err}\n"
+            "  The folder should contain a `lancedb` directory holding the\n"
+            "  corpus tables. Copy it from a machine that has one, or run\n"
+            "  scripts/migrate_to_lancedb.py to build it.\n\n"
+        )
+        sys.exit(1)
+    if chunk_count == 0:
+        sys.stderr.write(
+            f"\n[retrieval-sidecar] the '{DEFAULT_CORPUS}' table in {root} has "
+            "no chunks.\n"
+            "  Copy the `lancedb` folder from a machine that has the corpus,\n"
+            "  or run scripts/migrate_to_lancedb.py, before starting the "
+            "sidecar.\n\n"
+        )
+        sys.exit(1)
+    sys.stderr.write(
+        f"[retrieval-sidecar] corpus OK - {chunk_count:,} chunks in "
+        f"{DEFAULT_CORPUS}.\n"
+    )
+
+    # Warm the retrieval path before accepting requests. WHY: the FIRST
+    # cold /retrieve has to load two ONNX models off disk (the embedder and
+    # the much larger cross-encoder reranker — ~4s together, measured, and
+    # slower from the office share) and open the LanceDB table handles and
+    # FTS index. The MCP bridge gives a tool call 15s, so a question landing
+    # in that cold window can fail with "retrieval service offline" even
+    # though nothing is broken. Running one throwaway query here moves that
+    # cost into startup, so by the time /health reports OK (what the web UI
+    # gates on) the path is primed and the first real query returns in
+    # ~1-2s. Best-effort: a warmup failure (e.g. a half-copied model file)
+    # logs a warning but does NOT block startup — the lazy path still builds
+    # the models on the first real request.
+    try:
+        retrieve(RetrievalRequest(query="arizona state budget", top_k=1))
+        sys.stderr.write("[retrieval-sidecar] warmup query OK - retrieval path primed.\n")
+    except Exception as err:
+        sys.stderr.write(
+            f"[retrieval-sidecar] warmup query failed (non-fatal): {err}\n"
+            "  First real /retrieve will pay the cold-start cost instead.\n"
+        )
+
     yield
 
 
@@ -344,46 +425,172 @@ app = FastAPI(
 )
 
 
-def _get_embedder() -> VoyageEmbedder:
-    """Return the cached VoyageEmbedder, constructing on first use.
-
-    Raises RuntimeError if VOYAGE_API_KEY is unset — fails the request
-    cleanly rather than allowing a downstream NoneType error inside
-    `retrieve()`.
-    """
-    if app.state.embedder is None:
-        app.state.embedder = VoyageEmbedder()
-    return app.state.embedder
-
-
 # ---------------------------------------------------------------------------
 # Endpoints
 # ---------------------------------------------------------------------------
 
 
-@app.get("/health")
-def health() -> dict[str, Any]:
+@app.get("/health", response_model=None)
+def health() -> dict[str, Any] | JSONResponse:
     """Liveness probe. The dev script polls this before launching the
     MCP server so the first `retrieve` call doesn't race with startup.
+
+    `voyage_key_present` was replaced by `corpus_chunks` + `data_dir` in
+    Plan 1: there is no Voyage key any more, and "the sidecar is up but
+    pointed at the wrong / an empty folder" is the failure this probe is
+    actually useful for catching. `documents_metadata` is the same idea for
+    the other half of the corpus: 0 here means documents.json is missing or
+    unreadable, which is exactly the state in which citation chips can't
+    open a PDF.
+
+    Reading the corpus can fail (unreachable share, deleted folder), and
+    this is the one endpoint where the failure IS the payload — see the
+    except branch.
     """
-    return {
-        "status": "ok",
-        "version": app.version,
-        "voyage_key_present": bool(os.environ.get("VOYAGE_API_KEY")),
-    }
+    try:
+        return {
+            "status": "ok",
+            "version": app.version,
+            "corpus_chunks": _store().count(DEFAULT_CORPUS),
+            "documents_metadata": len(_document_metadata()),
+            "data_dir": str(data_dir()),
+        }
+    except Exception as err:
+        # WHY answer instead of propagating: a bare 500 throws the reason
+        # away (a traceback in the sidecar's log, nothing anywhere a user
+        # looks) and reads as "the sidecar is down" when the sidecar is up
+        # and the folder it reads is not. The real exception text goes in
+        # the body verbatim — never a guessed cause.
+        #
+        # WHY 503 rather than 200: the web app's session-start probe gates
+        # purely on `resp.ok` (youcoded-session-provider.ts), so a 200 would
+        # be read as healthy and the SystemHealthBanner would stay hidden
+        # while every query returned nothing. 503 keeps the banner honest
+        # AND carries the detail for anyone who curls it.
+        #
+        # data_dir() is deliberately not echoed here: resolving it is one of
+        # the things that can raise.
+        return JSONResponse(
+            status_code=503,
+            content={
+                "status": "degraded",
+                "version": app.version,
+                "error": f"{type(err).__name__}: {err}",
+            },
+        )
+
+
+# ---------------------------------------------------------------------------
+# Document metadata sidecar
+# ---------------------------------------------------------------------------
+# `<data_dir>/documents.json` — {doc_id: {title, source_format,
+# source_blob_path, source_url, page_count, fiscal_year, publisher,
+# doc_type}} — written by scripts/migrate_to_lancedb.py (`--docs-only`
+# refreshes it in ~1s without re-embedding).
+#
+# WHY this file exists: the LanceDB chunk schema has nowhere to put
+# document-level facts, and `source_format` + `source_blob_path` are what
+# the web app's /api/pdf/[doc_id] route needs to stream the right PDF.
+# Without them every citation chip fell into that route's
+# "unsupported_source_format" branch — a wrong error for a real PDF, and
+# Core Invariant 1 (a citation opens the exact page) silently suspended.
+#
+# Optional by design: a corpus copied without the file still answers
+# /docs and /retrieve, just with derived titles and no PDF path.
+
+_docs_lock = threading.Lock()
+_docs_cache: dict[str, dict[str, Any]] = {}
+# (path, mtime, size) of the file the cache was built from. Comparing all
+# three means the cache invalidates itself when the file is rewritten AND
+# when JLBC_DATA_DIR is repointed at a different corpus — no reset hook to
+# remember to call (tests repoint it constantly).
+_docs_stamp: tuple[str, float, int] | None = None
+
+
+def _document_metadata() -> dict[str, dict[str, Any]]:
+    """Parsed documents.json, cached until the file changes on disk.
+
+    Reload is mtime+size based rather than load-once-at-startup so an
+    ingest (or a `--docs-only` refresh) shows up without restarting the
+    sidecar. A missing file is normal and returns {}; a malformed one warns
+    to stderr and also returns {}, because degrading to derived titles is
+    better than 500ing every /docs and /retrieve call.
+    """
+    global _docs_cache, _docs_stamp
+    path = documents_path()
+    try:
+        st = path.stat()
+        stamp: tuple[str, float, int] | None = (str(path), st.st_mtime, st.st_size)
+    except OSError:
+        stamp = None  # absent or unreadable — fall back silently
+    with _docs_lock:
+        if stamp == _docs_stamp:
+            return _docs_cache
+        if stamp is None:
+            _docs_cache, _docs_stamp = {}, None
+            return _docs_cache
+        try:
+            loaded = json.loads(path.read_text(encoding="utf-8"))
+            if not isinstance(loaded, dict):
+                raise ValueError(
+                    "expected a JSON object of doc_id -> metadata, got "
+                    f"{type(loaded).__name__}"
+                )
+        except (OSError, ValueError) as err:
+            # Name the file and the real parse error — the fix is always to
+            # re-run the migration that writes it.
+            sys.stderr.write(
+                f"[retrieval-sidecar] ignoring {path}: {err}\n"
+                "  Document titles fall back to doc_id slugs and PDF paths\n"
+                "  are unavailable until it is valid. Rebuild it with:\n"
+                "  uv run python scripts/migrate_to_lancedb.py --docs-only\n"
+            )
+            loaded = {}
+        _docs_cache, _docs_stamp = loaded, stamp
+        return _docs_cache
+
+
+# Slug parts that are acronyms, not words — capitalize() would render them
+# "Jlbc" / "Afr". Kept character-identical to the web app's copy of this
+# humanizer (Plan 2's `_title_from_doc_id`) so the two layers never show a
+# different title for the same document.
+_SLUG_ACRONYMS = ("jlbc", "agao", "afr", "sad")
+
+
+def _title_from_doc_id(doc_id: str) -> str:
+    """Best-effort humanization of a doc_id slug
+    ('jlbc-baseline-fy2027-axs' -> 'JLBC Baseline FY 2027 Axs').
+
+    FALLBACK ONLY — used when documents.json is missing or doesn't know
+    this doc_id. The real ingest title ('JLBC FY2026 — AHCCCS') is much
+    better than a prettified slug ('JLBC Baseline FY 2026 Axs'), which is
+    why _lookup_doc_titles prefers the sidecar.
+    """
+    out: list[str] = []
+    for part in doc_id.split("-"):
+        if part.startswith("fy") and part[2:].isdigit():
+            out.append(f"FY {part[2:]}")
+        elif part in _SLUG_ACRONYMS:
+            out.append(part.upper())
+        else:
+            out.append(part.capitalize())
+    return " ".join(out)
 
 
 def _lookup_doc_titles(doc_ids: list[str]) -> dict[str, str]:
-    """Fetch doc_title for every doc_id in one query. Empty input returns {}."""
-    if not doc_ids:
-        return {}
-    with get_connection() as conn:
-        rows = conn.execute(
-            "SELECT doc_id, title FROM documents WHERE doc_id = ANY(%s)",
-            [doc_ids],
-        ).fetchall()
-    # rows are dict_row factory → {"doc_id": ..., "title": ...}
-    return {r["doc_id"]: r["title"] for r in rows}
+    """doc_id -> display title. Empty input returns {}.
+
+    Prefers the real ingest title from documents.json; falls back to the
+    slug humanizer per doc_id (so a corpus copied without the sidecar, or
+    one document the sidecar hasn't caught up with, still gets a label).
+    These titles are what the model reads in every retrieve() result, so
+    the difference is visible in answers, not just in the UI.
+    """
+    docs = _document_metadata()
+    return {
+        doc_id: (docs.get(doc_id, {}).get("title") or _title_from_doc_id(doc_id))
+        for doc_id in doc_ids
+    }
 
 
 @app.post("/retrieve")
@@ -418,12 +625,14 @@ def http_retrieve(body: RetrieveRequestBody) -> RetrieveResponse:
         is_table=f.is_table,
         top_k=resolved_top_k,
     )
-    result = retrieve(req, embedder=_get_embedder())
+    # No collaborators injected: the pipeline's process-wide singletons own
+    # the store and the two ONNX models. Passing an embedder from here (as
+    # the Voyage version did) would mean the sidecar holding a second one.
+    result = retrieve(req)
 
-    # Denormalize doc_title from the documents table. Done at the
-    # sidecar boundary (rather than inside the retrieval pipeline) so
-    # the retrieval module stays focused on retrieval — schema-shape
-    # concerns belong to the layer that owns the schema.
+    # Attach doc_title. Done at the sidecar boundary (rather than inside the
+    # retrieval pipeline) so the retrieval module stays focused on retrieval
+    # — schema-shape concerns belong to the layer that owns the schema.
     doc_titles = _lookup_doc_titles(list({c.doc_id for c in result.chunks}))
 
     return RetrieveResponse(
@@ -459,152 +668,200 @@ def http_retrieve(body: RetrieveRequestBody) -> RetrieveResponse:
 
 @app.get("/docs/{doc_id}", response_model_exclude_none=True)
 def http_doc_metadata(doc_id: str) -> DocMetadataResponse:
-    """Look up a single document's metadata (including the on-disk
-    source path). Used by the Next.js `/api/pdf/[doc_id]` route to
-    resolve a click-on-chip into a file to stream. Returns 404 when
-    `doc_id` is not in the documents table.
-    """
-    with get_connection() as conn:
-        row = conn.execute(
-            """
-            SELECT doc_id, title, publisher, doc_type, fiscal_year,
-                   source_format, source_blob_path, page_count, source_url
-            FROM documents
-            WHERE doc_id = %s
-            """,
-            [doc_id],
-        ).fetchone()
-    if row is None:
-        # Importing here keeps the top-of-module imports stable and
-        # avoids paying the import cost when /docs is never called.
-        from fastapi import HTTPException
+    """Look up a single document's metadata. Used by the Next.js
+    `/api/pdf/[doc_id]` route to resolve a citation chip into a file to
+    stream. Returns 404 only when NEITHER the documents.json sidecar nor
+    any chunk in the corpus knows that doc_id.
 
-        raise HTTPException(status_code=404, detail="doc_id not found")
-    return DocMetadataResponse(
-        doc_id=row["doc_id"],
-        title=row["title"],
-        publisher=row["publisher"],
-        doc_type=row["doc_type"],
-        fiscal_year=row["fiscal_year"],
-        source_format=row["source_format"],
-        source_blob_path=row["source_blob_path"],
-        page_count=row["page_count"],
-        source_url=row["source_url"],
+    Two sources, merged in that order of preference:
+      * documents.json — the real ingest metadata, including the fields
+        that make click-to-open-PDF work.
+      * the document's own chunk rows — publisher / doc_type / fiscal_year
+        are denormalized onto every chunk, so they answer even without the
+        sidecar, and they cover a document the sidecar hasn't caught up
+        with yet.
+    """
+    entry = _document_metadata().get(doc_id) or {}
+    chunk_rows = _store().scan(
+        DEFAULT_CORPUS,
+        ["doc_id", "publisher", "doc_type", "fiscal_year"],
+        # sql_str, not an f-string: LanceDB filters are SQL text with no
+        # parameter binding, and doc_id arrives from the client.
+        where=f"doc_id = {sql_str(doc_id)}",
+        # limit=1: these columns are document-level, repeated identically on
+        # every chunk. Without it, asking about the Governor's budget pulled
+        # back 1,395 copies of the same four values.
+        limit=1,
     )
+    if not entry and not chunk_rows:
+        raise HTTPException(status_code=404, detail="doc_id not found")
+    # Every chunk of a document carries the same document-level values, so
+    # any row answers the question.
+    chunk_row = chunk_rows[0] if chunk_rows else {}
+
+    def field(name: str) -> Any:
+        """Sidecar value if it has a real one, else the chunk row's."""
+        value = entry.get(name)
+        return chunk_row.get(name) if value is None else value
+
+    return DocMetadataResponse(
+        doc_id=doc_id,
+        title=entry.get("title") or _title_from_doc_id(doc_id),
+        publisher=field("publisher"),
+        doc_type=field("doc_type"),
+        fiscal_year=field("fiscal_year"),
+        # Sidecar-only: nothing on a chunk row knows where the PDF is.
+        source_format=entry.get("source_format"),
+        source_blob_path=entry.get("source_blob_path"),
+        page_count=entry.get("page_count"),
+        source_url=entry.get("source_url"),
+    )
+
+
+# Columns /list_values needs off every chunk. Projected explicitly because a
+# full-row scan would drag every chunk's text through memory for what is
+# really a metadata question.
+_LIST_VALUES_COLUMNS = [
+    "doc_id",
+    "agency_canonical_ids",
+    "fund_canonical_id",
+    "doc_type",
+    "publisher",
+]
+
+
+def _most_populated_doc(chunks_per_doc: dict[str, int]) -> str:
+    """The document contributing the most chunks to one canonical_id; ties
+    break on lowest doc_id so the same corpus always yields the same sample.
+
+    WHY most-populated and not highest-fiscal-year (which is what the
+    Postgres query did): measured on the real corpus, the newest document
+    mentioning almost any agency is the FY2027 Governor's Budget — one
+    cross-cutting book that touches nearly all 134 agencies and is titled
+    "GOVERNOR FY2027 fy2027". Sampling it tells the model nothing about
+    `agency:axs`, which is the entire job of this field. Most-populated
+    picks the document that is actually ABOUT the agency: "JLBC FY2025 —
+    AHCCCS". This is also what FilterValueOut's docstring has always
+    claimed the rule was.
+    """
+    return min(chunks_per_doc.items(), key=lambda kv: (-kv[1], kv[0]))[0]
+
+
+def _values_by_chunk(
+    rows: list[dict[str, Any]], values_of
+) -> list[FilterValueOut]:
+    """Count CHUNKS per canonical_id (the agency / fund dimensions).
+    `values_of(row)` yields zero or more canonical_ids for one chunk —
+    agency_canonical_ids is an array column, so a chunk can count toward
+    several agencies, exactly as the Postgres unnest() did."""
+    counts: dict[str, int] = {}
+    # canonical_id -> doc_id -> how many of that doc's chunks carry it.
+    per_doc: dict[str, dict[str, int]] = {}
+    for row in rows:
+        for value in values_of(row):
+            counts[value] = counts.get(value, 0) + 1
+            docs = per_doc.setdefault(value, {})
+            docs[row["doc_id"]] = docs.get(row["doc_id"], 0) + 1
+    samples = {
+        value: _most_populated_doc(docs) for value, docs in per_doc.items()
+    }
+    # _lookup_doc_titles, NOT the slug humanizer: the whole point of the
+    # sample title is to make an opaque canonical_id ('agency:axs')
+    # recognizable, and a humanized slug ('JLBC Baseline FY 2027 Axs') is
+    # just as opaque. The real ingest title says AHCCCS.
+    titles = _lookup_doc_titles(list(samples.values()))
+    return _sorted_values(
+        counts, {value: titles[doc_id] for value, doc_id in samples.items()}
+    )
+
+
+def _values_by_document(
+    rows: list[dict[str, Any]], column: str
+) -> list[FilterValueOut]:
+    """Count DOCUMENTS per value (the doc_type / publisher dimensions).
+
+    Inherited semantics, kept on purpose: the Postgres version aggregated
+    the `documents` table for these two, so the number is distinct doc_ids
+    rather than chunks (FilterValueOut's docstring says "chunks (or
+    documents)"). Changing it here would silently change what the model
+    reads off the same field name.
+    """
+    doc_ids: dict[str, set[str]] = {}
+    for row in rows:
+        doc_ids.setdefault(row[column], set()).add(row["doc_id"])
+    counts = {value: len(ids) for value, ids in doc_ids.items()}
+    # `MIN(title)` in the old SQL — alphabetically first title in the group,
+    # taken over the REAL titles (see _values_by_chunk for why not the slug
+    # humanizer). MIN over humanized slugs would also have picked a
+    # different document than MIN over real titles.
+    looked_up = _lookup_doc_titles(
+        sorted({d for ids in doc_ids.values() for d in ids})
+    )
+    titles = {
+        value: min(looked_up[d] for d in ids) for value, ids in doc_ids.items()
+    }
+    return _sorted_values(counts, titles)
+
+
+def _sorted_values(
+    counts: dict[str, int], titles: dict[str, str]
+) -> list[FilterValueOut]:
+    """Most-used first (so a truncating client keeps the head and drops the
+    long tail of one-off / typo'd ids). Ties break on canonical_id so the
+    order is stable between calls."""
+    return [
+        FilterValueOut(
+            canonical_id=value,
+            chunk_count=count,
+            sample_doc_title=titles.get(value),
+        )
+        for value, count in sorted(counts.items(), key=lambda kv: (-kv[1], kv[0]))
+    ]
 
 
 @app.post("/list_values", response_model_exclude_none=True)
 def http_list_values(body: ListValuesBody) -> ListValuesResponse:
     """Enumerate the canonical_ids actually present in the corpus for a
     given filter dimension, with a count and a sample doc title so the
-    model can identify each slug. Cheap (one indexed aggregate query)
-    and stable within a session — the MCP client should call this when
-    it sees an unfamiliar agency/fund name in a user question rather
-    than guessing the canonical_id and risking a silent zero-match.
+    model can identify each slug. The MCP client should call this when it
+    sees an unfamiliar agency/fund name in a user question rather than
+    guessing the canonical_id and risking a silent zero-match.
 
     Why a sample title: canonical_ids like `agency:axs` (AHCCCS) or
-    `agency:tre` (Treasurer) are opaque without context. The most-
-    populated document for that agency tells the model what it is.
+    `agency:tre` (Treasurer) are opaque without context. The document
+    contributing the most chunks to that slug is the one that is actually
+    about it, so its title ("JLBC FY2025 — AHCCCS") names the thing. Titles
+    come from the documents.json sidecar; without that file they degrade to
+    humanized slugs, which is honest but much less useful.
+
+    Implementation note: this was four SQL aggregate queries; on LanceDB it
+    is one projected scan plus a Python group-by. Measured on the real
+    7,755-chunk corpus with these six columns: ~60ms for the scan, which is
+    cheaper than it sounds because the vector column and the chunk text
+    are projected away.
     """
     field = body.field.strip().lower()
-    with get_connection() as conn:
-        if field == "agency":
-            # CROSS JOIN LATERAL on unnest() (NOT comma-FROM): the comma
-            # form parses as `FROM chunks, (unnest JOIN documents)` so
-            # the documents JOIN can't see the chunks alias. Same
-            # gotcha applies to the samples CTE below.
-            rows = conn.execute(
-                """
-                WITH counts AS (
-                  SELECT aid, COUNT(*) AS chunk_count
-                  FROM chunks
-                  CROSS JOIN LATERAL unnest(agency_canonical_ids) AS aid
-                  GROUP BY aid
-                ),
-                samples AS (
-                  SELECT DISTINCT ON (aid)
-                    aid, d.title AS sample_title
-                  FROM chunks c
-                  JOIN documents d ON c.doc_id = d.doc_id
-                  CROSS JOIN LATERAL unnest(c.agency_canonical_ids) AS aid
-                  ORDER BY aid, d.fiscal_year DESC NULLS LAST
-                )
-                SELECT cnt.aid AS canonical_id,
-                       cnt.chunk_count,
-                       s.sample_title
-                FROM counts cnt
-                LEFT JOIN samples s USING (aid)
-                ORDER BY cnt.chunk_count DESC
-                """,
-            ).fetchall()
-        elif field == "fund":
-            rows = conn.execute(
-                """
-                WITH counts AS (
-                  SELECT fund_canonical_id AS canonical_id, COUNT(*) AS chunk_count
-                  FROM chunks
-                  WHERE fund_canonical_id IS NOT NULL
-                  GROUP BY fund_canonical_id
-                ),
-                samples AS (
-                  SELECT DISTINCT ON (c.fund_canonical_id)
-                    c.fund_canonical_id AS canonical_id,
-                    d.title AS sample_title
-                  FROM chunks c
-                  JOIN documents d ON c.doc_id = d.doc_id
-                  WHERE c.fund_canonical_id IS NOT NULL
-                  ORDER BY c.fund_canonical_id, d.fiscal_year DESC NULLS LAST
-                )
-                SELECT c.canonical_id,
-                       c.chunk_count,
-                       s.sample_title
-                FROM counts c
-                LEFT JOIN samples s USING (canonical_id)
-                ORDER BY c.chunk_count DESC
-                """,
-            ).fetchall()
-        elif field == "doc_type":
-            rows = conn.execute(
-                """
-                SELECT doc_type AS canonical_id,
-                       COUNT(*) AS chunk_count,
-                       MIN(title) AS sample_title
-                FROM documents
-                GROUP BY doc_type
-                ORDER BY chunk_count DESC
-                """,
-            ).fetchall()
-        elif field == "publisher":
-            rows = conn.execute(
-                """
-                SELECT publisher AS canonical_id,
-                       COUNT(*) AS chunk_count,
-                       MIN(title) AS sample_title
-                FROM documents
-                GROUP BY publisher
-                ORDER BY chunk_count DESC
-                """,
-            ).fetchall()
-        else:
-            from fastapi import HTTPException
-            raise HTTPException(
-                status_code=400,
-                detail=(
-                    f"unknown field '{body.field}' — must be one of "
-                    "'agency', 'doc_type', 'publisher', 'fund'"
-                ),
-            )
-    return ListValuesResponse(
-        field=field,
-        values=[
-            FilterValueOut(
-                canonical_id=r["canonical_id"],
-                chunk_count=int(r["chunk_count"]),
-                sample_doc_title=r.get("sample_title"),
-            )
-            for r in rows
-        ],
-    )
+    if field not in ("agency", "fund", "doc_type", "publisher"):
+        raise HTTPException(
+            status_code=400,
+            detail=(
+                f"unknown field '{body.field}' — must be one of "
+                "'agency', 'doc_type', 'publisher', 'fund'"
+            ),
+        )
+
+    rows = _store().scan(DEFAULT_CORPUS, _LIST_VALUES_COLUMNS)
+    if field == "agency":
+        values = _values_by_chunk(rows, lambda r: r["agency_canonical_ids"] or [])
+    elif field == "fund":
+        # Nullable column: `WHERE fund_canonical_id IS NOT NULL` in the old
+        # SQL, so a NULL never becomes a value named "None".
+        values = _values_by_chunk(
+            rows, lambda r: [r["fund_canonical_id"]] if r["fund_canonical_id"] else []
+        )
+    else:
+        values = _values_by_document(rows, field)
+    return ListValuesResponse(field=field, values=values)
 
 
 # ---------------------------------------------------------------------------
@@ -960,50 +1217,34 @@ def _check_alignment(
 
 def _fetch_chunk_text(chunk_id: str) -> tuple[str, str | None] | None:
     """Fetch (text, doc_type) for a single chunk_id, or None if missing.
-    Single round-trip; used by /cite/validate. The batch endpoint uses
-    _fetch_chunk_texts (plural) instead — one bulk query for many ids."""
-    with get_connection() as conn:
-        row = conn.execute(
-            """
-            SELECT c.text, d.doc_type
-            FROM chunks c JOIN documents d ON c.doc_id = d.doc_id
-            WHERE c.chunk_id = %s
-            """,
-            [chunk_id],
-        ).fetchone()
-    if row is None:
-        return None
-    return (row["text"] or "", row["doc_type"])
+    Used by /cite/validate; delegates to the plural form so there is one
+    fetch implementation, not two that can drift."""
+    return _fetch_chunk_texts([chunk_id]).get(chunk_id)
 
 
 def _fetch_chunk_texts(chunk_ids: list[str]) -> dict[str, tuple[str, str | None]]:
-    """Bulk fetch (text, doc_type) for a list of chunk_ids in a single
-    DB round-trip. Returns only the rows that exist; the caller decides
-    how to handle missing ids (typically: emit `unknown chunk_id` in
-    the corresponding response slot). Dedups the input list before
-    querying so a repeated chunk_id costs one row, not N.
+    """Bulk fetch (text, doc_type) for a list of chunk_ids in one store
+    read. Returns only the rows that exist; the caller decides how to
+    handle missing ids (typically: emit `unknown chunk_id` in the
+    corresponding response slot). Dedups the input list first so a repeated
+    chunk_id costs one row, not N.
 
-    This is the optimization that makes /cite/validate_batch fast:
-    instead of N individual DB queries (one per cite() call), the
-    batch endpoint does one ANY(%s) query for all unique chunks and
-    fans out in-memory. For a typical analyze-shaped answer with 20
-    cites against 4-5 unique chunks, that's 5 DB rows in 1 query
-    instead of 20 queries each fetching 1 row.
+    This is the optimization that makes /cite/validate_batch fast: instead
+    of N individual lookups (one per cite() call), the batch endpoint does
+    one `chunk_id IN (...)` read for all unique chunks and fans out
+    in-memory. For a typical analyze-shaped answer with 20 cites against
+    4-5 unique chunks, that's one read of 5 rows instead of 20 reads of 1 —
+    and on the office share each read is a network round trip.
+
+    doc_type used to require a JOIN against `documents`; on LanceDB it is
+    denormalized onto the chunk row, so it comes along for free.
     """
     if not chunk_ids:
         return {}
     unique_ids = list(set(chunk_ids))
-    with get_connection() as conn:
-        rows = conn.execute(
-            """
-            SELECT c.chunk_id, c.text, d.doc_type
-            FROM chunks c JOIN documents d ON c.doc_id = d.doc_id
-            WHERE c.chunk_id = ANY(%s)
-            """,
-            [unique_ids],
-        ).fetchall()
+    rows = _store().get_by_ids(DEFAULT_CORPUS, unique_ids)
     return {
-        row["chunk_id"]: (row["text"] or "", row["doc_type"]) for row in rows
+        row["chunk_id"]: (row["text"] or "", row.get("doc_type")) for row in rows
     }
 
 
@@ -1036,7 +1277,7 @@ def http_cite_validate_batch(
 
     Implementation:
       1. Bulk-fetch (text, doc_type) for all unique chunk_ids in one
-         DB query.
+         store read.
       2. Loop in-memory through the input list; for each cite, dispatch
          to _validate_one_cite (or emit `unknown chunk_id` if the chunk
          wasn't found in the bulk fetch). Order preserved.

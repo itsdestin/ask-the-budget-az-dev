@@ -40,6 +40,8 @@ dependencies = [
     # tool preserves YAML structure/comments via ruamel.yaml during in-place edits.
     "anthropic>=0.40",
     "ruamel.yaml>=0.18",
+    "lancedb>=0.36.0",
+    "fastembed>=0.8.0",
 ]
 
 [dependency-groups]
@@ -57,6 +59,7 @@ dev = [
 [tool.pytest.ini_options]
 markers = [
     "network: tests that fetch from the live JLBC URLs via the download cache",
+    "slow: downloads/loads real ONNX models",
 ]
 
 # PyTorch CUDA wheels for Nvidia GPU acceleration.
