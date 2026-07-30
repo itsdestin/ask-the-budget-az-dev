@@ -342,183 +342,175 @@ nav.primary{flex:1 1 auto;display:flex;flex-wrap:nowrap;align-items:center;justi
   .page-search .doc-pill{margin-left:53px;}
 }
 
-/* ===== page-fiscal-notes — ported from reference/fiscal-notes-build/base.html =====
- * Every rule below is copied from that file's <style> block with its declarations
- * unchanged, prefixed with `.page-fiscal-notes` per the convention at the top of this
- * file. Where a selector also exists in reference/index.html or the search page with
- * DIFFERENT values (`main .wrap` — a 320px sidebar here vs home's 340px vs search's
- * single column; `.card .head-row`; `.ic`), these copies carry the FISCAL-NOTES page's
- * values. That is what the prefix protects.
+/* ===== page-fiscal-notes — ported from reference/subpage-fiscal-notes.html =====
+ * SOURCE: the GENERATED page, not `fiscal-notes-build/base.html`. base.html's own line 2
+ * says "DO NOT point this at the generated page": `build.py` replaces its entire <main>
+ * and appends the ~130 lines of layout CSS this block ports. base.html's body — the
+ * `.bills`/`.bcol`/`.bill*` two-column grid, the `.acc*` accordion, the `.era*` filter,
+ * `.yr-mini*`, and the `aside.side`/`.quick*` sidebar — is a SUPERSEDED layout. Those
+ * rules WERE ported here once and have been removed; do not reintroduce them from
+ * base.html's <style>, which still carries the whole dead set (the generated page inherits
+ * it wholesale, so "present in the vendored file" is not evidence a rule is live).
+ *
+ * Every rule below is copied from subpage-fiscal-notes.html's <style> with its declarations
+ * unchanged, prefixed with `.page-fiscal-notes` per the convention at the top of this file.
  *
  * NOT ported, and why:
- *   `.era-radio`, `#fn-all|e1|e2|e3:checked ~ …`, `.era-list`, `.tray-filter`
- *                        the archive's era filter. Its buckets are hardcoded to the
- *                        mockup's 2008-2025 range while the payload spans 1999-2026 —
- *                        see the traceability note in pages/FiscalNotes.tsx. The
- *                        `.era-bar`/`.era-lbl`/`.era-chip` chip styling IS ported: it
- *                        dresses the chamber switcher.
- *   `.doc`, `.doc-*`, `.acc-body .tray .doc`
- *                        that is the mockup's OTHER card's row style. Every row on this
- *                        page is a `.bill`.
- *   `.promo*`            the "Ballot initiatives" promo — no such page in this app.
- *   `.gov*`, `header.site`, `footer.site`, `.foot*`, `.dropdown`, `.caret`
- *                        shared chrome, handled app-wide (or dropped) in the blocks
- *                        above this one.
+ *   `.fnr` + the ~120 `#fnY-1999:checked ~ …` / `#fnC-*` / `#fnS-*` / `#fnAll:checked`
+ *   selectors            the hidden-radio machinery. One rule per YEAR cannot be written
+ *                        for a payload whose years come from the API, and the page's pinned
+ *                        test needs filtered rows GONE, not `display:none`. Every
+ *                        declaration they carried lives below on an `.on` class instead.
+ *   `.ym-h,.ym-s{display:none}`, `.sortcur{display:none}`,
+ *   `#fnC-house:checked ~ … .b-s{display:none}`
+ *                        the "emit every variant, hide all but one" swaps. React renders
+ *                        only the applicable variant, so porting these would hide the one
+ *                        thing on screen.
+ *   `.fbill{order:var(--na…)}` the CSS-only sort. Sorting happens in JS; same four orders.
+ *   `main .wrap{display:grid;grid-template-columns:1fr 320px}`
+ *                        base.html's content grid, which `.fnwrap` overrides to
+ *                        `display:block` on this very page. The effective value is ported
+ *                        directly rather than porting a rule and then its own override.
+ *   `.gov*`, `header.site`, `footer.site`, `.foot*`, `.dropdown`, `.caret`,
  *   `.search-toggle`/`.search-expand`
- *                        dead in the mockup itself (DESIGN-SYSTEM.md §5).
- *   `.c-navy`, `.c-red`, `.c-copper`, `.c-teal`
- *                        the `.dotic` tint helpers this page never uses; only `.c-gold`
- *                        is on screen. Lift another from base.html if a row needs it.
- *   `@media (max-width:900px)` / `(max-width:600px)` / `(max-width:520px)`
- *                        they only re-flow the footer, the logo and the dead
- *                        `.search-expand`.
+ *                        shared chrome handled app-wide above, or dead in the mockup itself
+ *                        (DESIGN-SYSTEM.md §5).
+ *   `@media (max-width:900px|760px|600px|520px)`
+ *                        they only re-flow the footer, the logo, base.html's dead body and
+ *                        the dead `.search-expand`. This layout's own breakpoint is 860px.
  */
 
 /* Sub-page hero band. Verbatim, with the same one path edit home and search needed:
    url('capitol-bg.jpg') → url('/capitol-bg.jpg'), served from webapp/public/. */
 .page-fiscal-notes .subhero{position:relative;overflow:hidden;color:#fff;
   background:linear-gradient(105deg,rgba(18,21,48,.94) 0%,rgba(20,23,52,.86) 60%,rgba(20,23,52,.78) 100%),url('/capitol-bg.jpg') center 28% / cover no-repeat;}
-/* Three classes, so this beats the two-class `.page-fiscal-notes .wrap` below on
-   specificity regardless of source order. `display:block` is the part that MATTERS: the
-   mockup scopes its grid to `main .wrap` and keeps the hero outside <main>, but here the
-   hero lives inside it, so without this the hero's title/lead/chips would be laid out as
-   items of a 1fr/320px grid. */
-.page-fiscal-notes .subhero .wrap{position:relative;z-index:2;padding:32px 22px 34px;display:block;}
+/* Three classes, so this beats any two-class `.page-fiscal-notes .wrap` rule on specificity
+   regardless of source order — the hero's wrap keeps its own padding. */
+.page-fiscal-notes .subhero .wrap{position:relative;z-index:2;padding:32px 22px 34px;}
 .page-fiscal-notes .subhero h1{font-size:clamp(24px,3.2vw,34px);font-weight:800;letter-spacing:-.4px;}
 .page-fiscal-notes .subhero .lead{margin:10px 0 0;font-size:clamp(14px,1.5vw,16.5px);color:#d9dcf2;font-weight:600;max-width:66ch;line-height:1.5;min-height:3em;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;}
 .page-fiscal-notes .subhero .chips{display:flex;flex-wrap:wrap;gap:8px;margin-top:16px;min-height:31px;}
 .page-fiscal-notes .subhero .chip{display:inline-flex;align-items:center;gap:7px;background:rgba(255,255,255,.1);border:1px solid rgba(255,255,255,.2);border-radius:var(--r-pill);padding:6px 13px;font-size:12.5px;font-weight:700;color:#eef0fb;}
 .page-fiscal-notes .subhero .chip svg{width:14px;height:14px;color:#9fc4ee;flex:0 0 auto;}
 
-/* `main .wrap`, fiscal-notes values: the two-column content grid with the 320px sidebar.
-   This is the one page of the three that actually keeps the mockup's grid. */
-.page-fiscal-notes .wrap{padding:30px 22px 12px;display:grid;grid-template-columns:1fr 320px;gap:var(--gap);align-items:start;}
+/* ===== layout: filter rail + session cards ===== */
+.page-fiscal-notes .wrap.fnwrap{display:block;padding:28px 22px 22px;}
+.page-fiscal-notes .fnlayout{display:grid;grid-template-columns:248px 1fr;gap:var(--gap);align-items:start;}
+.page-fiscal-notes .fnside{background:#fff;border:1px solid var(--line);border-radius:var(--r-lg);box-shadow:var(--shadow-sm);padding:8px;position:sticky;top:100px;}
+.page-fiscal-notes .fnside .fgrp{padding:8px 8px 14px;}
+.page-fiscal-notes .fnside .fgrp+.fgrp{border-top:1px solid var(--line);}
+.page-fiscal-notes .fnside .flbl{font-size:11px;font-weight:800;text-transform:uppercase;letter-spacing:.08em;color:var(--ink-3);padding:6px 8px 8px;}
+.page-fiscal-notes .fnmain{display:flex;flex-direction:column;gap:var(--gap);min-width:0;}
+.page-fiscal-notes .yg{background:#fff;border:1px solid var(--line);border-radius:var(--r-lg);box-shadow:var(--shadow-sm);overflow:hidden;}
 
-/* Card header + intro, this page's values (`padding:20px 24px 12px`, unlike home's
-   `20px 24px`). */
-.page-fiscal-notes .card + .card{margin-top:var(--gap);}
-.page-fiscal-notes .card-head{position:relative;}
-.page-fiscal-notes .card-head::after{content:"";position:absolute;left:20px;right:20px;bottom:0;height:2px;border-radius:999px;background:var(--az-gold-100);}
-.page-fiscal-notes .card .head-row{display:flex;align-items:center;gap:12px;padding:20px 24px 12px;}
-.page-fiscal-notes .card .head-row .ic{width:40px;height:40px;border-radius:13px;display:grid;place-items:center;flex:0 0 40px;background:var(--az-gold-100);color:var(--az-gold-d);}
-/* Added, not ported: the mockup hardcodes `width="20" height="20"` on that one <svg>
-   element. The glyph component draws no size attributes, so the size lives in CSS instead
-   of being repeated per call site (the same edit the search page made). */
-.page-fiscal-notes .card .head-row .ic svg{width:20px;height:20px;}
-.page-fiscal-notes .card .head-row h2{font-size:19px;color:var(--navy);font-weight:800;}
-.page-fiscal-notes .card .head-row .count{margin-left:auto;font-size:12.5px;font-weight:800;color:var(--ink-3);background:var(--canvas);border-radius:var(--r-pill);padding:4px 12px;}
-.page-fiscal-notes .intro{font-size:14.5px;color:var(--ink-2);padding:0 24px 18px;margin:0;}
-.page-fiscal-notes .intro b{color:var(--navy);}
+/* ===== filter rail: search box ===== */
+.page-fiscal-notes .fside-search{display:flex;align-items:center;gap:8px;background:var(--canvas);border:1px solid var(--line);border-radius:var(--r-pill);padding:8px 12px;margin:2px 4px 6px;}
+.page-fiscal-notes .fside-search svg{width:16px;height:16px;color:var(--ink-3);}
+.page-fiscal-notes .fside-search input{border:0;background:transparent;outline:0;font-family:inherit;font-size:13.5px;flex:1;min-width:0;color:var(--ink);}
+.page-fiscal-notes .clr-x{flex:0 0 auto;display:none;align-items:center;justify-content:center;width:24px;height:24px;border-radius:50%;border:1px solid var(--line);background:#fff;color:var(--ink-2);cursor:pointer;padding:0;transition:background .14s,color .14s,border-color .14s,transform .08s;}
+.page-fiscal-notes .clr-x:hover{background:var(--navy-100);color:var(--navy);border-color:var(--navy);}
+.page-fiscal-notes .clr-x:active{transform:scale(.88);}
+.page-fiscal-notes .clr-x svg{width:13px;height:13px;}
+.page-fiscal-notes .clr-x.show{display:inline-flex;}
 
-/* Two-column bill grid (House | Senate). */
-.page-fiscal-notes .bills{display:grid;grid-template-columns:1fr 1fr;gap:0;}
-/* Added: a chamber filter can leave ONE column, which would otherwise occupy half the
-   card with dead space beside it. The value is the mockup's own — it is what its
-   `@media (max-width:760px)` block sets `.bills` to. */
-.page-fiscal-notes .bills.one-col{grid-template-columns:1fr;}
-.page-fiscal-notes .bills .bcol{border-right:1px solid var(--line);}
-.page-fiscal-notes .bills .bcol:last-child{border-right:0;}
-.page-fiscal-notes .bcol-head{display:flex;align-items:center;gap:9px;padding:14px 22px;background:var(--canvas);border-bottom:1px solid var(--line);font-size:13px;font-weight:800;text-transform:uppercase;letter-spacing:.08em;color:var(--ink-3);}
-.page-fiscal-notes .bcol-head svg{width:16px;height:16px;color:var(--az-gold-d);flex:0 0 auto;}
-.page-fiscal-notes .bill{display:flex;align-items:flex-start;gap:13px;padding:14px 22px;border-bottom:1px solid var(--line);transition:background .15s;}
-.page-fiscal-notes .bill:last-child{border-bottom:0;}
-.page-fiscal-notes .bill:hover{background:#fafafe;}
-.page-fiscal-notes .bill-main{flex:1;min-width:0;}
-.page-fiscal-notes .bill-no{display:inline-block;font-size:13px;font-weight:800;color:#fff;background:var(--navy);border-radius:var(--r-pill);padding:3px 11px;letter-spacing:.01em;}
-.page-fiscal-notes .bill-no:hover{background:var(--az-gold-d);text-decoration:none;}
-.page-fiscal-notes .bill-desc{display:block;font-size:13.5px;color:var(--ink-2);font-weight:600;margin-top:7px;}
-.page-fiscal-notes .bill-pill{flex:0 0 auto;display:inline-flex;align-items:center;gap:6px;font-size:11.5px;font-weight:800;color:var(--ink-2);background:var(--canvas);border:1px solid var(--line);border-radius:var(--r-pill);padding:5px 11px;white-space:nowrap;margin-top:1px;}
-.page-fiscal-notes .bill:hover .bill-pill{border-color:var(--az-gold);color:var(--az-gold-d);}
-.page-fiscal-notes .bill-pill svg{width:12px;height:12px;}
+/* ===== filter rail: chamber segmented control + session list ===== */
+.page-fiscal-notes .chswitch{display:grid;grid-template-columns:1fr 1fr 1fr;gap:3px;background:var(--canvas);border:1px solid var(--line);border-radius:var(--r-pill);padding:4px;margin:0 4px;}
+.page-fiscal-notes .chseg{cursor:pointer;text-align:center;font-size:13px;font-weight:800;color:var(--ink-2);border-radius:var(--r-pill);padding:8px 4px;transition:.13s;}
+.page-fiscal-notes .chseg:hover{color:var(--az-gold-d);}
+.page-fiscal-notes .yscroll{max-height:330px;overflow-y:auto;padding-right:2px;}
+.page-fiscal-notes .frow{display:flex;align-items:center;justify-content:space-between;gap:8px;cursor:pointer;font-size:14px;font-weight:700;color:var(--ink-2);border:1px solid transparent;border-radius:var(--r-md);padding:8px 12px;transition:.13s;}
+.page-fiscal-notes .frow:hover{background:var(--navy-100);color:var(--navy);}
+.page-fiscal-notes .frow-n{font-size:11px;font-weight:800;background:var(--canvas);border:1px solid var(--line);border-radius:var(--r-pill);padding:1px 8px;color:var(--ink-3);}
 
-/* "Earlier Sessions" accordion — the mockup's Option B "beads": a compact section pill
-   (left) + count/chevron tab (right), inset 12px so each sits on the frame's rounded top
-   border. Ported whole, INCLUDING the `.acc-toggle:checked ~ …` selectors: the checkbox is
-   a real checkbox here, so the open/close animation is still pure CSS. */
-.page-fiscal-notes .acc{position:relative;margin:0 16px 10px;}
-.page-fiscal-notes .acc-toggle{position:absolute;width:1px;height:1px;margin:-1px;padding:0;border:0;clip:rect(0 0 0 0);overflow:hidden;}
-.page-fiscal-notes .acc-head{position:relative;z-index:2;display:flex;align-items:center;gap:10px;padding:7px 4px;cursor:pointer;user-select:none;}
-.page-fiscal-notes .acc-head:hover .acc-yr{filter:brightness(.97);}
-.page-fiscal-notes .acc-yr{display:inline-flex;align-items:center;flex:0 0 auto;height:30px;padding:0 13px;margin-left:12px;border-radius:var(--r-pill);background:var(--navy-100);color:var(--navy);font-weight:800;font-size:14px;letter-spacing:.01em;transition:background .15s,color .15s,filter .15s;}
-.page-fiscal-notes .acc-tab{margin-left:auto;margin-right:12px;display:inline-flex;align-items:center;gap:8px;height:30px;padding:0 12px;border-radius:var(--r-pill);background:var(--card);border:1px solid var(--line);color:var(--ink-3);font-weight:800;font-size:12.5px;white-space:nowrap;transition:border-color .15s,color .15s;}
-.page-fiscal-notes .acc-head:hover .acc-tab{border-color:var(--az-gold);color:var(--az-gold-d);}
-.page-fiscal-notes .acc-meta{font-size:12.5px;font-weight:800;color:inherit;}
-.page-fiscal-notes .acc-chev{width:15px;height:15px;color:inherit;transition:transform .28s;flex:0 0 auto;}
-.page-fiscal-notes .acc-toggle:checked ~ .acc-head .acc-chev{transform:rotate(180deg);}
-.page-fiscal-notes .acc-toggle:checked ~ .acc-head .acc-yr{background:var(--az-gold);color:#fff;}
-.page-fiscal-notes .acc-toggle:focus-visible ~ .acc-head .acc-yr{outline:2px solid var(--az-gold);outline-offset:2px;}
-.page-fiscal-notes .acc-body{display:grid;grid-template-rows:0fr;transition:grid-template-rows .28s ease,margin-top .28s ease;}
-.page-fiscal-notes .acc-body > div{overflow:hidden;min-height:0;margin:0 4px;
-  border:2px solid transparent;border-bottom-color:var(--az-gold-100);border-radius:16px;
-  transition:border-color .28s ease;}
-.page-fiscal-notes .acc-toggle:checked ~ .acc-body{grid-template-rows:1fr;margin-top:-23px;}
-.page-fiscal-notes .acc-toggle:checked ~ .acc-body > div{border-color:var(--az-gold-100);}
-.page-fiscal-notes .acc-body .tray{padding:29px 14px 8px 16px;}
-/* `margin:0` is the one addition: the mockup's `.acc-note` is a <div>, and this page uses a
-   <p> for it (the loading, empty and error lines are sentences), which the UA would
-   otherwise give a 1em top/bottom margin. */
-.page-fiscal-notes .acc-note{padding:10px 10px 4px;font-size:13.5px;color:var(--ink-3);font-weight:600;margin:0;}
-.page-fiscal-notes .acc-note a{font-weight:800;color:var(--az-gold-d);}
-/* Error text on that same note line. `--az-red` is the app's error color, as on the search
-   page's status line. */
-.page-fiscal-notes .acc-note .err{color:var(--az-red);}
-.page-fiscal-notes .yr-mini + .yr-mini{margin-top:2px;}
-.page-fiscal-notes .yr-mini-h{font-size:12px;font-weight:800;color:var(--navy);text-transform:uppercase;letter-spacing:.05em;padding:10px 10px 4px;}
+/* Selected states. Each declaration block is copied UNCHANGED from the generated page's
+   corresponding `:checked ~` rule; only the selector moved onto `.on`, because React drives
+   selection from state and there is no checked radio to hang them off:
+     `#fnC-all:checked ~ .fnlayout .chseg[for=fnC-all]`     → `.chseg.on`
+     `#fnY-2026:checked ~ .fnlayout .frow[for=fnY-2026]`    → `.frow.on`
+     `… .frow[for=fnY-2026] .frow-n`                        → `.frow.on .frow-n`
+   The mockup emits the year pair 28 times (once per session); one class covers them all. */
+.page-fiscal-notes .chseg.on{background:var(--navy);color:#fff;}
+.page-fiscal-notes .frow.on{background:var(--az-gold);color:#fff;border-color:var(--az-gold);}
+.page-fiscal-notes .frow.on .frow-n{background:rgba(255,255,255,.25);color:#fff;}
 
-/* Filter chips. In the mockup these dress the archive's era radios; here they are the
-   chamber switcher (see FiscalNotes.tsx). `font-family:inherit` is added because the
-   mockup's chips are <label>s and these are <button>s, which do not inherit the page font
-   — the same one-line adaptation the search page's `.fchip` needed. */
-.page-fiscal-notes .era-bar{display:flex;flex-wrap:wrap;align-items:center;gap:8px;padding:2px 4px 14px;}
-.page-fiscal-notes .era-lbl{font-size:11px;font-weight:800;color:var(--ink-3);text-transform:uppercase;letter-spacing:.07em;margin-right:2px;}
-.page-fiscal-notes .era-chip{cursor:pointer;font-family:inherit;font-size:12.5px;font-weight:800;color:var(--ink-2);background:#fff;border:1px solid var(--line);border-radius:var(--r-pill);padding:6px 13px;transition:background .15s,color .15s,border-color .15s;}
-.page-fiscal-notes .era-chip:hover{border-color:var(--az-gold);color:var(--az-gold-d);}
-/* Selected state: the mockup's `#fn-all:checked ~ .era-bar label[for="fn-all"]{…}`
-   declarations, unchanged, moved onto a class — React drives the selection from state, not
-   from a radio group, so there is no `:checked` sibling to hang them off. */
-.page-fiscal-notes .era-chip.on{background:var(--az-gold);color:#fff;border-color:var(--az-gold);}
+/* ===== session card: header, count, bill rows ===== */
+.page-fiscal-notes .yg-head{display:flex;align-items:center;gap:12px;padding:15px 18px;border-bottom:1px solid var(--line);}
+.page-fiscal-notes .yg-ttl{display:flex;flex-direction:column;gap:2px;min-width:0;}
+.page-fiscal-notes .yg-yr{font-size:18px;font-weight:800;color:var(--navy);}
+.page-fiscal-notes .yg-meta{font-size:12.5px;font-weight:700;color:var(--ink-3);}
+.page-fiscal-notes .fnlist{display:flex;flex-direction:column;}
+.page-fiscal-notes .fbill{display:flex;align-items:center;gap:14px;padding:11px 18px;border-bottom:1px solid var(--line);color:inherit;transition:background .14s;}
+.page-fiscal-notes .fbill:hover{background:#fafafe;text-decoration:none;}
+.page-fiscal-notes .fbill-no{flex:0 0 auto;font-size:12.5px;font-weight:800;color:#fff;background:var(--navy);border-radius:var(--r-pill);padding:4px 12px;letter-spacing:.01em;min-width:78px;text-align:center;}
+.page-fiscal-notes .fbill:hover .fbill-no{background:var(--az-gold-d);}
+.page-fiscal-notes .fbill-desc{flex:1;min-width:0;font-size:14px;font-weight:600;color:var(--ink-2);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+.page-fiscal-notes .fbill-dl{flex:0 0 auto;font-size:11.5px;font-weight:800;color:var(--ink-3);background:var(--canvas);border:1px solid var(--line);border-radius:var(--r-pill);padding:5px 12px;white-space:nowrap;}
+.page-fiscal-notes .fbill-dl::before{content:"\2193";margin-right:5px;font-weight:800;}
+.page-fiscal-notes .fbill:hover .fbill-dl{border-color:var(--az-gold);color:var(--az-gold-d);}
 
-/* Sidebar. Not sticky, per DESIGN-SYSTEM.md §8 rule 4: the whole page scrolls as one so
-   the bill columns never slide underneath a pinned bubble. */
-.page-fiscal-notes .side .card{position:static;}
-.page-fiscal-notes .quick{padding:10px;}
-.page-fiscal-notes .quick .qh{padding:14px 16px 10px;font-size:13px;font-weight:800;text-transform:uppercase;letter-spacing:.1em;color:var(--ink-3);}
-.page-fiscal-notes .quick a.qlink{display:flex;align-items:center;gap:12px;padding:12px 16px;border-radius:var(--r-md);color:var(--navy);font-weight:700;font-size:14.5px;transition:background .15s,transform .12s;}
-.page-fiscal-notes .quick a.qlink:hover{background:var(--navy-100);text-decoration:none;transform:translateX(2px);}
-.page-fiscal-notes .quick a.qlink .dotic{width:32px;height:32px;border-radius:10px;display:grid;place-items:center;flex:0 0 32px;}
-/* Added for the same reason as `.ic svg` above: the mockup hardcodes width/height on each
-   inline <svg>; the shared glyph components carry no size attributes. */
-.page-fiscal-notes .quick a.qlink .dotic svg{width:16px;height:16px;}
-.page-fiscal-notes .quick a.qlink .arr{margin-left:auto;color:var(--ink-3);transition:transform .15s,color .15s;}
-.page-fiscal-notes .quick a.qlink:hover .arr{transform:translateX(3px);color:var(--az-red);}
-.page-fiscal-notes .c-gold{background:var(--az-gold-100);color:var(--az-gold-d);}
+/* ===== sort control (CSS-only menu: :hover / :focus-within) ===== */
+.page-fiscal-notes .sortctl{position:relative;margin-left:auto;flex:0 0 auto;outline:0;}
+.page-fiscal-notes .sortbtn{display:inline-flex;align-items:center;gap:7px;cursor:pointer;font-size:12.5px;font-weight:800;color:var(--ink-2);background:var(--canvas);border:1px solid var(--line);border-radius:var(--r-pill);padding:7px 13px;white-space:nowrap;transition:.14s;}
+.page-fiscal-notes .sortctl:hover .sortbtn,.page-fiscal-notes .sortctl:focus-within .sortbtn{border-color:var(--az-gold);color:var(--az-gold-d);}
+.page-fiscal-notes .sb-chev{width:10px;height:6px;opacity:.7;transition:transform .2s;}
+.page-fiscal-notes .sortctl:hover .sb-chev,.page-fiscal-notes .sortctl:focus-within .sb-chev{transform:rotate(180deg);}
+.page-fiscal-notes .sortmenu{position:absolute;top:100%;right:0;margin-top:6px;min-width:228px;background:#fff;border:1px solid var(--line);border-radius:var(--r-md);box-shadow:var(--shadow);padding:6px;z-index:30;opacity:0;visibility:hidden;transform:translateY(5px);transition:opacity .15s,transform .15s,visibility .15s;}
+.page-fiscal-notes .sortctl:hover .sortmenu,.page-fiscal-notes .sortctl:focus-within .sortmenu{opacity:1;visibility:visible;transform:translateY(0);}
+.page-fiscal-notes .sortopt{display:block;font-size:13.5px;font-weight:700;color:var(--ink-2);padding:9px 12px;border-radius:var(--r-sm);cursor:pointer;white-space:nowrap;}
+.page-fiscal-notes .sortopt:hover{background:var(--canvas);color:var(--navy);}
+/* `#fnS-na:checked ~ .fnlayout .o-na{…}` — same declarations, moved onto `.on` (see above). */
+.page-fiscal-notes .sortopt.on{background:var(--az-gold-100);color:var(--az-gold-d);}
 
-/* The sidebar's filter pill. base.html has no text input anywhere, so this is
-   reference/index.html's `.search-field` (the home hero pill) lifted unchanged —
-   identical declarations to `.page-home .search-field` above, minus its `button` rules,
-   which this pill has no button for. Rationale in FiscalNotes.tsx. */
-.page-fiscal-notes .search-field{display:flex;align-items:center;gap:10px;background:var(--canvas);border:2px solid var(--line);border-radius:var(--r-pill);padding:11px 12px 11px 16px;margin-top:14px;transition:border-color .15s,box-shadow .15s,background .15s;}
-.page-fiscal-notes .search-field:focus-within{border-color:var(--navy);background:#fff;box-shadow:0 0 0 4px var(--navy-100);}
-.page-fiscal-notes .search-field .s-ic{color:var(--ink-3);flex:0 0 auto;width:19px;height:19px;}
-.page-fiscal-notes .search-field input{flex:1;border:0;outline:0;background:transparent;font-size:15.5px;font-family:inherit;color:var(--ink);min-width:0;}
-/* Same reset the search page ported: `type=search` otherwise grows a native clear button in
-   WebKit/Blink that the mockup never had. */
-.page-fiscal-notes .search-field input[type=search]::-webkit-search-cancel-button{-webkit-appearance:none;appearance:none;}
-/* The Plan-3 semantic-search box is genuinely `disabled`, and the mockup has no disabled
-   state to copy. `opacity:.65` + `cursor:not-allowed` are the values Home already ported
-   for its inert gateway card (`.m-card.is-disabled`) — reused rather than re-picked. */
-.page-fiscal-notes .search-field.is-disabled{opacity:.65;cursor:not-allowed;}
-.page-fiscal-notes .search-field.is-disabled input{cursor:not-allowed;}
+/* ===== "search all sessions" scope pill ===== */
+.page-fiscal-notes .allbar{display:flex;justify-content:center;padding:2px 0;}
+.page-fiscal-notes .allbtn{display:inline-flex;align-items:center;gap:9px;cursor:pointer;font-size:13.5px;font-weight:800;color:var(--az-gold-d);background:#fff;border:1px solid var(--az-gold-100);border-radius:var(--r-pill);padding:11px 20px;box-shadow:var(--shadow-sm);transition:.14s;}
+.page-fiscal-notes .allbtn:hover{border-color:var(--az-gold);background:var(--az-gold-100);}
+.page-fiscal-notes .allbtn svg{width:16px;height:16px;flex:0 0 auto;}
+.page-fiscal-notes .all-off,.page-fiscal-notes .all-on{display:inline-flex;align-items:center;gap:9px;}
+.page-fiscal-notes .all-on{display:none;}
+/* The three `#fnAll:checked ~ .fnlayout …` rules, declarations unchanged, on `.on`. */
+.page-fiscal-notes .allbtn.on{color:var(--navy);border-color:var(--navy-100);background:var(--navy-100);}
+.page-fiscal-notes .allbtn.on .all-off{display:none;}
+.page-fiscal-notes .allbtn.on .all-on{display:inline-flex;}
 
-/* Responsive, verbatim (only the two blocks that touch this page's own content). */
-@media (max-width:980px){
-  .page-fiscal-notes .wrap{grid-template-columns:1fr;}
-  .page-fiscal-notes .side .card{position:static;}
-}
-@media (max-width:760px){
-  .page-fiscal-notes .bills{grid-template-columns:1fr;}
-  .page-fiscal-notes .bills .bcol{border-right:0;border-bottom:1px solid var(--line);}
-  .page-fiscal-notes .bills .bcol:last-child{border-bottom:0;}
+/* ===== button adaptations =====
+   The mockup's controls are `<label>`s over hidden radios; here they are real `<button>`s
+   (see deviation 1 in FiscalNotes.tsx). These are only the UA-default resets a <label> did
+   not need — no ported value is changed, and nothing new is invented:
+     - font-family: buttons do not inherit the page font.
+     - background/border: a <button> would otherwise draw the UA's gray face + bevel over
+       the mockup's transparent labels. `.frow` already declares its 1px transparent border,
+       and `.allbtn`/`.sortbtn` already declare both, so they need neither.
+     - width/text-align: a <label> filled its line; an inline-block <button> shrinks to fit.
+     - `.allbtn:disabled` reuses the `opacity:.65` + `cursor:not-allowed` pair Home already
+       ported for its inert gateway card (`.m-card.is-disabled`), and re-states the base
+       border/background so the pill does not light up under the cursor while inert —
+       exactly the trick the mockup plays in `.search-card:hover{transform:none;…}`. */
+.page-fiscal-notes .chseg,.page-fiscal-notes .frow,.page-fiscal-notes .sortopt{font-family:inherit;background:transparent;width:100%;}
+.page-fiscal-notes .chseg,.page-fiscal-notes .sortopt{border:0;}
+.page-fiscal-notes .sortopt{text-align:left;}
+.page-fiscal-notes .allbtn{font-family:inherit;}
+.page-fiscal-notes .allbtn:disabled{opacity:.65;cursor:not-allowed;}
+.page-fiscal-notes .allbtn:disabled:hover{border-color:var(--az-gold-100);background:#fff;}
+
+/* ===== new: the status/hint note line =====
+   The mockup reports no filter result anywhere and has no note style. Rather than pick new
+   values, this reuses `.yg-meta`'s three declarations verbatim (this page's own count text);
+   only the padding that positions it in each column is added, harmonized with the
+   neighbouring `.fnside .flbl` (0 8px) and `.yg` card edge (0 2px). `--az-red` is the app's
+   error color, as on the search page's status line. */
+.page-fiscal-notes .fnnote{font-size:12.5px;font-weight:700;color:var(--ink-3);margin:0;}
+.page-fiscal-notes .fnside .fnnote{padding:6px 8px 0;}
+.page-fiscal-notes .fnmain>.fnnote{padding:0 2px;}
+.page-fiscal-notes .fnnote .err{color:var(--az-red);}
+/* The Plan-3 semantic-search box is genuinely `disabled`; same borrowed dimming as above. */
+.page-fiscal-notes .fside-search.is-disabled{opacity:.65;cursor:not-allowed;}
+.page-fiscal-notes .fside-search.is-disabled input{cursor:not-allowed;}
+
+/* Responsive, verbatim — this layout's own breakpoint. */
+@media (max-width:860px){
+  .page-fiscal-notes .fnlayout{grid-template-columns:1fr;}
+  .page-fiscal-notes .fnside{position:static;}
 }
 
 /* ===== Settings stub (replaced by the real Settings surface in Plan 5) =====
