@@ -3,13 +3,18 @@
 Reads every chunk (+ documents.publisher via JOIN) from the Phase-1b
 Postgres, re-embeds text with LocalEmbedder (passage mode), and writes
 the budget_chunks LanceDB table, then builds the FTS index and compacts.
+It also writes `<data_dir>/documents.json` — the per-document metadata
+(title, source_format, source_blob_path, …) that has no home in the chunk
+schema but that `/docs/{doc_id}` needs to point the PDF viewer at a file.
 
 chunk_ids are preserved verbatim, so eval/queries.yaml ground truth
 stays valid with no refresh_chunk_ids pass.
 
 Usage:  uv run python scripts/migrate_to_lancedb.py [--batch 128]
+        uv run python scripts/migrate_to_lancedb.py --docs-only
 Env:    DATABASE_URL (source), JLBC_DATA_DIR (dest; default dev dir)
 Runtime: ~7,755 chunks on an i5 CPU ~= 7-20 min (embedding-bound).
+        --docs-only is ~1s.
 Re-runnable: upsert semantics; safe to interrupt and restart.
 
 NOTE the embeddings are NOT copied from Postgres: the old column holds
@@ -40,6 +45,7 @@ if str(ROOT) not in sys.path:
 
 from retrieval.local_embedder import LocalEmbedder  # noqa: E402
 from store.chunk_store import ChunkStore  # noqa: E402
+from store.config import documents_path  # noqa: E402
 
 # Column names verified against db/migrations/0001_initial_schema.sql
 # (chunks.* + documents.publisher). ORDER BY chunk_id makes the run
@@ -54,6 +60,67 @@ SELECT_SQL = """
     JOIN documents d ON d.doc_id = c.doc_id
     ORDER BY c.chunk_id
 """
+
+
+# Every column of `documents` that a consumer asks for, verified against
+# db/migrations/0001_initial_schema.sql. `ingested_at` / `extractor` /
+# `extractor_version` are deliberately left behind: nothing reads them, and
+# ingested_at is a timestamptz that would need its own JSON encoding.
+DOCS_SELECT_SQL = """
+    SELECT doc_id, title, publisher, doc_type, fiscal_year,
+           source_format, source_blob_path, source_url, page_count
+    FROM documents
+    ORDER BY doc_id
+"""
+
+# Keys written per document — the same names the sidecar's
+# DocMetadataResponse uses, minus doc_id (which is the JSON key).
+DOCS_FIELDS = (
+    "title", "publisher", "doc_type", "fiscal_year",
+    "source_format", "source_blob_path", "source_url", "page_count",
+)
+
+
+def pg_rows_to_documents(rows: list[dict[str, Any]]) -> dict[str, dict[str, Any]]:
+    """Map `documents` rows onto the doc_id-keyed sidecar shape.
+
+    Pure so tests/test_migrate_rows.py can pin it. Only the declared field
+    set is copied: passing psycopg rows straight through would drag along
+    `ingested_at` (a datetime json.dumps refuses) the first time somebody
+    adds it to the SELECT.
+    """
+    return {
+        row["doc_id"]: {key: row.get(key) for key in DOCS_FIELDS}
+        for row in rows
+    }
+
+
+def write_documents_sidecar(docs: dict[str, dict[str, Any]]) -> Path:
+    """Write documents.json into the shared data dir; return its path.
+
+    WHY the temp-file + replace: the retrieval sidecar reads this file live
+    (on an mtime change), and on a network share a reader could otherwise
+    catch a half-written file and log a JSON error. os.replace is atomic on
+    both Windows and POSIX.
+    """
+    path = documents_path()
+    tmp = path.with_suffix(".json.tmp")
+    tmp.write_text(
+        json.dumps(docs, indent=2, sort_keys=True, ensure_ascii=False),
+        encoding="utf-8",
+    )
+    os.replace(tmp, path)
+    return path
+
+
+def migrate_documents(dsn: str) -> int:
+    """Pull the documents table into the JSON sidecar. Returns the count."""
+    with psycopg.connect(dsn, row_factory=dict_row) as conn:
+        rows = conn.execute(DOCS_SELECT_SQL).fetchall()
+    docs = pg_rows_to_documents(rows)
+    path = write_documents_sidecar(docs)
+    print(f"documents metadata: {len(docs)} entries -> {path}", flush=True)
+    return len(docs)
 
 
 def pg_row_to_lance(row: dict[str, Any], *, vector: list[float]) -> dict[str, Any]:
@@ -94,12 +161,31 @@ def pg_row_to_lance(row: dict[str, Any], *, vector: list[float]) -> dict[str, An
 def main() -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("--batch", type=int, default=128)
+    ap.add_argument(
+        "--docs-only",
+        action="store_true",
+        help=(
+            "Write documents.json and stop — no chunk read, no embedding. "
+            "Use this to refresh document metadata (titles, PDF paths) "
+            "without re-running the full migration."
+        ),
+    )
     args = ap.parse_args()
 
     dsn = os.environ.get("DATABASE_URL")
     if not dsn:
         print("DATABASE_URL not set — source Postgres required.", file=sys.stderr)
         return 1
+
+    # WHY --docs-only exists: the chunk half of this migration costs ~16
+    # minutes of CPU-bound embedding, and its output (the LanceDB table) is
+    # already correct. Document metadata is a separate, cheap read that may
+    # need to be refreshed on its own — after an ingest adds a document, or
+    # (as happened 2026-07-29) when a consumer turns out to need a column
+    # the first pass never carried across. Refreshing it must not cost a
+    # re-embed, so this branch returns before LocalEmbedder is even built.
+    if args.docs_only:
+        return 0 if migrate_documents(dsn) else 3
 
     # dim is resolved by LocalEmbedder from fastembed's registry; passing it
     # to ChunkStore keeps the Arrow vector width and the model in lockstep.
@@ -139,6 +225,12 @@ def main() -> int:
     if n != len(rows):
         print("COUNT MISMATCH — do not proceed to eval.", file=sys.stderr)
         return 2
+
+    # Document metadata last: it is cheap, and putting it after the count
+    # check means a failed chunk migration doesn't leave a fresh sidecar
+    # implying the corpus is fine.
+    migrate_documents(dsn)
+
     print(f"migration OK  ({time.time() - t0:.0f}s)")
     return 0
 

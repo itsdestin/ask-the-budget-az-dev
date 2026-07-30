@@ -52,8 +52,10 @@ load_dotenv(".env.local")
 load_dotenv()  # fallback to .env if .env.local missing
 
 import html
+import json
 import re
 import sys
+import threading
 import unicodedata
 from contextlib import asynccontextmanager
 from typing import Any
@@ -65,7 +67,7 @@ from pydantic import BaseModel, Field
 from retrieval import pipeline
 from retrieval.pipeline import DEFAULT_CORPUS, RetrievalRequest, retrieve
 from store.chunk_store import ChunkStore, sql_str
-from store.config import data_dir
+from store.config import data_dir, documents_path
 
 # ---------------------------------------------------------------------------
 # Request / response shapes
@@ -168,22 +170,18 @@ class DocMetadataResponse(BaseModel):
     """Metadata about an ingested document. Returned by GET /docs/{doc_id}.
 
     Field names are unchanged from the Postgres version, but four of them
-    became optional in Plan 1 and are currently always absent from the
-    response (`response_model_exclude_none=True` drops them):
-    `source_format`, `source_blob_path`, `page_count`, `source_url`.
+    are now optional: `source_format`, `source_blob_path`, `page_count`,
+    `source_url`. They live in the documents.json sidecar (see
+    _document_metadata) rather than in the chunk table, so they are present
+    whenever that file is — which is the normal case — and omitted
+    (`response_model_exclude_none=True`) when a corpus was copied without
+    it. `page_count` is null even in the sidecar: the ingest pipeline never
+    populated that column.
 
-    WHY: those four lived on the `documents` table, and Plan 1 migrated
-    only chunks into LanceDB — the chunk store genuinely does not know
-    where the original PDF sits on disk. Omitting them is deliberate:
-    inventing a plausible path would make the Next.js `/api/pdf/[doc_id]`
-    route fail with "source_blob_missing <fabricated path>", which sends
-    the next person hunting for a file that was never there. Plan 3's
-    documents-metadata table is what fills them back in; until then
-    click-to-open-PDF is unavailable, which Plan 4 already schedules as
-    the viewer port.
-
-    `title` is derived from the doc_id slug (see _title_from_doc_id) for
-    the same reason.
+    Omission rather than invention is deliberate: a fabricated path would
+    make the Next.js `/api/pdf/[doc_id]` route fail with
+    "source_blob_missing <fabricated path>", sending the next person
+    hunting for a file that was never there.
     """
 
     doc_id: str
@@ -431,14 +429,88 @@ def health() -> dict[str, Any]:
     `voyage_key_present` was replaced by `corpus_chunks` + `data_dir` in
     Plan 1: there is no Voyage key any more, and "the sidecar is up but
     pointed at the wrong / an empty folder" is the failure this probe is
-    actually useful for catching.
+    actually useful for catching. `documents_metadata` is the same idea for
+    the other half of the corpus: 0 here means documents.json is missing or
+    unreadable, which is exactly the state in which citation chips can't
+    open a PDF.
     """
     return {
         "status": "ok",
         "version": app.version,
         "corpus_chunks": _store().count(DEFAULT_CORPUS),
+        "documents_metadata": len(_document_metadata()),
         "data_dir": str(data_dir()),
     }
+
+
+# ---------------------------------------------------------------------------
+# Document metadata sidecar
+# ---------------------------------------------------------------------------
+# `<data_dir>/documents.json` — {doc_id: {title, source_format,
+# source_blob_path, source_url, page_count, fiscal_year, publisher,
+# doc_type}} — written by scripts/migrate_to_lancedb.py (`--docs-only`
+# refreshes it in ~1s without re-embedding).
+#
+# WHY this file exists: the LanceDB chunk schema has nowhere to put
+# document-level facts, and `source_format` + `source_blob_path` are what
+# the web app's /api/pdf/[doc_id] route needs to stream the right PDF.
+# Without them every citation chip fell into that route's
+# "unsupported_source_format" branch — a wrong error for a real PDF, and
+# Core Invariant 1 (a citation opens the exact page) silently suspended.
+#
+# Optional by design: a corpus copied without the file still answers
+# /docs and /retrieve, just with derived titles and no PDF path.
+
+_docs_lock = threading.Lock()
+_docs_cache: dict[str, dict[str, Any]] = {}
+# (path, mtime, size) of the file the cache was built from. Comparing all
+# three means the cache invalidates itself when the file is rewritten AND
+# when JLBC_DATA_DIR is repointed at a different corpus — no reset hook to
+# remember to call (tests repoint it constantly).
+_docs_stamp: tuple[str, float, int] | None = None
+
+
+def _document_metadata() -> dict[str, dict[str, Any]]:
+    """Parsed documents.json, cached until the file changes on disk.
+
+    Reload is mtime+size based rather than load-once-at-startup so an
+    ingest (or a `--docs-only` refresh) shows up without restarting the
+    sidecar. A missing file is normal and returns {}; a malformed one warns
+    to stderr and also returns {}, because degrading to derived titles is
+    better than 500ing every /docs and /retrieve call.
+    """
+    global _docs_cache, _docs_stamp
+    path = documents_path()
+    try:
+        st = path.stat()
+        stamp: tuple[str, float, int] | None = (str(path), st.st_mtime, st.st_size)
+    except OSError:
+        stamp = None  # absent or unreadable — fall back silently
+    with _docs_lock:
+        if stamp == _docs_stamp:
+            return _docs_cache
+        if stamp is None:
+            _docs_cache, _docs_stamp = {}, None
+            return _docs_cache
+        try:
+            loaded = json.loads(path.read_text(encoding="utf-8"))
+            if not isinstance(loaded, dict):
+                raise ValueError(
+                    "expected a JSON object of doc_id -> metadata, got "
+                    f"{type(loaded).__name__}"
+                )
+        except (OSError, ValueError) as err:
+            # Name the file and the real parse error — the fix is always to
+            # re-run the migration that writes it.
+            sys.stderr.write(
+                f"[retrieval-sidecar] ignoring {path}: {err}\n"
+                "  Document titles fall back to doc_id slugs and PDF paths\n"
+                "  are unavailable until it is valid. Rebuild it with:\n"
+                "  uv run python scripts/migrate_to_lancedb.py --docs-only\n"
+            )
+            loaded = {}
+        _docs_cache, _docs_stamp = loaded, stamp
+        return _docs_cache
 
 
 # Slug parts that are acronyms, not words — capitalize() would render them
@@ -452,10 +524,10 @@ def _title_from_doc_id(doc_id: str) -> str:
     """Best-effort humanization of a doc_id slug
     ('jlbc-baseline-fy2027-axs' -> 'JLBC Baseline FY 2027 Axs').
 
-    WHY derived rather than looked up: document titles lived on the
-    Postgres `documents` table, and Plan 1 migrated only chunks into
-    LanceDB. Plan 3 adds a documents-metadata table; when it lands, this
-    function is the single place that changes.
+    FALLBACK ONLY — used when documents.json is missing or doesn't know
+    this doc_id. The real ingest title ('JLBC FY2026 — AHCCCS') is much
+    better than a prettified slug ('JLBC Baseline FY 2026 Axs'), which is
+    why _lookup_doc_titles prefers the sidecar.
     """
     out: list[str] = []
     for part in doc_id.split("-"):
@@ -471,11 +543,17 @@ def _title_from_doc_id(doc_id: str) -> str:
 def _lookup_doc_titles(doc_ids: list[str]) -> dict[str, str]:
     """doc_id -> display title. Empty input returns {}.
 
-    Kept as a separate function (rather than inlined into http_retrieve)
-    because it is the seam that becomes a real store/table read in Plan 3,
-    and the one the response-shape tests patch.
+    Prefers the real ingest title from documents.json; falls back to the
+    slug humanizer per doc_id (so a corpus copied without the sidecar, or
+    one document the sidecar hasn't caught up with, still gets a label).
+    These titles are what the model reads in every retrieve() result, so
+    the difference is visible in answers, not just in the UI.
     """
-    return {doc_id: _title_from_doc_id(doc_id) for doc_id in doc_ids}
+    docs = _document_metadata()
+    return {
+        doc_id: (docs.get(doc_id, {}).get("title") or _title_from_doc_id(doc_id))
+        for doc_id in doc_ids
+    }
 
 
 @app.post("/retrieve")
@@ -553,33 +631,49 @@ def http_retrieve(body: RetrieveRequestBody) -> RetrieveResponse:
 
 @app.get("/docs/{doc_id}", response_model_exclude_none=True)
 def http_doc_metadata(doc_id: str) -> DocMetadataResponse:
-    """Look up a single document's metadata. Returns 404 when no chunk in
-    the corpus carries that doc_id.
+    """Look up a single document's metadata. Used by the Next.js
+    `/api/pdf/[doc_id]` route to resolve a citation chip into a file to
+    stream. Returns 404 only when NEITHER the documents.json sidecar nor
+    any chunk in the corpus knows that doc_id.
 
-    Post-Plan-1 the answer is assembled from the document's own chunk rows
-    (publisher / doc_type / fiscal_year are denormalized onto every chunk)
-    plus a title derived from the slug. The PDF-locating fields are absent
-    — see DocMetadataResponse for why, and why a fabricated path would be
-    worse than an absent one.
+    Two sources, merged in that order of preference:
+      * documents.json — the real ingest metadata, including the fields
+        that make click-to-open-PDF work.
+      * the document's own chunk rows — publisher / doc_type / fiscal_year
+        are denormalized onto every chunk, so they answer even without the
+        sidecar, and they cover a document the sidecar hasn't caught up
+        with yet.
     """
-    rows = _store().scan(
+    entry = _document_metadata().get(doc_id) or {}
+    chunk_rows = _store().scan(
         DEFAULT_CORPUS,
         ["doc_id", "publisher", "doc_type", "fiscal_year"],
         # sql_str, not an f-string: LanceDB filters are SQL text with no
         # parameter binding, and doc_id arrives from the client.
         where=f"doc_id = {sql_str(doc_id)}",
     )
-    if not rows:
+    if not entry and not chunk_rows:
         raise HTTPException(status_code=404, detail="doc_id not found")
     # Every chunk of a document carries the same document-level values, so
     # any row answers the question.
-    row = rows[0]
+    chunk_row = chunk_rows[0] if chunk_rows else {}
+
+    def field(name: str) -> Any:
+        """Sidecar value if it has a real one, else the chunk row's."""
+        value = entry.get(name)
+        return chunk_row.get(name) if value is None else value
+
     return DocMetadataResponse(
         doc_id=doc_id,
-        title=_title_from_doc_id(doc_id),
-        publisher=row["publisher"],
-        doc_type=row["doc_type"],
-        fiscal_year=row["fiscal_year"],
+        title=entry.get("title") or _title_from_doc_id(doc_id),
+        publisher=field("publisher"),
+        doc_type=field("doc_type"),
+        fiscal_year=field("fiscal_year"),
+        # Sidecar-only: nothing on a chunk row knows where the PDF is.
+        source_format=entry.get("source_format"),
+        source_blob_path=entry.get("source_blob_path"),
+        page_count=entry.get("page_count"),
+        source_url=entry.get("source_url"),
     )
 
 

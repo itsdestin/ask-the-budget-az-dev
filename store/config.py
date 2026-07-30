@@ -13,6 +13,14 @@ from pathlib import Path
 
 _ENV_VAR = "JLBC_DATA_DIR"
 
+# Document-level metadata (title, source_format, source_blob_path, …), keyed
+# by doc_id. A JSON sidecar rather than a LanceDB table because it is ~382
+# small records that every layer wants whole: the sidecar reads it to answer
+# /docs, and one file is trivially copyable alongside `lancedb/` when the
+# corpus travels to another machine. Written by
+# scripts/migrate_to_lancedb.py (and by ingest once Plan 3 owns it).
+DOCUMENTS_FILE = "documents.json"
+
 
 def data_dir() -> Path:
     """Resolve (and create if needed) the shared-data root directory."""
@@ -25,3 +33,14 @@ def data_dir() -> Path:
         root = Path(__file__).resolve().parent.parent / "data" / "insight-data"
     root.mkdir(parents=True, exist_ok=True)
     return root
+
+
+def documents_path() -> Path:
+    """Path to the documents-metadata sidecar (may not exist yet).
+
+    One definition, two callers — the migration writes this path and the
+    retrieval sidecar reads it. Two copies of the literal filename is
+    exactly the kind of drift that ends with a writer and a reader
+    disagreeing silently.
+    """
+    return data_dir() / DOCUMENTS_FILE

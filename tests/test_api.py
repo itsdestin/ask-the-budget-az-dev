@@ -21,6 +21,7 @@ Step 5 and by the eval harness (Task 11), not here.
 """
 from __future__ import annotations
 
+import json
 from uuid import uuid4
 
 import pytest
@@ -171,15 +172,37 @@ def fresh_corpus(tmp_path, monkeypatch):
 
     /list_values and /docs assert on counts and sample titles, which stray
     rows from other tests would perturb — so those tests get a private
-    corpus rather than the shared session one."""
+    corpus rather than the shared session one.
 
-    def _make(rows: list[dict]):
+    `documents=` optionally writes the documents.json sidecar alongside it.
+    The api module's cache keys on (path, mtime, size), so pointing
+    JLBC_DATA_DIR at a new tmp dir invalidates it without a reset hook."""
+
+    def _make(rows: list[dict], documents: dict | None = None):
         _build_corpus(tmp_path, rows)
+        if documents is not None:
+            (tmp_path / "documents.json").write_text(
+                json.dumps(documents), encoding="utf-8"
+            )
         monkeypatch.setenv("JLBC_DATA_DIR", str(tmp_path))
         # The singleton may already be open on the session corpus.
         reset_default_collaborators()
 
     return _make
+
+
+# One document's worth of sidecar metadata, shaped exactly like
+# scripts/migrate_to_lancedb.py writes it.
+_SIDECAR_DOC = {
+    "title": "JLBC FY2027 — AHCCCS",
+    "publisher": "jlbc",
+    "doc_type": "baseline-per-agency",
+    "fiscal_year": 2027,
+    "source_format": "pdf",
+    "source_blob_path": "data/cached-pdfs/40/40831007.pdf",
+    "source_url": "https://www.azjlbc.gov/27baseline/axs.pdf",
+    "page_count": None,
+}
 
 
 # ---------------------------------------------------------------------------
@@ -192,8 +215,10 @@ def test_health_endpoint_returns_ok(corpus_dir):
     Used by the dev script + the web app to wait for the sidecar.
 
     `voyage_key_present` is gone (there is no Voyage key any more);
-    `corpus_chunks` + `data_dir` replace it, because "sidecar is up but
-    pointed at an empty corpus" is the failure this probe exists to catch.
+    `corpus_chunks`, `documents_metadata`, and `data_dir` replace it,
+    because "sidecar is up but pointed at an empty corpus" — or at one
+    without documents.json, where citation chips can't open a PDF — is the
+    failure this probe exists to catch.
     """
     with TestClient(app) as client:
         resp = client.get("/health")
@@ -202,7 +227,20 @@ def test_health_endpoint_returns_ok(corpus_dir):
     assert body["status"] == "ok"
     assert body["version"] == app.version
     assert body["corpus_chunks"] >= 3
+    # The shared tmp corpus has no documents.json — 0 is the honest answer.
+    assert body["documents_metadata"] == 0
     assert body["data_dir"] == str(corpus_dir)
+
+
+def test_health_counts_the_documents_sidecar_when_present(fresh_corpus):
+    """documents_metadata is the diagnostic for "why won't my citations open
+    a PDF" — it must reflect the file, not a hardcoded 0."""
+    fresh_corpus(
+        [_row("h1", "chunk", doc_id="agao-afr-fy2025")],
+        documents={"agao-afr-fy2025": _SIDECAR_DOC, "other-doc": _SIDECAR_DOC},
+    )
+    with TestClient(app) as client:
+        assert client.get("/health").json()["documents_metadata"] == 2
 
 
 # ---------------------------------------------------------------------------
@@ -479,10 +517,10 @@ def test_retrieve_end_to_end_over_the_real_store():
         assert c["text_length"] == len(c["text"])
 
 
-def test_doc_titles_are_humanized_from_the_doc_id_slug():
-    """Until a documents-metadata table exists (Plan 3), doc_title is a
-    best-effort prettification of the slug. Kept character-identical to the
-    web app's copy of this humanizer so the two layers agree on a title."""
+def test_doc_titles_fall_back_to_the_slug_humanizer():
+    """With no documents.json, doc_title is a best-effort prettification of
+    the slug. Kept character-identical to the web app's copy of this
+    humanizer so the two layers agree on a title."""
     assert api_module._title_from_doc_id("jlbc-baseline-fy2027-axs") == (
         "JLBC Baseline FY 2027 Axs"
     )
@@ -491,6 +529,36 @@ def test_doc_titles_are_humanized_from_the_doc_id_slug():
         "agao-afr-fy2025": "AGAO AFR FY 2025"
     }
     assert api_module._lookup_doc_titles([]) == {}
+
+
+def test_doc_titles_prefer_the_real_ingest_title(fresh_corpus, monkeypatch):
+    """These titles are what the MODEL reads in every retrieve() result, so
+    the sidecar's real title ("JLBC FY2027 — AHCCCS") beats the stuttery
+    slug form ("Governor Governors Budget FY 2027"). A doc the sidecar
+    doesn't know still gets the derived title in the same response."""
+    fresh_corpus(
+        [_row("t1", "chunk", doc_id="jlbc-baseline-fy2027-axs")],
+        documents={"jlbc-baseline-fy2027-axs": _SIDECAR_DOC},
+    )
+    assert api_module._lookup_doc_titles(
+        ["jlbc-baseline-fy2027-axs", "agao-afr-fy2025"]
+    ) == {
+        "jlbc-baseline-fy2027-axs": "JLBC FY2027 — AHCCCS",
+        "agao-afr-fy2025": "AGAO AFR FY 2025",
+    }
+
+    # …and it reaches the /retrieve response, not just the helper.
+    monkeypatch.setattr(
+        api_module,
+        "retrieve",
+        lambda req: RetrievalResult(
+            chunks=[_fake_chunk("c1", doc_id="jlbc-baseline-fy2027-axs")],
+            top_score=0.9,
+        ),
+    )
+    with TestClient(app) as client:
+        body = client.post("/retrieve", json={"query": "x"}).json()
+    assert body["chunks"][0]["doc_title"] == "JLBC FY2027 — AHCCCS"
 
 
 # ---------------------------------------------------------------------------
@@ -587,14 +655,17 @@ def test_cite_validate_against_a_real_stored_chunk(put_chunk):
 # ---------------------------------------------------------------------------
 
 
-def test_doc_metadata_returns_what_the_chunk_store_knows(fresh_corpus):
-    """Post-Plan-1 the metadata comes from the document's chunks, not from
-    a documents table. Publisher / doc_type / fiscal_year are real chunk
-    columns; title is derived from the slug."""
-    fresh_corpus([
-        _row("d1-c1", "first chunk", doc_id="jlbc-baseline-fy2027-axs"),
-        _row("d1-c2", "second chunk", doc_id="jlbc-baseline-fy2027-axs", page=48),
-    ])
+def test_doc_metadata_flows_the_sidecar_fields_through(fresh_corpus):
+    """THE PDF-viewer contract: with documents.json present, /docs returns
+    the real title and — critically — source_format + source_blob_path.
+    Without them the web app's /api/pdf/[doc_id] route takes its
+    "unsupported_source_format" branch for every citation chip, which reads
+    as a broken PDF instead of missing metadata (and suspends the
+    citation-opens-the-exact-page invariant)."""
+    fresh_corpus(
+        [_row("d1-c1", "first chunk", doc_id="jlbc-baseline-fy2027-axs")],
+        documents={"jlbc-baseline-fy2027-axs": _SIDECAR_DOC},
+    )
 
     with TestClient(app) as client:
         resp = client.get("/docs/jlbc-baseline-fy2027-axs")
@@ -602,19 +673,24 @@ def test_doc_metadata_returns_what_the_chunk_store_knows(fresh_corpus):
     assert resp.status_code == 200
     body = resp.json()
     assert body["doc_id"] == "jlbc-baseline-fy2027-axs"
-    assert body["title"] == "JLBC Baseline FY 2027 Axs"
+    assert body["title"] == "JLBC FY2027 — AHCCCS"  # real title, not the slug
+    assert body["source_format"] == "pdf"
+    assert body["source_blob_path"] == "data/cached-pdfs/40/40831007.pdf"
+    assert body["source_url"] == "https://www.azjlbc.gov/27baseline/axs.pdf"
     assert body["publisher"] == "jlbc"
     assert body["doc_type"] == "baseline-per-agency"
     assert body["fiscal_year"] == 2027
+    # page_count is null even in the sidecar (the ingest never populated the
+    # column), so it stays omitted rather than guessed.
+    assert "page_count" not in body
 
 
-def test_doc_metadata_omits_the_fields_lancedb_cannot_know(fresh_corpus):
-    """`source_blob_path` / `source_format` / `source_url` / `page_count`
-    lived on the documents table, which Plan 1 did NOT migrate — the chunk
-    store has no idea where the original PDF is. They are omitted
-    (response_model_exclude_none) rather than guessed: a fabricated path
-    would make the PDF route fail with a misleading "file missing" error.
-    Plan 3's documents-metadata table is what fills them back in."""
+def test_doc_metadata_falls_back_to_chunk_columns_without_the_sidecar(fresh_corpus):
+    """A corpus copied without documents.json still answers: publisher /
+    doc_type / fiscal_year are denormalized onto every chunk, and the title
+    degrades to the slug humanizer. The PDF-locating fields are omitted
+    rather than guessed — a fabricated path would make the PDF route fail
+    with a misleading "file missing" error."""
     fresh_corpus([_row("d2-c1", "only chunk", doc_id="agao-afr-fy2025")])
 
     with TestClient(app) as client:
@@ -622,11 +698,77 @@ def test_doc_metadata_omits_the_fields_lancedb_cannot_know(fresh_corpus):
 
     body = resp.json()
     assert resp.status_code == 200
+    assert body["title"] == "AGAO AFR FY 2025"  # derived
+    assert body["publisher"] == "jlbc"  # from the chunk row
     assert "source_blob_path" not in body
     assert "source_format" not in body
     assert "source_url" not in body
     assert "page_count" not in body
-    assert body["title"] == "AGAO AFR FY 2025"
+
+
+def test_doc_metadata_sidecar_fields_win_over_chunk_columns(fresh_corpus):
+    """When both sources know a field, the sidecar wins — it is the ingest
+    record, while the chunk copy is a denormalized snapshot that a
+    re-ingest could leave behind."""
+    fresh_corpus(
+        [_row("d5-c1", "chunk", doc_id="agao-afr-fy2025", publisher="jlbc",
+              fiscal_year=2027)],
+        documents={"agao-afr-fy2025": {**_SIDECAR_DOC, "publisher": "agao",
+                                       "fiscal_year": 2025, "doc_type": "afr"}},
+    )
+
+    with TestClient(app) as client:
+        body = client.get("/docs/agao-afr-fy2025").json()
+    assert body["publisher"] == "agao"
+    assert body["fiscal_year"] == 2025
+    assert body["doc_type"] == "afr"
+
+
+def test_doc_metadata_answers_for_a_document_with_no_chunks(fresh_corpus):
+    """The Postgres version read the documents table, so a document whose
+    chunks were never loaded still resolved. Preserve that: the sidecar
+    alone is enough to answer."""
+    fresh_corpus(
+        [_row("d6-c1", "unrelated chunk", doc_id="jlbc-baseline-fy2027-axs")],
+        documents={"governor-governors-budget-fy2027": _SIDECAR_DOC},
+    )
+
+    with TestClient(app) as client:
+        resp = client.get("/docs/governor-governors-budget-fy2027")
+    assert resp.status_code == 200
+    assert resp.json()["source_format"] == "pdf"
+
+
+def test_doc_metadata_ignores_a_malformed_sidecar(fresh_corpus, capfd):
+    """A truncated / hand-broken documents.json must not 500 every request.
+    Degrade to derived titles, and say which file and what parse error so
+    the fix is obvious."""
+    fresh_corpus([_row("d7-c1", "chunk", doc_id="agao-afr-fy2025")])
+    (api_module.documents_path()).write_text("{not json", encoding="utf-8")
+
+    with TestClient(app) as client:
+        resp = client.get("/docs/agao-afr-fy2025")
+    assert resp.status_code == 200
+    assert resp.json()["title"] == "AGAO AFR FY 2025"
+    assert "documents.json" in capfd.readouterr().err
+
+
+def test_document_metadata_reloads_when_the_file_changes(fresh_corpus):
+    """mtime+size-keyed cache, not load-once: an ingest (or a --docs-only
+    refresh) has to show up without restarting the sidecar."""
+    fresh_corpus(
+        [_row("d8-c1", "chunk", doc_id="agao-afr-fy2025")],
+        documents={"agao-afr-fy2025": {**_SIDECAR_DOC, "title": "First Title"}},
+    )
+    assert api_module._document_metadata()["agao-afr-fy2025"]["title"] == "First Title"
+
+    api_module.documents_path().write_text(
+        json.dumps({"agao-afr-fy2025": {**_SIDECAR_DOC, "title": "Second Title!!"}}),
+        encoding="utf-8",
+    )
+    assert (
+        api_module._document_metadata()["agao-afr-fy2025"]["title"] == "Second Title!!"
+    )
 
 
 def test_doc_metadata_returns_404_for_unknown_doc(fresh_corpus):
