@@ -27,7 +27,7 @@ from store.schema import chunk_schema
 DEFAULT_DIM = 384  # BAAI/bge-small-en-v1.5
 CORPUS_TABLES = ("budget_chunks", "fiscal_note_chunks")
 
-def _sql_str(value: str) -> str:
+def sql_str(value: str) -> str:
     """Render a Python string as a SQL string literal, safely quoted.
 
     WHY this exists: LanceDB filters are SQL *strings* — there is no
@@ -36,6 +36,11 @@ def _sql_str(value: str) -> str:
     apostrophe was harmless. Interpolating it raw here would produce a
     DataFusion parse error (or worse, injected predicate), so we escape
     by doubling single quotes, which is what SQL specifies.
+
+    Public (not `_sql_str`) because callers OUTSIDE this module build
+    `where=` strings for scan() too — retrieval/api.py's /docs endpoint
+    filters on a client-supplied doc_id. One escaper, used everywhere,
+    beats a second copy in the sidecar.
     """
     return "'" + str(value).replace("'", "''") + "'"
 
@@ -146,7 +151,7 @@ class ChunkStore:
         # is NOT atomic — an interruption between them leaves those chunk_ids
         # deleted. Acceptable for the re-runnable migration script, but
         # Plan 3's ingest must not inherit that assumption blindly.
-        ids = ", ".join(_sql_str(cid) for cid in deduped)
+        ids = ", ".join(sql_str(cid) for cid in deduped)
         tbl.delete(f"chunk_id IN ({ids})")
         tbl.add(list(deduped.values()))
 
@@ -167,7 +172,7 @@ class ChunkStore:
         tbl = self._open(name)
         if tbl is None or not chunk_ids:
             return []
-        ids = ", ".join(_sql_str(c) for c in chunk_ids)
+        ids = ", ".join(sql_str(c) for c in chunk_ids)
         return (
             tbl.search()
             .where(f"chunk_id IN ({ids})")
@@ -175,6 +180,38 @@ class ChunkStore:
             .limit(len(chunk_ids))
             .to_list()
         )
+
+    def scan(
+        self, name: str, columns: list[str], *, where: str | None = None,
+    ) -> list[dict[str, Any]]:
+        """Unranked projection scan: every matching row, listed columns only.
+
+        WHY it exists: the sidecar has two endpoints that aren't searches at
+        all — `/list_values` (which canonical_ids exist, with counts) and
+        `/docs/{doc_id}` (metadata for one document). Both were SQL
+        `GROUP BY` / `WHERE` queries against Postgres. On Lance the cheapest
+        equivalent is to project the handful of needed columns and aggregate
+        in Python: the whole 7,755-row budget corpus scans in ~60ms with 6
+        columns, which is well inside an HTTP request budget.
+
+        `where` is a DataFusion SQL predicate — build string literals with
+        sql_str() so a value containing an apostrophe can't break (or
+        rewrite) the expression.
+
+        WHY the explicit limit: LanceDB query builders apply a default row
+        limit (10 for vector search). A plain scan returns everything on
+        lancedb 0.36, but relying on that would SILENTLY truncate these
+        endpoints if the default ever started applying here — a truncated
+        /list_values looks like a small corpus, not like a bug. Passing the
+        row count as the limit removes the question.
+        """
+        tbl = self._open(name)
+        if tbl is None:
+            return []
+        q = tbl.search().select(columns).limit(tbl.count_rows())
+        if where:
+            q = q.where(where)
+        return q.to_list()
 
     def vector_search(
         self, name: str, vector: list[float], *, top_k: int,
@@ -266,14 +303,14 @@ class ChunkStore:
             # column and it has its own scalar branch below, so vals here is
             # only ever ints or strings. (Even a stray bool would be fine —
             # DataFusion accepts a bare `True`; it is the *quoted* 'True' that
-            # fails, so the one thing to avoid is routing bools to _sql_str.)
+            # fails, so the one thing to avoid is routing bools to sql_str.)
             rendered = ", ".join(
-                str(v) if isinstance(v, (int, float)) else _sql_str(v) for v in vals
+                str(v) if isinstance(v, (int, float)) else sql_str(v) for v in vals
             )
             return f"{col} IN ({rendered})"
 
         def _overlap(col: str, vals: list[str]) -> str:
-            rendered = ", ".join(_sql_str(v) for v in vals)
+            rendered = ", ".join(sql_str(v) for v in vals)
             return f"array_has_any({col}, [{rendered}])"
 
         for col, vals, builder in (

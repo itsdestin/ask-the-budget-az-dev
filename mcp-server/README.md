@@ -63,7 +63,8 @@ The MCP server is a thin shim — it has no value without the sidecar
 running. From the project root:
 
 ```bash
-# Make sure DATABASE_URL and VOYAGE_API_KEY are set (.env.local).
+# No API key or database needed: retrieval reads the LanceDB corpus under
+# JLBC_DATA_DIR (unset = data/insight-data in the repo).
 uv run uvicorn retrieval.api:app --host 127.0.0.1 --port 9200
 ```
 
@@ -71,7 +72,8 @@ Health check:
 
 ```bash
 curl http://127.0.0.1:9200/health
-# { "status": "ok", "version": "0.1.0", "voyage_key_present": true }
+# { "status": "ok", "version": "0.1.0", "corpus_chunks": 7755,
+#   "data_dir": "…/data/insight-data" }
 ```
 
 ### 3. Register with YouCoded
@@ -169,8 +171,10 @@ curl http://127.0.0.1:9200/health
 If it errors:
 1. Is uvicorn running? `tasklist | findstr uvicorn` (Windows) /
    `ps -ef | grep uvicorn` (Unix).
-2. Is `DATABASE_URL` set? The sidecar fails fast at startup.
-3. Is `VOYAGE_API_KEY` set? Required for the dense-retrieval leg.
+2. Does `/health` report `corpus_chunks: 0`? The sidecar is pointed at a
+   data folder with no corpus in it — check `JLBC_DATA_DIR` and that its
+   `lancedb` directory was copied over. The sidecar also fails fast at
+   startup for this, so check its stderr.
 
 ### `claude mcp list` shows the server but `/mcp` says "Failed"
 

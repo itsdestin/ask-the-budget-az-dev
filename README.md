@@ -52,8 +52,8 @@ sidecar layer; the steps below cover everything below it.
    cd db && docker compose up -d
    ```
 3. **Retrieval sidecar (port 9200).** Auto-loads `.env.local`; fails
-   fast at startup if `VOYAGE_API_KEY` is missing or Postgres is
-   unreachable.
+   fast at startup if the shared data folder (`JLBC_DATA_DIR`, default
+   `data/insight-data`) is unusable or holds no chunks.
    ```bash
    uv run uvicorn retrieval.api:app --host 127.0.0.1 --port 9200
    ```

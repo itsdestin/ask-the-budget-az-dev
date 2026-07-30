@@ -5,17 +5,12 @@ Compares response sizes at top_k = 15 and top_k = 20 (the old default).
 Task 8 lowers the default to 15; this script's job is to verify that
 choice is safe before the change lands.
 
-Run with (bash / Git Bash / WSL):
-    set -a; source .env.local; set +a
+Run with:
     uv run python scripts/measure_retrieve_size.py
 
-Or (PowerShell — host shell on Windows):
-    Get-Content .env.local | ForEach-Object {
-      if ($_ -match '^\s*([^#=]+?)\s*=\s*(.+?)\s*$') {
-        [Environment]::SetEnvironmentVariable($matches[1], $matches[2], 'Process')
-      }
-    }
-    uv run python scripts/measure_retrieve_size.py
+No env setup needed since Plan 1 (no API key, no database): retrieval reads
+the LanceDB corpus under JLBC_DATA_DIR, which defaults to data/insight-data
+inside the repo. Set JLBC_DATA_DIR first to measure against a different one.
 """
 from __future__ import annotations
 
@@ -30,7 +25,6 @@ ROOT = Path(__file__).resolve().parents[1]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
-from db.embeddings import VoyageEmbedder  # noqa: E402
 from retrieval.pipeline import RetrievalRequest, retrieve  # noqa: E402
 
 QUERIES = [
@@ -43,7 +37,8 @@ QUERIES = [
 
 
 def main() -> None:
-    embedder = VoyageEmbedder()
+    # No embedder argument: retrieve() builds (and reuses) the process-wide
+    # local ONNX embedder + reranker itself since Plan 1.
     print(f"{'top_k':>6} | {'mean_bytes':>12} | {'median_bytes':>14} | {'max_bytes':>11}")
     print("-" * 60)
     for top_k in (15, 20):
@@ -51,12 +46,11 @@ def main() -> None:
         chunk_texts: list[int] = []
         for q in QUERIES:
             req = RetrievalRequest(query=q, top_k=top_k)
-            # Pre-existing pipeline limitation: ParadeDB's BM25 query parser
-            # raises on a bare apostrophe (e.g. "Governor's"). Out of scope
-            # for this gating diagnostic — skip the offending query rather
-            # than abort the whole run, so the size table still prints.
+            # Keep going if one query raises (the LanceDB FTS parser has its
+            # own quirks — see _BM25_SPECIAL_CHARS in retrieval/search_lance.py)
+            # so the size table still prints for the rest.
             try:
-                res = retrieve(req, embedder=embedder)
+                res = retrieve(req)
             except Exception as exc:
                 print(f"  skipped query (top_k={top_k}): {q!r} -> {exc.__class__.__name__}")
                 continue

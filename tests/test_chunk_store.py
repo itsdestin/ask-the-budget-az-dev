@@ -2,7 +2,7 @@
 vectors are hand-made 8-dim floats."""
 import pytest
 
-from store.chunk_store import ChunkStore
+from store.chunk_store import ChunkStore, sql_str
 
 
 def _row(cid: str, text: str, vec: list[float], **over):
@@ -37,6 +37,56 @@ def test_get_by_ids_roundtrip(store):
     r1 = next(r for r in got if r["chunk_id"] == "c1")
     assert r1["text"] == "ahcccs provider rates increase"
     assert list(r1["agency_canonical_ids"]) == ["ahcccs"]
+
+
+def test_scan_projects_columns_and_filters(store):
+    """scan() is the unranked read the sidecar's /list_values and
+    /docs/{doc_id} endpoints run on (they aggregate in Python instead of
+    a SQL GROUP BY). Only the asked-for columns come back."""
+    rows = store.scan("budget_chunks", ["chunk_id", "publisher"])
+    assert {r["chunk_id"] for r in rows} == {"c1", "c2", "c3"}
+    assert set(rows[0]) == {"chunk_id", "publisher"}
+
+    filtered = store.scan(
+        "budget_chunks", ["chunk_id"], where="publisher = 'agao'"
+    )
+    assert [r["chunk_id"] for r in filtered] == ["c2"]
+
+
+def test_scan_returns_every_row_not_a_default_page(store):
+    """Pins the explicit limit inside scan(). LanceDB query builders carry a
+    default row limit (10 for vector search); if it ever applied to a plain
+    scan, /list_values would silently report a 10-row corpus instead of
+    failing. 14 rows here is comfortably past that default."""
+    store.upsert_chunks("budget_chunks", [
+        _row(f"s{i}", f"scan row {i}", [0, 0, 0, 0, 0, 0, 0, 1]) for i in range(11)
+    ])
+    rows = store.scan("budget_chunks", ["chunk_id"])
+    assert len(rows) == 14  # 3 fixture rows + 11 added
+
+
+def test_scan_on_absent_table_returns_empty(tmp_path):
+    """Reader safety (spec S6): scanning a corpus that was never ingested
+    returns [] and does NOT create the table."""
+    s = ChunkStore(root=tmp_path, dim=8)
+    assert s.scan("budget_chunks", ["chunk_id"]) == []
+    assert s._db.table_names() == []
+    with pytest.raises(ValueError, match="Unknown corpus table"):
+        s.scan("nope", ["chunk_id"])
+
+
+def test_scan_where_needs_sql_str_for_quoted_values(store):
+    """The escaper is public because callers outside this module (the
+    sidecar's /docs endpoint, on a client-supplied doc_id) build `where`
+    strings too. Raw interpolation of an apostrophe is a parse error."""
+    store.upsert_chunks("budget_chunks", [
+        _row("q1", "row", [0, 0, 0, 0, 0, 0, 1, 0], doc_id="o'brien-fy2026"),
+    ])
+    doc_id = "o'brien-fy2026"
+    where = "doc_id = " + sql_str(doc_id)
+    assert store.scan("budget_chunks", ["chunk_id"], where=where) == [
+        {"chunk_id": "q1"}
+    ]
 
 
 def test_vector_search_orders_by_cosine(store):
