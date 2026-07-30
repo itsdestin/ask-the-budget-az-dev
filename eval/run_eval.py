@@ -31,18 +31,19 @@ from eval.scoring import (
 # The Python retrieve() entry point (see retrieval/__init__.py). Both
 # `retrieve` and `RetrievalRequest` are imported here so tests can
 # monkeypatch the name `retrieve` on this module.
-from retrieval import retrieve, RetrievalRequest  # noqa: E402
+from retrieval import NO_RESULTS_TOP_SCORE, retrieve, RetrievalRequest  # noqa: E402
 
 
 DEFAULT_TOP_K = 20
 # Matches the runtime threshold in mcp-server/system-prompt.md
-# (refusal_no_retrieval — top_score < 0.65). Keeping the eval's default
-# in sync with the prompt means the runner's refusal_precision /
-# refusal_recall reflect what production would actually do. Override
-# via --threshold to evaluate alternate values without changing the
-# prompt. Was 0.30 through 2026-05-22 (when the prompt was bumped to
-# 0.65); the original 0.30 was a placeholder, never calibrated.
-DEFAULT_REFUSAL_THRESHOLD = 0.65
+# (refusal_no_retrieval — top_score < 1.9, raw cross-encoder logit
+# scale). Keeping the eval's default in sync with the prompt means the
+# runner's refusal_precision / refusal_recall reflect what production
+# would actually do. Override via --threshold to evaluate alternate
+# values without changing the prompt. History: 0.30 (placeholder) →
+# 0.65 (2026-05-22, Voyage 0..1 scale) → 1.9 (2026-07-30, recalibrated
+# for the local L-12 reranker's logit distribution).
+DEFAULT_REFUSAL_THRESHOLD = 1.9
 
 
 def load_queries(path: str) -> list[EvalQuery]:
@@ -92,7 +93,12 @@ def run_one_query(
             matched_via=None,
             rank=None,
             latency_ms=elapsed_ms,
-            top_score=0.0,
+            # WHY the sentinel and not 0.0: reranker scores are raw logits
+            # (roughly -10..10), so 0.0 would sit ABOVE any calibrated
+            # threshold and a *crashed* retrieve would score as a correct,
+            # confident refusal — inflating refusal metrics and poisoning
+            # calibrate_refusal's sweep with a fake score.
+            top_score=NO_RESULTS_TOP_SCORE,
             top_chunk_ids=[f"<retrieve error: {type(exc).__name__}: {exc}>"],
         )
     elapsed_ms = int((time.monotonic() - start) * 1000)
@@ -194,6 +200,14 @@ def compute_delta(
 
     return {
         "recall_at_5_delta": curr_summary.recall_at_5 - prev_summary.recall_at_5,
+        # None when the previous run predates recall@15 (added 2026-07-30 with
+        # the G1 amendment) — a missing baseline is not a zero delta.
+        "recall_at_15_delta": (
+            curr_summary.recall_at_15 - prev_summary.recall_at_15
+            if curr_summary.recall_at_15 is not None
+            and prev_summary.recall_at_15 is not None
+            else None
+        ),
         "recall_at_20_delta": curr_summary.recall_at_20
         - prev_summary.recall_at_20,
         "latency_p95_delta_ms": curr_summary.latency_p95_ms
@@ -217,8 +231,12 @@ def write_md_output(
     lines: list[str] = []
     lines.append(f"# Eval result — {timestamp} ({git_sha})\n")
     lines.append("## Summary\n")
-    lines.append(f"- **recall@5:** {summary.recall_at_5:.0%}")
-    lines.append(f"- **recall@20:** {summary.recall_at_20:.0%}")
+    lines.append(f"- **recall@5:** {summary.recall_at_5:.0%} (tracked, not gated)")
+    if summary.recall_at_15 is not None:
+        lines.append(
+            f"- **recall@15:** {summary.recall_at_15:.0%} (gate G1: >= 90%)"
+        )
+    lines.append(f"- **recall@20:** {summary.recall_at_20:.0%} (gate G1: >= 95%)")
     lines.append(f"- **fallback rate:** {summary.fallback_rate:.0%} of passes")
     lines.append(
         f"- **latency:** p50 {summary.latency_p50_ms}ms, p95 "
@@ -231,18 +249,22 @@ def write_md_output(
 
     if summary.by_type:
         lines.append("## By type\n")
-        lines.append("| Type | Count | recall@5 | recall@20 | Notes |")
-        lines.append("|---|---|---|---|---|")
+        lines.append(
+            "| Type | Count | recall@5 | recall@15 | recall@20 | Notes |"
+        )
+        lines.append("|---|---|---|---|---|---|")
         for type_name, bucket in summary.by_type.items():
             if "recall_at_5" in bucket:
+                at_15 = bucket.get("recall_at_15")
                 lines.append(
                     f"| {type_name} | {bucket['count']} | "
                     f"{bucket['recall_at_5']:.0%} | "
+                    f"{(f'{at_15:.0%}' if at_15 is not None else '—')} | "
                     f"{bucket['recall_at_20']:.0%} | |"
                 )
             else:
                 lines.append(
-                    f"| {type_name} | {bucket['count']} | — | — | "
+                    f"| {type_name} | {bucket['count']} | — | — | — | "
                     f"precision: {bucket.get('precision', 0):.0%} |"
                 )
         lines.append("")
@@ -252,6 +274,12 @@ def write_md_output(
         lines.append(
             f"- recall@5: {previous['recall_at_5_delta']:+.0%}"
         )
+        if previous.get("recall_at_15_delta") is not None:
+            lines.append(
+                f"- recall@15: {previous['recall_at_15_delta']:+.0%}"
+            )
+        else:
+            lines.append("- recall@15: n/a (previous run predates the metric)")
         lines.append(
             f"- recall@20: {previous['recall_at_20_delta']:+.0%}"
         )
@@ -377,6 +405,7 @@ def main() -> None:
     print(f"  {md_path}")
     print(
         f"\n  recall@5  {summary.recall_at_5:.2%}  "
+        f"recall@15  {summary.recall_at_15:.2%}  "
         f"recall@20  {summary.recall_at_20:.2%}  "
         f"latency p95 {summary.latency_p95_ms}ms  "
         f"refusal precision {summary.refusal_precision:.2%}"

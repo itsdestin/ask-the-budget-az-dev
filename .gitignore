@@ -64,6 +64,9 @@ data/chunks/**
 !data/chunks/MANIFEST.md
 # Audit JSON outputs are reproducible — gitignore.
 data/audit/
+# Dev-machine shared-data root (LanceDB tables, pdfs, settings). Production
+# points JLBC_DATA_DIR at the office share; dev falls back to here.
+data/insight-data/
 
 *.tmp
 .tmp-*/
@@ -96,3 +99,5 @@ web/public/pdf.worker.min.mjs
 # these, but pin them explicitly so the webapp build output can never be staged.
 webapp/node_modules/
 webapp/dist/
+
+.youcoded/

@@ -49,6 +49,26 @@ Share writes exist only in the ingest worker, which the harness cannot
 reach through any tool, and all share-write code paths go through the
 single-writer lock module, which logs its caller.
 
+**New Invariant 8 — public-record documents only.** The corpus is
+solely for documents that are already public record: baseline books,
+appropriations reports, fiscal notes, bills, executive budget requests,
+agency budget requests, and Annual Financial Reports (AFRs).
+Confidential state data must never be uploaded: AI Mode transmits
+retrieved chunk text to external inference providers
+(OpenRouter/custom endpoints), whose data-retention practices are
+inconsistent and likely insufficient for confidential state data.
+Enforcement is by clear communication at every ingest point, not
+detection (the app cannot reliably classify confidentiality):
+(a) the upload page carries an always-visible notice stating the
+public-record-only rule and the reason, with the intended document
+types listed; (b) the upload metadata form includes a required
+"This document is public record" checkbox — a deliberate moment, not
+buried fine print; (c) the quickstart/handoff doc and the admin page's
+key explainer repeat the rule. The notice also states the flip side
+honestly: search-only mode never sends document content anywhere, but
+uploading confidential material still places it on the shared drive
+and exposes it to anyone using AI Mode later.
+
 ## Decisions (settled during brainstorming)
 
 | # | Decision | Rationale |
@@ -56,7 +76,7 @@ single-writer lock module, which logs its caller.
 | S1 | **Unified single-process Python app** (Approach A). FastAPI serves static React UI, retrieval, harness, ingest queue, scraper. | One bundle, one process, smallest failure surface on machines nobody can debug. Retrieval + eval + MinerU are already Python. |
 | S2 | **Drop MCP entirely.** Tools become in-process Python functions. No rebuild on the 2026-07-28 spec. | YouCoded's own native harness uses no MCP; protocol layer between same-process components is pure overhead. Tool *logic* survives verbatim. |
 | S3 | **Drop YouCoded.** Harness is a clean-room Python port of the native-model loop pattern (system prompt + tool loop + streaming against an OpenAI-compatible API), talking to **OpenRouter**. | Removes the ws://9900 bridge, PTY, per-conversation `.mcp.json`, and the hard dependency on a running desktop app. |
-| S4 | **Local-only retrieval stack; Voyage dropped.** Bundled ONNX models on CPU: embeddings (candidates: EmbeddingGemma-308M, Qwen3-Embedding-0.6B, bge-small — eval picks), rerank (mxbai-rerank-xsmall class). No dual-vector columns, no hosted-embedding upgrade path. | Hybrid BM25+RRF compresses the quality gap; recall@20 already 100%. Dual-stack machinery was the most complexity-adding "optional" feature. Eval-gated (G1 below); embedder stays behind an interface so a hosted rung could be re-added later if ever needed. |
+| S4 | **Local-only retrieval stack; Voyage dropped.** Bundled ONNX models on CPU: embeddings (candidates: EmbeddingGemma-308M, Qwen3-Embedding-0.6B, bge-small — eval picks), rerank (mxbai-rerank-xsmall class). No dual-vector columns, no hosted-embedding upgrade path. | Hybrid BM25+RRF compresses the quality gap; recall@20 already 100%. Dual-stack machinery was the most complexity-adding "optional" feature. Eval-gated (G1 below); embedder stays behind an interface so a hosted rung could be re-added later if ever needed. **2026-07-29 note:** OpenRouter now offers an OpenAI-compatible `/api/v1/embeddings` endpoint (multi-provider catalog incl. Qwen3-Embedding class). If a hosted embedding rung is ever added, it routes through the existing OpenRouter key — NOT a separate Voyage account. Local embeddings remain the mandatory zero-key floor regardless; rerank is not available via OpenRouter and stays local-only. |
 | S5 | **LanceDB** replaces Postgres + pgvector + ParadeDB. One embedded, file-based DB on the share: vectors + native BM25 FTS (tantivy family, same as ParadeDB) + metadata filtering. | No server, no Docker, works on SMB, corpus ≪ 1 GB. |
 | S6 | **Shared-drive data layout with single-writer locking.** Unlimited concurrent readers; writes (ingest/refresh) take `ingest.lock` with heartbeat-based stale-lock expiry. | Uploads are rare events; single-writer is a non-constraint in practice. |
 | S7 | **Install = unzip to `%LOCALAPPDATA%`; bundled python.org embeddable runtime + prebuilt site-packages** (not PyInstaller). All ONNX/MinerU model weights pre-bundled; first run downloads nothing. | PyInstaller is fragile with torch/MinerU-class deps. No admin rights needed. Offline-first. |
@@ -65,8 +85,13 @@ single-writer lock module, which logs its caller.
 | S10 | **Fiscal notes become a full RAG corpus** with in-app refresh: port the mockup's `fiscal-notes-build/build.py` scraping into the app; refresh diffs azjlbc.gov sessions, downloads only new note PDFs, feeds the normal ingest queue. | Stays current across sessions with zero maintenance; scraper breakage degrades to last-good corpus, loudly but harmlessly. |
 | S11 | **Per-user cost tracking + soft-gated admin surface.** Users are Windows usernames. Every OpenRouter call logs exact billed cost (OpenRouter usage accounting) to a ledger on the share. Users see only their own total. One designated admin (username in `settings.json`, transferable) gets an Admin page. | Non-technical admin manages the key and sees costs without advertising individual spend office-wide. Explicitly *not* real security — accepted trade. |
 | S12 | **Port, don't redesign (UI).** Home/search/fiscal-notes reuse the JLBC Website Revamp's actual structure and design tokens; AI Mode reuses the existing ask-the-budget chat surfaces. New-build UI (upload, Settings, Admin) is assembled from mockup components. Where chat renders inside mockup-styled pages, chat components adopt the mockup's navy token values — structure from each source, one palette. | Both UIs are already validated; novelty is risk. |
-| S13 | **Model selection is admin-only**: a short curated model list (with per-model cost hints) on the Admin page sets the app-wide default. Users never pick models. | One less concept for users; predictable costs. |
+| S13 | **Model selection is admin-only, live-validated.** Analysts never see model names — they choose a *tier* (S16); the admin assigns a model to each tier from a shipped recommendation list (analyst-readable descriptions, per-tier). The list is validated against OpenRouter's live model catalog (`/api/v1/models`) whenever the admin page opens: live pricing shown, vanished models greyed out. Catalog and picker filter to **tool-calling-capable models only** (the harness requires function calling). An "advanced" searchable full-catalog picker sits below the recommendations. If the configured model starts failing (deprecated/outage), the app auto-falls-back down the recommendation order and posts an admin-page notice — AI Mode degrades to a different model, never to a dead feature. | One less concept for users; predictable costs; a hardcoded-only list would rot and break AI Mode with no maintainer. |
 | S14 | **Dropped ideas** (considered, rejected): rebuilding the MCP layer on spec 2026-07-28; an MCP shim for staff to use personal claude.ai/ChatGPT subscriptions (web clients require a publicly reachable endpoint — tunnels fail the zero-maintenance and IT-policy tests; user opted to drop the desktop-app variant too); Electron shell; Voyage as an optional upgrade rung. | Recorded so future sessions don't re-litigate. |
+| S15 | **Custom-provider escape hatch (admin-enabled).** Admin page "Provider" panel: **OpenRouter (default, recommended)** vs **Custom endpoint** (base URL + API key + exact model ID — any OpenAI-compatible chat-completions endpoint: direct OpenAI/Anthropic/Google compat endpoints, Azure/Bedrock-style gateways, local Ollama on future hardware). The custom pane explains in plain language why someone would use it (state-approved endpoint, OpenRouter terms change, local models) and states the caveats **in the UI itself**: per-user cost tracking degrades from exact dollars to token counts; no model catalog/recommendations/live pricing; the model must support tool calling or AI Mode fails; self-support territory. One click returns to OpenRouter. Harness-side this is only a configurable `base_url`/`api_key`/`model` triple — the protocol is identical. | Future-proofs the sole-key decision (S4/S13) without adding a second supported vendor; costs ~3 lines in the harness plus one admin panel. Added 2026-07-29 at user request. |
+| S16 | **Two analyst-facing AI tiers: "Standard" (default) and "Deep Research".** Each tier = an admin-assigned model (S13) **plus a harness effort budget**: Standard keeps the tight progressive-retrieval posture (low step cap ~15, first-call cap active) for quick lookups; Deep Research raises the step cap (~50) and permits `deep_dive` retrieval for broad multi-year sweeps. Every **new** inquiry defaults to Standard; the tier toggle sits on the AI Mode input with plain copy: Deep Research "for open-ended, historical, broad-scope research — e.g. 'a comprehensive accounting of appropriated vs actual expenditures for all border-enforcement programs across the past 10 fiscal years'"; Standard "for quick lookups — e.g. 'how much did we spend on X last year?' or 'did we appropriate money for xyz in FY 2020?'". Ship-time model guidance (illustrative, finalized against the live catalog at implementation): Deep Research = a cost-effective frontier-class open model (e.g. Kimi K3-class); Standard = best opus-level-performance-per-dollar open model (e.g. Qwen-class). Deliberately NOT first-party flagship models (Fable/Opus/GPT) — open-weight alternatives deliver most of the quality at a fraction of the per-token cost. The usage ledger records the tier per call so the admin sees cost by tier. | Cost management that survives Destin's departure: the default path is cheap, the expensive path is a deliberate, explained choice, and the admin can retune either tier's model without touching code. Added 2026-07-29 at user request. |
+| S17 | **Corpus backup + one-click restore.** Before every ingest/refresh write, the app snapshots the LanceDB folder (zip to `<data_dir>\backups\`, rotating last 5). Admin page gets a "Restore last good corpus" action listing snapshots by date with plain-language confirmation. Restore takes the ingest lock like any writer. | The corpus is the app's crown jewels on one shared folder with no technical successor; <1 GB makes snapshots nearly free, and the worst data disaster becomes a two-click recovery. Added 2026-07-29. |
+| S18 | **Share-relocation repair flow.** Each install stores the shared-data path in per-machine config (`%LOCALAPPDATA%`), not hardcoded. When the share is unreachable at launch or mid-session, the app shows a repair screen — "Can't find the shared data folder; browse to its new location" — with a folder picker that validates the target (LanceDB present) before accepting. | Over a multi-year horizon IT WILL migrate file servers; without this every install dies simultaneously with no fix path a non-technical user can execute. Added 2026-07-29. |
+| S19 | **Per-user spend limits (enforced) + org-wide protections.** Admin sets an optional default per-user monthly dollar limit, per-user overrides, and an exemption list (e.g. the director) — all on the admin page. A user at their limit gets AI Mode disabled until month rollover with a clear in-UI message ("You've reached your monthly AI usage limit ($X) — ask <admin> to raise it"); a warning shows at 80%; search is never affected. The org-wide soft budget banner stays warn-only (S11). Enforcement uses the exact-cost ledger, so limits are active only on OpenRouter; on a custom endpoint (S15) the limits panel shows "inactive — exact costs unavailable" to the admin. The quickstart + admin key explainer also instruct setting a hard monthly credit limit on the OpenRouter dashboard when creating the key — true org-wide enforcement at the provider, zero code. | Real cost control that survives handoff: per-user fairness in-app, catastrophic-spend protection at the provider. Added 2026-07-29 at user request. |
 
 ## Architecture
 
@@ -103,6 +128,10 @@ JLBC Insight (working name) — one Python process
 - Conversations are per-user, per-machine local — never on the share.
 - Migration: one-time script (run by Destin) exports Postgres → re-embeds
   locally → writes LanceDB. Eval harness is the acceptance gate.
+  The source PDFs themselves (currently gitignored in
+  `data/cached-pdfs/` on Destin's machine) are copied to
+  `<data_dir>\pdfs\` as an explicit Plan 3 task — the viewer depends
+  on them and they are not covered by the chunk migration.
 
 ### Retrieval specifics
 
@@ -115,11 +144,22 @@ JLBC Insight (working name) — one Python process
   metadata for the coordinator's filtered similarity triage.
 - Embedder/reranker sit behind interfaces; swapping models is a config +
   re-embed operation, not a code change.
+- Recorded future option (not built): when an OpenRouter key is present,
+  a cheap LLM can re-order the top ~20 search-mode results via the
+  existing sole key (fractions of a cent per query) — the sanctioned
+  upgrade path if search-mode ordering ever bothers real users, given
+  local rerankers cap at ~62–69% recall@5 and OpenRouter offers no
+  rerank endpoint.
 
 ### Ingest specifics
 
 - Upload page: drag-and-drop PDF/DOCX, corpus choice, small metadata form
-  pre-filled by filename/first-page heuristics.
+  pre-filled by filename/first-page heuristics. Carries the Invariant 8
+  public-record-only notice and the required "This document is public
+  record" checkbox. Duplicate detection by content hash: re-uploading
+  an existing document shows "already in the corpus (added <date> by
+  <user>)" with an explicit re-process option instead of silently
+  double-ingesting.
 - Queue states: `queued → extracting → chunking → embedding → live`, with
   per-doc progress in the GUI; journal persisted in LanceDB so restarts
   resume. Failed docs quarantine with reason + retry button; the queue
@@ -131,18 +171,30 @@ JLBC Insight (working name) — one Python process
 
 ### Cost tracking / admin
 
-- Ledger row: username, timestamp, model, tokens in/out, billed cost.
+- Ledger row: username, timestamp, tier (S16), model, tokens in/out,
+  billed cost (billed cost is null on custom endpoints — S15 — and the
+  UI labels those totals "tokens; exact dollar costs unavailable on
+  custom endpoints").
 - Settings page (everyone): own monthly usage; AI Mode availability
   explainer.
-- Admin page (admin username only): monthly/per-user/per-model costs;
-  key add/replace/test; optional soft monthly budget → warning banner
-  (never a cutoff); corpus health + queue; admin transfer; log locations.
+- Admin page (admin username only): monthly/per-user/per-model/per-tier
+  costs; key add/replace/test; the S15 Provider panel (OpenRouter
+  default vs custom endpoint, caveats stated in the UI); the S13/S16
+  model pickers — one slot per tier (Standard / Deep Research), each
+  with live-validated recommendations + tool-calling-filtered
+  full-catalog search; the S19 spend-limits panel (default per-user
+  monthly limit, per-user overrides, exemption list); optional
+  org-wide soft monthly budget → warning banner (warn-only; per-user
+  limits are the enforced layer); corpus health + queue; the S17
+  "Restore last good corpus" action; admin transfer; log locations.
 
 ### Error handling
 
 - Launch health ladder (server → share → DB → models), each failure a
   plain-English full-page message; never a stack trace.
 - Share offline: banner + auto-retry; atomic writes mean no corruption.
+  Persistently unreachable share → the S18 repair screen (browse to
+  the data folder's new location) instead of a dead app.
 - OpenRouter failure: in-chat error + retry; key-invalid notices go to the
   admin page; AI Mode failures never affect search.
 - Scraper failure: loud error, corpus stays last-good.
@@ -164,18 +216,35 @@ web component tests (citation extraction, chip dedup, PDF matching).
 Retired: WS/YouCoded-provider tests, MCP server vitest.
 New: harness loop vs mocked OpenRouter (tool loop, retry, truncation,
 read-only tool-surface invariant), queue state machine (crash-resume, lock
-contention), cost ledger, scraper fixtures, launcher smoke.
+contention), cost ledger + per-user limit enforcement, scraper fixtures,
+backup/restore round-trip, launcher smoke. Plan 3 adds a small
+fiscal-note eval set (~10–15 coordinator-triage-shaped queries:
+"find prior notes similar to this request") so the fiscal-note corpus
+has a measured quality bar, not an assumed one.
 
 Hard gates before handoff:
 
-- **G1 (quality)**: local stack passes the 34-query eval at an agreed bar
-  (expectation: recall@5 in the low 80s, recall@20 ≈ 100%). If it craters
-  (< ~70 recall@5 after trying ≥ 2 candidate embedders), revisit S4.
+- **G1 (quality)** *(amended 2026-07-29 after the original recall@5 gate
+  triggered its stop rule)*: local stack passes the 34-query eval at
+  **recall@15 ≥ 90% and recall@20 ≥ 95%**. Rationale for the reframe:
+  `retrieve()` returns 15 chunks and AI Mode reads all of them, so
+  top-5 ordering is nearly irrelevant to answer quality; the local
+  reranker capability gap (best candidates: 62–69% recall@5 vs the
+  original 80% bar, with the only stronger model at ~17 s/query on
+  office hardware) is an ordering-polish problem, not a
+  retrieval-coverage problem (correct chunk in-pool 100%, top-20
+  96.6% with arctic-embed-m). **recall@5 remains a tracked, reported
+  metric in every eval run** so the gap stays visible if better local
+  rerankers appear. Default embedder: arctic-embed-m (768-dim).
 - **G2 (migration)**: full corpus migrated; spot-checked citations resolve
   to correct PDF pages/bboxes.
 - **G3 (cold start)**: someone who is not Destin installs from a zip on a
   real JLBC machine using a one-page quickstart — search, upload, and an
-  AI Mode chat all work without narration.
+  AI Mode chat all work without narration. Includes a **search-mode
+  findability check** (added 2026-07-29, standing in for the retired
+  recall@5 gate): a human runs ~10 real queries on the search page and
+  confirms the right document is findable in the first screen of
+  grouped results.
 
 ## Open items (deliberately deferred to the implementation plan)
 

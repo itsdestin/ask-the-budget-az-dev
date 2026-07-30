@@ -49,9 +49,9 @@ class RetrievedChunk:
     """One row returned by a retrieval helper.
 
     Score semantics depend on the producer:
-    - BM25: ParadeDB BM25 score (positive, unbounded; higher = better)
+    - BM25: LanceDB native FTS BM25 score (positive, unbounded; higher = better)
     - Dense: cosine similarity (1 - cosine distance), 0..1 range
-    - Reranker (WS6): Voyage rerank-2.5 score, 0..1
+    - Reranker: raw local cross-encoder logit (roughly -10..10, NOT 0..1)
 
     Downstream RRF (WS6) compares ranks across retrievers, not raw scores,
     so the score field is only used by the producer's own consumers

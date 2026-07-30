@@ -25,6 +25,80 @@ source. When something ships, update only this file.
 | Phase 1c — Synthesis + UI | 🟡 Substantially done | All user-visible surfaces shipped; 2026-05-19/20 dogfood-hardening pass landed Items 1-8 plus four follow-up fix waves; faithfulness verifier (WS3) + audit log (WS5) still not built |
 | Volume ingest | 🟡 Mostly done | FY25 + FY26 + FY27 across all 4 publishers; gaps: older FYs (FY24 and back), FY26 Approps Report, FY27 Approps/Budget bill |
 | Phase 2 — Companion + verify-mode | 🔴 Not started | Defers until v1 demonstrates internal value |
+| Standalone consolidation — Plan 1 (storage + retrieval) | ✓ Shipped (2026-07-30) | Postgres/pgvector/ParadeDB → embedded LanceDB; Voyage → local ONNX models. See the section below |
+
+---
+
+## Standalone consolidation — Plan 1 shipped (2026-07-30)
+
+Spec: `docs/superpowers/specs/2026-07-29-standalone-consolidation-design.md`
+(decisions S4/S5). Plan: `docs/superpowers/plans/2026-07-29-standalone-plan-1-storage-retrieval.md`.
+
+- **Store:** new `store/` package — embedded LanceDB at `<data_dir>/lancedb`
+  (`JLBC_DATA_DIR` env override; dev default `data/insight-data/`, gitignored).
+  Vector search (cosine) + native Lance BM25 FTS + DataFusion filters, one
+  table per corpus (`budget_chunks` live, `fiscal_note_chunks` reserved for
+  Plan 3). No server, no Docker on the retrieval path.
+- **Models (local ONNX via fastembed, CPU):** embeddings
+  `snowflake/snowflake-arctic-embed-m` (768-dim, query-instruction prefix
+  applied query-side), reranker `Xenova/ms-marco-MiniLM-L-12-v2`. Fused
+  RRF pool lowered 50 → 20 so the rerank stage stays ≤ ~3s interactive
+  (measured 2.7s mean / 3.1s max at 20; 4.9s at 50).
+- **Score scale changed:** reranker scores are raw cross-encoder logits
+  (≈ −10..10), not Voyage's 0..1. No-results sentinel is
+  `NO_RESULTS_TOP_SCORE = -1e9` (0.0 would outrank a genuinely-bad hit).
+  Refusal threshold recalibrated 0.65 → **1.9** in
+  `mcp-server/system-prompt.md` (sweep: precision 0.67 / recall 0.40 /
+  pass-rate 0.97).
+- **Gate G1 — passed as amended.** The original gate (recall@5 ≥ 0.80)
+  was missed by both local embedder candidates (best 0.69–0.72; every
+  local cross-encoder ranks worse than Voyage rerank-2.5) and the
+  plan's stop rule fired. Destin reframed G1 mid-execution (spec commit
+  `835900f`): **recall@15 ≥ 90% and recall@20 ≥ 95%**, with recall@5
+  tracked and reported in every run so the gap stays visible. Final
+  numbers: recall@5 72.41%, recall@15 96.55%, recall@20 100%, latency
+  p95 ~3.0s (Voyage baseline: 86% / — / 100%, p95 2.6s). **Future
+  sessions: the recall@5 gap vs the Voyage baseline is a known,
+  accepted trade — do not rediscover it as a regression.** The consuming
+  model reads all 15 returned chunks, which is what the amended gate
+  measures.
+- **Migration:** `scripts/migrate_to_lancedb.py` (one-time; re-runnable;
+  `--docs-only` refreshes metadata without the ~50-min re-embed).
+  Chunk_ids preserved verbatim; eval ground truth unchanged. G2 spot
+  checks: exact chunk-id parity, 60-row full-column diff clean,
+  provenance (page+bbox / source_anchor) intact corpus-wide.
+- **Sidecar (`retrieval/api.py`):** same endpoints/shapes on LanceDB —
+  no `VOYAGE_API_KEY`/`DATABASE_URL`; preflight = data-dir writable +
+  corpus non-empty; `/health` reports `corpus_chunks`,
+  `documents_metadata`, and returns 503 `degraded` with the real error
+  when the store is unreachable. `top_k` validates ≥ 1 (422).
+- **documents.json:** per-doc metadata sidecar (title, source_format,
+  source_blob_path, source_url) written by the migration next to
+  `lancedb/`. This is what lets the web PDF viewer open sources; if it's
+  missing, `/health` shows `documents_metadata: 0` and
+  `migrate_to_lancedb.py --docs-only` regenerates it in seconds. Titles
+  fall back to a doc_id humanizer when absent.
+- **Eval harness:** now computes recall@15 alongside 5/20;
+  `calibrate_refusal.py` derives its sweep grid from the observed score
+  distribution (survives future model swaps); a crashed retrieve can no
+  longer masquerade as a confident refusal.
+- **Still Postgres/Docker:** ingest only (until Plan 3). Legacy modules
+  (`retrieval/bm25.py`, `retrieval/dense.py`, `retrieval/rerank.py`,
+  `db/`) stay in-tree unused; removal is Plan 5.
+- **Known follow-ups:** web PDF route can't distinguish "metadata
+  missing" from "actually DOCX" (415 either way — Plan 2 web-side fix);
+  lancedb `table_names()` deprecation (pagination-shaped `list_tables()`
+  migration pending); stale data-file versions accumulate after
+  `optimize()` (`cleanup_old_versions` not exposed — matters for the SMB
+  share); ingest-side title quality is poor for a few docs ("GOVERNOR
+  FY2027 fy2027") — Plan 3; expose fastembed `parallel=` for faster bulk
+  re-embeds — Plan 3; PRE-EXISTING test-isolation debt (predates Plan 1,
+  verified on pre-merge master): when `.env.local` exists, dotenv loading
+  during the api tests leaks `DATABASE_URL` into the process env, which
+  un-skips the legacy Postgres suites (test_connection/test_loader/
+  test_embeddings) mid-run and they fail with UndefinedTable against a
+  schema they don't own — run suites without `.env.local` (fresh-clone
+  behavior) or fix the skip gates to snapshot env at collection time.
 
 ---
 
@@ -193,13 +267,21 @@ no submodules.
 
 ### What's tracked vs not
 - **Tracked:** all source, the MinerU manifests, the JLBC primer, agency/fund catalogs, raw DOCX user uploads (samples/raw-docx/), test fixtures
-- **Gitignored:** `node_modules/`, `.venv/`, `db/data/` (Postgres volume), `data/cached-pdfs/`, `data/extractor-output/`, `data/chunks/*` (except MANIFEST.md), `.env.local`, build outputs
+- **Gitignored:** `node_modules/`, `.venv/`, `db/data/` (Postgres volume), `data/cached-pdfs/`, `data/extractor-output/`, `data/chunks/*` (except MANIFEST.md), `data/insight-data/` (LanceDB corpus + documents.json), `.env.local`, build outputs
 
 ### What must travel for a fresh device
-1. **`.env.local`** — Voyage API key (paid; not in git)
-2. **The Postgres data** — `db/data/` directory holds every chunk + embedding. Two paths:
-   - **Fast:** copy `db/data/` from old machine, then `docker compose up -d`. Live in seconds.
-   - **Slow:** re-run the ingest pipeline against PDFs. Costs Voyage API + several hours.
+1. **The LanceDB corpus** — copy the whole `data/insight-data/` directory
+   (the `lancedb/` folder AND `documents.json` — the sidecar is what lets
+   the PDF viewer locate sources; without it search still works but PDFs
+   won't open, visible as `documents_metadata: 0` on `/health`). Retrieval
+   is then live with zero external services — no Docker, no keys.
+2. **`data/cached-pdfs/`** — the PDFs themselves (the viewer streams from
+   here; re-downloadable from public URLs if lost).
+3. **Ingest-only (until Plan 3):** `.env.local` (Voyage key) + the
+   Postgres volume `db/data/` — needed only to ingest NEW documents or
+   re-run the migration. Retrieval no longer touches either.
+   - Fast: copy `db/data/`, `docker compose up -d` (from `db/`).
+   - Slow: re-run ingest against PDFs (Voyage API + hours).
 
 See [README.md → Moving to a new device](README.md#moving-to-a-new-device) for the exact commands.
 
