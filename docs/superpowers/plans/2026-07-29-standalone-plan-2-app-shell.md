@@ -81,9 +81,13 @@ the final shape. Final behavior:
   `reportFamilies.ts`; one format → direct link; none → no card).
   NO publisher pills, NO taglines/meta lines, NO relevance numbers or bars
   (all removed at Destin's direction).
-- **Filters**: publisher chips + curated always-visible type buckets (slug
-  families) + the mockup's FY `select.fyear` dropdown. No chip counts until a
-  facets endpoint exists.
+- **Filters**: a dropdown rail (Destin's 2026-07-30 design round, option E2b) —
+  three trigger pills (Publisher / Type / Fiscal year) opening themed menus
+  styled from the fiscal-notes sort-menu recipes. Multi-select rows with
+  checkbox marks (menu stays open); year is single-select radio rows with
+  "All years". A trigger with selections tints gold and carries a plain
+  parenthetical count ("Type (2)") — no chips, no badges. No option counts
+  until a facets endpoint exists.
 - **Provider**: startup probe picks LanceSearchProvider (real corpus) or the
   stub; mid-request failures surface as JSON 503 with the real cause.
 

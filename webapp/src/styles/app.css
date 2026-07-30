@@ -252,18 +252,36 @@ nav.primary{flex:1 1 auto;display:flex;flex-wrap:nowrap;align-items:center;justi
 .page-search .clr-x.show{display:inline-flex;}
 
 /* Filter chip strip inside the search card. */
-/* Labeled grid, one row per dimension (Destin 2026-07-30): label column left,
-   that dimension's chips beside it — the mockup's single wrapped strip let
-   labels land mid-row once the chips wrapped. Values reuse the strip's own
-   (8px chip gap, 14px top padding, the border-top divider). */
-.page-search .filters{display:grid;grid-template-columns:auto 1fr;align-items:center;gap:10px 14px;margin-top:16px;padding-top:14px;border-top:1px solid var(--line);}
-.page-search .filters .fgroup{display:flex;flex-wrap:wrap;align-items:center;gap:8px;min-width:0;}
-.page-search .filters .flabel{font-size:11px;font-weight:800;text-transform:uppercase;letter-spacing:.09em;color:var(--ink-3);margin-right:2px;}
+/* ===== filter dropdown rail (Destin's 2026-07-30 design round: option E2b +
+   parenthetical counts — see the "Filter strip alternatives" artifact). Three
+   trigger pills, each opening a themed menu. The trigger recipe is the
+   fiscal-notes sort menu's `.sortbtn`; the panel and row recipes are its
+   `.sortmenu`/`.sortopt` (all verbatim mockup CSS re-scoped here). The
+   checkbox/radio mark is the one new drawing, built from existing tokens. */
+.page-search .filters{display:flex;flex-wrap:wrap;align-items:center;gap:8px;margin-top:16px;padding-top:14px;border-top:1px solid var(--line);}
+.page-search .fctl{position:relative;}
+.page-search .fbtn{display:inline-flex;align-items:center;gap:7px;cursor:pointer;font-family:inherit;font-size:12.5px;font-weight:800;color:var(--ink-2);background:var(--canvas);border:1.5px solid var(--line);border-radius:var(--r-pill);padding:6px 13px;white-space:nowrap;transition:.14s;}
+.page-search .fbtn:hover{border-color:var(--az-gold);color:var(--az-gold-d);}
+/* A trigger with selections tints gold and its text carries the plain "(N)" —
+   no badge, no chips (both rejected in the design round). */
+.page-search .fbtn.has{background:var(--az-gold-100);border-color:var(--az-gold);color:var(--az-gold-d);}
+.page-search .fbtn .chev{width:10px;height:6px;opacity:.7;transition:transform .2s;}
+.page-search .fbtn[aria-expanded="true"] .chev{transform:rotate(180deg);}
+.page-search .fmenu{position:absolute;top:100%;left:0;margin-top:6px;min-width:228px;background:#fff;border:1px solid var(--line);border-radius:var(--r-md);box-shadow:var(--shadow);padding:6px;z-index:30;}
+.page-search .fopt{display:flex;align-items:center;gap:10px;width:100%;text-align:left;font-family:inherit;font-size:13.5px;font-weight:700;color:var(--ink-2);padding:9px 12px;border-radius:var(--r-sm);cursor:pointer;white-space:nowrap;background:transparent;border:0;}
+.page-search .fopt:hover{background:var(--canvas);color:var(--navy);}
+.page-search .fopt.on{background:var(--az-gold-100);color:var(--az-gold-d);}
+/* Multi-select checkbox mark (square) / single-select radio mark (round). */
+.page-search .fopt .ck{flex:0 0 16px;width:16px;height:16px;border-radius:5px;border:1.5px solid var(--line);display:grid;place-items:center;background:#fff;}
+.page-search .fopt .ck.rd{border-radius:999px;}
+.page-search .fopt.on .ck{border-color:var(--az-gold);background:var(--az-gold);}
+.page-search .fopt .ck svg{width:10px;height:10px;color:#fff;opacity:0;}
+.page-search .fopt.on .ck svg{opacity:1;}
+/* `.fchip` stays: the error state's Retry button wears it (the mockup's small
+   inline button). The old chip STRIP and `select.fyear` are gone — replaced
+   by this rail. */
 .page-search .fchip{font-family:inherit;font-size:12.5px;font-weight:700;color:var(--ink-2);background:var(--canvas);border:1.5px solid var(--line);border-radius:var(--r-pill);padding:5px 12px;cursor:pointer;transition:background .13s,border-color .13s,color .13s;}
 .page-search .fchip:hover{border-color:var(--az-gold);color:var(--az-gold-d);}
-.page-search .fchip.on{background:var(--az-gold);border-color:var(--az-gold);color:#fff;}
-/* The mockup's fiscal-year dropdown (`select.fyear`), declarations verbatim. */
-.page-search select.fyear{font-family:inherit;font-size:12.5px;font-weight:700;color:var(--ink-2);background:var(--canvas);border:1.5px solid var(--line);border-radius:var(--r-pill);padding:5px 12px;cursor:pointer;}
 
 /* The mockup's `.grp-full` "Full report" action. Its base rule (shared with the
    unported `.grp-more` collapse button) and its gold override are merged here —
