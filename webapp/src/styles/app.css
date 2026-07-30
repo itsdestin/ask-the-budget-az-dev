@@ -252,7 +252,12 @@ nav.primary{flex:1 1 auto;display:flex;flex-wrap:nowrap;align-items:center;justi
 .page-search .clr-x.show{display:inline-flex;}
 
 /* Filter chip strip inside the search card. */
-.page-search .filters{display:flex;flex-wrap:wrap;align-items:center;gap:8px;margin-top:16px;padding-top:14px;border-top:1px solid var(--line);}
+/* Labeled grid, one row per dimension (Destin 2026-07-30): label column left,
+   that dimension's chips beside it — the mockup's single wrapped strip let
+   labels land mid-row once the chips wrapped. Values reuse the strip's own
+   (8px chip gap, 14px top padding, the border-top divider). */
+.page-search .filters{display:grid;grid-template-columns:auto 1fr;align-items:center;gap:10px 14px;margin-top:16px;padding-top:14px;border-top:1px solid var(--line);}
+.page-search .filters .fgroup{display:flex;flex-wrap:wrap;align-items:center;gap:8px;min-width:0;}
 .page-search .filters .flabel{font-size:11px;font-weight:800;text-transform:uppercase;letter-spacing:.09em;color:var(--ink-3);margin-right:2px;}
 .page-search .fchip{font-family:inherit;font-size:12.5px;font-weight:700;color:var(--ink-2);background:var(--canvas);border:1.5px solid var(--line);border-radius:var(--r-pill);padding:5px 12px;cursor:pointer;transition:background .13s,border-color .13s,color .13s;}
 .page-search .fchip:hover{border-color:var(--az-gold);color:var(--az-gold-d);}
@@ -270,7 +275,11 @@ nav.primary{flex:1 1 auto;display:flex;flex-wrap:nowrap;align-items:center;justi
 .page-search .grp-full:hover{background:var(--az-gold-d);color:#fff;text-decoration:none;}
 
 /* Status line under the card (loading / counts / error). */
-.page-search .search-status{max-width:760px;margin:16px auto 0;font-size:13.5px;font-weight:700;color:var(--ink-3);min-height:20px;text-align:center;}
+/* Tightened (Destin 2026-07-30): since the counts moved into the Results pill
+   this line is usually EMPTY, and the mockup's 16px + 20px + 22px stack read
+   as a hole between the two cards. 8px + 16px + 12px keeps the line's slot
+   (no layout jump when "Searching…"/errors appear) at half the height. */
+.page-search .search-status{max-width:760px;margin:8px auto 0;font-size:13.5px;font-weight:700;color:var(--ink-3);min-height:16px;text-align:center;}
 .page-search .search-status .err{color:var(--az-red);}
 
 /* New rule: the "stub data" flag. The mockup has no fake-data state to copy, so
@@ -287,9 +296,9 @@ nav.primary{flex:1 1 auto;display:flex;flex-wrap:nowrap;align-items:center;justi
 .page-search .card-head{position:relative;}
 .page-search .card-head::after{content:"";position:absolute;left:20px;right:20px;bottom:0;height:2px;border-radius:999px;background:var(--az-gold-100);}
 /* The mockup spaces its cards with `.card + .card{margin-top:var(--gap)}`, which
-   can't fire here because the status line sits between the two cards. Same value,
-   re-hung on the selector that does match. */
-.page-search .search-status + .card{margin-top:var(--gap);}
+   can't fire here because the status line sits between the two cards. Tightened
+   from var(--gap) alongside the status-line shrink above. */
+.page-search .search-status + .card{margin-top:12px;}
 .page-search .card .head-row{display:flex;align-items:center;gap:12px;padding:20px 24px 12px;}
 .page-search .card .head-row .ic{width:40px;height:40px;border-radius:13px;display:grid;place-items:center;flex:0 0 40px;background:var(--az-gold-100);color:var(--az-gold-d);}
 /* The mockup sizes this one icon with width/height ATTRIBUTES on the <svg>
