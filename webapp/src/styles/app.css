@@ -39,6 +39,12 @@
 
 /* ===== base — verbatim from the mockup ===== */
 *{box-sizing:border-box;} html{scroll-behavior:smooth;}
+/* Added (Destin, 2026-07-29): the page must never pan left/right — a horizontal trackpad
+   swipe over empty space was dragging the whole window sideways. Every layout in this app
+   is width-contained (`.wrap` max-width 1140px, centered), so ANY horizontal document
+   scroll is a stray few-pixel overflow, never real content. `clip` forbids the axis
+   outright without creating a scroll container (unlike `hidden`). */
+html{overflow-x:clip;}
 body{margin:0;font-family:var(--font);color:var(--ink);background:var(--canvas);line-height:1.6;-webkit-font-smoothing:antialiased;}
 a{color:var(--navy);text-decoration:none;} a:hover{text-decoration:underline;}
 img{display:block;max-width:100%;} h1,h2,h3,h4{margin:0;line-height:1.2;}
@@ -410,6 +416,10 @@ nav.primary{flex:1 1 auto;display:flex;flex-wrap:nowrap;align-items:center;justi
    and riding in the `.fgrp`'s 8px right padding (margin-right:-8px) so the year rows keep
    their designed width instead of being squeezed narrower than the chamber control. */
 .page-fiscal-notes .yscroll{scrollbar-width:thin;scrollbar-color:var(--line) transparent;margin-right:-8px;}
+/* Vertical-only (Destin, 2026-07-29): `overflow-y:auto` alone silently computes the
+   x-axis to auto too, giving the list left/right "give"; and a horizontal swipe that the
+   list can't consume chains up and pans the page. Lock the axis and stop the chaining. */
+.page-fiscal-notes .yscroll{overflow-x:hidden;overscroll-behavior-x:none;}
 .page-fiscal-notes .yscroll::-webkit-scrollbar{width:8px;}
 .page-fiscal-notes .yscroll::-webkit-scrollbar-thumb{background:var(--line);border-radius:999px;}
 .page-fiscal-notes .yscroll::-webkit-scrollbar-track{background:transparent;}
