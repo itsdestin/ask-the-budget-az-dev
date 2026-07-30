@@ -423,10 +423,6 @@ nav.primary{flex:1 1 auto;display:flex;flex-wrap:nowrap;align-items:center;justi
 .page-fiscal-notes .yscroll::-webkit-scrollbar{width:8px;}
 .page-fiscal-notes .yscroll::-webkit-scrollbar-thumb{background:var(--line);border-radius:999px;}
 .page-fiscal-notes .yscroll::-webkit-scrollbar-track{background:transparent;}
-/* Destin's call (2026-07-29): show ~5 years by default, not the mockup's 330px (~8).
-   One `.frow` = ~16.8px line + 16px padding + 2px border ≈ 35px; 5 × 35 = 175, +3 so the
-   fifth row never clips on font-metric rounding. */
-.page-fiscal-notes .yscroll{max-height:178px;}
 .page-fiscal-notes .fnside .fgrp{padding:8px 8px 14px;}
 .page-fiscal-notes .fnside .fgrp+.fgrp{border-top:1px solid var(--line);}
 .page-fiscal-notes .fnside .flbl{font-size:11px;font-weight:800;text-transform:uppercase;letter-spacing:.08em;color:var(--ink-3);padding:6px 8px 8px;}
@@ -454,6 +450,11 @@ nav.primary{flex:1 1 auto;display:flex;flex-wrap:nowrap;align-items:center;justi
 .page-fiscal-notes .chseg{cursor:pointer;text-align:center;font-size:13px;font-weight:800;color:var(--ink-2);border-radius:var(--r-pill);padding:8px 4px;transition:.13s;}
 .page-fiscal-notes .chseg:hover{color:var(--az-gold-d);}
 .page-fiscal-notes .yscroll{max-height:330px;overflow-y:auto;padding-right:2px;}
+/* Destin's call (2026-07-29): show ~5 years, not the mockup's 330px (~9). MUST sit after
+   the verbatim rule above — same specificity, so source order decides, and a first
+   attempt placed earlier in the file silently lost to the 330px. One `.frow` ≈ 35px
+   (16.8px line + 16px padding + 2px border); 5 × 35 = 175, +3 for font-metric rounding. */
+.page-fiscal-notes .yscroll{max-height:178px;}
 .page-fiscal-notes .frow{display:flex;align-items:center;justify-content:space-between;gap:8px;cursor:pointer;font-size:14px;font-weight:700;color:var(--ink-2);border:1px solid transparent;border-radius:var(--r-md);padding:8px 12px;transition:.13s;}
 .page-fiscal-notes .frow:hover{background:var(--navy-100);color:var(--navy);}
 .page-fiscal-notes .frow-n{font-size:11px;font-weight:800;background:var(--canvas);border:1px solid var(--line);border-radius:var(--r-pill);padding:1px 8px;color:var(--ink-3);}
