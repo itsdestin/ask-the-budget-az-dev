@@ -50,6 +50,11 @@ class LiveRequest:
         self.probe_result: Any = None
         self.status: int | None = None
         self.chunks: list[bytes] = []
+        # Anything the app raised, re-raised on the TEST's thread by
+        # wait_started/wait_finished/hang_up. Without this a genuinely broken
+        # app-under-test surfaces as an empty probe result and a confusing
+        # assertion about cleanup, instead of the actual traceback.
+        self.error: BaseException | None = None
         self._first_chunk = threading.Event()
         self._hang_up = threading.Event()
         self._finished = threading.Event()
@@ -61,6 +66,8 @@ class LiveRequest:
 
         try:
             anyio.run(self._main)
+        except BaseException as err:  # noqa: BLE001 — re-raised on the caller
+            self.error = err
         finally:
             self._finished.set()
 
@@ -121,9 +128,32 @@ class LiveRequest:
         if self.probe is not None:
             self.probe_result = self.probe()
 
+    def _reraise(self) -> None:
+        if self.error is not None:
+            raise self.error
+
     def wait_started(self, timeout: float = 5) -> None:
-        assert self._first_chunk.wait(timeout), "no response body arrived"
+        deadline = threading.Event()  # only used for its wait() timer
+        while timeout > 0 and not self._first_chunk.is_set():
+            if self._finished.is_set():
+                break
+            deadline.wait(0.01)
+            timeout -= 0.01
+        self._reraise()
+        assert self._first_chunk.is_set(), "no response body arrived"
+
+    def wait_finished(self, timeout: float = 10) -> None:
+        """Wait for a response that ends on its OWN — no disconnect.
+
+        Distinct from hang_up because the two answer different questions:
+        hang_up asks "what happens when the browser goes away mid-stream",
+        this asks "what did the stream do once it was allowed to finish". Use
+        the wrong one and a disconnect truncates the very frames under test.
+        """
+        assert self._finished.wait(timeout), "the request never finished"
+        self._reraise()
 
     def hang_up(self, timeout: float = 10) -> None:
         self._hang_up.set()
         assert self._finished.wait(timeout), "the request never finished"
+        self._reraise()

@@ -47,6 +47,14 @@ router = APIRouter()
 # this process can run for a week. 40 is far above what one analyst opens in a
 # day and far below anything that matters for memory. Eviction is LRU over IDLE
 # conversations only — see ConversationRegistry.
+#
+# Coincidence worth knowing rather than rediscovering: 40 is also AnyIO's
+# default worker-thread count, and every in-flight SSE stream holds one of
+# those threads inside its blocking `next()`. So ~40 SIMULTANEOUS turns would
+# also be the point where unrelated requests start queueing behind them. Both
+# numbers sit far above one office's real load (the app is installed and
+# launched per machine), so neither is tuned — but if one is ever raised, look
+# at the other.
 MAX_CONVERSATIONS = 40
 
 # S16's analyst-facing copy, verbatim from the spec. It lives SERVER-side so
@@ -134,6 +142,9 @@ class _Conversation:
     # Which turn `busy` belongs to. Incremented by begin_turn; end_turn only
     # acts when handed the CURRENT token. See end_turn for why that matters.
     turn_token: int = 0
+    # The turn a stop was requested for but that had not started yet, so the
+    # interrupt could not stick. 0 = none pending. See request_stop.
+    pending_stop_token: int = 0
 
 
 class ConversationRegistry:
@@ -266,6 +277,50 @@ class ConversationRegistry:
             entry.busy = False
             entry.last_used_at = time.monotonic()
 
+    def request_stop(self, conversation_id: str) -> tuple[_Conversation, bool]:
+        """Mark a stop for whichever turn currently holds the conversation.
+
+        Returns the entry and whether a turn was actually running — read under
+        the lock, so the answer cannot be stale by the time the caller uses it.
+
+        THE RACE THIS EXISTS FOR: `begin_turn` marks the conversation busy and
+        the route returns straight away, but `HarnessSession.stream_turn` does
+        not clear its interrupt flag until Starlette first advances the
+        response body — after an HTTP round trip, an ASGI response-start and a
+        threadpool dispatch. A stop landing in that window sets a flag the turn
+        then wipes on its way in, and the turn runs on as though nobody pressed
+        anything: no error, no frame, no log line. Recording the turn's TOKEN
+        here lets `_turn_frames` re-apply the interrupt once the turn has
+        demonstrably started (see `_apply_pending_stop`), which closes the
+        window rather than narrowing it.
+        """
+        with self._lock:
+            entry = self._items.get(conversation_id)
+            if entry is None:
+                raise HTTPException(
+                    status_code=404,
+                    detail=(
+                        "That conversation is no longer open, so there is "
+                        "nothing to stop."
+                    ),
+                )
+            was_running = entry.busy
+            if was_running:
+                entry.pending_stop_token = entry.turn_token
+            return entry, was_running
+
+    def take_pending_stop(self, entry: _Conversation, token: int) -> bool:
+        """Consume a stop recorded for `token`, if there is one.
+
+        Token-scoped like `end_turn`: a stop recorded for a turn that has
+        already ended must never fire on the next question the analyst asks.
+        """
+        with self._lock:
+            if entry.pending_stop_token != token:
+                return False
+            entry.pending_stop_token = 0
+            return True
+
     def get(self, conversation_id: str) -> _Conversation | None:
         with self._lock:
             return self._items.get(conversation_id)
@@ -386,14 +441,47 @@ def _turn_frames(
     whose stream ended early keeps an assistant `tool_calls` message with no
     replies in its history and EVERY later turn 400s at the provider. One
     closed tab, one dead conversation.
+
+    `stream_turn(...)` is called INSIDE the `try` on purpose. It cannot raise
+    today — it is a generator function, so calling it runs no code — but
+    nothing in the `session_factory` seam enforces that, and this generator's
+    body runs after ASGI response-start: an exception here is re-raised by
+    Starlette before it reaches the background task, so if this `finally` were
+    not on the stack either, the conversation would be wedged `busy` for the
+    life of the process (permanently 409ing, and permanently holding one of
+    the MAX_CONVERSATIONS slots, since a busy conversation is never evicted).
     """
-    stream = entry.session.stream_turn(text, tier=tier)
+    stream = None
     try:
+        stream = entry.session.stream_turn(text, tier=tier)
         for frame in stream:
             yield _sse(frame)
+            # AFTER the first frame the session has provably passed its own
+            # `_interrupted.clear()`, so a stop that arrived too early to
+            # stick can now be re-applied and produce the designed abort
+            # (`user_interrupt` + a cancelled-tool back-fill) instead of
+            # vanishing. Cheap: one lock acquisition per frame, against a
+            # stream that is already crossing a socket.
+            _apply_pending_stop(registry, entry, token)
     finally:
-        stream.close()
+        # Guarded rather than a bare `stream.close()`: the seam does not
+        # oblige a session to hand back a generator, and a missing `close`
+        # must not mask whatever exception brought us here.
+        closer = getattr(stream, "close", None)
+        if closer is not None:
+            closer()
         registry.end_turn(entry, token)
+
+
+def _apply_pending_stop(
+    registry: ConversationRegistry, entry: _Conversation, token: int
+) -> None:
+    """Re-issue a stop that landed before this turn could hear it."""
+    if not registry.take_pending_stop(entry, token):
+        return
+    interrupt = getattr(entry.session, "interrupt", None)
+    if interrupt is not None:
+        interrupt()
 
 
 def _release_turn(
@@ -507,22 +595,25 @@ def stop_turn(conversation_id: str, request: Request) -> dict:
 
     Stopping an IDLE conversation is deliberately allowed rather than a 409:
     the flag is cleared at the start of every turn, so a stop that races the
-    end of an answer cannot poison the next question, and refusing it would
+    END of an answer cannot poison the next question, and refusing it would
     just hand the UI a failure to explain for pressing a button that did
-    nothing wrong. `stopped` reports whether a turn was actually running.
+    nothing wrong. The inverse race — a stop that arrives before the turn it
+    targets has started, which that same clear would swallow — is handled by
+    `ConversationRegistry.request_stop`, which records the turn's token so
+    `_turn_frames` can re-apply the interrupt once the turn is genuinely
+    running.
+
+    `stopped` reports whether a turn was actually running, read under the
+    registry lock so it cannot be stale by the time it is serialized.
     """
-    entry = _registry(request).get(conversation_id)
-    if entry is None:
-        raise HTTPException(
-            status_code=404,
-            detail=(
-                "That conversation is no longer open, so there is nothing to "
-                "stop."
-            ),
-        )
-    was_running = entry.busy
+    registry = _registry(request)
+    entry, was_running = registry.request_stop(conversation_id)
     interrupt = getattr(entry.session, "interrupt", None)
     if interrupt is not None:
+        # Outside the lock: `interrupt()` is the one HarnessSession method
+        # meant to be called from another thread, and holding the registry
+        # lock across a call into the session would put every other
+        # conversation behind it.
         interrupt()
     return {"stopped": was_running}
 

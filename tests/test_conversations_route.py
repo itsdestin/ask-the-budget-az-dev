@@ -315,6 +315,50 @@ def test_client_disconnect_closes_the_model_stream():
     ).status_code == 200
 
 
+class FailsToStartOnceSession:
+    """A session whose `stream_turn` raises SYNCHRONOUSLY the first time.
+
+    `HarnessSession.stream_turn` is a generator function, so today it cannot
+    do this — calling it runs no code. Nothing in the `session_factory` seam
+    enforces that, though, and the route must not depend on it: the raise
+    lands after ASGI response-start, so Starlette re-raises before it would
+    reach the background task, and if the generator's own `finally` is not on
+    the stack either, the conversation is wedged `busy` for the life of the
+    process — permanently 409ing AND permanently occupying one of the 40 slots
+    (a busy conversation is never evicted).
+    """
+
+    def __init__(self):
+        self.calls = 0
+        self.closed = False
+
+    def stream_turn(self, text, *, tier=None):
+        self.calls += 1
+        if self.calls == 1:
+            raise RuntimeError("stream_turn blew up before yielding anything")
+        return self._frames()
+
+    def _frames(self):
+        yield {"type": "_done", "stopReason": "end_turn", "finalAnswer": "ok",
+               "citations": [], "retrievedChunkIds": [], "usage": {"cost": None}}
+
+    def close(self):
+        self.closed = True
+
+
+def test_a_stream_that_never_starts_still_releases_the_conversation():
+    session = FailsToStartOnceSession()
+    app = build_app(session_factory=factory_for(session))
+    c = client_for(app)
+    cid = new_conversation(c)
+    c.post(f"/api/conversations/{cid}/messages", json={"text": "one"})
+    # The failure must not leave the conversation claimed: the next question
+    # gets through (a 409 here would mean it is wedged forever).
+    second = c.post(f"/api/conversations/{cid}/messages", json={"text": "two"})
+    assert second.status_code == 200, second.text
+    assert app.state.conversations.get(cid).busy is False
+
+
 def test_over_limit_user_gets_the_ledgers_exact_error_frame():
     # A $0 limit blocks before any provider call, so the REAL HarnessSession
     # runs here with no key, no network and no fake in sight.
@@ -384,6 +428,75 @@ def test_stop_on_an_idle_conversation_is_harmless():
     assert session.interrupted.is_set()
     assert c.post(f"/api/conversations/{cid}/messages",
                   json={"text": "hi"}).status_code == 200
+
+
+class RacingSession:
+    """Models the ONE thing about HarnessSession that makes stop racy: the
+    interrupt flag is cleared inside `stream_turn`, on the first advance —
+    which happens after the HTTP round trip that accepted the turn, an ASGI
+    response-start, and a threadpool dispatch. `gate` freezes the turn in
+    exactly that window so a test can land a stop inside it deterministically
+    instead of hoping the scheduler cooperates."""
+
+    def __init__(self):
+        self.gate = threading.Event()
+        self._interrupted = threading.Event()
+        self.saw_interrupt = threading.Event()
+        self.closed = False
+
+    def interrupt(self):
+        self._interrupted.set()
+
+    def close(self):
+        self.closed = True
+
+    def stream_turn(self, text, *, tier=None):
+        self.gate.wait(timeout=5)
+        # harness/session.py:416 — verbatim in effect.
+        self._interrupted.clear()
+        yield {"type": "user_message", "text": text}
+        for _ in range(20):
+            # harness/session.py checks the flag at the top of every step,
+            # i.e. after the first frame has already gone out.
+            if self._interrupted.is_set():
+                self.saw_interrupt.set()
+                yield {"type": "user_interrupt", "kind": "plain"}
+                break
+            yield {"type": "assistant_text_delta", "uuid": "u1", "text": "…"}
+            time.sleep(0.02)
+        yield {"type": "_done", "stopReason": "user_interrupt",
+               "finalAnswer": "", "citations": [], "retrievedChunkIds": [],
+               "usage": {"cost": None}}
+
+
+def test_a_stop_that_races_the_start_of_the_turn_is_not_lost():
+    """A stop landing between "turn accepted" and "turn actually started" used
+    to be wiped by the session's own `_interrupted.clear()`, and the turn ran
+    on as though nobody had pressed anything — no error, no frame, no log. The
+    existing stop tests both interrupt an ALREADY-RUNNING turn, so neither
+    covers this window."""
+    session = RacingSession()
+    app = build_app(session_factory=factory_for(session))
+    c = client_for(app)
+    cid = new_conversation(c)
+    turn = LiveRequest(
+        app, "POST", f"/api/conversations/{cid}/messages", {"text": "hi"}
+    )
+    # Wait for the route to have CLAIMED the turn; the session is still parked
+    # at the gate, so its clear() has provably not run yet.
+    registry = app.state.conversations
+    deadline = time.monotonic() + 5
+    while not registry.get(cid).busy and time.monotonic() < deadline:
+        time.sleep(0.01)
+    assert registry.get(cid).busy, "the turn was never accepted"
+
+    assert c.post(f"/api/conversations/{cid}/stop").json() == {"stopped": True}
+    session.gate.set()  # the turn starts now — and clears the flag
+    # wait_finished, NOT hang_up: a disconnect would truncate the stream after
+    # the first frame and the turn would never reach the step where it notices
+    # the interrupt, which is the whole thing under test.
+    turn.wait_finished()
+    assert session.saw_interrupt.is_set(), "the stop was swallowed by the turn"
 
 
 def test_stop_on_an_unknown_conversation_is_404():
