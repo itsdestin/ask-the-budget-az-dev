@@ -73,6 +73,19 @@ def test_restore_unknown_snapshot_raises(corpus):
         restore("lancedb-19700101T000000Z.zip")
 
 
+def test_snapshot_ignores_the_bulk_ingest_env_var(corpus, monkeypatch):
+    """`snapshot()` is a dumb primitive: asked for a snapshot, it makes one.
+
+    The bulk-mode policy (`JLBC_INGEST_SNAPSHOT=off`) lives in the ingest
+    worker, which decides *whether to call* this. Honouring the env var here
+    too would mean an admin clicking "Back up now" during a bulk run would
+    silently get nothing.
+    """
+    monkeypatch.setenv("JLBC_INGEST_SNAPSHOT", "off")
+    assert snapshot() is not None
+    assert list_snapshots()
+
+
 def test_restore_rejects_path_traversal(corpus):
     """`name` reaches this from an admin HTTP route in Plan 5."""
     snapshot()

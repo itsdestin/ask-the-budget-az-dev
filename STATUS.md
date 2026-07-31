@@ -509,6 +509,14 @@ As of 2026-07-31:
 - `eval/calibrate_refusal.py` and `eval/README.md` still tell operators to edit
   `mcp-server/system-prompt.md`; the threshold now lives in
   `harness/constants.py`.
+- **Bulk-ingest mode exists (`JLBC_INGEST_SNAPSHOT=off`, 2026-07-31)** — it
+  suppresses the per-document S17 snapshot for supervised backfills, because
+  zipping the whole corpus once per document is O(n²) (measured: ~54 MB zip
+  every ~40 s at 68 MB of corpus; projected 60–90 s/doc after the books).
+  Default is unchanged (`per-doc`) and only the literal `off` disables it. The
+  better long-term design is a per-BATCH snapshot — once per book edition /
+  fiscal-note session rather than per document — which keeps a restore point
+  without the quadratic cost.
 
 ---
 

@@ -14,6 +14,9 @@ import pytest
 
 from ingest.jobs import advance, load_job, new_job, save
 from ingest.worker import (
+    SNAPSHOT_ENV_VAR,
+    SNAPSHOT_OFF,
+    SNAPSHOT_PER_DOC,
     IngestWorker,
     JobCancelled,
     WorkerContext,
@@ -131,6 +134,70 @@ def test_run_job_reaches_live_and_is_searchable(job, ctx, data_dir):
 def test_write_phase_snapshots_before_touching_the_corpus(job, ctx):
     run_job(job, ctx)
     assert list_snapshots()  # S17: a restore point exists
+
+
+# --- bulk-ingest mode (JLBC_INGEST_SNAPSHOT) --------------------------------
+#
+# The whole point of these tests is that the DEFAULT never changes: a future
+# maintainer must not be able to lose S17 snapshot protection by accident.
+
+
+def test_snapshot_is_on_when_the_env_var_is_unset(job, ctx, monkeypatch):
+    """Default path — no env var at all — still snapshots every document."""
+    monkeypatch.delenv(SNAPSHOT_ENV_VAR, raising=False)
+    run_job(job, ctx)
+    assert list_snapshots()
+
+
+def test_snapshot_is_on_when_the_env_var_says_per_doc(job, ctx, monkeypatch):
+    monkeypatch.setenv(SNAPSHOT_ENV_VAR, SNAPSHOT_PER_DOC)
+    run_job(job, ctx)
+    assert list_snapshots()
+
+
+def test_snapshot_is_suppressed_when_the_env_var_says_off(job, ctx, monkeypatch):
+    """Bulk backfill: zipping a growing corpus once per document is O(n²)."""
+    monkeypatch.setenv(SNAPSHOT_ENV_VAR, SNAPSHOT_OFF)
+    run_job(job, ctx)
+    assert list_snapshots() == []
+    assert job.state == "live"                    # the ingest itself is unaffected
+    assert ctx.store.count("budget_chunks") > 0
+
+
+def test_an_unrecognised_env_value_keeps_snapshots_on(job, ctx, monkeypatch):
+    """Fail safe: only the exact word `off` may disable the safety net, so a
+    typo (`JLBC_INGEST_SNAPSHOT=false`) can't silently drop protection."""
+    monkeypatch.setenv(SNAPSHOT_ENV_VAR, "false")
+    run_job(job, ctx)
+    assert list_snapshots()
+
+
+def test_suppression_is_announced_once_per_document(job, ctx, monkeypatch, capsys):
+    monkeypatch.setenv(SNAPSHOT_ENV_VAR, SNAPSHOT_OFF)
+    run_job(job, ctx)
+    err = capsys.readouterr().err
+    assert "JLBC_INGEST_SNAPSHOT=off" in err
+    assert "snapshot suppressed" in err.lower()
+    assert "external archive" in err.lower()
+
+
+def test_suppression_is_announced_when_the_worker_starts(ctx, monkeypatch, capsys):
+    """Loud at startup too — the operator must know before the run, not after."""
+    monkeypatch.setenv(SNAPSHOT_ENV_VAR, SNAPSHOT_OFF)
+    worker = IngestWorker(ctx=ctx, poll_interval_s=0.01)
+    worker.start()
+    worker.stop()
+    err = capsys.readouterr().err
+    assert "JLBC_INGEST_SNAPSHOT=off" in err
+    assert "snapshot suppressed" in err.lower()
+
+
+def test_worker_start_is_silent_on_the_default_path(ctx, monkeypatch, capsys):
+    monkeypatch.delenv(SNAPSHOT_ENV_VAR, raising=False)
+    worker = IngestWorker(ctx=ctx, poll_interval_s=0.01)
+    worker.start()
+    worker.stop()
+    assert SNAPSHOT_ENV_VAR not in capsys.readouterr().err
 
 
 def test_chunk_text_is_embedded_as_a_document_not_a_query(job, ctx):
