@@ -14,8 +14,10 @@ share.
 from __future__ import annotations
 
 import json
+import sys
 import threading
 from datetime import datetime, timezone
+from pathlib import Path
 
 import pytest
 
@@ -24,6 +26,7 @@ from harness.ledger import (
     ARIZONA_TZ,
     LimitStatus,
     MonthUsage,
+    _load_msvcrt,
     check_limit,
     month_total,
     record_usage,
@@ -414,3 +417,177 @@ def test_check_limit_custom_provider_overrides_even_a_would_be_blocked_user():
 def test_check_limit_returns_limit_status_dataclass():
     status = check_limit("analyst1", _settings(), now=datetime(2026, 7, 1))
     assert isinstance(status, LimitStatus)
+
+
+# ---------------------------------------------------------------------------
+# Fix-review round 2
+# ---------------------------------------------------------------------------
+# Five gaps found by an independent quality review of the first pass:
+#   1. CRITICAL — a mis-encoded byte in a shard file crashed month_total
+#      (UnicodeDecodeError, a ValueError subclass, wasn't caught).
+#   2. The read-failure fallback failed open silently, conflating "no
+#      file yet" with "share unreadable" — the latter needs a log line.
+#   3. record_usage's failure contract (raises, doesn't swallow) was
+#      undocumented and untested.
+#   4. Summed cost_usd wasn't rounded, so a total that DISPLAYS as the
+#      limit could compare as narrowly under it.
+#   5. msvcrt=None degraded cross-process locking silently.
+
+
+def test_month_total_survives_a_mis_encoded_utf8_byte_in_a_line():
+    """The critical regression: a torn write (or a hand-edited row) can
+    leave one line with an invalid UTF-8 byte sequence. That must not
+    crash month_total for the whole file — it must be skipped exactly
+    like a malformed-JSON line, and every OTHER row must still count.
+    """
+    when = datetime(2026, 7, 1)
+    record_usage("analyst1", "standard", "m", 10, 10, 1.0, now=when)
+    path = _shard_path("2026-07")
+    with path.open("ab") as f:
+        f.write(b"\xff\xfe not valid utf-8 at all\n")
+    record_usage("analyst1", "standard", "m", 20, 20, 2.0, now=when)
+
+    usage = month_total("analyst1", now=when)  # must not raise
+    assert usage.rows == 2
+    assert usage.cost_usd == pytest.approx(3.0)
+
+
+def test_check_limit_survives_a_mis_encoded_utf8_byte_in_a_line():
+    """Same defect, exercised through the actual gate (check_limit),
+    which is what the review flagged as the real-world blast radius —
+    exempt and no-limit users still read the file to populate
+    `month_usd`, so they were exposed too, not just ratio-checked users.
+    """
+    when = datetime(2026, 7, 1)
+    path = _shard_path("2026-07")
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_bytes(b"\xff\xfe garbage\n")
+    settings = _settings(exempt_users=("analyst1",))
+    status = check_limit("analyst1", settings, now=when)  # must not raise
+    assert status.status == "allowed"
+
+
+def test_mis_encoded_line_is_logged_to_stderr(capsys):
+    when = datetime(2026, 7, 1)
+    path = _shard_path("2026-07")
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_bytes(b"\xff\xfe garbage\n")
+    month_total("analyst1", now=when)
+    err = capsys.readouterr().err
+    assert "utf-8" in err.lower() or "decode" in err.lower()
+
+
+def test_month_total_missing_shard_file_is_silent_not_an_error(capsys):
+    # "No usage yet" (the overwhelmingly common case — new month, new
+    # hire) must NOT print a warning; only a genuine read failure should.
+    usage = month_total("nobody", now=datetime(2026, 7, 1))
+    assert usage.rows == 0
+    assert capsys.readouterr().err == ""
+
+
+def test_month_total_unreadable_shard_fails_open_but_logs_to_stderr(
+    monkeypatch, capsys
+):
+    """A degraded/unreachable share must not lock every analyst out —
+    fail-open matches S19's "search is never affected" spirit for an
+    infrastructure blip — but unlike a missing file, this MUST be logged:
+    a silent false-"allowed" on a paid-key spend gate is a blind spot an
+    admin needs a signal for.
+    """
+    when = datetime(2026, 7, 1)
+    record_usage("analyst1", "standard", "m", 1, 1, 5.0, now=when)
+    path = _shard_path("2026-07")
+    real_read_bytes = Path.read_bytes
+
+    def _boom(self, *args, **kwargs):
+        if self == path:
+            raise PermissionError(13, "Permission denied")
+        return real_read_bytes(self, *args, **kwargs)
+
+    monkeypatch.setattr(Path, "read_bytes", _boom)
+
+    usage = month_total("analyst1", now=when)  # must not raise
+    assert usage.rows == 0
+    assert usage.cost_usd == 0.0
+    err = capsys.readouterr().err
+    assert "unreadable" in err.lower() or "permission" in err.lower()
+
+
+def test_check_limit_fails_open_but_logs_when_share_is_unreadable(
+    monkeypatch, capsys
+):
+    when = datetime(2026, 7, 1)
+    # This usage would normally BLOCK the user outright.
+    record_usage("analyst1", "standard", "m", 1, 1, 100.0, now=when)
+    settings = _settings(default_monthly_limit_usd=100.0)
+    path = _shard_path("2026-07")
+    real_read_bytes = Path.read_bytes
+
+    def _boom(self, *args, **kwargs):
+        if self == path:
+            raise PermissionError(13, "Permission denied")
+        return real_read_bytes(self, *args, **kwargs)
+
+    monkeypatch.setattr(Path, "read_bytes", _boom)
+
+    status = check_limit("analyst1", settings, now=when)
+    assert status.status == "allowed"  # fails open, deliberately
+    err = capsys.readouterr().err
+    assert "unreadable" in err.lower() or "permission" in err.lower()
+
+
+def test_record_usage_propagates_write_failures_rather_than_swallowing(
+    monkeypatch,
+):
+    def _boom(*args, **kwargs):
+        raise OSError(28, "No space left on device")
+
+    monkeypatch.setattr("harness.ledger._append_line", _boom)
+    with pytest.raises(OSError):
+        record_usage("analyst1", "standard", "m", 1, 1, 0.01, now=datetime(2026, 7, 1))
+
+
+def test_month_total_rounds_cost_to_cents_once():
+    when = datetime(2026, 7, 1)
+    record_usage("analyst1", "standard", "m", 1, 1, 0.1, now=when)
+    record_usage("analyst1", "standard", "m", 1, 1, 0.1, now=when)
+    record_usage("analyst1", "standard", "m", 1, 1, 0.1, now=when)
+    usage = month_total("analyst1", now=when)
+    # Exact equality, not approx — proves the total was rounded rather
+    # than left as raw-float-summation residue (0.30000000000000004).
+    assert usage.cost_usd == 0.3
+
+
+def test_check_limit_ratio_uses_the_same_rounded_total_the_message_shows():
+    """Regression for review point 4: 0.1 + 0.7 sums to
+    0.7999999999999999 in raw float — narrowly UNDER a 0.8 limit, so an
+    unrounded comparison would report "warn" (ratio just under 1.0)
+    while the displayed total rounds to $0.80, the full limit. Rounding
+    ONCE, before both the comparison and the message, keeps the two from
+    disagreeing.
+    """
+    when = datetime(2026, 7, 1)
+    record_usage("analyst1", "standard", "m", 1, 1, 0.1, now=when)
+    record_usage("analyst1", "standard", "m", 1, 1, 0.7, now=when)
+    settings = _settings(default_monthly_limit_usd=0.8)
+
+    status = check_limit("analyst1", settings, now=when)
+    assert status.month_usd == 0.8
+    assert status.status == "blocked"
+    assert "$0.80" in status.message
+
+
+# ---------------------------------------------------------------------------
+# msvcrt degradation is logged, not silent
+# ---------------------------------------------------------------------------
+
+
+def test_msvcrt_unavailable_logs_to_stderr_and_returns_none(monkeypatch, capsys):
+    # sys.modules[name] = None is the documented way to force `import
+    # name` to raise ImportError, without needing a non-Windows machine
+    # or a full module reload to exercise the degrade path.
+    monkeypatch.setitem(sys.modules, "msvcrt", None)
+    result = _load_msvcrt()
+    assert result is None
+    err = capsys.readouterr().err
+    assert "msvcrt" in err.lower()

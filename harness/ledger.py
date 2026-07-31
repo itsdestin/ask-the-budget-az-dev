@@ -37,10 +37,43 @@ from harness.constants import WARN_THRESHOLD_RATIO
 from harness.settings import Settings
 from store.config import data_dir
 
-try:
-    import msvcrt  # Windows only — this app's only supported deployment target.
-except ImportError:  # pragma: no cover — exercised only on non-Windows dev/CI
-    msvcrt = None  # type: ignore[assignment]
+def _load_msvcrt():
+    """Import `msvcrt`, or explain on stderr why cross-process append
+    locking is disabled.
+
+    Windows is this app's only supported deployment target, so a
+    successful import is the overwhelmingly common case; a failure means
+    dev/CI on a non-Windows box, where `_append_line`'s in-process
+    `threading.Lock` still protects same-process writers even without
+    it. Printing rather than degrading silently matches this codebase's
+    existing convention for a quiet fallback (`harness/tools.py`'s
+    `(OSError, ValueError)` doc-metadata guard does the same) — a
+    developer who hits a lock-related race on a Mac should immediately
+    see WHY cross-process locking is off, not have to rediscover this
+    module's platform assumption from scratch.
+
+    A plain function (not a bare module-level try/except) purely so a
+    test can call it directly against a forced `ImportError` — see
+    `tests/test_ledger.py`'s `test_msvcrt_unavailable_logs_to_stderr_...`,
+    which uses `sys.modules["msvcrt"] = None` (the documented way to make
+    `import msvcrt` raise) rather than needing an actual non-Windows box.
+    """
+    try:
+        import msvcrt as _msvcrt
+    except ImportError:
+        print(
+            "harness.ledger: msvcrt unavailable (not running on Windows) — "
+            "cross-process ledger-append locking is disabled; same-process "
+            "writes are still serialized via _write_lock. This module's "
+            "only supported deployment target is Windows, so this should "
+            "only ever print in dev/CI.",
+            file=sys.stderr,
+        )
+        return None
+    return _msvcrt
+
+
+msvcrt = _load_msvcrt()
 
 
 USAGE_DIR = "usage"
@@ -199,6 +232,21 @@ def record_usage(
     Month-sharded (one file per `<data_dir>/usage/usage-<YYYY-MM>.jsonl`)
     so files stay small and `month_total` never has to scan more than
     one calendar month's worth of rows.
+
+    FAILURE CONTRACT — this function does NOT catch or swallow write
+    failures; a `mkdir`/`open`/lock/`write` error propagates straight to
+    the caller. This is deliberate, not an oversight: by the time
+    `harness/session.py` (Task 6) calls this, the provider call already
+    happened and the money is already spent — a write failure here means
+    the row didn't get recorded, not that the call didn't happen. That
+    is a fact the caller needs to know about (to at minimum log it
+    somewhere else, since the ledger itself just failed), so this
+    function raises rather than pretending success. Write failures are
+    also rarer and more actionable than read failures (see `_read_rows`
+    for why THAT path fails open instead) — an admin can fix "the share
+    is full" or "permissions changed," but a whole office being locked
+    out of AI Mode because one read hiccupped is a worse failure to
+    invite.
     """
     when = _as_arizona(now)
     row = {
@@ -239,24 +287,70 @@ def _read_rows(path: Path) -> Iterator[dict]:
     """Yield parsed dict rows from one ledger shard, one bad line at a
     time skipped rather than aborting the whole read.
 
-    WHY skip-and-warn, not fail-loud: `month_total` feeds `check_limit`,
-    which gates whether AI Mode is usable AT ALL for a user's next turn.
-    A single truncated line — the exact failure mode `_append_line`
-    above tries to minimize but, being honest about SMB, cannot fully
-    rule out — must never turn into "nobody in the office can use AI
-    Mode until someone hand-edits a JSONL file." A corrupt row is
-    dropped from every total it would have contributed to (undercounting
-    spend by at most that one row) and named on stderr so it's
-    discoverable, which is a far smaller failure than an office-wide
-    outage over one bad line.
+    WHY skip-and-warn per LINE, not fail-loud: `month_total` feeds
+    `check_limit`, which gates whether AI Mode is usable AT ALL for a
+    user's next turn. A single truncated or mis-encoded line — the exact
+    failure mode `_append_line` above tries to minimize but, being
+    honest about SMB, cannot fully rule out — must never turn into
+    "nobody in the office can use AI Mode until someone hand-edits a
+    JSONL file." A bad row is dropped from every total it would have
+    contributed to (undercounting spend by at most that one row) and
+    named on stderr so it's discoverable.
+
+    Read as BYTES, decoded per-line, not `path.read_text(encoding=
+    "utf-8")` for the whole file: a `UnicodeDecodeError` (which a torn
+    multi-byte write can genuinely produce, and which `record_usage`'s
+    `ensure_ascii=False` makes reachable via any non-ASCII username or
+    model id) is a `ValueError` subclass. Decoding the whole file in one
+    call meant ONE mis-encoded byte anywhere raised past the per-line
+    `try/except` below entirely, crashing `month_total` — and therefore
+    `check_limit`, the exact "can this user place another call" gate
+    this module exists to keep alive — for every row in the file,
+    including rows for OTHER users. Decoding line-by-line inside the
+    same guard as the JSON parse means a mis-encoded line is skipped
+    exactly like a malformed-JSON line, and every well-formed sibling
+    row still counts.
+
+    WHY the whole-file OPEN itself fails open (missing OR unreadable),
+    but only ONE of those two cases is silent: `FileNotFoundError` means
+    "no usage recorded yet" — the overwhelmingly common case (new month,
+    new hire) — and prints nothing. Any OTHER `OSError` (permission
+    denied, the share unreachable) also returns zero rows rather than
+    raising, matching S19's "search is never affected" spirit — an
+    infrastructure blip should not lock every analyst out of usage
+    they're actually still under-limit for — but IS logged, because
+    unlike a missing file, a degraded share is a genuine blind spot: it
+    can make an over-limit user read as "allowed" until the share
+    recovers, and an admin needs a signal that happened, not silence.
     """
     try:
-        text = path.read_text(encoding="utf-8")
-    except OSError:
+        raw_bytes = path.read_bytes()
+    except FileNotFoundError:
         return  # no usage recorded this month yet — not an error
-    for line_number, raw_line in enumerate(text.splitlines(), start=1):
-        line = raw_line.strip()
-        if not line:
+    except OSError as err:
+        print(
+            f"harness.ledger: {path} is unreadable ({err}) — treating this "
+            "month as zero usage for every user (fail-open, per S19's "
+            "'search is never affected' spirit). If this persists, an "
+            "over-limit user could be let through until the share "
+            "recovers — investigate it, don't just note this line.",
+            file=sys.stderr,
+        )
+        return
+
+    for line_number, raw_line in enumerate(raw_bytes.split(b"\n"), start=1):
+        raw_line = raw_line.strip()
+        if not raw_line:
+            continue
+        try:
+            line = raw_line.decode("utf-8")
+        except UnicodeDecodeError as err:
+            print(
+                f"harness.ledger: {path} line {line_number} is not valid "
+                f"UTF-8 ({err}) — skipping it. This month's totals may "
+                "undercount by that one row.",
+                file=sys.stderr,
+            )
             continue
         try:
             row = json.loads(line)
@@ -294,6 +388,11 @@ class MonthUsage:
     OpenRouter always reports tokens even when it can't report cost.
     """
 
+    # Rounded to whole cents (see month_total) — never a raw float-summation
+    # residue like 0.7999999999999999. One rounded representation is used
+    # for BOTH the number this dataclass carries and the number
+    # check_limit compares against a limit, so the two can never disagree
+    # about whether a total that DISPLAYS as the limit actually reached it.
     cost_usd: float
     tokens_in: int
     tokens_out: int
@@ -310,6 +409,15 @@ def month_total(user: str, *, now: datetime | None = None) -> MonthUsage:
     hire, a quiet week, month just rolled over) is the overwhelmingly
     common case and should be exactly as cheap for a caller to handle as
     any other.
+
+    `cost_usd` is rounded to the cent ONCE, here, before returning —
+    summing raw floats (e.g. 0.1 + 0.7 = 0.7999999999999999 in IEEE 754)
+    can leave a total that displays as the exact limit but compares as
+    narrowly under it. Rounding at the single point every consumer reads
+    from means `check_limit`'s blocked/warn/allowed decision and the
+    dollar figure in its message are always computed from the SAME
+    number — never two representations of "the same" total that can
+    silently disagree.
     """
     when = _as_arizona(now)
     path = _usage_path(_month_shard(when))
@@ -330,7 +438,7 @@ def month_total(user: str, *, now: datetime | None = None) -> MonthUsage:
         else:
             rows_with_unknown_cost += 1
     return MonthUsage(
-        cost_usd=cost_usd,
+        cost_usd=round(cost_usd, 2),
         tokens_in=tokens_in,
         tokens_out=tokens_out,
         rows=rows,
