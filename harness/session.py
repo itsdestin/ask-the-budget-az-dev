@@ -75,6 +75,22 @@ RETRY_BACKOFF_SECONDS: tuple[float, ...] = (1.0, 2.0, 4.0)
 # spinner for an hour with no way to know why.
 MAX_RETRY_AFTER_SECONDS = 30.0
 
+# S22 — which models need a cache breakpoint SPELLED OUT.
+#
+# Two families of prompt caching exist behind OpenRouter's one API.
+# OpenAI-, DeepSeek- and Moonshot-style providers cache long prefixes
+# automatically: send the same bytes twice and the second call is
+# discounted, with nothing to opt into. Anthropic-style providers cache
+# NOTHING unless the request marks where the reusable part ends, with a
+# `cache_control` breakpoint on a content part.
+#
+# Substring match, not a prefix match, because the same model reaches us
+# under more than one id — `anthropic/claude-opus-5` through OpenRouter,
+# a bare `claude-opus-5` through a proxy an admin points S15 at. Marking
+# a model that did not need it is harmless (the field is ignored);
+# missing one that did means paying full price forever with no symptom.
+ANTHROPIC_STYLE_MODEL_MARKERS: tuple[str, ...] = ("anthropic/", "claude-")
+
 # How much history we are willing to send, measured in CHARACTERS of
 # serialized JSON.
 #
@@ -499,8 +515,19 @@ class HarnessSession:
                 stop_reason = "user_interrupt"
                 break
 
-            system = self._system_message()
-            messages = [system] + self._context_window(self.history, reserved=len(system["content"]))
+            # S22: this pair is the CACHEABLE PREFIX — the same bytes on
+            # every step of every turn of every conversation, so the
+            # provider can serve it from cache at roughly a tenth of the
+            # input price. Nothing dynamic may be built into it; dynamic
+            # context belongs in the user/tool messages that follow.
+            # `tests/test_harness_prompt_caching.py` pins that property.
+            prompt_text = self._system_prompt_text()
+            system = self._system_message(prompt_text, model)
+            # `reserved` is measured on the PROMPT TEXT, never on the
+            # wire shape: when the prompt is wrapped in content parts for
+            # a cache breakpoint, `len(content)` is 1 and the history
+            # window would silently grow by the whole prompt's budget.
+            messages = [system] + self._context_window(self.history, reserved=len(prompt_text))
             result = _StepResult(uuid=_new_uuid())
 
             yield _event("assistant_thinking", uuid=result.uuid)
@@ -943,7 +970,7 @@ class HarnessSession:
 
     # -- prompt, tiers, billing -------------------------------------------
 
-    def _system_message(self) -> dict[str, Any]:
+    def _system_prompt_text(self) -> str:
         """The system prompt for the CURRENT tier, built once per tier.
 
         An explicit `system_prompt=` string wins for every tier (the
@@ -952,9 +979,16 @@ class HarnessSession:
         tier by design — a conversation whose analyst flips the composer
         toggle mid-thread must not keep running the old tier's prompt
         against the new tier's model and step budget.
+
+        This is a PURE FUNCTION of (corpus, tier) and must stay one. It
+        is the bulk of the cacheable prefix (S22): ~40 KB resent on every
+        step, up to 50 steps in a Deep Research turn. Anything that
+        varies here — a timestamp, the user's name, the question — turns
+        every request into a cache miss at roughly 10x the price, with no
+        symptom anyone would notice except the bill.
         """
         if self._system_prompt is not None:
-            return {"role": "system", "content": self._system_prompt}
+            return self._system_prompt
         prompt = self._prompt_by_tier.get(self.tier)
         if prompt is None:
             builder = self._prompt_builder
@@ -965,7 +999,47 @@ class HarnessSession:
                 builder = build_system_prompt
             prompt = builder(corpus=self.corpus, tier=self.tier)
             self._prompt_by_tier[self.tier] = prompt
-        return {"role": "system", "content": prompt}
+        return prompt
+
+    def _system_message(self, prompt: str, model: str) -> dict[str, Any]:
+        """The system prompt in the shape this provider wants it.
+
+        Plain string for everyone except Anthropic-style models, which
+        cache nothing unless the request says where the reusable part
+        ends. For those, the prompt becomes a single content part
+        carrying a `cache_control` breakpoint.
+
+        ONE breakpoint is enough and is placed here deliberately.
+        Anthropic orders a request tools-then-system-then-messages, so a
+        breakpoint at the end of the system block covers the tool schemas
+        as well — both halves of the prefix, in one marker.
+
+        Gated on OpenRouter for the same reason `_request_body` gates
+        `usage: {include: true}`: S15 lets an admin point this at any
+        OpenAI-compatible server, and a strict one rejects unknown fields
+        outright rather than ignoring them. A custom endpoint therefore
+        gets the plain string, which every server understands.
+
+        NOT CACHED between steps, on purpose: this builds two dicts, and
+        caching it would be one more piece of state that could go stale
+        when the tier (and therefore the model) changes mid-conversation.
+        The prompt TEXT — the expensive part — is what gets cached, one
+        entry per tier, in `_system_prompt_text`.
+        """
+        if self.settings.provider.provider != "openrouter":
+            return {"role": "system", "content": prompt}
+        if not any(marker in model for marker in ANTHROPIC_STYLE_MODEL_MARKERS):
+            return {"role": "system", "content": prompt}
+        return {
+            "role": "system",
+            "content": [
+                {
+                    "type": "text",
+                    "text": prompt,
+                    "cache_control": {"type": "ephemeral"},
+                }
+            ],
+        }
 
     def _max_steps(self) -> int:
         budget = TIER_BUDGETS.get(self.tier)
@@ -1009,6 +1083,13 @@ class HarnessSession:
                 _int_or_zero(usage.get("prompt_tokens")),
                 _int_or_zero(usage.get("completion_tokens")),
                 cost,
+                # S22 visibility, not arithmetic: `cost` already reflects
+                # the cache discount (it is OpenRouter's own exact
+                # figure). This is how an admin can SEE whether caching
+                # is working, which is otherwise unobservable — a broken
+                # prefix looks exactly like a working one apart from the
+                # bill.
+                cached_tokens=totals.last_cache_read_tokens,
             )
         except Exception as err:  # noqa: BLE001 — see docstring
             print(
@@ -1295,6 +1376,11 @@ class _UsageTotals:
         self.cache_read_tokens = 0
         self.cost: float | None = None
         self.last_cost: float | None = None
+        # THIS step's cache reads, as opposed to the turn's running
+        # total. The ledger records one row per step, and S22's whole
+        # point is being able to see the per-step drop after step 1 —
+        # which the running total would hide.
+        self.last_cache_read_tokens = 0
 
     def add(self, usage: dict[str, Any], *, allow_cost: bool = True) -> None:
         """Fold one step's usage in. `allow_cost=False` (S15's custom
@@ -1305,8 +1391,13 @@ class _UsageTotals:
         self.input_tokens += _int_or_zero(usage.get("prompt_tokens"))
         self.output_tokens += _int_or_zero(usage.get("completion_tokens"))
         details = usage.get("prompt_tokens_details")
-        if isinstance(details, dict):
-            self.cache_read_tokens += _int_or_zero(details.get("cached_tokens"))
+        # A provider that reports no cache details means "we know of
+        # none", which is 0. `cost_usd` is the only field where None
+        # carries the distinct meaning "unknown".
+        self.last_cache_read_tokens = (
+            _int_or_zero(details.get("cached_tokens")) if isinstance(details, dict) else 0
+        )
+        self.cache_read_tokens += self.last_cache_read_tokens
         cost = usage.get("cost") if allow_cost else None
         self.last_cost = float(cost) if isinstance(cost, (int, float)) else None
         if self.last_cost is not None:

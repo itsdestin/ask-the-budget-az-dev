@@ -184,6 +184,8 @@ class FakeLedger:
         tokens_in: int,
         tokens_out: int,
         cost_usd: float | None = None,
+        *,
+        cached_tokens: int = 0,
         **_: Any,
     ) -> None:
         if self.fail:
@@ -196,6 +198,7 @@ class FakeLedger:
                 "tokens_in": tokens_in,
                 "tokens_out": tokens_out,
                 "cost_usd": cost_usd,
+                "cached_tokens": cached_tokens,
             }
         )
 
@@ -1167,6 +1170,8 @@ def test_usage_flows_to_the_ledger_with_the_sessions_user_and_tier():
             "tokens_in": 300,
             "tokens_out": 40,
             "cost_usd": 0.012,
+            # S22 — how many of tokens_in the provider served from cache.
+            "cached_tokens": 7,
         }
     ]
 
