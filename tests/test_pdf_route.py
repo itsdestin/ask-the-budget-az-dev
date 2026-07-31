@@ -19,15 +19,17 @@ allowed roots.
 from __future__ import annotations
 
 import json
+from pathlib import Path, PurePosixPath
 
 import pytest
 from fastapi.testclient import TestClient
 
 from app.main import create_app
-from app.routes.pdf import parse_range_header
+from app.routes.pdf import _safe_relative, parse_range_header
 from app.search_provider import StubSearchProvider
 from harness.tools import reset_document_title_cache
 from store.config import data_dir, documents_path
+from tests.live_request import LiveRequest
 
 # 1 KB of "AAAA…" standing in for a PDF, exactly as the TS suite did.
 TEST_BYTES = b"A" * 1024
@@ -228,6 +230,41 @@ def test_registered_but_missing_file_is_500_with_the_path():
     assert "not-there.pdf" in r.json()["detail"]
 
 
+def test_an_aborted_fetch_closes_the_file_handle(monkeypatch):
+    """PDF.js aborts in-flight range fetches constantly — page navigation,
+    zoom, closing the viewer — so this is the ordinary path, not an edge case.
+
+    Starlette does not close a response's body iterator itself; it waits for
+    garbage collection, and on the disconnect path the iterator sits in a
+    reference cycle. Without an explicit cleanup hook the `with path.open()`
+    inside the streamer stays open indefinitely, and on Windows an open handle
+    also blocks a re-ingest from replacing the cached PDF. `probe` runs while
+    the event loop is still alive, so a GC that happens to fire later cannot
+    make this pass.
+    """
+    opened: list = []
+    real_open = Path.open
+
+    def spy(self, *args, **kwargs):
+        handle = real_open(self, *args, **kwargs)
+        opened.append(handle)
+        return handle
+
+    monkeypatch.setattr(Path, "open", spy)
+    write_sidecar(pdf_doc())
+    # Several read chunks, so the stream is genuinely mid-file at hang-up.
+    write_blob("pdfs/d1.pdf", b"A" * (5 * 64 * 1024))
+    app = create_app(provider=StubSearchProvider(), static_dir=None)
+    request = LiveRequest(
+        app, "GET", "/api/pdf/d1",
+        probe=lambda: [handle.closed for handle in opened],
+    )
+    request.wait_started()
+    request.hang_up()
+    assert opened, "the route never opened the file"
+    assert request.probe_result == [True] * len(opened)
+
+
 # ---------------------------------------------------------------------------
 # Traversal — neither doc_id nor source_blob_path is trustworthy
 # ---------------------------------------------------------------------------
@@ -260,6 +297,51 @@ def test_traversal_in_source_blob_path_cannot_escape(tmp_path):
     r = client().get("/api/pdf/d1")
     assert r.status_code == 500
     assert b"TOP-SECRET" not in r.content
+
+
+def test_a_unc_anchor_is_stripped_not_carried(tmp_path):
+    # PurePosixPath('//server/share/x').parts[0] is '//' — a segment that is
+    # neither '' nor '/'. If it survives, the join silently discards the
+    # intended root and only the containment check stands between a poisoned
+    # sidecar and someone else's file share. Two guards that both have to hold
+    # are the point; one is not.
+    assert _safe_relative("//server/share/x.pdf") == PurePosixPath(
+        "server/share/x.pdf"
+    )
+    assert _safe_relative(r"\\server\share\x.pdf") == PurePosixPath(
+        "server/share/x.pdf"
+    )
+
+
+def test_only_pdf_files_are_servable():
+    # settings.json lives in data_dir and holds the OpenRouter API key. The
+    # containment check alone would happily serve it, since it is inside an
+    # allowed root — so the route also requires the file to BE a PDF.
+    (data_dir() / "settings.json").write_text('{"provider": {"api_key": "sk-secret"}}')
+    write_sidecar(
+        {"d1": {"source_format": "pdf", "source_blob_path": "settings.json"}}
+    )
+    r = client().get("/api/pdf/d1")
+    assert r.status_code == 500
+    assert b"sk-secret" not in r.content
+
+
+def test_a_symlink_to_a_non_pdf_is_refused(tmp_path):
+    # The suffix check happens on the RESOLVED path too, so "x.pdf" pointing
+    # at the settings file is caught after resolution, not before it.
+    (data_dir() / "settings.json").write_text('{"api_key": "sk-secret"}')
+    link = data_dir() / "pdfs"
+    link.mkdir(parents=True, exist_ok=True)
+    try:
+        (link / "x.pdf").symlink_to(data_dir() / "settings.json")
+    except (OSError, NotImplementedError):
+        pytest.skip("symlinks need developer mode / admin on Windows")
+    write_sidecar(
+        {"d1": {"source_format": "pdf", "source_blob_path": "pdfs/x.pdf"}}
+    )
+    r = client().get("/api/pdf/d1")
+    assert r.status_code == 500
+    assert b"sk-secret" not in r.content
 
 
 def test_absolute_source_blob_path_cannot_escape(tmp_path):

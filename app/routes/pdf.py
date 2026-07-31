@@ -14,8 +14,10 @@ two deliberate changes:
   * **The stored path is treated as untrusted.** `documents.json` lives on an
     office network share that anyone with drive access can edit, and `doc_id`
     arrives in a URL. The old route `fs.stat`'d whatever string it was handed,
-    absolute paths included. Here, escaping the allowed roots is made
-    structurally impossible — see `_resolve_blob`.
+    absolute paths included. Here a stored path cannot escape the allowed
+    roots, AND cannot reach a non-PDF inside them — the roots contain
+    `settings.json` (the API key) and the install directory, so containment
+    alone would not be enough. See `_resolve_blob`.
 
 The Range PARSING is a faithful port, quirks included (`parse_range_header`).
 """
@@ -27,6 +29,7 @@ from typing import Any, Iterator
 
 from fastapi import APIRouter, HTTPException, Request
 from fastapi.responses import JSONResponse, StreamingResponse
+from starlette.background import BackgroundTask
 
 from store.config import data_dir
 
@@ -127,10 +130,15 @@ def _safe_relative(blob_path: str) -> PurePosixPath | None:
         return None
     parts: list[str] = []
     for segment in PurePosixPath(text).parts:
-        if segment in ("", "/", "."):
-            continue
         if segment == "..":
             return None
+        # Anchors, not directories. `strip("/")` rather than a literal tuple
+        # because a UNC path's anchor is "//" (two slashes), not "/" — and a
+        # surviving "//" would silently discard the root this is about to be
+        # joined onto, leaving the containment check as the ONLY guard. Two
+        # guards that both have to hold is the design; one is not.
+        if segment.strip("/") == "" or segment == ".":
+            continue
         if segment.endswith(":"):  # a drive letter ("C:") — not a directory
             continue
         parts.append(segment)
@@ -160,16 +168,26 @@ def _resolve_blob(blob_path: str) -> Path | None:
 
     Second guard: every candidate is fully resolved (which collapses symlinks
     as well as any `.`/`..` that survived) and then checked for containment in
-    the root it was built from. Escaping the allowed directories is therefore
-    not a matter of getting the sanitizer right — a path outside them cannot
-    be returned even if the sanitizer misses something.
+    the root it was built from, so a path outside the allowed roots cannot be
+    returned even if the sanitizer missed something.
+
+    Third guard, and the one the containment check does NOT cover: the file
+    must actually be a `.pdf`. The allowed roots include `<data_dir>`, which is
+    where `settings.json` — the OpenRouter API key — lives, and the repo/install
+    root, which a share-writer may not otherwise be able to read. Containment
+    alone would serve either of those to a sidecar entry claiming
+    `{"source_format": "pdf", "source_blob_path": "settings.json"}`. Checked on
+    the RESOLVED path as well as the recorded one, so a symlink named `x.pdf`
+    pointing at the key file is caught after resolution.
     """
     relative = _safe_relative(blob_path)
-    if relative is None:
+    if relative is None or relative.suffix.lower() != ".pdf":
         return None
     for root, candidate in _candidate_paths(relative):
         try:
             resolved = candidate.resolve()
+            if resolved.suffix.lower() != ".pdf":
+                continue
             if not resolved.is_relative_to(root.resolve()):
                 continue
             if resolved.is_file():
@@ -264,14 +282,34 @@ def get_pdf(doc_id: str, request: Request):
     span = parse_range_header(request.headers.get("range"), size)
     if span is None:
         headers["Content-Length"] = str(size)
-        return StreamingResponse(
-            _file_chunks(path, 0, size), status_code=200, headers=headers
-        )
+        return _streamed(_file_chunks(path, 0, size), 200, headers)
 
     start, end = span
     length = end - start + 1
     headers["Content-Length"] = str(length)
     headers["Content-Range"] = f"bytes {start}-{end}/{size}"
+    return _streamed(_file_chunks(path, start, length), 206, headers)
+
+
+def _streamed(
+    chunks: Iterator[bytes], status_code: int, headers: dict[str, str]
+) -> StreamingResponse:
+    """Stream `chunks`, closing them even if the browser hangs up.
+
+    Starlette never closes a response's body iterator itself — it relies on
+    the generator being garbage-collected, and on the disconnect path the
+    iterator sits in a reference cycle, so the `with path.open(...)` inside
+    `_file_chunks` stays open until the cyclic collector happens by. A
+    BackgroundTask is the one hook Starlette runs on BOTH the normal and the
+    disconnect path, so cleanup rides there instead.
+
+    This is not a rare case: PDF.js abandons in-flight Range requests every
+    time the analyst pages, zooms, or closes the viewer. On Windows a leaked
+    handle also blocks a re-ingest from overwriting the cached PDF.
+    """
     return StreamingResponse(
-        _file_chunks(path, start, length), status_code=206, headers=headers
+        chunks,
+        status_code=status_code,
+        headers=headers,
+        background=BackgroundTask(chunks.close),
     )

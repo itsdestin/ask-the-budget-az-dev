@@ -27,6 +27,7 @@ from harness.settings import (
     reset_settings_cache,
     save_settings,
 )
+from tests.live_request import LiveRequest
 
 USER = "analyst1"
 
@@ -86,102 +87,6 @@ class FakeSession:
 
     def close(self):
         self.closed = True
-
-
-class LiveTurn:
-    """One SSE request driven through the real ASGI stack, on its own thread.
-
-    Starlette's TestClient CANNOT do this: its transport collects the whole
-    response into a BytesIO before handing it back, so by the time a test sees
-    a "streamed" response the turn is long over. Anything about a turn WHILE
-    it is in flight — the 409 guard, eviction safety, and above all whether a
-    browser hanging up actually closes the model stream — has to be driven at
-    this level or it is not being tested at all.
-
-    `spec_version: 2.3` is not decoration: Starlette picks its disconnect
-    handling from it, and 2.3 is what uvicorn reports, so this exercises the
-    same branch production does.
-    """
-
-    def __init__(self, app, path: str, payload: dict, probe=None):
-        self.app = app
-        self.path = path
-        self.body = json.dumps(payload).encode()
-        self.probe = probe
-        self.probe_result = None
-        self.status: int | None = None
-        self.chunks: list[bytes] = []
-        self._first_chunk = threading.Event()
-        self._hang_up = threading.Event()
-        self._finished = threading.Event()
-        self._thread = threading.Thread(target=self._run, daemon=True)
-        self._thread.start()
-
-    def _run(self):
-        import anyio
-
-        try:
-            anyio.run(self._main)
-        finally:
-            self._finished.set()
-
-    async def _main(self):
-        import anyio
-
-        request_sent = False
-
-        async def receive():
-            nonlocal request_sent
-            if not request_sent:
-                request_sent = True
-                return {"type": "http.request", "body": self.body,
-                        "more_body": False}
-            while not self._hang_up.is_set():
-                await anyio.sleep(0.01)
-            return {"type": "http.disconnect"}
-
-        async def send(message):
-            if message["type"] == "http.response.start":
-                self.status = message["status"]
-            elif message["type"] == "http.response.body":
-                chunk = message.get("body", b"")
-                if chunk:
-                    self.chunks.append(chunk)
-                    self._first_chunk.set()
-
-        scope = {
-            "type": "http",
-            "asgi": {"version": "3.0", "spec_version": "2.3"},
-            "http_version": "1.1",
-            "method": "POST",
-            "scheme": "http",
-            "path": self.path,
-            "raw_path": self.path.encode(),
-            "query_string": b"",
-            "root_path": "",
-            "headers": [
-                (b"host", b"testserver"),
-                (b"content-type", b"application/json"),
-                (b"content-length", str(len(self.body)).encode()),
-            ],
-            "client": ("127.0.0.1", 50000),
-            "server": ("testserver", 80),
-            "state": {},
-        }
-        await self.app(scope, receive, send)
-        # The response's body iterator is finalized by the event loop AFTER
-        # the request ends. Staying alive here is what makes the probe below
-        # measure the live-server behavior rather than loop teardown.
-        await anyio.sleep(0.5)
-        if self.probe is not None:
-            self.probe_result = self.probe()
-
-    def wait_started(self, timeout: float = 5) -> None:
-        assert self._first_chunk.wait(timeout), "no SSE frame arrived"
-
-    def hang_up(self, timeout: float = 10) -> None:
-        self._hang_up.set()
-        assert self._finished.wait(timeout), "the request never finished"
 
 
 _DEFAULT_FRAMES = [
@@ -358,7 +263,9 @@ def test_second_turn_while_one_is_streaming_is_409():
     app = build_app(session_factory=factory_for(session))
     c = client_for(app)
     cid = new_conversation(c)
-    turn = LiveTurn(app, f"/api/conversations/{cid}/messages", {"text": "first"})
+    turn = LiveRequest(
+        app, "POST", f"/api/conversations/{cid}/messages", {"text": "first"}
+    )
     turn.wait_started()
     second = c.post(f"/api/conversations/{cid}/messages",
                     json={"text": "second"})
@@ -373,8 +280,11 @@ def test_a_finished_turn_releases_the_conversation():
     cid = new_conversation(c)
     assert c.post(f"/api/conversations/{cid}/messages",
                   json={"text": "one"}).status_code == 200
-    # The busy flag is cleared by the stream's `finally`, so a second question
-    # in the same thread must not 409.
+    # Release happens twice per turn — the generator's `finally` when the body
+    # is exhausted, then the background task once the response is over — and
+    # both are scoped to their own turn's token (see the registry tests
+    # below), so a second question is accepted and cannot be un-busied by the
+    # first turn's late cleanup.
     assert c.post(f"/api/conversations/{cid}/messages",
                   json={"text": "two"}).status_code == 200
 
@@ -392,8 +302,8 @@ def test_client_disconnect_closes_the_model_stream():
     session = FakeSession(hold=threading.Event())
     app = build_app(session_factory=factory_for(session))
     cid = new_conversation(client_for(app))
-    turn = LiveTurn(
-        app, f"/api/conversations/{cid}/messages", {"text": "hi"},
+    turn = LiveRequest(
+        app, "POST", f"/api/conversations/{cid}/messages", {"text": "hi"},
         probe=session.generator_exited.is_set,
     )
     turn.wait_started()
@@ -426,8 +336,103 @@ def test_over_limit_user_gets_the_ledgers_exact_error_frame():
 
 
 # ---------------------------------------------------------------------------
+# POST /api/conversations/{id}/stop
+# ---------------------------------------------------------------------------
+
+
+class InterruptibleSession(FakeSession):
+    """A fake that records interrupt() the way HarnessSession would receive
+    it — from a different thread than the one running the turn."""
+
+    def __init__(self, **kwargs):
+        super().__init__(**kwargs)
+        self.interrupted = threading.Event()
+
+    def interrupt(self):
+        self.interrupted.set()
+        if self.hold is not None:
+            # The real session's retry backoff waits on the interrupt flag;
+            # releasing the park here mirrors "the turn ends promptly".
+            self.hold.set()
+
+
+def test_stop_interrupts_a_running_turn():
+    session = InterruptibleSession(hold=threading.Event())
+    app = build_app(session_factory=factory_for(session))
+    c = client_for(app)
+    cid = new_conversation(c)
+    turn = LiveRequest(
+        app, "POST", f"/api/conversations/{cid}/messages", {"text": "hi"}
+    )
+    turn.wait_started()
+    r = c.post(f"/api/conversations/{cid}/stop")
+    assert r.status_code == 200
+    assert r.json() == {"stopped": True}
+    assert session.interrupted.is_set()
+    turn.hang_up()
+
+
+def test_stop_on_an_idle_conversation_is_harmless():
+    # HarnessSession clears the flag at the start of every turn, so stopping
+    # an idle conversation cannot poison the next question.
+    session = InterruptibleSession()
+    c = client(session_factory=factory_for(session))
+    cid = new_conversation(c)
+    r = c.post(f"/api/conversations/{cid}/stop")
+    assert r.status_code == 200
+    assert r.json() == {"stopped": False}
+    assert session.interrupted.is_set()
+    assert c.post(f"/api/conversations/{cid}/messages",
+                  json={"text": "hi"}).status_code == 200
+
+
+def test_stop_on_an_unknown_conversation_is_404():
+    c = client(session_factory=factory_for(FakeSession()))
+    assert c.post("/api/conversations/nope/stop").status_code == 404
+
+
+# ---------------------------------------------------------------------------
 # Registry lifecycle
 # ---------------------------------------------------------------------------
+
+
+def _registry_with_one_conversation():
+    from app.routes.conversations import ConversationRegistry, _Conversation
+
+    registry = ConversationRegistry()
+    entry = _Conversation(id="c1", session=FakeSession(), corpus="budget")
+    registry.add(entry)
+    return registry, entry
+
+
+def test_a_late_release_cannot_un_busy_the_next_turn():
+    """Each turn releases TWICE — the generator's `finally` when the body is
+    exhausted, then the background task when the response is over — and a
+    client that has already received `_done` may legitimately POST its next
+    question in between. Without a per-turn token the first turn's second
+    release clears the SECOND turn's busy flag, which lets that live turn be
+    evicted (and `HarnessSession.close()`d mid-answer) and lets a third POST
+    reach a session that is already streaming.
+    """
+    registry, entry = _registry_with_one_conversation()
+    _, first = registry.begin_turn("c1")
+    registry.end_turn(entry, first)          # body exhausted; client has _done
+    _, second = registry.begin_turn("c1")    # next question accepted
+    registry.end_turn(entry, first)          # turn 1's background task, late
+    assert entry.busy is True, "turn 2 was un-busied by turn 1's cleanup"
+    registry.end_turn(entry, second)
+    assert entry.busy is False
+
+
+def test_releasing_a_turn_twice_is_still_idempotent():
+    # The double release within ONE turn must keep working — that is the
+    # normal path, not an error case.
+    registry, entry = _registry_with_one_conversation()
+    _, token = registry.begin_turn("c1")
+    registry.end_turn(entry, token)
+    registry.end_turn(entry, token)
+    assert entry.busy is False
+    assert registry.begin_turn("c1")[1] != token
 
 
 def test_registry_evicts_the_oldest_idle_conversation_and_closes_it(monkeypatch):
@@ -467,7 +472,9 @@ def test_a_streaming_conversation_is_never_evicted(monkeypatch):
     app = build_app(session_factory=make)
     c = client_for(app)
     cid = new_conversation(c)
-    turn = LiveTurn(app, f"/api/conversations/{cid}/messages", {"text": "hi"})
+    turn = LiveRequest(
+        app, "POST", f"/api/conversations/{cid}/messages", {"text": "hi"}
+    )
     turn.wait_started()
     new_conversation(c)  # would evict the only other entry
     assert busy.closed is False

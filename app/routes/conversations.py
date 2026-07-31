@@ -131,6 +131,9 @@ class _Conversation:
     last_used_at: float = field(default_factory=time.monotonic)
     # True from the moment a turn is accepted until its SSE stream ends.
     busy: bool = False
+    # Which turn `busy` belongs to. Incremented by begin_turn; end_turn only
+    # acts when handed the CURRENT token. See end_turn for why that matters.
+    turn_token: int = 0
 
 
 class ConversationRegistry:
@@ -202,8 +205,12 @@ class ConversationRegistry:
             )
         return victims
 
-    def begin_turn(self, conversation_id: str) -> _Conversation:
-        """Claim a conversation for one turn. Raises the right HTTP error."""
+    def begin_turn(self, conversation_id: str) -> tuple[_Conversation, int]:
+        """Claim a conversation for one turn. Raises the right HTTP error.
+
+        Returns the entry AND the token that identifies this turn; every
+        release has to hand that token back.
+        """
         with self._lock:
             entry = self._items.get(conversation_id)
             if entry is None:
@@ -231,11 +238,31 @@ class ConversationRegistry:
                     ),
                 )
             entry.busy = True
+            entry.turn_token += 1
             entry.last_used_at = time.monotonic()
-            return entry
+            return entry, entry.turn_token
 
-    def end_turn(self, entry: _Conversation) -> None:
+    def end_turn(self, entry: _Conversation, token: int) -> None:
+        """Release the conversation — but ONLY if `token` is still the turn
+        that holds it.
+
+        A turn releases TWICE: once when the SSE generator's body is exhausted
+        (Starlette advances it one step past the last frame to learn it is
+        done) and again from the background task after the response is over.
+        Between those two the client already holds `_done` and can legitimately
+        POST its next question — so an unconditional second release clears the
+        NEXT turn's flag. That is not cosmetic: an un-busied live conversation
+        can be evicted by the LRU cap, which calls `HarnessSession.close()` on
+        a turn in flight (documented to raise inside it), and a third POST
+        would reach a session that is already streaming and get the harness's
+        generic re-entrancy `_error` instead of the clean 409 above.
+
+        Stale releases are dropped silently: they are the normal steady state,
+        not an anomaly worth a log line.
+        """
         with self._lock:
+            if entry.turn_token != token:
+                return
             entry.busy = False
             entry.last_used_at = time.monotonic()
 
@@ -347,6 +374,7 @@ def _sse(frame: dict) -> str:
 def _turn_frames(
     registry: ConversationRegistry,
     entry: _Conversation,
+    token: int,
     text: str,
     tier: str,
 ) -> Iterator[str]:
@@ -365,12 +393,13 @@ def _turn_frames(
             yield _sse(frame)
     finally:
         stream.close()
-        registry.end_turn(entry)
+        registry.end_turn(entry, token)
 
 
 def _release_turn(
     registry: ConversationRegistry,
     entry: _Conversation,
+    token: int,
     frames: Iterator[str],
 ) -> None:
     """Close the SSE generator once the request is over, however it ended.
@@ -404,8 +433,9 @@ def _release_turn(
         )
     # Belt to the generator's braces: if `frames` never started (a client that
     # hung up before the first frame), its `finally` never ran either, and the
-    # conversation would stay busy for the life of the process.
-    registry.end_turn(entry)
+    # conversation would stay busy for the life of the process. Scoped to this
+    # turn's token, so by now it is usually a no-op — see end_turn.
+    registry.end_turn(entry, token)
 
 
 @router.post("/api/conversations/{conversation_id}/messages")
@@ -431,9 +461,9 @@ def post_message(conversation_id: str, body: MessageBody, request: Request):
     if not body.text.strip():
         raise HTTPException(status_code=400, detail="The question is empty.")
     registry = _registry(request)
-    entry = registry.begin_turn(conversation_id)
+    entry, token = registry.begin_turn(conversation_id)
     try:
-        frames = _turn_frames(registry, entry, body.text, body.tier)
+        frames = _turn_frames(registry, entry, token, body.text, body.tier)
         response = StreamingResponse(
             frames,
             media_type="text/event-stream",
@@ -449,15 +479,52 @@ def post_message(conversation_id: str, body: MessageBody, request: Request):
                 "X-Accel-Buffering": "no",
             },
             # See _release_turn: this is the ONLY reliable cleanup hook.
-            background=BackgroundTask(_release_turn, registry, entry, frames),
+            background=BackgroundTask(
+                _release_turn, registry, entry, token, frames
+            ),
         )
     except BaseException:
         # Nothing above should raise, but a conversation stuck `busy` forever
         # would be unusable for the rest of the app's life — far worse than
         # whatever failed here.
-        registry.end_turn(entry)
+        registry.end_turn(entry, token)
         raise
     return response
+
+
+@router.post("/api/conversations/{conversation_id}/stop")
+def stop_turn(conversation_id: str, request: Request) -> dict:
+    """Ask the running turn to stop. Additive to the frozen contract.
+
+    `HarnessSession.interrupt()` is the only method on that class safe to call
+    from another thread, and it is what produces the DESIGNED abort: the turn
+    ends with `stopReason: "user_interrupt"`, every dispatched tool call gets a
+    cancelled-result back-fill so the history stays legal, and a retry backoff
+    wakes immediately instead of sitting out its sleep. Closing the tab aborts
+    a turn too, but via `GeneratorExit` — no terminal frame, no
+    `user_interrupt`, nothing for the UI to render. Without this route that
+    whole path is unreachable over HTTP.
+
+    Stopping an IDLE conversation is deliberately allowed rather than a 409:
+    the flag is cleared at the start of every turn, so a stop that races the
+    end of an answer cannot poison the next question, and refusing it would
+    just hand the UI a failure to explain for pressing a button that did
+    nothing wrong. `stopped` reports whether a turn was actually running.
+    """
+    entry = _registry(request).get(conversation_id)
+    if entry is None:
+        raise HTTPException(
+            status_code=404,
+            detail=(
+                "That conversation is no longer open, so there is nothing to "
+                "stop."
+            ),
+        )
+    was_running = entry.busy
+    interrupt = getattr(entry.session, "interrupt", None)
+    if interrupt is not None:
+        interrupt()
+    return {"stopped": was_running}
 
 
 @router.get("/api/ai/status")

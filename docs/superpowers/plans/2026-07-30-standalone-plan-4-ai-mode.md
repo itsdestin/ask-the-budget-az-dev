@@ -73,6 +73,34 @@ GET /api/ai/status             -> { "available": bool, "reason"?: str,
                                     "user_usage": {"month_usd": float|null, "limit_usd": float|null, "warned": bool} }
 ```
 
+**Task 8 amendments (recorded 2026-07-30, as shipped).** The block above stays
+the contract; these are additions and status codes it did not name, and Task 12
+/ Plan 5 must build against them:
+
+- `POST /api/conversations/{id}/messages` → **409** when a turn is already
+  streaming on that conversation, **400** on empty/whitespace `text`, **404**
+  unknown conversation. A 409 is an HTTP-level double-submit mistake, NOT a
+  model failure — opening a 200 SSE stream just to say "you shouldn't have
+  opened this" would force the UI to tell it apart from a real `_error`. The
+  composer should disable on send.
+- `GET /api/pdf/{doc_id}` → **500** when the doc is in the index but its blob
+  is missing from disk (matches the retired Next.js route). The 415 body
+  carries `{detail, source_format, doc_id}` — that is the CitedTextPanel
+  fallback signal for DOCX bills and fiscal notes.
+- **`POST /api/conversations/{id}/stop`** (new, additive) → `{stopped: bool}`.
+  Calls `HarnessSession.interrupt()`, which is the only method on that class
+  safe to call from another thread. Without it, Task 6's whole abort product —
+  `stopReason: "user_interrupt"`, cancelled-tool-result back-fill,
+  interrupt-aware retry backoff — is unreachable over HTTP: closing the
+  EventSource ends the turn via `GeneratorExit` with no terminal frame at all.
+- The over-limit refusal is deliberately NOT pre-checked in the route.
+  `HarnessSession` already checks before any HTTP and emits
+  `LimitStatus.message` verbatim; a second check is a second place for the
+  month boundary to be read and a second wording to drift. The UI gates the
+  composer from `/api/ai/status` instead.
+- Tier explainer copy is server-side in `/api/ai/status` (`description`,
+  `examples`). Do not retype the S16 sentences in the webapp.
+
 ProviderEvent shapes (verbatim from `web/lib/types.ts` — the port carries the file):
 `user_message{text}` · `assistant_text_delta{text: FULL-accumulated-per-uuid, model?}` · `assistant_thinking{}` · `tool_use{toolUseId, toolName, input}` · `tool_result{toolUseId, output: JSON-STRING, isError?}` · `turn_complete{stopReason, model?, usage?}` — all with `uuid`, `timestamp`.
 
