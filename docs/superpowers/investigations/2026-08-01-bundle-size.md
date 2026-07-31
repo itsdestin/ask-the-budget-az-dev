@@ -208,18 +208,36 @@ you have?" as the opening question of every future support conversation.
    Defaulting to OFF re-creates the silent pile-up this decision was made to avoid unless
    the admin page says so out loud.
 
-### Recorded but not taken
+### Considered and rejected — and S26 closes the door on it
 
-Only **2 of the corpus's 2,490 documents** are routed to the Java extractor — one `afr`
-and one `governors-budget` (`ingest/dispatcher.py` EXTRACTOR_REGISTRY; counts from the
-live `documents.json`). Everything else, including all 2,104 fiscal notes, goes through
-MinerU. So dropping opendataloader-pdf entirely and routing those two doc types to MinerU
-would remove Java from the picture for 146 MB less and one fewer moving part.
+The alternative to vendoring Java was dropping opendataloader-pdf entirely and routing
+its doc types to MinerU. On today's `ingest/dispatcher.py` that looked almost free: the
+Java extractor is reached by exactly **2 of the corpus's 2,490 documents** — one `afr`
+and one `governors-budget` (EXTRACTOR_REGISTRY; counts from the live `documents.json`).
+Everything else, all 2,104 fiscal notes included, is MinerU's.
 
-Not taken: AFRs are *tagged* PDFs and opendataloader was chosen for cell-level table
-fidelity on exactly that shape (dispatcher docstring, chunk-shape D4). Trading table
-accuracy on the annual financial report for 146 MB is a bad trade while disk is free.
-Worth revisiting only if the vendored JRE turns out to cause trouble on Windows.
+**That framing is already obsolete.** Spec **S26** (added to master 2026-07-31, commit
+`3019737`, after this investigation began) changes routing from "look up the doc_type the
+user picked" to "inspect the file": *a PDF with a structure tree goes to OpenDataLoader
+for cell fidelity, an untagged one to MinerU*, with the registry's declared extractor
+demoted to a hint. Once S26 ships, the Java path is reachable by **any tagged PDF anyone
+uploads** — including via S29's "Other document" route — not by two named doc types. The
+"only 2 documents" number is a fact about the *current* dispatcher and must not be quoted
+as a fact about the system.
+
+So the rejection stands and is now firmer than when it was made: AFRs are tagged PDFs and
+opendataloader was chosen for cell-level table fidelity on exactly that shape (dispatcher
+docstring, chunk-shape D4), and under S26 that shape is no longer rare. **Do not revisit
+dropping opendataloader on the strength of the 2-document count.**
+
+Two consequences for the bundle, both already satisfied:
+
+- The vendored JRE is not an edge-case convenience — it is on the main upload path.
+  Confirming it actually runs on Windows is therefore part of Task 15's acceptance test,
+  not a nice-to-have.
+- S24's `data/document-types.yaml` does not yet exist; when it lands it ships
+  automatically, because `build_bundle.py` selects files via `git ls-files` and nothing
+  excludes `data/*.yaml`. No packaging change needed.
 
 ---
 
