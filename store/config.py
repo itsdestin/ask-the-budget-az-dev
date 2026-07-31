@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import json
 import os
+import sys
 from pathlib import Path
 from typing import Any
 
@@ -33,15 +34,50 @@ DOCS_FIELDS = (
 
 
 def data_dir() -> Path:
-    """Resolve (and create if needed) the shared-data root directory."""
+    """Resolve (and create if needed) the shared-data root directory.
+
+    Resolution order (S18): `JLBC_DATA_DIR` > this machine's `machine.json`
+    pointer > the repo default.
+
+    The env var stays on TOP of the per-machine pointer deliberately. The
+    Z13 backfill runs with it set, and a `machine.json` written on that box
+    by the repair screen must never silently redirect a running multi-hour
+    ingest into a different folder.
+    """
     raw = os.environ.get(_ENV_VAR)
     if raw:
         root = Path(raw)
     else:
-        # WHY repo-relative: dev machines have no share; keeping the dev
-        # corpus inside data/ (already gitignored) means zero setup.
-        root = Path(__file__).resolve().parent.parent / "data" / "insight-data"
-    root.mkdir(parents=True, exist_ok=True)
+        # Imported inside the function, not at module scope: app.machine_config
+        # is in the `app` package and this module is imported by `store`,
+        # `harness` and `ingest` — a top-level import would make every one of
+        # them depend on the app package, and `retrieval/` imports this from
+        # scripts that never build a FastAPI app.
+        from app.machine_config import read_data_dir
+
+        configured = read_data_dir()
+        if configured is not None:
+            root = configured
+        else:
+            # WHY repo-relative: dev machines have no share; keeping the dev
+            # corpus inside data/ (already gitignored) means zero setup.
+            root = Path(__file__).resolve().parent.parent / "data" / "insight-data"
+    try:
+        root.mkdir(parents=True, exist_ok=True)
+    except OSError as err:
+        # An UNREACHABLE share is the normal case S18 exists to handle: the
+        # drive moved, the letter changed, the network is down. Raising here
+        # would take out every caller that merely wanted to know the PATH —
+        # including `app/health.py`, whose entire job is to report this
+        # condition as a plain sentence, and the repair screen that fixes it.
+        # The path is still the right answer; whoever actually reads or writes
+        # it fails with a more specific error than a mkdir would give.
+        print(
+            f"store.config: couldn't create or reach {root} ({err}). "
+            "Returning the path anyway — the health check reports this and "
+            "the repair screen fixes it.",
+            file=sys.stderr,
+        )
     return root
 
 
