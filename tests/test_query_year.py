@@ -43,6 +43,16 @@ from retrieval.query_year import (
         # -- forms that are NOT years --------------------------------------
         ("HB2001", []),          # bill number
         ("SB 1001 fiscal note", []),
+        # Arizona House bills are numbered from 2001 up, so the SPACED
+        # form collides head-on with the plausible-year window. Bill
+        # lookup is the fiscal-note corpus's main access path.
+        ("HB 2019 fiscal note", []),
+        ("HB 2001", []),
+        ("H.B. 2026 summary", []),
+        ("HCR 2004 analysis", []),
+        ("A.R.S. 41-1994", []),          # statute cite
+        ("ARS 15-2001 requirements", []),
+        ("chapter 2019 laws", []),
         ("$2,019,000 for programs", []),  # dollar amount
         ("26 caseworkers", []),  # bare two-digit — too ambiguous to filter on
         ("chapter 19 of title 41", []),

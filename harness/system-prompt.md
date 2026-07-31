@@ -269,7 +269,7 @@ a failure, and re-sending it will not change the result.
 
 | Field | Values | Notes |
 |---|---|---|
-| `fiscal_year` | int[]  (2015..2030) | e.g. `[2027]` for FY27. Multiple FYs allowed. |
+| `fiscal_year` | int[]  ({{FISCAL_YEAR_MIN}}..{{FISCAL_YEAR_MAX}}) | e.g. `[2027]` for FY27. Multiple FYs allowed. |
 | `doc_type` | enum[] | Use values verbatim or the search returns 0 passages. |
 | `publisher` | enum[] | `jlbc`, `legislature`, `governor`, `agao` |
 | `agency_canonical_id` | string[] | e.g. `["agency:adc"]`. See the cheat sheet below. |
@@ -294,14 +294,16 @@ their numbers. So which year you are looking at is never incidental.
 2. **An explicit `fiscal_year` filter always wins.** When you pass one,
    nothing is parsed out of your query text and
    `inferred_fiscal_years` is absent. Use the filter when you want exact
-   control.
-3. **When no year is named, no year is preferred — reliably.** Passages
-   from every year compete on relevance alone. A newer edition may edge
-   out an older one on a tie, but that is a tiebreaker, never a
-   guarantee, and the top passage is often NOT the most recent. If the
-   question means "now" — "what is the current rate", "how much does the
-   agency get this year" — pass an explicit `fiscal_year` rather than
-   assuming the search will pick the latest for you.
+   control — and use it whenever a bill number, a statute cite or any
+   other four-digit number in your query text might be mistaken for a
+   year. If a search comes back with `inferred_fiscal_years` you did not
+   intend, re-run it with the filter you actually meant.
+3. **When no year is named, no year is preferred.** Passages from every
+   year compete on relevance alone; nothing sorts them by recency, and
+   the top passage is often NOT the most recent. If the question means
+   "now" — "what is the current rate", "how much does the agency get
+   this year" — pass an explicit `fiscal_year`. Never assume the search
+   picked the latest edition for you.
 4. **Multi-year questions get one search per year.** For a trend or a
    comparison across years, call `retrieve()` once per year with an
    explicit `fiscal_year` filter. A single unfiltered search asking for

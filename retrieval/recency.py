@@ -37,9 +37,15 @@ from typing import Iterator, Sequence
 
 from retrieval.types import RetrievedChunk
 
-# Score added per fiscal year newer than the oldest, measured on the same
-# raw cross-encoder logit scale as the reranker's own output (roughly
-# -10..10). 0.0 = disabled.
+# Score subtracted per fiscal year OLDER than the newest edition in the
+# result set, measured on the same raw cross-encoder logit scale as the
+# reranker's own output (roughly -10..10). 0.0 = disabled.
+#
+# It is a penalty on age, not a bonus on newness: the newest chunk gets
+# exactly 0 and everything else moves down. Nothing is ever scored above
+# what the reranker gave it — which is also why `top_score` can only
+# fall when this is switched on, and why REFUSAL_THRESHOLD has to be
+# recalibrated at the same time.
 #
 # WHY 0.0 until calibrated: picking a weight requires a corpus containing
 # the old editions it is meant to demote, and that corpus does not exist
@@ -86,9 +92,10 @@ def apply_recency_boost(
     anchor_fy: int | None,
     weight: float | None = None,
 ) -> list[RetrievedChunk]:
-    """Add a per-year recency bonus to each chunk's score and re-sort.
+    """Apply the per-year recency adjustment to each score and re-sort.
 
-    The bonus is `weight * (chunk.fiscal_year - anchor_fy)` — zero at the
+    Mechanically a PENALTY on age, not a bonus on newness: the term is
+    `weight * (chunk.fiscal_year - anchor_fy)` — zero at the
     anchor and increasingly negative going back, so nothing is ever
     inflated above what the reranker actually scored. Chunks with no
     fiscal_year take the same penalty as the OLDEST dated chunk in the

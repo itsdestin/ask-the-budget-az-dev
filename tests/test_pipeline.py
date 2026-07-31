@@ -381,10 +381,16 @@ def test_no_results_sentinel_is_json_serializable():
     assert json.dumps({"top_score": NO_RESULTS_TOP_SCORE}, allow_nan=False)
 
 
-def test_top_k_is_forwarded_to_the_reranker(seams):
+def test_the_reranker_scores_the_whole_pool_and_top_k_trims_afterwards(seams):
+    """`top_k` used to be forwarded to the reranker. It is not any more:
+    the S21 recency pass runs between rerank and trim and can only reorder
+    chunks it can see, so the reranker returns everything it scored and
+    the trim happens last. The caller's contract is unchanged — top_k
+    still bounds what comes back."""
     reranker = FakeReranker()
     result = _run(RetrievalRequest(query="fund", top_k=2), reranker=reranker)
-    assert reranker.calls[0][2] == 2
+    fused_size = len(reranker.calls[0][1])
+    assert reranker.calls[0][2] == fused_size
     assert len(result.chunks) == 2
 
 
@@ -895,3 +901,32 @@ def test_the_bonus_is_skipped_when_the_query_named_a_year(monkeypatch):
 
     assert result.inferred_fiscal_years == [2019]
     assert [c.chunk_id for c in result.chunks] == ["old", "new"]
+
+
+def test_the_boost_can_reach_chunks_the_reranker_pushed_past_top_k(monkeypatch):
+    """The reranker must not truncate before the recency pass. If it did,
+    the newest edition — the one S21 exists to rescue — would already be
+    gone from the list the boost operates on, and no weight could lift
+    it. Pins the stage order, not the weight."""
+    editions = [_dated(f"c-{fy}", fy) for fy in range(2018, 2028)]
+    _dated_seams(monkeypatch, editions)
+    # The reranker likes the OLDEST edition best, so FY2027 lands last.
+    scores = {f"c-{fy}": 5.0 - 0.1 * (fy - 2018) for fy in range(2018, 2028)}
+
+    with recency_weight(0.4):
+        result = _run(
+            RetrievalRequest(query="provider rate increase", top_k=3),
+            reranker=FakeReranker(scores),
+        )
+
+    assert [c.chunk_id for c in result.chunks] == ["c-2027", "c-2026", "c-2025"]
+    assert len(result.chunks) == 3
+
+
+def test_the_final_list_is_still_trimmed_to_top_k(monkeypatch):
+    _dated_seams(monkeypatch, [_dated(f"c{i}", 2027) for i in range(10)])
+
+    result = _run(RetrievalRequest(query="anything", top_k=4))
+
+    assert len(result.chunks) == 4
+    assert len(result.reranker_scores) == 4

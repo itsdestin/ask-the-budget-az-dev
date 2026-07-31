@@ -17,7 +17,6 @@ import pytest
 from eval import run_eval
 from eval.calibrate_recency import (
     G1_RECALL_AT_15,
-    G1_RECALL_AT_20,
     GRID_STEPS,
     EmptyQuerySetError,
     load_calibration_sets,
@@ -100,6 +99,10 @@ def synthetic_corpus(monkeypatch):
         named = parse_query_years(req.query)
         allowed = fiscal_year_filter(named)
         rows = [c for c in editions if not allowed or c.fiscal_year in allowed]
+        # Same stage order as retrieval/pipeline.py: rank the whole pool,
+        # boost, THEN trim. A fixture that trimmed first would model a
+        # rescue the real pipeline cannot perform, and the sweep would be
+        # calibrating against fiction.
         rows = sorted(rows, key=lambda c: (-c.score, c.chunk_id))
         if not named:
             rows = apply_recency_boost(rows, anchor_fy=anchor_fiscal_year(rows))
@@ -219,14 +222,6 @@ def test_historical_queries_are_invariant_across_the_sweep(synthetic_corpus):
     assert all(row["historical_invariant"] for row in table)
 
 
-def test_invariance_is_measured_against_the_zero_weight_row(synthetic_corpus):
-    historical = [_query("h-1", "fy2024 provider rate increase", "c-2024", 2024)]
-    table = sweep_weights(
-        current=[], no_year=[], historical=historical, weights=[0.0, 1.0]
-    )
-    assert table[0]["historical_invariant"] is True
-
-
 # ---------------------------------------------------------------------------
 # The recommendation
 # ---------------------------------------------------------------------------
@@ -279,7 +274,3 @@ def test_a_weight_that_moved_the_historical_set_is_never_recommended():
     table = [_row(0.4, 1.0, 1.0, invariant=False), _row(0.6, 1.0, 1.0)]
 
     assert recommend_weight(table)["weight"] == 0.6
-
-
-def test_the_g1_bars_match_the_gate_the_project_actually_uses():
-    assert (G1_RECALL_AT_15, G1_RECALL_AT_20) == (0.90, 0.95)

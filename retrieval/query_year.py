@@ -56,6 +56,12 @@ MAX_PLAUSIBLE_YEAR = 2035
 # recall@5 at 82.76% AND restores recall@15/@20 to 96.55%/100%, so it
 # strictly beats filtering nothing. It also still cuts a post-backfill
 # 20-edition corpus to 3, which is what S21 needs it to do.
+#
+# The ±0 and ±2 numbers came from throwaway sweep runs (the pipeline
+# monkeypatched to widen the window), so there is no committed artifact
+# for them — the full four-row table is in the commit message of the
+# change that introduced this constant. The ±1 run IS committed under
+# eval/results/.
 ADJACENT_YEAR_WINDOW = 1
 
 # Four digits, optionally FY-prefixed, standing alone as a token.
@@ -63,6 +69,30 @@ ADJACENT_YEAR_WINDOW = 1
 # larger token ("HB2019", "account 42026"), and the $ half rejects money
 # ("a $2026 grant"). Plain \b would accept both.
 _FOUR_DIGIT = re.compile(r"(?<![\w$])(?:fy[\s-]?)?(\d{4})(?![\w])", re.IGNORECASE)
+
+# Text that, when it sits immediately in front of a four-digit number,
+# means the number is NOT a fiscal year.
+#
+# WHY this exists: Arizona House bills are numbered from 2001 up, so
+# HB 2001 through HB 2035 land squarely inside the plausible-year window.
+# `(?<![\w$])` on _FOUR_DIGIT catches the unspaced "HB2019" but not the
+# spaced "HB 2019", and bill-number lookup is the fiscal-note corpus's
+# primary access path — a coordinator searching "HB 2019" would have been
+# silently filtered to session years 2018-2020 and shown the wrong notes,
+# or none. Statute cites ("A.R.S. 41-1994") and phone numbers fail the
+# same way through the trailing digit-hyphen.
+_YEAR_LOOKALIKE_PREFIX = re.compile(
+    r"(?:"
+    # Bill / resolution designators: HB, S.B., HCR, SJR, HM, SR …
+    r"\b[hs]\.?\s?(?:b|c\.?\s?r|j\.?\s?r|m|r)\.?\s*"
+    # Citation words that number things in the same range as fiscal years
+    r"|\b(?:chapter|ch|title|section|sec|article|art|laws|prop|proposition)\.?\s*"
+    r"|§\s*"
+    # A hyphenated run: statute sections (41-1994), phone numbers
+    r"|\d-\s*"
+    r")$",
+    re.IGNORECASE,
+)
 
 # Two digits that are explicitly marked as a fiscal year — either by an
 # "fy" prefix ("fy26", "FY 19") or by the elided-century apostrophe
@@ -97,8 +127,14 @@ def parse_query_years(query: str) -> list[int]:
 
     for match in _FOUR_DIGIT.finditer(query):
         year = int(match.group(1))
-        if MIN_PLAUSIBLE_YEAR <= year <= MAX_PLAUSIBLE_YEAR:
-            years.add(year)
+        if not (MIN_PLAUSIBLE_YEAR <= year <= MAX_PLAUSIBLE_YEAR):
+            continue
+        # The digits are checked against what precedes THEM, not what
+        # precedes the whole match, so an "FY " prefix inside the match
+        # can't shield a designator sitting in front of it.
+        if _YEAR_LOOKALIKE_PREFIX.search(query[: match.start(1)]):
+            continue
+        years.add(year)
 
     for match in _TWO_DIGIT.finditer(query):
         expanded = _expand_two_digit(int(match.group(1)))

@@ -130,7 +130,15 @@ def median_score_spread(queries: list[EvalQuery], *, corpus: str = "budget") -> 
             top_k=run_eval.DEFAULT_TOP_K,
             corpus=run_eval.CORPUS_TABLES[corpus],
         )
-        scores = run_eval.retrieve(request).reranker_scores
+        try:
+            scores = run_eval.retrieve(request).reranker_scores
+        except Exception as exc:
+            # One malformed query must not abort the probe and take the
+            # whole sweep with it before a single row is printed —
+            # `run_one_query` catches for the same reason (STATUS.md #47:
+            # an apostrophe used to crash the BM25 parser).
+            print(f"  (probe skipped {query.id}: {type(exc).__name__}: {exc})")
+            continue
         if len(scores) >= 2:
             spreads.append(max(scores) - min(scores))
     return statistics.median(spreads) if spreads else 0.0
@@ -145,7 +153,16 @@ def weights_from_spread(spread: float, steps: int = GRID_STEPS) -> list[float]:
     ceiling = spread / SPREAD_DIVISOR
     if ceiling <= 0:
         return [0.0]
-    return [round(ceiling * i / steps, 4) for i in range(steps + 1)]
+    # De-duplicated: on a narrow spread the 4-decimal rounding collapses
+    # adjacent steps onto the same number, and a grid that silently
+    # measures 0.0002 three times looks like a 13-point sweep in the
+    # printed table while actually testing three candidates.
+    seen: list[float] = []
+    for i in range(steps + 1):
+        candidate = round(ceiling * i / steps, 4)
+        if not seen or candidate != seen[-1]:
+            seen.append(candidate)
+    return seen
 
 
 def _score_set(

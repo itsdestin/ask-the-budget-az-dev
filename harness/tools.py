@@ -49,6 +49,8 @@ from typing import Any, Callable, Iterable, Mapping
 from harness.constants import (
     DEFAULT_TIER,
     FIRST_CALL_TOP_K_CAP,
+    FISCAL_YEAR_MAX,
+    FISCAL_YEAR_MIN,
     INTENT_TOP_K,
     REFUSAL_THRESHOLD,
     TIER_BUDGETS,
@@ -265,7 +267,11 @@ _FILTERS_SCHEMA = {
     "properties": {
         "fiscal_year": {
             "type": "array",
-            "items": {"type": "integer", "minimum": 2015, "maximum": 2030},
+            "items": {
+                "type": "integer",
+                "minimum": FISCAL_YEAR_MIN,
+                "maximum": FISCAL_YEAR_MAX,
+            },
             "description": "Restrict to documents covering these fiscal years (any-of).",
         },
         "doc_type": {

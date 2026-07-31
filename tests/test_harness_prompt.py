@@ -584,13 +584,14 @@ def test_the_adjacent_year_widening_is_explained(corpus):
 
 @pytest.mark.parametrize("corpus", CORPORA)
 def test_the_prompt_does_not_promise_recency_ordering(corpus):
-    """RECENCY_BOOST_PER_YEAR ships at 0.0, and even once calibrated it is
-    a tiebreaker. Telling the model the newest edition ranks first would
-    be false today and overstated afterwards — it would then quote the
-    top passage as 'current' without reading its fiscal_year."""
+    """RECENCY_BOOST_PER_YEAR ships at 0.0: recency has ZERO influence on
+    ordering today. Describing a tiebreaker that is switched off would
+    lead the model to quote the top passage as "current" without reading
+    its fiscal_year. When plan Task 6 turns the weight on, this sentence
+    is part of that change — see the plan's Task 6 checklist."""
     prompt = build_system_prompt(corpus=corpus, tier="standard")
-    # Whitespace-collapsed: this line is prose and will be re-wrapped.
-    assert "tiebreaker, never a guarantee" in " ".join(prompt.split())
+    flat = " ".join(prompt.split())
+    assert "nothing sorts them by recency" in flat
     for overclaim in (
         "sorted by recency",
         "newest first",
@@ -598,6 +599,18 @@ def test_the_prompt_does_not_promise_recency_ordering(corpus):
         "always returns the latest",
     ):
         assert overclaim not in prompt
+
+
+@pytest.mark.parametrize("corpus", CORPORA)
+def test_the_model_is_warned_that_bill_numbers_can_look_like_years(corpus):
+    """Arizona House bills are numbered from 2001 up. The parser rejects
+    the designated forms ("HB 2019"), but a bare four-digit number in
+    query text is read as a year, and the model is the only one who knows
+    what it meant."""
+    prompt = build_system_prompt(corpus=corpus, tier="standard")
+    flat = " ".join(prompt.split())
+    assert "mistaken for a year" in flat
+    assert "`inferred_fiscal_years` you did not intend" in flat
 
 
 @pytest.mark.parametrize("corpus", CORPORA)

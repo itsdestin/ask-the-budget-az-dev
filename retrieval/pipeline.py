@@ -310,19 +310,30 @@ def retrieve(
     if reranker is None:
         reranker = _get_reranker()
 
-    reranked = reranker.rerank(req.query, fused, top_k=req.top_k)
+    # Rerank the WHOLE fused pool, then trim after the recency pass.
+    #
+    # WHY not `top_k=req.top_k` here: the recency bonus below can only
+    # reorder chunks it can see. If the reranker has already dropped the
+    # newest edition out of the top-K — which is the exact failure S21
+    # exists to fix, twenty near-identical editions competing and the
+    # cross-encoder picking an arbitrary one — no weight can bring it
+    # back. Costs nothing: the reranker already scored every fused
+    # candidate, `top_k` only sliced its sorted output.
+    reranked = reranker.rerank(req.query, fused, top_k=len(fused))
 
-    # S21 layer 3: with no year named, nudge newer editions up. Skipped
-    # on the fiscal-note corpus (triage wants similar notes at any age)
-    # and skipped whenever a year filter is active — inside a set the
-    # analyst already narrowed to FY 2019, preferring "newer" is fighting
-    # the instruction. Ships at weight 0.0, i.e. a no-op, until
+    # S21 layer 3: with no year named, prefer newer editions. Skipped on
+    # the fiscal-note corpus (triage wants similar notes at any age) and
+    # skipped whenever a year filter is active — inside a set the analyst
+    # already narrowed to FY 2019, preferring "newer" is fighting the
+    # instruction. Ships at weight 0.0, i.e. a no-op, until
     # eval/calibrate_recency.py recommends a weight against a backfilled
     # corpus; see retrieval/recency.py for why that ordering matters.
     if req.corpus == DEFAULT_CORPUS and not filters.fiscal_year:
         reranked = apply_recency_boost(
             reranked, anchor_fy=anchor_fiscal_year(reranked)
         )
+
+    reranked = reranked[: req.top_k]
 
     return RetrievalResult(
         chunks=reranked,
