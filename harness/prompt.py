@@ -75,8 +75,21 @@ _CORPUS_ALIASES = {
 # `{{#when corpus=budget}}` … `{{/when}}` — a whole-line marker so a
 # conditional block can wrap markdown table rows without disturbing them.
 _WHEN_OPEN = re.compile(r"^\{\{#when (corpus|tier)=([a-z_]+)\}\}\s*$")
+# Anything that MEANT to be an open marker. Without this, a typo'd key
+# simply fails to match, the line survives as literal prose, and the
+# error surfaces on the `{{/when}}` several dozen lines below — sending
+# the author to inspect the one line that was correct.
+_WHEN_OPEN_LOOSE = re.compile(r"^\s*\{\{#when\b.*\}\}\s*$")
 _WHEN_CLOSE = re.compile(r"^\{\{/when\}\}\s*$")
 _PLACEHOLDER = re.compile(r"\{\{([A-Z_]+)\}\}")
+
+# What a block marker may switch on. Derived from the same two sources
+# the renderer resolves against, so adding a tier to constants.py or a
+# corpus above cannot leave the validator behind.
+_BLOCK_VALUES: dict[str, set[str]] = {
+    "corpus": set(_CORPUS_ALIASES.values()),
+    "tier": set(TIER_BUDGETS),
+}
 
 _lock = threading.Lock()
 # (path, text) of the template already read. Cached because this is read
@@ -133,6 +146,12 @@ def _select_blocks(template: str, context: dict[str, str]) -> str:
     keeping = True
     for number, line in enumerate(template.splitlines(), start=1):
         opened = _WHEN_OPEN.match(line)
+        if opened is None and _WHEN_OPEN_LOOSE.match(line):
+            raise PromptTemplateError(
+                f"{TEMPLATE_PATH}:{number}: {line.strip()} is not a valid "
+                "block marker. Write `{{#when corpus=<name>}}` or "
+                "`{{#when tier=<name>}}` on a line of its own."
+            )
         if opened:
             if open_marker is not None:
                 raise PromptTemplateError(
@@ -140,6 +159,16 @@ def _select_blocks(template: str, context: dict[str, str]) -> str:
                     "nest; close the one opened above first."
                 )
             key, value = opened.group(1), opened.group(2)
+            if value not in _BLOCK_VALUES[key]:
+                # A valid-looking marker with a misspelled VALUE matches
+                # nothing, so its block would vanish from every rendering
+                # with no error — a silent hole in the model's
+                # instructions is the worst failure this file has.
+                raise PromptTemplateError(
+                    f"{TEMPLATE_PATH}:{number}: unknown {key} {value!r} in a "
+                    f"block marker. Valid values: "
+                    f"{', '.join(sorted(_BLOCK_VALUES[key]))}."
+                )
             open_marker = (key, value)
             keeping = context[key] == value
             continue
