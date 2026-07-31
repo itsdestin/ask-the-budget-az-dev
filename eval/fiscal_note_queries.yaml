@@ -1,0 +1,97 @@
+# Fiscal-note eval set — coordinator-triage query shapes.
+#
+# STATUS: queries written, GROUND TRUTH NOT YET FILLED IN. Read this before
+# running it and before "fixing" the empty ground_truth blocks.
+#
+# WHY it's incomplete: ground truth here is a real chunk_id from a real
+# ingested note, and the fiscal-note corpus is not populated yet. Plan 3
+# shipped the machinery — POST /api/fiscal-notes/refresh scrapes azjlbc.gov,
+# downloads new notes, and ingests them — and it was verified end-to-end on
+# two real 2026 notes. But populating the 2,126-note back catalogue is an
+# overnight MinerU run that has not happened, so there are no stable chunk_ids
+# to point at. Inventing them would produce a baseline that measures nothing
+# and fails for the wrong reason forever.
+#
+# TO FINISH (after a real fiscal-note ingest):
+#   1. Run a refresh (or ingest a slice of prior sessions) so
+#      `fiscal_note_chunks` has real rows.
+#   2. For each query below, run it and read the results; put the chunk_id of
+#      the passage that genuinely answers it into `chunk_id`, and a verbatim
+#      phrase from that passage into `anchor_text`. Same hybrid ground-truth
+#      rule as eval/queries.yaml — anchor_text is what survives a re-ingest
+#      that changes chunk boundaries.
+#   3. `uv run python -m eval.run_eval --queries eval/fiscal_note_queries.yaml
+#      --corpus fiscal_notes` and commit the results as the baseline. There is
+#      no hard gate — this corpus has no history, so the first numbers ARE the
+#      bar.
+#
+# The QUERIES themselves are the durable part and are written to the
+# coordinator's actual workflow: a new fiscal note request arrives, and the
+# question is always "have we analyzed something like this before?" — which is
+# a topic search, not a bill-number lookup (the directory page already does
+# bill numbers).
+
+- id: fn-community-college-expenditure-limits
+  type: lookup
+  query: prior fiscal notes about community college expenditure limits
+  ground_truth: {}
+
+- id: fn-ahcccs-provider-rates
+  type: lookup
+  query: notes estimating the cost of AHCCCS provider rate increases
+  ground_truth: {}
+
+- id: fn-k12-group-b-weights
+  type: lookup
+  query: fiscal notes on K-12 group B weights and special education funding
+  ground_truth: {}
+
+- id: fn-corrections-population-growth
+  type: lookup
+  query: notes estimating prison population growth costs at the Department of Corrections
+  ground_truth: {}
+
+- id: fn-tpt-exemption-revenue-loss
+  type: lookup
+  query: transaction privilege tax exemption revenue loss estimates
+  ground_truth: {}
+
+- id: fn-public-safety-retirement
+  type: lookup
+  query: fiscal notes on public safety personnel retirement system employer contributions
+  ground_truth: {}
+
+- id: fn-university-capital-projects
+  type: lookup
+  query: notes on university capital project lease-purchase financing
+  ground_truth: {}
+
+- id: fn-water-infrastructure-appropriation
+  type: lookup
+  query: fiscal notes about water infrastructure finance authority appropriations
+  ground_truth: {}
+
+- id: fn-child-safety-caseworker-caseloads
+  type: lookup
+  query: cost estimates for additional child safety caseworkers
+  ground_truth: {}
+
+- id: fn-election-administration-costs
+  type: lookup
+  query: county election administration cost estimates
+  ground_truth: {}
+
+# Comparison-shaped: the coordinator often needs the same topic across sessions
+# to see whether an estimate moved.
+- id: fn-same-topic-across-sessions
+  type: comparison
+  query: fiscal notes on the same tax credit analyzed in more than one session
+  ground_truth: {}
+
+# Refusal: the corpus holds fiscal notes only. A question about something it
+# cannot possibly contain must score below the refusal threshold rather than
+# returning a confident near-miss.
+- id: fn-refusal-out-of-corpus
+  type: refusal
+  query: what is the federal debt ceiling schedule for the next decade
+  ground_truth: {}

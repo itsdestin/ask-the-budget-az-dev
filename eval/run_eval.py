@@ -45,6 +45,12 @@ DEFAULT_TOP_K = 20
 # for the local L-12 reranker's logit distribution).
 DEFAULT_REFUSAL_THRESHOLD = 1.9
 
+# CLI corpus name -> LanceDB table. The flag takes the analyst-facing name the
+# rest of the app uses ("budget"), but RetrievalRequest.corpus is the TABLE
+# name; passing the former straight through makes every query raise "Unknown
+# corpus table" and the run reads as a total retrieval collapse.
+CORPUS_TABLES = {"budget": "budget_chunks", "fiscal_notes": "fiscal_note_chunks"}
+
 
 def load_queries(path: str) -> list[EvalQuery]:
     """Parse eval/queries.yaml into EvalQuery records."""
@@ -68,7 +74,7 @@ def _chunk_to_dict(c: Any) -> dict:
 
 
 def run_one_query(
-    query: EvalQuery, refusal_threshold: float
+    query: EvalQuery, refusal_threshold: float, *, corpus: str = "budget"
 ) -> PerQueryResult:
     """Call retrieve() and score the result. retrieve() is at module
     level so tests can monkeypatch it.
@@ -80,7 +86,8 @@ def run_one_query(
     """
     start = time.monotonic()
     try:
-        req = RetrievalRequest(query=query.query, top_k=DEFAULT_TOP_K)
+        req = RetrievalRequest(query=query.query, top_k=DEFAULT_TOP_K,
+                               corpus=CORPUS_TABLES[corpus])
         result = retrieve(req)
         chunks = [_chunk_to_dict(c) for c in result.chunks]
         top_score = result.top_score
@@ -167,11 +174,25 @@ def write_json_output(
     tmp.replace(path)
 
 
-def find_previous_result(results_dir: Path, current_filename: str) -> Path | None:
-    """Find the most recent .json result file other than the current
-    one. Returns None if no prior runs exist."""
+def find_previous_result(
+    results_dir: Path, current_filename: str, prefix: str = ""
+) -> Path | None:
+    """Most recent prior result for the SAME corpus, or None.
+
+    `prefix` scopes the search: budget runs are unprefixed and fiscal-note
+    runs are `fiscal_notes-`, so without it the first fiscal-note run would
+    diff itself against the budget baseline and report a catastrophic
+    regression that is really just a different corpus.
+    """
     files = sorted(
-        (p for p in results_dir.glob("*.json") if p.name != current_filename),
+        (
+            p for p in results_dir.glob(f"{prefix}*.json")
+            if p.name != current_filename
+            # An unprefixed (budget) search must not pick up a prefixed file.
+            # Budget filenames start with the UTC timestamp, so a leading
+            # digit is the discriminator.
+            and (prefix or p.name[:1].isdigit())
+        ),
         reverse=True,
     )
     return files[0] if files else None
@@ -337,6 +358,14 @@ def main() -> None:
         "--results-dir", default="eval/results",
         help="Directory to write result files into",
     )
+    parser.add_argument(
+        "--corpus", default="budget", choices=("budget", "fiscal_notes"),
+        help=(
+            "Which corpus to retrieve against. Non-budget runs get their own "
+            "results filename prefix so a fiscal-note run can never be read "
+            "as a budget regression."
+        ),
+    )
     args = parser.parse_args()
 
     print(f"Loading queries from {args.queries}...")
@@ -346,7 +375,7 @@ def main() -> None:
     print(f"Running retrieval (threshold={args.threshold})...")
     per_query: list[PerQueryResult] = []
     for i, q in enumerate(queries, start=1):
-        result = run_one_query(q, args.threshold)
+        result = run_one_query(q, args.threshold, corpus=args.corpus)
         per_query.append(result)
         marker = "✓" if result.status == "pass" else "✗"
         print(
@@ -360,7 +389,11 @@ def main() -> None:
     git_sha = _git_sha()
     results_dir = Path(args.results_dir)
     results_dir.mkdir(parents=True, exist_ok=True)
-    json_path = results_dir / f"{timestamp}-{git_sha}.json"
+    # Non-budget runs are prefixed so `find_previous_result` never diffs a
+    # fiscal-note run against a budget one — a corpus change is not a
+    # regression, and reporting it as one would train people to ignore deltas.
+    prefix = "" if args.corpus == "budget" else f"{args.corpus}-"
+    json_path = results_dir / f"{prefix}{timestamp}-{git_sha}.json"
     write_json_output(
         json_path,
         git_sha=git_sha,
@@ -370,9 +403,9 @@ def main() -> None:
     )
 
     # Markdown summary with delta vs previous run.
-    md_path = results_dir / f"{timestamp}-{git_sha}.md"
+    md_path = results_dir / f"{prefix}{timestamp}-{git_sha}.md"
     delta = None
-    prev_path = find_previous_result(results_dir, json_path.name)
+    prev_path = find_previous_result(results_dir, json_path.name, prefix)
     if prev_path:
         # Schema may have evolved since the previous run was written. A
         # validation failure here must NOT abort the current run — we

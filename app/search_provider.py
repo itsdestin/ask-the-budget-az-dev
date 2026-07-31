@@ -55,6 +55,26 @@ class StubSearchProvider:
         return out[:top_k]
 
 
+def _ingest_title(meta: dict) -> str | None:
+    """The sidecar's own title, but ONLY for documents Plan 3's ingest wrote.
+
+    Title precedence is mockup index → this → the doc_id humanizer, and the
+    gate matters in both directions. Plan 3's writer builds real titles
+    ("FY 2027 Baseline — Industrial Commission of Arizona"), which beat any
+    slug. The MIGRATION's titles are doc-id derived junk ("AGAO FY2025
+    fy2025") and are worse than the humanizer — so trusting the sidecar
+    unconditionally would downgrade the 9 legacy documents the mockup index
+    never matched.
+
+    `ingested_at` is the discriminator: the migration's DOCS_FIELDS never
+    carried it, and every ingest-written entry does.
+    """
+    if not meta.get("ingested_at"):
+        return None
+    title = (meta.get("title") or "").strip()
+    return title or None
+
+
 def _title_from_doc_id(doc_id: str) -> str:
     """Best-effort humanization of doc_id slugs
     ('jlbc-baseline-fy2027-ahcccs' -> 'JLBC Baseline FY 2027 Ahcccs').
@@ -99,6 +119,12 @@ class LanceSearchProvider:
         # None until first use; {} if the sidecar is missing (rows then carry
         # doc_url=None + humanized titles — degraded, not broken).
         self._doc_info: dict[str, dict] | None = None
+        # Signature of the documents.json the cache was built from. Plan 3's
+        # ingest rewrites that file whenever a document goes live, and this
+        # provider is a process-lifetime singleton — without a staleness check
+        # every document ingested during a session would keep the doc-id
+        # humanizer's title until the app restarted.
+        self._doc_info_sig: tuple | None = None
 
     @staticmethod
     def _load_mockup_index() -> dict[str, dict]:
@@ -118,11 +144,14 @@ class LanceSearchProvider:
         "category · doc_type · FY" meta line, and the sidecar supplies the
         link target. Docs the mockup never indexed (9 of 382) fall back to
         the slug humanizer and a null meta."""
-        if self._doc_info is None:
+        if self._doc_info is None or self._sidecar_changed():
             try:
                 from store.config import documents_path
 
-                sidecar = json.loads(documents_path().read_text(encoding="utf-8"))
+                path = documents_path()
+                stat = path.stat()
+                self._doc_info_sig = (str(path), stat.st_mtime_ns, stat.st_size)
+                sidecar = json.loads(path.read_text(encoding="utf-8"))
                 index = self._load_mockup_index()
                 info: dict[str, dict] = {}
                 for did, meta in sidecar.items():
@@ -131,7 +160,10 @@ class LanceSearchProvider:
                     fy = entry.get("fiscal_year") if entry else None
                     info[did] = {
                         "url": url,
-                        "title": entry.get("title") if entry else None,
+                        "title": (
+                            entry.get("title") if entry
+                            else _ingest_title(meta)
+                        ),
                         # The mockup docRow's own meta recipe:
                         # [category, doc_type, 'FY '+fy], joined with ·
                         "meta": " · ".join(
@@ -156,7 +188,25 @@ class LanceSearchProvider:
                     file=sys.stderr,
                 )
                 self._doc_info = {}
+                self._doc_info_sig = None
         return self._doc_info.get(doc_id) or {"url": None, "title": None, "meta": None}
+
+    def _sidecar_changed(self) -> bool:
+        """Has documents.json been rewritten since the cache was built?
+
+        Cheap (one stat) and checked per lookup, because the alternative is a
+        colleague uploading a document, seeing it appear in search under a
+        machine-generated title, and having no way to know a restart fixes it.
+        """
+        try:
+            from store.config import documents_path
+
+            path = documents_path()
+            stat = path.stat()
+            return self._doc_info_sig != (str(path), stat.st_mtime_ns, stat.st_size)
+        except OSError:
+            # Sidecar gone or share unreachable — keep the last good map.
+            return False
 
     # /api/search's corpus values -> LanceDB table names (store/chunk_store.py's
     # CORPUS_TABLES). The route's pydantic pattern only admits these two.
