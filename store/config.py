@@ -8,8 +8,10 @@ the repo (gitignored), so tests and dev never touch a share.
 """
 from __future__ import annotations
 
+import json
 import os
 from pathlib import Path
+from typing import Any
 
 _ENV_VAR = "JLBC_DATA_DIR"
 
@@ -20,6 +22,14 @@ _ENV_VAR = "JLBC_DATA_DIR"
 # corpus travels to another machine. Written by
 # scripts/migrate_to_lancedb.py (and by ingest once Plan 3 owns it).
 DOCUMENTS_FILE = "documents.json"
+
+# Every field a documents.json entry carries, verified against
+# db/migrations/0001_initial_schema.sql's `documents` table. `extractor` /
+# `extractor_version` are deliberately left behind: nothing reads them.
+DOCS_FIELDS = (
+    "title", "publisher", "doc_type", "fiscal_year",
+    "source_format", "source_blob_path", "source_url", "page_count",
+)
 
 
 def data_dir() -> Path:
@@ -44,3 +54,26 @@ def documents_path() -> Path:
     disagreeing silently.
     """
     return data_dir() / DOCUMENTS_FILE
+
+
+def write_documents_sidecar(docs: dict[str, dict[str, Any]]) -> Path:
+    """Write documents.json into the shared data dir; return its path.
+
+    WHY the temp-file + replace: the retrieval sidecar reads this file live
+    (on an mtime change), and on a network share a reader could otherwise
+    catch a half-written file and log a JSON error. os.replace is atomic on
+    both Windows and POSIX.
+
+    WHY it lives here rather than in the migration script that first needed
+    it: ingest writes this file on every upload now, and importing the
+    migration script would pull psycopg into the ingest path that Plan 3
+    exists to get Postgres out of. One writer, one definition, no Postgres.
+    """
+    path = documents_path()
+    tmp = path.with_suffix(".json.tmp")
+    tmp.write_text(
+        json.dumps(docs, indent=2, sort_keys=True, ensure_ascii=False),
+        encoding="utf-8",
+    )
+    os.replace(tmp, path)
+    return path
