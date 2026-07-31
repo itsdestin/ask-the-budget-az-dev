@@ -23,7 +23,7 @@ source. When something ships, update only this file.
 | Phase 1a — Ingest + chunking | ✓ Done on slice (2026-05-06), volume ingest substantially complete (2026-05-12) | 382 docs / 7,755 chunks; missing older FYs + a few in-cycle gaps |
 | Phase 1b — Storage + retrieval | ✓ Done (slice 2026-05-07, volume-validated implicitly, WS8 eval harness shipped 2026-05-22) | Hybrid pipeline live and serving 7K+ chunks; eval harness baseline: recall@5 86%, recall@20 100% on 34-query set |
 | Phase 1c — Synthesis + UI | ⬛ Superseded by Standalone consolidation (Plans 1–4) | The MCP/sidecar/Next.js stack it shipped is retired; faithfulness verifier (WS3) + audit log (WS5) remain unbuilt and carry forward |
-| Volume ingest | 🟡 Backfill pending — Z13 run (`PROMPT-z13-backfill.md`); S20 scope | FY25 + FY26 + FY27 across all 4 publishers are in; older FYs and a few in-cycle gaps go through the Z13 backfill |
+| Volume ingest / S20 backfill | 🟡 **IN PROGRESS on the Z13** (2026-07-31) | Fiscal-note back catalogue ~65% done (1,384 of 2,126 notes, sessions 2026→2008); JLBC book editions not started. See the Z13 section below |
 | Phase 2 — Companion + verify-mode | 🔴 Not started | Defers until v1 demonstrates internal value |
 | Standalone consolidation — Plan 1 (storage + retrieval) | ✓ Shipped (2026-07-30) | Postgres/pgvector/ParadeDB → embedded LanceDB; Voyage → local ONNX models. See the section below |
 | Standalone consolidation — Plan 2 (app server + search UI) | ✓ Shipped (2026-07-30) | New `app/` (port 9300) + `webapp/` SPA: home, budget search (real corpus), fiscal notes directory. See the section below |
@@ -32,6 +32,13 @@ source. When something ships, update only this file.
 
 ## What's next
 
+- **🔵 RUNNING NOW — S20 backfill on the Z13** (`PROMPT-z13-backfill.md`).
+  Phase A (parity gate) and Phase B (recency machinery) are DONE and merged.
+  Phase C (the backfill itself) is ~65% through the fiscal notes with the
+  38 book editions still to come; ~6 h remaining at the current rate.
+  Phase D (recency + refusal calibration) is BLOCKED until the corpus is
+  complete. Nothing else in this list touches the ingest path, so all of it
+  is safe to work in parallel.
 - **Plan 5 — admin/settings UI, packaging + launcher, legacy deletion
   (`web/`, `mcp-server/`, `db/`, dead `retrieval/` modules), gates G2/G3,
   and AI-Mode hardening: S22 prompt caching (biggest cost lever) + S23
@@ -41,6 +48,51 @@ source. When something ships, update only this file.
   Runbook: [`PROMPT-z13-backfill.md`](PROMPT-z13-backfill.md) (the only
   active handoff). Recency plan:
   [`docs/superpowers/plans/2026-07-31-standalone-plan-recency-ranking.md`](docs/superpowers/plans/2026-07-31-standalone-plan-recency-ranking.md).
+
+---
+
+## Z13 backfill — IN PROGRESS (2026-07-31)
+
+Runbook: [`PROMPT-z13-backfill.md`](PROMPT-z13-backfill.md). Spec: S20 (scope),
+S21 (recency). This section is the live record; update it as phases land.
+
+**Machine:** Ryzen AI MAX+ 395, 32 threads, 121 GB RAM, Linux. Repo at
+`~/YouCoded/Projects/ask-the-budget-az-dev`, corpus at `data/insight-data/`.
+
+| Phase | State |
+|---|---|
+| A — setup + parity gate | ✅ **PASSED**, exact reproduction of the Windows baseline: recall@5 72.41 / @15 96.55 / @20 100.00, refusal precision 40.00. Latency p95 **821 ms vs 3,187 ms** on the office box (3.9× faster). Results committed. |
+| B — recency machinery (S21) | ✅ **MERGED** (`4c75f2c`). Year-parser hard filter + `inferred_fiscal_years` + recency boost shipped OFF (0.0) + prompt guidance. **Eval improved to recall@5 82.76% (+10.35pp) and refusal precision 60% (+20pp)** from the year filter alone. |
+| C — the backfill | 🔵 **RUNNING.** Fiscal notes ~65% (1,384 of 2,126 docs, sessions 2026→2008); 38 book editions not started. ~6 h remaining. |
+| D — calibration | ⬜ **BLOCKED on C.** Author `eval/queries_historical.yaml` against the finished corpus, run `eval/calibrate_recency.py`, set `RECENCY_BOOST_PER_YEAR`, re-run `calibrate_refusal.py`, then the three-set eval that proves old books don't swamp no-year queries. |
+| E — wrap | ⬜ Final counts, canonical corpus declared, this section closed. |
+
+**Corpus right now:** `budget_chunks` 7,808 · `fiscal_note_chunks` 8,438 ·
+1,770 documents (was 382 / 7,755 / 0 notes at the start).
+
+**Throughput work done during the run** (all merged; measured, not estimated):
+
+| change | effect |
+|---|---|
+| Bulk snapshot mode (`JLBC_INGEST_SNAPSHOT=off`) | 89 → 96 docs/hr and, more importantly, flattened an O(n²) decay curve |
+| Parallel ingest (`JLBC_INGEST_WORKERS`, merge `f4ddf1d`) | 95 → 700 docs/hr at N=8, 840+ at N=12 |
+| Worker cap raised 8 → 16, sized from measured CPU draw (`502841b`) | knee is ~8; N=12 is the practical setting |
+| Thread-unique job temp files (`1f63393`) | closed a save() race that failed 1 document per ~100 at N=14 |
+| **Net** | **95 → ~945 docs/hr (10×); remaining work 67 h → ~6 h** |
+
+**Live operating config** (all three processes detached, restartable via
+`~/backfill-scripts/restart_stack.sh <workers> <omp> <shared_mineru>`):
+`JLBC_INGEST_WORKERS=12`, `JLBC_INGEST_SNAPSHOT=off`, `OMP_NUM_THREADS=3`,
+shared mineru-api DISABLED. Progress log: `~/backfill-progress.log`.
+Restore points: `~/pre-backfill-corpus.zip` (pre-run) and
+`~/corpus-before-parallel.tgz` (1.5 GB, pre-parallel, 2,956 notes in).
+
+**Data quality verified under 8-way and 12-way parallelism** (audited, not
+assumed): documents.json count == distinct doc_ids in LanceDB; 0 documents
+with zero chunks; 0 orphan chunks; 0 duplicate chunk_ids; 0 rows missing page
+or bbox; 93/93 sampled titles real and content-derived. 1 known
+zero-passage document — azleg.gov published a literal test file
+("THIS IS A TESTT"), not an extraction failure.
 
 ---
 
