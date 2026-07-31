@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
+import { useAiStatus } from "../chat/use-ai-status";
 // The mockup's magnifier glyph, shared with the search page (Task 9) so the two
 // pages can't drift apart. Sizing still comes from each page's own CSS.
 import { SearchIcon } from "../components/SearchIcon";
@@ -37,6 +38,13 @@ import { SearchIcon } from "../components/SearchIcon";
 export function Home() {
   const navigate = useNavigate();
   const [q, setQ] = useState("");
+  // Plan 4: the AI card was inert by design because AI Mode did not exist.
+  // Now it exists but still depends on an admin having configured a key and a
+  // model, so the card follows the server's answer rather than the build's.
+  // A failed probe resolves to null and keeps the inert card — a gateway that
+  // lights up on a network error promises a feature nobody claimed.
+  const aiStatus = useAiStatus();
+  const aiReady = Boolean(aiStatus?.available);
 
   return (
     // The mockup keeps the hero OUTSIDE <main> (its <main> was just the two-column
@@ -110,37 +118,48 @@ export function Home() {
             <span className="arr">Search documents →</span>
           </Link>
 
-          {/* AI Mode has no route yet (Plan 4 wires it), so it is a <div>, not a <Link>:
-              an anchor that only *looks* disabled is still focusable and still
-              navigates on Enter. `title` carries the explanation on hover — the mockup
-              has no tooltip pattern of its own to borrow.
-              `aria-disabled` is a semantic marker only: assistive tech ignores it on a
-              roleless <div>, and it is not doing hidden a11y work here. The visible
-              "Needs an API key." line is what actually tells a user why the card is
-              dead — if this ever becomes a real control, the attribute starts mattering. */}
-          <div
-            className="m-card a-teal is-disabled"
-            aria-disabled="true"
-            title="AI answers require an API key — coming with AI Mode"
-          >
-            <div className="cardhead">
-              <span className="ic">
-                {/* The mockup has no AI/sparkle glyph; rather than invent one, this is
-                    its Arizona star path — `.azstar`, which appears exactly once in the
-                    mockup, as the divider inside the hero's `.gov-pill` — and which reads
-                    as the conventional "AI sparkle". */}
-                <svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
-                  <path d="M12 2l2.9 6.3 6.9.7-5.1 4.6 1.4 6.8L12 17.8 5.9 20.4l1.4-6.8L2.2 9l6.9-.7L12 2z" />
-                </svg>
-              </span>
-              <h2 className="t">AI Mode</h2>
+          {/* Two renders of one card, chosen by the server's answer.
+              READY: a real <Link> to /search, where the AI Mode pill lives.
+              NOT READY: a <div>, not a <Link> — an anchor that only *looks*
+              disabled is still focusable and still navigates on Enter. `title`
+              carries the explanation on hover; the mockup has no tooltip
+              pattern of its own to borrow. `aria-disabled` is a semantic
+              marker only (assistive tech ignores it on a roleless <div>); the
+              visible "Needs an API key." line is what actually tells a user
+              why the card is dead. */}
+          {aiReady ? (
+            <Link className="m-card a-teal" to="/search" aria-label="AI Mode">
+              <div className="cardhead">
+                <span className="ic">
+                  <AiStarIcon />
+                </span>
+                <h2 className="t">AI Mode</h2>
+              </div>
+              <p className="d">
+                Ask a question in plain language and get a written answer, with every
+                claim carrying a citation to the page it came from.
+              </p>
+              <span className="arr">AI Mode available →</span>
+            </Link>
+          ) : (
+            <div
+              className="m-card a-teal is-disabled"
+              aria-disabled="true"
+              title="AI answers require an API key — ask your admin"
+            >
+              <div className="cardhead">
+                <span className="ic">
+                  <AiStarIcon />
+                </span>
+                <h2 className="t">AI Mode</h2>
+              </div>
+              <p className="d">
+                Ask a question in plain language and get a written answer, with every
+                claim carrying a citation to the page it came from. Needs an API key.
+              </p>
+              <span className="arr">Coming soon</span>
             </div>
-            <p className="d">
-              Ask a question in plain language and get a written answer, with every claim
-              carrying a citation to the page it came from. Needs an API key.
-            </p>
-            <span className="arr">Coming soon</span>
-          </div>
+          )}
 
           <Link className="m-card a-red" to="/fiscal-notes" aria-label="Fiscal Notes">
             <div className="cardhead">
@@ -171,5 +190,18 @@ export function Home() {
         </div>
       </div>
     </main>
+  );
+}
+
+/** The mockup has no AI/sparkle glyph; rather than invent one, this is its
+ *  Arizona star path — `.azstar`, which appears exactly once in the mockup as
+ *  the divider inside the hero's `.gov-pill` — and which reads as the
+ *  conventional "AI sparkle". Shared by both renders of the card above so the
+ *  two cannot drift; the AI Mode pill uses the same path. */
+function AiStarIcon() {
+  return (
+    <svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
+      <path d="M12 2l2.9 6.3 6.9.7-5.1 4.6 1.4 6.8L12 17.8 5.9 20.4l1.4-6.8L2.2 9l6.9-.7L12 2z" />
+    </svg>
   );
 }

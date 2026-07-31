@@ -80,12 +80,118 @@ export async function fiscalNotes(): Promise<{ sessions: Session[] }> {
   return r.json();
 }
 
+/** One chunk's provenance fields — everything the source viewer needs to open
+ *  a passage, and nothing else (see app/routes/pdf.py's get_chunk). */
+export interface ChunkSource {
+  chunk_id: string;
+  doc_id: string;
+  /** 1-indexed PDF page; null when the chunk has no page. */
+  page: number | null;
+  /** [x0,y0,x1,y1]; null means "search the whole page" (see the strict-bbox
+   *  rule in pdf/highlight-strategy.ts). */
+  bbox: number[] | null;
+  /** Verbatim chunk text — the highlight target AND the cited-text panel. */
+  text: string;
+  source_format: string | null;
+  /** Non-null when this source has no page image (DOCX bills, fiscal notes).
+   *  The string is the backend's own 415 wording; render it, don't rewrite it. */
+  pdf_unavailable_reason: string | null;
+}
+
+/** Fetch one chunk by id. Used by the search page's source panel, where a
+ *  click carries only the chunk_id the row was rendered with. */
+export async function chunk(
+  chunkId: string,
+  corpus = "budget",
+): Promise<ChunkSource> {
+  const r = await fetch(
+    `/api/chunks/${encodeURIComponent(chunkId)}?corpus=${encodeURIComponent(corpus)}`,
+  );
+  if (!r.ok) await fail(r, "chunk");
+  return r.json();
+}
+
 /** How many fiscal-note passages are actually searchable. The page's semantic
  *  search stays disabled at 0 — offering a search that can only return nothing
  *  is worse than saying it isn't ready. */
 export async function fiscalNotesStatus(): Promise<{ chunks: number }> {
   const r = await fetch("/api/fiscal-notes/status");
   if (!r.ok) await fail(r, "fiscal-notes status");
+  return r.json();
+}
+
+// ---- AI Mode (Plan 4) ------------------------------------------------------
+
+/** One answer tier as `GET /api/ai/status` reports it.
+ *
+ *  `description` and `examples` are the spec's S16 explainer sentences and they
+ *  live SERVER-SIDE on purpose (app/routes/conversations.py::TIER_COPY): the
+ *  admin surface in Plan 5 renders the same strings, and two copies of a
+ *  sentence is two places for it to drift. Nothing in the webapp may retype
+ *  them — the tier explainer reads these fields. */
+export interface AiTierInfo {
+  label: string;
+  default: boolean;
+  description: string;
+  examples: string[];
+  /** Per-tier availability. An admin can wire up Standard and leave Deep
+   *  Research unconfigured, so this is NOT the same answer as the top-level
+   *  `available` flag. */
+  available: boolean;
+  reason: string | null;
+}
+
+export interface AiStatus {
+  /** "Is ANY tier usable" — this is what gates the AI Mode toggle. */
+  available: boolean;
+  /** Present only when nothing is usable; explains the default tier's failure. */
+  reason?: string;
+  tiers: Record<string, AiTierInfo>;
+  user_usage: {
+    month_usd: number | null;
+    limit_usd: number | null;
+    warned: boolean;
+  };
+}
+
+export async function aiStatus(): Promise<AiStatus> {
+  const r = await fetch("/api/ai/status");
+  if (!r.ok) await fail(r, "ai status");
+  return r.json();
+}
+
+export interface ConversationHandle {
+  conversation_id: string;
+  /** Inline availability probe for the DEFAULT tier, so the UI can show the
+   *  problem before the analyst types (see SystemHealthBanner). */
+  health: { ok: boolean; reason?: string };
+  tier_default: string;
+}
+
+export async function createConversation(
+  corpus: "budget" | "fiscal_notes",
+): Promise<ConversationHandle> {
+  const r = await fetch("/api/conversations", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ corpus }),
+  });
+  if (!r.ok) await fail(r, "start conversation");
+  return r.json();
+}
+
+/** Ask the running turn to stop. This is what produces the DESIGNED abort
+ *  server-side (`stopReason: "user_interrupt"` plus cancelled-tool back-fill);
+ *  merely closing the stream leaves the harness to clean up via GeneratorExit
+ *  with no terminal frame. */
+export async function stopConversation(
+  conversationId: string,
+): Promise<{ stopped: boolean }> {
+  const r = await fetch(
+    `/api/conversations/${encodeURIComponent(conversationId)}/stop`,
+    { method: "POST" },
+  );
+  if (!r.ok) await fail(r, "stop");
   return r.json();
 }
 

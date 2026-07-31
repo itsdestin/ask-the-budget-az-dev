@@ -5,9 +5,13 @@ import { useSearchParams } from "react-router-dom";
 // made through the module object.
 import * as api from "../api";
 import type { SearchFilters, SearchResponse, SearchResult } from "../api";
+import { AiModePanel, AiModeToggle } from "../chat/AiModePanel";
+import { useAiStatus } from "../chat/use-ai-status";
+import { useChat } from "../chat/use-chat";
 import { FilterBar, type FilterKey } from "../components/FilterBar";
 import { ResultCard, type DocGroup, type FamilyGroup } from "../components/ResultCard";
 import { SearchIcon } from "../components/SearchIcon";
+import { SourcePanel } from "../pdf/SourcePanel";
 import { familyOf, familyTitle, reportFormats } from "../reportFamilies";
 
 // Budget Search — ported from the approved mockup's search page
@@ -197,9 +201,45 @@ export function Search() {
   // always changes, so the request always fires.
   const [attempt, setAttempt] = useState(0);
 
+  // The passage whose source is open in the side drawer (Plan 4 Task 11), or
+  // null. Holds the display title alongside the id because the row that was
+  // clicked already knows it — see app/routes/pdf.py's get_chunk for why the
+  // route deliberately doesn't return a second title.
+  const [openPassage, setOpenPassage] = useState<{
+    chunkId: string;
+    docTitle: string;
+    fiscalYear: number | null;
+  } | null>(null);
+
+  // AI Mode (Plan 4). OFF is the page exactly as it shipped; ON swaps the
+  // results panel for a conversation over the same corpus and re-points this
+  // page's ONE search box at it.
+  //
+  // WHY the results panel is replaced rather than pushed down: two answer
+  // surfaces for one question, both scrolling, is the layout that made the old
+  // app hard to read. Toggling back restores the results untouched — `phase`
+  // is untouched by the toggle, so nothing is refetched and nothing moves.
+  const [aiOn, setAiOn] = useState(false);
+  const aiStatus = useAiStatus();
+  // Called unconditionally (hooks rule) and cheap when idle: `useChat` opens
+  // no conversation until the first send, so a visitor who never turns AI Mode
+  // on never allocates a server-side session.
+  const chat = useChat("budget");
+
   // Keep the box in step with the URL if ?q= changes underneath us (back button, or
   // a second search arriving from elsewhere in the app).
   useEffect(() => setText(query), [query]);
+
+  // A new query means a new result set; leaving the drawer open would keep a
+  // passage from the PREVIOUS search on screen next to results that no longer
+  // contain it.
+  useEffect(() => setOpenPassage(null), [query]);
+
+  // Same reasoning across the mode switch: the drawer belongs to a results row
+  // that is no longer on screen, and AI Mode has its own source viewer.
+  useEffect(() => {
+    if (aiOn) setOpenPassage(null);
+  }, [aiOn]);
 
   useEffect(() => {
     if (!query) {
@@ -256,6 +296,57 @@ export function Search() {
   // header keep a document count even though the cards group one level higher.
   const docCount = families.reduce((n, f) => n + f.docs.length, 0);
 
+  /** Open the source drawer for a clicked matching-passage row.
+   *
+   *  WHY event delegation instead of a callback prop through ResultCard: the
+   *  passage rows already carry `data-chunk-id` (Plan 2 put the attribute
+   *  there for exactly this task), and the results presentation was iterated
+   *  live with Destin — spec S12 says wire it, don't restructure it. One
+   *  listener on `.results` reaches every row, at any nesting depth, without
+   *  touching the card components. ResultCard's own onClick calls
+   *  preventDefault but not stopPropagation, so the click still bubbles here. */
+  function onResultsClick(e: React.MouseEvent<HTMLDivElement>) {
+    const target = e.target as HTMLElement | null;
+    const row = target?.closest?.("[data-chunk-id]");
+    const chunkId = row?.getAttribute("data-chunk-id");
+    if (!chunkId) return;
+    // The row is an <a href="#">; without this the click would also jump the
+    // page to the top.
+    e.preventDefault();
+    openChunk(chunkId);
+  }
+
+  /** The keyboard half of the same delegation. WHY it is needed even though
+   *  the rows are anchors: their href is "#", a placeholder, so the browser's
+   *  own Enter-activates-a-link behavior would scroll to the top of the page
+   *  instead of opening the source. Space is handled too because ResultCard
+   *  gives the rows role="button", and a button is expected to answer both. */
+  function onResultsKeyDown(e: React.KeyboardEvent<HTMLDivElement>) {
+    if (e.key !== "Enter" && e.key !== " " && e.key !== "Spacebar") return;
+    const target = e.target as HTMLElement | null;
+    const row = target?.closest?.("[data-chunk-id]");
+    const chunkId = row?.getAttribute("data-chunk-id");
+    if (!chunkId) return;
+    // Space would otherwise scroll the results panel out from under the row
+    // the user just activated.
+    e.preventDefault();
+    openChunk(chunkId);
+  }
+
+  function openChunk(chunkId: string) {
+    // Fixture rows (StubSearchProvider, on any machine with no migrated
+    // corpus) carry synthetic ids that exist in no corpus. Opening the viewer
+    // for one would show a 404 and imply the corpus is broken, when the real
+    // fact is that there is no corpus at all.
+    if (chunkId.startsWith("stub-")) return;
+    const hit = shown?.results.find((r) => r.chunk_id === chunkId);
+    setOpenPassage({
+      chunkId,
+      docTitle: hit?.doc_title ?? "",
+      fiscalYear: hit?.fiscal_year ?? null,
+    });
+  }
+
   return (
     <main className="page-search" data-testid="search">
       {/* The mockup's `.subhero` band. It sits inside <main> here (the mockup keeps
@@ -291,6 +382,10 @@ export function Search() {
             <span className="chip">
               <SearchIcon /> Every match carries the page it came from
             </span>
+            {/* The mode switch sits in the chip row — the page-header band the
+                mockup already uses for page-level state, and the only place on
+                this page that is neither the search card nor the results. */}
+            <AiModeToggle on={aiOn} onChange={setAiOn} status={aiStatus} />
           </div>
         </div>
       </section>
@@ -308,6 +403,15 @@ export function Search() {
                 // backend rejects ("query is empty") and show an error for something
                 // the user hasn't typed yet.
                 if (!next) return;
+                if (aiOn) {
+                  // ONE box, two destinations. The question goes to the thread
+                  // and the box empties, because the thread now shows it —
+                  // leaving it in place would put the same sentence on screen
+                  // twice with only one of them live.
+                  void chat.send(next);
+                  setText("");
+                  return;
+                }
                 // Writes ?q= AND bumps the attempt counter, so submitting the same
                 // text again really does re-run the search.
                 runSearch(next);
@@ -321,8 +425,16 @@ export function Search() {
                 name="q"
                 value={text}
                 onChange={(e) => setText(e.target.value)}
-                placeholder="e.g. how much does the Medicaid program get?"
-                aria-label="Search Arizona budget documents"
+                placeholder={
+                  aiOn
+                    ? "Ask about Arizona's budget — every claim gets a citation"
+                    : "e.g. how much does the Medicaid program get?"
+                }
+                aria-label={
+                  aiOn
+                    ? "Ask the assistant about Arizona budget documents"
+                    : "Search Arizona budget documents"
+                }
                 autoComplete="off"
               />
               {/* The mockup's custom clear-X: shown only when there's text, and it
@@ -342,20 +454,28 @@ export function Search() {
                   <path d="M6 6l12 12M18 6 6 18" />
                 </svg>
               </button>
-              <button type="submit" className="s-btn">
+              <button type="submit" className="s-btn" disabled={aiOn && chat.busy}>
                 <SearchIcon />
-                Search
+                {aiOn ? "Ask" : "Search"}
               </button>
             </form>
 
-            <FilterBar
-              selected={filters}
-              years={facets.q === query ? facets.years : []}
-              onToggle={(key, value) => setFilters((prev) => toggleFilter(prev, key, value))}
-              onToggleBucket={(slugs) => setFilters((prev) => toggleBucket(prev, slugs))}
-              onYearChange={(year) => setFilters((prev) => setYearFilter(prev, year))}
-            />
+            {/* Hidden in AI Mode: these chips narrow a keyword query. The
+                assistant runs its own retrieve() with its own filters, so
+                leaving them on screen would show controls that quietly do
+                nothing to the answer below. */}
+            {!aiOn && (
+              <FilterBar
+                selected={filters}
+                years={facets.q === query ? facets.years : []}
+                onToggle={(key, value) => setFilters((prev) => toggleFilter(prev, key, value))}
+                onToggleBucket={(slugs) => setFilters((prev) => toggleBucket(prev, slugs))}
+                onYearChange={(year) => setFilters((prev) => setYearFilter(prev, year))}
+              />
+            )}
           </section>
+
+          {aiOn && <AiModePanel chat={chat} status={aiStatus} corpus="budget" />}
 
           {/* The mockup's status line under the card. Every phase says something
               true; none of them leaves the page blank.
@@ -364,6 +484,12 @@ export function Search() {
               "Searching…", the result count, and errors as they replace each other.
               Without it the only feedback for the whole search is visual, and a
               non-sighted user gets silence after pressing Search. */}
+          {/* Everything below belongs to keyword search. In AI Mode the panel
+              above is the answer surface, and this whole block is unmounted
+              rather than hidden — so switching back re-renders it from the
+              untouched `phase` state, byte for byte. */}
+          {!aiOn && (
+          <>
           <div className="search-status" role="status">
             {phase.kind === "idle" && "Type a search above to query the budget corpus."}
             {phase.kind === "loading" && "Searching…"}
@@ -423,7 +549,12 @@ export function Search() {
               {/* `.results`, not the mockup's `#results`: an id inside a component is
                   a page-wide uniqueness claim a component can't keep. Same rules,
                   ported onto the class. */}
-              <div className="results">
+              {/* One delegated listener for every passage row's click (see
+                  onResultsClick). Additive: the results markup below is
+                  unchanged. Plan 4 Task 12 closed the keyboard gap noted here
+                  previously — the rows are now real buttons (ResultCard) and
+                  onResultsKeyDown below handles Enter/Space. */}
+              <div className="results" onClick={onResultsClick} onKeyDown={onResultsKeyDown}>
                 {families.length === 0 ? (
                   // Two messages, because "nothing in the corpus matched" and "your
                   // filters excluded everything" are different facts and the second
@@ -440,8 +571,24 @@ export function Search() {
               </div>
             </section>
           )}
+          </>
+          )}
         </div>
       </div>
+
+      {/* Source drawer — overlays the page rather than taking a column, so the
+          results layout above is untouched (spec S12). */}
+      {openPassage && (
+        <SourcePanel
+          // Keyed on the chunk so switching passages remounts rather than
+          // showing the previous page while the next one loads.
+          key={openPassage.chunkId}
+          chunkId={openPassage.chunkId}
+          docTitle={openPassage.docTitle}
+          fiscalYear={openPassage.fiscalYear}
+          onClose={() => setOpenPassage(null)}
+        />
+      )}
     </main>
   );
 }

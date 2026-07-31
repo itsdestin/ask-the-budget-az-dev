@@ -1022,295 +1022,24 @@ def test_list_values_normalizes_field_case_and_whitespace(fresh_corpus):
 
 
 # ---------------------------------------------------------------------------
-# Unit tests — citation-alignment helpers (no store needed)
-# ---------------------------------------------------------------------------
-
-
-def test_normalize_for_match_folds_quotes_and_dashes():
-    """NFKC + smart-quote folds + dash folds must match the renderer's
-    normalizeForMatch (web/lib/citation-extract.ts:376). If these
-    diverge, a claim_span the renderer finds in the PDF text-layer
-    won't pass server-side validation here — same input, different
-    verdict per layer."""
-    n = api_module._normalize_for_match
-    assert n("“Hello”") == '"hello"'  # smart double quotes
-    assert n("don’t") == "don't"  # smart apostrophe
-    assert n("a—b") == "a-b"  # em dash
-    assert n("a–b") == "a-b"  # en dash
-    assert n("ﬁle") == "file"  # NFKC ligature
-    assert n("  multi   spaces  ") == "multi spaces"
-
-
-def test_normalize_for_match_strips_markdown_tokens():
-    """Bold/italic/code/pipe must be stripped so the model's
-    markdown-formatted claim_span matches the raw PDF text in the
-    chunk (which has no markdown)."""
-    n = api_module._normalize_for_match
-    assert n("**bold**") == "bold"
-    assert n("*italic*") == "italic"
-    assert n("`code`") == "code"
-    assert n("[label](http://example.com)") == "label"
-    assert n("| FY 2024 | $4,679,100 |") == "fy 2024 $4,679,100"
-
-
-def test_normalize_for_match_decodes_html_entities():
-    """parseInlineCiteAttrs on the renderer side decodes &quot; etc.
-    before matching; mirror that here or quoted claim_spans (common
-    in budget bills citing statute names) will silently fail."""
-    n = api_module._normalize_for_match
-    assert n("&quot;Aviation Fund&quot;") == '"aviation fund"'
-    assert n("&amp;") == "&"
-
-
-def test_normalize_strips_markdown_backslash_escapes():
-    """MinerU emits `\\$(10,000,000)` to prevent `$…$` from rendering
-    as math; the PDF text layer and the model's claim_span both use
-    the unescaped form. Without backslash-stripping, the verbatim
-    substring check fails because `\\$` and `$` are different chars.
-
-    This was the 2026-05-11 cite-#14 root cause: chunk text had
-    `\\$(10,000,000)` and findTextRects couldn't match it against the
-    PDF, so the renderer fell back to the chunk's coarse bbox."""
-    n = api_module._normalize_for_match
-    assert n(r"\$10,000,000") == "$10,000,000"
-    assert n(r"\(10,000,000\)") == "(10,000,000)"
-    assert n(r"\[note\]") == "[note]"
-    # All CommonMark-escapable punctuation. Note: after backslash is
-    # stripped, the bare `*` / `_` / `` ` `` chars are then handled by
-    # the bold/italic/code markdown stripper later in the pipeline and
-    # disappear — so escaped emphasis markers collapse to whitespace,
-    # NOT to literal `*`. Same logic as the renderer's normalize.
-    assert n(r"\\ \` \* \_ \{ \} \[ \] \( \) \# \+ \- \. \! \| \> \~ \$") == \
-        "\\ { } [ ] ( ) # + - . ! > ~ $"
-
-
-def test_normalize_collapses_accounting_parens_on_dollars():
-    """`$(10,000,000)` and `($10,000,000)` both denote accounting
-    negatives; for citation alignment, treat both as `$10,000,000`
-    so a claim that says "removes $10 million" matches a source that
-    uses either convention. The sign is in the verb, not the parens.
-    2026-05-12: added paren-first form for parity with the PDF text
-    layer (pdfjs renders `($X)` even when the source PDF was MinerU-
-    extracted with `\\$(X)`)."""
-    n = api_module._normalize_for_match
-    # Dollar-first convention (MinerU's preferred markdown output).
-    assert n("$(10,000,000)") == "$10,000,000"
-    assert n(r"decrease of \$(10,000,000)") == "decrease of $10,000,000"
-    # Paren-first convention (pdfjs text-layer output).
-    assert n("($10,000,000)") == "$10,000,000"
-    assert n("decrease of ($3,500,000) from the General Fund") == \
-        "decrease of $3,500,000 from the general fund"
-    # Non-dollar parens left alone (don't accidentally strip
-    # parenthesized notes like "(Item 9 of Section 116)" or
-    # "(see footnote 1)").
-    assert n("note (see footnote 1)") == "note (see footnote 1)"
-    assert n("(Item 9 of Section 116)") == "(item 9 of section 116)"
-
-
-def test_normalize_expands_abbreviated_dollar_amounts():
-    """Single highest-leverage fix from the 2026-05-11 audit: models
-    write `$40 million` while sources use `$40,000,000`. Without
-    expansion, the content-word check treats `$40` and `$40,000,000`
-    as different tokens and paraphrase overlap craters."""
-    n = api_module._normalize_for_match
-    assert n("$40 million") == "$40,000,000"
-    assert n("$5.0 million") == "$5,000,000"
-    assert n("$11.5 M") == "$11,500,000"
-    assert n("$501.9 million") == "$501,900,000"
-    assert n("$1.74B") == "$1,740,000,000"
-    assert n("$10K") == "$10,000"
-    assert n("$10 thousand") == "$10,000"
-    # Case-insensitive units.
-    assert n("$5 MILLION") == "$5,000,000"
-    # Already-expanded numbers untouched.
-    assert n("$40,000,000") == "$40,000,000"
-    # Word-boundary protection: "$10 minute" shouldn't match "m".
-    assert n("$10 minute") == "$10 minute"
-    # Decimal precision preserved through the int conversion.
-    assert n("$0.5 million") == "$500,000"
-
-
-def test_normalize_dollar_expansion_handles_audit_failure_case():
-    """Reproduces cite-#14 from the 2026-05-11 audit: the model wrote
-    a paraphrase claim with `$10 million` and `$40 million`, and the
-    chunk text had `\\$(10,000,000)` and `$40,000,000`. With the new
-    normalize: claim's `$10,000,000` and `$40,000,000` tokens both
-    appear in the chunk after backslash-stripping + paren-collapse +
-    dollar-expansion."""
-    cw = api_module._content_words
-    n = api_module._normalize_for_match
-    claim = (
-        "The JLBC FY 2027 Baseline continues the $40 million ongoing "
-        "transfer to ADC but removes the FY 2026 $10 million Coordinated "
-        "Reentry appropriation as one-time funding."
-    )
-    chunk = (
-        r"Remove One-Time Funding. The Baseline includes a decrease of "
-        r"\$(10,000,000) from the Consumer Remediation Subaccount in FY "
-        r"2027 for Coordinated Reentry. A separate footnote requires the "
-        r"AG to transfer $40,000,000 ongoing to the ADC Opioid "
-        r"Remediation Fund."
-    )
-    claim_words = cw(n(claim))
-    chunk_words = set(cw(n(chunk)))
-    # Both dollar amounts must match across the abbreviation gap.
-    # Currency tokens canonicalize to bare-number form (no $ prefix).
-    assert "10,000,000" in claim_words
-    assert "10,000,000" in chunk_words
-    assert "40,000,000" in claim_words
-    assert "40,000,000" in chunk_words
-
-
-def test_check_alignment_now_passes_audit_failure_case():
-    """End-to-end on cite-#14 from the audit: with the normalize
-    upgrades, the paraphrase overlap clears the 0.60 threshold so the
-    validator returns None (no error) for what was previously a
-    7/17 = 0.41 failure."""
-    claim = (
-        "The JLBC FY 2027 Baseline continues the $40 million ongoing "
-        "transfer to ADC but removes the FY 2026 $10 million Coordinated "
-        "Reentry appropriation as one-time funding."
-    )
-    chunk = (
-        r"Remove One-Time Funding. The Baseline includes a decrease of "
-        r"\$(10,000,000) from the Consumer Remediation Subaccount in FY "
-        r"2027 for Coordinated Reentry. A separate footnote requires the "
-        r"AG to transfer $40,000,000 ongoing to the ADC Opioid "
-        r"Remediation Fund Baseline appropriation, one-time funding "
-        r"removes the JLBC continues."
-    )
-    err = api_module._check_alignment(chunk, claim, "paraphrase")
-    assert err is None
-
-
-def test_content_words_includes_numbers_and_currency():
-    """Dollar amounts and bare numbers are the most diagnostic words
-    in budget claims — a paraphrase cite that drops the $4,677,100
-    figure has lost the actual support. Currency tokens are emitted
-    in canonical bare-number form (no `$` prefix) so claim vs cited
-    compare symmetrically regardless of which side has the sign."""
-    cw = api_module._content_words
-    # Currency emitted as bare number — `$X` → `X`.
-    assert "4,677,100" in cw(api_module._normalize_for_match("Total $4,677,100 in FY 2024"))
-    assert "2024" in cw(api_module._normalize_for_match("Total $4,677,100 in FY 2024"))
-    # Short words (≤3 chars) excluded.
-    assert "the" not in cw(api_module._normalize_for_match("the the the the"))
-
-
-def test_check_alignment_verbatim_pass():
-    """Strict normalized substring — the cited text must contain the
-    claim verbatim (after normalize folds)."""
-    err = api_module._check_alignment(
-        "The Baseline includes $4,677,100 for FY 2026.",
-        "Baseline includes $4,677,100",
-        "verbatim",
-    )
-    assert err is None
-
-
-def test_check_alignment_verbatim_fail_with_suggestion():
-    """Verbatim mismatch returns an error that tells the model to
-    either re-pick the span or downgrade to paraphrase. Both options
-    are actionable; an unhelpful error string drives the model to
-    invent yet another wrong cite. Wholly-mismatched cites must still
-    fail even with the loosened threshold."""
-    err = api_module._check_alignment(
-        "Operating Budget composition: General Fund $342,500.",
-        "$6,000,000 (one-time) for secure ballot paper",
-        "verbatim",
-    )
-    assert err is not None
-    assert "verbatim" in err
-    assert "paraphrase" in err  # suggests downgrade option
-
-
-def test_check_alignment_verbatim_loose_accepts_label_prefixed_claims():
-    """The 2026-05-12 user-feedback case: the model wrote
-    `**FY 2025 (Approved):** $4,677,100 and 38.4 FTE — $342,500 General
-    Fund + $4,334,600 State Treasurer's Operating Fund.` and chose
-    verbatim. Every load-bearing figure IS in the source; only the
-    label `(Approved)` is the model's addition. Strict substring
-    rejected this; loose verbatim (≥85% content-word overlap) accepts
-    it. Verifying with the actual chunk text shape from the audit."""
-    chunk_text = (
-        r"Operating Budget |  | The budget includes \$4,677,100 and 38.4 "
-        r"FTE Positions in FY 2025 for the operating budget. These amounts "
-        r"consist of: |  | General Fund \$342,500 |  | State Treasurer's "
-        r"Operating Fund 4,334,600 |  | Adjustments are"
-    )
-    claim = (
-        "**FY 2025 (Approved):** $4,677,100 and 38.4 FTE — $342,500 "
-        "General Fund + $4,334,600 State Treasurer's Operating Fund."
-    )
-    err = api_module._check_alignment(chunk_text, claim, "verbatim")
-    assert err is None
-
-
-def test_content_words_canonicalizes_currency_to_bare_form():
-    """`$4,334,600` in the claim and `4,334,600` in the source both
-    canonicalize to bare `4,334,600` — so set-based overlap matches
-    symmetrically. This replaces the earlier dual-emit approach
-    which inflated the claim-token count when one side had `$X` and
-    the other bare `X`."""
-    cw = api_module._content_words
-    n = api_module._normalize_for_match
-    # Currency token emitted as bare number (no $ prefix).
-    tokens = cw(n("Total $4,334,600 in FY 2025"))
-    assert "4,334,600" in tokens
-    assert "$4,334,600" not in tokens
-    # Bare numbers without $ stay bare (consistent).
-    bare_tokens = cw(n("38.4 FTE"))
-    assert "38.4" in bare_tokens
-    assert "$38.4" not in bare_tokens
-
-
-def test_check_alignment_verbatim_single_dollar_token():
-    """The 2026-05-12 audit cite #22 pattern: model verbatim-cites
-    a single dollar figure (`$131,582,200`) against a chunk that
-    contains the bare number (`131,582,200`, without `$`). With the
-    old dual-emit approach this scored 1/2 = 50% and failed; with
-    canonical bare-number tokens it scores 1/1 = 100% and passes.
-    No store needed — go direct to _check_alignment to keep this fast."""
-    err = api_module._check_alignment(
-        "AGENCY TOTAL 131,582,200 23,303,200 18,401,400",
-        "$131,582,200",
-        "verbatim",
-    )
-    assert err is None
-
-
-def test_check_alignment_paraphrase_pass_high_overlap():
-    """A genuine paraphrase: claim restates the chunk's content with
-    different ordering / connective words but same content words."""
-    err = api_module._check_alignment(
-        "The Baseline includes $4,721,600 and 38.4 FTE Positions in "
-        "FY 2027 for the operating budget. These amounts are unchanged "
-        "from FY 2026.",
-        "The FY 2027 Baseline operating budget of $4,721,600 with 38.4 "
-        "FTE is unchanged from FY 2026.",
-        "paraphrase",
-    )
-    assert err is None
-
-
-def test_check_alignment_paraphrase_fail_low_overlap():
-    """The cite-#18 pattern from the 2026-05-11 audit: claim is about
-    'ballot paper', cited span is about 'Operating Budget composition'.
-    Content-word overlap is near zero and the validator must catch it."""
-    err = api_module._check_alignment(
-        "Operating Budget composition: General Fund $342,500. State "
-        "Treasurer's Operating Fund $4,334,600.",
-        "$6,000,000 (one-time) for secure ballot paper",
-        "paraphrase",
-    )
-    assert err is not None
-    assert "paraphrase" in err
-    assert "content words" in err
-
-
-# ---------------------------------------------------------------------------
 # /cite/validate behavior over stored chunks
 # ---------------------------------------------------------------------------
+# WHICH LAYER OWNS WHAT (the two files overlap on ~20 scenarios, so read
+# this before trimming either as duplication):
+#
+#   tests/test_citations_module.py is the SOURCE OF TRUTH for validation
+#   logic — quote resolution, ambiguity, span clamps, claim_span
+#   truncation, corpus selection. It calls retrieval.citations directly.
+#
+#   THIS file tests the HTTP framing around it: that the routes wire the
+#   right function to the right path, marshal JSON in and out, omit None
+#   fields (response_model_exclude_none), preserve batch ordering over
+#   the wire, and hand the endpoint's own store singleton down.
+#
+# The overlap is deliberate — these cases are the model-facing contract,
+# and the sidecar is a separate deployable that can break independently
+# of the module. Delete a case here only if the same behavior is still
+# pinned in test_citations_module.py.
 
 
 def test_cite_validate_alignment_check_no_longer_rejects(put_chunk):
@@ -1372,10 +1101,9 @@ def test_cite_validate_verbatim_substring_passes(put_chunk):
 
 
 def test_cite_validate_span_too_broad_rejected(put_chunk):
-    """A span longer than SPAN_BREADTH_LIMIT chars is rejected before
-    the alignment check, even if the claim happens to be in there.
-    This pushes the model toward focused citations and produces
-    usable PDF highlights."""
+    """A span longer than citations.SPAN_BREADTH_LIMIT chars is rejected
+    even when the claim is somewhere inside it. This pushes the model
+    toward focused citations and produces usable PDF highlights."""
     chunk_text = "Operating Budget content. " + ("x " * 2000) + "Tail content."
     chunk_id = put_chunk(chunk_text)
 
@@ -1420,8 +1148,10 @@ def test_cite_validate_no_claim_span_skips_alignment_check(put_chunk):
 
 
 # ---------------------------------------------------------------------------
-# AFR currency-only alignment + auto-clamp + doc_type dispatch
-# (2026-05-12 audit-driven changes)
+# AFR chunks + span_end auto-clamp
+# (2026-05-12 audit-driven changes; the AFR-specific currency alignment
+# check they were written against was retired 2026-05-20, so the AFR
+# cases below now stand as guards that doc_type changes no verdict.)
 # ---------------------------------------------------------------------------
 
 
@@ -1563,9 +1293,12 @@ def test_span_end_clamp_rejects_large_overflow(put_chunk):
 
 def test_verbatim_threshold_lowered_to_070(put_chunk):
     """The 2026-05-12 audit's #15/#16 cases: verbatim cites where the
-    claim is MOSTLY in the cited span (82%, 68%) but the trailing
-    few words spill past span_end. With 0.85 threshold they failed;
-    with 0.70 they pass."""
+    claim is MOSTLY in the cited span but the trailing few words spill
+    past span_end. These were the cases that forced the verbatim overlap
+    threshold down 0.85 → 0.70; the threshold itself is gone (the whole
+    overlap heuristic was retired 2026-05-20), so this now guards that a
+    partially-overlapping claim keeps validating with no threshold at
+    all to trip over."""
     chunk_text = (
         "Operating Budget includes amounts Treasurer General Fund balance "
         "appropriation summary."

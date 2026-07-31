@@ -28,6 +28,7 @@ source. When something ships, update only this file.
 | Standalone consolidation — Plan 1 (storage + retrieval) | ✓ Shipped (2026-07-30) | Postgres/pgvector/ParadeDB → embedded LanceDB; Voyage → local ONNX models. See the section below |
 | Standalone consolidation — Plan 2 (app server + search UI) | ✓ Shipped (2026-07-30) | New `app/` (port 9300) + `webapp/` SPA: home, budget search (real corpus), fiscal notes directory. See the section below |
 | Standalone consolidation — Plan 3 (ingest) | ✓ Shipped (2026-07-31) | GUI upload → background queue → LanceDB; fiscal-note refresh; Add-a-JLBC-book. Postgres/Docker now needed for NOTHING. See the section below |
+| Standalone consolidation — Plan 4 (AI Mode) | ✓ Shipped (2026-07-31) | In-process OpenRouter tool loop; MCP and YouCoded dropped. Cited chat + PDF viewer on both corpora, Standard/Deep-Research tiers, per-user spend ledger. See the section below |
 
 ---
 
@@ -292,6 +293,164 @@ remains as the migration-era record.
 
 ---
 
+## Standalone consolidation — Plan 4 shipped (2026-07-31)
+
+Spec: `docs/superpowers/specs/2026-07-29-standalone-consolidation-design.md`
+(S2, S3, S9, S13-read, S15, S16, S19, Invariants 7 + 8). Plan:
+`docs/superpowers/plans/2026-07-30-standalone-plan-4-ai-mode.md` — see its
+**"Task 8 amendments"** block for the as-shipped HTTP contract, which is what
+Plan 5 builds against.
+
+**MCP and YouCoded are gone.** AI Mode is an in-process Python tool loop
+talking to OpenRouter. No `ws://localhost:9900`, no PTY, no per-conversation
+`.mcp.json`, no separate Node process, no dependency on a running desktop app.
+`mcp-server/` and `web/` remain in-tree, unused and still passing their own
+tests; deleting both is Plan 5.
+
+- **Harness (`harness/`):** `settings.py` (the shared `settings.json` —
+  provider triple per S15, tier→model map per S16, admin username, S19 limits),
+  `constants.py` (**`REFUSAL_THRESHOLD = 1.9` is now the single source**;
+  three contradictory numbers used to reach the model — 1.9 in the prompt,
+  0.65 and 0.30 in stale tool descriptions), `tools.py` (the five tools as
+  OpenAI function schemas + `ToolExecutor`), `documents.py` (`create_document`),
+  `ledger.py` (S19), `session.py` (the loop), `prompt.py` + `system-prompt.md`.
+- **The first-call cap is per-conversation, not per-process.** The Node
+  original used a module-level flag because there was one process per session;
+  one process now serves the whole office, so that shape would have left user
+  B's first question uncapped because user A had already asked one.
+- **`retrieval/citations.py`** — cite validation lifted out of the FastAPI
+  sidecar module so the harness can call it in-process for either corpus. The
+  dead alignment heuristics (6 functions, 2 thresholds, ~10 regex tables, 16
+  tests) are deleted; the endpoint-level regression guards that assert the
+  check stays dead are kept.
+- **Routes (`app/routes/`):** `conversations.py` (create + SSE messages +
+  stop + `/api/ai/status`), `pdf.py` (Range-streaming + `/api/chunks/{id}`),
+  `documents.py` (token downloads). Conversation registry is in-process,
+  LRU-capped at 40, and never evicts a conversation with a turn in flight.
+- **Webapp:** the chat stack ported from `web/` into `webapp/src/chat/` and
+  `webapp/src/pdf/` — citation extraction (~70 carried specs), chat reducer,
+  citation bus, chips, markdown, tool cards, mascot, PDF viewer with
+  strict-bbox highlighting, cited-text panel. AI Mode toggle on Budget Search
+  and Fiscal Notes; Home's AI card goes live when a key is present.
+- **Tiers (S16):** Standard (step cap 15, `deep_dive` ignored) and Deep
+  Research (cap 50, `deep_dive` allowed). Tier explainer copy lives
+  **server-side** in `/api/ai/status` so Plan 5's admin page and the webapp
+  cannot drift. Every new conversation starts on Standard.
+- **Cost (S19):** month-sharded JSONL ledger on the share, per-user limits with
+  overrides and exemptions, warn at 80%, block at 100%. Blocked users get the
+  ledger's exact sentence, emitted from one place. Limits are inactive on a
+  custom endpoint (S15) because exact costs are unavailable, and that state is
+  distinguishable from "allowed because under limit".
+- **Invariant 7 is structural, not aspirational.** No tool schema takes a path;
+  `harness/documents.py` does not import `store.config`, so it has no way to
+  learn where the share is; AST-based tests pin the import allowlist.
+  `create_document` writes only to `%LOCALAPPDATA%`.
+- **Tests:** 1209 pytest / 36 skipped, 297 webapp vitest. `setup.sh --verify`
+  green (it also still runs the retired `mcp-server` 57 and `web` 220 suites).
+
+### Verified end-to-end on 2026-07-31 (real OpenRouter key, real corpus)
+
+Tiers as configured: Standard = `qwen/qwen3.7-plus`, Deep Research =
+`moonshotai/kimi-k3`. Driven through the real SSE route, not in-process fakes.
+
+| Check | Result |
+|---|---|
+| Standard lookup ("ADC General Fund, FY 2025") | 3 retrieves → 1 passing cite. **$0.0127, 50s.** Answer volunteered the AFR-vs-Baseline accuracy hierarchy from the prompt without being asked |
+| Refusal (out-of-scope question) | Named its corpus, cited nothing, fabricated nothing, **did not retrieve** (correct — out-of-scope needs no search). $0.0018, 13s |
+| `create_document` | Real `.docx` in `%LOCALAPPDATA%\JLBC-Insight\documents\` — Title style, memo header, Heading 2 sections, List Bullets. **Nothing written to the share (Invariant 7 held)** |
+| Deep Research (3-year AHCCCS comparison) | 4 retrieves / 41 chunks → a correct 3-year table, 5 passing cites. **$0.563, 295s** |
+| Ledger | 20 rows, one per step, real per-call cost, `month_total` $0.61, **0 rows with unknown cost** |
+| Key removed | `/api/ai/status` → `available: false`, `"no API key configured"`; **search still returned 20 results**. Restoring the key re-enabled AI Mode with no restart (the mtime cache works) |
+
+**Not verified — needs a human at a browser.** Chip click → PDF opens at the
+highlighted bbox, and the source panel's visual behaviour. The logic underneath
+has 298 vitest specs, but nobody has watched it render.
+
+### Problems the live run surfaced (model/prompt behaviour, not code defects)
+
+- **Citation discipline is unreliable on memo-shaped asks.** Two identical runs
+  of the same `create_document` prompt produced 20 citations (12 passing) and
+  then **zero** — the second wrote a memo full of specific dollar figures and
+  cited nothing, which is an Invariant 1 failure in practice. The UI degrades
+  honestly (this is exactly the shape `RefusalBanner` detects: complete turn,
+  retrieved, no verified citation), so an analyst sees "This answer carries no
+  verified citation" plus the passages rather than false confidence. But the
+  prompt and/or the Standard model needs work before this is trustworthy.
+- **Cite failure rate is high when cites ARE emitted** — 12/20 and 5/7 passing
+  across runs. Worth reading the failure reasons in a longer dogfood.
+- **The download token leaked into answer prose.** The model wrote the raw
+  `token: 2DZz_Lf…` into the answer instead of leaving the UI to render the
+  link. Output-hygiene rule, not a code bug.
+- **Meta-narration still leaks** — "let me search the corpus", "I have what I
+  need. Let me write the memo". Note `finalAnswer` concatenates *every* prose
+  block including pre-tool narration by design, so it reads worse in the audit
+  record than on screen.
+- **Deep Research costs ~44× Standard and takes ~5 minutes.** $0.563 vs $0.0127
+  on comparable questions. The tier split is doing its job, but the copy should
+  probably set the time expectation.
+
+### What review caught that tests didn't
+
+Recorded because the same classes will recur:
+
+- **Starlette never closes a `StreamingResponse` body iterator.** It relies on
+  garbage collection, and on the disconnect path the iterator sits in a
+  reference cycle. A closed browser tab left a model streaming and billing into
+  a dead socket, and left a PDF file handle open (which on Windows also blocks
+  re-ingest from overwriting the cached file). Cleanup rides a `BackgroundTask`
+  in both routes now. `TestClient` cannot catch this — it buffers a "streamed"
+  response into a `BytesIO` before returning it, so `tests/live_request.py`
+  drives the real ASGI stack.
+- **An abandoned SSE stream used to corrupt the conversation permanently** —
+  the assistant `tool_calls` message was in history with no matching reply, so
+  every later turn 400'd. `_repair_history()` back-fills cancelled results.
+- **`UnicodeDecodeError` is a `ValueError`, not an `OSError`.** One mis-encoded
+  byte in a month's ledger shard crashed the spend gate for every user.
+- **The old system prompt was lying about the refusal threshold** — it said
+  `top_score` is "between 0 and 1" and to refuse below 0.30. Both false since
+  the Plan 1 model swap (raw cross-encoder logits, roughly −10..10).
+- **A dropped tool call rendered as a successful, empty answer** — Invariant 3's
+  exact failure shape.
+- **The refusal banner denied citations the analyst could see.** It counted
+  tool-block cites only, but the renderer also extracts inline `<cite>` tags,
+  which open-weight models emit more often than the models that fallback was
+  written for.
+
+### Known follow-ups (Plan 5 unless noted)
+
+- **Prompt caching is not requested.** The system prompt renders at ~40 KB
+  (~13.5K tokens) and is resent on every step — up to 50 in a Deep Research
+  turn. Every candidate model prices cache reads ~10× below input. This is the
+  single largest cost lever available and it is currently unused.
+- **`--chat-*` / `--mascot-*` tokens on `:root`** (16 of them) deviate from
+  S12's one-palette rule. The mockup palette is monochrome navy — `--az-red` is
+  `#2f55c4`, a blue — so there is no error/warning colour, and a failed-citation
+  chip rendered in navy would regress Invariants 1–3. **Worth Destin's eye.**
+- **The footer states no corpus size.** It said "382 docs"; Plan 3's upload
+  queue falsifies any hardcoded count on first use, and there is no
+  corpus-count endpoint to read instead. Restore one when there is.
+- Conversation persistence is in-memory per app run (accepted).
+- The faithfulness verifier (WS3) and audit-log writer (WS5) remain unbuilt —
+  citation enforcement is still chunk-id + quote-in-text + span sanity.
+- Four `documents.json` readers now exist (`retrieval/api.py`,
+  `harness/tools.py`, `app/search_provider.py`, and `app/routes/pdf.py` reusing
+  the harness one). Consolidate into `store/documents.py`.
+- Two corpus-name alias tables (`harness/tools.py`, `harness/prompt.py`) that
+  normalise in **opposite** directions — merging them naively would be wrong.
+- The `chunking.agency_catalog` import guard in `harness/tools.py` can come
+  out now that Plan 3 is merged (verified binding: 157 entries,
+  `agency:axs` → AHCCCS).
+- A DOCX-backed citation in **AI Mode** still shows pdfjs's raw error instead of
+  the backend's sentence; the search page gets the friendly wording. One
+  `api.chunk()` call in `PdfViewer.Loaded` fixes it.
+- The refusal banner evaluates only the latest turn by design; scrolling back
+  to an earlier unverified answer shows unbannered prose.
+- `eval/calibrate_refusal.py` and `eval/README.md` still tell operators to edit
+  `mcp-server/system-prompt.md`; the threshold now lives in
+  `harness/constants.py`.
+
+---
+
 ## What's shipped (Phase 1c)
 
 ### Retrieval sidecar (`retrieval/api.py`)
@@ -467,28 +626,44 @@ no submodules.
    is then live with zero external services — no Docker, no keys.
 2. **`data/cached-pdfs/`** — the PDFs themselves (the viewer streams from
    here; re-downloadable from public URLs if lost).
-3. **Ingest-only (until Plan 3):** `.env.local` (Voyage key) + the
-   Postgres volume `db/data/` — needed only to ingest NEW documents or
-   re-run the migration. Retrieval no longer touches either.
-   - Fast: copy `db/data/`, `docker compose up -d` (from `db/`).
-   - Slow: re-run ingest against PDFs (Voyage API + hours).
+3. **`<data_dir>/settings.json`** — only if AI Mode should work on the new
+   machine. It carries the OpenRouter key, the tier→model map, the admin
+   username and the spend limits. Without it the app runs fine and AI Mode
+   reports `no API key configured`, which is the honest state, not a crash.
+   It is plain JSON on the share by design (spec S11) — the protection is a
+   hard monthly credit cap set on the OpenRouter dashboard, not file secrecy.
+
+**Nothing else travels.** Post-Plan-3 there is no `.env.local` and no Postgres
+volume on any path — ingest, retrieval and AI Mode all run off `data_dir()`
+plus one optional key.
 
 See [README.md → Moving to a new device](README.md#moving-to-a-new-device) for the exact commands.
 
 ### What's installed externally (NOT in the repo)
-- Docker (or Docker Desktop on Windows/Mac)
-- Node 20+ and npm
+- Node 20+ and npm (build-time only — the shipped app serves a static bundle)
 - Python 3.12 and `uv` (`pip install uv`)
-- A running **YouCoded** or **Claude Code** instance — provides the LLM session via `ws://localhost:9900`
+- **Nothing else.** Docker/Postgres were ingest-only after Plan 1 and unneeded
+  after Plan 3. The YouCoded/Claude Code dependency (`ws://localhost:9900`)
+  died with Plan 4 — AI Mode is an in-process OpenRouter tool loop. An
+  OpenRouter key unlocks AI Mode and nothing else; search, fiscal notes and
+  upload all work with zero keys, which is a hard spec constraint ("no paid API
+  is load-bearing").
 
 ---
 
 ## Working conventions
 
-- `setup.sh` — one-shot installer for everything regenerable. Run after `git clone`. Does NOT restore DB data.
-- `bash setup.sh --verify` — runs all test suites (pytest + 2× vitest). Use before merging non-trivial work.
-- All three services run in separate processes; `npm` is in `mcp-server/` and `web/`; `uv` drives Python.
-- README's "Daily startup" section is the canonical reference for the launch order: Docker → Postgres → sidecar → YouCoded → web UI.
+- `setup.sh` — one-shot installer for everything regenerable. Run after `git clone`.
+- `bash setup.sh --verify` — runs all suites (pytest + 3× vitest). Use before
+  merging non-trivial work. Two of those suites (`mcp-server/`, `web/`) cover
+  code Plan 4 retired; Plan 5 deletes the suites and the directories together.
+  **Capture its exit code directly** (`bash setup.sh --verify > log 2>&1; echo $?`)
+  — piping it into `tail` returns `tail`'s status and hides a failure.
+- **One process now.** `uv run uvicorn app.main:create_app --factory --port 9300`
+  serves the API and the built `webapp/dist`. `npm` is used to build `webapp/`;
+  `mcp-server/` and `web/` are dead weight until Plan 5.
+- The launch order is: build `webapp/`, then start the one server. There is no
+  Docker step, no sidecar, no MCP registration, and no desktop app to run first.
 
 ---
 
