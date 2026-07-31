@@ -19,8 +19,12 @@ docstring of tests/test_admin_settings_route.py.
 """
 from __future__ import annotations
 
+import json
 import re
+import sys
 from dataclasses import replace
+from datetime import datetime, timezone
+from pathlib import Path
 from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException
@@ -37,6 +41,16 @@ from harness.settings import (
     reset_settings_cache,
     save_settings,
 )
+from ingest.lock import IngestLock, LockHeldError
+from store.backup import (
+    SNAPSHOT_PREFIX,
+    SNAPSHOT_SUFFIX,
+    backups_dir,
+    list_snapshots,
+    restore,
+    snapshot,
+)
+from store.config import data_dir, documents_path
 
 router = APIRouter()
 
@@ -403,3 +417,266 @@ def get_notices(
     is new.
     """
     return {"notices": read_notices(since=since)}
+
+
+# ---------------------------------------------------------------------------
+# Corpus health (S17)
+# ---------------------------------------------------------------------------
+
+# Job states that mean "this document is being worked on right now".
+# Derived from ingest.jobs.PIPELINE_STATES rather than re-typed, so a new
+# pipeline stage counts as running without anyone remembering to come here.
+_TERMINAL_JOB_STATES = frozenset({"live", "failed", "cancelled"})
+
+
+def _dir_bytes(path: Path) -> int:
+    """Total size of every file under `path`, 0 if it isn't there.
+
+    Unreadable files are skipped rather than raised on: this walks a
+    network share while an ingest may be rewriting it, and a size readout
+    is never worth failing the page over.
+    """
+    total = 0
+    if not path.is_dir():
+        return 0
+    for child in path.rglob("*"):
+        try:
+            if child.is_file():
+                total += child.stat().st_size
+        except OSError:
+            continue
+    return total
+
+
+def _chunk_counts() -> dict[str, int]:
+    """Row counts per corpus table, zero on anything unopenable.
+
+    A missing or unreadable table reads as 0 — the same number a genuinely
+    empty corpus produces. That ambiguity is deliberate and acceptable
+    here because the health ladder (Task 11) is what distinguishes "empty"
+    from "broken", with a sentence for each; this endpoint's job is the
+    numbers.
+    """
+    counts = {"budget_chunks": 0, "fiscal_note_chunks": 0}
+    try:
+        from store.chunk_store import ChunkStore
+
+        store = ChunkStore()
+        for name in counts:
+            try:
+                counts[name] = store.count(name)
+            except Exception:  # noqa: BLE001 — missing table, bad schema…
+                continue
+    except Exception:  # noqa: BLE001 — LanceDB itself unavailable
+        pass
+    return counts
+
+
+def _reclaimable_bytes() -> int | None:
+    """Roughly how much of `lancedb/` is superseded versions, or None.
+
+    WHY THIS IS AN ESTIMATE, stated here so nobody later reports it as
+    exact: LanceDB keeps every superseded version until a cleanup runs,
+    and measuring the dead set precisely means reading each old manifest —
+    which needs the `pylance` package this app deliberately does not
+    depend on. What IS exactly measurable is the total on disk and, via
+    `table.stats()["total_bytes"]`, the size of the CURRENT version. The
+    difference is dominated by dead versions but also includes indices and
+    live manifests, so it never reaches zero on a healthy corpus.
+
+    That is still the number worth showing: the failure it reveals is 5.1
+    GB on disk holding ~18k chunks, where the signal is the order of
+    magnitude, not the last byte. Returns None when nothing can be
+    measured, so the UI renders "unknown" rather than a confident 0.
+    """
+    root = data_dir() / "lancedb"
+    if not root.is_dir():
+        return None
+    try:
+        from store.chunk_store import ChunkStore
+
+        store = ChunkStore()
+    except Exception:  # noqa: BLE001
+        return None
+
+    live = 0
+    measured = False
+    for name in ("budget_chunks", "fiscal_note_chunks"):
+        try:
+            table = store._open(name)  # noqa: SLF001 — see below
+            if table is None:
+                continue
+            stats = table.stats()
+        except Exception:  # noqa: BLE001
+            continue
+        value = stats.get("total_bytes") if isinstance(stats, dict) else None
+        if isinstance(value, (int, float)):
+            live += int(value)
+            measured = True
+    if not measured:
+        return None
+    # `_open` is ChunkStore's private accessor. Used deliberately rather
+    # than adding a public passthrough for one diagnostic: this is the only
+    # caller, and a public "give me the raw table" method is an invitation
+    # to bypass the store's schema and dimension checks elsewhere.
+    return max(0, _dir_bytes(root) - live)
+
+
+def _queue_summary() -> tuple[dict[str, int], str | None]:
+    """(counts by state, when the corpus last actually grew).
+
+    "running" is every non-terminal, non-queued state collapsed into one
+    number: an admin wants to know that something is moving, not which of
+    six pipeline stages it is in — the Documents page already shows that
+    per job.
+    """
+    summary = {"queued": 0, "running": 0, "failed": 0}
+    last_live: str | None = None
+    try:
+        from ingest.jobs import load_all
+
+        jobs = load_all()
+    except Exception:  # noqa: BLE001 — unreadable jobs dir
+        return summary, None
+
+    for job in jobs:
+        if job.state == "queued":
+            summary["queued"] += 1
+        elif job.state == "failed":
+            summary["failed"] += 1
+        elif job.state not in _TERMINAL_JOB_STATES:
+            summary["running"] += 1
+        if job.state == "live" and (last_live is None or job.updated_at > last_live):
+            last_live = job.updated_at
+    return summary, last_live
+
+
+def _document_count() -> int:
+    try:
+        raw = json.loads(documents_path().read_text(encoding="utf-8"))
+    except FileNotFoundError:
+        return 0
+    except (OSError, ValueError) as err:
+        # This is the page an admin opens BECAUSE something is wrong.
+        print(
+            f"app.routes.admin: couldn't read {documents_path()} ({err}) — "
+            "reporting 0 documents.",
+            file=sys.stderr,
+        )
+        return 0
+    return len(raw) if isinstance(raw, dict) else 0
+
+
+@router.get("/api/admin/corpus")
+def get_corpus(_settings: Settings = Depends(require_admin)) -> dict:
+    counts = _chunk_counts()
+    queue, last_ingest_at = _queue_summary()
+    return {
+        "data_dir": str(data_dir()),
+        "budget_chunks": counts["budget_chunks"],
+        "fiscal_note_chunks": counts["fiscal_note_chunks"],
+        "documents": _document_count(),
+        "lancedb_bytes": _dir_bytes(data_dir() / "lancedb"),
+        "dead_version_bytes": _reclaimable_bytes(),
+        "last_ingest_at": last_ingest_at,
+        "queue": queue,
+    }
+
+
+# ---------------------------------------------------------------------------
+# Backups + restore (S17)
+# ---------------------------------------------------------------------------
+
+MSG_INGEST_RUNNING = "An ingest is running — wait for it to finish, then try again."
+MSG_CONFIRM_RESTORE = (
+    'To restore this snapshot, confirm it by typing "restore". This replaces '
+    "the whole corpus."
+)
+
+
+def _snapshot_created_at(name: str) -> str | None:
+    """The UTC timestamp encoded in the snapshot's filename.
+
+    Read from the NAME, not the file's mtime: store/backup.py sorts by
+    name for exactly this reason (mtimes on an SMB share are the one piece
+    of metadata most likely to be wrong), and the restore confirmation
+    shows this date to a person about to overwrite their corpus.
+    """
+    stem = name[len(SNAPSHOT_PREFIX):-len(SNAPSHOT_SUFFIX)]
+    try:
+        # 15 characters — "20260731T120000". The name carries a trailing
+        # "Z" (and sometimes a "-01" collision suffix) that strptime must
+        # not be handed.
+        return (
+            datetime.strptime(stem[:15], "%Y%m%dT%H%M%S")
+            .replace(tzinfo=timezone.utc)
+            .isoformat()
+        )
+    except ValueError:
+        # An unparseable name still lists — an admin who renamed a
+        # snapshot by hand should not lose the ability to restore it.
+        return None
+
+
+@router.get("/api/admin/backups")
+def get_backups(_settings: Settings = Depends(require_admin)) -> dict:
+    snapshots = []
+    for name in list_snapshots():
+        try:
+            size = (backups_dir() / name).stat().st_size
+        except OSError:
+            continue
+        snapshots.append(
+            {"name": name, "created_at": _snapshot_created_at(name), "bytes": size}
+        )
+    return {"snapshots": snapshots}
+
+
+class RestoreBody(BaseModel):
+    # A LITERAL string, not a boolean. A checkbox or a `true` can be sent
+    # by a mis-click, a double-submit, or a stale tab replaying a request;
+    # typing the word cannot.
+    confirm: str = ""
+
+
+@router.post("/api/admin/backups/{name}/restore")
+def restore_backup(
+    name: str, body: RestoreBody, _settings: Settings = Depends(require_admin)
+) -> dict:
+    if body.confirm != "restore":
+        raise _bad_request(MSG_CONFIRM_RESTORE)
+
+    if not (backups_dir() / Path(name).name).is_file():
+        # Checked before taking the lock: blocking every ingest in the
+        # office while we work out that the snapshot doesn't exist would
+        # be a silly thing to do.
+        raise HTTPException(status_code=404, detail=f"There is no snapshot named {name}.")
+
+    lock = IngestLock()
+    try:
+        lock.acquire()
+    except LockHeldError as err:
+        # THE guard that matters. Extracting a zip over `lancedb/` while a
+        # writer is mid-commit destroys the corpus rather than damaging one
+        # document.
+        raise HTTPException(status_code=409, detail=MSG_INGEST_RUNNING) from err
+
+    try:
+        # Snapshot the CURRENT corpus before replacing it, so a restore
+        # started by mistake is itself reversible. Without this, the safe
+        # button is the one that loses the corpus.
+        snapshot()
+        restore(name)
+    except (FileNotFoundError, ValueError) as err:
+        raise HTTPException(status_code=404, detail=str(err)) from err
+    finally:
+        # In a `finally`: a leaked lock blocks every future ingest in the
+        # office, with no error naming the cause, until somebody deletes a
+        # lockfile by hand.
+        lock.release()
+
+    # Ground truth 10: LanceDB table handles and the search provider are
+    # resolved at startup, so the running process is still holding the
+    # replaced corpus's handles. Saying "done" without saying "restart"
+    # would produce an app that claims to be fixed and then serves errors.
+    return {"restored": name, "restart_required": True}
