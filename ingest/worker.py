@@ -21,11 +21,30 @@ on the share. That keeps the journal small and the resume logic honest.
 corpus (S17), and only then touches LanceDB. Everything before it is
 read-only against shared state, so several machines reading the corpus
 during a long extraction is fine.
+
+## Environment variables
+
+`JLBC_INGEST_SNAPSHOT` — when to take the S17 corpus snapshot.
+
+- unset, or `per-doc` (the DEFAULT): snapshot before every document. This is
+  the office behaviour and it does not change.
+- `off`: skip the per-document snapshot. **Opt-in bulk mode, for a
+  supervised backfill only.** Each snapshot zips the WHOLE corpus, so the
+  cost grows with the corpus while the number of snapshots grows with the
+  documents — 7,000 documents is O(n²) work and terabytes of
+  immediately-rotated zip. Turning this off trades the automatic restore
+  point for finishing the backfill this decade; take your own archive of
+  `<data_dir>/lancedb/` first.
+
+Only the exact word `off` disables it. Any other value (including a typo
+like `false`) keeps snapshots on — losing the safety net must take intent.
 """
 from __future__ import annotations
 
+import os
 import shutil
 import socket
+import sys
 import threading
 import traceback
 from dataclasses import dataclass, field
@@ -64,6 +83,17 @@ CORPUS_TABLES = {"budget": "budget_chunks", "fiscal_notes": "fiscal_note_chunks"
 EMBED_BATCH = 64
 
 DEFAULT_POLL_INTERVAL_S = 5.0
+
+# Bulk-ingest mode. See the module docstring. The default lives here as a
+# literal rather than as "anything that isn't off" so that reading this line
+# tells you what an unset environment does.
+SNAPSHOT_ENV_VAR = "JLBC_INGEST_SNAPSHOT"
+SNAPSHOT_PER_DOC = "per-doc"     # default: a restore point before every write
+SNAPSHOT_OFF = "off"             # opt-in bulk mode: no per-document snapshot
+SNAPSHOT_SUPPRESSED_MESSAGE = (
+    f"jlbc-insight: corpus snapshot suppressed by {SNAPSHOT_ENV_VAR}={SNAPSHOT_OFF} "
+    "— bulk mode; ensure you have an external archive of <data_dir>/lancedb/."
+)
 
 
 class JobCancelled(RuntimeError):
@@ -311,8 +341,20 @@ def _write(
     """The only stage that mutates shared state. Lock → snapshot → write."""
     _progress(job, "writing", pct=0, detail="waiting for the corpus lock")
     with IngestLock() as lock:
-        _progress(job, "writing", pct=10, detail="backing up the corpus")
-        snapshot()
+        # WHY the guard: `snapshot()` zips the ENTIRE corpus, so the cost of a
+        # snapshot grows with the corpus while the NUMBER of snapshots grows
+        # with the documents — fine for the office's occasional uploads
+        # (seconds, once in a while), quadratic for a 7,000-document supervised
+        # backfill. `JLBC_INGEST_SNAPSHOT=off` is the operator saying "I have my
+        # own archive, skip it". The policy lives here, in the caller, so
+        # store/backup.py stays a dumb honest "make a snapshot" primitive that
+        # an admin "Back up now" button can still trust.
+        if _snapshot_suppressed():
+            print(SNAPSHOT_SUPPRESSED_MESSAGE, file=sys.stderr, flush=True)
+            _progress(job, "writing", pct=10, detail="snapshot suppressed (bulk mode)")
+        else:
+            _progress(job, "writing", pct=10, detail="backing up the corpus")
+            snapshot()
         lock.heartbeat()
 
         # D2: a table names many agencies; a narrative chunk names one.
@@ -357,6 +399,17 @@ def _write(
         _progress(job, "writing", pct=90, detail="")
 
 
+def _snapshot_suppressed() -> bool:
+    """True only when the operator explicitly asked for bulk mode.
+
+    WHY the strict comparison: this switch turns off a data-loss safety net,
+    so it fails SAFE. Unset, empty, `per-doc`, or a typo like `false` or `0`
+    all mean "keep snapshotting". Nothing but the literal word `off` (spacing
+    and capitalisation forgiven) can disable it.
+    """
+    return os.environ.get(SNAPSHOT_ENV_VAR, "").strip().lower() == SNAPSHOT_OFF
+
+
 # --- the worker thread ------------------------------------------------------
 
 
@@ -390,6 +443,10 @@ class IngestWorker:
     def start(self) -> None:
         if self._thread is not None and self._thread.is_alive():
             return
+        # Announce bulk mode BEFORE the first document, not after: an operator
+        # who set the variable in the wrong shell needs to find out now.
+        if _snapshot_suppressed():
+            print(SNAPSHOT_SUPPRESSED_MESSAGE, file=sys.stderr, flush=True)
         self._stop.clear()
         self._thread = threading.Thread(
             target=self._loop, name="ingest-worker", daemon=True
