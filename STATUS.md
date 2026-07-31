@@ -504,6 +504,15 @@ handoff-blocking — they degrade the office experience silently.**
   "General Fund and Other Fund Adjustments", both `jlbc-approps-fy2026-508`),
   and run order means the substantive doc survives. Fix the id scheme to
   include the family before the next large ingest.
+- **🔴 `DownloadCache` is not safe for concurrent writers AND its manifest tmp
+  path is shared across instances.** Two simultaneous cache misses can
+  interleave manifest writes; a corrupted manifest parses as an **empty**
+  cache, which would re-download the entire ~7,400-PDF corpus from state web
+  servers one file at a time. Not triggered during the Z13 backfill only
+  because the pre-fetch had already cached 7,419 of 7,428 in-scope URLs before
+  parallel ingest was enabled — i.e. we were saved by luck of ordering, not by
+  design. **Fix the per-instance tmp path (and add a lock) before any parallel
+  ingest runs against a cold cache.**
 - **Pre-fetched PDFs landed in the wrong directory for ingest.**
   `ingest/cache.py`'s `DownloadCache` writes `data/cached-pdfs/` but the
   worker reads `<data_dir>/pdfs/`. Worked around during the backfill by
