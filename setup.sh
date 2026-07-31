@@ -170,6 +170,10 @@ if [ "$VERIFY" -eq 1 ]; then
     fi
     uv run pytest -q
 
+    # mcp-server/ and web/ are retired-but-in-tree: Plan 4 replaced the sidecar
+    # + MCP server + YouCoded-dependent web UI with the in-process app/ +
+    # webapp/ stack above. Both suites still cover real code and still pass,
+    # so they stay wired in here; Plan 5 deletes both suites and directories.
     step "Running MCP server tests (vitest)"
     ( cd mcp-server && npm test -- --run )
 
@@ -189,27 +193,32 @@ cat <<'NEXT'
 ==> Setup complete.
 
 Next steps:
-  1. If you haven't yet, create .env.local at the repo root with at minimum
-     POSTGRES_PASSWORD, DATABASE_URL, and VOYAGE_API_KEY.
+  1. The corpus travels as a data directory, NOT via .env.local or Postgres
+     (Plan 1 moved retrieval to embedded LanceDB; Plan 3 dropped Postgres and
+     Docker from every runtime path). If you have one from a working machine,
+     copy it over — both pieces:
+        scp -r olduser@oldhost:/path/to/ask-the-budget-az-dev/data/insight-data ./data/insight-data
+        scp -r olduser@oldhost:/path/to/ask-the-budget-az-dev/data/cached-pdfs ./data/cached-pdfs
 
-  2. If the DB is empty, populate it from a working machine:
-        scp -r olduser@oldhost:/path/to/ask-the-budget-az-dev/db/data ./db/data
-        ( cd db && docker compose restart )
+     `data/insight-data/` (the `lancedb/` folder AND `documents.json`) is what
+     makes search real; `data/cached-pdfs/` is what the PDF viewer streams
+     from. Set JLBC_DATA_DIR to point at a non-default location. Without a
+     corpus the app still boots and serves fixture search results, so this
+     step is optional for exploring the UI.
 
-     Or re-run the ingest pipeline (slow, costs API calls) — see PROMPT-volume-ingest.md.
+  2. Start the app — one process, no sidecar, no MCP server, no YouCoded
+     (Plan 4 replaced all three with an in-process OpenRouter tool loop):
+        uv run uvicorn app.main:create_app --factory --port 9300
 
-  3. Start the three runtime processes in separate terminals:
-        # Sidecar
-        set -a; source .env.local; set +a
-        uv run uvicorn retrieval.api:app --host 127.0.0.1 --port 9200
+     Then open http://localhost:9300 — the webapp/ SPA it serves covers
+     budget search, fiscal notes, and upload with zero API keys.
 
-        # MCP server (register, then restart YouCoded so it picks up the registration)
-        node mcp-server/scripts/register.mjs
-
-        # Web UI
-        ( cd web && npm run dev )
-
-     Then open http://localhost:3000 with YouCoded running.
+  3. AI Mode is optional and needs exactly one key. Create
+     <data_dir>/settings.json (next to data/insight-data/, or under
+     JLBC_DATA_DIR if you set it) with:
+        { "provider": { "api_key": "<your-openrouter-key>" } }
+     No key, no problem — everything except AI Mode's chat answers works
+     without it; that's a hard spec constraint, not a fallback.
 
   See README.md and STATUS.md for more.
 

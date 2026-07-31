@@ -8,8 +8,12 @@
 
 import { render, screen } from "@testing-library/react";
 
+import { AiModePanel } from "../AiModePanel";
 import RefusalBanner, { detectRefusal } from "../RefusalBanner";
-import type { AssistantTurn } from "../chat-types";
+import type { AssistantTurn, ChatState, UserTurn } from "../chat-types";
+import { initialChatState } from "../chat-types";
+import type { UseChatResult } from "../use-chat";
+import { stubScrollIntoView } from "../../pages/ai-test-fixtures";
 
 const CHUNK = {
   chunk_id: "ch-1",
@@ -237,5 +241,114 @@ describe("RefusalBanner", () => {
     );
     expect(container.textContent).not.toMatch(/\bI\b/);
     expect(screen.getByRole("status")).toBeInTheDocument();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// AiModePanel's "latest turn only" scoping
+// ---------------------------------------------------------------------------
+//
+// The code review on Task 12 flagged AiModePanel.tsx's `latestAssistant` scan
+// (it walks turns in reverse and calls detectRefusal on the single most
+// recent assistant turn): once the conversation moves on, an earlier
+// unverified turn's banner disappears for good, and scrolling back up shows
+// plain unbannered prose that looks identical to an ordinary cited answer.
+//
+// DECISION (pinned here, not changed): keep that behavior. The banner's own
+// header comment already argues re-warning about every uncited turn in a long
+// thread would bury the one the analyst is currently reading. This test's
+// job is narrower than approving that trade-off — it is to make sure nobody
+// "fixes" it by accident. If a future change wants "warn once and remember",
+// it has to touch this test on purpose.
+
+const userTurn = (id: string, text: string): UserTurn => ({
+  kind: "user",
+  id,
+  text,
+  pending: false,
+  timestamp: 1,
+});
+
+function chatState(turns: ChatState["turns"]): ChatState {
+  return { ...initialChatState, turns };
+}
+
+/** Minimal stand-in for useChat()'s return value. AiModePanel only reads
+ *  `state` off `chat` for the scoping question this test pins; the rest are
+ *  inert no-ops so the panel (and its children — ChatThread, Footer,
+ *  MessageInput, the PDF viewer) can mount without a network or a real SSE
+ *  stream. */
+function fakeChat(state: ChatState): UseChatResult {
+  return {
+    state,
+    send: async () => {},
+    stop: () => {},
+    clearError: () => {},
+    tier: "standard",
+    setTier: () => {},
+    busy: false,
+    health: null,
+  };
+}
+
+describe("AiModePanel refusal scoping (pinned trade-off)", () => {
+  beforeEach(() => stubScrollIntoView());
+
+  it("bans the earlier turn's banner once a new, properly-cited turn lands", () => {
+    const turn1 = turn({
+      id: "a1",
+      blocks: [retrieveBlock(), textBlock("AHCCCS gets $12.3 M.")],
+    });
+
+    const { rerender } = render(
+      <AiModePanel
+        chat={fakeChat(
+          chatState([userTurn("u1", "How much did AHCCCS get?"), turn1]),
+        )}
+        status={null}
+        corpus="budget"
+      />,
+    );
+
+    // Turn 1 alone: no cite() ran, so the banner must show — this is the
+    // ordinary (non-regressed) detectRefusal behavior from the suite above,
+    // now asserted through the panel that actually decides what's visible.
+    expect(screen.getByRole("status")).toBeInTheDocument();
+    expect(screen.getByText(/no verified citation/)).toBeInTheDocument();
+
+    const turn2 = turn({
+      id: "a2",
+      blocks: [
+        retrieveBlock(),
+        textBlock("ADOT gets $4.1 M."),
+        citeBlock(true),
+      ],
+    });
+
+    rerender(
+      <AiModePanel
+        chat={fakeChat(
+          chatState([
+            userTurn("u1", "How much did AHCCCS get?"),
+            turn1,
+            userTurn("u2", "And ADOT?"),
+            turn2,
+          ]),
+        )}
+        status={null}
+        corpus="budget"
+      />,
+    );
+
+    // THE PINNED BEHAVIOR: turn 1 is still sitting in the thread above,
+    // still uncited, still exactly as unverified as it was a moment ago —
+    // but the panel only ever asks detectRefusal about the LATEST assistant
+    // turn, and turn 2 has a verified cite. The banner disappears entirely,
+    // not just off turn 1. Scrolling back up now shows turn 1's prose with
+    // no banner at all, indistinguishable on sight from an ordinary answer.
+    // That is the accepted trade-off, not a bug — this assertion exists so a
+    // future change to "warn once and remember" has to edit this test
+    // instead of silently reversing the decision.
+    expect(screen.queryByRole("status")).not.toBeInTheDocument();
   });
 });
