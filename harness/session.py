@@ -49,6 +49,7 @@ import threading
 import time
 import uuid as uuid_module
 from dataclasses import dataclass, field
+from types import MappingProxyType
 from typing import Any, Callable, Iterator, Sequence
 
 import httpx
@@ -89,13 +90,25 @@ MAX_RETRY_AFTER_SECONDS = 30.0
 DEFAULT_CONTEXT_CHARS = 360_000
 
 # The model's `finish_reason` vocabulary -> the `stopReason` the UI shows.
-# "tool_calls" never reaches here (the loop continues instead).
-_FINISH_REASONS = {
-    "stop": "end_turn",
-    "length": "max_tokens",
-    "content_filter": "content_filter",
-    "error": "error",
-}
+#
+# "tool_calls" normally never reaches the lookup (the loop continues
+# instead of stopping), but it IS mapped: leaving it out meant a step
+# that finished with tool calls we could not run fell through to the
+# "end_turn" default, and the analyst saw a completed turn with an empty
+# answer. A missing key must never be able to read as a finished answer.
+#
+# Read-only for the same reason harness/constants.py wraps its tables:
+# one process serves the whole office, so a stray write here would
+# change every conversation's stop reasons at once.
+_FINISH_REASONS = MappingProxyType(
+    {
+        "stop": "end_turn",
+        "length": "max_tokens",
+        "content_filter": "content_filter",
+        "error": "error",
+        "tool_calls": "tool_use",
+    }
+)
 
 # What a tool call that never ran says to the model on the NEXT turn.
 # Deliberately explicit about the uncertainty: a bare "cancelled" reads
@@ -256,7 +269,7 @@ class HarnessSession:
         tools: Sequence[dict[str, Any]] | None = None,
         history: list[dict[str, Any]] | None = None,
         context_chars: int = DEFAULT_CONTEXT_CHARS,
-        sleep: Callable[[float], None] = time.sleep,
+        sleep: Callable[[float], Any] | None = None,
         check_limit: Callable[..., Any] = _ledger_check_limit,
         record_usage: Callable[..., None] = _ledger_record_usage,
     ) -> None:
@@ -277,7 +290,6 @@ class HarnessSession:
         self._system_prompt = system_prompt
         self._tools = list(tools) if tools is not None else None
         self._context_chars = context_chars
-        self._sleep = sleep
         self._check_limit = check_limit
         self._record_usage = record_usage
 
@@ -288,6 +300,14 @@ class HarnessSession:
         # Non-reentrant guard: two turns interleaving on one history
         # would produce a message list neither of them intended.
         self._turn_lock = threading.Lock()
+        # Retry backoff waits on the interrupt flag rather than
+        # time.sleep: `Event.wait(n)` returns the instant the flag is
+        # set, so pressing stop during a `Retry-After: 30` wait ends the
+        # turn now instead of thirty seconds from now. (Tests inject a
+        # recorder here to assert the schedule without real waiting.)
+        self._sleep: Callable[[float], Any] = (
+            sleep if sleep is not None else self._interrupted.wait
+        )
 
     # -- lifecycle --------------------------------------------------------
 
@@ -389,6 +409,7 @@ class HarnessSession:
 
         stop_reason = "end_turn"
         usage_totals = _UsageTotals()
+        incomplete_note: str | None = None
 
         for _step in range(max_steps):
             if self._interrupted.is_set():
@@ -426,9 +447,25 @@ class HarnessSession:
                 stop_reason = "user_interrupt"
                 break
 
-            self.history.append(_assistant_message(result))
+            # An assistant message with neither text nor tool calls says
+            # nothing and is rejected outright by some providers on the
+            # next request — don't record one.
+            if result.text or result.tool_calls:
+                self.history.append(_assistant_message(result))
 
             if not result.tool_calls:
+                if result.finish_reason == "tool_calls":
+                    # The model meant to call tools and every one of them
+                    # was unusable (see the drop in _stream_completion).
+                    # Ending as "end_turn" would hand the analyst an
+                    # empty answer wearing a completed turn's clothes.
+                    yield _event("turn_complete", stopReason="error", model=model)
+                    yield self._error_frame(
+                        "The model tried to use a tool but its request arrived "
+                        "incomplete, so nothing could be run and no answer was "
+                        "produced. Ask again."
+                    )
+                    return
                 stop_reason = _FINISH_REASONS.get(result.finish_reason or "stop", "end_turn")
                 break
 
@@ -448,13 +485,26 @@ class HarnessSession:
                 break
         else:
             # The `for` ran to completion: the model kept calling tools
-            # until it hit the tier's budget.
+            # until it hit the tier's budget. The analyst has to be told
+            # — an answer that just stops is indistinguishable from a
+            # finished one — but NOT in assistant prose. A synthetic
+            # assistant_text_delta is field-for-field identical to model
+            # output: it renders in a speech bubble as the model, and it
+            # would land in `finalAnswer`, the field an offline auditor
+            # reads as "what the model said". This is a provenance
+            # project; that field carries model text only. The fact
+            # travels as `stopReason: "max_steps"` (on both terminal
+            # frames) plus this out-of-band note, which the UI renders as
+            # a system notice the way SystemHealthBanner does.
             stop_reason = "max_steps"
-            yield from self._explain_step_cap(max_steps, accumulator)
+            incomplete_note = (
+                f"Stopped after {max_steps} tool calls without finishing. "
+                "This answer is incomplete."
+            )
 
         usage = usage_totals.as_turn_usage()
         yield _event("turn_complete", stopReason=stop_reason, model=model, usage=usage)
-        yield accumulator.done_frame(stop_reason, usage, usage_totals.cost)
+        yield accumulator.done_frame(stop_reason, usage, usage_totals.cost, incomplete_note)
 
     # -- one provider call -------------------------------------------------
 
@@ -475,6 +525,11 @@ class HarnessSession:
         """
         partials: dict[int, _PartialToolCall] = {}
         response = self._open_stream(self._request_body(messages, model))
+        if response is None:
+            # Stopped during retry backoff — nothing streamed, nothing to
+            # clean up; the caller's interrupt path closes the turn.
+            result.interrupted = True
+            return
         try:
             # A read timeout or a dropped connection HALFWAY through an
             # answer is an httpx exception, not an HTTP status — and it
@@ -556,10 +611,21 @@ class HarnessSession:
             response.close()
 
         # Ordered by the provider's own `index`, which is the order the
-        # model intends them to run in.
-        result.tool_calls = [
-            call for _, call in sorted(partials.items()) if call.id and call.name
-        ]
+        # model intends them to run in. A call missing an `id` or a
+        # `name` cannot be run OR answered (a tool message must carry a
+        # `tool_call_id`), so it is dropped — but LOUDLY: dropping it
+        # silently is how a turn ends as a successful, empty answer.
+        for _, call in sorted(partials.items()):
+            if call.id and call.name:
+                result.tool_calls.append(call)
+            else:
+                print(
+                    f"harness.session: dropping tool call with no id/name in "
+                    f"conversation {self.conversation_id!r} "
+                    f"(id={call.id!r}, name={call.name!r}) — it cannot be "
+                    "answered, so the turn is failed rather than finished.",
+                    file=sys.stderr,
+                )
 
     def _request_body(self, messages: list[dict[str, Any]], model: str) -> dict[str, Any]:
         body: dict[str, Any] = {
@@ -581,8 +647,9 @@ class HarnessSession:
             body["usage"] = {"include": True}
         return body
 
-    def _open_stream(self, body: dict[str, Any]) -> httpx.Response:
-        """POST /chat/completions with retries; return the OPEN response.
+    def _open_stream(self, body: dict[str, Any]) -> httpx.Response | None:
+        """POST /chat/completions with retries; return the OPEN response,
+        or None if the analyst stopped the turn during a backoff wait.
 
         Retries cover 429 (rate limited), 5xx (provider or upstream
         down) and transport errors (the office wifi blinked). A 4xx that
@@ -610,6 +677,8 @@ class HarnessSession:
                 if attempt == attempts - 1:
                     raise ProviderError(last_error) from err
                 self._sleep(RETRY_BACKOFF_SECONDS[attempt])
+                if self._interrupted.is_set():
+                    return None
                 continue
 
             if response.status_code < 400:
@@ -628,6 +697,9 @@ class HarnessSession:
             # gives one — it knows when the rate-limit window resets.
             delay = retry_after if retry_after is not None else RETRY_BACKOFF_SECONDS[attempt]
             self._sleep(delay)
+            # Stop is honored during the wait, not after the next attempt.
+            if self._interrupted.is_set():
+                return None
         raise ProviderError(last_error or "the model provider could not be reached")
 
     def _http_client(self) -> httpx.Client:
@@ -688,7 +760,8 @@ class HarnessSession:
         cannot be answered, and an unanswerable call is exactly the
         dangling state we are preventing.
         """
-        self.history.append(_assistant_message(result))
+        if result.text or result.tool_calls:
+            self.history.append(_assistant_message(result))
         for call in result.tool_calls:
             # No tool_use event was emitted for these (the stream was cut
             # before the loop reached execution), so no tool_result event
@@ -749,33 +822,6 @@ class HarnessSession:
             budget = TIER_BUDGETS[DEFAULT_TIER]
         return int(budget["max_steps"])
 
-    def _explain_step_cap(
-        self, max_steps: int, accumulator: _Accumulator
-    ) -> Iterator[dict[str, Any]]:
-        """Say out loud that the answer is incomplete.
-
-        Without this the analyst sees an answer that simply stops, which
-        is indistinguishable from a finished one — the exact "confident
-        but wrong" failure Invariant 3 exists to prevent. Emitted as its
-        own uuid so it lands as a separate paragraph rather than
-        corrupting the model's last text block, and NOT appended to
-        history: it is the system talking, and a model that reads it back
-        next turn as its own words would start apologizing for it.
-        """
-        note = (
-            f"I stopped after {max_steps} tool calls without finishing, so this "
-            "answer is incomplete. Anything cited above is still supported — "
-            "but ask a narrower question to get the rest"
-        )
-        note += (
-            ", or switch to Deep Research for a larger search budget."
-            if self.tier == "standard"
-            else "."
-        )
-        note_uuid = _new_uuid()
-        accumulator.record_text(note_uuid, note)
-        yield _event("assistant_text_delta", uuid=note_uuid, text=note)
-
     def _bill(self, result: _StepResult, totals: _UsageTotals, model: str) -> None:
         """Record one step's usage. Every step is a separate paid call.
 
@@ -789,10 +835,12 @@ class HarnessSession:
         if not result.usage:
             return
         usage = result.usage
-        totals.add(usage)
         # S15: a custom endpoint reports no trustworthy cost, and the
         # ledger's contract is that `None` means "unknown", not "free".
-        cost = totals.last_cost if self.settings.provider.provider == "openrouter" else None
+        # The gate lives in ONE place — inside the totals — so the ledger
+        # row and the `_done` frame cannot report different money.
+        totals.add(usage, allow_cost=self.settings.provider.provider == "openrouter")
+        cost = totals.last_cost
         try:
             self._record_usage(
                 self.user,
@@ -827,14 +875,25 @@ class HarnessSession:
            message only means anything next to the assistant `tool_calls`
            message that requested it. If the cut lands between them the
            orphans are dropped too — the window is advanced past every
-           leading tool message. (Dropping a tool reply while KEEPING its
-           assistant call is impossible here: replies always come after
-           their call, so a backwards walk reaches the reply first.)
+           leading tool message, WITHOUT an exemption for the newest one.
+           (Dropping a tool reply while KEEPING its assistant call is
+           impossible here: replies always come after their call, so a
+           backwards walk reaches the reply first.)
 
-        3. **The newest message always survives**, even alone over
-           budget. A request with a truncated-away question is
-           guaranteed nonsense; an over-long one at least gets a clear
-           provider error naming the real problem.
+        3. **Something legal always survives**, even alone over budget. A
+           request with a truncated-away question is guaranteed nonsense;
+           an over-long one at least gets a clear provider error naming
+           the real problem. When rule 2 empties the window — every kept
+           message was an orphan, which happens from step 2 onward when
+           one tool result alone busts the budget — the fallback is the
+           newest NON-tool message and everything after it, i.e. the
+           assistant call together with its replies. Deliberately a
+           legal PAIR rather than the newest message alone: rule 3 must
+           not be allowed to re-introduce the orphan rule 2 just removed.
+           That was the original bug — a `- 1` in the advance loop let
+           "newest survives" quietly win, and from step 2 on (where
+           history ends on a tool reply) the window could open on an
+           orphan and the provider 400s the conversation.
 
         The system prompt is not in `history` at all — it is prepended by
         the caller — so it is structurally impossible for this to drop
@@ -861,9 +920,21 @@ class HarnessSession:
         kept.reverse()
 
         start = 0
-        while start < len(kept) - 1 and kept[start].get("role") == "tool":
+        while start < len(kept) and kept[start].get("role") == "tool":
             start += 1
-        return kept[start:]
+        if start < len(kept):
+            return kept[start:]
+
+        # Rule 3's pair-aware fallback (see the docstring). Walking the
+        # FULL history, not `kept`: the assistant call we need may have
+        # been dropped by the budget walk above.
+        for index in range(len(history) - 1, -1, -1):
+            if history[index].get("role") != "tool":
+                return history[index:]
+        # A history of nothing but tool replies is unreachable — every
+        # conversation opens with a user message — but sending it whole
+        # beats silently sending nothing at all.
+        return list(history)
 
     # -- frames -----------------------------------------------------------
 
@@ -1000,13 +1071,18 @@ class _UsageTotals:
         self.cost: float | None = None
         self.last_cost: float | None = None
 
-    def add(self, usage: dict[str, Any]) -> None:
+    def add(self, usage: dict[str, Any], *, allow_cost: bool = True) -> None:
+        """Fold one step's usage in. `allow_cost=False` (S15's custom
+        endpoint) discards the reported cost entirely rather than
+        recording it anywhere — this is the single gate both the ledger
+        row and the `_done` frame read, so they cannot disagree about
+        whether dollars are known."""
         self.input_tokens += _int_or_zero(usage.get("prompt_tokens"))
         self.output_tokens += _int_or_zero(usage.get("completion_tokens"))
         details = usage.get("prompt_tokens_details")
         if isinstance(details, dict):
             self.cache_read_tokens += _int_or_zero(details.get("cached_tokens"))
-        cost = usage.get("cost")
+        cost = usage.get("cost") if allow_cost else None
         self.last_cost = float(cost) if isinstance(cost, (int, float)) else None
         if self.last_cost is not None:
             self.cost = (self.cost or 0.0) + self.last_cost
@@ -1132,12 +1208,26 @@ class _Accumulator:
         return "\n\n".join(self._text_by_uuid[u] for u in self._text_order)
 
     def done_frame(
-        self, stop_reason: str, usage: dict[str, int], cost: float | None
+        self,
+        stop_reason: str,
+        usage: dict[str, int],
+        cost: float | None,
+        incomplete_note: str | None = None,
     ) -> dict[str, Any]:
+        """The terminal summary.
+
+        `incompleteNote` is system-authored text and lives HERE, never in
+        `finalAnswer` — see the max_steps branch of `_run_turn`. It sits
+        on `_done` rather than on `turn_complete` because `turn_complete`
+        is part of the pinned `ProviderEvent` union in
+        `web/lib/types.ts`, while `_done` is this transport's own frame
+        and free to carry extra fields.
+        """
         return {
             "type": "_done",
             "stopReason": stop_reason,
             "finalAnswer": self.final_answer(),
+            "incompleteNote": incomplete_note,
             "citations": self.citations,
             "retrievedChunkIds": self.retrieved_chunk_ids,
             "toolCalls": self.tool_calls,

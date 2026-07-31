@@ -332,13 +332,17 @@ def test_request_body_carries_model_tools_stream_and_usage_accounting():
 def test_custom_endpoint_omits_openrouter_usage_block_and_records_no_cost():
     provider = Provider(lambda: sse(text_chunk("ok"), finish_chunk("stop"), usage_chunk(cost=0.5)))
     session, ledger = make_session(provider, settings=make_settings(provider="custom"))
-    run(session)
+    _, done = run(session)
 
     # S15: a custom endpoint is not OpenRouter — the vendor extension
     # would be rejected outright by a strict OpenAI-compatible server,
     # and its `cost` field is not trustworthy money.
     assert "usage" not in provider.bodies[0]
     assert ledger.recorded[0]["cost_usd"] is None
+    # …and the _done frame must agree with the ledger. Reporting a dollar
+    # figure here that S15 says does not exist would put a number in the
+    # UI that no usage report can ever reconcile.
+    assert done["usage"]["cost"] is None
 
 
 # ---------------------------------------------------------------------------
@@ -429,6 +433,40 @@ def test_tool_call_argument_fragments_are_assembled_per_index():
     ]
 
 
+def test_a_tool_call_with_no_id_is_reported_not_silently_finished(capsys):
+    # A fragment with no `id` cannot be answered — a tool message must
+    # carry a `tool_call_id` — so it is dropped. Dropping it SILENTLY was
+    # the bug: finish_reason "tool_calls" fell through to the "end_turn"
+    # default and the analyst got a completed turn with an empty answer.
+    # That is Invariant 3's failure shape: silence presented as an answer.
+    provider = Provider(
+        lambda: sse(
+            tool_chunk(0, name="retrieve", arguments="{}"),  # no id
+            finish_chunk("tool_calls"),
+        )
+    )
+    session, _ = make_session(provider)
+    events, terminal = run(session)
+
+    assert terminal["type"] == "_error"
+    assert of_type(events, "turn_complete")[0]["stopReason"] != "end_turn"
+    assert "dropping tool call" in capsys.readouterr().err
+    # An assistant message with neither text nor tool_calls is rejected
+    # by some providers on the next request — don't record one.
+    assert {"role": "assistant", "content": None} not in session.history
+
+
+def test_the_finish_reason_table_cannot_be_mutated_at_runtime():
+    # One process serves the whole office; a stray write here would
+    # change every conversation's stop reasons at once. Same rule (and
+    # same mechanism) as harness/constants.py.
+    from harness.session import _FINISH_REASONS
+
+    assert _FINISH_REASONS["tool_calls"] != "end_turn"
+    with pytest.raises(TypeError):
+        _FINISH_REASONS["stop"] = "nonsense"  # type: ignore[index]
+
+
 def test_unparseable_tool_arguments_still_reach_the_executor_verbatim():
     # The executor owns the "your JSON was truncated" error message; the
     # loop must not swallow the call or invent one.
@@ -480,15 +518,31 @@ def test_deep_research_tier_gets_the_larger_cap():
     assert done["stopReason"] == "max_steps"
 
 
-def test_step_cap_tells_the_analyst_the_answer_is_incomplete():
-    # An answer that just stops is indistinguishable from a finished one.
+def test_step_cap_reports_incompleteness_out_of_band_not_as_assistant_prose():
+    # An answer that just stops is indistinguishable from a finished one,
+    # so the fact has to reach the UI. It must NOT reach it as assistant
+    # text: that renders in a speech bubble as the model, puts words in
+    # its mouth, and — worst — would fold system-authored prose into
+    # `finalAnswer`, the field an offline auditor reads as "what the
+    # model said". This is a provenance project; that field stays clean.
     provider = _forever_tool_caller()
     session, _ = make_session(provider, tier="standard")
     events, done = run(session)
 
-    note = of_type(events, "assistant_text_delta")[-1]
-    assert "incomplete" in note["text"].lower()
-    assert note["text"] in done["finalAnswer"]
+    assert of_type(events, "assistant_text_delta") == []
+    assert done["finalAnswer"] == ""
+    assert done["stopReason"] == "max_steps"
+    assert "incomplete" in done["incompleteNote"].lower()
+    assert "15" in done["incompleteNote"]
+
+
+def test_a_normal_turn_carries_no_incomplete_note():
+    provider = Provider(lambda: sse(text_chunk("all done"), finish_chunk("stop")))
+    session, _ = make_session(provider)
+    _, done = run(session)
+
+    assert done["incompleteNote"] is None
+    assert done["finalAnswer"] == "all done"
 
 
 def test_unknown_tier_falls_back_to_the_cheap_budget():
@@ -553,6 +607,25 @@ def test_retries_give_up_after_the_schedule_is_exhausted():
     assert provider.call_count == 4
     assert terminal["type"] == "_error"
     assert "still broken" in terminal["message"]
+
+
+def test_interrupt_during_retry_backoff_stops_the_turn_immediately():
+    # Stop must not be hostage to a backoff wait — a provider is allowed
+    # to send `Retry-After: 30`, and an analyst who pressed stop should
+    # not watch a spinner for another half-minute.
+    session_box: dict[str, HarnessSession] = {}
+    provider = Provider(
+        lambda: error_response(429, {"error": {"message": "slow down"}}, {"retry-after": "30"})
+    )
+    session, _ = make_session(
+        provider, sleep=lambda _seconds: session_box["s"].interrupt()
+    )
+    session_box["s"] = session
+    events, done = run(session)
+
+    assert provider.call_count == 1  # no second attempt after the stop
+    assert done["stopReason"] == "user_interrupt"
+    assert of_type(events, "user_interrupt")[0]["kind"] == "plain"
 
 
 def test_400_is_not_retried():
@@ -862,6 +935,30 @@ def test_truncation_never_starts_the_window_on_an_orphaned_tool_message(budget):
             assert message["tool_call_id"] in calls
 
 
+def test_truncation_on_a_later_step_never_opens_on_an_orphaned_tool_reply():
+    # THE case the first round of truncation tests could not reach: every
+    # one of them ran a single-step text turn, where history ends on the
+    # user message. `_truncate` runs on EVERY step, and from step 2 on,
+    # history ends on a `{"role": "tool"}` reply — so a budget that fits
+    # the fat tool result but not the assistant call that requested it
+    # left the window opening on an orphan. That request is malformed and
+    # the provider 400s the whole conversation.
+    provider = _tool_then_text()
+    fat = {"chunks": [{"chunk_id": "c:1"}], "padding": "x" * 3000}
+    session, _ = make_session(
+        provider, executor=FakeExecutor({"retrieve": fat}), context_chars=1200
+    )
+    run(session)
+
+    second = provider.bodies[1]["messages"]
+    assert second[0]["role"] == "system"
+    assert second[1]["role"] != "tool", "window opens on an orphaned tool reply"
+    assert_no_dangling_tool_calls(second)
+    # The fallback keeps the assistant call WITH its reply — a legal pair,
+    # even though the pair alone busts the budget.
+    assert [m["role"] for m in second] == ["system", "assistant", "tool"]
+
+
 def test_the_newest_message_survives_even_when_it_alone_exceeds_the_budget():
     provider = Provider(lambda: sse(text_chunk("ok"), finish_chunk("stop")))
     session, _ = make_session(provider, context_chars=100)
@@ -1094,6 +1191,49 @@ def test_history_carries_across_turns_and_two_sessions_do_not_share_it():
     session_b, _ = make_session(provider_b)
     run(session_b, "unrelated")
     assert len(provider_b.bodies[0]["messages"]) == 2  # system + this user message only
+
+
+def test_exactly_one_tool_executor_is_built_per_conversation(monkeypatch):
+    # Every other test injects an executor, which leaves the real seam
+    # unpinned — and `harness/tools.py` is explicit that a second
+    # executor resets the progressive-retrieval first-call cap, so the
+    # second analyst question of a conversation would skip the sampling
+    # discipline.
+    import harness.tools
+
+    built: list[tuple] = []
+
+    class CountingExecutor(FakeExecutor):
+        def __init__(self, conversation_id, corpus, tier, *, user="", **_: Any):
+            super().__init__()
+            built.append((conversation_id, corpus, tier, user))
+
+    monkeypatch.setattr(harness.tools, "ToolExecutor", CountingExecutor)
+    provider = Provider(
+        lambda: sse(
+            tool_chunk(0, call_id="c1", name="retrieve", arguments="{}"),
+            finish_chunk("tool_calls"),
+        ),
+        lambda: sse(text_chunk("answer"), finish_chunk("stop")),
+    )
+    ledger = FakeLedger()
+    session = HarnessSession(
+        "conv-lazy",
+        "budget",
+        "standard",
+        "analyst1",
+        make_settings(),
+        transport=provider.transport(),
+        system_prompt=SYSTEM_PROMPT,
+        tools=[],
+        sleep=lambda _s: None,
+        check_limit=ledger.check_limit,
+        record_usage=ledger.record_usage,
+    )
+    run(session, "first")
+    run(session, "second")
+
+    assert built == [("conv-lazy", "budget", "standard", "analyst1")]
 
 
 def test_two_turns_cannot_run_concurrently_on_one_session():
