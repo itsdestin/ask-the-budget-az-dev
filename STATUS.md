@@ -62,6 +62,12 @@ source. When something ships, update only this file.
   help), and gates G2/G3. Tracks 1–2, Track 3 and Track 5's Task 20 can run in
   three parallel sessions; Track 4 must follow 1–2; the handbook's writing
   tasks follow the admin UI; Track 6 needs the finished corpus.
+  **Handoff prompts, one per parallel session:**
+  [`PROMPT-plan5-session-a.md`](PROMPT-plan5-session-a.md) (tasks 1–13, admin +
+  resilience), [`PROMPT-plan5-session-b.md`](PROMPT-plan5-session-b.md) (tasks
+  14–17, packaging — **stops after the Task 14 measurement for a shape
+  decision**), [`PROMPT-plan5-session-c.md`](PROMPT-plan5-session-c.md) (task
+  21 now, the memo renderer; tasks 22–23 wait for Session A).
   **Task 13 (bundle-size measurement) is the highest-risk item and gates the
   rest of packaging** — it also carries the split-distribution fallback if a
   MinerU-inclusive bundle proves impractical. The AI-Mode hardening that used
