@@ -473,6 +473,23 @@ As of 2026-07-31:
 on that machine and the ROCm investigation doc). The first two are
 handoff-blocking — they degrade the office experience silently.**
 
+- **🔴 The ingest lock can be STOLEN FROM A LIVE HOLDER — two writers on one
+  corpus.** `IngestLock._try_create` creates the lockfile and then writes its
+  JSON payload in a separate buffered step. A second machine that reads the
+  file inside that window sees it empty, judges it corrupt, treats it as
+  stale, and steals the lock. This defeats the entire S6 single-writer
+  invariant. **Reproduced, not theoretical:** a 24-thread race produced 8
+  simultaneous "winners" before the fix. Dormant today only because one
+  machine is ingesting; live the day a second office PC does — i.e. the
+  intended deployment. Fix (single `os.write` for creation + a settle delay
+  before judging a file corrupt) is implemented and tested on branch
+  `parallel-ingest` (`85ecccb`) and should land on master regardless of
+  whether parallel ingest is ever enabled.
+- **A >120 s write can have its lock legitimately stolen cross-machine.**
+  `_write` heartbeats before `write_doc` but not during it, and
+  `build_fts_index` + `optimize` will exceed the 120 s stale window as the
+  corpus grows. Needs a background auto-heartbeat thread on `IngestLock`.
+  Not fixed anywhere yet.
 - **🔴 `IngestWorker` is constructed at startup but never `.start()`ed.**
   Only the upload POST route starts it. Consequence on the shared drive:
   a colleague's queued job sits untouched until somebody on *that* machine
@@ -504,10 +521,28 @@ handoff-blocking — they degrade the office experience silently.**
   that was decaying toward ~25 docs/hour. **Better long-term design: snapshot
   once per BATCH** (per book edition / per fiscal-note session) rather than
   per document, so bulk runs keep protection without the quadratic cost.
-- **Safe parallel ingest is the single biggest speedup available.** The
-  worker is single-writer by design and concurrent workers would fight over
-  each other's in-flight jobs on restart. With per-job claiming under the
-  existing lock, a 32-thread machine could cut a multi-day backfill to hours.
+- **Safe parallel ingest is BUILT AND TESTED, awaiting a decision** — branch
+  `parallel-ingest` (`85ecccb`), not merged, not deployed. Design: parallelize
+  extraction (the ~78–90% of wall clock that needs no lock), keep the write
+  phase serialized under the existing `IngestLock`, serialize embedding behind
+  one process mutex (one shared ONNX model). New `ingest/claim.py` gives
+  atomic per-job ownership keyed on BOTH job_id and doc_id (the doc_id key
+  guards the `make_doc_id` collision above), with heartbeat/PID stale-steal.
+  Opt-in via `JLBC_INGEST_WORKERS=N`, default 1 = byte-identical to today;
+  every invalid value means 1; clamped to `min(8, cpu_count/4)` so the same
+  variable on a 4-core office PC clamps to 1 and says so. **196 tests pass**,
+  asserting no double-run, no lost jobs, same-doc serialization, writes
+  serialized, extraction never holding the lock, crash-recovery in both
+  directions, and N=1 identical. Measured from the live run to size it:
+  ~2.1 GB RSS / ~3.2 cores per extraction. Reasoned projection **~2.5–3.5× at
+  N=4** (95 → 240–330 docs/hr) — NOT measured against real MinerU, since that
+  would have competed with the live backfill. Verified prerequisite: the
+  backfill maintainer (`~/backfill-scripts/maintain.py`) already takes
+  `IngestLock` and heartbeats during `optimize`, so it is safe alongside a
+  worker pool. Before enabling mid-run also: re-export
+  `JLBC_INGEST_SNAPSHOT=off`, kill orphaned `mineru` trees after the restart,
+  and POST something to start the pool (the `ensure_started` defect above
+  means a restart alone won't).
 - **MinerU 3.4.4 vs the pinned 3.1.6** — measured 1.35× faster on plain CPU
   (28.5s vs 38.5s on an 8-page doc; beats the ROCm GPU path outright),
   device-invariant output, and it fixes a table row-misalignment seen at
