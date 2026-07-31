@@ -15,6 +15,7 @@ import { Link, NavLink } from "react-router-dom";
 const NAV_ITEMS = [
   { to: "/search", label: "Budget Search" },
   { to: "/fiscal-notes", label: "Fiscal Notes" },
+  { to: "/upload", label: "Upload" },
   { to: "/settings", label: "Settings" },
 ];
 

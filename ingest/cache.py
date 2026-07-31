@@ -62,13 +62,27 @@ from __future__ import annotations
 
 import datetime as dt
 import hashlib
+import os
 from collections.abc import Callable
 from pathlib import Path
 from typing import Any
+from urllib.parse import unquote, urlsplit
 
 import yaml
 
 Fetcher = Callable[[str], bytes]
+
+# Extensions the ingest pipeline knows how to route. Anything else is stored
+# as .pdf, matching the pre-2026-07 behavior — the corpus is overwhelmingly
+# PDFs and a query-string-mangled URL shouldn't produce a `.aspx` file the
+# dispatcher then refuses.
+_KNOWN_SUFFIXES = frozenset({".pdf", ".docx", ".doc", ".htm", ".html", ".xlsx"})
+
+
+def _suffix_for_url(url: str) -> str:
+    """File extension implied by a URL's path, defaulting to .pdf."""
+    suffix = Path(unquote(urlsplit(url).path)).suffix.lower()
+    return suffix if suffix in _KNOWN_SUFFIXES else ".pdf"
 
 
 def _default_fetcher(url: str) -> bytes:
@@ -157,7 +171,7 @@ class DownloadCache:
                 f"expected {expected_sha256}, got {sha}"
             )
 
-        relative = self._relative_for_sha(sha)
+        relative = self._relative_for_sha(sha, _suffix_for_url(url))
         target = self.root / relative
         target.parent.mkdir(parents=True, exist_ok=True)
         target.write_bytes(body)
@@ -175,9 +189,15 @@ class DownloadCache:
     # --- Internal ---
 
     @staticmethod
-    def _relative_for_sha(sha: str) -> Path:
+    def _relative_for_sha(sha: str, suffix: str = ".pdf") -> Path:
         # Two-hex prefix keeps any one directory's child count manageable.
-        return Path(sha[:2]) / f"{sha}.pdf"
+        #
+        # The suffix used to be hardcoded `.pdf`, which was true while the
+        # cache only ever fetched JLBC PDFs. Fiscal-note refresh and the
+        # book walker now pull DOCX and HTML too, and a .docx saved as .pdf
+        # routes to the wrong extractor — a failure that surfaces as garbled
+        # chunks rather than an error.
+        return Path(sha[:2]) / f"{sha}{suffix}"
 
     @property
     def _entries(self) -> dict[str, dict[str, Any]]:
@@ -194,7 +214,13 @@ class DownloadCache:
         return loaded
 
     def _save_manifest(self) -> None:
-        self._manifest_path.write_text(
+        # tmp + replace: the manifest is rewritten after every download, and a
+        # crash (or a share disconnect) partway through would leave YAML that
+        # can't be parsed — which reads as an empty cache and re-downloads the
+        # entire corpus.
+        tmp = self._manifest_path.with_suffix(".yaml.tmp")
+        tmp.write_text(
             yaml.safe_dump(self._manifest, sort_keys=True, default_flow_style=False),
             encoding="utf-8",
         )
+        os.replace(tmp, self._manifest_path)

@@ -13,7 +13,35 @@ the rule rides with the type, not just the database.
 """
 from __future__ import annotations
 
+from dataclasses import dataclass
+
 from pydantic import BaseModel, ConfigDict, Field, model_validator
+
+
+@dataclass
+class DocMeta:
+    """The minimum doc-level metadata each chunk needs.
+
+    Mirrors the public fields on `Chunk` that aren't derivable from the
+    document body itself. `doc_id` is what the dispatcher's `make_doc_id`
+    produced for this document.
+
+    `extractor` / `source_format` are used by the orchestrator to dispatch
+    to the right reader. `source_url` is consumed by the entity stamper
+    (JLBC URL → per-agency slug).
+
+    Lives here rather than next to the table builder because every chunk
+    builder and now the ingest writer take one — it's doc-level input to the
+    whole chunking stage, not a table concern.
+    """
+
+    doc_id: str
+    publisher: str
+    doc_type: str
+    fiscal_year: int
+    extractor: str = ""  # 'mineru' | 'opendataloader' | 'python-docx'
+    source_format: str = ""  # 'pdf' | 'docx'
+    source_url: str | None = None
 
 
 class ChunkProvenance(BaseModel):

@@ -16,6 +16,7 @@ from typing import Callable
 from fastapi import FastAPI, HTTPException
 from fastapi.responses import FileResponse, HTMLResponse
 
+from app.routes.books import router as books_router
 from app.routes.conversations import (
     ConversationRegistry,
     default_session_factory,
@@ -23,8 +24,10 @@ from app.routes.conversations import (
 )
 from app.routes.documents import router as documents_router
 from app.routes.fiscal_notes import router as fiscal_notes_router
+from app.routes.jobs import router as jobs_router
 from app.routes.pdf import router as pdf_router
 from app.routes.search import router as search_router
+from app.routes.upload import router as upload_router
 from app.search_provider import LanceSearchProvider, SearchProvider, StubSearchProvider
 
 
@@ -69,6 +72,7 @@ def create_app(
     *, provider: SearchProvider | None = None,
     static_dir: Path | None | object = _MISSING,
     session_factory: Callable[..., object] | None = None,
+    ingest_worker: object | None = _MISSING,
 ) -> FastAPI:
     app = FastAPI(title="JLBC Insight")
     # Explicit None check, not `provider or ...`: an injected provider object
@@ -96,6 +100,20 @@ def create_app(
     app.include_router(documents_router)
     app.include_router(conversations_router)
     app.include_router(pdf_router)
+    app.include_router(upload_router)
+    app.include_router(jobs_router)
+    app.include_router(books_router)
+
+    # The ingest worker is created but NOT started here — starting it builds
+    # the embedding model, and a machine that only searches should never pay
+    # that cost. The upload route starts it on the first upload. Tests inject
+    # a no-op so a route test never spawns a thread.
+    if ingest_worker is _MISSING:
+        from ingest.worker import IngestWorker
+
+        app.state.ingest_worker = IngestWorker()
+    else:
+        app.state.ingest_worker = ingest_worker
 
     @app.get("/health")
     def health():

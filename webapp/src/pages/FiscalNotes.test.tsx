@@ -424,3 +424,111 @@ test("a failed load shows the backend's own detail and can be retried", async ()
   fireEvent.click(screen.getByRole("button", { name: /retry/i }));
   await waitFor(() => expect(screen.getByText("HB2001")).toBeInTheDocument());
 });
+
+// --- rail semantic search (Plan 3) ------------------------------------------
+
+describe("the rail's semantic search", () => {
+  it("stays disabled while the fiscal-note corpus is empty", async () => {
+    vi.spyOn(api, "fiscalNotesStatus").mockResolvedValue({ chunks: 0 });
+    render(
+      <MemoryRouter>
+        <FiscalNotes />
+      </MemoryRouter>,
+    );
+    const box = await screen.findByLabelText(/semantic search/i);
+    await waitFor(() => expect(box).toBeDisabled());
+    expect(screen.getByText(/unlocks when the fiscal-note corpus is ingested/i))
+      .toBeTruthy();
+  });
+
+  it("searches the fiscal_notes corpus once passages exist", async () => {
+    vi.spyOn(api, "fiscalNotesStatus").mockResolvedValue({ chunks: 412 });
+    const search = vi.spyOn(api, "search").mockResolvedValue({
+      total: 1,
+      provider: "lance",
+      results: [
+        {
+          chunk_id: "c1",
+          doc_id: "legislature-fiscal-note-fy2026-sb1010-0",
+          doc_title: "Fiscal Note — SB 1010 (2026)",
+          snippet: "community college expenditure limit …",
+          page: 2,
+          score: 4.1,
+          doc_type: "fiscal-note",
+          fiscal_year: 2026,
+          publisher: "legislature",
+          agencies: [],
+          doc_url: "https://example.gov/sb1010.pdf",
+          doc_meta: null,
+        },
+      ],
+    });
+
+    render(
+      <MemoryRouter>
+        <FiscalNotes />
+      </MemoryRouter>,
+    );
+    const box = await screen.findByLabelText(/semantic search/i);
+    await waitFor(() => expect(box).toBeEnabled());
+
+    fireEvent.change(box, { target: { value: "community college limits" } });
+    fireEvent.submit(box.closest("form")!);
+
+    await waitFor(() =>
+      expect(search).toHaveBeenCalledWith(
+        "community college limits", {}, "fiscal_notes",
+      ),
+    );
+    const hit = await screen.findByTestId("fn-semantic-hit");
+    expect(hit.textContent).toMatch(/SB 1010/);
+    expect(hit.textContent).toMatch(/community college expenditure limit/);
+    expect(hit.querySelector("[data-chunk-id]")?.getAttribute("data-chunk-id")
+      ?? hit.querySelector("a")?.getAttribute("data-chunk-id")).toBe("c1");
+  });
+
+  it("says so when nothing matches", async () => {
+    vi.spyOn(api, "fiscalNotesStatus").mockResolvedValue({ chunks: 412 });
+    vi.spyOn(api, "search").mockResolvedValue({
+      total: 0, provider: "lance", results: [],
+    });
+    render(
+      <MemoryRouter>
+        <FiscalNotes />
+      </MemoryRouter>,
+    );
+    const box = await screen.findByLabelText(/semantic search/i);
+    await waitFor(() => expect(box).toBeEnabled());
+    fireEvent.change(box, { target: { value: "nothing like this" } });
+    fireEvent.submit(box.closest("form")!);
+    expect(await screen.findByText(/no matching passages/i)).toBeTruthy();
+  });
+
+  it("surfaces the backend's reason when the search fails", async () => {
+    vi.spyOn(api, "fiscalNotesStatus").mockResolvedValue({ chunks: 412 });
+    vi.spyOn(api, "search").mockRejectedValue(
+      new Error("search: Search backend failed: OSError: share offline"),
+    );
+    render(
+      <MemoryRouter>
+        <FiscalNotes />
+      </MemoryRouter>,
+    );
+    const box = await screen.findByLabelText(/semantic search/i);
+    await waitFor(() => expect(box).toBeEnabled());
+    fireEvent.change(box, { target: { value: "anything" } });
+    fireEvent.submit(box.closest("form")!);
+    expect(await screen.findByText(/share offline/i)).toBeTruthy();
+  });
+
+  it("treats an unreachable status probe as not-ready", async () => {
+    vi.spyOn(api, "fiscalNotesStatus").mockRejectedValue(new Error("offline"));
+    render(
+      <MemoryRouter>
+        <FiscalNotes />
+      </MemoryRouter>,
+    );
+    const box = await screen.findByLabelText(/semantic search/i);
+    await waitFor(() => expect(box).toBeDisabled());
+  });
+});

@@ -580,26 +580,7 @@ export function FiscalNotes() {
               </div>
             </div>
 
-            {/* NEW — no counterpart in the mockup. Plan 3 wires this to POST /api/search with
-                corpus "fiscal_notes"; until the fiscal-note corpus is ingested there is
-                nothing to search, so the input carries a real `disabled` attribute rather
-                than looking live and doing nothing. It reuses this page's own `.fside-search`
-                pill so it reads as the same control family. */}
-            <div className="fgrp">
-              <div className="flbl">Coming soon</div>
-              <label className="fside-search is-disabled">
-                <SearchIcon />
-                <input
-                  type="text"
-                  disabled
-                  placeholder="Semantic search across all notes"
-                  aria-describedby="fn-semantic-hint"
-                />
-              </label>
-              <p className="fnnote" id="fn-semantic-hint">
-                Unlocks when the fiscal-note corpus is ingested.
-              </p>
-            </div>
+            <SemanticRailSearch />
           </aside>
 
           <div className="fnmain">
@@ -644,5 +625,137 @@ export function FiscalNotes() {
         </div>
       </div>
     </main>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Rail: semantic search over the fiscal-note corpus (Plan 3)
+// ---------------------------------------------------------------------------
+
+/** Meaning-based search across the ingested notes, beside the exact-match
+ *  filter box above it.
+ *
+ *  Two of them, because they answer different questions. The filter box finds a
+ *  bill you can already name. This one is the coordinator's actual triage
+ *  question — "have we written a note like this before?" — where the bill number
+ *  is exactly what you don't have.
+ *
+ *  It stays disabled until the corpus reports passages. Ingesting the notes is a
+ *  separate, long-running act (upload or refresh), so on a fresh install this
+ *  really can be empty, and a live-looking box that can only ever return nothing
+ *  is worse than one that says why.
+ *
+ *  Submit-driven, not keystroke-driven: the reranker runs locally on CPU at
+ *  roughly three seconds a query, so search-as-you-type would queue a backlog of
+ *  stale queries behind every word. */
+function SemanticRailSearch() {
+  const [ready, setReady] = useState<boolean | null>(null);
+  const [q, setQ] = useState("");
+  const [phase, setPhase] = useState<
+    | { kind: "idle" }
+    | { kind: "loading" }
+    | { kind: "done"; results: api.SearchResult[] }
+    | { kind: "error"; message: string }
+  >({ kind: "idle" });
+
+  useEffect(() => {
+    let live = true;
+    api
+      .fiscalNotesStatus()
+      .then((s) => live && setReady(s.chunks > 0))
+      // A failed probe means the corpus can't be searched anyway; treat it as
+      // not-ready rather than showing an error for a control nobody asked for.
+      .catch(() => live && setReady(false));
+    return () => {
+      live = false;
+    };
+  }, []);
+
+  async function run(e: React.FormEvent) {
+    e.preventDefault();
+    const query = q.trim();
+    if (!query) return;
+    setPhase({ kind: "loading" });
+    try {
+      const body = await api.search(query, {}, "fiscal_notes");
+      setPhase({ kind: "done", results: body.results });
+    } catch (err) {
+      setPhase({
+        kind: "error",
+        message: err instanceof Error ? err.message : String(err),
+      });
+    }
+  }
+
+  return (
+    <div className="fgrp" data-testid="fn-semantic">
+      <div className="flbl">{ready ? "Search note text" : "Coming soon"}</div>
+      <form onSubmit={run}>
+        {/* The mockup wraps the input in the label itself so clicking the pill
+            focuses the box; `.is-disabled` is this page's existing dimming. */}
+        <label className={`fside-search${ready ? "" : " is-disabled"}`}>
+          <SearchIcon />
+          <input
+            type="text"
+            value={q}
+            disabled={!ready}
+            onChange={(e) => setQ(e.target.value)}
+            placeholder="Semantic search across all notes"
+            aria-label="Semantic search across all notes"
+            aria-describedby="fn-semantic-hint"
+          />
+        </label>
+      </form>
+      {!ready && (
+        <p className="fnnote" id="fn-semantic-hint">
+          Unlocks when the fiscal-note corpus is ingested.
+        </p>
+      )}
+      {ready && phase.kind === "idle" && (
+        <p className="fnnote" id="fn-semantic-hint">
+          Describe the topic and press Enter — e.g. “community college
+          expenditure limits”.
+        </p>
+      )}
+      {phase.kind === "loading" && (
+        <p className="fnnote" role="status">
+          Searching…
+        </p>
+      )}
+      {phase.kind === "error" && (
+        <p className="fnnote" role="status">
+          <span className="err">{phase.message}</span>
+        </p>
+      )}
+      {phase.kind === "done" && (
+        <div className="fnsem" role="status">
+          {phase.results.length === 0 ? (
+            <p className="fnnote">No matching passages.</p>
+          ) : (
+            <ul className="fnsem-list">
+              {phase.results.slice(0, 8).map((r) => (
+                <li key={r.chunk_id} data-testid="fn-semantic-hit">
+                  {/* data-chunk-id is Plan 4's hook for opening the passage in
+                      the viewer; it is inert here. */}
+                  <a
+                    className="fnsem-hit"
+                    data-chunk-id={r.chunk_id}
+                    href={r.doc_url ?? undefined}
+                    target="_blank"
+                    rel="noreferrer"
+                  >
+                    <span className="fnsem-title">{r.doc_title}</span>
+                    <span className="fnsem-snip">{r.snippet}</span>
+                    {r.page !== null && (
+                      <span className="fnsem-page">p. {r.page}</span>
+                    )}
+                  </a>
+                </li>
+              ))}
+            </ul>
+          )}
+        </div>
+      )}
+    </div>
   );
 }

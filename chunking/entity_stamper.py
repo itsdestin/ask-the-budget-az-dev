@@ -17,12 +17,12 @@ re-running resolution can only weaken a deliberately-set value.
 from __future__ import annotations
 
 import re
-from dataclasses import dataclass, field
 from pathlib import Path
 
 import yaml
 from rapidfuzz import fuzz, process
 
+from chunking.agency_catalog import AgencyEntry, load_agency_catalog
 from chunking.types import Chunk
 
 _DEFAULT_CATALOG = Path(__file__).resolve().parent.parent / "samples" / "entity-catalog.yaml"
@@ -64,14 +64,6 @@ def slug_from_jlbc_url(url: str | None) -> str | None:
     return slug
 
 
-@dataclass
-class _CatalogEntry:
-    canonical_id: str
-    canonical_name: str
-    slug: str | None
-    name_variants: list[str] = field(default_factory=list)
-
-
 class EntityStamper:
     """Resolves a chunk's `agency_canonical_id` from URL, slug, or name."""
 
@@ -86,6 +78,12 @@ class EntityStamper:
         self._name_to_id: dict[str, str] = {}
         self._all_names: list[str] = []  # for fuzzy match
         self._alias_to_canonical_slug: dict[str, str] = {}
+
+        # Agency-name substring index for the D2 multi-agency table scan.
+        # Same shape (and same longest-first rationale) as the fund index
+        # below: 'Public Safety, Department of' must win over a shorter
+        # variant that is a substring of it.
+        self._agency_scan_names: list[str] = []
 
         # Fund catalog state — populated only when fund_catalog_path is set.
         # Each fund's canonical_id keyed by every name form we want to match
@@ -133,48 +131,43 @@ class EntityStamper:
     # --- loading ------------------------------------------------------------
 
     def _load_catalog(self, path: Path) -> None:
-        raw = yaml.safe_load(path.read_text(encoding="utf-8")) or {}
-        agencies = raw.get("agencies", []) or []
-        for entry in agencies:
-            canonical_id = entry.get("canonical_id")
-            canonical_name = entry.get("canonical_name") or ""
-            slug = entry.get("slug")
-            if not canonical_id:
-                continue
-
-            if slug:
-                self._slug_to_id[slug.lower()] = canonical_id
+        # Parsing lives in chunking.agency_catalog so non-stamping consumers
+        # (UI filters, ingest metadata, title building) can get id→name without
+        # building the alias map and fuzzy indexes this class needs.
+        for entry in load_agency_catalog(path).values():
+            if entry.slug:
+                self._slug_to_id[entry.slug.lower()] = entry.canonical_id
 
             # Name → id index. Use casefolded form as key.
             for name in self._collect_names(entry):
                 key = _normalize_for_match(name)
                 if key and key not in self._name_to_id:
-                    self._name_to_id[key] = canonical_id
+                    self._name_to_id[key] = entry.canonical_id
                 if name and name not in self._all_names:
                     self._all_names.append(name)
 
+        # WHY the length floor: the scan matches substrings, so a 3-4 char
+        # agency variant ('DES') would fire inside unrelated words all over a
+        # financial table. Every real acronym in the catalog ('AHCCCS') clears
+        # 5 characters.
+        self._agency_scan_names = sorted(
+            (k for k in self._name_to_id if len(k) >= _MIN_SCAN_NAME_LEN),
+            key=len,
+            reverse=True,
+        )
+
     @staticmethod
-    def _collect_names(entry: dict) -> list[str]:
+    def _collect_names(entry: AgencyEntry) -> list[str]:
         names: list[str] = []
-        canonical = entry.get("canonical_name")
-        if canonical:
-            names.append(canonical)
+        if entry.canonical_name:
+            names.append(entry.canonical_name)
             # Also add inverted form: 'X, Department of' <-> 'Department of X'
-            inverted = _invert_comma_form(canonical)
-            if inverted and inverted != canonical:
+            inverted = _invert_comma_form(entry.canonical_name)
+            if inverted and inverted != entry.canonical_name:
                 names.append(inverted)
-        # JLBC observed names from the agency-index pages
-        for variants in (entry.get("names_observed_jlbc") or {}):
-            if variants:
-                names.append(variants)
-        # Gov-side alias if present
-        gov_alias = entry.get("gov_alias") or entry.get("names_observed_gov")
-        if isinstance(gov_alias, str):
-            names.append(gov_alias)
-        elif isinstance(gov_alias, list):
-            names.extend(s for s in gov_alias if isinstance(s, str))
-        elif isinstance(gov_alias, dict):
-            names.extend(s for s in gov_alias if isinstance(s, str))
+        # JLBC agency-index names plus any Gov-side alias, in that order —
+        # the catalog loader already flattens both into name_variants.
+        names.extend(entry.name_variants)
         return [n for n in names if n]
 
     def _load_aliases(self, path: Path) -> None:
@@ -251,6 +244,49 @@ class EntityStamper:
         if not updates:
             return chunk
         return chunk.model_copy(update=updates)
+
+    def resolve_all(
+        self, chunk: Chunk, *, source_url: str | None = None
+    ) -> list[str]:
+        """Every agency this chunk is about, primary first (decision D2).
+
+        Narrative chunks resolve to at most one agency — a page that mentions
+        a second agency in passing is not *about* it, and widening that would
+        make every agency filter noisy.
+
+        TABLE chunks are the case D2 exists for: a statewide schedule lists
+        dozens of agencies in one chunk, and scalar resolution keeps whichever
+        matched first, so filtering by any of the others silently misses the
+        row. For tables we scan the whole text for catalog names and return
+        all of them, with the scalar answer pinned to the front so
+        single-agency labels downstream keep showing the same thing.
+
+        Returned at the ROW layer (`ingest.lance_writer.chunk_to_lance_row`
+        takes this list) rather than on the Chunk model, matching how the old
+        Postgres loader promoted scalar → array.
+        """
+        primary = chunk.agency_canonical_id
+        if not primary:
+            primary, _chain = self._resolve(
+                section_path=chunk.section_path,
+                text=chunk.text,
+                source_url=source_url,
+            )
+
+        if not chunk.is_table:
+            return [primary] if primary else []
+
+        found = _scan_for_names(
+            corpus=_normalize_for_match(
+                " | ".join([seg for seg in chunk.section_path if seg] + [chunk.text or ""])
+            ),
+            names_longest_first=self._agency_scan_names,
+            name_to_id=self._name_to_id,
+        )
+        if primary:
+            # Pin the scalar answer first without duplicating it.
+            found = [primary] + [i for i in found if i != primary]
+        return found
 
     # --- resolution rules ---------------------------------------------------
 
@@ -349,46 +385,69 @@ class EntityStamper:
         if not corpus:
             return None, []
 
-        # Find each fund name's earliest match position. Mark the matched
-        # span so longer overlapping fund names take precedence.
-        matches: list[tuple[int, str]] = []  # (start_index, canonical_id)
-        consumed: list[tuple[int, int]] = []  # spans that have been claimed
-
-        def _overlaps(start: int, end: int) -> bool:
-            for cs, ce in consumed:
-                if start < ce and end > cs:
-                    return True
-            return False
-
-        for name in self._fund_names_sorted:
-            # Find every occurrence of this fund name in the corpus.
-            offset = 0
-            while True:
-                idx = corpus.find(name, offset)
-                if idx == -1:
-                    break
-                end = idx + len(name)
-                if not _overlaps(idx, end):
-                    matches.append((idx, self._fund_name_to_id[name]))
-                    consumed.append((idx, end))
-                offset = end
-
-        if not matches:
+        ordered = _scan_for_names(
+            corpus=corpus,
+            names_longest_first=self._fund_names_sorted,
+            name_to_id=self._fund_name_to_id,
+        )
+        if not ordered:
             return None, []
+        return ordered[0], ordered[1:]
 
-        # Sort by source-order position; dedupe canonical_ids in first-seen order.
-        matches.sort(key=lambda pair: pair[0])
-        seen: set[str] = set()
-        ordered: list[str] = []
-        for _, canonical_id in matches:
-            if canonical_id in seen:
-                continue
+
+# --- name scanning -----------------------------------------------------------
+
+# Shortest catalog name the substring scan will trust. See the WHY at the
+# call site in _load_catalog.
+_MIN_SCAN_NAME_LEN = 5
+
+
+def _scan_for_names(
+    *,
+    corpus: str,
+    names_longest_first: list[str],
+    name_to_id: dict[str, str],
+) -> list[str]:
+    """Canonical ids named in `corpus`, in first-mention order, deduped.
+
+    `corpus` and the names must already be normalized the same way (both
+    casefolded for funds; both run through _normalize_for_match for
+    agencies) — this does a plain substring find, so a mismatch in
+    normalization means silent zero matches.
+
+    Longest-name-first with span claiming is what makes overlapping names
+    behave: 'Tobacco Tax Health Care Fund' consumes its span before
+    'Tobacco Tax Fund' can match inside it.
+    """
+    if not corpus:
+        return []
+
+    matches: list[tuple[int, str]] = []  # (start_index, canonical_id)
+    consumed: list[tuple[int, int]] = []  # spans already claimed
+
+    def _overlaps(start: int, end: int) -> bool:
+        return any(start < ce and end > cs for cs, ce in consumed)
+
+    for name in names_longest_first:
+        offset = 0
+        while True:
+            idx = corpus.find(name, offset)
+            if idx == -1:
+                break
+            end = idx + len(name)
+            if not _overlaps(idx, end):
+                matches.append((idx, name_to_id[name]))
+                consumed.append((idx, end))
+            offset = end
+
+    matches.sort(key=lambda pair: pair[0])
+    seen: set[str] = set()
+    ordered: list[str] = []
+    for _, canonical_id in matches:
+        if canonical_id not in seen:
             seen.add(canonical_id)
             ordered.append(canonical_id)
-
-        primary = ordered[0]
-        mentions = ordered[1:]
-        return primary, mentions
+    return ordered
 
 
 # --- text-normalization helpers ---------------------------------------------

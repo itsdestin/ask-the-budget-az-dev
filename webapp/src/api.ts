@@ -110,3 +110,173 @@ export async function chunk(
   if (!r.ok) await fail(r, "chunk");
   return r.json();
 }
+
+/** How many fiscal-note passages are actually searchable. The page's semantic
+ *  search stays disabled at 0 — offering a search that can only return nothing
+ *  is worse than saying it isn't ready. */
+export async function fiscalNotesStatus(): Promise<{ chunks: number }> {
+  const r = await fetch("/api/fiscal-notes/status");
+  if (!r.ok) await fail(r, "fiscal-notes status");
+  return r.json();
+}
+
+// ---- ingest queue (Plan 3) -------------------------------------------------
+
+export type JobState =
+  | "queued"
+  | "extracting"
+  | "chunking"
+  | "embedding"
+  | "writing"
+  | "live"
+  | "failed"
+  | "cancelled";
+
+export interface Job {
+  job_id: string;
+  doc_id: string;
+  title: string;
+  corpus: string;
+  state: JobState;
+  /** Progress within the CURRENT stage, 0-100 — not overall completion. */
+  pct: number;
+  /** Human detail for the current stage, e.g. "page 34/210". */
+  stage_detail: string;
+  error: string | null;
+  machine: string;
+  user: string;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface UploadMeta {
+  corpus: string;
+  publisher: string;
+  doc_type: string;
+  fiscal_year: number;
+  title: string;
+  /** Ingest anyway when the content hash is already known (spec's explicit
+   *  re-process option). */
+  reprocess?: boolean;
+}
+
+export interface DuplicateDocument {
+  detail: string;
+  existing_doc_id: string;
+  added_at: string | null;
+  added_by: string | null;
+}
+
+/** Thrown on 409 so the page can offer re-process instead of a dead error.
+ *  A plain Error would flatten the provenance the user needs to decide. */
+export class DuplicateDocumentError extends Error {
+  constructor(readonly info: DuplicateDocument) {
+    super("already in corpus");
+    this.name = "DuplicateDocumentError";
+  }
+}
+
+export async function uploadDocument(
+  file: File,
+  meta: UploadMeta,
+): Promise<{ job_id: string; doc_id: string }> {
+  const form = new FormData();
+  form.append("file", file);
+  form.append("corpus", meta.corpus);
+  form.append("publisher", meta.publisher);
+  form.append("doc_type", meta.doc_type);
+  form.append("fiscal_year", String(meta.fiscal_year));
+  form.append("title", meta.title);
+  // Invariant 8: the server rejects the upload without this. The page only
+  // sends it once the user has actually ticked the box.
+  form.append("is_public_record", "true");
+  if (meta.reprocess) form.append("reprocess", "true");
+
+  const r = await fetch("/api/upload", { method: "POST", body: form });
+  if (r.status === 409) {
+    throw new DuplicateDocumentError(await r.json());
+  }
+  if (!r.ok) await fail(r, "upload");
+  return r.json();
+}
+
+export async function jobs(): Promise<{ jobs: Job[] }> {
+  const r = await fetch("/api/jobs");
+  if (!r.ok) await fail(r, "jobs");
+  return r.json();
+}
+
+export async function retryJob(jobId: string): Promise<{ job: Job }> {
+  const r = await fetch(`/api/jobs/${encodeURIComponent(jobId)}/retry`, {
+    method: "POST",
+  });
+  if (!r.ok) await fail(r, "retry");
+  return r.json();
+}
+
+export async function cancelJob(jobId: string): Promise<{ job: Job }> {
+  const r = await fetch(`/api/jobs/${encodeURIComponent(jobId)}/cancel`, {
+    method: "POST",
+  });
+  if (!r.ok) await fail(r, "cancel");
+  return r.json();
+}
+
+// ---- JLBC books (Plan 3, Task 15) ------------------------------------------
+
+export interface BookEdition {
+  key: string;
+  family: "approps" | "baseline";
+  fiscal_year: number;
+  /** False for pre-FY2005 approps / pre-FY2012 baseline: JLBC published those
+   *  as one scanned book with no per-agency pages to ingest. */
+  ingestable: boolean;
+  /** Published under the rolling /budget/ directory, which JLBC repurposes. */
+  rolling: boolean;
+  era_note: string;
+  single_file_url: string | null;
+  linked_toc_url: string | null;
+  document_count: number;
+}
+
+export interface BookPlan {
+  source: "catalog" | "probed";
+  count: number;
+  documents: { url: string; title: string; doc_type: string; code: string }[];
+  unreachable: string[];
+  notes: string[];
+  single_file_url: string | null;
+  linked_toc_url: string | null;
+}
+
+export async function bookCatalog(): Promise<{ editions: BookEdition[] }> {
+  const r = await fetch("/api/books/catalog");
+  if (!r.ok) await fail(r, "book catalog");
+  return r.json();
+}
+
+export async function discoverBook(
+  family: string,
+  fiscal_year: number,
+): Promise<BookPlan> {
+  const r = await fetch("/api/books/discover", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ family, fiscal_year }),
+  });
+  if (!r.ok) await fail(r, "discover");
+  return r.json();
+}
+
+export async function ingestBook(
+  family: string,
+  fiscal_year: number,
+): Promise<{ queued: number; skipped_existing: number; unreachable: string[] }> {
+  const r = await fetch("/api/books/ingest", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ family, fiscal_year }),
+  });
+  if (!r.ok) await fail(r, "add book");
+  return r.json();
+}

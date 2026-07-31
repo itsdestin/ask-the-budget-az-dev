@@ -200,6 +200,9 @@ EXTRACTOR_REGISTRY: dict[tuple[str, str], type] = {
     ("detailed-list-pdf", "pdf"): MinerUExtractor,
     # Budget bill DOCX.
     ("budget-bill", "docx"): PythonDocxExtractor,
+    # Fiscal notes (the second corpus, S9/S10). Published as PDFs, untagged,
+    # with the same table-heavy layout as the JLBC per-agency pages.
+    ("fiscal-note", "pdf"): MinerUExtractor,
 }
 
 
