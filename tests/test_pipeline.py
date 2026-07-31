@@ -30,6 +30,7 @@ from retrieval.pipeline import (
     reset_default_collaborators,
     retrieve,
 )
+from retrieval.recency import recency_weight
 from retrieval.types import RetrievedChunk
 
 # ---------------------------------------------------------------------------
@@ -803,3 +804,94 @@ def test_inferred_years_are_echoed_even_when_the_filter_finds_nothing(
 def test_retrieval_result_defaults_inferred_years_to_empty():
     """Additive field — every existing construction site must keep working."""
     assert RetrievalResult().inferred_fiscal_years == []
+
+
+# ---------------------------------------------------------------------------
+# S21 layer 3 — post-rerank recency bonus (ships at weight 0.0)
+# ---------------------------------------------------------------------------
+
+
+def _dated(chunk_id: str, fiscal_year: int | None) -> RetrievedChunk:
+    return replace(_chunk(chunk_id), fiscal_year=fiscal_year)
+
+
+def _dated_seams(monkeypatch, chunks):
+    s = Seams(bm25=list(chunks), dense=[])
+    monkeypatch.setattr("retrieval.pipeline.bm25_query_lance", s.bm25)
+    monkeypatch.setattr("retrieval.pipeline.dense_query_lance", s.dense)
+    return s
+
+
+def test_the_recency_bonus_is_off_at_the_shipped_weight(monkeypatch):
+    """Every production retrieval runs through this call today, so a
+    non-no-op default would silently reorder the whole corpus."""
+    _dated_seams(monkeypatch, [_dated("old", 2019), _dated("new", 2027)])
+
+    result = _run(
+        RetrievalRequest(query="provider rate increase"),
+        reranker=FakeReranker({"old": 5.0, "new": 4.0}),
+    )
+
+    assert [c.chunk_id for c in result.chunks] == ["old", "new"]
+    assert result.reranker_scores == [5.0, 4.0]
+    assert result.top_score == 5.0
+
+
+def test_an_enabled_bonus_reorders_and_moves_top_score(monkeypatch):
+    """top_score is what the refusal threshold compares against — pinned
+    here so enabling the weight without recalibrating REFUSAL_THRESHOLD
+    cannot happen quietly."""
+    _dated_seams(monkeypatch, [_dated("old", 2019), _dated("new", 2027)])
+
+    with recency_weight(0.4):
+        result = _run(
+            RetrievalRequest(query="provider rate increase"),
+            reranker=FakeReranker({"old": 5.0, "new": 4.0}),
+        )
+
+    assert [c.chunk_id for c in result.chunks] == ["new", "old"]
+    # old: 5.0 + 0.4 * (2019 - 2027) = 1.8; new: 4.0 + 0 = 4.0
+    assert result.reranker_scores == pytest.approx([4.0, 1.8])
+    assert result.top_score == pytest.approx(4.0)
+
+
+def test_the_bonus_never_touches_the_fiscal_note_corpus(monkeypatch):
+    """S21: coordinator triage deliberately seeks similar notes regardless
+    of age. Layer 1 applies there; layer 3 must not."""
+    _dated_seams(monkeypatch, [_dated("old", 2019), _dated("new", 2027)])
+
+    with recency_weight(0.4):
+        result = _run(
+            RetrievalRequest(query="similar note", corpus="fiscal_note_chunks"),
+            reranker=FakeReranker({"old": 5.0, "new": 4.0}),
+        )
+
+    assert [c.chunk_id for c in result.chunks] == ["old", "new"]
+    assert result.reranker_scores == [5.0, 4.0]
+
+
+def test_the_bonus_is_skipped_when_the_caller_filtered_by_year(monkeypatch):
+    _dated_seams(monkeypatch, [_dated("old", 2019), _dated("new", 2027)])
+
+    with recency_weight(0.4):
+        result = _run(
+            RetrievalRequest(query="provider rate increase", fiscal_year=[2019, 2027]),
+            reranker=FakeReranker({"old": 5.0, "new": 4.0}),
+        )
+
+    assert [c.chunk_id for c in result.chunks] == ["old", "new"]
+
+
+def test_the_bonus_is_skipped_when_the_query_named_a_year(monkeypatch):
+    """The analyst asked for FY 2019. Demoting FY 2019 inside its own
+    filtered result set would be fighting the instruction."""
+    _dated_seams(monkeypatch, [_dated("old", 2019), _dated("new", 2020)])
+
+    with recency_weight(0.4):
+        result = _run(
+            RetrievalRequest(query="fy2019 provider rate increase"),
+            reranker=FakeReranker({"old": 5.0, "new": 4.0}),
+        )
+
+    assert result.inferred_fiscal_years == [2019]
+    assert [c.chunk_id for c in result.chunks] == ["old", "new"]

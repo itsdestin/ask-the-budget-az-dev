@@ -38,6 +38,7 @@ from dataclasses import dataclass, field, replace as dataclass_replace
 from retrieval.local_embedder import LocalEmbedder
 from retrieval.local_rerank import LocalReranker
 from retrieval.query_year import fiscal_year_filter, parse_query_years
+from retrieval.recency import anchor_fiscal_year, apply_recency_boost
 from retrieval.rrf import RankedList, rrf_fuse
 from retrieval.search_lance import bm25_query_lance, dense_query_lance
 from retrieval.types import RetrievalFilters, RetrievedChunk
@@ -310,6 +311,18 @@ def retrieve(
         reranker = _get_reranker()
 
     reranked = reranker.rerank(req.query, fused, top_k=req.top_k)
+
+    # S21 layer 3: with no year named, nudge newer editions up. Skipped
+    # on the fiscal-note corpus (triage wants similar notes at any age)
+    # and skipped whenever a year filter is active — inside a set the
+    # analyst already narrowed to FY 2019, preferring "newer" is fighting
+    # the instruction. Ships at weight 0.0, i.e. a no-op, until
+    # eval/calibrate_recency.py recommends a weight against a backfilled
+    # corpus; see retrieval/recency.py for why that ordering matters.
+    if req.corpus == DEFAULT_CORPUS and not filters.fiscal_year:
+        reranked = apply_recency_boost(
+            reranked, anchor_fy=anchor_fiscal_year(reranked)
+        )
 
     return RetrievalResult(
         chunks=reranked,
