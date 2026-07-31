@@ -19,7 +19,7 @@
 Facts established by shipped code and by the 2026-07-31 live runs. Getting any of these wrong produces a plausible-looking change that breaks something real.
 
 1. **S22 and S23 already shipped** (merge `5e1ae3b`, 2026-07-31). Prompt caching and normalization-tolerant quote validation are DONE and are not in this plan. `harness/ledger.py` already records `cached_tokens`; the admin page must surface it (that number is the only way to tell whether caching still works — a broken cache prefix produces identical answers, identical tokens, identical logs, and a ~10× bill).
-2. **A parallel session is fixing two 🔴 ingest defects** (worker auto-start, `make_doc_id` collisions) on branch `ingest-defects`. **Do not implement those here.** Rebase onto master before starting and check whether they landed; if they did not, they are the first thing to pick up, not a duplicate implementation.
+2. **The two 🔴 ingest defects are FIXED** — worker auto-start and family-aware `make_doc_id`, merged `f85b20a` on 2026-07-31. Do not re-implement them. `app/main.py` now starts the worker from a lifespan hook, with `create_app(ingest_worker=None)` as the explicit opt-out for processes that serve but must not ingest; respect that seam rather than adding a second one. The ingest work that *remains* is Task 20, and it is a different, shorter list than the one in STATUS's history.
 3. **`harness/settings.py` is the single settings reader/writer.** `load_settings()` is mtime-cached, so an admin-page write is picked up by every running process without a restart. `save_settings()` is tmp-file + `os.replace`. Never write `settings.json` from anywhere else. `Settings` is `frozen=True` at the top level but its `tiers`/`user_limits` dicts are not deep-frozen and the dataclass is **unhashable** — do not put one in a set or use it as a cache key.
 4. **`ai_available(settings, tier)` returns two exact reason strings** that UI code and tests match verbatim: `"no API key configured"` and `"no model configured — ask the admin"`. Adding a third failure mode means adding a string here, not inventing one at a call site.
 5. **`TIER_COPY` in `app/routes/conversations.py` is the ONE source of analyst-facing tier copy** (S16), deliberately server-side so the admin page and the composer cannot drift. The admin page consumes `/api/ai/status`; it does not re-type the sentences.
@@ -268,7 +268,7 @@ def test_breakdown_excludes_unknown_cost_from_dollars(tmp_data_dir):
 ```
 
 - [ ] **Step 2 — implement.** Reuse the existing `_read_rows()` (it already drops corrupt rows and catches `(OSError, ValueError)` — do not write a second reader). Return a list of a new frozen `UsageGroup` dataclass sorted by `cost_usd` descending. Round to whole cents with the same helper `month_total` uses so the two can never disagree.
-- [ ] **Step 3** — `.venv/bin/python -m pytest tests/test_ledger_breakdown.py tests/test_harness_ledger.py -q`
+- [ ] **Step 3** — `.venv/bin/python -m pytest tests/test_ledger_breakdown.py tests/test_ledger.py -q`
 - [ ] Commit: `feat(harness): ledger breakdown by user/model/tier for the admin page`
 
 ### Task 3: Admin settings read/write (redaction + validation)
@@ -573,7 +573,7 @@ Chosen shape, and why: **`pythonw.exe launcher.pyw`, invoked from a shortcut tha
 
 **Files:** `store/chunk_store.py`, `ingest/cache.py`, `ingest/lock.py`; tests.
 
-Triaged from STATUS's follow-up list. **Check first whether the `ingest-defects` session landed the two 🔴 items** (worker auto-start, `make_doc_id`) — if so, skip them here.
+Triaged from STATUS's follow-up list, minus the two 🔴 items that already landed in `f85b20a` (worker auto-start, family-aware `make_doc_id`). What is left is below — all of it still unfixed as of 2026-07-31.
 
 - [ ] **Step 1 — LanceDB dead-version cleanup. Handoff-blocking; measured 2026-07-31: 5.1 GB on disk holding ~18k chunks.** `optimize()` never drops superseded versions. Pass `cleanup_older_than` / expose `cleanup_old_versions` in the write phase. On the office SMB share this is the difference between a corpus that copies in minutes and one that doesn't. Test: write, delete, re-write, assert on-disk bytes fall after cleanup.
 - [ ] **Step 2 — `DownloadCache` concurrency.** Per-instance tmp path (today it's shared across instances) plus a lock around the manifest write. A corrupted manifest parses as an **empty** cache, which would re-download ~7,400 PDFs from state web servers one at a time. Test with concurrent writers asserting a parseable manifest and no lost entries.
