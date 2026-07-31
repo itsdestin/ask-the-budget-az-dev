@@ -159,6 +159,24 @@ class ChunkStore:
         tbl.delete(f"chunk_id IN ({ids})")
         tbl.add(list(deduped.values()))
 
+    def delete_doc(self, name: str, doc_id: str) -> None:
+        """Remove every chunk of one document.
+
+        WHY ingest needs this: re-ingesting a document must REPLACE it, and
+        the new run's chunk_ids don't necessarily match the old run's (a
+        different MinerU version can split pages differently). Keying the
+        replacement on chunk_id — what upsert_chunks does — would leave the
+        stale chunks behind as orphans. Deleting by doc_id first is what
+        makes re-ingest idempotent.
+
+        No-op when the table doesn't exist yet: `_open` is the read path, so
+        deleting from a fresh corpus doesn't materialize an empty table.
+        """
+        tbl = self._open(name)
+        if tbl is None:
+            return
+        tbl.delete(f"doc_id = {sql_str(doc_id)}")
+
     def build_fts_index(self, name: str) -> None:
         # BM25 full-text index over chunk text. In lancedb 0.36 this builds a
         # NATIVE Lance inverted index (use_tantivy=False is the default),
