@@ -1430,6 +1430,25 @@ html.ai-fullpage header.site{flex:0 0 auto;}
    the clamp above so `flex:1 1 auto` is what decides the size; `margin-top:0`
    because `.ai-stage` already supplies the gap under the band. */
 .page-ai .ai-panel{flex:1 1 auto;min-height:0;height:auto;margin-top:0;}
+
+/* ----- on its own route the chat IS the window ----------------------------
+   Destin, 2026-07-31: "i don't want the weird card, it should take up the full
+   screenspace like a native chat app almost."
+
+   The card chrome above is right when the panel is a section INSIDE a scrolling
+   page — it needs an edge to sit on. On a dedicated route there is nothing to
+   sit on, and a white rounded box floating on a grey page with 22px gutters
+   reads as a widget rather than an application.
+
+   Safe to go edge-to-edge because line length is NOT protected by this
+   container: `.chat-thread-column` (768px, centered) and `.chat-input` (768px,
+   centered) each cap themselves. Removing the outer max-width widens the
+   SURFACE, not the text — which is exactly what a native chat client does. */
+.page-ai .ai-stage{max-width:none;padding:0;}
+.page-ai .ai-panel{background:none;border:0;border-radius:0;box-shadow:none;}
+/* The divider between thread and source column now runs the full window height,
+   so it reads as a split pane rather than an internal seam of a card. */
+.page-ai .ai-panel-main.has-source .ai-panel-chat{border-right:1px solid var(--line);}
 /* min-height:0 on the flex child is what lets the thread's overflow engage
    instead of the panel growing to fit its content. */
 .ai-panel-main{flex:1 1 auto;min-height:0;display:flex;flex-direction:row;}
