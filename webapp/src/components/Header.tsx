@@ -10,10 +10,13 @@ import { Link, NavLink } from "react-router-dom";
 //  - The mockup's eight JLBC menu items (several with dropdowns) collapse to this
 //    app's four real surfaces. Nothing is linked that doesn't exist.
 //  - The mockup's round magnifier button (`.search-icon-btn`, a shortcut to its
-//    search page) is dropped: "Budget Search" is a first-class nav pill here, so
+//    search page) is dropped: "Budget Documents" is a first-class nav pill here, so
 //    the button would be a second link to the same route.
 const NAV_ITEMS = [
-  { to: "/search", label: "Budget Search" },
+  // Renamed from "Budget Search" (Destin, 2026-07-31): AI Mode is no longer a
+  // toggle on this page, so the pill names what the page IS — the document
+  // browser — rather than one of two things it used to do.
+  { to: "/search", label: "Budget Documents" },
   { to: "/fiscal-notes", label: "Fiscal Notes" },
   { to: "/upload", label: "Upload" },
   { to: "/settings", label: "Settings" },
@@ -59,8 +62,52 @@ export function Header() {
               <NavLink to={item.to}>{item.label}</NavLink>
             </div>
           ))}
+          {/* AI Mode (Destin, 2026-07-31). Icon-only in the house pill's exact
+              shape — aria-label + title carry the accessible name — because it is
+              a MODE, not another corpus, and giving it a word in the same row as
+              "Budget Documents"/"Fiscal Notes" would read as a fourth place to
+              browse. `.nav-ai` is what pulls it to the right of the centered pill
+              group (see app.css); the separation IS the statement that it stands
+              apart from the corpora. */}
+          <div className="nav-item nav-ai">
+            <NavLink to="/ai" aria-label="AI Mode" title="AI Mode">
+              <AiSparkIcon />
+            </NavLink>
+          </div>
         </nav>
       </div>
     </header>
+  );
+}
+
+/** The AI sparkle, built to the house glyph's recipe so the two read as one set:
+ *  same 24×24 box, same `fill="none" stroke="currentColor" strokeWidth=2`, same
+ *  round caps/joins, no fills and no gradients.
+ *
+ *  Shape: one four-point star with concave sides (the conventional AI sparkle),
+ *  set low-left, plus a small plus-mark spark up-right. The plus rather than a
+ *  second miniature star is deliberate — at the 18px the nav renders this at, a
+ *  5-unit star with a 2-unit stroke fills in solid and reads as a blob, while
+ *  two crossed strokes stay crisp. (It is also the idiom Lucide's own `sparkles`
+ *  uses for its small sparks, so it looks conventional rather than invented.)
+ *
+ *  Its own class, not `.home-ic`: the star's mass sits inside its box where the
+ *  house's fills it, so the two may need different sizes later. */
+function AiSparkIcon() {
+  return (
+    <svg
+      className="ai-ic"
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden="true"
+    >
+      <path d="M10 3.5Q11.2 10.3 17.5 11.5Q11.2 12.7 10 19.5Q8.8 12.7 2.5 11.5Q8.8 10.3 10 3.5Z" />
+      <path d="M19 3v4" />
+      <path d="M21 5h-4" />
+    </svg>
   );
 }

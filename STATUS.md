@@ -331,7 +331,8 @@ tests; deleting both is Plan 5.
   `webapp/src/pdf/` — citation extraction (~70 carried specs), chat reducer,
   citation bus, chips, markdown, tool cards, mascot, PDF viewer with
   strict-bbox highlighting, cited-text panel. AI Mode toggle on Budget Search
-  and Fiscal Notes; Home's AI card goes live when a key is present.
+  and Fiscal Notes (**superseded 2026-07-31** — see the deviation note below);
+  Home's AI card goes live when a key is present.
 - **Tiers (S16):** Standard (step cap 15, `deep_dive` ignored) and Deep
   Research (cap 50, `deep_dive` allowed). Tier explainer copy lives
   **server-side** in `/api/ai/status` so Plan 5's admin page and the webapp
@@ -415,6 +416,44 @@ Recorded because the same classes will recur:
   tool-block cites only, but the renderer also extracts inline `<cite>` tags,
   which open-weight models emit more often than the models that fallback was
   written for.
+
+### 2026-07-31 — AI Mode moved to its own tab (deliberate deviation from S9)
+
+**Do not "restore fidelity" to S9.** Spec S9 says *"Every corpus page =
+zero-inference semantic search + an AI Mode toggle (same search box; off =
+results list, on = cited chat answer)."* That is what Plan 4 shipped, and after
+using it Destin asked for the opposite: *"I hate that 'AI Mode' is part of the
+budget search tab."*
+
+As of 2026-07-31:
+
+- **AI Mode is a destination, not a mode.** New route `/ai` (`webapp/src/pages/Ai.tsx`),
+  reached from an **icon-only sparkle pill on the right end of the nav**
+  (`.nav-item.nav-ai`, accessible name "AI Mode" via `aria-label` + `title`,
+  built to the house glyph's exact recipe). Home's AI card points there too.
+- **`Budget Search` is renamed `Budget Documents`.** The route is still
+  `/search`; only the pill label and the page's identity changed — it is the
+  document browser now, and nothing else.
+- **The per-page toggles are gone** from Budget Documents and Fiscal Notes.
+  Both pages render their browse surface unconditionally; neither imports the
+  chat stack. `AiModeToggle` still exists in `webapp/src/chat/AiModePanel.tsx`,
+  imported by nothing (deletion belongs to whoever next edits that file).
+- **A corpus picker replaces the two toggles.** Budget documents / Fiscal notes,
+  chosen inside `/ai`. This is not cosmetic: the fiscal-note coordinator is a
+  primary user in the spec, and dropping the fiscal-notes toggle without a
+  replacement would have deleted their "have we written a note like this
+  before?" triage path.
+- **Switching corpus starts a NEW conversation**, by remounting the component
+  that owns `useChat` (`key={corpus}`). This is load-bearing: `useChat` reads
+  the corpus only when it lazily creates the conversation and then holds that
+  `conversation_id` for the hook's lifetime, so a prop change alone would keep
+  answering fiscal-note questions out of the BUDGET corpus — cited and
+  confident. Three specs in `webapp/src/pages/Ai.test.tsx` fail if the remount
+  is removed. It also gives S16 for free: the tier resets to Standard.
+- **AI Mode's gate is now a page, not a dimmed pill.** With no key configured,
+  `/ai` renders the server's own explanation and no composer, rather than a box
+  that would swallow the analyst's question.
+- Webapp suites: **304 vitest** (was 297/298).
 
 ### Known follow-ups (Plan 5 unless noted)
 

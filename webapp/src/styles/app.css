@@ -66,6 +66,23 @@ nav.primary{flex:1 1 auto;display:flex;flex-wrap:nowrap;align-items:center;justi
 .nav-item>a.active{background:var(--az-gold);color:#fff;}
 .home-ic{width:18px;height:18px;display:block;}
 
+/* New (Destin, 2026-07-31): the AI Mode pill sits APART from the corpus pills,
+   pinned to the right end of the nav.
+   WHY absolute rather than `margin-left:auto`: an auto margin eats all the free
+   space in the flex row, which cancels `justify-content:center` above and drags
+   the whole pill group left onto the logo. Taking the AI pill out of flow leaves
+   the group centered exactly where it already sits, which is the one thing this
+   change must not disturb.
+   The `padding-right` reserves the pill's own width inside the nav so the
+   centered group can never grow underneath it on a narrow window — the cost is
+   that the group centers ~22px left of the nav's true midpoint.
+   `nav.primary` gets the positioning context (`.head` is also relative, but it
+   contains the logo, so `right:0` there would be the same edge by accident
+   rather than by intent). */
+nav.primary{position:relative;padding-right:44px;}
+.nav-item.nav-ai{position:absolute;right:0;top:50%;transform:translateY(-50%);}
+.ai-ic{width:19px;height:19px;display:block;}
+
 /* Deviation: the mockup's `.caret` / `.dropdown` rules are not ported — this app has
    four flat surfaces and no submenus, so that CSS would be dead weight. Lift it from
    reference/index.html if nav ever grows dropdowns. */
@@ -1254,32 +1271,52 @@ nav.primary{flex:1 1 auto;display:flex;flex-wrap:nowrap;align-items:center;justi
  * design one — see the note on it.
  */
 
-/* ----- the header pill ----------------------------------------------------
-   Declared for both pages in one rule: the two subheros are the same navy
-   band, and a copy per page is a copy to forget to update. It sits inside
-   each page's `.chips` row, so it inherits that row's flex layout for free. */
-.page-search .subhero .ai-toggle,
-.page-fiscal-notes .subhero .ai-toggle{display:inline-flex;align-items:center;gap:7px;cursor:pointer;font-family:inherit;
-  background:rgba(255,255,255,.1);border:1px solid rgba(255,255,255,.2);border-radius:var(--r-pill);
+/* ----- page-ai: the subhero band, the corpus picker, the gate --------------
+   REPLACES the per-page `.ai-toggle` rules (2026-07-31). AI Mode is its own
+   route now, so the toggle those rules styled no longer renders anywhere; they
+   are deleted rather than kept "just in case", because dead page-scoped CSS is
+   exactly what the convention at the top of this file exists to prevent. The
+   declarations themselves are re-used verbatim below for the corpus picker —
+   same band, same pill recipe, same "on" fill.
+
+   `AiModeToggle` still EXISTS in chat/AiModePanel.tsx (that file is shared and
+   was not edited by this change) but is imported by nothing. */
+
+/* The navy band + chip row, ported from the search page's subhero rules so the
+   three sub-pages are one design. Prefixed per the convention above. */
+.page-ai .subhero{position:relative;overflow:hidden;color:#fff;
+  background:linear-gradient(105deg,rgba(18,21,48,.94) 0%,rgba(20,23,52,.86) 60%,rgba(20,23,52,.78) 100%),url('/capitol-bg.jpg') center 28% / cover no-repeat;}
+.page-ai .subhero .wrap{position:relative;z-index:2;padding:32px 22px 34px;}
+.page-ai .subhero h1{font-size:clamp(24px,3.2vw,34px);font-weight:800;letter-spacing:-.4px;}
+/* DESIGN-SYSTEM.md §6: the lead is reserved at two lines and CLAMPED at two, so
+   the copy in Ai.tsx is written to fit rather than left to ellipsis. */
+.page-ai .subhero .lead{margin:10px 0 0;font-size:clamp(14px,1.5vw,16.5px);color:#d9dcf2;font-weight:600;max-width:66ch;line-height:1.5;min-height:3em;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;}
+.page-ai .subhero .chips{display:flex;flex-wrap:wrap;align-items:center;gap:8px;margin-top:16px;min-height:31px;}
+.page-ai .subhero .chip{display:inline-flex;align-items:center;gap:7px;background:rgba(255,255,255,.1);border:1px solid rgba(255,255,255,.2);border-radius:var(--r-pill);padding:6px 13px;font-size:12.5px;font-weight:700;color:#eef0fb;}
+
+/* The corpus picker. The retired toggle's declarations, re-scoped: the same
+   subhero `.chip` recipe with a solid-white "on" fill — the strongest contrast
+   available on this band, because "which corpus am I asking?" has to be
+   answerable at a glance. `.ai-corpus` is a 2px-gapped group so the two chips
+   read as ONE control (pick-one) rather than two independent chips. */
+.page-ai .ai-corpus{display:inline-flex;gap:2px;background:rgba(255,255,255,.07);border-radius:var(--r-pill);padding:3px;}
+.page-ai .ai-corpus-chip{display:inline-flex;align-items:center;gap:7px;cursor:pointer;font-family:inherit;
+  background:transparent;border:1px solid transparent;border-radius:var(--r-pill);
   padding:6px 13px;font-size:12.5px;font-weight:700;color:#eef0fb;transition:background .14s,border-color .14s,color .14s;}
-.page-search .subhero .ai-toggle svg,
-.page-fiscal-notes .subhero .ai-toggle svg{width:14px;height:14px;color:#9fc4ee;flex:0 0 auto;transition:color .14s;}
-.page-search .subhero .ai-toggle:hover,
-.page-fiscal-notes .subhero .ai-toggle:hover{background:rgba(255,255,255,.18);border-color:rgba(255,255,255,.4);}
-/* ON: a solid white pill on the navy band — the strongest contrast available
-   here, because "am I in AI Mode?" has to be answerable at a glance. */
-.page-search .subhero .ai-toggle.on,
-.page-fiscal-notes .subhero .ai-toggle.on{background:#fff;border-color:#fff;color:var(--navy);}
-.page-search .subhero .ai-toggle.on svg,
-.page-fiscal-notes .subhero .ai-toggle.on svg{color:var(--az-gold);}
-/* GATED (no API key / no model): the same dimming Home's inert gateway card
-   and the fiscal-notes rail's disabled search box already use. The cursor
-   says the click does nothing; the title says why. Hover is neutralized so
-   the pill does not light up under a cursor that cannot use it. */
-.page-search .subhero .ai-toggle.is-gated,
-.page-fiscal-notes .subhero .ai-toggle.is-gated{opacity:.65;cursor:not-allowed;}
-.page-search .subhero .ai-toggle.is-gated:hover,
-.page-fiscal-notes .subhero .ai-toggle.is-gated:hover{background:rgba(255,255,255,.1);border-color:rgba(255,255,255,.2);}
+.page-ai .ai-corpus-chip:hover{background:rgba(255,255,255,.18);border-color:rgba(255,255,255,.4);}
+.page-ai .ai-corpus-chip.on{background:#fff;border-color:#fff;color:var(--navy);}
+.page-ai .ai-corpus-chip.on:hover{background:#fff;border-color:#fff;}
+/* The warning that a switch discards the thread. Sized under the chips, not in
+   them: it is a consequence of the control, not another option. */
+.page-ai .ai-corpus-note{margin:10px 0 0;font-size:12px;font-weight:700;color:#b9c0e4;}
+
+.page-ai .wrap{padding:22px 22px 30px;}
+/* The gate (no key, or the probe still running). One sentence in the shared
+   `.card`, using the same dimming posture as Home's inert gateway card — a live
+   composer over a server that cannot answer would waste the analyst's question. */
+.page-ai .ai-gate{padding:22px 24px;font-size:14px;font-weight:700;color:var(--ink-2);}
+.page-ai .ai-gate p{margin:0;}
+.page-ai .ai-gate-reason{margin-top:8px;font-weight:600;color:var(--ink-3);}
 
 /* ----- the panel ----------------------------------------------------------
    A fixed-height column, NOT a section that grows with the conversation. The

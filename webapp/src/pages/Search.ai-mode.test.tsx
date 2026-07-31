@@ -1,25 +1,24 @@
-// Budget Search — AI Mode toggle, tier control, and the guarantee that OFF is
-// the shipped page untouched (spec S12: the results presentation was iterated
-// live with Destin and must not move).
+// Budget Documents and AI Mode — the guarantee that they are now SEPARATE.
+//
+// This file used to pin the per-page AI Mode toggle: the pill in the subhero,
+// the on/off round trip that swapped the results panel for a conversation, and
+// the search box's second destination. Destin removed that on 2026-07-31 ("I
+// hate that 'AI Mode' is part of the budget search tab"), so those assertions
+// are wrong by design and are gone. What survives is the inverse of each one —
+// no AI control here, the results list is never replaced, the box has exactly
+// one destination — because "the toggle came back" and "the box forks again"
+// are the regressions this page now has to be protected from. The panel
+// behaviours themselves moved to Ai.test.tsx; nothing was dropped on the floor.
+//
+// The passage-row keyboard spec at the bottom is unchanged and unrelated to AI
+// Mode; it lives here because it was written against these fixtures.
 
-import {
-  act,
-  fireEvent,
-  render,
-  screen,
-  waitFor,
-  within,
-} from "@testing-library/react";
+import { act, fireEvent, render, screen } from "@testing-library/react";
 import { MemoryRouter } from "react-router-dom";
 
 import { Search } from "./Search";
 import * as api from "../api";
-import {
-  AI_STATUS,
-  sseResponse,
-  stubConversationFetch,
-  stubScrollIntoView,
-} from "./ai-test-fixtures";
+import { AI_STATUS, stubConversationFetch, stubScrollIntoView } from "./ai-test-fixtures";
 
 const RESULT = {
   chunk_id: "c1",
@@ -42,6 +41,9 @@ function mountWithResults(status = AI_STATUS) {
     total: 1,
     provider: "lance",
   });
+  // Still stubbed even though this page no longer probes: if someone
+  // reintroduces a status probe here, the test should fail on the assertion
+  // below, not on an unmocked fetch.
   vi.spyOn(api, "aiStatus").mockResolvedValue(status);
   return render(
     <MemoryRouter initialEntries={["/search?q=ahcccs"]}>
@@ -50,161 +52,54 @@ function mountWithResults(status = AI_STATUS) {
   );
 }
 
-const toggle = () => screen.getByRole("button", { name: /ai mode/i });
-
 beforeEach(() => stubScrollIntoView());
 afterEach(() => vi.unstubAllGlobals());
 
-describe("Search — AI Mode toggle", () => {
-  it("renders an unpressed pill in the page header and the shipped results below", async () => {
+describe("Budget Documents — AI Mode is not on this page", () => {
+  it("has no AI control anywhere on the page", async () => {
     stubConversationFetch();
     mountWithResults();
     await screen.findByText(/Health Care Cost Containment/);
-    expect(toggle()).toHaveAttribute("aria-pressed", "false");
-    // The subhero is the page-header band; the pill belongs to it, not to the
-    // search card or the results panel.
-    expect(toggle().closest(".subhero")).not.toBeNull();
+    // Nothing named "AI Mode", and no chat surface mounted.
+    expect(screen.queryByRole("button", { name: /ai mode/i })).toBeNull();
+    expect(screen.queryByTestId("ai-panel")).toBeNull();
   });
 
-  it("leaves the results list byte-identical across an on/off round trip", async () => {
-    stubConversationFetch();
+  it("renders the results list unconditionally — nothing can replace it", async () => {
+    // The S12 guarantee, restated for a page with no mode switch: the results
+    // presentation was iterated live with Destin, and it is the only answer
+    // surface this page has.
     const view = mountWithResults();
     await screen.findByText(/Health Care Cost Containment/);
-    const before = view.container.querySelector(".results")!.innerHTML;
-
-    fireEvent.click(toggle());
-    await waitFor(() => expect(toggle()).toHaveAttribute("aria-pressed", "true"));
-    expect(view.container.querySelector(".results")).toBeNull();
-
-    fireEvent.click(toggle());
-    await waitFor(() =>
-      expect(view.container.querySelector(".results")).not.toBeNull(),
-    );
-    expect(view.container.querySelector(".results")!.innerHTML).toBe(before);
+    expect(view.container.querySelector(".results")).not.toBeNull();
+    expect(view.container.querySelector(".ai-panel")).toBeNull();
+    // The filter rail is likewise always present — it used to be hidden in AI
+    // Mode, and there is no longer any state in which it disappears.
+    expect(view.container.querySelector(".filters")).not.toBeNull();
   });
 
-  it("sends the search box to the conversation instead of running a search", async () => {
+  it("sends the search box to a keyword search, never to a conversation", async () => {
     const { calls } = stubConversationFetch();
     mountWithResults();
     await screen.findByText(/Health Care Cost Containment/);
-    const searchCallsBefore = (api.search as unknown as { mock: { calls: unknown[] } })
-      .mock.calls.length;
+    const before = (api.search as unknown as { mock: { calls: unknown[] } }).mock.calls
+      .length;
 
-    fireEvent.click(toggle());
     const box = screen.getByRole("searchbox");
     fireEvent.change(box, { target: { value: "how much for provider rates?" } });
     await act(async () => {
       fireEvent.submit(box.closest("form")!);
     });
 
-    // The question went to the thread…
-    await screen.findByText("how much for provider rates?");
-    expect(
-      calls.filter((c) => c.url === "/api/conversations/conv-1/messages"),
-    ).toHaveLength(1);
-    // …and no keyword search was fired for it.
+    // The query ran as a search…
     expect(
       (api.search as unknown as { mock: { calls: unknown[] } }).mock.calls.length,
-    ).toBe(searchCallsBefore);
-  });
-
-  it("defaults every new conversation to Standard and explains the tiers from the API", async () => {
-    stubConversationFetch();
-    mountWithResults();
-    await screen.findByText(/Health Care Cost Containment/);
-    fireEvent.click(toggle());
-
-    const standard = await screen.findByRole("button", { name: "Standard" });
-    const deep = screen.getByRole("button", { name: "Deep Research" });
-    expect(standard).toHaveAttribute("aria-pressed", "true");
-    expect(deep).toHaveAttribute("aria-pressed", "false");
-
-    fireEvent.click(screen.getByRole("button", { name: /what's the difference/i }));
-    // Every example string comes from GET /api/ai/status — nothing in the
-    // webapp retypes the S16 sentences. `within` the popover, and getAllByText
-    // because the server's `description` embeds its own examples, so each
-    // sentence legitimately appears twice inside it.
-    const popover = document.getElementById("ai-tier-pop")!;
-    for (const tier of Object.values(AI_STATUS.tiers)) {
-      for (const example of tier.examples) {
-        expect(
-          within(popover).getAllByText(new RegExp(escapeRe(example))).length,
-        ).toBeGreaterThan(0);
-      }
-    }
-
-    fireEvent.click(deep);
-    expect(deep).toHaveAttribute("aria-pressed", "true");
-  });
-
-  it("dims the toggle with the admin tooltip when no key is configured", async () => {
-    stubConversationFetch();
-    mountWithResults({
-      ...AI_STATUS,
-      available: false,
-      reason: "no API key configured",
-      tiers: {
-        standard: { ...AI_STATUS.tiers.standard!, available: false, reason: "no API key configured" },
-        deep_research: { ...AI_STATUS.tiers.deep_research!, available: false, reason: "no API key configured" },
-      },
-    });
-    await screen.findByText(/Health Care Cost Containment/);
-
-    await waitFor(() =>
-      expect(toggle()).toHaveAttribute("aria-disabled", "true"),
-    );
-    expect(toggle()).toHaveAttribute(
-      "title",
-      "AI answers require an API key — ask your admin.",
-    );
-    // Clicking a gated control must not open a surface that cannot work.
-    fireEvent.click(toggle());
-    expect(toggle()).toHaveAttribute("aria-pressed", "false");
-  });
-
-  it("keeps the budget starter questions on the budget corpus", async () => {
-    // The mirror of the fiscal-notes gate: these three ARE budget questions,
-    // so they belong here.
-    stubConversationFetch();
-    mountWithResults();
-    await screen.findByText(/Health Care Cost Containment/);
-    fireEvent.click(toggle());
-    expect(await screen.findByText(/Aviation Fund balance/)).toBeInTheDocument();
-  });
-
-  it("renders an over-limit _error message verbatim in the thread", async () => {
-    const message =
-      "You've reached your monthly AI usage limit ($25.00) — ask jlbcadmin to raise it.";
-    stubConversationFetch(
-      sseResponse([`data: ${JSON.stringify({ type: "_error", message })}\n\n`]),
-    );
-    mountWithResults();
-    await screen.findByText(/Health Care Cost Containment/);
-    fireEvent.click(toggle());
-
-    const box = screen.getByRole("searchbox");
-    fireEvent.change(box, { target: { value: "spend everything" } });
-    await act(async () => {
-      fireEvent.submit(box.closest("form")!);
-    });
-
-    expect(await screen.findByText(message)).toBeInTheDocument();
-  });
-
-  it("does not render a 409 as a failure", async () => {
-    stubConversationFetch({ ok: false, status: 409, json: async () => ({ detail: "busy" }) });
-    mountWithResults();
-    await screen.findByText(/Health Care Cost Containment/);
-    fireEvent.click(toggle());
-
-    const box = screen.getByRole("searchbox");
-    fireEvent.change(box, { target: { value: "q" } });
-    await act(async () => {
-      fireEvent.submit(box.closest("form")!);
-    });
-
-    expect(screen.queryByRole("alert")).toBeNull();
-    expect(screen.queryByText(/409/)).toBeNull();
+    ).toBeGreaterThan(before);
+    // …and opened no conversation. The box had two destinations while the
+    // toggle existed; it has one now.
+    expect(calls.filter((c) => c.url === "/api/conversations")).toHaveLength(0);
+    // The submit button says what it does, with no second label.
+    expect(screen.getByRole("button", { name: /^search$/i })).toBeEnabled();
   });
 });
 
@@ -233,7 +128,3 @@ describe("Search — passage rows are keyboard reachable", () => {
     expect(await screen.findByLabelText("Source passage")).toBeInTheDocument();
   });
 });
-
-function escapeRe(s: string): string {
-  return s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-}

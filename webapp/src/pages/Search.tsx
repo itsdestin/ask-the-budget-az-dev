@@ -5,9 +5,6 @@ import { useSearchParams } from "react-router-dom";
 // made through the module object.
 import * as api from "../api";
 import type { SearchFilters, SearchResponse, SearchResult } from "../api";
-import { AiModePanel, AiModeToggle } from "../chat/AiModePanel";
-import { useAiStatus } from "../chat/use-ai-status";
-import { useChat } from "../chat/use-chat";
 import { FilterBar, type FilterKey } from "../components/FilterBar";
 import { ResultCard, type DocGroup, type FamilyGroup } from "../components/ResultCard";
 import { SearchIcon } from "../components/SearchIcon";
@@ -211,20 +208,11 @@ export function Search() {
     fiscalYear: number | null;
   } | null>(null);
 
-  // AI Mode (Plan 4). OFF is the page exactly as it shipped; ON swaps the
-  // results panel for a conversation over the same corpus and re-points this
-  // page's ONE search box at it.
-  //
-  // WHY the results panel is replaced rather than pushed down: two answer
-  // surfaces for one question, both scrolling, is the layout that made the old
-  // app hard to read. Toggling back restores the results untouched — `phase`
-  // is untouched by the toggle, so nothing is refetched and nothing moves.
-  const [aiOn, setAiOn] = useState(false);
-  const aiStatus = useAiStatus();
-  // Called unconditionally (hooks rule) and cheap when idle: `useChat` opens
-  // no conversation until the first send, so a visitor who never turns AI Mode
-  // on never allocates a server-side session.
-  const chat = useChat("budget");
+  // NO AI Mode here (Destin, 2026-07-31). This page had a toggle that swapped
+  // the results panel for a conversation; AI Mode is now its own tab
+  // (`pages/Ai.tsx`) with a corpus picker, so this page is the document browser
+  // and nothing else. Do not reintroduce a toggle — see STATUS.md's Plan 4
+  // deviation note.
 
   // Keep the box in step with the URL if ?q= changes underneath us (back button, or
   // a second search arriving from elsewhere in the app).
@@ -234,12 +222,6 @@ export function Search() {
   // passage from the PREVIOUS search on screen next to results that no longer
   // contain it.
   useEffect(() => setOpenPassage(null), [query]);
-
-  // Same reasoning across the mode switch: the drawer belongs to a results row
-  // that is no longer on screen, and AI Mode has its own source viewer.
-  useEffect(() => {
-    if (aiOn) setOpenPassage(null);
-  }, [aiOn]);
 
   useEffect(() => {
     if (!query) {
@@ -382,10 +364,6 @@ export function Search() {
             <span className="chip">
               <SearchIcon /> Every match carries the page it came from
             </span>
-            {/* The mode switch sits in the chip row — the page-header band the
-                mockup already uses for page-level state, and the only place on
-                this page that is neither the search card nor the results. */}
-            <AiModeToggle on={aiOn} onChange={setAiOn} status={aiStatus} />
           </div>
         </div>
       </section>
@@ -403,15 +381,9 @@ export function Search() {
                 // backend rejects ("query is empty") and show an error for something
                 // the user hasn't typed yet.
                 if (!next) return;
-                if (aiOn) {
-                  // ONE box, two destinations. The question goes to the thread
-                  // and the box empties, because the thread now shows it —
-                  // leaving it in place would put the same sentence on screen
-                  // twice with only one of them live.
-                  void chat.send(next);
-                  setText("");
-                  return;
-                }
+                // ONE destination again: this box runs a keyword search and
+                // nothing else. It used to fork to the assistant when AI Mode
+                // was on; AI Mode has its own tab and its own composer now.
                 // Writes ?q= AND bumps the attempt counter, so submitting the same
                 // text again really does re-run the search.
                 runSearch(next);
@@ -425,16 +397,8 @@ export function Search() {
                 name="q"
                 value={text}
                 onChange={(e) => setText(e.target.value)}
-                placeholder={
-                  aiOn
-                    ? "Ask about Arizona's budget — every claim gets a citation"
-                    : "e.g. how much does the Medicaid program get?"
-                }
-                aria-label={
-                  aiOn
-                    ? "Ask the assistant about Arizona budget documents"
-                    : "Search Arizona budget documents"
-                }
+                placeholder="e.g. how much does the Medicaid program get?"
+                aria-label="Search Arizona budget documents"
                 autoComplete="off"
               />
               {/* The mockup's custom clear-X: shown only when there's text, and it
@@ -454,28 +418,20 @@ export function Search() {
                   <path d="M6 6l12 12M18 6 6 18" />
                 </svg>
               </button>
-              <button type="submit" className="s-btn" disabled={aiOn && chat.busy}>
+              <button type="submit" className="s-btn">
                 <SearchIcon />
-                {aiOn ? "Ask" : "Search"}
+                Search
               </button>
             </form>
 
-            {/* Hidden in AI Mode: these chips narrow a keyword query. The
-                assistant runs its own retrieve() with its own filters, so
-                leaving them on screen would show controls that quietly do
-                nothing to the answer below. */}
-            {!aiOn && (
-              <FilterBar
-                selected={filters}
-                years={facets.q === query ? facets.years : []}
-                onToggle={(key, value) => setFilters((prev) => toggleFilter(prev, key, value))}
-                onToggleBucket={(slugs) => setFilters((prev) => toggleBucket(prev, slugs))}
-                onYearChange={(year) => setFilters((prev) => setYearFilter(prev, year))}
-              />
-            )}
+            <FilterBar
+              selected={filters}
+              years={facets.q === query ? facets.years : []}
+              onToggle={(key, value) => setFilters((prev) => toggleFilter(prev, key, value))}
+              onToggleBucket={(slugs) => setFilters((prev) => toggleBucket(prev, slugs))}
+              onYearChange={(year) => setFilters((prev) => setYearFilter(prev, year))}
+            />
           </section>
-
-          {aiOn && <AiModePanel chat={chat} status={aiStatus} corpus="budget" />}
 
           {/* The mockup's status line under the card. Every phase says something
               true; none of them leaves the page blank.
@@ -484,12 +440,6 @@ export function Search() {
               "Searching…", the result count, and errors as they replace each other.
               Without it the only feedback for the whole search is visual, and a
               non-sighted user gets silence after pressing Search. */}
-          {/* Everything below belongs to keyword search. In AI Mode the panel
-              above is the answer surface, and this whole block is unmounted
-              rather than hidden — so switching back re-renders it from the
-              untouched `phase` state, byte for byte. */}
-          {!aiOn && (
-          <>
           <div className="search-status" role="status">
             {phase.kind === "idle" && "Type a search above to query the budget corpus."}
             {phase.kind === "loading" && "Searching…"}
@@ -570,8 +520,6 @@ export function Search() {
                 )}
               </div>
             </section>
-          )}
-          </>
           )}
         </div>
       </div>

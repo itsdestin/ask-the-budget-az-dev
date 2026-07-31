@@ -119,7 +119,8 @@ export function Home() {
           </Link>
 
           {/* Two renders of one card, chosen by the server's answer.
-              READY: a real <Link> to /search, where the AI Mode pill lives.
+              READY: a real <Link> to /ai, AI Mode's own surface since
+              2026-07-31 (it used to point at /search, where the toggle lived).
               NOT READY: a <div>, not a <Link> — an anchor that only *looks*
               disabled is still focusable and still navigates on Enter. `title`
               carries the explanation on hover; the mockup has no tooltip
@@ -128,7 +129,7 @@ export function Home() {
               visible "Needs an API key." line is what actually tells a user
               why the card is dead. */}
           {aiReady ? (
-            <Link className="m-card a-teal" to="/search" aria-label="AI Mode">
+            <Link className="m-card a-teal" to="/ai" aria-label="AI Mode">
               <div className="cardhead">
                 <span className="ic">
                   <AiStarIcon />

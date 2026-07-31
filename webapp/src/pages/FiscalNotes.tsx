@@ -4,9 +4,6 @@ import { memo, useEffect, useMemo, useRef, useState } from "react";
 // made through the module object.
 import * as api from "../api";
 import type { Bill, Session } from "../api";
-import { AiModePanel, AiModeToggle } from "../chat/AiModePanel";
-import { useAiStatus } from "../chat/use-ai-status";
-import { useChat } from "../chat/use-chat";
 import { SearchIcon } from "../components/SearchIcon";
 
 // Fiscal Notes — ported from the GENERATED mockup page,
@@ -358,15 +355,11 @@ export function FiscalNotes() {
   const [searchAll, setSearchAll] = useState(false);
   const box = useRef<HTMLInputElement>(null);
 
-  // AI Mode (Plan 4 Task 12). The pill lives in the page-head band only; the
-  // filter rail below is Plan 3's and is not touched. Turning it on swaps the
-  // directory for a conversation over the fiscal-note corpus — one answer
-  // surface at a time, same posture as the search page — and turning it off
-  // re-renders the directory from state that the toggle never touched.
-  const [aiOn, setAiOn] = useState(false);
-  const aiStatus = useAiStatus();
-  // Cheap while idle: no conversation is opened until the first send.
-  const chat = useChat("fiscal_notes");
+  // NO AI Mode here (Destin, 2026-07-31). This page had a toggle that swapped
+  // the directory for a conversation over the fiscal-note corpus; AI Mode is now
+  // its own tab (`pages/Ai.tsx`), and its corpus picker is what preserves the
+  // coordinator's "have we written a note like this before?" workflow. Do not
+  // reintroduce a toggle — see STATUS.md's Plan 4 deviation note.
 
   useEffect(() => {
     // Stale-response guard: if this re-runs (retry) while a request is in flight, the
@@ -478,19 +471,10 @@ export function FiscalNotes() {
               </svg>{" "}
               House &amp; Senate bills
             </span>
-            {/* Page-head region only — Plan 3 owns the rail below. */}
-            <AiModeToggle on={aiOn} onChange={setAiOn} status={aiStatus} />
           </div>
         </div>
       </section>
 
-      {aiOn && (
-        <div className="wrap fnwrap">
-          <AiModePanel chat={chat} status={aiStatus} corpus="fiscal_notes" />
-        </div>
-      )}
-
-      {!aiOn && (
       <div className="wrap fnwrap">
         {/* The status line lives ABOVE the grid, spanning both columns: inside `.fnmain`
             it pushed the first session card down, leaving the rail's top edge floating
@@ -646,7 +630,6 @@ export function FiscalNotes() {
           </div>
         </div>
       </div>
-      )}
     </main>
   );
 }
