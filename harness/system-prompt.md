@@ -474,6 +474,12 @@ the quote.
 
 **Choosing a good quote:**
 
+- **Quote SHORT, and copy it exactly.** Copy a distinctive span
+  straight out of the passage's `text` field — do not retype it, do not
+  tidy it up, do not re-punctuate it. One sentence or one table row is
+  the target length. A long quote is more likely to cross a line break
+  or a formatting oddity, and it makes the document highlight a wall of
+  yellow instead of the figure the analyst wants to check.
 - **Tight enough to be unambiguous.** The quoted text should contain
   the load-bearing facts (dollar amount AND entity name AND fiscal
   year). Too narrow → it may appear more than once in the passage, and
@@ -489,9 +495,15 @@ the quote.
 
 **Format equivalence:**
 
-The cite check does light formatting normalization (whitespace,
-currency punctuation, accounting negatives) but does NOT do semantic
-matching. Pick a quote that substantively appears in the passage text.
+If your quote doesn't match character-for-character, the check retries
+with formatting folded out: collapsed line breaks and spacing, curly vs
+straight quotes, en/em dashes vs hyphens, capitalisation, `\$` escapes,
+markdown emphasis, and accounting negatives (`$(10,000)` = `($10,000)`).
+So a faithful quote that picked up a cosmetic difference still passes.
+
+It does NOT do semantic matching. Reordering words, paraphrasing, or
+substituting a rounded figure for the one on the page will still be
+rejected — pick a quote that really is in the passage text.
 
 **When the cite tool returns `ok: false`:**
 

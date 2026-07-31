@@ -55,6 +55,8 @@ the same files on the share.
 """
 from __future__ import annotations
 
+import re
+import unicodedata
 from typing import Sequence
 
 from pydantic import BaseModel
@@ -133,6 +135,253 @@ PREVIEW_LIMIT = 500
 # The one error string callers pattern-match on. Kept as a constant so a
 # second consumer can compare against it without re-typing the literal.
 UNKNOWN_CHUNK_ID_ERROR = "unknown chunk_id"
+
+
+# How many normalized occurrences of a quote we bother locating before
+# saying "and more". Mirrors the exact-match duplicate scan below: the
+# error only needs to prove ambiguity, not enumerate it.
+_MAX_REPORTED_POSITIONS = 3
+
+# Outer punctuation trimmed off the model's quote before matching. A
+# quote captured with a trailing period or a leading comma is the same
+# quote; INTERIOR punctuation (the commas in `$17,337,200`, the period in
+# `$2.1 billion`) must still match, so this only touches the ends.
+_OUTER_PUNCT = re.compile(r"^[\s.,;:!?]+|[\s.,;:!?]+$")
+
+# Quote glyphs and dashes that a PDF, an ingest pipeline, and a model
+# each spell differently for the same character.
+_FOLD_CHARS = {
+    "‘": "'", "’": "'", "‚": "'", "‛": "'",
+    "“": '"', "”": '"', "„": '"', "‟": '"',
+    "–": "-", "—": "-", "−": "-",
+    "‐": "-", "‑": "-", "‒": "-",
+}
+
+# ASCII punctuation a markdown backslash may legally escape (CommonMark
+# §2.4). MinerU emits `\$` so `$…$` is not parsed as math, plus `\(`,
+# `\)`, `\[`, `\]` in similar contexts.
+_ESCAPABLE = set("\\`*_{}[]()#+-.!|>~$")
+
+
+# ---------------------------------------------------------------------------
+# S23 — normalization-tolerant matching
+# ---------------------------------------------------------------------------
+
+
+def normalize_for_match(text: str) -> tuple[str, list[int]]:
+    """Fold formatting noise out of `text`, keeping a way back.
+
+    Returns `(normalized, index_map)` where `index_map[i]` is the index
+    in the ORIGINAL string of the character that produced
+    `normalized[i]`. That map is the whole point: a match found at
+    normalized position N has to be reported to the caller as a span in
+    the original text, because `resolved_span_start/end` are what the PDF
+    bbox highlighter and the cited-text panel slice `chunk.text` with. A
+    normalized offset escaping into those fields would highlight the
+    wrong words while reporting success — the silent-wrong-answer shape
+    Invariant 1 exists to prevent.
+
+    THIS IS A PORT of the webapp's `normalizeForMatch`
+    (`webapp/src/chat/citation-extract.ts`), deliberately kept
+    semantically identical rather than reinvented: the same chunk text is
+    normalized on both sides of the wire — here to resolve the model's
+    quote, there to find that quote in the PDF text layer — and two
+    dialects would disagree about where a citation points.
+
+    What it folds, and why each one is a real observed drift:
+      * NFKC compatibility forms (ligatures like `ﬁ` → `fi`).
+      * Markdown backslash escapes — MinerU's `\\$` vs the model's `$`.
+      * Accounting-negative parens: `$(10,000)` and `($10,000)` are the
+        same figure written two ways (MinerU prefers the first, pdfjs
+        emits the second).
+      * Markdown emphasis / code / link syntax — the model quotes what it
+        reads rendered, not the asterisks around it.
+      * Table pipes → space, so cells separate cleanly.
+      * Whitespace runs → one space (a PDF line break inside a sentence).
+      * Smart quotes and dashes → their ASCII spelling.
+      * Case.
+
+    What it does NOT fold: word order, wording, numbers, or anything else
+    that would let a paraphrase pass as a quote. This is a FORMATTING
+    tolerance, never a semantic one — Invariant 2 is unchanged.
+
+    DIVERGENCE FROM THE TS, deliberate and the safer direction: the
+    webapp NFKC-normalizes the whole string at once and, when that
+    changes the length, approximates the index map proportionally. Here
+    NFKC is applied per code point, so every normalized character has an
+    EXACT original index. The two differ only where NFKC composition
+    spans adjacent characters (a base letter plus a combining accent),
+    which does not occur in this corpus — and where they would differ,
+    an exact map is the one that cannot mis-highlight.
+    """
+    # Per-code-point NFKC, carrying each output char's original index.
+    # One NFKC form can be several characters (`ﬁ` → `fi`), so this is a
+    # loop, not an assignment — every produced character gets its own
+    # slot pointing back at the same original index.
+    chars: list[str] = []
+    origin: list[int] = []
+    for index, char in enumerate(text):
+        for produced in unicodedata.normalize("NFKC", char):
+            chars.append(produced)
+            origin.append(index)
+    # A string as well as a list: the markdown-link scan needs `find`,
+    # and a hand-rolled scan over the list is quadratic on a chunk that
+    # happens to contain many `[`.
+    folded = "".join(chars)
+
+    out: list[str] = []
+    index_map: list[int] = []
+    in_whitespace = False
+    # Open accounting-negative parens we collapsed and still owe a close
+    # for. Without the counter, the close-paren skip would fire on an
+    # unrelated `)` later in the text.
+    accounting_depth = 0
+    i = 0
+    size = len(folded)
+    while i < size:
+        char = folded[i]
+        original_index = origin[i]
+
+        # `\X` renders as `X` alone. Skipping the backslash without
+        # emitting means the following character's index_map entry points
+        # at THAT character, not at the backslash — so a highlight of
+        # `\$17,337,200` starts on the `$`, which is what the PDF text
+        # layer actually contains.
+        if char == "\\" and i + 1 < size and folded[i + 1] in _ESCAPABLE:
+            i += 1
+            continue
+
+        # `$(123…` — emit the `$`, drop the paren, remember the close.
+        if (
+            char == "$"
+            and i + 2 < size
+            and folded[i + 1] == "("
+            and folded[i + 2].isdigit()
+        ):
+            out.append("$")
+            index_map.append(original_index)
+            in_whitespace = False
+            accounting_depth += 1
+            i += 2
+            continue
+        # `($123…` — drop the paren; the next pass emits the `$`.
+        if (
+            char == "("
+            and i + 2 < size
+            and folded[i + 1] == "$"
+            and folded[i + 2].isdigit()
+        ):
+            accounting_depth += 1
+            i += 1
+            continue
+        if char == ")" and accounting_depth > 0:
+            accounting_depth -= 1
+            i += 1
+            continue
+
+        # Markdown emphasis / strikethrough / inline code delimiters.
+        if char in "*_" and i + 1 < size and folded[i + 1] == char:
+            i += 2
+            continue
+        if char in "*_":
+            i += 1
+            continue
+        if char == "~" and i + 1 < size and folded[i + 1] == "~":
+            i += 2
+            continue
+        if char == "`":
+            i += 1
+            continue
+
+        # `[label](url)` — keep the label, drop the syntax and the URL.
+        if char == "[":
+            close_bracket = folded.find("](", i)
+            if close_bracket > i and folded.find(")", close_bracket + 2) > close_bracket:
+                i += 1
+                continue
+        if char == "]" and i + 1 < size and folded[i + 1] == "(":
+            close_paren = folded.find(")", i + 2)
+            if close_paren > i:
+                i = close_paren + 1
+                continue
+
+        # Table cell separator behaves as whitespace.
+        if char == "|" or char.isspace():
+            if not in_whitespace:
+                out.append(" ")
+                index_map.append(original_index)
+                in_whitespace = True
+            i += 1
+            continue
+
+        in_whitespace = False
+        # Emitted character-by-character because lowercasing is not
+        # always 1:1 — `'İ'.lower()` is TWO code points in Python. A
+        # bare append of the folded string would put more characters in
+        # `out` than entries in `index_map`, silently shifting every
+        # subsequent offset and mis-highlighting every citation after
+        # that character in the chunk.
+        for produced in _FOLD_CHARS.get(char) or char.lower():
+            out.append(produced)
+            index_map.append(original_index)
+        i += 1
+
+    return "".join(out), index_map
+
+
+def find_normalized_occurrences(
+    haystack: str, needle: str, *, limit: int
+) -> tuple[list[tuple[int, int]], bool]:
+    """Locate `needle` inside `haystack` ignoring formatting.
+
+    Returns `(spans, has_more)` where each span is a `[start, end)` range
+    in the ORIGINAL `haystack` and `has_more` says whether the scan hit
+    `limit` with occurrences still unreported. Spans are found the same
+    way the exact scan finds duplicates — advancing one character at a
+    time, so overlapping repeats count as the separate ambiguities they
+    are.
+    """
+    if not needle:
+        return [], False
+    normalized_haystack, index_map = normalize_for_match(haystack)
+    normalized_needle, _ = normalize_for_match(needle)
+    trimmed = _OUTER_PUNCT.sub("", normalized_needle)
+    if not trimmed:
+        return [], False
+
+    spans: list[tuple[int, int]] = []
+    cursor = 0
+    while True:
+        found = normalized_haystack.find(trimmed, cursor)
+        if found < 0:
+            break
+        if len(spans) >= limit:
+            return spans, True
+        spans.append(_original_span(haystack, index_map, found, len(trimmed)))
+        cursor = found + 1
+    return spans, False
+
+
+def _original_span(
+    haystack: str, index_map: list[int], start: int, length: int
+) -> tuple[int, int]:
+    """One normalized match → its `[start, end)` range in the original."""
+    start_original = index_map[start]
+    last_normalized = start + length - 1
+    end_original = index_map[last_normalized] + 1
+    # A whitespace RUN collapsed to a single normalized space, so the
+    # match's last character may be followed by more original whitespace
+    # that belongs inside the span. Walk forward only over characters no
+    # later normalized character claims, so the span can never swallow
+    # text beyond the match.
+    while (
+        end_original < len(haystack)
+        and haystack[end_original].isspace()
+        and last_normalized + 1 < len(index_map)
+        and index_map[last_normalized + 1] > end_original
+    ):
+        end_original += 1
+    return start_original, end_original
 
 
 # ---------------------------------------------------------------------------
@@ -269,6 +518,59 @@ def validate_cites(
     return out
 
 
+def _ambiguous_quote_error(positions: Sequence[int], has_more: bool) -> str:
+    """The one wording for "your quote matches more than one place".
+
+    Shared by the exact and the normalized paths so the model never sees
+    two different sentences for the same mistake — and so the positions
+    it is told to look at are always indices into chunk.text as the model
+    received it, never into some internal normalized form.
+    """
+    suffix = ", …" if has_more else ""
+    pos_str = ", ".join(str(p) for p in positions) + suffix
+    return (
+        f"quote appears multiple times in chunk.text "
+        f"(positions: {pos_str}). Extend the quote with more "
+        "surrounding context so it's unique within this chunk."
+    )
+
+
+def _resolve_quote_normalized(
+    quote: str, full_text: str, length: int
+) -> tuple[tuple[int, int] | None, CiteValidateResponse | None]:
+    """S23's fallback: resolve `quote` to ORIGINAL offsets ignoring
+    formatting. Returns `(span, None)` on success or `(None, response)`
+    with the rejection to send back.
+
+    Reached only after an exact match has already failed, so exact
+    matching always wins — a quote that appears verbatim once and
+    "loosely" twice resolves to the verbatim one, which is the occurrence
+    the model actually copied.
+    """
+    spans, has_more = find_normalized_occurrences(
+        full_text, quote, limit=_MAX_REPORTED_POSITIONS
+    )
+    if not spans:
+        return None, CiteValidateResponse(
+            ok=False,
+            error=(
+                "quote not found in chunk.text — the substring you "
+                "supplied as `quote` does not appear verbatim in the "
+                "chunk. Pick text that exists in the chunk (read the "
+                "retrieve() result's `text` field) or retrieve a "
+                "different chunk."
+            ),
+            chunk_text_length=length,
+        )
+    if len(spans) > 1:
+        return None, CiteValidateResponse(
+            ok=False,
+            error=_ambiguous_quote_error([start for start, _ in spans], has_more),
+            chunk_text_length=length,
+        )
+    return spans[0], None
+
+
 def validate_cite_against_text(
     body: CiteValidateBody,
     full_text: str,
@@ -307,51 +609,52 @@ def validate_cite_against_text(
             )
         idx = full_text.find(body.quote)
         if idx < 0:
-            return CiteValidateResponse(
-                ok=False,
-                error=(
-                    "quote not found in chunk.text — the substring you "
-                    "supplied as `quote` does not appear verbatim in the "
-                    "chunk. Pick text that exists in the chunk (read the "
-                    "retrieve() result's `text` field) or retrieve a "
-                    "different chunk."
-                ),
-                chunk_text_length=length,
-            )
+            # S23: exact match failed. Before rejecting, try again with
+            # FORMATTING folded out — smart quotes, collapsed line
+            # breaks, casing, dashes, MinerU's `\$` escapes, markdown
+            # emphasis. Dogfood showed the model routinely emitting
+            # quotes that are faithful to the chunk and differ from it
+            # only by those artifacts; rejecting them burned a retry
+            # round-trip on a citation that was never wrong.
+            #
+            # This is tolerance of SPELLING, not of meaning. The quote
+            # must still really be in the chunk and must still be
+            # unambiguous, so Invariant 2 is exactly as strong as before.
+            resolved, failure = _resolve_quote_normalized(body.quote, full_text, length)
+            if failure is not None:
+                return failure
+            # Falls through to the SAME span sanity checks an exact match
+            # gets — a normalized resolution is not a shortcut past
+            # span-too-broad or span-out-of-range.
+            resolved_span_start, resolved_span_end = resolved
+        else:
+            # Duplicate-quote check. When the model picks a quote that
+            # appears in multiple places in chunk.text we would silently
+            # bind to the first occurrence — which is how the PDF
+            # highlight sometimes landed on the wrong dollar amount.
+            # Bounce the cite back with positions so the model picks a
+            # longer / more surrounding-context quote that's unique
+            # within the chunk. We list up to 3 positions then `…` so the
+            # error stays readable when the quote is degenerate (e.g.
+            # "$5M" appearing 20 times in a per-agency summary).
+            positions = [idx]
+            next_pos = idx + 1
+            while len(positions) < _MAX_REPORTED_POSITIONS:
+                found = full_text.find(body.quote, next_pos)
+                if found == -1:
+                    break
+                positions.append(found)
+                next_pos = found + 1
+            has_more = full_text.find(body.quote, positions[-1] + 1) != -1
+            if len(positions) > 1:
+                return CiteValidateResponse(
+                    ok=False,
+                    error=_ambiguous_quote_error(positions, has_more),
+                    chunk_text_length=length,
+                )
 
-        # Duplicate-quote check. When the model picks a quote that
-        # appears in multiple places in chunk.text we would silently bind
-        # to the first occurrence — which is how the PDF highlight
-        # sometimes landed on the wrong dollar amount. Bounce the cite
-        # back with positions so the model picks a longer / more
-        # surrounding-context quote that's unique within the chunk.
-        # We list up to 3 positions then `…` so the error stays readable
-        # when the quote is degenerate (e.g. "$5M" appearing 20 times
-        # in a per-agency summary).
-        positions = [idx]
-        next_pos = idx + 1
-        while len(positions) < 3:
-            found = full_text.find(body.quote, next_pos)
-            if found == -1:
-                break
-            positions.append(found)
-            next_pos = found + 1
-        has_more = full_text.find(body.quote, positions[-1] + 1) != -1
-        if len(positions) > 1:
-            suffix = ", …" if has_more else ""
-            pos_str = ", ".join(str(p) for p in positions) + suffix
-            return CiteValidateResponse(
-                ok=False,
-                error=(
-                    f"quote appears multiple times in chunk.text "
-                    f"(positions: {pos_str}). Extend the quote with more "
-                    "surrounding context so it's unique within this chunk."
-                ),
-                chunk_text_length=length,
-            )
-
-        resolved_span_start = idx
-        resolved_span_end = idx + len(body.quote)
+            resolved_span_start = idx
+            resolved_span_end = idx + len(body.quote)
 
     # Soft-clamp claim_span. Past sessions had 7 cite calls rejected at
     # the 500-char boundary; truncating-and-flagging is better than

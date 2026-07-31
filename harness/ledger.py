@@ -213,6 +213,7 @@ def record_usage(
     tokens_out: int,
     cost_usd: float | None = None,
     *,
+    cached_tokens: int = 0,
     now: datetime | None = None,
 ) -> None:
     """Append one usage row to this month's ledger shard.
@@ -220,7 +221,19 @@ def record_usage(
     Row shape (pinned by the spec — Plan 5's admin page reads these
     fields verbatim, so changing names here is a cross-plan breaking
     change): `user`, `timestamp` (ISO 8601, Arizona-local, offset
-    included), `tier`, `model`, `tokens_in`, `tokens_out`, `cost_usd`.
+    included), `tier`, `model`, `tokens_in`, `tokens_out`, `cost_usd`,
+    `cached_tokens`.
+
+    `cached_tokens` (S22) is how many of `tokens_in` the provider served
+    from its prompt cache. It is recorded for VISIBILITY, not for
+    arithmetic: `cost_usd` is OpenRouter's own exact figure and already
+    reflects the discount, so nothing downstream should recompute a
+    price from these. It exists because prompt caching is otherwise
+    unobservable — a broken cache prefix produces identical answers,
+    identical tokens and identical logs, and shows up only as a bill
+    roughly 10x larger. A row written before S22 simply has no
+    `cached_tokens` key, which readers must treat as 0/unknown rather
+    than as a corrupt row.
 
     `cost_usd` is `None` on a custom endpoint (S15), where OpenRouter's
     exact-cost usage accounting isn't available. The row is still
@@ -257,6 +270,7 @@ def record_usage(
         "tokens_in": tokens_in,
         "tokens_out": tokens_out,
         "cost_usd": cost_usd,
+        "cached_tokens": cached_tokens,
     }
     _append_line(_usage_path(_month_shard(when)), json.dumps(row, ensure_ascii=False))
 
@@ -398,6 +412,13 @@ class MonthUsage:
     tokens_out: int
     rows: int
     rows_with_unknown_cost: int
+    # S22: how many of `tokens_in` were served from the provider's prompt
+    # cache. Defaulted so every existing construction site keeps working,
+    # and 0 for rows written before S22 — which is the honest reading:
+    # those calls were not cached. This is the number that answers "is
+    # prompt caching actually working?", a question nothing else in the
+    # system can answer.
+    cached_tokens: int = 0
 
 
 def month_total(user: str, *, now: datetime | None = None) -> MonthUsage:
@@ -424,6 +445,7 @@ def month_total(user: str, *, now: datetime | None = None) -> MonthUsage:
     cost_usd = 0.0
     tokens_in = 0
     tokens_out = 0
+    cached_tokens = 0
     rows = 0
     rows_with_unknown_cost = 0
     for row in _read_rows(path):
@@ -432,6 +454,9 @@ def month_total(user: str, *, now: datetime | None = None) -> MonthUsage:
         rows += 1
         tokens_in += _int_or_zero(row.get("tokens_in"))
         tokens_out += _int_or_zero(row.get("tokens_out"))
+        # Absent on pre-S22 rows; `_int_or_zero(None)` is 0, which is the
+        # right answer for a call that predates prompt caching.
+        cached_tokens += _int_or_zero(row.get("cached_tokens"))
         cost = row.get("cost_usd")
         if isinstance(cost, (int, float)) and not isinstance(cost, bool):
             cost_usd += float(cost)
@@ -443,6 +468,7 @@ def month_total(user: str, *, now: datetime | None = None) -> MonthUsage:
         tokens_out=tokens_out,
         rows=rows,
         rows_with_unknown_cost=rows_with_unknown_cost,
+        cached_tokens=cached_tokens,
     )
 
 
