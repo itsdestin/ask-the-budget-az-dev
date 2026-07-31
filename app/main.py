@@ -17,6 +17,7 @@ from typing import Callable
 from fastapi import FastAPI, HTTPException
 from fastapi.responses import FileResponse, HTMLResponse
 
+from app.routes.admin import router as admin_router
 from app.routes.books import router as books_router
 from app.routes.conversations import (
     ConversationRegistry,
@@ -158,6 +159,10 @@ def create_app(
     app.include_router(upload_router)
     app.include_router(jobs_router)
     app.include_router(books_router)
+    # Identity + admin. Registered here, above the catch-all, for the reason
+    # stated in the comment at the top of this block — a router added after
+    # `/{path:path}` silently serves index.html to fetch() instead of JSON.
+    app.include_router(admin_router)
 
     # The worker is only CONSTRUCTED here — `_lifespan` above starts it when
     # the server actually starts serving. Constructing is cheap; the embedding

@@ -18,9 +18,7 @@ over-limit decision documented on `post_message`.
 """
 from __future__ import annotations
 
-import getpass
 import json
-import os
 import sys
 import threading
 import time
@@ -33,6 +31,7 @@ from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
 from starlette.background import BackgroundTask
 
+from app import identity
 from harness.constants import DEFAULT_TIER
 from harness.ledger import check_limit
 from harness.settings import ai_available, load_settings
@@ -92,34 +91,15 @@ TIER_COPY: dict[str, dict[str, Any]] = {
     },
 }
 
-# Overrides the OS username. Exists for tests and for a dev running two
-# "analysts" side by side — NOT as an auth mechanism.
-USER_ENV_VAR = "JLBC_USER"
-
-
-def current_user() -> str:
-    """Who is asking, per spec S11: the Windows username of this process.
-
-    There is no authentication and this is not pretending to be any. S11 is
-    explicit that per-user cost tracking is "not real security" — the app is
-    installed per machine (S7) and launched by the person sitting at it (S8),
-    so the process owner IS the analyst. Anyone who can set an environment
-    variable can call themselves someone else; the ledger is an accounting
-    tool for a single office, not an access-control boundary, and building a
-    login screen on top of a local-only app would be theater that makes it
-    LOOK like one.
-
-    Falls back to "" (which `Settings.limit_for` resolves to the org default)
-    rather than raising: an unnameable user should lose accurate accounting,
-    not the ability to ask a question.
-    """
-    override = os.environ.get(USER_ENV_VAR)
-    if override:
-        return override
-    try:
-        return getpass.getuser()
-    except Exception:  # noqa: BLE001 — no username source on this host
-        return ""
+# Identity moved to app/identity.py in Plan 5 Task 1 — it was never
+# conversation-specific, and the admin/usage/claim routes need it too.
+# Both names are re-bound here rather than merely imported for local use:
+# nothing outside this module imports them today (verified by grep), but
+# they were public names on this module for all of Plan 4, and leaving the
+# aliases costs two lines versus breaking an import path someone's
+# in-flight branch may already use.
+USER_ENV_VAR = identity.USER_ENV_VAR
+current_user = identity.current_user
 
 
 # ---------------------------------------------------------------------------
