@@ -11,12 +11,19 @@ from __future__ import annotations
 
 import sys
 from pathlib import Path
+from typing import Callable
 
 from fastapi import FastAPI, HTTPException
 from fastapi.responses import FileResponse, HTMLResponse
 
+from app.routes.conversations import (
+    ConversationRegistry,
+    default_session_factory,
+    router as conversations_router,
+)
 from app.routes.documents import router as documents_router
 from app.routes.fiscal_notes import router as fiscal_notes_router
+from app.routes.pdf import router as pdf_router
 from app.routes.search import router as search_router
 from app.search_provider import LanceSearchProvider, SearchProvider, StubSearchProvider
 
@@ -61,12 +68,25 @@ _MISSING = object()
 def create_app(
     *, provider: SearchProvider | None = None,
     static_dir: Path | None | object = _MISSING,
+    session_factory: Callable[..., object] | None = None,
 ) -> FastAPI:
     app = FastAPI(title="JLBC Insight")
     # Explicit None check, not `provider or ...`: an injected provider object
     # could be falsy (e.g. a fake defining __len__/__bool__) and get silently
     # swapped for the default, which would be a baffling test failure.
     app.state.provider = _default_provider() if provider is None else provider
+    # The AI-Mode seam: tests inject a fake tool loop here so a conversation
+    # test never reaches OpenRouter, LanceDB or the ONNX models. Unlike
+    # static_dir there is no _MISSING sentinel — "no session factory" has no
+    # useful meaning (the routes would have nothing to run), so None simply
+    # means "use the real one". Same explicit `is None` check as provider:
+    # a callable object can be falsy.
+    app.state.session_factory = (
+        default_session_factory if session_factory is None else session_factory
+    )
+    # One conversation table per app instance, not a module global: two apps
+    # in one test process (there are several) must not share conversations.
+    app.state.conversations = ConversationRegistry()
 
     # Route-registration order is load-bearing: FastAPI matches in registration
     # order, so the `/{path:path}` catch-all below MUST be registered after
@@ -74,6 +94,8 @@ def create_app(
     app.include_router(search_router)
     app.include_router(fiscal_notes_router)
     app.include_router(documents_router)
+    app.include_router(conversations_router)
+    app.include_router(pdf_router)
 
     @app.get("/health")
     def health():
