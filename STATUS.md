@@ -47,12 +47,19 @@ source. When something ships, update only this file.
   [`PROMPT-parallel-ingest-defects.md`](PROMPT-parallel-ingest-defects.md) (the
   two 🔴 handoff-blocking defects; develop + merge, do NOT restart the running
   server), and
-  [`PROMPT-parallel-write-plan5.md`](PROMPT-parallel-write-plan5.md) (write the
-  Plan 5 doc — pure documentation).
-- **Plan 5 — admin/settings UI, packaging + launcher, legacy deletion
-  (`web/`, `mcp-server/`, `db/`, dead `retrieval/` modules), gates G2/G3.**
-  The AI-Mode hardening that used to sit here (S22 + S23) shipped
-  2026-07-31 — see the section below.
+  ~~[`PROMPT-parallel-write-plan5.md`](PROMPT-parallel-write-plan5.md)~~
+  **DONE 2026-07-31** — the plan is written (see the next bullet).
+- **Plan 5 — WRITTEN, ready to implement:**
+  [`docs/superpowers/plans/2026-08-01-standalone-plan-5-admin-packaging.md`](docs/superpowers/plans/2026-08-01-standalone-plan-5-admin-packaging.md).
+  23 tasks in five tracks: admin/settings UI (S11/S13/S15/S16/S17/S19),
+  resilience (S18 repair flow + launch health ladder), packaging + launcher
+  (S7/S8), legacy deletion (`web/`, `mcp-server/`, `db/`, dead `retrieval/`
+  modules), and gates G2/G3. Tracks 1–2 and Track 3 can run in two parallel
+  sessions; Track 4 must follow them; Track 5 needs the finished corpus.
+  **Task 13 (bundle-size measurement) is the highest-risk item and gates the
+  rest of packaging** — it also carries the split-distribution fallback if a
+  MinerU-inclusive bundle proves impractical. The AI-Mode hardening that used
+  to sit here (S22 + S23) shipped 2026-07-31 — see the section below.
 - **Z13 backfill + recency calibration (S20/S21)** — historical-year corpus
   backfill and recency-ranking calibration on the Z13 Linux machine.
   Runbook: [`PROMPT-z13-backfill.md`](PROMPT-z13-backfill.md) (the only

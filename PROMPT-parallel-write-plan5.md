@@ -1,5 +1,12 @@
 # Handoff: Write Plan 5 — admin UI, packaging, cleanup, handoff gates
 
+> ## ✅ DONE — 2026-07-31. DO NOT EXECUTE THIS PROMPT.
+>
+> The plan was written and committed:
+> [`docs/superpowers/plans/2026-08-01-standalone-plan-5-admin-packaging.md`](docs/superpowers/plans/2026-08-01-standalone-plan-5-admin-packaging.md).
+> This file is kept only as the record of what was asked for. To
+> **implement** Plan 5, read the plan itself, not this prompt.
+
 You are working in `~/YouCoded/Projects/ask-the-budget-az-dev`. **This is a
 documentation task — write the implementation plan, do not implement it.**
 
