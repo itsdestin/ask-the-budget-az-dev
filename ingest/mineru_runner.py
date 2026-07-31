@@ -252,9 +252,17 @@ class MineruRunner:
         with self._proc_lock:
             self._proc = proc
 
-        timer = threading.Timer(timeout_s, lambda: _kill(proc))
+        # An explicit flag, not `timer.is_alive()`: the timer thread stays alive
+        # for as long as its kill takes, so inferring "did it fire?" from
+        # liveness races and reports a timeout as a generic CLI failure.
+        expired = threading.Event()
+
+        def on_timeout() -> None:
+            expired.set()
+            _kill(proc)
+
+        timer = threading.Timer(timeout_s, on_timeout)
         timer.start()
-        timed_out = False
         tail: list[str] = []
         pages_seen = 0
         try:
@@ -275,14 +283,13 @@ class MineruRunner:
         except subprocess.TimeoutExpired:
             _kill(proc)
         finally:
-            timed_out = not timer.is_alive() and proc.returncode not in (0,)
             timer.cancel()
             self.last_process_returncode = proc.returncode
             with self._proc_lock:
                 self._proc = None
 
         self._raise_if_cancelled()
-        if timed_out:
+        if expired.is_set():
             raise MineruTimeout(
                 f"mineru exceeded its {timeout_s}s budget and was stopped. "
                 "Large books can legitimately take hours — raise the timeout "

@@ -143,6 +143,36 @@ def run_job(job: JobRecord, ctx: WorkerContext) -> JobRecord:
     return job
 
 
+def run_refresh_job(job: JobRecord, *, fetcher=None) -> JobRecord:
+    """Drive a fiscal-note refresh job (spec S10).
+
+    Runs through the same queue as documents so it's visible, serialized, and
+    journalled — but its own two-stage pipeline (scrape, then write), because
+    there is nothing to chunk or embed. The notes it discovers become ordinary
+    document jobs that the worker picks up on a later poll.
+    """
+    from ingest.fiscal_notes_refresh import run_refresh
+
+    _check_cancelled(job)
+    if job.state == "queued":
+        advance(job, "extracting")
+
+    kwargs = {"fetcher": fetcher} if fetcher is not None else {}
+    result = run_refresh(
+        on_progress=lambda detail: _progress(job, "extracting", pct=50, detail=detail),
+        **kwargs,
+    )
+
+    if job.state == "extracting":
+        advance(job, "writing")
+    advance(job, "live")
+    mark_stage(
+        job, "live", pct=100,
+        detail=f"{result['queued']} new fiscal notes queued",
+    )
+    return job
+
+
 def _extract(job: JobRecord, ctx: WorkerContext) -> None:
     """Run the extractor into `<data_dir>/extractor-output/<doc_id>/`.
 
@@ -368,7 +398,10 @@ class IngestWorker:
         than in a log file they'll never open.
         """
         try:
-            run_job(job, self.context)
+            if job.kind == "refresh":
+                run_refresh_job(job)
+            else:
+                run_job(job, self.context)
         except JobCancelled:
             _finish_cancelled(job)
         except Exception as exc:  # noqa: BLE001 — every failure is a job failure

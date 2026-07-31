@@ -80,6 +80,15 @@ export async function fiscalNotes(): Promise<{ sessions: Session[] }> {
   return r.json();
 }
 
+/** How many fiscal-note passages are actually searchable. The page's semantic
+ *  search stays disabled at 0 — offering a search that can only return nothing
+ *  is worse than saying it isn't ready. */
+export async function fiscalNotesStatus(): Promise<{ chunks: number }> {
+  const r = await fetch("/api/fiscal-notes/status");
+  if (!r.ok) await fail(r, "fiscal-notes status");
+  return r.json();
+}
+
 // ---- ingest queue (Plan 3) -------------------------------------------------
 
 export type JobState =

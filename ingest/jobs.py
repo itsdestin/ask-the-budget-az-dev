@@ -35,6 +35,15 @@ JOBS_DIRNAME = "jobs"
 # The pipeline, in order. Each stage is a resume point.
 PIPELINE_STATES = ("queued", "extracting", "chunking", "embedding", "writing", "live")
 
+# A fiscal-note refresh runs through the same queue — same lock, same backup,
+# same visible progress — but it has no document to chunk or embed. It scrapes
+# (extracting), then writes the directory and enqueues the new notes (writing).
+# Giving it its own pipeline beats padding it with two no-op stages that would
+# show a user "building the search index" while nothing is being embedded.
+REFRESH_STATES = ("queued", "extracting", "writing", "live")
+
+PIPELINES = {"document": PIPELINE_STATES, "refresh": REFRESH_STATES}
+
 # Nothing leaves these. `live` is success; `failed` and `cancelled` are ends a
 # human has to act on (retry re-queues; cancel is final).
 TERMINAL_STATES = frozenset({"live", "failed", "cancelled"})
@@ -78,6 +87,9 @@ class JobRecord:
     fiscal_year: int
     user_title: str
     source_url: str | None = None
+    # "document" (the normal ingest) or "refresh" (scrape azjlbc.gov for new
+    # fiscal notes). Decides which state pipeline applies.
+    kind: str = "document"
     # Page ranges MinerU has already finished, as [[start, end], ...]. The
     # resume granularity is the range because that's one CLI invocation.
     completed_ranges: list[list[int]] = field(default_factory=list)
@@ -137,6 +149,7 @@ def new_job(
     user_title: str = "",
     user: str | None = None,
     source_url: str | None = None,
+    kind: str = "document",
 ) -> JobRecord:
     """Build a queued job. Does not persist — call `save()`."""
     now = _now()
@@ -160,6 +173,7 @@ def new_job(
         fiscal_year=fiscal_year,
         user_title=user_title,
         source_url=source_url,
+        kind=kind,
     )
 
 
@@ -274,7 +288,8 @@ def advance(job: JobRecord, new_state: str, *, error: str | None = None) -> JobR
     if new_state == "cancelled":
         return _commit(job, "cancelled")
 
-    expected = PIPELINE_STATES[PIPELINE_STATES.index(job.state) + 1]
+    pipeline = PIPELINES.get(job.kind, PIPELINE_STATES)
+    expected = pipeline[pipeline.index(job.state) + 1]
     if new_state != expected:
         raise IllegalTransition(
             f"Job {job.job_id} is {job.state}; the next stage is {expected!r}, "
