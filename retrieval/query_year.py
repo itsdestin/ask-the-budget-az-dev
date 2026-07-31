@@ -19,6 +19,11 @@ as a soft bump and is destructive as a filter.
 
 Known limitation: ranges are not expanded. "FY2019 through FY2021" yields
 [2019, 2021], not [2019, 2020, 2021] — no range word is parsed.
+
+Two functions, deliberately separate: `parse_query_years` reports the
+years the ANALYST named (that is what gets echoed back to them), and
+`fiscal_year_filter` turns those into the year set actually filtered on,
+which is wider. See ADJACENT_YEAR_WINDOW for why.
 """
 from __future__ import annotations
 
@@ -32,6 +37,26 @@ import re
 # published a few cycles ahead of the current one.
 MIN_PLAUSIBLE_YEAR = 1984
 MAX_PLAUSIBLE_YEAR = 2035
+
+# How many adjacent fiscal years ride along with each year the analyst
+# named, when the parsed years become a filter.
+#
+# WHY this is not 0: `chunks.fiscal_year` is the DOCUMENT's fiscal year,
+# not the year the passage is ABOUT, and Arizona's document lifecycle
+# routinely puts them one apart. A FY 2025 supplemental appropriation is
+# enacted in the 2025 session's bill, which is the FY 2026 budget bill;
+# the JLBC Appropriations Report for an enacted FY is published in the
+# following cycle. Measured on the 34-query eval set (2026-07-31, real
+# corpus), an exact-year filter dropped recall@20 from 100% to 93.1% —
+# below gate G1's 95% bar — on exactly that shape: two queries saying
+# "FY 2025" whose ground truth is a chunk of the FY 2026 budget bill.
+#
+# WHY not 2: measured at ±2 the filter is too loose to sharpen ranking at
+# all — recall@5 falls back to the unfiltered baseline's 72.41%. ±1 keeps
+# recall@5 at 82.76% AND restores recall@15/@20 to 96.55%/100%, so it
+# strictly beats filtering nothing. It also still cuts a post-backfill
+# 20-edition corpus to 3, which is what S21 needs it to do.
+ADJACENT_YEAR_WINDOW = 1
 
 # Four digits, optionally FY-prefixed, standing alone as a token.
 # `(?<![\w$])` is doing two jobs: the \w half rejects digits embedded in a
@@ -81,3 +106,23 @@ def parse_query_years(query: str) -> list[int]:
             years.add(expanded)
 
     return sorted(years)
+
+
+def fiscal_year_filter(years: list[int]) -> list[int]:
+    """Widen named years into the fiscal years to actually filter on.
+
+    Each named year brings its ADJACENT_YEAR_WINDOW neighbours along,
+    because a passage about FY N frequently lives in a document stamped
+    FY N±1. Returns `[]` for `[]` so "no years named" stays "no filter".
+
+    The window is NOT clamped to MIN/MAX_PLAUSIBLE_YEAR: those bound what
+    a human could plausibly have MEANT, and a filter value no document
+    carries simply matches nothing.
+    """
+    if not years:
+        return []
+    widened: set[int] = set()
+    for year in years:
+        for offset in range(-ADJACENT_YEAR_WINDOW, ADJACENT_YEAR_WINDOW + 1):
+            widened.add(year + offset)
+    return sorted(widened)

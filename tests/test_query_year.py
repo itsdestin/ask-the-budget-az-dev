@@ -13,7 +13,13 @@ from __future__ import annotations
 
 import pytest
 
-from retrieval.query_year import MAX_PLAUSIBLE_YEAR, MIN_PLAUSIBLE_YEAR, parse_query_years
+from retrieval.query_year import (
+    ADJACENT_YEAR_WINDOW,
+    MAX_PLAUSIBLE_YEAR,
+    MIN_PLAUSIBLE_YEAR,
+    fiscal_year_filter,
+    parse_query_years,
+)
 
 
 @pytest.mark.parametrize(
@@ -92,3 +98,31 @@ def test_uppercase_and_punctuation_do_not_matter() -> None:
     assert parse_query_years("FY2026?") == [2026]
     assert parse_query_years("(FY 2026)") == [2026]
     assert parse_query_years("FY-2026 spending") == [2026]
+
+
+# ---------------------------------------------------------------------------
+# fiscal_year_filter — named years -> the years actually filtered on
+# ---------------------------------------------------------------------------
+
+
+def test_fiscal_year_filter_admits_the_adjacent_years() -> None:
+    """WHY: chunks carry the DOCUMENT's fiscal year, not the year the
+    passage is about. A FY 2025 supplemental is enacted in the FY 2026
+    budget bill; an exact-year filter drops it and the eval's recall@20
+    fell below gate G1 on exactly that shape."""
+    assert fiscal_year_filter([2019]) == [2018, 2019, 2020]
+
+
+def test_fiscal_year_filter_merges_overlapping_windows() -> None:
+    assert fiscal_year_filter([2024, 2025]) == [2023, 2024, 2025, 2026]
+
+
+def test_fiscal_year_filter_of_no_years_is_no_filter() -> None:
+    # [] must stay [] — the pipeline reads it as "don't filter at all".
+    assert fiscal_year_filter([]) == []
+
+
+def test_the_window_is_one_year_either_side() -> None:
+    # Pinned: ±2 measured no better than filtering nothing at all
+    # (recall@5 back to the unfiltered 72.41%), ±0 failed gate G1.
+    assert ADJACENT_YEAR_WINDOW == 1

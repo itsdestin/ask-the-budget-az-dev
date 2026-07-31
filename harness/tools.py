@@ -1106,6 +1106,14 @@ class ToolExecutor:
             "dense_count": result.dense_count,
             "fused_count": result.fused_count,
         }
+        if result.inferred_fiscal_years:
+            # S21 layer 1. Present ONLY when the pipeline read a fiscal
+            # year out of the query text and filtered on it, so the model
+            # can tell "these are all FY 2019 because you said FY 2019"
+            # apart from "this is everything the corpus has". Absent when
+            # the model passed its own filters.fiscal_year — that one it
+            # already knows about.
+            response["inferred_fiscal_years"] = list(result.inferred_fiscal_years)
         if capped:
             # Present ONLY when the cap fired — its absence is how the
             # model knows it got everything it asked for.

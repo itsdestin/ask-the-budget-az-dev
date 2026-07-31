@@ -715,3 +715,91 @@ def test_over_filtered_real_store_returns_the_no_results_sentinel(tmp_path):
     assert result.chunks == []
     assert result.fused_count == 0
     assert result.top_score == NO_RESULTS_TOP_SCORE
+
+
+# ---------------------------------------------------------------------------
+# S21 layer 1 — explicit query years become a hard fiscal-year filter
+# ---------------------------------------------------------------------------
+
+
+def test_a_year_named_in_the_query_becomes_a_fiscal_year_filter(seams):
+    """The filter carries the named year's neighbours too — a passage about
+    FY 2019 routinely lives in a document stamped FY 2018 or FY 2020 (see
+    ADJACENT_YEAR_WINDOW). The echo reports only what the analyst named."""
+    result = _run(RetrievalRequest(query="fy2019 DES funding"))
+
+    assert seams.bm25_calls[0]["filters"].fiscal_year == [2018, 2019, 2020]
+    assert seams.dense_calls[0]["filters"].fiscal_year == [2018, 2019, 2020]
+    assert result.inferred_fiscal_years == [2019]
+
+
+def test_an_explicit_caller_filter_always_beats_the_parser(seams):
+    """The parser is a convenience for humans typing prose. A caller that
+    passed fiscal_year meant it — silently widening or narrowing that would
+    make the MCP-era `filters` argument unreliable."""
+    result = _run(
+        RetrievalRequest(query="fy2019 DES funding", fiscal_year=[2027])
+    )
+
+    assert seams.bm25_calls[0]["filters"].fiscal_year == [2027]
+    assert seams.dense_calls[0]["filters"].fiscal_year == [2027]
+    # Nothing was inferred *and applied*, so nothing is echoed — the field
+    # reports what the pipeline did, not what the parser saw.
+    assert result.inferred_fiscal_years == []
+
+
+def test_a_query_with_no_year_gets_no_fiscal_year_filter(seams):
+    result = _run(RetrievalRequest(query="DES caseworker funding"))
+
+    assert seams.bm25_calls[0]["filters"].fiscal_year is None
+    assert seams.dense_calls[0]["filters"].fiscal_year is None
+    assert result.inferred_fiscal_years == []
+
+
+def test_the_year_filter_applies_to_the_fiscal_note_corpus_too(seams):
+    """S21 gives fiscal notes layer 1 (this filter) but NOT the layer-3
+    recency boost — coordinator triage wants similar notes at any age, but
+    a year the analyst typed is still a year they meant."""
+    result = _run(
+        RetrievalRequest(query="fy24 caseworker note", corpus="fiscal_note_chunks")
+    )
+
+    assert seams.bm25_calls[0]["filters"].fiscal_year == [2023, 2024, 2025]
+    assert result.inferred_fiscal_years == [2024]
+
+
+def test_injecting_the_inferred_year_preserves_the_other_filters(seams):
+    _run(
+        RetrievalRequest(
+            query="fy2019 DES funding",
+            publisher=["jlbc"],
+            is_table=True,
+        )
+    )
+
+    filters = seams.bm25_calls[0]["filters"]
+    assert filters.fiscal_year == [2018, 2019, 2020]
+    assert filters.publisher == ["jlbc"]
+    assert filters.is_table is True
+
+
+def test_inferred_years_are_echoed_even_when_the_filter_finds_nothing(
+    monkeypatch,
+):
+    """The empty-fused early return is a separate construction site for
+    RetrievalResult; it used to be the only place a new field could be
+    silently dropped."""
+    empty = Seams(bm25=[], dense=[])
+    monkeypatch.setattr("retrieval.pipeline.bm25_query_lance", empty.bm25)
+    monkeypatch.setattr("retrieval.pipeline.dense_query_lance", empty.dense)
+
+    result = _run(RetrievalRequest(query="fy2019 nothing matches this"))
+
+    assert result.chunks == []
+    assert result.top_score == NO_RESULTS_TOP_SCORE
+    assert result.inferred_fiscal_years == [2019]
+
+
+def test_retrieval_result_defaults_inferred_years_to_empty():
+    """Additive field — every existing construction site must keep working."""
+    assert RetrievalResult().inferred_fiscal_years == []
