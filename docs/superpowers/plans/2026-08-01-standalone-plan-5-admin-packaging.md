@@ -39,7 +39,7 @@ Facts established by shipped code and by the 2026-07-31 live runs. Getting any o
 
 | File | Responsibility |
 |---|---|
-| Create `app/identity.py` | `current_user()` (moved from `conversations.py`), `is_admin(settings, user)`, admin-bootstrap rule; `GET /api/me` |
+| Create `app/identity.py` | `current_user()` (moved from `conversations.py`), `is_admin(settings, user)`, admin-bootstrap rule, `claim_admin()` + the `RESET-ADMIN.txt` break-glass path; `GET /api/me` |
 | Create `app/routes/admin.py` | All `/api/admin/*` endpoints: settings read/write, key test, model catalog, usage breakdown, corpus health, backups + restore |
 | Create `harness/catalog.py` | OpenRouter `/api/v1/models` client, tool-calling filter, shipped recommendation list, offline degradation, runtime model fallback (S13) |
 | Create `harness/notices.py` | Append-only `<data_dir>/notices.json` — model fallbacks, key failures, scraper breakage; the admin page's "what went wrong while you weren't looking" feed |
@@ -71,7 +71,14 @@ Facts established by shipped code and by the 2026-07-31 live runs. Getting any o
 ```
 GET  /api/me
   -> 200 { "user": str, "is_admin": bool, "admin_username": str,
-           "admin_claimable": bool }     # true iff no admin is configured yet
+           "admin_claimable": bool,      # no admin configured, OR a reset file is present
+           "admin_reset_pending": bool } # a RESET-ADMIN.txt is waiting to be used up
+
+POST /api/admin/claim
+  body: { "confirm": true }
+  -> 200 { "admin_username": str }
+  -> 409 { "detail": "An admin is already configured. To reset it, see
+                      'If nobody can get into Admin' in the handbook." }
 
 GET  /api/admin/settings                 (403 for non-admin)
   -> 200 { "provider": { "provider": "openrouter"|"custom", "base_url": str,
@@ -157,13 +164,13 @@ Tracks 1 and 2 are independent of Track 3 and can be built in parallel by two se
 | Track | Tasks | Owner |
 |---|---|---|
 | 1 — Admin & Settings | 1–9 | Session A |
-| 2 — Resilience (S18 + ladder) | 10–12 | Session A (shares `app/` and `webapp/src/pages/`) |
-| 3 — Packaging | 13–16 | Session B (owns `packaging/` only until Task 16) |
-| 4 — Cleanup | 17–19 | After tracks 1–2 land |
-| 5 — Handbook | 20–22 | Session C — **Task 20 can start immediately** (it only needs the committed reference memo); Tasks 21–22 need Tracks 1–2 finished, because Part 5 documents screens that must exist before they can be described accurately |
-| 6 — Gates | 23–26 | Last, needs a finished bundle and a finished handbook |
+| 2 — Resilience (S18 + ladder) | 10–13 | Session A (shares `app/` and `webapp/src/pages/`) |
+| 3 — Packaging | 14–17 | Session B (owns `packaging/` only until Task 17) |
+| 4 — Cleanup | 18–20 | After tracks 1–2 land |
+| 5 — Handbook | 21–23 | Session C — **Task 21 can start immediately** (it only needs the committed reference memo); Tasks 22–23 need Tracks 1–2 finished, because Part 5 documents screens that must exist before they can be described accurately |
+| 6 — Gates | 24–27 | Last, needs a finished bundle and a finished handbook |
 
-**Parallel-execution contract:** Session A owns `app/`, `harness/`, `store/`, `webapp/src/`. Session B owns `packaging/` and `docs/QUICKSTART.md`. Session C owns `docs/HANDBOOK.md` and `scripts/jlbc_memo.py`/`scripts/build_handbook.py`; its Task 22 touches `app/routes/` and `webapp/src/`, so it lands **after** Session A finishes or coordinates directly with it. All three append to `STATUS.md` (own section, final task only); only Session A edits `setup.sh`. Session B must not edit application code — if the bundle needs an app change (it will: at minimum a `--data-dir` startup flag), Session B files it as a note and Session A makes the change.
+**Parallel-execution contract:** Session A owns `app/`, `harness/`, `store/`, `webapp/src/`. Session B owns `packaging/` and `docs/QUICKSTART.md`. Session C owns `docs/HANDBOOK.md` and `scripts/jlbc_memo.py`/`scripts/build_handbook.py`; its Task 23 touches `app/routes/` and `webapp/src/`, so it lands **after** Session A finishes or coordinates directly with it. All three append to `STATUS.md` (own section, final task only); only Session A edits `setup.sh`. Session B must not edit application code — if the bundle needs an app change (it will: at minimum a `--data-dir` startup flag), Session B files it as a note and Session A makes the change.
 
 **Write the handbook LAST among the docs, not first.** Its Part 5 describes admin screens screen-by-screen; written against a plan rather than a running app, it will describe buttons that ended up named something else — and a handbook that is wrong in its details teaches the reader not to trust it.
 
@@ -175,7 +182,7 @@ Tracks 1 and 2 are independent of Track 3 and can be built in parallel by two se
 
 **Files:** Create `app/identity.py`, `tests/test_identity.py`; Modify `app/routes/conversations.py` (import `current_user` from the new home, keep the old name working), `app/main.py` (register the route).
 
-The bootstrap rule is the load-bearing decision here. A fresh install ships `settings.json` with `admin_username: ""`. If an empty admin meant "nobody is admin", the first install would have no path to configuring anything and the app would be permanently unusable. If it meant "everybody is admin", a share that never gets an admin assigned leaves every analyst able to rewrite the key. **Chosen rule: an empty `admin_username` is *claimable* — any user may claim it, once, and the claim is recorded in `settings.json`.** After that it is transfer-only. This is discoverable, needs no out-of-band step in the quickstart, and matches how the office actually works (Destin sets it up, or the first person who opens the page does).
+The bootstrap rule is the load-bearing decision here. A fresh install ships `settings.json` with `admin_username: ""`. If an empty admin meant "nobody is admin", the first install would have no path to configuring anything and the app would be permanently unusable. If it meant "everybody is admin", a share that never gets an admin assigned leaves every analyst able to rewrite the key. **Chosen rule: an empty `admin_username` is *claimable* — any user may claim it, once, and the claim is recorded in `settings.json`.** After that it is transfer-only — **plus the Task 13 break-glass reset, which is not optional.** A one-way door with no documented way back is exactly how a small office ends up with a permanently unconfigurable app and no vendor to call; build Task 13 in the same pass, not "later". This rule is discoverable, needs no out-of-band step in the quickstart, and matches how the office actually works (Destin sets it up, or the first person who opens the page does).
 
 - [ ] **Step 1 — failing tests.** Write `tests/test_identity.py`:
 
@@ -343,7 +350,7 @@ def test_model_fallback_does_not_rewrite_settings(session_with_dead_model, tmp_p
 **Files:** Modify `app/routes/admin.py`; Create `tests/test_admin_corpus_route.py`.
 
 - [ ] **Step 1 — failing tests:**
-  - `GET /api/admin/corpus` reports real counts and reports the LanceDB **dead-version bytes** (see Task 19 — this is currently 5.1 GB on disk for ~18k chunks and is the single most visible corpus-health number)
+  - `GET /api/admin/corpus` reports real counts and reports the LanceDB **dead-version bytes** (see Task 20 — this is currently 5.1 GB on disk for ~18k chunks and is the single most visible corpus-health number)
   - `POST .../restore` without `{"confirm": "restore"}` → 400, corpus untouched
   - `POST .../restore` while `IngestLock` is held → **409 with the plain sentence**, corpus untouched. This is the one that matters: restoring under a live writer would interleave a zip extraction with a LanceDB commit.
   - a successful restore takes the ingest lock, snapshots the *current* corpus first (so a mistaken restore is itself reversible), then extracts
@@ -424,13 +431,76 @@ Rungs, each with a plain-English `detail` and an actionable `fix`: **server** (a
 
 **Honest limitation to encode in the copy (do not soften):** a relocation cannot take effect mid-session. LanceDB handles and the search provider resolve at startup (Ground truth 10). The screen says "Restart JLBC Insight to finish" and the launcher makes that one double-click. Pretending otherwise would produce an app that says it's fixed and then serves errors from stale handles.
 
+### Task 13: Admin lockout recovery — break-glass reset
+
+**Files:** Modify `app/identity.py`, `harness/settings.py`; Create `tests/test_admin_lockout_recovery.py`.
+
+**Why this exists.** Task 1 makes `admin_username` a one-way claim, which is right — but every one-way door needs a documented way back through. The realistic lockout scenarios are mundane and all of them are *permanent* without a recovery path: the admin transfers to a mistyped username (`destin` vs `Destin` — Ground truth: matching is exact, and deliberately so); the admin leaves and IT deletes the Windows account; IT changes the username format office-wide; someone hand-edits `settings.json` and breaks it. In every case the result is an app nobody can configure, on a share nobody can fix, with no error message that explains what happened. There is no vendor to call.
+
+**Three tiers, escalating. All three get documented in the handbook (Task 22, Part 7).**
+
+**Tier 1 — transfer from inside the app.** Already built (Task 3). The normal path.
+
+**Tier 2 — the break-glass reset file. This is the primary recovery, and it requires no JSON editing.** Create an empty file named `RESET-ADMIN.txt` in the shared data folder. The app then treats admin as unclaimed, and the next person to open the Admin page claims it.
+
+Chosen over an environment variable or a CLI flag because it is the only mechanism a non-technical person can execute on a locked-down Windows PC with nothing but File Explorer — right-click → New → Text Document, rename. **It grants no new power:** anyone who can create that file can already open `settings.json` in Notepad and edit it directly, so this adds convenience, not access. Say exactly that in the code comment, so nobody later "hardens" it into uselessness.
+
+**Tier 3 — edit `settings.json` directly.** Documented as the last resort, with the exact file contents to type if the file is beyond repair.
+
+- [ ] **Step 1 — failing tests:**
+
+```python
+def test_reset_file_unclaims_a_configured_admin(tmp_data_dir):
+    save_settings(Settings(admin_username="Destin"))
+    assert admin_claimable(load_settings()) is False
+    (tmp_data_dir / "RESET-ADMIN.txt").touch()
+    assert admin_claimable(load_settings()) is True
+    assert is_admin(load_settings(), "anyone") is True
+
+
+def test_claiming_consumes_the_reset_file_and_leaves_a_record(tmp_data_dir):
+    save_settings(Settings(admin_username="Destin"))
+    (tmp_data_dir / "RESET-ADMIN.txt").touch()
+    claim_admin("Jen")
+    # RENAMED, not deleted: the file is the only evidence that an admin
+    # takeover happened out-of-band, and silently deleting it would erase
+    # the one trace anyone could audit later.
+    assert not (tmp_data_dir / "RESET-ADMIN.txt").exists()
+    assert list(tmp_data_dir.glob("RESET-ADMIN.done-*.txt"))
+    assert load_settings().admin_username == "Jen"
+    assert any(n["kind"] == "admin_claimed" for n in read_notices())
+
+
+def test_readonly_share_still_allows_the_claim(tmp_data_dir, readonly):
+    # A share that has gone read-only must not turn a recoverable lockout
+    # into a permanent one. The claim proceeds; the failure to consume the
+    # file is logged loudly rather than raised.
+    ...
+
+
+def test_corrupt_settings_fails_open_and_preserves_the_original(tmp_data_dir):
+    settings_path().write_text("{ this is not json")
+    assert admin_claimable(load_settings()) is True     # fail OPEN, not locked
+    claim_admin("Jen")
+    # The corrupt bytes may still contain a recoverable API key. Overwriting
+    # them without a copy would destroy the ONLY path back to it — the app's
+    # own fail-open behaviour would eat the evidence.
+    preserved = list(tmp_data_dir.glob("settings.json.corrupt-*"))
+    assert preserved and "not json" in preserved[0].read_text()
+```
+
+- [ ] **Step 2 — implement.** `RESET_FILENAME = "RESET-ADMIN.txt"`; `admin_claimable()` returns true when `admin_username` is empty **or** the reset file exists; `claim_admin(user)` writes the username, consumes the reset file by renaming it with a UTC timestamp, and records an `admin_claimed` notice (Task 5's `harness/notices.py`). In `harness/settings.py`, `save_settings()` copies a **corrupt** existing file to `settings.json.corrupt-<timestamp>` before replacing it — never overwriting an existing preserved copy.
+- [ ] **Step 3 — surface it in the UI.** When the reset file is present, the Admin page's claim banner says so explicitly ("An admin reset file is present in the data folder — claiming admin now will use it up"), so nobody claims by accident and then wonders where their reset went.
+- [ ] **Step 4** — `.venv/bin/python -m pytest tests/test_admin_lockout_recovery.py tests/test_identity.py tests/test_harness_settings.py -q`
+- [ ] Commit: `feat(app): break-glass admin reset + corrupt-settings preservation`
+
 ---
 
 ## Track 3 — Packaging (S7/S8) — **the highest-risk work in this plan**
 
-Nobody has built this bundle or run it on a locked-down JLBC machine. MinerU's dependency tree (torch CPU + its own model weights) is the hard part, and everything else in this plan is worthless if the app can't be installed. **Do Task 13 first and report its number before building anything else in this track.**
+Nobody has built this bundle or run it on a locked-down JLBC machine. MinerU's dependency tree (torch CPU + its own model weights) is the hard part, and everything else in this plan is worthless if the app can't be installed. **Do Task 14 first and report its number before building anything else in this track.**
 
-### Task 13: Bundle feasibility spike — measure before building
+### Task 14: Bundle feasibility spike — measure before building
 
 **Files:** Create `packaging/measure.py`, `docs/superpowers/investigations/2026-08-01-bundle-size.md`.
 
@@ -443,7 +513,7 @@ Nobody has built this bundle or run it on a locked-down JLBC machine. MinerU's d
   This is not a compromise invented to dodge the problem: an i5-1245U runs MinerU at 1–3 min/page, so a 210-page book is an overnight job on any office PC regardless. Concentrating ingest matches how the office will actually use it. It does, however, **depend on the worker auto-start fix** (Ground truth 2) — without it a queued job on machine B never gets picked up by machine A. Note that dependency explicitly in the doc.
 - [ ] Commit: `docs(investigation): bundle size measurement + split-distribution decision`
 
-### Task 14: Bundle builder
+### Task 15: Bundle builder
 
 **Files:** Create `packaging/build_bundle.py`, `packaging/README.md`, `tests/test_packaging_manifest.py`.
 
@@ -452,7 +522,7 @@ Nobody has built this bundle or run it on a locked-down JLBC machine. MinerU's d
 - [ ] **Step 3** — build on Windows; unzip to a fresh `%LOCALAPPDATA%` on a machine that has never had Python; confirm the server starts with the network cable unplugged. **That offline start is the acceptance criterion**, not a successful build.
 - [ ] Commit: `feat(packaging): bundle builder — embeddable Python, pre-bundled models, offline first run`
 
-### Task 15: Launcher (S8)
+### Task 16: Launcher (S8)
 
 **Files:** Create `packaging/launcher.pyw`, `packaging/install.cmd`.
 
@@ -468,18 +538,18 @@ Chosen shape, and why: **`pythonw.exe launcher.pyw`, invoked from a shortcut tha
 - [ ] **Step 3 — manual verification on Windows:** double-click twice, confirm exactly one server and two windows; close both windows, confirm the server survives; kill the server, relaunch, confirm recovery.
 - [ ] Commit: `feat(packaging): launcher + installer — Chrome app mode, instance reuse, no admin rights`
 
-### Task 16: Server-side support for the bundle
+### Task 17: Server-side support for the bundle
 
 **Files:** Modify `app/main.py` (a `--data-dir` startup override that writes machine config), `packaging/README.md`.
 
-- [ ] Small and last in this track, because Task 13 may change what's needed. Whatever the launcher turned out to require, land it here with tests.
+- [ ] Small and last in this track, because Task 14 may change what's needed. Whatever the launcher turned out to require, land it here with tests.
 - [ ] Commit: `feat(app): startup data-dir override for the packaged launcher`
 
 ---
 
 ## Track 4 — Cleanup
 
-### Task 17: Delete the retired architecture
+### Task 18: Delete the retired architecture
 
 **Files:** Delete `web/`, `mcp-server/`, `db/`, `retrieval/api.py`, `retrieval/bm25.py`, `retrieval/dense.py`, `retrieval/rerank.py`, `eval/refresh_chunk_ids.py`, `scripts/embed_corpus.py`, `scripts/load_slice.py`, `scripts/redownload_cached_pdfs.py`, `tests/test_api.py`; Modify `setup.sh`, `eval/synthesize_queries.py`, `eval/README.md`, `eval/calibrate_refusal.py`, `README.md`, `CLAUDE.md`.
 
@@ -489,7 +559,7 @@ Chosen shape, and why: **`pythonw.exe launcher.pyw`, invoked from a shortcut tha
 - [ ] **Step 4** — `bash setup.sh --verify > /tmp/verify.log 2>&1; echo $?` → 0, from a **fresh clone** (Ground truth 14; and `.env.local` must not exist, per the known test-isolation debt).
 - [ ] Commit: three commits as above, then `chore: retire the pre-consolidation architecture`
 
-### Task 18: `store/documents.py` + corpus counts
+### Task 19: `store/documents.py` + corpus counts
 
 **Files:** Create `store/documents.py`, `tests/test_store_documents.py`; Modify `app/search_provider.py`, `app/routes/pdf.py`, `harness/tools.py`, `ingest/lance_writer.py`; Create `GET /api/corpus/counts`; Modify the webapp footer.
 
@@ -499,7 +569,7 @@ Chosen shape, and why: **`pythonw.exe launcher.pyw`, invoked from a shortcut tha
 - [ ] **Step 4** — full pytest + vitest.
 - [ ] Commit: `refactor(store): one documents.json reader; live corpus counts in the footer`
 
-### Task 19: The remaining ingest defects
+### Task 20: The remaining ingest defects
 
 **Files:** `store/chunk_store.py`, `ingest/cache.py`, `ingest/lock.py`; tests.
 
@@ -530,7 +600,7 @@ Triaged from STATUS's follow-up list. **Check first whether the `ingest-defects`
 
 ## Track 5 — The Administrator Handbook
 
-**This is the deliverable that outlives everyone.** Destin is leaving; there is no technical successor; the app has to be operable, explainable, and *modifiable* by someone who has never opened a terminal. The quickstart (Task 26) gets a person installed in ten minutes. The handbook is the other thing — the document that answers "how does this work, why is it built this way, and what do I do when I need it to do something new."
+**This is the deliverable that outlives everyone.** Destin is leaving; there is no technical successor; the app has to be operable, explainable, and *modifiable* by someone who has never opened a terminal. The quickstart (Task 27) gets a person installed in ten minutes. The handbook is the other thing — the document that answers "how does this work, why is it built this way, and what do I do when I need it to do something new."
 
 **Two decisions that shape all three tasks:**
 
@@ -538,7 +608,7 @@ Triaged from STATUS's follow-up list. **Check first whether the `ingest-defects`
 
 **2. It has to be findable in File Explorer, not just in the app** — the moment an admin most needs it is when the app *won't start*. So the generated `.docx` sits on the share next to the corpus (`<data_dir>/JLBC Insight — Administrator Handbook.docx`), refreshed whenever a newer build exists, AND is served in-app.
 
-### Task 20: JLBC memo styling module + handbook renderer
+### Task 21: JLBC memo styling module + handbook renderer
 
 **Files:** Create `scripts/jlbc_memo.py`, `scripts/build_handbook.py`, `tests/test_jlbc_memo.py`; Reference `samples/raw-docx/jlbc-staff-memorandum-style-reference.docx` (committed 2026-07-31 — the real FY 2027 Appropriations Report Round 1 instructions memo, vendored per CLAUDE.md's primary-source rule specifically so this task has a fixture that survives a fresh clone).
 
@@ -565,7 +635,7 @@ Triaged from STATUS's follow-up list. **Check first whether the `ingest-defects`
 - [ ] **Step 5 (optional, small, real payoff)** — repoint `harness/documents.py::_render_docx` at `jlbc_memo.render()` so **AI Mode's generated memos come out in house style too**. Today they use Word's default Title/Heading 2/List Bullet styling, which is fine but generic. Guard it with the existing `harness/documents.py` tests; if they pin the current styling, update them deliberately in the same commit rather than working around them.
 - [ ] Commit: `feat(scripts): JLBC staff-memorandum renderer + handbook build`
 
-### Task 21: Write the handbook
+### Task 22: Write the handbook
 
 **Files:** Create `docs/HANDBOOK.md`.
 
@@ -585,6 +655,18 @@ Required sections, in this order:
 - [ ] **Step 5 — Part 5: Every admin surface, screen by screen.** Costs (including the honest "at least $X (N calls of unknown cost)" wording and what makes a cost unknown); AI Mode setup (key, provider, tier models, what "custom endpoint" is for and its four caveats); Spend limits (default, per-user override, exemptions like the director, what a user at their limit sees, and that **search is never affected**); Corpus (counts, queue, snapshots, one-click restore and when to use it); Notices; Admin transfer (and the warning that transferring means losing your own access); Where things live. State plainly that the admin gate is a **soft gate keyed on Windows username, not a security boundary** — it exists so individual spend isn't casually browsable, and nothing harmful sits behind it.
 - [ ] **Step 6 — Part 6: Uploading documents, and the confidentiality rule.** Invariant 8 in full, in the admin's words: **only public-record documents** — baseline books, appropriations reports, fiscal notes, bills, executive budget requests, agency budget requests, annual financial reports. The reason, stated honestly: the data-retention practices of OpenRouter and the model providers behind it are inconsistent and likely insufficient for confidential state data. Both halves of the risk: search-only mode never sends document content anywhere, **but** a confidential document uploaded to the share is exposed to anyone who later asks AI Mode a question that retrieves it. What to do if something confidential is uploaded by mistake (remove it, restore a snapshot from before, and understand what may already have been sent). Also the practical reality: large books process overnight, so leave the app running.
 - [ ] **Step 7 — Part 7: Routine operation and troubleshooting.** Adding a new edition when JLBC publishes one; refreshing fiscal notes; what to do when the shared drive moves (the repair screen); "AI Mode says no API key"; "a document has been processing for hours" (expected for books — 1–3 min/page); "search returns nothing"; where the logs are; how to restore a snapshot. Each as symptom → what it means → what to do.
+
+- [ ] **Step 7a — Part 7's most important subsection: "If nobody can get into Admin."** Destin asked for this by name, and it is the section most likely to be read by a stranger under pressure, so write it accordingly: **numbered steps, exact filenames, exact text to type, and no assumed knowledge.** It must be followable by someone who has never edited a configuration file.
+
+  Cover, in this order:
+
+  1. **What causes a lockout** — plainly, so the reader can recognise which one they're in: the admin username was mistyped when it was transferred (the app matches it **exactly**, so `destin` and `Destin` are different people to it); the admin left and their Windows account was deleted; IT changed how usernames are formatted; someone edited `settings.json` and it broke.
+  2. **The easy fix (do this one).** Open the shared data folder. Right-click → **New → Text Document**. Name it exactly `RESET-ADMIN.txt` — including making sure Windows hasn't quietly named it `RESET-ADMIN.txt.txt`, which it will if file extensions are hidden. **Show the reader how to check that**, because it is the single most likely way this goes wrong. Close and reopen JLBC Insight; open the Admin page; it will offer to let you claim admin; the file is used up automatically.
+  3. **What "used up" means** — it gets renamed to `RESET-ADMIN.done-<date>.txt` and a line is written to the notices log recording who claimed and when. It's a record, not a secret; leave it or delete it.
+  4. **The manual fix**, if the easy one can't work (say, the folder is read-only). Open `settings.json` **in Notepad** — the words "not Word, not WordPad" in bold, with the reason: those programs replace straight quotes with curly ones and the file stops being readable. Find the line `"admin_username": "Someone",` and change it to `"admin_username": "",`. Save. Restart the app. The next person to open Admin claims it.
+  5. **The nuclear option** — a complete minimal `settings.json` printed in full for the reader to copy, and what is lost by using it (the API key and every spend limit, which must be re-entered). State that the app keeps a copy of a broken settings file as `settings.json.corrupt-<date>` **before** replacing it, so the old API key can usually still be read out of that copy with Notepad.
+  6. **The honest security note.** Anyone who can write to the shared folder can do all of the above. That is true of any file on a shared drive and was a deliberate choice (the OpenRouter key is protected by a hard spending cap at OpenRouter, not by hiding the file). The admin gate keeps individual spending from being casually browsable; it is not a lock, and nothing dangerous sits behind it.
+  7. **The prevention note.** Before transferring admin to someone else, have them tell you the username Windows actually shows for them — the Settings page displays it — rather than guessing from their name. One minute here avoids all of the above.
 - [ ] **Step 8 — Part 8: Changing the app with AI help.** The section that makes this a living system instead of a frozen one. Written for a non-developer:
   - **What you need:** the code (the GitHub repo), an AI coding assistant (Claude Code is what built it), and this handbook.
   - **What to point the assistant at first, and why:** `CLAUDE.md` (the working rules), `STATUS.md` (**the single source of truth for current state** — the phase plans are historical and were never updated as things shipped), and the consolidation spec. Say explicitly that reading STATUS.md first prevents an assistant from "fixing" something that was deliberately decided.
@@ -596,7 +678,7 @@ Required sections, in this order:
 - [ ] **Step 10** — build it (`.venv/bin/python scripts/build_handbook.py`), read the Word output end to end **as if you were the next admin**, and fix every place it assumes knowledge the reader doesn't have.
 - [ ] Commit: `docs: administrator handbook — operation, cost model, confidentiality, AI-assisted maintenance`
 
-### Task 22: Ship the handbook where people will find it
+### Task 23: Ship the handbook where people will find it
 
 **Files:** Modify `app/routes/admin.py` (or a small `app/routes/handbook.py`), `app/main.py`, `webapp/src/pages/Help.tsx` (new), `Header.tsx`, `setup.sh`; Create `tests/test_handbook_route.py`.
 
@@ -606,7 +688,7 @@ Required sections, in this order:
   - on startup, if `<data_dir>/JLBC Insight — Administrator Handbook.docx` is missing **or older than the bundled build**, it is copied to the share; a share that is read-only logs one line and does not crash the app — the handbook is important, but not important enough to prevent the app from starting
   - the copy never overwrites a **newer** file on the share without logging what it replaced
 - [ ] **Step 2 — implement**, including a **Help** nav item (visible to everyone, not just the admin — analysts benefit from Parts 1, 3, 4 and 6) rendering the Markdown in-app with a prominent "Open the Word version" download.
-- [ ] **Step 3 — Task 14 hook:** the packaged bundle includes the built `.docx` and the Markdown; `setup.sh` builds the handbook so a dev checkout has it too.
+- [ ] **Step 3 — Task 15 hook:** the packaged bundle includes the built `.docx` and the Markdown; `setup.sh` builds the handbook so a dev checkout has it too.
 - [ ] **Step 4** — pytest + vitest green.
 - [ ] Commit: `feat(app): serve the handbook in-app and place it beside the corpus on the share`
 
@@ -614,17 +696,19 @@ Required sections, in this order:
 
 ## Track 6 — Handoff gates
 
-### Task 23: The quickstart (G3's script)
+### Task 24: The quickstart (G3's script)
 
 **Files:** Create `docs/QUICKSTART.md`.
 
 One page, written for someone who has never seen a terminal. Must include: unzip location; run `install.cmd`; where the shared data folder is; what works with no key (search, fiscal notes, upload) and what needs one; **how to create the OpenRouter key and set a hard monthly credit cap on the OpenRouter dashboard** (S19 — the only true org-wide spend enforcement, and it is zero code); how to claim admin; the Invariant 8 public-record-only rule; where logs live; and the three things that go wrong most (share moved → the repair screen; no key → AI Mode explains itself; big book → it processes overnight, leave it running).
 
+It also carries **one line about lockout recovery** — "if nobody can get into Admin, create an empty file called `RESET-ADMIN.txt` in the data folder and reopen the app; the handbook has the details" — because the person who reads the quickstart is the person who will one day need that sentence, and they will not have the handbook open.
+
 It ends by pointing at the handbook: **the quickstart gets you running, the handbook explains everything else** — and it names both locations (the Help tab, and the Word file sitting next to the corpus on the share).
 
 - [ ] Commit: `docs: one-page quickstart for the cold-start install`
 
-### Task 24: G2 — citation spot-verification corpus-wide
+### Task 25: G2 — citation spot-verification corpus-wide
 
 **Files:** Create `scripts/verify_citations_sample.py`, `docs/superpowers/investigations/2026-08-01-g2-citation-verification.md`.
 
@@ -633,7 +717,7 @@ It ends by pointing at the handbook: **the quickstart gets you running, the hand
 - [ ] **Step 3 — G2 passes** when failures are explainable, not merely rare. A systematic failure in one publisher/era is a real finding; scattered misses on scanned old books are expected and get recorded as a known limit of the pre-2012 era.
 - [ ] Commit: `feat(scripts): G2 corpus-wide citation spot-verification + first report`
 
-### Task 25: G3 — cold start by someone who is not Destin
+### Task 26: G3 — cold start by someone who is not Destin
 
 - [ ] **Step 1** — a colleague installs from the zip on a real JLBC machine using only `QUICKSTART.md`, with **no narration from Destin**. Anywhere they ask a question, the quickstart is wrong; fix the doc, don't coach.
 - [ ] **Step 2 — the search-findability check** (the amended G1's human half): the tester runs ~10 real queries on the Budget Documents page and confirms the right document appears in the first screen of grouped results. Record the queries and outcomes in the report — this is the standing replacement for the retired recall@5 gate.
@@ -641,7 +725,7 @@ It ends by pointing at the handbook: **the quickstart gets you running, the hand
 - [ ] **Step 4** — record results; G3 passes when all three succeed without help.
 - [ ] Commit: `docs: G3 cold-start results`
 
-### Task 26: Close out
+### Task 27: Close out
 
 - [ ] Update `STATUS.md`: Plan 5 shipped section, gates G2/G3 outcomes, the declined list above (so nobody re-opens them), and the honest remaining-risk list.
 - [ ] Update `CLAUDE.md`'s workspace layout table — `web/`, `mcp-server/`, `db/` are gone, `packaging/` is new — and add the rule that **`docs/HANDBOOK.md` is updated in the same commit as any change that alters an admin screen, the model assignments, the folder layout, or the upload rules.** A handbook that drifts is worse than none, because the reader has no way to know which half is stale.
@@ -652,9 +736,9 @@ It ends by pointing at the handbook: **the quickstart gets you running, the hand
 
 ## Risks, stated plainly
 
-1. **Packaging is the one thing that can fail outright** (Task 13). Everything else in this plan degrades gracefully if imperfect; an app that won't install is worth nothing. Measure first, and take the split-distribution fallback seriously rather than treating it as defeat.
+1. **Packaging is the one thing that can fail outright** (Task 14). Everything else in this plan degrades gracefully if imperfect; an app that won't install is worth nothing. Measure first, and take the split-distribution fallback seriously rather than treating it as defeat.
 2. **The admin gate is soft by design** (S11). If anyone later mistakes it for security and puts something genuinely sensitive behind it, that is a real vulnerability introduced by misreading, which is why Task 1's docstring says so in the code itself.
 3. **Deleting `db/` touches more than `db/`** (Ground truth 12). A partial deletion leaves a repo that imports modules that no longer exist and fails at collection time, which is a nasty first experience for whoever clones next.
-4. **The corpus is moving while this plan is written.** The Z13 backfill is still running; Task 19's cleanup and Task 21's G2 verification both need the finished corpus. Sequence them after Phase E.
-5. **Nobody has watched a citation chip open a PDF.** It has 298 passing specs and zero human observations. Task 25 Step 3 is the first time; budget for it to find something.
-6. **The handbook is the only artifact with no automated test for being *right*.** Every other deliverable here fails loudly when it's wrong; a handbook that is subtly out of date fails silently and is believed. Two mitigations, both in the plan and neither optional: it is written *after* the screens exist (Track 5 sequencing), and `CLAUDE.md` gains the rule that it updates in the same commit as the thing it describes (Task 26). The deeper mitigation is that its source is Markdown in the repo — the same place an AI assistant will be reading when the next admin asks for a change, so it is in the path of the work rather than off to one side.
+4. **The corpus is moving while this plan is written.** The Z13 backfill is still running; Task 20's cleanup and Task 22's G2 verification both need the finished corpus. Sequence them after Phase E.
+5. **Nobody has watched a citation chip open a PDF.** It has 298 passing specs and zero human observations. Task 26 Step 3 is the first time; budget for it to find something.
+6. **The handbook is the only artifact with no automated test for being *right*.** Every other deliverable here fails loudly when it's wrong; a handbook that is subtly out of date fails silently and is believed. Two mitigations, both in the plan and neither optional: it is written *after* the screens exist (Track 5 sequencing), and `CLAUDE.md` gains the rule that it updates in the same commit as the thing it describes (Task 27). The deeper mitigation is that its source is Markdown in the repo — the same place an AI assistant will be reading when the next admin asks for a change, so it is in the path of the work rather than off to one side.

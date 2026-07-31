@@ -51,8 +51,9 @@ source. When something ships, update only this file.
   **DONE 2026-07-31** — the plan is written (see the next bullet).
 - **Plan 5 — WRITTEN, ready to implement:**
   [`docs/superpowers/plans/2026-08-01-standalone-plan-5-admin-packaging.md`](docs/superpowers/plans/2026-08-01-standalone-plan-5-admin-packaging.md).
-  26 tasks in six tracks: admin/settings UI (S11/S13/S15/S16/S17/S19),
-  resilience (S18 repair flow + launch health ladder), packaging + launcher
+  27 tasks in six tracks: admin/settings UI (S11/S13/S15/S16/S17/S19),
+  resilience (S18 repair flow + launch health ladder + a `RESET-ADMIN.txt`
+  break-glass path out of an admin lockout), packaging + launcher
   (S7/S8), legacy deletion (`web/`, `mcp-server/`, `db/`, dead `retrieval/`
   modules), the **Administrator Handbook** (JLBC-memo-styled Word doc built
   from `docs/HANDBOOK.md`, shipped in-app AND beside the corpus on the share —
