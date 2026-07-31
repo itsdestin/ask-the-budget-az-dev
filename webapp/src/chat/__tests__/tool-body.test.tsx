@@ -2,15 +2,22 @@
 // drive the per-tool views. We test the helpers directly and render the
 // dispatcher to a string with representative inputs.
 //
-// Carried from web/tests/tool-body.test.tsx. The "primitives helpers" block
-// is byte-identical. The dispatcher block was rewritten, because seven of its
-// nine cases exercised views this port deletes on purpose — Bash, Read, Edit
-// (x2), Grep, Glob, Write, WebFetch. Invariant 7 removed every filesystem,
-// shell, and web tool from the model-callable surface, so those cases could
-// only be kept by keeping views for tools that cannot be called. The three
-// cases that still MEAN something (raw fallback shows input + output, errors
-// surface through ErrorBlock) survive, retargeted at tools that exist, and
-// the five real tools each gained coverage.
+// Carried from web/tests/tool-body.test.tsx. The "primitives helpers" block is
+// byte-identical. The dispatcher block was rewritten, because seven of its nine
+// cases exercised views this port deletes on purpose — Bash, Read, Edit (x2),
+// Grep, Glob, Write, WebFetch. Invariant 7 removed every filesystem, shell, and
+// web tool from the model-callable surface, so those cases could only be kept by
+// keeping views for tools that cannot be called. The cases that still MEAN
+// something (raw fallback shows input + output, errors surface through
+// ErrorBlock) survive, retargeted at tools that exist, and the five real tools
+// each gained coverage.
+//
+// ONE assertion was dropped rather than retargeted: the error case used to also
+// assert `toContain("Failed")`. That chip was rendered by ShellView, which is
+// gone, and no surviving view emits it. Failure is still surfaced — ToolCard
+// puts it on the status glyph's aria-label and the `is-failed` left border —
+// but that lives on the CARD, not in ToolBody, so it is out of this file's
+// reach — tool-card.test.tsx picks the coverage back up at that level.
 
 import { describe, expect, it } from "vitest";
 import { renderToString } from "react-dom/server";
@@ -155,6 +162,26 @@ describe("ToolBody dispatcher", () => {
     expect(html).toContain("The Aviation Fund held");
     expect(html).toContain("Highway Fund held");
     expect(html).toContain("quote not found in chunk text");
+  });
+
+  it("treats an unreadable cite response as a failure, never a silent success", () => {
+    // A non-JSON body has no producer today, but if one ever appears the wrong
+    // answer is a green "cite recorded" card. Core Invariant 2 says citations
+    // are verified, not merely emitted — an unverifiable ack is a failed one.
+    const tool = block({
+      toolName: "cite",
+      input: {
+        chunk_id: "chunk-abc",
+        confidence: "verbatim",
+        claim_span: "The Aviation Fund held $12.4 million",
+      },
+      output: "<html>502 Bad Gateway</html>",
+    });
+    const html = renderToString(<ToolBody tool={tool} />);
+    expect(html).toContain("unreadable response");
+    expect(html).toContain("Error");
+    // And it shows the intended claim, the same as any other failed cite.
+    expect(html).toContain("The Aviation Fund held");
   });
 
   it("renders list_filter_values as a scannable table", () => {

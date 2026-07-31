@@ -35,10 +35,18 @@ function parseAck(raw: string | undefined): CiteAck | null {
     if (typeof parsed === "object" && parsed !== null && "ok" in parsed) {
       return parsed as CiteAck;
     }
-    return null;
   } catch {
-    return null;
+    // fall through to the synthetic failure ack below
   }
+  // Anything that isn't a well-formed ack becomes a VISIBLE failure rather
+  // than a null that renders as a silent success. The `web/` version had a
+  // narrower version of this guard (`raw.startsWith("MCP error")`), which
+  // this port dropped along with MCP; dropping it outright would have meant
+  // an unparseable response showing a green "cite recorded" card. Today no
+  // producer emits a non-JSON body — harness/tools.py always returns a JSON
+  // object — so this is a latent guard, and a citation silently reading as
+  // valid when it isn't is precisely the failure Core Invariant 2 forbids.
+  return { ok: false, error: `cite() returned an unreadable response: ${raw}` };
 }
 
 export default function CiteView({ tool }: { tool: ToolBlock }) {

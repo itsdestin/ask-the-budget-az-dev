@@ -4,11 +4,23 @@
 // strings became the semantic classes defined in the `/* ===== chat ===== */`
 // block of src/styles/app.css; the logic is unchanged.
 //
-// `PathHeader` did NOT come across: it rendered a file path, and Plan 4's
-// Invariant 7 removed every filesystem-touching tool, so nothing has a path
-// to show. The pure string helpers below DID come across even though their
-// last in-tree caller was one of those retired views — they are dependency-
-// free, covered by tests, and Task 11's source panel wants filename display.
+// TWO deliberate API removals, both because their only callers were the
+// retired file/shell tool views:
+//
+//   * `PathHeader` is gone entirely. It rendered a file path, and Plan 4's
+//     Invariant 7 removed every filesystem-touching tool, so nothing has a
+//     path to show.
+//   * `CollapsibleBlock` lost its `className` prop. In `web/` that prop
+//     existed solely so ShellView could pass `bg-canvas` to re-tint the
+//     output block; styling now lives in app.css and the one tint it carried
+//     is the default there. No in-tree caller passes it, so this is a
+//     narrowing rather than a breakage — but it IS a narrowing, and a future
+//     view that wants a variant should add a named modifier class here rather
+//     than reopening a free-form className hole.
+//
+// The pure string helpers below DID come across even though their last
+// in-tree caller was one of those retired views — they are dependency-free,
+// covered by tests, and Task 11's source panel wants filename display.
 
 import { useState, type ReactNode } from "react";
 

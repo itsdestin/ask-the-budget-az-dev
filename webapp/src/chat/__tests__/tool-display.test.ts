@@ -15,8 +15,11 @@
 //   - the `mcp__…` prefix-stripping cases. There is no MCP server, so no code
 //     path produces a prefixed name.
 //
-// Everything that survived is byte-identical to the original, and
-// create_document has new coverage.
+// Every surviving assertion is unchanged in SUBSTANCE — same inputs, same
+// expected values, no matcher weakened — but several were reflowed by the
+// formatter when their surrounding block shrank, so this file is not
+// byte-identical to the original and shouldn't be diffed as if it were.
+// create_document and cite_batch have new coverage.
 
 import { describe, expect, it } from "vitest";
 

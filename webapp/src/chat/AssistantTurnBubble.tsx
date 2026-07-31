@@ -30,6 +30,16 @@ import ToolCard from "./ToolCard.js";
 
 // Plain boolean predicate — the `block is …` form narrows the false branch to
 // `never`, which breaks `block.toolUseId` on the line after.
+//
+// KNOWN ASYMMETRY, carried over from `web/` unchanged and left for Task 12 to
+// decide on: this matches `cite` but NOT `cite_batch`. So a turn whose model
+// cited one claim at a time shows no tool cards, while a turn that batched
+// its citations shows one raw JSON card — same information, two presentations,
+// chosen by a model-side call the analyst can't see. Both are "correct" (the
+// chips are the real surface either way), but the inconsistency is visible.
+// Adding cite_batch here is a one-word change; it was NOT made in this port
+// because suppressing a card is a product decision about what the analyst is
+// entitled to audit, not a styling one.
 function isCiteToolBlock(block: AssistantBlock): boolean {
   return block.kind === "tool" && block.toolName === "cite";
 }
