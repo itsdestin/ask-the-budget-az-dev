@@ -17,12 +17,12 @@ re-running resolution can only weaken a deliberately-set value.
 from __future__ import annotations
 
 import re
-from dataclasses import dataclass, field
 from pathlib import Path
 
 import yaml
 from rapidfuzz import fuzz, process
 
+from chunking.agency_catalog import AgencyEntry, load_agency_catalog
 from chunking.types import Chunk
 
 _DEFAULT_CATALOG = Path(__file__).resolve().parent.parent / "samples" / "entity-catalog.yaml"
@@ -62,14 +62,6 @@ def slug_from_jlbc_url(url: str | None) -> str | None:
     if slug in _TOPIC_SLUGS:
         return None
     return slug
-
-
-@dataclass
-class _CatalogEntry:
-    canonical_id: str
-    canonical_name: str
-    slug: str | None
-    name_variants: list[str] = field(default_factory=list)
 
 
 class EntityStamper:
@@ -133,48 +125,33 @@ class EntityStamper:
     # --- loading ------------------------------------------------------------
 
     def _load_catalog(self, path: Path) -> None:
-        raw = yaml.safe_load(path.read_text(encoding="utf-8")) or {}
-        agencies = raw.get("agencies", []) or []
-        for entry in agencies:
-            canonical_id = entry.get("canonical_id")
-            canonical_name = entry.get("canonical_name") or ""
-            slug = entry.get("slug")
-            if not canonical_id:
-                continue
-
-            if slug:
-                self._slug_to_id[slug.lower()] = canonical_id
+        # Parsing lives in chunking.agency_catalog so non-stamping consumers
+        # (UI filters, ingest metadata, title building) can get id→name without
+        # building the alias map and fuzzy indexes this class needs.
+        for entry in load_agency_catalog(path).values():
+            if entry.slug:
+                self._slug_to_id[entry.slug.lower()] = entry.canonical_id
 
             # Name → id index. Use casefolded form as key.
             for name in self._collect_names(entry):
                 key = _normalize_for_match(name)
                 if key and key not in self._name_to_id:
-                    self._name_to_id[key] = canonical_id
+                    self._name_to_id[key] = entry.canonical_id
                 if name and name not in self._all_names:
                     self._all_names.append(name)
 
     @staticmethod
-    def _collect_names(entry: dict) -> list[str]:
+    def _collect_names(entry: AgencyEntry) -> list[str]:
         names: list[str] = []
-        canonical = entry.get("canonical_name")
-        if canonical:
-            names.append(canonical)
+        if entry.canonical_name:
+            names.append(entry.canonical_name)
             # Also add inverted form: 'X, Department of' <-> 'Department of X'
-            inverted = _invert_comma_form(canonical)
-            if inverted and inverted != canonical:
+            inverted = _invert_comma_form(entry.canonical_name)
+            if inverted and inverted != entry.canonical_name:
                 names.append(inverted)
-        # JLBC observed names from the agency-index pages
-        for variants in (entry.get("names_observed_jlbc") or {}):
-            if variants:
-                names.append(variants)
-        # Gov-side alias if present
-        gov_alias = entry.get("gov_alias") or entry.get("names_observed_gov")
-        if isinstance(gov_alias, str):
-            names.append(gov_alias)
-        elif isinstance(gov_alias, list):
-            names.extend(s for s in gov_alias if isinstance(s, str))
-        elif isinstance(gov_alias, dict):
-            names.extend(s for s in gov_alias if isinstance(s, str))
+        # JLBC agency-index names plus any Gov-side alias, in that order —
+        # the catalog loader already flattens both into name_variants.
+        names.extend(entry.name_variants)
         return [n for n in names if n]
 
     def _load_aliases(self, path: Path) -> None:
