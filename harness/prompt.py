@@ -61,10 +61,16 @@ class PromptTemplateError(RuntimeError):
 
 
 # Wire name (what the HTTP contract and session.py use) and LanceDB table
-# name both accepted, normalized here. Duplicated from
-# `harness.tools.resolve_corpus` ON PURPOSE: importing that module pulls
+# name both accepted, normalized here.
+#
+# NOT a copy of `harness.tools.resolve_corpus`, and do not "de-duplicate"
+# them: the two accept the same input spellings but normalize in OPPOSITE
+# directions. tools resolves to the LanceDB TABLE name because that is
+# what it queries; this file resolves to the short WIRE name because that
+# is what the template's `{{#when corpus=…}}` markers read. A separate
+# table exists here rather than an import because importing tools pulls
 # in retrieval + store + the model weights, which is absurd for a
-# two-entry dict, and this file must stay cheap to import.
+# four-entry dict, and this file must stay cheap to import.
 _CORPUS_ALIASES = {
     "budget": "budget",
     "budget_chunks": "budget",
@@ -81,6 +87,10 @@ _WHEN_OPEN = re.compile(r"^\{\{#when (corpus|tier)=([a-z_]+)\}\}\s*$")
 # the author to inspect the one line that was correct.
 _WHEN_OPEN_LOOSE = re.compile(r"^\s*\{\{#when\b.*\}\}\s*$")
 _WHEN_CLOSE = re.compile(r"^\{\{/when\}\}\s*$")
+# Same courtesy on the closing side: `{{ /when}}` would otherwise become
+# prose and the failure would be reported against the (correct) opening
+# line, dozens of lines above.
+_WHEN_CLOSE_LOOSE = re.compile(r"^\s*\{\{\s*/\s*when\b.*\}\}\s*$")
 _PLACEHOLDER = re.compile(r"\{\{([A-Z_]+)\}\}")
 
 # What a block marker may switch on. Derived from the same two sources
@@ -140,11 +150,29 @@ def _select_blocks(template: str, context: dict[str, str]) -> str:
     would be a second thing to get wrong in the file that determines
     answer quality; a marker on its own line is something a reviewer can
     check by eye.
+
+    Markers inside a fenced code block are TEXT, not directives. The
+    template is prose maintained over years, and "let me document how
+    this `{{#when}}` syntax works" with a fenced example is an ordinary
+    edit; executing that example would swallow either the sample block or
+    the marker lines, leaving no `{{` behind for anything to notice. An
+    unbalanced fence raises for the same reason — after it, every real
+    marker would quietly become prose.
     """
     kept: list[str] = []
     open_marker: tuple[str, str] | None = None
     keeping = True
+    fence_opened_at: int | None = None
     for number, line in enumerate(template.splitlines(), start=1):
+        if line.strip().startswith("```"):
+            fence_opened_at = None if fence_opened_at is not None else number
+            if keeping:
+                kept.append(line)
+            continue
+        if fence_opened_at is not None:
+            if keeping:
+                kept.append(line)
+            continue
         opened = _WHEN_OPEN.match(line)
         if opened is None and _WHEN_OPEN_LOOSE.match(line):
             raise PromptTemplateError(
@@ -179,8 +207,20 @@ def _select_blocks(template: str, context: dict[str, str]) -> str:
                 )
             open_marker, keeping = None, True
             continue
+        if _WHEN_CLOSE_LOOSE.match(line):
+            raise PromptTemplateError(
+                f"{TEMPLATE_PATH}:{number}: {line.strip()} is not a valid "
+                "closing marker. Write `{{/when}}` exactly, on a line of "
+                "its own."
+            )
         if keeping:
             kept.append(line)
+    if fence_opened_at is not None:
+        raise PromptTemplateError(
+            f"{TEMPLATE_PATH}:{fence_opened_at}: this code fence is never "
+            "closed. Every ``` needs a matching ```, or the block markers "
+            "after it stop being read as markers."
+        )
     if open_marker is not None:
         raise PromptTemplateError(
             f"{TEMPLATE_PATH}: unclosed `{{{{#when "

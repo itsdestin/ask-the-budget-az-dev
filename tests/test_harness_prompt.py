@@ -18,6 +18,7 @@ has actually gone wrong before, and the ways it now CAN go wrong:
 from __future__ import annotations
 
 import re
+import threading
 
 import pytest
 
@@ -442,6 +443,53 @@ def test_an_unknown_block_value_is_rejected_rather_than_dropped(tmp_path, monkey
         build_system_prompt(corpus="budget", tier="standard")
 
 
+def test_a_fenced_block_marker_is_documentation_not_a_directive(
+    tmp_path, monkeypatch
+):
+    # Someone documenting the block syntax inside a fenced example must
+    # not have their example silently EXECUTED — one rendering would
+    # swallow the sample block and the other would swallow the marker
+    # lines, with no `{{` left behind for any other test to catch.
+    fenced = "# T\n```\n{{#when corpus=budget}}\nexample\n{{/when}}\n```\n"
+    _stub_template(tmp_path, monkeypatch, fenced)
+    for corpus in CORPORA:
+        rendered = build_system_prompt(corpus=corpus, tier="standard")
+        assert "{{#when corpus=budget}}" in rendered
+        assert "{{/when}}" in rendered
+        assert "example" in rendered
+
+
+def test_a_real_block_still_works_after_a_fenced_example(tmp_path, monkeypatch):
+    # The fence tracking must close again — a template that documents the
+    # syntax and then USES it has to keep working.
+    _stub_template(
+        tmp_path,
+        monkeypatch,
+        "# T\n```\n{{#when corpus=budget}}\n```\n"
+        "{{#when corpus=budget}}\nreal\n{{/when}}\n",
+    )
+    assert "real" in build_system_prompt(corpus="budget", tier="standard")
+    assert "real" not in build_system_prompt(corpus="fiscal_notes", tier="standard")
+
+
+def test_an_unbalanced_code_fence_is_rejected(tmp_path, monkeypatch):
+    # Every marker after an unclosed fence would be treated as prose.
+    _stub_template(tmp_path, monkeypatch, "# T\n```\nopened and never closed\n")
+    with pytest.raises(PromptTemplateError, match="fence"):
+        build_system_prompt(corpus="budget", tier="standard")
+
+
+def test_a_malformed_close_marker_points_at_its_own_line(tmp_path, monkeypatch):
+    # Mirror of the open-marker guard: without it, `{{ /when}}` is prose
+    # and the error blames the OPENING line, which is correct.
+    _stub_template(
+        tmp_path, monkeypatch, "# T\n{{#when corpus=budget}}\nx\n{{ /when}}\n"
+    )
+    with pytest.raises(PromptTemplateError) as err:
+        build_system_prompt(corpus="budget", tier="standard")
+    assert ":4:" in str(err.value)
+
+
 def test_an_unclosed_block_is_rejected(tmp_path, monkeypatch):
     _stub_template(tmp_path, monkeypatch, "# T\n{{#when tier=standard}}\nx\n")
     with pytest.raises(PromptTemplateError, match="unclosed"):
@@ -465,3 +513,38 @@ def test_the_template_is_read_from_disk_once(monkeypatch):
         build_system_prompt(corpus="fiscal_notes", tier="deep_research")
     # ~900 lines re-read on every turn of every conversation otherwise.
     assert reads["n"] == 1
+
+
+def test_concurrent_builds_read_the_template_once(monkeypatch):
+    # Turns run in a threadpool, so several conversations can hit a cold
+    # cache at the same moment. The lock has to cover read AND store; a
+    # refactor that moves the read outside it would read N times and,
+    # worse, could publish a half-built cache entry.
+    import time
+    from concurrent.futures import ThreadPoolExecutor
+
+    import harness.prompt as prompt_module
+
+    counter = {"n": 0}
+    counter_lock = threading.Lock()
+    real = prompt_module._read_template
+
+    def slow_counted(path):
+        with counter_lock:
+            counter["n"] += 1
+        time.sleep(0.05)  # widen the window a racy implementation needs
+        return real(path)
+
+    monkeypatch.setattr(prompt_module, "_read_template", slow_counted)
+    reset_template_cache()
+
+    with ThreadPoolExecutor(max_workers=8) as pool:
+        results = list(
+            pool.map(
+                lambda _: build_system_prompt(corpus="budget", tier="standard"),
+                range(8),
+            )
+        )
+
+    assert counter["n"] == 1
+    assert len(set(results)) == 1
