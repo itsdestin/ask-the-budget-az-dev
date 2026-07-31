@@ -66,14 +66,52 @@ nav.primary{flex:1 1 auto;display:flex;flex-wrap:nowrap;align-items:center;justi
 .nav-item>a.active{background:var(--az-gold);color:#fff;}
 .home-ic{width:18px;height:18px;display:block;}
 
+/* New (Destin, 2026-07-31): the AI Mode pill sits APART from the corpus pills,
+   pinned to the right end of the nav.
+   WHY absolute rather than `margin-left:auto`: an auto margin eats all the free
+   space in the flex row, which cancels `justify-content:center` above and drags
+   the whole pill group left onto the logo. Taking the AI pill out of flow leaves
+   the group centered exactly where it already sits, which is the one thing this
+   change must not disturb.
+   The `padding-right` reserves the pill's own width inside the nav so the
+   centered group can never grow underneath it on a narrow window — the cost is
+   that the group centers ~22px left of the nav's true midpoint.
+   `nav.primary` gets the positioning context (`.head` is also relative, but it
+   contains the logo, so `right:0` there would be the same edge by accident
+   rather than by intent). */
+nav.primary{position:relative;padding-right:44px;}
+.nav-item.nav-ai{position:absolute;right:0;top:50%;transform:translateY(-50%);}
+.ai-ic{width:19px;height:19px;display:block;}
+
 /* Deviation: the mockup's `.caret` / `.dropdown` rules are not ported — this app has
    four flat surfaces and no submenus, so that CSS would be dead weight. Lift it from
    reference/index.html if nav ever grows dropdowns. */
 
+/* The nav is `flex-wrap:nowrap` with five text pills plus two icon pills, and
+   the mockup's `overflow-x:auto` escape hatch was never ported (see below), so
+   there is nothing to stop the pills clipping once the row runs out of room.
+   Adding the AI pill made that worse: it permanently reserves 44px regardless
+   of viewport. These two steps buy the width back before anything overlaps —
+   first by tightening the pills, then by dropping the labels to icons. Neither
+   can be caught by the test suite: jsdom applies no stylesheet, so layout
+   regressions here are invisible to vitest by construction. */
+@media (max-width:900px){
+  .nav-item>a{padding:7px 7px;font-size:13px;}
+  nav.primary{gap:2px 2px;}
+}
 @media (max-width:600px){
   .logo img{height:50px;}
   /* The mockup also has `nav.primary .wrap{overflow-x:auto}` here, but it matches
      nothing (there is no .wrap inside nav) — dropped rather than reinterpreted. */
+  /* Last resort before the pills collide: the text pills lose their words and
+     keep only their icons. `font-size:0` collapses the label visually while
+     leaving it in the DOM, so a screen reader still announces "Budget
+     Documents" — the accessible name is unchanged, only the pixels are gone.
+     (A `.nav-label` span would be tidier, but the header renders labels as bare
+     text nodes and this file does not own that component.) */
+  .nav-item>a{font-size:0;padding:7px 8px;}
+  .home-ic,.ai-ic{width:20px;height:20px;}
+  nav.primary{padding-right:38px;}
 }
 
 /* ===== shared: card primitive — verbatim from the mockup =====
@@ -838,9 +876,19 @@ nav.primary{flex:1 1 auto;display:flex;flex-wrap:nowrap;align-items:center;justi
 
 /* ----- welcome + suggestions ----------------------------------------------- */
 .chat-welcome { flex: 1 1 auto; display: flex; flex-direction: column; align-items: center; justify-content: center; text-align: center; padding: 32px 24px; gap: 8px; overflow-y: auto; }
-/* Cap the hero mascot on short viewports; width follows the viewBox ratio so
-   the pixel art never distorts. */
-.chat-welcome-mascot { max-height: 55vh; width: auto; margin-bottom: 8px; }
+/* Cap the hero mascot; width follows the viewBox ratio so the pixel art never
+   distorts.
+   RE-SIZED with the full-page shell (2026-07-31). The old cap was a flat 55vh,
+   inherited from the retired app where the chat was the ENTIRE window. Here the
+   thread sits below the site header and the page band and above the composer
+   and the footer — about 440px of chrome and greeting text — so 55vh (594px on
+   a 1080px screen) pushed the "Hi — let's look at the budget" line under the
+   fold and made the welcome screen scroll on any laptop.
+   clamp() reads outside-in: never smaller than 150px, otherwise the space
+   actually left over, never larger than 420px. 420 is not a guess — it is
+   MASCOT_DIMENSIONS.hero.height, so he is drawn at most at his natural size and
+   never upscaled. */
+.chat-welcome-mascot { max-height: clamp(150px, calc(100dvh - 440px), 420px); width: auto; margin-bottom: 8px; }
 .chat-welcome h1 { font-size: 28px; font-weight: 800; color: var(--navy); }
 .chat-welcome p { color: var(--ink-2); max-width: 36rem; margin: 0; }
 
@@ -1254,48 +1302,154 @@ nav.primary{flex:1 1 auto;display:flex;flex-wrap:nowrap;align-items:center;justi
  * design one — see the note on it.
  */
 
-/* ----- the header pill ----------------------------------------------------
-   Declared for both pages in one rule: the two subheros are the same navy
-   band, and a copy per page is a copy to forget to update. It sits inside
-   each page's `.chips` row, so it inherits that row's flex layout for free. */
-.page-search .subhero .ai-toggle,
-.page-fiscal-notes .subhero .ai-toggle{display:inline-flex;align-items:center;gap:7px;cursor:pointer;font-family:inherit;
-  background:rgba(255,255,255,.1);border:1px solid rgba(255,255,255,.2);border-radius:var(--r-pill);
+/* ----- page-ai: the subhero band, the corpus picker, the gate --------------
+   REPLACES the per-page `.ai-toggle` rules (2026-07-31). AI Mode is its own
+   route now, so the toggle those rules styled no longer renders anywhere; they
+   are deleted rather than kept "just in case", because dead page-scoped CSS is
+   exactly what the convention at the top of this file exists to prevent. The
+   declarations themselves are re-used verbatim below for the corpus picker —
+   same band, same pill recipe, same "on" fill.
+
+   `AiModeToggle` still EXISTS in chat/AiModePanel.tsx (that file is shared and
+   was not edited by this change) but is imported by nothing. */
+
+/* The navy band, ported from the search page's subhero rules so the sub-pages
+   are one design — but COMPACT (2026-07-31), because on this page the chat
+   below it is pinned to the viewport and every pixel this band spends is a
+   pixel of conversation that is gone for good.
+   The `.lead` and `.chips` rules that used to live here are DELETED, not
+   commented out: nothing renders those classes on this page any more (see the
+   band note in Ai.tsx), and dead page-scoped CSS is exactly what the
+   convention at the top of this file exists to prevent. */
+.page-ai .subhero{position:relative;overflow:hidden;color:#fff;flex:0 0 auto;
+  background:linear-gradient(105deg,rgba(18,21,48,.94) 0%,rgba(20,23,52,.86) 60%,rgba(20,23,52,.78) 100%),url('/capitol-bg.jpg') center 28% / cover no-repeat;}
+.page-ai .subhero .wrap{position:relative;z-index:2;padding:12px 22px;}
+/* One row: title, picker, scope chip, switch warning. `flex-wrap` is the
+   safety valve — on a narrow window the row becomes two or three lines and the
+   band grows, which is correct: every item in it is load-bearing, so none of
+   them may be pushed off-screen to save height. */
+.page-ai .ai-band{display:flex;flex-wrap:wrap;align-items:center;gap:8px 14px;}
+/* 17px flat, not the sub-pages' clamp(24px,3.2vw,34px): at 34px the title alone
+   is taller than the picker beside it, which would set the height of the whole
+   row for a word the analyst reads once. */
+.page-ai .subhero h1{font-size:17px;font-weight:800;letter-spacing:-.2px;flex:0 0 auto;}
+/* The scope chip keeps the subhero `.chip` recipe verbatim; `min-width:0` +
+   ellipsis so a long scope sentence shortens rather than wrapping the row. */
+.page-ai .subhero .chip{display:inline-flex;align-items:center;gap:7px;min-width:0;background:rgba(255,255,255,.1);border:1px solid rgba(255,255,255,.2);border-radius:var(--r-pill);padding:6px 13px;font-size:12.5px;font-weight:700;color:#eef0fb;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
+
+/* The corpus picker. The retired toggle's declarations, re-scoped: the same
+   subhero `.chip` recipe with a solid-white "on" fill — the strongest contrast
+   available on this band, because "which corpus am I asking?" has to be
+   answerable at a glance. `.ai-corpus` is a 2px-gapped group so the two chips
+   read as ONE control (pick-one) rather than two independent chips. */
+.page-ai .ai-corpus{display:inline-flex;gap:2px;background:rgba(255,255,255,.07);border-radius:var(--r-pill);padding:3px;}
+.page-ai .ai-corpus-chip{display:inline-flex;align-items:center;gap:7px;cursor:pointer;font-family:inherit;
+  background:transparent;border:1px solid transparent;border-radius:var(--r-pill);
   padding:6px 13px;font-size:12.5px;font-weight:700;color:#eef0fb;transition:background .14s,border-color .14s,color .14s;}
-.page-search .subhero .ai-toggle svg,
-.page-fiscal-notes .subhero .ai-toggle svg{width:14px;height:14px;color:#9fc4ee;flex:0 0 auto;transition:color .14s;}
-.page-search .subhero .ai-toggle:hover,
-.page-fiscal-notes .subhero .ai-toggle:hover{background:rgba(255,255,255,.18);border-color:rgba(255,255,255,.4);}
-/* ON: a solid white pill on the navy band — the strongest contrast available
-   here, because "am I in AI Mode?" has to be answerable at a glance. */
-.page-search .subhero .ai-toggle.on,
-.page-fiscal-notes .subhero .ai-toggle.on{background:#fff;border-color:#fff;color:var(--navy);}
-.page-search .subhero .ai-toggle.on svg,
-.page-fiscal-notes .subhero .ai-toggle.on svg{color:var(--az-gold);}
-/* GATED (no API key / no model): the same dimming Home's inert gateway card
-   and the fiscal-notes rail's disabled search box already use. The cursor
-   says the click does nothing; the title says why. Hover is neutralized so
-   the pill does not light up under a cursor that cannot use it. */
-.page-search .subhero .ai-toggle.is-gated,
-.page-fiscal-notes .subhero .ai-toggle.is-gated{opacity:.65;cursor:not-allowed;}
-.page-search .subhero .ai-toggle.is-gated:hover,
-.page-fiscal-notes .subhero .ai-toggle.is-gated:hover{background:rgba(255,255,255,.1);border-color:rgba(255,255,255,.2);}
+.page-ai .ai-corpus-chip:hover{background:rgba(255,255,255,.18);border-color:rgba(255,255,255,.4);}
+.page-ai .ai-corpus-chip.on{background:#fff;border-color:#fff;color:var(--navy);}
+.page-ai .ai-corpus-chip.on:hover{background:#fff;border-color:#fff;}
+/* The warning that a switch discards the thread. Now inline at the end of the
+   row rather than on its own line under it — same words, no extra row. It is
+   dimmer than the chips because it is a consequence of the control, not
+   another option. `margin-left:auto` parks it at the right edge on a wide
+   window; when the row wraps it simply starts the next line. */
+.page-ai .ai-corpus-note{margin:0 0 0 auto;font-size:11.5px;font-weight:700;color:#b9c0e4;flex:0 1 auto;}
+
+/* ----- the full-page chat shell -------------------------------------------
+   RESTORES the retired app's fixed-viewport layout (Destin, 2026-07-31): "I
+   also want to bring back more of the animation/style of the original
+   ask-the-budget tool I built." The animations had all been ported faithfully;
+   what was lost was the STAGE. In the retired app the chat WAS the window
+   (`web/app/globals.css`: "the app is a fixed-viewport chat shell — html/body
+   never scroll"). The port made it a panel of clamp(440px,68vh,760px) sitting
+   inside a normal scrolling page, so the mascot had about a third of the room
+   he was drawn for.
+
+   The pin is gated on `html.ai-fullpage`, which `Ai.tsx` adds on mount and
+   removes on unmount. Nothing here may be hoisted to a bare `html`/`body`
+   selector: the other five routes are ordinary scrolling pages and a global
+   overflow:hidden would clip them with no way to reach what was cut off.
+   `src/pages/Ai.fullpage.test.tsx` reads this file and fails if it happens.
+
+   100dvh, not 100vh: on mobile 100vh means the viewport WITHOUT the browser's
+   retracted address bar, so a 100vh shell overflows by the height of that bar
+   and the composer sits under it. dvh tracks the chrome as it hides. */
+html.ai-fullpage,
+html.ai-fullpage body{height:100dvh;overflow:hidden;overscroll-behavior:none;}
+/* The height chain has to be unbroken from <html> down to the thread, or the
+   thread's own overflow never engages and it grows instead of scrolling.
+   `#root` is the mount point declared in index.html. Making it the flex column
+   — rather than giving `.page-ai` a `calc(100dvh - <header height>)` — means
+   the layout never has to KNOW how tall `header.site` is: the header takes its
+   natural height as a flex item and the page takes whatever is left. Change
+   the logo size or the nav padding and this still lines up exactly. */
+html.ai-fullpage #root{height:100%;display:flex;flex-direction:column;min-height:0;}
+html.ai-fullpage header.site{flex:0 0 auto;}
+/* .page-ai is the <main> element (the page-class convention at the top of this
+   file puts the class on <main>), so this is the page itself claiming the rest
+   of the column. min-height:0 on every link of the chain is what allows a flex
+   child to be SHORTER than its content — without it each one silently floors at
+   its content height and the whole shell overflows the viewport. */
+.page-ai{flex:1 1 auto;min-height:0;display:flex;flex-direction:column;}
+/* The stage: the band above it is fixed-height, so this absorbs the remainder.
+   Padding is trimmed from the sub-pages' 22px/30px because the panel below it
+   already draws its own border and the page never scrolls, so there is no
+   "breathing room before the fold" to buy.
+
+   width:100% is NOT redundant. `.wrap` centres itself with `margin:0 auto`, and
+   a flex item with an auto margin on the cross axis stops stretching and
+   shrink-wraps to its content instead — which collapsed the whole stage to the
+   768px message column's width (measured: 809px on a 1920px screen) and left
+   the source viewer sharing it. Asking for 100% restores the stretch; `.wrap`'s
+   own max-width still caps it at 1140px and the auto margins still centre it. */
+.page-ai .ai-stage{flex:1 1 auto;min-height:0;width:100%;display:flex;flex-direction:column;padding:12px 22px 14px;}
+/* (The former `.page-ai .wrap{padding:22px 22px 30px}` is gone: this page has
+   exactly two `.wrap`s — the band and the stage — and both now set their own
+   padding, so the general rule could only ever be overridden or unused.) */
+/* The gate (no key, or the probe still running). One sentence in the shared
+   `.card`, using the same dimming posture as Home's inert gateway card — a live
+   composer over a server that cannot answer would waste the analyst's question. */
+.page-ai .ai-gate{padding:22px 24px;font-size:14px;font-weight:700;color:var(--ink-2);}
+.page-ai .ai-gate p{margin:0;}
+.page-ai .ai-gate-reason{margin-top:8px;font-weight:600;color:var(--ink-3);}
 
 /* ----- the panel ----------------------------------------------------------
-   A fixed-height column, NOT a section that grows with the conversation. The
-   thread scrolls internally (`.chat-thread` needs a bounded flex parent —
-   Task 10's note), the composer stays reachable without scrolling down to it,
-   and each page keeps its own scroll for everything above. 68vh with a floor
-   and a ceiling keeps the thread usable on a laptop without letting it
-   swallow a tall monitor. */
+   A bounded column, NOT a section that grows with the conversation. The thread
+   scrolls internally (`.chat-thread` needs a bounded flex parent — Task 10's
+   note) and the composer stays reachable without scrolling down to it.
+
+   The clamp() here is the FALLBACK height, for any future host that mounts
+   this shared panel inside an ordinary scrolling page. On the AI route the
+   rule below replaces it with "whatever is left of the viewport". */
 .ai-panel{display:flex;flex-direction:column;height:clamp(440px,68vh,760px);margin-top:16px;
   background:var(--card);border:1px solid var(--line);border-radius:var(--r-sm);box-shadow:var(--shadow-sm);overflow:hidden;}
+/* On its own route the panel IS the page: it takes the whole stage instead of
+   a clamped slice of it, which is what gives the thread, the source column and
+   the mascot back the room the retired app gave them. `height:auto` cancels
+   the clamp above so `flex:1 1 auto` is what decides the size; `margin-top:0`
+   because `.ai-stage` already supplies the gap under the band. */
+.page-ai .ai-panel{flex:1 1 auto;min-height:0;height:auto;margin-top:0;}
 /* min-height:0 on the flex child is what lets the thread's overflow engage
    instead of the panel growing to fit its content. */
 .ai-panel-main{flex:1 1 auto;min-height:0;display:flex;flex-direction:row;}
-.ai-panel-chat{flex:1 1 auto;min-width:0;min-height:0;display:flex;flex-direction:column;}
+/* `flex:1 1 0`, not `1 1 auto` (fixed 2026-07-31 with the full-page shell).
+   With basis `auto` each column's starting size is its own CONTENT width, so
+   the split depended on what happened to be rendered — measured at 1440px it
+   gave the thread 860px and the source viewer 235px. The retired app used
+   Tailwind's `flex-1`, which is `flex:1 1 0%`: an even split regardless of
+   content. That matters beyond looks here, because `SourceView` sizes the PDF
+   from its container's `clientWidth` and renders nothing at all while that is
+   0 — a width derived from the viewer's own content is circular. */
+.ai-panel-chat{flex:1 1 0;min-width:0;min-height:0;display:flex;flex-direction:column;}
 .ai-panel-main.has-source .ai-panel-chat{border-right:1px solid var(--line);}
-.ai-panel-source{flex:1 1 auto;min-width:0;display:flex;flex-direction:column;}
+/* min-height:0 as well as min-width:0 (added with the full-page shell): at the
+   old clamped panel height the source column was short enough that its own
+   content rarely overran it. At full viewport height a PDF page plus the cited-
+   text panel comfortably does, and without min-height:0 this column would floor
+   at its content height and push the composer off the bottom of the screen
+   instead of scrolling inside itself. */
+.ai-panel-source{flex:1 1 0;min-width:0;min-height:0;display:flex;flex-direction:column;}
 /* One column below the mockup's own 860px breakpoint: a source page and a
    65ch message column cannot both be legible in half of a phone. */
 @media (max-width:860px){

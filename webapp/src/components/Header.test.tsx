@@ -10,9 +10,37 @@ test("header has nav pills for the app's surfaces", () => {
       <Header />
     </MemoryRouter>,
   );
-  for (const label of ["Home", "Budget Search", "Fiscal Notes", "Settings"]) {
+  for (const label of ["Home", "Budget Documents", "Fiscal Notes", "Settings"]) {
     expect(screen.getByRole("link", { name: label })).toBeInTheDocument();
   }
+});
+
+// AI Mode's nav pill (Destin, 2026-07-31). Three things are pinned because each
+// was an explicit instruction: it is a real route (not a toggle on another
+// page), it is ICON-ONLY with the accessible name carried by aria-label + title
+// exactly as the house pill does it, and it sits apart from the corpus pills on
+// the right (`.nav-ai`, which is the hook the right-alignment CSS keys off).
+test("AI Mode is an icon-only pill on the right of the nav", () => {
+  render(
+    <MemoryRouter>
+      <Header />
+    </MemoryRouter>,
+  );
+  const ai = screen.getByRole("link", { name: "AI Mode" });
+  expect(ai).toHaveAttribute("href", "/ai");
+  expect(ai).toHaveAttribute("title", "AI Mode");
+  // No visible text — the accessible name comes from aria-label alone, same as
+  // Home. A label appearing here would read as a fourth place to browse.
+  expect(ai.textContent).toBe("");
+  const glyph = ai.querySelector("svg.ai-ic");
+  expect(glyph).not.toBeNull();
+  // Same construction as the house glyph: stroke-only, no fills.
+  expect(glyph).toHaveAttribute("fill", "none");
+  expect(glyph).toHaveAttribute("stroke", "currentColor");
+  expect(glyph).toHaveAttribute("aria-hidden", "true");
+  // The right-aligned slot. Markup-side only (jsdom applies no stylesheet), so
+  // keep this class and the `.nav-item.nav-ai` rule in app.css in step by hand.
+  expect(ai.closest(".nav-item")).toHaveClass("nav-ai");
 });
 
 // Pins the one CSS deviation from the mockup: it styles the azure pill via

@@ -11,7 +11,7 @@ import * as api from "../api";
 import { AI_STATUS } from "./ai-test-fixtures";
 
 describe("Home — AI card", () => {
-  it("lights up as a link to /search when AI is available", async () => {
+  it("lights up as a link to /ai when AI is available", async () => {
     vi.spyOn(api, "aiStatus").mockResolvedValue(AI_STATUS);
     render(
       <MemoryRouter>
@@ -19,7 +19,9 @@ describe("Home — AI card", () => {
       </MemoryRouter>,
     );
     const card = await screen.findByRole("link", { name: /ai mode/i });
-    expect(card).toHaveAttribute("href", "/search");
+    // /ai since 2026-07-31 — AI Mode is its own surface, not a toggle that
+    // happened to live on the search page.
+    expect(card).toHaveAttribute("href", "/ai");
     expect(screen.getByText(/AI Mode available/)).toBeInTheDocument();
     expect(screen.queryByText(/Coming soon/)).toBeNull();
     expect(card).not.toHaveClass("is-disabled");
