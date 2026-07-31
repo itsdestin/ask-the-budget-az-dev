@@ -274,7 +274,16 @@ _settings_stamp: tuple[str, float, int] | None = None
 
 
 def reset_settings_cache() -> None:
-    """Test-only: force the next load_settings() to re-stat and re-parse.
+    """Force the next load_settings() to re-stat and re-parse.
+
+    Two callers, both legitimate. (1) Tests, per the original reason
+    below. (2) Plan 5's admin route, immediately after `save_settings` —
+    it must then re-read from disk to build its response, and the cache
+    stamp is `(path, mtime, size)`, so a write that lands in the same
+    coarse mtime tick AND happens to produce the same file size would
+    otherwise serve the admin their PREVIOUS settings as confirmation of
+    the save they just made. Dropping the cache after a write we know
+    happened is cheaper than making the stamp finer-grained and hoping.
 
     _document_metadata() in retrieval/api.py never needed a reset hook
     because its tests always repoint JLBC_DATA_DIR at a fresh tmp_path
