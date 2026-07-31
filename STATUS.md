@@ -469,6 +469,58 @@ As of 2026-07-31:
 
 ### Known follow-ups (Plan 5 unless noted)
 
+**Found during the 2026-07-31 Z13 backfill run (see `~/backfill-progress.log`
+on that machine and the ROCm investigation doc). The first two are
+handoff-blocking — they degrade the office experience silently.**
+
+- **🔴 `IngestWorker` is constructed at startup but never `.start()`ed.**
+  Only the upload POST route starts it. Consequence on the shared drive:
+  a colleague's queued job sits untouched until somebody on *that* machine
+  uploads something — ingest appears to hang for no visible reason. Start
+  the worker in the app factory (`ensure_started`) so any running instance
+  drains the queue.
+- **🔴 `make_doc_id()` collision silently DROPS a document.** It files
+  `detailed-list-pdf` under "approps" regardless of family, so a baseline
+  and an approps doc can generate the same doc_id and the second write
+  replaces the first. Audited all 5,320 in-scope book docs: exactly one
+  true collision today (FY2026 Baseline staff directory vs FY2026 Approps
+  "General Fund and Other Fund Adjustments", both `jlbc-approps-fy2026-508`),
+  and run order means the substantive doc survives. Fix the id scheme to
+  include the family before the next large ingest.
+- **Pre-fetched PDFs landed in the wrong directory for ingest.**
+  `ingest/cache.py`'s `DownloadCache` writes `data/cached-pdfs/` but the
+  worker reads `<data_dir>/pdfs/`. Worked around during the backfill by
+  hardlinking 7,479 blobs (0 extra GB). Decide on one canonical location —
+  two caches for the same bytes is a trap for whoever maintains this next.
+- **`optimize()` never drops superseded LanceDB versions** (previously
+  noted, now quantified): 200 MB of on-disk table held 39 MB of live data,
+  and the untouched migration-era `budget_chunks` was already ~50% dead
+  weight. One-line fix: pass `cleanup_older_than` / expose
+  `cleanup_old_versions`. Matters most on the SMB share.
+- **Bulk-ingest snapshot mode exists** (`JLBC_INGEST_SNAPSHOT=off`, shipped
+  2026-07-31 after the per-document S17 snapshot was measured as O(n²) on a
+  bulk run: it re-zips all of `lancedb/` per document). Adopting it during
+  the backfill took throughput 89.3 → 96.4 docs/hour and flattened a curve
+  that was decaying toward ~25 docs/hour. **Better long-term design: snapshot
+  once per BATCH** (per book edition / per fiscal-note session) rather than
+  per document, so bulk runs keep protection without the quadratic cost.
+- **Safe parallel ingest is the single biggest speedup available.** The
+  worker is single-writer by design and concurrent workers would fight over
+  each other's in-flight jobs on restart. With per-job claiming under the
+  existing lock, a 32-thread machine could cut a multi-day backfill to hours.
+- **MinerU 3.4.4 vs the pinned 3.1.6** — measured 1.35× faster on plain CPU
+  (28.5s vs 38.5s on an 8-page doc; beats the ROCm GPU path outright),
+  device-invariant output, and it fixes a table row-misalignment seen at
+  3.1.6. Changes chunk text corpus-wide ⇒ needs an eval-gated evaluation and
+  a re-ingest decision. Worth ~16h on a full backfill.
+- **ROCm GPU MinerU: tested, rejected, do not re-litigate without new
+  evidence.** Works trivially on gfx1151 (torch 2.13+rocm7.2, no
+  `HSA_OVERRIDE`), but break-even is ~5 pages against a 2-page corpus median
+  (CPU ≈61h vs GPU ≈63h over the real backfill mix — it's an APU sharing one
+  power budget), and at MinerU 3.1.6 it produced device-dependent table
+  extraction that put a real dollar figure on the wrong budget line. Full
+  evidence: `docs/superpowers/investigations/2026-07-31-rocm-mineru-benchmark.md`.
+
 - **Prompt caching is not requested.** The system prompt renders at ~40 KB
   (~13.5K tokens) and is resent on every step — up to 50 in a Deep Research
   turn. Every candidate model prices cache reads ~10× below input. This is the
