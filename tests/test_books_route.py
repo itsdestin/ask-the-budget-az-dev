@@ -162,3 +162,42 @@ def test_a_discovery_failure_queues_nothing(make_client):
                     json={"family": "approps", "fiscal_year": 2029})
     assert r.status_code == 502
     assert load_all() == []
+
+
+# --- doc_id family disambiguation (2026-07-31) -------------------------------
+# This route is the ONLY place that knows which book a discovered document
+# came out of, so it is the only place that can stop two books' sections from
+# colliding on one doc_id. See tests/test_driver.py for the id scheme itself.
+
+
+def test_baseline_sections_are_not_queued_under_approps_ids(client):
+    """A baseline section must never be filed under an approps doc_id.
+
+    `26baseline/508.pdf` and `26ar/508.pdf` both classify as
+    `detailed-list-pdf`. Before the family reached `make_doc_id` they both
+    minted `jlbc-approps-fy2026-508`, so whichever ran second replaced the
+    other and one document was silently lost.
+    """
+    client.post("/api/books/ingest",
+                json={"family": "baseline", "fiscal_year": 2026})
+    by_url = {j.source_url.lower(): j.doc_id for j in load_all()}
+    assert by_url["https://www.azjlbc.gov/26baseline/508.pdf"] == \
+        "jlbc-baseline-fy2026-508"
+    # Every job from the baseline book is namespaced to the baseline book.
+    assert not [d for d in by_url.values() if d.startswith("jlbc-approps-")]
+
+
+def test_the_two_books_never_queue_the_same_doc_id(client):
+    """End-to-end guard: enqueue BOTH FY2026 books, expect zero id reuse."""
+    client.post("/api/books/ingest",
+                json={"family": "baseline", "fiscal_year": 2026})
+    client.post("/api/books/ingest",
+                json={"family": "approps", "fiscal_year": 2026})
+
+    jobs = load_all()
+    by_id: dict[str, set[str]] = {}
+    for job in jobs:
+        by_id.setdefault(job.doc_id, set()).add(job.source_url.lower())
+    collisions = {k: v for k, v in by_id.items() if len(v) > 1}
+    assert not collisions, f"doc_id reused across documents: {collisions}"
+    assert len(by_id) == len(jobs)

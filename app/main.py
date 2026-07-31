@@ -10,6 +10,7 @@ unmatched /api/ paths get a JSON 404 instead.
 from __future__ import annotations
 
 import sys
+from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import Callable
 
@@ -61,6 +62,60 @@ def _default_provider() -> SearchProvider:
     )
     return StubSearchProvider()
 
+
+@asynccontextmanager
+async def _lifespan(app: FastAPI):
+    """Start the ingest queue when the server starts; stop it when it stops.
+
+    WHY this exists at all: the worker used to be built here but only ever
+    STARTED by the upload route, so on the shared office drive a colleague's
+    queued job sat untouched until somebody on this machine happened to upload
+    a file. Ingest looked hung with no error and nothing in the UI to explain
+    it. Any running server must drain the queue.
+
+    WHY a lifespan handler rather than a line in `create_app`: constructing the
+    app and running it are different things. Building an app object to poke at
+    its routes (which every route test does) must not spawn threads or load an
+    embedding model; only actually *serving* should. Starlette runs this on
+    real startup and when a test opts in with `with TestClient(app)`.
+    """
+    from ingest.worker import ensure_started
+
+    # `create_app(ingest_worker=None)` is the explicit opt-out: this process
+    # serves but must not run ingest. It has to be checked here because
+    # `ensure_started` BUILDS a worker when it finds none attached, which would
+    # turn the opt-out into a no-op.
+    if getattr(app.state, "ingest_worker", None) is None:
+        yield
+        return
+
+    try:
+        ensure_started(app)
+    except Exception as e:  # noqa: BLE001
+        # Ingest is one feature; search, fiscal notes and AI Mode are others.
+        # Losing the whole server because the queue could not start would take
+        # down the very UI that explains what is wrong. Report the REAL error —
+        # a hardcoded guess here would send whoever debugs it down the wrong path.
+        print(
+            f"jlbc-insight: the ingest queue did not start ({type(e).__name__}: {e}). "
+            "Search still works; uploads will queue but not run until this is "
+            "fixed and the server is restarted.",
+            file=sys.stderr,
+            flush=True,
+        )
+    yield
+    worker = getattr(app.state, "ingest_worker", None)
+    if worker is not None:
+        # Short join, not the 5s default: a worker part-way through a document
+        # will not notice the stop flag until that document finishes (minutes),
+        # and holding Ctrl-C hostage for that is worse than letting the daemon
+        # threads die with the process.
+        try:
+            worker.stop(timeout_s=0.1)
+        except Exception:  # noqa: BLE001 — shutdown must not raise
+            pass
+
+
 DEFAULT_STATIC_DIR = Path(__file__).resolve().parent.parent / "webapp" / "dist"
 # Sentinel: distinguishes "caller passed nothing" (use the real webapp/dist)
 # from "caller explicitly passed None" (simulate an unbuilt UI). A plain None
@@ -74,7 +129,7 @@ def create_app(
     session_factory: Callable[..., object] | None = None,
     ingest_worker: object | None = _MISSING,
 ) -> FastAPI:
-    app = FastAPI(title="JLBC Insight")
+    app = FastAPI(title="JLBC Insight", lifespan=_lifespan)
     # Explicit None check, not `provider or ...`: an injected provider object
     # could be falsy (e.g. a fake defining __len__/__bool__) and get silently
     # swapped for the default, which would be a baffling test failure.
@@ -104,10 +159,10 @@ def create_app(
     app.include_router(jobs_router)
     app.include_router(books_router)
 
-    # The ingest worker is created but NOT started here — starting it builds
-    # the embedding model, and a machine that only searches should never pay
-    # that cost. The upload route starts it on the first upload. Tests inject
-    # a no-op so a route test never spawns a thread.
+    # The worker is only CONSTRUCTED here — `_lifespan` above starts it when
+    # the server actually starts serving. Constructing is cheap; the embedding
+    # model is built lazily on the worker's first job, so an app object made
+    # by a route test costs nothing. Tests inject a no-op to opt out entirely.
     if ingest_worker is _MISSING:
         from ingest.worker import IngestWorker
 

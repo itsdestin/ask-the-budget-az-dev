@@ -152,6 +152,11 @@ _JLBC_APPROPS_DOC_TYPES = frozenset({
     "bh-pdf", "bd-pdf", "detailed-list-pdf", "approps-per-agency",
 })
 
+# The two JLBC report families. A "family" is which BOOK a document came out
+# of; the class above is only a guess at that, inferred from the filename
+# convention the section happens to follow.
+_JLBC_FAMILIES = frozenset({"baseline", "approps"})
+
 
 def make_doc_id(
     *,
@@ -160,9 +165,36 @@ def make_doc_id(
     fiscal_year: int,
     filename: str | None = None,
     bill_id: str | None = None,
+    family: str | None = None,
 ) -> str:
-    """Construct the stable doc_id for one ingest item."""
+    """Construct the stable doc_id for one ingest item.
+
+    `family` ("baseline" | "approps") is which JLBC book the document came
+    out of, and callers that know it MUST pass it.
+
+    WHY it has to be part of the identity: both books number their sections
+    with the same conventions, so `doc_type` alone cannot tell them apart.
+    `508.pdf` is a detailed-list filename in BOTH books, and `capitaloutlay.pdf`
+    is a topic filename in both — so without the family two different documents
+    of the same fiscal year mint the SAME doc_id, and because a write is an
+    upsert the second one silently replaces the first. Two such pairs were
+    found in the FY2026 corpus; nothing errored, a document just vanished.
+
+    Passing the family only changes the id for the shape that was misfiled in
+    the first place (family != the class its doc_type implies) — every other
+    document keeps the exact id the live corpus and `eval/queries.yaml` already
+    depend on. Callers that genuinely do not know the family (a person
+    uploading a file by hand, singleton publishers) omit it and get the legacy
+    id unchanged.
+    """
     fy_str = f"fy{fiscal_year:04d}"
+
+    if family is not None and family not in _JLBC_FAMILIES:
+        # Loud, not lenient: a typo'd family would quietly mint a whole third
+        # namespace of ids that no search or citation would ever resolve.
+        raise ValueError(
+            f"family must be one of {sorted(_JLBC_FAMILIES)} or None, got {family!r}"
+        )
 
     if publisher == "jlbc":
         if doc_type in _JLBC_BASELINE_DOC_TYPES:
@@ -171,6 +203,12 @@ def make_doc_id(
             class_ = "approps"
         else:
             class_ = doc_type
+        # The family is the ground truth; the doc_type-derived class is only a
+        # proxy for it. Where they disagree the proxy is simply wrong, so the
+        # family wins. Where they agree — which is every document except the
+        # misfiled shape — the id is byte-identical to the legacy one.
+        if family is not None and class_ in _JLBC_FAMILIES:
+            class_ = family
         if filename is None:
             return f"{publisher}-{class_}-{fy_str}"
         stem = Path(filename).stem
@@ -184,6 +222,20 @@ def make_doc_id(
 # ----------------------------------------------------------------------------
 # Target resolution
 # ----------------------------------------------------------------------------
+
+
+def _family_of(target: IngestTarget) -> str | None:
+    """Which JLBC book a plan target draws from, or None if it isn't a book.
+
+    Plan doc_types are already family-prefixed (`baseline-cross-cut`,
+    `approps-per-agency`), so the family is sitting right there — it just
+    never reached `make_doc_id`, which is how the two books ended up able to
+    mint the same id for different documents.
+    """
+    if target.publisher != "jlbc":
+        return None
+    head = target.doc_type.split("-", 1)[0]
+    return head if head in _JLBC_FAMILIES else None
 
 
 def _entry_to_item(
@@ -209,6 +261,7 @@ def _entry_to_item(
         doc_type=leaf_doc_type,
         fiscal_year=target.fiscal_year,
         filename=filename,
+        family=_family_of(target),
     )
     return IngestItem(
         publisher=target.publisher,
