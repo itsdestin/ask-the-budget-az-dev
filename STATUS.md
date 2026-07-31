@@ -604,6 +604,25 @@ handoff-blocking — they degrade the office experience silently.**
   better long-term design is a per-BATCH snapshot — once per book edition /
   fiscal-note session rather than per document — which keeps a restore point
   without the quadratic cost.
+- **Parallel ingest exists (`JLBC_INGEST_WORKERS=N`, branch
+  `parallel-ingest`, 2026-07-31)** — N worker threads each claim their own
+  job and extract concurrently; the write phase stays strictly serialized
+  behind `IngestLock`. Default is 1 = today's behaviour, and anything that
+  isn't a number above 1 (typo, blank, `0`) means 1. The request is clamped
+  to `min(8, cpu_count/4)` so the same variable typed on a 4-core office PC
+  clamps to 1, and the clamp is announced on stderr. Ownership is decided by
+  `ingest/claim.py` — an atomic exclusive-create claim file per job AND per
+  doc_id, with a heartbeat thread and stale-steal, mirroring `ingest/lock.py`.
+  Measured input: a MinerU extraction averages ~3.2 CPU cores (peak ~7) and
+  ~2.1 GB RSS (peak ~3.0 GB) across its 2–3 processes, and is ~90% of a
+  document's wall clock. Two pre-existing concurrency defects were fixed on
+  the way: the old lock-based claim was a non-atomic read-then-write (two
+  workers could both take a job) and it stopped claiming entirely whenever
+  any machine held the write lock; and both the lock and claim files could be
+  read empty by a racing acquirer mid-create, which read as "corrupt" → "stale"
+  → **steal**, i.e. two writers on one corpus. Creation is now a single
+  `os.write` and an unreadable file gets 1s to settle before it is judged
+  corrupt.
 
 ---
 

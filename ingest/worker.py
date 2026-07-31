@@ -38,6 +38,26 @@ during a long extraction is fine.
 
 Only the exact word `off` disables it. Any other value (including a typo
 like `false`) keeps snapshots on — losing the safety net must take intent.
+
+`JLBC_INGEST_WORKERS` — how many documents to process at once.
+
+- unset, or `1` (the DEFAULT): today's behaviour exactly. One document at a
+  time. The office install must never change unless someone deliberately
+  changes it.
+- `N` > 1: **opt-in parallel mode, for a supervised backfill on a machine
+  with cores to spare.** N worker threads each claim their own job and run
+  extraction concurrently; the write phase stays strictly serialized behind
+  `IngestLock`, so the single-writer invariant is untouched.
+
+WHY this is worth having: measured on the 2026-07-31 backfill machine, a
+MinerU extraction averages ~3.2 CPU cores (peaking near 7) and ~2.1 GB RSS
+(peaking near 3.0 GB) across its 2–3 processes, and it is ~90% of a
+document's wall clock. One worker therefore leaves ~28 of 32 threads idle.
+The write phase — the part that CANNOT overlap — is seconds per document.
+
+The value is clamped (see `configured_worker_count`) to both a hard ceiling
+and a CPU-derived one, because the same env var typed on a 4-core office PC
+would otherwise make that PC unusable and swap-thrash on MinerU's RAM.
 """
 from __future__ import annotations
 
@@ -57,6 +77,7 @@ from chunking.entity_stamper import EntityStamper
 from chunking.types import Chunk, DocMeta
 from ingest import dispatcher
 from ingest.cache import DownloadCache
+from ingest.claim import JobClaim
 from ingest.jobs import (
     TERMINAL_STATES,
     JobRecord,
@@ -68,7 +89,7 @@ from ingest.jobs import (
     save,
 )
 from ingest.lance_writer import build_title, write_doc
-from ingest.lock import IngestLock, LockHeldError
+from ingest.lock import IngestLock
 from ingest.mineru_runner import MineruCancelled, MineruRunner
 from ingest.validate import validate_doc
 from store.backup import snapshot
@@ -94,6 +115,38 @@ SNAPSHOT_SUPPRESSED_MESSAGE = (
     f"jlbc-insight: corpus snapshot suppressed by {SNAPSHOT_ENV_VAR}={SNAPSHOT_OFF} "
     "— bulk mode; ensure you have an external archive of <data_dir>/lancedb/."
 )
+
+# Parallel ingest. Same shape as the snapshot switch above: the default is a
+# literal here, not "whatever the env happens to say", so reading this line
+# tells you what an unset environment does.
+WORKERS_ENV_VAR = "JLBC_INGEST_WORKERS"
+DEFAULT_WORKERS = 1
+
+# Hard ceiling regardless of hardware. Beyond ~8 concurrent extractions the
+# LanceDB write phase and the shared embedder stop being free, and the queue
+# journal — one small file per job on an SMB share, re-read by every worker
+# every poll — starts costing more than it saves.
+MAX_WORKERS = 8
+
+# A MinerU extraction was measured at ~3.2 CPU cores mean / ~7 peak, so give
+# each worker four threads' worth of headroom. This is what stops
+# `JLBC_INGEST_WORKERS=8` from bricking a 4-core office PC: there, it clamps
+# to 1 and the machine behaves exactly as it does today.
+THREADS_PER_WORKER = 4
+
+# How long a worker will wait for the corpus lock before failing its job.
+# Generous because the wait is EXPECTED in parallel mode: while one worker
+# writes, the others queue behind it. Still bounded, so a wedged writer on
+# another machine eventually surfaces as a failed job rather than a queue
+# that has silently stopped.
+WRITE_LOCK_WAIT_S = 1800.0
+
+# One embedding at a time inside this process. The ONNX embedder is a single
+# shared model (loading one per worker would cost hundreds of MB each for a
+# stage that is seconds long), and serializing it sidesteps every question
+# about whether fastembed's session is thread-safe. At N=1 this lock is
+# uncontended and costs nothing measurable, so the default path is unchanged.
+_EMBED_MUTEX = threading.Lock()
 
 
 class JobCancelled(RuntimeError):
@@ -124,6 +177,12 @@ class WorkerContext:
     # it None so dispatcher.pick_extractor routes by (doc_type, format).
     extractor: Any | None = None
     agency_names: dict[str, str] = field(default_factory=id_to_name)
+    # How long the write phase waits for the corpus lock, or None to decide
+    # from `JLBC_INGEST_WORKERS`. It lives on the context rather than as a
+    # parameter because `run_job()` is called directly — by tests and by the
+    # resume path — and threading a plumbing argument through four call sites
+    # would just be four places to forget it.
+    write_lock_wait_s: float | None = None
 
     @classmethod
     def default(cls) -> "WorkerContext":
@@ -319,9 +378,13 @@ def _embed(
         # input_type="document" is not a formality: the model is asymmetric,
         # and embedding passages with the query instruction quietly degrades
         # every future search against this document.
-        vectors.extend(
-            ctx.embedder.embed_batch([c.text for c in batch], input_type="document")
-        )
+        # The mutex serializes the ONE shared ONNX model across workers; see
+        # _EMBED_MUTEX. Held per BATCH, not per document, so a long document
+        # can't starve a short one.
+        with _EMBED_MUTEX:
+            vectors.extend(
+                ctx.embedder.embed_batch([c.text for c in batch], input_type="document")
+            )
         done = min(start + EMBED_BATCH, total)
         _progress(
             job, "embedding",
@@ -340,7 +403,15 @@ def _write(
 ) -> None:
     """The only stage that mutates shared state. Lock → snapshot → write."""
     _progress(job, "writing", pct=0, detail="waiting for the corpus lock")
-    with IngestLock() as lock:
+    # WHY the conditional wait: at one worker, a held lock means ANOTHER
+    # MACHINE is writing, and failing fast (today's behaviour) is the honest
+    # answer. In parallel mode the holder is usually a sibling thread that
+    # will be done in seconds, and failing the job would turn every
+    # concurrency win into a failed document.
+    wait_s = ctx.write_lock_wait_s
+    if wait_s is None:
+        wait_s = WRITE_LOCK_WAIT_S if configured_worker_count() > 1 else 0.0
+    with IngestLock(wait_s=wait_s) as lock:
         # WHY the guard: `snapshot()` zips the ENTIRE corpus, so the cost of a
         # snapshot grows with the corpus while the NUMBER of snapshots grows
         # with the documents — fine for the office's occasional uploads
@@ -399,6 +470,46 @@ def _write(
         _progress(job, "writing", pct=90, detail="")
 
 
+def configured_worker_count() -> int:
+    """How many documents to process at once, after clamping.
+
+    Fails SAFE in every direction: unset, empty, a typo, zero, or a negative
+    number all mean 1 (today's behaviour). A number above what the hardware
+    can carry is clamped down and the clamp is announced, because a silent
+    clamp would have the operator believe a backfill is running 8-wide when
+    it is running 2-wide, and mis-plan the night around it.
+    """
+    raw = os.environ.get(WORKERS_ENV_VAR, "").strip()
+    if not raw:
+        return DEFAULT_WORKERS
+    try:
+        requested = int(raw)
+    except ValueError:
+        return DEFAULT_WORKERS
+    if requested <= 1:
+        return DEFAULT_WORKERS
+
+    cpu_ceiling = max(1, (os.cpu_count() or 1) // THREADS_PER_WORKER)
+    return min(requested, MAX_WORKERS, cpu_ceiling)
+
+
+def _parallel_announcement(count: int) -> str:
+    requested = os.environ.get(WORKERS_ENV_VAR, "").strip()
+    clamped = (
+        f" (clamped from {requested}; ceiling is min({MAX_WORKERS}, cpus/"
+        f"{THREADS_PER_WORKER}={max(1, (os.cpu_count() or 1) // THREADS_PER_WORKER)}))"
+        if requested and requested.isdigit() and int(requested) != count
+        else ""
+    )
+    return (
+        f"jlbc-insight: PARALLEL INGEST — {count} workers{clamped}, set by "
+        f"{WORKERS_ENV_VAR}={requested}. Extraction runs concurrently; corpus "
+        "writes stay serialized behind the single-writer lock. Expect roughly "
+        f"{count} × the RAM MinerU uses (~2-3 GB per concurrent document). "
+        f"Unset {WORKERS_ENV_VAR} to return to one-at-a-time ingest."
+    )
+
+
 def _snapshot_suppressed() -> bool:
     """True only when the operator explicitly asked for bulk mode.
 
@@ -414,11 +525,17 @@ def _snapshot_suppressed() -> bool:
 
 
 class IngestWorker:
-    """Polls the job journal and runs one document at a time.
+    """Polls the job journal and runs documents through the pipeline.
 
-    Deliberately serial. Two documents extracting at once on a 16 GB office
-    PC means both crawl and the machine becomes unusable — and the write
-    phase is single-writer anyway.
+    One document at a time by default — two extractions on a 16 GB office PC
+    means both crawl and the machine becomes unusable. `JLBC_INGEST_WORKERS`
+    opts a big machine into N at once; see the module docstring.
+
+    Ownership of a job is decided by `ingest.claim.JobClaim`, an atomic
+    exclusive-create per job, NOT by the corpus lock. That distinction is the
+    whole design: extraction (hours) needs no lock, the write phase (seconds)
+    needs an exclusive one, and conflating them would make N workers exactly
+    as slow as one.
     """
 
     def __init__(
@@ -426,38 +543,58 @@ class IngestWorker:
         *,
         ctx: WorkerContext | None = None,
         poll_interval_s: float = DEFAULT_POLL_INTERVAL_S,
+        workers: int | None = None,
     ) -> None:
         self._ctx = ctx
+        self._ctx_lock = threading.Lock()
         self._poll_interval_s = poll_interval_s
+        # None means "read the environment at start()". An explicit number
+        # (tests, and any future admin toggle) wins over the env var.
+        self._workers = workers
         self._stop = threading.Event()
-        self._thread: threading.Thread | None = None
+        self._threads: list[threading.Thread] = []
 
     @property
     def context(self) -> WorkerContext:
         # Built lazily: constructing it loads the embedding model, which must
         # not happen at import time or in a test that never ingests anything.
-        if self._ctx is None:
-            self._ctx = WorkerContext.default()
-        return self._ctx
+        # Under the lock because N workers start at once and would otherwise
+        # each build (and then discard) their own copy of the model.
+        with self._ctx_lock:
+            if self._ctx is None:
+                self._ctx = WorkerContext.default()
+            return self._ctx
+
+    @property
+    def worker_count(self) -> int:
+        return self._workers if self._workers is not None else configured_worker_count()
 
     def start(self) -> None:
-        if self._thread is not None and self._thread.is_alive():
+        if any(t.is_alive() for t in self._threads):
             return
-        # Announce bulk mode BEFORE the first document, not after: an operator
-        # who set the variable in the wrong shell needs to find out now.
+        # Announce bulk/parallel mode BEFORE the first document, not after: an
+        # operator who set the variable in the wrong shell needs to find out
+        # now, while the run can still be restarted cheaply.
         if _snapshot_suppressed():
             print(SNAPSHOT_SUPPRESSED_MESSAGE, file=sys.stderr, flush=True)
+        count = self.worker_count
+        if count > 1:
+            print(_parallel_announcement(count), file=sys.stderr, flush=True)
         self._stop.clear()
-        self._thread = threading.Thread(
-            target=self._loop, name="ingest-worker", daemon=True
-        )
-        self._thread.start()
+        self._threads = [
+            threading.Thread(
+                target=self._loop, name=f"ingest-worker-{i}", daemon=True
+            )
+            for i in range(count)
+        ]
+        for thread in self._threads:
+            thread.start()
 
     def stop(self, timeout_s: float = 5.0) -> None:
         self._stop.set()
-        if self._thread is not None:
-            self._thread.join(timeout=timeout_s)
-            self._thread = None
+        threads, self._threads = self._threads, []
+        for thread in threads:
+            thread.join(timeout=timeout_s)
 
     def run_one(self, job: JobRecord) -> None:
         """Run one job, converting any failure into a `failed` job record.
@@ -466,11 +603,18 @@ class IngestWorker:
         bad document, and the user needs the reason on the queue page rather
         than in a log file they'll never open.
         """
+        ctx = self.context
+        # In parallel mode a busy corpus lock means a SIBLING is writing and
+        # will be done in seconds — waiting is correct. At one worker it means
+        # another machine is writing, and failing fast stays the honest
+        # answer, so this is only ever raised, never lowered.
+        if self.worker_count > 1 and ctx.write_lock_wait_s is None:
+            ctx.write_lock_wait_s = WRITE_LOCK_WAIT_S
         try:
             if job.kind == "refresh":
                 run_refresh_job(job)
             else:
-                run_job(job, self.context)
+                run_job(job, ctx)
         except JobCancelled:
             _finish_cancelled(job)
         except Exception as exc:  # noqa: BLE001 — every failure is a job failure
@@ -480,47 +624,77 @@ class IngestWorker:
     # --- internals ----------------------------------------------------------
 
     def _loop(self) -> None:
-        try:
-            for job in resumable():
-                if self._stop.is_set():
-                    return
-                self.run_one(job)
-        except Exception:  # noqa: BLE001
-            traceback.print_exc()
-
-        while not self._stop.wait(self._poll_interval_s):
+        """Claim → run → release, forever. One of these per worker thread."""
+        while not self._stop.is_set():
             try:
-                job = self._claim_next()
+                claimed = self._claim_next()
             except Exception:  # noqa: BLE001 — a share hiccup must not end the loop
                 traceback.print_exc()
+                claimed = None
+
+            if claimed is None:
+                if self._stop.wait(self._poll_interval_s):
+                    return
                 continue
-            if job is not None:
+
+            job, claim = claimed
+            try:
                 self.run_one(job)
+            finally:
+                # Always, even on a crash inside run_one (which shouldn't
+                # happen — it swallows everything — but a leaked claim parks
+                # that document for the whole stale window).
+                claim.release()
 
-    def _claim_next(self) -> JobRecord | None:
-        """Take the oldest queued job, stamping this machine on it.
+    def _claim_next(self) -> tuple[JobRecord, JobClaim] | None:
+        """Take exclusive ownership of the next job this worker should run.
 
-        The claim happens under the ingest lock so two office machines
-        running the app can't both start the same document. The lock is
-        released immediately — it's the write phase that needs to hold it,
-        not the hours of extraction before it.
+        Resumable work first, then the queue, oldest first in both. Resumable
+        jobs come first because their extractor output is already on the
+        share: finishing one costs minutes, while starting a fresh document
+        costs an hour.
+
+        WHY no `IngestLock` here any more: it never actually did this job.
+        The write phase holds that lock for the duration of a write, so a
+        lock-based claim silently STOPPED claiming whenever any machine was
+        mid-write — and with several workers that would collapse the whole
+        pool down to one. Worse, the old claim was a read-then-write of the
+        job file, which cannot be atomic: two workers reading "queued" a
+        microsecond apart both wrote "mine". `JobClaim` is an atomic
+        exclusive-create, so exactly one worker can win.
         """
-        queued = [j for j in load_all() if j.state == "queued"]
-        if not queued:
-            return None
-        try:
-            with IngestLock():
-                for candidate in reversed(queued):  # oldest first
-                    fresh = load_job(candidate.job_id)
-                    if fresh is None or fresh.state != "queued":
-                        continue
-                    fresh.machine = socket.gethostname()
-                    save(fresh)
-                    return fresh
-        except LockHeldError:
-            # Another machine is mid-write. Try again next poll.
-            return None
+        for candidate in self._candidates():
+            if self._stop.is_set():
+                return None
+            claim = JobClaim(candidate.job_id, doc_id=candidate.doc_id)
+            if not claim.try_acquire():
+                continue  # a sibling worker, or another machine, has it
+
+            # Re-read under the claim. The listing that produced this
+            # candidate may be seconds old: the job could have been cancelled,
+            # retried, or finished by whoever held the claim before us.
+            fresh = load_job(candidate.job_id)
+            if fresh is None or fresh.state in TERMINAL_STATES:
+                claim.release()
+                continue
+            if fresh.state != "queued" and fresh.machine != socket.gethostname():
+                # Mid-flight on ANOTHER machine, whose extractor output we
+                # can read but whose progress we shouldn't hijack.
+                claim.release()
+                continue
+
+            if fresh.state == "queued":
+                # Same stamp the serial worker wrote — this is what the queue
+                # page shows as "who is running this".
+                fresh.machine = socket.gethostname()
+                save(fresh)
+            return fresh, claim
         return None
+
+    def _candidates(self) -> list[JobRecord]:
+        """Jobs worth attempting, best first: our resumable work, then queued."""
+        queued = [j for j in reversed(load_all()) if j.state == "queued"]
+        return resumable() + queued
 
 
 def ensure_started(app: Any) -> IngestWorker:
