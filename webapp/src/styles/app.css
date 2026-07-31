@@ -1238,3 +1238,112 @@ nav.primary{flex:1 1 auto;display:flex;flex-wrap:nowrap;align-items:center;justi
 .page-upload .up-book-row select{width:100%;}
 .page-upload .up-book-plan{margin-top:12px;}
 .page-upload .up-book-bad{list-style:none;margin:6px 0 0;padding:0;display:grid;gap:4px;font-size:12px;color:var(--ink-3);word-break:break-all;}
+
+/* ===== AI Mode ===== (Plan 4 Task 12 — the toggle, the tier control, the panel)
+ *
+ * Two page-scoped rules (the header pill, which sits on each page's navy
+ * `.subhero` band) plus one component block (`.ai-*`, unprefixed by page
+ * because the panel is mounted identically by Search and Fiscal Notes — the
+ * same role the `chat-` prefix plays for the chat surfaces above).
+ *
+ * NO NEW VALUES. The pill is the subhero's own `.chip` recipe with an "on"
+ * fill borrowed from `.chseg.on`; the tier control is the fiscal-notes
+ * `.chswitch`/`.chseg` segmented control; the explainer panel reuses the
+ * `.sortmenu` card recipe (white, --line border, --shadow). The one invented
+ * number is the panel's height, which is a layout constant rather than a
+ * design one — see the note on it.
+ */
+
+/* ----- the header pill ----------------------------------------------------
+   Declared for both pages in one rule: the two subheros are the same navy
+   band, and a copy per page is a copy to forget to update. It sits inside
+   each page's `.chips` row, so it inherits that row's flex layout for free. */
+.page-search .subhero .ai-toggle,
+.page-fiscal-notes .subhero .ai-toggle{display:inline-flex;align-items:center;gap:7px;cursor:pointer;font-family:inherit;
+  background:rgba(255,255,255,.1);border:1px solid rgba(255,255,255,.2);border-radius:var(--r-pill);
+  padding:6px 13px;font-size:12.5px;font-weight:700;color:#eef0fb;transition:background .14s,border-color .14s,color .14s;}
+.page-search .subhero .ai-toggle svg,
+.page-fiscal-notes .subhero .ai-toggle svg{width:14px;height:14px;color:#9fc4ee;flex:0 0 auto;transition:color .14s;}
+.page-search .subhero .ai-toggle:hover,
+.page-fiscal-notes .subhero .ai-toggle:hover{background:rgba(255,255,255,.18);border-color:rgba(255,255,255,.4);}
+/* ON: a solid white pill on the navy band — the strongest contrast available
+   here, because "am I in AI Mode?" has to be answerable at a glance. */
+.page-search .subhero .ai-toggle.on,
+.page-fiscal-notes .subhero .ai-toggle.on{background:#fff;border-color:#fff;color:var(--navy);}
+.page-search .subhero .ai-toggle.on svg,
+.page-fiscal-notes .subhero .ai-toggle.on svg{color:var(--az-gold);}
+/* GATED (no API key / no model): the same dimming Home's inert gateway card
+   and the fiscal-notes rail's disabled search box already use. The cursor
+   says the click does nothing; the title says why. Hover is neutralized so
+   the pill does not light up under a cursor that cannot use it. */
+.page-search .subhero .ai-toggle.is-gated,
+.page-fiscal-notes .subhero .ai-toggle.is-gated{opacity:.65;cursor:not-allowed;}
+.page-search .subhero .ai-toggle.is-gated:hover,
+.page-fiscal-notes .subhero .ai-toggle.is-gated:hover{background:rgba(255,255,255,.1);border-color:rgba(255,255,255,.2);}
+
+/* ----- the panel ----------------------------------------------------------
+   A fixed-height column, NOT a section that grows with the conversation. The
+   thread scrolls internally (`.chat-thread` needs a bounded flex parent —
+   Task 10's note), the composer stays reachable without scrolling down to it,
+   and each page keeps its own scroll for everything above. 68vh with a floor
+   and a ceiling keeps the thread usable on a laptop without letting it
+   swallow a tall monitor. */
+.ai-panel{display:flex;flex-direction:column;height:clamp(440px,68vh,760px);margin-top:16px;
+  background:var(--card);border:1px solid var(--line);border-radius:var(--r-sm);box-shadow:var(--shadow-sm);overflow:hidden;}
+/* min-height:0 on the flex child is what lets the thread's overflow engage
+   instead of the panel growing to fit its content. */
+.ai-panel-main{flex:1 1 auto;min-height:0;display:flex;flex-direction:row;}
+.ai-panel-chat{flex:1 1 auto;min-width:0;min-height:0;display:flex;flex-direction:column;}
+.ai-panel-main.has-source .ai-panel-chat{border-right:1px solid var(--line);}
+.ai-panel-source{flex:1 1 auto;min-width:0;display:flex;flex-direction:column;}
+/* One column below the mockup's own 860px breakpoint: a source page and a
+   65ch message column cannot both be legible in half of a phone. */
+@media (max-width:860px){
+  .ai-panel-source{display:none;}
+}
+
+/* ----- the tier control + composer ---------------------------------------- */
+.ai-composer{flex:0 0 auto;border-top:1px solid var(--line);padding:8px 16px 10px;position:relative;}
+.ai-tiers{display:flex;align-items:center;gap:10px;flex-wrap:wrap;max-width:768px;margin:0 auto 6px;}
+.ai-tiers-label{font-size:11px;font-weight:800;color:var(--ink-3);text-transform:uppercase;letter-spacing:.04em;}
+/* `.chswitch`/`.chseg` declarations, re-scoped: the same pill-in-a-track
+   control the fiscal-notes chamber filter uses, sized for two segments. */
+.ai-tierswitch{display:inline-grid;grid-template-columns:auto auto;gap:3px;background:var(--canvas);border:1px solid var(--line);border-radius:var(--r-pill);padding:4px;}
+.ai-tierseg{cursor:pointer;font-family:inherit;text-align:center;font-size:12.5px;font-weight:800;color:var(--ink-2);background:transparent;border:0;border-radius:var(--r-pill);padding:6px 14px;transition:.13s;}
+.ai-tierseg:hover{color:var(--az-gold-d);}
+.ai-tierseg.on{background:var(--navy);color:#fff;}
+.ai-tierseg[aria-disabled="true"]{opacity:.55;cursor:not-allowed;}
+.ai-tierseg[aria-disabled="true"]:hover{color:var(--ink-2);}
+.ai-tier-info{background:none;border:0;padding:0;font-family:inherit;font-size:12px;font-weight:700;color:var(--navy);text-decoration:underline;cursor:pointer;}
+/* The explainer opens UPWARD — the composer sits at the bottom of the panel,
+   so a downward popover would open past the panel's edge. */
+.ai-tier-pop{position:absolute;bottom:calc(100% - 4px);left:16px;right:16px;max-width:768px;margin:0 auto;z-index:20;
+  background:var(--card);border:1px solid var(--line);border-radius:var(--r-sm);box-shadow:var(--shadow);padding:12px 14px;
+  font-size:12.5px;line-height:1.5;color:var(--ink-2);}
+.ai-tier-explain + .ai-tier-explain{margin-top:10px;padding-top:10px;border-top:1px solid var(--line);}
+.ai-tier-explain strong{color:var(--navy);font-weight:800;}
+.ai-tier-explain ul{margin:6px 0 0;padding-left:18px;color:var(--ink-3);}
+.ai-tier-explain li{margin-top:2px;}
+/* Stop sits beside the composer rather than inside it: MessageInput is Task
+   10's component and this task does not edit it. */
+.ai-stop{display:block;margin:6px auto 0;background:var(--card);border:1.5px solid var(--chat-danger);color:var(--chat-danger);
+  border-radius:var(--r-pill);padding:4px 14px;font-family:inherit;font-size:12px;font-weight:800;cursor:pointer;}
+.ai-stop:hover{background:var(--chat-danger-tint);}
+.ai-dismiss{background:none;border:0;padding:0;font-family:inherit;font-size:11px;color:inherit;text-decoration:underline;cursor:pointer;}
+
+/* ----- refusal banner ------------------------------------------------------
+   Sits on the `.chat-notice.is-warn` base (system voice, amber) and adds the
+   chunk previews. Values are the tool-view primitives': small meta text, a
+   --canvas-tinted row inside a --line border — so a refusal's passages look
+   like every other piece of retrieved evidence in the thread. */
+.chat-refusal{flex:0 0 auto;max-width:768px;margin:8px auto;}
+.chat-refusal-scope{margin:6px 0 0;font-style:italic;}
+.chat-refusal-chunks{list-style:none;margin:8px 0 0;padding:0;display:flex;flex-direction:column;gap:6px;}
+.chat-refusal-chunk{background:var(--card);border:1px solid var(--line);border-radius:6px;padding:6px 8px;}
+.chat-refusal-chunk-head{display:flex;flex-wrap:wrap;align-items:center;gap:6px;margin-bottom:3px;}
+.chat-refusal-rank{font-family:var(--chat-mono);color:var(--ink-3);flex:0 0 auto;}
+.chat-refusal-doc{font-weight:800;color:var(--ink);min-width:0;}
+.chat-refusal-pill{font-size:10.5px;font-weight:800;background:var(--canvas);border:1px solid var(--line);border-radius:var(--r-pill);padding:1px 7px;color:var(--ink-3);}
+/* pre-wrap: chunk text is verbatim source, and its line structure is part of
+   what the analyst is checking. */
+.chat-refusal-text{color:var(--ink-2);white-space:pre-wrap;font-size:11.5px;line-height:1.45;}

@@ -31,17 +31,29 @@ import ToolCard from "./ToolCard.js";
 // Plain boolean predicate — the `block is …` form narrows the false branch to
 // `never`, which breaks `block.toolUseId` on the line after.
 //
-// KNOWN ASYMMETRY, carried over from `web/` unchanged and left for Task 12 to
-// decide on: this matches `cite` but NOT `cite_batch`. So a turn whose model
-// cited one claim at a time shows no tool cards, while a turn that batched
-// its citations shows one raw JSON card — same information, two presentations,
-// chosen by a model-side call the analyst can't see. Both are "correct" (the
-// chips are the real surface either way), but the inconsistency is visible.
-// Adding cite_batch here is a one-word change; it was NOT made in this port
-// because suppressing a card is a product decision about what the analyst is
-// entitled to audit, not a styling one.
+// RULING (Plan 4 Task 12) on the asymmetry Task 10 flagged: `cite_batch` is
+// suppressed too. The port matched `cite` only, so a turn whose model batched
+// its citations grew one raw-JSON tool card while an otherwise identical turn
+// that cited serially grew none — the same information in two presentations,
+// chosen by a model-side call the analyst cannot see or influence.
+//
+// Suppression is the right side of that, not because cards are clutter but
+// because the card would be the WORSE audit surface of the two. Everything a
+// cite_batch card could show, the chips already show better: each chip carries
+// its own claim, its verbatim quote, its pass/fail state, and a click through
+// to the highlighted source page. The card shows the same payload as escaped
+// JSON with no link to anything. Keeping it would also mean batching
+// visibly costs the analyst — which is backwards, since batching exists to
+// make answers arrive faster.
+//
+// What is NOT lost: a cite_batch that FAILS still surfaces, because a failed
+// citation renders as a red-X chip with the server's reason in its tooltip
+// (Invariant 2 — failures are visible, not silently dropped). The card was
+// never the mechanism for that.
+const CITE_TOOL_NAMES = new Set(["cite", "cite_batch"]);
+
 function isCiteToolBlock(block: AssistantBlock): boolean {
-  return block.kind === "tool" && block.toolName === "cite";
+  return block.kind === "tool" && CITE_TOOL_NAMES.has(block.toolName);
 }
 
 interface Props {

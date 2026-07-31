@@ -120,6 +120,81 @@ export async function fiscalNotesStatus(): Promise<{ chunks: number }> {
   return r.json();
 }
 
+// ---- AI Mode (Plan 4) ------------------------------------------------------
+
+/** One answer tier as `GET /api/ai/status` reports it.
+ *
+ *  `description` and `examples` are the spec's S16 explainer sentences and they
+ *  live SERVER-SIDE on purpose (app/routes/conversations.py::TIER_COPY): the
+ *  admin surface in Plan 5 renders the same strings, and two copies of a
+ *  sentence is two places for it to drift. Nothing in the webapp may retype
+ *  them — the tier explainer reads these fields. */
+export interface AiTierInfo {
+  label: string;
+  default: boolean;
+  description: string;
+  examples: string[];
+  /** Per-tier availability. An admin can wire up Standard and leave Deep
+   *  Research unconfigured, so this is NOT the same answer as the top-level
+   *  `available` flag. */
+  available: boolean;
+  reason: string | null;
+}
+
+export interface AiStatus {
+  /** "Is ANY tier usable" — this is what gates the AI Mode toggle. */
+  available: boolean;
+  /** Present only when nothing is usable; explains the default tier's failure. */
+  reason?: string;
+  tiers: Record<string, AiTierInfo>;
+  user_usage: {
+    month_usd: number | null;
+    limit_usd: number | null;
+    warned: boolean;
+  };
+}
+
+export async function aiStatus(): Promise<AiStatus> {
+  const r = await fetch("/api/ai/status");
+  if (!r.ok) await fail(r, "ai status");
+  return r.json();
+}
+
+export interface ConversationHandle {
+  conversation_id: string;
+  /** Inline availability probe for the DEFAULT tier, so the UI can show the
+   *  problem before the analyst types (see SystemHealthBanner). */
+  health: { ok: boolean; reason?: string };
+  tier_default: string;
+}
+
+export async function createConversation(
+  corpus: "budget" | "fiscal_notes",
+): Promise<ConversationHandle> {
+  const r = await fetch("/api/conversations", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ corpus }),
+  });
+  if (!r.ok) await fail(r, "start conversation");
+  return r.json();
+}
+
+/** Ask the running turn to stop. This is what produces the DESIGNED abort
+ *  server-side (`stopReason: "user_interrupt"` plus cancelled-tool back-fill);
+ *  merely closing the stream leaves the harness to clean up via GeneratorExit
+ *  with no terminal frame. */
+export async function stopConversation(
+  conversationId: string,
+): Promise<{ stopped: boolean }> {
+  const r = await fetch(
+    `/api/conversations/${encodeURIComponent(conversationId)}/stop`,
+    { method: "POST" },
+  );
+  if (!r.ok) await fail(r, "stop");
+  return r.json();
+}
+
 // ---- ingest queue (Plan 3) -------------------------------------------------
 
 export type JobState =

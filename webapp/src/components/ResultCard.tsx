@@ -275,15 +275,27 @@ export function ResultCard({ family }: { family: FamilyGroup }) {
           {passagesOpen && (
             <div className="tray open">
               {passages.map((chunk) => (
-                // href="#" + data-chunk-id is the agreed stub: Plan 4 swaps
-                // this for the PDF side panel keyed on that id.
+                // href="#" + data-chunk-id is the agreed stub; Plan 4 wired
+                // that id to the source panel (Search.tsx's delegated
+                // click/keydown handlers).
+                //
+                // A11y (Plan 4 Task 12): these rows used to carry
+                // tabIndex={-1}, which made opening a source a mouse-only
+                // action — on the provenance path, which is the one path this
+                // tool cannot afford to gate on a pointing device. They are
+                // now focusable (tabIndex 0) and announced as buttons, which
+                // is what they actually are: the href is a placeholder, the
+                // handler is what opens the drawer, and nothing here
+                // navigates. Presentation is untouched (spec S12) — no class,
+                // no element, no text changed.
                 <a
                   className="doc"
                   href="#"
+                  role="button"
                   data-chunk-id={chunk.chunk_id}
                   key={chunk.chunk_id}
                   onClick={(e) => e.preventDefault()}
-                  tabIndex={-1}
+                  tabIndex={0}
                 >
                   <div className="doc-main">
                     <span className="doc-sub">{chunk.snippet}</span>
