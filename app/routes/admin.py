@@ -32,6 +32,7 @@ from pydantic import BaseModel
 
 from app.identity import admin_claimable, current_user, is_admin
 from harness.catalog import fetch_catalog
+from harness.ledger import ARIZONA_TZ, breakdown, check_limit, month_total
 from harness.notices import read_notices
 from harness.settings import (
     ProviderConfig,
@@ -417,6 +418,110 @@ def get_notices(
     is new.
     """
     return {"notices": read_notices(since=since)}
+
+
+# ---------------------------------------------------------------------------
+# Usage (S19)
+# ---------------------------------------------------------------------------
+
+_MONTH_SHARD = re.compile(r"^\d{4}-\d{2}$")
+
+MSG_BAD_MONTH = "Pick a month in YYYY-MM form, like 2026-07."
+
+
+def _current_month() -> str:
+    """This month in ARIZONA-local terms, matching the ledger's shards.
+
+    Not the host clock's month: `harness.ledger` shards on a fixed UTC-7
+    offset because a single Arizona office should roll over on its own
+    midnight, and a default that disagreed with the shard names would
+    show an empty page for the first seven hours of every month.
+    """
+    now = datetime.now(ARIZONA_TZ)
+    return f"{now.year:04d}-{now.month:02d}"
+
+
+def _group_dicts(groups) -> list[dict[str, Any]]:
+    return [
+        {
+            "key": g.key,
+            "cost_usd": g.cost_usd,
+            "tokens_in": g.tokens_in,
+            "tokens_out": g.tokens_out,
+            "cached_tokens": g.cached_tokens,
+            "rows": g.rows,
+            "rows_with_unknown_cost": g.rows_with_unknown_cost,
+        }
+        for g in groups
+    ]
+
+
+@router.get("/api/admin/usage")
+def get_usage(
+    month: str | None = None, settings: Settings = Depends(require_admin)
+) -> dict:
+    """The office's spend for one month, three ways.
+
+    The office totals are summed from the by-user groups rather than
+    recomputed from the rows: three breakdowns of one month that don't
+    add up to the same number is what makes an admin stop believing the
+    page, and summing one of them guarantees they agree by construction.
+    """
+    shard = month or _current_month()
+    if not _MONTH_SHARD.match(shard):
+        raise _bad_request(MSG_BAD_MONTH)
+
+    by_user = breakdown(shard, by="user")
+    # "Are limits doing anything here?" is a question about the OFFICE, not
+    # about the admin reading the page. Asked with the per-user rows
+    # stripped, so an admin who put themselves on the exempt list doesn't
+    # see "limits inactive" and conclude nobody is capped. The answer still
+    # comes from check_limit — S19's policy lives in exactly one place
+    # (Ground truth 7) and `reason` is its own string, never re-derived.
+    org_view = replace(settings, user_limits={}, exempt_users=())
+    org_limit = check_limit("", org_view)
+    limits_active = org_limit.reason is None and org_limit.limit_usd is not None
+
+    return {
+        "month": shard,
+        "total_usd": round(sum(g.cost_usd for g in by_user), 2),
+        "rows": sum(g.rows for g in by_user),
+        "rows_with_unknown_cost": sum(g.rows_with_unknown_cost for g in by_user),
+        "cached_tokens": sum(g.cached_tokens for g in by_user),
+        "tokens_in": sum(g.tokens_in for g in by_user),
+        "by_user": _group_dicts(by_user),
+        "by_model": _group_dicts(breakdown(shard, by="model")),
+        "by_tier": _group_dicts(breakdown(shard, by="tier")),
+        "limits_active": limits_active,
+        "limits_inactive_reason": None if limits_active else org_limit.reason,
+    }
+
+
+@router.get("/api/me/usage")
+def get_my_usage() -> dict:
+    """The caller's own spend. DELIBERATELY NOT ADMIN-GATED.
+
+    An analyst who has just been told "you've reached your monthly limit"
+    needs to be able to see the number and who to ask, without that
+    requiring admin access. It returns only the calling user's own rows,
+    so an ungated endpoint leaks nothing about anyone else.
+    """
+    settings = load_settings()
+    user = current_user()
+    limit = check_limit(user, settings)
+    usage = month_total(user)
+    return {
+        "month": _current_month(),
+        "month_usd": usage.cost_usd,
+        "limit_usd": limit.limit_usd,
+        "status": limit.status,
+        # The ledger's exact sentence, emitted from one place — a re-typed
+        # copy here would give the office two subtly different "you're over
+        # your limit" messages.
+        "message": limit.message,
+        "reason": limit.reason,
+        "rows_with_unknown_cost": usage.rows_with_unknown_cost,
+    }
 
 
 # ---------------------------------------------------------------------------
