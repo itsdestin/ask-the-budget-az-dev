@@ -22,13 +22,23 @@ source. When something ships, update only this file.
 | Phase 0 — Investigation | ✓ Done (2026-05-06) | Findings memo + chunk-shape + data-model docs |
 | Phase 1a — Ingest + chunking | ✓ Done on slice (2026-05-06), volume ingest substantially complete (2026-05-12) | 382 docs / 7,755 chunks; missing older FYs + a few in-cycle gaps |
 | Phase 1b — Storage + retrieval | ✓ Done (slice 2026-05-07, volume-validated implicitly, WS8 eval harness shipped 2026-05-22) | Hybrid pipeline live and serving 7K+ chunks; eval harness baseline: recall@5 86%, recall@20 100% on 34-query set |
-| Phase 1c — Synthesis + UI | 🟡 Substantially done | All user-visible surfaces shipped; 2026-05-19/20 dogfood-hardening pass landed Items 1-8 plus four follow-up fix waves; faithfulness verifier (WS3) + audit log (WS5) still not built |
-| Volume ingest | 🟡 Mostly done | FY25 + FY26 + FY27 across all 4 publishers; gaps: older FYs (FY24 and back), FY26 Approps Report, FY27 Approps/Budget bill |
+| Phase 1c — Synthesis + UI | ⬛ Superseded by Standalone consolidation (Plans 1–4) | The MCP/sidecar/Next.js stack it shipped is retired; faithfulness verifier (WS3) + audit log (WS5) remain unbuilt and carry forward |
+| Volume ingest | 🟡 Backfill pending — Z13 run (`PROMPT-z13-backfill.md`); S20 scope | FY25 + FY26 + FY27 across all 4 publishers are in; older FYs and a few in-cycle gaps go through the Z13 backfill |
 | Phase 2 — Companion + verify-mode | 🔴 Not started | Defers until v1 demonstrates internal value |
 | Standalone consolidation — Plan 1 (storage + retrieval) | ✓ Shipped (2026-07-30) | Postgres/pgvector/ParadeDB → embedded LanceDB; Voyage → local ONNX models. See the section below |
 | Standalone consolidation — Plan 2 (app server + search UI) | ✓ Shipped (2026-07-30) | New `app/` (port 9300) + `webapp/` SPA: home, budget search (real corpus), fiscal notes directory. See the section below |
 | Standalone consolidation — Plan 3 (ingest) | ✓ Shipped (2026-07-31) | GUI upload → background queue → LanceDB; fiscal-note refresh; Add-a-JLBC-book. Postgres/Docker now needed for NOTHING. See the section below |
 | Standalone consolidation — Plan 4 (AI Mode) | ✓ Shipped (2026-07-31) | In-process OpenRouter tool loop; MCP and YouCoded dropped. Cited chat + PDF viewer on both corpora, Standard/Deep-Research tiers, per-user spend ledger. See the section below |
+
+## What's next
+
+- **Plan 5 — admin/settings UI, packaging + launcher, legacy deletion
+  (`web/`, `mcp-server/`, `db/`, dead `retrieval/` modules), gates G2/G3.**
+- **Z13 backfill + recency calibration (S20/S21)** — historical-year corpus
+  backfill and recency-ranking calibration on the Z13 Linux machine.
+  Runbook: [`PROMPT-z13-backfill.md`](PROMPT-z13-backfill.md) (the only
+  active handoff). Recency plan:
+  [`docs/superpowers/plans/2026-07-31-standalone-plan-recency-ranking.md`](docs/superpowers/plans/2026-07-31-standalone-plan-recency-ranking.md).
 
 ---
 
@@ -451,6 +461,19 @@ Recorded because the same classes will recur:
 
 ---
 
+> ## ⚠ HISTORICAL FROM HERE DOWN
+>
+> Everything from this point through the end of the
+> "Recently fixed — verify in next dogfood pass" section describes the
+> **RETIRED pre-consolidation architecture** — the sidecar on `:9200`, the
+> Budget MCP server, the Next.js `web/` UI, Voyage reranking, and Postgres.
+> None of it is running code anymore; it is kept only as the historical
+> record of what Phase 1c shipped. **Current state is the four
+> "Standalone consolidation — Plan N shipped" sections above.** In
+> particular: the live refusal threshold is **1.9** in
+> `harness/constants.py` — the 0.65 mentioned below is the dead Voyage
+> 0..1 score scale.
+
 ## What's shipped (Phase 1c)
 
 ### Retrieval sidecar (`retrieval/api.py`)
@@ -564,7 +587,10 @@ Each wave responded to specific issues surfaced during dogfood verification of t
 - **DOCX viewer (Phase 2).** Bills are DOCX; the Phase 2 plan adds an inline DOCX viewer. Until then, #55 (text-only fallback) is the stopgap.
 
 ### Volume ingest — current corpus
-**382 documents / 7,755 chunks** as of 2026-05-12. Coverage:
+**382 documents / 7,755 chunks** as of 2026-05-12. These counts are
+pre-Plan-3: the GUI ingest queue adds documents whenever someone uploads,
+so the live numbers come from `/health` and `GET /api/jobs`, not this
+table. Coverage at the 2026-05-12 snapshot:
 
 | Publisher | FY 2025 | FY 2026 | FY 2027 |
 |---|---|---|---|
@@ -580,7 +606,8 @@ Each wave responded to specific issues surfaced during dogfood verification of t
 - Older Governor's Budgets (FY26, FY25)
 - AGAO AFRs for FY24 and FY23
 
-Hand-off prompt for additional ingest at [`PROMPT-volume-ingest.md`](PROMPT-volume-ingest.md).
+Backfill now goes through [`PROMPT-z13-backfill.md`](PROMPT-z13-backfill.md)
+(`PROMPT-volume-ingest.md` is retired — superseded by the Plan 3 GUI queue).
 
 ### Open follow-up tasks (tracked in TaskList)
 - **#45** — Investigate `(unknown)` tool card after Item 1 ships (verification-only; needs a fresh dogfood transcript)
@@ -669,17 +696,29 @@ See [README.md → Moving to a new device](README.md#moving-to-a-new-device) for
 
 ## Doc map
 
-- [README.md](README.md) — how to run it, launch sequence, links
+Current architecture first:
+
+- [docs/superpowers/specs/2026-07-29-standalone-consolidation-design.md](docs/superpowers/specs/2026-07-29-standalone-consolidation-design.md) — **the consolidation spec** (S1–S21, Invariants 7–8, gates G1–G3). Read this before non-trivial changes.
+- [docs/superpowers/plans/2026-07-29-standalone-plan-1-storage-retrieval.md](docs/superpowers/plans/2026-07-29-standalone-plan-1-storage-retrieval.md) — Plan 1: LanceDB + local models (shipped 2026-07-30)
+- [docs/superpowers/plans/2026-07-29-standalone-plan-2-app-shell.md](docs/superpowers/plans/2026-07-29-standalone-plan-2-app-shell.md) — Plan 2: app server + search UI (shipped 2026-07-30; its frozen API-contract block is what later plans build against)
+- [docs/superpowers/plans/2026-07-30-standalone-plan-3-ingest.md](docs/superpowers/plans/2026-07-30-standalone-plan-3-ingest.md) — Plan 3: GUI ingest queue (shipped 2026-07-31)
+- [docs/superpowers/plans/2026-07-30-standalone-plan-4-ai-mode.md](docs/superpowers/plans/2026-07-30-standalone-plan-4-ai-mode.md) — Plan 4: AI Mode (shipped 2026-07-31; see its "Task 8 amendments" for the as-shipped HTTP contract)
+- [docs/superpowers/plans/2026-07-31-standalone-plan-recency-ranking.md](docs/superpowers/plans/2026-07-31-standalone-plan-recency-ranking.md) — recency-ranking plan (S21; pending)
+- [PROMPT-z13-backfill.md](PROMPT-z13-backfill.md) — **the only active handoff** — Z13 backfill + recency calibration runbook
+- [README.md](README.md) — how to run it, links
 - [STATUS.md](STATUS.md) — this file (current state)
 - [CLAUDE.md](CLAUDE.md) — workspace conventions for Claude Code sessions
-- [PROMPT-volume-ingest.md](PROMPT-volume-ingest.md) — hand-off prompt for the volume-ingest task
-- [docs/superpowers/specs/2026-05-04-ask-the-budget-az-design.md](docs/superpowers/specs/2026-05-04-ask-the-budget-az-design.md) — overall design spec (historical)
-- [docs/superpowers/decisions/2026-05-06-phase-1bc-architecture.md](docs/superpowers/decisions/2026-05-06-phase-1bc-architecture.md) — twelve interlocking decisions for Phase 1b/1c
-- [docs/superpowers/decisions/2026-05-06-citation-tool-schema.md](docs/superpowers/decisions/2026-05-06-citation-tool-schema.md) — locked schema for `retrieve()` + `cite()` (amended 2026-05-20 — quote, cite_batch, dropped alignment, resolved offsets, progressive retrieval)
-- [docs/superpowers/plans/2026-05-20-budget-app-dogfood-hardening.md](docs/superpowers/plans/2026-05-20-budget-app-dogfood-hardening.md) — 18-task plan for the dogfood-hardening pass (historical; Items 1-7 shipped + four follow-up fix waves)
-- [docs/superpowers/investigations/2026-05-20-prompt-rewrite-dogfood-tests.md](docs/superpowers/investigations/2026-05-20-prompt-rewrite-dogfood-tests.md) — dogfood-test plan for the output-hygiene rewrite
-- [docs/superpowers/plans/](docs/superpowers/plans/) — phase plans (historical; not kept in sync with shipped features)
-- [data/chunks/MANIFEST.md](data/chunks/MANIFEST.md) — Phase 1a → Phase 1b hand-off contract
 - [eval/README.md](eval/README.md) — Layer 1 retrieval eval harness: when/how to run, scoring rules, caveats, calibration interpretation
+
+Historical (retired architectures; kept as record, do not build against):
+
+- [docs/superpowers/specs/2026-05-04-ask-the-budget-az-design.md](docs/superpowers/specs/2026-05-04-ask-the-budget-az-design.md) — original design spec (invariants live on; architecture superseded)
+- [docs/superpowers/decisions/2026-05-06-phase-1bc-architecture.md](docs/superpowers/decisions/2026-05-06-phase-1bc-architecture.md) — twelve interlocking decisions for Phase 1b/1c (superseded by the consolidation spec)
+- [docs/superpowers/decisions/2026-05-06-citation-tool-schema.md](docs/superpowers/decisions/2026-05-06-citation-tool-schema.md) — locked `retrieve()` + `cite()` schema (semantics carried into `harness/tools.py`; MCP/sidecar transport gone)
+- [docs/superpowers/plans/2026-05-20-budget-app-dogfood-hardening.md](docs/superpowers/plans/2026-05-20-budget-app-dogfood-hardening.md) — dogfood-hardening pass against the retired stack
+- [docs/superpowers/investigations/2026-05-20-prompt-rewrite-dogfood-tests.md](docs/superpowers/investigations/2026-05-20-prompt-rewrite-dogfood-tests.md) — dogfood-test plan for the output-hygiene rewrite
+- [docs/superpowers/plans/](docs/superpowers/plans/) — phase plans (not kept in sync with shipped features)
+- [data/chunks/MANIFEST.md](data/chunks/MANIFEST.md) — Phase 1a → Phase 1b hand-off contract (live ingest contract is `ingest/` + `store/schema.py`)
 - [docs/superpowers/specs/2026-05-20-retrieval-eval-harness-design.md](docs/superpowers/specs/2026-05-20-retrieval-eval-harness-design.md) — eval harness spec (Layer 1; amended 2026-05-22 with what shipped vs diverged)
 - [docs/superpowers/plans/2026-05-20-retrieval-eval-harness.md](docs/superpowers/plans/2026-05-20-retrieval-eval-harness.md) — eval harness implementation plan (shipped 2026-05-22, merge `3a26c19`)
+- [PROMPT-volume-ingest.md](PROMPT-volume-ingest.md) — retired volume-ingest handoff (superseded by the Plan 3 GUI queue)

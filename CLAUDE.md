@@ -2,19 +2,19 @@
 
 Workspace guidance for Claude Code working on **Ask the Budget AZ** — a Q&A tool over Arizona state budget documents (JLBC Appropriations Reports, Baseline Books, AGAO Annual Financial Reports, Governor's Executive Budget proposals).
 
-This workspace repo holds cross-cutting docs, plans, specs, and dev tooling. Sub-repo code lives in separate folders (e.g., `ask-the-budget-az/` for the web app, `ask-the-budget-az-companion/` for the JLBC Budget Agent companion app once it exists).
+Everything — app code, ingest pipeline, docs, plans, specs, dev tooling — lives in this single repo. The once-planned split into separate `ask-the-budget-az/` / `ask-the-budget-az-companion/` repos died with the standalone consolidation: the standalone app IS the companion.
 
 ## Project North Star
 
 The system's job is **retrieval with auditable provenance**. Answer generation is secondary. A fiscal analyst who can't trust a claim won't use the tool twice.
 
-Read `docs/superpowers/specs/2026-05-04-ask-the-budget-az-design.md` before any non-trivial change. The invariants section is load-bearing. Also read `docs/superpowers/decisions/2026-05-06-phase-1bc-architecture.md` for the v1 architectural decisions that shape Phase 1b/1c.
+Read `docs/superpowers/specs/2026-07-29-standalone-consolidation-design.md` before any non-trivial change — it records the current architecture (decisions S1–S21, Invariants 7–8, gates G1–G3). The invariants section of the original design spec (`docs/superpowers/specs/2026-05-04-ask-the-budget-az-design.md`) is still load-bearing. `docs/superpowers/decisions/2026-05-06-phase-1bc-architecture.md` is historical background only — the YouCoded/MCP architecture it describes was retired by the consolidation.
 
 **Current project status: @STATUS.md** (auto-loaded into every Claude Code session via the `@file` import). `STATUS.md` is the **single source of truth** for what's shipped, what's open, and what's blocked. The Project Phases table below is a stable conceptual map of the phases (their design intent + where each runs) — it intentionally carries **no status**. If you want to describe what's shipped/open/blocked, that data lives in STATUS.md and **only** in STATUS.md. Do not re-record status here; do not infer status from this file. When STATUS.md and CLAUDE.md disagree about status, STATUS.md is right by construction (this file says nothing about status).
 
-## v1 in one paragraph
+## The app in one paragraph
 
-v1 is a multi-turn budget Q&A web app that runs on Destin's machine and **hard-depends on a running YouCoded instance** for synthesis. The budget app's Node backend talks to YouCoded over `ws://localhost:9900`; YouCoded provides the Claude Code session, Pro/Max OAuth, PTY/wrapper, and MCP host. A Budget MCP server (separate Node process, registered globally in `~/.claude.json` AND eager-loaded per-conversation via a materialized `.mcp.json`) exposes four tools: `retrieve()`, `cite()`, `cite_batch()`, `list_filter_values()`. Claude in each conversation calls `retrieve()` (constrained agent pattern — system prompt requires it before answering) and emits `cite()` or `cite_batch()` per claim. The budget UI is a chat thread with citation chips and a side-panel PDF viewer. Standalone companion app, DOCX viewer, verify-mode toggle, and multi-analyst distribution all defer to Phase 2. v1's corpus targets all four publishers (JLBC + Legislature + Gov + AGAO) for the most-recent FY each. See decisions doc D1–D12 for rationale.
+The app is a single FastAPI process (`app/`, port 9300) serving a built Vite/React SPA (`webapp/`) — home, budget search, fiscal notes, upload, and AI Mode chat. Storage is embedded LanceDB (`store/`) with local ONNX models on CPU: `snowflake-arctic-embed-m` embeddings + `ms-marco-MiniLM-L-12-v2` reranker (refusal threshold `REFUSAL_THRESHOLD = 1.9` in `harness/constants.py`). Ingest is a GUI upload → background queue (`ingest/`) → MinerU extract → chunk → embed → LanceDB write. AI Mode is an in-process OpenRouter tool loop (`harness/`; system prompt at `harness/system-prompt.md`, rendered by `harness/prompt.py`) that calls `retrieve()` before answering and emits verified citations per claim (constrained agent pattern), with a chat UI, citation chips, and a side-panel PDF viewer. **Search, fiscal notes, and upload work with zero API keys**; one OpenRouter key in `<data_dir>/settings.json` unlocks AI Mode. The corpus + settings live on the shared drive (`JLBC_DATA_DIR`; dev default `data/insight-data/`). No Postgres, no Docker, no Voyage, no `.env.local`, no YouCoded — anywhere. Run it: `cd webapp && npm run build` once, then `uv run uvicorn app.main:create_app --factory --port 9300`. Legacy trees (`web/`, `mcp-server/`, `db/`, `retrieval/api.py` + `bm25/dense/rerank`) remain in-tree unused pending Plan 5 deletion.
 
 ## Core Invariants (override anything else when in conflict)
 
@@ -27,7 +27,7 @@ v1 is a multi-turn budget Q&A web app that runs on Destin's machine and **hard-d
 
 ## Working Rules
 
-**Never touch a running production deployment to debug it.** All testing happens against a local dev instance or a deliberately-isolated test environment. (Mirrors the rule from `~/youcoded-dev/CLAUDE.md`.)
+**Never touch a running production deployment to debug it.** All testing happens against a local dev instance or a deliberately-isolated test environment.
 
 **Always sync before working.** Before any change, plan, or investigation:
 ```bash
@@ -44,27 +44,35 @@ cd <repo> && git fetch origin && git pull origin master
 
 **Pushing to master green-lights closing the dev server.** If you started a local dev server to verify a change, shut it down once the commit lands on `origin/master`. Don't leave orphan processes.
 
-**Run the eval after any change to `retrieval/`, `ingest/`, `chunking/`, or `mcp-server/system-prompt.md`.** Command: `uv run python -m eval.run_eval`. Takes ~30-90 seconds; commit the resulting `eval/results/<...>.{json,md}` files alongside the code change so regressions are visible in PR diffs. After re-ingest, run `uv run python -m eval.refresh_chunk_ids` first to repair any stale chunk_ids.
+**Run the eval after any change to `retrieval/`, `ingest/`, `chunking/`, or `harness/system-prompt.md`.** Command: `uv run python -m eval.run_eval`. Takes ~30-90 seconds; commit the resulting `eval/results/<...>.{json,md}` files alongside the code change so regressions are visible in PR diffs. The refusal threshold lives in `harness/constants.py` (`REFUSAL_THRESHOLD`), not in the prompt. (`eval/refresh_chunk_ids.py` is unported — it still imports the retired Postgres `db.connection` and will crash; do not run it.)
 
 **Clean up worktrees after merging.** `git worktree remove <path>` then `git branch -D <branch>`. Stale worktrees confuse future sessions.
 
 **Sample primary sources go in `samples/raw-<format>/` and are committed.** When the user uploads a primary-source document (legislative bill DOCX, agency report, etc.) that can't be auto-fetched from a public URL the way JLBC PDFs can, drop it under `samples/raw-<format>/` (e.g. `samples/raw-docx/`) and commit it. These files are load-bearing for the slice and Phase 1b's retrieval tests; treating them as gitignored runtime data means they're lost on every worktree create / fresh clone, and the user has to re-upload. PDFs are different — they live under `samples/raw-pdfs/` (gitignored) because the DownloadCache fetches them from public URLs on demand.
 
-## Workspace Layout (planned)
+## Workspace Layout
 
-| Directory | Repo | What it is |
-|-----------|------|------------|
-| `ask-the-budget-az-dev/` | (this) | Workspace repo: docs, plans, specs, dev tooling, ingest pipeline (currently colocated), retrieval pipeline (Phase 1b), MCP server + web app (Phase 1c) |
-| `ask-the-budget-az/` | (later, Phase 2) | If we split, the deployable web-app artifact moves here |
-| `ask-the-budget-az-companion/` | (later, Phase 2) | Standalone companion app — only built when distributing to analysts who don't run YouCoded |
+One repo, one process. The live directories:
 
-Sub-repo code goes in the relevant sub-repo. Workspace-level artifacts (specs, plans, investigations, decisions, cross-cutting docs, this `CLAUDE.md`, `.claude/rules/`, dev tooling) get committed to this workspace repo. For v1, most code lives in this repo (separation can wait until Phase 2 deployment).
+| Directory | What it is |
+|-----------|------------|
+| `app/` | FastAPI app server (port 9300) — API routes + serves the built SPA |
+| `webapp/` | Vite + React SPA — home, budget search, fiscal notes, upload, AI Mode chat |
+| `harness/` | AI Mode — in-process OpenRouter tool loop, settings, spend ledger, system prompt |
+| `store/` | Embedded LanceDB storage layer + local ONNX model wiring |
+| `ingest/` | GUI ingest queue — jobs, SMB-safe lock, worker, MinerU runner, LanceDB writer |
+| `chunking/` | Per-publisher extractors + chunkers (Phase 1a lineage; still the live chunking path) |
+| `retrieval/` | Retrieval pipeline + citation validation (`citations.py` is live; `api.py`, `bm25.py`, `dense.py`, `rerank.py` are legacy) |
+| `eval/` | Layer 1 retrieval eval harness |
+| `docs/` | Specs, plans, investigations, decisions, reference material |
+| `web/`, `mcp-server/`, `db/` | **Legacy, pending Plan 5 deletion** — retired Next.js UI, MCP server, and Postgres infra; in-tree but unused |
 
 ## Active handoffs
 
 Long-running handoff prompts that may need to be picked up live as standalone files at the repo root. See `STATUS.md` for which handoffs are active vs. done.
 
-- [`PROMPT-volume-ingest.md`](PROMPT-volume-ingest.md) — corpus expansion. Self-contained prompt for a desktop session with a beefier GPU. Used both for the original FY25/FY26/FY27 ingest and (when scheduled) for historical-year backfill (FY24 and older).
+- [`PROMPT-z13-backfill.md`](PROMPT-z13-backfill.md) — **ACTIVE** — historical-year corpus backfill + recency-ranking calibration, run on the Z13 Linux machine.
+- `PROMPT-plan1-storage-retrieval.md`, `PROMPT-plan2-app-shell.md`, `PROMPT-plan3-ingest.md`, `PROMPT-plan4-ai-mode.md`, `PROMPT-volume-ingest.md` — retired/shipped historical records. Do not execute.
 
 ## Project Phases
 
@@ -74,9 +82,10 @@ This table is a **conceptual map** of the phases — what each phase IS and wher
 |---|---|---|
 | **Phase 0 — Investigation** | Per-doc-type extractor routing, 157-agency canonical catalog, JLBC four-layout structure mapping, chunk-shape decisions D1–D7. | Destin's machine |
 | **Phase 1a — Ingest + chunking** | Per-publisher extractor + chunking pipeline. Hand-off contract at `data/chunks/MANIFEST.md`. | Destin's machine |
-| **Phase 1b — Storage + retrieval** | Postgres + pgvector + ParadeDB hybrid pipeline (D2 array agency stamping). BM25 + dense + RRF + Voyage rerank-2.5. Public API at `retrieval/__init__.py`. Plan at `docs/superpowers/plans/2026-05-06-phase-1b-storage-and-retrieval.md`. | Destin's machine |
-| **Phase 1c — Synthesis + UI** | Budget MCP server (`mcp-server/`) + FastAPI retrieval sidecar (`retrieval/api.py`) + Next.js chat UI (`web/`). Hard-depends on a running YouCoded instance for the Claude Code session. Plan at `docs/superpowers/plans/2026-05-06-phase-1c-companion-and-ui.md`. | Destin's machine + running YouCoded |
-| **Phase 2 — Standalone companion + first deploy** | Lift YouCoded PTY/wrapper into a separate process. Add DOCX viewer + verify mode. Deploy to free-tier hosting. Onboard 2-3 trusted analysts. | Vercel/Supabase + each analyst's machine |
+| **Phase 1b — Storage + retrieval** | Postgres + pgvector + ParadeDB hybrid pipeline (D2 array agency stamping). BM25 + dense + RRF + Voyage rerank-2.5. **Superseded by Standalone consolidation Plans 1–4 (see STATUS.md)** — storage is now embedded LanceDB + local ONNX models. Plan at `docs/superpowers/plans/2026-05-06-phase-1b-storage-and-retrieval.md` (historical). | Destin's machine |
+| **Phase 1c — Synthesis + UI** | Budget MCP server (`mcp-server/`) + FastAPI retrieval sidecar (`retrieval/api.py`) + Next.js chat UI (`web/`), hard-depending on a running YouCoded instance. **Superseded by Standalone consolidation Plans 1–4 (see STATUS.md)** — synthesis is now the in-process `harness/` OpenRouter loop inside `app/`. Plan at `docs/superpowers/plans/2026-05-06-phase-1c-companion-and-ui.md` (historical). | Destin's machine + running YouCoded |
+| **Standalone consolidation — Plans 1–5** | Replaces the 1b/1c architecture and absorbs Phase 2's companion goal: embedded LanceDB + local models (Plan 1), one FastAPI app + Vite SPA (Plan 2), GUI ingest queue (Plan 3), in-process OpenRouter AI Mode (Plan 4), admin UI + packaging + legacy deletion (Plan 5). Spec at `docs/superpowers/specs/2026-07-29-standalone-consolidation-design.md`. | Office machines off the shared drive |
+| **Phase 2 — Standalone companion + first deploy** | Originally: lift YouCoded PTY/wrapper into a separate process, DOCX viewer + verify mode, free-tier hosting, onboard 2-3 trusted analysts. The companion goal was absorbed by the standalone consolidation; distribution + verify mode remain. | Vercel/Supabase + each analyst's machine |
 | **Phase 3 — Internal pilot** | Wider JLBC use. Tier 2 entity resolution. Eval set expansion. | Same |
 | **Phase 4 — Public-launch consideration** | Gated on hard metrics in the spec. | Same, plus public host |
 
@@ -86,8 +95,8 @@ This table is a **conceptual map** of the phases — what each phase IS and wher
 - `docs/superpowers/plans/` — implementation plans, derived from specs
 - `docs/superpowers/investigations/` — research memos, Phase 0 findings, ad-hoc investigations
 - `docs/superpowers/decisions/` — decision artifacts that supersede portions of specs/plans (e.g., `2026-05-06-phase-1bc-architecture.md` for the v1 reframe)
-- `docs/reference/` — domain primers and reference material (e.g., the JLBC writing draft used as system-prompt context)
-- `.claude/rules/` — auto-loaded rules for specific subsystems (e.g., `live-app-safety.md` once we have a deployed instance)
+- `docs/reference/` — domain primers and reference material (the system-prompt-context primer itself lives at `data/system-prompt-context.md`)
+- `.claude/rules/` — auto-loaded rules for specific subsystems (currently empty placeholder — e.g., `live-app-safety.md` once we have a deployed instance)
 
 ## Compaction Guidance
 
