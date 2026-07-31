@@ -1,3 +1,10 @@
+---
+**Status: RETIRED 2026-07-31 — SHIPPED, do not execute.** S22 and S23 are
+merged (`5e1ae3b`). See the "AI Mode hardening" section of `STATUS.md` for
+what shipped and what is still outstanding (live verification of S22).
+
+---
+
 # Handoff: AI Mode Hardening — S22 prompt caching + S23 quote validation
 
 You are working in `~/YouCoded/Projects/ask-the-budget-az-dev` (Linux, Python

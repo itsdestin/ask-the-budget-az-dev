@@ -41,17 +41,18 @@ source. When something ships, update only this file.
   is safe to work in parallel.
 - **Parallel work available NOW** (safe alongside the running backfill — all
   disjoint from the ingest path). Handoff prompts at the repo root:
-  [`PROMPT-parallel-ai-hardening.md`](PROMPT-parallel-ai-hardening.md) (S22
-  prompt caching + S23 quote validation — biggest cost lever),
+  ~~[`PROMPT-parallel-ai-hardening.md`](PROMPT-parallel-ai-hardening.md)~~
+  **DONE 2026-07-31** — S22 + S23 shipped, merge `5e1ae3b`; see the section
+  below,
   [`PROMPT-parallel-ingest-defects.md`](PROMPT-parallel-ingest-defects.md) (the
   two 🔴 handoff-blocking defects; develop + merge, do NOT restart the running
   server), and
   [`PROMPT-parallel-write-plan5.md`](PROMPT-parallel-write-plan5.md) (write the
   Plan 5 doc — pure documentation).
 - **Plan 5 — admin/settings UI, packaging + launcher, legacy deletion
-  (`web/`, `mcp-server/`, `db/`, dead `retrieval/` modules), gates G2/G3,
-  and AI-Mode hardening: S22 prompt caching (biggest cost lever) + S23
-  normalization-tolerant quote validation.**
+  (`web/`, `mcp-server/`, `db/`, dead `retrieval/` modules), gates G2/G3.**
+  The AI-Mode hardening that used to sit here (S22 + S23) shipped
+  2026-07-31 — see the section below.
 - **Z13 backfill + recency calibration (S20/S21)** — historical-year corpus
   backfill and recency-ranking calibration on the Z13 Linux machine.
   Runbook: [`PROMPT-z13-backfill.md`](PROMPT-z13-backfill.md) (the only
@@ -676,20 +677,9 @@ handoff-blocking — they degrade the office experience silently.**
   extraction that put a real dollar figure on the wrong budget line. Full
   evidence: `docs/superpowers/investigations/2026-07-31-rocm-mineru-benchmark.md`.
 
-- **Prompt caching is not requested.** The system prompt renders at ~40 KB
-  (~13.5K tokens) and is resent on every step — up to 50 in a Deep Research
-  turn. Every candidate model prices cache reads ~10× below input. This is the
-  single largest cost lever available and it is currently unused.
-  **Now spec decision S22 (2026-07-31)** — stable byte-identical prefix +
-  `cache_control` via OpenRouter + `cached_tokens` on ledger rows; Plan 5
-  implements.
-- **Quote-not-found cite failures on faithful quotes.** Models emit quotes
-  differing from chunk text only by whitespace/smart-quote/casing artifacts;
-  exact-substring validation rejects them and burns retry round-trips.
-  **Now spec decision S23 (2026-07-31)** — normalized matching with an index
-  map back to original offsets (port the webapp `citation-extract` technique
-  server-side into `retrieval/citations.py`) + a quote-short-spans prompt
-  nudge; Plan 5 implements.
+- ~~**Prompt caching is not requested.**~~ ~~**Quote-not-found cite failures
+  on faithful quotes.**~~ **Both SHIPPED 2026-07-31 (S22 + S23, merge
+  `5e1ae3b`) — see "AI Mode hardening" below.**
 - **`--chat-*` / `--mascot-*` tokens on `:root`** (16 of them) deviate from
   S12's one-palette rule. The mockup palette is monochrome navy — `--az-red` is
   `#2f55c4`, a blue — so there is no error/warning colour, and a failed-citation
@@ -743,6 +733,119 @@ handoff-blocking — they degrade the office experience silently.**
   → **steal**, i.e. two writers on one corpus. Creation is now a single
   `os.write` and an unreadable file gets 1s to settle before it is judged
   corrupt.
+
+---
+
+## AI Mode hardening — S22 + S23 shipped (2026-07-31)
+
+Spec: `docs/superpowers/specs/2026-07-29-standalone-consolidation-design.md`
+(S22, S23). Handoff: `PROMPT-parallel-ai-hardening.md` (now retired — do not
+execute). Merge `5e1ae3b`. Done in parallel with the running Z13 backfill;
+touches only `harness/` and `retrieval/citations.py`, nothing on the ingest
+path.
+
+### S22 — prompt caching
+
+The ~40 KB (~13.5K-token) system prompt was resent uncached on every step,
+up to 50 steps in one Deep Research turn, while every candidate model prices
+cache reads roughly 10× below fresh input.
+
+- **The cacheable prefix is now a pinned PROPERTY, not a coincidence.**
+  `tests/test_harness_prompt_caching.py` asserts the system message + tool
+  schemas are byte-identical across steps of a turn, across turns, and across
+  conversations and users, plus a guard that today's date never appears in
+  the prefix. That guard is the point of the file: the obvious way a future
+  edit breaks caching ("tell the model what day it is") is one line, and it
+  has NO symptom — answers stay correct, tests stay green, the bill silently
+  goes back up ~10×.
+- **Anthropic-style models get an explicit `cache_control: ephemeral`
+  breakpoint** on the system content part; OpenAI/DeepSeek/Moonshot-style
+  models rely on implicit prefix caching and still get a plain string.
+  Anthropic orders a request tools → system → messages, so ONE breakpoint at
+  the end of the system block covers the tool schemas too. Selection is a
+  substring table (`ANTHROPIC_STYLE_MODEL_MARKERS` in `harness/session.py`),
+  because the same model arrives under more than one id. Gated on
+  `provider == "openrouter"` for the same reason `usage: {include: true}` is
+  — S15's custom endpoint may reject unknown fields outright.
+- **`cached_tokens` now rides on every ledger row** and sums into
+  `MonthUsage`. Visibility, not arithmetic: `cost_usd` is OpenRouter's own
+  exact figure and already reflects the discount. Pre-S22 rows have no such
+  key and read as 0.
+- **Defect fixed on the way:** the context-window budget passed
+  `len(system["content"])` as `reserved`, which reads **1**, not ~40,000, once
+  the prompt is wrapped in content parts — the history window would have
+  silently grown by the whole prompt's budget and pushed requests over the
+  model's context limit with no local error. A test pins that the window is
+  identical with and without the wrapper.
+- **NOT VERIFIED LIVE.** No OpenRouter key is configured on this machine, so
+  nobody has yet seen a real `cached_tokens > 0` or the per-step cost drop
+  after step 1. **The next person with a key should run one multi-step turn
+  and check the ledger rows** — that is S22's acceptance criterion and it is
+  outstanding.
+- **Known limit, accepted per S22:** context-window truncation breaks the
+  prefix when it fires. Rare, and noted in a comment rather than engineered
+  around.
+
+### S23 — normalization-tolerant quote validation
+
+Models emit quotes that are faithful to the chunk and differ from it only by
+formatting — a smart quote, a collapsed line break, casing, an em dash
+retyped as a hyphen, MinerU's `\$` escape. Exact-substring validation called
+every one of those "quote not found" and burned a retry round-trip.
+
+- `retrieval/citations.py` falls back to normalized matching **after** exact
+  match fails, so a quote that appears verbatim still binds to the verbatim
+  occurrence.
+- **`resolved_span_start` / `resolved_span_end` always reference the ORIGINAL
+  chunk text**, via an index map. The PDF bbox highlighter and the
+  cited-text panel slice `chunk.text` with those offsets, so a normalized
+  offset leaking out would highlight the wrong words while reporting success.
+- The normalizer is a **port of the webapp's `normalizeForMatch`**
+  (`webapp/src/chat/citation-extract.ts`), not a second dialect — the same
+  chunk text is normalized on both sides of the wire.
+- **Formatting-tolerant, never semantically looser.** Reordered words and
+  paraphrases are still rejected; ambiguity rejection still applies
+  post-normalization, with positions reported as ORIGINAL-text offsets.
+  Invariant 2 is unchanged.
+- System-prompt nudge added: quote SHORT, distinctive spans copied exactly.
+  The prompt's "Format equivalence" paragraph previously described a
+  normalization that **did not exist** — it now describes what the check
+  really does.
+- Two defects caught in self-review and fixed: `'İ'.lower()` is two code
+  points in Python, which desynchronized the index map (every citation later
+  in that chunk would have mis-highlighted); and the markdown-link scan was
+  O(n²) on a bracket-heavy chunk. Both pinned by tests.
+
+**Tests:** 1394 pytest / 36 skipped (was 1392 before this work — 38 new
+specs across two new files). The webapp was not touched, so its 304 vitest
+were not re-run.
+
+**Eval not re-run, deliberately.** `harness/system-prompt.md` changed, which
+normally triggers the eval rule in CLAUDE.md — but `eval/run_eval.py` calls
+`retrieve()` directly and never reads the system prompt, so it cannot
+measure this change; and the corpus is actively changing under the running
+backfill, so any number produced now would be meaningless. Re-run it after
+Phase C for the recency work, not for this.
+
+### Follow-ups this work created or found (for Plan 5)
+
+- **S22 live verification is outstanding** (above).
+- **Only the SYSTEM prefix is cached.** In a long Deep Research turn the
+  conversation history — every prior tool result — is also resent every step
+  and is often larger than the prompt. A rolling `cache_control` breakpoint
+  on the last history message is the standard next win. Deliberately not
+  attempted here: it is outside S22's scope, and OpenRouter's translation of
+  content parts on `tool`-role messages is unverified.
+- **The webapp and server normalizers can still drift.** Two known
+  divergences, both benign today and both worth knowing about: the server
+  applies NFKC **per code point** (exact index map) where the TS normalizes
+  the whole string and approximates the map proportionally when the length
+  changes; and Python's `str.isspace()` covers a few characters JS's `\s`
+  does not. Neither occurs in this corpus. There is no shared test fixture
+  pinning the two implementations against each other — that would be the
+  real fix.
+- `MonthUsage` gained `cached_tokens`; Plan 5's admin usage panel should
+  render it, otherwise the number is recorded and never seen.
 
 ---
 
