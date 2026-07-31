@@ -1,41 +1,29 @@
+import { useEffect, useRef, useState } from "react";
 import type { SearchFilters } from "../api";
 import { FILTER_BUCKETS } from "../reportFamilies";
 
-// FilterBar — the mockup's `.filters` strip at the bottom of the big search card
-// (webapp/reference/subpage-search_jlbc.html), with its `.flabel` / `.fchip` /
-// `.fchip.on` / `select.fyear` classes so its CSS applies unmodified (spec S12).
+// FilterBar — the dropdown rail (Destin's pick from the 2026-07-30 design
+// round, artifact "Filter strip alternatives", option E2b + parenthetical
+// counts): three trigger pills — Publisher, Type, Fiscal year — each opening
+// a themed menu. The panel/row/hover/active recipes are the app's own
+// dropdown idiom (the fiscal-notes sort menu, itself verbatim mockup CSS);
+// see app.css's "filter dropdown rail" block.
 //
-// It holds no state: everything renders from `selected` and reports changes back
-// up, so Search.tsx stays the single owner of the filter object it sends to the
-// API.
+// Selection display, per Destin: NO chips, NO count badges — the trigger
+// text carries a plain parenthetical count ("Type (2)") and the trigger
+// tints gold while anything inside is selected.
 //
-// Three dimensions:
-//   publisher   — fixed chip list (the corpus's four publishers)
-//   doc_type    — CURATED bucket chips (reportFamilies.ts), the mockup's own
-//                 approach: a fixed, always-visible set, each toggling its whole
-//                 slug family. Replaces the earlier result-derived raw-slug
-//                 chips at Destin's direction (2026-07-29).
-//   fiscal_year — the mockup's `select.fyear` dropdown. Options come from the
-//                 data (the mockup hardcoded 43 years because its index was a
-//                 static file); the selected year is always kept as an option so
-//                 a set filter can never lose its own control (same dead-end
-//                 rule as before, different widget).
-//
-// `agency` is the fourth backend filter and stays unexposed: there is no
-// agency-name vocabulary to build chips from yet.
-//
-// NO COUNTS on the chips: the mockup's chip counts ("Baseline Books (21)") are
-// corpus-wide numbers from its local index. This API has no facets/aggregate
-// endpoint, and deriving counts from the current result page would show
-// per-search numbers where the mockup showed corpus totals — a quiet lie.
-// Counts can return with a facets endpoint later.
+// Behavior: click opens; multi-select rows (checkbox marks) toggle and the
+// menu STAYS OPEN for multi-picking; the year menu is single-select (radio
+// marks, "All years" clears) and closes on pick; outside click or Escape
+// closes. It holds no filter state: everything renders from `selected` and
+// reports changes up, so Search.tsx stays the single owner of the filter
+// object it sends to the API.
 
 export type FilterKey = "publisher" | "fiscal_year" | "doc_type";
 
-// The corpus's four publishers, from data/ingest-plan.yaml (`publisher:` values:
-// jlbc, governor, agao, legislature). Fixed list — these do not depend on what
-// the current search happened to return, so all four stay clickable even when
-// the result set contains none of them.
+// The corpus's four publishers, from data/ingest-plan.yaml (`publisher:`
+// values). Fixed list — not dependent on what a search returned.
 const PUBLISHERS: { value: string; label: string }[] = [
   { value: "jlbc", label: "JLBC" },
   { value: "governor", label: "Governor" },
@@ -43,16 +31,16 @@ const PUBLISHERS: { value: string; label: string }[] = [
   { value: "legislature", label: "Legislature" },
 ];
 
-/** The chip label for a publisher code, so result badges and filter chips can
- *  never disagree about what "agao" is called. An unknown code falls through to
- *  itself rather than being hidden or guessed at. */
+/** The label for a publisher code, so result surfaces and filter menus can
+ *  never disagree about what "agao" is called. An unknown code falls through
+ *  to itself rather than being hidden or guessed at. */
 export function publisherLabel(value: string): string {
   return PUBLISHERS.find((p) => p.value === value)?.label ?? value;
 }
 
 interface FilterBarProps {
   selected: SearchFilters;
-  /** Fiscal years offered in the dropdown (accumulated from results by Search.tsx). */
+  /** Fiscal years offered in the year menu (accumulated from results by Search.tsx). */
   years: number[];
   onToggle: (key: FilterKey, value: string | number) => void;
   /** Toggle a curated bucket's whole slug list in the doc_type filter. */
@@ -61,82 +49,157 @@ interface FilterBarProps {
   onYearChange: (year: number | null) => void;
 }
 
+/** The trigger's text: "Publisher" or "Publisher (2)" — a plain parenthetical,
+ *  deliberately not a badge (Destin rejected the count-pill look). */
+function triggerText(label: string, count: number): string {
+  return count > 0 ? `${label} (${count})` : label;
+}
+
+function CheckMark({ round = false }: { round?: boolean }) {
+  return (
+    <span className={round ? "ck rd" : "ck"} aria-hidden="true">
+      <svg viewBox="0 0 12 10" fill="none" stroke="currentColor" strokeWidth="2.4">
+        <path d="m1 5 3.5 3.5L11 1" />
+      </svg>
+    </span>
+  );
+}
+
 export function FilterBar({ selected, years, onToggle, onToggleBucket, onYearChange }: FilterBarProps) {
-  // A set filter must always keep its own control on screen (the dead-end rule):
-  // the year options come from results, but a year chosen under an earlier query
-  // may not appear in the next query's results — union the selection in.
+  // Which menu is open ("publisher" | "type" | "year" | null). One at a time.
+  const [open, setOpen] = useState<string | null>(null);
+  const rail = useRef<HTMLDivElement>(null);
+
+  // Outside click / Escape close the open menu — a multi-select menu must NOT
+  // close on option clicks (that's the whole point), so closing is explicit.
+  useEffect(() => {
+    if (open === null) return;
+    const onDocClick = (e: MouseEvent) => {
+      if (rail.current && !rail.current.contains(e.target as Node)) setOpen(null);
+    };
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") setOpen(null);
+    };
+    document.addEventListener("click", onDocClick);
+    document.addEventListener("keydown", onKey);
+    return () => {
+      document.removeEventListener("click", onDocClick);
+      document.removeEventListener("keydown", onKey);
+    };
+  }, [open]);
+
+  // The dead-end rule, unchanged: a year chosen under an earlier query stays
+  // an option even when the current results don't contain it.
   const selectedYear = selected.fiscal_year?.[0] ?? null;
   const yearOpts = [...new Set([...years, ...(selectedYear !== null ? [selectedYear] : [])])].sort(
-    (a, b) => b - a, // newest fiscal year first, matching Search.tsx's ordering
+    (a, b) => b - a,
   );
 
-  // A bucket chip is "on" when every one of its slugs is in the filter. Partial
-  // overlap can't happen through this UI (buckets are the only doc_type control
-  // and their slug sets don't intersect), so this reads as plain on/off.
+  const selectedPubs = selected.publisher ?? [];
   const selectedTypes = selected.doc_type ?? [];
+  // A bucket is "on" when every one of its slugs is in the filter; the Type
+  // count counts BUCKETS (what the user picked), not slugs (how the API
+  // spells them).
   const bucketOn = (slugs: string[]) => slugs.every((s) => selectedTypes.includes(s));
+  const bucketCount = FILTER_BUCKETS.filter((b) => bucketOn(b.slugs)).length;
 
-  function chip(key: FilterKey, value: string | number, label: string) {
-    const on = ((selected[key] ?? []) as (string | number)[]).includes(value);
+  const toggleMenu = (key: string) => setOpen((v) => (v === key ? null : key));
+
+  function trigger(key: string, label: string, count: number) {
     return (
       <button
-        key={`${key}:${value}`}
         type="button"
-        // `.on` is the mockup's own selected-chip class (azure fill, white text).
-        className={on ? "fchip on" : "fchip"}
-        // The chip is a toggle, so its state has to be announced; the visible
-        // label stays its accessible name.
-        aria-pressed={on}
-        onClick={() => onToggle(key, value)}
+        className={count > 0 ? "fbtn has" : "fbtn"}
+        aria-expanded={open === key}
+        onClick={() => toggleMenu(key)}
       >
-        {label}
+        {triggerText(label, count)}
+        <svg className="chev" viewBox="0 0 10 6" fill="none" stroke="currentColor" strokeWidth="1.8" aria-hidden="true">
+          <path d="m1 1 4 4 4-4" />
+        </svg>
       </button>
     );
   }
 
-  // One LABELED ROW per dimension (label column + its chips), not the mockup's
-  // single wrapped strip: with three groups and nine chips, wrapping let the
-  // TYPE / FISCAL YEAR labels land mid-row inside a soup of pills (Destin
-  // 2026-07-30: "make the filters look better organized"). The grid keeps
-  // every label at the left edge with its own chips beside it.
   return (
-    <div className="filters">
-      <span className="flabel">Publisher</span>
-      <div className="fgroup">
-        {PUBLISHERS.map((p) => chip("publisher", p.value, p.label))}
+    <div className="filters" ref={rail}>
+      <div className="fctl">
+        {trigger("publisher", "Publisher", selectedPubs.length)}
+        {open === "publisher" && (
+          <div className="fmenu">
+            {PUBLISHERS.map((p) => {
+              const on = selectedPubs.includes(p.value);
+              return (
+                <button
+                  key={p.value}
+                  type="button"
+                  className={on ? "fopt on" : "fopt"}
+                  aria-pressed={on}
+                  onClick={() => onToggle("publisher", p.value)}
+                >
+                  <CheckMark />
+                  {p.label}
+                </button>
+              );
+            })}
+          </div>
+        )}
       </div>
 
-      <span className="flabel">Type</span>
-      <div className="fgroup">
-        {FILTER_BUCKETS.map((bucket) => (
-          <button
-            key={bucket.label}
-            type="button"
-            className={bucketOn(bucket.slugs) ? "fchip on" : "fchip"}
-            aria-pressed={bucketOn(bucket.slugs)}
-            onClick={() => onToggleBucket(bucket.slugs)}
-          >
-            {bucket.label}
-          </button>
-        ))}
+      <div className="fctl">
+        {trigger("type", "Type", bucketCount)}
+        {open === "type" && (
+          <div className="fmenu">
+            {FILTER_BUCKETS.map((bucket) => {
+              const on = bucketOn(bucket.slugs);
+              return (
+                <button
+                  key={bucket.label}
+                  type="button"
+                  className={on ? "fopt on" : "fopt"}
+                  aria-pressed={on}
+                  onClick={() => onToggleBucket(bucket.slugs)}
+                >
+                  <CheckMark />
+                  {bucket.label}
+                </button>
+              );
+            })}
+          </div>
+        )}
       </div>
 
-      <span className="flabel">Fiscal year</span>
-      <div className="fgroup">
-        {/* The mockup's `select.fyear`, "All years" first, "FY 2027" wording. */}
-        <select
-          className="fyear"
-          aria-label="Filter by fiscal year"
-          value={selectedYear ?? ""}
-          onChange={(e) => onYearChange(e.target.value === "" ? null : Number(e.target.value))}
-        >
-          <option value="">All years</option>
-          {yearOpts.map((y) => (
-            <option key={y} value={y}>
-              FY {y}
-            </option>
-          ))}
-        </select>
+      <div className="fctl">
+        {trigger("year", "Fiscal year", selectedYear !== null ? 1 : 0)}
+        {open === "year" && (
+          <div className="fmenu">
+            <button
+              type="button"
+              className={selectedYear === null ? "fopt on" : "fopt"}
+              onClick={() => {
+                onYearChange(null);
+                setOpen(null); // single-select: picking closes
+              }}
+            >
+              <CheckMark round />
+              All years
+            </button>
+            {yearOpts.map((y) => (
+              <button
+                key={y}
+                type="button"
+                className={selectedYear === y ? "fopt on" : "fopt"}
+                onClick={() => {
+                  onYearChange(y);
+                  setOpen(null);
+                }}
+              >
+                <CheckMark round />
+                FY {y}
+              </button>
+            ))}
+          </div>
+        )}
       </div>
     </div>
   );

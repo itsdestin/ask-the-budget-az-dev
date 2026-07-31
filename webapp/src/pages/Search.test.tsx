@@ -88,18 +88,24 @@ test("sibling documents of the same report start collapsed and expand", async ()
   expect(sibling).toHaveAttribute("href", "https://www.azjlbc.gov/27baseline/dcs.pdf");
 });
 
-test("publisher filter chip re-queries", async () => {
+test("picking a publisher in its dropdown menu re-queries", async () => {
   const spy = vi.spyOn(api, "search").mockResolvedValue({
     results: [], total: 0, provider: "stub",
   });
   render(<MemoryRouter initialEntries={["/search?q=x"]}><Search /></MemoryRouter>);
   await waitFor(() => expect(spy).toHaveBeenCalled());
+  // The dropdown rail: options live behind the trigger.
+  fireEvent.click(screen.getByRole("button", { name: /^publisher$/i }));
   fireEvent.click(screen.getByRole("button", { name: /jlbc/i }));
   await waitFor(() =>
     expect(spy).toHaveBeenLastCalledWith(
       "x", expect.objectContaining({ publisher: ["jlbc"] }), "budget",
     ),
   );
+  // The trigger carries the selection as a plain parenthetical (no badge),
+  // and the menu STAYED OPEN for further multi-picking.
+  expect(screen.getByRole("button", { name: /publisher \(1\)/i })).toBeInTheDocument();
+  expect(screen.getByRole("button", { name: /governor/i })).toBeInTheDocument();
 });
 
 test("empty results show honest message, not blank", async () => {
@@ -126,7 +132,8 @@ test("keeps the previous results on screen while refetching", async () => {
     expect(screen.getByText(TITLE)).toBeInTheDocument(),
   );
 
-  // Narrow by publisher; the second request is now hanging.
+  // Narrow by publisher (via its menu); the second request is now hanging.
+  fireEvent.click(screen.getByRole("button", { name: /^publisher$/i }));
   fireEvent.click(screen.getByRole("button", { name: /jlbc/i }));
   await waitFor(() => expect(spy).toHaveBeenCalledTimes(2));
 
@@ -205,11 +212,10 @@ test("a year filter kept across a new query stays selectable and clearable", asy
 
   render(<MemoryRouter initialEntries={["/search?q=ahcccs"]}><Search /></MemoryRouter>);
 
-  const dropdown = await screen.findByLabelText(/filter by fiscal year/i);
-  await waitFor(() =>
-    expect(screen.getByRole("option", { name: "FY 2027" })).toBeInTheDocument(),
-  );
-  fireEvent.change(dropdown, { target: { value: "2027" } });
+  // Open the year menu once the first response has offered FY 2027.
+  await waitFor(() => expect(spy).toHaveBeenCalled());
+  fireEvent.click(screen.getByRole("button", { name: /^fiscal year$/i }));
+  fireEvent.click(await screen.findByRole("button", { name: "FY 2027" }));
   await waitFor(() =>
     expect(spy).toHaveBeenLastCalledWith(
       "ahcccs",
@@ -231,15 +237,17 @@ test("a year filter kept across a new query stays selectable and clearable", asy
     ),
   );
 
-  // The selected year is still an option and still selected.
-  expect(screen.getByRole("option", { name: "FY 2027" })).toBeInTheDocument();
-  expect(dropdown).toHaveValue("2027");
+  // The selection survives: the trigger still shows it, and reopening the
+  // menu still offers FY 2027 (union of selected into options).
+  expect(screen.getByRole("button", { name: /fiscal year \(1\)/i })).toBeInTheDocument();
+  fireEvent.click(screen.getByRole("button", { name: /fiscal year \(1\)/i }));
+  expect(screen.getByRole("button", { name: "FY 2027" })).toBeInTheDocument();
   // The empty state blames the filter, not the corpus.
   expect(screen.getByText(/with the filters above/i)).toBeInTheDocument();
 
   // And it really does undo: "All years" drops the dimension entirely, not
   // sending an empty array.
-  fireEvent.change(dropdown, { target: { value: "" } });
+  fireEvent.click(screen.getByRole("button", { name: /all years/i }));
   await waitFor(() => expect(spy).toHaveBeenLastCalledWith("roads", {}, "budget"));
 });
 
@@ -253,9 +261,11 @@ test("a type bucket chip sends its whole slug family", async () => {
   render(<MemoryRouter initialEntries={["/search?q=x"]}><Search /></MemoryRouter>);
   await waitFor(() => expect(spy).toHaveBeenCalled());
 
-  // Bucket chips are a fixed curated set — visible before any results exist.
-  const chip = screen.getByRole("button", { name: /baseline books/i });
-  fireEvent.click(chip);
+  // Buckets are a fixed curated set behind the Type trigger — available
+  // before any results exist.
+  fireEvent.click(screen.getByRole("button", { name: /^type$/i }));
+  const row = screen.getByRole("button", { name: /baseline books/i });
+  fireEvent.click(row);
   await waitFor(() =>
     expect(spy).toHaveBeenLastCalledWith(
       "x",
@@ -265,9 +275,11 @@ test("a type bucket chip sends its whole slug family", async () => {
       "budget",
     ),
   );
-  expect(chip).toHaveAttribute("aria-pressed", "true");
+  expect(row).toHaveAttribute("aria-pressed", "true");
+  // Trigger text counts BUCKETS, plain parenthetical.
+  expect(screen.getByRole("button", { name: /type \(1\)/i })).toBeInTheDocument();
 
-  fireEvent.click(chip);
+  fireEvent.click(row);
   await waitFor(() => expect(spy).toHaveBeenLastCalledWith("x", {}, "budget"));
 });
 
