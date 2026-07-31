@@ -122,17 +122,36 @@ SNAPSHOT_SUPPRESSED_MESSAGE = (
 WORKERS_ENV_VAR = "JLBC_INGEST_WORKERS"
 DEFAULT_WORKERS = 1
 
-# Hard ceiling regardless of hardware. Beyond ~8 concurrent extractions the
+# Hard ceiling regardless of hardware. Beyond ~16 concurrent extractions the
 # LanceDB write phase and the shared embedder stop being free, and the queue
 # journal — one small file per job on an SMB share, re-read by every worker
 # every poll — starts costing more than it saves.
-MAX_WORKERS = 8
+#
+# Raised 8 -> 16 on 2026-07-31 against measurement, not guesswork: on a
+# 32-thread box, 8 workers drew only 14.6 cores (1.8 per worker, not the 3.2
+# originally assumed) and delivered 7.6x serial throughput while leaving over
+# half the CPU idle. The write phase was NOT the limit at that point — an FTS
+# rebuild cost 0.25s at 4.7k rows, i.e. a ~14,000 docs/hr ceiling against ~700
+# actual. WATCH: that rebuild grows with table size, so on a much larger corpus
+# the serialized write, not the CPU, becomes the wall.
+MAX_WORKERS = 16
 
-# A MinerU extraction was measured at ~3.2 CPU cores mean / ~7 peak, so give
-# each worker four threads' worth of headroom. This is what stops
-# `JLBC_INGEST_WORKERS=8` from bricking a 4-core office PC: there, it clamps
-# to 1 and the machine behaves exactly as it does today.
-THREADS_PER_WORKER = 4
+# Threads' worth of headroom reserved per worker. This is what stops a stray
+# `JLBC_INGEST_WORKERS=16` from bricking a 4-core office PC: there it clamps to
+# 2, and with the office default (unset) that machine still runs exactly one
+# document at a time as it does today.
+#
+# Was 4, from a bench estimate of ~3.2 cores per extraction. Under real 8-way
+# load the measured draw was ~1.8 cores per worker (14.6 cores across 8), so
+# reserving 4 threads each left the machine less than half used. 2 reflects
+# what extraction actually costs when several run at once.
+THREADS_PER_WORKER = 2
+
+# Machines this small run one document at a time no matter what the env says.
+# The office PCs are 4-core; an explicit floor is safer than trusting a divisor
+# to happen to land on 1, and it means the divisor above can be tuned for big
+# machines without ever loosening the office guarantee.
+SINGLE_WORKER_MAX_CPUS = 8
 
 # How long a worker will wait for the corpus lock before failing its job.
 # Generous because the wait is EXPECTED in parallel mode: while one worker
@@ -489,7 +508,11 @@ def configured_worker_count() -> int:
     if requested <= 1:
         return DEFAULT_WORKERS
 
-    cpu_ceiling = max(1, (os.cpu_count() or 1) // THREADS_PER_WORKER)
+    cpus = os.cpu_count() or 1
+    # Small machines (office PCs) never run parallel ingest, whatever is asked.
+    if cpus <= SINGLE_WORKER_MAX_CPUS:
+        return DEFAULT_WORKERS
+    cpu_ceiling = max(1, cpus // THREADS_PER_WORKER)
     return min(requested, MAX_WORKERS, cpu_ceiling)
 
 
@@ -580,6 +603,22 @@ class IngestWorker:
         count = self.worker_count
         if count > 1:
             print(_parallel_announcement(count), file=sys.stderr, flush=True)
+        else:
+            # A request that got clamped all the way down to one must still be
+            # announced. Staying silent here would let an operator who asked for
+            # 32 believe the backfill is running 32-wide when it is running
+            # one-at-a-time, and mis-plan the night around a throughput that
+            # never happens. Silence is reserved for an unset environment.
+            requested = os.environ.get(WORKERS_ENV_VAR, "").strip()
+            if requested.isdigit() and int(requested) > 1:
+                print(
+                    f"jlbc-insight: ingest running ONE document at a time "
+                    f"(clamped from {requested}; this machine has "
+                    f"{os.cpu_count()} CPUs and parallel ingest needs more "
+                    f"than {SINGLE_WORKER_MAX_CPUS}). Set "
+                    f"{WORKERS_ENV_VAR} on a larger machine to use it.",
+                    file=sys.stderr, flush=True,
+                )
         self._stop.clear()
         self._threads = [
             threading.Thread(
