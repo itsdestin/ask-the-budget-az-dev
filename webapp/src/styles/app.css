@@ -87,10 +87,31 @@ nav.primary{position:relative;padding-right:44px;}
    four flat surfaces and no submenus, so that CSS would be dead weight. Lift it from
    reference/index.html if nav ever grows dropdowns. */
 
+/* The nav is `flex-wrap:nowrap` with five text pills plus two icon pills, and
+   the mockup's `overflow-x:auto` escape hatch was never ported (see below), so
+   there is nothing to stop the pills clipping once the row runs out of room.
+   Adding the AI pill made that worse: it permanently reserves 44px regardless
+   of viewport. These two steps buy the width back before anything overlaps —
+   first by tightening the pills, then by dropping the labels to icons. Neither
+   can be caught by the test suite: jsdom applies no stylesheet, so layout
+   regressions here are invisible to vitest by construction. */
+@media (max-width:900px){
+  .nav-item>a{padding:7px 7px;font-size:13px;}
+  nav.primary{gap:2px 2px;}
+}
 @media (max-width:600px){
   .logo img{height:50px;}
   /* The mockup also has `nav.primary .wrap{overflow-x:auto}` here, but it matches
      nothing (there is no .wrap inside nav) — dropped rather than reinterpreted. */
+  /* Last resort before the pills collide: the text pills lose their words and
+     keep only their icons. `font-size:0` collapses the label visually while
+     leaving it in the DOM, so a screen reader still announces "Budget
+     Documents" — the accessible name is unchanged, only the pixels are gone.
+     (A `.nav-label` span would be tidier, but the header renders labels as bare
+     text nodes and this file does not own that component.) */
+  .nav-item>a{font-size:0;padding:7px 8px;}
+  .home-ic,.ai-ic{width:20px;height:20px;}
+  nav.primary{padding-right:38px;}
 }
 
 /* ===== shared: card primitive — verbatim from the mockup =====
