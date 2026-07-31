@@ -25,7 +25,7 @@ import pytest
 
 from harness.constants import TIER_BUDGETS
 from harness.ledger import LimitStatus
-from harness.session import HarnessSession
+from harness.session import MAX_RETRY_AFTER_SECONDS, HarnessSession
 from harness.settings import ProviderConfig, Settings, TierConfig
 
 SYSTEM_PROMPT = "SYSTEM PROMPT (Task 7 stub)."
@@ -200,11 +200,13 @@ class FakeLedger:
         )
 
 
-def make_settings(provider: str = "openrouter", api_key: str = "sk-test") -> Settings:
+def make_settings(
+    provider: str = "openrouter",
+    api_key: str = "sk-test",
+    base_url: str = "https://provider.test/api/v1",
+) -> Settings:
     return Settings(
-        provider=ProviderConfig(
-            base_url="https://provider.test/api/v1", api_key=api_key, provider=provider
-        ),
+        provider=ProviderConfig(base_url=base_url, api_key=api_key, provider=provider),
         tiers={
             "standard": TierConfig(model="vendor/standard-model"),
             "deep_research": TierConfig(model="vendor/deep-model"),
@@ -224,6 +226,9 @@ def make_session(
 ) -> tuple[HarnessSession, FakeLedger]:
     led = ledger or FakeLedger()
     kwargs.setdefault("sleep", lambda _seconds: None)
+    kwargs.setdefault("check_limit", led.check_limit)
+    kwargs.setdefault("record_usage", led.record_usage)
+    kwargs.setdefault("system_prompt", SYSTEM_PROMPT)
     session = HarnessSession(
         "conv-1",
         "budget",
@@ -232,10 +237,7 @@ def make_session(
         settings or make_settings(),
         executor=executor or FakeExecutor(),
         transport=provider.transport(),
-        system_prompt=SYSTEM_PROMPT,
         tools=[],
-        check_limit=led.check_limit,
-        record_usage=led.record_usage,
         **kwargs,
     )
     return session, led
@@ -938,7 +940,7 @@ def test_truncation_never_starts_the_window_on_an_orphaned_tool_message(budget):
 def test_truncation_on_a_later_step_never_opens_on_an_orphaned_tool_reply():
     # THE case the first round of truncation tests could not reach: every
     # one of them ran a single-step text turn, where history ends on the
-    # user message. `_truncate` runs on EVERY step, and from step 2 on,
+    # user message. `_context_window` runs on EVERY step, and from step 2 on,
     # history ends on a `{"role": "tool"}` reply — so a budget that fits
     # the fat tool result but not the assistant call that requested it
     # left the window opening on an orphan. That request is malformed and
@@ -954,9 +956,41 @@ def test_truncation_on_a_later_step_never_opens_on_an_orphaned_tool_reply():
     assert second[0]["role"] == "system"
     assert second[1]["role"] != "tool", "window opens on an orphaned tool reply"
     assert_no_dangling_tool_calls(second)
-    # The fallback keeps the assistant call WITH its reply — a legal pair,
-    # even though the pair alone busts the budget.
-    assert [m["role"] for m in second] == ["system", "assistant", "tool"]
+    # The fallback keeps the assistant call WITH its reply — a legal pair
+    # — and re-attaches the question, because a system prompt plus a tool
+    # result with nothing being asked is a confident-nonsense generator.
+    assert [m["role"] for m in second] == ["system", "user", "assistant", "tool"]
+    assert second[1]["content"] == "How much for ADC?"
+
+
+def test_the_fallback_window_is_bounded_and_keeps_every_tool_call_id():
+    # The fallback drags a whole assistant/replies group along, so an
+    # assistant message with N parallel calls used to send N fat results
+    # regardless of the budget — measured at 1003x on a 10-call step.
+    # It fires exactly when history is ALREADY fat, and the outcome is
+    # the provider 400 the truncation design exists to avoid.
+    provider = Provider(
+        lambda: sse(
+            tool_chunk(0, call_id="c1", name="retrieve", arguments="{}"),
+            tool_chunk(1, call_id="c2", name="retrieve", arguments="{}"),
+            tool_chunk(2, call_id="c3", name="retrieve", arguments="{}"),
+            finish_chunk("tool_calls"),
+        ),
+        lambda: sse(text_chunk("done"), finish_chunk("stop")),
+    )
+    fat = {"chunks": [{"chunk_id": "c:1"}], "padding": "x" * 50_000}
+    session, _ = make_session(
+        provider, executor=FakeExecutor({"retrieve": fat}), context_chars=500
+    )
+    run(session)
+
+    second = provider.bodies[1]["messages"]
+    assert_no_dangling_tool_calls(second)
+    assert {m["tool_call_id"] for m in second if m["role"] == "tool"} == {"c1", "c2", "c3"}
+    assert any(m["role"] == "user" for m in second)
+    # Oversized results are stubbed, not dropped: the pairing survives.
+    assert len(json.dumps(second)) < 5_000
+    assert "too large to resend" in json.dumps(second)
 
 
 def test_the_newest_message_survives_even_when_it_alone_exceeds_the_budget():
@@ -982,6 +1016,131 @@ def test_history_under_budget_is_sent_untouched():
     # Truncation is a VIEW for one request — it must never mutate the
     # conversation's own record.
     assert session.history[: len(before)] == before
+
+
+# ---------------------------------------------------------------------------
+# Surviving the SSE route: abandoned streams and non-provider exceptions
+# ---------------------------------------------------------------------------
+
+
+def test_an_abandoned_stream_leaves_the_conversation_usable():
+    # Task 8's route is `for frame in stream_turn(...)`. A closed browser
+    # tab makes Starlette stop draining and throws GeneratorExit at the
+    # live yield. If that is the tool_use yield, the assistant tool_calls
+    # message is already in history and no reply ever arrives — every
+    # later turn 400s and the conversation is dead because someone closed
+    # a tab.
+    provider = _tool_then_text()
+    session, _ = make_session(provider, executor=FakeExecutor({"retrieve": RETRIEVE_RESULT}))
+
+    stream = session.stream_turn("How much for ADC?")
+    for event in stream:
+        if event["type"] == "tool_use":
+            break
+    stream.close()
+
+    assert_no_dangling_tool_calls(session.history)
+    # And the next turn actually works.
+    _, done = run(session, "second question")
+    assert done["stopReason"] == "end_turn"
+
+
+def test_an_abandoned_stream_still_records_what_was_spent():
+    provider = Provider(
+        lambda: sse(
+            usage_chunk(120, 8, cost=0.002),
+            tool_chunk(0, call_id="call_1", name="retrieve", arguments="{}"),
+            finish_chunk("tool_calls"),
+        )
+    )
+    session, ledger = make_session(provider)
+
+    stream = session.stream_turn("q")
+    for event in stream:
+        if event["type"] == "tool_use":
+            break
+    stream.close()
+
+    assert [row["cost_usd"] for row in ledger.recorded] == [0.002]
+
+
+def test_a_non_provider_exception_becomes_an_error_frame(capsys):
+    # Everything except ProviderError used to propagate into the SSE
+    # generator, aborting the HTTP response mid-stream: no _error, no
+    # turn_complete, and an assistant turn left open to adopt the next
+    # answer's text.
+    def flaky_share(_user, _settings, **_kwargs):
+        raise OSError("the share went away")
+
+    provider = Provider(lambda: sse(text_chunk("never"), finish_chunk("stop")))
+    session, _ = make_session(provider, check_limit=flaky_share)
+    events, terminal = run(session)
+
+    assert terminal["type"] == "_error"
+    assert of_type(events, "turn_complete")[0]["stopReason"] == "error"
+    # The traceback is the admin's only breadcrumb.
+    assert "Traceback" in capsys.readouterr().err
+
+
+def test_a_malformed_base_url_fails_one_turn_not_the_whole_office():
+    # harness/settings.py deliberately never crashes on a config typo. An
+    # admin who omits the scheme must not undo that here — every
+    # analyst's every turn would die with a truncated stream and nothing
+    # in the UI explaining why.
+    provider = Provider(lambda: sse(text_chunk("never"), finish_chunk("stop")))
+    session, _ = make_session(
+        provider, settings=make_settings(base_url="openrouter.ai/api/v1")
+    )
+    _, terminal = run(session)
+
+    assert terminal["type"] == "_error"
+    # Names the setting, so the admin who broke it knows where to look.
+    assert "openrouter.ai/api/v1" in terminal["message"]
+    assert "admin" in terminal["message"]
+
+
+def test_a_missing_system_prompt_module_is_reported_not_crashed():
+    # harness/prompt.py (Task 7) does not exist yet, so this fires on
+    # EVERY turn today for any caller that doesn't inject a prompt.
+    provider = Provider(lambda: sse(text_chunk("never"), finish_chunk("stop")))
+    ledger = FakeLedger()
+    session = HarnessSession(
+        "conv-noprompt",
+        "budget",
+        "standard",
+        "analyst1",
+        make_settings(),
+        executor=FakeExecutor(),
+        transport=provider.transport(),
+        tools=[],
+        prompt_builder=lambda **_: (_ for _ in ()).throw(ModuleNotFoundError("harness.prompt")),
+        sleep=lambda _s: None,
+        check_limit=ledger.check_limit,
+        record_usage=ledger.record_usage,
+    )
+    _, terminal = run(session)
+
+    assert terminal["type"] == "_error"
+    assert provider.call_count == 0
+
+
+def test_usage_is_recorded_when_the_stream_fails_midway():
+    # The provider billed the tokens before it failed. On a shared key
+    # with per-user caps, unrecorded spend is exactly what the ledger
+    # exists to prevent.
+    provider = Provider(
+        lambda: sse(
+            text_chunk("Partial…"),
+            usage_chunk(90, 4, cost=0.0007),
+            {"error": {"message": "upstream cut the connection"}},
+            done=False,
+        )
+    )
+    session, ledger = make_session(provider)
+    _, terminal = run(session)
+
+    assert terminal["type"] == "_error"
+    assert [row["cost_usd"] for row in ledger.recorded] == [0.0007]
 
 
 # ---------------------------------------------------------------------------
@@ -1191,6 +1350,106 @@ def test_history_carries_across_turns_and_two_sessions_do_not_share_it():
     session_b, _ = make_session(provider_b)
     run(session_b, "unrelated")
     assert len(provider_b.bodies[0]["messages"]) == 2  # system + this user message only
+
+
+def test_switching_tier_mid_conversation_changes_model_prompt_and_budget():
+    # `stream_turn(tier=…)` is the public API behind S16's composer
+    # toggle and it mutates the session's tier for the rest of the
+    # conversation. Untested, it hid a real defect: the system prompt was
+    # built once and cached on nothing, so turn 2 ran the Deep Research
+    # model on a 50-step budget under Standard's prompt.
+    provider = Provider(
+        lambda: sse(text_chunk("first"), finish_chunk("stop")),
+        lambda: sse(
+            tool_chunk(0, call_id="c", name="retrieve", arguments="{}"),
+            finish_chunk("tool_calls"),
+        ),
+    )
+    session, _ = make_session(
+        provider,
+        tier="standard",
+        system_prompt=None,
+        prompt_builder=lambda corpus, tier: f"PROMPT for {corpus}/{tier}",
+    )
+    session.send_turn("one")
+    done = session.send_turn("two", tier="deep_research")
+
+    first, second = provider.bodies[0], provider.bodies[1]
+    assert first["model"] == "vendor/standard-model"
+    assert first["messages"][0]["content"] == "PROMPT for budget/standard"
+    assert second["model"] == "vendor/deep-model"
+    assert second["messages"][0]["content"] == "PROMPT for budget/deep_research"
+    # …and the larger step budget really applied.
+    assert done["stopReason"] == "max_steps"
+    assert provider.call_count == 1 + TIER_BUDGETS["deep_research"]["max_steps"]
+
+
+def test_keepalive_comment_lines_do_not_break_the_stream():
+    # OpenRouter sends ": OPENROUTER PROCESSING" every few seconds on a
+    # slow model. Parsing one as JSON would abort a healthy stream.
+    body = (
+        b": OPENROUTER PROCESSING\n\n"
+        + f"data: {json.dumps(text_chunk('answer'))}\n\n".encode()
+        + b"\n"
+        + f"data: {json.dumps(finish_chunk('stop'))}\n\n".encode()
+        + b"data: [DONE]\n\n"
+    )
+    provider = Provider(
+        lambda: httpx.Response(
+            200,
+            headers={"content-type": "text/event-stream"},
+            stream=_CannedStream([body]),
+        )
+    )
+    session, _ = make_session(provider)
+    _, done = run(session)
+
+    assert done["finalAnswer"] == "answer"
+    assert done["stopReason"] == "end_turn"
+
+
+def test_retry_after_is_clamped_and_a_non_numeric_header_is_ignored():
+    slept: list[float] = []
+    provider = Provider(
+        lambda: error_response(429, {"error": {"e": 1}}, {"retry-after": "3600"}),
+        lambda: error_response(429, {"error": {"e": 1}}, {"retry-after": "Wed, 21 Oct 2026"}),
+        lambda: sse(text_chunk("recovered"), finish_chunk("stop")),
+    )
+    session, _ = make_session(provider, sleep=slept.append)
+    _, done = run(session)
+
+    # A provider may ask us to wait; it may not park a turn for an hour.
+    # A date-form header falls back to our own schedule.
+    assert slept == [MAX_RETRY_AFTER_SECONDS, 2.0]
+    assert done["finalAnswer"] == "recovered"
+
+
+def test_close_is_idempotent():
+    provider = Provider(lambda: sse(text_chunk("ok"), finish_chunk("stop")))
+    session, _ = make_session(provider)
+    run(session)
+    session.close()
+    session.close()  # Task 8's registry may evict a conversation twice
+
+
+def test_final_answer_joins_the_assistant_messages_around_tool_calls():
+    # Pre-tool narration is part of what the analyst read, so it belongs
+    # in the audit record — joined, in first-seen order, one blank line
+    # between messages.
+    provider = Provider(
+        lambda: sse(
+            text_chunk("Let me check the FY2027 baseline."),
+            tool_chunk(0, call_id="c1", name="retrieve", arguments="{}"),
+            finish_chunk("tool_calls"),
+        ),
+        lambda: sse(text_chunk("ADC received $1.4 B."), finish_chunk("stop")),
+    )
+    session, _ = make_session(provider, executor=FakeExecutor({"retrieve": RETRIEVE_RESULT}))
+    _, done = run(session)
+
+    assert done["finalAnswer"] == (
+        "Let me check the FY2027 baseline.\n\nADC received $1.4 B."
+    )
 
 
 def test_exactly_one_tool_executor_is_built_per_conversation(monkeypatch):

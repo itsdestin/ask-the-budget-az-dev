@@ -9,7 +9,7 @@ tools in-process.
 
 What this module owns:
   * the conversation's message history and what slice of it fits in a
-    request (`_truncate`),
+    request (`_context_window`),
   * one streaming HTTP call per step, with retries (`_open_stream`),
   * turning the provider's SSE chunks into `ProviderEvent` dicts the web
     UI already knows how to render (`_stream_completion`),
@@ -47,6 +47,7 @@ import json
 import sys
 import threading
 import time
+import traceback
 import uuid as uuid_module
 from dataclasses import dataclass, field
 from types import MappingProxyType
@@ -92,10 +93,12 @@ DEFAULT_CONTEXT_CHARS = 360_000
 # The model's `finish_reason` vocabulary -> the `stopReason` the UI shows.
 #
 # "tool_calls" normally never reaches the lookup (the loop continues
-# instead of stopping), but it IS mapped: leaving it out meant a step
-# that finished with tool calls we could not run fell through to the
-# "end_turn" default, and the analyst saw a completed turn with an empty
-# answer. A missing key must never be able to read as a finished answer.
+# instead of stopping). It is mapped anyway as a BACKSTOP, not as the
+# fix: the real guard is in `_run_turn`, which returns an `_error` when a
+# step finishes with tool_calls and none of them survived assembly. This
+# entry only ensures that if some future path ever does reach the lookup
+# with "tool_calls", it cannot fall through to the "end_turn" default and
+# read to the analyst as a finished answer.
 #
 # Read-only for the same reason harness/constants.py wraps its tables:
 # one process serves the whole office, so a stray write here would
@@ -123,6 +126,22 @@ _CANCELLED_TOOL_RESULT = json.dumps(
             "The analyst interrupted the turn before this tool call ran, so "
             "its result is unknown. Do not assume it succeeded or failed. "
             "Call it again if you still need it."
+        ),
+    }
+)
+
+
+# What an old tool result says once it has been traded away for context
+# room. Same voice as the cancelled result above, and the same reason:
+# the model must be able to tell "I never got this" from "this failed".
+_OVERSIZED_TOOL_RESULT = json.dumps(
+    {
+        "ok": False,
+        "dropped": True,
+        "error": (
+            "This result was too large to resend with the rest of the "
+            "conversation, so its contents are no longer available. Call the "
+            "tool again if you still need it."
         ),
     }
 )
@@ -266,6 +285,7 @@ class HarnessSession:
         transport: httpx.BaseTransport | None = None,
         *,
         system_prompt: str | None = None,
+        prompt_builder: Callable[..., str] | None = None,
         tools: Sequence[dict[str, Any]] | None = None,
         history: list[dict[str, Any]] | None = None,
         context_chars: int = DEFAULT_CONTEXT_CHARS,
@@ -282,12 +302,18 @@ class HarnessSession:
         # Public and mutable on purpose: Task 8 keeps the session in a
         # registry and may want to inspect or seed the transcript, and
         # the tests seed it directly. It is the conversation's real
-        # record — `_truncate` never mutates it, it only chooses a view.
+        # record — `_context_window` never mutates it, it only picks a view.
         self.history: list[dict[str, Any]] = list(history or [])
 
         self._executor = executor
         self._transport = transport
         self._system_prompt = system_prompt
+        self._prompt_builder = prompt_builder
+        # Keyed by tier: the tier toggle is per-message (S16) and
+        # build_system_prompt() takes `tier`, so caching on nothing
+        # meant turn 2 ran the Deep Research model under Standard's
+        # prompt. One entry per tier the conversation actually used.
+        self._prompt_by_tier: dict[str, str] = {}
         self._tools = list(tools) if tools is not None else None
         self._context_chars = context_chars
         self._check_limit = check_limit
@@ -323,7 +349,17 @@ class HarnessSession:
         self._interrupted.set()
 
     def close(self) -> None:
-        """Release the HTTP connection pool. Safe to call twice."""
+        """Release the HTTP connection pool. Safe to call twice.
+
+        CONTRACT: call this only when the conversation is finished, from
+        whichever thread owns Task 8's registry. It deliberately does NOT
+        take the turn lock — a registry eviction must never block behind
+        a five-minute Deep Research turn. Closing the client under a live
+        turn raises inside that turn, which since the SSE hardening
+        surfaces as an honest `_error` frame rather than a truncated
+        stream; that is the intended (if blunt) way to shut a runaway
+        conversation down. To stop a turn politely, call `interrupt()`
+        and let it end on its own."""
         if self._client is not None:
             self._client.close()
             self._client = None
@@ -379,6 +415,50 @@ class HarnessSession:
                 self.tier = tier
             self._interrupted.clear()
             yield from self._run_turn(text)
+        except GeneratorExit:
+            # THE CONSUMER WENT AWAY MID-STREAM. Task 8's route is
+            # `for frame in session.stream_turn(...)`, so a closed browser
+            # tab makes Starlette stop draining and Python throws
+            # GeneratorExit at whatever yield is live. If that was the
+            # `tool_use` yield, the assistant `tool_calls` message is
+            # already in history and its replies never will be — and this
+            # session lives in Task 8's registry for the conversation's
+            # life, so EVERY later turn would 400. Someone closes a tab
+            # and the conversation is dead.
+            #
+            # Repair, then re-raise. Never yield while unwinding a
+            # GeneratorExit: Python turns that into a RuntimeError and
+            # the repair is what actually matters here.
+            self._repair_history()
+            raise
+        except Exception as err:  # noqa: BLE001 — see below
+            # Every non-ProviderError failure used to propagate into the
+            # SSE generator and abort the HTTP response mid-stream: no
+            # `_error`, no `turn_complete`, and (per the reducer note in
+            # `_run_turn`) an assistant turn left open to adopt the next
+            # answer's text. Sources are ordinary, not exotic — a flaky
+            # share under `check_limit`, a lazy import that isn't built
+            # yet, a hand-edited `base_url`. `harness/settings.py` goes
+            # out of its way never to crash on a config typo; failing
+            # loudly here would undo that for the whole office.
+            #
+            # NOT BaseException: KeyboardInterrupt/SystemExit must still
+            # take the process down.
+            self._repair_history()
+            # The traceback is the admin's only breadcrumb — the analyst
+            # gets one sentence, and nothing else records what happened.
+            print(
+                f"harness.session: turn failed in conversation "
+                f"{self.conversation_id!r} — {type(err).__name__}: {err}",
+                file=sys.stderr,
+            )
+            traceback.print_exc(file=sys.stderr)
+            yield _event("turn_complete", stopReason="error")
+            yield self._error_frame(
+                f"Something went wrong answering this question "
+                f"({type(err).__name__}: {err}). If it keeps happening, ask "
+                "your admin to check the AI settings."
+            )
         finally:
             self._turn_lock.release()
 
@@ -420,7 +500,7 @@ class HarnessSession:
                 break
 
             system = self._system_message()
-            messages = [system] + self._truncate(self.history, reserved=len(system["content"]))
+            messages = [system] + self._context_window(self.history, reserved=len(system["content"]))
             result = _StepResult(uuid=_new_uuid())
 
             yield _event("assistant_thinking", uuid=result.uuid)
@@ -439,8 +519,15 @@ class HarnessSession:
                 yield _event("turn_complete", stopReason="error", model=model)
                 yield self._error_frame(str(err))
                 return
-
-            self._bill(result, usage_totals, model)
+            finally:
+                # In a `finally`, not after the call: a provider that
+                # streams a usage chunk and THEN fails in-band has
+                # already billed those tokens, and so has one abandoned
+                # by a closed tab. On a shared key with per-user monthly
+                # caps, silently unrecorded spend is precisely what the
+                # ledger exists to prevent. `_bill` no-ops when no usage
+                # was reported.
+                self._bill(result, usage_totals, model)
 
             if result.interrupted:
                 yield from self._finish_interrupted(result)
@@ -615,6 +702,15 @@ class HarnessSession:
         # `name` cannot be run OR answered (a tool message must carry a
         # `tool_call_id`), so it is dropped — but LOUDLY: dropping it
         # silently is how a turn ends as a successful, empty answer.
+        #
+        # A PARTIAL drop (some calls survived) still proceeds, and the
+        # model is never told one vanished — there is no id to answer
+        # with, so there is no way to tell it. That is a deliberate
+        # trade: the surviving calls return real results the model can
+        # answer from, and failing the whole turn would throw those away
+        # over a provider glitch. Only a TOTAL drop fails the turn, in
+        # `_run_turn`, because then there is nothing to answer from at
+        # all. The stderr line is the only record either way.
         for _, call in sorted(partials.items()):
             if call.id and call.name:
                 result.tool_calls.append(call)
@@ -623,7 +719,9 @@ class HarnessSession:
                     f"harness.session: dropping tool call with no id/name in "
                     f"conversation {self.conversation_id!r} "
                     f"(id={call.id!r}, name={call.name!r}) — it cannot be "
-                    "answered, so the turn is failed rather than finished.",
+                    "answered. The turn fails only if NO call survived; "
+                    "otherwise the others run and the model is never told "
+                    "this one vanished.",
                     file=sys.stderr,
                 )
 
@@ -672,6 +770,19 @@ class HarnessSession:
             try:
                 request = client.build_request("POST", url, json=body, headers=headers)
                 response = client.send(request, stream=True)
+            except (httpx.InvalidURL, ValueError) as err:
+                # A hand-edited base_url with no scheme, or an empty one.
+                # Surfaces as httpx.InvalidURL from build_request or, for
+                # a scheme-less URL, as a plain ValueError from deep
+                # inside send() — so both are caught here. Not retryable,
+                # and worth naming the setting: the admin who broke it is
+                # the only person who can fix it, and settings.py
+                # deliberately never crashes on a config typo.
+                raise ProviderError(
+                    f"The configured AI endpoint is not a usable URL "
+                    f"({self.settings.provider.base_url!r}): {err}. Ask your "
+                    "admin to check the AI settings."
+                ) from err
             except httpx.RequestError as err:
                 last_error = f"could not reach the model provider: {err}"
                 if attempt == attempts - 1:
@@ -685,8 +796,15 @@ class HarnessSession:
                 return response
 
             # Read and close before deciding — an unread streaming
-            # response holds a pooled connection open.
-            text = response.read().decode("utf-8", errors="replace")
+            # response holds a pooled connection open. A body that fails
+            # to download is not allowed to escape as a raw httpx error:
+            # the STATUS is the fact that decides retry-or-not, and
+            # losing the retry over a missing error message would be a
+            # strictly worse outcome than an unhelpful message.
+            try:
+                text = response.read().decode("utf-8", errors="replace")
+            except httpx.RequestError as err:
+                text = f"(the error body could not be read: {err})"
             retry_after = _retry_after_seconds(response.headers.get("retry-after"))
             response.close()
 
@@ -744,37 +862,63 @@ class HarnessSession:
             }
         )
 
+    def _repair_history(self) -> int:
+        """Back-fill a cancelled reply for every unanswered tool call.
+
+        THE ONE DEFINITION of "legal history", shared by all three ways a
+        turn can end early (stop pressed, consumer disconnected, an
+        unexpected exception). An OpenAI-compatible history must never
+        carry an assistant `tool_calls` id without a matching
+        `{"role": "tool"}` reply: the next request is malformed and the
+        provider 400s — which the analyst experiences as "the
+        conversation is broken now", after doing nothing worse than
+        pressing stop or closing a tab.
+
+        Appending at the END is correct because a dangling assistant
+        message is always the LAST thing in history when this runs — the
+        loop appends the assistant message and its replies together, so
+        the only way to see an unanswered call is to be interrupted
+        between those two steps.
+
+        Returns how many replies it invented, so a caller can tell
+        whether anything was actually broken.
+        """
+        replied = {
+            message.get("tool_call_id")
+            for message in self.history
+            if message.get("role") == "tool"
+        }
+        appended = 0
+        for message in list(self.history):
+            for call in message.get("tool_calls") or []:
+                call_id = call.get("id")
+                if not call_id or call_id in replied:
+                    continue
+                self.history.append(
+                    {
+                        "role": "tool",
+                        "tool_call_id": call_id,
+                        "name": (call.get("function") or {}).get("name", ""),
+                        "content": _CANCELLED_TOOL_RESULT,
+                    }
+                )
+                replied.add(call_id)
+                appended += 1
+        return appended
+
     def _finish_interrupted(self, result: _StepResult) -> Iterator[dict[str, Any]]:
-        """Close out a turn aborted mid-stream, leaving valid history.
+        """Close out a turn stopped mid-stream, leaving valid history.
 
-        The hard requirement: an OpenAI-compatible history must never
-        end with an assistant message whose `tool_calls` have no
-        matching `{"role": "tool"}` replies. The next request would be
-        malformed and the provider 400s — which the analyst experiences
-        as "the conversation is broken now", after doing nothing worse
-        than pressing stop. So every tool call that survived assembly is
-        back-filled with a cancelled result.
-
-        Fragments that never got an `id` are dropped instead: a tool
-        message must reference a `tool_call_id`, so an id-less call
-        cannot be answered, and an unanswerable call is exactly the
-        dangling state we are preventing.
+        Records whatever the model had produced, then hands the
+        back-fill to `_repair_history`. No `tool_use` event was emitted
+        for these calls (the stream was cut before the loop reached
+        execution), so no `tool_result` event is emitted either — the UI
+        never drew a card that would be left spinning. History still
+        needs the replies.
         """
         if result.text or result.tool_calls:
             self.history.append(_assistant_message(result))
-        for call in result.tool_calls:
-            # No tool_use event was emitted for these (the stream was cut
-            # before the loop reached execution), so no tool_result event
-            # either — the UI never drew a card that would be left
-            # spinning. History still needs the reply.
-            self.history.append(
-                {
-                    "role": "tool",
-                    "tool_call_id": call.id,
-                    "name": call.name,
-                    "content": _CANCELLED_TOOL_RESULT,
-                }
-            )
+        self._repair_history()
         kind = "tool-use" if result.tool_calls else "plain"
         yield _event("user_interrupt", kind=kind)
 
@@ -800,12 +944,28 @@ class HarnessSession:
     # -- prompt, tiers, billing -------------------------------------------
 
     def _system_message(self) -> dict[str, Any]:
-        if self._system_prompt is None:
-            # Task 7 owns the content; this module only owns the seam.
-            from harness.prompt import build_system_prompt
+        """The system prompt for the CURRENT tier, built once per tier.
 
-            self._system_prompt = build_system_prompt(corpus=self.corpus, tier=self.tier)
-        return {"role": "system", "content": self._system_prompt}
+        An explicit `system_prompt=` string wins for every tier (the
+        simple test/embed seam). Otherwise the builder is called per
+        tier, because `build_system_prompt(*, corpus, tier)` takes the
+        tier by design — a conversation whose analyst flips the composer
+        toggle mid-thread must not keep running the old tier's prompt
+        against the new tier's model and step budget.
+        """
+        if self._system_prompt is not None:
+            return {"role": "system", "content": self._system_prompt}
+        prompt = self._prompt_by_tier.get(self.tier)
+        if prompt is None:
+            builder = self._prompt_builder
+            if builder is None:
+                # Task 7 owns the content; this module only owns the seam.
+                from harness.prompt import build_system_prompt
+
+                builder = build_system_prompt
+            prompt = builder(corpus=self.corpus, tier=self.tier)
+            self._prompt_by_tier[self.tier] = prompt
+        return {"role": "system", "content": prompt}
 
     def _max_steps(self) -> int:
         budget = TIER_BUDGETS.get(self.tier)
@@ -860,7 +1020,7 @@ class HarnessSession:
 
     # -- history ----------------------------------------------------------
 
-    def _truncate(
+    def _context_window(
         self, history: list[dict[str, Any]], reserved: int = 0
     ) -> list[dict[str, Any]]:
         """Choose the newest slice of `history` that fits the budget.
@@ -895,6 +1055,22 @@ class HarnessSession:
            history ends on a tool reply) the window could open on an
            orphan and the provider 400s the conversation.
 
+           Two things the fallback does on top of "keep the pair", both
+           because the pair alone is not a sane request:
+           **it re-attaches the newest question** (a system prompt plus a
+           tool result with nothing being asked is a confident-nonsense
+           generator, and rule 3 exists to protect the question in the
+           first place), and **it bounds the payload** — an assistant
+           message with N parallel calls otherwise drags N results along
+           regardless of the budget (measured at 1003x on a 10-call step
+           with the ~50 KB analyze results `constants.py` describes).
+           Oversized tool results are STUBBED, never dropped, so every
+           `tool_call_id` still has its reply.
+
+        Measured over `messages` only. The request also carries the tool
+        SCHEMAS (~6 KB), which are not counted — a fixed overhead the
+        budget's deliberate pessimism absorbs.
+
         The system prompt is not in `history` at all — it is prepended by
         the caller — so it is structurally impossible for this to drop
         it. That matters: it is ~700 lines and it is the entire reason
@@ -924,17 +1100,32 @@ class HarnessSession:
             start += 1
         if start < len(kept):
             return kept[start:]
+        return self._fallback_window(history, budget)
 
-        # Rule 3's pair-aware fallback (see the docstring). Walking the
-        # FULL history, not `kept`: the assistant call we need may have
-        # been dropped by the budget walk above.
+    def _fallback_window(
+        self, history: list[dict[str, Any]], budget: int
+    ) -> list[dict[str, Any]]:
+        """Rule 3's pair-aware, question-carrying, bounded fallback."""
+        # Walks the FULL history, not `kept`: the assistant call we need
+        # may have been dropped by the budget walk.
+        anchor = None
         for index in range(len(history) - 1, -1, -1):
             if history[index].get("role") != "tool":
-                return history[index:]
-        # A history of nothing but tool replies is unreachable — every
-        # conversation opens with a user message — but sending it whole
-        # beats silently sending nothing at all.
-        return list(history)
+                anchor = index
+                break
+        if anchor is None:
+            # A history of nothing but tool replies is unreachable —
+            # every conversation opens with a user message — but sending
+            # it whole beats silently sending nothing at all.
+            return list(history)
+
+        window = history[anchor:]
+        if not any(message.get("role") == "user" for message in window):
+            for index in range(anchor - 1, -1, -1):
+                if history[index].get("role") == "user":
+                    window = [history[index]] + window
+                    break
+        return _bound_tool_payloads(window, budget)
 
     # -- frames -----------------------------------------------------------
 
@@ -962,6 +1153,40 @@ def _event(event_type: str, uuid: str | None = None, **fields: Any) -> dict[str,
     }
     event.update({k: v for k, v in fields.items() if v is not None})
     return event
+
+
+def _bound_tool_payloads(
+    window: list[dict[str, Any]], budget: int
+) -> list[dict[str, Any]]:
+    """Stub oversized tool results until `window` fits the budget.
+
+    Newest-first: the most recent search is the one the model is
+    reasoning from, so older results give up their text first. The
+    message itself always stays — replacing `content` keeps the
+    `tool_call_id` pairing intact, which dropping the message would
+    destroy (that is the whole reason this is a stub and not a delete).
+    Non-tool messages are never touched: they are the question and the
+    model's own words.
+    """
+    sizes = [len(json.dumps(message, ensure_ascii=False)) for message in window]
+    if sum(sizes) <= budget:
+        return window
+    bounded = list(window)
+    used = sum(
+        size
+        for message, size in zip(window, sizes)
+        if message.get("role") != "tool"
+    )
+    for index in range(len(bounded) - 1, -1, -1):
+        if bounded[index].get("role") != "tool":
+            continue
+        if used + sizes[index] <= budget:
+            used += sizes[index]
+            continue
+        stub = {**bounded[index], "content": _OVERSIZED_TOOL_RESULT}
+        bounded[index] = stub
+        used += len(json.dumps(stub, ensure_ascii=False))
+    return bounded
 
 
 def _guard_transport(lines: Iterator[str]) -> Iterator[str]:
@@ -1202,9 +1427,20 @@ class _Accumulator:
         )
 
     def final_answer(self) -> str:
-        """Latest text per uuid, joined in first-seen order — one uuid is
-        one assistant message, and a turn with tool calls in the middle
-        produces several."""
+        """Everything the model SAID this turn, in the order it said it.
+
+        Latest text per uuid, joined by a blank line in first-seen order
+        — one uuid is one assistant message, and a turn with tool calls
+        in the middle produces several. That means narration written
+        BEFORE a tool call ("Let me check the FY2027 baseline.") is part
+        of this string, not just the closing answer: it is what the
+        analyst read on screen, so it belongs in the audit record. A
+        consumer that wants only the concluding text should take the last
+        paragraph, not assume this field holds one.
+
+        System-authored text is never in here — see the max_steps branch
+        of `_run_turn`. `record_text` has exactly one caller for that
+        reason."""
         return "\n\n".join(self._text_by_uuid[u] for u in self._text_order)
 
     def done_frame(
