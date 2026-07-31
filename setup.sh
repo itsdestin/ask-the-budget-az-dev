@@ -4,19 +4,22 @@
 # What this does:
 #   - Verifies prerequisites (node, uv) are installed
 #   - Runs `uv sync` to set up the Python venv from uv.lock
-#   - Runs `npm ci` in mcp-server/ and web/
-#   - Builds the MCP server (tsc)
+#   - Runs `npm ci` in mcp-server/ and web/ — both directories are LEGACY,
+#     retired by Plan 4 and pending Plan 5 deletion; the installs stay so
+#     their still-passing suites keep running under --verify until then
+#   - Installs + builds webapp/ (the live SPA)
 #   - Brings up the Postgres container ONLY if Docker is running (Plan 3
 #     removed Postgres from every runtime path; it is migration-era only)
 #
 # What this does NOT do (deliberately):
-#   - Restore database data (db/data/). You either copy that directory
-#     from a working machine OR re-run the ingest pipeline. See
+#   - Restore the corpus (data/insight-data/ + data/cached-pdfs/). Copy
+#     both from a working machine or the shared drive. See
 #     README.md → "Moving to a new device" for the manual steps.
-#   - Create .env.local. Copy it from a working machine OR populate
-#     by hand (Voyage API key required).
-#   - Start the three runtime processes. Setup is install-only; see
-#     README.md → "Running it" for the launch commands.
+#   - Configure any API key. None are needed — search, fiscal notes and
+#     upload run keyless. The one optional key (OpenRouter, for AI Mode)
+#     goes in <data_dir>/settings.json, not an env file.
+#   - Start the app. Setup is install-only; see README.md →
+#     "Running it locally" for the launch commands.
 #
 # Flags:
 #   --verify    Also run all test suites after setup.
@@ -66,14 +69,9 @@ if [ "$node_major" -lt 20 ]; then
     fail "Node $(node --version) is too old. Need Node 20+."
 fi
 
-if [ ! -f .env.local ]; then
-    echo "  WARNING: .env.local is missing."
-    echo "  You'll need to create it before the sidecar can call Voyage."
-    echo "  Template:"
-    echo "    POSTGRES_PASSWORD=askbudget-dev"
-    echo "    DATABASE_URL=postgresql://askbudget:askbudget-dev@127.0.0.1:5432/askbudget"
-    echo "    VOYAGE_API_KEY=<your-key>"
-fi
+# No .env.local check: nothing at runtime needs an env file or any key.
+# The only optional key (OpenRouter, for AI Mode) lives in the app's
+# <data_dir>/settings.json and is entered through the UI.
 
 echo "  OK: node $(node --version), npm $(npm --version), uv $(uv --version)"
 
@@ -88,17 +86,17 @@ uv sync
 # MCP server
 # -----------------------------------------------------------------------------
 
-step "Installing mcp-server/ dependencies (npm ci)"
+step "Installing mcp-server/ dependencies (npm ci) — legacy, pending Plan 5 deletion"
 ( cd mcp-server && npm ci )
 
-step "Building mcp-server (tsc)"
+step "Building mcp-server (tsc) — legacy, pending Plan 5 deletion"
 ( cd mcp-server && npm run build )
 
 # -----------------------------------------------------------------------------
 # Web app
 # -----------------------------------------------------------------------------
 
-step "Installing web/ dependencies (npm ci)"
+step "Installing web/ dependencies (npm ci) — legacy, pending Plan 5 deletion"
 ( cd web && npm ci )
 
 # -----------------------------------------------------------------------------

@@ -16,7 +16,7 @@ were ingested.
 | `data/cached-pdfs/manifest.yaml` | URL → sha256 + relative_path index. Every successful `DownloadCache.fetch()` writes here. Manual-acquisition entries (Cloudflare-protected origins) carry an `acquisition: "manual-browser-download …"` field. |
 | `data/discovery-cache.yaml` | JLBC TOC walk results. URL list per (publisher, doc_type, fiscal_year) combo. Recreated from JLBC's TOC PDFs by `ingest.discovery.discover()`. |
 | `samples/manifest.yaml` | Hand-curated entries for non-TOC docs (Phase 0 sample set, AGAO AFR, Governor's SAD, budget bills). URL + sha256 + local_path + acquired_on. |
-| `documents.source_url` (DB column) | Per-row URL. **Must always be populated** for any URL-fetchable doc. A null `source_url` = "we lost the trail." |
+| `documents.source_url` (field in `data/insight-data/documents.json`) | Per-doc URL. **Must always be populated** for any URL-fetchable doc. A null `source_url` = "we lost the trail." |
 | `samples/raw-pdfs/agao-afr-fy25.pdf` | Checked into git (gitignore exception) because gao.az.gov is Cloudflare-protected — programmatic refetch is impossible, so the file itself is the source of truth. |
 
 ## What is NOT durable

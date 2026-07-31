@@ -31,7 +31,9 @@ expenditures of opioid monies?") would hit lower numbers because real
 queries don't pre-align with chunk vocabulary. Don't quote 86% as
 "the system's recall" — quote it as "today's Layer 1 regression
 score" and focus on deltas, not absolutes. A future Layer 2 eval will
-fold in real dogfood queries from `~/.claude/ask-the-budget-az/bridge.log`.
+fold in real dogfood queries from the harness's records (the
+month-sharded spend ledger + conversation logs on the share — the old
+`bridge.log` died with the MCP bridge).
 
 **Refusal scope:** The 5 refusal queries here test only
 **corpus-boundary** cases (wrong jurisdiction, fictional entity,
@@ -47,10 +49,9 @@ interpreted as retrieval failures.
 ## Running it
 
 After any change to `retrieval/`, `ingest/`, `chunking/`, or
-`mcp-server/system-prompt.md`:
+`harness/system-prompt.md`:
 
 ```bash
-set -a; source .env.local; set +a
 uv run python -m eval.run_eval
 ```
 
@@ -74,18 +75,16 @@ two runs with `git diff eval/results/<old>.json eval/results/<new>.json`.
 
 ## After a re-ingest
 
-Chunk boundaries can change during ingest. Run:
+Chunk boundaries can change during ingest. The historical fixer for
+that is `eval/refresh_chunk_ids.py` — it walks queries.yaml, finds
+successor chunk_ids for any entries whose chunk_id no longer exists,
+and writes the YAML back in place (anchor-text match preferred, cosine
+similarity fallback).
 
-```bash
-uv run python -m eval.refresh_chunk_ids
-```
-
-Walks queries.yaml, finds successor chunk_ids for any entries whose
-chunk_id no longer exists, and writes the YAML back in place — only
-when changes are made, so no-op invocations don't rewrite the file.
-Anchor-text matching is preferred (deterministic); cosine similarity
-is the fallback. Entries that can't be repaired are flagged for
-manual review.
+**It is UNPORTED to LanceDB** — it still imports the retired Postgres
+`db.connection` and will crash. Until it's ported, stale chunk_ids
+after a re-ingest have to be repaired by hand (or the script ported
+first).
 
 ## Calibrating the refusal threshold
 
@@ -95,41 +94,37 @@ After the corpus or rerank model changes:
 uv run python -m eval.calibrate_refusal
 ```
 
-This sweeps thresholds 0.10-0.90 against the most recent eval result
-and reports refusal precision, **refusal recall**, and retrieval
-pass-rate at each. The recommended threshold maximizes the
-equal-weighted average of all three — recall is critical here
-because the eval's first calibration showed precision alone could be
-gamed (a tight threshold catches one obvious case and "looks
-perfect" while letting most refusals through).
+This sweeps a threshold grid derived from the observed score
+distribution against the most recent eval result and reports refusal
+precision, **refusal recall**, and retrieval pass-rate at each. The
+recommended threshold maximizes the equal-weighted average of all
+three — recall is critical here because the eval's first calibration
+showed precision alone could be gamed (a tight threshold catches one
+obvious case and "looks perfect" while letting most refusals through).
 
-The runtime threshold currently lives in the MCP system prompt
-(`mcp-server/system-prompt.md` — search for `refusal_no_retrieval —
-top_score < 0.65`; set to 0.65 on 2026-05-22 after the first
-calibration sweep recommended 0.70, with 0.65 picked as a slightly
-more conservative starting point — catches 60% of refusals at the
-cost of refusing ~7% of legitimate retrieval queries on this eval
-set). Updating it means editing those prompt lines, not flipping a
-Python constant. **The calibration output's recall number is the
-load-bearing one**: if recall is low at every threshold, the
-retrieval-layer mechanism can't reliably refuse the failure modes
-in your eval set — investing in a query classifier or
-faithfulness verifier will be much higher leverage than tweaking the
-threshold.
+The runtime threshold is `REFUSAL_THRESHOLD = 1.9` in
+`harness/constants.py` — a single Python constant, set 2026-07-30
+after the Plan 1 model swap (sweep: precision 0.67 / recall 0.40 /
+pass-rate 0.97). Scores are **raw cross-encoder logits** (roughly
+−10..10), not the old Voyage 0..1 scale — any prose you find pointing
+at a 0.65 threshold in `mcp-server/system-prompt.md` describes the
+retired pre-consolidation stack. **The calibration output's recall
+number is the load-bearing one**: if recall is low at every threshold,
+the retrieval-layer mechanism can't reliably refuse the failure modes
+in your eval set — investing in a query classifier or faithfulness
+verifier will be much higher leverage than tweaking the threshold.
 
 ## Adding queries
 
 Two paths:
 
-1. **Re-run the synthesizer (requires Anthropic API key):**
-   ```bash
-   uv run python -m eval.synthesize_queries --append --lookup 10
-   ```
-   Adds 10 new lookup queries to the existing set. Costs ~$1 in API
-   spend. Without an API key in `.env.local`, follow the
-   subagent-driven pattern used for the initial set — see commit
-   `6e5f907` for an example where chunks were sampled into JSON and a
-   subagent wrote queries.yaml inline.
+1. **Re-run the synthesizer — currently UNPORTED.**
+   `eval/synthesize_queries.py` still imports the retired Postgres
+   `db.connection` and will crash; port it to the LanceDB store before
+   using it. The alternative that still works: the subagent-driven
+   pattern used for the initial set — see commit `6e5f907` for an
+   example where chunks were sampled into JSON and a subagent wrote
+   queries.yaml inline.
 
 2. **Hand-write directly in `eval/queries.yaml`:** follow the schema
    in `eval/schema.py::EvalQuery`. Pick a unique `id`, write the
@@ -157,9 +152,9 @@ this directory. When that lands, expect Layer 1's role to shift to
 | `queries.yaml` | Ground truth — 34 questions + expected_chunks (Layer 1, synthesized from chunks) |
 | `schema.py` | Pydantic models for queries + results |
 | `scoring.py` | Pure recall + refusal scoring functions |
-| `synthesize_queries.py` | One-shot LLM-driven query generator |
+| `synthesize_queries.py` | One-shot LLM-driven query generator — **UNPORTED: imports retired Postgres `db.connection`, crashes** |
 | `run_eval.py` | Main runner — calls retrieve(), scores, writes results |
-| `refresh_chunk_ids.py` | Post-reingest stale-chunk_id fixer |
+| `refresh_chunk_ids.py` | Post-reingest stale-chunk_id fixer — **UNPORTED: imports retired Postgres `db.connection`, crashes** |
 | `calibrate_refusal.py` | Threshold sweep + recommendation (now reports recall) |
 | `results/` | Git-tracked result files (one JSON + one MD per run) |
 
