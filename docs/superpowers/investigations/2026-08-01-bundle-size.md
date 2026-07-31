@@ -3,7 +3,7 @@
 **Date:** 2026-08-01
 **Plan:** `docs/superpowers/plans/2026-08-01-standalone-plan-5-admin-packaging.md`, Track 3 Task 14
 **Spec:** S7 (unzip to `%LOCALAPPDATA%`, embeddable Python, all model weights pre-bundled, first run downloads nothing), S8 (launcher → Chrome `--app`)
-**Status:** measured; decision pending Destin
+**Status:** measured; **decided 2026-08-01 — one bundle everywhere** (see [Decision](#decision-one-bundle-everywhere-decided-2026-08-01))
 **Reproduce:** `python packaging/measure.py --profile both --find-links <dir with the antlr4 wheel>`
 
 ---
@@ -148,7 +148,85 @@ and I am not going to claim the property on source reading alone.
 
 ---
 
-## Recommendation: split — a client bundle everywhere, an ingest bundle on two machines
+## Decision: one bundle everywhere (decided 2026-08-01)
+
+**Shape:** a single bundle, installed on all ~20 office PCs, carrying MinerU,
+opendataloader-pdf, and a vendored Java runtime. Which machines actually *process*
+uploads is an in-app setting, not a different download.
+
+**Bundle size as decided:** 3.33 GB unzipped / 2.11 GB zipped (the ingest bundle above
+plus the 146 MB JRE below).
+
+### How the recommendation changed, and why
+
+The section below this one recommended the **split**, and the load-bearing reason was
+Java: asking IT for a JRE on two machines is routine, on twenty it is a project that
+gets declined after Destin has left. Destin's constraint is stronger than the plan
+assumed — **avoid IT requests entirely, and the machines do not have Java** — which sent
+me to check whether Java could be vendored rather than requested.
+
+It can, cheaply and legally: Eclipse Temurin publishes a standalone Windows x64 JRE as a
+plain zip — **47 MB compressed, 146 MB unpacked** (downloaded and measured:
+`OpenJDK21U-jre_x64_windows_hotspot_21.0.12_8.zip`, contains `bin/java.exe`). No
+installer, no admin rights, no registry, and no JDK or `jlink` step on the build side.
+It is GPLv2 **with the Classpath Exception** (`legal/java.base/ADDITIONAL_LICENSE_INFO`
+in the shipped archive), which is precisely the license grant that permits redistributing
+it inside another application.
+
+`opendataloader_pdf/runner.py:24` invokes bare `"java"` through `subprocess.run`, so the
+launcher redirects it to the bundled copy by prepending `<install>/jre/bin` to the child
+process's `PATH`. Nothing outside the install directory is touched and no other Java on
+the machine is affected.
+
+With Java costing 146 MB and zero phone calls, the split's main argument evaporated. What
+remained was disk (67 GB office-wide for one bundle vs 27 GB for the split) — and Destin
+confirmed ~500 GB free per machine, which makes that a rounding error.
+
+### Why one bundle wins once Java is free
+
+The decisive argument is a failure mode, not a number. **With two artifacts, somebody
+eventually installs the search-only one on the machine that was meant to do the
+ingesting.** Uploads then queue on the share and are never drained: no error, no crash,
+nothing that points at the cause. That is precisely the kind of silent failure that kills
+a system a year after the person who built it has gone, and this project's defining
+constraint is that it must survive exactly that.
+
+With one bundle every machine is *capable*, and "which machine does the work" degrades
+from an install-time decision that requires a reinstall to fix, into a setting that
+requires a click.
+
+Secondary: one artifact, one version number, one instruction sheet, and no "which one do
+you have?" as the opening question of every future support conversation.
+
+### The two things this decision obliges (hand-off to Session A, Task 17)
+
+1. **An ingest-enabled setting, defaulting to OFF.** The seam already exists —
+   `create_app(ingest_worker=None)` (Ground truth 2). Twenty machines with the worker on
+   would not corrupt anything (`IngestLock` is single-writer), but one analyst's laptop
+   would grind for six hours on a Baseline Book for no reason.
+2. **A visible warning when uploads are queued and no machine is set to drain them.**
+   Defaulting to OFF re-creates the silent pile-up this decision was made to avoid unless
+   the admin page says so out loud.
+
+### Recorded but not taken
+
+Only **2 of the corpus's 2,490 documents** are routed to the Java extractor — one `afr`
+and one `governors-budget` (`ingest/dispatcher.py` EXTRACTOR_REGISTRY; counts from the
+live `documents.json`). Everything else, including all 2,104 fiscal notes, goes through
+MinerU. So dropping opendataloader-pdf entirely and routing those two doc types to MinerU
+would remove Java from the picture for 146 MB less and one fewer moving part.
+
+Not taken: AFRs are *tagged* PDFs and opendataloader was chosen for cell-level table
+fidelity on exactly that shape (dispatcher docstring, chunk-shape D4). Trading table
+accuracy on the annual financial report for 146 MB is a bad trade while disk is free.
+Worth revisiting only if the vendored JRE turns out to cause trouble on Windows.
+
+---
+
+## Superseded recommendation: split — a client bundle everywhere, an ingest bundle on two machines
+
+> Kept for the reasoning, not the conclusion. See [Decision](#decision-one-bundle-everywhere-decided-2026-08-01)
+> above — vendoring Java removed this section's main premise.
 
 **Size alone does not force the split.** 3.18 GB on disk and a 2.06 GB zip are
 unpleasant but not disqualifying; if that were the only consideration, one bundle
@@ -182,14 +260,9 @@ is that a non-technical successor has to keep it working, two dumb self-containe
 built from one script and stamped with one version number is the better trade. "Which
 one do you have" is then answered by the folder name.
 
-**What Destin needs to decide** (Task 15 does not start until he does):
-
-- One bundle everywhere at 3.18 GB, or the split at 1.01 / 3.18 GB?
-- If split: is Java already on the machines that would do ingest, or does the builder
-  need to vendor a headless JRE?
-- Are 30-ish office PCs really the scale, or is it closer to 5? At 5 machines the disk
-  argument for splitting mostly evaporates and only the Java and blast-radius arguments
-  remain — they still hold, but it is a closer call.
+**How the open questions resolved** (2026-08-01): ~18–22 PCs, ~500 GB free on each, no
+Java installed anywhere, and a hard preference for avoiding IT requests altogether. The
+last of those is what sent me to vendor the JRE, which is what flipped the decision.
 
 ---
 
@@ -207,7 +280,9 @@ Everything in this section is **inferred from Linux** and could be wrong.
 - **That `uv pip install --target`'s layout is right for Windows.** It wrote console
   scripts to `bin/`, not `Scripts/`. Probably irrelevant — the launcher calls uvicorn
   programmatically rather than through a console script — but unproven.
-- **Whether Java is present on JLBC machines.**
+- **That the vendored Temurin JRE runs the extractor on a JLBC PC.** The archive
+  downloaded and unpacked and contains `bin/java.exe`; it has not been executed, and the
+  `PATH` redirection that points opendataloader at it has not been exercised.
 - **First-run offline behaviour** beyond the four traced levers.
 - **Zip and unzip times over the office SMB share.** 2.06 GB compressed on hardware and
   a network I have not touched.
