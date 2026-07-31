@@ -521,7 +521,21 @@ handoff-blocking — they degrade the office experience silently.**
   that was decaying toward ~25 docs/hour. **Better long-term design: snapshot
   once per BATCH** (per book edition / per fiscal-note session) rather than
   per document, so bulk runs keep protection without the quadratic cost.
-- **Safe parallel ingest is BUILT AND TESTED, awaiting a decision** — branch
+- **Parallel ingest is LIVE and VERIFIED (2026-07-31).** Merged (`f4ddf1d`)
+  and enabled on the Z13 backfill at `JLBC_INGEST_WORKERS=4`. **Measured 385
+  docs/hour vs the 95/hr serial baseline = 4.05x** — above the 2.5-3.5x
+  projection; remaining backfill fell from ~67 h to ~17 h. Verified live, not
+  just in tests: 4 concurrent extractions with distinct doc_ids and zero
+  duplicates, 0 failed jobs, 0 `ingest lock held by` errors, load 13.9/32.
+  Data quality on 93 parallel-ingested documents audited: 93/93 real
+  content-derived titles (incl. the `<strike>`/`NOW:` amended-bill form),
+  0 missing source paths, 0 chunks missing page provenance across 400
+  sampled, 0 empty text, 0 documents with zero passages. Default remains
+  N=1 for the office; every invalid value means 1; clamped to
+  `min(8, cpu_count/4)` so a 4-core office PC gets 1 and says so.
+  **Superseded design note kept for Plan 5:** the prior entry below described
+  this as awaiting a decision.
+- **[superseded] Safe parallel ingest was BUILT AND TESTED, awaiting a decision** — branch
   `parallel-ingest` (`85ecccb`), not merged, not deployed. Design: parallelize
   extraction (the ~78–90% of wall clock that needs no lock), keep the write
   phase serialized under the existing `IngestLock`, serialize embedding behind
