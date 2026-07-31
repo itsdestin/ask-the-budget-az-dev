@@ -7,6 +7,8 @@ without models, a GPU, or 1–3 minutes per page.
 """
 from __future__ import annotations
 
+import contextlib
+
 import json
 import sys
 import threading
@@ -14,6 +16,9 @@ from pathlib import Path
 
 import pytest
 
+from ingest.mineru_runner import (
+    resolve_api_url,
+)
 from ingest.mineru_runner import (
     MineruCancelled,
     MineruRunner,
@@ -191,3 +196,59 @@ def test_dev_machines_keep_the_default_model_cache(monkeypatch, fake_mineru):
     monkeypatch.delenv("JLBC_MINERU_MODELS", raising=False)
     env = MineruRunner(exe=fake_mineru).child_env()
     assert "MINERU_MODEL_SOURCE" not in env
+
+
+# --- shared mineru-api server (JLBC_MINERU_API_URL) -------------------------
+
+
+def test_api_url_is_absent_by_default(monkeypatch):
+    """The office install must keep spawning its own service — unset means
+    today's behavior, byte for byte."""
+    monkeypatch.delenv("JLBC_MINERU_API_URL", raising=False)
+    assert resolve_api_url() is None
+
+
+def test_whitespace_only_api_url_is_treated_as_unset(monkeypatch):
+    """A launcher exporting an empty variable must not produce `--api-url ` with
+    nothing after it, which the CLI would read as the next flag."""
+    monkeypatch.setenv("JLBC_MINERU_API_URL", "   ")
+    assert resolve_api_url() is None
+
+
+def test_api_url_is_passed_through(monkeypatch):
+    monkeypatch.setenv("JLBC_MINERU_API_URL", "http://127.0.0.1:47900")
+    assert resolve_api_url() == "http://127.0.0.1:47900"
+
+
+def test_command_includes_api_url_only_when_set(monkeypatch, tmp_path):
+    """The flag must reach the actual command line, not just the resolver."""
+    seen: list[list[str]] = []
+
+    def fake_stream(self, cmd, *, timeout_s, on_page):
+        seen.append(list(cmd))
+        raise _StopForTest()
+
+    monkeypatch.setattr(MineruRunner, "_stream", fake_stream, raising=False)
+    pdf = tmp_path / "d.pdf"
+    pdf.write_bytes(b"%PDF-1.4\n")
+    runner = MineruRunner(exe=["mineru"])
+
+    monkeypatch.delenv("JLBC_MINERU_API_URL", raising=False)
+    with contextlib.suppress(_StopForTest):
+        runner._run_range(
+            pdf=pdf, out=tmp_path / "o", pages=[1], start=1, end=1,
+            timeout_s=10, on_page=None,
+        )
+    assert "--api-url" not in seen[-1]
+
+    monkeypatch.setenv("JLBC_MINERU_API_URL", "http://127.0.0.1:47900")
+    with contextlib.suppress(_StopForTest):
+        runner._run_range(
+            pdf=pdf, out=tmp_path / "o", pages=[1], start=1, end=1,
+            timeout_s=10, on_page=None,
+        )
+    assert seen[-1][-2:] == ["--api-url", "http://127.0.0.1:47900"]
+
+
+class _StopForTest(Exception):
+    """Stops _run_range once the command line has been captured."""

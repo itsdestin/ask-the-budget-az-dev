@@ -50,6 +50,25 @@ DEFAULT_TIMEOUT_S = 7200
 EXE_ENV = "JLBC_MINERU_EXE"
 MODELS_ENV = "JLBC_MINERU_MODELS"
 
+# Point every extraction at an ALREADY-RUNNING `mineru.cli.fast_api` instead of
+# letting each invocation start its own throwaway one.
+#
+# WHY this matters more than it looks: a `mineru` invocation was measured at
+# ~38 s for a 2-page document, of which ~33 s is loading models — paid fresh
+# every single time. Worse, each concurrent worker holds its own copy of those
+# models in RAM, which is what actually capped parallel ingest (40 GB used /
+# 12 GB free at 12 workers, while half the CPU sat idle). Pointing all workers
+# at one warm server removes both: measured 38 s -> 8 s per document, with one
+# set of models in memory instead of N.
+#
+# Output is unaffected — the same CLI does the same work, it just doesn't
+# rebuild the world first. Verified byte-identical (block counts, text and
+# bboxes) against the spawn-per-document path before this was wired up.
+#
+# Unset (the default, and the office install) = today's behavior exactly:
+# every invocation starts its own temporary service.
+API_URL_ENV = "JLBC_MINERU_API_URL"
+
 # How long to give a killed child before giving up on reaping it. Short —
 # we already asked it to die.
 _KILL_GRACE_S = 5
@@ -61,6 +80,16 @@ class MineruCancelled(RuntimeError):
 
 class MineruTimeout(RuntimeError):
     """MinerU exceeded its time budget and was killed."""
+
+
+def resolve_api_url() -> str | None:
+    """A shared mineru-api base URL, or None to spawn one per invocation.
+
+    Whitespace-only is treated as unset so an empty variable in a launcher
+    script cannot produce a `--api-url ` with nothing after it.
+    """
+    raw = os.environ.get(API_URL_ENV, "").strip()
+    return raw or None
 
 
 def resolve_mineru_exe() -> list[str]:
@@ -221,6 +250,9 @@ class MineruRunner:
                 "-e", str(end - 1),
                 "-b", "pipeline",       # CPU-only backend; the default may want a GPU
             ]
+            api_url = resolve_api_url()
+            if api_url:
+                cmd += ["--api-url", api_url]
             self._stream(cmd, timeout_s=timeout_s, on_page=on_page)
             # Read inside the TemporaryDirectory — MinerU writes into it.
             content_list, _markdown = _read_mineru_output(tmp_path, pdf.stem)
