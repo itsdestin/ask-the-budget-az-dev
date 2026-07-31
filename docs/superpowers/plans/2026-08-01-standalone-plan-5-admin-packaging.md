@@ -600,7 +600,7 @@ Triaged from STATUS's follow-up list. **Check first whether the `ingest-defects`
 
 ## Track 5 — The Administrator Handbook
 
-**This is the deliverable that outlives everyone.** Destin is leaving; there is no technical successor; the app has to be operable, explainable, and *modifiable* by someone who has never opened a terminal. The quickstart (Task 27) gets a person installed in ten minutes. The handbook is the other thing — the document that answers "how does this work, why is it built this way, and what do I do when I need it to do something new."
+**This is the deliverable that outlives everyone.** Destin is leaving; there is no technical successor; the app has to be operable, explainable, and *modifiable* by someone who has never opened a terminal. The quickstart (Task 24) gets a person installed in ten minutes. The handbook is the other thing — the document that answers "how does this work, why is it built this way, and what do I do when I need it to do something new."
 
 **Two decisions that shape all three tasks:**
 
