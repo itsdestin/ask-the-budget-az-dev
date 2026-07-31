@@ -50,6 +50,7 @@ from ingest.jobs import (
 from ingest.lance_writer import build_title, write_doc
 from ingest.lock import IngestLock, LockHeldError
 from ingest.mineru_runner import MineruCancelled, MineruRunner
+from ingest.validate import validate_doc
 from store.backup import snapshot
 from store.chunk_store import ChunkStore
 from store.config import data_dir
@@ -139,7 +140,13 @@ def run_job(job: JobRecord, ctx: WorkerContext) -> JobRecord:
 
     _write(job, ctx, chunks, vectors)
     advance(job, "live")
-    mark_stage(job, "live", pct=100, detail=f"{len(chunks)} passages indexed")
+    # Warnings share the stage_detail line rather than getting their own field:
+    # the queue page has one place per job for "what should I know about this",
+    # and a second channel would just be a second thing nobody reads.
+    detail = f"{len(chunks)} passages indexed"
+    if job.warnings:
+        detail = f"{detail} — {' '.join(job.warnings)}"
+    mark_stage(job, "live", pct=100, detail=detail)
     return job
 
 
@@ -342,6 +349,10 @@ def _write(
             uploaded_by=job.user,
             agency_ids_by_chunk=agency_ids,
         )
+        # Advisory, inside the lock so the scan sees exactly what we wrote.
+        # Findings never fail the job — a partly-stamped document is degraded,
+        # not wrong, and refusing it would leave the analyst with nothing.
+        job.warnings = validate_doc(ctx.store, CORPUS_TABLES[job.corpus], job.doc_id)
         _progress(job, "writing", pct=90, detail="")
 
 
