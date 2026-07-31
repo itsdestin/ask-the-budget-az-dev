@@ -548,3 +548,59 @@ def test_concurrent_builds_read_the_template_once(monkeypatch):
 
     assert counter["n"] == 1
     assert len(set(results)) == 1
+
+
+# ---------------------------------------------------------------------------
+# Recency and fiscal years (S21)
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize("corpus", CORPORA)
+def test_the_recency_section_is_present_on_both_corpora(corpus):
+    # S21 layer 1 (query years become a filter) applies to BOTH corpora,
+    # so the guidance cannot be inside a budget-only block.
+    prompt = build_system_prompt(corpus=corpus, tier="standard")
+    assert "**Recency and fiscal years:**" in prompt
+
+
+@pytest.mark.parametrize("corpus", CORPORA)
+def test_the_model_is_told_about_the_inferred_year_echo(corpus):
+    # harness/tools.py puts this key on the response only when the parse
+    # fired; a model that has never been told the key exists reads a
+    # silently narrowed result set as the whole corpus.
+    prompt = build_system_prompt(corpus=corpus, tier="standard")
+    assert "inferred_fiscal_years" in prompt
+
+
+@pytest.mark.parametrize("corpus", CORPORA)
+def test_the_adjacent_year_widening_is_explained(corpus):
+    # Otherwise a FY 2019 query returning an FY 2020 document reads as a
+    # filter bug, and the model may discard a correct passage.
+    prompt = build_system_prompt(corpus=corpus, tier="standard")
+    flat = " ".join(prompt.split())
+    assert "years immediately either side of it" in flat
+    assert "enacted in the next year's budget bill" in flat
+
+
+@pytest.mark.parametrize("corpus", CORPORA)
+def test_the_prompt_does_not_promise_recency_ordering(corpus):
+    """RECENCY_BOOST_PER_YEAR ships at 0.0, and even once calibrated it is
+    a tiebreaker. Telling the model the newest edition ranks first would
+    be false today and overstated afterwards — it would then quote the
+    top passage as 'current' without reading its fiscal_year."""
+    prompt = build_system_prompt(corpus=corpus, tier="standard")
+    # Whitespace-collapsed: this line is prose and will be re-wrapped.
+    assert "tiebreaker, never a guarantee" in " ".join(prompt.split())
+    for overclaim in (
+        "sorted by recency",
+        "newest first",
+        "most recent first",
+        "always returns the latest",
+    ):
+        assert overclaim not in prompt
+
+
+@pytest.mark.parametrize("corpus", CORPORA)
+def test_multi_year_questions_are_steered_to_one_search_per_year(corpus):
+    prompt = build_system_prompt(corpus=corpus, tier="standard")
+    assert "one search per year" in " ".join(prompt.split())
