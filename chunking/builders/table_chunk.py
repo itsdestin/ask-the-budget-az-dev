@@ -26,37 +26,19 @@ real subdivision rule waits on Phase 1b retrieval-quality signal.
 from __future__ import annotations
 
 import logging
-from dataclasses import dataclass
 
 from chunking.builders._tokens import count_tokens
 from chunking.readers.types import ExtractedDocument, Heading, Table
-from chunking.types import Chunk, ChunkProvenance
+
+# DocMeta moved to chunking.types (it's doc-level, not table-level); re-exported
+# here so the existing import sites keep working.
+from chunking.types import Chunk, ChunkProvenance, DocMeta
 
 log = logging.getLogger(__name__)
 
 BIG_TABLE_TOKEN_THRESHOLD = 3000
 
-
-@dataclass
-class DocMeta:
-    """The minimum doc-level metadata each chunk needs.
-
-    Mirrors the public fields on `chunk.types.Chunk` that aren't derivable
-    from the table itself. `doc_id` is what the dispatcher's `make_doc_id`
-    produced for this document.
-
-    `extractor` / `source_format` are used by the orchestrator to dispatch
-    to the right reader. `source_url` is consumed by the entity stamper
-    (JLBC URL → per-agency slug).
-    """
-
-    doc_id: str
-    publisher: str
-    doc_type: str
-    fiscal_year: int
-    extractor: str = ""  # 'mineru' | 'opendataloader' | 'python-docx'
-    source_format: str = ""  # 'pdf' | 'docx'
-    source_url: str | None = None
+__all__ = ["BIG_TABLE_TOKEN_THRESHOLD", "DocMeta", "build_table_chunk"]
 
 
 def build_table_chunk(

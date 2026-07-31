@@ -123,6 +123,69 @@ def _block_page(block: dict) -> int | None:
     return None
 
 
+def write_range_pages(
+    content_list: list[dict],
+    *,
+    out: Path,
+    pdf: Path,
+    start: int,
+    end: int,
+    pages: list[int],
+) -> None:
+    """Split one range's MinerU output into the per-page contract files.
+
+    Module-level so the GUI ingest path (ingest/mineru_runner.py) reuses this
+    exact logic instead of copying it. Two hard-won behaviors live in here and
+    must not be re-derived:
+
+    1. **Page reindexing.** MinerU's CLI renumbers pages from 0 *within* the
+       requested range, so `-s 512 -e 512` (PDF page 513) comes back as
+       page_idx=0. Treating that as an absolute page dropped every block on
+       the floor. actual_page = start + (page_idx + 1 - 1).
+    2. **Table rendering.** content_list mixes block kinds: text blocks carry
+       `text`, table blocks carry `table_body` (HTML). Reading only `text`
+       silently dropped every cell value from the Markdown.
+    """
+    # Bucket blocks by 1-indexed page in the SOURCE pdf.
+    by_page: dict[int, list[dict]] = {}
+    for block in content_list:
+        local = _block_page(block)
+        if local is not None:
+            actual = start + (local - 1)
+            by_page.setdefault(actual, []).append(block)
+
+    # Only pages the caller asked for, even though MinerU processed the
+    # whole [start, end] range.
+    for page in range(start, end + 1):
+        if page not in pages:
+            continue
+        blocks = by_page.get(page, [])
+        (out / f"page-{page}.json").write_text(
+            json.dumps(
+                {
+                    "extractor": "mineru-3.1.6",
+                    "source_pdf": str(pdf),
+                    "page": page,
+                    "blocks": blocks,
+                },
+                indent=2,
+            ),
+            encoding="utf-8",
+        )
+        md_lines: list[str] = []
+        for b in blocks:
+            if b.get("type") == "table" and b.get("table_body"):
+                md_lines.append(str(b["table_body"]))
+            else:
+                text = b.get("text") or b.get("content") or ""
+                if text:
+                    md_lines.append(str(text))
+        (out / f"page-{page}.md").write_text(
+            "\n\n".join(md_lines) + "\n",
+            encoding="utf-8",
+        )
+
+
 def run_mineru(pdf: Path, out: Path, pages: list[int]) -> None:
     """Real path. Shells out to `mineru` CLI per contiguous page range.
 
@@ -159,63 +222,9 @@ def run_mineru(pdf: Path, out: Path, pages: list[int]) -> None:
 
             content_list, markdown = _read_mineru_output(tmp_path, pdf_stem)
 
-        # Bucket blocks by 1-indexed page.
-        #
-        # MinerU's CLI re-numbers pages from 0 within the requested
-        # range — so when we run with `-s 512 -e 512` (PDF page 513),
-        # blocks come back with page_idx=0, NOT page_idx=512. The
-        # original wrapper treated _block_page() as a 1-indexed page in
-        # the source PDF and dropped every block on the floor. Translate
-        # by adding the range's start page so the bucket key matches the
-        # `pages` set the caller passed in.
-        by_page: dict[int, list[dict]] = {}
-        for block in content_list:
-            local = _block_page(block)
-            if local is not None:
-                # local is 1-indexed within the CLI's view (page_idx + 1).
-                # Convert: actual_page = start + (local - 1).
-                actual = start + (local - 1)
-                by_page.setdefault(actual, []).append(block)
-
-        # Write one JSON + one Markdown per requested page in this range.
-        # Note: we write only pages the caller asked for, even though MinerU
-        # processed the whole [start, end] range.
-        for page in range(start, end + 1):
-            if page not in pages:
-                continue
-            blocks = by_page.get(page, [])
-            (out / f"page-{page}.json").write_text(
-                json.dumps(
-                    {
-                        "extractor": "mineru-3.1.6",
-                        "source_pdf": str(pdf),
-                        "page": page,
-                        "blocks": blocks,
-                    },
-                    indent=2,
-                ),
-                encoding="utf-8",
-            )
-            # Markdown synthesis. MinerU's content_list mixes block kinds:
-            # text blocks carry `text`; table blocks carry `table_body`
-            # (an HTML <table>); image/page_number/footer blocks may
-            # carry a `text` field too. The original synthesizer only
-            # read `text`/`content` and silently dropped table content,
-            # leaving every cell value out of the .md and making
-            # cell_accuracy scoring impossible. Now we render tables as
-            # their HTML — keeps row/col structure visible to the analyst.
-            md_lines: list[str] = []
-            for b in blocks:
-                if b.get("type") == "table" and b.get("table_body"):
-                    md_lines.append(str(b["table_body"]))
-                else:
-                    text = b.get("text") or b.get("content") or ""
-                    if text:
-                        md_lines.append(str(text))
-            (out / f"page-{page}.md").write_text(
-                "\n\n".join(md_lines) + "\n",
-                encoding="utf-8",
-            )
+        write_range_pages(
+            content_list, out=out, pdf=pdf, start=start, end=end, pages=pages
+        )
 
 
 def main(argv: list[str] | None = None) -> int:

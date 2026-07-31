@@ -293,6 +293,33 @@ def test_upsert_dedupes_within_one_batch(store):
     assert len(got) == 1 and got[0]["text"] == "second"   # last one wins
 
 
+def test_delete_doc_removes_only_that_doc(store):
+    """Re-ingest replaces a document wholesale — chunk_ids can change between
+    runs, so the replacement can't be keyed on them."""
+    store.upsert_chunks("budget_chunks", [
+        _row("other-1", "a different document", [0, 0, 1, 0, 0, 0, 0, 0],
+             doc_id="doc-2"),
+    ])
+    store.delete_doc("budget_chunks", "doc-1")
+    remaining = store.scan("budget_chunks", ["chunk_id", "doc_id"])
+    assert [r["chunk_id"] for r in remaining] == ["other-1"]
+
+
+def test_delete_doc_on_absent_table_is_a_noop(tmp_path):
+    s = ChunkStore(root=tmp_path, dim=8)
+    s.delete_doc("budget_chunks", "doc-1")   # must not raise
+    assert s.count("budget_chunks") == 0
+
+
+def test_delete_doc_escapes_quotes(store):
+    """doc_ids come from filenames; an apostrophe must not break the filter."""
+    store.upsert_chunks("budget_chunks", [
+        _row("q1", "quoted doc", [0, 0, 0, 0, 0, 1, 0, 0], doc_id="it's-a-doc"),
+    ])
+    store.delete_doc("budget_chunks", "it's-a-doc")
+    assert store.get_by_ids("budget_chunks", ["q1"]) == []
+
+
 def test_optimize_is_callable_after_bulk_load(store):
     """Task 10's migration compacts after its batches; just pin that the
     call works and preserves the data."""

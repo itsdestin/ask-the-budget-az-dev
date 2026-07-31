@@ -1,6 +1,6 @@
 # Project Status
 
-**Last updated:** 2026-05-22
+**Last updated:** 2026-07-31
 
 This file is the single source of truth for what's shipped, what's
 open, and what's blocked. The phase plans under `docs/superpowers/`
@@ -27,6 +27,7 @@ source. When something ships, update only this file.
 | Phase 2 — Companion + verify-mode | 🔴 Not started | Defers until v1 demonstrates internal value |
 | Standalone consolidation — Plan 1 (storage + retrieval) | ✓ Shipped (2026-07-30) | Postgres/pgvector/ParadeDB → embedded LanceDB; Voyage → local ONNX models. See the section below |
 | Standalone consolidation — Plan 2 (app server + search UI) | ✓ Shipped (2026-07-30) | New `app/` (port 9300) + `webapp/` SPA: home, budget search (real corpus), fiscal notes directory. See the section below |
+| Standalone consolidation — Plan 3 (ingest) | ✓ Shipped (2026-07-31) | GUI upload → background queue → LanceDB; fiscal-note refresh; Add-a-JLBC-book. Postgres/Docker now needed for NOTHING. See the section below |
 
 ---
 
@@ -170,6 +171,124 @@ Task 3 amendments recorded there: `fiscal_note_url` on bills, real
   named but never loaded by the mockup (one `<link>` if the approved look
   was really Nunito); `db/migrations/0001` doc_type enum comment is stale
   vs live data (`baseline-agency` vs `baseline-per-agency`).
+
+---
+
+## Standalone consolidation — Plan 3 shipped (2026-07-31)
+
+Spec: `docs/superpowers/specs/2026-07-29-standalone-consolidation-design.md`
+(S6, S7, S10, S17, Invariant 8). Plan:
+`docs/superpowers/plans/2026-07-30-standalone-plan-3-ingest.md`.
+
+**Postgres and Docker are now needed for NOTHING.** They were ingest-only
+after Plan 1; ingest no longer touches either. The legacy `db/` modules stay
+in-tree unused (removal is Plan 5), and `scripts/migrate_to_lancedb.py`
+remains as the migration-era record.
+
+- **Queue (`ingest/`):** `jobs.py` (one JSON file per job under
+  `<data_dir>/jobs/`, atomic writes, state machine, crash-resume),
+  `lock.py` (SMB-safe single-writer lock via exclusive-create + heartbeat
+  stale-steal — S6), `worker.py` (one daemon thread in the app process:
+  extract → chunk → embed → write), `mineru_runner.py` (streamed per-page
+  progress, timeout, cooperative cancel that kills the child, `JLBC_MINERU_*`
+  offline pinning — S7), `lance_writer.py` (Chunk→Arrow row, idempotent
+  per-doc replace, documents.json merge, real titles), `validate.py`
+  (advisory post-ingest checks ported from `db/validate.py`).
+- **Resume granularity is the stage, and inside extraction the page range.**
+  MinerU runs 1–3 min/page on an i5-1245U, so a 210-page book is an overnight
+  job that WILL be interrupted. Extraction output lands on the share
+  (`<data_dir>/extractor-output/<doc_id>/`) so any machine can continue.
+  Chunking and embedding are re-derived rather than journalled — minutes, not
+  hours.
+- **Write phase, every time:** ingest lock → S17 `snapshot()` →
+  `delete_doc` → `upsert_chunks` → `build_fts_index` → `optimize` →
+  documents.json merge. The FTS rebuild is not optional: new rows are
+  invisible to BM25 without it, which looks like a working ingest with
+  silently broken keyword search.
+- **Upload API + page:** `POST /api/upload` (multipart) with the Invariant 8
+  gate enforced SERVER-side (400 without the public-record confirmation),
+  content-hash dedup against both documents.json and pending jobs (409 with
+  when/who + an explicit re-process option), `GET /api/jobs`,
+  retry/cancel. `webapp/src/pages/Upload.tsx`: always-visible Invariant 8
+  notice, required checkbox, filename-heuristic metadata form, live queue with
+  per-stage progress. Copy states the real cost — "large books process
+  overnight" — deliberately not softened.
+- **Real titles.** `build_title()` retires the migration's
+  "GOVERNOR FY2027 fy2027" strings for new ingests, and
+  `app/search_provider.py` now consults documents.json's title (gated on
+  `ingested_at`, so migration-era junk titles still lose to the humanizer) and
+  re-reads the sidecar when its mtime changes. Both gaps were found by the
+  end-to-end run, not by a test.
+- **Fiscal notes are live (S10).** `POST /api/fiscal-notes/refresh` queues a
+  `refresh`-kind job that scrapes `azjlbc.gov/fiscal-notes/?Year=`, diffs
+  against the directory, downloads only new note PDFs, and feeds them to the
+  normal queue. `GET /api/fiscal-notes` now serves
+  `<data_dir>/fiscal-notes-directory.json` when present (mtime-checked; the
+  Plan 2 `lru_cache` is gone — it would have pinned the pre-refresh copy for
+  the process lifetime) and falls back to the committed snapshot otherwise, so
+  a fresh install shows 28 sessions on day one. Scraper breakage degrades to
+  last-good LOUDLY: a session that returns zero rows when notes are already on
+  file fails the refresh instead of deleting them. The FiscalNotes rail's
+  reserved search box is now a real semantic search over `fiscal_note_chunks`,
+  disabled until the corpus reports passages.
+- **Add a JLBC book (Task 15).** `data/jlbc-book-sources/` vendors the website
+  mockup's verified URL harvest (read-only, snapshot 2026-06-16);
+  `scripts/build_book_catalog.py` turns it into the committed
+  `data/jlbc-book-catalog.json` — **41 approps (FY1984–2026) + 21 baseline
+  (FY2007–2027) editions**, pinned by test. `ingest/book_discovery.py` is
+  catalog-first (zero network on a hit) and falls back to a HEAD-verified
+  candidate ladder for editions published after the snapshot, walking BOTH the
+  agency index and the linked TOC (their children are disjoint). Dead hosts
+  rewritten, URLs never re-encoded, case-insensitive dedupe, and a rolling
+  `/budget/` guard that refuses an index whose links belong to another year.
+  `GET /api/books/catalog`, `POST /api/books/discover` (no downloads),
+  `POST /api/books/ingest` (one job per document, URL-only — each job fetches
+  its own PDF when its turn comes).
+- **Tests:** 772 pytest + 71 webapp vitest green.
+- **Corpus counts** are unchanged for the shared dev corpus (382 documents /
+  7,755 budget chunks); Plan 3 adds no documents on its own.
+
+### Verified end-to-end on 2026-07-31 (real network, real MinerU)
+
+- A real 2-page PDF uploaded through `POST /api/upload` ran
+  `extracting → live` with per-page progress, produced 6 passages, took an
+  S17 snapshot, copied the source into `<data_dir>/pdfs/`, and came back in
+  search titled **"FY 2027 Baseline — Industrial Commission of Arizona"** —
+  a title derived from the document's CONTENT, not its filename.
+- The validation gate correctly flagged that document as only 17%
+  agency-stamped (it is the Industrial Commission's page; the filename said
+  AHCCCS) — advisory, non-fatal, visible on the queue.
+- A live fiscal-note refresh scraped azjlbc.gov, detected two withheld 2026
+  notes (HB 4049, HB 4092), downloaded them, ingested both, and the rail
+  search returned their real text. Directory restored to 112 bills.
+- A live dry-run of book discovery (listing only, nothing ingested) found the
+  **FY2027 Appropriations Report** — which the harvest recorded as
+  expected-but-unpublished — via the probe ladder and walked **139 documents,
+  0 unreachable**. That is the exact scenario Task 15 exists for.
+- Budget eval re-run against the real corpus: **recall@5 72.41%, recall@15
+  96.55%, recall@20 100%** — identical to the Plan 1 baseline. No retrieval
+  regression. Results committed under `eval/results/`.
+
+### Known follow-ups
+
+- **The fiscal-note eval set has queries but no ground truth.**
+  `eval/fiscal_note_queries.yaml` holds 12 coordinator-triage-shaped queries
+  and `eval/run_eval.py` takes `--corpus fiscal_notes` (with its own results
+  filename prefix so a fiscal-note run can never be diffed against a budget
+  one). Ground truth is deliberately empty: it must be real chunk_ids from a
+  populated corpus, and populating the 2,126-note back catalogue is an
+  overnight MinerU run that has not happened. The file says so at the top.
+  **This is the one part of Plan 3 that is not finished.**
+- The search provider's corpus probe is still startup-only (Plan 2's
+  documented trade), so the FIRST ever ingest into an empty data dir needs a
+  restart before search leaves the stub. Every later ingest is picked up live.
+- Large historical backfills (dozens of books) are smartest run on Destin's
+  machine before departure — office CPUs make it a weeks-long grind. The
+  catalog + picker make it possible either way.
+- FY2024/25 approps summary-section titles were partly unextractable in the
+  mockup harvest; the PyMuPDF walk may recover them, humanized filenames are
+  the fallback.
+- `db/migrations/0001` doc_type enum comment is still stale vs live data.
 
 ---
 

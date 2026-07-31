@@ -45,7 +45,11 @@ if str(ROOT) not in sys.path:
 
 from retrieval.local_embedder import LocalEmbedder  # noqa: E402
 from store.chunk_store import ChunkStore  # noqa: E402
-from store.config import documents_path  # noqa: E402
+from store.config import (  # noqa: E402
+    DOCS_FIELDS,
+    documents_path,
+    write_documents_sidecar,
+)
 
 # Column names verified against db/migrations/0001_initial_schema.sql
 # (chunks.* + documents.publisher). ORDER BY chunk_id makes the run
@@ -72,14 +76,6 @@ DOCS_SELECT_SQL = """
     FROM documents
     ORDER BY doc_id
 """
-
-# Keys written per document — the same names the sidecar's
-# DocMetadataResponse uses, minus doc_id (which is the JSON key).
-DOCS_FIELDS = (
-    "title", "publisher", "doc_type", "fiscal_year",
-    "source_format", "source_blob_path", "source_url", "page_count",
-)
-
 
 def pg_rows_to_documents(rows: list[dict[str, Any]]) -> dict[str, dict[str, Any]]:
     """Map `documents` rows onto the doc_id-keyed sidecar shape.

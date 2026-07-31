@@ -152,3 +152,60 @@ def test_fiscal_notes_corpus_maps_to_its_table(monkeypatch, tmp_path):
     out = LanceSearchProvider().search("q", top_k=5, corpus="fiscal_notes", filters={})
     assert out == []
     assert captured["req"].corpus == "fiscal_note_chunks"
+
+
+# --- title precedence after Plan 3's ingest writes real titles ---------------
+
+
+def _provider_with_sidecar(tmp_path, monkeypatch, sidecar: dict):
+    import json as _json
+
+    monkeypatch.setenv("JLBC_DATA_DIR", str(tmp_path))
+    (tmp_path / "documents.json").write_text(_json.dumps(sidecar), encoding="utf-8")
+    from app.search_provider import LanceSearchProvider
+
+    p = LanceSearchProvider()
+    p._doc_info = None
+    return p
+
+
+def test_ingest_written_titles_beat_the_slug_humanizer(tmp_path, monkeypatch):
+    """Task 5's whole point: a newly ingested document shows its real title,
+    not 'JLBC Baseline FY 2027 27baseline Axs'."""
+    p = _provider_with_sidecar(tmp_path, monkeypatch, {
+        "jlbc-baseline-fy2027-27baseline-axs": {
+            "title": "FY 2027 Baseline — Industrial Commission of Arizona",
+            "source_url": None,
+            "ingested_at": "2026-07-31T03:51:13+00:00",
+        },
+    })
+    assert p._info("jlbc-baseline-fy2027-27baseline-axs")["title"] == \
+        "FY 2027 Baseline — Industrial Commission of Arizona"
+
+
+def test_migration_era_titles_do_not_beat_the_humanizer(tmp_path, monkeypatch):
+    """The migration's doc-id-derived titles ('AGAO FY2025 fy2025') are worse
+    than the humanizer; only ingest-written entries are trusted."""
+    p = _provider_with_sidecar(tmp_path, monkeypatch, {
+        "agao-afr-fy2025": {"title": "AGAO FY2025 fy2025", "source_url": None},
+    })
+    assert p._info("agao-afr-fy2025")["title"] is None
+
+
+def test_a_document_ingested_mid_session_gets_its_real_title(tmp_path, monkeypatch):
+    """The provider is a process-lifetime singleton and ingest rewrites
+    documents.json — without a staleness check, anything uploaded while the
+    app runs keeps the doc-id humanizer's title until a restart."""
+    import json as _json
+
+    p = _provider_with_sidecar(tmp_path, monkeypatch, {})
+    assert p._info("jlbc-baseline-fy2027-axs")["title"] is None
+
+    (tmp_path / "documents.json").write_text(_json.dumps({
+        "jlbc-baseline-fy2027-axs": {
+            "title": "FY 2027 Baseline — AHCCCS",
+            "source_url": None,
+            "ingested_at": "2026-07-31T04:00:00+00:00",
+        },
+    }), encoding="utf-8")
+    assert p._info("jlbc-baseline-fy2027-axs")["title"] == "FY 2027 Baseline — AHCCCS"
