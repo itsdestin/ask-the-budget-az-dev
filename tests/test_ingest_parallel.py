@@ -434,6 +434,11 @@ def test_a_requested_count_is_clamped_to_the_hardware(monkeypatch):
     monkeypatch.setattr("os.cpu_count", lambda: 4)
     assert configured_worker_count() == 1
 
+    # The office guard is a hard floor, not a side effect of the divisor:
+    # anything at or below SINGLE_WORKER_MAX_CPUS runs one at a time.
+    monkeypatch.setattr("os.cpu_count", lambda: 8)
+    assert configured_worker_count() == 1
+
     monkeypatch.setattr("os.cpu_count", lambda: 32)
     assert configured_worker_count() == MAX_WORKERS
 
