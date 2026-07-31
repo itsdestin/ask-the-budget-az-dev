@@ -1,0 +1,94 @@
+"""Tests for the query fiscal-year parser (S21 layer 1).
+
+The parser's output becomes a HARD fiscal-year filter, which is why it is
+deliberately stricter than the mockup's in-browser engine it was ported
+from. In the mockup a wrong guess was harmless — it only added a +0.15
+score bump to docs whose fiscal_year matched, so a non-year number lifted
+nothing. Here a wrong guess DELETES every other year from the result set.
+So: bare two-digit numbers ("26 caseworkers") are NOT read as years, and
+digits that sit inside a larger token (bill numbers, dollar amounts) are
+never harvested.
+"""
+from __future__ import annotations
+
+import pytest
+
+from retrieval.query_year import MAX_PLAUSIBLE_YEAR, MIN_PLAUSIBLE_YEAR, parse_query_years
+
+
+@pytest.mark.parametrize(
+    "query,expected",
+    [
+        # -- forms that ARE years ------------------------------------------
+        ("dcs caseworkers fy26", [2026]),
+        ("FY 2019 DES funding", [2019]),
+        ("fy2019 DES funding", [2019]),
+        ("appropriations 2013", [2013]),
+        ("FY19 baseline", [2019]),
+        ("fy 19 baseline", [2019]),
+        ("'19 baseline", [2019]),
+        ("’19 baseline", [2019]),  # curly apostrophe — real user paste
+        # multiple years, returned sorted ascending and de-duplicated
+        ("compare fy24 and fy25", [2024, 2025]),
+        ("compare FY 2025 to fy25 spending", [2025]),
+        # Ranges are NOT expanded — "through" is not parsed, so the middle
+        # year is absent. Documented limitation, not an oversight.
+        ("trend from 2019 through 2021", [2019, 2021]),
+        # -- forms that are NOT years --------------------------------------
+        ("HB2001", []),          # bill number
+        ("SB 1001 fiscal note", []),
+        ("$2,019,000 for programs", []),  # dollar amount
+        ("26 caseworkers", []),  # bare two-digit — too ambiguous to filter on
+        ("chapter 19 of title 41", []),
+        ("", []),
+        ("   ", []),
+        ("ADC General Fund appropriation", []),
+    ],
+)
+def test_parse_query_years(query: str, expected: list[int]) -> None:
+    assert parse_query_years(query) == expected
+
+
+def test_four_digit_years_outside_the_plausible_range_are_dropped() -> None:
+    # 1776 and 3000 are not fiscal years anyone is filtering on; harvesting
+    # them would empty the result set for a query that merely mentions them.
+    assert parse_query_years("since 1776 the state has") == []
+    assert parse_query_years("projections to 3000") == []
+    assert parse_query_years(f"budget {MIN_PLAUSIBLE_YEAR}") == [MIN_PLAUSIBLE_YEAR]
+    assert parse_query_years(f"budget {MAX_PLAUSIBLE_YEAR}") == [MAX_PLAUSIBLE_YEAR]
+    assert parse_query_years(f"budget {MIN_PLAUSIBLE_YEAR - 1}") == []
+    assert parse_query_years(f"budget {MAX_PLAUSIBLE_YEAR + 1}") == []
+
+
+def test_two_digit_shorthand_expands_into_the_plausible_range() -> None:
+    # "fy84" is FY1984 (data/jlbc-book-catalog.json's oldest edition is
+    # approps-fy1984), "fy26" is FY2026. The split point is the plausible
+    # range, not a hardcoded 40.
+    assert parse_query_years("fy84 appropriations") == [1984]
+    assert parse_query_years("fy99 appropriations") == [1999]
+    assert parse_query_years("fy00 appropriations") == [2000]
+    assert parse_query_years("fy35 appropriations") == [2035]
+    # 36..79 expands to neither 19xx nor 20xx inside the plausible range.
+    assert parse_query_years("fy50 appropriations") == []
+
+
+def test_years_are_sorted_ascending_and_deduplicated() -> None:
+    assert parse_query_years("fy27 vs fy25 vs FY 2027") == [2025, 2027]
+
+
+def test_year_digits_inside_a_larger_token_are_never_harvested() -> None:
+    # The word-boundary guards are the whole defense against bill numbers
+    # and account codes. If one regex loses its \b this test fails.
+    for query in ("HB2019", "SB2026-A", "account 42026 balance", "2026A"):
+        assert parse_query_years(query) == [], query
+
+
+def test_a_dollar_amount_that_looks_like_a_year_is_not_a_year() -> None:
+    assert parse_query_years("appropriated $2,026,000 to DES") == []
+    assert parse_query_years("a $2026 grant") == []
+
+
+def test_uppercase_and_punctuation_do_not_matter() -> None:
+    assert parse_query_years("FY2026?") == [2026]
+    assert parse_query_years("(FY 2026)") == [2026]
+    assert parse_query_years("FY-2026 spending") == [2026]
