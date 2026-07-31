@@ -1,7 +1,8 @@
 # Eval Harness — Layer 1 (Retrieval Regression Detector)
 
 This eval measures **retrieval pipeline health** — chunking, BM25,
-dense embeddings, RRF fusion, and Voyage rerank. It does NOT measure
+dense embeddings, RRF fusion, and the local cross-encoder rerank
+(ms-marco-MiniLM-L-12-v2 since Plan 1; Voyage before). It does NOT measure
 end-to-end usefulness to analysts. Read "What this measures (and
 doesn't)" before quoting the numbers.
 
@@ -24,13 +25,16 @@ calibration tool surfacing that the prompt's 0.30 threshold is
 effectively dead) demonstrated this is doing its job.
 
 **What it does NOT measure:** Real analyst utility. The synthesized
-queries' phrasing was guided by the chunks' vocabulary, so today's
-86% recall@5 is an **upper bound**, not a representative number.
+queries' phrasing was guided by the chunks' vocabulary, so the
+measured recall is an **upper bound**, not a representative number.
+(Current baseline on the local stack: recall@5 72.41%, recall@15
+96.55%, recall@20 100% — the 86% figures elsewhere in this file are
+the retired Voyage-era baseline, kept for historical context.)
 Real-world questions ("spending on homelessness projects?", "actual
 expenditures of opioid monies?") would hit lower numbers because real
-queries don't pre-align with chunk vocabulary. Don't quote 86% as
-"the system's recall" — quote it as "today's Layer 1 regression
-score" and focus on deltas, not absolutes. A future Layer 2 eval will
+queries don't pre-align with chunk vocabulary. Don't quote the
+recall number as "the system's recall" — quote it as "today's Layer 1
+regression score" and focus on deltas, not absolutes. A future Layer 2 eval will
 fold in real dogfood queries from the harness's records (the
 month-sharded spend ledger + conversation logs on the share — the old
 `bridge.log` died with the MCP bridge).

@@ -4,7 +4,7 @@ A Q&A tool over Arizona state budget documents — JLBC Appropriations Reports, 
 
 **Audience:** JLBC staff and fiscal analysts (initially). Public-facing access is a possible Phase 4, gated on internal trust metrics.
 
-**The product is auditable retrieval, not chat.** Every claim links to the exact PDF page and bounding box that supports it. Faithfulness is checked at generation time; failed citations are visibly stripped rather than silently accepted.
+**The product is auditable retrieval, not chat.** Every claim links to the exact PDF page and bounding box that supports it. Citations are mechanically verified (the cited chunk must exist and contain the quoted text with a sane span); failed citations are visibly stripped rather than silently accepted. A semantic faithfulness verifier (WS3) is designed but not yet built — see STATUS.md.
 
 ## Status
 

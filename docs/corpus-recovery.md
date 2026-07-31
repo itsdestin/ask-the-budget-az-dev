@@ -89,6 +89,13 @@ azleg.gov in some configurations). The manual path:
 
 ## What was wrong, what's fixed (2026-05-07)
 
+> **2026-07-31 note:** references below to "the DB" describe the retired
+> Postgres store; the live equivalent of every check here is the
+> `data/insight-data/documents.json` sidecar (`source_url` /
+> `source_blob_path` fields per doc), and the SQL snippets no longer run
+> anywhere. The recovery *principles* (every doc re-fetchable; no
+> out-of-tree paths) still hold.
+
 - ✅ DB `source_url` is now populated for **381 of 382** documents.
   The one without a URL is the SB 1735 DOCX; its source path is
   `samples/raw-docx/budget-bill-sb1735-2025.docx` (checked in).
