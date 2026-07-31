@@ -760,6 +760,35 @@ Entries still marked 🔴 are genuinely open.**
 - **The footer states no corpus size.** It said "382 docs"; Plan 3's upload
   queue falsifies any hardcoded count on first use, and there is no
   corpus-count endpoint to read instead. Restore one when there is.
+- **[v2, DEFERRED 2026-07-31] Drop the AI Mode corpus picker; let relevance
+  choose the corpus.** Destin: "I really don't want a toggle for two distinct
+  budget/fiscal-note corpus modes — I'd rather the model pull the right
+  documents based on its own determination." Deferred to a v2 pass, not
+  rejected. The investigation is recorded here so it isn't re-done:
+  - **The UI is the cheap part** (~20 min): delete the picker, the `key={corpus}`
+    remount, and 3 specs in `webapp/src/pages/Ai.test.tsx`.
+  - **The cost is the system prompt** — `harness/system-prompt.md` carries **20
+    `{{#when corpus=…}}` blocks across 1,107 lines** (corpus-specific retrieval
+    recipes, filter dimensions, doc-lifecycle guidance). Merging them into one
+    both-corpora prompt is real prompt engineering with eval risk.
+  - **Nothing is needed in `retrieval/pipeline.py`** — `RetrievalRequest.corpus`
+    already exists, so retrieval is per-call corpus-aware today.
+  - **Preferred design: search BOTH corpora, don't make the model choose.**
+    Embed the query once (the embedding is corpus-independent), run both hybrid
+    searches concurrently, merge into ONE rerank pool (top-10 each, so the pool
+    stays at today's 20 and the cost is nearly unchanged), and label each result
+    with its corpus. This removes the failure mode rather than relying on the
+    model to avoid it — a mis-classified question currently answers out of the
+    wrong corpus, cited and confident. It also makes the S22 cache prefix
+    corpus-independent.
+  - **The subtle piece is `cite`.** `validate_cite(body, corpus=…)` needs to
+    know which corpus a chunk came from. Do NOT ask the model to re-state it —
+    have `ToolExecutor` record chunk_id → corpus from every retrieve result it
+    already sees, and resolve from that map. `/api/chunks/{id}` (which takes a
+    `corpus` query param) needs the same treatment.
+  - **Prerequisite:** build ground truth for `eval/fiscal_note_queries.yaml`
+    (~1 h against the now-complete note corpus). Without it a merged-retrieval
+    change is protected by the budget eval only.
 - Conversation persistence is in-memory per app run (accepted).
 - The faithfulness verifier (WS3) and audit-log writer (WS5) remain unbuilt —
   citation enforcement is still chunk-id + quote-in-text + span sanity.
