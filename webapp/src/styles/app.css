@@ -633,3 +633,379 @@ nav.primary{flex:1 1 auto;display:flex;flex-wrap:nowrap;align-items:center;justi
 .stub{padding:20px 24px;}
 .stub h1{font-size:19px;color:var(--navy);font-weight:800;}
 .stub p{margin:4px 0 0;font-size:14px;color:var(--ink-2);}
+
+/* ===== chat ===== (Plan 4 Task 10 — AI Mode chat surfaces + mascot)
+ *
+ * The components under `src/chat/` were ported from the retired Next.js app
+ * (`web/components/`), where every rule was a Tailwind utility class reading
+ * from a SECOND set of design tokens (the "civic-warm" theme in
+ * `web/app/globals.css`: cream #fbf7f0 surfaces, warm greys, a #3a6ea5 blue).
+ * This app has no Tailwind and, per spec S12's one-palette rule, no second
+ * palette: structure comes from `web/`, colour comes from `tokens.css`.
+ *
+ * So each utility class became a semantic class here, and each civic-warm
+ * token became its nearest mockup token:
+ *
+ *   bg-canvas   --canvas #fbf7f0  ->  var(--canvas)     #f5f5fa   page ground
+ *   bg-panel    --panel  #efe9dc  ->  var(--card)       #fff      raised surface
+ *   bg-inset    --inset  #e4ddcb  ->  var(--navy-100)   #e7e8f2   recessed tint
+ *   bg-well     --well   #fffdf8  ->  var(--card)       #fff      input field
+ *   bg-accent   --accent #3a6ea5  ->  var(--az-gold)    #1b6fc4   primary action
+ *   text-on-accent                ->  #fff
+ *   accent tint (accent/12)       ->  var(--az-gold-100) #dceaf7
+ *   text-fg     --fg     #1f2937  ->  var(--ink)        #21243f
+ *   text-fg-2   --fg-2   #54585e  ->  var(--ink-2)      #4a4e6a
+ *   text-fg-dim --fg-dim #6a6e74  ->  var(--ink-2)      #4a4e6a   (see note)
+ *   text-fg-muted/-faint          ->  var(--ink-3)      #757895   (see note)
+ *   border-edge --edge   #d8d2c4  ->  var(--line)       #e6e6ef
+ *   text-link                     ->  var(--navy)       #2b2f63   (mockup's `a`)
+ *   text-code   --code   #b45309  ->  var(--copper)     #3d6a99
+ *   font-serif / font-sans        ->  var(--font)       (mockup has one family)
+ *   rounded-lg / -md / -sm        ->  var(--r-sm) / 10px / 6px    (see note)
+ *
+ * NOTE on the greys: civic-warm had FIVE text ramps (fg, fg-2, fg-dim,
+ * fg-muted, fg-faint); the mockup has three (ink, ink-2, ink-3). The two
+ * extra rungs collapse upward — fg-dim onto ink-2, fg-faint onto ink-3 —
+ * rather than being invented, because inventing #6a6e74-equivalents is
+ * exactly the "third palette" S12 forbids. Nothing in these components
+ * distinguished dim-from-2 or faint-from-muted semantically; they were
+ * de-emphasis gradients, and three rungs carry that fine.
+ *
+ * NOTE on the radii: the mockup's --r-lg (22px) / --r-md (16px) are page-card
+ * radii, far too round for an 8px-tall chip. Small chrome uses literal 6px or
+ * 10px, which is what Tailwind's rounded-sm / rounded-md meant; only chat
+ * cards use the mockup's own --r-sm (12px). No new radius token is added to
+ * tokens.css.
+ *
+ * NOTE on status colours: the mockup defines NO error, warning, or success
+ * colour — its "--az-red" and "--az-gold" were both remapped to blues, so the
+ * whole palette is monochrome navy. A failed-citation chip that isn't red, or
+ * an "answer is incomplete" notice that looks like ordinary text, is a safety
+ * regression (Core Invariants 1-3 are all about making failure VISIBLE). The
+ * three variables below are therefore functional signals, not brand colour,
+ * and they are declared here rather than in tokens.css, which is a verbatim
+ * copy of the mockup and must stay that way.
+ *
+ * All class names are `chat-`-prefixed (or `mascot-` / `cite-`, carried over
+ * verbatim) so nothing here can collide with the ~74 shared mockup selectors
+ * described in the convention note at the top of this file. Because the chat
+ * surface is a component set rather than a page, prefixing plays the role the
+ * `.page-*` class plays for the ported pages.
+ */
+
+/* Declared on :root, not on a `.chat-root` wrapper. A wrapper would be tidier
+   in principle, but these variables are read from three places that are not
+   all inside one subtree — CSS rules below, inline `style` on the ToolCard
+   status glyph, and `fill="var(--mascot-*)"` attributes inside the mascot
+   SVGs, which a later task may well render in a page header. A variable that
+   silently resolves to nothing when a component is used outside the expected
+   wrapper is a bug that shows up as an invisible icon, not as an error.
+   Custom properties are inert until referenced, and nothing in the ported
+   mockup pages references a --chat-* or --mascot-* name, so there is no
+   collision risk to buy back with scoping. */
+:root {
+  --chat-danger: #b3261e;
+  --chat-danger-tint: #fbe9e7;
+  --chat-warn: #8a5a00;
+  --chat-warn-tint: #fdf4e3;
+  --chat-ok: #2f7d4f;
+  --chat-ok-tint: #e6f4ec;
+  --chat-mono: "Cascadia Mono", "Cascadia Code", "Consolas", "Menlo", monospace;
+
+  /* Mascot palette. These are the hex values from the committed reference art
+     (specs/assets/2026-05-15-mascot-reference/); the SVG components read them
+     as variables so the figure is re-themed in one place. The cap and suit
+     blues were re-pointed at the mockup navy ramp — same figure, one palette. */
+  --mascot-cap: #2b2f63;
+  --mascot-cap-hi: #444a86;
+  --mascot-brim: #181b3d;
+  --mascot-skin: #e8c8a4;
+  --mascot-skin-hi: #f4dab7;
+  --mascot-skin-shadow: #c8a47e;
+  --mascot-suit: #21243f;
+  --mascot-suit-hi: #32365c;
+  --mascot-suit-shadow: #13152a;
+}
+
+/* ----- thread layout ------------------------------------------------------
+   min-height:0 on the outer flex child is load-bearing: without it the
+   scrollable child's overflow never engages and the page body scrolls
+   instead. */
+.chat-thread { flex: 1 1 auto; min-height: 0; }
+/* Asymmetric padding: roomy at the top so scrolled-up history clears the
+   header, tight at the bottom so the newest bubble sits close to the composer. */
+.chat-thread-scroll { height: 100%; overflow-y: auto; padding: 24px 16px 8px; }
+/* min-height:100% + justify-content:flex-end bottom-anchors the column, so a
+   session's first message lands just above the composer and later turns grow
+   UPWARD. Also the positioning context for the mascot slot below. */
+.chat-thread-anchor { position: relative; min-height: 100%; display: flex; flex-direction: column; justify-content: flex-end; }
+.chat-thread-column { max-width: 768px; margin: 0 auto; width: 100%; display: flex; flex-direction: column; gap: 20px; }
+
+/* Mascot slot — pinned to the bottom-left of the SCROLL CONTENT (not the
+   viewport), so it sits beside the newest message and scrolls away with it.
+   right: calc(50% + 400px) = half the 768px column + a 16px gap.
+   The per-variant translate() values come from the original and are NOT
+   arbitrary: each scene's SVG has a different amount of empty space below and
+   to the right of the figure inside its viewBox, and these offsets push each
+   one so the VISIBLE feet and right edge land in the same place. Change a
+   number and the mascot jumps when the scene swaps.
+   pointer-events:none — the typing scene's box overhangs the message column
+   by ~38px of transparent SVG, which would otherwise swallow clicks. */
+.chat-mascot-slot { position: absolute; bottom: 0; z-index: 10; right: calc(50% + 400px); pointer-events: none; }
+.chat-mascot-slot.is-idle       { transform: translate(5px, 18px); }
+.chat-mascot-slot.is-thinking   { transform: translate(54px, 8px); }
+.chat-mascot-slot.is-presenting { transform: translate(26px, 14px); }
+
+/* ----- turns --------------------------------------------------------------- */
+.chat-turn { display: flex; flex-direction: column; gap: 4px; }
+.chat-bubble { position: relative; background: var(--card); border: 1px solid var(--line); border-radius: var(--r-sm); padding: 8px 14px; color: var(--ink); font-size: 14px; max-width: 65ch; }
+/* The tail is applied ONLY to the newest assistant turn, so one carat points
+   from the mascot to the current message and older bubbles stay tail-less.
+   Two stacked triangles (line colour, then card colour) fake a 1px border
+   along the diagonal. */
+.chat-bubble.has-tail::before { content: ""; position: absolute; left: -9px; top: 12px; width: 0; height: 0; border-style: solid; border-width: 9px 9px 9px 0; border-color: transparent var(--line) transparent transparent; }
+.chat-bubble.has-tail::after  { content: ""; position: absolute; left: -8px; top: 13px; width: 0; height: 0; border-style: solid; border-width: 8px 8px 8px 0; border-color: transparent var(--card) transparent transparent; }
+
+.chat-user-row { display: flex; justify-content: flex-end; }
+.chat-user-bubble { background: var(--az-gold); color: #fff; border-radius: 12px 12px 4px 12px; padding: 8px 14px; max-width: 78%; font-size: 14px; line-height: 1.6; white-space: pre-wrap; }
+.chat-user-bubble.is-pending { opacity: .7; }
+
+/* Quiet one-liner for ordinary non-"end_turn" stop reasons. */
+.chat-stop-note { font-size: 12px; color: var(--ink-3); font-style: italic; padding: 0 4px; }
+
+/* ----- system notices -----------------------------------------------------
+   Deliberately NOT bubble-shaped and NOT mascot-adjacent: a notice is the
+   SYSTEM talking, and it must not be mistakable for something the model
+   wrote. Used by SystemHealthBanner and by the max_steps "this answer is
+   incomplete" notice — which is exactly why the harness stopped emitting that
+   fact as synthetic assistant prose. */
+.chat-notice { border-radius: 10px; border: 1px solid; padding: 8px 12px; font-size: 12px; line-height: 1.5; }
+.chat-notice strong { font-weight: 800; }
+.chat-notice.is-warn { border-color: var(--chat-warn); background: var(--chat-warn-tint); color: var(--chat-warn); }
+.chat-notice-reason { margin-left: 8px; opacity: .75; }
+/* Banner placement — matches the message column so it reads as part of the thread. */
+.chat-notice-banner { max-width: 768px; margin: 12px auto 8px; }
+
+/* ----- composer ------------------------------------------------------------ */
+.chat-input { max-width: 768px; margin: 0 auto; background: var(--card); border: 1.5px solid var(--line); border-radius: 10px; display: flex; gap: 8px; align-items: flex-end; padding: 6px 8px; }
+.chat-input:focus-within { border-color: var(--az-gold); box-shadow: 0 0 0 3px var(--az-gold-100); }
+.chat-input textarea { flex: 1 1 auto; resize: none; background: transparent; border: none; padding: 8px 12px; color: var(--ink); font-family: var(--font); font-size: 14px; line-height: 1.6; }
+.chat-input textarea:focus { outline: none; }
+.chat-input textarea:disabled { opacity: .5; }
+.chat-send { background: var(--az-gold); color: #fff; border: none; border-radius: 8px; padding: 6px 14px; font-family: var(--font); font-size: 12px; font-weight: 800; cursor: pointer; transition: background .15s, opacity .15s; }
+.chat-send:hover:not(:disabled) { background: var(--az-gold-d); }
+.chat-send:disabled { opacity: .4; cursor: not-allowed; }
+
+/* ----- welcome + suggestions ----------------------------------------------- */
+.chat-welcome { flex: 1 1 auto; display: flex; flex-direction: column; align-items: center; justify-content: center; text-align: center; padding: 32px 24px; gap: 8px; overflow-y: auto; }
+/* Cap the hero mascot on short viewports; width follows the viewBox ratio so
+   the pixel art never distorts. */
+.chat-welcome-mascot { max-height: 55vh; width: auto; margin-bottom: 8px; }
+.chat-welcome h1 { font-size: 28px; font-weight: 800; color: var(--navy); }
+.chat-welcome p { color: var(--ink-2); max-width: 36rem; margin: 0; }
+
+/* overflow-x:auto gives the chip row native two-finger horizontal scroll; the
+   inner row is width:fit-content + auto margins so it CENTERS while it fits
+   and scrolls once it doesn't. */
+.chat-suggestions { overflow-x: auto; }
+.chat-suggestions-row { display: flex; flex-direction: row; gap: 8px; padding: 8px 16px 4px; margin: 0 auto; width: fit-content; }
+.chat-suggestion { flex-shrink: 0; white-space: nowrap; border-radius: var(--r-pill); border: 1px solid var(--line); background: var(--card); padding: 6px 12px; font-family: var(--font); font-size: 12px; color: var(--ink); cursor: pointer; transition: border-color .15s, color .15s; }
+.chat-suggestion:hover { border-color: var(--az-gold); color: var(--az-gold); }
+
+/* ----- footer -------------------------------------------------------------- */
+.chat-footer { flex-shrink: 0; border-top: 1px solid var(--line); background: var(--card); padding: 0 16px; min-height: 26px; display: flex; align-items: center; justify-content: space-between; gap: 12px; font-size: 11px; color: var(--ink-3); }
+.chat-footer-status { display: flex; align-items: center; gap: 8px; }
+.chat-footer-dot { display: inline-block; width: 8px; height: 8px; border-radius: 50%; }
+
+/* ----- citation chips ------------------------------------------------------
+   Three states, and the distinction has to survive a glance: failed (red,
+   struck through — the claim has NO valid citation), verbatim (blue check —
+   strict source match), paraphrase (grey approx — supported but reworded). */
+.chat-cite-wrap { position: relative; display: inline; }
+.chat-cite-pill-wrap { position: relative; display: inline-block; vertical-align: baseline; }
+.chat-cite-inline { display: inline; cursor: pointer; color: var(--ink); background: none; border: none; padding: 0; font: inherit; text-underline-offset: 2px; }
+.chat-cite-inline:hover { opacity: .8; }
+.chat-cite-inline.is-verbatim   { text-decoration: underline solid 1px var(--az-gold); }
+.chat-cite-inline.is-paraphrase { text-decoration: underline dashed 1px var(--ink-3); }
+.chat-cite-inline.is-failed     { text-decoration: underline wavy 1px var(--chat-danger); }
+.chat-cite-sup { margin-left: 2px; padding: 1px 4px; font-size: 9px; font-weight: 700; border-radius: 4px; border: 1px solid; vertical-align: super; }
+.chat-cite-pill { display: inline-flex; align-items: center; gap: 4px; padding: 1px 6px; font-size: 10px; font-weight: 700; border-radius: 4px; border: 1px solid; cursor: pointer; font-family: var(--font); transition: opacity .15s; }
+.chat-cite-pill:hover { opacity: .8; }
+.chat-cite-sup.is-verbatim,   .chat-cite-pill.is-verbatim   { background: var(--az-gold-100); color: var(--az-gold-d); border-color: var(--az-gold); }
+.chat-cite-sup.is-paraphrase, .chat-cite-pill.is-paraphrase { background: var(--navy-100); color: var(--ink-2); border-color: var(--line); }
+.chat-cite-sup.is-failed,     .chat-cite-pill.is-failed     { background: var(--chat-danger-tint); color: var(--chat-danger); border-color: var(--chat-danger); text-decoration: line-through; }
+
+.chat-cite-tooltip { position: absolute; bottom: calc(100% + 4px); left: 0; z-index: 50; width: 320px; border-radius: 10px; border: 1px solid var(--line); background: var(--card); box-shadow: var(--shadow); padding: 12px; font-size: 12px; color: var(--ink); cursor: default; text-align: left; }
+.chat-cite-tooltip-head { display: flex; align-items: center; gap: 8px; margin-bottom: 8px; }
+.chat-cite-tooltip-index { font-weight: 800; }
+.chat-cite-tooltip-title { color: var(--ink-2); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.chat-cite-tooltip-meta { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; font-size: 10px; color: var(--ink-3); margin-bottom: 8px; }
+.chat-cite-tooltip-state { margin-left: auto; text-transform: uppercase; letter-spacing: .06em; }
+.chat-cite-fail { border-left: 2px solid var(--chat-danger); padding-left: 8px; margin-bottom: 8px; font-size: 11px; color: var(--chat-danger); }
+.chat-cite-fail-label { text-transform: uppercase; letter-spacing: .06em; margin-bottom: 4px; font-weight: 800; }
+.chat-cite-quote { border-left: 2px solid var(--line); padding-left: 8px; margin: 0 0 8px; font-style: italic; color: var(--ink-2); max-height: 96px; overflow-y: auto; }
+.chat-cite-claim { color: var(--ink-3); font-size: 10px; margin-bottom: 8px; }
+.chat-cite-claim-label { text-transform: uppercase; letter-spacing: .06em; }
+.chat-cite-claim em { color: var(--ink-2); }
+.chat-cite-copy { width: 100%; font-size: 10px; text-transform: uppercase; letter-spacing: .06em; border-radius: 6px; border: 1px solid var(--line); background: var(--navy-100); color: var(--ink-2); padding: 4px; cursor: pointer; }
+.chat-cite-copy:hover { background: var(--az-gold-100); }
+
+/* A brief pop confirms the click registered and the source panel is opening. */
+.cite-chip { transition: transform 120ms ease-out; }
+.cite-chip-firing { transform: scale(1.15); box-shadow: 0 0 8px 1px var(--az-gold); }
+@media (prefers-reduced-motion: reduce) {
+  .cite-chip, .cite-chip-firing { transition: none; transform: none; box-shadow: none; }
+}
+
+/* ----- markdown ------------------------------------------------------------
+   Descendant rules rather than a class on every element. The ported
+   ReactMarkdown `components` overrides still exist — they do structural work
+   (sentinel-to-chip replacement, the table scroll wrapper, the code copy
+   button, the unsafe-href guard) — but they no longer carry style strings. */
+.chat-md > :last-child { margin-bottom: 0; }
+.chat-md h1 { font-size: 20px; font-weight: 800; margin: 24px 0 12px; padding-bottom: 6px; border-bottom: 1px solid var(--line); color: var(--navy); }
+.chat-md h2 { font-size: 18px; font-weight: 800; margin: 24px 0 12px; padding-bottom: 4px; border-bottom: 1px solid var(--line); color: var(--navy); }
+.chat-md h3 { font-size: 16px; font-weight: 800; margin: 20px 0 8px; color: var(--navy); }
+.chat-md h4 { font-size: 14px; font-weight: 800; margin: 16px 0 6px; color: var(--navy); }
+.chat-md p { margin: 0 0 12px; line-height: 1.6; }
+.chat-md ul, .chat-md ol { margin: 0 0 12px; padding-left: 24px; }
+.chat-md ul { list-style: disc; }
+.chat-md ol { list-style: decimal; }
+.chat-md li { line-height: 1.6; margin-bottom: 6px; }
+.chat-md blockquote { border-left: 2px solid var(--line); padding-left: 12px; margin: 12px 0; color: var(--ink-2); font-style: italic; }
+.chat-md hr { border: none; border-top: 1px solid var(--line); margin: 20px 0; }
+.chat-md strong { font-weight: 800; color: var(--ink); }
+.chat-md em { font-style: italic; color: var(--ink-2); }
+.chat-md a { color: var(--navy); text-decoration: underline; }
+.chat-md a:hover { color: var(--navy-700); }
+.chat-md code { font-family: var(--chat-mono); font-size: 13px; color: var(--copper); }
+.chat-md pre { border-radius: 10px; background: var(--canvas); border: 1px solid var(--line); padding: 12px; overflow-x: auto; font-size: 13px; margin: 0; }
+.chat-md pre code { color: inherit; }
+.chat-md-pre-wrap { position: relative; margin: 12px 0; }
+.chat-md-table-wrap { overflow-x: auto; margin: 12px 0; }
+.chat-md table { border-collapse: collapse; font-size: 14px; width: 100%; }
+.chat-md th, .chat-md td { border: 1px solid var(--line); padding: 8px 12px; }
+.chat-md th { background: var(--navy-100); text-align: left; font-weight: 800; color: var(--navy); }
+/* The copy button only appears on hover over its own code block — or on
+   keyboard focus, so it is reachable without a pointer. */
+.chat-md-copy { position: absolute; top: 8px; right: 8px; padding: 4px 8px; font-size: 11px; border-radius: 6px; border: 1px solid var(--line); background: var(--card); color: var(--ink-2); cursor: pointer; opacity: 0; transition: opacity .15s; }
+.chat-md-pre-wrap:hover .chat-md-copy, .chat-md-copy:focus-visible { opacity: 1; }
+
+/* ----- tool cards ----------------------------------------------------------- */
+.chat-tool { border-radius: var(--r-sm); border: 1px solid var(--line); background: var(--card); margin: 8px 0; overflow: hidden; }
+/* A failed tool is the case worth shouting about; the left border catches the
+   eye even when the 12px glyph does not. */
+.chat-tool.is-failed { border-left: 2px solid var(--chat-danger); }
+.chat-tool-head { width: 100%; display: flex; align-items: center; gap: 8px; padding: 8px 12px; font-size: 14px; color: var(--ink-2); background: var(--card); border: none; cursor: pointer; text-align: left; transition: background .15s; }
+.chat-tool-head:hover { background: var(--navy-100); }
+.chat-tool-glyph { flex-shrink: 0; }
+.chat-tool-label { font-weight: 800; color: var(--ink); flex-shrink: 0; }
+.chat-tool-summary { color: var(--ink-3); font-size: 12px; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.chat-tool-toggle { margin-left: auto; font-family: var(--chat-mono); color: var(--ink-3); font-size: 12px; user-select: none; flex-shrink: 0; }
+.chat-tool-body { border-top: 1px solid var(--line); padding: 8px 12px; }
+.chat-pulse { animation: chat-pulse 1.4s ease-in-out infinite; }
+@keyframes chat-pulse { 0%, 100% { opacity: 1; } 50% { opacity: .4; } }
+@media (prefers-reduced-motion: reduce) { .chat-pulse { animation: none; } }
+
+/* ----- tool-view primitives -------------------------------------------------- */
+.chat-stack { display: flex; flex-direction: column; gap: 8px; }
+.chat-row { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; font-size: 12px; }
+.chat-label { font-size: 10px; text-transform: uppercase; letter-spacing: .06em; color: var(--ink-3); margin-bottom: 4px; }
+.chat-muted { color: var(--ink-3); }
+.chat-dim { color: var(--ink-2); }
+.chat-note { font-size: 12px; color: var(--ink-3); font-style: italic; }
+.chat-mono { font-family: var(--chat-mono); }
+.chat-spacer { margin-left: auto; }
+
+.chat-chip { padding: 1px 6px; font-size: 10px; text-transform: uppercase; letter-spacing: .06em; border-radius: 6px; border: 1px solid var(--line); background: var(--navy-100); color: var(--ink-3); font-weight: 700; white-space: nowrap; }
+/* add / remove / warn keep their own hues: they signal an outcome, not brand. */
+.chat-chip.is-add    { background: var(--chat-ok-tint); color: var(--chat-ok); border-color: var(--chat-ok); }
+.chat-chip.is-remove { background: var(--chat-danger-tint); color: var(--chat-danger); border-color: var(--chat-danger); }
+.chat-chip.is-warn   { background: var(--chat-warn-tint); color: var(--chat-warn); border-color: var(--chat-warn); }
+.chat-chip.is-info   { background: var(--navy-100); color: var(--ink-2); border-color: var(--line); }
+
+.chat-block { position: relative; }
+.chat-block pre { font-size: 12px; color: var(--ink-2); background: var(--canvas); border: 1px solid var(--line); border-radius: 6px; padding: 8px; overflow: auto; white-space: pre-wrap; font-family: var(--chat-mono); margin: 0; }
+.chat-more { margin-top: 4px; font-size: 10px; text-transform: uppercase; letter-spacing: .06em; color: var(--ink-3); background: none; border: none; padding: 0; cursor: pointer; }
+.chat-more:hover { color: var(--ink); }
+
+.chat-path { display: flex; align-items: center; gap: 6px; font-size: 11px; font-family: var(--chat-mono); }
+.chat-path-dir { color: var(--ink-3); }
+.chat-path-base { color: var(--ink-2); font-weight: 700; }
+.chat-copy { font-size: 10px; text-transform: uppercase; letter-spacing: .06em; color: var(--ink-3); background: none; border: none; padding: 0 4px; border-radius: 4px; cursor: pointer; }
+.chat-copy:hover { color: var(--ink); }
+.chat-error-label { font-size: 10px; text-transform: uppercase; letter-spacing: .06em; color: var(--chat-danger); margin-bottom: 4px; font-weight: 800; }
+.chat-error-body { font-size: 12px; color: var(--chat-danger); background: var(--chat-danger-tint); border-radius: 6px; padding: 8px; overflow: auto; max-height: 192px; white-space: pre-wrap; margin: 0; font-family: var(--chat-mono); }
+.chat-code { color: var(--ink-2); background: var(--navy-100); padding: 2px 6px; border-radius: 6px; font-family: var(--chat-mono); word-break: break-all; }
+.chat-quote { border-left: 2px solid var(--chat-danger); padding-left: 12px; margin: 0; font-style: italic; font-size: 14px; color: var(--ink-2); }
+
+/* ----- retrieve view ---------------------------------------------------------- */
+.chat-chunks { display: flex; flex-direction: column; gap: 8px; list-style: none; margin: 0; padding: 0; }
+.chat-chunk { border-radius: 6px; border: 1px solid var(--line); background: var(--canvas); padding: 8px; font-size: 12px; }
+.chat-chunk-rank { color: var(--ink-3); font-family: var(--chat-mono); flex-shrink: 0; }
+.chat-chunk-title { color: var(--ink-2); font-weight: 700; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.chat-chunk-path { font-size: 10px; color: var(--ink-3); margin-bottom: 4px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.chat-chunk-text { color: var(--ink-2); white-space: pre-wrap; }
+
+/* ----- list_filter_values view ------------------------------------------------ */
+.chat-table-wrap { border-radius: 6px; border: 1px solid var(--line); background: var(--canvas); overflow: hidden; }
+.chat-table { width: 100%; font-size: 12px; border-collapse: collapse; }
+.chat-table th { font-size: 10px; text-transform: uppercase; letter-spacing: .06em; color: var(--ink-3); border-bottom: 1px solid var(--line); padding: 4px 8px; font-weight: 700; text-align: left; }
+.chat-table th.is-num, .chat-table td.is-num { text-align: right; font-variant-numeric: tabular-nums; color: var(--ink-3); }
+.chat-table td { padding: 4px 8px; border-bottom: 1px solid var(--line); color: var(--ink-2); }
+.chat-table tr:last-child td { border-bottom: none; }
+.chat-table-more { display: block; width: 100%; font-size: 10px; text-transform: uppercase; letter-spacing: .06em; color: var(--ink-3); padding: 4px; border: none; border-top: 1px solid var(--line); background: none; cursor: pointer; }
+
+/* ----- create_document view ----------------------------------------------------
+   The tool returns {download_token, filename}; this view is what turns that
+   into the download link the system prompt promised the analyst. */
+.chat-download { display: inline-flex; align-items: center; gap: 8px; border-radius: 8px; border: 1px solid var(--az-gold); background: var(--az-gold-100); color: var(--az-gold-d); padding: 6px 12px; font-size: 13px; font-weight: 800; text-decoration: none; }
+.chat-download:hover { background: var(--az-gold); color: #fff; text-decoration: none; }
+
+/* ----- mascot ------------------------------------------------------------------
+   Keyframes carried verbatim from web/app/globals.css. Frame-based (steps()),
+   never smooth tweens — the mascot is pixel art and a tween makes it look
+   wrong. prefers-reduced-motion halts all of it. */
+@keyframes mascot-bob {
+  0%, 100% { transform: translateY(0); }
+  50%      { transform: translateY(-1px); }
+}
+@keyframes mascot-tap {
+  0%, 100% { transform: translateY(0); }
+  50%      { transform: translateY(2px); }
+}
+@keyframes mascot-cursor {
+  0%, 50%      { opacity: 1; }
+  50.01%, 100% { opacity: 0; }
+}
+/* The bob runs on the whole SVG; blink and push-glasses are driven by JS
+   (Mascot.tsx toggling data-attributes) because their timing is randomized
+   and CSS cannot randomize. */
+.mascot-animate { animation: mascot-bob 3.2s steps(2, end) infinite; transform-origin: 50% 100%; }
+.mascot [data-mascot-eye] { transition: none; }
+.mascot[data-blink="true"] [data-mascot-eye] { fill: var(--mascot-skin); }
+@media (prefers-reduced-motion: reduce) { .mascot-animate { animation: none; } }
+
+/* The seated typing scene. The tapping hand needs its own transform-box so
+   the 2px tap is hand-local rather than viewBox-relative.
+   NOTE: `.mascot-typing-hand` currently has no consumer — MascotTyping was
+   rewritten to drive its hands from the `.work-hand-*` rules it generates in
+   its own inline <style>, and this rule was already orphaned in the source
+   app. It is carried anyway because a future scene that wants a simple tap
+   should reuse it rather than invent a fourth keyframe; drop it in Plan 5 if
+   nothing has claimed it by then. */
+.mascot-typing-hand   { animation: mascot-tap 460ms steps(2, end) infinite; transform-origin: 50% 100%; transform-box: fill-box; }
+.mascot-typing-cursor { animation: mascot-cursor 600ms steps(2, end) infinite; }
+@media (prefers-reduced-motion: reduce) {
+  .mascot-typing-hand, .mascot-typing-cursor { animation: none; }
+  /* MascotTyping generates .work-* animations in an inline <style> and never
+     shipped a reduced-motion escape for them, so the seated scene kept
+     nodding and typing for users who asked motion to stop. Halting them here
+     rather than in the component keeps every motion opt-out in one place. */
+  .work-hand-near, .work-hand-far, .work-head { animation: none; }
+}
+
+/* The typing/presenting scenes size by HEIGHT; width follows their own viewBox
+   ratio. 210px matches MASCOT_DIMENSIONS.small.height so the three scenes swap
+   in place without a vertical jump. */
+.mascot-typing, .mascot-presenting { height: 210px; width: auto; }
