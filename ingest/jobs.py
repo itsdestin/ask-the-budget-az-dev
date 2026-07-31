@@ -21,6 +21,7 @@ import hashlib
 import json
 import os
 import socket
+import time
 import uuid
 from dataclasses import asdict, dataclass, field
 from datetime import datetime, timezone
@@ -173,10 +174,31 @@ def save(job: JobRecord) -> Path:
     a rare race but a routine one.
     """
     path = jobs_dir() / f"{job.job_id}.json"
-    tmp = path.with_suffix(".json.tmp")
+    tmp = path.with_suffix(f".{os.getpid()}.json.tmp")
     tmp.write_text(json.dumps(job.to_json(), indent=2), encoding="utf-8")
-    os.replace(tmp, path)
+    _replace_with_retry(tmp, path)
     return path
+
+
+def _replace_with_retry(tmp: Path, path: Path, *, attempts: int = 20) -> None:
+    """os.replace, retried — on Windows it fails while a reader has the file.
+
+    POSIX rename is unconditional, but Windows (and SMB) refuse to replace a
+    destination another handle has open. The queue page polls every job file
+    every couple of seconds from this and other machines while the worker
+    writes progress several times a stage, so this collision is routine, not
+    exotic. Retrying briefly is correct: the reader's handle is open for the
+    microseconds of a small read.
+    """
+    for attempt in range(attempts):
+        try:
+            os.replace(tmp, path)
+            return
+        except PermissionError:
+            if attempt == attempts - 1:
+                tmp.unlink(missing_ok=True)
+                raise
+            time.sleep(0.02)
 
 
 def load_job(job_id: str) -> JobRecord | None:
