@@ -432,6 +432,16 @@ def test_resending_your_own_username_is_not_a_transfer(admin_client, settings_wi
 # ---------------------------------------------------------------------------
 
 
+# The ONE route under /api/admin that is deliberately ungated, with the
+# reason recorded here so a future reader doesn't "fix" it. `claim` would
+# work gated — an unclaimed install makes is_admin true for everyone — but
+# a non-admin hitting it on a CLAIMED install would get "The Admin page is
+# limited to Destin", which answers the wrong question. It answers 409 with
+# a sentence naming the recovery path instead, and that behaviour is pinned
+# by test_claim_is_refused_when_an_admin_exists below.
+UNGATED_BY_DESIGN = {("POST", "/api/admin/claim")}
+
+
 def _admin_routes() -> list[tuple[str, str]]:
     """Every registered /api/admin/* route, as (method, path) pairs.
 
@@ -445,8 +455,36 @@ def _admin_routes() -> list[tuple[str, str]]:
         if not path.startswith("/api/admin"):
             continue
         for method in sorted(getattr(route, "methods", set()) - {"HEAD", "OPTIONS"}):
+            if (method, path) in UNGATED_BY_DESIGN:
+                continue
             pairs.append((method, path))
     return sorted(pairs)
+
+
+def test_claim_is_refused_when_an_admin_exists(analyst_client, settings_with_key):
+    r = analyst_client.post("/api/admin/claim", json={"confirm": True})
+    assert r.status_code == 409
+    assert r.json()["detail"] == (
+        "An admin is already configured. To reset it, see 'If nobody can get "
+        "into Admin' in the handbook."
+    )
+    reset_settings_cache()
+    assert load_settings().admin_username == ADMIN
+
+
+def test_claim_takes_the_seat_on_a_fresh_install(analyst_client):
+    r = analyst_client.post("/api/admin/claim", json={"confirm": True})
+    assert r.status_code == 200
+    assert r.json() == {"admin_username": ANALYST}
+    reset_settings_cache()
+    assert load_settings().admin_username == ANALYST
+
+
+def test_claim_requires_confirmation(analyst_client):
+    r = analyst_client.post("/api/admin/claim", json={})
+    assert r.status_code == 400
+    reset_settings_cache()
+    assert load_settings().admin_username == ""
 
 
 def test_the_route_table_is_not_empty():

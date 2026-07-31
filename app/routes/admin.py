@@ -159,6 +159,46 @@ def me() -> dict:
 
 
 # ---------------------------------------------------------------------------
+# POST /api/admin/claim
+# ---------------------------------------------------------------------------
+
+MSG_ALREADY_CLAIMED = (
+    "An admin is already configured. To reset it, see 'If nobody can get "
+    "into Admin' in the handbook."
+)
+
+
+class ClaimBody(BaseModel):
+    confirm: bool = False
+
+
+@router.post("/api/admin/claim")
+def claim(body: ClaimBody) -> dict:
+    """Take the unclaimed admin seat. DELIBERATELY NOT `require_admin`-gated.
+
+    It would *work* gated — an unclaimed install makes `is_admin` true for
+    everyone, so the gate would pass — but a non-admin hitting this on a
+    CLAIMED install would then get "The Admin page is limited to Destin",
+    which answers the wrong question. The 409 below tells the reader the
+    thing they actually need to know: an admin exists, and here is where
+    to look if nobody can reach them.
+
+    Nothing is granted here that isn't already available to anyone who can
+    open `settings.json` in Notepad — see `app.identity.is_admin`.
+    """
+    settings = load_settings()
+    if not admin_claimable(settings):
+        raise HTTPException(status_code=409, detail=MSG_ALREADY_CLAIMED)
+    if not body.confirm:
+        raise _bad_request("Confirm that you want to become the admin.")
+
+    user = current_user()
+    save_settings(replace(settings, admin_username=user))
+    reset_settings_cache()
+    return {"admin_username": user}
+
+
+# ---------------------------------------------------------------------------
 # GET/PUT /api/admin/settings
 # ---------------------------------------------------------------------------
 

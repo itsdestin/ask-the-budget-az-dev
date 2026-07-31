@@ -355,3 +355,233 @@ export async function ingestBook(
   if (!r.ok) await fail(r, "add book");
   return r.json();
 }
+
+// ---------------------------------------------------------------------------
+// Identity + admin (Plan 5)
+// ---------------------------------------------------------------------------
+
+/** `GET /api/me` — who the caller is and what the app will let them see.
+ *
+ *  The admin gate behind these types is SOFT (spec S11): it is keyed on the
+ *  Windows username, which anyone can override. It exists so the admin page
+ *  isn't advertised office-wide, not to keep anyone out. Nothing behind it is
+ *  harmful if bypassed. */
+export interface Me {
+  user: string;
+  is_admin: boolean;
+  admin_username: string;
+  /** No admin configured yet, OR a RESET-ADMIN.txt is present. */
+  admin_claimable: boolean;
+  /** A reset file is waiting to be used up by the next claim. */
+  admin_reset_pending: boolean;
+}
+
+export async function me(): Promise<Me> {
+  const r = await fetch("/api/me");
+  if (!r.ok) await fail(r, "who am I");
+  return r.json();
+}
+
+export async function claimAdmin(): Promise<{ admin_username: string }> {
+  const r = await fetch("/api/admin/claim", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ confirm: true }),
+  });
+  if (!r.ok) await fail(r, "claim admin");
+  return r.json();
+}
+
+/** The provider block as the server RETURNS it. There is no `api_key` field
+ *  and there never will be — `GET /api/admin/settings` never returns the key
+ *  (see app/routes/admin.py). `api_key_hint` is the last four characters only,
+ *  so it is safe to screenshot. */
+export interface AdminProvider {
+  provider: "openrouter" | "custom";
+  base_url: string;
+  api_key_set: boolean;
+  api_key_hint: string;
+}
+
+export interface AdminSettings {
+  provider: AdminProvider;
+  tiers: Record<string, { model: string }>;
+  admin_username: string;
+  default_monthly_limit_usd: number | null;
+  user_limits: Record<string, number>;
+  exempt_users: string[];
+}
+
+/** The literal a client sends in place of the key to mean "I am not editing
+ *  this field". NOT the empty string — "" is a real edit (clearing the key to
+ *  turn AI Mode off), and a form that submits every field it rendered has no
+ *  other way to say "leave the one I was never shown alone". */
+export const UNCHANGED_KEY = "__unchanged__";
+
+export interface AdminSettingsWrite {
+  provider?: { provider: string; base_url: string };
+  tiers?: Record<string, { model: string }>;
+  admin_username?: string;
+  default_monthly_limit_usd?: number | null;
+  user_limits?: Record<string, number>;
+  exempt_users?: string[];
+  api_key?: string;
+  confirm_admin_transfer?: boolean;
+}
+
+export async function adminSettings(): Promise<AdminSettings> {
+  const r = await fetch("/api/admin/settings");
+  if (!r.ok) await fail(r, "admin settings");
+  return r.json();
+}
+
+export async function saveAdminSettings(
+  body: AdminSettingsWrite,
+): Promise<AdminSettings> {
+  const r = await fetch("/api/admin/settings", {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(body),
+  });
+  if (!r.ok) await fail(r, "save settings");
+  return r.json();
+}
+
+export interface ModelCard {
+  id: string;
+  name: string;
+  context_length: number | null;
+  prompt_usd_per_m: number | null;
+  completion_usd_per_m: number | null;
+  supports_tools: boolean;
+  /** False when the live catalog could not confirm the model exists. Such a
+   *  model renders greyed and unselectable — the admin needs to SEE that the
+   *  one their tier names has gone away. */
+  available: boolean;
+  tier_hint: string | null;
+  blurb: string | null;
+}
+
+export interface ModelCatalog {
+  source: "live" | "cache" | "bundled";
+  fetched_at: string | null;
+  recommended: ModelCard[];
+  catalog: ModelCard[];
+  note: string | null;
+}
+
+export async function adminModels(refresh = false): Promise<ModelCatalog> {
+  const r = await fetch(`/api/admin/models?refresh=${refresh ? 1 : 0}`);
+  if (!r.ok) await fail(r, "model catalog");
+  return r.json();
+}
+
+export interface UsageGroup {
+  key: string;
+  cost_usd: number;
+  tokens_in: number;
+  tokens_out: number;
+  cached_tokens: number;
+  rows: number;
+  rows_with_unknown_cost: number;
+}
+
+export interface AdminUsage {
+  month: string;
+  total_usd: number;
+  rows: number;
+  /** Calls whose dollar cost is unknown (a custom endpoint, S15). The page
+   *  must render "at least $X (N calls of unknown cost)" — a total that
+   *  silently omits them lies by omission. */
+  rows_with_unknown_cost: number;
+  cached_tokens: number;
+  tokens_in: number;
+  by_user: UsageGroup[];
+  by_model: UsageGroup[];
+  by_tier: UsageGroup[];
+  limits_active: boolean;
+  limits_inactive_reason: string | null;
+}
+
+export async function adminUsage(month?: string): Promise<AdminUsage> {
+  const r = await fetch(`/api/admin/usage${month ? `?month=${month}` : ""}`);
+  if (!r.ok) await fail(r, "usage");
+  return r.json();
+}
+
+export interface MyUsage {
+  month: string;
+  month_usd: number | null;
+  limit_usd: number | null;
+  status: "allowed" | "warn" | "blocked";
+  /** The ledger's own sentence, emitted from one place. Never re-typed in the
+   *  UI — two subtly different "you're over your limit" messages is worse than
+   *  one blunt one. */
+  message: string | null;
+  reason: string | null;
+  rows_with_unknown_cost: number;
+}
+
+export async function myUsage(): Promise<MyUsage> {
+  const r = await fetch("/api/me/usage");
+  if (!r.ok) await fail(r, "my usage");
+  return r.json();
+}
+
+export interface AdminCorpus {
+  data_dir: string;
+  budget_chunks: number;
+  fiscal_note_chunks: number;
+  documents: number;
+  lancedb_bytes: number;
+  /** An ESTIMATE of the space held by superseded LanceDB versions; null when
+   *  it can't be measured. Render it as "about X", never as an exact figure —
+   *  see `_reclaimable_bytes` in app/routes/admin.py. */
+  dead_version_bytes: number | null;
+  last_ingest_at: string | null;
+  queue: { queued: number; running: number; failed: number };
+}
+
+export async function adminCorpus(): Promise<AdminCorpus> {
+  const r = await fetch("/api/admin/corpus");
+  if (!r.ok) await fail(r, "corpus health");
+  return r.json();
+}
+
+export interface Snapshot {
+  name: string;
+  created_at: string | null;
+  bytes: number;
+}
+
+export async function adminBackups(): Promise<{ snapshots: Snapshot[] }> {
+  const r = await fetch("/api/admin/backups");
+  if (!r.ok) await fail(r, "backups");
+  return r.json();
+}
+
+export async function restoreBackup(
+  name: string,
+): Promise<{ restored: string; restart_required: boolean }> {
+  const r = await fetch(`/api/admin/backups/${encodeURIComponent(name)}/restore`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    // The literal string is the guard: a mis-click, a double-submit or a stale
+    // tab replaying a request cannot produce it.
+    body: JSON.stringify({ confirm: "restore" }),
+  });
+  if (!r.ok) await fail(r, "restore");
+  return r.json();
+}
+
+export interface Notice {
+  at: string;
+  kind: string;
+  message: string;
+}
+
+export async function adminNotices(since?: string): Promise<{ notices: Notice[] }> {
+  const r = await fetch(`/api/admin/notices${since ? `?since=${encodeURIComponent(since)}` : ""}`);
+  if (!r.ok) await fail(r, "notices");
+  return r.json();
+}

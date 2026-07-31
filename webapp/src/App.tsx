@@ -1,5 +1,6 @@
 import { BrowserRouter, Route, Routes } from "react-router-dom";
 import { Header } from "./components/Header";
+import { Admin } from "./pages/Admin";
 import { Ai } from "./pages/Ai";
 import { FiscalNotes } from "./pages/FiscalNotes";
 import { Home } from "./pages/Home";
@@ -21,8 +22,11 @@ export function AppRoutes() {
             two corpus pages. The corpus is picked inside it. */}
         <Route path="/ai" element={<Ai />} />
         <Route path="/upload" element={<Upload />} />
-        {/* Stub route so the header's Settings pill isn't a dead link (Plan 5). */}
         <Route path="/settings" element={<Settings />} />
+        {/* Always routable, even for a non-admin: the page itself explains who
+            holds admin. A route that 404'd would make a shared link look like
+            a broken app rather than a permission the reader doesn't have. */}
+        <Route path="/admin" element={<Admin />} />
       </Routes>
     </>
   );

@@ -1520,3 +1520,96 @@ html.ai-fullpage header.site{flex:0 0 auto;}
 /* pre-wrap: chunk text is verbatim source, and its line structure is part of
    what the analyst is checking. */
 .chat-refusal-text{color:var(--ink-2);white-space:pre-wrap;font-size:11.5px;line-height:1.45;}
+
+/* ===== page-admin + page-settings (Plan 5 Tasks 8/9) =====
+   Both surfaces are stacked `.card` panels in the shared `.wrap`, so they
+   inherit the mockup's card primitive and need no new page chrome. The rules
+   below only style what the mockup has no equivalent for: settings forms,
+   stat grids, cost tables and the destructive-action confirm. Colours are all
+   tokens — nothing here introduces a new one. */
+.page-admin .wrap,.page-settings .wrap{display:block;padding-top:28px;padding-bottom:40px;}
+.page-admin h1,.page-settings h1{font-size:26px;color:var(--navy);font-weight:800;margin-bottom:16px;}
+.adm-panel{padding:20px 24px;margin-bottom:var(--gap);}
+.adm-panel h2{font-size:18px;color:var(--navy);font-weight:800;margin:0 0 4px;}
+.adm-panel h3{font-size:14px;color:var(--navy);font-weight:800;margin:18px 0 6px;}
+.adm-sub{font-size:13.5px;color:var(--ink-2);margin:0 0 10px;}
+.adm-hint{font-size:12.5px;color:var(--ink-3);margin:4px 0 0;line-height:1.5;}
+.adm-note{font-size:12.5px;color:var(--ink-2);margin:12px 0 0;line-height:1.55;}
+.adm-empty{font-size:13.5px;color:var(--ink-3);margin:8px 0;}
+.adm-panel code{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:12px;background:var(--canvas);border:1px solid var(--line);border-radius:4px;padding:1px 5px;}
+
+/* The headline dollar figure. Big because it is the reason the page exists —
+   but not coloured, because a red total would read as an alarm on a month
+   that is going perfectly normally. */
+.adm-total{font-size:28px;font-weight:800;color:var(--navy);margin:6px 0 2px;}
+.adm-cache{font-size:12.5px;color:var(--ink-2);margin:10px 0 0;line-height:1.5;}
+
+.adm-month{display:flex;align-items:center;gap:8px;font-size:13px;color:var(--ink-2);}
+.adm-month input{border:1px solid var(--line);border-radius:var(--r-sm);padding:5px 9px;font:inherit;font-size:13px;}
+
+.adm-tabs{display:flex;gap:6px;margin:16px 0 10px;flex-wrap:wrap;}
+.adm-tab{border:1px solid var(--line);background:var(--card);border-radius:var(--r-pill);padding:5px 14px;font:inherit;font-size:12.5px;font-weight:800;color:var(--ink-2);cursor:pointer;}
+.adm-tab.is-on{background:var(--navy);border-color:var(--navy);color:#fff;}
+
+.adm-table{width:100%;border-collapse:collapse;font-size:13px;}
+.adm-table th,.adm-table td{text-align:left;padding:7px 10px;border-bottom:1px solid var(--line);}
+.adm-table thead th{font-size:11.5px;text-transform:uppercase;letter-spacing:.04em;color:var(--ink-3);}
+.adm-table tbody th{font-weight:800;color:var(--ink);}
+/* A wide table must scroll inside its panel rather than widening the page —
+   the app already forbids horizontal panning of the document. */
+.adm-panel{overflow-x:auto;}
+
+.adm-stats{display:grid;grid-template-columns:repeat(auto-fit,minmax(190px,1fr));gap:12px 20px;margin:8px 0 0;}
+.adm-stats dt{font-size:11.5px;text-transform:uppercase;letter-spacing:.04em;color:var(--ink-3);}
+.adm-stats dd{margin:2px 0 0;font-size:15px;font-weight:800;color:var(--ink);word-break:break-word;}
+
+.adm-field{display:block;margin:14px 0 0;font-size:13.5px;color:var(--ink-2);}
+.adm-field>span:first-child,.adm-field legend{display:block;font-weight:800;color:var(--ink);margin-bottom:4px;}
+.adm-field input,.adm-field select,.adm-tier input,.adm-tier select,.adm-rows input,.adm-confirm input,.page-admin input[type=text],.page-admin input[type=url],.page-admin input[type=password],.page-admin input[type=number]{border:1px solid var(--line);border-radius:var(--r-sm);padding:7px 10px;font:inherit;font-size:13.5px;background:var(--card);color:var(--ink);max-width:100%;}
+.adm-field input,.adm-field select{width:min(420px,100%);}
+fieldset.adm-field{border:0;padding:0;}
+.adm-radio{display:flex;gap:8px;align-items:flex-start;margin:6px 0;font-size:13.5px;color:var(--ink-2);line-height:1.5;}
+.adm-radio strong{color:var(--ink);}
+.adm-keyhint{font-weight:400;color:var(--ink-3);font-size:12.5px;}
+
+.adm-tier{margin:14px 0 0;padding:12px 14px;background:var(--canvas);border-radius:var(--r-sm);}
+.adm-tier select,.adm-tier input{width:min(520px,100%);margin-top:4px;}
+.adm-tier option:disabled{color:var(--ink-3);}
+.adm-blurb{font-size:12.5px;color:var(--ink-2);margin:6px 0 0;line-height:1.5;}
+
+/* S15's caveats and the transfer confirmation share this treatment: a tinted
+   inset that reads as "read this before continuing" without the alarm colour
+   of an error. */
+.adm-caveats{margin:12px 0 0;padding:12px 14px;background:var(--az-gold-100);border-radius:var(--r-sm);font-size:13px;color:var(--ink-2);line-height:1.55;}
+.adm-caveats ul{margin:6px 0 0;padding-left:20px;}
+.adm-caveats li{margin:4px 0;}
+
+.adm-rows{list-style:none;margin:8px 0 0;padding:0;}
+.adm-rows li{display:flex;flex-wrap:wrap;gap:8px;align-items:center;padding:7px 0;border-bottom:1px solid var(--line);font-size:13px;color:var(--ink-2);}
+.adm-confirm{display:flex;flex-wrap:wrap;gap:8px;align-items:center;font-size:12.5px;color:var(--ink-2);}
+.adm-confirm label{flex:1 1 100%;}
+
+.adm-btn{border:0;background:var(--navy);color:#fff;border-radius:var(--r-pill);padding:8px 18px;font:inherit;font-size:13px;font-weight:800;cursor:pointer;}
+.adm-btn:disabled{opacity:.45;cursor:not-allowed;}
+.adm-btn-quiet{background:var(--card);color:var(--navy);border:1px solid var(--line);}
+/* The one destructive action in the app. Distinct, but it still only fires
+   after the admin has typed the word — the colour is a signal, not the guard. */
+.adm-btn-danger{background:var(--az-red);}
+.adm-link{border:0;background:none;padding:0;font:inherit;font-size:12.5px;font-weight:800;color:var(--az-gold-d);text-decoration:underline;cursor:pointer;}
+
+.adm-save{display:flex;flex-wrap:wrap;gap:12px;align-items:center;margin:0 0 var(--gap);}
+.adm-ok{font-size:13px;font-weight:800;color:var(--teal);}
+.adm-warn{font-size:13px;color:var(--navy-900);background:var(--az-red-100);border-radius:var(--r-sm);padding:9px 12px;margin:10px 0 0;line-height:1.55;}
+
+.adm-notices{list-style:none;margin:8px 0 0;padding:0;}
+.adm-notices li{padding:10px 0;border-bottom:1px solid var(--line);}
+.adm-notices p{margin:4px 0 0;font-size:13px;color:var(--ink-2);line-height:1.5;}
+.adm-notice-kind{font-size:11.5px;font-weight:800;text-transform:uppercase;letter-spacing:.04em;color:var(--navy);}
+.adm-notice-when{font-size:11.5px;color:var(--ink-3);margin-left:8px;}
+
+/* Own-usage meter on Settings. Colour tracks the ledger's own status so the
+   bar and the sentence beneath it can never disagree. */
+.adm-meter{height:9px;background:var(--canvas);border:1px solid var(--line);border-radius:var(--r-pill);overflow:hidden;margin:8px 0;max-width:420px;}
+.adm-meter span{display:block;height:100%;background:var(--teal);}
+.adm-meter span.is-warn{background:var(--copper);}
+.adm-meter span.is-blocked{background:var(--az-red);}

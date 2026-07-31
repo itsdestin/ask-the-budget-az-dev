@@ -1,5 +1,7 @@
-import { render, screen } from "@testing-library/react";
+import { render, screen, waitFor } from "@testing-library/react";
 import { MemoryRouter } from "react-router-dom";
+import { vi } from "vitest";
+import * as api from "../api";
 import { Header } from "./Header";
 
 // MemoryRouter (not BrowserRouter) because NavLink needs a router context and
@@ -74,4 +76,67 @@ test("keeps the mockup's header markup hooks", () => {
     "src",
     "/jlbc-logo.png",
   );
+});
+
+// The Admin pill (Plan 5 Task 8). It renders only when /api/me says the caller
+// holds the admin seat.
+//
+// This is PRESENTATION, not protection, and the distinction matters enough to
+// pin: the gate that counts is server-side (every /api/admin route answers 403
+// to a non-admin, pinned by tests/test_admin_settings_route.py), and it is
+// soft by design (spec S11) because it is keyed on a Windows username anyone
+// can override. Hiding the pill keeps the page from being advertised
+// office-wide. It keeps nobody out, and nothing behind it would be harmful if
+// it did not.
+test("the Admin pill renders only for the admin", async () => {
+  vi.spyOn(api, "me").mockResolvedValue({
+    user: "Destin",
+    is_admin: true,
+    admin_username: "Destin",
+    admin_claimable: false,
+    admin_reset_pending: false,
+  });
+  render(
+    <MemoryRouter>
+      <Header />
+    </MemoryRouter>,
+  );
+  const pill = await screen.findByRole("link", { name: "Admin" });
+  expect(pill).toHaveAttribute("href", "/admin");
+  vi.restoreAllMocks();
+});
+
+test("a non-admin never sees the Admin pill", async () => {
+  vi.spyOn(api, "me").mockResolvedValue({
+    user: "analyst1",
+    is_admin: false,
+    admin_username: "Destin",
+    admin_claimable: false,
+    admin_reset_pending: false,
+  });
+  render(
+    <MemoryRouter>
+      <Header />
+    </MemoryRouter>,
+  );
+  await screen.findByRole("link", { name: "Budget Documents" });
+  await waitFor(() => expect(api.me).toHaveBeenCalled());
+  expect(screen.queryByRole("link", { name: "Admin" })).toBeNull();
+  vi.restoreAllMocks();
+});
+
+// A failing /api/me must cost the pill, not the header. The nav is how an
+// analyst reaches every other surface; losing it because an identity probe
+// hiccupped would take down the whole app over a cosmetic detail.
+test("a failed identity probe still renders the rest of the nav", async () => {
+  vi.spyOn(api, "me").mockRejectedValue(new Error("who am I failed: 500"));
+  render(
+    <MemoryRouter>
+      <Header />
+    </MemoryRouter>,
+  );
+  expect(await screen.findByRole("link", { name: "Budget Documents" })).toBeInTheDocument();
+  await waitFor(() => expect(api.me).toHaveBeenCalled());
+  expect(screen.queryByRole("link", { name: "Admin" })).toBeNull();
+  vi.restoreAllMocks();
 });
