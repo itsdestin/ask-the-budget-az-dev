@@ -27,6 +27,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 
 from app.identity import admin_claimable, current_user, is_admin
+from harness.catalog import fetch_catalog
 from harness.settings import (
     ProviderConfig,
     Settings,
@@ -212,22 +213,33 @@ class SettingsBody(BaseModel):
     confirm_admin_transfer: bool = False
 
 
-def _model_id_looks_valid(model_id: str) -> bool:
+def _model_id_looks_valid(model_id: str, settings: Settings) -> bool:
     """Typo gate for a hand-typed model id.
+
+    Two acceptance paths, per the plan: the id has a plausible
+    `vendor/model` SHAPE, **or** the live catalog vouches for it. Either
+    is enough — the goal is catching `gpt4` typed into a text box, not
+    restricting an admin to a list that is stale by construction.
 
     Empty is VALID: a tier with no model assigned is a supported state
     (`ai_available` reports "no model configured — ask the admin" for that
     tier while the other keeps working), and rejecting it would stop an
     admin part-way through setup.
 
-    Task 4 adds the catalog as a second acceptance path — an id the live
-    catalog confirms is valid even if it doesn't match this pattern. Until
-    then, and whenever the catalog is unreachable, the shape check is the
-    whole rule.
+    WHY the catalog is consulted only AFTER the shape check fails: this
+    runs on every settings save, and a cold cache means a network round
+    trip. The shape check passes for essentially every real id, so the
+    slow path is reached only by something already suspicious. When the
+    catalog is unreachable it contributes nothing and the shape check is
+    the whole rule — which is the right degradation, since refusing to
+    save because we couldn't reach OpenRouter would be worse than
+    accepting an id the admin can test with one click.
     """
     if not model_id:
         return True
-    return bool(_MODEL_ID.match(model_id))
+    if _MODEL_ID.match(model_id):
+        return True
+    return any(card.id == model_id for card in fetch_catalog(settings).catalog)
 
 
 def _validate(new: Settings, current: Settings, body: SettingsBody) -> None:
@@ -243,7 +255,7 @@ def _validate(new: Settings, current: Settings, body: SettingsBody) -> None:
         raise _bad_request(MSG_BAD_BASE_URL)
 
     for cfg in new.tiers.values():
-        if not _model_id_looks_valid(cfg.model):
+        if not _model_id_looks_valid(cfg.model, new):
             raise _bad_request(MSG_BAD_MODEL)
 
     if new.default_monthly_limit_usd is not None and new.default_monthly_limit_usd < 0:
@@ -345,3 +357,30 @@ def put_settings(
     # from a cache entry stamped a millisecond before the write.
     reset_settings_cache()
     return _redacted(load_settings())
+
+
+# ---------------------------------------------------------------------------
+# GET /api/admin/models
+# ---------------------------------------------------------------------------
+
+
+@router.get("/api/admin/models")
+def get_models(
+    refresh: int = 0, settings: Settings = Depends(require_admin)
+) -> dict:
+    """The model picker's data (S13).
+
+    `refresh=1` bypasses the six-hour cache — the escape hatch for an
+    admin who just read about a model and wants to see it now. Everything
+    else, including a total network failure, comes back as a 200 with a
+    `note`: this is the page an admin opens BECAUSE something is wrong,
+    so it must never be the page that fails.
+    """
+    result = fetch_catalog(settings, refresh=bool(refresh))
+    return {
+        "source": result.source,
+        "fetched_at": result.fetched_at,
+        "recommended": [card.as_dict() for card in result.recommended],
+        "catalog": [card.as_dict() for card in result.catalog],
+        "note": result.note,
+    }

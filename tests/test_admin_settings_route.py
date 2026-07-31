@@ -13,11 +13,16 @@ Everything after them is validation copy and the soft admin gate.
 """
 from __future__ import annotations
 
+import json
+import time
+from pathlib import Path
+
 import pytest
 from fastapi.testclient import TestClient
 
 from app.main import create_app
 from app.search_provider import StubSearchProvider
+from harness.catalog import CACHE_FILE
 from harness.settings import (
     ProviderConfig,
     Settings,
@@ -37,8 +42,32 @@ def _isolated_share(monkeypatch, tmp_path):
     monkeypatch.setenv("JLBC_DATA_DIR", str(tmp_path))
     monkeypatch.setenv("JLBC_USER", ADMIN)
     reset_settings_cache()
+    _seed_catalog_cache(tmp_path)
     yield
     reset_settings_cache()
+
+
+def _seed_catalog_cache(share: Path) -> None:
+    """Pre-warm the model-catalog cache so NO test here touches the network.
+
+    Model-id validation consults the catalog when an id fails the shape
+    check (see `_model_id_looks_valid`), and a cold cache would make that
+    a live HTTPS call — slow, flaky, and dependent on whoever runs the
+    suite having outbound access. Seeding a fresh cache from the same
+    captured payload tests/test_catalog.py uses keeps the behaviour real
+    while keeping the suite hermetic.
+    """
+    fixture = Path(__file__).parent / "fixtures" / "openrouter_models.json"
+    cache = share / CACHE_FILE
+    cache.parent.mkdir(parents=True, exist_ok=True)
+    cache.write_text(
+        json.dumps({
+            "fetched_at": "2026-07-31T12:00:00-07:00",
+            "fetched_at_epoch": time.time(),
+            "payload": json.loads(fixture.read_text(encoding="utf-8")),
+        }),
+        encoding="utf-8",
+    )
 
 
 @pytest.fixture
@@ -267,6 +296,61 @@ def test_base_url_must_be_a_url(admin_client, settings_with_key):
     assert r.json()["detail"] == (
         "The endpoint address needs to start with http:// or https://."
     )
+
+
+def test_an_odd_shaped_id_the_catalog_vouches_for_is_accepted(
+    admin_client, settings_with_key, tmp_path
+):
+    """The rule is "implausible AND unknown to the catalog" — not "implausible".
+
+    A real model id that doesn't match the vendor/model pattern must still
+    be settable, or the shape check becomes an allowlist that ages badly.
+    """
+    fixture = Path(__file__).parent / "fixtures" / "openrouter_models.json"
+    payload = json.loads(fixture.read_text(encoding="utf-8"))
+    payload["data"][0]["id"] = "weird-but-real"
+    (tmp_path / CACHE_FILE).write_text(
+        json.dumps({"fetched_at": "2026-07-31T12:00:00-07:00",
+                    "fetched_at_epoch": time.time(), "payload": payload}),
+        encoding="utf-8",
+    )
+    r = admin_client.put(
+        "/api/admin/settings",
+        json=base_body(tiers={"standard": {"model": "weird-but-real"},
+                              "deep_research": {"model": "vendor/deep"}}),
+    )
+    assert r.status_code == 200, r.text
+
+
+# ---------------------------------------------------------------------------
+# GET /api/admin/models
+# ---------------------------------------------------------------------------
+
+
+def test_models_route_serves_the_cached_catalog(admin_client, settings_with_key):
+    body = admin_client.get("/api/admin/models").json()
+    assert body["source"] == "cache"
+    assert body["note"] is None
+    ids = {m["id"] for m in body["catalog"]}
+    assert "qwen/qwen3.7-plus" in ids
+    # Every card the picker renders must be tool-capable — that is the
+    # entry criterion, not a preference.
+    assert all(m["supports_tools"] for m in body["catalog"])
+    recommended = body["recommended"]
+    assert {m["tier_hint"] for m in recommended} == {"standard", "deep_research"}
+    assert all(m["blurb"] for m in recommended)
+
+
+def test_models_route_reports_a_custom_endpoint_honestly(admin_client, settings_with_key):
+    admin_client.put(
+        "/api/admin/settings",
+        json=base_body(provider={"provider": "custom",
+                                 "base_url": "https://example.test/v1"}),
+    )
+    body = admin_client.get("/api/admin/models").json()
+    assert body["source"] == "bundled"
+    assert body["catalog"] == []
+    assert "custom endpoint" in body["note"].lower()
 
 
 # ---------------------------------------------------------------------------
