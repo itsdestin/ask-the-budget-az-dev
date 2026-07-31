@@ -126,9 +126,10 @@ async def upload(
     )
     save(job)
 
-    # Start the worker lazily, on first upload, rather than at app startup:
-    # it builds the embedding model, and a machine that only ever searches
-    # should never pay for that.
+    # Belt and braces. The server starts the worker at startup now (see
+    # app/main.py's lifespan), so this is no longer what gets the queue
+    # moving — but `start()` is idempotent, and a worker that died is worth
+    # reviving at the moment somebody is actually waiting on a document.
     worker = getattr(request.app.state, "ingest_worker", None)
     if worker is not None:
         worker.start()

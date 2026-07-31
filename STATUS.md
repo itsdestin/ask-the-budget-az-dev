@@ -532,8 +532,11 @@ As of 2026-07-31:
 ### Known follow-ups (Plan 5 unless noted)
 
 **Found during the 2026-07-31 Z13 backfill run (see `~/backfill-progress.log`
-on that machine and the ROCm investigation doc). The first two are
-handoff-blocking — they degrade the office experience silently.**
+on that machine and the ROCm investigation doc). These degrade the office
+experience silently. The two marked ✅ (worker never started, `make_doc_id`
+collision) were the handoff-blocking pair and are fixed on master — branch
+`ingest-defects`, 2026-07-31; the fixes ship at the app server's next
+restart, since the running backfill has its code already loaded.**
 
 - **🔴 The ingest lock can be STOLEN FROM A LIVE HOLDER — two writers on one
   corpus.** `IngestLock._try_create` creates the lockfile and then writes its
@@ -552,20 +555,64 @@ handoff-blocking — they degrade the office experience silently.**
   `build_fts_index` + `optimize` will exceed the 120 s stale window as the
   corpus grows. Needs a background auto-heartbeat thread on `IngestLock`.
   Not fixed anywhere yet.
-- **🔴 `IngestWorker` is constructed at startup but never `.start()`ed.**
-  Only the upload POST route starts it. Consequence on the shared drive:
-  a colleague's queued job sits untouched until somebody on *that* machine
-  uploads something — ingest appears to hang for no visible reason. Start
-  the worker in the app factory (`ensure_started`) so any running instance
-  drains the queue.
-- **🔴 `make_doc_id()` collision silently DROPS a document.** It files
-  `detailed-list-pdf` under "approps" regardless of family, so a baseline
-  and an approps doc can generate the same doc_id and the second write
-  replaces the first. Audited all 5,320 in-scope book docs: exactly one
-  true collision today (FY2026 Baseline staff directory vs FY2026 Approps
-  "General Fund and Other Fund Adjustments", both `jlbc-approps-fy2026-508`),
-  and run order means the substantive doc survives. Fix the id scheme to
-  include the family before the next large ingest.
+- **✅ FIXED — `IngestWorker` was constructed at startup but never
+  `.start()`ed.** Only the upload POST route started it, so on the shared
+  drive a colleague's queued job sat untouched until somebody on *that*
+  machine uploaded something — ingest appeared to hang for no visible reason.
+  The app now starts it from a **lifespan handler** (`app/main.py::_lifespan`
+  → `ingest.worker.ensure_started`), so any running server drains the queue.
+  A lifespan handler rather than a line in `create_app()` because *building*
+  an app object (every route test does) must not spawn threads — only
+  *serving* should; Starlette runs lifespan on real startup and when a test
+  opts in with `with TestClient(app)`. Starting is idempotent (the upload and
+  books routes still call `start()` and get the same pool), a failure to start
+  is caught and reported on stderr with the real error rather than taking the
+  whole server down, and `create_app(ingest_worker=None)` is the explicit
+  opt-out for a process that must not run ingest. Guards:
+  `tests/test_app_server.py` — a job queued with no upload activity reaches
+  `live`, double-start yields one pool, an exploding worker still boots the
+  app, a missing `JLBC_DATA_DIR` still boots the app.
+- **✅ FIXED — `make_doc_id()` collision silently DROPPED a document.** It
+  filed `detailed-list-pdf` under "approps" regardless of family, so a
+  baseline and an approps doc could generate the same doc_id; because a write
+  is an upsert, the second replaced the first and one document vanished with
+  no error. `make_doc_id()` now takes `family=` and, for JLBC book documents,
+  the family wins wherever it disagrees with the class the `doc_type` implies.
+  Wired at both mint sites that know the family: `app/routes/books.py`
+  (`plan.family`) and `ingest/driver.py::_entry_to_item` (via `_family_of`,
+  reading the plan target's already-family-prefixed doc_type). Callers that
+  genuinely don't know the family — a person uploading a file by hand,
+  singleton publishers — omit it and get byte-identical legacy ids.
+  **Two collisions, not one.** The original audit ran against
+  `data/jlbc-book-catalog.json` and found exactly one in 5,320 in-scope
+  documents (FY2026 `26ar/508.pdf` vs `26baseline/508.pdf`, both
+  `jlbc-approps-fy2026-508`). A second one exists that the catalog-based audit
+  could not see, because the approps linked-TOC walk yields sections the
+  catalog snapshot doesn't list: `26AR/capitaloutlay.pdf` is already in the
+  corpus as `jlbc-baseline-fy2026-capitaloutlay` (`topic-pdf` hardcodes the
+  baseline class), and the FY2026 Baseline book's **own** `capitaloutlay.pdf`
+  is in the catalog, in scope, and not yet ingested — it would have minted the
+  same id and overwritten it. That second collision is in the
+  approps-filed-as-baseline direction, so a fix that only moved the baseline
+  side would not have caught it. Guards: `tests/test_driver.py` (both
+  collision pairs mint distinct ids; real non-colliding ids pinned unchanged;
+  omitting `family` reproduces the legacy id exactly) and
+  `tests/test_books_route.py` (enqueue both FY2026 books, assert zero doc_id
+  reuse).
+- **Six already-ingested documents would mint a different id on a
+  from-scratch re-ingest** — the cost of the fix above, and the reason it was
+  scoped to the misfiled shape only. They are the documents whose family
+  disagreed with their `doc_type`'s class: `jlbc-approps-fy2027-{502,507,517,522}`
+  (baseline sections filed as approps) and `jlbc-baseline-fy2026-{crr,capitaloutlay}`
+  (approps sections filed as baseline). **Nothing rewrites them today** —
+  `documents.json` entries and `chunk_id`s are written once, and
+  `/api/books/ingest` de-dupes on `source_url`, so re-running an edition skips
+  them rather than re-minting. The exposure is a full corpus rebuild:
+  `eval/queries.yaml` q-001 pins `jlbc-baseline-fy2026-crr-0013`, which would
+  become `jlbc-approps-fy2026-crr-0013`, and `eval/refresh_chunk_ids.py` — the
+  tool that would re-bind it from `anchor_text` — is unported and still
+  imports the retired Postgres `db.connection`. **Port the refresh tool before
+  any from-scratch rebuild**, or re-point q-001 by hand at that time.
 - **🔴 `DownloadCache` is not safe for concurrent writers AND its manifest tmp
   path is shared across instances.** Two simultaneous cache misses can
   interleave manifest writes; a corrupted manifest parses as an **empty**
@@ -661,9 +708,9 @@ handoff-blocking — they degrade the office experience silently.**
   backfill maintainer (`~/backfill-scripts/maintain.py`) already takes
   `IngestLock` and heartbeats during `optimize`, so it is safe alongside a
   worker pool. Before enabling mid-run also: re-export
-  `JLBC_INGEST_SNAPSHOT=off`, kill orphaned `mineru` trees after the restart,
-  and POST something to start the pool (the `ensure_started` defect above
-  means a restart alone won't).
+  `JLBC_INGEST_SNAPSHOT=off` and kill orphaned `mineru` trees after the
+  restart. (The old "POST something to start the pool" step is gone — since
+  the `ensure_started` fix above, a restart alone starts it.)
 - **MinerU 3.4.4 vs the pinned 3.1.6** — measured 1.35× faster on plain CPU
   (28.5s vs 38.5s on an 8-page doc; beats the ROCm GPU path outright),
   device-invariant output, and it fixes a table row-misalignment seen at

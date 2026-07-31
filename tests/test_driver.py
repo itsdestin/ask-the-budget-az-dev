@@ -17,9 +17,11 @@ from pathlib import Path
 import pytest
 import yaml
 
+from ingest.discovery import ApproprsTOCEntry, BaselineLinksEntry
 from ingest.driver import (
     IngestTarget,
     ResolvedTarget,
+    _entry_to_item,
     load_plan,
     make_doc_id,
     resolve_target,
@@ -187,3 +189,168 @@ def test_make_doc_id_for_singletons() -> None:
         publisher="legislature", doc_type="budget-bill", fiscal_year=2026,
         bill_id="sb1735-2025",
     ) == "legislature-budget-bill-fy2026-sb1735-2025"
+
+
+# --- doc_id family disambiguation (2026-07-31) -------------------------------
+# Both books use the same filename conventions, so the doc_type alone cannot
+# say which book a section came from. Two REAL collisions were found:
+#
+#   1. FY2026 26ar/508.pdf   vs 26baseline/508.pdf   (both -> detailed-list-pdf)
+#   2. FY2026 26AR/capitaloutlay.pdf vs 26baseline/capitaloutlay.pdf (topic-pdf)
+#
+# In each pair both documents minted the SAME doc_id, so the second write
+# replaced the first and one document vanished with no error at all.
+
+
+def test_known_collision_pair_508_gets_distinct_ids() -> None:
+    """The audited FY2026 collision: baseline staff directory vs approps detail.
+
+    Both are `508.pdf`, both classify as `detailed-list-pdf`, and before the
+    family was part of the identity both minted `jlbc-approps-fy2026-508`.
+    """
+    approps = make_doc_id(
+        publisher="jlbc", doc_type="detailed-list-pdf", fiscal_year=2026,
+        filename="508.pdf", family="approps",
+    )
+    baseline = make_doc_id(
+        publisher="jlbc", doc_type="detailed-list-pdf", fiscal_year=2026,
+        filename="508.pdf", family="baseline",
+    )
+    assert approps != baseline
+    # The approps side keeps the id the live corpus already uses.
+    assert approps == "jlbc-approps-fy2026-508"
+    assert baseline == "jlbc-baseline-fy2026-508"
+
+
+def test_known_collision_pair_capitaloutlay_gets_distinct_ids() -> None:
+    """The second, opposite-direction collision — approps section filed as baseline.
+
+    `26AR/capitaloutlay.pdf` is already in the corpus as
+    `jlbc-baseline-fy2026-capitaloutlay` because `topic-pdf` hardcodes the
+    baseline class. The FY2026 Baseline book has its OWN capitaloutlay.pdf,
+    still queued, which would have minted the same id and overwritten it.
+    """
+    approps = make_doc_id(
+        publisher="jlbc", doc_type="topic-pdf", fiscal_year=2026,
+        filename="capitaloutlay.pdf", family="approps",
+    )
+    baseline = make_doc_id(
+        publisher="jlbc", doc_type="topic-pdf", fiscal_year=2026,
+        filename="capitaloutlay.pdf", family="baseline",
+    )
+    assert approps != baseline
+    assert approps == "jlbc-approps-fy2026-capitaloutlay"
+    assert baseline == "jlbc-baseline-fy2026-capitaloutlay"
+
+
+def test_family_matching_the_doc_type_class_leaves_real_ids_unchanged() -> None:
+    """Non-colliding shapes keep byte-identical ids — pinned from documents.json.
+
+    These are real ids in the live corpus. `chunk_id` is `<doc_id>-NNNN`, so a
+    change here would orphan live chunks and invalidate eval ground truth.
+    """
+    cases = [
+        # (doc_type, fy, filename, family, expected existing id)
+        ("baseline-per-agency", 2026, "aca.pdf", "baseline", "jlbc-baseline-fy2026-aca"),
+        ("approps-per-agency", 2025, "aam.pdf", "approps", "jlbc-approps-fy2025-aam"),
+        ("detailed-list-pdf", 2026, "392.pdf", "approps", "jlbc-approps-fy2026-392"),
+        ("bd-pdf", 2026, "bd10.pdf", "approps", "jlbc-approps-fy2026-bd10"),
+        ("bh-pdf", 2026, "bh11.pdf", "approps", "jlbc-approps-fy2026-bh11"),
+        ("s-pdf", 2027, "s1.pdf", "baseline", "jlbc-baseline-fy2027-s1"),
+        ("topic-pdf", 2027, "capitaloutlay.pdf", "baseline",
+         "jlbc-baseline-fy2027-capitaloutlay"),
+    ]
+    for doc_type, fy, filename, family, expected in cases:
+        assert make_doc_id(
+            publisher="jlbc", doc_type=doc_type, fiscal_year=fy,
+            filename=filename, family=family,
+        ) == expected, f"{doc_type}/{filename} moved"
+
+
+def test_omitting_family_reproduces_the_legacy_id_exactly() -> None:
+    """Callers with no family (manual upload, singletons) are untouched.
+
+    The upload route knows the publisher and doc_type a person typed in, but
+    not which book a file came from — so it must keep minting exactly the ids
+    it minted before, or every hand-uploaded document in the corpus changes id.
+    """
+    assert make_doc_id(
+        publisher="jlbc", doc_type="detailed-list-pdf", fiscal_year=2026,
+        filename="508.pdf",
+    ) == "jlbc-approps-fy2026-508"
+    assert make_doc_id(
+        publisher="jlbc", doc_type="topic-pdf", fiscal_year=2026,
+        filename="capitaloutlay.pdf",
+    ) == "jlbc-baseline-fy2026-capitaloutlay"
+    assert make_doc_id(
+        publisher="agao", doc_type="afr", fiscal_year=2025,
+    ) == "agao-afr-fy2025"
+
+
+def test_family_is_ignored_for_non_jlbc_publishers() -> None:
+    """Only the JLBC books have two families; nothing else grows a new id shape."""
+    assert make_doc_id(
+        publisher="agao", doc_type="afr", fiscal_year=2025, family="baseline",
+    ) == "agao-afr-fy2025"
+
+
+def test_unknown_family_value_does_not_invent_a_class() -> None:
+    """A typo must not silently mint a third namespace of ids.
+
+    `family="Baseline"` or `family="books"` reaching this function means a
+    caller is broken; failing loudly beats quietly writing documents under an
+    id nobody will ever search for.
+    """
+    with pytest.raises(ValueError, match="family"):
+        make_doc_id(
+            publisher="jlbc", doc_type="topic-pdf", fiscal_year=2026,
+            filename="crr.pdf", family="Baseline",
+        )
+
+
+def test_plan_driven_cross_cut_items_carry_their_book_family() -> None:
+    """The YAML-plan path must namespace by family too, not just /api/books.
+
+    `data/ingest-plan.yaml` drives ingest by `baseline-cross-cut` /
+    `approps-cross-cut` targets, so the family is right there in the target's
+    doc_type. Reading it here keeps the CLI path from re-creating the same
+    collision the route path just stopped making.
+    """
+    baseline_508 = _entry_to_item(
+        BaselineLinksEntry(
+            title="Staff directory", filename="508.pdf",
+            url="https://www.azjlbc.gov/26baseline/508.pdf",
+            section_kind="detailed-list", page_in_doc=None,
+        ),
+        target=IngestTarget(
+            publisher="jlbc", doc_type="baseline-cross-cut", fiscal_year=2026,
+        ),
+    )
+    approps_508 = _entry_to_item(
+        ApproprsTOCEntry(
+            title="General Fund and Other Fund Adjustments", filename="508.pdf",
+            url="https://www.azjlbc.gov/26ar/508.pdf",
+            section_kind="detailed-list", page_in_doc=None,
+        ),
+        target=IngestTarget(
+            publisher="jlbc", doc_type="approps-cross-cut", fiscal_year=2026,
+        ),
+    )
+    assert baseline_508.doc_id != approps_508.doc_id
+    assert baseline_508.doc_id == "jlbc-baseline-fy2026-508"
+    assert approps_508.doc_id == "jlbc-approps-fy2026-508"
+
+
+def test_plan_driven_per_agency_ids_are_unchanged() -> None:
+    """Per-agency targets already carried the family in their doc_type."""
+    item = _entry_to_item(
+        BaselineLinksEntry(
+            title="Summary", filename="s1.pdf",
+            url="https://www.azjlbc.gov/27baseline/s1.pdf",
+            section_kind="summary-section", page_in_doc=None,
+        ),
+        target=IngestTarget(
+            publisher="jlbc", doc_type="baseline-cross-cut", fiscal_year=2027,
+        ),
+    )
+    assert item.doc_id == "jlbc-baseline-fy2027-s1"

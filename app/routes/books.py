@@ -114,9 +114,15 @@ def ingest(body: EditionBody, request: Request):
             skipped.append(doc.url)
             continue
         job = new_job(
+            # `family` is load-bearing, not decoration: both books number
+            # their sections the same way, so the doc_type alone cannot say
+            # which book `508.pdf` came from. Without it the two books mint
+            # the same doc_id and the second ingest silently overwrites the
+            # first. This route is the only place that knows the family.
             doc_id=make_doc_id(
                 publisher="jlbc", doc_type=doc.doc_type,
                 fiscal_year=doc.fiscal_year, filename=doc.url.rsplit("/", 1)[-1],
+                family=plan.family,
             ),
             title=doc.title,
             corpus="budget",
