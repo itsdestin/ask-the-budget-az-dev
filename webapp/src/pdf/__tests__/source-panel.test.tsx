@@ -7,7 +7,7 @@
 //     (Core Invariant 1 makes no exception for file format);
 //   - a failed fetch surfaces the backend's own detail, not a bare status.
 
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 
 import * as api from "../../api";
@@ -86,6 +86,53 @@ describe("SourcePanel", () => {
     await waitFor(() =>
       expect(screen.getByText(/No chunk named 'c1'/)).toBeInTheDocument(),
     );
+  });
+
+  it("drops a response whose chunk_id is not the one it asked for", async () => {
+    // The identity guard, isolated from the timing guard: nothing was torn
+    // down here, the answer simply isn't for this chunk. Rendering it would
+    // put one passage's text under another passage's title — a provenance
+    // lie, and the exact failure this surface exists to prevent. The route
+    // echoes chunk_id back so this comparison is possible.
+    vi.spyOn(api, "chunk").mockResolvedValue({
+      ...PDF_CHUNK,
+      chunk_id: "c1",
+      text: "STALE passage belonging to c1",
+    });
+    const view = render(
+      <SourcePanel chunkId="c2" docTitle="AHCCCS" onClose={() => {}} />,
+    );
+    await waitFor(() => expect(api.chunk).toHaveBeenCalledWith("c2", "budget"));
+    // Flush the resolved promise's continuation.
+    await act(async () => {});
+    expect(view.container.textContent).not.toContain("STALE passage");
+    // Still waiting, rather than confidently showing the wrong source.
+    expect(screen.getByText("Loading source…")).toBeInTheDocument();
+  });
+
+  it("keeps the newer passage when an older request answers late", async () => {
+    // The ordinary double-click race: c1's fetch is still in flight when the
+    // analyst clicks c2, and c1 answers afterwards.
+    let answerFirst!: (c: api.ChunkSource) => void;
+    vi.spyOn(api, "chunk")
+      .mockImplementationOnce(
+        () => new Promise<api.ChunkSource>((res) => (answerFirst = res)),
+      )
+      .mockResolvedValue({ ...PDF_CHUNK, chunk_id: "c2", text: "SECOND passage" });
+
+    const props = { docTitle: "AHCCCS", onClose: () => {} };
+    const view = render(<SourcePanel chunkId="c1" {...props} />);
+    // Same mounted panel, new chunk — the shape a caller that does NOT re-key
+    // the component would produce (Search.tsx does re-key; the component must
+    // be correct either way).
+    view.rerender(<SourcePanel chunkId="c2" {...props} />);
+    await screen.findByText(/SECOND passage/);
+
+    await act(async () => {
+      answerFirst({ ...PDF_CHUNK, chunk_id: "c1", text: "STALE passage" });
+    });
+    expect(view.container.textContent).not.toContain("STALE passage");
+    expect(view.container.textContent).toContain("SECOND passage");
   });
 
   it("closes on the close button and on Escape", async () => {

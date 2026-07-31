@@ -8,9 +8,12 @@
 // nothing else.
 //
 // Every request is guarded against its own staleness: click passage A, click
-// passage B before A answers, and A's response must not paint over B. The
-// guard is the requested chunk_id, not a boolean, so a late answer is dropped
-// by identity rather than by timing.
+// passage B before A answers, and A's response must not paint over B. Two
+// guards, because they answer different questions — a torn-down effect's
+// closure flag says "something newer exists", and the echoed chunk_id says
+// "this answer is for the chunk I asked about". Only the second one can catch
+// a response landing under the wrong title, which on a provenance surface is
+// the failure that matters.
 
 import { useEffect, useState } from "react";
 
@@ -50,7 +53,16 @@ export function SourcePanel({
     setState({ kind: "loading" });
     api.chunk(chunkId, corpus).then(
       (chunk) => {
-        if (!ignore) setState({ kind: "ready", chunk });
+        if (ignore) return;
+        // Identity, not just timing. `ignore` catches the ordinary stale case
+        // (this effect was torn down before the answer arrived), but it can
+        // only ever say "a newer request exists", never "this answer is for
+        // the right chunk" — and an answer for the WRONG chunk rendered under
+        // the right title is a provenance lie, which is the one failure this
+        // whole surface exists to prevent. The route echoes chunk_id back for
+        // exactly this comparison; a mismatch is dropped rather than shown.
+        if (chunk.chunk_id !== chunkId) return;
+        setState({ kind: "ready", chunk });
       },
       (err: unknown) => {
         if (ignore) return;
