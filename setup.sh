@@ -2,12 +2,12 @@
 # Ask the Budget AZ — one-shot setup for a fresh clone.
 #
 # What this does:
-#   - Verifies prerequisites (docker, node, uv) are installed
+#   - Verifies prerequisites (node, uv) are installed
 #   - Runs `uv sync` to set up the Python venv from uv.lock
 #   - Runs `npm ci` in mcp-server/ and web/
 #   - Builds the MCP server (tsc)
-#   - Brings up the Postgres container (Docker Compose)
-#   - Validates the DB is reachable
+#   - Brings up the Postgres container ONLY if Docker is running (Plan 3
+#     removed Postgres from every runtime path; it is migration-era only)
 #
 # What this does NOT do (deliberately):
 #   - Restore database data (db/data/). You either copy that directory
@@ -53,7 +53,10 @@ fail() {
 
 step "Checking prerequisites"
 
-command -v docker >/dev/null 2>&1 || fail "docker is not installed. Install Docker Desktop: https://www.docker.com/products/docker-desktop"
+# Docker is NO LONGER a prerequisite. Plan 1 moved retrieval to embedded
+# LanceDB and Plan 3 moved ingest off Postgres, so nothing the app does at
+# runtime needs a database server. The container is kept only for the
+# migration-era scripts, and setup skips it when Docker is absent.
 command -v node   >/dev/null 2>&1 || fail "node is not installed. Install Node 20+: https://nodejs.org"
 command -v npm    >/dev/null 2>&1 || fail "npm is not installed."
 command -v uv     >/dev/null 2>&1 || fail "uv is not installed. Install with: pip install uv  (https://github.com/astral-sh/uv)"
@@ -72,7 +75,7 @@ if [ ! -f .env.local ]; then
     echo "    VOYAGE_API_KEY=<your-key>"
 fi
 
-echo "  OK: docker, node $(node --version), npm $(npm --version), uv $(uv --version)"
+echo "  OK: node $(node --version), npm $(npm --version), uv $(uv --version)"
 
 # -----------------------------------------------------------------------------
 # Python deps
@@ -112,25 +115,32 @@ step "Building webapp (vite)"
 # Postgres
 # -----------------------------------------------------------------------------
 
-step "Starting Postgres (docker compose up -d)"
-( cd db && docker compose up -d )
+# Optional: nothing at runtime needs it. Skipped silently when Docker isn't
+# running, so a fresh clone on a locked-down machine still sets up cleanly.
+if command -v docker >/dev/null 2>&1 && docker info >/dev/null 2>&1; then
+    step "Starting Postgres (docker compose up -d) — migration-era only"
+    ( cd db && docker compose up -d )
 
-# Give Postgres a moment to accept connections before validating.
-echo "  Waiting for Postgres to become healthy..."
-deadline=$(( $(date +%s) + 60 ))
-while [ "$(date +%s)" -lt "$deadline" ]; do
-    if ( cd db && docker compose ps --format json 2>/dev/null | grep -q '"Health":"healthy"' ); then
-        break
-    fi
-    sleep 2
-done
+    echo "  Waiting for Postgres to become healthy..."
+    deadline=$(( $(date +%s) + 60 ))
+    while [ "$(date +%s)" -lt "$deadline" ]; do
+        if ( cd db && docker compose ps --format json 2>/dev/null | grep -q '"Health":"healthy"' ); then
+            break
+        fi
+        sleep 2
+    done
+else
+    step "Skipping Postgres — Docker not running (not needed; see STATUS.md)"
+fi
 
 # -----------------------------------------------------------------------------
 # DB reachability check
 # -----------------------------------------------------------------------------
 
-step "Validating DB reachability"
-if [ -f .env.local ]; then
+step "Validating DB reachability (migration-era only)"
+if ! command -v docker >/dev/null 2>&1 || ! docker info >/dev/null 2>&1; then
+    echo "  Skipped: Docker not running. Search, ingest and the app do not use Postgres."
+elif [ -f .env.local ]; then
     set -a
     # shellcheck disable=SC1091
     source .env.local
