@@ -30,8 +30,21 @@ export function Header() {
             NavLink would also mark it aria-current="page" at "/" alongside the Home
             pill, and any future `.logo.active` rule would apply to it by surprise. */}
         <Link className="logo" to="/" aria-label="JLBC home">
-          {/* Served from webapp/public/, copied from reference/assets/. */}
-          <img src="/jlbc-logo.png" alt="JLBC — Joint Legislative Budget Committee" />
+          {/* Served from webapp/public/. The mark reads "JLBC SEARCH" over the
+              Capitol dome and Winged Victory, so the alt text says the app's
+              name and then expands the acronym — a screen-reader user gets what
+              a sighted user gets, not just the initials.
+
+              The file ships with a real alpha channel. The source art came with
+              an opaque white background, which is invisible in this white header
+              but would render as a white rectangle anywhere else (the navy home
+              band, a print stylesheet). It was cut out with a luminance ramp
+              rather than a hard threshold so the anti-aliased letter edges don't
+              carry a white fringe. */}
+          <img
+            src="/jlbc-logo.png"
+            alt="JLBC Search — Joint Legislative Budget Committee"
+          />
         </Link>
         <nav className="primary" aria-label="Primary">
           {/* Home is the mockup's icon-only house pill; aria-label carries the
