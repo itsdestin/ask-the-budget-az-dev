@@ -33,7 +33,9 @@ source. When something ships, update only this file.
 ## What's next
 
 - **Plan 5 — admin/settings UI, packaging + launcher, legacy deletion
-  (`web/`, `mcp-server/`, `db/`, dead `retrieval/` modules), gates G2/G3.**
+  (`web/`, `mcp-server/`, `db/`, dead `retrieval/` modules), gates G2/G3,
+  and AI-Mode hardening: S22 prompt caching (biggest cost lever) + S23
+  normalization-tolerant quote validation.**
 - **Z13 backfill + recency calibration (S20/S21)** — historical-year corpus
   backfill and recency-ranking calibration on the Z13 Linux machine.
   Runbook: [`PROMPT-z13-backfill.md`](PROMPT-z13-backfill.md) (the only
@@ -471,6 +473,16 @@ As of 2026-07-31:
   (~13.5K tokens) and is resent on every step — up to 50 in a Deep Research
   turn. Every candidate model prices cache reads ~10× below input. This is the
   single largest cost lever available and it is currently unused.
+  **Now spec decision S22 (2026-07-31)** — stable byte-identical prefix +
+  `cache_control` via OpenRouter + `cached_tokens` on ledger rows; Plan 5
+  implements.
+- **Quote-not-found cite failures on faithful quotes.** Models emit quotes
+  differing from chunk text only by whitespace/smart-quote/casing artifacts;
+  exact-substring validation rejects them and burns retry round-trips.
+  **Now spec decision S23 (2026-07-31)** — normalized matching with an index
+  map back to original offsets (port the webapp `citation-extract` technique
+  server-side into `retrieval/citations.py`) + a quote-short-spans prompt
+  nudge; Plan 5 implements.
 - **`--chat-*` / `--mascot-*` tokens on `:root`** (16 of them) deviate from
   S12's one-palette rule. The mockup palette is monochrome navy — `--az-red` is
   `#2f55c4`, a blue — so there is no error/warning colour, and a failed-citation
