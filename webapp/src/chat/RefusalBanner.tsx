@@ -19,12 +19,36 @@
 //   + at least one finished retrieve() call
 //   + ZERO surviving citations
 //
-// Under the constrained-agent contract every grounded claim carries a cite(),
-// so "searched, answered, cited nothing" has exactly two explanations: the
-// model refused, or the model broke the contract and wrote an uncited answer.
-// The banner is right in BOTH cases — either way the analyst is looking at
-// prose with no auditable backing and needs the raw passages. That is why the
-// copy below was rewritten out of the spec's first person ("I found these
+// `extractCitations` walks TOOL blocks, so what the condition really tests is
+// "did any citation pass server-side validation" — a `citation_id` in a cite()
+// ack. FOUR distinct situations satisfy it, and the copy has to be true in all
+// four:
+//
+//   1. a deliberate refusal            — no chips on screen
+//   2. a skipped cite() (contract violation) — no chips on screen
+//   3. every cite() returned ok:false  — RED-X chips on screen (Invariant 2
+//      working: the citation was checked and rejected)
+//   4. inline `<cite>` XML tags only   — ORDINARY-LOOKING chips on screen.
+//      AssistantTurnBubble extracts those tags and renders them as chips, and
+//      citation-extract.ts documents why the path exists: models sometimes
+//      emit XML instead of calling the tool. S16 targets open-weight models
+//      that are weaker at tool-call discipline, so this is MORE likely here
+//      than it was in the old stack, not less.
+//
+// Cases 3 and 4 mean the banner can sit under visible chips, so it must never
+// say "carries no citation" — it says no VERIFIED citation, which is precisely
+// the thing all four states share.
+//
+// WHY case 4 still fires rather than being suppressed: an inline tag is the
+// model's unchecked assertion. It never reached the validator, so nothing
+// confirmed the chunk exists or that the quote is in it — strictly weaker than
+// case 3, which at least got checked. Suppressing the passages in the state
+// with the LEAST verification would invert the invariant this banner exists to
+// serve. If inline-only answers become the norm for a given model, this banner
+// firing constantly is the correct signal (Invariant 2: citations are
+// verified, not just emitted), not noise to tune out.
+//
+// The copy was also rewritten out of the spec's first person ("I found these
 // passages but couldn't synthesize…") into system-authored fact: attributing a
 // refusal to the model when it may have simply skipped its cites would be the
 // UI inventing a statement the model never made.
@@ -91,10 +115,12 @@ export function detectRefusal(turn: AssistantTurn): RefusalReason | null {
   const stopReason = turn.stopReason ?? "end_turn";
   if (CUT_SHORT.has(stopReason)) return null;
 
-  // Any citation that actually validated means the answer is auditable, which
-  // is the whole point. A FAILED cite counts as no citation: Invariant 2 says
-  // failed citations are visibly stripped, so the claim stands unsupported and
-  // the passages are exactly what the analyst needs.
+  // A `citationId` means a cite() ack came back ok:true — the chunk exists and
+  // the quote was found in it. That, and only that, makes the answer
+  // auditable. A failed cite (ok:false) and an inline `<cite>` XML tag both
+  // leave chips on screen but neither passed validation, so neither silences
+  // this; see the four cases in the header for why, and for why the copy below
+  // says "verified" rather than "no citation".
   const cites = extractCitations(turn);
   if (cites.some((c) => c.citationId)) return null;
 
@@ -161,22 +187,26 @@ function collectChunks(
 // The banner
 // ---------------------------------------------------------------------------
 
-// Third person throughout. See the header note: the detector cannot tell a
-// deliberate refusal from a skipped cite(), so every sentence here has to be
-// true of both. What IS certain in both cases is the fact these state — the
-// answer above carries no citation the system could validate.
+// Third person throughout, and every sentence has to hold in all four firing
+// states listed in the header — including the two where chips ARE on screen.
+// Hence "verified" and "passed validation": a red-X chip and an inline `<cite>`
+// tag are both citations in the visual sense, and neither is a validated one.
+// Saying "no citation" while the analyst is looking at chips would make the
+// notice the thing that is wrong.
 const COPY: Record<RefusalReason["kind"], { title: string; body: string }> = {
   no_retrieval: {
-    title: "Nothing in the corpus backs this answer.",
+    title: "This answer carries no verified citation.",
     body:
-      "The search came back empty and no citation was attached, so there is " +
-      "nothing here to verify against. Treat the text above as unsourced.",
+      "The search came back empty, and nothing above carries a citation that " +
+      "passed validation — so there is nothing here to check the text " +
+      "against. Treat it as unsourced.",
   },
   synthesis: {
-    title: "This answer carries no citation.",
+    title: "This answer carries no verified citation.",
     body:
-      "These passages came back from the search, but nothing above is linked " +
-      "to any of them. Read them directly and judge for yourself.",
+      "These passages came back from the search, but nothing above carries a " +
+      "citation that passed validation against them. Read them directly and " +
+      "judge for yourself.",
   },
   out_of_scope: {
     title: "This question is outside the tool's scope.",

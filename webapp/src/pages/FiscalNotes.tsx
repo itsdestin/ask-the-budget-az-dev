@@ -4,7 +4,8 @@ import { memo, useEffect, useMemo, useRef, useState } from "react";
 // made through the module object.
 import * as api from "../api";
 import type { Bill, Session } from "../api";
-import { AiModePanel, AiModeToggle, useAiStatus } from "../chat/AiModePanel";
+import { AiModePanel, AiModeToggle } from "../chat/AiModePanel";
+import { useAiStatus } from "../chat/use-ai-status";
 import { useChat } from "../chat/use-chat";
 import { SearchIcon } from "../components/SearchIcon";
 
@@ -485,7 +486,7 @@ export function FiscalNotes() {
 
       {aiOn && (
         <div className="wrap fnwrap">
-          <AiModePanel chat={chat} status={aiStatus} />
+          <AiModePanel chat={chat} status={aiStatus} corpus="fiscal_notes" />
         </div>
       )}
 

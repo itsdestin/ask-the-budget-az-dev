@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
-import { useAiStatus } from "../chat/AiModePanel";
+import { useAiStatus } from "../chat/use-ai-status";
 // The mockup's magnifier glyph, shared with the search page (Task 9) so the two
 // pages can't drift apart. Sizing still comes from each page's own CSS.
 import { SearchIcon } from "../components/SearchIcon";

@@ -143,12 +143,31 @@ describe("detectRefusal", () => {
     );
   });
 
-  it("treats a failed cite as no citation at all", () => {
-    // Invariant 2: a stripped citation must leave the claim unsupported, not
-    // quietly accepted.
+  it("treats a failed cite as no VERIFIED citation", () => {
+    // Invariant 2: a rejected citation must leave the claim unsupported, not
+    // quietly accepted. Note this turn DOES show chips — red-X ones — which is
+    // why the banner's wording is pinned separately below.
     const r = detectRefusal(
       turn({
         blocks: [retrieveBlock(), textBlock("AHCCCS gets $12.3 M."), citeBlock(false)],
+      }),
+    );
+    expect(r?.kind).toBe("synthesis");
+  });
+
+  it("still fires when the model used inline <cite> tags instead of the tool", () => {
+    // AssistantTurnBubble renders those tags as ordinary-looking chips, but
+    // nothing validated them — no chunk-exists check, no quote-in-chunk check.
+    // That is strictly LESS verified than a failed cite(), so hiding the
+    // passages here would invert the invariant this banner serves.
+    const r = detectRefusal(
+      turn({
+        blocks: [
+          retrieveBlock(),
+          textBlock(
+            'AHCCCS gets <cite chunk_id="ch-1" claim_span="$12.3 M">$12.3 M</cite>.',
+          ),
+        ],
       }),
     );
     expect(r?.kind).toBe("synthesis");
@@ -190,6 +209,23 @@ describe("RefusalBanner", () => {
     expect(screen.getByText(/\$12,300,000/)).toBeInTheDocument();
     expect(screen.getByText(/AHCCCS — FY 2027 Baseline/)).toBeInTheDocument();
     expect(screen.getByText(/p\. 14/)).toBeInTheDocument();
+  });
+
+  it("never denies citations the analyst can see on screen", () => {
+    // The banner fires in two states where chips ARE rendered: every cite()
+    // returned ok:false (red-X chips), and the model emitted inline <cite>
+    // tags (ordinary-looking chips). "Carries no citation" would be flatly
+    // contradicted by the screen in both. Only "verified" is true everywhere.
+    for (const refusal of [
+      { kind: "synthesis" as const, chunks: [] },
+      { kind: "no_retrieval" as const },
+    ]) {
+      const { container, unmount } = render(<RefusalBanner refusal={refusal} />);
+      expect(container.textContent).toContain("no verified citation");
+      expect(container.textContent).not.toMatch(/carries no citation\b/);
+      expect(container.textContent).not.toMatch(/nothing above is linked/);
+      unmount();
+    }
   });
 
   it("never speaks in the model's voice", () => {

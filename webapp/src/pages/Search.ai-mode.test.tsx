@@ -162,6 +162,16 @@ describe("Search — AI Mode toggle", () => {
     expect(toggle()).toHaveAttribute("aria-pressed", "false");
   });
 
+  it("keeps the budget starter questions on the budget corpus", async () => {
+    // The mirror of the fiscal-notes gate: these three ARE budget questions,
+    // so they belong here.
+    stubConversationFetch();
+    mountWithResults();
+    await screen.findByText(/Health Care Cost Containment/);
+    fireEvent.click(toggle());
+    expect(await screen.findByText(/Aviation Fund balance/)).toBeInTheDocument();
+  });
+
   it("renders an over-limit _error message verbatim in the thread", async () => {
     const message =
       "You've reached your monthly AI usage limit ($25.00) — ask jlbcadmin to raise it.";

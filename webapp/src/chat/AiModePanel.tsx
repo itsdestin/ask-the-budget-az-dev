@@ -11,9 +11,8 @@
 // Fiscal Notes must not drift apart: the two pages differ ONLY in which corpus
 // they open a conversation against.
 
-import { useEffect, useState } from "react";
+import { useState } from "react";
 
-import * as api from "../api.js";
 import type { AiStatus } from "../api.js";
 import ChatThread from "./ChatThread.js";
 import Footer from "./Footer.js";
@@ -25,51 +24,20 @@ import { CitationBusProvider, useCitationSelected } from "./citation-context.js"
 import type { AssistantTurn } from "./chat-types.js";
 import { useMascotPose } from "./mascot/useMascotPose.js";
 import PdfViewer from "../pdf/PdfViewer.js";
-import type { Tier, UseChatResult } from "./use-chat.js";
+import type { Corpus, Tier, UseChatResult } from "./use-chat.js";
 
 /** The one string this task hardcodes. It is the gate's explanation, not tier
  *  copy — the S16 sentences all come off the wire (see AiStatus.tiers). */
 export const AI_GATED_TOOLTIP =
   "AI answers require an API key — ask your admin.";
 
+/** Shown while `GET /api/ai/status` is still in flight. Without it a hung
+ *  probe leaves a permanently inert pill with no explanation at all, which
+ *  reads as a broken control rather than an unanswered question. */
+export const AI_PROBING_TOOLTIP =
+  "Checking whether AI answers are available on this server…";
+
 const TIER_ORDER: Tier[] = ["standard", "deep_research"];
-
-// ---------------------------------------------------------------------------
-// Status probe
-// ---------------------------------------------------------------------------
-
-/** What a failed probe resolves to. It is a real "unavailable" answer, not a
- *  null: a card or a toggle that lit up because a probe errored would promise
- *  a feature the server never claimed. Making it an ANSWER rather than an
- *  absence is what lets `null` mean "still asking", so the UI can tell the two
- *  apart and not explain a control it hasn't finished checking. */
-const PROBE_FAILED: AiStatus = {
-  available: false,
-  reason: "the app server could not be reached",
-  tiers: {},
-  user_usage: { month_usd: null, limit_usd: null, warned: false },
-};
-
-/** Ask the server once, on mount, whether AI answers can run at all.
- *  `null` while the answer is in flight. */
-export function useAiStatus(): AiStatus | null {
-  const [status, setStatus] = useState<AiStatus | null>(null);
-  useEffect(() => {
-    let ignore = false;
-    api.aiStatus().then(
-      (s) => {
-        if (!ignore) setStatus(s);
-      },
-      () => {
-        if (!ignore) setStatus(PROBE_FAILED);
-      },
-    );
-    return () => {
-      ignore = true;
-    };
-  }, []);
-  return status;
-}
 
 // ---------------------------------------------------------------------------
 // The header pill
@@ -85,11 +53,17 @@ interface ToggleProps {
  *  "on" fill), `aria-pressed` because it is a two-state control, not a link. */
 export function AiModeToggle({ on, onChange, status }: ToggleProps) {
   const gated = !status?.available;
-  // The tooltip waits for a real answer. During the probe the pill is already
-  // inert (clicking into a mode we can't confirm would be worse), but telling
-  // the user "requires an API key" before anyone has checked would be stating
-  // a cause we don't yet know.
-  const explainGate = status !== null && !status.available;
+  // Two different explanations, because they are two different facts. During
+  // the probe the pill is already inert (opening a mode we cannot confirm
+  // would be worse), but saying "requires an API key" before anyone has
+  // checked would state a cause nobody knows yet — so the in-flight state says
+  // so instead of staying silent.
+  const gateTooltip =
+    status === null
+      ? AI_PROBING_TOOLTIP
+      : status.available
+        ? undefined
+        : AI_GATED_TOOLTIP;
   return (
     <button
       type="button"
@@ -101,7 +75,7 @@ export function AiModeToggle({ on, onChange, status }: ToggleProps) {
       // what's inert.
       aria-disabled={gated || undefined}
       aria-pressed={on}
-      title={explainGate ? AI_GATED_TOOLTIP : undefined}
+      title={gateTooltip}
       onClick={() => {
         if (gated) return;
         onChange(!on);
@@ -206,6 +180,10 @@ function TierSwitch({ status, tier, onChange }: TierProps) {
 interface PanelProps {
   chat: UseChatResult;
   status: AiStatus | null;
+  /** Which corpus this panel is asking about. Only the starter chips read it
+   *  today — see the gate on SuggestionRow — but it is the panel's own
+   *  identity and anything corpus-specific added later belongs behind it. */
+  corpus: Corpus;
 }
 
 export function AiModePanel(props: PanelProps) {
@@ -219,7 +197,7 @@ export function AiModePanel(props: PanelProps) {
   );
 }
 
-function PanelBody({ chat, status }: PanelProps) {
+function PanelBody({ chat, status, corpus }: PanelProps) {
   const { state } = chat;
   const mascot = useMascotPose(state, false);
 
@@ -268,7 +246,17 @@ function PanelBody({ chat, status }: PanelProps) {
         </div>
       )}
 
-      {state.turns.length === 0 && <SuggestionRow onPick={chat.send} />}
+      {/* Budget only. SuggestionRow's three starters are hardcoded budget
+          questions ("the FY2025 Aviation Fund balance", "ADOT in FY2024") and
+          the component is Task 10's, so they cannot be swapped per corpus from
+          here. Sending them at the fiscal-note corpus would make a
+          coordinator's very first click a guaranteed empty retrieval — and,
+          with the refusal detector working correctly, land them straight in
+          the banner. No starters beats three wrong ones; per-corpus starters
+          are a follow-up inside SuggestionRow. */}
+      {state.turns.length === 0 && corpus === "budget" && (
+        <SuggestionRow onPick={chat.send} />
+      )}
 
       <div className="ai-composer">
         <TierSwitch status={status} tier={chat.tier} onChange={chat.setTier} />

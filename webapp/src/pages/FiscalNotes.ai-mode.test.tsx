@@ -77,6 +77,20 @@ describe("FiscalNotes — AI Mode toggle", () => {
     });
   });
 
+  it("offers no starter questions — the shipped ones are budget questions", async () => {
+    // SuggestionRow hardcodes "the FY2025 Aviation Fund balance", "ADOT in
+    // FY2024" and "General Fund revenue projections". Pointed at the
+    // fiscal-note corpus those are three guaranteed empty retrievals, so a
+    // coordinator's first click would land straight in the refusal banner.
+    stubConversationFetch();
+    mountPage();
+    await screen.findByText(/HB2001/);
+    fireEvent.click(toggle());
+    await screen.findByTestId("ai-panel");
+    expect(screen.queryByText(/Aviation Fund balance/)).toBeNull();
+    expect(screen.queryByText(/ADOT receive/)).toBeNull();
+  });
+
   it("returns the bill directory unchanged when switched back off", async () => {
     stubConversationFetch();
     const view = mountPage();

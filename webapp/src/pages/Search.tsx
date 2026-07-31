@@ -5,7 +5,8 @@ import { useSearchParams } from "react-router-dom";
 // made through the module object.
 import * as api from "../api";
 import type { SearchFilters, SearchResponse, SearchResult } from "../api";
-import { AiModePanel, AiModeToggle, useAiStatus } from "../chat/AiModePanel";
+import { AiModePanel, AiModeToggle } from "../chat/AiModePanel";
+import { useAiStatus } from "../chat/use-ai-status";
 import { useChat } from "../chat/use-chat";
 import { FilterBar, type FilterKey } from "../components/FilterBar";
 import { ResultCard, type DocGroup, type FamilyGroup } from "../components/ResultCard";
@@ -474,7 +475,7 @@ export function Search() {
             )}
           </section>
 
-          {aiOn && <AiModePanel chat={chat} status={aiStatus} />}
+          {aiOn && <AiModePanel chat={chat} status={aiStatus} corpus="budget" />}
 
           {/* The mockup's status line under the card. Every phase says something
               true; none of them leaves the page blank.
