@@ -1,3 +1,6 @@
+> **✓ SHIPPED** (see STATUS.md "Standalone consolidation — Plan 1 shipped").
+> Historical handoff — do not execute.
+
 # Handoff: Execute Plan 1 — Storage + Retrieval Foundation
 
 You are executing a pre-approved implementation plan in the

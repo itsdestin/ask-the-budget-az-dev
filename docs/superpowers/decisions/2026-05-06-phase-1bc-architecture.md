@@ -1,7 +1,8 @@
 ---
 title: Phase 1b/1c Architecture Reframe — v1 piggybacks on running YouCoded
 date: 2026-05-06
-status: decided
+status: superseded (2026-07-29)
+superseded_by: docs/superpowers/specs/2026-07-29-standalone-consolidation-design.md
 authors: Destin Moss, Claude
 audience: Phase 1b + Phase 1c implementers, future contributors
 supersedes_in_part:

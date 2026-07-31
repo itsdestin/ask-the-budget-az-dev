@@ -1,3 +1,7 @@
+> **RETIRED 2026-07-31** — superseded by the Plan 3 GUI upload → background
+> queue. Historical only. Backfill now goes through
+> [`PROMPT-z13-backfill.md`](PROMPT-z13-backfill.md).
+
 # PROMPT — Volume Ingest (Claude handoff)
 
 This file is a handoff prompt for a fresh Claude session running on

@@ -6,6 +6,8 @@ investigator: Claude
 audience: Phase 1c WS2 implementer (`YouCodedSessionProvider`)
 ---
 
+> **Historical** — the YouCoded dependency was removed in Plan 4 of the standalone consolidation.
+
 # YouCoded remote API verification
 
 Pre-flight check from the 2026-05-06 architecture reframe (decision D3 — v1 piggybacks on a running YouCoded instance). Confirms the WebSocket surface at `ws://localhost:9900/ws` exposes everything `YouCodedSessionProvider` needs, and flags the few gaps the implementer will have to design around.

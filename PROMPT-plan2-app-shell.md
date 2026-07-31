@@ -1,3 +1,6 @@
+> **✓ SHIPPED** (see STATUS.md "Standalone consolidation — Plan 2 shipped").
+> Historical handoff — do not execute.
+
 # Handoff: Execute Plan 2 — App Server + Search UI Shell
 
 You are executing a pre-approved implementation plan in the

@@ -1,3 +1,6 @@
+> **✓ SHIPPED** (see STATUS.md "Standalone consolidation — Plan 4 shipped").
+> Historical handoff — do not execute.
+
 # Handoff: Execute Plan 4 — AI Mode (OpenRouter Harness, Tools, Chat UI Port)
 
 You are executing a pre-approved implementation plan in `ask-the-budget-az-dev`.

@@ -1,7 +1,7 @@
 ---
 title: Ask the Budget AZ — Design Spec
 date: 2026-05-04
-status: approved
+status: partially superseded — invariants live on (see CLAUDE.md); architecture sections superseded by the 2026-07-29 consolidation spec
 authors: Destin Moss, Claude
 audience: design implementers, future contributors, internal pilot stakeholders
 ---

@@ -1,6 +1,8 @@
 # Phase 1c — Synthesis + UI Implementation Plan
 
-> **STATUS 2026-05-07.** In progress. Per-workstream status:
+> **STATUS: CLOSED — superseded by Standalone consolidation Plans 1–4 (see STATUS.md).** The MCP-server/sidecar/Next.js stack this plan shipped is retired; synthesis is now the in-process `harness/` OpenRouter loop.
+>
+> Original per-workstream status (2026-05-07):
 >
 > | WS | Status | Landed in |
 > |---|---|---|

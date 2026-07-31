@@ -1,3 +1,6 @@
+> **✓ SHIPPED** (see STATUS.md "Standalone consolidation — Plan 3 shipped").
+> Historical handoff — do not execute.
+
 # Handoff: Execute Plan 3 — Ingest (Upload GUI, Queue, Fiscal-Note Corpus)
 
 You are executing a pre-approved implementation plan in `ask-the-budget-az-dev`.

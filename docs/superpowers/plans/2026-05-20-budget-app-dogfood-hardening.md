@@ -1,5 +1,7 @@
 # Budget App Dogfood Hardening Implementation Plan
 
+> **✓ SHIPPED (2026-05) against the retired `web/` + `mcp-server/` stack — historical; do not execute.**
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Land eight targeted fixes against the Budget AZ web app, motivated by a 31-session dogfood audit, that cut wasted tool calls, harden the citation contract, kill fourth-wall leaks, and add the missing operational guardrails (health probe, structured bridge logs, sidecar preflight).

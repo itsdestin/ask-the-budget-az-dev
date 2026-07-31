@@ -8,6 +8,10 @@ supersedes_in_part:
   - docs/superpowers/decisions/2026-05-06-phase-1bc-architecture.md (D6 sketch — this doc closes its open item)
 ---
 
+> ## 2026-07-31 note (standalone consolidation)
+>
+> The schema **semantics** below carried forward into `harness/tools.py` — the in-process OpenRouter tool loop that Plan 4 shipped. The MCP/sidecar **transport** described in the amendments (Budget MCP server, `/cite/validate` + `/cite/validate_batch` sidecar endpoints) no longer exists; cite validation now runs in-process via `retrieval/citations.py`.
+
 > ## 2026-05-20 amendments (Phase 1c dogfood hardening)
 >
 > The schema below is the **2026-05-06 baseline**. The 2026-05-20 dogfood pass surfaced several reliability and latency issues that motivated substantive amendments. Both the original (offset-based) shape and the new (quote-based) shape are still accepted; the new shape is preferred.

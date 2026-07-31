@@ -1,7 +1,7 @@
 # Standalone Consolidation — Design Spec
 
 **Date:** 2026-07-29
-**Status:** Approved in brainstorming session; awaiting written-spec review
+**Status:** Approved; Plans 1–4 executed and shipped (see STATUS.md); Plan 5 + Z13 backfill pending
 **Supersedes:** the YouCoded-dependent v1 architecture described in
 `2026-05-06-phase-1bc-architecture.md` (D-decisions referencing YouCoded, MCP
 hosting, and the ws://9900 bridge). Retrieval-pipeline and citation-schema

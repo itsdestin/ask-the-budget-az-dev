@@ -1,3 +1,8 @@
+> **Vendored JLBC URL harvest — READ ONLY.** Snapshot date 2026-06-16,
+> copied verbatim from `C:\Users\desti\JLBC Website Revamp\search-build\`
+> (the website-revamp mockup's build directory). Do not edit these files by
+> hand and do not treat them as live data — see this folder's README.md.
+
 # Search index — build toolchain
 
 This folder is the **offline build toolchain** for the site's self-contained semantic search. It is

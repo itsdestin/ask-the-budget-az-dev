@@ -1,5 +1,7 @@
 # Citation Accuracy + Per-Sentence Chips Implementation Plan
 
+> **✓ SHIPPED (2026-05) against the retired `web/` + `mcp-server/` stack — historical; do not execute.**
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Drive silent-wrong-highlights to zero, surface the verbatim source text next to the PDF on every cite, render a chip after every sentence that asserts a cited claim (not just the first occurrence), and tighten the cite() contract so ambiguous quotes are rejected at validate time. Lands in a single ~1-2 day branch.

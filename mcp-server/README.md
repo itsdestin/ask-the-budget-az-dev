@@ -1,3 +1,8 @@
+> **SUPERSEDED by `harness/` (Plan 4 of the standalone consolidation).**
+> Not loaded by anything. The live system prompt is
+> `harness/system-prompt.md`. This directory is scheduled for deletion in
+> Plan 5.
+
 # Budget MCP server
 
 A small Node process that registers the Ask the Budget AZ retrieval

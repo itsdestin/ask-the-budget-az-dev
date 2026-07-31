@@ -1,3 +1,7 @@
+> **RETIRED** — Postgres left every runtime path (Plans 1 + 3 of the
+> standalone consolidation). Migration-era record only; this directory is
+> scheduled for deletion in Plan 5.
+
 # db/ — Phase 1b Postgres infrastructure
 
 Local Postgres 16 + pgvector + ParadeDB pg_search for the Ask the Budget AZ retrieval stack. **Phase 1b WS1–WS7 shipped on slice (2026-05-07)** — schema is stable, the slice corpus is loaded and embedded, retrieval is callable end-to-end via `retrieval.retrieve(...)`. Volume ingest (corpus expansion to all four publishers) runs separately — see [`PROMPT-volume-ingest.md`](../PROMPT-volume-ingest.md).

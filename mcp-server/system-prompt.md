@@ -1,3 +1,7 @@
+> **SUPERSEDED by `harness/` (Plan 4 of the standalone consolidation).**
+> Not loaded by anything. The live system prompt is
+> `harness/system-prompt.md`.
+
 # System prompt — Ask the Budget AZ
 
 This file is the canonical system prompt for any Claude session that

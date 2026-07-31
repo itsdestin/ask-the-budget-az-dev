@@ -1,6 +1,6 @@
 # Phase 1b — Storage + Retrieval Implementation Plan
 
-> **STATUS 2026-05-07: ✓ Shipped on slice.** WS1–WS7 all merged to master against the 5-doc / 161-chunk slice. End-to-end smoke validated (`Aviation Fund balance` query surfaces s18 chunks via BM25 → dense → RRF → Voyage rerank-2.5). 373 pytest passing. Public API: `retrieval.retrieve(RetrievalRequest) → RetrievalResult` exported from `retrieval/__init__.py`.
+> **STATUS 2026-05-07: ✓ Shipped on slice — superseded 2026-07-30 by Standalone consolidation Plan 1** (the Postgres/pgvector/ParadeDB + Voyage pipeline this plan built was replaced by embedded LanceDB + local ONNX models; see STATUS.md). WS1–WS7 all merged to master against the 5-doc / 161-chunk slice. End-to-end smoke validated (`Aviation Fund balance` query surfaces s18 chunks via BM25 → dense → RRF → Voyage rerank-2.5). 373 pytest passing. Public API: `retrieval.retrieve(RetrievalRequest) → RetrievalResult` exported from `retrieval/__init__.py`.
 >
 > | WS | Status | Landed in |
 > |---|---|---|

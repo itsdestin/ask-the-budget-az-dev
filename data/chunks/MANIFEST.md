@@ -1,3 +1,6 @@
+> **Historical slice hand-off (Phase 1a → 1b).** The live ingest contract
+> is `ingest/` + `store/schema.py`.
+
 # Phase 1a chunk store — MANIFEST
 
 This directory holds the Phase 1a chunk hand-off to Phase 1b. Each `.json`
