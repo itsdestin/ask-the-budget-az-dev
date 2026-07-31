@@ -33,8 +33,14 @@ DOCS_FIELDS = (
 )
 
 
-def data_dir() -> Path:
-    """Resolve (and create if needed) the shared-data root directory.
+def resolve_data_dir() -> Path:
+    """Where the shared data lives, WITHOUT creating anything.
+
+    Split out from `data_dir()` for the health ladder (`app/health.py`): a
+    check that creates the directory it is checking for can never report
+    that the directory is missing. On a local path `mkdir` quietly
+    manufactures an empty share and the ladder reports everything fine;
+    the admin then sees an app with no documents and no explanation.
 
     Resolution order (S18): `JLBC_DATA_DIR` > this machine's `machine.json`
     pointer > the repo default.
@@ -62,6 +68,17 @@ def data_dir() -> Path:
             # WHY repo-relative: dev machines have no share; keeping the dev
             # corpus inside data/ (already gitignored) means zero setup.
             root = Path(__file__).resolve().parent.parent / "data" / "insight-data"
+    return root
+
+
+def data_dir() -> Path:
+    """`resolve_data_dir()`, created on demand.
+
+    This is what every reader and writer in the app calls. The creation is
+    load-bearing for a fresh dev clone (nothing else makes `data/`), and
+    harmless everywhere else.
+    """
+    root = resolve_data_dir()
     try:
         root.mkdir(parents=True, exist_ok=True)
     except OSError as err:

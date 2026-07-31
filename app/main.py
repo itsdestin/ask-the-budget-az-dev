@@ -16,6 +16,7 @@ from typing import Callable
 
 from fastapi import FastAPI, HTTPException
 from fastapi.responses import FileResponse, HTMLResponse
+from pydantic import BaseModel
 
 from app.routes.admin import router as admin_router
 from app.routes.books import router as books_router
@@ -177,7 +178,40 @@ def create_app(
 
     @app.get("/health")
     def health():
+        # UNCHANGED shape, deliberately. Plan 2's tests and the backfill
+        # scripts both poll this; the ladder went to a NEW endpoint rather
+        # than growing fields here.
         return {"ok": True, "provider": app.state.provider.name}
+
+    @app.get("/api/health/detail")
+    def health_detail_route():
+        """The launch ladder (S18). No auth — it is what renders when
+        nothing works, and gating the one page that explains a failure
+        behind the identity system would be exactly backwards."""
+        from app.health import health_detail
+
+        return health_detail()
+
+    class DataDirBody(BaseModel):
+        path: str = ""
+
+    @app.post("/api/config/data-dir")
+    def set_data_dir_route(body: DataDirBody):
+        """Repoint THIS machine at the shared folder (S18). No auth — the
+        app is unusable when this fires, so requiring the identity system
+        to work would make the repair unreachable in the case it exists
+        for. It writes a per-machine file; it cannot touch the share."""
+        from app.machine_config import set_data_dir, validate_data_dir
+
+        problem = validate_data_dir(body.path)
+        if problem:
+            raise HTTPException(status_code=400, detail=problem)
+        resolved = set_data_dir(body.path)
+        # Ground truth 10: LanceDB handles and the search provider resolve
+        # at startup, so a relocation CANNOT take effect mid-session.
+        # Reporting success without this would produce an app that says it
+        # is fixed and then serves errors from stale handles.
+        return {"path": str(resolved), "restart_required": True}
 
     resolved = DEFAULT_STATIC_DIR if static_dir is _MISSING else static_dir
 
