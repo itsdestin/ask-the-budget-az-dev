@@ -263,3 +263,99 @@ describe("the queue", () => {
     expect(await screen.findByText(/nothing is processing/i)).toBeTruthy();
   });
 });
+
+// --- Add a JLBC book --------------------------------------------------------
+
+describe("the Add-a-JLBC-book panel", () => {
+  const EDITIONS: api.BookEdition[] = [
+    {
+      key: "baseline-fy2027", family: "baseline", fiscal_year: 2027,
+      ingestable: true, rolling: false, era_note: "",
+      single_file_url: null, linked_toc_url: "https://x/27baselinelinks.pdf",
+      document_count: 129,
+    },
+    {
+      key: "approps-fy1996", family: "approps", fiscal_year: 1996,
+      ingestable: false, rolling: false, era_note: "Whole book only",
+      single_file_url: "https://x/FY1996.pdf", linked_toc_url: null,
+      document_count: 0,
+    },
+  ];
+
+  it("offers only editions that have something to ingest", async () => {
+    vi.spyOn(api, "bookCatalog").mockResolvedValue({ editions: EDITIONS });
+    render(<Upload />);
+    const picker = await screen.findByLabelText("Edition");
+    const options = within(picker).getAllByRole("option");
+    expect(options).toHaveLength(1);
+    expect(options[0].textContent).toMatch(/FY 2027 Baseline — 129 documents/);
+  });
+
+  it("discovers without queuing anything", async () => {
+    vi.spyOn(api, "bookCatalog").mockResolvedValue({ editions: EDITIONS });
+    const discover = vi.spyOn(api, "discoverBook").mockResolvedValue({
+      source: "catalog", count: 129, documents: [], notes: [],
+      unreachable: ["https://x/gone.pdf", "https://x/also-gone.pdf"],
+      single_file_url: null, linked_toc_url: null,
+    });
+    const ingest = vi.spyOn(api, "ingestBook");
+
+    render(<Upload />);
+    await screen.findByLabelText("Edition");
+    fireEvent.click(screen.getByRole("button", { name: /discover/i }));
+
+    await waitFor(() => expect(discover).toHaveBeenCalledWith("baseline", 2027));
+    const plan = await screen.findByTestId("book-plan");
+    expect(plan.textContent).toMatch(/Found 129 documents for FY 2027 Baseline/);
+    expect(plan.textContent).toMatch(/2 unreachable/);
+    expect(within(plan).getByText("https://x/gone.pdf")).toBeTruthy();
+    expect(ingest).not.toHaveBeenCalled();
+  });
+
+  it("queues the whole book and reports what was skipped", async () => {
+    vi.spyOn(api, "bookCatalog").mockResolvedValue({ editions: EDITIONS });
+    vi.spyOn(api, "ingestBook").mockResolvedValue({
+      queued: 127, skipped_existing: 2, unreachable: [],
+    });
+    render(<Upload />);
+    await screen.findByLabelText("Edition");
+    fireEvent.click(screen.getByRole("button", { name: /add all/i }));
+    expect(await screen.findByText(/Queued 127 documents; 2 already in the corpus/i))
+      .toBeTruthy();
+  });
+
+  it("states the overnight cost without softening it", async () => {
+    vi.spyOn(api, "bookCatalog").mockResolvedValue({ editions: EDITIONS });
+    render(<Upload />);
+    const panel = await screen.findByTestId("add-book");
+    expect(panel.textContent).toMatch(/takes overnight on office computers/i);
+    expect(panel.textContent).toMatch(/one book at a time/i);
+  });
+
+  it("has no Invariant 8 checkbox — JLBC reports are public record", async () => {
+    vi.spyOn(api, "bookCatalog").mockResolvedValue({ editions: EDITIONS });
+    render(<Upload />);
+    const panel = await screen.findByTestId("add-book");
+    expect(within(panel).queryByRole("checkbox")).toBeNull();
+    expect(panel.textContent).toMatch(/public record, so no confirmation is needed/i);
+  });
+
+  it("warns when the edition lives in the rolling folder", async () => {
+    vi.spyOn(api, "bookCatalog").mockResolvedValue({
+      editions: [{ ...EDITIONS[0], rolling: true }],
+    });
+    render(<Upload />);
+    expect(await screen.findByText(/folder JLBC reuses each year/i)).toBeTruthy();
+  });
+
+  it("surfaces a discovery failure verbatim", async () => {
+    vi.spyOn(api, "bookCatalog").mockResolvedValue({ editions: EDITIONS });
+    vi.spyOn(api, "discoverBook").mockRejectedValue(
+      new Error("discover: No FY2029 approps book found on azjlbc.gov."),
+    );
+    render(<Upload />);
+    await screen.findByLabelText("Edition");
+    fireEvent.click(screen.getByRole("button", { name: /discover/i }));
+    expect(await screen.findByText(/No FY2029 approps book/)).toBeTruthy();
+  });
+});

@@ -15,6 +15,7 @@ from pathlib import Path
 from fastapi import FastAPI, HTTPException
 from fastapi.responses import FileResponse, HTMLResponse
 
+from app.routes.books import router as books_router
 from app.routes.fiscal_notes import router as fiscal_notes_router
 from app.routes.jobs import router as jobs_router
 from app.routes.search import router as search_router
@@ -77,6 +78,7 @@ def create_app(
     app.include_router(fiscal_notes_router)
     app.include_router(upload_router)
     app.include_router(jobs_router)
+    app.include_router(books_router)
 
     # The ingest worker is created but NOT started here — starting it builds
     # the embedding model, and a machine that only searches should never pay

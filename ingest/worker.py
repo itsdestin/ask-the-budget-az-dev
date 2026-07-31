@@ -37,6 +37,7 @@ from chunking.builder import chunk_doc
 from chunking.entity_stamper import EntityStamper
 from chunking.types import Chunk, DocMeta
 from ingest import dispatcher
+from ingest.cache import DownloadCache
 from ingest.jobs import (
     TERMINAL_STATES,
     JobRecord,
@@ -187,7 +188,7 @@ def _extract(job: JobRecord, ctx: WorkerContext) -> None:
     overnight doesn't cost the office the extraction — any machine can pick
     the job up and continue from the pages already done.
     """
-    source = _source_path(job)
+    source = _ensure_source(job)
     out = _extract_dir(job)
     out.mkdir(parents=True, exist_ok=True)
     source_format = source.suffix.lstrip(".").lower()
@@ -484,6 +485,30 @@ def ensure_started(app: Any) -> IngestWorker:
 def _source_path(job: JobRecord) -> Path:
     path = Path(job.source_path)
     return path if path.is_absolute() else data_dir() / path
+
+
+def _ensure_source(job: JobRecord) -> Path:
+    """Local file for this job, downloading it first if it's URL-only.
+
+    "Add a JLBC book" queues ~130 jobs from a list of URLs. Downloading all
+    of them at enqueue time would make the button hang for minutes and would
+    fetch documents the user might cancel; each job fetches its own when its
+    turn comes.
+    """
+    if job.source_path:
+        return _source_path(job)
+    if not job.source_url:
+        raise RuntimeError(
+            f"Job {job.job_id} has neither a stored file nor a source URL."
+        )
+
+    cache = DownloadCache(data_dir() / "pdfs")
+    _progress(job, "extracting", pct=0, detail="downloading from azjlbc.gov")
+    local = cache.fetch(job.source_url)
+    job.source_path = local.relative_to(data_dir()).as_posix()
+    job.source_sha256 = cache.sha256_of(job.source_url) or ""
+    save(job)
+    return local
 
 
 def _source_format(job: JobRecord) -> str:

@@ -190,3 +190,62 @@ export async function cancelJob(jobId: string): Promise<{ job: Job }> {
   if (!r.ok) await fail(r, "cancel");
   return r.json();
 }
+
+// ---- JLBC books (Plan 3, Task 15) ------------------------------------------
+
+export interface BookEdition {
+  key: string;
+  family: "approps" | "baseline";
+  fiscal_year: number;
+  /** False for pre-FY2005 approps / pre-FY2012 baseline: JLBC published those
+   *  as one scanned book with no per-agency pages to ingest. */
+  ingestable: boolean;
+  /** Published under the rolling /budget/ directory, which JLBC repurposes. */
+  rolling: boolean;
+  era_note: string;
+  single_file_url: string | null;
+  linked_toc_url: string | null;
+  document_count: number;
+}
+
+export interface BookPlan {
+  source: "catalog" | "probed";
+  count: number;
+  documents: { url: string; title: string; doc_type: string; code: string }[];
+  unreachable: string[];
+  notes: string[];
+  single_file_url: string | null;
+  linked_toc_url: string | null;
+}
+
+export async function bookCatalog(): Promise<{ editions: BookEdition[] }> {
+  const r = await fetch("/api/books/catalog");
+  if (!r.ok) await fail(r, "book catalog");
+  return r.json();
+}
+
+export async function discoverBook(
+  family: string,
+  fiscal_year: number,
+): Promise<BookPlan> {
+  const r = await fetch("/api/books/discover", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ family, fiscal_year }),
+  });
+  if (!r.ok) await fail(r, "discover");
+  return r.json();
+}
+
+export async function ingestBook(
+  family: string,
+  fiscal_year: number,
+): Promise<{ queued: number; skipped_existing: number; unreachable: string[] }> {
+  const r = await fetch("/api/books/ingest", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ family, fiscal_year }),
+  });
+  if (!r.ok) await fail(r, "add book");
+  return r.json();
+}

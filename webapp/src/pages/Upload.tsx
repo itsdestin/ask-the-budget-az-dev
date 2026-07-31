@@ -303,6 +303,8 @@ export function Upload() {
           </p>
         </section>
 
+        <AddBookPanel onQueued={() => void refreshJobs()} />
+
         <section className="card up-queue" aria-labelledby="up-queue-h">
           <h2 id="up-queue-h">Queue</h2>
           {queueError && (
@@ -414,4 +416,144 @@ export function guessMeta(filename: string): Meta {
 function formatDate(iso: string): string {
   const d = new Date(iso);
   return Number.isNaN(d.getTime()) ? iso : d.toLocaleDateString();
+}
+
+// ---------------------------------------------------------------------------
+// Add a JLBC book
+// ---------------------------------------------------------------------------
+
+/** Bulk-add one published JLBC edition — this year's Baseline, or a historical
+ *  backfill — without hunting down 130 PDF links by hand.
+ *
+ *  No Invariant 8 checkbox here: everything this panel can reach is a
+ *  JLBC-published report, which is public record by definition. Asking again
+ *  would train people to click past the checkbox that does matter.
+ *
+ *  Discover and Add are separate steps on purpose. A book is an overnight
+ *  commitment on office hardware, so the honest sequence is: see exactly what
+ *  it contains (and what's unreachable) first, then decide. */
+function AddBookPanel({ onQueued }: { onQueued: () => void }) {
+  const [editions, setEditions] = useState<api.BookEdition[] | null>(null);
+  const [key, setKey] = useState("");
+  const [plan, setPlan] = useState<api.BookPlan | null>(null);
+  const [busy, setBusy] = useState(false);
+  const [message, setMessage] = useState("");
+  const [error, setError] = useState("");
+
+  useEffect(() => {
+    api
+      .bookCatalog()
+      .then((body) => {
+        const ingestable = body.editions.filter((e) => e.ingestable);
+        setEditions(ingestable);
+        setKey((current) => current || ingestable[0]?.key || "");
+      })
+      .catch((e) => setError(e instanceof Error ? e.message : String(e)));
+  }, []);
+
+  const edition = editions?.find((e) => e.key === key) ?? null;
+
+  async function act(kind: "discover" | "ingest") {
+    if (!edition) return;
+    setBusy(true);
+    setError("");
+    setMessage("");
+    try {
+      if (kind === "discover") {
+        setPlan(await api.discoverBook(edition.family, edition.fiscal_year));
+      } else {
+        const r = await api.ingestBook(edition.family, edition.fiscal_year);
+        setMessage(
+          `Queued ${r.queued} documents` +
+            (r.skipped_existing ? `; ${r.skipped_existing} already in the corpus` : "") +
+            (r.unreachable.length ? `; ${r.unreachable.length} unreachable` : "") +
+            ".",
+        );
+        setPlan(null);
+        onQueued();
+      }
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <section className="card up-book" aria-labelledby="up-book-h" data-testid="add-book">
+      <h2 id="up-book-h">Add a JLBC book</h2>
+      <p>
+        JLBC-published reports are public record, so no confirmation is needed —
+        pick an edition and the whole book is added at once.
+      </p>
+
+      {error && <p className="up-note"><span className="err">{error}</span></p>}
+
+      <div className="up-book-row">
+        <label>
+          Edition
+          <select
+            aria-label="Edition"
+            value={key}
+            onChange={(e) => {
+              setKey(e.target.value);
+              setPlan(null);
+              setMessage("");
+            }}
+          >
+            {(editions ?? []).map((e) => (
+              <option key={e.key} value={e.key}>
+                {`FY ${e.fiscal_year} ${e.family === "baseline" ? "Baseline" : "Appropriations Report"}`}
+                {` — ${e.document_count} documents`}
+              </option>
+            ))}
+          </select>
+        </label>
+        <button type="button" className="fchip" disabled={!edition || busy}
+                onClick={() => void act("discover")}>
+          {busy ? "Working…" : "Discover"}
+        </button>
+        <button type="button" className="allbtn" disabled={!edition || busy}
+                onClick={() => void act("ingest")}>
+          Add all
+        </button>
+      </div>
+
+      {edition?.rolling && (
+        <p className="up-note">
+          This edition is published in a folder JLBC reuses each year. Its
+          contents are checked against FY {edition.fiscal_year} before anything
+          is queued.
+        </p>
+      )}
+
+      {plan && (
+        <div className="up-book-plan" data-testid="book-plan" role="status">
+          <p>
+            {`Found ${plan.count} documents for FY ${edition?.fiscal_year} `}
+            {edition?.family === "baseline" ? "Baseline" : "Appropriations Report"}
+            {plan.unreachable.length
+              ? ` (${plan.unreachable.length} unreachable — listed below)`
+              : ""}
+            .
+          </p>
+          {plan.notes.map((note) => (
+            <p className="up-note" key={note}>{note}</p>
+          ))}
+          {plan.unreachable.length > 0 && (
+            <ul className="up-book-bad">
+              {plan.unreachable.map((url) => <li key={url}>{url}</li>)}
+            </ul>
+          )}
+        </div>
+      )}
+
+      <p className="up-status" role="status">{message}</p>
+
+      <p className="up-expect">
+        A full book takes overnight on office computers. Historical backfills are
+        best run one book at a time.
+      </p>
+    </section>
+  );
 }

@@ -700,3 +700,11 @@ nav.primary{flex:1 1 auto;display:flex;flex-wrap:nowrap;align-items:center;justi
 .page-fiscal-notes .fnsem-title{font-size:12.5px;font-weight:800;color:var(--navy);}
 .page-fiscal-notes .fnsem-snip{font-size:12.5px;line-height:1.45;}
 .page-fiscal-notes .fnsem-page{font-size:11.5px;font-weight:700;color:var(--ink-3);}
+
+/* ===== page-upload: Add a JLBC book panel (Plan 3, Task 15) =====
+   Same borrowed values as the rest of the upload page — no new tokens. */
+.page-upload .up-book-row{display:flex;flex-wrap:wrap;align-items:end;gap:10px;margin-top:12px;}
+.page-upload .up-book-row label{flex:1 1 260px;}
+.page-upload .up-book-row select{width:100%;}
+.page-upload .up-book-plan{margin-top:12px;}
+.page-upload .up-book-bad{list-style:none;margin:6px 0 0;padding:0;display:grid;gap:4px;font-size:12px;color:var(--ink-3);word-break:break-all;}
