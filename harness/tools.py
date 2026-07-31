@@ -49,6 +49,8 @@ from typing import Any, Callable, Iterable, Mapping
 from harness.constants import (
     DEFAULT_TIER,
     FIRST_CALL_TOP_K_CAP,
+    FISCAL_YEAR_MAX,
+    FISCAL_YEAR_MIN,
     INTENT_TOP_K,
     REFUSAL_THRESHOLD,
     TIER_BUDGETS,
@@ -265,7 +267,11 @@ _FILTERS_SCHEMA = {
     "properties": {
         "fiscal_year": {
             "type": "array",
-            "items": {"type": "integer", "minimum": 2015, "maximum": 2030},
+            "items": {
+                "type": "integer",
+                "minimum": FISCAL_YEAR_MIN,
+                "maximum": FISCAL_YEAR_MAX,
+            },
             "description": "Restrict to documents covering these fiscal years (any-of).",
         },
         "doc_type": {
@@ -1106,6 +1112,14 @@ class ToolExecutor:
             "dense_count": result.dense_count,
             "fused_count": result.fused_count,
         }
+        if result.inferred_fiscal_years:
+            # S21 layer 1. Present ONLY when the pipeline read a fiscal
+            # year out of the query text and filtered on it, so the model
+            # can tell "these are all FY 2019 because you said FY 2019"
+            # apart from "this is everything the corpus has". Absent when
+            # the model passed its own filters.fiscal_year — that one it
+            # already knows about.
+            response["inferred_fiscal_years"] = list(result.inferred_fiscal_years)
         if capped:
             # Present ONLY when the cap fired — its absence is how the
             # model knows it got everything it asked for.

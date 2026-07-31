@@ -33,10 +33,12 @@ default was deliberately lowered below the spec's 20):
 from __future__ import annotations
 
 import threading
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace as dataclass_replace
 
 from retrieval.local_embedder import LocalEmbedder
 from retrieval.local_rerank import LocalReranker
+from retrieval.query_year import fiscal_year_filter, parse_query_years
+from retrieval.recency import anchor_fiscal_year, apply_recency_boost
 from retrieval.rrf import RankedList, rrf_fuse
 from retrieval.search_lance import bm25_query_lance, dense_query_lance
 from retrieval.types import RetrievalFilters, RetrievedChunk
@@ -184,6 +186,14 @@ class RetrievalResult:
     `bm25_count` / `dense_count` / `fused_count` are diagnostics — they
     let the eval harness and the audit log capture how many candidates
     each stage produced before rerank.
+
+    `inferred_fiscal_years` (S21 layer 1) reports fiscal years the
+    pipeline parsed out of the query text and APPLIED as a hard filter —
+    empty when the query named none, and also empty when the caller
+    passed its own `fiscal_year` (the caller's filter wins, so nothing
+    was inferred). It exists so a UI or tool response can say "filtered
+    to FY 2019" instead of leaving the analyst wondering where the other
+    years went.
     """
 
     chunks: list[RetrievedChunk] = field(default_factory=list)
@@ -192,6 +202,7 @@ class RetrievalResult:
     bm25_count: int = 0
     dense_count: int = 0
     fused_count: int = 0
+    inferred_fiscal_years: list[int] = field(default_factory=list)
 
 
 def retrieve(
@@ -237,6 +248,27 @@ def retrieve(
 
     filters = req.to_filters()
 
+    # S21 layer 1: a fiscal year the analyst typed ("fy2019 DES funding")
+    # becomes a hard filter. WHY a hard filter and not a boost: after the
+    # S20 backfill the corpus holds ~20 near-identical editions of every
+    # per-agency page, so a soft preference for FY2019 still returns
+    # fifteen other years' worth of the same page. WHY only when the
+    # caller passed none: an explicit `fiscal_year` argument is a
+    # deliberate instruction from a tool call or the UI, and a parser
+    # quietly overriding it would make that argument untrustworthy.
+    #
+    # The filter is WIDER than what is echoed back: `inferred_fiscal_years`
+    # reports the years the analyst named, while the filter also admits
+    # their immediate neighbours, because a passage about FY N often lives
+    # in a document stamped FY N±1. See ADJACENT_YEAR_WINDOW.
+    inferred_fiscal_years: list[int] = []
+    if not req.fiscal_year:
+        inferred_fiscal_years = parse_query_years(req.query)
+        if inferred_fiscal_years:
+            filters = dataclass_replace(
+                filters, fiscal_year=fiscal_year_filter(inferred_fiscal_years)
+            )
+
     bm25_hits = bm25_query_lance(
         req.query,
         store=store,
@@ -272,12 +304,36 @@ def retrieve(
             bm25_count=len(bm25_hits),
             dense_count=len(dense_hits),
             fused_count=0,
+            inferred_fiscal_years=inferred_fiscal_years,
         )
 
     if reranker is None:
         reranker = _get_reranker()
 
-    reranked = reranker.rerank(req.query, fused, top_k=req.top_k)
+    # Rerank the WHOLE fused pool, then trim after the recency pass.
+    #
+    # WHY not `top_k=req.top_k` here: the recency bonus below can only
+    # reorder chunks it can see. If the reranker has already dropped the
+    # newest edition out of the top-K — which is the exact failure S21
+    # exists to fix, twenty near-identical editions competing and the
+    # cross-encoder picking an arbitrary one — no weight can bring it
+    # back. Costs nothing: the reranker already scored every fused
+    # candidate, `top_k` only sliced its sorted output.
+    reranked = reranker.rerank(req.query, fused, top_k=len(fused))
+
+    # S21 layer 3: with no year named, prefer newer editions. Skipped on
+    # the fiscal-note corpus (triage wants similar notes at any age) and
+    # skipped whenever a year filter is active — inside a set the analyst
+    # already narrowed to FY 2019, preferring "newer" is fighting the
+    # instruction. Ships at weight 0.0, i.e. a no-op, until
+    # eval/calibrate_recency.py recommends a weight against a backfilled
+    # corpus; see retrieval/recency.py for why that ordering matters.
+    if req.corpus == DEFAULT_CORPUS and not filters.fiscal_year:
+        reranked = apply_recency_boost(
+            reranked, anchor_fy=anchor_fiscal_year(reranked)
+        )
+
+    reranked = reranked[: req.top_k]
 
     return RetrievalResult(
         chunks=reranked,
@@ -288,4 +344,5 @@ def retrieve(
         bm25_count=len(bm25_hits),
         dense_count=len(dense_hits),
         fused_count=len(fused),
+        inferred_fiscal_years=inferred_fiscal_years,
     )

@@ -171,7 +171,7 @@ def _sidecar(tmp_path, records: dict) -> None:
     (root / "documents.json").write_text(json.dumps(records), encoding="utf-8")
 
 
-def _fake_retrieve(monkeypatch, chunks=None, *, raises=None):
+def _fake_retrieve(monkeypatch, chunks=None, *, raises=None, inferred_fiscal_years=()):
     """Monkeypatch harness.tools.retrieve; return the list of requests it saw."""
     seen: list = []
 
@@ -188,6 +188,7 @@ def _fake_retrieve(monkeypatch, chunks=None, *, raises=None):
             bm25_count=len(rows),
             dense_count=len(rows),
             fused_count=len(rows),
+            inferred_fiscal_years=list(inferred_fiscal_years),
         )
 
     monkeypatch.setattr("harness.tools.retrieve", fake)
@@ -394,6 +395,23 @@ def test_second_retrieve_is_uncapped(monkeypatch):
     # The flag is only present when the cap actually fired — its absence
     # is how the model knows it got everything it asked for.
     assert "first_call_capped" not in out
+
+
+def test_a_year_parsed_out_of_the_query_is_reported_to_the_model(monkeypatch):
+    """S21 layer 1. Without this echo the model sees fifteen FY 2019
+    passages and cannot tell whether that is the whole corpus or the
+    effect of a filter it never asked for."""
+    _fake_retrieve(monkeypatch, inferred_fiscal_years=[2019])
+    ex = ToolExecutor("conv-1", "budget", "standard")
+    out = _run(ex, "retrieve", {"query": "fy2019 DES funding"})
+    assert out["inferred_fiscal_years"] == [2019]
+
+
+def test_no_inferred_years_key_when_the_pipeline_inferred_none(monkeypatch):
+    _fake_retrieve(monkeypatch)
+    ex = ToolExecutor("conv-1", "budget", "standard")
+    out = _run(ex, "retrieve", {"query": "DES funding"})
+    assert "inferred_fiscal_years" not in out
 
 
 def test_deep_dive_bypasses_the_cap_on_deep_research(monkeypatch):

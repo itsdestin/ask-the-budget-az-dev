@@ -1,0 +1,53 @@
+# Recency-calibration query set (spec S21, plan Task 4).
+#
+# STATUS: EMPTY ON PURPOSE. Do not "fix" this by inventing entries.
+#
+# WHY it's empty: every entry here needs a real chunk_id from a real
+# ingested document, and the documents this set exists to measure —
+# the FY1984-FY2024 editions — are not in the corpus yet. They arrive
+# with the S20 backfill (PROMPT-z13-backfill.md, Phase C). Authoring
+# ground truth before then would either point at chunks that do not
+# exist (permanent failures that mean nothing) or point only at the
+# FY25-FY27 documents already on file, which is the set the ordinary
+# eval/queries.yaml already covers.
+#
+# WHAT GOES IN HERE, once the backfill lands (~16 entries):
+#
+#   1. ~10 EXPLICIT-YEAR queries against backfilled editions. These
+#      name a fiscal year, so S21 layer 1 hard-filters them and the
+#      layer-3 recency boost never touches them. Their recall must be
+#      INVARIANT across the whole weight sweep — if it moves, the
+#      "skip the boost when a year filter is active" rule is broken.
+#      Shapes: "fy2014 ADC private prison per diem",
+#              "FY 2008 appropriations report DES funding".
+#
+#   2. ~6 NO-YEAR CURRENT-INTENT queries — questions that name no year
+#      but obviously mean the newest edition, with the NEWEST
+#      edition's chunk as ground truth. These are the ones the boost
+#      exists to rescue: after the backfill, twenty near-identical
+#      editions of the same per-agency page compete for the same
+#      query and the newest has no inherent advantage.
+#      Shapes: "what is the AHCCCS provider rate increase",
+#              "how many DCS caseworkers are funded".
+#
+# The two groups are NOT separate files and carry no group marker:
+# eval/calibrate_recency.py splits them by running the same year
+# parser retrieval uses (retrieval/query_year.parse_query_years), so
+# the split can never disagree with what the pipeline actually does.
+#
+# Schema is identical to eval/queries.yaml — id / query / type /
+# expected_chunks[{chunk_id, dimensions, anchor_text}] /
+# expected_refusal. Do not add refusal-type queries here; the sweep
+# scores recall, and a refusal query has no chunk to recall.
+#
+# TO FINISH (after the backfill):
+#   1. Author the ~16 entries above against the backfilled corpus.
+#   2. uv run python -m eval.calibrate_recency
+#   3. Set RECENCY_BOOST_PER_YEAR in retrieval/recency.py to the
+#      recommendation, then re-run eval/calibrate_refusal.py — the
+#      boost moves top_score, which is what REFUSAL_THRESHOLD in
+#      harness/constants.py is compared against.
+#
+# Until then `uv run python -m eval.calibrate_recency` exits with a
+# message saying exactly this. That is the intended behaviour.
+[]

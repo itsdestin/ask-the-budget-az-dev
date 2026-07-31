@@ -269,12 +269,50 @@ a failure, and re-sending it will not change the result.
 
 | Field | Values | Notes |
 |---|---|---|
-| `fiscal_year` | int[]  (2015..2030) | e.g. `[2027]` for FY27. Multiple FYs allowed. |
+| `fiscal_year` | int[]  ({{FISCAL_YEAR_MIN}}..{{FISCAL_YEAR_MAX}}) | e.g. `[2027]` for FY27. Multiple FYs allowed. |
 | `doc_type` | enum[] | Use values verbatim or the search returns 0 passages. |
 | `publisher` | enum[] | `jlbc`, `legislature`, `governor`, `agao` |
 | `agency_canonical_id` | string[] | e.g. `["agency:adc"]`. See the cheat sheet below. |
 | `fund_canonical_id` | string[] | e.g. `["fund:aviation"]`. |
 | `is_table` | bool | `true` to constrain to tabular passages (line-item lookups). |
+
+**Recency and fiscal years:**
+
+The corpus holds many fiscal years of the same document — a per-agency
+page can exist in a dozen near-identical editions that differ only in
+their numbers. So which year you are looking at is never incidental.
+
+1. **A year written in your query is applied for you.** If your `query`
+   text says "FY 2019", "fy19" or "2019", the search restricts itself to
+   that fiscal year and the years immediately either side of it, and the
+   response comes back with `inferred_fiscal_years: [2019]` telling you
+   it happened. The neighbouring years are included deliberately: a
+   passage about FY 2019 often lives in a document stamped FY 2018 or
+   FY 2020 — a supplemental appropriation for one year is enacted in the
+   next year's budget bill. So a passage from an adjacent year is not a
+   mistake; read its own fiscal year before you use its numbers.
+2. **An explicit `fiscal_year` filter always wins.** When you pass one,
+   nothing is parsed out of your query text and
+   `inferred_fiscal_years` is absent. Use the filter when you want exact
+   control — and use it whenever a bill number, a statute cite or any
+   other four-digit number in your query text might be mistaken for a
+   year. If a search comes back with `inferred_fiscal_years` you did not
+   intend, re-run it with the filter you actually meant.
+3. **When no year is named, no year is preferred.** Passages from every
+   year compete on relevance alone; nothing sorts them by recency, and
+   the top passage is often NOT the most recent. If the question means
+   "now" — "what is the current rate", "how much does the agency get
+   this year" — pass an explicit `fiscal_year`. Never assume the search
+   picked the latest edition for you.
+4. **Multi-year questions get one search per year.** For a trend or a
+   comparison across years, call `retrieve()` once per year with an
+   explicit `fiscal_year` filter. A single unfiltered search asking for
+   several years at once tends to come back with several passages from
+   whichever year the ranking happened to favour, and the missing years
+   read as "the corpus doesn't have it" when it does.
+5. **Never infer a fiscal year from a document's position in the
+   results.** Read `fiscal_year` on the passage itself. It is on every
+   one.
 
 {{#when corpus=budget}}
 **`doc_type` values currently in the corpus** (match exactly — passing a

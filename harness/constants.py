@@ -30,6 +30,20 @@ from types import MappingProxyType
 # both inject it, so they can never disagree.
 REFUSAL_THRESHOLD = 1.9
 
+# Bounds the model may pass in a `fiscal_year` filter.
+#
+# WHY they are not "the years currently in the corpus": the S20 backfill
+# adds editions back to FY1984, and a schema that stops at 2015 would
+# make the historical years unreachable through the ONE mechanism the
+# model controls — it would have to smuggle the year into its query text
+# and hope the parser catches it. These mirror MIN/MAX_PLAUSIBLE_YEAR in
+# `retrieval/query_year.py` (this file stays import-free, so the two are
+# kept in step by tests/test_harness_constants_year_bounds.py rather than
+# by an import). A filter value no document carries simply matches
+# nothing, so a generous range costs nothing.
+FISCAL_YEAR_MIN = 1984
+FISCAL_YEAR_MAX = 2035
+
 # How small the FIRST search of a conversation is forced to be
 # (progressive retrieval). Matches `lookup`'s top_k so a question whose
 # first call lands well needs no follow-up. Named rather than inlined

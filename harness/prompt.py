@@ -37,6 +37,8 @@ from pathlib import Path
 from harness.constants import (
     DEFAULT_TIER,
     FIRST_CALL_TOP_K_CAP,
+    FISCAL_YEAR_MAX,
+    FISCAL_YEAR_MIN,
     INTENT_TOP_K,
     REFUSAL_THRESHOLD,
     TIER_BUDGETS,
@@ -277,5 +279,7 @@ def build_system_prompt(*, corpus: str, tier: str) -> str:
             "COMPARE_TOP_K": str(INTENT_TOP_K["compare"]),
             "ANALYZE_TOP_K": str(INTENT_TOP_K["analyze"]),
             "MAX_STEPS": str(TIER_BUDGETS[resolved_tier]["max_steps"]),
+            "FISCAL_YEAR_MIN": str(FISCAL_YEAR_MIN),
+            "FISCAL_YEAR_MAX": str(FISCAL_YEAR_MAX),
         },
     )

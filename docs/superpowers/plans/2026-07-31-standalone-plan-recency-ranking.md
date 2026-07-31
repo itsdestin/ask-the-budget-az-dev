@@ -50,7 +50,10 @@
 
 ### Task 6: Calibration + refusal recalibration (RUN AFTER BACKFILL — sequenced by the runbook)
 
+- [ ] Author `eval/queries_historical.yaml` (~16 entries — the file's own header lists the shapes and the schema; it ships committed-but-empty and `calibrate_recency` exits 1 until it isn't).
 - [ ] Run `uv run python -m eval.calibrate_recency` against the fully backfilled corpus → set `RECENCY_BOOST_PER_YEAR` to the recommendation (commit with the sweep table in the message). Re-run `eval/calibrate_refusal.py` (boosted top_scores shift the distribution) → update `harness/constants.py::REFUSAL_THRESHOLD` if recommended, with the same one-source discipline. Full eval suite (all three query sets) green at the chosen weight; results committed. STATUS.md updated (S21 shipped, chosen weight, before/after recall table). Merge per finishing-a-development-branch.
+- [ ] **Same change, do not defer:** update the "When no year is named" bullet in `harness/system-prompt.md`'s *Recency and fiscal years* section. It currently says plainly that **nothing sorts results by recency**, which is true only while the weight is 0.0. `tests/test_harness_prompt.py::test_the_prompt_does_not_promise_recency_ordering` pins that sentence and will fail, which is the reminder working as intended — replace both the prose and the test's expectation, and keep the new wording honest about it being a tiebreaker rather than a sort.
+- [ ] Re-check `ADJACENT_YEAR_WINDOW` (`retrieval/query_year.py`) against the backfilled corpus. It was calibrated at ±1 on a three-fiscal-year corpus; a 40-year corpus may want a different window, and the same four-row table (±0 / ±1 / ±2 / none) is the way to decide.
 
 ---
 

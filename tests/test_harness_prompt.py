@@ -548,3 +548,72 @@ def test_concurrent_builds_read_the_template_once(monkeypatch):
 
     assert counter["n"] == 1
     assert len(set(results)) == 1
+
+
+# ---------------------------------------------------------------------------
+# Recency and fiscal years (S21)
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize("corpus", CORPORA)
+def test_the_recency_section_is_present_on_both_corpora(corpus):
+    # S21 layer 1 (query years become a filter) applies to BOTH corpora,
+    # so the guidance cannot be inside a budget-only block.
+    prompt = build_system_prompt(corpus=corpus, tier="standard")
+    assert "**Recency and fiscal years:**" in prompt
+
+
+@pytest.mark.parametrize("corpus", CORPORA)
+def test_the_model_is_told_about_the_inferred_year_echo(corpus):
+    # harness/tools.py puts this key on the response only when the parse
+    # fired; a model that has never been told the key exists reads a
+    # silently narrowed result set as the whole corpus.
+    prompt = build_system_prompt(corpus=corpus, tier="standard")
+    assert "inferred_fiscal_years" in prompt
+
+
+@pytest.mark.parametrize("corpus", CORPORA)
+def test_the_adjacent_year_widening_is_explained(corpus):
+    # Otherwise a FY 2019 query returning an FY 2020 document reads as a
+    # filter bug, and the model may discard a correct passage.
+    prompt = build_system_prompt(corpus=corpus, tier="standard")
+    flat = " ".join(prompt.split())
+    assert "years immediately either side of it" in flat
+    assert "enacted in the next year's budget bill" in flat
+
+
+@pytest.mark.parametrize("corpus", CORPORA)
+def test_the_prompt_does_not_promise_recency_ordering(corpus):
+    """RECENCY_BOOST_PER_YEAR ships at 0.0: recency has ZERO influence on
+    ordering today. Describing a tiebreaker that is switched off would
+    lead the model to quote the top passage as "current" without reading
+    its fiscal_year. When plan Task 6 turns the weight on, this sentence
+    is part of that change — see the plan's Task 6 checklist."""
+    prompt = build_system_prompt(corpus=corpus, tier="standard")
+    flat = " ".join(prompt.split())
+    assert "nothing sorts them by recency" in flat
+    for overclaim in (
+        "sorted by recency",
+        "newest first",
+        "most recent first",
+        "always returns the latest",
+    ):
+        assert overclaim not in prompt
+
+
+@pytest.mark.parametrize("corpus", CORPORA)
+def test_the_model_is_warned_that_bill_numbers_can_look_like_years(corpus):
+    """Arizona House bills are numbered from 2001 up. The parser rejects
+    the designated forms ("HB 2019"), but a bare four-digit number in
+    query text is read as a year, and the model is the only one who knows
+    what it meant."""
+    prompt = build_system_prompt(corpus=corpus, tier="standard")
+    flat = " ".join(prompt.split())
+    assert "mistaken for a year" in flat
+    assert "`inferred_fiscal_years` you did not intend" in flat
+
+
+@pytest.mark.parametrize("corpus", CORPORA)
+def test_multi_year_questions_are_steered_to_one_search_per_year(corpus):
+    prompt = build_system_prompt(corpus=corpus, tier="standard")
+    assert "one search per year" in " ".join(prompt.split())

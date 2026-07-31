@@ -30,6 +30,7 @@ from retrieval.pipeline import (
     reset_default_collaborators,
     retrieve,
 )
+from retrieval.recency import recency_weight
 from retrieval.types import RetrievedChunk
 
 # ---------------------------------------------------------------------------
@@ -380,10 +381,16 @@ def test_no_results_sentinel_is_json_serializable():
     assert json.dumps({"top_score": NO_RESULTS_TOP_SCORE}, allow_nan=False)
 
 
-def test_top_k_is_forwarded_to_the_reranker(seams):
+def test_the_reranker_scores_the_whole_pool_and_top_k_trims_afterwards(seams):
+    """`top_k` used to be forwarded to the reranker. It is not any more:
+    the S21 recency pass runs between rerank and trim and can only reorder
+    chunks it can see, so the reranker returns everything it scored and
+    the trim happens last. The caller's contract is unchanged — top_k
+    still bounds what comes back."""
     reranker = FakeReranker()
     result = _run(RetrievalRequest(query="fund", top_k=2), reranker=reranker)
-    assert reranker.calls[0][2] == 2
+    fused_size = len(reranker.calls[0][1])
+    assert reranker.calls[0][2] == fused_size
     assert len(result.chunks) == 2
 
 
@@ -715,3 +722,211 @@ def test_over_filtered_real_store_returns_the_no_results_sentinel(tmp_path):
     assert result.chunks == []
     assert result.fused_count == 0
     assert result.top_score == NO_RESULTS_TOP_SCORE
+
+
+# ---------------------------------------------------------------------------
+# S21 layer 1 — explicit query years become a hard fiscal-year filter
+# ---------------------------------------------------------------------------
+
+
+def test_a_year_named_in_the_query_becomes_a_fiscal_year_filter(seams):
+    """The filter carries the named year's neighbours too — a passage about
+    FY 2019 routinely lives in a document stamped FY 2018 or FY 2020 (see
+    ADJACENT_YEAR_WINDOW). The echo reports only what the analyst named."""
+    result = _run(RetrievalRequest(query="fy2019 DES funding"))
+
+    assert seams.bm25_calls[0]["filters"].fiscal_year == [2018, 2019, 2020]
+    assert seams.dense_calls[0]["filters"].fiscal_year == [2018, 2019, 2020]
+    assert result.inferred_fiscal_years == [2019]
+
+
+def test_an_explicit_caller_filter_always_beats_the_parser(seams):
+    """The parser is a convenience for humans typing prose. A caller that
+    passed fiscal_year meant it — silently widening or narrowing that would
+    make the MCP-era `filters` argument unreliable."""
+    result = _run(
+        RetrievalRequest(query="fy2019 DES funding", fiscal_year=[2027])
+    )
+
+    assert seams.bm25_calls[0]["filters"].fiscal_year == [2027]
+    assert seams.dense_calls[0]["filters"].fiscal_year == [2027]
+    # Nothing was inferred *and applied*, so nothing is echoed — the field
+    # reports what the pipeline did, not what the parser saw.
+    assert result.inferred_fiscal_years == []
+
+
+def test_a_query_with_no_year_gets_no_fiscal_year_filter(seams):
+    result = _run(RetrievalRequest(query="DES caseworker funding"))
+
+    assert seams.bm25_calls[0]["filters"].fiscal_year is None
+    assert seams.dense_calls[0]["filters"].fiscal_year is None
+    assert result.inferred_fiscal_years == []
+
+
+def test_the_year_filter_applies_to_the_fiscal_note_corpus_too(seams):
+    """S21 gives fiscal notes layer 1 (this filter) but NOT the layer-3
+    recency boost — coordinator triage wants similar notes at any age, but
+    a year the analyst typed is still a year they meant."""
+    result = _run(
+        RetrievalRequest(query="fy24 caseworker note", corpus="fiscal_note_chunks")
+    )
+
+    assert seams.bm25_calls[0]["filters"].fiscal_year == [2023, 2024, 2025]
+    assert result.inferred_fiscal_years == [2024]
+
+
+def test_injecting_the_inferred_year_preserves_the_other_filters(seams):
+    _run(
+        RetrievalRequest(
+            query="fy2019 DES funding",
+            publisher=["jlbc"],
+            is_table=True,
+        )
+    )
+
+    filters = seams.bm25_calls[0]["filters"]
+    assert filters.fiscal_year == [2018, 2019, 2020]
+    assert filters.publisher == ["jlbc"]
+    assert filters.is_table is True
+
+
+def test_inferred_years_are_echoed_even_when_the_filter_finds_nothing(
+    monkeypatch,
+):
+    """The empty-fused early return is a separate construction site for
+    RetrievalResult; it used to be the only place a new field could be
+    silently dropped."""
+    empty = Seams(bm25=[], dense=[])
+    monkeypatch.setattr("retrieval.pipeline.bm25_query_lance", empty.bm25)
+    monkeypatch.setattr("retrieval.pipeline.dense_query_lance", empty.dense)
+
+    result = _run(RetrievalRequest(query="fy2019 nothing matches this"))
+
+    assert result.chunks == []
+    assert result.top_score == NO_RESULTS_TOP_SCORE
+    assert result.inferred_fiscal_years == [2019]
+
+
+def test_retrieval_result_defaults_inferred_years_to_empty():
+    """Additive field — every existing construction site must keep working."""
+    assert RetrievalResult().inferred_fiscal_years == []
+
+
+# ---------------------------------------------------------------------------
+# S21 layer 3 — post-rerank recency bonus (ships at weight 0.0)
+# ---------------------------------------------------------------------------
+
+
+def _dated(chunk_id: str, fiscal_year: int | None) -> RetrievedChunk:
+    return replace(_chunk(chunk_id), fiscal_year=fiscal_year)
+
+
+def _dated_seams(monkeypatch, chunks):
+    s = Seams(bm25=list(chunks), dense=[])
+    monkeypatch.setattr("retrieval.pipeline.bm25_query_lance", s.bm25)
+    monkeypatch.setattr("retrieval.pipeline.dense_query_lance", s.dense)
+    return s
+
+
+def test_the_recency_bonus_is_off_at_the_shipped_weight(monkeypatch):
+    """Every production retrieval runs through this call today, so a
+    non-no-op default would silently reorder the whole corpus."""
+    _dated_seams(monkeypatch, [_dated("old", 2019), _dated("new", 2027)])
+
+    result = _run(
+        RetrievalRequest(query="provider rate increase"),
+        reranker=FakeReranker({"old": 5.0, "new": 4.0}),
+    )
+
+    assert [c.chunk_id for c in result.chunks] == ["old", "new"]
+    assert result.reranker_scores == [5.0, 4.0]
+    assert result.top_score == 5.0
+
+
+def test_an_enabled_bonus_reorders_and_moves_top_score(monkeypatch):
+    """top_score is what the refusal threshold compares against — pinned
+    here so enabling the weight without recalibrating REFUSAL_THRESHOLD
+    cannot happen quietly."""
+    _dated_seams(monkeypatch, [_dated("old", 2019), _dated("new", 2027)])
+
+    with recency_weight(0.4):
+        result = _run(
+            RetrievalRequest(query="provider rate increase"),
+            reranker=FakeReranker({"old": 5.0, "new": 4.0}),
+        )
+
+    assert [c.chunk_id for c in result.chunks] == ["new", "old"]
+    # old: 5.0 + 0.4 * (2019 - 2027) = 1.8; new: 4.0 + 0 = 4.0
+    assert result.reranker_scores == pytest.approx([4.0, 1.8])
+    assert result.top_score == pytest.approx(4.0)
+
+
+def test_the_bonus_never_touches_the_fiscal_note_corpus(monkeypatch):
+    """S21: coordinator triage deliberately seeks similar notes regardless
+    of age. Layer 1 applies there; layer 3 must not."""
+    _dated_seams(monkeypatch, [_dated("old", 2019), _dated("new", 2027)])
+
+    with recency_weight(0.4):
+        result = _run(
+            RetrievalRequest(query="similar note", corpus="fiscal_note_chunks"),
+            reranker=FakeReranker({"old": 5.0, "new": 4.0}),
+        )
+
+    assert [c.chunk_id for c in result.chunks] == ["old", "new"]
+    assert result.reranker_scores == [5.0, 4.0]
+
+
+def test_the_bonus_is_skipped_when_the_caller_filtered_by_year(monkeypatch):
+    _dated_seams(monkeypatch, [_dated("old", 2019), _dated("new", 2027)])
+
+    with recency_weight(0.4):
+        result = _run(
+            RetrievalRequest(query="provider rate increase", fiscal_year=[2019, 2027]),
+            reranker=FakeReranker({"old": 5.0, "new": 4.0}),
+        )
+
+    assert [c.chunk_id for c in result.chunks] == ["old", "new"]
+
+
+def test_the_bonus_is_skipped_when_the_query_named_a_year(monkeypatch):
+    """The analyst asked for FY 2019. Demoting FY 2019 inside its own
+    filtered result set would be fighting the instruction."""
+    _dated_seams(monkeypatch, [_dated("old", 2019), _dated("new", 2020)])
+
+    with recency_weight(0.4):
+        result = _run(
+            RetrievalRequest(query="fy2019 provider rate increase"),
+            reranker=FakeReranker({"old": 5.0, "new": 4.0}),
+        )
+
+    assert result.inferred_fiscal_years == [2019]
+    assert [c.chunk_id for c in result.chunks] == ["old", "new"]
+
+
+def test_the_boost_can_reach_chunks_the_reranker_pushed_past_top_k(monkeypatch):
+    """The reranker must not truncate before the recency pass. If it did,
+    the newest edition — the one S21 exists to rescue — would already be
+    gone from the list the boost operates on, and no weight could lift
+    it. Pins the stage order, not the weight."""
+    editions = [_dated(f"c-{fy}", fy) for fy in range(2018, 2028)]
+    _dated_seams(monkeypatch, editions)
+    # The reranker likes the OLDEST edition best, so FY2027 lands last.
+    scores = {f"c-{fy}": 5.0 - 0.1 * (fy - 2018) for fy in range(2018, 2028)}
+
+    with recency_weight(0.4):
+        result = _run(
+            RetrievalRequest(query="provider rate increase", top_k=3),
+            reranker=FakeReranker(scores),
+        )
+
+    assert [c.chunk_id for c in result.chunks] == ["c-2027", "c-2026", "c-2025"]
+    assert len(result.chunks) == 3
+
+
+def test_the_final_list_is_still_trimmed_to_top_k(monkeypatch):
+    _dated_seams(monkeypatch, [_dated(f"c{i}", 2027) for i in range(10)])
+
+    result = _run(RetrievalRequest(query="anything", top_k=4))
+
+    assert len(result.chunks) == 4
+    assert len(result.reranker_scores) == 4
