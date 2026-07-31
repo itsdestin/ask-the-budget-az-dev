@@ -19,6 +19,7 @@ import sys
 import tempfile
 import threading
 from dataclasses import dataclass, field
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
@@ -348,6 +349,62 @@ def load_settings(path: Path | None = None) -> Settings:
         return _settings_cache
 
 
+def _preserve_if_corrupt(target: Path) -> None:
+    """Copy an UNPARSEABLE settings.json aside before it gets overwritten.
+
+    THE FAILURE THIS PREVENTS (Plan 5 Task 13). `load_settings` fails open:
+    a corrupt file degrades to `Settings()`, which makes admin claimable,
+    which is right — a file nobody can parse must not lock out the only
+    person who could fix it. But the very next thing that happens is
+    somebody claiming admin and saving, and that save would replace the
+    corrupt bytes with a clean default file.
+
+    Those bytes are usually the last surviving copy of the OpenRouter API
+    key. A hand-edit that breaks the JSON does not remove the key from it,
+    and `settings.json.corrupt-<timestamp>` can be opened in Notepad to
+    read it back out. Without this, the app's own fail-open behaviour eats
+    the evidence and the key is gone.
+
+    Only fires on a file that is present and does NOT parse — a healthy
+    save must not litter the share with copies. Never raises: this runs
+    inside the save path, and failing to make a backup copy is not a
+    reason to fail the save the admin actually asked for.
+    """
+    try:
+        raw = target.read_text(encoding="utf-8")
+    except FileNotFoundError:
+        return  # first write on a fresh install — nothing to preserve
+    except OSError:
+        return
+    try:
+        parsed = json.loads(raw)
+        if isinstance(parsed, dict):
+            return  # healthy; nothing to do
+    except ValueError:
+        pass
+
+    stamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%S%fZ")
+    # The microseconds matter: two corruptions in the same second must not
+    # overwrite each other's copy, and the OLDER one holds the key more
+    # likely to still be valid.
+    preserved = target.with_name(f"{target.name}.corrupt-{stamp}")
+    try:
+        preserved.write_text(raw, encoding="utf-8")
+        print(
+            f"harness.settings: {target} was unreadable and is being replaced. "
+            f"The previous contents are preserved at {preserved} — if AI Mode "
+            "stops working, the old API key can usually be read out of it.",
+            file=sys.stderr,
+        )
+    except OSError as err:
+        print(
+            f"harness.settings: {target} is corrupt and could NOT be preserved "
+            f"({err}). It is about to be overwritten; any API key in it will "
+            "be lost.",
+            file=sys.stderr,
+        )
+
+
 def save_settings(settings: Settings, path: Path | None = None) -> None:
     """Write settings.json via tmp-file + os.replace, to reduce (not
     eliminate) the window where a concurrent reader sees a partial file.
@@ -367,6 +424,7 @@ def save_settings(settings: Settings, path: Path | None = None) -> None:
     """
     target = path or settings_path()
     target.parent.mkdir(parents=True, exist_ok=True)
+    _preserve_if_corrupt(target)
     fd, tmp_name = tempfile.mkstemp(
         dir=str(target.parent), prefix=".settings-", suffix=".tmp"
     )

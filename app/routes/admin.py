@@ -30,7 +30,13 @@ from typing import Any
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 
-from app.identity import admin_claimable, current_user, is_admin
+from app.identity import (
+    admin_claimable,
+    admin_reset_pending,
+    claim_admin,
+    current_user,
+    is_admin,
+)
 from harness.catalog import fetch_catalog
 from harness.ledger import ARIZONA_TZ, breakdown, check_limit, month_total
 from harness.notices import read_notices
@@ -152,9 +158,10 @@ def me() -> dict:
         "is_admin": is_admin(settings, user),
         "admin_username": settings.admin_username,
         "admin_claimable": admin_claimable(settings),
-        # Task 13 (the RESET-ADMIN.txt break-glass path) is what makes this
-        # ever true; until it lands there is no reset file to detect.
-        "admin_reset_pending": False,
+        # Surfaced so the claim banner can say "a reset file is present and
+        # claiming will use it up" — nobody should burn a reset by accident
+        # and then wonder where it went.
+        "admin_reset_pending": admin_reset_pending(),
     }
 
 
@@ -186,16 +193,15 @@ def claim(body: ClaimBody) -> dict:
     Nothing is granted here that isn't already available to anyone who can
     open `settings.json` in Notepad — see `app.identity.is_admin`.
     """
-    settings = load_settings()
-    if not admin_claimable(settings):
-        raise HTTPException(status_code=409, detail=MSG_ALREADY_CLAIMED)
     if not body.confirm:
         raise _bad_request("Confirm that you want to become the admin.")
-
-    user = current_user()
-    save_settings(replace(settings, admin_username=user))
-    reset_settings_cache()
-    return {"admin_username": user}
+    try:
+        # `claim_admin` owns the whole procedure, including consuming a
+        # break-glass reset file and recording the notice — this route must
+        # not reimplement half of it.
+        return {"admin_username": claim_admin(current_user())}
+    except PermissionError as err:
+        raise HTTPException(status_code=409, detail=MSG_ALREADY_CLAIMED) from err
 
 
 # ---------------------------------------------------------------------------
