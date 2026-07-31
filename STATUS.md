@@ -545,23 +545,30 @@ As of 2026-07-31:
 
 **Found during the 2026-07-31 Z13 backfill run (see `~/backfill-progress.log`
 on that machine and the ROCm investigation doc). These degrade the office
-experience silently. The two marked ✅ (worker never started, `make_doc_id`
-collision) were the handoff-blocking pair and are fixed on master — branch
-`ingest-defects`, 2026-07-31; the fixes ship at the app server's next
-restart, since the running backfill has its code already loaded.**
+experience silently. Everything marked ✅ is on master — the lock-steal fix in
+`f4ddf1d`, the worker-never-started and `make_doc_id`-collision pair in
+`ingest-defects`, all 2026-07-31. Those code fixes ship at the app server's
+next restart, since the running backfill has its modules already loaded.
+Entries still marked 🔴 are genuinely open.**
 
-- **🔴 The ingest lock can be STOLEN FROM A LIVE HOLDER — two writers on one
-  corpus.** `IngestLock._try_create` creates the lockfile and then writes its
-  JSON payload in a separate buffered step. A second machine that reads the
-  file inside that window sees it empty, judges it corrupt, treats it as
-  stale, and steals the lock. This defeats the entire S6 single-writer
-  invariant. **Reproduced, not theoretical:** a 24-thread race produced 8
-  simultaneous "winners" before the fix. Dormant today only because one
-  machine is ingesting; live the day a second office PC does — i.e. the
-  intended deployment. Fix (single `os.write` for creation + a settle delay
-  before judging a file corrupt) is implemented and tested on branch
-  `parallel-ingest` (`85ecccb`) and should land on master regardless of
-  whether parallel ingest is ever enabled.
+- **✅ FIXED — the ingest lock could be STOLEN FROM A LIVE HOLDER, giving two
+  writers on one corpus.** `IngestLock._try_create` created the lockfile and
+  then wrote its JSON payload in a separate buffered step. A second machine
+  that read the file inside that window saw it empty, judged it corrupt,
+  treated it as stale, and stole the lock — defeating the entire S6
+  single-writer invariant. **Reproduced, not theoretical:** a 24-thread race
+  produced 8 simultaneous "winners" before the fix. Both halves of the fix are
+  on master: `_try_create` now creates and writes in a single `os.write` on a
+  raw fd (`ingest/lock.py`, with the WHY comment at that line), and a reader
+  waits out `_SETTLE_PATIENCE_S = 1.0` before judging a lockfile corrupt.
+  Landed 2026-07-31 in merge `f4ddf1d` ("Merge branch 'parallel-ingest' —
+  opt-in parallel extraction + atomic job claiming"), so it is in regardless
+  of whether parallel ingest is ever enabled. Guards:
+  `tests/test_ingest_lock.py::test_corrupt_lockfile_is_treated_as_stale` and
+  `tests/test_ingest_parallel.py::test_the_process_mutex_stops_a_sibling_thread_stealing_a_stale_lock`.
+  **This entry said "not merged" until 2026-07-31** — it had in fact shipped
+  earlier the same day, and the stale text caused a later session to report it
+  as still-open work. Verify with `git merge-base --is-ancestor`, not prose.
 - **A >120 s write can have its lock legitimately stolen cross-machine.**
   `_write` heartbeats before `write_doc` but not during it, and
   `build_fts_index` + `optimize` will exceed the 120 s stale window as the
