@@ -47,6 +47,27 @@ describe("SystemHealthBanner", () => {
     expect(html).not.toContain("unaffected");
   });
 
+  it("makes no claim about Budget Search when it doesn't know the cause", () => {
+    // The two config branches CAN promise search is fine, because a missing
+    // key or model cannot affect it. The generic branch cannot: matching is
+    // substring-based, so a store outage surfacing as a bare OSError or a
+    // plain HTTP 500 lands here rather than in the store branch. Telling that
+    // analyst search still works sends them to a second dead feature.
+    for (const reason of [undefined, "HTTP 500", "connection refused"]) {
+      const html = renderToString(<SystemHealthBanner reason={reason} />);
+      expect(html).not.toContain("unaffected");
+    }
+  });
+
+  it("outranks the per-answer notice visually, not just in its ARIA role", () => {
+    // AssistantTurnBubble's max_steps notice is `chat-notice is-warn` with
+    // role="status" — one degraded answer. This is the whole feature being
+    // down, so it must not render in the same amber.
+    const html = renderToString(<SystemHealthBanner />);
+    expect(html).toContain("is-danger");
+    expect(html).not.toContain("is-warn");
+  });
+
   it("never names a component or command that no longer exists", () => {
     // The old copy said "start the retrieval sidecar (uv run uvicorn
     // retrieval.api:app --port 9200)" and elsewhere mentioned a YouCoded

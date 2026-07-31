@@ -31,7 +31,8 @@ interface Props {
  *  strings are pinned by `harness/settings.py::ai_available`; provider and
  *  store failures arrive as whatever the underlying error said. An unmatched
  *  reason falls through to the generic branch, which is honest about not
- *  knowing rather than guessing at a cause. */
+ *  knowing rather than guessing at a cause — meaning it also declines to make
+ *  the side claims the matched branches can make. See the note there. */
 function guidanceFor(reason: string | undefined): string {
   const r = (reason ?? "").toLowerCase();
   if (r.includes("api key")) {
@@ -55,16 +56,27 @@ function guidanceFor(reason: string | undefined): string {
       "unavailable — try again shortly, and tell your admin if it persists."
     );
   }
+  // Deliberately says nothing about Budget Search. The two config branches
+  // above can promise it still works because a missing key or model cannot
+  // affect it. This branch cannot: matching is substring-based against
+  // whatever the underlying error said, so a store outage that surfaces as a
+  // bare OSError, "connection refused", or HTTP 500 lands HERE rather than in
+  // the store branch — and telling that analyst search is fine sends them to
+  // a second dead feature. Not knowing the cause means not making claims
+  // that depend on it.
   return (
     "The assistant can't be reached right now, so questions can't be " +
     "answered. Try again in a few minutes; if it keeps happening, ask your " +
-    "admin. Budget search and fiscal notes are unaffected."
+    "admin."
   );
 }
 
 export default function SystemHealthBanner({ reason }: Props) {
   return (
-    <div role="alert" className="chat-notice is-warn chat-notice-banner">
+    // is-danger, not is-warn: this is "nothing you type will work", a strictly
+    // heavier condition than the max_steps notice's "this one answer is
+    // incomplete". They used to render identically.
+    <div role="alert" className="chat-notice is-danger chat-notice-banner">
       <strong>AI Mode is offline.</strong> {guidanceFor(reason)}
       {reason ? <span className="chat-notice-reason">({reason})</span> : null}
     </div>

@@ -789,7 +789,16 @@ nav.primary{flex:1 1 auto;display:flex;flex-wrap:nowrap;align-items:center;justi
    fact as synthetic assistant prose. */
 .chat-notice { border-radius: 10px; border: 1px solid; padding: 8px 12px; font-size: 12px; line-height: 1.5; }
 .chat-notice strong { font-weight: 800; }
+/* Two severities, because the two notices mean very different things and were
+   previously indistinguishable at a glance:
+     is-warn   — this ONE answer is degraded (ran out of tool budget). The
+                 rest of the app is fine; role="status".
+     is-danger — the whole feature is down. Nothing you type will work;
+                 role="alert".
+   The ARIA roles already differentiated them for assistive tech, so leaving
+   both amber only misled the people reading the screen. */
 .chat-notice.is-warn { border-color: var(--chat-warn); background: var(--chat-warn-tint); color: var(--chat-warn); }
+.chat-notice.is-danger { border-color: var(--chat-danger); background: var(--chat-danger-tint); color: var(--chat-danger); }
 .chat-notice-reason { margin-left: 8px; opacity: .75; }
 /* Banner placement — matches the message column so it reads as part of the thread. */
 .chat-notice-banner { max-width: 768px; margin: 12px auto 8px; }

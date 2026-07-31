@@ -29,6 +29,7 @@ import {
   unescapeForDisplay,
 } from "../tool-views/primitives.js";
 import ToolBody from "../tool-views/ToolBody.js";
+import { downloadUrl } from "../tool-views/CreateDocumentView.js";
 import type { AssistantBlock } from "../chat-types.js";
 
 type ToolBlock = Extract<AssistantBlock, { kind: "tool" }>;
@@ -67,6 +68,26 @@ describe("primitives helpers", () => {
     expect(unescapeForDisplay("foo\\nbar")).toBe("foo\nbar");
     expect(unescapeForDisplay('say \\"hi\\"')).toBe('say "hi"');
     expect(unescapeForDisplay("a\\tb")).toBe("a\tb");
+  });
+});
+
+describe("downloadUrl", () => {
+  it("builds the same-origin path the documents route serves", () => {
+    expect(downloadUrl("abc123")).toBe("/api/documents/abc123");
+  });
+
+  it("percent-encodes anything that would change the URL's shape", () => {
+    // The token is server-generated randomness today, so none of these can
+    // occur — but it reaches us over the wire, and a value that crosses a
+    // trust boundary gets encoded on principle, not on inspection. A raw "/"
+    // would silently address a different route; "#" would truncate the path
+    // at the fragment; a space would produce an invalid URL.
+    expect(downloadUrl("a/b")).toBe("/api/documents/a%2Fb");
+    expect(downloadUrl("a#b")).toBe("/api/documents/a%23b");
+    expect(downloadUrl("a b")).toBe("/api/documents/a%20b");
+    expect(downloadUrl("../../etc/passwd")).toBe(
+      "/api/documents/..%2F..%2Fetc%2Fpasswd",
+    );
   });
 });
 
@@ -225,6 +246,45 @@ describe("ToolBody dispatcher", () => {
     const html = renderToString(<ToolBody tool={tool} />);
     expect(html).toContain('href="/api/documents/abc123"');
     expect(html).toContain("FY2027-ADOT-memo.docx");
+  });
+
+  it("still shows the pending state while create_document is running", () => {
+    // No output yet is the one case where "waiting" is the truth.
+    const tool = block({
+      toolName: "create_document",
+      input: { title: "Memo", body_markdown: "Body." },
+      status: "running",
+    });
+    const html = renderToString(<ToolBody tool={tool} />);
+    expect(html).toContain("Waiting for the file");
+  });
+
+  it("never leaves create_document waiting forever on an unreadable response", () => {
+    // The bad outcome here is not a wrong error message, it's a card that sits
+    // on "Waiting for the file to be written…" indefinitely: no link, no
+    // failure, nothing to act on. Output that arrived but can't be read is a
+    // failure, and has to look like one.
+    const tool = block({
+      toolName: "create_document",
+      input: { title: "Memo", body_markdown: "Body." },
+      output: "<html>502 Bad Gateway</html>",
+    });
+    const html = renderToString(<ToolBody tool={tool} />);
+    expect(html).toContain("unreadable response");
+    expect(html).toContain("Error");
+    expect(html).not.toContain("Waiting for the file");
+  });
+
+  it("treats a create_document ack with no ok field as a failure", () => {
+    // Valid JSON, wrong shape — parses fine, tells us nothing.
+    const tool = block({
+      toolName: "create_document",
+      input: { title: "Memo", body_markdown: "Body." },
+      output: '{"detail":"internal server error"}',
+    });
+    const html = renderToString(<ToolBody tool={tool} />);
+    expect(html).toContain("unreadable response");
+    expect(html).not.toContain("Waiting for the file");
   });
 
   it("falls back to the raw view for cite_batch (input + output sections)", () => {

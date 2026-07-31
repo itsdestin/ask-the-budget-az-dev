@@ -28,16 +28,26 @@ interface CreateDocumentAck {
 }
 
 function parseAck(raw: string | undefined): CreateDocumentAck | null {
+  // No output yet means the tool is genuinely still running — that IS the
+  // pending state, and null is the right answer for it.
   if (!raw) return null;
   try {
     const parsed: unknown = JSON.parse(raw);
     if (typeof parsed === "object" && parsed !== null && "ok" in parsed) {
       return parsed as CreateDocumentAck;
     }
-    return null;
   } catch {
-    return null;
+    // fall through to the synthetic failure ack below
   }
+  // Output that arrived but can't be read is a FAILURE, not pending. Returning
+  // null here would leave `token` and `error` both undefined, and the render
+  // below would sit on "Waiting for the file to be written…" forever: the
+  // analyst waits for a download that is never coming and is never told
+  // anything went wrong. Same guard, same reason, as CiteView.parseAck.
+  return {
+    ok: false,
+    error: `create_document() returned an unreadable response: ${raw}`,
+  };
 }
 
 /** Same-origin path built from the token. `encodeURIComponent` is not
