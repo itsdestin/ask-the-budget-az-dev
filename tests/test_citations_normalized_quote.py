@@ -161,6 +161,37 @@ def test_resolved_span_end_covers_the_whole_original_run():
     assert result.resolved_span_end == len(text)
 
 
+def test_index_map_stays_aligned_when_lowercasing_is_not_one_to_one():
+    """`'İ'.lower()` is TWO code points in Python. If the normalizer
+    appends the folded string without appending a matching index entry
+    per character, every offset after that point shifts — and every
+    citation later in the chunk highlights the wrong words while
+    reporting success."""
+    from retrieval.citations import normalize_for_match
+
+    text = "İstanbul review. AHCCCS receives $17,337,200 in FY 2027."
+    normalized, index_map = normalize_for_match(text)
+    assert len(normalized) == len(index_map)
+
+    _assert_resolves_to(
+        text,
+        "AHCCCS  receives $17,337,200",  # doubled space forces the normalized path
+        "AHCCCS receives $17,337,200",
+    )
+
+
+def test_normalizer_is_linear_on_a_bracket_heavy_chunk():
+    """A chunk full of `[` used to drive a hand-rolled quadratic scan for
+    markdown links. Guards against reintroducing it: this would take
+    minutes, not milliseconds, if the scan went back to O(n^2)."""
+    from retrieval.citations import normalize_for_match
+
+    text = "[" * 20_000 + " AHCCCS receives $17,337,200"
+    normalized, index_map = normalize_for_match(text)
+    assert len(normalized) == len(index_map)
+    assert normalized.endswith("ahcccs receives $17,337,200")
+
+
 # ---------------------------------------------------------------------------
 # Never semantically looser (Invariant 2 unchanged)
 # ---------------------------------------------------------------------------

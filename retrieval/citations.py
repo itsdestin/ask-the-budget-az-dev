@@ -215,12 +215,19 @@ def normalize_for_match(text: str) -> tuple[str, list[int]]:
     an exact map is the one that cannot mis-highlight.
     """
     # Per-code-point NFKC, carrying each output char's original index.
-    folded: list[str] = []
+    # One NFKC form can be several characters (`ﬁ` → `fi`), so this is a
+    # loop, not an assignment — every produced character gets its own
+    # slot pointing back at the same original index.
+    chars: list[str] = []
     origin: list[int] = []
     for index, char in enumerate(text):
         for produced in unicodedata.normalize("NFKC", char):
-            folded.append(produced)
+            chars.append(produced)
             origin.append(index)
+    # A string as well as a list: the markdown-link scan needs `find`,
+    # and a hand-rolled scan over the list is quadratic on a chunk that
+    # happens to contain many `[`.
+    folded = "".join(chars)
 
     out: list[str] = []
     index_map: list[int] = []
@@ -288,12 +295,12 @@ def normalize_for_match(text: str) -> tuple[str, list[int]]:
 
         # `[label](url)` — keep the label, drop the syntax and the URL.
         if char == "[":
-            close_bracket = _find(folded, "](", i)
-            if close_bracket > i and _find(folded, ")", close_bracket + 2) > close_bracket:
+            close_bracket = folded.find("](", i)
+            if close_bracket > i and folded.find(")", close_bracket + 2) > close_bracket:
                 i += 1
                 continue
         if char == "]" and i + 1 < size and folded[i + 1] == "(":
-            close_paren = _find(folded, ")", i + 2)
+            close_paren = folded.find(")", i + 2)
             if close_paren > i:
                 i = close_paren + 1
                 continue
@@ -308,21 +315,18 @@ def normalize_for_match(text: str) -> tuple[str, list[int]]:
             continue
 
         in_whitespace = False
-        out.append(_FOLD_CHARS.get(char, char.lower()))
-        index_map.append(original_index)
+        # Emitted character-by-character because lowercasing is not
+        # always 1:1 — `'İ'.lower()` is TWO code points in Python. A
+        # bare append of the folded string would put more characters in
+        # `out` than entries in `index_map`, silently shifting every
+        # subsequent offset and mis-highlighting every citation after
+        # that character in the chunk.
+        for produced in _FOLD_CHARS.get(char) or char.lower():
+            out.append(produced)
+            index_map.append(original_index)
         i += 1
 
     return "".join(out), index_map
-
-
-def _find(chars: list[str], needle: str, start: int) -> int:
-    """`list.index`-style search for a short literal in a char list.
-    Returns -1 when absent, matching `str.find`'s contract."""
-    limit = len(chars) - len(needle)
-    for position in range(start, limit + 1):
-        if all(chars[position + offset] == needle[offset] for offset in range(len(needle))):
-            return position
-    return -1
 
 
 def find_normalized_occurrences(
