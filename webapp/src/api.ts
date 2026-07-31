@@ -79,3 +79,105 @@ export async function fiscalNotes(): Promise<{ sessions: Session[] }> {
   if (!r.ok) await fail(r, "fiscal-notes");
   return r.json();
 }
+
+// ---- ingest queue (Plan 3) -------------------------------------------------
+
+export type JobState =
+  | "queued"
+  | "extracting"
+  | "chunking"
+  | "embedding"
+  | "writing"
+  | "live"
+  | "failed"
+  | "cancelled";
+
+export interface Job {
+  job_id: string;
+  doc_id: string;
+  title: string;
+  corpus: string;
+  state: JobState;
+  /** Progress within the CURRENT stage, 0-100 — not overall completion. */
+  pct: number;
+  /** Human detail for the current stage, e.g. "page 34/210". */
+  stage_detail: string;
+  error: string | null;
+  machine: string;
+  user: string;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface UploadMeta {
+  corpus: string;
+  publisher: string;
+  doc_type: string;
+  fiscal_year: number;
+  title: string;
+  /** Ingest anyway when the content hash is already known (spec's explicit
+   *  re-process option). */
+  reprocess?: boolean;
+}
+
+export interface DuplicateDocument {
+  detail: string;
+  existing_doc_id: string;
+  added_at: string | null;
+  added_by: string | null;
+}
+
+/** Thrown on 409 so the page can offer re-process instead of a dead error.
+ *  A plain Error would flatten the provenance the user needs to decide. */
+export class DuplicateDocumentError extends Error {
+  constructor(readonly info: DuplicateDocument) {
+    super("already in corpus");
+    this.name = "DuplicateDocumentError";
+  }
+}
+
+export async function uploadDocument(
+  file: File,
+  meta: UploadMeta,
+): Promise<{ job_id: string; doc_id: string }> {
+  const form = new FormData();
+  form.append("file", file);
+  form.append("corpus", meta.corpus);
+  form.append("publisher", meta.publisher);
+  form.append("doc_type", meta.doc_type);
+  form.append("fiscal_year", String(meta.fiscal_year));
+  form.append("title", meta.title);
+  // Invariant 8: the server rejects the upload without this. The page only
+  // sends it once the user has actually ticked the box.
+  form.append("is_public_record", "true");
+  if (meta.reprocess) form.append("reprocess", "true");
+
+  const r = await fetch("/api/upload", { method: "POST", body: form });
+  if (r.status === 409) {
+    throw new DuplicateDocumentError(await r.json());
+  }
+  if (!r.ok) await fail(r, "upload");
+  return r.json();
+}
+
+export async function jobs(): Promise<{ jobs: Job[] }> {
+  const r = await fetch("/api/jobs");
+  if (!r.ok) await fail(r, "jobs");
+  return r.json();
+}
+
+export async function retryJob(jobId: string): Promise<{ job: Job }> {
+  const r = await fetch(`/api/jobs/${encodeURIComponent(jobId)}/retry`, {
+    method: "POST",
+  });
+  if (!r.ok) await fail(r, "retry");
+  return r.json();
+}
+
+export async function cancelJob(jobId: string): Promise<{ job: Job }> {
+  const r = await fetch(`/api/jobs/${encodeURIComponent(jobId)}/cancel`, {
+    method: "POST",
+  });
+  if (!r.ok) await fail(r, "cancel");
+  return r.json();
+}
