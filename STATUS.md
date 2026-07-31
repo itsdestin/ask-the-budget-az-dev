@@ -530,6 +530,23 @@ handoff-blocking — they degrade the office experience silently.**
   that was decaying toward ~25 docs/hour. **Better long-term design: snapshot
   once per BATCH** (per book edition / per fiscal-note session) rather than
   per document, so bulk runs keep protection without the quadratic cost.
+- **Measured parallel scaling curve (Z13, 32 threads / 121 GB, MinerU 3.1.6
+  CPU).** Use these numbers, not guesses, when sizing any future bulk run:
+
+  | workers | docs/hr | per doc | vs serial | notes |
+  |---|---|---|---|---|
+  | 1 | 93 | 40.0 s | — | extraction is ~92% of a document (39.0 s of 42 s) |
+  | 4 | 413 | 8.7 s | 4.4× | |
+  | 8 | ~700 | 5.1 s | 7.5× | **the knee** — 14.6 of 32 cores, 12 GB |
+  | 14 | 750 | 4.8 s | 7.9× | +7% only; 18 cores, 25 GB; exposed the job-journal race |
+
+  Past ~8 workers the machine is NOT CPU-bound (18 of 32 cores at N=14) — the
+  limit is MinerU's own serial phases and I/O, so more workers buy very little.
+  The FTS rebuild inside the serialized write cost 0.25 s at 4.7k rows (a
+  ~14,000 docs/hr ceiling, not binding then) but **grows with table size**, so
+  on a much larger corpus the serialized write becomes the wall and a
+  per-batch FTS rebuild is the fix. The remaining real lever on extraction
+  itself is **MinerU 3.4.4** (measured 1.35× on plain CPU).
 - **Parallel ingest is LIVE and VERIFIED (2026-07-31).** Merged (`f4ddf1d`)
   and enabled on the Z13 backfill at `JLBC_INGEST_WORKERS=4`. **Measured 385
   docs/hour vs the 95/hr serial baseline = 4.05x** — above the 2.5-3.5x
