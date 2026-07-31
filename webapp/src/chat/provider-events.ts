@@ -11,12 +11,6 @@
 // (`harness/session.py`), which emits this same event shape directly
 // over SSE instead of over a WebSocket transcript bridge.
 
-/** One-to-one mapping with the old TranscriptEventType but in
- *  JS-idiomatic shapes and snake_case→camelCase as appropriate.
- *  Critically, **all tool types flow through generic tool_use /
- *  tool_result events** — the provider does not special-case
- *  retrieve/cite. The UI routes per-tool rendering by toolName. */
-
 /** jsdiff-style hunk shipped on Edit/MultiEdit tool results. */
 export interface StructuredPatchHunk {
   oldStart: number;
@@ -34,6 +28,11 @@ export interface TurnUsage {
   cacheCreationTokens: number;
 }
 
+/** One-to-one mapping with the old TranscriptEventType but in
+ *  JS-idiomatic shapes and snake_case→camelCase as appropriate.
+ *  Critically, **all tool types flow through generic tool_use /
+ *  tool_result events** — the provider does not special-case
+ *  retrieve/cite. The UI routes per-tool rendering by toolName. */
 export type ProviderEvent =
   | { type: "user_message"; text: string; uuid: string; timestamp: number }
   | {
