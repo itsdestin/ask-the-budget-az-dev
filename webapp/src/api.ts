@@ -79,3 +79,34 @@ export async function fiscalNotes(): Promise<{ sessions: Session[] }> {
   if (!r.ok) await fail(r, "fiscal-notes");
   return r.json();
 }
+
+/** One chunk's provenance fields — everything the source viewer needs to open
+ *  a passage, and nothing else (see app/routes/pdf.py's get_chunk). */
+export interface ChunkSource {
+  chunk_id: string;
+  doc_id: string;
+  /** 1-indexed PDF page; null when the chunk has no page. */
+  page: number | null;
+  /** [x0,y0,x1,y1]; null means "search the whole page" (see the strict-bbox
+   *  rule in pdf/highlight-strategy.ts). */
+  bbox: number[] | null;
+  /** Verbatim chunk text — the highlight target AND the cited-text panel. */
+  text: string;
+  source_format: string | null;
+  /** Non-null when this source has no page image (DOCX bills, fiscal notes).
+   *  The string is the backend's own 415 wording; render it, don't rewrite it. */
+  pdf_unavailable_reason: string | null;
+}
+
+/** Fetch one chunk by id. Used by the search page's source panel, where a
+ *  click carries only the chunk_id the row was rendered with. */
+export async function chunk(
+  chunkId: string,
+  corpus = "budget",
+): Promise<ChunkSource> {
+  const r = await fetch(
+    `/api/chunks/${encodeURIComponent(chunkId)}?corpus=${encodeURIComponent(corpus)}`,
+  );
+  if (!r.ok) await fail(r, "chunk");
+  return r.json();
+}

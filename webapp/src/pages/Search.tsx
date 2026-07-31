@@ -8,6 +8,7 @@ import type { SearchFilters, SearchResponse, SearchResult } from "../api";
 import { FilterBar, type FilterKey } from "../components/FilterBar";
 import { ResultCard, type DocGroup, type FamilyGroup } from "../components/ResultCard";
 import { SearchIcon } from "../components/SearchIcon";
+import { SourcePanel } from "../pdf/SourcePanel";
 import { familyOf, familyTitle, reportFormats } from "../reportFamilies";
 
 // Budget Search — ported from the approved mockup's search page
@@ -197,9 +198,24 @@ export function Search() {
   // always changes, so the request always fires.
   const [attempt, setAttempt] = useState(0);
 
+  // The passage whose source is open in the side drawer (Plan 4 Task 11), or
+  // null. Holds the display title alongside the id because the row that was
+  // clicked already knows it — see app/routes/pdf.py's get_chunk for why the
+  // route deliberately doesn't return a second title.
+  const [openPassage, setOpenPassage] = useState<{
+    chunkId: string;
+    docTitle: string;
+    fiscalYear: number | null;
+  } | null>(null);
+
   // Keep the box in step with the URL if ?q= changes underneath us (back button, or
   // a second search arriving from elsewhere in the app).
   useEffect(() => setText(query), [query]);
+
+  // A new query means a new result set; leaving the drawer open would keep a
+  // passage from the PREVIOUS search on screen next to results that no longer
+  // contain it.
+  useEffect(() => setOpenPassage(null), [query]);
 
   useEffect(() => {
     if (!query) {
@@ -255,6 +271,36 @@ export function Search() {
   // Analysts still count in documents (the per-agency pages), so the status and
   // header keep a document count even though the cards group one level higher.
   const docCount = families.reduce((n, f) => n + f.docs.length, 0);
+
+  /** Open the source drawer for a clicked matching-passage row.
+   *
+   *  WHY event delegation instead of a callback prop through ResultCard: the
+   *  passage rows already carry `data-chunk-id` (Plan 2 put the attribute
+   *  there for exactly this task), and the results presentation was iterated
+   *  live with Destin — spec S12 says wire it, don't restructure it. One
+   *  listener on `.results` reaches every row, at any nesting depth, without
+   *  touching the card components. ResultCard's own onClick calls
+   *  preventDefault but not stopPropagation, so the click still bubbles here. */
+  function onResultsClick(e: React.MouseEvent<HTMLDivElement>) {
+    const target = e.target as HTMLElement | null;
+    const row = target?.closest?.("[data-chunk-id]");
+    const chunkId = row?.getAttribute("data-chunk-id");
+    if (!chunkId) return;
+    // The row is an <a href="#">; without this the click would also jump the
+    // page to the top.
+    e.preventDefault();
+    // Fixture rows (StubSearchProvider, on any machine with no migrated
+    // corpus) carry synthetic ids that exist in no corpus. Opening the viewer
+    // for one would show a 404 and imply the corpus is broken, when the real
+    // fact is that there is no corpus at all.
+    if (chunkId.startsWith("stub-")) return;
+    const hit = shown?.results.find((r) => r.chunk_id === chunkId);
+    setOpenPassage({
+      chunkId,
+      docTitle: hit?.doc_title ?? "",
+      fiscalYear: hit?.fiscal_year ?? null,
+    });
+  }
 
   return (
     <main className="page-search" data-testid="search">
@@ -423,7 +469,14 @@ export function Search() {
               {/* `.results`, not the mockup's `#results`: an id inside a component is
                   a page-wide uniqueness claim a component can't keep. Same rules,
                   ported onto the class. */}
-              <div className="results">
+              {/* One delegated listener for every passage row's click (see
+                  onResultsClick). Additive: the results markup below is
+                  unchanged.
+                  KNOWN GAP: ResultCard renders its passage rows with
+                  tabIndex={-1}, so they are mouse-only today. Making them
+                  keyboard-reachable means editing ResultCard, which is
+                  outside this task's remit — flagged for a follow-up. */}
+              <div className="results" onClick={onResultsClick}>
                 {families.length === 0 ? (
                   // Two messages, because "nothing in the corpus matched" and "your
                   // filters excluded everything" are different facts and the second
@@ -442,6 +495,20 @@ export function Search() {
           )}
         </div>
       </div>
+
+      {/* Source drawer — overlays the page rather than taking a column, so the
+          results layout above is untouched (spec S12). */}
+      {openPassage && (
+        <SourcePanel
+          // Keyed on the chunk so switching passages remounts rather than
+          // showing the previous page while the next one loads.
+          key={openPassage.chunkId}
+          chunkId={openPassage.chunkId}
+          docTitle={openPassage.docTitle}
+          fiscalYear={openPassage.fiscalYear}
+          onClose={() => setOpenPassage(null)}
+        />
+      )}
     </main>
   );
 }

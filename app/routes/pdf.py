@@ -27,7 +27,7 @@ import re
 from pathlib import Path, PurePosixPath
 from typing import Any, Iterator
 
-from fastapi import APIRouter, HTTPException, Request
+from fastapi import APIRouter, HTTPException, Query, Request
 from fastapi.responses import JSONResponse, StreamingResponse
 from starlette.background import BackgroundTask
 
@@ -112,6 +112,24 @@ def _document_record(doc_id: str) -> dict[str, Any] | None:
 
     record = _document_metadata().get(doc_id)
     return record if isinstance(record, dict) else None
+
+
+def non_pdf_detail(source_format: str) -> str:
+    """The one sentence both routes say about a source with no page image.
+
+    Written for the analyst, not the developer: a DOCX legislative bill (and,
+    from Plan 3, a fiscal note) is an ORDINARY source, not an error, so the
+    message tells the UI what to show instead rather than apologizing. It
+    lives in a function because two routes need the identical words — the PDF
+    route's 415 body and `/api/chunks/{chunk_id}`'s `pdf_unavailable_reason`,
+    which is what lets the viewer skip the canvas without a wasted round trip
+    to a route it already knows will 415.
+    """
+    return (
+        f"This source is a {source_format} file, not a PDF, so there is no "
+        "page to display. Show the cited text panel instead — the passage and "
+        "its citation are still valid."
+    )
 
 
 def _safe_relative(blob_path: str) -> PurePosixPath | None:
@@ -234,11 +252,7 @@ def get_pdf(doc_id: str, request: Request):
         return JSONResponse(
             status_code=415,
             content={
-                "detail": (
-                    f"This source is a {source_format} file, not a PDF, so "
-                    "there is no page to display. Show the cited text panel "
-                    "instead — the passage and its citation are still valid."
-                ),
+                "detail": non_pdf_detail(source_format),
                 "source_format": source_format,
                 "doc_id": doc_id,
             },
@@ -313,3 +327,109 @@ def _streamed(
         headers=headers,
         background=BackgroundTask(chunks.close),
     )
+
+
+# ---------------------------------------------------------------------------
+# GET /api/chunks/{chunk_id} — what the viewer needs to open one passage
+# ---------------------------------------------------------------------------
+
+
+@router.get("/api/chunks/{chunk_id}")
+def get_chunk(
+    chunk_id: str,
+    corpus: str = Query("budget", pattern="^(budget|fiscal_notes)$"),
+):
+    """One chunk's provenance fields, for the source viewer.
+
+    WHY this exists (Plan 4 Task 11): in AI Mode the viewer already has
+    everything it needs — a `cite()` chip carries the chunk's doc_id, page,
+    bbox and text, resolved from the same turn's `retrieve()` output. On the
+    SEARCH page there is no citation and no retrieve() envelope, only the
+    `chunk_id` a result row was rendered with, so clicking a matching passage
+    has to ask for the rest. That click is the search-only half of the G3
+    findability check: search without AI must still answer "where does this
+    number come from?".
+
+    The field list is deliberately the viewer's appetite and nothing more —
+    what PdfPage and CitedTextPanel actually consume — rather than a general
+    chunk-dump endpoint that later grows a scoring or embedding field nobody
+    renders:
+
+      chunk_id  echoed so a response can be matched to its request when two
+                clicks race (the panel drops answers for a stale chunk).
+      doc_id    the viewer streams /api/pdf/{doc_id}.
+      page      which page to render (1-indexed). Null for a chunk with no
+                page — the viewer then shows text only.
+      bbox      the strict-bbox restriction for text-layer search. Null is
+                meaningful (search the whole page), so it is always present.
+      text      the verbatim chunk text: both the highlight search target and
+                the cited-text panel's content.
+      source_format / pdf_unavailable_reason
+                whether this source HAS a page image at all. Comes from
+                documents.json, not from the chunk row. Without it the viewer
+                would have to provoke a 415 from /api/pdf just to find out,
+                and the analyst would watch a canvas try and fail to load a
+                DOCX bill. The reason string is the PDF route's own words
+                (`non_pdf_detail`), so the two routes cannot drift.
+
+    Not returned: doc_title and fiscal_year. Both callers already hold them
+    (a search row and a resolved citation each carry the title they render),
+    and the two in-tree title sources disagree — documents.json's
+    migration-era titles are rougher than the mockup-index join the search
+    provider uses — so serving one here would mean a passage panel whose
+    heading contradicts the row that opened it.
+    """
+    # Imported inside the function for the same reason as _document_record:
+    # these modules pull in the retrieval + storage stack, and an app that
+    # never opens a passage should not pay to import it.
+    from harness.tools import resolve_corpus
+    from retrieval import pipeline
+
+    table = resolve_corpus(corpus)
+    try:
+        # The process-wide store singleton, exactly as retrieval/citations.py
+        # does it: a second ChunkStore would open a second set of LanceDB
+        # table handles against the same files on the office share.
+        rows = pipeline._get_store().get_by_ids(table, [chunk_id])
+    except Exception as err:
+        # Share offline, missing table, corrupt index. Same posture as the
+        # search route: an honest JSON 503 the client can render, never
+        # FastAPI's plain-text 500 (which the fetch wrapper cannot parse).
+        raise HTTPException(
+            status_code=503,
+            detail=f"Chunk store unavailable: {type(err).__name__}: {err}",
+        ) from err
+    if not rows:
+        raise HTTPException(
+            status_code=404,
+            detail=(
+                f"No chunk named '{chunk_id}' is in the {corpus} corpus. "
+                "Re-run the search — chunk ids change when a document is "
+                "re-ingested."
+            ),
+        )
+    row = rows[0]
+
+    record = _document_record(str(row.get("doc_id") or ""))
+    source_format = str(record.get("source_format") or "") if record else ""
+    bbox = row.get("bbox")
+    page = row.get("page")
+    return {
+        "chunk_id": row.get("chunk_id"),
+        "doc_id": row.get("doc_id"),
+        "page": int(page) if page is not None else None,
+        # LanceDB hands back float32 values (and sometimes a numpy array);
+        # normalize to plain floats so the JSON encoder never chokes on a
+        # numpy scalar and the client always sees four numbers.
+        "bbox": [float(v) for v in bbox] if bbox is not None else None,
+        "text": row.get("text") or "",
+        # "" rather than None when documents.json has no record: the viewer
+        # tests `pdf_unavailable_reason`, and an unknown format is not a
+        # reason to refuse to try the PDF route.
+        "source_format": source_format or None,
+        "pdf_unavailable_reason": (
+            non_pdf_detail(source_format)
+            if source_format and source_format != "pdf"
+            else None
+        ),
+    }
