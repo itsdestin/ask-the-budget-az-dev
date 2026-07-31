@@ -121,6 +121,27 @@ def create_app(
 
     resolved = DEFAULT_STATIC_DIR if static_dir is _MISSING else static_dir
 
+    def _cache_headers(candidate: Path) -> dict[str, str]:
+        """How long the browser may reuse a static file without asking.
+
+        Vite fingerprints everything it emits into `assets/` — `index-CohyeYqA.css`
+        — so those URLs are immutable by construction: a rebuild produces a NEW
+        name, and the old one is never the wrong answer. They can be cached hard.
+
+        Everything else in `webapp/public/` (the logo, favicons) keeps its
+        filename across rebuilds, so a hard cache would pin the OLD bytes at the
+        SAME URL with no way for the app to signal otherwise. `no-cache` does not
+        mean "don't store" — it means "revalidate first", and the ETag makes that
+        a 304 with no body, so the cost is one conditional request.
+
+        This mattered in practice: a new logo shipped at the same path and the
+        browser kept the old one, while a cached index.html separately pinned the
+        superseded JS/CSS bundles. Both looked like "the deploy didn't work".
+        """
+        if candidate.parent.name == "assets":
+            return {"Cache-Control": "public, max-age=31536000, immutable"}
+        return {"Cache-Control": "no-cache"}
+
     @app.get("/{path:path}")
     def spa(path: str):
         # Unmatched /api/ paths must fail as a JSON 404. Falling through to
@@ -133,8 +154,10 @@ def create_app(
             candidate = (resolved / path).resolve()
             # Serve real static files; anything else falls back to the SPA.
             if path and candidate.is_file() and resolved.resolve() in candidate.parents:
-                return FileResponse(candidate)
-            return FileResponse(resolved / "index.html")
+                return FileResponse(candidate, headers=_cache_headers(candidate))
+            return FileResponse(
+                resolved / "index.html", headers={"Cache-Control": "no-cache"}
+            )
         return HTMLResponse(
             "<h1>JLBC Insight</h1><p>UI not built yet — run: "
             "cd webapp && npm run build</p>"

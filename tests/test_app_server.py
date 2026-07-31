@@ -153,3 +153,48 @@ def test_provider_failure_is_a_json_503_not_a_plain_500():
     r = client.post("/api/search", json={"query": "budget"})
     assert r.status_code == 503
     assert "network share unreachable" in r.json()["detail"]
+
+
+# --- static caching (2026-07-31) -------------------------------------------
+# A new logo shipped at the same URL and browsers kept serving the old one;
+# separately, a cached index.html pinned the superseded hashed bundles, so the
+# whole UI looked un-updated. Both are cache-header bugs, not build bugs.
+
+
+def test_index_html_is_revalidated_not_blindly_reused(tmp_path):
+    """index.html must never be served from cache without asking.
+
+    It names the hashed bundles, so a stale copy pins the whole old app —
+    the update lands on the server and nobody sees it. `no-cache` still
+    allows storage; it just forces the conditional request.
+    """
+    (tmp_path / "index.html").write_text("<!doctype html><title>x</title>")
+    client = TestClient(create_app(provider=StubSearchProvider(), static_dir=tmp_path))
+    for url in ("/", "/search", "/ai"):  # every SPA route serves index.html
+        r = client.get(url)
+        assert r.status_code == 200
+        assert r.headers["cache-control"] == "no-cache", url
+
+
+def test_fingerprinted_assets_are_cached_hard(tmp_path):
+    """Vite renames on every build, so an assets/ URL can never go stale."""
+    (tmp_path / "index.html").write_text("<!doctype html><title>x</title>")
+    (tmp_path / "assets").mkdir()
+    (tmp_path / "assets" / "index-ABC123.css").write_text("body{}")
+    client = TestClient(create_app(provider=StubSearchProvider(), static_dir=tmp_path))
+    r = client.get("/assets/index-ABC123.css")
+    assert r.status_code == 200
+    assert "immutable" in r.headers["cache-control"]
+
+
+def test_unfingerprinted_public_files_are_revalidated(tmp_path):
+    """The logo keeps its filename across rebuilds — it must be rechecked.
+
+    This is the exact file that shipped stale.
+    """
+    (tmp_path / "index.html").write_text("<!doctype html><title>x</title>")
+    (tmp_path / "jlbc-logo.png").write_bytes(b"\x89PNG\r\n\x1a\n")
+    client = TestClient(create_app(provider=StubSearchProvider(), static_dir=tmp_path))
+    r = client.get("/jlbc-logo.png")
+    assert r.status_code == 200
+    assert r.headers["cache-control"] == "no-cache"
