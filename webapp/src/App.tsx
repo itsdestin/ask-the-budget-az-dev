@@ -1,5 +1,6 @@
 import { BrowserRouter, Route, Routes } from "react-router-dom";
 import { Header } from "./components/Header";
+import { HealthGate } from "./HealthGate";
 import { Admin } from "./pages/Admin";
 import { Ai } from "./pages/Ai";
 import { FiscalNotes } from "./pages/FiscalNotes";
@@ -35,7 +36,13 @@ export function AppRoutes() {
 export function App() {
   return (
     <BrowserRouter>
-      <AppRoutes />
+      {/* The health gate wraps the ROUTER, not a route (S18): a broken share
+          must not depend on client-side routing working, and nobody navigates
+          to "/repair" — they are sitting on "/" watching an app that won't
+          start. */}
+      <HealthGate>
+        <AppRoutes />
+      </HealthGate>
     </BrowserRouter>
   );
 }

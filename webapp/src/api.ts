@@ -585,3 +585,43 @@ export async function adminNotices(since?: string): Promise<{ notices: Notice[] 
   if (!r.ok) await fail(r, "notices");
   return r.json();
 }
+
+// ---------------------------------------------------------------------------
+// Health ladder + repair (Plan 5 Task 12, spec S18)
+// ---------------------------------------------------------------------------
+
+export interface HealthRung {
+  name: "server" | "machine_config" | "share" | "corpus" | "models";
+  /** null means "not checked" — the ladder short-circuits after the first
+   *  failure so an admin isn't sent chasing a second, phantom problem. */
+  ok: boolean | null;
+  detail: string;
+  fix: string | null;
+}
+
+export interface HealthReport {
+  ok: boolean;
+  rungs: HealthRung[];
+  data_dir: string | null;
+  /** True exactly when the SHARE rung is the first failure — the only case
+   *  where "point me at a different folder" can possibly help. */
+  can_repair: boolean;
+}
+
+export async function healthDetail(): Promise<HealthReport> {
+  const r = await fetch("/api/health/detail");
+  if (!r.ok) await fail(r, "health check");
+  return r.json();
+}
+
+export async function setDataDir(
+  path: string,
+): Promise<{ path: string; restart_required: boolean }> {
+  const r = await fetch("/api/config/data-dir", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ path }),
+  });
+  if (!r.ok) await fail(r, "set data folder");
+  return r.json();
+}

@@ -1613,3 +1613,24 @@ fieldset.adm-field{border:0;padding:0;}
 .adm-meter span{display:block;height:100%;background:var(--teal);}
 .adm-meter span.is-warn{background:var(--copper);}
 .adm-meter span.is-blocked{background:var(--az-red);}
+
+/* ===== page-repair (Plan 5 Task 12, S18) =====
+   The screen that renders INSTEAD of the app when it can't start. Centred,
+   narrow, and quiet: its reader is not browsing, they are stuck. Nothing here
+   is red — the failure is already stated in words, and an alarm-coloured
+   full-page panel reads as "you broke it" to someone who did nothing. */
+.page-repair{min-height:70vh;display:flex;align-items:center;}
+.page-repair .wrap{display:block;max-width:640px;}
+.rep-card{padding:28px 30px;}
+.rep-card h1{font-size:22px;color:var(--navy);font-weight:800;margin:0 0 14px;}
+.rep-rung{margin:0 0 14px;}
+.rep-detail{font-size:15px;color:var(--ink);margin:0;line-height:1.5;}
+.rep-fix{font-size:13px;color:var(--ink-2);margin:6px 0 0;line-height:1.55;}
+.rep-form{margin:18px 0 0;display:block;}
+.rep-form label{display:block;font-size:13.5px;font-weight:800;color:var(--ink);margin-bottom:6px;}
+.rep-form input{width:100%;border:1px solid var(--line);border-radius:var(--r-sm);padding:9px 11px;font:inherit;font-size:13.5px;}
+.rep-form button{margin-top:12px;}
+.rep-error{font-size:13px;color:var(--navy-900);background:var(--az-red-100);border-radius:var(--r-sm);padding:9px 12px;margin:10px 0 0;line-height:1.55;}
+.rep-done{margin:18px 0 0;padding:12px 14px;background:var(--teal-100);border-radius:var(--r-sm);}
+.rep-done p{margin:0;font-size:13.5px;color:var(--ink);line-height:1.55;}
+.rep-done .rep-fix{margin-top:6px;}
