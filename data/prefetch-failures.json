@@ -1,0 +1,90 @@
+{
+  "generated_at": "2026-07-31T05:30:30-0700",
+  "attempted": 7475,
+  "downloaded": 7064,
+  "skipped_already_cached": 402,
+  "failed": 9,
+  "failures": [
+    {
+      "url": "https://www.azjlbc.gov/12app/pri.pdf",
+      "group": "approps-fy2012",
+      "kind": "per_agency",
+      "label": "pri",
+      "host": "www.azjlbc.gov",
+      "error": "HTTP 404",
+      "error_type": "RuntimeError"
+    },
+    {
+      "url": "https://www.azjlbc.gov/17AR/doa-csf.pdf",
+      "group": "approps-fy2017",
+      "kind": "per_agency",
+      "label": "doa-csf",
+      "host": "www.azjlbc.gov",
+      "error": "HTTP 404",
+      "error_type": "RuntimeError"
+    },
+    {
+      "url": "https://www.azjlbc.gov/18AR/oco.pdf",
+      "group": "approps-fy2018",
+      "kind": "per_agency",
+      "label": "oco",
+      "host": "www.azjlbc.gov",
+      "error": "HTTP 404",
+      "error_type": "RuntimeError"
+    },
+    {
+      "url": "https://www.azjlbc.gov/21baseline/legsen.pdf",
+      "group": "baseline-fy2021",
+      "kind": "per_agency",
+      "label": "legsen",
+      "host": "www.azjlbc.gov",
+      "error": "HTTP 404",
+      "error_type": "RuntimeError"
+    },
+    {
+      "url": "https://www.azjlbc.gov/21baseline/otr.pdf",
+      "group": "baseline-fy2021",
+      "kind": "per_agency",
+      "label": "otr",
+      "host": "www.azjlbc.gov",
+      "error": "HTTP 404",
+      "error_type": "RuntimeError"
+    },
+    {
+      "url": "https://www.azleg.gov/legtext/44leg/1r/fiscal/hb2527.1.pdf",
+      "group": "fiscal-notes/1999",
+      "kind": "fiscal_note",
+      "label": "HB 2527",
+      "host": "www.azleg.gov",
+      "error": "HTTP 404",
+      "error_type": "RuntimeError"
+    },
+    {
+      "url": "https://www.azleg.gov/legtext/44leg/1r/fiscal/hb2629.wpd.pdf",
+      "group": "fiscal-notes/1999",
+      "kind": "fiscal_note",
+      "label": "HB 2629",
+      "host": "www.azleg.gov",
+      "error": "HTTP 404",
+      "error_type": "RuntimeError"
+    },
+    {
+      "url": "https://www.azleg.gov/legtext/44leg/2r/fiscal/scr 1004.doc.pdf",
+      "group": "fiscal-notes/2000",
+      "kind": "fiscal_note",
+      "label": "SCR 1004",
+      "host": "www.azleg.gov",
+      "error": "body is not a PDF (first bytes b'%!PS-Adobe-3.0\\n%', 80026 bytes, content-type application/pdf)",
+      "error_type": "NotAPdfError"
+    },
+    {
+      "url": "https://www.azleg.gov/legtext/47leg/2r/fiscal/sb1192.doc.pdf",
+      "group": "fiscal-notes/2006",
+      "kind": "fiscal_note",
+      "label": "SB 1192",
+      "host": "www.azleg.gov",
+      "error": "body is not a PDF (first bytes b'', 0 bytes, content-type application/pdf)",
+      "error_type": "NotAPdfError"
+    }
+  ]
+}
