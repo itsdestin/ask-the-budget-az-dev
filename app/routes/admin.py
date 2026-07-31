@@ -28,6 +28,7 @@ from pydantic import BaseModel
 
 from app.identity import admin_claimable, current_user, is_admin
 from harness.catalog import fetch_catalog
+from harness.notices import read_notices
 from harness.settings import (
     ProviderConfig,
     Settings,
@@ -384,3 +385,21 @@ def get_models(
         "catalog": [card.as_dict() for card in result.catalog],
         "note": result.note,
     }
+
+
+# ---------------------------------------------------------------------------
+# GET /api/admin/notices
+# ---------------------------------------------------------------------------
+
+
+@router.get("/api/admin/notices")
+def get_notices(
+    since: str | None = None, _settings: Settings = Depends(require_admin)
+) -> dict:
+    """"What went wrong while you weren't looking" (S13).
+
+    `since` is an ISO timestamp — the admin page passes back the `at` of
+    the newest notice it has already shown, so a poll returns only what
+    is new.
+    """
+    return {"notices": read_notices(since=since)}

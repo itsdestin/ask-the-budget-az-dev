@@ -354,6 +354,28 @@ def test_models_route_reports_a_custom_endpoint_honestly(admin_client, settings_
 
 
 # ---------------------------------------------------------------------------
+# GET /api/admin/notices
+# ---------------------------------------------------------------------------
+
+
+def test_notices_route_returns_the_feed(admin_client, settings_with_key):
+    from harness.notices import KIND_MODEL_FALLBACK, record_notice
+
+    record_notice(KIND_MODEL_FALLBACK, "the standard model was retired")
+    body = admin_client.get("/api/admin/notices").json()
+    assert [n["message"] for n in body["notices"]] == [
+        "the standard model was retired"
+    ]
+
+    newest = body["notices"][-1]["at"]
+    assert admin_client.get(f"/api/admin/notices?since={newest}").json()["notices"] == []
+
+
+def test_notices_route_is_empty_on_a_fresh_install(admin_client, settings_with_key):
+    assert admin_client.get("/api/admin/notices").json() == {"notices": []}
+
+
+# ---------------------------------------------------------------------------
 # Admin transfer — the lockout guards
 # ---------------------------------------------------------------------------
 

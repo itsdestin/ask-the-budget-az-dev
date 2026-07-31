@@ -25,10 +25,30 @@ import pytest
 
 from harness.constants import TIER_BUDGETS
 from harness.ledger import LimitStatus
-from harness.session import MAX_RETRY_AFTER_SECONDS, HarnessSession
+from harness.session import (
+    MAX_RETRY_AFTER_SECONDS,
+    HarnessSession,
+    reset_model_overrides,
+)
 from harness.settings import ProviderConfig, Settings, TierConfig
 
 SYSTEM_PROMPT = "SYSTEM PROMPT (Task 7 stub)."
+
+
+@pytest.fixture(autouse=True)
+def _no_leaked_model_overrides():
+    """Clear the S13 fallback state between tests.
+
+    `harness/session.py` keeps the "this model is retired, use that one
+    instead" map at MODULE scope, on purpose — it is a per-process runtime
+    override, deliberately not a settings write. That makes it shared
+    state across tests in one pytest process: a test that provokes a
+    fallback would otherwise change which model the NEXT test's session
+    requests, and the failure reads as an unrelated model-id mismatch.
+    """
+    reset_model_overrides()
+    yield
+    reset_model_overrides()
 
 
 # ---------------------------------------------------------------------------
@@ -634,15 +654,21 @@ def test_interrupt_during_retry_backoff_stops_the_turn_immediately():
 
 
 def test_400_is_not_retried():
+    # A 4xx that is not 429 is a request WE built wrong; retrying it just
+    # spends three more seconds arriving at the same answer.
+    #
+    # The message here is deliberately NOT about the model. A 400 saying
+    # the model is gone takes the S13 fallback path instead — a different
+    # model, not a retry — which is pinned in tests/test_notices.py.
     provider = Provider(
-        lambda: error_response(400, {"error": {"message": "model not found: vendor/typo"}})
+        lambda: error_response(400, {"error": {"message": "max_tokens: 200000 > 64000"}})
     )
     session, _ = make_session(provider)
     _, terminal = run(session)
 
     assert provider.call_count == 1
     assert terminal["type"] == "_error"
-    assert "model not found: vendor/typo" in terminal["message"]
+    assert "max_tokens: 200000 > 64000" in terminal["message"]
 
 
 def test_a_failed_turn_is_closed_before_the_error_frame():
