@@ -17,6 +17,11 @@ __pycache__/
 *$py.class
 .Python
 .venv/
+# Throwaway experiment venv holding a ROCm build of torch (AMD GPU MinerU
+# benchmark). Kept out of the lockfile on purpose — the main venv pins torch
+# to the CUDA index for the Windows dev box, and mixing the two would break
+# reproducibility. See docs/superpowers/investigations/2026-07-31-rocm-mineru-benchmark.md
+.venv-rocm/
 venv/
 env/
 *.egg-info/
