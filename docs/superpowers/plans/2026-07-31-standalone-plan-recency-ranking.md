@@ -1,3 +1,18 @@
+> **STATUS 2026-07-31 — Tasks 1, 2, 3, 5 and the script half of 4 are DONE
+> and merged (`4c75f2c`). `RECENCY_BOOST_PER_YEAR` ships at 0.0.**
+>
+> Remaining: **Task 4's query authoring** (`eval/queries_historical.yaml` needs
+> real chunk_ids from the backfilled corpus) and **Task 6** (calibration).
+> Both are BLOCKED until the S20 backfill finishes — see `STATUS.md`.
+>
+> Deviations already merged, all measured: the hard filter is named-year **±1**
+> (exact-year filtering FAILED G1 at recall@20 93.10% because `fiscal_year` is
+> the *document's* year and an FY N supplemental is enacted in the FY N+1 bill);
+> the plausible-year floor is 1984 not 1990; and the `fiscal_year` tool-schema
+> bound was widened to 1984..2035. Task 6's checklist also now carries: flip the
+> prompt's recency sentence in the same change, and re-check
+> `ADJACENT_YEAR_WINDOW` against a 40-year corpus (±1 was calibrated on three).
+
 # Standalone Plan: Recency-Aware Ranking (S21)
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
