@@ -530,6 +530,25 @@ handoff-blocking — they degrade the office experience silently.**
   that was decaying toward ~25 docs/hour. **Better long-term design: snapshot
   once per BATCH** (per book edition / per fiscal-note session) rather than
   per document, so bulk runs keep protection without the quadratic cost.
+- **🔴 Shared `mineru-api` server: TRIED, CRASHED, ROLLED BACK — do not retry
+  at high concurrency.** The idea was sound and the measurement was real: a
+  per-document `mineru` invocation spends ~33 s of ~38 s loading models, and a
+  warm shared server via `--api-url` took a document from 38 s to **8 s** with
+  **byte-identical output** (block counts, text and bboxes verified on 3 docs).
+  It also freed ~15 GB by keeping one set of models resident instead of one per
+  worker. **But MinerU's server is not memory-safe under concurrency:** at
+  `MINERU_API_MAX_CONCURRENT_REQUESTS=12` it died with a glibc
+  `corrupted double-linked list` — native heap corruption, not something a
+  setting can fix — and every in-flight worker then failed with
+  `httpx.ConnectError`. 101 documents failed before rollback; all 101 were
+  re-queued and recovered, no data was lost, and the pre-experiment archive
+  (`~/corpus-before-parallel.tgz`) was never needed. The code seam survives:
+  `JLBC_MINERU_API_URL` (merge `57035a8`, default unset = spawn-per-document =
+  today's behavior). **If anyone revisits this, cap it at ~3 concurrent (the
+  MinerU default) and expect roughly N=3 throughput, or wait for an upstream
+  fix.** The per-invocation model load remains the single biggest theoretical
+  win in ingest — batch mode (`-p <directory>`, measured **2.85×** on 4 docs)
+  is the safer way to claim it, since it keeps one process per batch.
 - **Measured parallel scaling curve (Z13, 32 threads / 121 GB, MinerU 3.1.6
   CPU).** Use these numbers, not guesses, when sizing any future bulk run:
 
