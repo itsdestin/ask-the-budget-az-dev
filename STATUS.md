@@ -39,6 +39,15 @@ source. When something ships, update only this file.
   Phase D (recency + refusal calibration) is BLOCKED until the corpus is
   complete. Nothing else in this list touches the ingest path, so all of it
   is safe to work in parallel.
+- **Parallel work available NOW** (safe alongside the running backfill — all
+  disjoint from the ingest path). Handoff prompts at the repo root:
+  [`PROMPT-parallel-ai-hardening.md`](PROMPT-parallel-ai-hardening.md) (S22
+  prompt caching + S23 quote validation — biggest cost lever),
+  [`PROMPT-parallel-ingest-defects.md`](PROMPT-parallel-ingest-defects.md) (the
+  two 🔴 handoff-blocking defects; develop + merge, do NOT restart the running
+  server), and
+  [`PROMPT-parallel-write-plan5.md`](PROMPT-parallel-write-plan5.md) (write the
+  Plan 5 doc — pure documentation).
 - **Plan 5 — admin/settings UI, packaging + launcher, legacy deletion
   (`web/`, `mcp-server/`, `db/`, dead `retrieval/` modules), gates G2/G3,
   and AI-Mode hardening: S22 prompt caching (biggest cost lever) + S23
