@@ -1,3 +1,23 @@
+> **STATUS 2026-07-31 — PARTIALLY EXECUTED. Read this before acting.**
+>
+> - **Phase A (setup + parity gate): DONE.** Gate passed exactly; p95 821 ms.
+> - **Phase B (recency machinery): DONE and merged** (`4c75f2c`). The boost
+>   ships at `RECENCY_BOOST_PER_YEAR = 0.0` awaiting Phase D.
+> - **Phase C (backfill): RUNNING RIGHT NOW** on three detached processes.
+>   Do NOT start a second backfill, and do NOT re-run Phase A/B.
+>   Fiscal notes ~65% done; the 38 book editions have not started.
+> - **Phase D (calibration): BLOCKED** until C finishes — it needs the
+>   completed corpus to author ground truth against.
+> - **Phase E:** not started.
+>
+> Live state, operating config, restore points and the throughput work done
+> during the run are recorded in `STATUS.md` → "Z13 backfill — IN PROGRESS".
+> Restart the stack with `~/backfill-scripts/restart_stack.sh <workers> <omp>
+> <shared_mineru>` (currently `12 3 0`); progress in `~/backfill-progress.log`.
+>
+> **If you are picking this up to CONTINUE:** the only work left in this
+> runbook is Phase D and Phase E. Everything else below is history.
+
 # Handoff: Z13 Backfill + Recency Calibration (S20 + S21)
 
 You are a fresh Claude session on **Destin's Ryzen AI Max+ 395 machine
