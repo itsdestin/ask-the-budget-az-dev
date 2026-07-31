@@ -20,6 +20,7 @@ import getpass
 import hashlib
 import json
 import os
+import threading
 import socket
 import time
 import uuid
@@ -188,7 +189,14 @@ def save(job: JobRecord) -> Path:
     a rare race but a routine one.
     """
     path = jobs_dir() / f"{job.job_id}.json"
-    tmp = path.with_suffix(f".{os.getpid()}.json.tmp")
+    # WHY the thread id as well as the pid: with parallel ingest several worker
+    # THREADS share one process, so a pid-only temp name is the SAME path for
+    # all of them. Two threads writing the same job then race — one renames
+    # first and the other's os.replace fails with FileNotFoundError, failing a
+    # document that was otherwise fine. Observed exactly that at 14 workers
+    # (0 occurrences at 8, 1 in ~100 documents at 14). pid+tid is unique per
+    # writer on every platform we run on.
+    tmp = path.with_suffix(f".{os.getpid()}.{threading.get_ident()}.json.tmp")
     tmp.write_text(json.dumps(job.to_json(), indent=2), encoding="utf-8")
     _replace_with_retry(tmp, path)
     return path

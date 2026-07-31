@@ -211,3 +211,41 @@ def test_queued_jobs_are_claimable_from_any_machine(data_dir):
     other.machine = "SOMEONE-ELSES-PC"
     save(other)
     assert [j.job_id for j in resumable()] == []
+
+
+def test_concurrent_threads_saving_the_same_job_do_not_race(data_dir):
+    """Regression: with parallel ingest several worker THREADS share one pid, so
+    a pid-only temp path collides and one thread's os.replace fails with
+    FileNotFoundError — failing a document that was otherwise fine. Seen live at
+    14 workers."""
+    import threading as _t
+
+    from dataclasses import replace as _replace
+
+    job = new_job(
+        doc_id="race-doc", source_path="/tmp/x.pdf", corpus="budget",
+        publisher="jlbc", doc_type="afr", fiscal_year=2025,
+        title="Race Doc", source_sha256="ab" * 32,
+    )
+    save(job)
+    errors: list[BaseException] = []
+    barrier = _t.Barrier(8)
+
+    def hammer(n: int) -> None:
+        try:
+            barrier.wait()
+            for i in range(25):
+                save(_replace(job, stage_detail=f"t{n}-{i}"))
+        except BaseException as exc:  # noqa: BLE001 - the assertion is "none"
+            errors.append(exc)
+
+    threads = [_t.Thread(target=hammer, args=(n,)) for n in range(8)]
+    for t in threads:
+        t.start()
+    for t in threads:
+        t.join()
+
+    assert errors == [], f"concurrent save() raced: {errors[:3]}"
+    assert load_job(job.job_id) is not None
+    leftovers = list(jobs_dir().glob("*.tmp"))
+    assert leftovers == [], f"temp files leaked: {leftovers}"
