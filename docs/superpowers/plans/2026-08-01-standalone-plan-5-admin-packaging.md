@@ -2,9 +2,9 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** Make the app *handoff-survivable*. Everything Destin currently does by editing JSON on the share or running a command must become a button a non-technical admin can press; everything that silently breaks after he leaves must either be fixed or be visibly, plain-Englishly broken. Then package it so a colleague installs it from a zip with no admin rights, delete the retired architecture, and pass the two remaining acceptance gates.
+**Goal:** Make the app *handoff-survivable*. Everything Destin currently does by editing JSON on the share or running a command must become a button a non-technical admin can press; everything that silently breaks after he leaves must either be fixed or be visibly, plain-Englishly broken. Then package it so a colleague installs it from a zip with no admin rights, write the handbook that lets a non-technical successor operate *and extend* it, delete the retired architecture, and pass the two remaining acceptance gates.
 
-**Architecture:** Four new backend seams — `app/identity.py` (who is this, are they the admin), `app/routes/admin.py` (settings/usage/catalog/corpus/backup APIs), `harness/catalog.py` (OpenRouter model catalog + recommendations + runtime fallback), `app/machine_config.py` (per-machine data-dir pointer, S18) — plus two new pages (`Admin.tsx`, extended `Settings.tsx`), a launch health ladder that fails to a repair screen instead of a stack trace, and a `packaging/` tree that produces the distributable zip. Nothing in this plan changes retrieval, chunking, or the tool loop's behaviour.
+**Architecture:** Four new backend seams — `app/identity.py` (who is this, are they the admin), `app/routes/admin.py` (settings/usage/catalog/corpus/backup APIs), `harness/catalog.py` (OpenRouter model catalog + recommendations + runtime fallback), `app/machine_config.py` (per-machine data-dir pointer, S18) — plus three new pages (`Admin.tsx`, `Help.tsx`, extended `Settings.tsx`), a launch health ladder that fails to a repair screen instead of a stack trace, a `packaging/` tree that produces the distributable zip, and a Markdown-sourced Administrator Handbook rendered into a JLBC-styled Word document that ships both in-app and beside the corpus on the share. Nothing in this plan changes retrieval, chunking, or the tool loop's behaviour.
 
 **Tech Stack:** existing (FastAPI, React/Vite, LanceDB, fastembed) + `httpx` (already a dependency) for the catalog fetch. No new runtime dependencies. Packaging uses python.org's Windows **embeddable** distribution — not PyInstaller (S7).
 
@@ -55,6 +55,10 @@ Facts established by shipped code and by the 2026-07-31 live runs. Getting any o
 | Create `packaging/launcher.pyw` + `packaging/install.cmd` | S8 launcher (port reuse, health wait, Chrome `--app` → Edge → default browser) + Start-Menu/Desktop shortcut creation |
 | Create `packaging/README.md` | How to rebuild the bundle; what's in it; how to bump it |
 | Create `docs/QUICKSTART.md` | The one-page G3 install sheet (includes setting a hard monthly credit cap on the OpenRouter dashboard) |
+| Create `docs/HANDBOOK.md` | **Source of truth** for the Administrator Handbook — operation, cost model, the two AI tiers and why those models, confidentiality, and AI-assisted maintenance |
+| Create `scripts/jlbc_memo.py` + `scripts/build_handbook.py` | JLBC Staff-Memorandum renderer (measured from the committed reference memo) + the handbook build |
+| Create `webapp/src/pages/Help.tsx` | In-app handbook (everyone, not just the admin) + Word download |
+| Committed `samples/raw-docx/jlbc-staff-memorandum-style-reference.docx` | The real FY 2027 Round 1 instructions memo — the styling fixture, vendored per CLAUDE.md so it survives a fresh clone |
 | Create `scripts/verify_citations_sample.py` | G2: sample N chunks corpus-wide, assert page/bbox resolve against the real PDF |
 | Create `store/documents.py` | Consolidate the four `documents.json` readers behind one loader |
 | Delete | `web/`, `mcp-server/`, `db/`, `retrieval/api.py`, `retrieval/bm25.py`, `retrieval/dense.py`, `retrieval/rerank.py`, `eval/refresh_chunk_ids.py`, `scripts/embed_corpus.py`, `scripts/load_slice.py`, `scripts/redownload_cached_pdfs.py`, `tests/test_api.py`, and their `setup.sh` steps |
@@ -134,6 +138,12 @@ POST /api/config/data-dir                 (no auth — the app is unusable when 
 
 GET  /api/corpus/counts                   (public — the footer reads it)
   -> 200 { "documents": int, "budget_chunks": int, "fiscal_note_chunks": int }
+
+GET  /api/handbook                        (public — everyone benefits from it)
+  -> 200 the built .docx, Content-Disposition filename
+         "JLBC Insight — Administrator Handbook.docx"
+GET  /api/handbook/markdown               (public)
+  -> 200 { "markdown": str, "built_at": str|null }
 ```
 
 **Redaction is a hard rule, not a nicety.** `GET /api/admin/settings` never returns `api_key`. `PUT` accepts the literal sentinel `"__unchanged__"` so an admin editing spend limits cannot blank the key by round-tripping the form. Both properties get their own tests (Task 3, Steps 1–2) because both fail *silently* — a leaked key looks fine until it's in a screenshot, and a clobbered key looks like "AI Mode randomly stopped working".
@@ -150,9 +160,12 @@ Tracks 1 and 2 are independent of Track 3 and can be built in parallel by two se
 | 2 — Resilience (S18 + ladder) | 10–12 | Session A (shares `app/` and `webapp/src/pages/`) |
 | 3 — Packaging | 13–16 | Session B (owns `packaging/` only until Task 16) |
 | 4 — Cleanup | 17–19 | After tracks 1–2 land |
-| 5 — Gates | 20–22 | Last, needs a finished bundle |
+| 5 — Handbook | 20–22 | Session C — **Task 20 can start immediately** (it only needs the committed reference memo); Tasks 21–22 need Tracks 1–2 finished, because Part 5 documents screens that must exist before they can be described accurately |
+| 6 — Gates | 23–26 | Last, needs a finished bundle and a finished handbook |
 
-**Parallel-execution contract:** Session A owns `app/`, `harness/`, `store/`, `webapp/src/`. Session B owns `packaging/` and `docs/QUICKSTART.md`. Both append to `STATUS.md` (own section, final task only) and `setup.sh` (Session A only). Session B must not edit application code — if the bundle needs an app change (it will: at minimum a `--data-dir` startup flag), Session B files it as a note and Session A makes the change.
+**Parallel-execution contract:** Session A owns `app/`, `harness/`, `store/`, `webapp/src/`. Session B owns `packaging/` and `docs/QUICKSTART.md`. Session C owns `docs/HANDBOOK.md` and `scripts/jlbc_memo.py`/`scripts/build_handbook.py`; its Task 22 touches `app/routes/` and `webapp/src/`, so it lands **after** Session A finishes or coordinates directly with it. All three append to `STATUS.md` (own section, final task only); only Session A edits `setup.sh`. Session B must not edit application code — if the bundle needs an app change (it will: at minimum a `--data-dir` startup flag), Session B files it as a note and Session A makes the change.
+
+**Write the handbook LAST among the docs, not first.** Its Part 5 describes admin screens screen-by-screen; written against a plan rather than a running app, it will describe buttons that ended up named something else — and a handbook that is wrong in its details teaches the reader not to trust it.
 
 ---
 
@@ -515,17 +528,103 @@ Triaged from STATUS's follow-up list. **Check first whether the `ingest-defects`
 
 ---
 
-## Track 5 — Handoff gates
+## Track 5 — The Administrator Handbook
 
-### Task 20: The quickstart (G3's script)
+**This is the deliverable that outlives everyone.** Destin is leaving; there is no technical successor; the app has to be operable, explainable, and *modifiable* by someone who has never opened a terminal. The quickstart (Task 26) gets a person installed in ten minutes. The handbook is the other thing — the document that answers "how does this work, why is it built this way, and what do I do when I need it to do something new."
+
+**Two decisions that shape all three tasks:**
+
+**1. The Markdown is the source of truth; the `.docx` is generated.** `docs/HANDBOOK.md` lives in the repo, gets updated alongside code like any other doc, and is what an AI assistant reads when the future admin asks for help. `scripts/build_handbook.py` renders it into a JLBC-styled Word document. If a human hand-edits the `.docx`, the edit is lost on the next build — the build stamps a line saying exactly that at the top. A hand-maintained Word file would be stale within a month and there'd be no way to tell.
+
+**2. It has to be findable in File Explorer, not just in the app** — the moment an admin most needs it is when the app *won't start*. So the generated `.docx` sits on the share next to the corpus (`<data_dir>/JLBC Insight — Administrator Handbook.docx`), refreshed whenever a newer build exists, AND is served in-app.
+
+### Task 20: JLBC memo styling module + handbook renderer
+
+**Files:** Create `scripts/jlbc_memo.py`, `scripts/build_handbook.py`, `tests/test_jlbc_memo.py`; Reference `samples/raw-docx/jlbc-staff-memorandum-style-reference.docx` (committed 2026-07-31 — the real FY 2027 Appropriations Report Round 1 instructions memo, vendored per CLAUDE.md's primary-source rule specifically so this task has a fixture that survives a fresh clone).
+
+**The style, measured from the reference document — implement these values, do not eyeball them:**
+
+| Element | Spec |
+|---|---|
+| Page | US Letter; margins top **0.7"**, bottom **0.5"**, left/right **1.0"**; header distance 0.75", footer 0.6" |
+| Masthead line 1 | `Joint Legislative Budget Committee` — Word `Title` style, **14 pt, bold, centered** |
+| Masthead line 2 | `Staff Memorandum` — **14 pt bold, centered** (direct run formatting, not a style) |
+| Masthead lines 3–4 | `1716 West Adams` TAB `Telephone: (602) 926-5491` / `Phoenix, Arizona 85007` TAB `azjlbc.gov` — **10 pt**, one **left tab stop at 7020 twips (4.875")** |
+| Body text | Calibri **10.5 pt** (note: the `Normal` style is 12 pt and every body run overrides to 10.5 — match the runs, not the style) |
+| Section headings | The built-in **`Header` paragraph style**, bold, 10.5 pt, flush left. Yes, really — JLBC reuses `Header` as a section heading; matching the house style means matching that, odd as it looks |
+| Bullets | `List Paragraph` style, left indent **0.1875"** |
+| Run-in labels | **bold + underline** label, then `: ` or ` – `, then normal text (`Policy Issues – …`, `BUDS Table: …`) |
+| Emphasis prefix | `NEW:` in bold at the start of a bullet |
+| Vertical spacing | **empty paragraphs**, not space-after |
+| Page 2+ header | TAB then `- N -` |
+
+- [ ] **Step 1 — failing tests.** `tests/test_jlbc_memo.py` renders a small fixture document and asserts against the reference: page margins match to the EMU; the masthead's four lines exist with the right sizes/alignment/tab stop; a `##` heading becomes a `Header`-styled bold 10.5 pt paragraph; a `-` bullet becomes `List Paragraph` at 0.1875"; a `**Label:**` line-start becomes a bold+underline run-in label; body runs are 10.5 pt. Read the expected values **out of the committed reference docx** in the test where practical, so a future JLBC style change is a fixture swap rather than a code rewrite.
+- [ ] **Step 2 — implement `scripts/jlbc_memo.py`** as a reusable renderer: `render(markdown: str, *, title: str, subtitle: str = "Staff Memorandum") -> Document`. Supported Markdown subset — deliberately small, and the handbook is written to stay inside it: `#`/`##`/`###` headings, paragraphs, `-` bullets (one level), `**bold**`, `_italic_`, `` `code` `` (rendered as Consolas), pipe tables (Table Grid, as `harness/documents.py` already does), and horizontal rules as page breaks.
+- [ ] **Step 3 — implement `scripts/build_handbook.py`**: read `docs/HANDBOOK.md`, render, stamp `Generated from docs/HANDBOOK.md on <date> — edits made directly to this Word file will be lost the next time it is rebuilt.` as the first body line, write to `dist/JLBC Insight — Administrator Handbook.docx`.
+- [ ] **Step 4** — `.venv/bin/python -m pytest tests/test_jlbc_memo.py -q`, then build and open the result to confirm it *looks* like a JLBC memo. This one needs an eye, not just a green test.
+- [ ] **Step 5 (optional, small, real payoff)** — repoint `harness/documents.py::_render_docx` at `jlbc_memo.render()` so **AI Mode's generated memos come out in house style too**. Today they use Word's default Title/Heading 2/List Bullet styling, which is fine but generic. Guard it with the existing `harness/documents.py` tests; if they pin the current styling, update them deliberately in the same commit rather than working around them.
+- [ ] Commit: `feat(scripts): JLBC staff-memorandum renderer + handbook build`
+
+### Task 21: Write the handbook
+
+**Files:** Create `docs/HANDBOOK.md`.
+
+Audience: **the next admin, who is not technical.** Write in plain English, second person, no jargon without a definition, and no assumed context about how the app was built. Every section that describes a screen names it exactly as it appears in the UI. Where a decision was a trade-off, say what the trade-off was — a successor who understands *why* can adapt; one who only knows *what* is stuck the first time reality differs.
+
+Required sections, in this order:
+
+- [ ] **Step 1 — Part 1: What this is and why it exists.** The tool in one page: two corpora (budget documents, fiscal notes), search that needs no API key, AI Mode that does. The North Star stated plainly — this is retrieval with auditable provenance; answer generation is secondary; a fiscal analyst who can't verify a claim won't use it twice. The six Core Invariants in the admin's language, especially: **refusal beats hallucination** (a high refusal rate is fixable, a confident wrong answer destroys trust), **every claim carries a citation you can click through to the page and highlight**, and **no "hallucination-free" marketing language, ever** — with the Stanford Lexis study named as the reason.
+- [ ] **Step 2 — Part 2: How the pieces fit.** One diagram-free walkthrough: the app is a single program on your PC that opens in Chrome; the documents and the search index live in one folder on the shared drive; nothing leaves your network unless AI Mode is on; MinerU reads PDFs into text with page and position recorded; the index is LanceDB; the models that do search run locally on the CPU with no key. Name the folder layout (`lancedb/`, `pdfs/`, `documents.json`, `settings.json`, `jobs/`, `usage/`, `backups/`, `notices.json`) and say what each is in one sentence.
+- [ ] **Step 3 — Part 3: OpenRouter, keys, and money.** What OpenRouter is (one account, many model vendors, one bill). Step-by-step key creation with **setting a hard monthly credit limit on the OpenRouter dashboard** as a required step, not a suggestion — that cap is the only true org-wide spend enforcement and it is zero code. How billing works (per token, in and out; costs are recorded per call at OpenRouter's exact figure). What prompt caching is and why the admin page shows a cache percentage: the same system prompt is resent on every step, cache reads cost roughly a tenth of fresh input, and a broken cache is **invisible** except as a bill ~10× larger — that percentage is the only early warning.
+- [ ] **Step 4 — Part 4: The two AI modes, and why the models were chosen.** This is the section Destin specifically asked for, so it gets real reasoning, not a table.
+  - **Standard is the default on every new question, deliberately.** It keeps a tight retrieval posture (step cap ~15, first-call cap on) because most real questions are lookups.
+  - **Deep Research** raises the cap (~50) and permits broad multi-year sweeps.
+  - **The measured cost difference, from the 2026-07-31 live run: $0.0127 and 50 seconds for a Standard lookup versus $0.563 and 295 seconds for a comparable Deep Research question — about 44× the cost and 6× the time.** That is why the cheap path is the default and the expensive one is a deliberate, explained click.
+  - **Why open-weight models rather than the flagships.** First-party flagship models (Fable/Opus/GPT-class) were explicitly rejected on cost: open-weight alternatives deliver most of the quality for a fraction of the per-token price, and the whole point is a tool an office can afford to leave switched on. Deep Research is assigned a cost-effective frontier-class open model; Standard is assigned the best opus-level-performance-per-dollar open model. Both are **admin-changeable without touching code**, and the app auto-falls-back if a model is retired.
+  - **What a tier is NOT:** the step caps are not admin-configurable, on purpose — an admin who set Standard's cap to 1 would silently break every quick lookup with no error to explain it.
+- [ ] **Step 5 — Part 5: Every admin surface, screen by screen.** Costs (including the honest "at least $X (N calls of unknown cost)" wording and what makes a cost unknown); AI Mode setup (key, provider, tier models, what "custom endpoint" is for and its four caveats); Spend limits (default, per-user override, exemptions like the director, what a user at their limit sees, and that **search is never affected**); Corpus (counts, queue, snapshots, one-click restore and when to use it); Notices; Admin transfer (and the warning that transferring means losing your own access); Where things live. State plainly that the admin gate is a **soft gate keyed on Windows username, not a security boundary** — it exists so individual spend isn't casually browsable, and nothing harmful sits behind it.
+- [ ] **Step 6 — Part 6: Uploading documents, and the confidentiality rule.** Invariant 8 in full, in the admin's words: **only public-record documents** — baseline books, appropriations reports, fiscal notes, bills, executive budget requests, agency budget requests, annual financial reports. The reason, stated honestly: the data-retention practices of OpenRouter and the model providers behind it are inconsistent and likely insufficient for confidential state data. Both halves of the risk: search-only mode never sends document content anywhere, **but** a confidential document uploaded to the share is exposed to anyone who later asks AI Mode a question that retrieves it. What to do if something confidential is uploaded by mistake (remove it, restore a snapshot from before, and understand what may already have been sent). Also the practical reality: large books process overnight, so leave the app running.
+- [ ] **Step 7 — Part 7: Routine operation and troubleshooting.** Adding a new edition when JLBC publishes one; refreshing fiscal notes; what to do when the shared drive moves (the repair screen); "AI Mode says no API key"; "a document has been processing for hours" (expected for books — 1–3 min/page); "search returns nothing"; where the logs are; how to restore a snapshot. Each as symptom → what it means → what to do.
+- [ ] **Step 8 — Part 8: Changing the app with AI help.** The section that makes this a living system instead of a frozen one. Written for a non-developer:
+  - **What you need:** the code (the GitHub repo), an AI coding assistant (Claude Code is what built it), and this handbook.
+  - **What to point the assistant at first, and why:** `CLAUDE.md` (the working rules), `STATUS.md` (**the single source of truth for current state** — the phase plans are historical and were never updated as things shipped), and the consolidation spec. Say explicitly that reading STATUS.md first prevents an assistant from "fixing" something that was deliberately decided.
+  - **Copy-paste starting prompts** for the realistic jobs: *add support for a new file type*, *a document extracted badly*, *change what the AI is told to do* (the system prompt), *add a field to search*, *the eval score dropped*. Each prompt names the files that matter and the command that proves it worked.
+  - **The rules to give the assistant, every time:** work in a git worktree, not on master; run the eval (`uv run python -m eval.run_eval`) after any change to retrieval, ingest, chunking, or the system prompt, and **commit the results file alongside the code**; annotate non-obvious code with a WHY comment; never test against a corpus you can't restore; take a snapshot first.
+  - **What not to let it do:** rewrite the citation-verification path without understanding Invariants 1–3; change chunk IDs (it invalidates the eval ground truth and orphans live chunks); loosen the refusal threshold to make the tool "more helpful" — that trades trust for the appearance of usefulness, which is the one trade this project never makes.
+  - **How to tell whether a change is safe to keep:** the eval numbers, the test suites, and a handful of real questions you already know the answers to.
+- [ ] **Step 9 — Part 9: Reference.** Glossary (chunk, embedding, retrieval, rerank, refusal threshold, RRF, provenance, tier, token, prompt cache); the current model assignments and where to change them; key file paths; the eval command and how to read its output; links to the spec, STATUS.md, and the quickstart.
+- [ ] **Step 10** — build it (`.venv/bin/python scripts/build_handbook.py`), read the Word output end to end **as if you were the next admin**, and fix every place it assumes knowledge the reader doesn't have.
+- [ ] Commit: `docs: administrator handbook — operation, cost model, confidentiality, AI-assisted maintenance`
+
+### Task 22: Ship the handbook where people will find it
+
+**Files:** Modify `app/routes/admin.py` (or a small `app/routes/handbook.py`), `app/main.py`, `webapp/src/pages/Help.tsx` (new), `Header.tsx`, `setup.sh`; Create `tests/test_handbook_route.py`.
+
+- [ ] **Step 1 — failing tests:**
+  - `GET /api/handbook` streams the `.docx` with the correct content type and a filename that survives the space and em-dash in it
+  - `GET /api/handbook/markdown` returns the source text (this is what the in-app Help page renders, and what an admin can paste into an AI assistant)
+  - on startup, if `<data_dir>/JLBC Insight — Administrator Handbook.docx` is missing **or older than the bundled build**, it is copied to the share; a share that is read-only logs one line and does not crash the app — the handbook is important, but not important enough to prevent the app from starting
+  - the copy never overwrites a **newer** file on the share without logging what it replaced
+- [ ] **Step 2 — implement**, including a **Help** nav item (visible to everyone, not just the admin — analysts benefit from Parts 1, 3, 4 and 6) rendering the Markdown in-app with a prominent "Open the Word version" download.
+- [ ] **Step 3 — Task 14 hook:** the packaged bundle includes the built `.docx` and the Markdown; `setup.sh` builds the handbook so a dev checkout has it too.
+- [ ] **Step 4** — pytest + vitest green.
+- [ ] Commit: `feat(app): serve the handbook in-app and place it beside the corpus on the share`
+
+---
+
+## Track 6 — Handoff gates
+
+### Task 23: The quickstart (G3's script)
 
 **Files:** Create `docs/QUICKSTART.md`.
 
 One page, written for someone who has never seen a terminal. Must include: unzip location; run `install.cmd`; where the shared data folder is; what works with no key (search, fiscal notes, upload) and what needs one; **how to create the OpenRouter key and set a hard monthly credit cap on the OpenRouter dashboard** (S19 — the only true org-wide spend enforcement, and it is zero code); how to claim admin; the Invariant 8 public-record-only rule; where logs live; and the three things that go wrong most (share moved → the repair screen; no key → AI Mode explains itself; big book → it processes overnight, leave it running).
 
+It ends by pointing at the handbook: **the quickstart gets you running, the handbook explains everything else** — and it names both locations (the Help tab, and the Word file sitting next to the corpus on the share).
+
 - [ ] Commit: `docs: one-page quickstart for the cold-start install`
 
-### Task 21: G2 — citation spot-verification corpus-wide
+### Task 24: G2 — citation spot-verification corpus-wide
 
 **Files:** Create `scripts/verify_citations_sample.py`, `docs/superpowers/investigations/2026-08-01-g2-citation-verification.md`.
 
@@ -534,7 +633,7 @@ One page, written for someone who has never seen a terminal. Must include: unzip
 - [ ] **Step 3 — G2 passes** when failures are explainable, not merely rare. A systematic failure in one publisher/era is a real finding; scattered misses on scanned old books are expected and get recorded as a known limit of the pre-2012 era.
 - [ ] Commit: `feat(scripts): G2 corpus-wide citation spot-verification + first report`
 
-### Task 22: G3 — cold start by someone who is not Destin
+### Task 25: G3 — cold start by someone who is not Destin
 
 - [ ] **Step 1** — a colleague installs from the zip on a real JLBC machine using only `QUICKSTART.md`, with **no narration from Destin**. Anywhere they ask a question, the quickstart is wrong; fix the doc, don't coach.
 - [ ] **Step 2 — the search-findability check** (the amended G1's human half): the tester runs ~10 real queries on the Budget Documents page and confirms the right document appears in the first screen of grouped results. Record the queries and outcomes in the report — this is the standing replacement for the retired recall@5 gate.
@@ -542,10 +641,11 @@ One page, written for someone who has never seen a terminal. Must include: unzip
 - [ ] **Step 4** — record results; G3 passes when all three succeed without help.
 - [ ] Commit: `docs: G3 cold-start results`
 
-### Task 23: Close out
+### Task 26: Close out
 
 - [ ] Update `STATUS.md`: Plan 5 shipped section, gates G2/G3 outcomes, the declined list above (so nobody re-opens them), and the honest remaining-risk list.
-- [ ] Update `CLAUDE.md`'s workspace layout table — `web/`, `mcp-server/`, `db/` are gone, `packaging/` is new.
+- [ ] Update `CLAUDE.md`'s workspace layout table — `web/`, `mcp-server/`, `db/` are gone, `packaging/` is new — and add the rule that **`docs/HANDBOOK.md` is updated in the same commit as any change that alters an admin screen, the model assignments, the folder layout, or the upload rules.** A handbook that drifts is worse than none, because the reader has no way to know which half is stale.
+- [ ] **Rebuild the handbook and re-copy it to the share** so the shipped Word file matches the shipped app.
 - [ ] Commit: `docs(STATUS): Plan 5 shipped`
 
 ---
@@ -556,4 +656,5 @@ One page, written for someone who has never seen a terminal. Must include: unzip
 2. **The admin gate is soft by design** (S11). If anyone later mistakes it for security and puts something genuinely sensitive behind it, that is a real vulnerability introduced by misreading, which is why Task 1's docstring says so in the code itself.
 3. **Deleting `db/` touches more than `db/`** (Ground truth 12). A partial deletion leaves a repo that imports modules that no longer exist and fails at collection time, which is a nasty first experience for whoever clones next.
 4. **The corpus is moving while this plan is written.** The Z13 backfill is still running; Task 19's cleanup and Task 21's G2 verification both need the finished corpus. Sequence them after Phase E.
-5. **Nobody has watched a citation chip open a PDF.** It has 298 passing specs and zero human observations. Task 22 Step 3 is the first time; budget for it to find something.
+5. **Nobody has watched a citation chip open a PDF.** It has 298 passing specs and zero human observations. Task 25 Step 3 is the first time; budget for it to find something.
+6. **The handbook is the only artifact with no automated test for being *right*.** Every other deliverable here fails loudly when it's wrong; a handbook that is subtly out of date fails silently and is believed. Two mitigations, both in the plan and neither optional: it is written *after* the screens exist (Track 5 sequencing), and `CLAUDE.md` gains the rule that it updates in the same commit as the thing it describes (Task 26). The deeper mitigation is that its source is Markdown in the repo — the same place an AI assistant will be reading when the next admin asks for a change, so it is in the path of the work rather than off to one side.

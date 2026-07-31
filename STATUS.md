@@ -51,11 +51,16 @@ source. When something ships, update only this file.
   **DONE 2026-07-31** — the plan is written (see the next bullet).
 - **Plan 5 — WRITTEN, ready to implement:**
   [`docs/superpowers/plans/2026-08-01-standalone-plan-5-admin-packaging.md`](docs/superpowers/plans/2026-08-01-standalone-plan-5-admin-packaging.md).
-  23 tasks in five tracks: admin/settings UI (S11/S13/S15/S16/S17/S19),
+  26 tasks in six tracks: admin/settings UI (S11/S13/S15/S16/S17/S19),
   resilience (S18 repair flow + launch health ladder), packaging + launcher
   (S7/S8), legacy deletion (`web/`, `mcp-server/`, `db/`, dead `retrieval/`
-  modules), and gates G2/G3. Tracks 1–2 and Track 3 can run in two parallel
-  sessions; Track 4 must follow them; Track 5 needs the finished corpus.
+  modules), the **Administrator Handbook** (JLBC-memo-styled Word doc built
+  from `docs/HANDBOOK.md`, shipped in-app AND beside the corpus on the share —
+  covers operation, the cost model, why each AI tier got its model,
+  confidentiality, and how a non-technical successor extends the app with AI
+  help), and gates G2/G3. Tracks 1–2, Track 3 and Track 5's Task 20 can run in
+  three parallel sessions; Track 4 must follow 1–2; the handbook's writing
+  tasks follow the admin UI; Track 6 needs the finished corpus.
   **Task 13 (bundle-size measurement) is the highest-risk item and gates the
   rest of packaging** — it also carries the split-distribution fallback if a
   MinerU-inclusive bundle proves impractical. The AI-Mode hardening that used
