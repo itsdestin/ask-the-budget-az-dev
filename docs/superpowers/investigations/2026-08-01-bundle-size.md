@@ -15,9 +15,11 @@ CPython 3.12, resolved and downloaded by `uv pip install --target --python-platf
 then unpacked and byte-counted. The *machine* doing the resolving was the Z13 (Linux);
 uv resolves for a foreign platform, so these are Windows sizes measured from Linux.
 
-**Nothing here was executed on Windows.** No Python ran, no server started, no import
-was attempted. The size numbers are hard; every claim about *behaviour* on a JLBC PC is
-marked as such in [Not verified](#not-verified--this-is-what-task-15-is-for) below.
+**The measurement section below was written before anything ran on Windows** — sizes are
+hard numbers, but every behavioural claim was inferred. A bundle has since been built and
+its imports exercised on a real Windows laptop; see
+[Verified on Windows](#verified-on-windows--2026-08-01-destins-work-laptop) for what that
+settled and [Still not verified](#still-not-verified) for what it did not.
 
 The requirement lists were derived from a repo-wide scan of third-party imports under
 `app/`, `harness/`, `store/`, `ingest/`, `chunking/`, and the live `retrieval/` modules —
@@ -284,27 +286,62 @@ last of those is what sent me to vendor the JRE, which is what flipped the decis
 
 ---
 
-## Not verified — this is what Task 15 is for
+## VERIFIED ON WINDOWS — 2026-08-01, Destin's work laptop
 
-Everything in this section is **inferred from Linux** and could be wrong.
+First real Windows run. A machine that had never had Python, standard user account,
+no admin rights. Bundle `0.1.0-test` (built on the Z13, Linux) transferred by USB and
+extracted with `tar -xf` into `%LOCALAPPDATA%`.
 
-- **That any of this imports on Windows.** Zero Windows execution happened. `lancedb`,
-  `onnxruntime`, `torch`, `pymupdf`, and `tokenizers` all ship compiled extensions.
-- **That the embeddable runtime can load a `--target` site-packages at all.** The
-  shipped `python312._pth` is two lines (`python312.zip`, `.`) with `import site`
-  commented out, so the builder must edit it. This is a well-known, well-documented
-  step — but "well-known" is not "tested", and it is the single thing most likely to
-  turn a clean build into a bundle that does not start.
-- **That `uv pip install --target`'s layout is right for Windows.** It wrote console
-  scripts to `bin/`, not `Scripts/`. Probably irrelevant — the launcher calls uvicorn
-  programmatically rather than through a console script — but unproven.
-- **That the vendored Temurin JRE runs the extractor on a JLBC PC.** The archive
-  downloaded and unpacked and contains `bin/java.exe`; it has not been executed, and the
-  `PATH` redirection that points opendataloader at it has not been exercised.
-- **First-run offline behaviour** beyond the four traced levers.
-- **Zip and unzip times over the office SMB share.** 2.06 GB compressed on hardware and
-  a network I have not touched.
+```
+> dir /s /b /a-d "%LOCALAPPDATA%\JLBC-Insight-0.1.0-test" | find /c /v ""
+36102
 
-The acceptance criterion for Task 15 stands as the plan wrote it: **the server starting
-with the network cable unplugged, on a machine that has never had Python.** A successful
-build is not evidence of anything.
+> python\python.exe -c "import fastapi, uvicorn, lancedb, pyarrow, fastembed, fitz, docx, bs4, rapidfuzz; print('1 CORE OK')"
+1 CORE OK
+
+> python\python.exe -c "import mineru, torch, transformers, tiktoken; print('2 INGEST OK')"
+2 INGEST OK
+
+> python\python.exe -c "from app.main import create_app; print('3 APP OK')"
+3 APP OK
+
+> jre\bin\java.exe -version
+openjdk version "21.0.12" 2026-07-21 LTS
+OpenJDK Runtime Environment Temurin-21.0.12+8 (build 21.0.12+8-LTS)
+OpenJDK 64-Bit Server VM Temurin-21.0.12+8 (build 21.0.12+8-LTS, mixed mode, sharing)
+```
+
+36102 files is an exact match for the archive's entry count, so the extraction was
+complete rather than truncated. What each line settles, against the doubts recorded
+below it:
+
+- **The `._pth` edit works.** This was the top-ranked failure candidate — the
+  interpreter could not see `site-packages` at all without it, and getting it wrong
+  produces a bundle that builds perfectly and dies on the first import. It is right.
+- **Windows wheels resolved from Linux genuinely run on Windows.** Every compiled
+  extension that worried me — lancedb, onnxruntime (via fastembed), torch, pymupdf,
+  tokenizers — imports. The cross-platform build approach is sound.
+- **The app's own source imports inside the bundle**, so the layout mirroring the repo
+  root is correct and `sys.path` reaches it.
+- **The vendored Temurin JRE executes** with nothing installed and no admin rights,
+  which is the premise the whole one-bundle decision rests on.
+
+## Still not verified
+
+- **That the server starts and serves.** Imports are not a running application.
+- **First-run offline behaviour.** The four environment levers are traced in source
+  and now known to *import*, but the network cable has not been pulled.
+- **Real retrieval.** No corpus was attached; `create_app()` falls back to stub search
+  fixtures when `budget_chunks` is empty (confirmed on Linux), so the interface can be
+  exercised without proving the retrieval path.
+- **`java` reached through `PATH` rather than by direct path.** `jre\bin\java.exe` ran
+  when invoked explicitly; the launcher's `PATH` prepend, which is how
+  opendataloader-pdf actually finds it, has not been exercised.
+- **That opendataloader-pdf extracts a real document** using that JRE.
+- **Corporate endpoint software.** This laptop ran an unsigned interpreter out of
+  `%LOCALAPPDATA%` without objection, which is encouraging but is one machine's policy.
+- **Zip and unzip times over the office SMB share.** Transfer here was USB.
+
+The acceptance criterion is unchanged and is not yet met: **the server starting with
+the network cable unplugged, on a machine that has never had Python.** The first half
+of that sentence is still outstanding.

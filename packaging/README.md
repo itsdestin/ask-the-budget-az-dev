@@ -94,15 +94,36 @@ needs updating if the other side moves.
   library that half the dependency tree imports; making this directory a regular
   package would shadow it. Pinned by a test.
 
-## What has NOT been verified
+## What has been verified on Windows
 
-As of 2026-08-01 the bundle has been **built** but never **run**. No Windows
-machine has executed any of it. The acceptance criterion is unchanged and is not
-"the build succeeded":
+**2026-08-01** — a Linux-built bundle, transferred by USB and extracted with `tar -xf`
+into `%LOCALAPPDATA%` on a Windows laptop that had never had Python, under a standard
+user account with no admin rights:
+
+- all 36102 files extracted (exact match for the archive's entry count)
+- the whole core closure imports — fastapi, uvicorn, lancedb, pyarrow, fastembed,
+  pymupdf, python-docx, beautifulsoup4, rapidfuzz
+- the ingest closure imports — mineru, torch, transformers, tiktoken
+- `from app.main import create_app` works, so the repo-mirroring layout is right
+- `jre\bin\java.exe -version` reports Temurin 21.0.12, 64-bit Server VM
+
+That settles the `python312._pth` edit in `step_python()`, which was the highest-risk
+line in this whole folder: without it the embeddable interpreter cannot see
+`site-packages` at all, and a wrong edit yields a bundle that builds perfectly and dies
+on the first `import fastapi`. It also settles the cross-platform premise — Windows
+wheels resolved on Linux really do run on Windows, compiled extensions included.
+
+Full transcript: `docs/superpowers/investigations/2026-08-01-bundle-size.md`.
+
+## What has still NOT been verified
+
+The acceptance criterion is unchanged, and importing is not running:
 
 > The server starts, and answers a query, **with the network cable unplugged**, on
 > a machine that has never had Python installed.
 
-The most likely failure is the `python312._pth` edit in `step_python()` — it is what
-lets the embeddable interpreter see `site-packages` at all, and if it is wrong the
-bundle builds perfectly and dies on the first `import fastapi`.
+Outstanding: the server actually starting and serving; offline first-run behaviour;
+real retrieval against a corpus; `java` found through the launcher's `PATH` prepend
+rather than by explicit path; opendataloader-pdf extracting a real document; and how
+this behaves on a machine whose endpoint-security policy is stricter than the one
+laptop tested so far.
