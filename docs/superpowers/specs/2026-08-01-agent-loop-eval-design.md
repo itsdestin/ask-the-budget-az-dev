@@ -57,11 +57,25 @@ names, threshold values).
    mechanically checkable key facts (deterministic, free, catches wrong
    numbers). An LLM judge adds holistic grading on full runs only.
 3. **Citation headline metric = claim-coverage precision.** The judge
-   identifies the answer's load-bearing claims; score = load-bearing claims
-   cited AND verified ÷ total citations issued. Uncited key claims hurt;
-   padding citations on trivial prose also hurt. Verified-rate alone was
-   rejected because it rewards citing less and citing only easy claims —
-   the opposite of Invariant 1.
+   identifies the answer's load-bearing claims; the metric is
+   `covered ÷ max(citations issued, covered)`, where *covered* = load-bearing
+   claims that are cited AND verified. Its partner, **claim-coverage
+   recall** (`covered ÷ total load-bearing claims`), is what makes an
+   uncited key claim hurt. Padding citations on trivial prose lowers
+   precision. Verified-rate alone was rejected because it rewards citing
+   less and citing only easy claims — the opposite of Invariant 1.
+
+   **Amended 2026-08-01, before any run:** the denominator was originally
+   specified as plain "total citations issued". That is unbounded above 1.0
+   — one citation covering three claims scored **3.0** — and its gradient
+   therefore pointed at emitting FEWER citations, reproducing the exact
+   failure this metric was chosen to avoid. Caught by the final whole-branch
+   review, which reproduced it. The `max(...)` denominator bounds the score
+   at 1.0 while keeping padding penalised (1 covered claim, 5 citations =
+   0.2). One citation legitimately covering three claims now scores 1.0,
+   which is **intended**: goal 4 asks for "a smaller number of high-value
+   citations", so citation efficiency is the desired behaviour, not
+   something to punish.
 4. **Tier scope = Standard for the full set + a fixed 4-query Deep Research
    probe** run on demand / before releases. Full-set DR runs (~$15–20,
    hours) were rejected as incompatible with fast iteration.
