@@ -121,13 +121,25 @@ _MUTEX_REGISTRY_LOCK = threading.Lock()
 # is identical and thread ids get recycled.
 _INSTANCE_COUNTER = itertools.count()
 
-# How long to wait for another machine's manifest write before giving up on
-# the lockfile and proceeding anyway. A manifest save is a sub-millisecond
-# write of a few hundred KB; anything past this is a crashed holder or a dead
-# share, and blocking ingest forever on a stale lockfile would be worse than
-# the race it prevents.
-_MANIFEST_LOCK_TIMEOUT_S = 10.0
+# How long to wait for another writer before giving up on the lockfile and
+# proceeding anyway. Measured: one save against the real 7,482-entry manifest
+# is ~1.3s, and with the worker cap at 16 a queue of waiters can legitimately
+# take ~20s to drain — so a timeout in the low seconds would fire during
+# NORMAL operation and quietly turn the lock off exactly when contention is
+# highest. 120s is comfortably past any real queue and still bounded.
+_MANIFEST_LOCK_TIMEOUT_S = 120.0
 _MANIFEST_LOCK_POLL_S = 0.01
+
+# After this, a lockfile is treated as abandoned and removed. WITHOUT this,
+# a writer that crashed mid-save leaves a lockfile nothing ever cleans up,
+# and every subsequent save pays the FULL timeout before proceeding —
+# measured at 10s each before this was added, which over a 7,000-document
+# backfill is ~19 hours of pure waiting, with the only remedy being a human
+# noticing a stderr line and deleting a file by hand.
+#
+# Generous relative to the ~1.3s save it protects: stealing a lock from a
+# writer that is merely slow is the one thing worse than waiting for it.
+_MANIFEST_LOCK_STALE_S = 60.0
 
 
 def _manifest_mutex(path: Path) -> threading.Lock:
@@ -360,6 +372,24 @@ class DownloadCache:
             f".{threading.get_ident()}.tmp"
         )
 
+    def _lock_is_abandoned(self) -> bool:
+        """Has the lockfile outlived any plausible save?
+
+        Age-based, mirroring `ingest/lock.py`'s stale-steal, because there
+        is no owner recorded here to ask. Judged on the lockfile's own
+        mtime: a save touches it once at creation and holds it for ~1.3s,
+        so a file older than a minute belongs to a process that is gone.
+
+        A file we cannot stat is NOT abandoned — it may have just been
+        removed by its rightful owner, and the create on the next pass is
+        the thing that resolves that race.
+        """
+        try:
+            age = time.time() - self._lock_path.stat().st_mtime
+        except OSError:
+            return False
+        return age > _MANIFEST_LOCK_STALE_S
+
     @contextmanager
     def _manifest_file_lock(self):
         """Best-effort cross-process lock on the manifest.
@@ -379,6 +409,15 @@ class DownloadCache:
                 fd = os.open(str(self._lock_path), os.O_CREAT | os.O_EXCL | os.O_WRONLY)
                 break
             except FileExistsError:
+                if self._lock_is_abandoned():
+                    # Steal once per pass, then loop. If the create still
+                    # fails, another writer won the race in between — which is
+                    # the correct outcome, so fall through and wait for them.
+                    try:
+                        self._lock_path.unlink()
+                    except OSError:
+                        pass
+                    continue
                 if time.monotonic() >= deadline:
                     print(
                         f"ingest.cache: {self._lock_path.name} has been held for "

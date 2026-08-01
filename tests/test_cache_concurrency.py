@@ -148,6 +148,46 @@ def test_a_corrupt_manifest_is_preserved_not_overwritten(tmp_path):
     assert "not: valid" in salvaged[0].read_text()
 
 
+def test_an_abandoned_lockfile_is_stolen_rather_than_waited_out(tmp_path):
+    """A writer that crashed mid-save leaves a lockfile nothing cleans up.
+
+    Without stale-steal, EVERY subsequent save pays the full lock timeout
+    before proceeding — measured at 10s each, which over a 7,000-document
+    backfill is ~19 hours of pure waiting, with the only remedy being a
+    human noticing a stderr line and deleting a file by hand.
+    """
+    import os
+    import time as _time
+
+    from ingest.cache import _MANIFEST_LOCK_STALE_S
+
+    cache = DownloadCache(tmp_path, fetcher=_fetcher_for(b"x"))
+    cache.fetch("https://example.gov/first.pdf")
+
+    orphan = tmp_path / "manifest.yaml.lock"
+    orphan.write_text("")
+    old = _time.time() - _MANIFEST_LOCK_STALE_S - 5
+    os.utime(orphan, (old, old))
+
+    started = _time.monotonic()
+    cache.fetch("https://example.gov/second.pdf")
+    elapsed = _time.monotonic() - started
+
+    assert elapsed < 2.0, f"waited {elapsed:.1f}s on an abandoned lockfile"
+    assert not orphan.exists(), "the abandoned lockfile was left behind"
+    assert yaml.safe_load((tmp_path / "manifest.yaml").read_text())["entries"]
+
+
+def test_a_FRESH_lockfile_is_respected_not_stolen(tmp_path):
+    """The other half. Stealing from a writer that is merely slow is worse
+    than waiting for it — that is two writers on one manifest."""
+    cache = DownloadCache(tmp_path, fetcher=_fetcher_for(b"x"))
+    fresh = tmp_path / "manifest.yaml.lock"
+    fresh.write_text("")
+
+    assert cache._lock_is_abandoned() is False
+
+
 def test_fetch_still_returns_the_cached_file(tmp_path):
     """Guard rail: none of the locking may change what fetch() returns."""
     cache = DownloadCache(tmp_path, fetcher=_fetcher_for(b"payload-"))
