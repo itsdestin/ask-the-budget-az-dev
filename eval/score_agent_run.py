@@ -21,9 +21,10 @@ def score_run(run_dir: Path, queries_file: str = DEFAULT_QUERIES) -> dict:
     queries = {q.id: q for q in load_agent_queries(queries_file)}
     rows = []
     skipped = []
+    # The glob is `*-r*.jsonl` (one transcript per query+repeat); "ledger.jsonl"
+    # cannot match it, so the explicit skip that used to sit here was dead code
+    # pretending to guard something. Removed 2026-08 review, Finding 8.
     for path in sorted(run_dir.glob("*-r*.jsonl")):
-        if path.name == "ledger.jsonl":
-            continue
         t = read_transcript(path)
         qid = t.meta.get("query_id")
         if qid not in queries:
@@ -39,9 +40,14 @@ def _md(scores: dict, run_dir: Path) -> str:
     for key, val in s.items():
         shown = f"{val:.4g}" if isinstance(val, float) else val
         lines.append(f"- **{key}**: {shown}")
+    # Column names say exactly what they hold (2026-08 review, Finding 5):
+    # "cite pass" is the pass rate over every attempt, "1st-try" is the share
+    # of intended citations that landed on the first attempt. The old single
+    # "1st-try" column showed the former under the latter's name.
     lines += ["", "## Per query", "",
-              "| id | shape | ok | facts | cites ok | 1st-try | retr eff | steps | cost |",
-              "|---|---|---|---|---|---|---|---|---|"]
+              "| id | shape | ok | facts | cites ok | cite pass | 1st-try | "
+              "retr eff | steps | cost |",
+              "|---|---|---|---|---|---|---|---|---|---|"]
     for r in scores["per_query"]:
         def fmt(v):
             return "—" if v is None else (f"{v:.2f}" if isinstance(v, float) else v)
@@ -58,7 +64,8 @@ def _md(scores: dict, run_dir: Path) -> str:
         lines.append(
             f"| {r['query_id']} | {r['shape']} | {'✓' if r['ok'] else '✗'} "
             f"| {fmt(r['key_fact_rate'])} | {r['verified_citations']} "
-            f"| {fmt(r['first_attempt_cite_rate'])} | {fmt(r['retrieval_efficiency'])} "
+            f"| {fmt(r['cite_pass_rate'])} | {fmt(r['first_try_cite_rate'])} "
+            f"| {fmt(r['retrieval_efficiency'])} "
             f"| {r['steps']} | {fmt_cost(r['cost_usd'])} |")
     flagged = [r for r in scores["per_query"]
                if r.get("narration_hits") or r.get("token_leak") or r.get("false_refusal")]

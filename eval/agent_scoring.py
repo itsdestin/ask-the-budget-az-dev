@@ -9,8 +9,20 @@ from __future__ import annotations
 
 import math
 import re
+import statistics
+from typing import Any
 
-from eval.agent_schema import KeyFact
+from eval.agent_schema import AgentQuery, KeyFact
+from eval.agent_transcript import (
+    Transcript,
+    citations,
+    final_answer,
+    parsed_output,
+    retrieve_calls,
+    tool_calls,
+    usage,
+    wall_ms,
+)
 
 # A currency mention: optional $, digits with optional thousands commas
 # and decimals, optional scale word/suffix. The $-or-scale requirement in
@@ -76,21 +88,7 @@ def fact_matches(fact: KeyFact, text: str) -> bool:
     )
 
 
-# --- appended below the matchers: full-transcript scoring ---------------
-import statistics
-from typing import Any
-
-from eval.agent_schema import AgentQuery
-from eval.agent_transcript import (
-    Transcript,
-    citations,
-    final_answer,
-    parsed_output,
-    retrieve_calls,
-    tool_calls,
-    usage,
-    wall_ms,
-)
+# --- full-transcript scoring --------------------------------------------
 
 # Phrases the Plan 4 live run actually saw leak into answer prose.
 NARRATION_MARKERS = (
@@ -130,6 +128,50 @@ def cite_attempts(t: Transcript) -> list[dict[str, Any]]:
     return attempts
 
 
+def cite_target(attempt: dict[str, Any]) -> tuple[str, str]:
+    """The (chunk_id, claim_span) pair a citation attempt is aiming at.
+
+    WHY this pair and not chunk_id alone (spec goal 4, 'retries per
+    citation'): one answer legitimately cites the SAME chunk for two
+    different claims — that is exactly what a cite_batch's sibling slots
+    are — so grouping on chunk_id alone would score every such sibling as
+    a retry of the one before it and make an answer that cites carefully
+    look like an answer that kept failing. A genuine retry re-attempts the
+    same claim against the same chunk with a different quote, which shares
+    both halves of this key.
+
+    Known limit, stated rather than engineered around: a retry that
+    REWRITES the claim_span (STATUS.md records the model doing this) reads
+    as a new citation here. The metric therefore under-counts retries; it
+    never invents them.
+    """
+    inp = attempt.get("input") or {}
+    return (str(inp.get("chunk_id")), str(inp.get("claim_span")))
+
+
+def _attempt_passed(attempt: dict[str, Any]) -> bool:
+    return (attempt.get("result") or {}).get("ok") is True
+
+
+# The filter dimensions retrieve() accepts (harness/tools.py _FILTERS_SCHEMA).
+# Pinned as a literal list rather than imported so that scoring a historical
+# transcript keeps meaning what it meant when the run happened — importing the
+# live schema would silently re-interpret old runs whenever the tool changes.
+FILTER_DIMENSIONS = ("fiscal_year", "doc_type", "publisher",
+                     "agency_canonical_id", "fund_canonical_id", "is_table")
+
+
+def retrieve_inputs(t: Transcript) -> list[dict[str, Any]]:
+    """Each retrieve call's INPUT arguments, in call order.
+
+    `retrieve_calls()` returns the parsed OUTPUT of each call; the search
+    parameters the agent chose (filters, top_k, intent, deep_dive) live on
+    the input side, which is what spec goal 3's 'filter/corpus-parameter
+    usage counts' measures.
+    """
+    return [(call.get("input") or {}) for call in tool_calls(t, "retrieve")]
+
+
 def _retrieved_chunks(t: Transcript) -> list[dict[str, Any]]:
     return [c for call in retrieve_calls(t) for c in call["chunks"]]
 
@@ -167,12 +209,35 @@ def score_transcript(query: AgentQuery, t: Transcript) -> dict[str, Any]:
     row["emitted_citations"] = len(citations(t))
 
     attempts = cite_attempts(t)
-    failures = [a for a in attempts
-                if not ((a["result"] or {}).get("ok") is True)]
+    failures = [a for a in attempts if not _attempt_passed(a)]
     row["cite_attempts"] = len(attempts)
     row["cite_failures"] = len(failures)
-    row["first_attempt_cite_rate"] = (
+    # WHY this was RENAMED from first_attempt_cite_rate (2026-08 review,
+    # Finding 5): it is (attempts - failures) / attempts — the pass rate over
+    # EVERY attempt, retries included. That is a useful number, but it is not a
+    # first-attempt rate, and the two diverge exactly when retries happen,
+    # which is the case the metric was supposed to expose. The genuine
+    # first-try rate is `first_try_cite_rate` below; this one now says what it
+    # measures.
+    row["cite_pass_rate"] = (
         (len(attempts) - len(failures)) / len(attempts) if attempts else None)
+
+    # Spec goal 4, 'retries per citation' — one attempt per intended citation
+    # is the target; anything above 1.0 is the model re-shooting at a claim it
+    # already tried. `targets` is first-attempt-ordered, so first_try asks the
+    # question the old name promised: of the citations the answer intended,
+    # what share landed on the FIRST try?
+    first_by_target: dict[tuple[str, str], bool] = {}
+    for a in attempts:
+        first_by_target.setdefault(cite_target(a), _attempt_passed(a))
+    row["cite_targets"] = len(first_by_target)
+    row["cite_retries"] = len(attempts) - len(first_by_target)
+    row["retries_per_citation"] = (
+        (len(attempts) - len(first_by_target)) / len(first_by_target)
+        if first_by_target else None)
+    row["first_try_cite_rate"] = (
+        sum(1 for ok in first_by_target.values() if ok) / len(first_by_target)
+        if first_by_target else None)
     row["ambiguity_rejections"] = sum(
         1 for a in failures
         if "appears multiple times" in ((a["result"] or {}).get("error") or ""))
@@ -181,6 +246,31 @@ def score_transcript(query: AgentQuery, t: Transcript) -> dict[str, Any]:
 
     rcs = retrieve_calls(t)
     row["retrieve_call_count"] = len(rcs)
+
+    # Spec goal 3, 'filter/corpus-parameter usage counts'. An agent that
+    # narrows a search to the fiscal year and agency the question named is
+    # showing self-awareness; one that fires the same unfiltered query five
+    # times is not. Counts only — deliberately NOT scored better/worse, since
+    # a filter is right or wrong depending on the question, and a metric that
+    # rewarded filtering per se would push the agent to filter itself out of
+    # the answer.
+    inputs = retrieve_inputs(t)
+    dim_counts = {d: 0 for d in FILTER_DIMENSIONS}
+    filtered = 0
+    for inp in inputs:
+        filters = inp.get("filters")
+        if not isinstance(filters, dict) or not filters:
+            continue
+        filtered += 1
+        for dim in FILTER_DIMENSIONS:
+            if filters.get(dim) not in (None, [], {}):
+                dim_counts[dim] += 1
+    row["retrieve_calls_with_filters"] = filtered
+    row["filter_dimension_counts"] = dim_counts
+    row["retrieve_calls_with_intent"] = sum(1 for i in inputs if i.get("intent"))
+    row["retrieve_calls_with_top_k"] = sum(1 for i in inputs if i.get("top_k"))
+    row["deep_dive_calls"] = sum(1 for i in inputs if i.get("deep_dive") is True)
+
     all_chunks = _retrieved_chunks(t)
     distinct = {c.get("chunk_id"): c for c in all_chunks}
     row["retrieved_chunks_distinct"] = len(distinct)
@@ -217,7 +307,21 @@ def score_transcript(query: AgentQuery, t: Transcript) -> dict[str, Any]:
     row["retrieval_efficiency"] = (used / len(distinct)) if distinct else None
 
     # Retrieves issued AFTER the facts were already in hand = wasted searches.
+    #
+    # WHY the eligible/contributing split (2026-08 review, Finding 4): this
+    # value stays None unless the retrieved text contained EVERY key fact at
+    # some point, so the population it averages over is decided by the run's
+    # own success. Run A found the facts on 5 of 35 queries and averages over
+    # 5; run B found them on 20 and averages over 20 — different denominators
+    # wearing the same name. Worse, the metric is better-when-lower, so a
+    # genuine RETRIEVAL IMPROVEMENT (more queries reach sufficiency, including
+    # slower ones that needed several searches) can raise the mean and render
+    # as a regression. `retrieves_after_sufficient_eligible` records how many
+    # queries COULD have contributed and `..._n` how many did; the compare tool
+    # withholds the better/worse arrow when that population moved, because a
+    # delta across different populations is not a delta.
     row["retrieves_after_sufficient"] = None
+    row["retrieves_after_sufficient_eligible"] = bool(query.key_facts and rcs)
     if query.key_facts and rcs:
         seen: list[str] = []
         for i, call in enumerate(rcs):
@@ -279,6 +383,20 @@ def aggregate(rows: list[dict[str, Any]]) -> dict[str, Any]:
     walls = sorted(r["wall_ms"] for r in ok_rows if r["wall_ms"] is not None)
     attempts = sum(r["cite_attempts"] for r in ok_rows)
     failures = sum(r["cite_failures"] for r in ok_rows)
+    targets = sum(r["cite_targets"] for r in ok_rows)
+    retries = sum(r["cite_retries"] for r in ok_rows)
+    # first_try_cite_rate is re-derived from per-query counts rather than
+    # averaged over per-query rates, so a query with 8 citations weighs 8x a
+    # query with 1 — the same convention cite_pass_rate already used.
+    first_try_passes = sum(
+        round((r["first_try_cite_rate"] or 0) * r["cite_targets"]) for r in ok_rows)
+    ras_rows = [r for r in ok_rows if r["retrieves_after_sufficient"] is not None]
+    ras_eligible = [r for r in ok_rows if r.get("retrieves_after_sufficient_eligible")]
+    retrieves = sum(r["retrieve_call_count"] for r in ok_rows)
+    dim_totals: dict[str, int] = {d: 0 for d in FILTER_DIMENSIONS}
+    for r in ok_rows:
+        for dim, n in (r.get("filter_dimension_counts") or {}).items():
+            dim_totals[dim] = dim_totals.get(dim, 0) + n
     # WHY `r["ok"]` is checked here too, redundantly with score_transcript's
     # own gating (2026-08 review, Finding 1): this is the aggregate that
     # actually produces refusal_correct_rate, and unlike every other
@@ -297,16 +415,44 @@ def aggregate(rows: list[dict[str, Any]]) -> dict[str, Any]:
         "input_tokens_mean": _mean([r["input_tokens"] for r in ok_rows]),
         "output_tokens_mean": _mean([r["output_tokens"] for r in ok_rows]),
         "cached_tokens_mean": _mean([r["cached_tokens"] for r in ok_rows]),
-        "total_cost_usd": sum(r["cost_usd"] or 0 for r in ok_rows),
+        # WHY this sums ALL rows and is paired with a missing-cost count
+        # (2026-08 review, Finding 6): a query that crashed after 40 paid steps
+        # produces an `_error` frame carrying no usage at all, so its spend is
+        # invisible here no matter which rows are summed. Summing every row (a
+        # crashed row's cost is simply None -> 0) at least stops the ok/not-ok
+        # split from being a second, silent source of the same understatement,
+        # and `cost_missing_queries` makes the remaining gap VISIBLE instead of
+        # implied. The run's own ledger.jsonl is the authoritative spend
+        # record — it has one row per step, written as the steps happen, so it
+        # captures the tokens a later crash throws away. eval/README.md says so.
+        "total_cost_usd": sum(r["cost_usd"] or 0 for r in rows),
+        "cost_missing_queries": sum(1 for r in rows if r["cost_usd"] is None),
         "cost_mean_usd": _mean([r["cost_usd"] for r in ok_rows]),
         "wall_p50_ms": walls[len(walls) // 2] if walls else None,
         "wall_p95_ms": walls[min(len(walls) - 1, int(len(walls) * 0.95))] if walls else None,
         "key_fact_rate_mean": _mean([r["key_fact_rate"] for r in ok_rows]),
         "retrieval_efficiency_mean": _mean([r["retrieval_efficiency"] for r in ok_rows]),
         "retrieves_after_sufficient_mean": _mean(
-            [r["retrieves_after_sufficient"] for r in ok_rows]),
+            [r["retrieves_after_sufficient"] for r in ras_rows]),
+        # The population this mean was taken over. Read them together or not
+        # at all — see the WHY on retrieves_after_sufficient in score_transcript.
+        "retrieves_after_sufficient_n": len(ras_rows),
+        "retrieves_after_sufficient_eligible": len(ras_eligible),
+        "retrieve_calls_with_filters": sum(
+            r["retrieve_calls_with_filters"] for r in ok_rows),
+        "filtered_retrieve_rate": (
+            sum(r["retrieve_calls_with_filters"] for r in ok_rows) / retrieves
+            if retrieves else None),
+        "filter_dimension_counts": dim_totals,
+        "retrieve_calls_with_intent": sum(
+            r["retrieve_calls_with_intent"] for r in ok_rows),
+        "retrieve_calls_with_top_k": sum(
+            r["retrieve_calls_with_top_k"] for r in ok_rows),
+        "deep_dive_calls": sum(r["deep_dive_calls"] for r in ok_rows),
         "citations_per_answer_mean": _mean([r["verified_citations"] for r in ok_rows]),
-        "first_attempt_cite_rate": ((attempts - failures) / attempts) if attempts else None,
+        "cite_pass_rate": ((attempts - failures) / attempts) if attempts else None,
+        "first_try_cite_rate": (first_try_passes / targets) if targets else None,
+        "retries_per_citation": (retries / targets) if targets else None,
         "median_quote_len_mean": _mean(quote_meds),
         "refusal_correct_rate": _mean(
             [1.0 if r["refusal_correct"] else 0.0 for r in refusal_rows]),

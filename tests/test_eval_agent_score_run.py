@@ -75,7 +75,9 @@ def test_golden_fixture_scores_clean():
     assert row["steps"] == 1
     assert row["retrieve_call_count"] == 1
     assert row["verified_citations"] == 1
-    assert row["first_attempt_cite_rate"] == 1.0
+    assert row["cite_pass_rate"] == 1.0
+    assert row["first_try_cite_rate"] == 1.0
+    assert row["retries_per_citation"] == 0.0
     assert row["cost_usd"] == pytest.approx(0.0031)
     assert row["cached_tokens"] == 700
 
@@ -124,8 +126,45 @@ def test_cite_attempt_mechanics_including_batch():
     row = score_transcript(make_query(), t)
     assert row["cite_attempts"] == 4
     assert row["cite_failures"] == 2
-    assert row["first_attempt_cite_rate"] == pytest.approx(0.5)
+    assert row["cite_pass_rate"] == pytest.approx(0.5)
     assert row["ambiguity_rejections"] == 1
+    # Finding 5: the pass rate above is over ALL attempts. The three DISTINCT
+    # citation targets here are (c-1, "claim") — attempted twice, failing then
+    # passing, i.e. one retry — plus the batch's (c-1, "a") and (c-1, "b").
+    # Only (c-1, "a") passed on its first attempt.
+    assert row["cite_targets"] == 3
+    assert row["cite_retries"] == 1
+    assert row["retries_per_citation"] == pytest.approx(1 / 3)
+    assert row["first_try_cite_rate"] == pytest.approx(1 / 3)
+
+
+def test_first_try_rate_diverges_from_pass_rate_when_a_cite_is_retried():
+    """Finding 5, stated as the divergence that made the old name wrong: a
+    claim that failed once and passed on the retry is a 50% pass rate over
+    attempts but a 0% FIRST-TRY rate. The old single metric reported 0.5 under
+    the name `first_attempt_cite_rate`."""
+    t = make_transcript([cite_call(ok=False, error="quote not found"), cite_call(ok=True)],
+                        citations=[ok_citation()])
+    row = score_transcript(make_query(), t)
+    assert row["cite_pass_rate"] == pytest.approx(0.5)
+    assert row["first_try_cite_rate"] == 0.0
+    assert row["retries_per_citation"] == 1.0
+
+
+def test_batch_siblings_on_one_chunk_are_not_counted_as_retries():
+    """Two claims cited against the SAME chunk in one cite_batch are two
+    intended citations, not a retry of each other — grouping on chunk_id
+    alone would have called the second one a retry."""
+    batch = {"toolUseId": "t-b", "toolName": "cite_batch",
+             "input": {"citations": [
+                 {"chunk_id": "c-1", "quote": "q1", "confidence": "verbatim", "claim_span": "a"},
+                 {"chunk_id": "c-1", "quote": "q2", "confidence": "verbatim", "claim_span": "b"}]},
+             "output": json.dumps({"citations": [{"ok": True}, {"ok": True}]}),
+             "isError": False}
+    row = score_transcript(make_query(), make_transcript([batch]))
+    assert row["cite_targets"] == 2
+    assert row["cite_retries"] == 0
+    assert row["first_try_cite_rate"] == 1.0
 
 
 def test_quote_narrowness_median():
@@ -163,8 +202,10 @@ def test_aggregate_summary():
     summary = aggregate(rows)
     assert summary["n"] == 1
     assert summary["key_fact_rate_mean"] == 1.0
-    assert summary["first_attempt_cite_rate"] == 1.0
+    assert summary["cite_pass_rate"] == 1.0
+    assert summary["first_try_cite_rate"] == 1.0
     assert summary["total_cost_usd"] == pytest.approx(0.0031)
+    assert summary["cost_missing_queries"] == 0
 
 
 def test_errored_transcript_gives_no_refusal_credit():
@@ -271,6 +312,75 @@ def test_scores_md_cost_column_has_enough_precision(tmp_path):
     md = (run_dir / "scores.md").read_text(encoding="utf-8")
     assert "0.0031" in md
     assert "| 0.00 |" not in md
+
+
+def test_retrieves_after_sufficient_population_is_reported(tmp_path):
+    """Finding 4: the mean is taken over only the queries whose retrieved text
+    ever contained every key fact, so the population is decided by the run's
+    own success. A reader must be able to SEE that the denominator moved."""
+    fact_chunk = chunk("c-1", "the answer $1,391,157,700 is here")
+    found = score_transcript(make_query(), make_transcript(
+        [retrieve_call([fact_chunk], "t-1"), retrieve_call([chunk("c-2", "noise")], "t-2")]))
+    never_found = score_transcript(make_query(id="aq-002"), make_transcript(
+        [retrieve_call([chunk("c-9", "nothing useful")], "t-9")]))
+
+    assert found["retrieves_after_sufficient"] == 1
+    assert never_found["retrieves_after_sufficient"] is None
+    # Both queries were ELIGIBLE (key facts + at least one retrieve); only one
+    # contributed. That gap is what the compare tool needs to see.
+    assert found["retrieves_after_sufficient_eligible"] is True
+    assert never_found["retrieves_after_sufficient_eligible"] is True
+
+    summary = aggregate([found, never_found])
+    assert summary["retrieves_after_sufficient_mean"] == 1.0
+    assert summary["retrieves_after_sufficient_n"] == 1
+    assert summary["retrieves_after_sufficient_eligible"] == 2
+
+
+def test_filter_and_corpus_parameter_usage_counted():
+    """Finding 5: spec goal 3 promises 'filter/corpus-parameter usage counts'
+    and the data was sitting unread in toolCalls[].input.filters."""
+    filtered = {"toolUseId": "t-1", "toolName": "retrieve",
+                "input": {"query": "ADC", "intent": "lookup", "top_k": 5,
+                          "filters": {"fiscal_year": [2026], "agency_canonical_id": ["agency:adc"]}},
+                "output": json.dumps({"chunks": [chunk("c-1", "x")]}), "isError": False}
+    bare = {"toolUseId": "t-2", "toolName": "retrieve", "input": {"query": "ADC again"},
+            "output": json.dumps({"chunks": [chunk("c-2", "y")]}), "isError": False}
+    row = score_transcript(make_query(), make_transcript([filtered, bare]))
+    assert row["retrieve_calls_with_filters"] == 1
+    assert row["filter_dimension_counts"]["fiscal_year"] == 1
+    assert row["filter_dimension_counts"]["agency_canonical_id"] == 1
+    assert row["filter_dimension_counts"]["publisher"] == 0
+    assert row["retrieve_calls_with_intent"] == 1
+    assert row["retrieve_calls_with_top_k"] == 1
+    assert row["deep_dive_calls"] == 0
+
+    summary = aggregate([row])
+    assert summary["retrieve_calls_with_filters"] == 1
+    assert summary["filtered_retrieve_rate"] == pytest.approx(0.5)
+    assert summary["filter_dimension_counts"]["fiscal_year"] == 1
+
+
+def test_an_empty_filters_object_is_not_a_filtered_search():
+    call = {"toolUseId": "t-1", "toolName": "retrieve",
+            "input": {"query": "ADC", "filters": {}},
+            "output": json.dumps({"chunks": []}), "isError": False}
+    row = score_transcript(make_query(), make_transcript([call]))
+    assert row["retrieve_calls_with_filters"] == 0
+
+
+def test_crashed_query_makes_its_missing_cost_visible():
+    """Finding 6: an `_error` frame carries no usage at all, so a query that
+    crashed after N paid steps contributes $0 to total_cost_usd no matter how
+    the rows are summed. The count is what stops the total from reading as
+    complete."""
+    ok = score_transcript(make_query(), read_transcript(FIXTURE))
+    crashed = score_transcript(make_query(id="aq-002"), Transcript(
+        meta={"query_id": "aq-002", "repeat": 1}, events=[],
+        terminal={"frame": {"type": "_error", "message": "boom"}, "wall_ms": 5}))
+    summary = aggregate([ok, crashed])
+    assert summary["total_cost_usd"] == pytest.approx(0.0031)
+    assert summary["cost_missing_queries"] == 1
 
 
 def test_score_run_cli_writes_outputs(tmp_path):
