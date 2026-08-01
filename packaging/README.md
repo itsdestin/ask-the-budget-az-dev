@@ -43,7 +43,7 @@ even if someone adds a new secret file next year. Invariant 8 ("the distributabl
 never contains corpus content") holds by construction rather than by vigilance.
 
 On top of that, `EXCLUDED_PREFIXES` drops trees that are tracked but not runtime
-(docs, tests, eval, the retired `web/` `mcp-server/` `db/`), and `EXCLUDED_NAMES`
+(docs, tests, eval, `db/`), and `EXCLUDED_NAMES`
 drops individual files — including the retired Postgres-era modules that still
 `import db.connection` and would ship as dead code that crashes if touched.
 

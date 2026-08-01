@@ -4,10 +4,8 @@
 # What this does:
 #   - Verifies prerequisites (node, uv) are installed
 #   - Runs `uv sync` to set up the Python venv from uv.lock
-#   - Runs `npm ci` in mcp-server/ and web/ — both directories are LEGACY,
-#     retired by Plan 4 and pending Plan 5 deletion; the installs stay so
-#     their still-passing suites keep running under --verify until then
-#   - Installs + builds webapp/ (the live SPA)
+#   - Installs + builds webapp/ (the live SPA — the only Node tree left;
+#     mcp-server/ and web/ were deleted in Plan 5 Track 4)
 #   - Brings up the Postgres container ONLY if Docker is running (Plan 3
 #     removed Postgres from every runtime path; it is migration-era only)
 #
@@ -83,23 +81,6 @@ step "Installing Python dependencies (uv sync)"
 uv sync
 
 # -----------------------------------------------------------------------------
-# MCP server
-# -----------------------------------------------------------------------------
-
-step "Installing mcp-server/ dependencies (npm ci) — legacy, pending Plan 5 deletion"
-( cd mcp-server && npm ci )
-
-step "Building mcp-server (tsc) — legacy, pending Plan 5 deletion"
-( cd mcp-server && npm run build )
-
-# -----------------------------------------------------------------------------
-# Web app
-# -----------------------------------------------------------------------------
-
-step "Installing web/ dependencies (npm ci) — legacy, pending Plan 5 deletion"
-( cd web && npm ci )
-
-# -----------------------------------------------------------------------------
 # Webapp (the consolidated app's SPA — Plan 2)
 # -----------------------------------------------------------------------------
 
@@ -167,16 +148,6 @@ if [ "$VERIFY" -eq 1 ]; then
         set +a
     fi
     uv run pytest -q
-
-    # mcp-server/ and web/ are retired-but-in-tree: Plan 4 replaced the sidecar
-    # + MCP server + YouCoded-dependent web UI with the in-process app/ +
-    # webapp/ stack above. Both suites still cover real code and still pass,
-    # so they stay wired in here; Plan 5 deletes both suites and directories.
-    step "Running MCP server tests (vitest)"
-    ( cd mcp-server && npm test -- --run )
-
-    step "Running web tests (vitest)"
-    ( cd web && npm test -- --run )
 
     step "Running webapp tests (vitest)"
     ( cd webapp && npx vitest run )
