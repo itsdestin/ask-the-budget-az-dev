@@ -35,6 +35,7 @@ from tempfile import TemporaryDirectory
 from typing import Callable, Sequence
 
 from scripts.run_mineru import (
+    _block_page,
     _contiguous_ranges,
     _read_mineru_output,
     write_range_pages,
@@ -42,10 +43,23 @@ from scripts.run_mineru import (
 
 ProgressCallback = Callable[[int, int], None]
 
+# (doc_id, state) for the batch path, where state is one of "done",
+# "failed" or "cancelled". Documents, not pages — one CLI invocation covers
+# the whole batch, so there is no honest per-page counter to report.
+DocumentCallback = Callable[[str, str], None]
+
 # Two hours per document. Generous on purpose: a 210-page book at 3 min/page
 # is well past this, so the worker passes its own per-range budget; this
 # default only catches an obviously-wedged run.
 DEFAULT_TIMEOUT_S = 7200
+
+# Batch budget = one model load + a per-document allowance. A batch of 20
+# is 20 documents of work inside ONE process, so reusing DEFAULT_TIMEOUT_S
+# would kill perfectly healthy batches; and a flat "very large" number would
+# let a wedged batch of 2 hold the queue for half a day. Both numbers are
+# deliberately loose — this catches a hung run, it does not pace a real one.
+BATCH_STARTUP_TIMEOUT_S = 1800
+BATCH_TIMEOUT_PER_DOC_S = 1800
 
 EXE_ENV = "JLBC_MINERU_EXE"
 MODELS_ENV = "JLBC_MINERU_MODELS"
@@ -90,6 +104,15 @@ def resolve_api_url() -> str | None:
     """
     raw = os.environ.get(API_URL_ENV, "").strip()
     return raw or None
+
+
+def batch_timeout_s(count: int) -> int:
+    """Time budget for a batch of `count` documents.
+
+    Scales with the batch because the whole point of batching is that ONE
+    invocation now carries N documents' worth of work.
+    """
+    return BATCH_STARTUP_TIMEOUT_S + BATCH_TIMEOUT_PER_DOC_S * max(count, 1)
 
 
 def resolve_mineru_exe() -> list[str]:
@@ -227,7 +250,163 @@ class MineruRunner:
 
         return done_ranges
 
+    def run_batch(
+        self,
+        items: Sequence[tuple[str, Path, Path]],
+        *,
+        timeout_s: float | None = None,
+        on_document: DocumentCallback | None = None,
+    ) -> dict[str, str | None]:
+        """Extract several WHOLE documents in one MinerU invocation.
+
+        `items` is `(doc_id, pdf_path, out_dir)` per document. Returns
+        `{doc_id: None}` on success or `{doc_id: "reason"}` on failure — one
+        entry per input, always.
+
+        WHY this exists: a MinerU invocation costs ~38 s for a small
+        document and ~33 s of that is loading models. `mineru -p <directory>`
+        is MinerU's own batch mode and loads them ONCE for the whole folder,
+        measured 2.85x on only four documents.
+
+        WHY the types are this plain: the ingest worker codes against this
+        without importing anything new from this module, so a change here
+        cannot silently break it. Tuples in, plain dict out, deliberately.
+
+        Failures are per-document, not per-batch: MinerU finishes the rest of
+        the folder when one file fails and merely exits non-zero, so a
+        non-zero exit is recorded against the documents that produced no
+        output and NOT against their 19 healthy batch-mates.
+
+        Cancel and timeout are the two batch-level exits — they kill the one
+        child, so nothing unfinished can be salvaged. Both notify every
+        unfinished document and then raise, matching `run()`.
+
+        This path is for whole small documents only. A long book keeps the
+        per-range `run()` path: its resume granularity is the page range, and
+        batching ranges would multiply the state space for no gain.
+        """
+        results: dict[str, str | None] = {}
+        if not items:
+            return results
+        _check_batch_doc_ids(items)
+        self._raise_if_cancelled()
+
+        budget = timeout_s if timeout_s is not None else batch_timeout_s(len(items))
+
+        with TemporaryDirectory() as tmp:
+            tmp_path = Path(tmp)
+            stage = tmp_path / "in"
+            stage.mkdir()
+            mineru_out = tmp_path / "out"
+            mineru_out.mkdir()
+
+            runnable: list[tuple[str, Path, Path]] = []
+            for doc_id, pdf, out_dir in items:
+                try:
+                    # Stage under doc_id, NEVER the original filename: MinerU
+                    # names its output by input stem, and 508.pdf exists in
+                    # both the FY2026 Baseline and the FY2026 Approps. Staging
+                    # by filename would hand one agency's budget text to
+                    # another — plausible, cited, and wrong.
+                    _stage_pdf(pdf, stage / f"{doc_id}.pdf")
+                except OSError as exc:
+                    # One unreadable path must not stop its batch-mates.
+                    results[doc_id] = f"could not stage {pdf}: {exc}"
+                    if on_document:
+                        on_document(doc_id, "failed")
+                else:
+                    runnable.append((doc_id, pdf, out_dir))
+
+            if not runnable:
+                return results
+
+            cmd = [
+                *self._exe,
+                "-p", str(stage),       # a DIRECTORY — MinerU's batch mode
+                "-o", str(mineru_out),
+                "-b", "pipeline",       # CPU-only backend, as per document
+            ]
+            api_url = resolve_api_url()
+            if api_url:
+                cmd += ["--api-url", api_url]
+
+            cli_error: str | None = None
+            try:
+                # on_page=None: page counters from a batch run belong to
+                # whichever document MinerU is on, which we cannot attribute.
+                self._stream(cmd, timeout_s=budget, on_page=None)
+            except MineruCancelled:
+                _notify(runnable, "cancelled", on_document)
+                raise
+            except MineruTimeout:
+                _notify(runnable, "failed", on_document)
+                raise
+            except RuntimeError as exc:
+                # Not fatal on its own — see the per-document note above.
+                cli_error = str(exc)
+
+            for doc_id, pdf, out_dir in runnable:
+                reason = self._demux_one(
+                    doc_id=doc_id, pdf=pdf, out=out_dir,
+                    mineru_out=mineru_out, cli_error=cli_error,
+                )
+                results[doc_id] = reason
+                if on_document:
+                    on_document(doc_id, "done" if reason is None else "failed")
+
+        return results
+
     # --- internals ----------------------------------------------------------
+
+    def _demux_one(
+        self,
+        *,
+        doc_id: str,
+        pdf: Path,
+        out: Path,
+        mineru_out: Path,
+        cli_error: str | None,
+    ) -> str | None:
+        """Turn one document's share of a batch run into the per-page files.
+
+        Returns None on success or a human-readable reason on failure.
+        """
+        try:
+            content_list, _markdown = _read_mineru_output(mineru_out, doc_id)
+        except (RuntimeError, ValueError) as exc:
+            # No output for this document. If the CLI also reported an error,
+            # that tail is the more useful reason to show.
+            return cli_error or str(exc)
+
+        pages = sorted(
+            {p for p in (_block_page(b) for b in content_list) if p is not None}
+        )
+        if not pages:
+            # An extraction that "succeeded" with nothing in it is the FY2024
+            # AFR shape. Refusing it here means the worker sees a failure with
+            # a reason instead of a document that reaches `live` and empty.
+            reason = f"mineru produced no page content for {doc_id}"
+            return f"{reason}: {cli_error}" if cli_error else reason
+
+        # start=1 because batch mode extracts the WHOLE document, so MinerU's
+        # in-range renumbering is already the absolute page number. Ask for
+        # every page up to the last one with content, so a genuinely blank
+        # page still gets its (empty) page file, exactly as `run()` does.
+        end = pages[-1]
+        # mkdir only now: an existing output directory is the worker's
+        # "extraction already done" signal, so a failure must never leave one.
+        out.mkdir(parents=True, exist_ok=True)
+        write_range_pages(
+            content_list,
+            out=out,
+            # The ORIGINAL pdf, not the staged copy — the copy dies with the
+            # temp directory, and this path is recorded as provenance.
+            pdf=pdf,
+            start=1,
+            end=end,
+            pages=list(range(1, end + 1)),
+        )
+        return None
 
     def _run_range(
         self,
@@ -335,6 +514,51 @@ class MineruRunner:
     def _raise_if_cancelled(self) -> None:
         if self._cancelled.is_set():
             raise MineruCancelled("extraction cancelled")
+
+
+def _check_batch_doc_ids(items: Sequence[tuple[str, Path, Path]]) -> None:
+    """Refuse a batch whose doc_ids can't each be one staged filename.
+
+    Two items sharing a doc_id would stage over each other and one document
+    would vanish with no error; a doc_id carrying a path separator would
+    write outside the batch directory entirely. Both are caller bugs, so
+    they fail loudly here rather than producing quietly wrong output.
+    """
+    seen: set[str] = set()
+    for doc_id, _pdf, _out in items:
+        if not doc_id or doc_id in {".", ".."} or "/" in doc_id or "\\" in doc_id:
+            raise ValueError(
+                f"doc_id {doc_id!r} is not usable as a filename; a batch "
+                "stages every PDF under its doc_id"
+            )
+        if doc_id in seen:
+            raise ValueError(f"doc_id {doc_id!r} appears twice in one batch")
+        seen.add(doc_id)
+
+
+def _stage_pdf(src: Path, dest: Path) -> None:
+    """Put one PDF into the batch directory under its staged name.
+
+    Hardlink when the filesystem allows it — MinerU only reads the file, and
+    a book edition's worth of PDFs is real bytes to copy. Falls back to a
+    copy across devices, which is the normal case when the corpus is on the
+    share and the temp directory is on local disk.
+    """
+    try:
+        os.link(src, dest)
+    except OSError:
+        shutil.copy2(src, dest)
+
+
+def _notify(
+    items: Sequence[tuple[str, Path, Path]],
+    state: str,
+    on_document: DocumentCallback | None,
+) -> None:
+    if not on_document:
+        return
+    for doc_id, _pdf, _out in items:
+        on_document(doc_id, state)
 
 
 def _kill(proc: subprocess.Popen) -> None:
