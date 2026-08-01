@@ -1,0 +1,222 @@
+"""Layer 2 agent-loop eval runner.
+
+Drives the REAL harness session per query — the production code path,
+no HTTP server — and records one JSONL transcript per (query, repeat)
+under eval/results/agent/<UTC>-<sha>/. This is the only money-spending
+tool in the Layer 2 suite; scoring and judging read the transcripts.
+
+Isolation guarantees (spec 'Decisions' #5 and Global Constraints):
+- check_limit is a stub returning "allowed" — an eval run must not be
+  blocked by, nor count against, office S19 limits.
+- record_usage appends to the RUN's own ledger.jsonl, never the office
+  spend ledger on the share.
+- settings are loaded once and passed explicitly; nothing re-reads
+  settings.json mid-run.
+"""
+from __future__ import annotations
+
+import argparse
+import dataclasses
+import hashlib
+import json
+import subprocess
+import sys
+import time
+from datetime import datetime, timezone
+from pathlib import Path
+from typing import Any, Callable
+
+from eval.agent_schema import AgentQuery, load_agent_queries
+from eval.agent_transcript import write_transcript
+from harness.ledger import LimitStatus
+from harness.session import reset_model_overrides
+from harness.settings import Settings, TierConfig, ai_available, load_settings
+
+DEFAULT_QUERIES = "eval/agent_queries.yaml"
+DEFAULT_RESULTS_DIR = "eval/results/agent"
+
+
+def _git_sha() -> str:
+    try:
+        return subprocess.check_output(
+            ["git", "rev-parse", "--short", "HEAD"], text=True
+        ).strip()
+    except (subprocess.CalledProcessError, OSError):
+        return "unknown"
+
+
+def _allow_all(user: str, settings: Any, *, now: Any = None) -> LimitStatus:
+    """Spend-gate stub: eval runs are pre-authorized by the human who
+    started them; the S19 office limit must neither block nor accrue."""
+    return LimitStatus(status="allowed", message=None, reason=None,
+                       limit_usd=None, month_usd=None)
+
+
+def make_usage_recorder(run_dir: Path) -> Callable[..., None]:
+    """A record_usage-compatible callable that writes per-step rows into
+    the run directory instead of the office ledger."""
+    path = run_dir / "ledger.jsonl"
+
+    def record(user: str, tier: str, model: str, tokens_in: int, tokens_out: int,
+               cost_usd: float | None = None, *, cached_tokens: int = 0,
+               now: Any = None) -> None:
+        row = {"user": user, "tier": tier, "model": model,
+               "tokens_in": tokens_in, "tokens_out": tokens_out,
+               "cost_usd": cost_usd, "cached_tokens": cached_tokens,
+               "timestamp": datetime.now(timezone.utc).isoformat()}
+        with open(path, "a", encoding="utf-8") as f:
+            f.write(json.dumps(row, ensure_ascii=False) + "\n")
+
+    return record
+
+
+def make_session_factory(settings: Settings, run_dir: Path):
+    def factory(query: AgentQuery, conv_id: str):
+        # Import here so the module stays importable (and testable)
+        # without the ONNX/LanceDB stack loaded.
+        from harness.session import HarnessSession
+
+        return HarnessSession(
+            conv_id, corpus=query.corpus, tier=query.tier, user="eval",
+            settings=settings,
+            check_limit=_allow_all,
+            record_usage=make_usage_recorder(run_dir),
+        )
+    return factory
+
+
+def select_queries(queries: list[AgentQuery], subset: str,
+                   ids: list[str] | None) -> list[AgentQuery]:
+    picked = [q for q in queries if subset in q.subsets]
+    if ids:
+        wanted = set(ids)
+        picked = [q for q in picked if q.id in wanted]
+    return picked
+
+
+def build_manifest(settings: Settings, queries: list[AgentQuery], *,
+                   subset: str, repeats: int, results_note: str = "") -> dict[str, Any]:
+    """Everything needed to know what a run measured. The spec's rule:
+    no two runs are ever compared without knowing what differed."""
+    prompt_path = Path(__file__).resolve().parent.parent / "harness" / "system-prompt.md"
+    try:
+        prompt_sha = hashlib.sha256(prompt_path.read_bytes()).hexdigest()
+    except OSError:
+        prompt_sha = "unknown"
+    counts: dict[str, Any] = {}
+    try:
+        from store.chunk_store import ChunkStore
+
+        store = ChunkStore()
+        for table in ("budget_chunks", "fiscal_note_chunks"):
+            counts[table] = store.count(table)
+    except Exception as exc:  # tests run without a corpus; record why
+        counts = {"error": f"{type(exc).__name__}: {exc}"}
+    return {
+        "timestamp": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H%MZ"),
+        "git_sha": _git_sha(),
+        "subset": subset,
+        "repeats": repeats,
+        "queries": [q.id for q in queries],
+        "tier_models": {name: cfg.model for name, cfg in settings.tiers.items()},
+        "provider": settings.provider.provider,
+        "base_url": settings.provider.base_url,
+        "api_key_set": bool(settings.provider.api_key),
+        "prompt_sha256": prompt_sha,
+        "corpus_counts": counts,
+        "note": results_note,
+    }
+
+
+def run_suite(queries: list[AgentQuery], run_dir: Path,
+              session_factory: Callable[[AgentQuery, str], Any], *,
+              repeats: int = 1, progress: Callable[[str], Any] = print) -> None:
+    run_dir.mkdir(parents=True, exist_ok=True)
+    for query in queries:
+        for rep in range(1, repeats + 1):
+            # A transient S13 model fallback during query N must not
+            # silently re-model queries N+1..: reset before every query.
+            reset_model_overrides()
+            conv_id = f"eval-{query.id}-r{rep}"
+            path = run_dir / f"{query.id}-r{rep}.jsonl"
+            meta = {"query_id": query.id, "repeat": rep,
+                    "corpus": query.corpus, "tier": query.tier,
+                    "shape": query.shape,
+                    "started_at": datetime.now(timezone.utc).isoformat()}
+            events: list[dict[str, Any]] = []
+            session = None
+            start = time.monotonic()
+            try:
+                session = session_factory(query, conv_id)
+                frame = session.send_turn(query.question, events.append)
+            except Exception as exc:
+                # One bad query must never abort the run (Layer 1 rule).
+                frame = {"type": "_error",
+                         "message": f"{type(exc).__name__}: {exc}"}
+            finally:
+                if session is not None:
+                    try:
+                        session.close()
+                    except Exception:
+                        pass
+            elapsed_ms = int((time.monotonic() - start) * 1000)
+            write_transcript(path, meta, events,
+                             {"frame": frame, "wall_ms": elapsed_ms})
+            status = frame.get("type", "?")
+            cost = (frame.get("usage") or {}).get("cost")
+            progress(f"{query.id} r{rep}: {status} "
+                     f"({elapsed_ms / 1000:.0f}s, cost={cost})")
+
+
+def main() -> int:
+    try:
+        sys.stdout.reconfigure(encoding="utf-8")
+    except Exception:
+        pass
+    parser = argparse.ArgumentParser(description="Layer 2 agent-loop eval runner (spends real money)")
+    parser.add_argument("--queries-file", default=DEFAULT_QUERIES)
+    parser.add_argument("--subset", default="smoke", choices=("smoke", "full", "dr-probe"))
+    parser.add_argument("--queries", nargs="*", default=None, help="restrict to these query ids")
+    parser.add_argument("--repeats", type=int, default=1)
+    parser.add_argument("--model", default=None,
+                        help="pin the standard-tier model for this run (overrides settings)")
+    parser.add_argument("--results-dir", default=DEFAULT_RESULTS_DIR)
+    parser.add_argument("--note", default="", help="free-text note recorded in the manifest")
+    args = parser.parse_args()
+
+    settings = load_settings()
+    if args.model:
+        # Frozen dataclass — build a modified copy, never touch disk.
+        tiers = dict(settings.tiers)
+        tiers["standard"] = TierConfig(model=args.model, enabled=True)
+        settings = dataclasses.replace(settings, tiers=tiers)
+
+    queries = select_queries(load_agent_queries(args.queries_file),
+                             args.subset, args.queries)
+    if not queries:
+        print("no queries selected", file=sys.stderr)
+        return 2
+    needed_tiers = {q.tier for q in queries}
+    for tier in sorted(needed_tiers):
+        ok, reason = ai_available(settings, tier)
+        if not ok:
+            print(f"AI Mode unavailable for tier {tier}: {reason}", file=sys.stderr)
+            return 2
+
+    run_dir = Path(args.results_dir) / f"{datetime.now(timezone.utc).strftime('%Y-%m-%dT%H%MZ')}-{_git_sha()}"
+    run_dir.mkdir(parents=True, exist_ok=True)
+    manifest = build_manifest(settings, queries, subset=args.subset,
+                              repeats=args.repeats, results_note=args.note)
+    tmp = (run_dir / "manifest.json").with_suffix(".json.tmp")
+    tmp.write_text(json.dumps(manifest, indent=2, ensure_ascii=False), encoding="utf-8")
+    tmp.replace(run_dir / "manifest.json")
+
+    print(f"run dir: {run_dir}  ({len(queries)} queries x {args.repeats})")
+    run_suite(queries, run_dir, make_session_factory(settings, run_dir),
+              repeats=args.repeats)
+    print(f"done. next: uv run python -m eval.score_agent_run {run_dir}")
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())
