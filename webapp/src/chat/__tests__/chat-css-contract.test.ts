@@ -210,15 +210,84 @@ describe("chat CSS containment contract", () => {
     expect(ruleFor(".pdf-cited-text")).not.toMatch(/vh/);
   });
 
-  // Task 16: the mascot used to clip mid-body against the column edge
-  // (right: calc(50% + 400px) never reacted to the source panel opening or a
-  // narrow window). It now docks/undocks off a container query on its own
-  // scroller instead of a fixed offset that assumed a fixed-width viewport.
-  it("the mascot hides via container query instead of clipping off-canvas", () => {
+  // Task 16 (review pass): the mascot used to clip mid-body against the
+  // column edge (right: calc(50% + 400px) never reacted to the source panel
+  // opening or a narrow window). It now docks/undocks off a container query
+  // on its own scroller instead of a fixed offset that assumed a
+  // fixed-width viewport.
+  it("the mascot's container query is on the scroller's own inline-size", () => {
     expect(css).toMatch(/container-type:\s*inline-size/);
-    expect(css).toMatch(
-      /@container[^{]*max-width[^{]*\{[^}]*\.chat-mascot-slot[^}]*display:\s*none/s,
+  });
+
+  // The shipped 1040px was a rounded guess ("--ai-col + the widest scene +
+  // gutters") that turned out too low for ALL THREE scenes — a real number
+  // pinned here so a future edit to something obviously wrong (say, 100px)
+  // fails loudly instead of silently reopening the clip bug.
+  //
+  // Derivation (re-derive this yourself before ever touching the number):
+  //   .chat-mascot-slot sits in .chat-thread-anchor (the @container's own
+  //   content box, per CSS Conditional 5 §6.1.3 — inline-size queries the
+  //   container's CONTENT box, so this ignores .chat-thread-scroll's own
+  //   16px+16px padding, which is the conservative direction: a real border
+  //   between padding and content-box clip would buy ~16px more slack, not
+  //   less). Call that content box width A.
+  //   right: calc(50% + 400px) puts the slot's untransformed right edge a
+  //   constant 16px left of .chat-thread-column's left edge, for ANY A
+  //   (400 = 768/2 + 16, so the two halves of A always cancel out —
+  //   verified by algebra, not assumed).
+  //   Each scene's `transform: translate(tx, _)` shifts that right edge
+  //   right by tx, and the div's shrink-to-fit width equals the rendered
+  //   scene width (sceneWidth). No clipping requires:
+  //     A >= 800 + 2 * (sceneWidth - tx)
+  //   where 800 = 2 * (384 + 16) (half the 768px column, doubled, plus the
+  //   16px gap doubled).
+  //   Per scene, reading tx straight from the .is-* rules below and
+  //   sceneWidth from each component's actual rendered size:
+  //     idle:       Mascot size="small"          = 120w,  tx=5  -> 1030
+  //     thinking:   MascotTyping  (360x410 vB @ 210px tall) ≈184.4w, tx=54 -> ~1061
+  //     presenting: MascotPresenting (320x400 vB @ 210px tall) = 168w, tx=26 -> 1084
+  //   presenting BINDS despite not being the widest scene, because its
+  //   translate offset is the smallest of the three. 1084 is therefore the
+  //   smallest threshold that clips NO scene; anything lower reopens the
+  //   exact bug this test exists to catch.
+  it("the container-query threshold is the real per-scene no-clip requirement (1084px, presenting binds)", () => {
+    const start = css.indexOf("@container (max-width: 1084px)");
+    expect(
+      start,
+      "threshold must be exactly 1084px — see the derivation comment above this test",
+    ).toBeGreaterThan(-1);
+    const firstClose = css.indexOf("}", start);
+    const secondClose = css.indexOf("}", firstClose + 1);
+    const body = css.slice(start, secondClose);
+    expect(body).toMatch(/\.chat-mascot-slot/);
+  });
+
+  // Mascot/MascotTyping/MascotPresenting's role="img" aria-label ("JLBC
+  // budget assistant — searching" / "— presenting results") is the ONLY
+  // place the assistant's searching/presenting state is exposed to
+  // assistive tech anywhere on this page — there is no aria-live region or
+  // textual status in ChatThread.tsx. display:none removes an element from
+  // the accessibility tree entirely, so hiding the mascot that way would
+  // silently take away the one status indicator a screen-reader user has —
+  // worse than the old clipping bug, which at least left it in the tree.
+  // Fixed with the classic visually-hidden clip recipe instead: gone from
+  // the screen, still present (and readable) for assistive tech.
+  it("the container query visually hides the mascot without removing it from the accessibility tree", () => {
+    const start = css.indexOf("@container (max-width: 1084px)");
+    const firstClose = css.indexOf("}", start);
+    const secondClose = css.indexOf("}", firstClose + 1);
+    const body = css.slice(start, secondClose);
+    expect(body, "must not use display:none — that strips role=img from the a11y tree").not.toMatch(
+      /display:\s*none/,
     );
+    // The standard sr-only/visually-hidden recipe: shrunk to 1x1px and
+    // clipped to a zero-area rect, never display:none/visibility:hidden
+    // (both of which assistive tech treats as absent, not "hidden but
+    // present").
+    expect(body).toMatch(/width:\s*1px/);
+    expect(body).toMatch(/height:\s*1px/);
+    expect(body).toMatch(/clip:\s*rect\(0,?\s*0,?\s*0,?\s*0\)/);
+    expect(body).not.toMatch(/visibility:\s*hidden/);
   });
 
   // The 440px in the old clamp was hand-measured chrome height that every

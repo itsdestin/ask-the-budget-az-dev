@@ -826,16 +826,40 @@ nav.primary{position:relative;padding-right:44px;}
 .chat-thread-scroll { height: 100%; overflow-y: auto; overflow-x: hidden; padding: 24px 16px calc(var(--ai-bottom-chrome, 120px) + 12px); background: var(--canvas); }
 /* The scroller is the mascot's container: when the chat column is too narrow
    to fit the 768px column PLUS the mascot beside it (the source panel open,
-   a narrow window), he fades out instead of being clipped mid-body by the
+   a narrow window), he docks off instead of being clipped mid-body by the
    column edge — which is what right:calc(50% + 400px) used to do.
-   1040px = --ai-col + the widest scene (~184px) + gutters.
    container-type:inline-size applies inline-size containment (the element's
    width can no longer be influenced by its own content) — safe here because
    .chat-thread-scroll is a flex child of .ai-panel-chat (flex:1 1 0), so its
-   width is already parent-driven, never content-driven. */
+   width is already parent-driven, never content-driven.
+
+   THRESHOLD (1084px) — re-derive this, don't eyeball-adjust it. Full
+   derivation + per-scene numbers pinned in
+   chat-css-contract.test.ts ("the container-query threshold is the real
+   per-scene no-clip requirement"); short form:
+     required A >= 800 + 2 * (sceneWidth - translateX), per scene, where A is
+     this element's own content-box inline-size (what @container measures —
+     CSS Conditional 5 §6.1.3) and translateX comes from the .is-* rules
+     below. idle -> 1030, thinking -> ~1061, presenting -> 1084 (BINDS: not
+     the widest scene, but its translate offset is the smallest of the
+     three, so it needs the most room). The old 1040px was a rounded guess
+     ("--ai-col + the widest scene + gutters") that undershot all three.
+
+   Hides via a visually-hidden clip, NOT display:none: Mascot/MascotTyping/
+   MascotPresenting's role="img" aria-label is the ONLY place a screen
+   reader learns the assistant is searching/presenting anywhere on this
+   page — there's no aria-live region elsewhere in ChatThread.tsx.
+   display:none removes an element from the accessibility tree outright, so
+   a screen-reader user who narrows the column (e.g. opening the source
+   panel) would silently lose the one status indicator — a regression on
+   the PRE-container-query behavior, where the mascot was merely clipped
+   but stayed readable. 1x1px + clip:rect(0,0,0,0) keeps it in the tree
+   while making it visually imperceptible; visibility:hidden was avoided
+   because assistive tech treats that the same as display:none (absent, not
+   "hidden but present"). */
 .chat-thread-scroll { container-type: inline-size; }
-@container (max-width: 1040px) {
-  .chat-mascot-slot { display: none; }
+@container (max-width: 1084px) {
+  .chat-mascot-slot { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0, 0, 0, 0); white-space: nowrap; border: 0; }
 }
 /* min-height:100% + justify-content:flex-end bottom-anchors the column, so a
    session's first message lands just above the composer and later turns grow
