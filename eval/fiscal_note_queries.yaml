@@ -1,97 +1,403 @@
 # Fiscal-note eval set — coordinator-triage query shapes.
 #
-# STATUS: queries written, GROUND TRUTH NOT YET FILLED IN. Read this before
-# running it and before "fixing" the empty ground_truth blocks.
+# STATUS: ground truth filled in 2026-08-01. ***DRAFT — AGENT-DRAFTED,
+# PENDING HUMAN REVIEW BY SOMEONE WHO WRITES FISCAL NOTES.*** Do not treat
+# the numbers this set produces as a validated bar until that review happens.
 #
-# WHY it's incomplete: ground truth here is a real chunk_id from a real
-# ingested note, and the fiscal-note corpus is not populated yet. Plan 3
-# shipped the machinery — POST /api/fiscal-notes/refresh scrapes azjlbc.gov,
-# downloads new notes, and ingests them — and it was verified end-to-end on
-# two real 2026 notes. But populating the 2,126-note back catalogue is an
-# overnight MinerU run that has not happened, so there are no stable chunk_ids
-# to point at. Inventing them would produce a baseline that measures nothing
-# and fails for the wrong reason forever.
+# The chunk_ids below were chosen by an agent reading the top-10 passages for
+# each query against the 13,278-passage / 2,104-note corpus ingested
+# 2026-07-31. Every chunk_id was re-fetched and every anchor_text verified as
+# a literal, single-occurrence substring of that chunk's text. What was NOT
+# verified is the judgment call: whether the passage picked is the one a JLBC
+# fiscal-note coordinator would actually want. Per-entry confidence and the
+# rejected alternatives are recorded in the comments so a reviewer can
+# adjudicate each pick in a couple of minutes.
 #
-# TO FINISH (after a real fiscal-note ingest):
-#   1. Run a refresh (or ingest a slice of prior sessions) so
-#      `fiscal_note_chunks` has real rows.
-#   2. For each query below, run it and read the results; put the chunk_id of
-#      the passage that genuinely answers it into `chunk_id`, and a verbatim
-#      phrase from that passage into `anchor_text`. Same hybrid ground-truth
-#      rule as eval/queries.yaml — anchor_text is what survives a re-ingest
-#      that changes chunk boundaries.
-#   3. `uv run python -m eval.run_eval --queries eval/fiscal_note_queries.yaml
-#      --corpus fiscal_notes` and commit the results as the baseline. There is
-#      no hard gate — this corpus has no history, so the first numbers ARE the
-#      bar.
+# HISTORY: this file previously carried queries with EMPTY ground truth,
+# because the fiscal-note corpus was not yet populated (Plan 3 shipped the
+# ingest machinery but the 2,126-note back catalogue was an overnight MinerU
+# run that had not happened). The Z13 backfill populated it; that blocker is
+# gone.
+#
+# ── READ THIS BEFORE TRUSTING THE NUMBERS ────────────────────────────────
+#
+# 1. THE DIMENSIONS FALLBACK IS NEARLY DEGENERATE ON THIS CORPUS. Scoring
+#    falls back from chunk_id to (publisher, doc_type, fiscal_year, agency)
+#    when the chunk_id is gone. In the BUDGET corpus those four fields
+#    genuinely discriminate. Here, publisher is `legislature` and doc_type is
+#    `fiscal-note` for all 13,278 rows, and only about half carry an agency
+#    stamp — so for the entries with `agency: null`, ANY fiscal note from the
+#    same session year counts as a fallback match. Read `fallback_rate` and
+#    the per-query `matched_via` in the results file: a pass via
+#    `dimensions_fallback` on this corpus means almost nothing. Only
+#    `matched_via: chunk_id` is real signal.
+#
+# 2. SEVERAL PICKS ARE NOT IN THE TOP 10 FOR THEIR OWN QUERY, DELIBERATELY.
+#    Two queries (AHCCCS provider rates, PSPRS employer contributions) return
+#    ten plausible-looking passages, none of which actually answers the
+#    question; the passage that does answer it is found only by a more
+#    specific query. Those entries are supposed to fail today. That is the
+#    measurement, not a broken answer key.
+#
+# 3. `fn-same-topic-across-sessions` FAILS BY CONSTRUCTION AND SHOULD
+#    PROBABLY BE REWRITTEN. See its comment.
+#
+# ── FIRST BASELINE, 2026-08-01 (eval/results/fiscal_notes-2026-08-01T0901Z-*)
+#
+#    As reported by the runner:
+#      recall@5 54.55%  recall@15 81.82%  recall@20 81.82%
+#      fallback rate 22%  latency p50 734ms / p95 804ms
+#      refusal precision 100%  refusal recall 100%
+#
+#    Discounting the two degenerate `dimensions_fallback` passes (see caveat
+#    1 — both matched a same-session note that is NOT the answer), the honest
+#    exact-passage numbers across the 11 non-refusal queries are:
+#      recall@5 45.5% (5/11)  recall@15 63.6% (7/11)  recall@20 63.6% (7/11)
+#
+#    Treat the second set as the real bar. There is no gate here: this corpus
+#    has no history, so the first numbers ARE the bar, and G1's 90%/95%
+#    thresholds printed in the results markdown are the BUDGET corpus's gate
+#    being echoed by a shared template — they do not apply to this set.
 #
 # The QUERIES themselves are the durable part and are written to the
 # coordinator's actual workflow: a new fiscal note request arrives, and the
 # question is always "have we analyzed something like this before?" — which is
 # a topic search, not a bill-number lookup (the directory page already does
 # bill numbers).
+#
+# Re-run: uv run python -m eval.run_eval --queries eval/fiscal_note_queries.yaml
+#         --corpus fiscal_notes
+# (the CLI takes the friendly corpus name; RetrievalRequest takes the TABLE
+# name `fiscal_note_chunks`.)
 
+# CONFIDENCE: medium. No note in this corpus analyses the CONSTITUTIONAL
+# expenditure limitation for community college districts. This is the one
+# passage carrying quantified analysis of a limit on what a district may
+# raise and spend (the Art. IX levy limit, with CCC's $6.4M limit and the
+# $12.8M ceiling the bill would allow).
+# REJECTED: fy2003-hb2352-40-0005 (ranks #1 on some phrasings, but it is a
+# DEBT limit — lease-purchase and bonding capacity — not an expenditure
+# limit); fy2002-hb2488-106-0005 (the only passage that uses the words
+# "budget limits" and "total allowable expenditures", but it name-drops them
+# in a sentence and carries no estimate).
 - id: fn-community-college-expenditure-limits
   type: lookup
   query: prior fiscal notes about community college expenditure limits
-  ground_truth: {}
+  expected_chunks:
+    - chunk_id: legislature-fiscal-note-fy2011-hb2407-43-0003
+      dimensions:
+        publisher: legislature
+        doc_type: fiscal-note
+        fiscal_year: 2011
+      anchor_text: 'Provisions of Article IX, Sections 19 and 21, of the Arizona Constitution impose limitations on community college district property tax levies'
+  expected_refusal: false
+  synthesized_by: agent-draft-2026-08-01
+  synthesized_at: "2026-08-01T00:00Z"
 
+# CONFIDENCE: high on the passage, and it is EXPECTED TO FAIL TODAY.
+# HB 2198 requires AHCCCS to raise fee-for-service reimbursement rates for
+# rural hospitals by 30% and estimates the cost at $20.1M General Fund /
+# $115.8M Total Funds. That is precisely "the cost of an AHCCCS provider rate
+# increase". It does not appear anywhere in the top 10 for the query as
+# written — the query's top 10 is entirely benefit-COVERAGE expansions
+# (naturopathic, chiropractic, dental, traditional healing), which cost money
+# through utilization, not through rates.
+# REJECTED: fy2018-sb1086-1-0002 (rank 5; mentions "changes in capitation
+# rates paid to health plans", but the bill adds a chiropractic benefit — the
+# rate change is a consequence, not the subject); fy2013-sb1057-2-0003
+# (ambulance reimbursement raised from 68.6% to 80% of the DHS rate — a
+# genuine provider-rate note and a reasonable second choice, but the rate is
+# set by DHS and the analysis is mostly about the Baseline assumption).
 - id: fn-ahcccs-provider-rates
   type: lookup
   query: notes estimating the cost of AHCCCS provider rate increases
-  ground_truth: {}
+  expected_chunks:
+    - chunk_id: legislature-fiscal-note-fy2025-hb2198-80-0002
+      dimensions:
+        publisher: legislature
+        doc_type: fiscal-note
+        fiscal_year: 2025
+      anchor_text: 'Based on 2024 rural hospital utilization data from AHCCCS'
+  expected_refusal: false
+  synthesized_by: agent-draft-2026-08-01
+  synthesized_at: "2026-08-01T00:00Z"
 
+# CONFIDENCE: medium — THE WEAKEST JUDGMENT CALL IN THE FILE.
+# The query is conjunctive ("group B weights AND special education funding")
+# and the corpus does not contain a note analysing a change to the SPECIAL
+# EDUCATION group B weight. Every group B weight note here is about gifted,
+# ELL/LEP, free-and-reduced-price lunch, or achievement weights. This chunk is
+# the only passage that does both halves: it prices special education services
+# using the statewide special education Group B weight of 0.467, showing the
+# full per-pupil arithmetic behind a $23.3M / $25.1M estimate.
+# REJECTED: fy2022-hb2854-100-0017 (the strongest pure group-B-weight fiscal
+# analysis in the corpus — a new 0.037 FRPL weight worth $102.4M — but HB 2854
+# has no special education component at all); fy2021-hb2418-75-0002 (new group
+# B weight for gifted pupils, $1.0M — same problem, and a much smaller note).
+# A reviewer who reads the query as "group B weights, full stop" should move
+# this to hb2854-100-0017.
 - id: fn-k12-group-b-weights
   type: lookup
   query: fiscal notes on K-12 group B weights and special education funding
-  ground_truth: {}
+  expected_chunks:
+    - chunk_id: legislature-fiscal-note-fy2001-sb1448-58-0005
+      dimensions:
+        publisher: legislature
+        doc_type: fiscal-note
+        fiscal_year: 2001
+        agency: "agency:equ"
+      anchor_text: 'The average per pupil reimbursement under the bill therefore would be'
+  expected_refusal: false
+  synthesized_by: agent-draft-2026-08-01
+  synthesized_at: "2026-08-01T00:00Z"
 
+# CONFIDENCE: high. Rank 2 for the query as written. Longer sentences ->
+# larger prison population -> marginal ADC cost, quantified both ways:
+# $2.3M rising to $6.9M, and a 3,200-inmate population increase when fully
+# phased in.
+# REJECTED: fy2024-hcr2060-45-0007 (rank 1, and a defensible alternative — ADC
+# estimates $16.6M in FY 2025 growing to $178.0M in FY 2029 off a 1,823
+# population increase, with four paragraphs of JLBC critique of ADC's
+# methodology. Passed over because the note is about illegal-entry offences,
+# where prison population is one component of a much broader bill);
+# fy2023-sb1029-6-0002 and its several near-identical siblings (correct shape,
+# but they explicitly decline to estimate a magnitude).
 - id: fn-corrections-population-growth
   type: lookup
   query: notes estimating prison population growth costs at the Department of Corrections
-  ground_truth: {}
+  expected_chunks:
+    - chunk_id: legislature-fiscal-note-fy2023-hb2802-98-0002
+      dimensions:
+        publisher: legislature
+        doc_type: fiscal-note
+        fiscal_year: 2023
+        agency: "agency:adc"
+      anchor_text: 'the bill would increase the ADC population by a total of 3,200 inmates'
+  expected_refusal: false
+  synthesized_by: agent-draft-2026-08-01
+  synthesized_at: "2026-08-01T00:00Z"
 
+# CONFIDENCE: high. Rank 3 for the query as written, and the textbook shape:
+# an explicit TPT exemption, an annual revenue loss of $(2.5) million, and the
+# statutory distribution split across General Fund / counties / cities.
+# REJECTED: fy2023-sb1184-23-0003 (rank 2, bigger numbers — $(75.3)M growing
+# to $(282.7)M — but it is a repeal of the residential rental tax with ZERO
+# state impact; the loss is entirely municipal); fy1999-hb2196-27-0005 (a
+# $(105)M DOR estimate, but it models a change to the contracting tax BASE,
+# not an exemption).
 - id: fn-tpt-exemption-revenue-loss
   type: lookup
   query: transaction privilege tax exemption revenue loss estimates
-  ground_truth: {}
+  expected_chunks:
+    - chunk_id: legislature-fiscal-note-fy2013-hb2488-51-0013
+      dimensions:
+        publisher: legislature
+        doc_type: fiscal-note
+        fiscal_year: 2013
+      anchor_text: 'Exempting this amount from transaction privilege and use tax would result in an annual revenue loss'
+  expected_refusal: false
+  synthesized_by: agent-draft-2026-08-01
+  synthesized_at: "2026-08-01T00:00Z"
 
+# CONFIDENCE: high on the passage, and it is EXPECTED TO FAIL TODAY.
+# This is the passage that explains what a PSPRS/CORP employer contribution
+# rate IS (normal cost + unfunded liability) and quantifies the change:
+# $123.6M/yr less in employer contributions, $99.2M of it General Fund.
+# The query as written returns nine DESCRIPTION chunks — including this very
+# note's own description at rank 6 — and never reaches the Estimated Impact
+# section that carries the analysis. That is the failure worth measuring:
+# short bill-summary paragraphs out-rank the analysis they summarise.
+# REJECTED: fy2022-sb1087-13-0002 (the same note's description — no analysis);
+# fy2014-hb2693-35-0002 (real employer-contribution-rate arithmetic, but for
+# the marginal rate effect of a line-of-duty death: 0.0017%, ~$1,100);
+# fy2025-sb1148-21-0003 (defined-contribution employer rates for county
+# detention officers — a county cost, not a PSPRS DB employer contribution).
+# NOTE for a re-chunk: fy2022-sb1086-12-0003 is a near-identical sibling note
+# from the same session; the anchor below is pinned to the $123.6M figure so
+# it cannot bind to the wrong one.
 - id: fn-public-safety-retirement
   type: lookup
   query: fiscal notes on public safety personnel retirement system employer contributions
-  ground_truth: {}
+  expected_chunks:
+    - chunk_id: legislature-fiscal-note-fy2022-sb1087-13-0003
+      dimensions:
+        publisher: legislature
+        doc_type: fiscal-note
+        fiscal_year: 2022
+      anchor_text: 'employer contributions would be reduced by \$123.6 million, with \$99.2 million of those savings accruing to the General Fund'
+  expected_refusal: false
+  synthesized_by: agent-draft-2026-08-01
+  synthesized_at: "2026-08-01T00:00Z"
 
+# CONFIDENCE: medium. Rank 1, but note the top_score for this query is only
+# ~2.3 — barely above the 1.9 refusal threshold. The corpus contains no note
+# authorising NEW university capital lease-purchase financing; both notes that
+# discuss it are payoffs of the existing A.R.S. § 15-1670 research
+# infrastructure agreements. This is the better of the two.
+# REJECTED: fy2024-hb2725-91-0004 (an equally good passage covering the same
+# § 15-1670 university financing, paired with the Phoenix Convention Center
+# rather than with ADC prison beds — a coin flip, and a reviewer could
+# legitimately add it as a second expected chunk); fy2019-sb1215-8-0003 (the
+# cleanest lease-purchase-payoff analysis in the corpus, but the 2010B sale
+# leaseback is state buildings, nothing to do with universities).
 - id: fn-university-capital-projects
   type: lookup
   query: notes on university capital project lease-purchase financing
-  ground_truth: {}
+  expected_chunks:
+    - chunk_id: legislature-fiscal-note-fy2022-sb1091-14-0003
+      dimensions:
+        publisher: legislature
+        doc_type: fiscal-note
+        fiscal_year: 2022
+        agency: "agency:ret"
+      anchor_text: 'multi-year debt service savings of \$284.5 million'
+  expected_refusal: false
+  synthesized_by: agent-draft-2026-08-01
+  synthesized_at: "2026-08-01T00:00Z"
 
+# CONFIDENCE: LOW — the weakest entry in the file after the comparison query.
+# There is no fiscal note in this corpus about a WIFA APPROPRIATION. WIFA's
+# big water-supply appropriations came through budget bills, which do not get
+# fiscal notes. HB 2666 (the Arizona Finance Authority consolidation) is the
+# ONLY note in the corpus with substantive WIFA money analysis in it: WIFA's
+# 17.6 FTE and $2,494,300 of administrative funding, and $219,273,800 of WIFA
+# and GADA resources left in their funds. A coordinator asking "have we ever
+# written about WIFA's money?" would want this note; a coordinator asking
+# strictly about an appropriation TO WIFA would get nothing.
+# A reviewer may reasonably decide to blank this entry, or to reword the query
+# to "fiscal notes about the Water Infrastructure Finance Authority".
+# REJECTED: fy2022-sb1091-14-0001 (rank 1 — a lexical trap: "water supply
+# projects" at state PRISON complexes, no WIFA involvement); the permitting-
+# dashboard notes at ranks 4/5/8/9 (they list ADWR/ADEQ among participating
+# agencies and are otherwise unrelated).
 - id: fn-water-infrastructure-appropriation
   type: lookup
   query: fiscal notes about water infrastructure finance authority appropriations
-  ground_truth: {}
+  expected_chunks:
+    - chunk_id: legislature-fiscal-note-fy2016-hb2666-61-0009
+      dimensions:
+        publisher: legislature
+        doc_type: fiscal-note
+        fiscal_year: 2016
+        agency: "agency:apa"
+      anchor_text: 'to administer the federal capitalization grant, Clean Water Revolving Fund, and Drinking Water Revolving Fund'
+  expected_refusal: false
+  synthesized_by: agent-draft-2026-08-01
+  synthesized_at: "2026-08-01T00:00Z"
 
+# CONFIDENCE: high. The only passage in the corpus that does the actual
+# caseload-to-caseworker-to-dollars arithmetic for CHILD SAFETY caseworkers:
+# 21 out-of-home cases per authorized caseworker, ~1,500 additional cases,
+# 71 additional caseworkers, $7.6 million.
+# REJECTED: fy2017-hb2021-29-0002 (rank 1 and the trap in this query — DES
+# eligibility caseworkers for CHILD CARE subsidies, 45 caseworkers at $2.6M.
+# Correct shape, wrong programme: these workers determine subsidy eligibility,
+# they are not DCS/CPS child-safety caseworkers); fy2008-hb2602-63-0001
+# (8 new CPS caseworkers at $420,000 — genuinely child safety, but JLBC states
+# DES supplied no methodology and the impact cannot be determined).
 - id: fn-child-safety-caseworker-caseloads
   type: lookup
   query: cost estimates for additional child safety caseworkers
-  ground_truth: {}
+  expected_chunks:
+    - chunk_id: legislature-fiscal-note-fy2007-sb1111-6-0002
+      dimensions:
+        publisher: legislature
+        doc_type: fiscal-note
+        fiscal_year: 2007
+      anchor_text: 'Assuming about 1,500 additional cases, this would require 71 additional caseworkers'
+  expected_refusal: false
+  synthesized_by: agent-draft-2026-08-01
+  synthesized_at: "2026-08-01T00:00Z"
 
+# CONFIDENCE: high. This is the best-covered topic in the whole set — the top
+# five results are all genuine county election cost estimates. Picked for the
+# fullest methodology: 3,957 new voting locations, $10.8M per election day,
+# the $2,700-per-location derivation checked against poll-worker wages, and
+# $21.6M in an election fiscal year.
+# REJECTED: fy2025-hb2017-66-0003 (a NEAR-IDENTICAL TWIN — same numbers, same
+# sentences, differing only in "the bill" vs "the measure". Either would do;
+# the anchor below is worded so it cannot bind to the twin);
+# fy2026-hcr2016-53-0002 (rank 2, unique text — 1,288 new precincts at
+# $3,477,600 per election day plus $10,304,000 one-time equipment — but a
+# thinner derivation).
 - id: fn-election-administration-costs
   type: lookup
   query: county election administration cost estimates
-  ground_truth: {}
+  expected_chunks:
+    - chunk_id: legislature-fiscal-note-fy2025-hcr2002-63-0003
+      dimensions:
+        publisher: legislature
+        doc_type: fiscal-note
+        fiscal_year: 2025
+      anchor_text: 'the measure would require the addition of 3,957 new voting locations'
+  expected_refusal: false
+  synthesized_by: agent-draft-2026-08-01
+  synthesized_at: "2026-08-01T00:00Z"
 
-# Comparison-shaped: the coordinator often needs the same topic across sessions
-# to see whether an estimate moved.
+# Comparison-shaped: the coordinator often needs the same topic across
+# sessions to see whether an estimate moved.
+#
+# ⚠ CONFIDENCE: LOW, AND THIS ENTRY FAILS BY CONSTRUCTION. READ BEFORE
+# "FIXING" IT.
+#
+# The ground truth is correct: the motion picture production credit IS the
+# same credit analysed in more than one session — SB 1159 in 2011 (which
+# replaced the prior Motion Picture Tax Incentives programme, same $70M cap,
+# same 20% calculation) and SB 1708 in 2022 (the $150M refundable revival).
+# A comparison entry passes only when ALL expected chunks are in top K.
+#
+# The problem is the QUERY. It names no credit; it describes a RELATIONSHIP
+# between notes. No embedding or BM25 query can retrieve "two passages that
+# happen to be about the same credit in different years" — retrieval scores
+# passages independently. The SB 1708 half is retrieved (rank 2); the SB 1159
+# half is nowhere in the top 20, and no plausible retrieval improvement will
+# put it there for THIS query text.
+#
+# RECOMMENDATION FOR THE HUMAN REVIEWER: either reword the query to name the
+# credit ("prior fiscal notes on the motion picture production tax credit" —
+# which would then be a fair and passable cross-session test), or drop the
+# comparison type from this set and accept that cross-session linking is a
+# job for the AI-Mode tool loop making several retrieve() calls, not for a
+# single retrieval. Leaving it as-is is also defensible: it honestly records
+# that the system cannot do this today. What is NOT defensible is somebody
+# later reading the failure as a retrieval regression.
+#
+# (Do not simply blank expected_chunks: score_comparison() calls max() over an
+# empty rank list and would crash the runner.)
 - id: fn-same-topic-across-sessions
   type: comparison
   query: fiscal notes on the same tax credit analyzed in more than one session
-  ground_truth: {}
+  expected_chunks:
+    - chunk_id: legislature-fiscal-note-fy2022-sb1708-57-0005
+      dimensions:
+        publisher: legislature
+        doc_type: fiscal-note
+        fiscal_year: 2022
+      anchor_text: 'Evaluations of film tax credits in other states show a varied range'
+    - chunk_id: legislature-fiscal-note-fy2011-sb1159-5-0001
+      dimensions:
+        publisher: legislature
+        doc_type: fiscal-note
+        fiscal_year: 2011
+        agency: "agency:dor"
+      anchor_text: 'prior Motion Picture Tax Incentives program'
+  expected_refusal: false
+  synthesized_by: agent-draft-2026-08-01
+  synthesized_at: "2026-08-01T00:00Z"
 
 # Refusal: the corpus holds fiscal notes only. A question about something it
 # cannot possibly contain must score below the refusal threshold rather than
 # returning a confident near-miss.
+#
+# CONFIDENCE: high. Verified 2026-08-01: top_score is -7.18 against a
+# threshold of 1.9, so this refuses with a very wide margin. The top result is
+# an Arizona constitutional DEBT-limit resolution (SCR 1033) — a lexical
+# neighbour of "debt ceiling" and exactly the confident near-miss this entry
+# exists to catch.
 - id: fn-refusal-out-of-corpus
   type: refusal
   query: what is the federal debt ceiling schedule for the next decade
-  ground_truth: {}
+  expected_chunks: []
+  expected_refusal: true
+  synthesized_by: agent-draft-2026-08-01
+  synthesized_at: "2026-08-01T00:00Z"

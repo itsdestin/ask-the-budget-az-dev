@@ -1,0 +1,220 @@
+{
+  "git_sha": "0b8755c",
+  "timestamp": "2026-08-01T0901Z",
+  "summary": {
+    "recall_at_5": 0.5454545454545454,
+    "recall_at_15": 0.8181818181818182,
+    "recall_at_20": 0.8181818181818182,
+    "fallback_rate": 0.2222222222222222,
+    "latency_p50_ms": 734,
+    "latency_p95_ms": 804,
+    "refusal_precision": 1.0,
+    "refusal_recall": 1.0,
+    "by_type": {
+      "lookup": {
+        "recall_at_5": 0.6,
+        "recall_at_15": 0.9,
+        "recall_at_20": 0.9,
+        "count": 10
+      },
+      "comparison": {
+        "recall_at_5": 0.0,
+        "recall_at_15": 0.0,
+        "recall_at_20": 0.0,
+        "count": 1
+      },
+      "refusal": {
+        "precision": 1.0,
+        "count": 1
+      }
+    }
+  },
+  "per_query": [
+    {
+      "id": "fn-community-college-expenditure-limits",
+      "type": "lookup",
+      "status": "pass",
+      "matched_via": "chunk_id",
+      "rank": 1,
+      "latency_ms": 1402,
+      "top_score": 4.141239643096924,
+      "top_chunk_ids": [
+        "legislature-fiscal-note-fy2011-hb2407-43-0003",
+        "legislature-fiscal-note-fy2018-sb1088-2-0011",
+        "legislature-fiscal-note-fy2003-hb2352-40-0005",
+        "legislature-fiscal-note-fy2011-hb2407-43-0001",
+        "legislature-fiscal-note-fy2003-hb2352-40-0001"
+      ]
+    },
+    {
+      "id": "fn-ahcccs-provider-rates",
+      "type": "lookup",
+      "status": "pass",
+      "matched_via": "dimensions_fallback",
+      "rank": 9,
+      "latency_ms": 632,
+      "top_score": 7.558374881744385,
+      "top_chunk_ids": [
+        "legislature-fiscal-note-fy2023-sb1158-19-0002",
+        "legislature-fiscal-note-fy2026-sb1776-48-0002",
+        "legislature-fiscal-note-fy2026-sb1122-13-0003",
+        "legislature-fiscal-note-fy2026-sb1346-26-0002",
+        "legislature-fiscal-note-fy2018-sb1086-1-0002"
+      ]
+    },
+    {
+      "id": "fn-k12-group-b-weights",
+      "type": "lookup",
+      "status": "fail",
+      "latency_ms": 780,
+      "top_score": 7.460966110229492,
+      "top_chunk_ids": [
+        "legislature-fiscal-note-fy2021-hb2418-75-0001",
+        "legislature-fiscal-note-fy2022-hb2854-100-0017",
+        "legislature-fiscal-note-fy2022-hb2854-100-0018",
+        "legislature-fiscal-note-fy2021-hb2418-75-0002",
+        "legislature-fiscal-note-fy2001-sb1356-44-0001"
+      ]
+    },
+    {
+      "id": "fn-corrections-population-growth",
+      "type": "lookup",
+      "status": "pass",
+      "matched_via": "chunk_id",
+      "rank": 2,
+      "latency_ms": 728,
+      "top_score": 6.137752532958984,
+      "top_chunk_ids": [
+        "legislature-fiscal-note-fy2024-hcr2060-45-0007",
+        "legislature-fiscal-note-fy2023-hb2802-98-0002",
+        "legislature-fiscal-note-fy2024-hb2606-86-0007",
+        "legislature-fiscal-note-fy2024-sb1344-27-0002",
+        "legislature-fiscal-note-fy2023-sb1029-6-0002"
+      ]
+    },
+    {
+      "id": "fn-tpt-exemption-revenue-loss",
+      "type": "lookup",
+      "status": "pass",
+      "matched_via": "chunk_id",
+      "rank": 3,
+      "latency_ms": 736,
+      "top_score": 6.364513874053955,
+      "top_chunk_ids": [
+        "legislature-fiscal-note-fy1999-hb2196-27-0005",
+        "legislature-fiscal-note-fy2023-sb1184-23-0003",
+        "legislature-fiscal-note-fy2013-hb2488-51-0013",
+        "legislature-fiscal-note-fy2021-sb1359-23-0005",
+        "legislature-fiscal-note-fy2013-hb2488-51-0012"
+      ]
+    },
+    {
+      "id": "fn-public-safety-retirement",
+      "type": "lookup",
+      "status": "pass",
+      "matched_via": "dimensions_fallback",
+      "rank": 4,
+      "latency_ms": 704,
+      "top_score": 7.56949520111084,
+      "top_chunk_ids": [
+        "legislature-fiscal-note-fy2021-sb1468-36-0001",
+        "legislature-fiscal-note-fy2023-hb2027-55-0005",
+        "legislature-fiscal-note-fy2020-sb1332-21-0001",
+        "legislature-fiscal-note-fy2022-sb1086-12-0002",
+        "legislature-fiscal-note-fy2025-sb1148-21-0002"
+      ]
+    },
+    {
+      "id": "fn-university-capital-projects",
+      "type": "lookup",
+      "status": "pass",
+      "matched_via": "chunk_id",
+      "rank": 1,
+      "latency_ms": 792,
+      "top_score": 2.2936840057373047,
+      "top_chunk_ids": [
+        "legislature-fiscal-note-fy2022-sb1091-14-0003",
+        "legislature-fiscal-note-fy2008-hb2264-50-0000",
+        "legislature-fiscal-note-fy2008-hb2234-49-0002",
+        "legislature-fiscal-note-fy2024-hb2725-91-0004",
+        "legislature-fiscal-note-fy2008-hb2234-49-0000"
+      ]
+    },
+    {
+      "id": "fn-water-infrastructure-appropriation",
+      "type": "lookup",
+      "status": "pass",
+      "matched_via": "chunk_id",
+      "rank": 7,
+      "latency_ms": 795,
+      "top_score": 4.670577526092529,
+      "top_chunk_ids": [
+        "legislature-fiscal-note-fy2022-sb1091-14-0001",
+        "legislature-fiscal-note-fy2022-sb1091-14-0003",
+        "legislature-fiscal-note-fy2024-hb2725-91-0002",
+        "legislature-fiscal-note-fy2021-hb2543-81-0004",
+        "legislature-fiscal-note-fy2021-sb1116-11-0004"
+      ]
+    },
+    {
+      "id": "fn-child-safety-caseworker-caseloads",
+      "type": "lookup",
+      "status": "pass",
+      "matched_via": "chunk_id",
+      "rank": 10,
+      "latency_ms": 804,
+      "top_score": 5.904411315917969,
+      "top_chunk_ids": [
+        "legislature-fiscal-note-fy2017-hb2021-29-0002",
+        "legislature-fiscal-note-fy2022-hb2675-87-0002",
+        "legislature-fiscal-note-fy2024-hb2543-81-0002",
+        "legislature-fiscal-note-fy2020-sb1487-26-0004",
+        "legislature-fiscal-note-fy2008-hb2602-63-0001"
+      ]
+    },
+    {
+      "id": "fn-election-administration-costs",
+      "type": "lookup",
+      "status": "pass",
+      "matched_via": "chunk_id",
+      "rank": 3,
+      "latency_ms": 734,
+      "top_score": 5.196203231811523,
+      "top_chunk_ids": [
+        "legislature-fiscal-note-fy2021-hb2378-71-0002",
+        "legislature-fiscal-note-fy2026-hcr2016-53-0002",
+        "legislature-fiscal-note-fy2025-hcr2002-63-0003",
+        "legislature-fiscal-note-fy2026-scr1001-0-0003",
+        "legislature-fiscal-note-fy2025-hb2017-66-0003"
+      ]
+    },
+    {
+      "id": "fn-same-topic-across-sessions",
+      "type": "comparison",
+      "status": "fail",
+      "latency_ms": 674,
+      "top_score": 3.089963436126709,
+      "top_chunk_ids": [
+        "legislature-fiscal-note-fy2022-hb2027-59-0003",
+        "legislature-fiscal-note-fy2022-sb1708-57-0005",
+        "legislature-fiscal-note-fy2012-sb1301-17-0003",
+        "legislature-fiscal-note-fy2026-hb2939-99-0003",
+        "legislature-fiscal-note-fy2025-hb2939-125-0003"
+      ]
+    },
+    {
+      "id": "fn-refusal-out-of-corpus",
+      "type": "refusal",
+      "status": "pass",
+      "latency_ms": 684,
+      "top_score": -7.17574405670166,
+      "top_chunk_ids": [
+        "legislature-fiscal-note-fy2023-scr1033-9-0002",
+        "legislature-fiscal-note-fy2016-hb2111-36-0001",
+        "legislature-fiscal-note-fy2006-hb2700-73-0008",
+        "legislature-fiscal-note-fy2021-sb1397-26-0003",
+        "legislature-fiscal-note-fy2021-sb1752-45-0003"
+      ]
+    }
+  ]
+}

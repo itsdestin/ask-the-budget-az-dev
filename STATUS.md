@@ -31,6 +31,100 @@ source. When something ships, update only this file.
 | Standalone consolidation — Plan 4 (AI Mode) | ✓ Shipped (2026-07-31) | In-process OpenRouter tool loop; MCP and YouCoded dropped. Cited chat + PDF viewer on both corpora, Standard/Deep-Research tiers, per-user spend ledger. See the section below |
 | Standalone consolidation — Plan 5 (admin + packaging + deletion) | 🟡 **Tracks 1–3 done, 4–5 open** (2026-08-01) | Tracks 1–2 (tasks 1–13, Session A) shipped: admin identity + gate, settings API, OpenRouter catalog, model fallback, corpus health/restore, Admin + Settings pages, per-machine data dir, health ladder, lockout recovery. Track 3 (packaging, Session B) shipped separately. **Track 5 (handbook, 21–23) not started; Track 4 (legacy deletion, 18–20) still blocked** — `web/`, `mcp-server/`, `db/` remain in-tree. ⚠ **Two of Session B's app-side asks are unbuilt** (per-machine `ingest_enabled`; `machine_config` CLI). See the Session A section below |
 
+## Corpus — what is ingested and what is NOT (2026-08-01)
+
+**The corpus is MVP-complete for recent years. It is NOT finished.** Recorded
+here because the deferral previously existed only as a comment in
+`~/backfill-scripts/orchestrate.py`, which is not in this repo.
+
+**In the corpus:** 24,841 budget chunks + 13,278 fiscal-note chunks / 3,527
+documents. JLBC Baselines FY2022–2027 and Approps FY2022–2026 (11 editions),
+the complete fiscal-note back catalogue (2,104 notes, sessions 2026→1999),
+and exactly **three** other documents — one AFR (FY2025), one executive budget
+(FY2027), one budget bill (FY2026).
+
+| Remaining work | Count | Blocked by |
+|---|---|---|
+| **JLBC books, pre-FY2022** | **27 editions** (Baselines FY2012–2021, Approps FY2005–2021) | Nothing — deferred by Destin's MVP call 2026-07-31. Run with `JLBC_BACKFILL_UNITS=books` |
+| **Annual Financial Reports** | 3 (FY2022–24) | **`gao.az.gov` is behind Cloudflare bot management** — see below. Needs a human with a browser |
+| **Executive budgets** | ~~2~~ **0 — INGESTED 2026-08-01** | done (FY2025 + FY2026 now live) |
+| **Budget bills** | 7 (FY2022–2027) | S24 — the harvest holds **PDFs**, and budget-bill is **DOCX-only** by design. Word versions come from JLBC internally |
+| **Agency budget requests** | 78 (FY2027 only) | **Plan 6 Track 1** — `agency-budget-request` is not a registered doc_type. 60 reachable, **18 behind bot protection** needing a human with a browser |
+
+**So: 5 documents can be ingested with no new code; 85 need Plan 6's registry;
+27 book editions are a deliberate deferral, not an oversight.**
+
+**The AFRs cannot be fetched automatically (2026-08-01).** All four failed with
+HTTP 403. Two distinct causes, found in that order:
+
+1. `ingest/cache.py` sent no User-Agent, so it identified as `python-requests`
+   and the WAF rejected it outright. **Fixed** in `e198074` (browser UA, with
+   the measurements in the code comment). This was real and worth fixing — it
+   would have hit other hosts too.
+2. Underneath that, **`gao.az.gov` sits behind Cloudflare bot management.** The
+   403 body is the "Just a moment…" JavaScript challenge (`server: cloudflare`);
+   after ~15 requests it challenges the IP and even `gao.az.gov/` returns 403.
+   No header defeats this — it requires executing JS in a real browser, and
+   working around it is not something this project should do.
+
+**Therefore the 3 AFRs are a MANUAL step**, in the same category as the 18
+bot-blocked agency budget requests: download them in a browser, then add them
+through the app's Upload page (which is the designed path — it carries the
+Invariant 8 public-record confirmation). The URLs are in the mockup index.
+Record this in the handbook next to the agency-request list.
+
+Sources and verified URLs for all of the above are in the website mockup's
+5,854-row index (`webapp/reference/assets/search/index-lite.js`), which spec
+**S28** turns into `data/document-catalog.json`. Plan 6 Task 16 ingests the
+backlog. Earlier years of agency budget requests are NOT harvested and live on
+78 separate agency websites with no shared URL convention — a research project,
+not a crawl.
+
+## 🔴 FY2024 AFR ingested but effectively EMPTY (2026-08-01)
+
+**Found immediately after ingest, by comparing passage counts.** All four AFRs
+report `live`; three are fine and one is not:
+
+| doc | pages | passages | tokens |
+|---|---|---|---|
+| `agao-afr-fy2021` | 163 | 169 | — |
+| `agao-afr-fy2022` | 178 | 182 | — |
+| `agao-afr-fy2023` | 184 | 189 | 758,497 |
+| **`agao-afr-fy2024`** | **191** | **20** | **5,673** |
+
+FY2024 yielded chunks only from pages 58 and 184–191; **pages 1–183 produced
+nothing**, and its first chunk is a "THIS PAGE INTENTIONALLY LEFT BLANK" marker.
+
+**Not a bad download and not a scan.** The PDF is tagged (`StructTreeRoot`
+present) and its mid-page carries 8,700 characters of text — *more* than
+FY2023's 5,076. The source is fine.
+
+**Root cause: the publisher changed how it tags the document between years.**
+On page 100, FY2023 emits **1 table block** (rows/columns, 235 KB of page JSON)
+where FY2024 emits **17 paragraph blocks** (24 KB). GAO tagged FY2023's
+financial statements as tables and FY2024's as loose paragraphs.
+OpenDataLoader reported each faithfully; `chunking/builder.py` builds table
+chunks then narrative, and found almost nothing it recognised in the paragraph
+form.
+
+**Why this matters more than one document:** a publisher silently changing
+structure between editions is a recurring hazard for a corpus meant to be fed
+for years by non-technical staff, and **nothing flagged it** — the job says
+`live`, the queue is green, and an analyst searching FY2024 AFR content simply
+gets nothing and concludes the corpus lacks it.
+
+**This is exactly the S27 gate case, now with a real example**: a chunks-per-page
+floor (~0.10 here vs ~1.03 for its three siblings) would have quarantined it
+with an actionable reason. Use these four documents as the S27 calibration
+fixture — they are a rare clean control, same publisher and near-identical page
+counts.
+
+**Open decisions** (deliberately not made at 2 AM): whether to re-route this
+document to MinerU (S26's detect-don't-declare would do it automatically),
+whether the narrative chunker should handle paragraph-tagged tables, and
+whether to delete the near-empty document meanwhile so search does not answer
+"nothing" for FY2024.
+
 ## What's next
 
 - **🔵 RUNNING NOW — S20 backfill on the Z13** (`PROMPT-z13-backfill.md`).
