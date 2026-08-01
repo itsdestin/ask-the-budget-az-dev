@@ -44,7 +44,7 @@ cd <repo> && git fetch origin && git pull origin master
 
 **Pushing to master green-lights closing the dev server.** If you started a local dev server to verify a change, shut it down once the commit lands on `origin/master`. Don't leave orphan processes.
 
-**Run the eval after any change to `retrieval/`, `ingest/`, `chunking/`, or `harness/system-prompt.md`.** Command: `uv run python -m eval.run_eval`. Takes ~30-90 seconds; commit the resulting `eval/results/<...>.{json,md}` files alongside the code change so regressions are visible in PR diffs. The refusal threshold lives in `harness/constants.py` (`REFUSAL_THRESHOLD`), not in the prompt. (`eval/refresh_chunk_ids.py` is unported — it still imports the retired Postgres `db.connection` and will crash; do not run it.)
+**Run the eval after any change to `retrieval/`, `ingest/`, `chunking/`, or `harness/system-prompt.md`.** Command: `uv run python -m eval.run_eval`. Takes ~30-90 seconds; commit the resulting `eval/results/<...>.{json,md}` files alongside the code change so regressions are visible in PR diffs. The refusal threshold lives in `harness/constants.py` (`REFUSAL_THRESHOLD`), not in the prompt. (`eval/refresh_chunk_ids.py` was DELETED 2026-08-01 with the rest of the Postgres tooling. Nothing now re-binds stale eval chunk_ids after a re-ingest — see `eval/README.md` → "After a re-ingest" before any from-scratch corpus rebuild.)
 
 **Clean up worktrees after merging.** `git worktree remove <path>` then `git branch -D <branch>`. Stale worktrees confuse future sessions.
 
@@ -74,7 +74,7 @@ One repo, one process. The live directories:
 Long-running handoff prompts that may need to be picked up live as standalone files at the repo root. See `STATUS.md` for which handoffs are active vs. done.
 
 - [`PROMPT-z13-backfill.md`](PROMPT-z13-backfill.md) — **ACTIVE** — historical-year corpus backfill + recency-ranking calibration, run on the Z13 Linux machine.
-- `PROMPT-plan1-storage-retrieval.md`, `PROMPT-plan2-app-shell.md`, `PROMPT-plan3-ingest.md`, `PROMPT-plan4-ai-mode.md`, `PROMPT-volume-ingest.md` — retired/shipped historical records. Do not execute.
+- `PROMPT-plan1-storage-retrieval.md`, `PROMPT-plan2-app-shell.md`, `PROMPT-plan3-ingest.md`, `PROMPT-plan4-ai-mode.md`, `PROMPT-volume-ingest.md`, `PROMPT-plan5-session-a.md`, `PROMPT-plan5-session-b.md`, `PROMPT-plan5-track4-cleanup.md` — retired/shipped historical records. Do not execute. (`PROMPT-plan5-session-c.md` — the Administrator Handbook, Track 5 — is still LIVE.)
 
 ## Project Phases
 
