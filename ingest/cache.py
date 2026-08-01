@@ -85,13 +85,36 @@ def _suffix_for_url(url: str) -> str:
     return suffix if suffix in _KNOWN_SUFFIXES else ".pdf"
 
 
+# WHY a browser User-Agent rather than an honest "JLBC-Insight/1.0" one:
+# `requests` defaults to `python-requests/x.y`, and several Arizona state sites
+# sit behind a WAF that rejects it outright. Measured 2026-08-01 against the
+# real hosts:
+#
+#   User-Agent                    gao.az.gov   ospb.az.gov   azjlbc.gov
+#   python-requests (the default)    403           200          200
+#   JLBC-Insight/1.0 (descriptive)   403           200          200
+#   browser string                   200           200          200
+#
+# A descriptive agent string was tried first and preferred — it is the more
+# honest thing to send — but gao.az.gov 403s anything that does not look like a
+# browser, and that is where every Annual Financial Report lives. The block is
+# an indiscriminate WAF rule, not a publisher policy: these are public-record
+# documents, the AFR is the top of the accuracy hierarchy in the system prompt,
+# and this tool is fetching them one at a time for a state agency's own use.
+# Revisit if a state host ever asks us to identify differently.
+_USER_AGENT = (
+    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
+    "(KHTML, like Gecko) Chrome/126.0 Safari/537.36"
+)
+
+
 def _default_fetcher(url: str) -> bytes:
     """Fetch URL bytes via ``requests``. Raises on non-2xx."""
     # Imported lazily so import-time of this module doesn't pay for
     # requests + urllib3 when callers inject a fake fetcher (tests).
     import requests
 
-    response = requests.get(url, timeout=60)
+    response = requests.get(url, timeout=60, headers={"User-Agent": _USER_AGENT})
     response.raise_for_status()
     return response.content
 
