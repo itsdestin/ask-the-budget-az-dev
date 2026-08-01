@@ -271,6 +271,17 @@ describe("chat CSS containment contract", () => {
   // enumerating selectors would leave gaps. This app uses no CSS containment
   // anywhere today; if a future page genuinely needs it, narrow this test
   // then — deliberately, with the tooltip re-checked.
+  //
+  // Containment isn't the only way an ancestor can become a containing block
+  // for position:fixed: `transform`, `filter`, `backdrop-filter`,
+  // `perspective`, and `will-change` (naming any of the former) on an
+  // ancestor do the same thing. This stylesheet already has a
+  // `backdrop-filter` on `.ai-bottom-chrome` — a sibling of the thread today,
+  // harmless, but one edit that moves a blur onto `.chat-thread` or
+  // `.ai-panel-chat` would silently re-clip the tooltip the same way
+  // container-type did. This test does NOT assert against those five
+  // properties — several are legitimately used elsewhere in this file, so a
+  // blanket check would false-fail. Known gap, not an oversight.
   it("no ancestor of the citation tooltip declares CSS containment", () => {
     expect(
       bare,
@@ -280,6 +291,14 @@ describe("chat CSS containment contract", () => {
       bare,
       "contain: layout/paint/strict/content does the same thing container-type does",
     ).not.toMatch(/(^|[;{\s])contain\s*:/);
+    expect(
+      bare,
+      "container: <name> / inline-size is the shorthand for container-type — same hazard, different spelling",
+    ).not.toMatch(/(^|[;{\s])container\s*:/);
+    expect(
+      bare,
+      "content-visibility: auto/hidden applies layout+paint containment per the CSS Containment spec — same hazard as container-type",
+    ).not.toMatch(/content-visibility\s*:\s*(auto|hidden)/);
   });
 
   // Task 16 (review pass), amended by the final review: the mascot used to

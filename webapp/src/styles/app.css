@@ -881,8 +881,9 @@ nav.primary{position:relative;padding-right:44px;}
    silently lose their one status indicator — worse than the clipping bug,
    which at least left it readable. visibility:hidden is avoided for the same
    reason (assistive tech treats it as absent, not "hidden but present").
-   Listed after the .is-* scene rules so it wins on source order at equal
-   specificity. */
+   Kept beside the .is-* scene rules for readability — it shares no property
+   with them (they only set transform), so nothing here depends on source
+   order. */
 .chat-mascot-slot.is-cramped { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0, 0, 0, 0); white-space: nowrap; border: 0; }
 
 /* ----- turns --------------------------------------------------------------- */
