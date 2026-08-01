@@ -55,6 +55,33 @@ def test_dr_probe_subset():
     probe = [q for q in QUERIES if "dr-probe" in q.subsets]
     assert len(probe) == 4
     assert all(q.tier == "deep_research" for q in probe)
+    # WHY exclusivity, not just membership (2026-08 review, Finding 1): the
+    # assertions above passed while all four DR queries ALSO carried `full`,
+    # which is what spec Decision #4 exists to prevent ("Standard for the full
+    # set + a fixed 4-query Deep Research probe"; full-set DR runs were
+    # rejected as incompatible with fast iteration). A DR query in `full` puts
+    # ~$3 of Deep Research into the run the README prices at $0.50-1.50, moves
+    # wall_p95_ms onto a ~295-second DR query so Standard latency regressions
+    # stop being visible, and makes `--subset full` refuse to start on an
+    # install that has Standard configured and Deep Research off.
+    in_full = [q.id for q in probe if "full" in q.subsets]
+    assert not in_full, (
+        f"deep_research queries tagged `full`: {in_full}. `full` is the "
+        f"standard-tier set — see the SUBSETS block in eval/agent_queries.yaml."
+    )
+
+
+def test_full_subset_is_standard_tier_only():
+    """The other half of Finding 1, stated as the property rather than as a
+    fact about the four known DR queries — a NEW deep_research query added
+    with the default `subsets` (which is `[full]`) must fail here."""
+    offenders = [q.id for q in QUERIES
+                 if "full" in q.subsets and q.tier != "standard"]
+    assert not offenders, (
+        f"non-standard-tier queries in the `full` subset: {offenders}. "
+        f"agent_schema.py documents `full` as 'all standard-tier'; a "
+        f"deep_research query belongs in dr-probe only."
+    )
 
 
 def test_refusal_queries_have_no_key_facts():

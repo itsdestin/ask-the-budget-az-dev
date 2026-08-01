@@ -209,3 +209,49 @@ def test_null_line_does_not_crash(tmp_path):
     t = read_transcript(path)
     assert t.terminal["frame"]["type"] == "_error"
     assert "malformed line" in t.terminal["frame"]["message"]
+
+
+# --- Finding 7: transcripts are written atomically -----------------------
+
+def test_a_failed_rewrite_leaves_the_previous_transcript_intact(tmp_path, monkeypatch):
+    """write_transcript used to be a plain write, while every other artifact
+    in this eval (manifest.json, scores.json) went through tmp+replace. The
+    corruption-tolerant reader exists to survive a torn write; a run should
+    not be MANUFACTURING the damage it then tolerates, because a torn file
+    scores as a failed query — indistinguishable from the agent failing."""
+    from pathlib import Path
+
+    path = tmp_path / "aq-001-r1.jsonl"
+    write_transcript(path, {"query_id": "aq-001", "repeat": 1}, [],
+                     {"frame": DONE_FRAME, "wall_ms": 100})
+    good = path.read_text(encoding="utf-8")
+
+    real_write_text = Path.write_text
+
+    def torn_write(self, data, *args, **kwargs):
+        # Half the bytes land, then the share/disk gives up.
+        real_write_text(self, data[: len(data) // 2], *args, **kwargs)
+        raise OSError("simulated torn write")
+
+    monkeypatch.setattr(Path, "write_text", torn_write)
+    try:
+        write_transcript(path, {"query_id": "aq-001", "repeat": 2}, [],
+                         {"frame": DONE_FRAME, "wall_ms": 200})
+    except OSError:
+        pass
+    monkeypatch.undo()
+
+    # The destination never saw the torn bytes.
+    assert path.read_text(encoding="utf-8") == good
+    assert read_transcript(path).terminal["frame"]["type"] == "_done"
+
+
+def test_the_temp_file_cannot_be_mistaken_for_a_transcript(tmp_path):
+    """score_agent_run.py globs `*-r*.jsonl`. A leftover temp file from an
+    interrupted write must not match that glob, or it would be scored as a
+    corrupt transcript — i.e. as a failed query that never existed."""
+    path = tmp_path / "aq-001-r1.jsonl"
+    write_transcript(path, {"query_id": "aq-001", "repeat": 1}, [],
+                     {"frame": DONE_FRAME, "wall_ms": 100})
+    (tmp_path / "aq-001-r1.jsonl.tmp").write_text("half a line", encoding="utf-8")
+    assert [p.name for p in sorted(tmp_path.glob("*-r*.jsonl"))] == ["aq-001-r1.jsonl"]
