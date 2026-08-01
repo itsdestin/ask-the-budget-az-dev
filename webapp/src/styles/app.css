@@ -912,7 +912,10 @@ nav.primary{position:relative;padding-right:44px;}
 .chat-suggestion:hover { border-color: var(--az-gold); color: var(--az-gold); }
 
 /* ----- footer -------------------------------------------------------------- */
-.chat-footer { flex-shrink: 0; border-top: 1px solid var(--line); background: var(--card); padding: 0 16px; min-height: 26px; display: flex; align-items: center; justify-content: space-between; gap: 12px; font-size: 11px; color: var(--ink-3); }
+/* One 11px muted line inside the floating chrome — the separate white banded
+   footer read as page chrome on a page that has none. Content unchanged:
+   the honesty sentence is Core Invariant 5 territory. */
+.chat-footer { flex-shrink: 0; border: 0; background: none; padding: 2px 16px 8px; min-height: 0; display: flex; align-items: center; justify-content: center; flex-wrap: wrap; column-gap: 12px; font-size: 11px; color: var(--ink-3); max-width: var(--ai-col); margin: 0 auto; }
 .chat-footer-status { display: flex; align-items: center; gap: 8px; }
 .chat-footer-dot { display: inline-block; width: 8px; height: 8px; border-radius: 50%; }
 
@@ -1485,8 +1488,21 @@ html.ai-fullpage header.site{flex:0 0 auto;}
 .ai-source-close{position:absolute;top:8px;right:8px;z-index:5;display:inline-flex;align-items:center;justify-content:center;width:28px;height:28px;border:1px solid var(--line);border-radius:var(--r-pill);background:var(--card);color:var(--ink-2);cursor:pointer;transition:border-color .15s,color .15s;}
 .ai-source-close:hover{border-color:var(--az-gold);color:var(--az-gold-d);}
 
+/* ----- floating bottom chrome ----------------------------------------------
+   The composer block floats OVER the thread scroller instead of stacking
+   under it — the scroller pads its bottom by the measured --ai-bottom-chrome
+   height (see .chat-thread-scroll), so content slides behind the chrome and
+   there is exactly one scroll container on the page. Translucency + blur so
+   the slide-behind reads as depth, with a solid fallback where blur is
+   unsupported. */
+.ai-panel-chat{position:relative;}
+.ai-bottom-chrome{position:absolute;left:0;right:0;bottom:0;z-index:15;border-top:1px solid var(--line);background:var(--card);}
+@supports (backdrop-filter: blur(6px)){
+  .ai-bottom-chrome{background:rgba(255,255,255,.92);backdrop-filter:blur(6px);}
+}
+
 /* ----- the tier control + composer ---------------------------------------- */
-.ai-composer{flex:0 0 auto;border-top:1px solid var(--line);padding:8px 16px 10px;position:relative;}
+.ai-composer{padding:8px 16px 4px;position:relative;}
 .ai-tiers{display:flex;align-items:center;gap:10px;flex-wrap:wrap;max-width:var(--ai-col);margin:0 auto 6px;}
 .ai-tiers-label{font-size:11px;font-weight:800;color:var(--ink-3);text-transform:uppercase;letter-spacing:.04em;}
 /* `.chswitch`/`.chseg` declarations, re-scoped: the same pill-in-a-track

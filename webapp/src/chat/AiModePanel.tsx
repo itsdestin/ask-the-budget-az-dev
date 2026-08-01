@@ -11,7 +11,7 @@
 // Fiscal Notes must not drift apart: the two pages differ ONLY in which corpus
 // they open a conversation against.
 
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 
 import type { AiStatus } from "../api.js";
 import ChatThread from "./ChatThread.js";
@@ -166,6 +166,27 @@ function PanelBody({ chat, status, corpus }: PanelProps) {
     .find((t): t is AssistantTurn => t.kind === "assistant");
   const refusal = latestAssistant ? detectRefusal(latestAssistant) : null;
 
+  // The chrome measures itself so the thread scroller can pad by its REAL
+  // height. One measured var replaces the retired app's guessy constants —
+  // suggestion row present or not, stop button present or not, the padding
+  // is always exactly right. Deps []: both refs point at elements that exist
+  // for the panel's whole life, and the ResizeObserver handles every later
+  // size change — re-subscribing per render would only churn observers.
+  const chatColRef = useRef<HTMLDivElement | null>(null);
+  const chromeRef = useRef<HTMLDivElement | null>(null);
+  useEffect(() => {
+    const chrome = chromeRef.current;
+    const col = chatColRef.current;
+    if (!chrome || !col) return;
+    const publish = () =>
+      col.style.setProperty("--ai-bottom-chrome", `${chrome.offsetHeight}px`);
+    publish();
+    if (typeof ResizeObserver === "undefined") return;
+    const obs = new ResizeObserver(publish);
+    obs.observe(chrome);
+    return () => obs.disconnect();
+  }, []);
+
   return (
     <section className="ai-panel" data-testid="ai-panel" aria-label="AI Mode">
       {chat.health && !chat.health.ok && (
@@ -173,8 +194,59 @@ function PanelBody({ chat, status, corpus }: PanelProps) {
       )}
 
       <div className={viewerOpen ? "ai-panel-main has-source" : "ai-panel-main"}>
-        <div className="ai-panel-chat">
+        <div className="ai-panel-chat" ref={chatColRef}>
           <ChatThread state={state} mascot={mascot} />
+
+          <div className="ai-bottom-chrome" data-testid="ai-bottom-chrome" ref={chromeRef}>
+            {state.error && (
+              // The message is the server's, rendered verbatim — the S19
+              // over-limit refusal arrives here with the real dollar
+              // figures in it.
+              <div className="chat-notice is-danger chat-notice-banner" role="alert">
+                <span>{state.error}</span>{" "}
+                <button type="button" className="ai-dismiss" onClick={chat.clearError}>
+                  dismiss
+                </button>
+              </div>
+            )}
+
+            {/* Budget only. SuggestionRow's three starters are hardcoded
+                budget questions ("the FY2025 Aviation Fund balance", "ADOT
+                in FY2024") and the component is Task 10's, so they cannot be
+                swapped per corpus from here. Sending them at the
+                fiscal-note corpus would make a coordinator's very first
+                click a guaranteed empty retrieval — and, with the refusal
+                detector working correctly, land them straight in the
+                banner. No starters beats three wrong ones; per-corpus
+                starters are a follow-up inside SuggestionRow. */}
+            {state.turns.length === 0 && corpus === "budget" && (
+              <SuggestionRow onPick={chat.send} />
+            )}
+
+            <div className="ai-composer">
+              <TierSwitch status={status} tier={chat.tier} onChange={chat.setTier} />
+              <MessageInput
+                onSubmit={chat.send}
+                // Disabling on send is the front line against a duplicate
+                // turn: the server answers a second concurrent POST with
+                // 409, and a 409 is a mistake to prevent, not an error to
+                // render.
+                disabled={chat.busy}
+                placeholder={
+                  chat.busy
+                    ? "Working — press Stop to interrupt."
+                    : "Ask a question — Enter to send, Shift+Enter for a newline"
+                }
+              />
+              {chat.busy && (
+                <button type="button" className="ai-stop" onClick={chat.stop}>
+                  Stop
+                </button>
+              )}
+            </div>
+
+            <Footer connected={Boolean(status?.available) && !state.error} />
+          </div>
         </div>
         {viewerOpen && (
           <aside className="ai-panel-source" aria-label="Source document">
@@ -206,52 +278,6 @@ function PanelBody({ chat, status, corpus }: PanelProps) {
       </div>
 
       {refusal && <RefusalBanner refusal={refusal} />}
-
-      {state.error && (
-        // The message is the server's, rendered verbatim — the S19 over-limit
-        // refusal arrives here with the real dollar figures in it.
-        <div className="chat-notice is-danger chat-notice-banner" role="alert">
-          <span>{state.error}</span>{" "}
-          <button type="button" className="ai-dismiss" onClick={chat.clearError}>
-            dismiss
-          </button>
-        </div>
-      )}
-
-      {/* Budget only. SuggestionRow's three starters are hardcoded budget
-          questions ("the FY2025 Aviation Fund balance", "ADOT in FY2024") and
-          the component is Task 10's, so they cannot be swapped per corpus from
-          here. Sending them at the fiscal-note corpus would make a
-          coordinator's very first click a guaranteed empty retrieval — and,
-          with the refusal detector working correctly, land them straight in
-          the banner. No starters beats three wrong ones; per-corpus starters
-          are a follow-up inside SuggestionRow. */}
-      {state.turns.length === 0 && corpus === "budget" && (
-        <SuggestionRow onPick={chat.send} />
-      )}
-
-      <div className="ai-composer">
-        <TierSwitch status={status} tier={chat.tier} onChange={chat.setTier} />
-        <MessageInput
-          onSubmit={chat.send}
-          // Disabling on send is the front line against a duplicate turn: the
-          // server answers a second concurrent POST with 409, and a 409 is a
-          // mistake to prevent, not an error to render.
-          disabled={chat.busy}
-          placeholder={
-            chat.busy
-              ? "Working — press Stop to interrupt."
-              : "Ask a question — Enter to send, Shift+Enter for a newline"
-          }
-        />
-        {chat.busy && (
-          <button type="button" className="ai-stop" onClick={chat.stop}>
-            Stop
-          </button>
-        )}
-      </div>
-
-      <Footer connected={Boolean(status?.available) && !state.error} />
     </section>
   );
 }
