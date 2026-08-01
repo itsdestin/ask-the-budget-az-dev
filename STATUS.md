@@ -125,6 +125,29 @@ whether the narrative chunker should handle paragraph-tagged tables, and
 whether to delete the near-empty document meanwhile so search does not answer
 "nothing" for FY2024.
 
+## 🔴 `eval/queries.yaml` cannot measure the recency boost (2026-08-01)
+
+Found during the Phase D sweep and **verified independently**: of the 34 queries
+in the Layer 1 budget eval, **32 name a fiscal year**, so S21 layer 1 hard-filters
+them and the recency boost never executes. The other 2 are refusal queries with
+no ground truth. **Zero queries exercise the code path.**
+
+That matters beyond recency: the flat `cur@5 / cur@15 / cur@20` column across an
+entire weight sweep looks like proof of safety and is nothing of the kind — it
+is proof the set never ran the code. Any future "no regression" claim from this
+set about ranking policy is worthless until it has no-year coverage.
+
+**Second gap, same file:** every ground-truth chunk in it is **FY2025 (9),
+FY2026 (12), FY2027 (13)** — nothing older. The set predates the backfill, so
+**nothing in the repo can currently measure harm to an older target.** The
+sweep's `prx@` columns (explicit-year queries with the year stripped, original
+ground truth kept) are a stand-in and are **optimistic**, because their targets
+are all recent and the boost helps recent targets.
+
+Fix: add no-year queries with pre-FY2025 ground truth to `eval/queries.yaml`.
+This is a prerequisite for trusting any ranking-policy change — S30's section
+boost has the same blind spot.
+
 ## What's next
 
 - **🔵 RUNNING NOW — S20 backfill on the Z13** (`PROMPT-z13-backfill.md`).

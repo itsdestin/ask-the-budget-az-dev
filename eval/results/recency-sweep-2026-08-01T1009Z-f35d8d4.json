@@ -1,0 +1,2791 @@
+{
+  "timestamp": "2026-08-01T1009Z",
+  "git_sha": "f35d8d4",
+  "order_top_k": 10,
+  "threshold": 1.9,
+  "notes": {
+    "current": "34 queries from eval/queries.yaml",
+    "historical": "10 queries from eval/queries_historical.yaml",
+    "order": "10 queries from eval/queries_recency.yaml"
+  },
+  "order_queries": [
+    {
+      "id": "r-001",
+      "query": "Department of Corrections"
+    },
+    {
+      "id": "r-002",
+      "query": "AHCCCS"
+    },
+    {
+      "id": "r-003",
+      "query": "Department of Child Safety"
+    },
+    {
+      "id": "r-004",
+      "query": "Department of Economic Security"
+    },
+    {
+      "id": "r-005",
+      "query": "Department of Health Services"
+    },
+    {
+      "id": "r-006",
+      "query": "Department of Public Safety"
+    },
+    {
+      "id": "r-007",
+      "query": "Arizona Board of Regents"
+    },
+    {
+      "id": "r-008",
+      "query": "ADEQ"
+    },
+    {
+      "id": "r-009",
+      "query": "Department of Emergency and Military Affairs"
+    },
+    {
+      "id": "r-010",
+      "query": "Department of Insurance and Financial Institutions"
+    }
+  ],
+  "weights": [
+    0.0,
+    0.688,
+    1.376,
+    2.064,
+    2.752,
+    3.44,
+    4.128,
+    4.816,
+    5.504,
+    6.192,
+    6.88,
+    7.568,
+    8.256
+  ],
+  "recommendation": 4.128,
+  "reasoning": "smallest weight reaching 90% chronological order with no current-set regression and the explicit-year set unmoved",
+  "elapsed_s": 69.3,
+  "rows": [
+    {
+      "weight": 0.0,
+      "current_recall_at_5": 0.6206896551724138,
+      "current_recall_at_15": 0.9655172413793104,
+      "current_recall_at_20": 1.0,
+      "current_refusal_precision": 0.4,
+      "current_regressions": [],
+      "current_recoveries": [],
+      "historical_recall_at_15": 1.0,
+      "historical_recall_at_20": 1.0,
+      "historical_regressions": [],
+      "historical_invariant": true,
+      "proxy_recall_at_5": 0.75,
+      "proxy_recall_at_15": 0.875,
+      "proxy_regressions": [],
+      "proxy_recoveries": [],
+      "current_regressions_at_5": [],
+      "proxy_regressions_at_5": [],
+      "proxy_recoveries_at_5": [],
+      "order_rate": 0.5953601886819435,
+      "order_vintage": 2025.1799999999998,
+      "order_reports": [
+        {
+          "query_id": "r-001",
+          "query": "Department of Corrections",
+          "fiscal_years": [
+            2025,
+            2026,
+            2027,
+            2025,
+            2025,
+            2027,
+            2027,
+            2026,
+            2024,
+            2024
+          ],
+          "newest_first_rate": 0.6216216216216216,
+          "mean_fiscal_year_at_5": 2025.6
+        },
+        {
+          "query_id": "r-002",
+          "query": "AHCCCS",
+          "fiscal_years": [
+            2025,
+            2023,
+            2024,
+            2023,
+            2024,
+            2025,
+            2025,
+            2026,
+            2024,
+            2025
+          ],
+          "newest_first_rate": 0.2857142857142857,
+          "mean_fiscal_year_at_5": 2023.8
+        },
+        {
+          "query_id": "r-003",
+          "query": "Department of Child Safety",
+          "fiscal_years": [
+            2025,
+            2027,
+            2026,
+            2023,
+            2027,
+            2026,
+            2025,
+            2022,
+            2023,
+            2024
+          ],
+          "newest_first_rate": 0.7073170731707317,
+          "mean_fiscal_year_at_5": 2025.6
+        },
+        {
+          "query_id": "r-004",
+          "query": "Department of Economic Security",
+          "fiscal_years": [
+            2025,
+            2027,
+            2026,
+            2026,
+            2024,
+            2024,
+            2024,
+            2025,
+            2024,
+            2026
+          ],
+          "newest_first_rate": 0.6571428571428571,
+          "mean_fiscal_year_at_5": 2025.6
+        },
+        {
+          "query_id": "r-005",
+          "query": "Department of Health Services",
+          "fiscal_years": [
+            2025,
+            2025,
+            2026,
+            2022,
+            2026,
+            2023,
+            2027,
+            2023,
+            2022,
+            2024
+          ],
+          "newest_first_rate": 0.5853658536585366,
+          "mean_fiscal_year_at_5": 2024.8
+        },
+        {
+          "query_id": "r-006",
+          "query": "Department of Public Safety",
+          "fiscal_years": [
+            2025,
+            2026,
+            2027,
+            2027,
+            2026,
+            2025,
+            2026,
+            2026,
+            2025,
+            2022
+          ],
+          "newest_first_rate": 0.7142857142857143,
+          "mean_fiscal_year_at_5": 2026.2
+        },
+        {
+          "query_id": "r-007",
+          "query": "Arizona Board of Regents",
+          "fiscal_years": [
+            2025,
+            2022,
+            2026,
+            2024,
+            2023,
+            2025,
+            2026,
+            2024,
+            2026,
+            2022
+          ],
+          "newest_first_rate": 0.48717948717948717,
+          "mean_fiscal_year_at_5": 2024.0
+        },
+        {
+          "query_id": "r-008",
+          "query": "ADEQ",
+          "fiscal_years": [
+            2025,
+            2027,
+            2023,
+            2023,
+            2026,
+            2023,
+            2025,
+            2022,
+            2026,
+            2027
+          ],
+          "newest_first_rate": 0.46153846153846156,
+          "mean_fiscal_year_at_5": 2024.8
+        },
+        {
+          "query_id": "r-009",
+          "query": "Department of Emergency and Military Affairs",
+          "fiscal_years": [
+            2025,
+            2027,
+            2026,
+            2026,
+            2025,
+            2024,
+            2023,
+            2025,
+            2025,
+            2022
+          ],
+          "newest_first_rate": 0.8157894736842105,
+          "mean_fiscal_year_at_5": 2025.8
+        },
+        {
+          "query_id": "r-010",
+          "query": "Department of Insurance and Financial Institutions",
+          "fiscal_years": [
+            2025,
+            2027,
+            2026,
+            2025,
+            2025,
+            2024,
+            2022,
+            2025,
+            2025,
+            2026
+          ],
+          "newest_first_rate": 0.6176470588235294,
+          "mean_fiscal_year_at_5": 2025.6
+        }
+      ]
+    },
+    {
+      "weight": 0.688,
+      "current_recall_at_5": 0.6206896551724138,
+      "current_recall_at_15": 0.9655172413793104,
+      "current_recall_at_20": 1.0,
+      "current_refusal_precision": 0.6,
+      "current_regressions": [],
+      "current_recoveries": [
+        "q-030"
+      ],
+      "historical_recall_at_15": 1.0,
+      "historical_recall_at_20": 1.0,
+      "historical_regressions": [],
+      "historical_invariant": true,
+      "proxy_recall_at_5": 0.7916666666666666,
+      "proxy_recall_at_15": 0.875,
+      "proxy_regressions": [],
+      "proxy_recoveries": [],
+      "current_regressions_at_5": [],
+      "proxy_regressions_at_5": [],
+      "proxy_recoveries_at_5": [
+        "q-001"
+      ],
+      "order_rate": 0.6900577452857763,
+      "order_vintage": 2025.94,
+      "order_reports": [
+        {
+          "query_id": "r-001",
+          "query": "Department of Corrections",
+          "fiscal_years": [
+            2025,
+            2027,
+            2026,
+            2027,
+            2027,
+            2025,
+            2027,
+            2025,
+            2026,
+            2027
+          ],
+          "newest_first_rate": 0.45161290322580644,
+          "mean_fiscal_year_at_5": 2026.4
+        },
+        {
+          "query_id": "r-002",
+          "query": "AHCCCS",
+          "fiscal_years": [
+            2025,
+            2026,
+            2025,
+            2025,
+            2024,
+            2024,
+            2023,
+            2023,
+            2025,
+            2026
+          ],
+          "newest_first_rate": 0.6388888888888888,
+          "mean_fiscal_year_at_5": 2025.0
+        },
+        {
+          "query_id": "r-003",
+          "query": "Department of Child Safety",
+          "fiscal_years": [
+            2027,
+            2025,
+            2026,
+            2027,
+            2027,
+            2026,
+            2026,
+            2026,
+            2026,
+            2025
+          ],
+          "newest_first_rate": 0.7096774193548387,
+          "mean_fiscal_year_at_5": 2026.4
+        },
+        {
+          "query_id": "r-004",
+          "query": "Department of Economic Security",
+          "fiscal_years": [
+            2027,
+            2025,
+            2026,
+            2026,
+            2026,
+            2027,
+            2026,
+            2026,
+            2025,
+            2026
+          ],
+          "newest_first_rate": 0.6071428571428571,
+          "mean_fiscal_year_at_5": 2026.0
+        },
+        {
+          "query_id": "r-005",
+          "query": "Department of Health Services",
+          "fiscal_years": [
+            2025,
+            2026,
+            2027,
+            2025,
+            2026,
+            2026,
+            2025,
+            2024,
+            2022,
+            2023
+          ],
+          "newest_first_rate": 0.7948717948717948,
+          "mean_fiscal_year_at_5": 2025.8
+        },
+        {
+          "query_id": "r-006",
+          "query": "Department of Public Safety",
+          "fiscal_years": [
+            2025,
+            2026,
+            2027,
+            2027,
+            2026,
+            2027,
+            2026,
+            2026,
+            2025,
+            2026
+          ],
+          "newest_first_rate": 0.5806451612903226,
+          "mean_fiscal_year_at_5": 2026.2
+        },
+        {
+          "query_id": "r-007",
+          "query": "Arizona Board of Regents",
+          "fiscal_years": [
+            2025,
+            2026,
+            2026,
+            2026,
+            2026,
+            2026,
+            2025,
+            2026,
+            2024,
+            2022
+          ],
+          "newest_first_rate": 0.7586206896551724,
+          "mean_fiscal_year_at_5": 2025.8
+        },
+        {
+          "query_id": "r-008",
+          "query": "ADEQ",
+          "fiscal_years": [
+            2027,
+            2025,
+            2027,
+            2027,
+            2026,
+            2026,
+            2026,
+            2025,
+            2023,
+            2023
+          ],
+          "newest_first_rate": 0.8648648648648649,
+          "mean_fiscal_year_at_5": 2026.4
+        },
+        {
+          "query_id": "r-009",
+          "query": "Department of Emergency and Military Affairs",
+          "fiscal_years": [
+            2027,
+            2026,
+            2025,
+            2026,
+            2025,
+            2025,
+            2025,
+            2024,
+            2026,
+            2026
+          ],
+          "newest_first_rate": 0.6666666666666666,
+          "mean_fiscal_year_at_5": 2025.8
+        },
+        {
+          "query_id": "r-010",
+          "query": "Department of Insurance and Financial Institutions",
+          "fiscal_years": [
+            2027,
+            2025,
+            2026,
+            2025,
+            2025,
+            2026,
+            2025,
+            2025,
+            2024,
+            2025
+          ],
+          "newest_first_rate": 0.8275862068965517,
+          "mean_fiscal_year_at_5": 2025.6
+        }
+      ]
+    },
+    {
+      "weight": 1.376,
+      "current_recall_at_5": 0.6206896551724138,
+      "current_recall_at_15": 0.9655172413793104,
+      "current_recall_at_20": 1.0,
+      "current_refusal_precision": 0.6,
+      "current_regressions": [],
+      "current_recoveries": [
+        "q-030"
+      ],
+      "historical_recall_at_15": 1.0,
+      "historical_recall_at_20": 1.0,
+      "historical_regressions": [],
+      "historical_invariant": true,
+      "proxy_recall_at_5": 0.7916666666666666,
+      "proxy_recall_at_15": 0.875,
+      "proxy_regressions": [],
+      "proxy_recoveries": [],
+      "current_regressions_at_5": [],
+      "proxy_regressions_at_5": [],
+      "proxy_recoveries_at_5": [
+        "q-001"
+      ],
+      "order_rate": 0.7380055767047352,
+      "order_vintage": 2026.0400000000002,
+      "order_reports": [
+        {
+          "query_id": "r-001",
+          "query": "Department of Corrections",
+          "fiscal_years": [
+            2027,
+            2027,
+            2027,
+            2025,
+            2026,
+            2027,
+            2026,
+            2025,
+            2027,
+            2025
+          ],
+          "newest_first_rate": 0.7419354838709677,
+          "mean_fiscal_year_at_5": 2026.4
+        },
+        {
+          "query_id": "r-002",
+          "query": "AHCCCS",
+          "fiscal_years": [
+            2026,
+            2025,
+            2025,
+            2025,
+            2026,
+            2024,
+            2024,
+            2026,
+            2025,
+            2025
+          ],
+          "newest_first_rate": 0.6129032258064516,
+          "mean_fiscal_year_at_5": 2025.4
+        },
+        {
+          "query_id": "r-003",
+          "query": "Department of Child Safety",
+          "fiscal_years": [
+            2027,
+            2026,
+            2025,
+            2027,
+            2027,
+            2026,
+            2026,
+            2026,
+            2026,
+            2026
+          ],
+          "newest_first_rate": 0.6666666666666666,
+          "mean_fiscal_year_at_5": 2026.4
+        },
+        {
+          "query_id": "r-004",
+          "query": "Department of Economic Security",
+          "fiscal_years": [
+            2027,
+            2026,
+            2025,
+            2027,
+            2026,
+            2026,
+            2026,
+            2026,
+            2026,
+            2025
+          ],
+          "newest_first_rate": 0.75,
+          "mean_fiscal_year_at_5": 2026.2
+        },
+        {
+          "query_id": "r-005",
+          "query": "Department of Health Services",
+          "fiscal_years": [
+            2025,
+            2027,
+            2026,
+            2026,
+            2025,
+            2026,
+            2026,
+            2025,
+            2026,
+            2024
+          ],
+          "newest_first_rate": 0.6875,
+          "mean_fiscal_year_at_5": 2025.8
+        },
+        {
+          "query_id": "r-006",
+          "query": "Department of Public Safety",
+          "fiscal_years": [
+            2027,
+            2026,
+            2025,
+            2027,
+            2027,
+            2026,
+            2026,
+            2026,
+            2026,
+            2025
+          ],
+          "newest_first_rate": 0.7419354838709677,
+          "mean_fiscal_year_at_5": 2026.4
+        },
+        {
+          "query_id": "r-007",
+          "query": "Arizona Board of Regents",
+          "fiscal_years": [
+            2025,
+            2026,
+            2026,
+            2026,
+            2026,
+            2026,
+            2026,
+            2025,
+            2025,
+            2025
+          ],
+          "newest_first_rate": 0.75,
+          "mean_fiscal_year_at_5": 2025.8
+        },
+        {
+          "query_id": "r-008",
+          "query": "ADEQ",
+          "fiscal_years": [
+            2027,
+            2025,
+            2027,
+            2027,
+            2026,
+            2026,
+            2026,
+            2026,
+            2025,
+            2023
+          ],
+          "newest_first_rate": 0.8285714285714286,
+          "mean_fiscal_year_at_5": 2026.4
+        },
+        {
+          "query_id": "r-009",
+          "query": "Department of Emergency and Military Affairs",
+          "fiscal_years": [
+            2027,
+            2026,
+            2025,
+            2026,
+            2025,
+            2026,
+            2027,
+            2026,
+            2025,
+            2025
+          ],
+          "newest_first_rate": 0.6875,
+          "mean_fiscal_year_at_5": 2025.8
+        },
+        {
+          "query_id": "r-010",
+          "query": "Department of Insurance and Financial Institutions",
+          "fiscal_years": [
+            2027,
+            2025,
+            2026,
+            2026,
+            2025,
+            2025,
+            2025,
+            2025,
+            2025,
+            2025
+          ],
+          "newest_first_rate": 0.9130434782608695,
+          "mean_fiscal_year_at_5": 2025.8
+        }
+      ]
+    },
+    {
+      "weight": 2.064,
+      "current_recall_at_5": 0.6206896551724138,
+      "current_recall_at_15": 0.9655172413793104,
+      "current_recall_at_20": 1.0,
+      "current_refusal_precision": 0.6,
+      "current_regressions": [],
+      "current_recoveries": [
+        "q-030"
+      ],
+      "historical_recall_at_15": 1.0,
+      "historical_recall_at_20": 1.0,
+      "historical_regressions": [],
+      "historical_invariant": true,
+      "proxy_recall_at_5": 0.7916666666666666,
+      "proxy_recall_at_15": 0.875,
+      "proxy_regressions": [],
+      "proxy_recoveries": [],
+      "current_regressions_at_5": [],
+      "proxy_regressions_at_5": [],
+      "proxy_recoveries_at_5": [
+        "q-001"
+      ],
+      "order_rate": 0.784994309419093,
+      "order_vintage": 2026.14,
+      "order_reports": [
+        {
+          "query_id": "r-001",
+          "query": "Department of Corrections",
+          "fiscal_years": [
+            2027,
+            2027,
+            2027,
+            2027,
+            2026,
+            2025,
+            2027,
+            2026,
+            2025,
+            2025
+          ],
+          "newest_first_rate": 0.9032258064516129,
+          "mean_fiscal_year_at_5": 2026.8
+        },
+        {
+          "query_id": "r-002",
+          "query": "AHCCCS",
+          "fiscal_years": [
+            2026,
+            2025,
+            2025,
+            2025,
+            2026,
+            2026,
+            2025,
+            2025,
+            2026,
+            2024
+          ],
+          "newest_first_rate": 0.6206896551724138,
+          "mean_fiscal_year_at_5": 2025.4
+        },
+        {
+          "query_id": "r-003",
+          "query": "Department of Child Safety",
+          "fiscal_years": [
+            2027,
+            2027,
+            2026,
+            2027,
+            2025,
+            2026,
+            2026,
+            2026,
+            2026,
+            2026
+          ],
+          "newest_first_rate": 0.7777777777777778,
+          "mean_fiscal_year_at_5": 2026.4
+        },
+        {
+          "query_id": "r-004",
+          "query": "Department of Economic Security",
+          "fiscal_years": [
+            2027,
+            2027,
+            2026,
+            2025,
+            2026,
+            2026,
+            2026,
+            2026,
+            2026,
+            2026
+          ],
+          "newest_first_rate": 0.7391304347826086,
+          "mean_fiscal_year_at_5": 2026.2
+        },
+        {
+          "query_id": "r-005",
+          "query": "Department of Health Services",
+          "fiscal_years": [
+            2027,
+            2026,
+            2025,
+            2026,
+            2026,
+            2025,
+            2026,
+            2026,
+            2025,
+            2024
+          ],
+          "newest_first_rate": 0.8125,
+          "mean_fiscal_year_at_5": 2026.0
+        },
+        {
+          "query_id": "r-006",
+          "query": "Department of Public Safety",
+          "fiscal_years": [
+            2027,
+            2026,
+            2027,
+            2025,
+            2027,
+            2026,
+            2026,
+            2026,
+            2026,
+            2025
+          ],
+          "newest_first_rate": 0.7741935483870968,
+          "mean_fiscal_year_at_5": 2026.4
+        },
+        {
+          "query_id": "r-007",
+          "query": "Arizona Board of Regents",
+          "fiscal_years": [
+            2026,
+            2025,
+            2026,
+            2026,
+            2026,
+            2026,
+            2026,
+            2025,
+            2025,
+            2025
+          ],
+          "newest_first_rate": 0.7916666666666666,
+          "mean_fiscal_year_at_5": 2025.8
+        },
+        {
+          "query_id": "r-008",
+          "query": "ADEQ",
+          "fiscal_years": [
+            2027,
+            2027,
+            2027,
+            2025,
+            2026,
+            2026,
+            2026,
+            2026,
+            2025,
+            2025
+          ],
+          "newest_first_rate": 0.8787878787878788,
+          "mean_fiscal_year_at_5": 2026.4
+        },
+        {
+          "query_id": "r-009",
+          "query": "Department of Emergency and Military Affairs",
+          "fiscal_years": [
+            2027,
+            2026,
+            2026,
+            2025,
+            2027,
+            2026,
+            2026,
+            2025,
+            2026,
+            2025
+          ],
+          "newest_first_rate": 0.7741935483870968,
+          "mean_fiscal_year_at_5": 2026.2
+        },
+        {
+          "query_id": "r-010",
+          "query": "Department of Insurance and Financial Institutions",
+          "fiscal_years": [
+            2027,
+            2026,
+            2025,
+            2026,
+            2025,
+            2025,
+            2025,
+            2025,
+            2026,
+            2025
+          ],
+          "newest_first_rate": 0.7777777777777778,
+          "mean_fiscal_year_at_5": 2025.8
+        }
+      ]
+    },
+    {
+      "weight": 2.752,
+      "current_recall_at_5": 0.6206896551724138,
+      "current_recall_at_15": 0.9655172413793104,
+      "current_recall_at_20": 1.0,
+      "current_refusal_precision": 0.6,
+      "current_regressions": [],
+      "current_recoveries": [
+        "q-030"
+      ],
+      "historical_recall_at_15": 1.0,
+      "historical_recall_at_20": 1.0,
+      "historical_regressions": [],
+      "historical_invariant": true,
+      "proxy_recall_at_5": 0.6666666666666666,
+      "proxy_recall_at_15": 0.875,
+      "proxy_regressions": [],
+      "proxy_recoveries": [],
+      "current_regressions_at_5": [],
+      "proxy_regressions_at_5": [
+        "q-015",
+        "q-023"
+      ],
+      "proxy_recoveries_at_5": [],
+      "order_rate": 0.839071034497414,
+      "order_vintage": 2026.1599999999999,
+      "order_reports": [
+        {
+          "query_id": "r-001",
+          "query": "Department of Corrections",
+          "fiscal_years": [
+            2027,
+            2027,
+            2027,
+            2027,
+            2026,
+            2027,
+            2025,
+            2026,
+            2025,
+            2025
+          ],
+          "newest_first_rate": 0.9354838709677419,
+          "mean_fiscal_year_at_5": 2026.8
+        },
+        {
+          "query_id": "r-002",
+          "query": "AHCCCS",
+          "fiscal_years": [
+            2026,
+            2025,
+            2026,
+            2025,
+            2025,
+            2026,
+            2026,
+            2025,
+            2025,
+            2024
+          ],
+          "newest_first_rate": 0.7586206896551724,
+          "mean_fiscal_year_at_5": 2025.4
+        },
+        {
+          "query_id": "r-003",
+          "query": "Department of Child Safety",
+          "fiscal_years": [
+            2027,
+            2027,
+            2027,
+            2026,
+            2025,
+            2026,
+            2026,
+            2026,
+            2026,
+            2026
+          ],
+          "newest_first_rate": 0.8148148148148148,
+          "mean_fiscal_year_at_5": 2026.4
+        },
+        {
+          "query_id": "r-004",
+          "query": "Department of Economic Security",
+          "fiscal_years": [
+            2027,
+            2027,
+            2026,
+            2026,
+            2026,
+            2026,
+            2025,
+            2026,
+            2026,
+            2026
+          ],
+          "newest_first_rate": 0.8695652173913043,
+          "mean_fiscal_year_at_5": 2026.4
+        },
+        {
+          "query_id": "r-005",
+          "query": "Department of Health Services",
+          "fiscal_years": [
+            2027,
+            2026,
+            2025,
+            2026,
+            2026,
+            2025,
+            2026,
+            2026,
+            2025,
+            2024
+          ],
+          "newest_first_rate": 0.8125,
+          "mean_fiscal_year_at_5": 2026.0
+        },
+        {
+          "query_id": "r-006",
+          "query": "Department of Public Safety",
+          "fiscal_years": [
+            2027,
+            2027,
+            2026,
+            2027,
+            2025,
+            2026,
+            2026,
+            2026,
+            2026,
+            2025
+          ],
+          "newest_first_rate": 0.8387096774193549,
+          "mean_fiscal_year_at_5": 2026.4
+        },
+        {
+          "query_id": "r-007",
+          "query": "Arizona Board of Regents",
+          "fiscal_years": [
+            2026,
+            2025,
+            2026,
+            2026,
+            2026,
+            2026,
+            2026,
+            2025,
+            2025,
+            2025
+          ],
+          "newest_first_rate": 0.7916666666666666,
+          "mean_fiscal_year_at_5": 2025.8
+        },
+        {
+          "query_id": "r-008",
+          "query": "ADEQ",
+          "fiscal_years": [
+            2027,
+            2027,
+            2027,
+            2025,
+            2026,
+            2026,
+            2026,
+            2026,
+            2025,
+            2025
+          ],
+          "newest_first_rate": 0.8787878787878788,
+          "mean_fiscal_year_at_5": 2026.4
+        },
+        {
+          "query_id": "r-009",
+          "query": "Department of Emergency and Military Affairs",
+          "fiscal_years": [
+            2027,
+            2026,
+            2026,
+            2027,
+            2025,
+            2026,
+            2026,
+            2026,
+            2025,
+            2025
+          ],
+          "newest_first_rate": 0.8387096774193549,
+          "mean_fiscal_year_at_5": 2026.2
+        },
+        {
+          "query_id": "r-010",
+          "query": "Department of Insurance and Financial Institutions",
+          "fiscal_years": [
+            2027,
+            2026,
+            2025,
+            2026,
+            2025,
+            2025,
+            2026,
+            2025,
+            2025,
+            2025
+          ],
+          "newest_first_rate": 0.8518518518518519,
+          "mean_fiscal_year_at_5": 2025.8
+        }
+      ]
+    },
+    {
+      "weight": 3.44,
+      "current_recall_at_5": 0.6206896551724138,
+      "current_recall_at_15": 0.9655172413793104,
+      "current_recall_at_20": 1.0,
+      "current_refusal_precision": 0.6,
+      "current_regressions": [],
+      "current_recoveries": [
+        "q-030"
+      ],
+      "historical_recall_at_15": 1.0,
+      "historical_recall_at_20": 1.0,
+      "historical_regressions": [],
+      "historical_invariant": true,
+      "proxy_recall_at_5": 0.6666666666666666,
+      "proxy_recall_at_15": 0.875,
+      "proxy_regressions": [],
+      "proxy_recoveries": [],
+      "current_regressions_at_5": [],
+      "proxy_regressions_at_5": [
+        "q-015",
+        "q-023"
+      ],
+      "proxy_recoveries_at_5": [],
+      "order_rate": 0.8738571940813562,
+      "order_vintage": 2026.2599999999998,
+      "order_reports": [
+        {
+          "query_id": "r-001",
+          "query": "Department of Corrections",
+          "fiscal_years": [
+            2027,
+            2027,
+            2027,
+            2027,
+            2027,
+            2026,
+            2026,
+            2025,
+            2026,
+            2025
+          ],
+          "newest_first_rate": 0.967741935483871,
+          "mean_fiscal_year_at_5": 2027.0
+        },
+        {
+          "query_id": "r-002",
+          "query": "AHCCCS",
+          "fiscal_years": [
+            2026,
+            2025,
+            2026,
+            2026,
+            2025,
+            2025,
+            2026,
+            2025,
+            2025,
+            2024
+          ],
+          "newest_first_rate": 0.8275862068965517,
+          "mean_fiscal_year_at_5": 2025.6
+        },
+        {
+          "query_id": "r-003",
+          "query": "Department of Child Safety",
+          "fiscal_years": [
+            2027,
+            2027,
+            2027,
+            2026,
+            2026,
+            2025,
+            2026,
+            2026,
+            2026,
+            2026
+          ],
+          "newest_first_rate": 0.8518518518518519,
+          "mean_fiscal_year_at_5": 2026.6
+        },
+        {
+          "query_id": "r-004",
+          "query": "Department of Economic Security",
+          "fiscal_years": [
+            2027,
+            2027,
+            2026,
+            2026,
+            2026,
+            2026,
+            2026,
+            2026,
+            2025,
+            2026
+          ],
+          "newest_first_rate": 0.9565217391304348,
+          "mean_fiscal_year_at_5": 2026.4
+        },
+        {
+          "query_id": "r-005",
+          "query": "Department of Health Services",
+          "fiscal_years": [
+            2027,
+            2026,
+            2026,
+            2025,
+            2026,
+            2026,
+            2025,
+            2026,
+            2025,
+            2027
+          ],
+          "newest_first_rate": 0.6129032258064516,
+          "mean_fiscal_year_at_5": 2026.0
+        },
+        {
+          "query_id": "r-006",
+          "query": "Department of Public Safety",
+          "fiscal_years": [
+            2027,
+            2027,
+            2026,
+            2027,
+            2025,
+            2026,
+            2026,
+            2026,
+            2026,
+            2025
+          ],
+          "newest_first_rate": 0.8387096774193549,
+          "mean_fiscal_year_at_5": 2026.4
+        },
+        {
+          "query_id": "r-007",
+          "query": "Arizona Board of Regents",
+          "fiscal_years": [
+            2026,
+            2026,
+            2026,
+            2026,
+            2025,
+            2026,
+            2026,
+            2025,
+            2025,
+            2025
+          ],
+          "newest_first_rate": 0.9166666666666666,
+          "mean_fiscal_year_at_5": 2025.8
+        },
+        {
+          "query_id": "r-008",
+          "query": "ADEQ",
+          "fiscal_years": [
+            2027,
+            2027,
+            2027,
+            2026,
+            2026,
+            2026,
+            2025,
+            2026,
+            2025,
+            2025
+          ],
+          "newest_first_rate": 0.9696969696969697,
+          "mean_fiscal_year_at_5": 2026.6
+        },
+        {
+          "query_id": "r-009",
+          "query": "Department of Emergency and Military Affairs",
+          "fiscal_years": [
+            2027,
+            2026,
+            2027,
+            2026,
+            2025,
+            2026,
+            2026,
+            2026,
+            2025,
+            2025
+          ],
+          "newest_first_rate": 0.8709677419354839,
+          "mean_fiscal_year_at_5": 2026.2
+        },
+        {
+          "query_id": "r-010",
+          "query": "Department of Insurance and Financial Institutions",
+          "fiscal_years": [
+            2027,
+            2026,
+            2025,
+            2026,
+            2026,
+            2025,
+            2025,
+            2025,
+            2025,
+            2025
+          ],
+          "newest_first_rate": 0.9259259259259259,
+          "mean_fiscal_year_at_5": 2026.0
+        }
+      ]
+    },
+    {
+      "weight": 4.128,
+      "current_recall_at_5": 0.6206896551724138,
+      "current_recall_at_15": 0.9655172413793104,
+      "current_recall_at_20": 1.0,
+      "current_refusal_precision": 0.6,
+      "current_regressions": [],
+      "current_recoveries": [
+        "q-030"
+      ],
+      "historical_recall_at_15": 1.0,
+      "historical_recall_at_20": 1.0,
+      "historical_regressions": [],
+      "historical_invariant": true,
+      "proxy_recall_at_5": 0.625,
+      "proxy_recall_at_15": 0.875,
+      "proxy_regressions": [],
+      "proxy_recoveries": [],
+      "current_regressions_at_5": [],
+      "proxy_regressions_at_5": [
+        "q-002",
+        "q-015",
+        "q-023"
+      ],
+      "proxy_recoveries_at_5": [],
+      "order_rate": 0.9205454620360071,
+      "order_vintage": 2026.3400000000001,
+      "order_reports": [
+        {
+          "query_id": "r-001",
+          "query": "Department of Corrections",
+          "fiscal_years": [
+            2027,
+            2027,
+            2027,
+            2027,
+            2027,
+            2026,
+            2026,
+            2025,
+            2026,
+            2025
+          ],
+          "newest_first_rate": 0.967741935483871,
+          "mean_fiscal_year_at_5": 2027.0
+        },
+        {
+          "query_id": "r-002",
+          "query": "AHCCCS",
+          "fiscal_years": [
+            2026,
+            2026,
+            2026,
+            2025,
+            2026,
+            2025,
+            2025,
+            2025,
+            2025,
+            2024
+          ],
+          "newest_first_rate": 0.9655172413793104,
+          "mean_fiscal_year_at_5": 2025.8
+        },
+        {
+          "query_id": "r-003",
+          "query": "Department of Child Safety",
+          "fiscal_years": [
+            2027,
+            2027,
+            2027,
+            2026,
+            2026,
+            2026,
+            2026,
+            2026,
+            2025,
+            2026
+          ],
+          "newest_first_rate": 0.9629629629629629,
+          "mean_fiscal_year_at_5": 2026.6
+        },
+        {
+          "query_id": "r-004",
+          "query": "Department of Economic Security",
+          "fiscal_years": [
+            2027,
+            2027,
+            2026,
+            2026,
+            2026,
+            2026,
+            2026,
+            2026,
+            2026,
+            2025
+          ],
+          "newest_first_rate": 1.0,
+          "mean_fiscal_year_at_5": 2026.4
+        },
+        {
+          "query_id": "r-005",
+          "query": "Department of Health Services",
+          "fiscal_years": [
+            2027,
+            2026,
+            2026,
+            2026,
+            2025,
+            2026,
+            2026,
+            2025,
+            2025,
+            2027
+          ],
+          "newest_first_rate": 0.6774193548387096,
+          "mean_fiscal_year_at_5": 2026.0
+        },
+        {
+          "query_id": "r-006",
+          "query": "Department of Public Safety",
+          "fiscal_years": [
+            2027,
+            2027,
+            2027,
+            2026,
+            2026,
+            2025,
+            2026,
+            2026,
+            2026,
+            2025
+          ],
+          "newest_first_rate": 0.9032258064516129,
+          "mean_fiscal_year_at_5": 2026.6
+        },
+        {
+          "query_id": "r-007",
+          "query": "Arizona Board of Regents",
+          "fiscal_years": [
+            2026,
+            2026,
+            2026,
+            2026,
+            2026,
+            2026,
+            2025,
+            2025,
+            2025,
+            2025
+          ],
+          "newest_first_rate": 1.0,
+          "mean_fiscal_year_at_5": 2026.0
+        },
+        {
+          "query_id": "r-008",
+          "query": "ADEQ",
+          "fiscal_years": [
+            2027,
+            2027,
+            2027,
+            2026,
+            2026,
+            2026,
+            2026,
+            2025,
+            2025,
+            2025
+          ],
+          "newest_first_rate": 1.0,
+          "mean_fiscal_year_at_5": 2026.6
+        },
+        {
+          "query_id": "r-009",
+          "query": "Department of Emergency and Military Affairs",
+          "fiscal_years": [
+            2027,
+            2026,
+            2027,
+            2026,
+            2026,
+            2026,
+            2025,
+            2026,
+            2025,
+            2025
+          ],
+          "newest_first_rate": 0.9354838709677419,
+          "mean_fiscal_year_at_5": 2026.4
+        },
+        {
+          "query_id": "r-010",
+          "query": "Department of Insurance and Financial Institutions",
+          "fiscal_years": [
+            2027,
+            2026,
+            2026,
+            2025,
+            2026,
+            2025,
+            2025,
+            2025,
+            2025,
+            2026
+          ],
+          "newest_first_rate": 0.7931034482758621,
+          "mean_fiscal_year_at_5": 2026.0
+        }
+      ]
+    },
+    {
+      "weight": 4.816,
+      "current_recall_at_5": 0.6206896551724138,
+      "current_recall_at_15": 0.9655172413793104,
+      "current_recall_at_20": 1.0,
+      "current_refusal_precision": 0.6,
+      "current_regressions": [],
+      "current_recoveries": [
+        "q-030"
+      ],
+      "historical_recall_at_15": 1.0,
+      "historical_recall_at_20": 1.0,
+      "historical_regressions": [],
+      "historical_invariant": true,
+      "proxy_recall_at_5": 0.625,
+      "proxy_recall_at_15": 0.875,
+      "proxy_regressions": [],
+      "proxy_recoveries": [],
+      "current_regressions_at_5": [],
+      "proxy_regressions_at_5": [
+        "q-002",
+        "q-015",
+        "q-023"
+      ],
+      "proxy_recoveries_at_5": [],
+      "order_rate": 0.9472747497219132,
+      "order_vintage": 2026.3400000000001,
+      "order_reports": [
+        {
+          "query_id": "r-001",
+          "query": "Department of Corrections",
+          "fiscal_years": [
+            2027,
+            2027,
+            2027,
+            2027,
+            2027,
+            2026,
+            2026,
+            2025,
+            2026,
+            2025
+          ],
+          "newest_first_rate": 0.967741935483871,
+          "mean_fiscal_year_at_5": 2027.0
+        },
+        {
+          "query_id": "r-002",
+          "query": "AHCCCS",
+          "fiscal_years": [
+            2026,
+            2026,
+            2026,
+            2025,
+            2026,
+            2025,
+            2025,
+            2025,
+            2025,
+            2024
+          ],
+          "newest_first_rate": 0.9655172413793104,
+          "mean_fiscal_year_at_5": 2025.8
+        },
+        {
+          "query_id": "r-003",
+          "query": "Department of Child Safety",
+          "fiscal_years": [
+            2027,
+            2027,
+            2027,
+            2026,
+            2026,
+            2026,
+            2026,
+            2026,
+            2026,
+            2026
+          ],
+          "newest_first_rate": 1.0,
+          "mean_fiscal_year_at_5": 2026.6
+        },
+        {
+          "query_id": "r-004",
+          "query": "Department of Economic Security",
+          "fiscal_years": [
+            2027,
+            2027,
+            2026,
+            2026,
+            2026,
+            2026,
+            2026,
+            2026,
+            2026,
+            2025
+          ],
+          "newest_first_rate": 1.0,
+          "mean_fiscal_year_at_5": 2026.4
+        },
+        {
+          "query_id": "r-005",
+          "query": "Department of Health Services",
+          "fiscal_years": [
+            2027,
+            2026,
+            2026,
+            2026,
+            2025,
+            2026,
+            2026,
+            2025,
+            2027,
+            2025
+          ],
+          "newest_first_rate": 0.7096774193548387,
+          "mean_fiscal_year_at_5": 2026.0
+        },
+        {
+          "query_id": "r-006",
+          "query": "Department of Public Safety",
+          "fiscal_years": [
+            2027,
+            2027,
+            2027,
+            2026,
+            2026,
+            2026,
+            2026,
+            2025,
+            2026,
+            2025
+          ],
+          "newest_first_rate": 0.967741935483871,
+          "mean_fiscal_year_at_5": 2026.6
+        },
+        {
+          "query_id": "r-007",
+          "query": "Arizona Board of Regents",
+          "fiscal_years": [
+            2026,
+            2026,
+            2026,
+            2026,
+            2026,
+            2026,
+            2025,
+            2025,
+            2025,
+            2025
+          ],
+          "newest_first_rate": 1.0,
+          "mean_fiscal_year_at_5": 2026.0
+        },
+        {
+          "query_id": "r-008",
+          "query": "ADEQ",
+          "fiscal_years": [
+            2027,
+            2027,
+            2027,
+            2026,
+            2026,
+            2026,
+            2026,
+            2025,
+            2025,
+            2025
+          ],
+          "newest_first_rate": 1.0,
+          "mean_fiscal_year_at_5": 2026.6
+        },
+        {
+          "query_id": "r-009",
+          "query": "Department of Emergency and Military Affairs",
+          "fiscal_years": [
+            2027,
+            2027,
+            2026,
+            2026,
+            2026,
+            2026,
+            2026,
+            2025,
+            2025,
+            2025
+          ],
+          "newest_first_rate": 1.0,
+          "mean_fiscal_year_at_5": 2026.4
+        },
+        {
+          "query_id": "r-010",
+          "query": "Department of Insurance and Financial Institutions",
+          "fiscal_years": [
+            2027,
+            2026,
+            2026,
+            2025,
+            2026,
+            2025,
+            2025,
+            2026,
+            2025,
+            2025
+          ],
+          "newest_first_rate": 0.8620689655172413,
+          "mean_fiscal_year_at_5": 2026.0
+        }
+      ]
+    },
+    {
+      "weight": 5.504,
+      "current_recall_at_5": 0.6206896551724138,
+      "current_recall_at_15": 0.9655172413793104,
+      "current_recall_at_20": 1.0,
+      "current_refusal_precision": 0.6,
+      "current_regressions": [],
+      "current_recoveries": [
+        "q-030"
+      ],
+      "historical_recall_at_15": 1.0,
+      "historical_recall_at_20": 1.0,
+      "historical_regressions": [],
+      "historical_invariant": true,
+      "proxy_recall_at_5": 0.625,
+      "proxy_recall_at_15": 0.875,
+      "proxy_regressions": [],
+      "proxy_recoveries": [],
+      "current_regressions_at_5": [],
+      "proxy_regressions_at_5": [
+        "q-002",
+        "q-015",
+        "q-023"
+      ],
+      "proxy_recoveries_at_5": [],
+      "order_rate": 0.9670745272525029,
+      "order_vintage": 2026.36,
+      "order_reports": [
+        {
+          "query_id": "r-001",
+          "query": "Department of Corrections",
+          "fiscal_years": [
+            2027,
+            2027,
+            2027,
+            2027,
+            2027,
+            2026,
+            2026,
+            2026,
+            2025,
+            2025
+          ],
+          "newest_first_rate": 1.0,
+          "mean_fiscal_year_at_5": 2027.0
+        },
+        {
+          "query_id": "r-002",
+          "query": "AHCCCS",
+          "fiscal_years": [
+            2026,
+            2026,
+            2026,
+            2026,
+            2025,
+            2025,
+            2025,
+            2025,
+            2025,
+            2024
+          ],
+          "newest_first_rate": 1.0,
+          "mean_fiscal_year_at_5": 2025.8
+        },
+        {
+          "query_id": "r-003",
+          "query": "Department of Child Safety",
+          "fiscal_years": [
+            2027,
+            2027,
+            2027,
+            2026,
+            2026,
+            2026,
+            2026,
+            2026,
+            2026,
+            2026
+          ],
+          "newest_first_rate": 1.0,
+          "mean_fiscal_year_at_5": 2026.6
+        },
+        {
+          "query_id": "r-004",
+          "query": "Department of Economic Security",
+          "fiscal_years": [
+            2027,
+            2027,
+            2026,
+            2026,
+            2026,
+            2026,
+            2026,
+            2026,
+            2026,
+            2025
+          ],
+          "newest_first_rate": 1.0,
+          "mean_fiscal_year_at_5": 2026.4
+        },
+        {
+          "query_id": "r-005",
+          "query": "Department of Health Services",
+          "fiscal_years": [
+            2027,
+            2026,
+            2026,
+            2026,
+            2026,
+            2025,
+            2026,
+            2027,
+            2025,
+            2025
+          ],
+          "newest_first_rate": 0.7741935483870968,
+          "mean_fiscal_year_at_5": 2026.2
+        },
+        {
+          "query_id": "r-006",
+          "query": "Department of Public Safety",
+          "fiscal_years": [
+            2027,
+            2027,
+            2027,
+            2026,
+            2026,
+            2026,
+            2026,
+            2026,
+            2025,
+            2025
+          ],
+          "newest_first_rate": 1.0,
+          "mean_fiscal_year_at_5": 2026.6
+        },
+        {
+          "query_id": "r-007",
+          "query": "Arizona Board of Regents",
+          "fiscal_years": [
+            2026,
+            2026,
+            2026,
+            2026,
+            2026,
+            2026,
+            2025,
+            2025,
+            2025,
+            2025
+          ],
+          "newest_first_rate": 1.0,
+          "mean_fiscal_year_at_5": 2026.0
+        },
+        {
+          "query_id": "r-008",
+          "query": "ADEQ",
+          "fiscal_years": [
+            2027,
+            2027,
+            2027,
+            2026,
+            2026,
+            2026,
+            2026,
+            2025,
+            2025,
+            2025
+          ],
+          "newest_first_rate": 1.0,
+          "mean_fiscal_year_at_5": 2026.6
+        },
+        {
+          "query_id": "r-009",
+          "query": "Department of Emergency and Military Affairs",
+          "fiscal_years": [
+            2027,
+            2027,
+            2026,
+            2026,
+            2026,
+            2026,
+            2026,
+            2025,
+            2025,
+            2025
+          ],
+          "newest_first_rate": 1.0,
+          "mean_fiscal_year_at_5": 2026.4
+        },
+        {
+          "query_id": "r-010",
+          "query": "Department of Insurance and Financial Institutions",
+          "fiscal_years": [
+            2027,
+            2026,
+            2026,
+            2025,
+            2026,
+            2025,
+            2026,
+            2025,
+            2025,
+            2025
+          ],
+          "newest_first_rate": 0.896551724137931,
+          "mean_fiscal_year_at_5": 2026.0
+        }
+      ]
+    },
+    {
+      "weight": 6.192,
+      "current_recall_at_5": 0.6206896551724138,
+      "current_recall_at_15": 0.9655172413793104,
+      "current_recall_at_20": 1.0,
+      "current_refusal_precision": 0.6,
+      "current_regressions": [],
+      "current_recoveries": [
+        "q-030"
+      ],
+      "historical_recall_at_15": 1.0,
+      "historical_recall_at_20": 1.0,
+      "historical_regressions": [],
+      "historical_invariant": true,
+      "proxy_recall_at_5": 0.625,
+      "proxy_recall_at_15": 0.875,
+      "proxy_regressions": [],
+      "proxy_recoveries": [],
+      "current_regressions_at_5": [],
+      "proxy_regressions_at_5": [
+        "q-002",
+        "q-015",
+        "q-023"
+      ],
+      "proxy_recoveries_at_5": [],
+      "order_rate": 0.9771968854282536,
+      "order_vintage": 2026.36,
+      "order_reports": [
+        {
+          "query_id": "r-001",
+          "query": "Department of Corrections",
+          "fiscal_years": [
+            2027,
+            2027,
+            2027,
+            2027,
+            2027,
+            2026,
+            2026,
+            2026,
+            2025,
+            2025
+          ],
+          "newest_first_rate": 1.0,
+          "mean_fiscal_year_at_5": 2027.0
+        },
+        {
+          "query_id": "r-002",
+          "query": "AHCCCS",
+          "fiscal_years": [
+            2026,
+            2026,
+            2026,
+            2026,
+            2025,
+            2025,
+            2025,
+            2025,
+            2025,
+            2024
+          ],
+          "newest_first_rate": 1.0,
+          "mean_fiscal_year_at_5": 2025.8
+        },
+        {
+          "query_id": "r-003",
+          "query": "Department of Child Safety",
+          "fiscal_years": [
+            2027,
+            2027,
+            2027,
+            2026,
+            2026,
+            2026,
+            2026,
+            2026,
+            2026,
+            2026
+          ],
+          "newest_first_rate": 1.0,
+          "mean_fiscal_year_at_5": 2026.6
+        },
+        {
+          "query_id": "r-004",
+          "query": "Department of Economic Security",
+          "fiscal_years": [
+            2027,
+            2027,
+            2026,
+            2026,
+            2026,
+            2026,
+            2026,
+            2026,
+            2026,
+            2025
+          ],
+          "newest_first_rate": 1.0,
+          "mean_fiscal_year_at_5": 2026.4
+        },
+        {
+          "query_id": "r-005",
+          "query": "Department of Health Services",
+          "fiscal_years": [
+            2027,
+            2026,
+            2026,
+            2026,
+            2026,
+            2026,
+            2025,
+            2027,
+            2025,
+            2025
+          ],
+          "newest_first_rate": 0.8064516129032258,
+          "mean_fiscal_year_at_5": 2026.2
+        },
+        {
+          "query_id": "r-006",
+          "query": "Department of Public Safety",
+          "fiscal_years": [
+            2027,
+            2027,
+            2027,
+            2026,
+            2026,
+            2026,
+            2026,
+            2026,
+            2025,
+            2025
+          ],
+          "newest_first_rate": 1.0,
+          "mean_fiscal_year_at_5": 2026.6
+        },
+        {
+          "query_id": "r-007",
+          "query": "Arizona Board of Regents",
+          "fiscal_years": [
+            2026,
+            2026,
+            2026,
+            2026,
+            2026,
+            2026,
+            2025,
+            2025,
+            2025,
+            2025
+          ],
+          "newest_first_rate": 1.0,
+          "mean_fiscal_year_at_5": 2026.0
+        },
+        {
+          "query_id": "r-008",
+          "query": "ADEQ",
+          "fiscal_years": [
+            2027,
+            2027,
+            2027,
+            2026,
+            2026,
+            2026,
+            2026,
+            2025,
+            2025,
+            2025
+          ],
+          "newest_first_rate": 1.0,
+          "mean_fiscal_year_at_5": 2026.6
+        },
+        {
+          "query_id": "r-009",
+          "query": "Department of Emergency and Military Affairs",
+          "fiscal_years": [
+            2027,
+            2027,
+            2026,
+            2026,
+            2026,
+            2026,
+            2026,
+            2025,
+            2025,
+            2025
+          ],
+          "newest_first_rate": 1.0,
+          "mean_fiscal_year_at_5": 2026.4
+        },
+        {
+          "query_id": "r-010",
+          "query": "Department of Insurance and Financial Institutions",
+          "fiscal_years": [
+            2027,
+            2026,
+            2026,
+            2026,
+            2025,
+            2026,
+            2025,
+            2025,
+            2025,
+            2025
+          ],
+          "newest_first_rate": 0.9655172413793104,
+          "mean_fiscal_year_at_5": 2026.0
+        }
+      ]
+    },
+    {
+      "weight": 6.88,
+      "current_recall_at_5": 0.6206896551724138,
+      "current_recall_at_15": 0.9655172413793104,
+      "current_recall_at_20": 1.0,
+      "current_refusal_precision": 0.6,
+      "current_regressions": [],
+      "current_recoveries": [
+        "q-030"
+      ],
+      "historical_recall_at_15": 1.0,
+      "historical_recall_at_20": 1.0,
+      "historical_regressions": [],
+      "historical_invariant": true,
+      "proxy_recall_at_5": 0.625,
+      "proxy_recall_at_15": 0.875,
+      "proxy_regressions": [],
+      "proxy_recoveries": [],
+      "current_regressions_at_5": [],
+      "proxy_regressions_at_5": [
+        "q-002",
+        "q-015",
+        "q-023"
+      ],
+      "proxy_recoveries_at_5": [],
+      "order_rate": 0.9836484983314794,
+      "order_vintage": 2026.36,
+      "order_reports": [
+        {
+          "query_id": "r-001",
+          "query": "Department of Corrections",
+          "fiscal_years": [
+            2027,
+            2027,
+            2027,
+            2027,
+            2027,
+            2026,
+            2026,
+            2026,
+            2025,
+            2025
+          ],
+          "newest_first_rate": 1.0,
+          "mean_fiscal_year_at_5": 2027.0
+        },
+        {
+          "query_id": "r-002",
+          "query": "AHCCCS",
+          "fiscal_years": [
+            2026,
+            2026,
+            2026,
+            2026,
+            2025,
+            2025,
+            2025,
+            2025,
+            2025,
+            2024
+          ],
+          "newest_first_rate": 1.0,
+          "mean_fiscal_year_at_5": 2025.8
+        },
+        {
+          "query_id": "r-003",
+          "query": "Department of Child Safety",
+          "fiscal_years": [
+            2027,
+            2027,
+            2027,
+            2026,
+            2026,
+            2026,
+            2026,
+            2026,
+            2026,
+            2026
+          ],
+          "newest_first_rate": 1.0,
+          "mean_fiscal_year_at_5": 2026.6
+        },
+        {
+          "query_id": "r-004",
+          "query": "Department of Economic Security",
+          "fiscal_years": [
+            2027,
+            2027,
+            2026,
+            2026,
+            2026,
+            2026,
+            2026,
+            2026,
+            2026,
+            2025
+          ],
+          "newest_first_rate": 1.0,
+          "mean_fiscal_year_at_5": 2026.4
+        },
+        {
+          "query_id": "r-005",
+          "query": "Department of Health Services",
+          "fiscal_years": [
+            2027,
+            2026,
+            2026,
+            2026,
+            2026,
+            2027,
+            2026,
+            2025,
+            2025,
+            2025
+          ],
+          "newest_first_rate": 0.8709677419354839,
+          "mean_fiscal_year_at_5": 2026.2
+        },
+        {
+          "query_id": "r-006",
+          "query": "Department of Public Safety",
+          "fiscal_years": [
+            2027,
+            2027,
+            2027,
+            2026,
+            2026,
+            2026,
+            2026,
+            2026,
+            2025,
+            2025
+          ],
+          "newest_first_rate": 1.0,
+          "mean_fiscal_year_at_5": 2026.6
+        },
+        {
+          "query_id": "r-007",
+          "query": "Arizona Board of Regents",
+          "fiscal_years": [
+            2026,
+            2026,
+            2026,
+            2026,
+            2026,
+            2026,
+            2025,
+            2025,
+            2025,
+            2025
+          ],
+          "newest_first_rate": 1.0,
+          "mean_fiscal_year_at_5": 2026.0
+        },
+        {
+          "query_id": "r-008",
+          "query": "ADEQ",
+          "fiscal_years": [
+            2027,
+            2027,
+            2027,
+            2026,
+            2026,
+            2026,
+            2026,
+            2025,
+            2025,
+            2025
+          ],
+          "newest_first_rate": 1.0,
+          "mean_fiscal_year_at_5": 2026.6
+        },
+        {
+          "query_id": "r-009",
+          "query": "Department of Emergency and Military Affairs",
+          "fiscal_years": [
+            2027,
+            2027,
+            2026,
+            2026,
+            2026,
+            2026,
+            2026,
+            2025,
+            2025,
+            2025
+          ],
+          "newest_first_rate": 1.0,
+          "mean_fiscal_year_at_5": 2026.4
+        },
+        {
+          "query_id": "r-010",
+          "query": "Department of Insurance and Financial Institutions",
+          "fiscal_years": [
+            2027,
+            2026,
+            2026,
+            2026,
+            2025,
+            2026,
+            2025,
+            2025,
+            2025,
+            2025
+          ],
+          "newest_first_rate": 0.9655172413793104,
+          "mean_fiscal_year_at_5": 2026.0
+        }
+      ]
+    },
+    {
+      "weight": 7.568,
+      "current_recall_at_5": 0.6206896551724138,
+      "current_recall_at_15": 0.9655172413793104,
+      "current_recall_at_20": 1.0,
+      "current_refusal_precision": 0.6,
+      "current_regressions": [],
+      "current_recoveries": [
+        "q-030"
+      ],
+      "historical_recall_at_15": 1.0,
+      "historical_recall_at_20": 1.0,
+      "historical_regressions": [],
+      "historical_invariant": true,
+      "proxy_recall_at_5": 0.5833333333333334,
+      "proxy_recall_at_15": 0.875,
+      "proxy_regressions": [],
+      "proxy_recoveries": [],
+      "current_regressions_at_5": [],
+      "proxy_regressions_at_5": [
+        "q-002",
+        "q-005",
+        "q-015",
+        "q-023"
+      ],
+      "proxy_recoveries_at_5": [],
+      "order_rate": 0.9868743047830923,
+      "order_vintage": 2026.3799999999999,
+      "order_reports": [
+        {
+          "query_id": "r-001",
+          "query": "Department of Corrections",
+          "fiscal_years": [
+            2027,
+            2027,
+            2027,
+            2027,
+            2027,
+            2026,
+            2026,
+            2026,
+            2025,
+            2025
+          ],
+          "newest_first_rate": 1.0,
+          "mean_fiscal_year_at_5": 2027.0
+        },
+        {
+          "query_id": "r-002",
+          "query": "AHCCCS",
+          "fiscal_years": [
+            2026,
+            2026,
+            2026,
+            2026,
+            2025,
+            2025,
+            2025,
+            2025,
+            2025,
+            2024
+          ],
+          "newest_first_rate": 1.0,
+          "mean_fiscal_year_at_5": 2025.8
+        },
+        {
+          "query_id": "r-003",
+          "query": "Department of Child Safety",
+          "fiscal_years": [
+            2027,
+            2027,
+            2027,
+            2026,
+            2026,
+            2026,
+            2026,
+            2026,
+            2026,
+            2026
+          ],
+          "newest_first_rate": 1.0,
+          "mean_fiscal_year_at_5": 2026.6
+        },
+        {
+          "query_id": "r-004",
+          "query": "Department of Economic Security",
+          "fiscal_years": [
+            2027,
+            2027,
+            2026,
+            2026,
+            2026,
+            2026,
+            2026,
+            2026,
+            2026,
+            2025
+          ],
+          "newest_first_rate": 1.0,
+          "mean_fiscal_year_at_5": 2026.4
+        },
+        {
+          "query_id": "r-005",
+          "query": "Department of Health Services",
+          "fiscal_years": [
+            2027,
+            2026,
+            2026,
+            2026,
+            2027,
+            2026,
+            2026,
+            2025,
+            2025,
+            2025
+          ],
+          "newest_first_rate": 0.9032258064516129,
+          "mean_fiscal_year_at_5": 2026.4
+        },
+        {
+          "query_id": "r-006",
+          "query": "Department of Public Safety",
+          "fiscal_years": [
+            2027,
+            2027,
+            2027,
+            2026,
+            2026,
+            2026,
+            2026,
+            2026,
+            2025,
+            2025
+          ],
+          "newest_first_rate": 1.0,
+          "mean_fiscal_year_at_5": 2026.6
+        },
+        {
+          "query_id": "r-007",
+          "query": "Arizona Board of Regents",
+          "fiscal_years": [
+            2026,
+            2026,
+            2026,
+            2026,
+            2026,
+            2026,
+            2025,
+            2025,
+            2025,
+            2025
+          ],
+          "newest_first_rate": 1.0,
+          "mean_fiscal_year_at_5": 2026.0
+        },
+        {
+          "query_id": "r-008",
+          "query": "ADEQ",
+          "fiscal_years": [
+            2027,
+            2027,
+            2027,
+            2026,
+            2026,
+            2026,
+            2026,
+            2025,
+            2025,
+            2025
+          ],
+          "newest_first_rate": 1.0,
+          "mean_fiscal_year_at_5": 2026.6
+        },
+        {
+          "query_id": "r-009",
+          "query": "Department of Emergency and Military Affairs",
+          "fiscal_years": [
+            2027,
+            2027,
+            2026,
+            2026,
+            2026,
+            2026,
+            2026,
+            2025,
+            2025,
+            2025
+          ],
+          "newest_first_rate": 1.0,
+          "mean_fiscal_year_at_5": 2026.4
+        },
+        {
+          "query_id": "r-010",
+          "query": "Department of Insurance and Financial Institutions",
+          "fiscal_years": [
+            2027,
+            2026,
+            2026,
+            2026,
+            2025,
+            2026,
+            2025,
+            2025,
+            2025,
+            2025
+          ],
+          "newest_first_rate": 0.9655172413793104,
+          "mean_fiscal_year_at_5": 2026.0
+        }
+      ]
+    },
+    {
+      "weight": 8.256,
+      "current_recall_at_5": 0.6206896551724138,
+      "current_recall_at_15": 0.9655172413793104,
+      "current_recall_at_20": 1.0,
+      "current_refusal_precision": 0.6,
+      "current_regressions": [],
+      "current_recoveries": [
+        "q-030"
+      ],
+      "historical_recall_at_15": 1.0,
+      "historical_recall_at_20": 1.0,
+      "historical_regressions": [],
+      "historical_invariant": true,
+      "proxy_recall_at_5": 0.5833333333333334,
+      "proxy_recall_at_15": 0.875,
+      "proxy_regressions": [],
+      "proxy_recoveries": [],
+      "current_regressions_at_5": [],
+      "proxy_regressions_at_5": [
+        "q-002",
+        "q-005",
+        "q-015",
+        "q-023"
+      ],
+      "proxy_recoveries_at_5": [],
+      "order_rate": 0.9903225806451612,
+      "order_vintage": 2026.4,
+      "order_reports": [
+        {
+          "query_id": "r-001",
+          "query": "Department of Corrections",
+          "fiscal_years": [
+            2027,
+            2027,
+            2027,
+            2027,
+            2027,
+            2026,
+            2026,
+            2026,
+            2025,
+            2025
+          ],
+          "newest_first_rate": 1.0,
+          "mean_fiscal_year_at_5": 2027.0
+        },
+        {
+          "query_id": "r-002",
+          "query": "AHCCCS",
+          "fiscal_years": [
+            2026,
+            2026,
+            2026,
+            2026,
+            2025,
+            2025,
+            2025,
+            2025,
+            2025,
+            2024
+          ],
+          "newest_first_rate": 1.0,
+          "mean_fiscal_year_at_5": 2025.8
+        },
+        {
+          "query_id": "r-003",
+          "query": "Department of Child Safety",
+          "fiscal_years": [
+            2027,
+            2027,
+            2027,
+            2026,
+            2026,
+            2026,
+            2026,
+            2026,
+            2026,
+            2026
+          ],
+          "newest_first_rate": 1.0,
+          "mean_fiscal_year_at_5": 2026.6
+        },
+        {
+          "query_id": "r-004",
+          "query": "Department of Economic Security",
+          "fiscal_years": [
+            2027,
+            2027,
+            2026,
+            2026,
+            2026,
+            2026,
+            2026,
+            2026,
+            2026,
+            2025
+          ],
+          "newest_first_rate": 1.0,
+          "mean_fiscal_year_at_5": 2026.4
+        },
+        {
+          "query_id": "r-005",
+          "query": "Department of Health Services",
+          "fiscal_years": [
+            2027,
+            2026,
+            2026,
+            2026,
+            2027,
+            2026,
+            2026,
+            2025,
+            2025,
+            2025
+          ],
+          "newest_first_rate": 0.9032258064516129,
+          "mean_fiscal_year_at_5": 2026.4
+        },
+        {
+          "query_id": "r-006",
+          "query": "Department of Public Safety",
+          "fiscal_years": [
+            2027,
+            2027,
+            2027,
+            2026,
+            2026,
+            2026,
+            2026,
+            2026,
+            2025,
+            2025
+          ],
+          "newest_first_rate": 1.0,
+          "mean_fiscal_year_at_5": 2026.6
+        },
+        {
+          "query_id": "r-007",
+          "query": "Arizona Board of Regents",
+          "fiscal_years": [
+            2026,
+            2026,
+            2026,
+            2026,
+            2026,
+            2026,
+            2025,
+            2025,
+            2025,
+            2025
+          ],
+          "newest_first_rate": 1.0,
+          "mean_fiscal_year_at_5": 2026.0
+        },
+        {
+          "query_id": "r-008",
+          "query": "ADEQ",
+          "fiscal_years": [
+            2027,
+            2027,
+            2027,
+            2026,
+            2026,
+            2026,
+            2026,
+            2025,
+            2025,
+            2025
+          ],
+          "newest_first_rate": 1.0,
+          "mean_fiscal_year_at_5": 2026.6
+        },
+        {
+          "query_id": "r-009",
+          "query": "Department of Emergency and Military Affairs",
+          "fiscal_years": [
+            2027,
+            2027,
+            2026,
+            2026,
+            2026,
+            2026,
+            2026,
+            2025,
+            2025,
+            2025
+          ],
+          "newest_first_rate": 1.0,
+          "mean_fiscal_year_at_5": 2026.4
+        },
+        {
+          "query_id": "r-010",
+          "query": "Department of Insurance and Financial Institutions",
+          "fiscal_years": [
+            2027,
+            2026,
+            2026,
+            2026,
+            2026,
+            2025,
+            2025,
+            2025,
+            2025,
+            2025
+          ],
+          "newest_first_rate": 1.0,
+          "mean_fiscal_year_at_5": 2026.2
+        }
+      ]
+    }
+  ]
+}
