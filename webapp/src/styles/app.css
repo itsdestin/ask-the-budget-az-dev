@@ -927,7 +927,15 @@ nav.primary{position:relative;padding-right:44px;}
 .chat-cite-sup.is-paraphrase, .chat-cite-pill.is-paraphrase { background: var(--navy-100); color: var(--ink-2); border-color: var(--line); }
 .chat-cite-sup.is-failed,     .chat-cite-pill.is-failed     { background: var(--chat-danger-tint); color: var(--chat-danger); border-color: var(--chat-danger); text-decoration: line-through; }
 
-.chat-cite-tooltip { position: absolute; bottom: calc(100% + 4px); left: 0; z-index: 50; width: 320px; border-radius: 10px; border: 1px solid var(--line); background: var(--card); box-shadow: var(--shadow); padding: 12px; font-size: 12px; color: var(--ink); cursor: default; text-align: left; }
+/* position:fixed, coords supplied inline by CitationChip at open time. The
+   tooltip stays a DOM child of the hover span (portal would break the
+   mouseleave hand-off to "Copy citation") but fixed positioning takes it out
+   of the thread scroller's clip — a chip on the first visible line used to
+   have its tooltip decapitated by overflow, and a right-edge chip spawned a
+   horizontal scrollbar. z-index:80 clears the sticky site header (50) and
+   the PDF drawer (60) — a fixed element competes with page chrome, not just
+   thread content. */
+.chat-cite-tooltip { position: fixed; z-index: 80; width: 320px; border-radius: 10px; border: 1px solid var(--line); background: var(--card); box-shadow: var(--shadow); padding: 12px; font-size: 12px; color: var(--ink); cursor: default; text-align: left; }
 .chat-cite-tooltip-head { display: flex; align-items: center; gap: 8px; margin-bottom: 8px; }
 .chat-cite-tooltip-index { font-weight: 800; }
 .chat-cite-tooltip-title { color: var(--ink-2); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }

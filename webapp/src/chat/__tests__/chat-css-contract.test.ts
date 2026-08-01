@@ -30,4 +30,8 @@ describe("chat CSS containment contract", () => {
   it("pre-wrap tool output does not declare its own scroll context", () => {
     expect(ruleFor(".chat-block pre")).not.toMatch(/overflow:\s*auto/);
   });
+
+  it("the citation tooltip is fixed-position (escapes the scroller's clip)", () => {
+    expect(ruleFor(".chat-cite-tooltip")).toMatch(/position:\s*fixed/);
+  });
 });

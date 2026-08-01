@@ -11,7 +11,7 @@
 //
 // Ported from web/components/CitationChip.tsx.
 
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 
 import { formatCopyCitation, type Citation } from "./citation-extract.js";
 import { useCitationBus } from "./citation-context.js";
@@ -32,6 +32,10 @@ interface Props {
   displayIndex?: number;
 }
 
+// Must match .chat-cite-tooltip's width in app.css — used to clamp the
+// tooltip's left edge so it never pushes past the viewport's right edge.
+const TOOLTIP_WIDTH_PX = 320;
+
 export default function CitationChip({
   citation,
   inlineText,
@@ -39,10 +43,49 @@ export default function CitationChip({
 }: Props) {
   const shown = displayIndex ?? citation.index;
   const [open, setOpen] = useState(false);
+  // Fixed positioning needs viewport coordinates computed at open time,
+  // since the tooltip is no longer anchored by CSS to its chip.
+  const [tipPos, setTipPos] = useState<{ left: number; bottom: number } | null>(
+    null,
+  );
   // `firing` drives the 250ms pop that plays on click — a brief scale + glow
   // confirms the click registered and the source panel is opening/scrolling.
   const [firing, setFiring] = useState(false);
+  const wrapRef = useRef<HTMLSpanElement | null>(null);
   const bus = useCitationBus();
+
+  // Measures the hover-tracked span's position and opens the tooltip at
+  // those coordinates. Clamped to the viewport so a chip near the right
+  // edge no longer pushes the 320px-wide tooltip past the column — that
+  // overflow was the phantom horizontal-scrollbar source under
+  // position:absolute.
+  const openTip = () => {
+    const rect = wrapRef.current?.getBoundingClientRect();
+    if (rect) {
+      const left = Math.max(
+        8,
+        Math.min(rect.left, window.innerWidth - TOOLTIP_WIDTH_PX - 8),
+      );
+      setTipPos({ left, bottom: window.innerHeight - rect.top + 4 });
+    }
+    setOpen(true);
+  };
+
+  // A fixed tooltip does not travel with the scrolled text under it (unlike
+  // the old position:absolute, which scrolled with its ancestor), so any
+  // scroll would leave it floating over stale content. Closing on scroll is
+  // simpler and safer than re-measuring on every scroll tick. Capture phase
+  // because the thread scroller's scroll event does not bubble to window.
+  useEffect(() => {
+    if (!open) return;
+    const close = () => setOpen(false);
+    window.addEventListener("scroll", close, true);
+    window.addEventListener("resize", close);
+    return () => {
+      window.removeEventListener("scroll", close, true);
+      window.removeEventListener("resize", close);
+    };
+  }, [open]);
 
   const verbatim = citation.confidence === "verbatim";
   const failed = citation.failureReason !== undefined;
@@ -68,14 +111,15 @@ export default function CitationChip({
   if (inlineText !== undefined) {
     return (
       <span
+        ref={wrapRef}
         className="chat-cite-wrap"
-        onMouseEnter={() => setOpen(true)}
+        onMouseEnter={openTip}
         onMouseLeave={() => setOpen(false)}
       >
         <button
           type="button"
           onClick={handleChipClick}
-          onFocus={() => setOpen(true)}
+          onFocus={openTip}
           onBlur={() => setOpen(false)}
           className={`cite-chip${fireClass} chat-cite-inline ${tone}`}
           aria-label={`Citation ${shown} (${citation.confidence}): ${inlineText}`}
@@ -86,21 +130,22 @@ export default function CitationChip({
             {shown}
           </sup>
         </button>
-        {open && <CitationTooltip citation={citation} />}
+        {open && <CitationTooltip citation={citation} pos={tipPos} />}
       </span>
     );
   }
 
   return (
     <span
+      ref={wrapRef}
       className="chat-cite-pill-wrap"
-      onMouseEnter={() => setOpen(true)}
+      onMouseEnter={openTip}
       onMouseLeave={() => setOpen(false)}
     >
       <button
         type="button"
         onClick={handleChipClick}
-        onFocus={() => setOpen(true)}
+        onFocus={openTip}
         onBlur={() => setOpen(false)}
         className={`cite-chip${fireClass} chat-cite-pill ${tone}`}
         aria-label={`Citation ${shown} (${citation.confidence})`}
@@ -108,7 +153,7 @@ export default function CitationChip({
         <span aria-hidden>{glyph}</span>
         <span data-testid="prose-chip">{shown}</span>
       </button>
-      {open && <CitationTooltip citation={citation} />}
+      {open && <CitationTooltip citation={citation} pos={tipPos} />}
     </span>
   );
 }
@@ -268,7 +313,10 @@ function FigureTooltip({ figure }: { figure: AnnotationFigure }) {
   );
 }
 
-function CitationTooltip({ citation }: Props) {
+function CitationTooltip({
+  citation,
+  pos,
+}: Props & { pos?: { left: number; bottom: number } | null }) {
   const [copied, setCopied] = useState(false);
   const r = citation.resolved;
   const copyText = formatCopyCitation(citation);
@@ -297,6 +345,11 @@ function CitationTooltip({ citation }: Props) {
     <div
       role="tooltip"
       className="chat-cite-tooltip"
+      // Coordinates computed at open time in openTip() — position:fixed
+      // takes the tooltip out of the thread scroller's clip geometry, but
+      // fixed elements are placed by inline style / viewport math, not by
+      // the CSS cascade, so the numbers have to travel here explicitly.
+      style={pos ? { left: pos.left, bottom: pos.bottom } : undefined}
       // The button sits inside a span; the tooltip lives in the same span so
       // mouseleave on the button still fires before the tooltip can react.
       onMouseEnter={(e) => e.stopPropagation()}
