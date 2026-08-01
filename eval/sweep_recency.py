@@ -341,12 +341,19 @@ def boost_coverage(queries: Sequence[EvalQuery]) -> tuple[int, int]:
     truth to recall (a refusal query has no chunk, so its recall is not
     measured at any weight).
 
-    WHY this is computed and printed rather than left implicit: measured
-    2026-08-01, 32 of the 34 queries in eval/queries.yaml name a year and
-    the other 2 are refusal queries. The set is STRUCTURALLY BLIND to the
-    recency boost — its recall is flat across the entire sweep, and a
-    reader who did not know that would take the flat column as proof the
-    weight is safe. It is proof of nothing.
+    WHY this is computed and printed rather than left implicit: when the
+    first sweep ran (2026-08-01), 32 of the 34 queries in eval/queries.yaml
+    named a year and the other 2 were refusal queries. The set was
+    STRUCTURALLY BLIND to the recency boost — its recall was flat across
+    the entire sweep, and a reader who did not know that would take the
+    flat column as proof the weight was safe. It was proof of nothing.
+
+    FIXED later the same day: the n-001..n-013 block adds 13 no-year
+    queries with FY2022-2024 ground truth, so coverage is 13 of 47 and the
+    recall column moves for real. Keep printing this — the failure mode it
+    guards against (a year creeping into a no-year question) is silent,
+    and coverage falling back toward zero would restore the old illusion
+    without anything going red.
     """
     exercising = sum(
         1
@@ -443,13 +450,20 @@ def year_stripped_proxy(queries: Sequence[EvalQuery]) -> list[EvalQuery]:
 def ground_truth_years(queries: Sequence[EvalQuery]) -> dict[int, int]:
     """{fiscal_year: count} over a set's expected chunks.
 
-    WHY it is printed: measured 2026-08-01, every ground-truth chunk in
-    eval/queries.yaml is FY2025-2027 — the set was authored before the
+    WHY it is printed: when the first sweep ran, every ground-truth chunk
+    in eval/queries.yaml was FY2025-2027 — the set was authored before the
     S20 backfill put twenty older editions in the corpus. A recency boost
-    HELPS a recent target, so a proxy built from those queries understates
-    the harm to old ones and can even show recall improving. The reader
+    HELPS a recent target, so a proxy built from those queries understated
+    the harm to old ones and could even show recall improving. The reader
     has to see the vintage of the ground truth to read the proxy column
     correctly.
+
+    That confound is now partly gone: the n-001..n-013 block contributes
+    FY2022 (9), FY2023 (4) and FY2024 (4) targets, so the CURRENT column
+    can lose recall on old material directly and no longer depends on the
+    proxy to see it. The proxy is still worth reading — it covers a
+    different shape (year-named questions asked without the year) — but it
+    is no longer the only instrument.
     """
     counts: dict[int, int] = {}
     for query in queries:

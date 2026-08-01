@@ -73,10 +73,31 @@ from retrieval.types import RetrievedChunk
 # not assumed (eval/queries_historical.yaml, 5 of whose 10 entries are
 # deliberate FY2022/FY2023 over-boost guards).
 #
-# KNOWN LIMIT, do not read the eval as a safety proof: 32 of the 34 queries in
-# eval/queries.yaml name a fiscal year, so they never execute this code at all,
-# and every ground-truth chunk in that file is FY2025-2027. The set cannot
-# currently measure harm to an older target. See STATUS.md.
+# THE BLIND SPOT THIS WAS CHOSEN UNDER IS NOW MEASURED (2026-08-01, after the
+# fact). When 2.064 was picked, 32 of the 34 queries in eval/queries.yaml named
+# a fiscal year — so they never executed this code — and every ground-truth
+# chunk in that file was FY2025-2027, which a recency boost HELPS. The set could
+# not measure harm to an older target, so the flat recall column above was not
+# evidence of safety.
+#
+# eval/queries.yaml now carries 13 no-year queries (n-001..n-013) with
+# FY2022-2024 ground truth. Measured against them on the same corpus:
+#
+#   weight | n-* recall@5 | n-* recall@15
+#   -------+--------------+--------------
+#    0.000 |    100.0%    |    100.0%
+#    2.064 |     76.9%    |    100.0%     <- shipped
+#
+# So the shipped weight costs **23 points of top-5 recall on old targets**, and
+# costs nothing at @15. Ten of the thirteen sit at rank 1 with the boost off;
+# five of them are demoted, three out of the top 5 (n-003 1->8, n-010 1->7,
+# n-013 1->8). The recurring shape is a newer near-duplicate that says "no
+# funding for this program" outranking the one edition that funded it.
+#
+# Whether that is the right trade is a JUDGEMENT, not a defect — @15 is the
+# gate, AI Mode reads all 15, and the ordering win this weight buys is real.
+# But it is now a trade made with numbers on both sides, which it was not
+# before. Re-decide it in the same breath as the next sweep.
 #
 # RE-CALIBRATE when the 27 deferred pre-FY2022 editions land: a corpus spanning
 # 2005-2027 instead of 2022-2027 changes both the year spread this is measured

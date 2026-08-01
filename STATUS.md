@@ -125,7 +125,52 @@ whether the narrative chunker should handle paragraph-tagged tables, and
 whether to delete the near-empty document meanwhile so search does not answer
 "nothing" for FY2024.
 
-## 🔴 `eval/queries.yaml` cannot measure the recency boost (2026-08-01)
+## ✅ `eval/queries.yaml` can now measure the recency boost (2026-08-01)
+
+**FIXED — and the first thing it measured is a real cost.** Thirteen no-year
+queries (`n-001`..`n-013`) with FY2022–2024 ground truth were added to
+`eval/queries.yaml`. Coverage went from **0 of 34** queries exercising the
+recency path to **13 of 47**, and the set now holds pre-FY2025 ground truth
+(FY2022 ×9, FY2023 ×4, FY2024 ×4 chunks) for the first time.
+
+**What the new instrument reports about the shipped weight
+(`RECENCY_BOOST_PER_YEAR = 2.064`), same corpus, boost the only variable:**
+
+| weight | n-* recall@5 | n-* recall@15 |
+|---|---|---|
+| 0.000 | **100.0%** (13/13) | 100.0% |
+| 2.064 (shipped) | **76.9%** (10/13) | 100.0% |
+
+**The boost costs 23 points of top-5 recall on old targets and costs nothing
+at @15.** Ten of the thirteen sit at rank 1 with the boost off; five are
+demoted and three fall out of the top 5 — `n-003` 1→8, `n-010` 1→7, `n-013`
+1→8. The recurring shape is a newer near-duplicate that says *"no funding for
+this program"* outranking the single edition that funded it. Worst case:
+"Which appropriations did the Governor line-item veto?" puts three FY2026/27
+boilerplate passages about the veto *process* above the only veto-summary
+document in the corpus.
+
+**This is a trade, not a defect** — @15 is what gate G1 measures, AI Mode reads
+all 15 chunks, and the chronological-ordering win is real. But it is now a
+trade with numbers on both sides, which it was not when 2.064 was chosen.
+Re-decide it during the post-backfill sweep (Plan 7 Task 6).
+
+Whole-set eval, before → after adding the block: recall@5 62.07% → **66.67%**,
+recall@15 96.55% → **97.62%**, recall@20 100% → **100%**. **No existing query
+changed status or rank** — the movement is entirely the new entries, which
+score better at @5 than the incumbent set. Guards: `test_sweep_recency.py`
+now asserts coverage stays non-zero, that pre-2025 ground truth survives, and
+that no `n-*` question ever acquires a fiscal year (the silent-failure case —
+layer 1 would filter it and the entry would keep printing a plausible number
+while measuring nothing).
+
+Two things deliberately NOT done: no AGAO AFR entries (the AFRs are
+near-identical fund tables edition over edition, so an undated question about
+a fund is legitimately answered by the newest one — pointing it at FY2022
+would be ground truth invented to fail), and no FY2021 entries (the FY2021
+AFR is the only FY2021 material and has the same problem).
+
+<details><summary>The original finding, kept as the record of what was wrong</summary>
 
 Found during the Phase D sweep and **verified independently**: of the 34 queries
 in the Layer 1 budget eval, **32 name a fiscal year**, so S21 layer 1 hard-filters
@@ -147,6 +192,8 @@ are all recent and the boost helps recent targets.
 Fix: add no-year queries with pre-FY2025 ground truth to `eval/queries.yaml`.
 This is a prerequisite for trusting any ranking-policy change — S30's section
 boost has the same blind spot.
+
+</details>
 
 ## What's next
 

@@ -471,20 +471,30 @@ def test_coverage_counts_only_queries_that_can_move():
     assert boost_coverage([year_named, year_free, refusal]) == (1, 3)
 
 
-def test_the_real_eval_set_is_structurally_blind_to_the_boost():
-    """Pinned as a fact about the repo, not an aspiration. Measured
-    2026-08-01: 32 of 34 queries in eval/queries.yaml name a fiscal year
-    and the remaining 2 are refusal queries with no ground truth, so the
-    standing set cannot detect ANY recall cost from the recency boost.
-    If somebody adds no-year entries with ground truth this test fails,
-    which is the moment the sweep's recall column becomes meaningful."""
+def test_the_real_eval_set_exercises_the_boost():
+    """Pinned as a fact about the repo, not an aspiration — and REVERSED
+    on 2026-08-01.
+
+    It used to assert the opposite: 32 of 34 queries named a fiscal year
+    and the other 2 were refusals, so the set could not detect ANY recall
+    cost from the recency boost, and the sweep's flat recall column was
+    proof of nothing. The n-* block (13 no-year entries with FY2022-2024
+    ground truth) fixed that, which is what the old test's failure message
+    told the next person to do.
+
+    The guard now runs the other way: coverage must not fall back to zero.
+    Losing it is silent — the sweep still prints a recall column, it just
+    stops meaning anything.
+    """
     queries = run_eval.load_queries("eval/queries.yaml")
     exercising, total = boost_coverage(queries)
 
-    assert total == 34
-    assert exercising == 0, (
-        "eval/queries.yaml now exercises the recency boost — update the "
-        "sweep's coverage warning and re-read its recall column as real."
+    assert total == 47
+    assert exercising == 13, (
+        "eval/queries.yaml no longer has 13 no-year entries with ground "
+        "truth. If entries were added, raise this number. If a year crept "
+        "into an n-* question, that entry has silently stopped measuring "
+        "the recency boost — fix the query, not this test."
     )
 
 
@@ -569,17 +579,64 @@ def test_the_proxy_column_moves_when_the_recall_column_cannot(stub_retrieve):
     assert "h-1" in rows[1]["proxy_regressions"]
 
 
-def test_the_eval_sets_ground_truth_is_entirely_recent():
+def test_the_eval_set_has_pre_2025_ground_truth():
     """Pinned because it is the confound that decides how the proxy column
-    is read. Every expected chunk in eval/queries.yaml is FY2025-2027 —
-    the set predates the S20 backfill — so a recency boost HELPS it, and
-    a proxy built from it cannot measure harm to an old target."""
+    is read — and REVERSED on 2026-08-01.
+
+    It used to assert `min(years) >= 2025`: every expected chunk in
+    eval/queries.yaml was FY2025-2027 because the set predated the S20
+    backfill, so a recency boost HELPED every target and neither the
+    recall column nor a proxy built from it could measure harm to an old
+    one. The n-* block added FY2022/2023/2024 targets, so the set can now
+    lose recall when a ranking change buries old material.
+
+    The guard runs the other way now: if the old ground truth disappears,
+    the 'cannot measure harm' caveat comes BACK and the proxy column has
+    to be re-read as optimistic again.
+    """
     years = ground_truth_years(run_eval.load_queries("eval/queries.yaml"))
 
-    assert min(years) >= 2025, (
-        "eval/queries.yaml now has pre-2025 ground truth — the proxy's "
-        "'cannot measure harm' caveat may no longer apply. Re-read it."
+    assert min(years) < 2025, (
+        "eval/queries.yaml has lost its pre-FY2025 ground truth — nothing "
+        "in the repo can measure what a ranking change costs an old target "
+        "again. Restore it before trusting any 'no regression' claim."
     )
+    # Not just one token old entry: enough spread that a single re-pointed
+    # chunk_id cannot quietly take the coverage back down to nothing.
+    assert len([y for y in years if y < 2025]) >= 3
+
+
+def test_every_no_year_entry_really_names_no_year():
+    """The n-* block's load-bearing property, and the one that breaks
+    SILENTLY.
+
+    An n-* question that acquires a fiscal year (an edit adds "in FY 2023"
+    for clarity, say) is hard-filtered by S21 layer 1, so the recency boost
+    never runs for it. Nothing goes red: the query still retrieves, still
+    scores, still reports a recall number. It has just stopped measuring
+    the thing it exists to measure. Checked here rather than trusted to a
+    reviewer's eye.
+    """
+    no_year = [
+        q for q in run_eval.load_queries("eval/queries.yaml")
+        if q.id.startswith("n-")
+    ]
+    assert no_year, "the n-* block has disappeared from eval/queries.yaml"
+
+    offenders = {q.id: parse_query_years(q.query) for q in no_year
+                 if parse_query_years(q.query)}
+    assert not offenders, (
+        f"n-* queries naming a fiscal year: {offenders}. Layer 1 filters "
+        "these, so they no longer exercise the recency boost."
+    )
+
+    for q in no_year:
+        assert q.expected_chunks, f"{q.id} has no ground truth to recall"
+        for expected in q.expected_chunks:
+            # anchor_text is the only handle left for re-binding a stale
+            # chunk_id by hand (eval/refresh_chunk_ids.py was deleted with
+            # the Postgres tooling and has no replacement).
+            assert expected.anchor_text, f"{q.id}/{expected.chunk_id}"
 
 
 def test_the_tighter_cutoff_catches_a_demotion_the_gate_cutoff_misses():
