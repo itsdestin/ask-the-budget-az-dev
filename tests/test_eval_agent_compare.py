@@ -237,3 +237,33 @@ def test_arrow_kept_when_the_population_is_unchanged():
     row = _row_for(md, "retrieves_after_sufficient_mean")
     assert "▲" in row  # fewer wasted searches over the same population
     assert "different denominators" not in md
+
+
+# --- Finding 1 (fix-batch review): total_cost_usd is population-dependent
+# on cost_missing_queries, the same shape as Finding 4's population-dependent
+# means above --------------------------------------------------------------
+
+def test_no_arrow_when_cost_missing_queries_population_moved():
+    """The reviewer's exact repro: a run that crashes 10 queries sums $0 for
+    each of them despite real spend, so total_cost_usd can DROP purely
+    because more queries broke. A ▲ here would render a regression as a cost
+    improvement. When cost_missing_queries moved, withhold the verdict."""
+    md = compare(
+        _run({"total_cost_usd": 1.2, "cost_missing_queries": 0}),
+        _run({"total_cost_usd": 0.81, "cost_missing_queries": 10}))
+    row = _row_for(md, "total_cost_usd")
+    assert "▲" not in row and "▼" not in row
+    # "cost_missing_queries" alone is too weak a check -- it is also the name
+    # of its own row in the metrics table, present in every report regardless
+    # of whether the population moved. The footnote's distinguishing phrase is
+    # what proves the withholding fired.
+    assert "crashed silently" in md
+
+
+def test_arrow_kept_when_cost_missing_queries_unchanged():
+    md = compare(
+        _run({"total_cost_usd": 1.2, "cost_missing_queries": 2}),
+        _run({"total_cost_usd": 0.81, "cost_missing_queries": 2}))
+    row = _row_for(md, "total_cost_usd")
+    assert "▲" in row  # genuine cost reduction, same population
+    assert "crashed silently" not in md

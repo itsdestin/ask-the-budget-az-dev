@@ -25,13 +25,59 @@ _LOWER_IS_BETTER = {
     "false_refusals", "narration_hit_queries", "token_leaks",
     "internal_vocab_queries", "cost_missing_queries",
 }
-# Metrics whose mean is taken over a population the run itself decides, keyed
+# Metrics whose value is taken over a population the run itself decides, keyed
 # to the summary field that reports that population's size. When the two runs
 # disagree on the population, the delta compares two different denominators, so
 # the better/worse arrow is withheld and a footnote says why (2026-08 review,
 # Finding 4).
+#
+# total_cost_usd is keyed on cost_missing_queries (2026-08 review, Finding 1
+# in the follow-up batch): a query that CRASHES contributes $0 to the sum
+# while having really spent money on the steps that ran before the crash (see
+# agent_scoring.py's WHY on total_cost_usd), so a run that crashes more
+# queries reports a SMALLER total_cost_usd — a regression that breaks 10 of
+# 31 queries would otherwise render as "cost improved ▲". Reproduced: a
+# baseline/candidate pair with cost_missing_queries 0→10 and total_cost_usd
+# 1.2→0.81 rendered a green ▲ before this entry existed.
+#
+# Deliberately NOT extended to cost_mean_usd, steps_mean, or the other *_mean
+# metrics even though they are equally population-dependent on `errors` (a
+# crashed row is excluded from every ok_rows-only mean in agent_scoring.py):
+# `errors` already carries its own visible ▼ on the same table, so a reader
+# comparing two runs already sees the crash count move. total_cost_usd is
+# different because it does NOT exclude crashed rows — it sums ALL of them —
+# so the failure mode is a sum silently under-counting and INVERTING
+# direction, not a mean silently changing denominator. Suppressing arrows on
+# every errors-adjacent mean would strip arrows off most of this report for a
+# case that's already visible elsewhere; total_cost_usd is the one metric
+# where the invisibility is real and the direction can flip.
 _POPULATION_DEPENDENT = {
     "retrieves_after_sufficient_mean": "retrieves_after_sufficient_n",
+    "total_cost_usd": "cost_missing_queries",
+}
+
+# Per-metric explanation of WHY its population can move, keyed the same as
+# _POPULATION_DEPENDENT. Not one shared template: retrieves_after_sufficient_mean
+# is a MEAN with a shrinking denominator ("different denominators" is literally
+# true of it), but total_cost_usd is a SUM across every row — the population
+# moving means queries dropped out of the sum entirely with their real spend
+# uncounted, not that a mean's denominator shrank. Reusing the mean's wording
+# for a sum would be its own small dishonesty in the report.
+_POPULATION_DEPENDENT_NOTES = {
+    "retrieves_after_sufficient_mean": (
+        "is averaged over only the queries that produced a value, and that "
+        "population MOVED between these runs ({pop}). The two means have "
+        "different denominators, so no better/worse arrow is shown — the Δ "
+        "is not a like-for-like comparison."
+    ),
+    "total_cost_usd": (
+        "sums every row's cost, but a query that CRASHED before its terminal "
+        "frame produced no usage at all, so the money it already spent is "
+        "invisible here and counted as $0 (see agent_scoring.py). The count "
+        "of such queries MOVED between these runs ({pop}), so a lower total "
+        "can mean 'more queries crashed silently', not 'cheaper' — no "
+        "better/worse arrow is shown. `ledger.jsonl` is the real spend record."
+    ),
 }
 _JUDGE_METRICS = ("claim_coverage_precision_mean", "claim_coverage_recall_mean",
                   "holistic_mean")
@@ -138,12 +184,9 @@ def compare(baseline: dict[str, Any], candidate: dict[str, Any]) -> str:
             population_moved.append((key, pop_key))
         lines.append(_delta_row(key, asum.get(key), bsum.get(key), arrow_ok=arrow_ok))
     for key, pop_key in population_moved:
-        lines += ["", f"> ⚠ `{key}` is averaged over only the queries that "
-                  f"produced a value, and that population MOVED between these "
-                  f"runs ({pop_key}: {_fmt(asum.get(pop_key))} → "
-                  f"{_fmt(bsum.get(pop_key))}). The two means have different "
-                  f"denominators, so no better/worse arrow is shown — the Δ is "
-                  f"not a like-for-like comparison."]
+        pop = f"{pop_key}: {_fmt(asum.get(pop_key))} → {_fmt(bsum.get(pop_key))}"
+        note = _POPULATION_DEPENDENT_NOTES[key].format(pop=pop)
+        lines += ["", f"> ⚠ `{key}` {note}"]
     aj, bj = baseline.get("judge"), candidate.get("judge")
     if aj and bj:
         lines += ["", "## Judge metrics", "",

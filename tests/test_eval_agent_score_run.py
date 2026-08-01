@@ -334,7 +334,11 @@ def test_retrieves_after_sufficient_population_is_reported(tmp_path):
     summary = aggregate([found, never_found])
     assert summary["retrieves_after_sufficient_mean"] == 1.0
     assert summary["retrieves_after_sufficient_n"] == 1
-    assert summary["retrieves_after_sufficient_eligible"] == 2
+    # Summary-side name is deliberately NOT "retrieves_after_sufficient_eligible"
+    # (fix batch, Finding 2) -- that string is already a per-query BOOL two
+    # lines up; reusing it here for an INT count is the type collision the
+    # rename fixes.
+    assert summary["retrieves_after_sufficient_eligible_queries"] == 2
 
 
 def test_filter_and_corpus_parameter_usage_counted():

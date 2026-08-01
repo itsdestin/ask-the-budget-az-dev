@@ -1476,10 +1476,10 @@ results were invalidated):
   (`filtered_retrieve_rate`, `filter_dimension_counts`, and friends —
   informational, no better/worse arrow).
 - **`retrieves_after_sufficient_mean` publishes its population**
-  (`..._n` / `..._eligible`) and the compare tool withholds the better/worse
-  arrow when that population moved. The metric only exists for queries where
-  the facts were eventually found, so a genuine retrieval improvement could
-  otherwise render as a ▼ regression.
+  (`..._n` / `..._eligible_queries`) and the compare tool withholds the
+  better/worse arrow when that population moved. The metric only exists for
+  queries where the facts were eventually found, so a genuine retrieval
+  improvement could otherwise render as a ▼ regression.
 - **`total_cost_usd` is not the authoritative spend number** — a query that
   crashes mid-turn produces an error frame with no usage at all, so its
   already-paid tokens are invisible. `cost_missing_queries` counts those
@@ -1489,6 +1489,26 @@ results were invalidated):
 - **Transcripts are written tmp+replace**, like every other artifact here. The
   reader's torn-file degradation stays — but a run should not manufacture the
   damage it tolerates, since a torn transcript scores as a failed query.
+
+**Second fix-batch (small, post-review), 2026-08-01:**
+
+- **`compare_agent_runs.py` now keys `total_cost_usd` on `cost_missing_queries`
+  too**, the same population-dependent-arrow-withholding mechanism the first
+  batch built for `retrieves_after_sufficient_mean`. A crashed query sums $0
+  into `total_cost_usd` despite real spend, so a regression that crashes
+  10-of-31 queries could render as a green cost improvement — reproduced
+  before the fix (`cost_missing_queries` 0→10 alongside `total_cost_usd`
+  1.2→0.81 showed a bare ▲). Deliberately NOT extended to `cost_mean_usd`,
+  `steps_mean`, and the other means, which are equally population-dependent on
+  `errors` — `errors` already carries its own visible ▼ on the same table,
+  and over-applying the suppression would strip arrows off most of the
+  report.
+- **`retrieves_after_sufficient_eligible` held two types under one name** —
+  a bool on each `per_query` row, an int count in `summary` (confirmed in
+  real output: `true` vs `2`). Anything reading `scores.json` generically
+  trips on it. The summary-side key is renamed
+  **`retrieves_after_sufficient_eligible_queries`**; the per-query bool is
+  unchanged. Safe to do now because no baseline run has been committed yet.
 
 **No live baseline run has happened yet.** The harness is built and
 unit-tested (110 pytest specs, synthetic fixtures throughout —

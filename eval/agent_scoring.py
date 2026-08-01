@@ -316,10 +316,14 @@ def score_transcript(query: AgentQuery, t: Transcript) -> dict[str, Any]:
     # wearing the same name. Worse, the metric is better-when-lower, so a
     # genuine RETRIEVAL IMPROVEMENT (more queries reach sufficiency, including
     # slower ones that needed several searches) can raise the mean and render
-    # as a regression. `retrieves_after_sufficient_eligible` records how many
-    # queries COULD have contributed and `..._n` how many did; the compare tool
-    # withholds the better/worse arrow when that population moved, because a
-    # delta across different populations is not a delta.
+    # as a regression. The per-query `retrieves_after_sufficient_eligible`
+    # (bool, below) records whether THIS query could have contributed; the
+    # summary's `retrieves_after_sufficient_eligible_queries` (int, in
+    # aggregate() — deliberately NOT the same name as the per-query bool, see
+    # the WHY there) counts how many queries could have, and `..._n` how many
+    # did. The compare tool withholds the better/worse arrow when that
+    # population moved, because a delta across different populations is not
+    # a delta.
     row["retrieves_after_sufficient"] = None
     row["retrieves_after_sufficient_eligible"] = bool(query.key_facts and rcs)
     if query.key_facts and rcs:
@@ -437,7 +441,17 @@ def aggregate(rows: list[dict[str, Any]]) -> dict[str, Any]:
         # The population this mean was taken over. Read them together or not
         # at all — see the WHY on retrieves_after_sufficient in score_transcript.
         "retrieves_after_sufficient_n": len(ras_rows),
-        "retrieves_after_sufficient_eligible": len(ras_eligible),
+        # WHY this is "..._eligible_queries", not "..._eligible" (2026-08
+        # review, fix batch, Finding 2): the per-query row above uses
+        # "retrieves_after_sufficient_eligible" for a BOOL. Reusing that exact
+        # string here for an INT count means the one JSON key holds two
+        # different types depending on whether you're reading `per_query` or
+        # `summary` — confirmed in real generated output (`true` vs `2`) and
+        # exactly the shape that breaks any generic scores.json consumer
+        # (e.g. `json.load` + duck-typed access, or a future dashboard that
+        # walks all int/float summary fields). Safe to rename now because no
+        # baseline run has been committed yet; it would not be once one is.
+        "retrieves_after_sufficient_eligible_queries": len(ras_eligible),
         "retrieve_calls_with_filters": sum(
             r["retrieve_calls_with_filters"] for r in ok_rows),
         "filtered_retrieve_rate": (
