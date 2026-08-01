@@ -39,7 +39,7 @@ Four goals, each reduced to numbers a run emits:
 | 1 | Minimize turns/tokens | steps per answer, retrieve calls per answer, total tokens (prompt / completion / **cached** split), cost USD per answer |
 | 2 | Accuracy + speed | key-fact match rate, refusal correctness on refusal-expected queries, wall-clock per answer |
 | 3 | Search efficiency / self-awareness | **retrieval efficiency** = chunks actually used (cited, or containing a matched key fact) ÷ chunks retrieved; **retrieves-after-sufficient** = retrieve calls issued after every key fact was already present in prior results; filter/corpus-parameter usage counts |
-| 4 | Fewer, higher-value, narrower, first-try citations | citations per answer, **first-attempt cite pass rate**, retries per citation, median quote length (narrowness proxy), ambiguity rejections, and the judge-scored headline metric **claim-coverage precision** (below) |
+| 4 | Fewer, higher-value, narrower, first-try citations | citations per answer, **`cite_pass_rate`** (share of all cite attempts that passed) and **`first_try_cite_rate`** (share that passed without a retry), `retries_per_citation`, median quote length (narrowness proxy), ambiguity rejections, and the judge-scored headline metric **claim-coverage precision** (below) |
 
 Plus output-hygiene checks derived from observed live failures: meta-narration
 lexicon hits ("let me search", "I have what I need", retry narration), leaked
@@ -93,8 +93,7 @@ names, threshold values).
 
 ~30 queries authored by agents sampling the real post-backfill corpus (the
 synthesize-from-chunks technique of `eval/synthesize_queries.py`), then
-human-reviewed before being committed. Shape coverage, chosen because each
-shape exercises different agent behavior:
+human-reviewed before being committed.
 
 **BUDGET CORPUS ONLY.** Every query targets `budget_chunks`. Destin's
 direction, 2026-08-01: *"this eval set should NOT utilize the fiscal note
