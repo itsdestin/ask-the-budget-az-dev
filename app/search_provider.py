@@ -8,6 +8,7 @@ _default_provider picks at startup by probing whether a corpus exists.
 from __future__ import annotations
 
 import json
+from functools import partial
 from pathlib import Path
 from typing import Any, Protocol
 
@@ -17,6 +18,12 @@ from typing import Any, Protocol
 from retrieval import RetrievalRequest, retrieve
 
 from app.fixtures.search_fixtures import FIXTURE_ROWS
+from store.documents import (
+    humanize_doc_id,
+    load_documents,
+    sidecar_stamp as _sidecar_stamp,
+    sidecar_title,
+)
 
 
 class SearchProvider(Protocol):
@@ -55,44 +62,18 @@ class StubSearchProvider:
         return out[:top_k]
 
 
-def _ingest_title(meta: dict) -> str | None:
-    """The sidecar's own title, but ONLY for documents Plan 3's ingest wrote.
-
-    Title precedence is mockup index → this → the doc_id humanizer, and the
-    gate matters in both directions. Plan 3's writer builds real titles
-    ("FY 2027 Baseline — Industrial Commission of Arizona"), which beat any
-    slug. The MIGRATION's titles are doc-id derived junk ("AGAO FY2025
-    fy2025") and are worse than the humanizer — so trusting the sidecar
-    unconditionally would downgrade the 9 legacy documents the mockup index
-    never matched.
-
-    `ingested_at` is the discriminator: the migration's DOCS_FIELDS never
-    carried it, and every ingest-written entry does.
-    """
-    if not meta.get("ingested_at"):
-        return None
-    title = (meta.get("title") or "").strip()
-    return title or None
-
-
-def _title_from_doc_id(doc_id: str) -> str:
-    """Best-effort humanization of doc_id slugs
-    ('jlbc-baseline-fy2027-ahcccs' -> 'JLBC Baseline FY 2027 Ahcccs').
-
-    Plan 1's documents.json sidecar DOES exist (store/config.py), but its
-    migration-era titles are rougher than this ('AGAO FY2025 fy2025'), so the
-    slug stays the better source until Plan 3's ingest writes real titles —
-    switch this to the sidecar then."""
-    parts = doc_id.split("-")
-    out = []
-    for p in parts:
-        if p.startswith("fy") and p[2:].isdigit():
-            out.append(f"FY {p[2:]}")
-        elif p in ("jlbc", "agao", "afr", "sad"):
-            out.append(p.upper())
-        else:
-            out.append(p.capitalize())
-    return " ".join(out)
+# Title precedence on this page is: mockup index → the sidecar's own title
+# → the doc-id humanizer. The middle step is GATED on `ingested_at`
+# (`require_ingested=True`), which is what keeps the migration's doc-id
+# derived junk ("AGAO FY2025 fy2025") from beating the humanizer on the 9
+# documents the mockup index never matched.
+#
+# That gate is this page's rule, NOT a global one — see
+# `store.documents.title_for` for why the harness must not adopt it.
+# Both the gate and the humanizer moved to `store/documents.py` in Plan 5
+# Task 19; these aliases keep the call sites below reading the same.
+_ingest_title = partial(sidecar_title, require_ingested=True)
+_title_from_doc_id = humanize_doc_id
 
 
 # The vendored website mockup's own document index (webapp/reference/…/
@@ -114,16 +95,19 @@ class LanceSearchProvider:
     name = "lance"
 
     def __init__(self) -> None:
-        # doc_id -> {url, title, meta}, built lazily from Plan 1's
-        # documents.json sidecar joined (by URL) to the vendored mockup index.
+        # doc_id -> {url, title, meta}: the sidecar JOINED to the vendored
+        # mockup index. This cache is the JOIN, not the sidecar — reading and
+        # parsing documents.json is `store.documents`' job as of Plan 5 Task
+        # 19, and it has its own mtime cache. What stays here is the URL join
+        # and the mockup's meta-line recipe, which nothing else wants.
         # None until first use; {} if the sidecar is missing (rows then carry
         # doc_url=None + humanized titles — degraded, not broken).
         self._doc_info: dict[str, dict] | None = None
-        # Signature of the documents.json the cache was built from. Plan 3's
-        # ingest rewrites that file whenever a document goes live, and this
-        # provider is a process-lifetime singleton — without a staleness check
-        # every document ingested during a session would keep the doc-id
-        # humanizer's title until the app restarted.
+        # Stamp of the sidecar the JOIN was built from. Plan 3's ingest
+        # rewrites that file whenever a document goes live, and this provider
+        # is a process-lifetime singleton — without a staleness check every
+        # document ingested during a session would keep the doc-id humanizer's
+        # title until the app restarted.
         self._doc_info_sig: tuple | None = None
 
     @staticmethod
@@ -146,12 +130,8 @@ class LanceSearchProvider:
         the slug humanizer and a null meta."""
         if self._doc_info is None or self._sidecar_changed():
             try:
-                from store.config import documents_path
-
-                path = documents_path()
-                stat = path.stat()
-                self._doc_info_sig = (str(path), stat.st_mtime_ns, stat.st_size)
-                sidecar = json.loads(path.read_text(encoding="utf-8"))
+                self._doc_info_sig = _sidecar_stamp()
+                sidecar = load_documents()
                 index = self._load_mockup_index()
                 info: dict[str, dict] = {}
                 for did, meta in sidecar.items():
@@ -192,21 +172,20 @@ class LanceSearchProvider:
         return self._doc_info.get(doc_id) or {"url": None, "title": None, "meta": None}
 
     def _sidecar_changed(self) -> bool:
-        """Has documents.json been rewritten since the cache was built?
+        """Has documents.json been rewritten since the JOIN was built?
 
         Cheap (one stat) and checked per lookup, because the alternative is a
         colleague uploading a document, seeing it appear in search under a
         machine-generated title, and having no way to know a restart fixes it.
         """
-        try:
-            from store.config import documents_path
-
-            path = documents_path()
-            stat = path.stat()
-            return self._doc_info_sig != (str(path), stat.st_mtime_ns, stat.st_size)
-        except OSError:
+        stamp = _sidecar_stamp()
+        if stamp is None:
             # Sidecar gone or share unreachable — keep the last good map.
+            # (Different from store.documents' policy on purpose: this map is
+            # display metadata, so serving slightly stale titles beats a page
+            # of unlinked rows during a brief share hiccup.)
             return False
+        return self._doc_info_sig != stamp
 
     # /api/search's corpus values -> LanceDB table names (store/chunk_store.py's
     # CORPUS_TABLES). The route's pydantic pattern only admits these two.

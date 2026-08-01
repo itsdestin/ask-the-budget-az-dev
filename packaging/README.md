@@ -43,7 +43,7 @@ even if someone adds a new secret file next year. Invariant 8 ("the distributabl
 never contains corpus content") holds by construction rather than by vigilance.
 
 On top of that, `EXCLUDED_PREFIXES` drops trees that are tracked but not runtime
-(docs, tests, eval, the retired `web/` `mcp-server/` `db/`), and `EXCLUDED_NAMES`
+(docs, tests, eval), and `EXCLUDED_NAMES`
 drops individual files — including the retired Postgres-era modules that still
 `import db.connection` and would ship as dead code that crashes if touched.
 
@@ -77,15 +77,21 @@ already on the machine is unaffected.
 These are places where this folder duplicates knowledge that lives elsewhere. Each
 needs updating if the other side moves.
 
-- **`install.cmd` writes `%LOCALAPPDATA%\JLBC-Insight\machine.json` directly.**
-  `app/machine_config.py` (Plan 5 Task 10) is the canonical reader/writer of that
-  file; the installer writes it by hand only because the app is not running yet.
-  *Task 17 should replace this with a call into the app* — see the note in
-  `docs/superpowers/investigations/2026-08-01-bundle-size.md`.
+- ~~**`install.cmd` writes `machine.json` directly.**~~ **RESOLVED, Track 4.**
+  It now calls `python -m app.machine_config --set-data-dir "…"`, so
+  `app/machine_config.py` is the only thing that knows that file's schema. The
+  entry point starts no server, and it exits 0 even when the folder is
+  unreachable — a network drive that is not connected during setup is normal,
+  and refusing to record the path would strand the user. `install.cmd` also
+  calls `--set-ingest-enabled false`, which is deliberate rather than
+  redundant: it is the same default the app applies, written down where the
+  installer's reader can see it.
 - **`REQUIREMENTS` in `build_bundle.py` mirrors `measure.py`**, and both are derived
-  from the app's imports rather than from `pyproject.toml` (which still carries the
-  retired Postgres/Voyage/Anthropic stack). After Task 18 deletes that stack,
-  consider generating both from `pyproject.toml` instead.
+  from the app's imports rather than from `pyproject.toml`. Track 4 deleted the
+  retired Postgres/Voyage stack from the tree, but `pyproject.toml` still
+  DECLARES `psycopg`, `pgvector`, `voyageai` and `python-dotenv` — see STATUS's
+  follow-ups. Once those are dropped, consider generating both from
+  `pyproject.toml` instead.
 - **`mineru[pipeline]==3.1.6` is pinned, not floored.** The live corpus was
   extracted with 3.1.6 and the plan declines the 3.4.4 upgrade because it changes
   chunk text corpus-wide. `>=3.1.6` resolves to 3.4.4 and builds cleanly — the

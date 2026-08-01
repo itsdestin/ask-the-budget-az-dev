@@ -13,6 +13,7 @@ import pytest
 
 from eval.synthesize_queries import (
     parse_lookup_response,
+    sample_comparison_pairs,
     sample_lookup_chunks,
 )
 
@@ -47,50 +48,156 @@ def test_parse_lookup_response_raises_on_malformed():
         parse_lookup_response("not json at all")
 
 
-def test_sample_lookup_chunks_balances_across_publishers(monkeypatch):
+class FakeStore:
+    """Stands in for store.chunk_store.ChunkStore.
+
+    Only `scan()` is used by the synthesizer — it reads the whole corpus
+    projection once and samples in Python, because LanceDB has no
+    `ORDER BY RANDOM()` to push the sampling down into the query.
+    """
+
+    def __init__(self, rows):
+        self._rows = rows
+        self.scanned = []
+
+    def scan(self, name, columns, *, where=None, limit=None):
+        self.scanned.append((name, where))
+        return [dict(r) for r in self._rows]
+
+
+def _fake_rows(n=40, *, publishers=("jlbc", "agao", "governor", "legislature")):
+    return [
+        {
+            "chunk_id": f"chunk-{i}",
+            "text": f"Sample chunk {i} content.",
+            "publisher": publishers[i % len(publishers)],
+            "doc_type": "baseline-per-agency",
+            "fiscal_year": 2026,
+            "agency_canonical_ids": [f"agency:test-{i % 5}"],
+            "token_count": 200,
+        }
+        for i in range(n)
+    ]
+
+
+def test_sample_lookup_chunks_balances_across_publishers():
     """The sampler should pull chunks balanced across publishers."""
+    store = FakeStore(_fake_rows(40))
 
-    class FakeCursor:
-        def __init__(self, rows):
-            self._rows = rows
+    chunks = sample_lookup_chunks(n=25, store=store)
 
-        def fetchall(self):
-            return self._rows
-
-    class FakeConn:
-        def execute(self, sql, params=None):
-            # Return 25 fake chunks; mix of publishers.
-            rows = []
-            for i in range(25):
-                rows.append(
-                    {
-                        "chunk_id": f"chunk-{i}",
-                        "text": f"Sample chunk {i} content.",
-                        "publisher": ["jlbc", "agao", "governor", "legislature"][
-                            i % 4
-                        ],
-                        "doc_type": "baseline-per-agency",
-                        "fiscal_year": 2026,
-                        "agency_canonical_ids": [f"agency:test-{i % 5}"],
-                    }
-                )
-            return FakeCursor(rows)
-
-        def __enter__(self):
-            return self
-
-        def __exit__(self, *_):
-            return False
-
-    import eval.synthesize_queries as syn
-
-    monkeypatch.setattr(syn, "get_connection", lambda: FakeConn())
-
-    chunks = sample_lookup_chunks(n=25)
     assert len(chunks) == 25
     # Confirm the diversity didn't all collapse to one publisher.
     publishers = {c["publisher"] for c in chunks}
     assert len(publishers) > 1
+
+
+def test_sample_lookup_chunks_filters_degenerate_chunks():
+    """token_count > 80 was a SQL WHERE clause against Postgres; on
+    LanceDB it must still be applied, as a DataFusion predicate."""
+    store = FakeStore(_fake_rows(10))
+
+    sample_lookup_chunks(n=5, store=store)
+
+    name, where = store.scanned[0]
+    assert name == "budget_chunks"
+    assert "token_count > 80" in where
+
+
+def test_sample_lookup_chunks_reads_the_requested_corpus():
+    """The fiscal-note eval set has no ground truth yet (STATUS), so the
+    synthesizer has to be able to seed from that corpus too."""
+    store = FakeStore(_fake_rows(10))
+
+    sample_lookup_chunks(n=3, store=store, corpus="fiscal_note_chunks")
+
+    assert store.scanned[0][0] == "fiscal_note_chunks"
+
+
+def test_sample_lookup_chunks_never_returns_the_same_chunk_twice():
+    """Sampling without replacement — a duplicated seed would produce two
+    eval queries whose ground truth is the same chunk, which inflates
+    recall for free."""
+    store = FakeStore(_fake_rows(30))
+
+    chunks = sample_lookup_chunks(n=30, store=store)
+
+    assert len({c["chunk_id"] for c in chunks}) == len(chunks)
+
+
+def test_sample_lookup_chunks_caps_at_corpus_size():
+    """Asking for more than exists returns what exists, not an error."""
+    store = FakeStore(_fake_rows(4))
+
+    assert len(sample_lookup_chunks(n=25, store=store)) == 4
+
+
+def test_sample_comparison_pairs_matches_agency_across_fiscal_years():
+    """A pair must share an agency and a doc_type and differ in FY —
+    that is what makes a comparison question answerable from both."""
+    rows = [
+        {
+            "chunk_id": f"chunk-{fy}-{agency}",
+            "text": f"FY {fy} text for {agency}.",
+            "publisher": "jlbc",
+            "doc_type": "baseline-per-agency",
+            "fiscal_year": fy,
+            "agency_canonical_ids": [agency],
+            "token_count": 200,
+        }
+        for agency in ("agency:adc", "agency:ahccs")
+        for fy in (2024, 2025, 2026)
+    ]
+    store = FakeStore(rows)
+
+    pairs = sample_comparison_pairs(n=2, store=store)
+
+    assert len(pairs) == 2
+    for a, b in pairs:
+        assert a["agency_canonical_ids"] == b["agency_canonical_ids"]
+        assert a["doc_type"] == b["doc_type"]
+        # Ordered oldest-first, mirroring the old SQL's b.fiscal_year >
+        # a.fiscal_year, so the generated question reads forward in time.
+        assert a["fiscal_year"] < b["fiscal_year"]
+
+
+def test_sample_comparison_pairs_skips_agencies_with_only_one_year():
+    """No second year means no comparison — that agency contributes
+    nothing rather than pairing against an unrelated one."""
+    rows = [
+        {
+            "chunk_id": "only-one",
+            "text": "single year",
+            "publisher": "jlbc",
+            "doc_type": "baseline-per-agency",
+            "fiscal_year": 2026,
+            "agency_canonical_ids": ["agency:lonely"],
+            "token_count": 200,
+        }
+    ]
+    store = FakeStore(rows)
+
+    assert sample_comparison_pairs(n=5, store=store) == []
+
+
+def test_sample_comparison_pairs_ignores_unstamped_chunks():
+    """ARRAY_LENGTH(agency_canonical_ids, 1) >= 1 in the old SQL. A chunk
+    with no agency can't anchor a same-agency comparison."""
+    rows = [
+        {
+            "chunk_id": f"unstamped-{fy}",
+            "text": "no agency",
+            "publisher": "jlbc",
+            "doc_type": "baseline-per-agency",
+            "fiscal_year": fy,
+            "agency_canonical_ids": [],
+            "token_count": 200,
+        }
+        for fy in (2025, 2026)
+    ]
+    store = FakeStore(rows)
+
+    assert sample_comparison_pairs(n=5, store=store) == []
 
 
 def test_synthesize_lookup_query_calls_anthropic(monkeypatch):

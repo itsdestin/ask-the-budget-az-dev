@@ -1,7 +1,15 @@
 # Corpus Source-Doc Recovery
 
-**The cache is ephemeral. The manifest, discovery cache, and DB
-`source_url` column are durable. Treat them that way.**
+> **2026-08-01 — read this first.** Plan 5 Track 4 deleted `db/` and
+> `scripts/redownload_cached_pdfs.py` along with the rest of the Postgres
+> architecture. **The one-command recovery flow this document used to
+> describe no longer exists.** What survives is the acquisition trail
+> below, which is still durable and still the thing that makes recovery
+> possible; "Recovery flow" now describes the manual equivalent against
+> `documents.json`. Everything phrased as "the DB" means that sidecar.
+
+**The cache is ephemeral. The manifest, discovery cache, and the
+`source_url` field in `documents.json` are durable. Treat them that way.**
 
 This doc exists because the same failure mode has bitten the project
 multiple times: a worktree gets cleaned up, its `data/cached-pdfs/`
@@ -25,38 +33,35 @@ were ingested.
   Always rebuildable from the manifest above.
 - The on-disk presence of any worktree's cache directory.
 
-## Recovery flow (one command)
+## Recovery flow (manual — there is no script for this any more)
 
 When you find yourself looking at a fresh checkout, an empty
-`data/cached-pdfs/`, or a DB whose `source_blob_path` values point at
-a directory that doesn't exist, run:
+`data/cached-pdfs/`, or `documents.json` entries whose
+`source_blob_path` points at a directory that doesn't exist:
 
-```bash
-DATABASE_URL=postgresql://askbudget:askbudget-dev@127.0.0.1:5432/askbudget \
-  python -m scripts.redownload_cached_pdfs
-```
+The corpus itself (`<data_dir>/lancedb` + `documents.json`) is
+unaffected — **search keeps working**. What breaks is the PDF viewer,
+because it streams the source file. So this is a repair job, not an
+outage.
 
-What it does, in three phases:
+1. **Prefer copying the cache.** `data/cached-pdfs/` is content-addressed
+   and machine-independent; copying it from a working machine or the
+   shared drive is faster and far kinder to the state web servers than
+   re-fetching ~7,400 PDFs one at a time. README.md → "Moving to a new
+   device" covers it.
+2. **If you must re-fetch**, drive `ingest.cache.DownloadCache.fetch()`
+   over the URLs in `data/cached-pdfs/manifest.yaml` (and
+   `data/discovery-cache.yaml` for anything the manifest missed). It is
+   sha-keyed and idempotent, so it skips what is already present. Fetch
+   politely and serially — these are state government web servers.
+3. **Anything that still won't download** (Cloudflare / auth / 404) goes
+   through "Manual acquisition" below.
 
-1. **Discovery walk** — calls `ingest.discovery.discover()` for every
-   `(publisher, doc_type, fiscal_year)` combo currently in the DB.
-   Walks JLBC TOC PDFs, populates `data/discovery-cache.yaml`.
-2. **Download** — walks every URL in the discovery cache, hands it to
-   `DownloadCache.fetch()`. Sha-keyed, idempotent. Skips already-cached
-   URLs.
-3. **DB rewrite** — for every `documents` row, extracts the sha256
-   from the existing `source_blob_path` basename, points the row at
-   `data/cached-pdfs/<sha2>/<sha>.pdf` (project-relative), and
-   backfills `source_url` from the cache manifest.
-
-Reports:
-- `not-in-cache` rows — sha exists in DB but no file shows up locally
-  after the download pass. These are docs whose source URL fails to
-  download (Cloudflare / requires auth / 404). Hand-acquire and place
-  via the "Manual acquisition" path below.
-- `sha-missing` rows — `source_blob_path` doesn't end in
-  `<64-hex>.pdf`. These need a different recovery path because we
-  don't know the expected hash.
+**The deleted script did a third thing that no longer applies**: it
+rewrote `source_blob_path` on every DB row. `documents.json` is written
+by `ingest/lance_writer.py` with project-relative paths already, so
+there is nothing to rewrite — an entry whose file is missing is a
+missing *file*, not a wrong *path*.
 
 ## Manual acquisition (for Cloudflare-protected origins)
 
@@ -84,8 +89,10 @@ azleg.gov in some configurations). The manual path:
      relative_path: "<sha[:2]>/<sha>.pdf"
      acquisition: "manual-browser-download (Cloudflare-protected origin)"
    ```
-4. Re-run `redownload_cached_pdfs.py --no-fetch` to backfill the DB
-   `source_url` for that doc.
+4. Make sure the doc's entry in `<data_dir>/documents.json` carries the
+   same `source_url`. Re-ingesting the document through the upload page
+   is the supported way to get there; hand-editing the sidecar works but
+   is a last resort.
 
 ## What was wrong, what's fixed (2026-05-07)
 
@@ -106,20 +113,34 @@ azleg.gov in some configurations). The manual path:
   doc the script could place in the cache, including the two
   manual-acquisition AFR / Governor's SAD PDFs.
 
-## Verifying recovery posture (run before any DB dump or worktree cleanup)
+## Verifying recovery posture (run before any corpus copy or worktree cleanup)
 
-```sql
--- Every URL-fetchable row should have a source_url.
-SELECT COUNT(*) FROM documents
-WHERE source_format = 'pdf' AND (source_url IS NULL OR source_url = '');
--- Expected: 0.
+The two checks are unchanged; only the store they run against is. Both
+read `<data_dir>/documents.json`:
 
--- No row should reference a path outside the project tree.
-SELECT doc_id, source_blob_path FROM documents
-WHERE source_blob_path LIKE 'C:%' OR source_blob_path LIKE '/%';
--- Expected: 0 rows.
+```bash
+python - <<'PY'
+import json, os, pathlib
+p = pathlib.Path(os.environ.get("JLBC_DATA_DIR", "data/insight-data")) / "documents.json"
+docs = json.loads(p.read_text(encoding="utf-8"))
+rows = docs.values() if isinstance(docs, dict) else docs
+
+# Every URL-fetchable doc should have a source_url. Expected: 0.
+no_url = [d for d in rows
+          if d.get("source_format") == "pdf" and not d.get("source_url")]
+
+# No doc should reference a path outside the project tree. Expected: 0.
+absolute = [d for d in rows
+            if (d.get("source_blob_path") or "").startswith(("/", "C:", "\\\\"))]
+
+print(f"missing source_url: {len(no_url)}")
+print(f"out-of-tree paths:  {len(absolute)}")
+for d in (no_url + absolute)[:10]:
+    print("  ", d.get("doc_id"), d.get("source_blob_path"))
+PY
 ```
 
-If either query returns > 0, recovery posture is degraded and a fresh
-dump will repeat the failure mode. Run `redownload_cached_pdfs.py`
-to repair before snapshotting.
+If either count is > 0, recovery posture is degraded and a fresh copy
+will repeat the failure mode: those documents' PDFs cannot be re-fetched
+from anything the repo knows about. Re-ingest them from their real
+source before treating the corpus as canonical.

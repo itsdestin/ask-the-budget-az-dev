@@ -67,6 +67,9 @@ function mockAll(over: {
     budget_chunks: 1, fiscal_note_chunks: 1, documents: 1,
     lancedb_bytes: 1, dead_version_bytes: null, last_ingest_at: null,
     queue: { queued: 0, running: 0, failed: 0 },
+    ingest_enabled_here: false,
+    queue_stalled: false,
+    queue_stalled_message: null,
   });
 }
 

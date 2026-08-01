@@ -123,9 +123,6 @@ EXCLUDED_PREFIXES = (
     "docs/",                    # specs, plans, investigations — not runtime
     "tests/",                   # dev only
     "eval/",                    # dev only
-    "web/",                     # retired Next.js UI (Task 18 deletes it)
-    "mcp-server/",              # retired MCP server (Task 18)
-    "db/",                      # retired Postgres layer (Task 18)
     "primer/",                  # authoring tooling for the reference primer
     "funds/",                   # Phase 0 working notes
     "webapp/src/",              # source; only webapp/dist ships

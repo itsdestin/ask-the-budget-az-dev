@@ -76,11 +76,20 @@ def test_the_query_set_is_coordinator_triage_shaped():
         )
 
 
-def test_the_query_set_is_honestly_marked_as_unbaselined():
-    """Ground truth needs a populated corpus. The file must say so rather
-    than look finished."""
+def test_the_query_set_is_honestly_marked_as_unreviewed():
+    """The file must not look more finished than it is.
+
+    It originally said "GROUND TRUTH NOT YET FILLED IN" and every entry
+    carried an empty `ground_truth`. Ground truth WAS filled in on
+    2026-08-01 (merge `fe2aa94`) — but by an agent reading top-10
+    passages, not by anyone who writes fiscal notes, so the file now
+    carries a DRAFT / PENDING HUMAN REVIEW banner instead.
+
+    This guard tracks that banner. The property it protects is unchanged
+    and is the reason it exists: a number produced from this set must not
+    be quoted as a validated bar while the picks are still unreviewed.
+    Delete this test when a fiscal-note coordinator has adjudicated the
+    set — not before, and not to make it green.
+    """
     text = QUERIES.read_text(encoding="utf-8")
-    assert "GROUND TRUTH NOT YET FILLED IN" in text
-    yaml = YAML(typ="safe")
-    raw = yaml.load(text)
-    assert all(q["ground_truth"] == {} for q in raw)
+    assert "PENDING HUMAN REVIEW" in text.upper()

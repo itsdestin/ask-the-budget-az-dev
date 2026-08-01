@@ -14,7 +14,7 @@ Read `docs/superpowers/specs/2026-07-29-standalone-consolidation-design.md` befo
 
 ## The app in one paragraph
 
-The app is a single FastAPI process (`app/`, port 9300) serving a built Vite/React SPA (`webapp/`) — home, budget search, fiscal notes, upload, AI Mode chat, and an admin page. Storage is embedded LanceDB (`store/`) with local ONNX models on CPU: `snowflake-arctic-embed-m` embeddings + `ms-marco-MiniLM-L-12-v2` reranker (refusal threshold `REFUSAL_THRESHOLD = 1.9` in `harness/constants.py`). Ingest is a GUI upload → background queue (`ingest/`) → MinerU extract → chunk → embed → LanceDB write. AI Mode is an in-process OpenRouter tool loop (`harness/`; system prompt at `harness/system-prompt.md`, rendered by `harness/prompt.py`) that calls `retrieve()` before answering and emits verified citations per claim (constrained agent pattern), with a chat UI, citation chips, and a side-panel PDF viewer. **Search, fiscal notes, and upload work with zero API keys**; one OpenRouter key in `<data_dir>/settings.json` plus a chain of switches (master AI Mode toggle → key → per-mode toggle → model choice) unlocks AI Mode. A custom endpoint must additionally declare both per-million prices — without them there is no spending cap, so it is refused at save time. The admin page is gated on the Windows username; that gate is **not authentication** and must not be described as such. The corpus + settings live on the shared drive (`JLBC_DATA_DIR`, then a per-machine pointer file, then the dev default `data/insight-data/`). No Postgres, no Docker, no Voyage, no `.env.local`, no YouCoded — anywhere. Run it: `cd webapp && npm run build` once, then `uv run uvicorn app.main:create_app --factory --port 9300`. Legacy trees (`web/`, `mcp-server/`, `db/`, `retrieval/api.py` + `bm25/dense/rerank`) remain in-tree unused pending Plan 5 deletion.
+The app is a single FastAPI process (`app/`, port 9300) serving a built Vite/React SPA (`webapp/`) — home, budget search, fiscal notes, upload, AI Mode chat, and an admin page. Storage is embedded LanceDB (`store/`) with local ONNX models on CPU: `snowflake-arctic-embed-m` embeddings + `ms-marco-MiniLM-L-12-v2` reranker (refusal threshold `REFUSAL_THRESHOLD = 1.9` in `harness/constants.py`). Ingest is a GUI upload → background queue (`ingest/`) → MinerU extract → chunk → embed → LanceDB write. AI Mode is an in-process OpenRouter tool loop (`harness/`; system prompt at `harness/system-prompt.md`, rendered by `harness/prompt.py`) that calls `retrieve()` before answering and emits verified citations per claim (constrained agent pattern), with a chat UI, citation chips, and a side-panel PDF viewer. **Search, fiscal notes, and upload work with zero API keys**; one OpenRouter key in `<data_dir>/settings.json` plus a chain of switches (master AI Mode toggle → key → per-mode toggle → model choice) unlocks AI Mode. A custom endpoint must additionally declare both per-million prices — without them there is no spending cap, so it is refused at save time. The admin page is gated on the Windows username; that gate is **not authentication** and must not be described as such. The corpus + settings live on the shared drive (`JLBC_DATA_DIR`, then a per-machine pointer file, then the dev default `data/insight-data/`). No Postgres, no Docker, no Voyage, no `.env.local`, no YouCoded — anywhere. Run it: `cd webapp && npm run build` once, then `uv run uvicorn app.main:create_app --factory --port 9300`. The legacy trees (`web/`, `mcp-server/`, `db/`, `retrieval/api.py` + `bm25/dense/rerank/sql`) were deleted 2026-08-01 — every directory in the repo is live.
 
 ## Core Invariants (override anything else when in conflict)
 
@@ -44,7 +44,7 @@ cd <repo> && git fetch origin && git pull origin master
 
 **Pushing to master green-lights closing the dev server.** If you started a local dev server to verify a change, shut it down once the commit lands on `origin/master`. Don't leave orphan processes.
 
-**Run the eval after any change to `retrieval/`, `ingest/`, `chunking/`, or `harness/system-prompt.md`.** Command: `uv run python -m eval.run_eval`. Takes ~30-90 seconds; commit the resulting `eval/results/<...>.{json,md}` files alongside the code change so regressions are visible in PR diffs. The refusal threshold lives in `harness/constants.py` (`REFUSAL_THRESHOLD`), not in the prompt. (`eval/refresh_chunk_ids.py` is unported — it still imports the retired Postgres `db.connection` and will crash; do not run it.)
+**Run the eval after any change to `retrieval/`, `ingest/`, `chunking/`, or `harness/system-prompt.md`.** Command: `uv run python -m eval.run_eval`. Takes ~30-90 seconds; commit the resulting `eval/results/<...>.{json,md}` files alongside the code change so regressions are visible in PR diffs. The refusal threshold lives in `harness/constants.py` (`REFUSAL_THRESHOLD`), not in the prompt. (`eval/refresh_chunk_ids.py` was DELETED 2026-08-01 with the rest of the Postgres tooling. Nothing now re-binds stale eval chunk_ids after a re-ingest — see `eval/README.md` → "After a re-ingest" before any from-scratch corpus rebuild.)
 
 **Clean up worktrees after merging.** `git worktree remove <path>` then `git branch -D <branch>`. Stale worktrees confuse future sessions.
 
@@ -62,17 +62,19 @@ One repo, one process. The live directories:
 | `store/` | Embedded LanceDB storage layer + local ONNX model wiring |
 | `ingest/` | GUI ingest queue — jobs, SMB-safe lock, worker, MinerU runner, LanceDB writer |
 | `chunking/` | Per-publisher extractors + chunkers (Phase 1a lineage; still the live chunking path) |
-| `retrieval/` | Retrieval pipeline + citation validation (`citations.py` is live; `api.py`, `bm25.py`, `dense.py`, `rerank.py` are legacy) |
+| `retrieval/` | Retrieval pipeline + citation validation — all live |
 | `eval/` | Layer 1 retrieval eval harness |
+| `packaging/` | Windows bundle builder + launcher (Plan 5 Track 3) |
 | `docs/` | Specs, plans, investigations, decisions, reference material |
-| `web/`, `mcp-server/`, `db/` | **Legacy, pending Plan 5 deletion** — retired Next.js UI, MCP server, and Postgres infra; in-tree but unused |
+
+**Every directory above is live code.** The retired pre-consolidation trees — `web/` (Next.js UI), `mcp-server/` (Budget MCP server), `db/` (Postgres) and the dead `retrieval/` modules (`api.py`, `bm25.py`, `dense.py`, `rerank.py`, `sql.py`) — were deleted in Plan 5 Track 4 on 2026-08-01. They live in git history; `git log --diff-filter=D -- web/` finds the deletion. Comments elsewhere in the tree that cite a `web/…` path as provenance ("ported from web/components/ChatThread.tsx") resolve against that history and are not stale references to fix.
 
 ## Active handoffs
 
 Long-running handoff prompts that may need to be picked up live as standalone files at the repo root. See `STATUS.md` for which handoffs are active vs. done.
 
 - [`PROMPT-z13-backfill.md`](PROMPT-z13-backfill.md) — **ACTIVE** — historical-year corpus backfill + recency-ranking calibration, run on the Z13 Linux machine.
-- `PROMPT-plan1-storage-retrieval.md`, `PROMPT-plan2-app-shell.md`, `PROMPT-plan3-ingest.md`, `PROMPT-plan4-ai-mode.md`, `PROMPT-volume-ingest.md` — retired/shipped historical records. Do not execute.
+- `PROMPT-plan1-storage-retrieval.md`, `PROMPT-plan2-app-shell.md`, `PROMPT-plan3-ingest.md`, `PROMPT-plan4-ai-mode.md`, `PROMPT-volume-ingest.md`, `PROMPT-plan5-session-a.md`, `PROMPT-plan5-session-b.md`, `PROMPT-plan5-track4-cleanup.md` — retired/shipped historical records. Do not execute. (`PROMPT-plan5-session-c.md` — the Administrator Handbook, Track 5 — is still LIVE.)
 
 ## Project Phases
 

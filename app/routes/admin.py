@@ -30,6 +30,7 @@ from typing import Any
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 
+from app.machine_config import ingest_enabled, set_ingest_enabled
 from app.identity import (
     admin_claimable,
     admin_reset_pending,
@@ -654,28 +655,12 @@ def _dir_bytes(path: Path) -> int:
     return total
 
 
-def _chunk_counts() -> dict[str, int]:
-    """Row counts per corpus table, zero on anything unopenable.
-
-    A missing or unreadable table reads as 0 — the same number a genuinely
-    empty corpus produces. That ambiguity is deliberate and acceptable
-    here because the health ladder (Task 11) is what distinguishes "empty"
-    from "broken", with a sentence for each; this endpoint's job is the
-    numbers.
-    """
-    counts = {"budget_chunks": 0, "fiscal_note_chunks": 0}
-    try:
-        from store.chunk_store import ChunkStore
-
-        store = ChunkStore()
-        for name in counts:
-            try:
-                counts[name] = store.count(name)
-            except Exception:  # noqa: BLE001 — missing table, bad schema…
-                continue
-    except Exception:  # noqa: BLE001 — LanceDB itself unavailable
-        pass
-    return counts
+# Both counters live in app/routes/corpus.py, which serves the ungated
+# footer endpoint. Shared rather than reimplemented: the admin page and the
+# footer showing different corpus sizes on the same screen is exactly the
+# kind of thing that makes an admin stop trusting both numbers.
+from app.routes.corpus import chunk_counts as _chunk_counts  # noqa: E402
+from app.routes.corpus import document_count as _document_count  # noqa: E402
 
 
 def _reclaimable_bytes() -> int | None:
@@ -757,31 +742,84 @@ def _queue_summary() -> tuple[dict[str, int], str | None]:
     return summary, last_live
 
 
-def _document_count() -> int:
-    try:
-        raw = json.loads(documents_path().read_text(encoding="utf-8"))
-    except FileNotFoundError:
-        return 0
-    except (OSError, ValueError) as err:
-        # This is the page an admin opens BECAUSE something is wrong.
-        print(
-            f"app.routes.admin: couldn't read {documents_path()} ({err}) — "
-            "reporting 0 documents.",
-            file=sys.stderr,
-        )
-        return 0
-    return len(raw) if isinstance(raw, dict) else 0
+MSG_QUEUE_STALLED = (
+    "Uploads are waiting and no computer is set to process them. Open JLBC "
+    "Insight on the computer that should do this work, go to Admin → "
+    'Corpus, and turn on "Process uploads on this computer".'
+)
+
+
+def _queue_stalled(queue: dict[str, int]) -> bool:
+    """Is there work nobody will ever pick up?
+
+    The per-machine ingest switch defaults to OFF because one bundle is
+    installed on all ~20 office PCs. That default re-creates the exact
+    silent failure the one-bundle decision was made to avoid — uploads
+    queue on the share and nothing drains them, with no error anywhere —
+    so the switch without this warning is only half a fix.
+
+    Three conditions, and the last two are what stop it crying wolf:
+
+    * something is actually queued (nineteen of the twenty PCs sit with an
+      empty queue and ingest off all day; that is not a problem),
+    * nothing is running (a job in flight proves SOME machine is draining
+      the queue even though it isn't this one), and
+    * this machine is not the ingest machine (on the machine that IS, a
+      queue is just a queue).
+
+    A failed job alone does not count. Failures have their own signal and
+    their own UI; this warning is specifically about work with no owner.
+    """
+    if not queue.get("queued") or queue.get("running"):
+        return False
+    return not ingest_enabled()
+
+
+class MachineIngestBody(BaseModel):
+    enabled: bool
+
+
+@router.post("/api/admin/machine/ingest")
+def set_machine_ingest(
+    body: MachineIngestBody, _settings: Settings = Depends(require_admin)
+) -> dict:
+    """Make (or unmake) THIS computer the one that processes uploads.
+
+    Per-machine, not in settings.json: settings.json lives on the share and
+    every machine reads it, which is the wrong home for "is this PC the one
+    that does the work".
+
+    The response says a restart is needed because it is — the worker starts
+    from the lifespan hook, so flipping this cannot start one inside the
+    process already running. An admin who wasn't told that would watch a
+    queue that never moves and reasonably conclude the button is broken.
+    """
+    set_ingest_enabled(body.enabled)
+    return {
+        "ingest_enabled_here": body.enabled,
+        "message": (
+            "This computer will process uploads after JLBC Insight is "
+            "restarted here."
+            if body.enabled
+            else "This computer will stop processing uploads after JLBC "
+                 "Insight is restarted here."
+        ),
+    }
 
 
 @router.get("/api/admin/corpus")
 def get_corpus(_settings: Settings = Depends(require_admin)) -> dict:
     counts = _chunk_counts()
     queue, last_ingest_at = _queue_summary()
+    stalled = _queue_stalled(queue)
     return {
         "data_dir": str(data_dir()),
         "budget_chunks": counts["budget_chunks"],
         "fiscal_note_chunks": counts["fiscal_note_chunks"],
         "documents": _document_count(),
+        "ingest_enabled_here": ingest_enabled(),
+        "queue_stalled": stalled,
+        "queue_stalled_message": MSG_QUEUE_STALLED if stalled else None,
         "lancedb_bytes": _dir_bytes(data_dir() / "lancedb"),
         "dead_version_bytes": _reclaimable_bytes(),
         "last_ingest_at": last_ingest_at,

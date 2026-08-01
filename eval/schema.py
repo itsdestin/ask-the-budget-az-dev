@@ -38,8 +38,16 @@ class ExpectedChunk(BaseModel):
       * dimensions — fallback. Used when chunk_id is no longer in the
         corpus (post-reingest). Survives re-chunking.
       * anchor_text — short distinctive substring from the seed chunk.
-        Used by `refresh_chunk_ids.py` to find the successor chunk
-        deterministically.
+        The handle for finding the successor chunk after a re-ingest
+        changes chunk boundaries.
+
+    NOTE (Plan 5 Track 4, 2026-08-01): `eval/refresh_chunk_ids.py`, which
+    used anchor_text to re-bind chunk_ids automatically, was deleted with
+    the rest of the Postgres tooling — it never ran against LanceDB.
+    anchor_text is still written by the synthesizer and is still the
+    right handle; there is just no tool that consumes it today, so a
+    from-scratch corpus rebuild means re-pointing stale chunk_ids by
+    hand (grep the corpus for the anchor). See eval/README.md.
     """
 
     chunk_id: str

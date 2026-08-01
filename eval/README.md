@@ -79,16 +79,30 @@ two runs with `git diff eval/results/<old>.json eval/results/<new>.json`.
 
 ## After a re-ingest
 
-Chunk boundaries can change during ingest. The historical fixer for
-that is `eval/refresh_chunk_ids.py` — it walks queries.yaml, finds
-successor chunk_ids for any entries whose chunk_id no longer exists,
-and writes the YAML back in place (anchor-text match preferred, cosine
-similarity fallback).
+Chunk boundaries can change during ingest, which invalidates the
+`chunk_id` on every affected ground-truth entry.
 
-**It is UNPORTED to LanceDB** — it still imports the retired Postgres
-`db.connection` and will crash. Until it's ported, stale chunk_ids
-after a re-ingest have to be repaired by hand (or the script ported
-first).
+**There is no automated fixer.** `eval/refresh_chunk_ids.py` used to do
+this — anchor-text match preferred, cosine fallback — but it was never
+ported off Postgres and was deleted in Plan 5 Track 4 along with `db/`.
+
+What absorbs the damage today:
+
+- `eval/scoring.py`'s **dimensions fallback**. An expected chunk whose
+  `chunk_id` is gone still matches if publisher / doc_type / fiscal_year
+  / agency all match. This is loose — it can credit a *different* chunk
+  of the same document — so a run leaning heavily on it is reporting a
+  softer number than it looks like.
+- **`anchor_text`**, still written by the synthesizer for every expected
+  chunk. It is a short distinctive phrase from the original chunk, so
+  grepping the new corpus for it finds the successor. That is the manual
+  repair path.
+
+**Before a from-scratch corpus rebuild**, budget time to re-point stale
+chunk_ids by hand, or re-write the refresh tool against
+`store.chunk_store.ChunkStore` — the same one-import-swap shape that
+`eval/synthesize_queries.py` got in that commit, plus
+`ChunkStore.vector_search` in place of the pgvector cosine fallback.
 
 ## Calibrating the refusal threshold
 
@@ -110,9 +124,11 @@ The runtime threshold is `REFUSAL_THRESHOLD = 1.9` in
 `harness/constants.py` — a single Python constant, set 2026-07-30
 after the Plan 1 model swap (sweep: precision 0.67 / recall 0.40 /
 pass-rate 0.97). Scores are **raw cross-encoder logits** (roughly
-−10..10), not the old Voyage 0..1 scale — any prose you find pointing
-at a 0.65 threshold in `mcp-server/system-prompt.md` describes the
-retired pre-consolidation stack. **The calibration output's recall
+−10..10), not the old Voyage 0..1 scale — any prose you find pointing at
+a 0.65 or 0.30 threshold describes the retired pre-consolidation stack
+and does not transfer. `harness/prompt.py` renders the constant into the
+system prompt, so editing prompt text cannot change the threshold — it
+will produce no effect and no error. **The calibration output's recall
 number is the load-bearing one**: if recall is low at every threshold,
 the retrieval-layer mechanism can't reliably refuse the failure modes
 in your eval set — investing in a query classifier or faithfulness

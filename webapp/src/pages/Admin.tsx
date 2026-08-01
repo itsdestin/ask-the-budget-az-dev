@@ -60,6 +60,11 @@ export function Admin() {
     error: null as string | null,
     restored: null as string | null,
   });
+  // The server's own "takes effect after a restart" sentence. Held here
+  // rather than derived, because it is also where an error from the switch
+  // lands — an admin who clicks and sees nothing has no way to tell a
+  // silent failure from a successful one.
+  const [ingestMessage, setIngestMessage] = useState<string | null>(null);
 
   const loadModels = useCallback(async (refresh = false) => {
     try {
@@ -197,6 +202,20 @@ export function Admin() {
     }
   }
 
+  async function setIngestHere(enabled: boolean) {
+    try {
+      const result = await api.adminSetMachineIngest(enabled);
+      setIngestMessage(result.message);
+      // Re-read rather than patching local state: the queue-stalled warning
+      // is the SERVER's decision (queued > 0, nothing running, ingest off
+      // here), so guessing it client-side is how the toggle and the warning
+      // end up disagreeing on screen.
+      setCorpus(await api.adminCorpus());
+    } catch (err) {
+      setIngestMessage(err instanceof Error ? err.message : String(err));
+    }
+  }
+
   if (loading) {
     return (
       <main className="page-admin" data-testid="admin">
@@ -319,6 +338,8 @@ export function Admin() {
           snapshots={snapshots}
           onRestore={restore}
           restoreState={restoreState}
+          onSetIngest={setIngestHere}
+          ingestMessage={ingestMessage}
         />
 
         {saved ? (

@@ -94,24 +94,15 @@ def parse_range_header(header: str | None, size: int) -> tuple[int, int] | None:
 
 
 def _document_record(doc_id: str) -> dict[str, Any] | None:
-    """One document's metadata from Plan 1's `documents.json`.
+    """One document's metadata from `documents.json`.
 
-    REUSES `harness.tools`' mtime-cached reader rather than adding a fourth
-    copy of it. There are already three (`retrieval/api.py`,
-    `harness/tools.py`, and a partial one inside `app/search_provider.py`);
-    consolidating them into `store/documents.py` is a Plan 5 item, and adding
-    one more in the meantime is how a reader and a writer end up disagreeing
-    about the same file. `retrieval/api.py`'s copy is unusable here because
-    importing that module builds a whole FastAPI app at import time.
-
-    Imported inside the function, not at module scope, because `harness.tools`
-    drags in the retrieval + storage stack: an app that never serves a PDF
-    should not pay for it, and neither should a test that never asks for one.
+    Plan 5 Task 19 made `store.documents` the single reader; this route
+    used to borrow `harness.tools`' copy of it, which meant serving a PDF
+    imported the whole retrieval + tool-loop stack to read a JSON file.
     """
-    from harness.tools import _document_metadata
+    from store.documents import document_record
 
-    record = _document_metadata().get(doc_id)
-    return record if isinstance(record, dict) else None
+    return document_record(doc_id)
 
 
 def non_pdf_detail(source_format: str) -> str:

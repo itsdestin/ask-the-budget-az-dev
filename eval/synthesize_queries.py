@@ -12,28 +12,33 @@ Three query types:
 Vocabulary-contamination mitigation: the prompt explicitly asks Claude
 to paraphrase rather than borrow rare terms from the source chunk.
 
+Seeds come from the embedded LanceDB corpus via store.chunk_store —
+sampling that the Postgres original pushed into SQL (`ORDER BY RANDOM()`,
+a self-join for the comparison pairs) happens in Python here, because
+LanceDB offers neither.
+
 Invocation:
     uv run python -m eval.synthesize_queries           # full set (35)
     uv run python -m eval.synthesize_queries --append  # add to existing
+    uv run python -m eval.synthesize_queries --corpus fiscal_note_chunks \\
+        --output eval/fiscal_note_queries.yaml        # the corpus with
+                                                      # no ground truth yet
 """
 from __future__ import annotations
 
 import argparse
 import json
+import random
 import re
 import sys
+from collections import defaultdict
 from datetime import datetime, timezone
 from typing import Any
 
 from anthropic import Anthropic
 
 from eval.schema import EvalQuery, ExpectedChunk, QueryDimensions
-# Re-export the pooled connection helper at module scope so tests can
-# monkeypatch it as `eval.synthesize_queries.get_connection`. The pool
-# helper runs `register_vector` on each connection — required for the
-# refresh tool's cosine fallback (find_cosine_match casts a Python list
-# to ::vector) and harmless here.
-from db.connection import get_connection
+from store.chunk_store import ChunkStore
 
 # The model the synthesizer uses. Hardcoded — bumping this is a
 # deliberate decision, not a config tweak.
@@ -44,41 +49,75 @@ DEFAULT_LOOKUP_COUNT = 25
 DEFAULT_COMPARISON_COUNT = 5
 DEFAULT_REFUSAL_COUNT = 5
 
+DEFAULT_CORPUS = "budget_chunks"
 
-def sample_lookup_chunks(n: int) -> list[dict]:
+# Chunks shorter than this were "degenerate" in the Postgres original —
+# a stray heading or page number that no realistic analyst question can
+# be answered from. Kept verbatim so a re-synthesized set is comparable
+# to the one already committed.
+MIN_TOKENS = 80
+
+# Columns the synthesizer needs. Projected explicitly: a bare scan drags
+# the 768-float vector out of every row, which on a 22k-chunk corpus is
+# ~65 MB of data nothing here reads.
+_SEED_COLUMNS = [
+    "chunk_id",
+    "text",
+    "publisher",
+    "doc_type",
+    "fiscal_year",
+    "agency_canonical_ids",
+]
+
+
+def _scan_seed_chunks(store: Any, corpus: str) -> list[dict]:
+    """Every non-degenerate chunk of `corpus`, projected to what we need.
+
+    WHY a full scan instead of a sampled query: LanceDB has no
+    `ORDER BY RANDOM()`, so the Postgres version's push-down sampling has
+    no equivalent — the random pick happens in Python. Reading the whole
+    corpus is affordable precisely because of the projection above
+    (six scalar columns over ~22k rows), and this is an offline
+    eval-authoring tool, not a request path.
+    """
+    return store.scan(corpus, _SEED_COLUMNS, where=f"token_count > {MIN_TOKENS}")
+
+
+def sample_lookup_chunks(
+    n: int, *, corpus: str = DEFAULT_CORPUS, store: Any | None = None
+) -> list[dict]:
     """Sample n chunks balanced across publishers.
 
-    Uses ORDER BY RANDOM() with publisher-grouped LIMITs to roughly
-    balance representation. Doesn't try to be perfectly balanced — the
-    synthesizer's prompt is robust to over-representing one publisher.
+    Round-robins the publishers so a publisher with 20x the chunks
+    doesn't take 20x the seeds; the old SQL did the same thing with a
+    per-publisher ROW_NUMBER window. Doesn't try to be perfectly
+    balanced — the synthesizer's prompt is robust to over-representing
+    one publisher, and a publisher that runs out simply stops
+    contributing.
     """
-    per_publisher = max(1, n // 4)  # 4 publishers in v1 corpus
-    sql = """
-        WITH ranked AS (
-            SELECT
-                c.chunk_id,
-                c.text,
-                d.publisher,
-                c.doc_type,
-                c.fiscal_year,
-                c.agency_canonical_ids,
-                ROW_NUMBER() OVER (
-                    PARTITION BY d.publisher ORDER BY RANDOM()
-                ) AS rn
-            FROM chunks c
-            JOIN documents d ON d.doc_id = c.doc_id
-            WHERE c.token_count > 80  -- filter degenerate chunks
-        )
-        SELECT chunk_id, text, publisher, doc_type, fiscal_year,
-               agency_canonical_ids
-        FROM ranked
-        WHERE rn <= %s
-        ORDER BY RANDOM()
-        LIMIT %s
-    """
-    with get_connection() as conn:
-        cur = conn.execute(sql, (per_publisher, n))
-        return cur.fetchall()
+    rows = _scan_seed_chunks(store or ChunkStore(), corpus)
+
+    by_publisher: dict[str, list[dict]] = defaultdict(list)
+    for row in rows:
+        by_publisher[row.get("publisher") or "(unknown)"].append(row)
+    for bucket in by_publisher.values():
+        random.shuffle(bucket)
+
+    # Deal one chunk to each publisher in turn until we have n or the
+    # corpus is exhausted. Sampling is without replacement — two eval
+    # queries sharing one ground-truth chunk would inflate recall.
+    picked: list[dict] = []
+    buckets = list(by_publisher.values())
+    random.shuffle(buckets)
+    while len(picked) < n and any(buckets):
+        for bucket in buckets:
+            if not bucket:
+                continue
+            picked.append(bucket.pop())
+            if len(picked) == n:
+                break
+    random.shuffle(picked)
+    return picked
 
 
 def parse_lookup_response(raw: str) -> dict:
@@ -177,51 +216,47 @@ def synthesize_lookup_query(
     )
 
 
-def sample_comparison_pairs(n: int) -> list[tuple[dict, dict]]:
+def sample_comparison_pairs(
+    n: int, *, corpus: str = DEFAULT_CORPUS, store: Any | None = None
+) -> list[tuple[dict, dict]]:
     """Find chunk pairs that stamp to the same agency across two
-    different fiscal years. Returns up to n pairs."""
-    sql = """
-        WITH paired AS (
-            SELECT
-                a.chunk_id AS a_id, a.text AS a_text,
-                b.chunk_id AS b_id, b.text AS b_text,
-                d.publisher AS publisher,
-                a.doc_type AS doc_type,
-                a.fiscal_year AS a_fy, b.fiscal_year AS b_fy,
-                a.agency_canonical_ids AS agencies
-            FROM chunks a
-            JOIN chunks b ON b.agency_canonical_ids = a.agency_canonical_ids
-                          AND b.fiscal_year > a.fiscal_year
-                          AND b.doc_type = a.doc_type
-            JOIN documents d ON d.doc_id = a.doc_id
-            WHERE a.token_count > 80 AND b.token_count > 80
-              AND ARRAY_LENGTH(a.agency_canonical_ids, 1) >= 1
-            ORDER BY RANDOM()
-            LIMIT %s
-        )
-        SELECT * FROM paired
+    different fiscal years. Returns up to n pairs.
+
+    The Postgres original expressed this as a self-join on
+    `b.agency_canonical_ids = a.agency_canonical_ids AND b.fiscal_year >
+    a.fiscal_year AND b.doc_type = a.doc_type`. DataFusion can't join a
+    Lance table to itself through `ChunkStore`, so the same grouping is
+    done in Python over one scan — the join key becomes a dict key.
     """
-    with get_connection() as conn:
-        rows = conn.execute(sql, (n,)).fetchall()
-    pairs = []
-    for r in rows:
-        chunk_a = {
-            "chunk_id": r["a_id"],
-            "text": r["a_text"],
-            "publisher": r["publisher"],
-            "doc_type": r["doc_type"],
-            "fiscal_year": r["a_fy"],
-            "agency_canonical_ids": r["agencies"],
-        }
-        chunk_b = {
-            "chunk_id": r["b_id"],
-            "text": r["b_text"],
-            "publisher": r["publisher"],
-            "doc_type": r["doc_type"],
-            "fiscal_year": r["b_fy"],
-            "agency_canonical_ids": r["agencies"],
-        }
-        pairs.append((chunk_a, chunk_b))
+    rows = _scan_seed_chunks(store or ChunkStore(), corpus)
+
+    # Group on the SAME key the old self-join used: the full agency array
+    # (not just its first element) plus doc_type. Comparing across
+    # doc_types would pit a Baseline estimate against an Approps actual,
+    # which reads as a year-over-year change but isn't one.
+    grouped: dict[tuple, dict[int, list[dict]]] = defaultdict(
+        lambda: defaultdict(list)
+    )
+    for row in rows:
+        agencies = tuple(row.get("agency_canonical_ids") or ())
+        fiscal_year = row.get("fiscal_year")
+        if not agencies or fiscal_year is None:
+            continue  # ARRAY_LENGTH(...) >= 1 in the old SQL
+        grouped[(agencies, row.get("doc_type"))][int(fiscal_year)].append(row)
+
+    candidates = [g for g in grouped.values() if len(g) >= 2]
+    random.shuffle(candidates)
+
+    pairs: list[tuple[dict, dict]] = []
+    for by_year in candidates:
+        if len(pairs) >= n:
+            break
+        earlier, later = random.sample(sorted(by_year), 2)
+        if earlier > later:
+            earlier, later = later, earlier
+        pairs.append(
+            (random.choice(by_year[earlier]), random.choice(by_year[later]))
+        )
     return pairs
 
 
@@ -390,6 +425,11 @@ def main() -> None:
         help="Number of refusal queries",
     )
     parser.add_argument(
+        "--corpus", default=DEFAULT_CORPUS,
+        choices=("budget_chunks", "fiscal_note_chunks"),
+        help="Which corpus table to seed queries from",
+    )
+    parser.add_argument(
         "--output", default="eval/queries.yaml",
         help="Path to write queries.yaml",
     )
@@ -422,8 +462,14 @@ def main() -> None:
         f"+ {args.refusal} refusal queries using {SYNTH_MODEL}..."
     )
 
-    print("Sampling lookup chunks from corpus...")
-    lookup_chunks = sample_lookup_chunks(args.lookup)
+    # One store for the whole run — opening it twice would re-connect to
+    # LanceDB and re-scan the corpus for the comparison pass.
+    store = ChunkStore()
+
+    print(f"Sampling lookup chunks from {args.corpus}...")
+    lookup_chunks = sample_lookup_chunks(
+        args.lookup, corpus=args.corpus, store=store
+    )
     print(f"Got {len(lookup_chunks)} chunks.")
     for chunk in lookup_chunks:
         q_id = f"q-{next_id:03d}"
@@ -436,7 +482,9 @@ def main() -> None:
             print(f"  {q_id}: FAILED — {e}", file=sys.stderr)
 
     print("Sampling comparison chunk pairs...")
-    pairs = sample_comparison_pairs(args.comparison)
+    pairs = sample_comparison_pairs(
+        args.comparison, corpus=args.corpus, store=store
+    )
     print(f"Got {len(pairs)} pairs.")
     for chunk_a, chunk_b in pairs:
         q_id = f"q-{next_id:03d}"

@@ -4,15 +4,23 @@ Reads the most recent eval result file, sweeps candidate thresholds,
 computes precision/recall for each, recommends the threshold that
 maximizes the combined score.
 
-The recommended threshold is a SUGGESTION. The runtime threshold is
-currently embedded in the MCP system prompt at
-`mcp-server/system-prompt.md` (the `refusal_no_retrieval` section plus
-a second reference in the rules table — 1.9 set 2026-07-30 for the
-local L-12 reranker's logit scale; previously 0.65 on Voyage's 0..1
-scale, set 2026-05-22). Updating it means editing those prompt lines,
-NOT flipping a Python constant. The original Phase 1b plan envisioned
-a constant in retrieval/pipeline.py named REFUSAL_RERANKER_THRESHOLD;
-that was never built and the prompt holds the value instead.
+The recommended threshold is a SUGGESTION. **The runtime threshold is
+`REFUSAL_THRESHOLD` in `harness/constants.py`** — one Python constant,
+currently 1.9 on the local L-12 reranker's logit scale. Change it there
+and nowhere else.
+
+This docstring used to send operators to `mcp-server/system-prompt.md`.
+That file is deleted, and the advice was already wrong before it was:
+Plan 4 made harness/constants.py the single source precisely because
+three contradictory numbers (1.9 in the prompt, 0.65 and 0.30 in stale
+tool descriptions) had all reached the model at once. `harness/prompt.py`
+renders the constant into the prompt, so editing prose can no longer
+change behaviour — and an operator who edits prose expecting it to will
+see no effect and no error.
+
+Scale note for anyone reading old results: 1.9 is a raw cross-encoder
+logit (roughly -10..10). The 0.65 and 0.30 figures in pre-2026-07-30
+material were on Voyage rerank-2.5's 0..1 scale and do not transfer.
 
 Invocation:
     uv run python -m eval.calibrate_refusal

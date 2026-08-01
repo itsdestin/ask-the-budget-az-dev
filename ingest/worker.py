@@ -24,17 +24,23 @@ during a long extraction is fine.
 
 ## Environment variables
 
-`JLBC_INGEST_SNAPSHOT` — when to take the S17 corpus snapshot.
+**Snapshots are per BATCH, not per document** (see `_should_snapshot`). A
+snapshot zips the WHOLE corpus, so one per document costs O(corpus) each
+while the count grows with the documents — quadratic. A book edition
+(~130 documents) or a fiscal-note session now takes ONE restore point,
+which is both the unit somebody would actually roll back to and the unit
+that fails as a unit. A hand upload has no batch and still snapshots per
+document: that is exactly when an analyst wants a restore point, and one
+upload is one zip.
 
-- unset, or `per-doc` (the DEFAULT): snapshot before every document. This is
-  the office behaviour and it does not change.
-- `off`: skip the per-document snapshot. **Opt-in bulk mode, for a
-  supervised backfill only.** Each snapshot zips the WHOLE corpus, so the
-  cost grows with the corpus while the number of snapshots grows with the
-  documents — 7,000 documents is O(n²) work and terabytes of
-  immediately-rotated zip. Turning this off trades the automatic restore
-  point for finishing the backfill this decade; take your own archive of
-  `<data_dir>/lancedb/` first.
+`JLBC_INGEST_SNAPSHOT` — the escape hatch, unchanged.
+
+- unset, or `per-doc` (the DEFAULT): snapshot per batch as above.
+- `off`: no automatic snapshot at all. **Opt-in bulk mode, for a
+  supervised backfill only.** This predates per-batch snapshots and was
+  the only way to escape the quadratic cost; with per-batch it should
+  rarely be needed. Turning it off trades the automatic restore point for
+  speed; take your own archive of `<data_dir>/lancedb/` first.
 
 Only the exact word `off` disables it. Any other value (including a typo
 like `false`) keeps snapshots on — losing the safety net must take intent.
@@ -61,6 +67,7 @@ would otherwise make that PC unusable and swap-thrash on MinerU's RAM.
 """
 from __future__ import annotations
 
+import hashlib
 import os
 import shutil
 import socket
@@ -431,20 +438,20 @@ def _write(
     if wait_s is None:
         wait_s = WRITE_LOCK_WAIT_S if configured_worker_count() > 1 else 0.0
     with IngestLock(wait_s=wait_s) as lock:
-        # WHY the guard: `snapshot()` zips the ENTIRE corpus, so the cost of a
-        # snapshot grows with the corpus while the NUMBER of snapshots grows
-        # with the documents — fine for the office's occasional uploads
-        # (seconds, once in a while), quadratic for a 7,000-document supervised
-        # backfill. `JLBC_INGEST_SNAPSHOT=off` is the operator saying "I have my
-        # own archive, skip it". The policy lives here, in the caller, so
-        # store/backup.py stays a dumb honest "make a snapshot" primitive that
-        # an admin "Back up now" button can still trust.
-        if _snapshot_suppressed():
-            print(SNAPSHOT_SUPPRESSED_MESSAGE, file=sys.stderr, flush=True)
-            _progress(job, "writing", pct=10, detail="snapshot suppressed (bulk mode)")
+        # See `_should_snapshot` for the policy. Kept in the caller so
+        # store/backup.py stays a dumb honest "make a snapshot" primitive
+        # that an admin "Back up now" button can still trust.
+        if not _should_snapshot(job):
+            if _snapshot_suppressed():
+                print(SNAPSHOT_SUPPRESSED_MESSAGE, file=sys.stderr, flush=True)
+                detail = "snapshot suppressed (bulk mode)"
+            else:
+                detail = "backed up at the start of this batch"
+            _progress(job, "writing", pct=10, detail=detail)
         else:
             _progress(job, "writing", pct=10, detail="backing up the corpus")
             snapshot()
+            _record_batch_snapshot(job)
         lock.heartbeat()
 
         # D2: a table names many agencies; a narrative chunk names one.
@@ -542,6 +549,80 @@ def _snapshot_suppressed() -> bool:
     and capitalisation forgiven) can disable it.
     """
     return os.environ.get(SNAPSHOT_ENV_VAR, "").strip().lower() == SNAPSHOT_OFF
+
+
+# Marker files recording "this batch already has a restore point". They live
+# beside the snapshots because that is what they describe, and ON THE SHARE
+# rather than in memory: a 210-page book is an overnight job that WILL be
+# interrupted, and an in-memory record would re-zip the whole corpus on every
+# restart — the quadratic cost coming back through the side door.
+_BATCH_MARKER_PREFIX = ".batch-"
+
+
+def _batch_marker_path(batch_id: str) -> Path:
+    from store.backup import backups_dir
+
+    # Hashed, not interpolated: batch ids are built from publisher/family
+    # strings and a path separator in one would escape the backups directory.
+    digest = hashlib.sha256(batch_id.encode("utf-8")).hexdigest()[:16]
+    return backups_dir() / f"{_BATCH_MARKER_PREFIX}{digest}"
+
+
+def _should_snapshot(job: JobRecord) -> bool:
+    """Does THIS document need its own corpus snapshot before writing?
+
+    `snapshot()` zips the ENTIRE corpus, so per-document snapshots cost
+    O(corpus) each while the count grows with the documents — quadratic.
+    Measured on the Z13: a ~54 MB zip every ~40 s at 68 MB of corpus,
+    projected to 60–90 s per document once the books landed.
+
+    Three cases, in precedence order:
+
+    1. **Bulk mode wins outright.** `JLBC_INGEST_SNAPSHOT=off` is an
+       operator saying "I have my own archive". Per-batch must not quietly
+       switch snapshots back on for somebody who turned them off.
+    2. **No batch → snapshot, as before.** A hand upload is exactly when an
+       analyst wants a restore point, and one upload is one zip.
+    3. **In a batch → snapshot only the first document.** A book edition or
+       a fiscal-note session is the unit somebody would actually roll back
+       to, and the unit that fails as a unit. One restore point per batch is
+       the protection; the other 200 zips were never buying anything.
+
+    Fails SAFE: if the marker cannot be read, the honest answer is "I don't
+    know whether this batch has a restore point", and the conservative
+    response is to make one. An extra zip costs time; a missing one costs
+    the corpus.
+    """
+    if _snapshot_suppressed():
+        return False
+    if not job.batch_id:
+        return True
+    try:
+        return not _batch_marker_path(job.batch_id).exists()
+    except OSError as err:
+        print(
+            f"jlbc-insight: couldn't check the batch snapshot marker ({err}) — "
+            "taking a snapshot to be safe.",
+            file=sys.stderr,
+            flush=True,
+        )
+        return True
+
+
+def _record_batch_snapshot(job: JobRecord) -> None:
+    """Remember that this batch now has a restore point.
+
+    A failure here is deliberately silent-but-harmless: the next document
+    in the batch takes another snapshot, which is wasteful and correct.
+    """
+    if not job.batch_id:
+        return
+    try:
+        _batch_marker_path(job.batch_id).write_text(
+            f"{job.batch_id}\n", encoding="utf-8"
+        )
+    except OSError:
+        pass
 
 
 # --- the worker thread ------------------------------------------------------

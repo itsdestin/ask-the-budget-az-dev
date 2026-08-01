@@ -73,6 +73,9 @@ function corpus(over: Partial<api.AdminCorpus> = {}): api.AdminCorpus {
     fiscal_note_chunks: 8438,
     documents: 1770,
     lancedb_bytes: 5_400_000_000,
+    ingest_enabled_here: false,
+    queue_stalled: false,
+    queue_stalled_message: null,
     dead_version_bytes: 4_100_000_000,
     last_ingest_at: "2026-07-31T11:30:00-07:00",
     queue: { queued: 2, running: 1, failed: 0 },
@@ -467,6 +470,85 @@ describe("the spending panel", () => {
 });
 
 // --- restore ----------------------------------------------------------------
+
+describe("which computer processes uploads", () => {
+  // The per-machine switch defaults to OFF because one bundle is installed
+  // on all ~20 office PCs. That default re-creates the failure the
+  // one-bundle decision was made to avoid — uploads queue on the share and
+  // nothing drains them — so the warning below is the other half of the fix,
+  // not decoration.
+
+  it("warns when uploads are waiting and nothing will process them", async () => {
+    mockAll({
+      corpus: corpus({
+        queue: { queued: 3, running: 0, failed: 0 },
+        ingest_enabled_here: false,
+        queue_stalled: true,
+        queue_stalled_message:
+          "Uploads are waiting and no computer is set to process them. Open " +
+          "JLBC Insight on the computer that should do this work, go to " +
+          'Admin → Corpus, and turn on "Process uploads on this computer".',
+      }),
+    });
+    await renderAdmin();
+
+    const warning = screen.getByTestId("admin-queue-stalled");
+    expect(warning).toHaveTextContent(/no computer is set to process them/i);
+    // An alert, not a paragraph: this is the one thing on the page that
+    // means work is silently going nowhere.
+    expect(warning).toHaveAttribute("role", "alert");
+  });
+
+  it("stays quiet when the queue is empty", async () => {
+    // Nineteen of the twenty office PCs sit exactly like this all day. A
+    // warning they all see is a warning nobody reads.
+    mockAll({ corpus: corpus({ ingest_enabled_here: false, queue_stalled: false }) });
+    await renderAdmin();
+
+    expect(screen.queryByTestId("admin-queue-stalled")).toBeNull();
+  });
+
+  it("turns this computer on and says a restart is needed", async () => {
+    mockAll({ corpus: corpus({ ingest_enabled_here: false }) });
+    const set = vi.spyOn(api, "adminSetMachineIngest").mockResolvedValue({
+      ingest_enabled_here: true,
+      message: "This computer will process uploads after JLBC Insight is restarted here.",
+    });
+    await renderAdmin();
+
+    fireEvent.click(screen.getByTestId("admin-ingest-toggle"));
+
+    await waitFor(() => expect(set).toHaveBeenCalledWith(true));
+    await waitFor(() =>
+      expect(screen.getByTestId("admin-ingest-message")).toHaveTextContent(
+        /restarted/i,
+      ),
+    );
+  });
+
+  it("shows the switch as on where it is on", async () => {
+    mockAll({ corpus: corpus({ ingest_enabled_here: true }) });
+    await renderAdmin();
+
+    expect(screen.getByTestId("admin-ingest-toggle")).toBeChecked();
+  });
+
+  it("surfaces a failure instead of looking like it worked", async () => {
+    mockAll({ corpus: corpus({ ingest_enabled_here: false }) });
+    vi.spyOn(api, "adminSetMachineIngest").mockRejectedValue(
+      new Error("Couldn't write the setting for this computer."),
+    );
+    await renderAdmin();
+
+    fireEvent.click(screen.getByTestId("admin-ingest-toggle"));
+
+    await waitFor(() =>
+      expect(screen.getByTestId("admin-ingest-message")).toHaveTextContent(
+        /couldn't write/i,
+      ),
+    );
+  });
+});
 
 describe("restore", () => {
   const snapshot: api.Snapshot = {
