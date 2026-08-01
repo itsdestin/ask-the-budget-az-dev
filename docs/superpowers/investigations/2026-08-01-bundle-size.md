@@ -333,6 +333,18 @@ the Desktop shortcut started the server and opened the UI in a browser "relative
 quickly, without issue". So: uvicorn starts under the embeddable interpreter, the SPA is
 served from `webapp/dist`, and the launcher's health-wait-then-open sequence works.
 
+**Instance reuse works.** After clicking the shortcut several times,
+`tasklist /FI "IMAGENAME eq pythonw.exe"` reported exactly one process. That is S8's
+"relaunch reuses it" confirmed by process count rather than by how fast the window felt —
+and it matters at 20 machines, where each analyst clicking the icon a few times a day
+must not accumulate servers competing for the same files.
+
+**No endpoint-security objection.** An unsigned interpreter running out of
+`%LOCALAPPDATA%`, PowerShell creating two shortcuts, and a process listening on localhost
+all passed without a prompt on this laptop. One machine's policy is not the estate's, but
+it is the first evidence that this deployment shape survives JLBC's IT environment at
+all — which was the largest non-technical risk to the whole no-admin-rights approach.
+
 **One thing the first run changed.** The UI opened in Chrome's `--app` mode, per S8, and
 Destin rejected it on sight: this is a reference tool consulted *alongside* a dozen
 research tabs, and app mode makes it an island to alt-tab to. S8 is amended and
@@ -350,9 +362,7 @@ getting a rough build in front of someone early rather than polishing first.
 - **Real retrieval.** No corpus was attached; `create_app()` falls back to stub search
   fixtures when `budget_chunks` is empty (confirmed on Linux), so the interface can be
   exercised without proving the retrieval path.
-- **Instance reuse on relaunch.** Not exercised yet — closing the window and clicking the
-  shortcut again should return in ~1 s against the already-running server rather than
-  starting a second one.
+- **opendataloader-pdf extracting a real document** with the bundled JRE.
 - **`java` reached through `PATH` rather than by direct path.** `jre\bin\java.exe` ran
   when invoked explicitly; the launcher's `PATH` prepend, which is how
   opendataloader-pdf actually finds it, has not been exercised.
