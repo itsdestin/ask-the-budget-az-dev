@@ -94,6 +94,50 @@ def build_judge_payload(query: AgentQuery, t: Transcript) -> dict[str, Any]:
             "cited_chunks": cited}
 
 
+# The prompt asks for a 1-5 grade. Anything outside that range is not a
+# grade we can average — see _coerce_holistic.
+HOLISTIC_MIN, HOLISTIC_MAX = 1, 5
+
+
+def _coerce_holistic(value: Any) -> float | None:
+    """Return the judge's holistic grade as a real number, or None when the
+    reply carried something that cannot honestly be read as a 1-5 grade.
+
+    WHY this exists: `holistic` is the one summary field that comes
+    straight from the MODEL, and main()'s mean() adds it up. A reply of
+    `"holistic": "4"` (a string) used to raise TypeError inside that sum —
+    AFTER the whole loop had run and BEFORE judge.json was written, so
+    every already-paid grade in the run was lost. That reply shape is
+    likely, not exotic: the prompt template used to literally show
+    `"holistic": 1-5`, which is not valid JSON, so a model echoing it back
+    as "4" or "4/5" is a reasonable thing to happen.
+
+    A clean numeric string ("4", "4.0") has exactly one honest reading, so
+    it is coerced. Anything else ("4/5", "high", a list) has no single
+    honest reading, so it becomes None — recorded as "not gradable" rather
+    than guessed at, and parse_judge_json keeps the original under
+    `holistic_raw` so nothing is thrown away.
+    """
+    if isinstance(value, bool):
+        # bool is a subclass of int in Python: True would silently grade 1.
+        return None
+    if isinstance(value, (int, float)):
+        num = float(value)
+    elif isinstance(value, str):
+        try:
+            num = float(value.strip())
+        except ValueError:
+            return None
+    else:
+        return None
+    # Also rejects nan/inf, whose comparisons are all False. An out-of-range
+    # number (0, 47) is not a 1-5 grade, and averaging it would quietly skew
+    # holistic_mean with no error anywhere.
+    if not (HOLISTIC_MIN <= num <= HOLISTIC_MAX):
+        return None
+    return int(num) if num == int(num) else num
+
+
 def parse_judge_json(content: str) -> dict[str, Any]:
     stripped = _FENCE_RE.sub("", content.strip())
     parsed = _find_first_json_object(stripped)
@@ -116,6 +160,18 @@ def parse_judge_json(content: str) -> dict[str, Any]:
             f"load_bearing_claims must be a list of claim objects, not "
             f"{type(claims).__name__}: {stripped[:200]!r}"
         )
+    # WHY normalize instead of raising: a malformed `holistic` is a bad
+    # GRADE, not a bad grading run — the claim list next to it may be
+    # perfectly good, and rejecting the whole row would throw away citation
+    # scores we already paid for. So the row survives with holistic=None
+    # (mean() skips None, so it is excluded from holistic_mean rather than
+    # counted as a bad answer) and the model's literal reply preserved
+    # under `holistic_raw` for anyone reading judge.json later.
+    if parsed.get("holistic") is not None:
+        grade = _coerce_holistic(parsed["holistic"])
+        if grade is None:
+            parsed["holistic_raw"] = parsed["holistic"]
+        parsed["holistic"] = grade
     return parsed
 
 
@@ -151,9 +207,36 @@ def compute_citation_scores(judge_result: dict[str, Any], t: Transcript) -> dict
     claims = [c for c in raw_claims if isinstance(c, dict)] if isinstance(raw_claims, list) else []
     covered = sum(1 for c in claims if c.get("cited_verified"))
     emitted = len(citations(t))
+    # WHY the denominator is max(citations issued, covered claims) and not
+    # just "citations issued": the numerator counts CLAIMS while the old
+    # denominator counted CITATIONS, so nothing tied the two together and
+    # the ratio was UNBOUNDED — 1 citation covering 3 claims scored 3.0.
+    # That is the modal budget answer, not a corner case (a three-figure
+    # comparison is often cited once because one table row holds the whole
+    # thing), and the same answer cited three times scored 1.0. So the
+    # metric's gradient pointed at emitting FEWER citations — exactly the
+    # behavior it exists to punish, and the reason the design spec rejected
+    # plain verified-rate ("it rewards citing less and citing only easy
+    # claims — the opposite of Invariant 1").
+    #
+    # Taking the max fixes that:
+    #   * bounded at 1.0, so the number can no longer be gamed upward;
+    #   * padding still hurts — 1 covered claim with 5 citations = 0.2;
+    #   * 1 citation legitimately covering 3 claims = 1.0, which is CORRECT
+    #     AND DELIBERATE. The project's stated goal is "a smaller number of
+    #     high-value citations that back the most important claims", so that
+    #     efficiency is the desired behavior, not something to penalize.
+    #   * the other half of the property is claim_coverage_recall below,
+    #     unchanged: an important claim left uncited lowers it. Precision
+    #     alone can't be gamed by citing less; recall alone can't be gamed
+    #     by citing everything. Read them together.
+    denominator = max(emitted, covered)
     return {
-        # covered claims / citations ISSUED: padding citations dilute it.
-        "claim_coverage_precision": (covered / emitted) if emitted else None,
+        # covered claims / max(citations ISSUED, covered): padding dilutes it.
+        # `if emitted else None` is LOAD-BEARING and unchanged: a correct
+        # refusal (no citations, no claims) must read None = "not
+        # applicable", never 0.0 = "bad".
+        "claim_coverage_precision": (covered / denominator) if emitted else None,
         # covered claims / claims that NEEDED citing: uncited key claims hurt.
         "claim_coverage_recall": (covered / len(claims)) if claims else None,
     }
@@ -183,29 +266,58 @@ def main() -> int:
     queries = {q.id: q for q in load_agent_queries(args.queries_file)}
 
     per_query: list[dict[str, Any]] = []
+    interrupted = False
     with httpx.Client() as client:
         paths = sorted(p for p in args.run_dir.glob("*-r*.jsonl")
                        if p.name != "ledger.jsonl")
         if args.limit:
             paths = paths[: args.limit]
-        for path in paths:
-            t = read_transcript(path)
-            qid = t.meta.get("query_id")
-            if qid not in queries:
-                continue
-            payload = build_judge_payload(queries[qid], t)
-            result = judge_one(client, settings.provider.base_url,
-                               settings.provider.api_key, args.judge_model,
-                               system_prompt, payload)
-            row = {"query_id": qid, "repeat": t.meta.get("repeat", 1), **result}
-            if "judge_error" not in result:
-                row.update(compute_citation_scores(result, t))
-            per_query.append(row)
-            print(f"{qid}: {'ERROR' if 'judge_error' in result else row.get('holistic')}")
+        try:
+            for path in paths:
+                # WHY this try/except: judge_one already swallows failures of
+                # the model CALL, but everything around it — reading a torn
+                # transcript, building the payload, scoring the result — can
+                # still raise, and judge.json is written ONCE after the loop.
+                # So a single bad file used to discard every already-paid
+                # grade in the run. One bad row must cost one row.
+                try:
+                    t = read_transcript(path)
+                    qid = t.meta.get("query_id")
+                    if qid not in queries:
+                        continue
+                    payload = build_judge_payload(queries[qid], t)
+                    result = judge_one(client, settings.provider.base_url,
+                                       settings.provider.api_key, args.judge_model,
+                                       system_prompt, payload)
+                    row = {"query_id": qid, "repeat": t.meta.get("repeat", 1), **result}
+                    if "judge_error" not in result:
+                        row.update(compute_citation_scores(result, t))
+                except Exception as exc:
+                    # query_id comes from the filename here because the
+                    # failure may BE that the file couldn't be read.
+                    row = {"query_id": path.stem, "repeat": None,
+                           "judge_error": f"{type(exc).__name__}: {exc}"}
+                per_query.append(row)
+                print(f"{row['query_id']}: "
+                      f"{'ERROR' if 'judge_error' in row else row.get('holistic')}")
+        except KeyboardInterrupt:
+            # A judge run spends real money per row. Ctrl-C keeps whatever
+            # has already been graded instead of binning the lot; the exit
+            # code below says the run was cut short.
+            print("interrupted — writing the rows graded so far", file=sys.stderr)
+            interrupted = True
 
     graded = [r for r in per_query if "judge_error" not in r]
     def mean(key):
-        vals = [r[key] for r in graded if r.get(key) is not None]
+        # WHY the isinstance check (and not just `is not None`): `holistic`
+        # is supplied by the MODEL, and a non-number there — "4", "4/5", a
+        # list — crashes sum() with a TypeError at the very end of the run,
+        # after every row has been paid for and before judge.json is
+        # written. parse_judge_json already normalizes that field, so this
+        # is defense in depth for any future summary field that isn't
+        # normalized yet. bool is excluded because it would add as 0/1.
+        vals = [r[key] for r in graded
+                if isinstance(r.get(key), (int, float)) and not isinstance(r.get(key), bool)]
         return (sum(vals) / len(vals)) if vals else None
     out = {"judge_model": args.judge_model,
            "judge_prompt_sha256": hashlib.sha256(system_prompt.encode()).hexdigest(),
@@ -218,7 +330,10 @@ def main() -> int:
     tmp.write_text(json.dumps(out, indent=2, ensure_ascii=False), encoding="utf-8")
     tmp.replace(args.run_dir / "judge.json")
     print(json.dumps(out["summary"], indent=2))
-    return 0
+    # 130 = the shell's conventional "killed by Ctrl-C", so a script driving
+    # this can tell a complete run from a partial one. The partial results
+    # are on disk either way.
+    return 130 if interrupted else 0
 
 
 if __name__ == "__main__":

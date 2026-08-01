@@ -4,17 +4,22 @@ from the judge's claim list, never trusted from the model."""
 from __future__ import annotations
 
 import json
+import shutil
+import sys
 from pathlib import Path
+from types import SimpleNamespace
 
 import httpx
 import pytest
 
+from eval import judge_agent_run
 from eval.agent_schema import AgentQuery
 from eval.agent_transcript import Transcript, read_transcript
 from eval.judge_agent_run import (
     build_judge_payload,
     compute_citation_scores,
     judge_one,
+    main,
     parse_judge_json,
 )
 
@@ -234,3 +239,210 @@ def test_build_judge_payload_marks_missing_chunk_text_as_none():
     assert payload["cited_chunks"]["c-missing"] is None
     # the chunk that WAS retrieved this transcript is unaffected
     assert "$1,391,157,700" in payload["cited_chunks"]["c-1"]
+
+
+# ---- Finding 1 (final review): the headline metric must be bounded ----
+# The numerator counts CLAIMS, the old denominator counted CITATIONS, so
+# nothing tied them together and the ratio could exceed 1.0 — which made
+# the metric's gradient point at emitting FEWER citations, the exact
+# behavior it exists to punish.
+
+def _claims(covered: int, uncovered: int = 0) -> dict:
+    return {"load_bearing_claims":
+            [{"claim": f"covered-{i}", "cited_verified": True} for i in range(covered)]
+            + [{"claim": f"missed-{i}", "cited_verified": False} for i in range(uncovered)]}
+
+
+def test_one_citation_covering_three_claims_is_bounded_at_one():
+    """THE regression case: 1 citation issued, 3 load-bearing claims all
+    covered by it. This returned 3.0 before the fix. One table row backing
+    a three-figure comparison is the modal budget answer, so an unbounded
+    score here rewarded citing less."""
+    t = _transcript_with_citations(1)
+    scores = compute_citation_scores(_claims(covered=3), t)
+    assert scores["claim_coverage_precision"] == 1.0
+    assert scores["claim_coverage_recall"] == 1.0
+
+
+def test_claim_coverage_precision_never_exceeds_one():
+    """Property, not a single case: for every mix of citations issued and
+    covered claims, precision stays within 0..1."""
+    for emitted in range(0, 6):
+        for covered in range(0, 6):
+            scores = compute_citation_scores(_claims(covered=covered),
+                                             _transcript_with_citations(emitted))
+            p = scores["claim_coverage_precision"]
+            assert p is None or 0.0 <= p <= 1.0, (emitted, covered, p)
+
+
+def test_padding_citations_still_lowers_precision():
+    """The other side of the bound: issuing 5 citations to back 1 covered
+    claim is padding and must still be punished."""
+    t = _transcript_with_citations(5)
+    scores = compute_citation_scores(_claims(covered=1), t)
+    assert scores["claim_coverage_precision"] == 0.2
+
+
+def test_three_claims_cited_three_times_scores_the_same_as_cited_once():
+    """Before the fix these two shapes scored 1.0 and 3.0 — the same
+    answer, graded three times better for citing less."""
+    once = compute_citation_scores(_claims(covered=3), _transcript_with_citations(1))
+    thrice = compute_citation_scores(_claims(covered=3), _transcript_with_citations(3))
+    assert once["claim_coverage_precision"] == thrice["claim_coverage_precision"] == 1.0
+
+
+def test_covered_claims_with_zero_citations_is_still_not_applicable():
+    """A judge contradiction (claims marked covered when no citation was
+    issued) must not become a perfect 1.0 via the new max() denominator.
+    No citations issued = 'not applicable', as before."""
+    scores = compute_citation_scores(_claims(covered=3), _transcript_with_citations(0))
+    assert scores["claim_coverage_precision"] is None
+
+
+# ---- Finding 2 (final review): a malformed `holistic` must not bin the run ----
+
+def test_numeric_string_holistic_is_read_as_the_number():
+    """`"holistic": "4"` has exactly one honest reading. It used to reach
+    sum() in main()'s mean() and raise TypeError after every row had been
+    paid for."""
+    reply = json.dumps({"load_bearing_claims": [], "holistic": "4"})
+    assert parse_judge_json(reply)["holistic"] == 4
+
+
+def test_ungradable_holistic_becomes_none_and_keeps_the_raw_value():
+    """`"4/5"` has no single honest numeric reading, so it is recorded as
+    ungradable (None, which mean() skips) rather than guessed at — and the
+    row's claim list, which may be perfectly good, survives."""
+    reply = json.dumps({
+        "load_bearing_claims": [{"claim": "x", "cited_verified": True}],
+        "holistic": "4/5"})
+    parsed = parse_judge_json(reply)
+    assert parsed["holistic"] is None
+    assert parsed["holistic_raw"] == "4/5"
+    assert parsed["load_bearing_claims"][0]["cited_verified"] is True
+
+
+@pytest.mark.parametrize("bad", [True, 0, 47, "high", ["4"], {"score": 4}, float("nan")])
+def test_holistic_values_that_are_not_a_one_to_five_grade_are_rejected(bad):
+    """Every one of these would either crash the mean or silently skew it.
+    True is here because bool is an int subclass and would grade as 1."""
+    parsed = parse_judge_json(json.dumps({"load_bearing_claims": [], "holistic": bad}))
+    assert parsed["holistic"] is None
+
+
+def test_valid_holistic_grades_pass_through_unchanged():
+    for good in (1, 3, 5, 4.5):
+        parsed = parse_judge_json(json.dumps({"load_bearing_claims": [], "holistic": good}))
+        assert parsed["holistic"] == good
+        assert "holistic_raw" not in parsed
+
+
+def test_judge_prompt_template_shows_a_valid_json_holistic_value():
+    """Prompt and parser must not drift: the template used to show
+    `"holistic": 1-5`, which is not valid JSON and invited the "4"/"4/5"
+    replies this suite now guards against."""
+    prompt = judge_agent_run.PROMPT_PATH.read_text(encoding="utf-8")
+    assert '"holistic": 1-5' not in prompt
+    # the shown example value must itself parse as a 1-5 grade
+    shown = prompt.split('"holistic":')[1].split(",")[0].strip()
+    assert parse_judge_json(json.dumps(
+        {"load_bearing_claims": [], "holistic": json.loads(shown)}))["holistic"] is not None
+
+
+# ---- Finding 2, end to end: the run still writes what it paid for ------
+
+class _FakeSettings:
+    provider = SimpleNamespace(api_key="sk-test", base_url="https://judge.test/api/v1")
+
+
+def _run_main(tmp_path, monkeypatch, reply_content: str) -> dict:
+    """Drive main() over one transcript with the model call mocked.
+    httpx.Client is patched to hand back a MockTransport client, so this
+    can never make a real network call."""
+    run_dir = tmp_path / "run"
+    run_dir.mkdir()
+    shutil.copy(FIXTURE, run_dir / "aq-001-r1.jsonl")
+    queries_file = tmp_path / "queries.yaml"
+    queries_file.write_text(
+        "- id: aq-001\n"
+        "  question: What was ADC's FY 2025 General Fund appropriation?\n"
+        "  shape: lookup\n", encoding="utf-8")
+
+    def handler(request):
+        return httpx.Response(200, json={"choices": [{"message": {"content": reply_content}}]})
+
+    real_client = httpx.Client  # capture BEFORE patching, or the lambda recurses
+    monkeypatch.setattr(judge_agent_run.httpx, "Client",
+                        lambda *a, **k: real_client(transport=httpx.MockTransport(handler)))
+    monkeypatch.setattr(judge_agent_run, "load_settings", lambda: _FakeSettings())
+    monkeypatch.setattr(sys, "argv",
+                        ["judge", str(run_dir), "--queries-file", str(queries_file)])
+    assert main() == 0
+    return json.loads((run_dir / "judge.json").read_text(encoding="utf-8"))
+
+
+def test_main_writes_results_when_a_holistic_grade_is_malformed(tmp_path, monkeypatch):
+    """The whole point of Finding 2: a `"holistic": "4/5"` reply used to
+    raise TypeError in the summary mean AFTER the loop and BEFORE
+    judge.json was written, losing every already-paid grade in the run."""
+    out = _run_main(tmp_path, monkeypatch, json.dumps({
+        "load_bearing_claims": [{"claim": "ADC got $1,391,157,700", "cited_verified": True}],
+        "holistic": "4/5"}))
+    assert out["summary"]["n"] == 1
+    assert out["summary"]["errors"] == 0          # the row is graded, not binned
+    assert out["summary"]["holistic_mean"] is None  # ungradable, so excluded
+    row = out["per_query"][0]
+    assert row["holistic_raw"] == "4/5"
+    # the citation scores we paid for are intact and bounded
+    assert row["claim_coverage_precision"] == 1.0
+
+
+def test_main_writes_judge_json_atomically_with_the_prompt_hash(tmp_path, monkeypatch):
+    """Preserved guarantees: the prompt sha256 rides in the output and no
+    .tmp file is left behind by the atomic write."""
+    out = _run_main(tmp_path, monkeypatch, json.dumps(JUDGE_REPLY))
+    assert len(out["judge_prompt_sha256"]) == 64
+    assert out["summary"]["holistic_mean"] == 4
+    assert list((tmp_path / "run").glob("*.tmp")) == []
+
+
+def test_main_survives_a_row_that_raises_outside_the_model_call(tmp_path, monkeypatch):
+    """judge_one() swallows failures of the model CALL, but the code around
+    it (reading a transcript, building the payload, scoring) can still
+    raise — and judge.json is written once, after the loop. One bad row
+    must cost one row, not every already-paid grade in the run."""
+    run_dir = tmp_path / "run"
+    run_dir.mkdir()
+    shutil.copy(FIXTURE, run_dir / "aq-001-r1.jsonl")
+    shutil.copy(FIXTURE, run_dir / "aq-001-r2.jsonl")
+    queries_file = tmp_path / "queries.yaml"
+    queries_file.write_text("- id: aq-001\n  question: q1\n  shape: lookup\n",
+                            encoding="utf-8")
+
+    real_build = judge_agent_run.build_judge_payload
+    calls = []
+
+    def exploding_build(query, t):
+        calls.append(1)
+        if len(calls) == 1:  # first row blows up, second must still be graded
+            raise RuntimeError("boom")
+        return real_build(query, t)
+
+    def handler(request):
+        return httpx.Response(200, json={
+            "choices": [{"message": {"content": json.dumps(JUDGE_REPLY)}}]})
+
+    real_client = httpx.Client
+    monkeypatch.setattr(judge_agent_run, "build_judge_payload", exploding_build)
+    monkeypatch.setattr(judge_agent_run.httpx, "Client",
+                        lambda *a, **k: real_client(transport=httpx.MockTransport(handler)))
+    monkeypatch.setattr(judge_agent_run, "load_settings", lambda: _FakeSettings())
+    monkeypatch.setattr(sys, "argv",
+                        ["judge", str(run_dir), "--queries-file", str(queries_file)])
+    assert main() == 0
+    out = json.loads((run_dir / "judge.json").read_text(encoding="utf-8"))
+    assert out["summary"]["n"] == 2
+    assert out["summary"]["errors"] == 1
+    # the healthy row kept its grade, and the summary means skip the error row
+    assert any(r.get("holistic") == 4 for r in out["per_query"])
+    assert out["summary"]["claim_coverage_precision_mean"] == 1.0
