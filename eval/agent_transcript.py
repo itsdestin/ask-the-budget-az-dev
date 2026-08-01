@@ -34,7 +34,20 @@ def write_transcript(
     lines = [json.dumps({"kind": "meta", **meta}, ensure_ascii=False)]
     lines += [json.dumps({"kind": "event", "event": e}, ensure_ascii=False) for e in events]
     lines.append(json.dumps({"kind": "terminal", **terminal}, ensure_ascii=False))
-    Path(path).write_text("\n".join(lines) + "\n", encoding="utf-8")
+    # Write to a sibling temp file and rename into place, the way every other
+    # artifact in this eval is written (manifest.json, scores.json). The plain
+    # write this replaced could leave a HALF-WRITTEN transcript on a crash or a
+    # flaky share write — the exact torn file read_transcript() below degrades
+    # to a synthetic "_error" record. That reader still earns its keep (a
+    # transcript written by an older run, or damaged after the fact, can still
+    # be torn), but a run should not be manufacturing the damage it then
+    # tolerates: a torn file scores as a FAILED QUERY, indistinguishable from
+    # the agent genuinely failing. Same directory as the target so the replace
+    # is atomic (a rename across filesystems is not).
+    path = Path(path)
+    tmp = path.with_name(path.name + ".tmp")
+    tmp.write_text("\n".join(lines) + "\n", encoding="utf-8")
+    tmp.replace(path)
 
 
 def read_transcript(path: str | Path) -> Transcript:
