@@ -8,9 +8,15 @@ import json
 
 import pytest
 
-from eval.agent_schema import AgentQuery
+from eval.agent_schema import AgentQuery, KeyFact
+from eval.agent_scoring import score_transcript
 from eval.agent_transcript import read_transcript
-from eval.run_agent_eval import build_manifest, run_suite, select_queries
+from eval.run_agent_eval import (
+    build_manifest,
+    query_set_sha256,
+    run_suite,
+    select_queries,
+)
 from harness.session import HarnessSession
 from tests.test_harness_session import (
     FakeExecutor,
@@ -173,3 +179,130 @@ def test_manifest_redacts_key_and_records_models(tmp_path):
     assert "standard" in manifest["tier_models"]
     assert manifest["queries"] == ["aq-001"]
     assert "prompt_sha256" in manifest and "corpus_counts" in manifest
+
+
+def test_manifest_hashes_the_query_set_content_not_just_the_ids():
+    """Finding 2: `queries` (an id list) is byte-identical when somebody
+    EDITS a query's key facts between two `full` runs, so the compare tool
+    had no way to tell authoring drift from a real change."""
+    settings = make_settings()
+    original = q(key_facts=[KeyFact(kind="currency", value="$1,391,157,700")])
+    edited = q(key_facts=[KeyFact(kind="currency", value="$1,400,000,000")])
+
+    a = build_manifest(settings, [original], subset="full", repeats=1)
+    b = build_manifest(settings, [edited], subset="full", repeats=1)
+    assert a["queries"] == b["queries"]          # the old signal: identical
+    assert a["queries_sha256"] != b["queries_sha256"]  # the new one: differs
+
+    same = build_manifest(settings, [q(key_facts=list(original.key_facts))],
+                          subset="full", repeats=1)
+    assert a["queries_sha256"] == same["queries_sha256"]
+
+
+def test_query_set_hash_ignores_ordering():
+    # Reordering the YAML must not read as a changed measuring stick.
+    a, b = q("aq-001"), q("aq-002")
+    assert query_set_sha256([a, b]) == query_set_sha256([b, a])
+
+
+# --- Finding 3: the runner -> scorer seam --------------------------------
+#
+# Every runner test above asserts only the terminal frame's TYPE and cost, and
+# never imports the scorer; every scorer test uses hand-written fixtures. The
+# frame's own key names were therefore untested end to end. Verified: a
+# transcript whose frame calls the list `cites` instead of `citations` scores
+# as verified_citations: 0, refused: True, ok: True -- silently. A rename in
+# harness/session.py's TurnRecorder would leave the whole suite green while
+# every real run reported a total citation collapse AND scored all five
+# refusal queries as correct refusals. This test runs the REAL session
+# (fake transport only), writes a real transcript, and scores it, so a rename
+# breaks a test instead of a baseline.
+
+def citing_provider():
+    """retrieve -> cite -> answer, the shape of a normal successful query."""
+    return Provider(
+        lambda: sse(
+            tool_chunk(0, call_id="c1", name="retrieve", arguments='{"query": "ADC"}'),
+            finish_chunk("tool_calls"),
+            usage_chunk(prompt=100, completion=10, cost=0.001, cached=0),
+        ),
+        lambda: sse(
+            tool_chunk(0, call_id="c2", name="cite", arguments=json.dumps({
+                "chunk_id": "c-1", "quote": "$1,391,157,700",
+                "confidence": "verbatim", "claim_span": "ADC received the money"})),
+            finish_chunk("tool_calls"),
+            usage_chunk(prompt=150, completion=20, cost=0.001, cached=0),
+        ),
+        lambda: sse(
+            text_chunk("ADC received $1,391,157,700 in FY 2025."),
+            finish_chunk("stop"),
+            usage_chunk(prompt=200, completion=30, cost=0.002, cached=90),
+        ),
+    )
+
+
+def citing_executor():
+    return FakeExecutor(results={
+        "retrieve": {"top_score": 4.0, "retrieval_id": "r", "chunks": [
+            {"chunk_id": "c-1", "doc_id": "d", "doc_title": "T", "publisher": "jlbc",
+             "fiscal_year": 2025, "doc_type": "afr", "page_start": 1, "page_end": 1,
+             "text": "ADC received $1,391,157,700 in FY 2025.", "score": 4.0}]},
+        "cite": {"ok": True, "citation_id": "cit-1",
+                 "resolved_span_start": 13, "resolved_span_end": 27},
+    })
+
+
+def test_a_real_run_produces_a_transcript_the_scorer_actually_reads(tmp_path):
+    query = q(key_facts=[KeyFact(kind="currency", value="$1,391,157,700")])
+
+    def factory(_query, conv_id):
+        return HarnessSession(
+            conv_id, corpus=_query.corpus, tier=_query.tier, user="eval",
+            settings=make_settings(), executor=citing_executor(),
+            transport=citing_provider().transport(), tools=[],
+            system_prompt="eval test prompt",
+        )
+
+    run_suite([query], tmp_path, factory, progress=lambda *_: None)
+    row = score_transcript(query, read_transcript(tmp_path / "aq-001-r1.jsonl"))
+
+    # Each of these reads a DIFFERENT key of the real frame. A rename of any
+    # one of them upstream fails here rather than silently zeroing a metric.
+    assert row["ok"] is True                       # frame["type"] == "_done"
+    assert row["key_fact_rate"] == 1.0             # frame["finalAnswer"]
+    assert row["verified_citations"] == 1          # frame["citations"][].ok
+    assert row["refused"] is False                 # derived from the above
+    assert row["cite_attempts"] == 1               # frame["toolCalls"]
+    assert row["cite_pass_rate"] == 1.0            # + each call's "output"
+    assert row["first_try_cite_rate"] == 1.0
+    assert row["retrieve_call_count"] == 1
+    assert row["retrieved_chunks_distinct"] == 1
+    assert row["steps"] >= 1                       # the event stream
+    assert row["cost_usd"] == pytest.approx(0.004)  # frame["usage"]["cost"]
+    assert row["wall_ms"] is not None
+
+
+def test_a_refusal_shaped_run_scores_as_a_refusal_through_the_real_seam(tmp_path):
+    """The other half of the seam: an answer with no cite must reach the
+    scorer AS a refusal. If `citations` were renamed upstream this test would
+    still pass -- which is exactly why the citing test above exists as its
+    pair. Kept because refusal correctness is scored from the same frame."""
+    query = q(id="aq-r", shape="refusal", should_refuse=True, key_facts=[])
+    provider = Provider(lambda: sse(
+        text_chunk("That is outside this corpus."),
+        finish_chunk("stop"),
+        usage_chunk(prompt=100, completion=10, cost=0.001, cached=0)))
+
+    def factory(_query, conv_id):
+        return HarnessSession(
+            conv_id, corpus=_query.corpus, tier=_query.tier, user="eval",
+            settings=make_settings(), executor=FakeExecutor(),
+            transport=provider.transport(), tools=[],
+            system_prompt="eval test prompt",
+        )
+
+    run_suite([query], tmp_path, factory, progress=lambda *_: None)
+    row = score_transcript(query, read_transcript(tmp_path / "aq-r-r1.jsonl"))
+    assert row["ok"] is True
+    assert row["refused"] is True
+    assert row["refusal_correct"] is True
