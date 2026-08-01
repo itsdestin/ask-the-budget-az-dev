@@ -353,12 +353,26 @@ analyst already has open. Worth recording as a method note — the design was de
 paper and wrong in ten seconds of contact with a real user, which is the argument for
 getting a rough build in front of someone early rather than polishing first.
 
+### Stage 3 — offline cold start: PASSED
+
+WiFi disconnected, the running server killed so the next launch could not be a warm
+reuse, then the shortcut clicked. It started and served exactly as it had online, and
+the cold start was confirmed against the launcher's own log — `open_window()` writes a
+`=== <timestamp> starting on port N ===` line per genuine start, and the newest one fell
+inside the offline window.
+
+**This is the acceptance criterion for Tasks 15 and 16, and it is now met:** the server
+starts on a machine that has never had Python, with no network. S7's "first run downloads
+nothing" holds in practice and not merely in the source-reading.
+
+It also retroactively validates the four environment levers as a set. Each was traced
+individually through the shipped library source; none had been *exercised* until the
+network went away. Had any one been wrong — `HF_HUB_OFFLINE` in particular, which is the
+difference between a populated cache and a cache fastembed still phones home to
+validate — this run would have hung on a timeout rather than started.
+
 ## Still not verified
 
-- **First-run offline behaviour.** The four environment levers are traced in source
-  and now known to *import*, but the network cable has not been pulled. Note that the
-  laptop had internet during this run, so a lever that silently fell back to a download
-  would not have shown itself.
 - **Real retrieval.** No corpus was attached; `create_app()` falls back to stub search
   fixtures when `budget_chunks` is empty (confirmed on Linux), so the interface can be
   exercised without proving the retrieval path.

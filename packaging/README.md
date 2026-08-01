@@ -115,15 +115,28 @@ wheels resolved on Linux really do run on Windows, compiled extensions included.
 
 Full transcript: `docs/superpowers/investigations/2026-08-01-bundle-size.md`.
 
+Also verified in the same session:
+
+- `install.cmd` completed with no admin elevation and no endpoint-security prompt
+- the shortcut starts the server and serves the SPA
+- several clicks leave exactly **one** `pythonw.exe` — S8's relaunch-reuse, confirmed by
+  process count rather than by how fast the window felt
+- **the acceptance criterion: an offline cold start.** WiFi off, server killed so the
+  launch could not be a warm reuse, shortcut clicked — it started and served normally.
+  The cold start was confirmed against the launcher's own `=== ... starting on port N ===`
+  log line rather than assumed from how long it took.
+
+That last one is what makes S7 real. The four environment variables above were each
+traced through library source but none had been *exercised* until the network went away;
+had `HF_HUB_OFFLINE` been wrong, the run would have hung on a timeout instead of starting.
+
 ## What has still NOT been verified
 
-The acceptance criterion is unchanged, and importing is not running:
-
-> The server starts, and answers a query, **with the network cable unplugged**, on
-> a machine that has never had Python installed.
-
-Outstanding: the server actually starting and serving; offline first-run behaviour;
-real retrieval against a corpus; `java` found through the launcher's `PATH` prepend
-rather than by explicit path; opendataloader-pdf extracting a real document; and how
-this behaves on a machine whose endpoint-security policy is stricter than the one
-laptop tested so far.
+- **Real retrieval against a corpus.** Every run so far had an empty data dir, where
+  `create_app()` falls back to stub search fixtures — so the interface was exercised
+  without the retrieval path.
+- **`java` found through the launcher's `PATH` prepend.** `jre\bin\java.exe` ran when
+  invoked by explicit path; the indirection opendataloader-pdf actually uses has not been.
+- **opendataloader-pdf extracting a real document**, and MinerU doing the same.
+- **A stricter endpoint-security policy.** One laptop's policy is not the estate's.
+- **Zip and unzip times over the office SMB share.** Transfer here was USB.

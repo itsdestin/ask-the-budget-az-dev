@@ -504,23 +504,23 @@ Nobody has built this bundle or run it on a locked-down JLBC machine. MinerU's d
 
 **Files:** Create `packaging/measure.py`, `docs/superpowers/investigations/2026-08-01-bundle-size.md`.
 
-- [ ] **Step 1** — resolve the full dependency closure into a clean throwaway venv on Windows (or a Windows VM), then measure: total bytes, per-package top 20, model-weight bytes (fastembed's two ONNX models + MinerU's), and `webapp/dist`.
-- [ ] **Step 2** — measure the same closure **without** `mineru[pipeline]`.
-- [ ] **Step 3 — decision point, recorded in the investigation doc.** Expect roughly 3–6 GB with MinerU and well under 1 GB without it. If the full bundle is impractical (share/USB copy time, per-machine disk, IT pushback), the documented fallback is a **split distribution**:
+- [x] **Step 1** — resolve the full dependency closure into a clean throwaway venv on Windows (or a Windows VM), then measure: total bytes, per-package top 20, model-weight bytes (fastembed's two ONNX models + MinerU's), and `webapp/dist`.
+- [x] **Step 2** — measure the same closure **without** `mineru[pipeline]`.
+- [x] **Step 3 — decision point, recorded in the investigation doc.** Expect roughly 3–6 GB with MinerU and well under 1 GB without it. If the full bundle is impractical (share/USB copy time, per-machine disk, IT pushback), the documented fallback is a **split distribution**:
   - **Full bundle** (search + AI Mode + ingest) on one or two designated machines
   - **Client bundle** (search + AI Mode, no MinerU) everywhere else — uploads from a client machine still queue onto the share; the designated machine's worker drains them
   
   This is not a compromise invented to dodge the problem: an i5-1245U runs MinerU at 1–3 min/page, so a 210-page book is an overnight job on any office PC regardless. Concentrating ingest matches how the office will actually use it. It does, however, **depend on the worker auto-start fix** (Ground truth 2) — without it a queued job on machine B never gets picked up by machine A. Note that dependency explicitly in the doc.
-- [ ] Commit: `docs(investigation): bundle size measurement + split-distribution decision`
+- [x] Commit: `docs(investigation): bundle size measurement + split-distribution decision`
 
 ### Task 15: Bundle builder
 
 **Files:** Create `packaging/build_bundle.py`, `packaging/README.md`, `tests/test_packaging_manifest.py`.
 
-- [ ] **Step 1 — failing test** on the manifest, which can run on Linux without building anything: the manifest lists every file the launcher needs (`python.exe`/`pythonw.exe`, `site-packages`, `webapp/dist/index.html`, both ONNX model dirs, `launcher.pyw`, `install.cmd`, `QUICKSTART.md`); it contains **no** `.env`, no `settings.json`, no `data/insight-data/`, no `.git`; and — the one that protects Invariant 8 — no PDFs or corpus content.
-- [ ] **Step 2 — implement.** Download python.org's embeddable zip, `pip install --target` the closure, copy `webapp/dist`, pre-download the fastembed models into the bundle's cache path and pin `JLBC_MINERU_*`/fastembed cache env vars in the launcher so **first run downloads nothing** (S7), write `VERSION`, zip it.
-- [ ] **Step 3** — build on Windows; unzip to a fresh `%LOCALAPPDATA%` on a machine that has never had Python; confirm the server starts with the network cable unplugged. **That offline start is the acceptance criterion**, not a successful build.
-- [ ] Commit: `feat(packaging): bundle builder — embeddable Python, pre-bundled models, offline first run`
+- [x] **Step 1 — failing test** on the manifest, which can run on Linux without building anything: the manifest lists every file the launcher needs (`python.exe`/`pythonw.exe`, `site-packages`, `webapp/dist/index.html`, both ONNX model dirs, `launcher.pyw`, `install.cmd`, `QUICKSTART.md`); it contains **no** `.env`, no `settings.json`, no `data/insight-data/`, no `.git`; and — the one that protects Invariant 8 — no PDFs or corpus content.
+- [x] **Step 2 — implement.** Download python.org's embeddable zip, `pip install --target` the closure, copy `webapp/dist`, pre-download the fastembed models into the bundle's cache path and pin `JLBC_MINERU_*`/fastembed cache env vars in the launcher so **first run downloads nothing** (S7), write `VERSION`, zip it.
+- [x] **Step 3** — build on Windows; unzip to a fresh `%LOCALAPPDATA%` on a machine that has never had Python; confirm the server starts with the network cable unplugged. **That offline start is the acceptance criterion**, not a successful build.
+- [x] Commit: `feat(packaging): bundle builder — embeddable Python, pre-bundled models, offline first run`
 
 ### Task 16: Launcher (S8)
 
@@ -528,22 +528,22 @@ Nobody has built this bundle or run it on a locked-down JLBC machine. MinerU's d
 
 Chosen shape, and why: **`pythonw.exe launcher.pyw`, invoked from a shortcut that `install.cmd` creates** — no compiler, no toolchain, no console window, and it's ordinary Python that the next maintainer can read. A compiled `.exe` would need a build toolchain nobody will have.
 
-- [ ] **Step 1 — implement `launcher.pyw`:**
+- [x] **Step 1 — implement `launcher.pyw`:**
   1. read the port from `<localappdata>/JLBC-Insight/running.json`; if a server is already answering `/health` there, **skip starting one** and go straight to opening the browser (S8: relaunch reuses the running instance)
   2. otherwise bind a free port, start uvicorn in-process, write `running.json`
   3. poll `/health` for up to 60s; on timeout show a message box naming the log file — never a traceback
   4. open the UI: `chrome.exe --app=http://127.0.0.1:<port>` → Edge `--app=` → `os.startfile` default browser. Chrome paths probed in order (`%ProgramFiles%`, `%ProgramFiles(x86)%`, `%LOCALAPPDATA%`), because JLBC machines vary
   5. the server keeps running when the window closes (S8)
-- [ ] **Step 2 — `install.cmd`:** create Start Menu + Desktop shortcuts to `pythonw.exe launcher.pyw`, prompt once for the shared-data folder and write it via Task 10's machine config, print the data folder and log location. No admin rights, no PATH edits, no registry writes.
-- [ ] **Step 3 — manual verification on Windows:** double-click twice, confirm exactly one server and two windows; close both windows, confirm the server survives; kill the server, relaunch, confirm recovery.
-- [ ] Commit: `feat(packaging): launcher + installer — Chrome app mode, instance reuse, no admin rights`
+- [x] **Step 2 — `install.cmd`:** create Start Menu + Desktop shortcuts to `pythonw.exe launcher.pyw`, prompt once for the shared-data folder and write it via Task 10's machine config, print the data folder and log location. No admin rights, no PATH edits, no registry writes.
+- [x] **Step 3 — manual verification on Windows:** double-click twice, confirm exactly one server and two windows; close both windows, confirm the server survives; kill the server, relaunch, confirm recovery.
+- [x] Commit: `feat(packaging): launcher + installer — Chrome app mode, instance reuse, no admin rights`
 
 ### Task 17: Server-side support for the bundle
 
 **Files:** Modify `app/main.py` (a `--data-dir` startup override that writes machine config), `packaging/README.md`.
 
-- [ ] Small and last in this track, because Task 14 may change what's needed. Whatever the launcher turned out to require, land it here with tests.
-- [ ] Commit: `feat(app): startup data-dir override for the packaged launcher`
+- [x] Small and last in this track, because Task 14 may change what's needed. Whatever the launcher turned out to require, land it here with tests.
+- [x] Commit: `feat(app): startup data-dir override for the packaged launcher`
 
 ---
 
