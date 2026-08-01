@@ -17,6 +17,7 @@ from dataclasses import replace
 
 import pytest
 
+from harness.constants import REFUSAL_THRESHOLD
 from retrieval.recency import (
     RECENCY_BOOST_PER_YEAR,
     anchor_fiscal_year,
@@ -49,16 +50,24 @@ def _chunk(chunk_id: str, *, score: float, fiscal_year: int | None) -> Retrieved
 
 
 # ---------------------------------------------------------------------------
-# It ships off
+# It ships CALIBRATED (was: it ships off)
 # ---------------------------------------------------------------------------
 
 
-def test_the_shipped_weight_is_zero():
-    """Pinned until eval/calibrate_recency.py recommends a value against a
-    backfilled corpus (S21 / plan Task 6). If this fails, someone turned
-    the boost on — REFUSAL_THRESHOLD must be recalibrated in the same
-    change."""
-    assert RECENCY_BOOST_PER_YEAR == 0.0
+def test_the_shipped_weight_and_refusal_threshold_move_together():
+    """The boost is a PENALTY on age, so switching it on can only lower
+    `top_score` — and REFUSAL_THRESHOLD is compared against `top_score`.
+    Changing one without the other makes the system refuse more (or less)
+    for reasons nobody intended.
+
+    This guard used to assert the weight was 0.0 ("ships inert"). It was
+    calibrated on 2026-08-01 (0.0 -> 2.064) and REFUSAL_THRESHOLD moved with
+    it (1.9 -> 1.04) in the same change. The pairing is what matters, not
+    either number alone, so the test now pins BOTH — a future recalibration
+    that touches only one of them fails here.
+    """
+    assert RECENCY_BOOST_PER_YEAR == 2.064
+    assert REFUSAL_THRESHOLD == 1.04
 
 
 def test_zero_weight_changes_neither_scores_nor_order():

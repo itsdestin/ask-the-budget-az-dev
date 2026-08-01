@@ -35,15 +35,21 @@ from retrieval import NO_RESULTS_TOP_SCORE, retrieve, RetrievalRequest  # noqa: 
 
 
 DEFAULT_TOP_K = 20
-# Matches the runtime threshold in mcp-server/system-prompt.md
-# (refusal_no_retrieval — top_score < 1.9, raw cross-encoder logit
+# Matches the runtime threshold in harness/constants.py
+# (REFUSAL_THRESHOLD — raw cross-encoder logit
 # scale). Keeping the eval's default in sync with the prompt means the
 # runner's refusal_precision / refusal_recall reflect what production
 # would actually do. Override via --threshold to evaluate alternate
-# values without changing the prompt. History: 0.30 (placeholder) →
+# values without changing the runtime. History: 0.30 (placeholder) →
 # 0.65 (2026-05-22, Voyage 0..1 scale) → 1.9 (2026-07-30, recalibrated
-# for the local L-12 reranker's logit distribution).
-DEFAULT_REFUSAL_THRESHOLD = 1.9
+# for the local L-12 reranker's logit distribution) → 1.04 (2026-08-01,
+# recalibrated after RECENCY_BOOST_PER_YEAR went 0.0 → 2.064).
+#
+# IMPORTED, not re-declared. This used to be its own `= 1.9` literal, which
+# meant the eval scored refusals against a number the app had stopped using —
+# a silent drift that makes the eval agree with itself and disagree with
+# production. The one place to change it is harness/constants.py.
+from harness.constants import REFUSAL_THRESHOLD as DEFAULT_REFUSAL_THRESHOLD
 
 # CLI corpus name -> LanceDB table. The flag takes the analyst-facing name the
 # rest of the app uses ("budget"), but RetrievalRequest.corpus is the TABLE

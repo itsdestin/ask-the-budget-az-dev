@@ -228,10 +228,10 @@ def main() -> None:
         f"\nRecommended threshold: {pick['threshold']:.2f}"
     )
     print(
-        "To apply: edit the `top_score < <threshold>` references in "
-        "mcp-server/system-prompt.md (the `refusal_no_retrieval` "
-        "section + the rules table) to use the new value, then re-run "
-        "the dogfood tests."
+        "To apply: set REFUSAL_THRESHOLD in harness/constants.py to this "
+        "value. It is the single source — harness/prompt.py and "
+        "harness/tools.py both inject it, so they cannot disagree. "
+        "Re-run the eval afterwards."
     )
     print(
         f"Justified by: {result_path}"

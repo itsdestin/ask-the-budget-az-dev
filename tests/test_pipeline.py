@@ -828,9 +828,15 @@ def _dated_seams(monkeypatch, chunks):
     return s
 
 
-def test_the_recency_bonus_is_off_at_the_shipped_weight(monkeypatch):
-    """Every production retrieval runs through this call today, so a
-    non-no-op default would silently reorder the whole corpus."""
+def test_the_recency_bonus_is_live_at_the_shipped_weight(monkeypatch):
+    """Every production retrieval runs through this call, so what the
+    SHIPPED weight does to ordering is worth pinning explicitly.
+
+    Was `..._is_off_...` and asserted a no-op, correct while the weight was
+    0.0. Calibrated to 2.064 on 2026-08-01: an 8-year gap now outweighs a
+    1.0 reranker-score lead, so the newer chunk wins. That is the intended
+    behaviour, and pinning it here means a future weight change has to come
+    past a test that spells out the consequence."""
     _dated_seams(monkeypatch, [_dated("old", 2019), _dated("new", 2027)])
 
     result = _run(
@@ -838,9 +844,10 @@ def test_the_recency_bonus_is_off_at_the_shipped_weight(monkeypatch):
         reranker=FakeReranker({"old": 5.0, "new": 4.0}),
     )
 
-    assert [c.chunk_id for c in result.chunks] == ["old", "new"]
-    assert result.reranker_scores == [5.0, 4.0]
-    assert result.top_score == 5.0
+    # 2019 is 8 years older than 2027; at 2.064/year that is a 16.5 penalty,
+    # far past "old"'s 1.0 lead, so the newer document surfaces first.
+    assert [c.chunk_id for c in result.chunks] == ["new", "old"]
+    assert result.top_score == 4.0
 
 
 def test_an_enabled_bonus_reorders_and_moves_top_score(monkeypatch):

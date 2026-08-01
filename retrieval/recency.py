@@ -47,11 +47,41 @@ from retrieval.types import RetrievedChunk
 # fall when this is switched on, and why REFUSAL_THRESHOLD has to be
 # recalibrated at the same time.
 #
-# WHY 0.0 until calibrated: picking a weight requires a corpus containing
-# the old editions it is meant to demote, and that corpus does not exist
-# until the S20 backfill runs. A guessed weight would either do nothing
-# or quietly outrank relevance. See eval/calibrate_recency.py.
-RECENCY_BOOST_PER_YEAR = 0.0
+# CALIBRATED 2026-08-01 against the backfilled corpus (28,530 budget chunks,
+# JLBC Baselines FY2022-2027 + Approps FY2022-2026). Full sweep:
+# eval/results/recency-sweep-2026-08-01T1009Z-f35d8d4.json, reproduce with
+# `python -m eval.sweep_recency`.
+#
+#   weight | chronological order | explicit-year set | year-stripped proxy@5
+#   -------+---------------------+-------------------+----------------------
+#    0.000 |        59.5%        |       100%        |        75.0%
+#    2.064 |        78.5%        |       100%        |        79.2%   <- chosen
+#    2.752 |        83.9%        |       100%        |        66.7%
+#    4.128 |        92.1%        |       100%        |        62.5%
+#
+# WHY 2.064 and not the 4.128 that hits a 90% ordering target: 2.064 is the
+# last weight that costs nothing. Ordering improves 19 points AND the
+# year-stripped proxy recall goes UP (75.0 -> 79.2). The cliff is immediately
+# after: by 2.752 the boost has stopped being a tiebreaker and starts pushing
+# FY2027 material above FY2025/26 targets that are the actual answer, and three
+# real queries fall out of the top 5 (q-002, q-015, q-023). Buying 13 more
+# points of ordering for 12.5 points of top-5 recall is a bad trade for a tool
+# whose job is finding the right document.
+#
+# The explicit-year column is flat at 100% because S21 layer 1 hard-filters a
+# query that names a year before this ever runs — that immunity is now measured,
+# not assumed (eval/queries_historical.yaml, 5 of whose 10 entries are
+# deliberate FY2022/FY2023 over-boost guards).
+#
+# KNOWN LIMIT, do not read the eval as a safety proof: 32 of the 34 queries in
+# eval/queries.yaml name a fiscal year, so they never execute this code at all,
+# and every ground-truth chunk in that file is FY2025-2027. The set cannot
+# currently measure harm to an older target. See STATUS.md.
+#
+# RE-CALIBRATE when the 27 deferred pre-FY2022 editions land: a corpus spanning
+# 2005-2027 instead of 2022-2027 changes both the year spread this is measured
+# against and what competes inside it.
+RECENCY_BOOST_PER_YEAR = 2.064
 
 
 @contextmanager

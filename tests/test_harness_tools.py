@@ -291,7 +291,10 @@ def test_retrieve_schema_mirrors_the_locked_zod_shape():
 def test_retrieve_description_carries_the_injected_refusal_threshold():
     description = TOOLS[0]["function"]["description"]
     assert str(REFUSAL_THRESHOLD) in description
-    assert "1.9" in description
+    # The literal, so a refactor that stops injecting the constant but leaves
+    # a hardcoded number behind still fails. Updated 1.9 -> 1.04 when the
+    # threshold was recalibrated for the recency boost (2026-08-01).
+    assert "1.04" in description
 
 
 def test_no_stale_refusal_threshold_appears_in_any_description():

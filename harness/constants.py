@@ -28,7 +28,16 @@ from types import MappingProxyType
 # `eval/calibrate_refusal.py` after any corpus or rerank-model change
 # and edit this ONE number; `harness/prompt.py` and `harness/tools.py`
 # both inject it, so they can never disagree.
-REFUSAL_THRESHOLD = 1.9
+# RE-CALIBRATED 2026-08-01 from 1.9 -> 1.04, because RECENCY_BOOST_PER_YEAR
+# went 0.0 -> 2.064 on the same day. The boost is a PENALTY on age: it can only
+# ever lower a score, so it lowers `top_score` too, and this number is compared
+# against `top_score`. Leaving it at 1.9 would have quietly made the system
+# refuse more often — looking like caution, actually just a units mismatch.
+# Sweep: eval/calibrate_refusal.py against
+# eval/results/2026-08-01T1027Z-3b43f74.json — at 1.04 refusal precision is
+# 1.00 (no query is refused that shouldn't be), refusal recall 0.60, and
+# retrieval pass-rate 1.00 (no real question is turned away).
+REFUSAL_THRESHOLD = 1.04
 
 # Bounds the model may pass in a `fiscal_year` filter.
 #
