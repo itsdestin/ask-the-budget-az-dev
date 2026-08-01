@@ -73,6 +73,17 @@ def _prober(request: Request):
     return getattr(request.app.state, "book_prober", None) or HttpProber()
 
 
+def _batch_id_for(family: str, fiscal_year: int) -> str:
+    """The batch every document of one book edition shares.
+
+    Family AND year, because both books number their sections identically —
+    keying on either alone would merge two genuinely separate editions into
+    one restore point. Same reasoning as the `family=` argument to
+    `make_doc_id` just below.
+    """
+    return f"jlbc-{family}-fy{fiscal_year}"
+
+
 @router.get("/api/books/catalog")
 def catalog():
     return {"editions": list_editions()}
@@ -136,6 +147,12 @@ def ingest(body: EditionBody, request: Request):
             fiscal_year=doc.fiscal_year,
             user_title=doc.title,
             source_url=doc.url,
+            # One restore point per BOOK EDITION rather than per document.
+            # An edition is ~130 documents; snapshotting each would zip the
+            # whole corpus 130 times, and the edition is the unit somebody
+            # would actually roll back anyway. See
+            # ingest/worker.py::_should_snapshot.
+            batch_id=_batch_id_for(plan.family, doc.fiscal_year),
         )
         save(job)
         queued.append(job.job_id)
