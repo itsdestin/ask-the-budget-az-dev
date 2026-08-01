@@ -30,7 +30,9 @@ from harness.catalog import (
     CACHE_FILE,
     CACHE_TTL_SECONDS,
     RECOMMENDATIONS,
+    INTELLIGENCE_CEILING,
     ModelCard,
+    intelligence_percent,
     fetch_catalog,
     parse_catalog,
 )
@@ -267,3 +269,163 @@ def test_model_card_is_json_safe(payload):
     # round-trip through json would 500 at render time, not at import.
     json.dumps([c.as_dict() for c in result.recommended])
     assert isinstance(result.recommended[0], ModelCard)
+
+
+# ---------------------------------------------------------------------------
+# The indicators the admin page renders (2026-07-31)
+# ---------------------------------------------------------------------------
+
+
+def test_the_per_question_estimate_reproduces_the_measured_runs(payload):
+    """The anchor. These two numbers were MEASURED, not modelled.
+
+    On 2026-07-31, against the real corpus and a real key, a Standard
+    lookup cost $0.0127 on qwen/qwen3.7-plus and a Deep Research question
+    cost $0.563 on moonshotai/kimi-k3. `TYPICAL_QUESTION` is solved from
+    those, so the estimate has to land back on them — if it stops doing
+    so, the token profile has drifted from the evidence it came from.
+    """
+    result = fetch_catalog(openrouter_settings(), transport=_transport(payload))
+    cards = {c.id: c for c in result.recommended}
+
+    assert cards["qwen/qwen3.7-plus"].usd_per_question == pytest.approx(0.0127, abs=0.0002)
+    assert cards["moonshotai/kimi-k3"].usd_per_question == pytest.approx(0.563, abs=0.002)
+
+
+def test_deep_research_really_is_about_forty_times_standard(payload):
+    # The claim S16 and the handbook both make, derived here rather than
+    # asserted from memory.
+    cards = {c.id: c for c in fetch_catalog(
+        openrouter_settings(), transport=_transport(payload)).recommended}
+    ratio = (
+        cards["moonshotai/kimi-k3"].usd_per_question
+        / cards["qwen/qwen3.7-plus"].usd_per_question
+    )
+    assert 35 <= ratio <= 50
+
+
+def test_indicators_come_from_the_payload(payload):
+    cards = {c.id: c for c in parse_catalog(payload)}
+    card = cards["deepseek/deepseek-v4-flash"]
+    assert card.max_output_tokens == 393216
+    assert card.is_open_weights is True          # has a hugging_face_id
+    # qwen3.7-plus publishes no hugging_face_id, so it must not claim to.
+    assert cards["qwen/qwen3.7-plus"].is_open_weights is False
+
+
+def test_capability_comes_from_the_published_benchmark(payload):
+    """OpenRouter republishes Artificial Analysis's scores per model.
+
+    This is the only capability signal in the payload — there is no
+    latency or throughput figure to be had (both were null for every
+    shipped recommendation on 2026-07-31), so this is what the picker
+    shows and nothing is invented alongside it.
+    """
+    cards = {c.id: c for c in parse_catalog(payload)}
+    assert cards["moonshotai/kimi-k3"].intelligence_index == pytest.approx(57.1)
+    assert cards["moonshotai/kimi-k3"].agentic_index == pytest.approx(50.1)
+    # A stronger model must score higher, or the chip is worse than useless.
+    assert (
+        cards["moonshotai/kimi-k3"].intelligence_index
+        > cards["z-ai/glm-4.7"].intelligence_index
+    )
+
+
+def test_an_unscored_model_reports_no_capability(payload):
+    """DeepSeek V4 Flash carries no `benchmarks` entry in the real payload.
+
+    None, never 0 — a zero would render as "this model is bad" when what
+    is true is "nobody has measured it".
+    """
+    cards = {c.id: c for c in parse_catalog(payload)}
+    assert cards["deepseek/deepseek-v4-flash"].intelligence_index is None
+
+
+def test_a_malformed_benchmarks_block_is_ignored(payload):
+    # `benchmarks` is a newer field and its shape is OpenRouter's to change.
+    for bad in ("nonsense", {"artificial_analysis": "nope"},
+                {"artificial_analysis": {"intelligence_index": None}}):
+        payload["data"][0]["benchmarks"] = bad
+        cards = {c.id: c for c in parse_catalog(payload)}
+        assert cards[payload["data"][0]["id"]].intelligence_index is None
+
+
+def test_intelligence_is_a_percentage_of_the_ceiling():
+    """The raw index is a composite with no natural top; the page needs one.
+
+    "57" tells a non-technical admin nothing — 57 out of what? Dividing by
+    a fixed ceiling turns it into a figure that carries its own reference
+    point, and makes the bar beside it mean the same thing as the number.
+    """
+    assert intelligence_percent(60.7) == 91      # Opus 5, the reference point
+    assert intelligence_percent(57.1) == 85      # best shipped recommendation
+    assert intelligence_percent(33.7) == 50
+    # Whole numbers only: the source is a blended benchmark average carrying
+    # maybe two significant figures, so a decimal here would be invented.
+    assert isinstance(intelligence_percent(57.1), int)
+
+
+def test_an_unscored_model_gets_no_percentage():
+    # None in, None out — the whole point of the null is that the picker
+    # renders nothing at all rather than a 0% bar reading "this model is bad".
+    assert intelligence_percent(None) is None
+
+
+def test_a_model_beating_the_ceiling_clamps_rather_than_overflows():
+    """A better model than Opus 5 will ship; the bar must not exceed its track.
+
+    Clamping is the safe failure: the reading saturates at 100% and the fix
+    is to raise INTELLIGENCE_CEILING, not to let a bar render off the end of
+    the card.
+    """
+    assert intelligence_percent(INTELLIGENCE_CEILING + 20) == 100
+    assert intelligence_percent(-5) == 0
+
+
+def test_the_ceiling_leaves_headroom_above_every_shipped_model(payload):
+    """The ceiling has to stay a ceiling.
+
+    If a recommendation ever reaches 100% the scale has silently become
+    "best available = perfect", which is the exact claim the headroom exists
+    to avoid making. This fails loudly when the shortlist outgrows the
+    constant.
+    """
+    result = fetch_catalog(openrouter_settings(), transport=_transport(payload))
+    scored = [c for c in result.recommended if c.intelligence_percent is not None]
+    assert scored, "fixture has no scored recommendation — this guard is asleep"
+    assert max(c.intelligence_percent for c in scored) < 100
+
+
+def test_the_percentage_survives_into_the_api_payload(payload):
+    """`asdict()` sees fields, not properties.
+
+    A derived value that never reaches JSON is invisible to every test that
+    mocks the API — which is how a working backend can render an empty UI.
+    """
+    result = fetch_catalog(openrouter_settings(), transport=_transport(payload))
+    card = {c.id: c for c in result.recommended}["moonshotai/kimi-k3"]
+    assert card.as_dict()["intelligence_percent"] == 85
+
+
+def test_a_model_with_no_price_gets_no_estimate(payload):
+    payload["data"][0]["pricing"] = None
+    cards = {c.id: c for c in parse_catalog(payload)}
+    # Silence, never a confident $0.00 on a page an admin budgets against.
+    assert cards[payload["data"][0]["id"]].prompt_usd_per_m is None
+
+
+def test_an_unconfirmed_recommendation_has_no_indicators(payload):
+    gone = "moonshotai/kimi-k3"
+    payload["data"] = [m for m in payload["data"] if m["id"] != gone]
+    result = fetch_catalog(openrouter_settings(), transport=_transport(payload))
+    card = {c.id: c for c in result.recommended}[gone]
+    assert card.available is False
+    assert card.usd_per_question is None
+    assert card.intelligence_index is None
+
+
+def test_a_catalog_entry_gets_no_per_question_figure(payload):
+    # Sizing a question needs a tier, and a bare catalog row has none.
+    # Guessing one would put a made-up number next to a real one.
+    for card in parse_catalog(payload):
+        assert card.usd_per_question is None

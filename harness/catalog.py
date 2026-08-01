@@ -178,6 +178,65 @@ RECOMMENDATIONS: tuple[Recommendation, ...] = (
 )
 
 
+# What one question actually costs, in tokens, per answer mode.
+#
+# NOT invented. These are solved from the two end-to-end runs measured on
+# 2026-07-31 against the real corpus and a real key: a Standard lookup cost
+# $0.0127 on qwen/qwen3.7-plus ($0.32 in / $1.28 out per million), and a
+# Deep Research question cost $0.563 on moonshotai/kimi-k3 ($3.00 / $15.00).
+# Each pair below reproduces its measured dollar figure exactly for the model
+# it was measured on.
+#
+# THE HONEST CAVEAT, because this feeds a number an admin budgets against:
+# one measurement gives one equation and two unknowns, so the split between
+# input and output tokens is an assumption (output ≈ 8% of input for
+# Standard, 10% for Deep Research — the shape a retrieval-heavy tool loop
+# produces). The TOTAL is anchored to reality; the split is not. A model
+# whose input/output price ratio is very different from the measured one
+# will therefore be estimated less precisely, which is why every surface
+# that renders this says "about".
+TYPICAL_QUESTION: dict[str, tuple[int, int]] = {
+    "standard": (30_000, 2_400),
+    "deep_research": (125_000, 12_500),
+}
+
+# The top of the Intelligence scale. Opus 5 scored 60.7 on Artificial
+# Analysis's Intelligence Index when this was checked (2026-07-31, via
+# OpenRouter's `benchmarks.artificial_analysis`); the ceiling is that plus
+# 10% headroom.
+#
+# WHY a ceiling ABOVE the best model rather than the best model itself: if
+# the leader sat at 100% the scale would be telling the admin "this is as
+# good as models get", which stops being true the week a better one ships —
+# and then every rating on the page has to move at once. The headroom means
+# a new frontier model lands at 95% or so and nothing else changes.
+#
+# WHY normalise at all: the raw index is a composite of public evals with no
+# natural top. "57" means nothing to someone who has never seen the scale.
+# "85%" carries its own reference point.
+#
+# To re-derive: fetch https://openrouter.ai/api/v1/models and read
+# benchmarks.artificial_analysis.intelligence_index off anthropic/claude-opus-5.
+# Guarded by test_the_ceiling_leaves_headroom_above_every_shipped_model.
+INTELLIGENCE_CEILING = 66.8
+
+
+def intelligence_percent(index: float | None) -> int | None:
+    """An Artificial Analysis index as a percentage of the ceiling.
+
+    Whole numbers: the underlying index is a blended benchmark average
+    carrying maybe two significant figures, so a decimal place here would
+    be precision the source does not have.
+
+    Clamped to 100. A model that beats the ceiling is a signal to raise
+    `INTELLIGENCE_CEILING`, not a reason to render a bar wider than its
+    track.
+    """
+    if index is None:
+        return None
+    return round(min(100.0, max(0.0, index / INTELLIGENCE_CEILING * 100)))
+
+
 @dataclass(frozen=True)
 class ModelCard:
     """One row in the admin page's model picker.
@@ -186,6 +245,13 @@ class ModelCard:
     now". A bundled recommendation the catalog couldn't confirm is
     returned with `available=False` rather than dropped — see
     `_merge_recommendations`.
+
+    The indicator fields are all pulled straight from OpenRouter's
+    `/api/v1/models` payload. Deliberately ABSENT: latency and throughput.
+    Those fields exist on OpenRouter's per-endpoint API but came back
+    `null` for every one of the shipped recommendations when checked on
+    2026-07-31, so there is nothing to show and inventing a speed rating
+    would be worse than showing none.
     """
 
     id: str
@@ -197,9 +263,76 @@ class ModelCard:
     available: bool
     tier_hint: str | None = None
     blurb: str | None = None
+    # --- indicators, all direct from the catalog payload ---------------
+    max_output_tokens: int | None = None
+    is_open_weights: bool = False
+    # Artificial Analysis's Intelligence Index, as OpenRouter republishes it
+    # under `benchmarks.artificial_analysis`. Higher is better; it is a
+    # composite of public evaluations, not a scale out of 100. None when the
+    # model has not been scored — 7 of the 8 shipped recommendations had a
+    # figure on 2026-07-31, and a model without one shows no chip rather
+    # than a zero.
+    #
+    # This is the RAW index. The picker shows `intelligence_percent` instead;
+    # the raw number survives so the tooltip can cite its source, and so the
+    # scale can be re-derived without a second fetch.
+    intelligence_index: float | None = None
+    # The same source's agentic score. AI Mode is a tool loop — it searches
+    # before it answers — so this is the sub-score that most directly
+    # describes the work this app asks a model to do.
+    agentic_index: float | None = None
+    # Roughly what one question in this mode would cost on this model.
+    # None when the model has no usable price or no tier to size against.
+    usd_per_question: float | None = None
+
+    @property
+    def intelligence_percent(self) -> int | None:
+        """`intelligence_index` on the 0-100 scale the admin page shows.
+
+        Derived rather than stored so it cannot drift from the index it
+        comes from, and so `_merge_recommendations` cannot forget to carry
+        it — a stored field is the shape of bug that let `ai_enabled` reach
+        the UI but never the API.
+        """
+        return intelligence_percent(self.intelligence_index)
 
     def as_dict(self) -> dict[str, Any]:
-        return asdict(self)
+        # asdict() sees fields, not properties, so the derived percentage is
+        # added by hand. This is the ONLY place a card becomes JSON, so it is
+        # the only place that has to remember.
+        return {**asdict(self), "intelligence_percent": self.intelligence_percent}
+
+
+def _estimate_per_question(
+    tier: str | None, prompt_usd_per_m: float | None, completion_usd_per_m: float | None
+) -> float | None:
+    """About what one question in `tier` costs on this model."""
+    profile = TYPICAL_QUESTION.get(tier or "")
+    if profile is None or prompt_usd_per_m is None or completion_usd_per_m is None:
+        return None
+    tokens_in, tokens_out = profile
+    return (tokens_in / 1_000_000) * prompt_usd_per_m + (
+        tokens_out / 1_000_000
+    ) * completion_usd_per_m
+
+
+def _benchmark(row: dict[str, Any], key: str) -> float | None:
+    """One Artificial Analysis score, or None.
+
+    Tolerant on purpose: `benchmarks` is a newer field on OpenRouter's
+    payload and its shape is theirs to change. Anything unexpected reads
+    as "not scored", which the picker renders as no chip at all.
+    """
+    benchmarks = row.get("benchmarks")
+    if not isinstance(benchmarks, dict):
+        return None
+    aa = benchmarks.get("artificial_analysis")
+    if not isinstance(aa, dict):
+        return None
+    value = aa.get(key)
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        return None
+    return float(value)
 
 
 @dataclass(frozen=True)
@@ -278,6 +411,7 @@ def parse_catalog(payload: Any) -> list[ModelCard]:
         if not isinstance(model_id, str) or not model_id:
             continue
         pricing = row.get("pricing")
+        top_provider = row.get("top_provider")
         cards.append(
             ModelCard(
                 id=model_id,
@@ -287,6 +421,16 @@ def parse_catalog(payload: Any) -> list[ModelCard]:
                 completion_usd_per_m=_usd_per_million(pricing, "completion"),
                 supports_tools=True,
                 available=True,
+                max_output_tokens=(
+                    _int_or_none(top_provider.get("max_completion_tokens"))
+                    if isinstance(top_provider, dict) else None
+                ),
+                # A published Hugging Face id is OpenRouter's own signal that
+                # the weights are public — which is the whole basis of S16's
+                # "open model" preference, so it is worth surfacing.
+                is_open_weights=bool(row.get("hugging_face_id")),
+                intelligence_index=_benchmark(row, "intelligence_index"),
+                agentic_index=_benchmark(row, "agentic_index"),
             )
         )
     return cards
@@ -336,6 +480,16 @@ def _merge_recommendations(catalog: list[ModelCard]) -> list[ModelCard]:
                 available=True,
                 tier_hint=rec.tier_hint,
                 blurb=rec.blurb,
+                max_output_tokens=card.max_output_tokens,
+                is_open_weights=card.is_open_weights,
+                intelligence_index=card.intelligence_index,
+                agentic_index=card.agentic_index,
+                # Only the recommendations get this: it needs a tier to size
+                # a typical question against, and a bare catalog entry has
+                # none.
+                usd_per_question=_estimate_per_question(
+                    rec.tier_hint, card.prompt_usd_per_m, card.completion_usd_per_m
+                ),
             )
         )
     return merged
