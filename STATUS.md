@@ -31,6 +31,36 @@ source. When something ships, update only this file.
 | Standalone consolidation — Plan 4 (AI Mode) | ✓ Shipped (2026-07-31) | In-process OpenRouter tool loop; MCP and YouCoded dropped. Cited chat + PDF viewer on both corpora, Standard/Deep-Research tiers, per-user spend ledger. See the section below |
 | Standalone consolidation — Plan 5 (admin + packaging + deletion) | 🟡 **Tracks 1–3 done, 4–5 open** (2026-08-01) | Tracks 1–2 (tasks 1–13, Session A) shipped: admin identity + gate, settings API, OpenRouter catalog, model fallback, corpus health/restore, Admin + Settings pages, per-machine data dir, health ladder, lockout recovery. Track 3 (packaging, Session B) shipped separately. **Track 5 (handbook, 21–23) not started; Track 4 (legacy deletion, 18–20) still blocked** — `web/`, `mcp-server/`, `db/` remain in-tree. ⚠ **Two of Session B's app-side asks are unbuilt** (per-machine `ingest_enabled`; `machine_config` CLI). See the Session A section below |
 
+## Corpus — what is ingested and what is NOT (2026-08-01)
+
+**The corpus is MVP-complete for recent years. It is NOT finished.** Recorded
+here because the deferral previously existed only as a comment in
+`~/backfill-scripts/orchestrate.py`, which is not in this repo.
+
+**In the corpus:** 24,841 budget chunks + 13,278 fiscal-note chunks / 3,527
+documents. JLBC Baselines FY2022–2027 and Approps FY2022–2026 (11 editions),
+the complete fiscal-note back catalogue (2,104 notes, sessions 2026→1999),
+and exactly **three** other documents — one AFR (FY2025), one executive budget
+(FY2027), one budget bill (FY2026).
+
+| Remaining work | Count | Blocked by |
+|---|---|---|
+| **JLBC books, pre-FY2022** | **27 editions** (Baselines FY2012–2021, Approps FY2005–2021) | Nothing — deferred by Destin's MVP call 2026-07-31. Run with `JLBC_BACKFILL_UNITS=books` |
+| **Annual Financial Reports** | 3 (FY2022–24; FY2021 also available) | **Nothing — ingestable today.** `afr` doc_type exists |
+| **Executive budgets** | 2 (FY2025, FY2026) | **Nothing — ingestable today.** `governors-budget` exists |
+| **Budget bills** | 7 (FY2022–2027) | S24 — the harvest holds **PDFs**, and budget-bill is **DOCX-only** by design. Word versions come from JLBC internally |
+| **Agency budget requests** | 78 (FY2027 only) | **Plan 6 Track 1** — `agency-budget-request` is not a registered doc_type. 60 reachable, **18 behind bot protection** needing a human with a browser |
+
+**So: 5 documents can be ingested with no new code; 85 need Plan 6's registry;
+27 book editions are a deliberate deferral, not an oversight.**
+
+Sources and verified URLs for all of the above are in the website mockup's
+5,854-row index (`webapp/reference/assets/search/index-lite.js`), which spec
+**S28** turns into `data/document-catalog.json`. Plan 6 Task 16 ingests the
+backlog. Earlier years of agency budget requests are NOT harvested and live on
+78 separate agency websites with no shared URL convention — a research project,
+not a crawl.
+
 ## What's next
 
 - **🔵 RUNNING NOW — S20 backfill on the Z13** (`PROMPT-z13-backfill.md`).
