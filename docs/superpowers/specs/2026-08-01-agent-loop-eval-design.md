@@ -82,21 +82,36 @@ synthesize-from-chunks technique of `eval/synthesize_queries.py`), then
 human-reviewed before being committed. Shape coverage, chosen because each
 shape exercises different agent behavior:
 
+**BUDGET CORPUS ONLY.** Every query targets `budget_chunks`. Destin's
+direction, 2026-08-01: *"this eval set should NOT utilize the fiscal note
+path, we are solely evaluating budget queries."* The harness itself remains
+corpus-capable (the runner takes a corpus per query, and `AgentQuery.corpus`
+still accepts `fiscal_notes`), so a fiscal-note set can be added later
+without reworking anything — but this set does not mix them, because a
+metric averaged across two corpora answers no question about either.
+
+Shape coverage, chosen because each shape exercises different agent
+behavior:
+
 - quick lookups (single figure, single agency, single FY)
 - multi-year comparisons (the 3-year-table pattern)
 - analyze-shaped questions (multi-retrieve synthesis)
 - one memo / `create_document` ask (the observed zero-citation failure shape)
 - refusal-expected out-of-scope questions
-- fiscal-note corpus questions
-- historical-year questions (FY2005–FY2015 — newly ingested, and where
-  search efficiency is most likely to die)
+- historical-year questions — the OLDEST budget-book years in the corpus,
+  where retrieval is most likely to struggle. Measured 2026-08-01,
+  `budget_chunks` spans FY2021–FY2027 (FY2021 is a 169-chunk fragment), so
+  "historical" means FY2022–FY2023 today. The 27 pre-FY2022 JLBC book
+  editions are a deliberate MVP deferral recorded in STATUS.md, not a gap in
+  this design: when that backfill lands, this shape extends to the older
+  editions and the historical queries get re-authored against them.
 
 Per-entry schema:
 
 ```yaml
 - id: aq-001
   question: "..."
-  corpus: budget | fiscal_notes
+  corpus: budget            # always "budget" in this set — see above
   tier: standard            # dr-probe entries say deep_research
   subset: [smoke, full]     # membership tags
   should_refuse: false
