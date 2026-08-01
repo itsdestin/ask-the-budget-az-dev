@@ -114,3 +114,7 @@ webapp/dist/
 # `python packaging/build_bundle.py` and must never be staged.
 build/
 dist/
+
+# Layer 2 agent-eval raw transcripts (full chunk text; scores/judge/compare ARE committed)
+eval/results/agent/*/*-r*.jsonl
+eval/results/agent/*/ledger.jsonl

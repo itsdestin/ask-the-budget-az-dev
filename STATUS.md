@@ -249,6 +249,11 @@ boost has the same blind spot.
   Runbook: [`PROMPT-z13-backfill.md`](PROMPT-z13-backfill.md) (the only
   active handoff). Recency plan:
   [`docs/superpowers/plans/2026-07-31-standalone-plan-recency-ranking.md`](docs/superpowers/plans/2026-07-31-standalone-plan-recency-ranking.md).
+- **Layer 2 agent-loop eval — BUILT, no live baseline run yet.** See "Layer 2
+  agent-loop eval harness shipped" below. Whoever has an OpenRouter key next
+  should run `uv run python -m eval.run_agent_eval --subset smoke`, score it,
+  and commit the result as the first baseline before trusting any
+  `compare_agent_runs.py` delta against it.
 
 ---
 
@@ -1440,6 +1445,154 @@ of these came from opening the page:
 - ~~**Two of Session B's four app-side asks are unbuilt**~~ **DONE in
   Track 4, 2026-08-01** — the per-machine `ingest_enabled` flag, its admin
   warning, and the `app.machine_config` CLI entry point all shipped.
+
+---
+
+## Layer 2 agent-loop eval harness shipped (2026-08-01)
+
+Spec: `docs/superpowers/specs/2026-08-01-agent-loop-eval-design.md`
+(the Layer 1 spec, `2026-05-20-retrieval-eval-harness-design.md`, is where
+the Layer 2 goal was first deferred from — it is NOT what this was built
+against). Nine tasks: query schema + transcript format,
+the money-spending runner, the free mechanical scorer, the LLM judge, and
+the run-comparison tool. Full usage docs, cost guide, and the experiment
+loop are in `eval/README.md` → "Layer 2 — agent-loop eval"; this section
+is the shipped-status record.
+
+**What it measures that Layer 1 cannot.** Layer 1 (`run_eval.py`) calls
+`retrieve()` directly and scores chunk recall — fast, free, and a strong
+regression detector, but blind to everything downstream of retrieval.
+Layer 2 (`run_agent_eval.py`) drives the REAL `HarnessSession` — the
+production tool loop, no HTTP server — against open-ended analyst
+questions and measures agent turns, tokens, cost, whether the final
+answer actually contains the right key facts, citation discipline (cite
+attempts vs. first-attempt passes), and output-hygiene leaks (meta-
+narration, internal vocabulary, a leaked download token). **The two
+layers' numbers are not interchangeable and must never be diffed against
+each other** — different query sets, different things measured.
+
+**It costs real money — unlike every eval that came before it.** A
+`smoke` run (11 queries) runs roughly $0.15–0.30 on Standard tier, a
+`full` run $0.50–1.50, and the 4-query `dr-probe` subset $2–3 (Deep
+Research runs ~44× the per-query cost of Standard — see the Plan 4
+dogfood numbers above). The LLM judge is a second, separate charge
+layered on top of a run.
+
+**`full` is all 31 STANDARD-tier queries and contains no Deep Research
+query** — spec Decision #4, "Standard for the full set + a fixed 4-query
+Deep Research probe", which explicitly rejected full-set DR runs. The
+four DR queries briefly carried a `full` tag as well (fixed 2026-08-01):
+that put ~$3 of Deep Research into a run priced at $0.50–1.50, moved
+`wall_p95_ms` onto a ~295-second DR answer so Standard latency
+regressions became invisible, and made `--subset full` refuse to start
+on an install with Standard configured and Deep Research off — a
+configuration `harness/settings.py` explicitly allows.
+`tests/test_eval_agent_queries.py` now pins the exclusivity in both
+directions.
+
+**The runner writes its own ledger and never touches the office one.**
+`check_limit` is stubbed to always-allow and `record_usage` writes into
+the run directory's own `ledger.jsonl`, not the shared office spend
+ledger — an eval run is pre-authorized by the human who started it, so
+it must not be blocked by S19 office limits, and it must not silently
+accrue against them either. **Eval spending will never show up in the
+office usage totals** — that is by design, not a bug to chase.
+
+**Single runs are stochastic.** `--repeats N` exists because model
+output varies run to run; `compare_agent_runs.py` prints an explicit
+warning whenever either side of a comparison is a single run, so a
+small delta doesn't get mistaken for a real regression.
+
+**The experiment loop the harness exists to serve** (for any change to
+`harness/`, `retrieval/citations.py`, or `harness/system-prompt.md`):
+cheap layer first (Layer 1 + free re-scoring of old transcripts), then a
+live `smoke` run compared against a baseline `smoke` run, then before
+merging a `full` run plus the judge, with the compare report committed
+alongside the code change.
+
+**Results-committing policy, implemented and verified against real
+files, not just described.** Raw transcripts (`<query_id>-r<N>.jsonl`)
+embed full retrieved-chunk text — large, and derived from the corpus
+rather than from the change under test — so `.gitignore` now excludes
+`eval/results/agent/*/*-r*.jsonl` and `eval/results/agent/*/ledger.jsonl`.
+`manifest.json`, `scores.json`, `scores.md`, `judge.json`, and any
+`compare-*.md` report are NOT excluded — they're the derived regression
+record, at a fraction of the transcripts' size, and that's what a future
+diff needs. Verified with a throwaway run directory containing one file
+of each kind: `git status --porcelain` showed the untracked directory,
+`git check-ignore -v` confirmed the transcript and ledger files matched
+the new `.gitignore` lines and the five derived files matched nothing,
+and `git add -n` staged the five derived files while refusing the two
+ignored ones. The throwaway directory was deleted afterward — nothing
+from the verification is in this commit.
+
+**Final-review fix batch, 2026-08-01** (all pre-baseline, so no committed
+results were invalidated):
+
+- **`full` is Standard-only** — see the paragraph above.
+- **`manifest.json` now carries `queries_sha256`**, a content hash of the
+  queries a run actually asked, and `compare_agent_runs.py` refuses a
+  comparison across differing query sets exactly the way it already refused
+  one across differing corpus counts (`--force` overrides both, and a forced
+  report says so). The id list alone was byte-identical when a query's
+  key_facts were EDITED between two `full` runs, so the whole delta was
+  authoring drift with nothing on the page saying so.
+- **Two metrics were renamed and two added** — anything reading `scores.json`
+  must follow. `first_attempt_cite_rate` was never a first-attempt rate; it is
+  now **`cite_pass_rate`** (passes ÷ all attempts). The genuine measure is the
+  new **`first_try_cite_rate`** (intended citations that passed on the first
+  try), with **`retries_per_citation`** beside it. The spec's promised
+  filter/corpus-parameter usage counts are now emitted too
+  (`filtered_retrieve_rate`, `filter_dimension_counts`, and friends —
+  informational, no better/worse arrow).
+- **`retrieves_after_sufficient_mean` publishes its population**
+  (`..._n` / `..._eligible_queries`) and the compare tool withholds the
+  better/worse arrow when that population moved. The metric only exists for
+  queries where the facts were eventually found, so a genuine retrieval
+  improvement could otherwise render as a ▼ regression.
+- **`total_cost_usd` is not the authoritative spend number** — a query that
+  crashes mid-turn produces an error frame with no usage at all, so its
+  already-paid tokens are invisible. `cost_missing_queries` counts those
+  queries; `ledger.jsonl` (one row per step, written as it happens) is the
+  real record, and `eval/README.md` now says so instead of presenting the two
+  as equivalent.
+- **Transcripts are written tmp+replace**, like every other artifact here. The
+  reader's torn-file degradation stays — but a run should not manufacture the
+  damage it tolerates, since a torn transcript scores as a failed query.
+
+**Second fix-batch (small, post-review), 2026-08-01:**
+
+- **`compare_agent_runs.py` now keys `total_cost_usd` on `cost_missing_queries`
+  too**, the same population-dependent-arrow-withholding mechanism the first
+  batch built for `retrieves_after_sufficient_mean`. A crashed query sums $0
+  into `total_cost_usd` despite real spend, so a regression that crashes
+  10-of-31 queries could render as a green cost improvement — reproduced
+  before the fix (`cost_missing_queries` 0→10 alongside `total_cost_usd`
+  1.2→0.81 showed a bare ▲). Deliberately NOT extended to `cost_mean_usd`,
+  `steps_mean`, and the other means, which are equally population-dependent on
+  `errors` — `errors` already carries its own visible ▼ on the same table,
+  and over-applying the suppression would strip arrows off most of the
+  report.
+- **`retrieves_after_sufficient_eligible` held two types under one name** —
+  a bool on each `per_query` row, an int count in `summary` (confirmed in
+  real output: `true` vs `2`). Anything reading `scores.json` generically
+  trips on it. The summary-side key is renamed
+  **`retrieves_after_sufficient_eligible_queries`**; the per-query bool is
+  unchanged. Safe to do now because no baseline run has been committed yet.
+
+**No live baseline run has happened yet.** The harness is built and
+unit-tested (110 pytest specs, synthetic fixtures throughout —
+transcript read/write, scoring, the judge's JSON parsing and error
+handling, the comparison tool's corpus-count and query-set refusals, and
+a runner→scorer seam test that drives the REAL `HarnessSession` over a
+fake transport and then scores the transcript it produced) but nobody
+has pointed it at a real OpenRouter key. `eval/agent_queries.yaml` — the
+query set itself, 35 queries across the lookup / comparison / analyze /
+memo / refusal / historical shapes, all on the BUDGET corpus, with
+machine-checked key facts — is committed. **The acceptance step for
+whoever has a key next:** run `--subset smoke`, score it, and commit the
+result as the first baseline — every later `compare_agent_runs.py` call
+needs one to diff against.
 
 ---
 

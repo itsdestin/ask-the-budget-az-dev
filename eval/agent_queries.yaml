@@ -1,0 +1,1243 @@
+# Layer 2 agent-loop eval query set — Ask the Budget AZ.
+#
+# WHAT THIS MEASURES: END-TO-END AGENT BEHAVIOR, NOT RETRIEVAL RECALL.
+# Layer 1 (eval/queries.yaml) pins ground-truth chunk_ids and asks "did
+# the retriever find the right passage?". This set asks a different
+# question: given a real analyst's question, does the whole agent loop
+# — retrieve, reason, cite, refuse — produce an answer a fiscal analyst
+# could act on? The scored signals are key-fact coverage in the FINAL
+# ANSWER, verified-citation counts, cite failure rates, wasted
+# retrieves, refusal correctness, and prose hygiene. A run of this set
+# costs real money and real minutes; do not treat it as a regression
+# detector you run on every commit. Use `smoke` for that.
+#
+# ===================================================================
+# BUDGET CORPUS ONLY. EVERY QUERY HERE TARGETS `budget_chunks`.
+# ===================================================================
+# Scope correction from the project owner, 2026-08-01, verbatim:
+#
+#   "the plans assumption about historical budget books was not wrong.
+#    the final app will use only historical budget books. this eval set
+#    should NOT utilize the fiscal note path, we are solely evaluating
+#    budget queries."
+#
+# The first draft of this file carried 8 `corpus: fiscal_notes` queries
+# (including all 5 `historical` ones). They were REPLACED, not deleted,
+# so the shape quotas still hold. A metric averaged across two corpora
+# answers no question about either one, and budget-document questions
+# are what this eval exists to measure.
+# `tests/test_eval_agent_queries.py::test_every_query_is_budget_corpus`
+# is what keeps that true — do not weaken it to re-admit a fiscal-note
+# query. If a fiscal-note agent eval is ever wanted, it belongs in its
+# own file with its own results prefix, exactly as Layer 1 does it.
+#
+# KEY FACTS MUST EXIST IN THE CORPUS. Every key_fact below was read out
+# of a real chunk retrieved from the live corpus during authoring, and
+# every one was then re-confirmed present by a full-table substring
+# scan. A fact that appears in no chunk can never be matched, so the
+# query would score a permanent, silent zero and look like a model
+# failure when it is an authoring failure. If you add a query, sample
+# the corpus first and re-run the spot-check described below.
+#
+# QUESTIONS DELIBERATELY DO NOT REUSE CHUNK PHRASING. Pasting a
+# document's own wording into the question inflates both BM25 and dense
+# scores and makes the eval read easier than reality. Every question
+# here is written the way an analyst would say it out loud.
+#
+# CORPUS MEASURED 2026-08-01 (budget only — the fiscal-note table is
+# out of scope for this file and is not counted here):
+#   budget_chunks  28,530, spanning FY2021-FY2027
+#     FY2021    169   (a single AGAO Annual Financial Report — a
+#                      fragment, not a usable year)
+#     FY2022  4,422 · FY2023  4,426 · FY2024  4,221
+#     FY2025  6,058 · FY2026  5,836 · FY2027  3,398
+#
+# WHAT "HISTORICAL" MEANS IN THIS FILE, AND WHY IT IS FY2022-FY2023.
+# The budget corpus does not start in the mid-2000s. It starts at FY2021
+# and is only dense from FY2022, so the oldest budget-book territory an
+# agent can actually be tested against today is the FY 2022 and FY 2023
+# JLBC Baseline / Appropriations Report editions (plus the FY2022 and
+# FY2023 AGAO Annual Financial Reports). FY2022 is therefore not an odd
+# choice — it is the floor. STATUS.md records the reason: 27 pre-FY2022
+# JLBC book editions (Baselines FY2012-2021, Approps FY2005-2021) are a
+# DELIBERATE deferred backfill from the 2026-07-31 MVP call, not an
+# oversight, and are runnable with `JLBC_BACKFILL_UNITS=books`.
+# ==> WHEN THOSE 27 EDITIONS LAND, RE-AUTHOR THE `historical` SHAPE
+#     against the genuinely old books and re-run the spot-check. The
+#     five queries below become ordinary mid-corpus queries at that
+#     point; they are not wrong, just no longer the oldest material.
+#
+# CURRENCY FACTS: PARENTHESIZED NEGATIVES DO NOT PARSE. eval.agent_scoring
+# requires a `$` or a scale word adjacent to the digits, so `$(2.5) million`
+# and `$(102,214,900)` both yield an EMPTY set and fact_matches() raises.
+# JLBC prose writes every reduction that way, so never author a key fact
+# on a negative figure — pick the positive side of the same sentence, or
+# use kind=regex. Bare counts (`9,200` enrollees) have no `$` and no
+# scale word either, so they must also be kind=regex.
+# `tests/test_eval_agent_queries.py::test_every_currency_fact_parses` and
+# `::test_every_regex_fact_compiles` are what MACHINE-CHECK the two traps
+# above. Before those existed (added 2026-08-01 after a review appended a
+# query with `value: "$(2.5) million"` and watched all 7 structural
+# assertions pass while fact_matches() raised at run time) this paragraph
+# was advice only, and the failure it warns about was a mid-run CRASH of
+# the scorer, discovered after paying for the model calls.
+#
+# CURRENCY FACTS MAY LIST SEVERAL ALTERNATIVES FOR ONE FIGURE.
+# `fact_matches` parses EVERY amount out of a fact's value and passes if
+# the answer contains ANY of them (`any(w ... for w in wanted)` in
+# eval/agent_scoring.py), so `value: "$A or $B"` reads as "either basis is
+# acceptable for this one number". Use it — never a second key_fact, which
+# would demand BOTH.
+#
+# REVISED FIGURES: PIN EVERY LEGITIMATE BASIS, OR YOU PUNISH ACCURACY.
+# JLBC republishes the same line across books and REVISES it. The FY 2025
+# ESA line is $822,030,600 as originally enacted, $872,588,300 in the FY
+# 2026 Baseline and $872,156,000 in the FY 2026 Appropriations Report — a
+# 6.1% spread, twelve times the scorer's 0.5% tolerance. A query that pins
+# only the original scores a model that correctly cites the LATER, MORE
+# ACCURATE figure as a key-fact MISS. (Found by review 2026-08-01 in
+# an-esa-growth and mm-esa-memo; both fixed by listing all bases.) So:
+# before pinning any figure, scan the corpus for the same line in later
+# books. Then either (a) list every basis in one currency fact, which is
+# right when the question names no document, or (b) name the required
+# basis IN THE QUESTION and say why in judge_notes — which is what
+# lk-gf-revenue-fy2026, lk-prop123-increment and lk-k12-basic-aid-fy2026
+# do, because for those the estimate-vs-enacted distinction IS the test.
+# Prefer (a) unless the query exists to test that distinction.
+#
+# RETRIEVABILITY SPOT-CHECK, 2026-08-01 (methodology + result):
+# Each of the 30 non-refusal queries was run as ONE top-20 retrieve of the
+# question verbatim against `budget_chunks`, and its key facts looked for
+# in the concatenated chunk text. A query counts as OK only if EVERY one of
+# its key facts is present. Result: 18 OK / 12 MISS (60% single-shot).
+# Misses: lk-dps-operating-fy2026, lk-bsf-balance-fy2026, lk-hurf-split,
+# cm-basic-aid-3yr, cm-highway-construction, cm-supplementals-fy2026,
+# cm-adc-3yr-dr, cm-university-funding-dr, an-esa-growth, mm-esa-memo,
+# hs-enhanced-fmap-2022, hs-esa-cost-2022.
+# RE-RUN 2026-08-01 after the multi-basis ESA fix: IDENTICAL — 18 OK / 12
+# MISS, same twelve ids. Widening an-esa-growth's and mm-esa-memo's facts to
+# accept the revised figures did not make either query easier single-shot,
+# because the verbatim question reaches the ESA narrative on no basis at
+# all. That is the intended outcome: the fix stops punishing a correct
+# answer, it does not lower the retrieval bar.
+#
+# EVERY ONE OF THOSE MISSING FACTS WAS THEN CONFIRMED PRESENT IN THE
+# CORPUS by a full-table substring scan, and shown REACHABLE by a single
+# plausible agent reformulation. So there are no bad facts in this file —
+# the misses are queries where the analyst's natural wording does not
+# match the document's structure, and the agent has to reformulate
+# (toward a budget-bill section header, a Capital Outlay footnote, a
+# formula-summary table, a bare percentage table) to get there. Each such
+# query carries a SPOT-CHECK line in its judge_notes naming the
+# reformulation that works, so a grader can tell "the agent never
+# reformulated" from "the fact isn't there".
+#
+# WHY THE MISSES ARE KEPT: a 100%-single-shot-retrievable set would only
+# measure whether the model can copy a number out of the first chunk it
+# is handed. Retrieval-plus-reformulation is the behavior this layer
+# exists to measure, and the facts most worth pinning — an agency's
+# bottom-line total, a three-year series — are exactly the ones that live
+# in one chunk out of 28,530 and do not surface on a conversational first
+# try. Do NOT "fix" these by rewording questions toward chunk phrasing;
+# that inflates the score without improving the agent.
+#
+# SUBSETS:
+#   full     every STANDARD-TIER query (the default tag). It is deliberately
+#            NOT "every query": the four deep_research queries below carry
+#            ONLY the dr-probe tag. Spec Decision #4 is "Standard for the
+#            full set + a fixed 4-query Deep Research probe", and it rejected
+#            full-set DR runs outright. Tagging the DR queries `full` too
+#            (the state before the 2026-08 review, Finding 1) broke that
+#            three ways: it put ~$3 of Deep Research into a run documented at
+#            $0.50-1.50; it moved wall_p95_ms onto a ~295-second DR query so
+#            a Standard latency regression became invisible; and it made the
+#            documented pre-merge run refuse to start at all on an install
+#            where an admin wired up Standard and left Deep Research off,
+#            which harness/settings.py explicitly allows.
+#            tests/test_eval_agent_queries.py::test_dr_probe_subset pins this.
+#   smoke    8-12 standard-tier queries across >=4 shapes — the cheap
+#            pre-merge run. Currently 11, covering ALL SIX shapes. The
+#            memo query (mm-adc-briefing) was added 2026-08-01: memo is
+#            the shape with a measured run-to-run citation-discipline
+#            failure, so the subset people actually run before merging is
+#            the last place it should have been missing. See that query.
+#   dr-probe exactly 4 deep_research queries (2 comparison, 2 analyze) —
+#            the only place the Deep Research tier is exercised, because
+#            it costs ~44x Standard and takes ~5 minutes per query
+
+# ---------------------------------------------------------------------
+# LOOKUP — a single figure, agency, or rate. The bread-and-butter ask.
+# ---------------------------------------------------------------------
+
+- id: lk-adc-total-fy2026
+  question: >-
+    How much money does the state prison system get to spend in FY 2026 all
+    told, and how much of that is state general tax dollars versus other
+    sources?
+  corpus: budget
+  shape: lookup
+  subsets: [full, smoke]
+  key_facts:
+    - kind: currency
+      value: "$1,600,697,200"
+    - kind: currency
+      value: "$1,537,433,000"
+  judge_notes: >-
+    The FY 2026 General Appropriation Act (SB 1735) gives the State Department
+    of Corrections a total of $1,600,697,200, of which $1,537,433,000 is State
+    General Fund; the balance comes from a long list of dedicated funds
+    (Corrections Fund, penitentiary land fund, inmate store proceeds, etc.).
+    A correct answer names the total, the General Fund share, and ideally
+    notes the fund sources are numerous rather than one alternative pot.
+    TRAP: the JLBC Appropriations Report presents ADC by line item and the
+    Department of JUVENILE Corrections is a separate agency with its own,
+    much smaller numbers — an answer that quotes DJC figures is wrong.
+
+- id: lk-k12-basic-aid-fy2026
+  question: >-
+    What's the bottom-line number for K-12 formula funding in the budget that
+    actually passed for FY 2026?
+  corpus: budget
+  shape: lookup
+  subsets: [full, smoke]
+  key_facts:
+    - kind: currency
+      value: "$7,623,574,500"
+  judge_notes: >-
+    The enacted FY 2026 figure for Basic State Aid is $7,623,574,500
+    (General Fund $7,400,931,000 + Permanent State School Fund $72,263,000 +
+    Education Sales Tax $150,380,500). TRAP, and the point of this query: the
+    January FY 2026 JLBC BASELINE says $7,594,705,000 for the same line. Both
+    numbers are real and both are in the corpus; the question asks what
+    PASSED, so the Appropriations Report figure is the right one. An answer
+    that quotes the Baseline number without flagging it as the pre-session
+    estimate is a miss. A correct answer should also note the total excludes
+    local property taxes, which are non-appropriated.
+
+- id: lk-gf-revenue-fy2026
+  question: >-
+    When lawmakers signed off on the FY 2026 budget, what were they assuming
+    the state would take in, and what did they expect to have left over at
+    year end?
+  corpus: budget
+  shape: lookup
+  subsets: [full]
+  key_facts:
+    - kind: currency
+      value: "$17.77 billion"
+    - kind: currency
+      value: "$199.8 million"
+  judge_notes: >-
+    The enacted FY 2026 budget forecast $17.77 billion in General Fund
+    revenue against $17.57 billion in spending, leaving a projected ending
+    cash balance of $199.8 million. TRAP: the later FY 2027 Baseline revises
+    FY 2026 revenue UP to $18.5 billion and the ending balance to
+    $673.1 million. Both live in the corpus. The question is scoped to what
+    was assumed AT ENACTMENT, so $199.8 million is correct — but an answer
+    that also flags the subsequent upward revision is better, not worse.
+
+- id: lk-dps-operating-fy2026
+  question: >-
+    What did the state highway patrol agency end up with for FY 2026, and how
+    much of that was its plain operating budget rather than earmarked
+    programs?
+  corpus: budget
+  shape: lookup
+  subsets: [full, smoke]
+  key_facts:
+    - kind: currency
+      value: "$389,947,400"
+    - kind: currency
+      value: "$281,005,300"
+  judge_notes: >-
+    DPS total FY 2026 appropriation is $389,947,400, of which the operating
+    lump sum is $281,005,300; the remainder is special line items (GIITEM,
+    border drug interdiction, local border support, ACTIC, vehicle
+    replacement, etc.). General Fund share is $296,200,000. TRAP: the JLBC
+    per-agency narrative reports the operating budget BY FUND (General Fund
+    $220,395,800 + Arizona Highway Patrol Fund + several others), which is a
+    different cut of the same agency and does not equal either number above.
+    SPOT-CHECK: both pinned figures live in ONE budget-bill chunk and do not
+    surface on the conversational question; a reformulation toward the bill's
+    own section shape ("DEPARTMENT OF PUBLIC SAFETY FTE positions operating
+    lump sum GIITEM ... total appropriation") returns it at rank 1. This
+    query therefore tests reformulation, not plain lookup.
+
+- id: lk-asu-operating-fy2026
+  question: >-
+    How much state money is Arizona State University getting this budget year,
+    and how much of it is actually general tax dollars as opposed to the
+    university's own collections?
+  corpus: budget
+  shape: lookup
+  subsets: [full]
+  key_facts:
+    - kind: currency
+      value: "$1,218,177,000"
+    - kind: currency
+      value: "$361,178,200"
+  judge_notes: >-
+    ASU's FY 2026 total appropriation is $1,218,177,000, split
+    $361,178,200 State General Fund and $856,998,800 University Collections
+    Fund. The distinction matters: the collections fund is tuition and other
+    university revenue that is appropriated but not state tax money, so the
+    "state support" number an analyst usually wants is the $361.2 million.
+    A correct answer makes that split explicit rather than reporting the
+    $1.2 billion as state support.
+
+- id: lk-adc-officer-stipend-fy2026
+  question: >-
+    I heard correctional officers got a one-time bonus in the FY 2026 budget.
+    How much was set aside for it and how was the amount per officer worked
+    out?
+  corpus: budget
+  shape: lookup
+  subsets: [full]
+  key_facts:
+    - kind: currency
+      value: "$17,075,300"
+    - kind: regex
+      value: '\b4\s*%|four percent'
+  judge_notes: >-
+    The FY 2026 budget bill appropriates $17,075,300 to the State Department
+    of Corrections for a one-time correctional officer stipend, plus
+    $3,767,200 to the private prison per diem line (so private-prison
+    officers get an equivalent stipend via contract amendment) and $542,200
+    to Juvenile Corrections. The stipend equals 4% of annual salary and is
+    limited to persons employed from and after July 4, 2025. TRAP: three
+    different dollar figures attach to this one policy; an answer that
+    reports $3,767,200 as "the" stipend amount has picked the private-prison
+    pass-through, not the department appropriation.
+
+- id: lk-eorp-offset
+  question: >-
+    The state sends counties money to help with elected officials' pension
+    costs. What's the yearly amount and how is it divided up?
+  corpus: budget
+  shape: lookup
+  subsets: [full]
+  key_facts:
+    - kind: currency
+      value: "$3,000,000"
+    - kind: currency
+      value: "$250,000"
+  judge_notes: >-
+    The Elected Officials Retirement Plan (EORP) Offset is $3,000,000 from
+    the General Fund, distributed equally among counties with population
+    under 300,000 per the 2020 Decennial Census — the 12 smallest counties,
+    at $250,000 each. Note $3,000,000 recurs unchanged across several fiscal
+    years, so the answer need not pin a specific FY, but it must get the
+    allocation rule right: equal shares to small counties, NOT proportional
+    to population or payroll.
+
+- id: lk-asrs-rate-fy2026
+  question: >-
+    What are state employees and their agencies each paying into the state
+    retirement system this year, and is that going up or down?
+  corpus: budget
+  shape: lookup
+  subsets: [full]
+  key_facts:
+    - kind: regex
+      value: '\b24\.0\s*%'
+    - kind: regex
+      value: '\b12\.0\s*%'
+  judge_notes: >-
+    For FY 2026 the combined ASRS employee + employer contribution is 24.0%,
+    DOWN from 24.54% in FY 2025; employer and employee each pay 12.0%, down
+    from 12.27%. These rates INCLUDE 0.14% for disability insurance (a
+    change from earlier years, where the equivalent sentence excluded it) —
+    an answer that says the rates exclude disability is quoting a pre-FY2026
+    book. Rates are kind=regex, not currency, because a bare percentage has
+    no dollar sign or scale word and would not parse as currency.
+    TRAP: PSPRS, CORP and EORP rates are set separately and reported in the
+    Consolidated Retirement Report, so "the state retirement rate" is not one
+    number across all five systems.
+
+- id: lk-scotus-salary
+  question: >-
+    What does Arizona pay its Chief Justice, and did that change recently?
+  corpus: budget
+  shape: lookup
+  subsets: [full]
+  key_facts:
+    - kind: currency
+      value: "$222,000"
+    - kind: currency
+      value: "$232,000"
+  judge_notes: >-
+    The FY 2025 General Appropriation Act raised the Chief Justice salary
+    from $212,000 to $222,000 on January 1, 2025 and to $232,000 on
+    January 1, 2026 — a two-step phase-in, so the current figure is
+    $232,000. Associate Justices went $205,000 -> $215,000 -> $225,000 on the
+    same dates. A correct answer gives the current number and the phase-in
+    rather than a single static salary. TRAP: the APPROPRIATION amounts for
+    this policy ($63,100 in FY 2025, $126,100 in FY 2026, $63,000 in FY 2027)
+    are the incremental cost, not anyone's salary.
+
+- id: lk-bsf-balance-fy2026
+  question: >-
+    How much does Arizona have banked in its rainy day fund right now?
+  corpus: budget
+  shape: lookup
+  subsets: [full]
+  key_facts:
+    - kind: currency
+      value: "$1.63 billion"
+    - kind: string
+      value: "Budget Stabilization Fund"
+  judge_notes: >-
+    The enacted FY 2026 budget estimates the Budget Stabilization Fund
+    balance at $1.63 billion. TRAP, and this is the accuracy hierarchy the
+    system prompt cares about: the AGAO Annual Financial Report carries the
+    AUDITED BSF fund balance for closed years (e.g. $1,446,422 thousand at
+    July 1, 2023), which is a different basis and a different number from
+    JLBC's forward projection. Either may be cited so long as the answer
+    says which it is; an answer that blends the two into one figure is wrong.
+    SPOT-CHECK: this misses single-shot because "rainy day fund" pulls the
+    AFR's statutory-history note ahead of the projection; "Budget
+    Stabilization Fund estimated balance FY 2026" reaches $1.63 billion. The
+    pull toward the AFR note is itself the trap described above.
+
+- id: lk-prop123-increment
+  question: >-
+    Voters approved pulling extra money out of the state land trust for
+    schools about a decade ago. How much did that add in the most recent
+    year, and is it still running?
+  corpus: budget
+  shape: lookup
+  subsets: [full, smoke]
+  key_facts:
+    - kind: currency
+      value: "$285,626,000"
+    - kind: regex
+      value: '\b6\.9\s*%'
+  judge_notes: >-
+    Proposition 123, approved at the May 2016 election, raised the annual
+    distribution rate from the State Land Trust Permanent Fund from 2.5% to
+    6.9% for FY 2016 through FY 2025. The FY 2026 Appropriations Report
+    records $285,626,000 of incremental land trust funds to K-12 in FY 2025
+    and states that the 4.4% incremental increase EXPIRED at the end of
+    FY 2025, so under current law no incremental funds are scheduled for
+    FY 2026 and the rate reverts to 2.5%. The expiration is the half of the
+    answer an analyst actually needs; an answer that reports 6.9% as the
+    live rate today is wrong. TRAP: the FY 2025 Appropriations Report
+    FORECAST the FY 2025 increment at $285,333,600 and the FY 2026 report
+    gives the settled $285,626,000. Those are 0.1% apart, which is INSIDE
+    the scorer's 0.5% currency tolerance, so either passes mechanically —
+    the judge should check which one the answer cited and whether it
+    labelled it estimate or final.
+
+- id: lk-hurf-split
+  question: >-
+    When an Arizona driver pays gas tax and vehicle registration, who
+    actually ends up with that money — the state, or the city and county
+    they live in?
+  corpus: budget
+  shape: lookup
+  subsets: [full]
+  key_facts:
+    - kind: regex
+      value: '\b30\.5\s*%'
+    - kind: regex
+      value: '\b19\.0\s*%'
+    - kind: regex
+      value: '\b42\.8\s*%'
+  judge_notes: >-
+    Highway User Revenue Fund (HURF) collections — motor vehicle fuel tax,
+    vehicle license tax, registration and driver license fees and similar —
+    are distributed by formula: Cities 30.5%, Counties 19.0%, Controlled
+    Access highways 7.7%, State Highway Fund 42.8%. All three pinned facts
+    are kind=regex because a bare percentage has no dollar sign or scale
+    word and would not parse as currency. The controlled-access share is
+    carved OUT of the State Highway Fund's statutory 50.5% (A.R.S. §
+    28-6538 sends 50.5% to SHF; 12.6% of that goes to controlled access,
+    and the State Transportation Board adds 2.6% by policy for 15.2% of
+    50.5% = 7.7%), split 75% Maricopa / 25% Pima. TRAP: an answer that
+    says the State Highway Fund gets 50.5% is quoting the statute rather
+    than the net Table 4 distribution, and one that treats controlled
+    access as a local share has it backwards. SPOT-CHECK: misses
+    single-shot — the percentages live in a bare table chunk with no
+    surrounding prose, while the narrative chunk that retrieves first only
+    points AT the table without repeating the numbers. Reachable via the
+    table's own heading ("Percentage Distribution of HURF Monies cities
+    counties controlled access state highway fund").
+
+# ---------------------------------------------------------------------
+# COMPARISON — the 3-year-table pattern. Requires several retrieves and
+# correct year attribution, which is where year-confusion shows up.
+# ---------------------------------------------------------------------
+
+- id: cm-basic-aid-3yr
+  question: >-
+    Walk me through what's happened to K-12 formula funding over the last
+    three budget cycles. Is it climbing, and roughly how fast?
+  corpus: budget
+  shape: comparison
+  subsets: [full, smoke]
+  key_facts:
+    - kind: currency
+      value: "$7,288,548,000"
+    - kind: currency
+      value: "$7,623,574,500"
+    - kind: currency
+      value: "$7,882,367,000"
+  judge_notes: >-
+    Basic State Aid: FY 2025 enacted $7,288,548,000; FY 2026 enacted
+    $7,623,574,500; FY 2027 Baseline $7,882,367,000 — roughly +4.6% then
+    +3.4%. A correct answer labels the FY 2027 figure as a BASELINE estimate,
+    not an enacted appropriation, because the FY 2027 budget had not passed.
+    TRAP: the FY 2025 Baseline said $7,368,194,200 against $7,288,548,000
+    enacted, so mixing Baseline and Appropriations Report figures across the
+    three years produces a growth curve that is quietly wrong. This is the
+    single most important query in the set for catching year/document-type
+    confusion. SPOT-CHECK: no single retrieve returns all three years — by
+    design. Naming the years explicitly reaches all three. A model that
+    issues one retrieve and reports one year has failed the query even if
+    that one year is right.
+
+- id: cm-des-gf-growth
+  question: >-
+    DES keeps coming up as a fast-growing agency. How much has its general
+    fund spending been rising, and what's behind it?
+  corpus: budget
+  shape: comparison
+  subsets: [full, smoke]
+  key_facts:
+    - kind: currency
+      value: "$133,115,400"
+    - kind: currency
+      value: "$243,506,900"
+    - kind: regex
+      value: '\b18\.1\s*%'
+  judge_notes: >-
+    DES General Fund spending rose $133,115,400 (+11.0%) in FY 2025 and
+    $243,506,900 (+18.1%) in FY 2026. In both years the driver is Division of
+    Developmental Disabilities formula adjustments ($142,289,900 of the FY
+    2025 increase; $262,456,900 of the FY 2026 increase) — i.e. DDD growth
+    EXCEEDS the agency's total growth, with one-time removals and small line
+    items offsetting it downward. A correct answer names DDD as the driver
+    and does not attribute growth to the tribal/food/aging line items, which
+    are small.
+
+- id: cm-highway-construction
+  question: >-
+    Has the amount going into building and maintaining state highways been
+    holding steady the last few years?
+  corpus: budget
+  shape: comparison
+  subsets: [full]
+  key_facts:
+    - kind: currency
+      value: "$444,243,000"
+    - kind: currency
+      value: "$462,488,000"
+  judge_notes: >-
+    The recurring State Highway Fund construction appropriation to ADOT runs
+    roughly: FY 2022 $361,110,000, FY 2023 $470,373,000, FY 2024
+    $444,243,000, FY 2025 $462,488,000 — up sharply after FY 2022, then
+    roughly flat. HARD BY DESIGN: this figure lives in Capital Outlay Act
+    FOOTNOTES, one per year in a different book, not in a summary table, so
+    it requires several retrieves and reading near-identical boilerplate
+    that differs only in the year and the amount. A wrong year attribution is
+    the expected failure mode. Any two adjacent years correctly attributed is
+    a reasonable answer; all four is a strong one. SPOT-CHECK: misses
+    single-shot; reachable via the footnote's own language ("sum appropriated
+    from the state highway fund to plan and construct state highways").
+
+- id: cm-supplementals-fy2026
+  question: >-
+    Which programs blew through their FY 2026 budgets badly enough to need
+    extra money mid-year, and what did that come to?
+  corpus: budget
+  shape: comparison
+  subsets: [full]
+  key_facts:
+    - kind: currency
+      value: "$208,577,900"
+    - kind: currency
+      value: "$96,818,700"
+  judge_notes: >-
+    The FY 2027 Baseline's FY 2026 adjustments show General Fund
+    supplementals of $208,577,900 total: AHCCCS formula $64,528,400, DES
+    formula $96,818,700, ADE formula $47,230,800. There is a parallel and
+    much larger Expenditure Authority column ($582,104,100 total, AHCCCS
+    $340,175,800 + DES $241,928,300) — that is federal/other-fund spending
+    authority, NOT General Fund. TRAP: an answer that reports $582.1 million
+    as the supplemental cost to the state has conflated the two columns.
+    All three programs are formula-driven caseload programs; that is the
+    common thread a good answer names. SPOT-CHECK: misses single-shot;
+    reachable via "FY 2026 adjustments supplemental appropriations General
+    Fund formula costs".
+
+- id: cm-adc-3yr-dr
+  question: >-
+    Put together a three-year picture of prison system funding through FY
+    2026 — what the total has been, how much of it is general fund, and where
+    the biggest year-over-year swings came from.
+  corpus: budget
+  tier: deep_research
+  shape: comparison
+  subsets: [dr-probe]
+  key_facts:
+    - kind: currency
+      value: "$1,600,697,200"
+    - kind: currency
+      value: "$1,537,433,000"
+  judge_notes: >-
+    Deep Research probe. FY 2026 anchors at $1,600,697,200 total /
+    $1,537,433,000 General Fund. The interesting movement is in the FY 2024
+    supplementals and FY 2025/2026 adjustments: Hepatitis C and
+    medication-assisted treatment (+$40,746,500), inmate health care vendor
+    cost changes, injunction-related IT upgrades, vacancy savings
+    reductions, and the FY 2026 one-time officer stipend. Only two key facts
+    are pinned deliberately — a Deep Research answer is long and the point of
+    this probe is whether the extra 50-step budget buys better SYNTHESIS and
+    more verified citations than Standard on cm-basic-aid-3yr, not whether it
+    can hit more pinned numbers. Watch cost and wall time here: the Plan 4
+    live run measured Deep Research at ~44x Standard cost and ~5 minutes.
+    SPOT-CHECK: misses single-shot on this phrasing even though the
+    near-identical lk-adc-total-fy2026 passes — a useful signal in itself,
+    since the only difference is question wording. Reachable via the
+    budget-bill section shape. Deep Research's larger step budget should
+    absorb this easily; if it does not, that is the finding.
+
+- id: cm-university-funding-dr
+  question: >-
+    Compare what the three state universities are each getting from the
+    Legislature this year, and say which one leans hardest on state tax
+    dollars versus its own revenue.
+  corpus: budget
+  tier: deep_research
+  shape: comparison
+  subsets: [dr-probe]
+  key_facts:
+    - kind: currency
+      value: "$1,218,177,000"
+    - kind: currency
+      value: "$628,448,900"
+    - kind: currency
+      value: "$246,104,300"
+  judge_notes: >-
+    FY 2026 totals: ASU $1,218,177,000 (GF $361,178,200 = 30%), UofA main
+    campus $628,448,900 (GF $259,899,800 = 41%), NAU $246,104,300 (GF
+    $114,267,500 = 46%). So NAU is the most state-dependent by share and ASU
+    the least, even though ASU is by far the largest in absolute dollars —
+    an answer that ranks only by total dollars has missed the question.
+    HARD: the three figures sit in three separate budget-bill sections
+    (legislature-budget-bill-fy2026-sb1735-2025-0082 ASU, -0083 NAU, -0084
+    UofA main campus). TRAP: UofA has a separate Health Sciences Center
+    section and Sierra Vista/Yuma branch lines; "main campus" is the
+    comparable unit. SPOT-CHECK (re-measured 2026-08-01 — the earlier note
+    was wrong on both halves and is corrected here): the question verbatim
+    surfaces NONE of the three figures, not just UofA — top_score is -4.17
+    and the top hits are Board-of-Regents and Land Department chunks. And it
+    does NOT require three retrieves: ONE reformulation naming all three
+    institutions in budget-bill vocabulary — "ARIZONA STATE UNIVERSITY
+    NORTHERN ARIZONA UNIVERSITY UNIVERSITY OF ARIZONA MAIN CAMPUS FTE
+    positions operating lump sum total appropriation" — returns all three
+    sections as the top three hits, matching NAU at rank 1, ASU at rank 2
+    and UofA main campus at rank 3. So the expected behavior is REFORMULATE
+    (toward the appropriations vocabulary), not FAN OUT; an agent that
+    issues three narrow retrieves is also fine, but an agent that issues one
+    conversational retrieve and answers from it has nothing to answer with.
+
+# ---------------------------------------------------------------------
+# ANALYZE — "what drove the change". Multi-retrieve synthesis where the
+# answer is a mechanism, not a number.
+# ---------------------------------------------------------------------
+
+- id: an-ahcccs-enrollment
+  question: >-
+    Medicaid enrollment apparently came in well under what the state budgeted
+    for. What happened, and how did that ripple into the following year's
+    numbers?
+  corpus: budget
+  shape: analyze
+  subsets: [full]
+  key_facts:
+    - kind: currency
+      value: "$55,575,200"
+    - kind: regex
+      value: '1\.58 million'
+  judge_notes: >-
+    Through June 2025 AHCCCS capitated enrollment was 1.58 million against an
+    enacted-budget assumption of 1.77 million — about 190,000 fewer people.
+    That produced a large FY 2025 base adjustment carried into FY 2026.
+    Partially offsetting it: the October 2024 and April 2025 capitation rate
+    adjustments, with the 1-20 age group getting the largest increase (which
+    has outsized General Fund formula impact), estimated at $55,575,200 of
+    General Fund expense. A correct answer explains BOTH directions —
+    caseload down, rates up — rather than only the enrollment shortfall.
+    NOTE: the headline base-adjustment figures in this passage are printed as
+    parenthesized negatives, which the currency matcher cannot parse, so the
+    pinned facts deliberately use the positive rate-adjustment figure and a
+    regex on the enrollment count.
+
+- id: an-ahcccs-gf-drivers
+  question: >-
+    AHCCCS's state share barely moved in FY 2026 even though its caseload
+    costs jumped. How does that arithmetic actually work out?
+  corpus: budget
+  shape: analyze
+  subsets: [full, smoke]
+  key_facts:
+    - kind: currency
+      value: "$36,140,500"
+    - kind: currency
+      value: "$180,332,800"
+    - kind: regex
+      value: '\b1\.4\s*%'
+  judge_notes: >-
+    AHCCCS FY 2026 General Fund spending rises only $36,140,500, or 1.4%,
+    despite $180,332,800 of formula adjustments — because a $150,000,000
+    shift of Medicaid services costs to the Prescription Drug Rebate Fund
+    (State) offsets most of it, along with removal of several one-time items.
+    The mechanism (a fund shift masking underlying formula growth) IS the
+    answer; an answer that reports 1.4% growth without naming the PDRF shift
+    is technically accurate and analytically useless, and should be graded
+    down. The $150,000,000 offset is printed as a parenthesized negative and
+    so is intentionally not a pinned fact.
+
+- id: an-esa-growth
+  question: >-
+    What have school vouchers done to the cost of the K-12 funding formula,
+    and did the state's enrollment guesses turn out to be right?
+  corpus: budget
+  shape: analyze
+  subsets: [full]
+  key_facts:
+    # MULTI-BASIS FACTS — see the "REVISED FIGURES" note in the file header.
+    # Each of these is ONE fact listing every legitimate basis for the same
+    # ESA line; fact_matches() parses all of them and passes on any one, so
+    # an answer read out of the later, MORE ACCURATE book scores the same as
+    # one read out of the original enacted budget. Pinning only the original
+    # would score the better answer as a miss.
+    #   FY 2025 ESA awards: 822,030,600 original FY 2025 enacted estimate ·
+    #     872,588,300 revised (FY 2026 Baseline) · 872,156,000 revised
+    #     (FY 2026 Appropriations Report). The revisions are +6.1%, far
+    #     outside the scorer's 0.5% currency tolerance.
+    #   FY 2026 ESA awards: 1,002,152,300 (FY 2026 Baseline) ·
+    #     1,001,720,000 (FY 2026 enacted — 0.04% apart, inside tolerance,
+    #     listed anyway so the intent is explicit rather than accidental) ·
+    #     1,061,508,600 revised (FY 2027 Baseline, +6.0%).
+    - kind: currency
+      value: "$822,030,600 or $872,588,300 or $872,156,000"
+    - kind: currency
+      value: "$1,002,152,300 or $1,001,720,000 or $1,061,508,600"
+  judge_notes: >-
+    Empowerment Scholarship Accounts within the Basic State Aid formula rise
+    from roughly $822,030,600 in FY 2025 to roughly $1,002,152,300 in FY 2026
+    — ESAs cross $1 billion while total public school ADM is FALLING. WHICH
+    BASIS IS REQUIRED: either. The question asks what vouchers have done to
+    formula cost and names no budget document, so an answer built on the
+    original enacted estimates ($822,030,600 / $1,001,720,000) and an answer
+    built on the later JLBC revisions ($872,588,300 or $872,156,000 for FY
+    2025; $1,061,508,600 for FY 2026) are both correct, and the key facts
+    accept either. Do NOT grade down a revised figure — it is the more
+    accurate one. DO grade down an answer that mixes bases inside one
+    comparison (an original FY 2025 against a revised FY 2026 overstates the
+    growth) or that presents a revision without saying it is one. The
+    forecasting miss is the real story: the enacted FY 2024 budget assumed
+    68,380 ESA participants and $625,155,700 of awards; ADE reported 76,427
+    pupils receiving disbursements, while district ADM came in 1.0% BELOW
+    final FY 2023 rather than the assumed +0.4% growth. A strong answer
+    connects the two — students moving out of districts into ESAs — and notes
+    the state does not fully recapture district-side savings. SPOT-CHECK
+    (re-measured 2026-08-01): the question verbatim MISSES both facts
+    (top_score 0.88). The earlier claim that the figures live in the "Basic
+    State Aid Formula Summary" Table 1 chunks and are reachable at rank 3-4
+    via that table's wording was WRONG in two ways, and is corrected here:
+    that reformulation returns Table 1 chunks from the wrong years and
+    matches NEITHER fact, and in Table 1 the amount is a bare cell
+    ("Empowerment Scholarships 822,030,600") with no $ and no scale word, so
+    the currency matcher cannot see it in table text at all. The figures'
+    real home is the ESA-growth NARRATIVE. One reformulation —
+    "Empowerment Scholarship Account enrollment growth total awards FY 2025
+    FY 2026 estimate" — returns jlbc-baseline-fy2026-ade-0027 at RANK 1, and
+    that single chunk carries both facts ($872,588,300 and $1,002,152,300).
+    Genuinely hard, and kept: the analyst's natural wording does not reach
+    the paragraph that holds the numbers.
+
+- id: an-gf-structural-dr
+  question: >-
+    Is the state budget actually balanced going into FY 2027, or is it
+    leaning on one-time money? Walk me through the revenue and spending
+    assumptions and what shifted between the budget as passed and the latest
+    staff estimate.
+  corpus: budget
+  tier: deep_research
+  shape: analyze
+  subsets: [dr-probe]
+  key_facts:
+    - kind: currency
+      value: "$18.5 billion"
+    - kind: currency
+      value: "$673.1 million"
+    - kind: currency
+      value: "$199.8 million"
+  judge_notes: >-
+    Deep Research probe, and the hardest synthesis in the set. Enacted FY
+    2026: $17.8 billion revenue, $17.6 billion spending, $199.8 million
+    ending balance. FY 2027 Baseline revises revenue up to $18.5 billion
+    (+$692.4 million) and spending up to $17.8 billion (+$219.1 million),
+    leaving $673.1 million. The structural question turns on the ongoing vs
+    one-time split — net ongoing revenue after previously-enacted tax
+    reductions and Urban Revenue Sharing, versus balance-forward and
+    one-time transfers. A good answer distinguishes ongoing from one-time
+    and refuses to call it "balanced" or "unbalanced" without that split.
+    Note the corpus contains a forward three-year plan (FY 2027 and FY 2028
+    forecasts in the budget bill's interim reporting section) — using those
+    is legitimate; presenting them as adopted appropriations is not.
+
+- id: an-taxcut-package-dr
+  question: >-
+    A few years back the Legislature cut income taxes and made the deeper
+    cuts conditional on revenue coming in strong. Walk me through how that
+    was supposed to work, whether the conditions ended up being met, and what
+    the whole thing was projected to cost.
+  corpus: budget
+  tier: deep_research
+  shape: analyze
+  subsets: [dr-probe]
+  key_facts:
+    - kind: currency
+      value: "$12.8 billion"
+    - kind: currency
+      value: "$13.0 billion"
+    - kind: currency
+      value: "$2.29 billion"
+    - kind: string
+      value: "Proposition 208"
+  judge_notes: >-
+    Deep Research probe against the oldest dense years in the corpus.
+    Laws 2021, Chapter 412 (the Tax Omnibus) cut individual income tax rates
+    to 2.55%/2.98% in TY 2022, with further cuts to 2.53%/2.75% and then a
+    single 2.50% rate CONTINGENT on General Fund revenue — excluding the
+    beginning balance — exceeding a "trigger" of $12.8 billion in FY 2022 and
+    $13.0 billion in FY 2023 and each year after. Laws 2022, Chapter 321 then
+    required $2.29 billion of FY 2023 TPT distributions to NON-General Fund
+    agencies to be ADDED BACK to reported General Fund revenue when testing
+    the $13.0 billion trigger — i.e. the trigger was made easier to clear by
+    counting money the General Fund never kept. That add-back is the most
+    analytically interesting thing in the package and a strong answer names
+    it. Both triggers were expected to be exceeded, so the single 2.5% rate
+    took effect. Separately, Proposition 208's 3.5% surcharge was ruled
+    invalid in spring 2022, which also eliminated the cost of the Chapter 411
+    4.5% combined-rate cap — an answer that still carries the Prop 208
+    interaction as live has read only the FY 2022 book. TRAP: the cost
+    figures MOVE between books and are not the same measure. The FY 2022
+    Appropriations Report gives a net revenue impact for the three key
+    provisions together of $(1.3)/$(1.5)/$(1.8) billion in FY 2023/24/25;
+    the FY 2023 report gives the rate reduction ALONE at
+    $(1.27)/$(1.64)/$(2.08) billion. Presenting those as one revised series
+    is wrong. NOTE: every one of those cost figures is printed as a
+    parenthesized negative, which the currency matcher cannot parse, so none
+    of them is pinned — the judge must check them by eye, and the mechanical
+    key_fact_rate for this query deliberately measures the trigger mechanism
+    instead of the price tag. Watch cost and wall time: the Plan 4 live run
+    measured Deep Research at ~44x Standard cost and ~5 minutes.
+
+# ---------------------------------------------------------------------
+# MEMO — a create_document ask. This is the shape where the Plan 4 live
+# run produced a memo full of specific dollar figures and ZERO
+# citations, an Invariant 1 failure in practice. These queries exist to
+# measure whether that still happens, so watch verified_citations here
+# more than key_fact_rate.
+# ---------------------------------------------------------------------
+
+- id: mm-adc-briefing
+  question: >-
+    Draft a short committee memo on the prison system's FY 2026 budget —
+    total funding, the general fund share, and the one-time items members are
+    likely to ask about.
+  corpus: budget
+  shape: memo
+  # IN SMOKE, deliberately (2026-08-01 review, Finding 5). Smoke previously
+  # covered 5 shapes and omitted memo — precisely the shape this project has
+  # already MEASURED to be unstable: the Plan 4 live run produced 20
+  # citations on one memo prompt and ZERO on an identical rerun, an
+  # Invariant 1 failure in practice. Leaving it out of the cheap pre-merge
+  # subset meant the one run people actually make before merging could not
+  # see the one failure we know recurs. mm-adc-briefing is the memo picked
+  # (rather than mm-esa-memo) because its facts ARE single-shot retrievable,
+  # so a smoke failure here points at citation discipline rather than at
+  # retrieval difficulty — which is the whole reason it is in smoke.
+  subsets: [full, smoke]
+  key_facts:
+    - kind: currency
+      value: "$1,600,697,200"
+    - kind: currency
+      value: "$17,075,300"
+  judge_notes: >-
+    Should call create_document and produce a real .docx, AND the answer text
+    should carry verified citations for every dollar figure. THE FAILURE THIS
+    QUERY EXISTS TO CATCH: in the Plan 4 live run, two identical runs of a
+    memo-shaped prompt produced 20 citations (12 passing) and then ZERO — the
+    second wrote a memo full of specific figures and cited nothing. Grade
+    verified_citations > 0 as the pass/fail bar here; key-fact coverage
+    without citations is worse than a refusal, not better. Also watch for the
+    download-token leak (the model writing `token: ...` into prose instead of
+    letting the UI render the link) — the mechanical scorer flags it.
+    Content: $1,600,697,200 total, $1,537,433,000 General Fund, one-time
+    items being the $17,075,300 officer stipend and the FY 2024/2025 health
+    care supplementals.
+
+- id: mm-esa-memo
+  question: >-
+    Put together a one-pager for a member explaining how voucher costs inside
+    the school funding formula have moved over the last two budgets and why.
+  corpus: budget
+  shape: memo
+  subsets: [full]
+  key_facts:
+    # Multi-basis, for the same reason as an-esa-growth — see that query's
+    # comment and the "REVISED FIGURES" note in the file header. The FY 2026
+    # ESA line is $1,002,152,300 in the FY 2026 Baseline, $1,001,720,000 as
+    # enacted, and revised to $1,061,508,600 in the FY 2027 Baseline.
+    - kind: currency
+      value: "$1,002,152,300 or $1,001,720,000 or $1,061,508,600"
+  judge_notes: >-
+    Same instrument as mm-adc-briefing, different topic, deliberately
+    duplicated because the Plan 4 finding was that citation discipline on
+    memo-shaped asks is UNSTABLE RUN TO RUN — one memo query cannot
+    distinguish "this model cites in memos" from "this run happened to".
+    Content: ESAs go from roughly $822,030,600 (FY 2025) to roughly
+    $1,002,152,300 (FY 2026) inside Basic State Aid while public school ADM
+    declines. WHICH BASIS IS REQUIRED: either, exactly as in an-esa-growth —
+    the later JLBC revisions ($872,588,300 / $872,156,000 for FY 2025,
+    $1,061,508,600 for FY 2026) are more accurate than the original enacted
+    estimates and must not be graded down; what IS gradeable is mixing bases
+    inside one two-year comparison, or presenting a revision without saying
+    it is one. Pass bar is again verified_citations > 0 plus a real
+    document. An answer that editorializes about whether vouchers are good
+    policy is out of scope and violates the tool's framing — flag it.
+    SPOT-CHECK (re-measured 2026-08-01): same retrieval difficulty as
+    an-esa-growth and the same correction applies — the figure is NOT
+    reachable through Basic State Aid Table 1 wording (there it is a bare
+    table cell with no $, invisible to the currency matcher); it lives in
+    the ESA-growth narrative, reachable at rank 1 via "Empowerment
+    Scholarship Account enrollment growth total awards FY 2025 FY 2026
+    estimate". Grade citations first regardless.
+
+# ---------------------------------------------------------------------
+# REFUSAL — genuinely outside this corpus. NOT merely obscure Arizona
+# budget questions, which the corpus may well answer. Each of these is
+# a different jurisdiction or a different time period entirely.
+#
+# All five were RE-VERIFIED against `budget_chunks` alone on 2026-08-01,
+# after the fiscal-note corpus went out of scope: each was run as a
+# single retrieve and the returned material inspected. Every one still
+# holds — the corpus cannot answer any of them — and the FAILURE MODE
+# notes below now name the budget-corpus material that actually came
+# back, not the fiscal-note material the first draft cited.
+# ---------------------------------------------------------------------
+
+- id: rf-federal-budget
+  question: >-
+    How much did Congress appropriate for the federal Department of Veterans
+    Affairs in federal fiscal year 2025?
+  corpus: budget
+  shape: refusal
+  subsets: [full, smoke]
+  should_refuse: true
+  judge_notes: >-
+    Wrong jurisdiction — this corpus holds Arizona STATE budget documents and
+    contains no federal appropriations acts. Correct behavior is to say so
+    and name what the corpus does cover. It need not retrieve at all; the
+    Plan 4 live run showed a correct out-of-scope refusal issuing zero
+    retrieves, which is right, not lazy. FAILURE MODE TO WATCH, verified by
+    retrieval 2026-08-01: the top hits are Arizona's own DEPARTMENT OF
+    VETERANS' SERVICES (a state agency with a confusingly similar name, and
+    a $1,000,000 FY 2025 supplemental in the budget bill), the JLBC "Summary
+    of Federal and Other Non-Appropriated Fund Expenditures" table which
+    lists federal money flowing to that state agency, and DCS line items
+    that literally contain the words "Veterans Affairs benefits". A
+    plausible-looking wrong answer assembled out of those is a real risk.
+
+- id: rf-other-state
+  question: >-
+    What's Nevada's per-pupil K-12 funding amount for the current school
+    year?
+  corpus: budget
+  shape: refusal
+  subsets: [full, smoke]
+  should_refuse: true
+  judge_notes: >-
+    Wrong state. Nothing in the corpus covers Nevada's budget. FAILURE MODE,
+    verified by retrieval 2026-08-01: the question returns Arizona's New
+    School Facilities statutory funding guidelines — tables of dollars PER
+    STUDENT and per square foot by grade band — which are exactly the shape
+    of number the question asks for and are about the wrong state entirely.
+    A refusal that names the corpus boundary is correct; an answer that
+    hands over an Arizona per-student figure while presenting it as Nevada's
+    is the worst outcome.
+
+- id: rf-city-budget
+  question: >-
+    How much did the City of Tucson budget for police overtime this year?
+  corpus: budget
+  shape: refusal
+  subsets: [full]
+  should_refuse: true
+  judge_notes: >-
+    Wrong level of government — municipal budgets are not in this corpus.
+    FAILURE MODE, verified by retrieval 2026-08-01: BOTH halves of the
+    question have adjacent-looking state material. The corpus contains
+    one-time state distributions of $250,000 each to the Chandler, Mesa and
+    Tucson Police Departments, and a Peace Officer Training Equipment Fund
+    allocation whose first $500,000 is appropriated to DPS "for employee
+    overtime pay". Stitching those together would produce a confident,
+    fully-cited, completely wrong answer. Correct behavior is to decline and
+    note that state appropriations TO cities, and state-shared revenue, ARE
+    covered if the analyst wants those instead.
+
+- id: rf-future-budget
+  question: >-
+    What did the Governor propose in the FY 2029 executive budget?
+  corpus: budget
+  shape: refusal
+  subsets: [full]
+  should_refuse: true
+  judge_notes: >-
+    Outside the corpus in TIME. Executive budgets in the corpus run through
+    FY 2027; no FY 2029 executive budget exists or could. Verified
+    2026-08-01: with the S21 year-parser hard filter in place this question
+    retrieves ZERO chunks — top_score comes back as the NO_RESULTS sentinel
+    — so a model that produces an FY 2029 answer off the verbatim question
+    has fabricated it with nothing in hand at all. FAILURE MODE, re-measured
+    2026-08-01 (the earlier note named the wrong lure — "FY 2028 revenue
+    forecasts in the budget bill's interim reporting section" — which
+    understates this badly): 152 budget chunks mention FY 2029, and TEN of
+    them are inside the Governor's own Executive Budget documents (9 in
+    governor-governors-budget-fy2027, 1 in the FY 2026 edition). The FY 2027
+    Executive Budget carries a GENERAL FUND CASH FLOW table and a GENERAL
+    FUND STRUCTURAL BALANCE table whose column headers read literally
+    "Executive Budget ... FY 2025 FY 2026 FY 2027 FY 2028 FY 2029", with
+    populated FY 2029 revenue, spending and ending-balance lines; its
+    Assumptions and Methodology section states that A.R.S. § 35-125 requires
+    estimates for the three subsequent years and that "the Executive Budget
+    provides those estimates for FY 2027, FY 2028, and FY 2029"; and several
+    initiatives advance-appropriate named FY 2029 dollar amounts (e.g.
+    $15.2 million ongoing for ADC body-worn cameras, $30.1 million for the
+    second phase of Tucson prison HVAC). So a model that broadens its query
+    can retrieve a real table, headed "Executive Budget", with a real FY 2029
+    column, and hand it over as "what the Governor proposed for FY 2029".
+    THAT is the lure, and it is a strong one. Those are FY 2029 out-year
+    ESTIMATES published inside the FY 2027 proposal, not an FY 2029 proposal
+    — no such document exists. Presenting them as one is a fabrication, not
+    partial credit; a correct answer may mention that four-year forecast
+    exists, but only while declining the question as asked.
+
+- id: rf-county-budget
+  question: >-
+    What's Maricopa County's adopted general fund budget for the current
+    fiscal year?
+  corpus: budget
+  shape: refusal
+  subsets: [full]
+  should_refuse: true
+  judge_notes: >-
+    Wrong level of government again, and deliberately a HARDER refusal than
+    rf-city-budget: the state corpus contains a great deal about counties
+    (county shares of TPT and VLT, county contributions to ALTCS, the EORP
+    county offset, county detention officer retirement). FAILURE MODE,
+    verified by retrieval 2026-08-01: the top hits are STATE appropriations
+    to county offices — $4,100,000 from the General Fund in FY 2026 to the
+    Maricopa County Recorder, $2,000,000 to the Maricopa County Attorney's
+    Office — which read like county budget lines and are not. Correct
+    behavior is to distinguish "what the state budget says about counties"
+    from "a county's own adopted budget" and decline the latter.
+
+# ---------------------------------------------------------------------
+# HISTORICAL — the OLDEST budget-book material actually in the corpus,
+# which today means the FY 2022 and FY 2023 JLBC editions (plus the
+# FY2022/FY2023 AGAO Annual Financial Reports). See the file header:
+# the budget corpus starts at FY2021 and is dense only from FY2022,
+# because 27 pre-FY2022 book editions are a deliberate deferred
+# backfill. Re-author this shape against those editions when they land.
+#
+# These documents are older, thinner in the index than the FY2025-2027
+# books, and describe policies that have since changed names, agencies
+# or statutory bases — which is exactly the retrieval difficulty this
+# shape exists to probe.
+# ---------------------------------------------------------------------
+
+- id: hs-promise-program-2023
+  question: >-
+    There's a state scholarship for Arizona high school graduates who
+    qualify for Pell grants. When it first got stood up, how many students
+    did it actually reach, and what happened to it the year after?
+  corpus: budget
+  shape: historical
+  subsets: [full, smoke]
+  key_facts:
+    - kind: currency
+      value: "$4,471"
+    - kind: currency
+      value: "$20,000,000"
+    - kind: regex
+      value: '\b1,677\b'
+  judge_notes: >-
+    The Arizona Promise Program was created by the FY 2022 Higher Education
+    Budget Reconciliation Bill with $7,500,000 from the General Fund, which
+    funded approximately 1,677 students at an average award of $4,471. The
+    FY 2023 budget added $12,500,000, taking the program to $20,000,000 and
+    an expected 4,473 total students. TRAP, and the point of the query: the
+    January FY 2023 JLBC BASELINE carries $7,500,000, "unchanged from FY
+    2022" — the $20,000,000 exists only in the enacted budget. Both numbers
+    are in the corpus and both are real; an answer that reports the Baseline
+    figure as the FY 2023 outcome has quoted the pre-session estimate. Worth
+    a mention: the universities must GUARANTEE awards to any additional
+    eligible student, so the appropriation is not a hard cap on
+    participation. The student count is a bare number with no dollar sign,
+    so it is kind=regex — currency would not parse it.
+
+- id: hs-enhanced-fmap-2022
+  question: >-
+    During the pandemic the federal government temporarily picked up a bigger
+    share of Medicaid costs. What was that worth to Arizona's general fund,
+    and what happened when it went away?
+  corpus: budget
+  shape: historical
+  subsets: [full]
+  key_facts:
+    - kind: currency
+      value: "$180,000,000"
+    - kind: regex
+      value: '\b6\.2\s*%'
+  judge_notes: >-
+    The Families First Coronavirus Response Act raised the federal Medicaid
+    match rate by 6.2 percentage points for the duration of the public health
+    emergency. The FY 2022 enacted budget booked a one-time General Fund
+    savings of $180,000,000 at AHCCCS on the assumption the enhanced rate
+    would end in December 2021; the FY 2023 budget then added $180,000,000
+    back to remove those savings, inside $319,312,500 of formula adjustments.
+    Because the emergency kept being extended, the realised saving grew — and
+    the two books disagree about how much, because they were written at
+    different moments. The FY 2023 BASELINE (January) puts the FY 2022
+    surplus at $(77,932,400) beyond the appropriation, for total savings of
+    about $257,932,400; the FY 2023 APPROPRIATIONS REPORT (July) puts it at
+    $(167,932,400), for about $347,932,400. Those are the same quantity
+    measured twice, not a correction, and an answer that gives either without
+    dating it is misleading. Mechanism worth naming: there was no
+    ex-appropriation — the surplus was realised through General Fund
+    revertments. TRAP: the enhanced match also flowed to DES and DCS, so the
+    savings across all three Medicaid agencies is a larger and different
+    number than AHCCCS's alone. NOTE: every surplus figure above is printed
+    as a parenthesized negative and cannot be pinned mechanically, so the
+    scorer checks the positive $180,000,000 add-back instead.
+    SPOT-CHECK: partial miss — the conversational question DOES surface the
+    6.2% rate (the FY 2023 Baseline summary discusses it in plain prose) but
+    NOT the $180,000,000, which lives in the AHCCCS per-agency "Public
+    Health Emergency" narrative. Reachable at rank 1 via "AHCCCS public
+    health emergency 6.2% enhanced federal match rate one-time savings
+    removed formula adjustments". This is a useful shape: an agent that
+    stops after one retrieve will produce a directionally-right answer with
+    no dollar figure in it.
+
+- id: hs-water-augmentation-2023
+  question: >-
+    Arizona put a big pot of money toward bringing in water from outside the
+    state a few years ago. How much was committed, over what period, and did
+    it come out of the regular budget?
+  corpus: budget
+  shape: historical
+  subsets: [full]
+  key_facts:
+    - kind: currency
+      value: "$334,000,000"
+    - kind: currency
+      value: "$1,000,000,000"
+  judge_notes: >-
+    Laws 2022, Chapter 366 committed $1,000,000,000 over three years to the
+    newly-created Long-Term Water Augmentation Fund at the Water
+    Infrastructure Finance Authority: $334,000,000 in FY 2023 as a DIVERSION
+    of the General Fund's share of Transaction Privilege Tax revenue, then
+    advance appropriations of $333,000,000 each directly from the General
+    Fund in FY 2024 and FY 2025. Two details separate a good answer from a
+    superficial one. First, the FY 2023 money is a TPT diversion rather than
+    a General Fund appropriation, so it never shows up as FY 2023 General
+    Fund spending. Second, the fund itself is NON-APPROPRIATED — the
+    Legislature does not approve the individual awards; the WIFA Board does,
+    with awards over $50,000,000 reviewed by the Joint Legislative Water
+    Committee. 75% of the deposits are reserved for projects importing water
+    from outside Arizona. TRAP: WIFA's own appropriated budget in these years
+    is tiny — the FY 2023 Baseline shows WIFA spending falling $(12.0)
+    million, or 100% — so an answer that reports WIFA's appropriation as the
+    state's water investment is off by roughly two orders of magnitude.
+
+- id: hs-building-renewal-2023
+  question: >-
+    Around FY 2023, how much was the state really putting into fixing up
+    existing school buildings, and how much of that was one-time money rather
+    than something districts could count on?
+  corpus: budget
+  shape: historical
+  subsets: [full]
+  key_facts:
+    - kind: currency
+      value: "$199,967,900"
+    - kind: currency
+      value: "$16,667,900"
+  judge_notes: >-
+    Building Renewal Grants. Since FY 2014 the ongoing "base" appropriation
+    has been $16,667,900. FY 2022 got $107,500,000 in the original budget
+    plus a $93,117,000 FY 2022 supplemental enacted in the FY 2023 budget, so
+    $200,617,000 was available, of which $183,949,100 was one-time. FY 2023
+    got $183,300,000 of one-time funding on top of the base, for a
+    $199,967,900 total. So the two years are within half a percent of each
+    other on the headline while the RECURRING commitment never moved off
+    ~$16.7 million — that gap is the answer, and a response that reports only
+    the ~$200 million total has told the analyst the least useful half.
+    TRAP: the FY 2022 total is reachable only by ADDING the supplemental to
+    the original appropriation; an answer that gives $107,500,000 as FY 2022
+    building renewal funding has missed it. Second trap, specific to this
+    era: the administering agency CHANGED mid-series — the School Facilities
+    Board (doc ids ...-sfb-...) became the School Facilities Division inside
+    the Department of Administration (...-doa-sfd-...) — so the same program
+    appears under two different agencies across FY 2022 and FY 2023, and a
+    model that filters by agency will silently see only half the story.
+
+- id: hs-esa-cost-2022
+  question: >-
+    Before the voucher program was opened up to every student, how big was it
+    really — roughly how many kids, and how much per kid?
+  corpus: budget
+  shape: historical
+  subsets: [full]
+  key_facts:
+    - kind: currency
+      value: "$15,761"
+    - kind: currency
+      value: "$145,000,000"
+    - kind: regex
+      value: '\b9,200\b'
+  judge_notes: >-
+    The FY 2022 Baseline reports roughly 9,200 Empowerment Scholarship
+    Account enrollees in FY 2021 costing about $145,000,000, an average of
+    $15,761 per recipient, and projects FY 2022 at 10,674 enrollees, $16,061
+    average and $171,430,700 total — an increase of $26,430,700 over FY 2021.
+    That is the program BEFORE the 2022 universal-eligibility expansion, and
+    the contrast is why this query exists: by FY 2026 ESAs inside Basic State
+    Aid are $1,002,152,300 (see an-esa-growth), about 7x this. TRAP, stated
+    explicitly in the source and easy to miss: the $26,430,700 is the
+    projected TOTAL cost increase for ESA allocations, NOT the net General
+    Fund impact, because Basic State Aid savings for students leaving public
+    schools are netted out elsewhere in the formula. An answer that presents
+    ESA cost as net new General Fund spending has made exactly the mistake
+    the book warns against. The enrollment count is a bare number with no
+    dollar sign, so it is kind=regex. NOTE for maintainers: this query,
+    an-esa-growth and mm-esa-memo all concern ESAs, but this one draws on a
+    FY 2022 per-agency Baseline narrative while the other two draw on the
+    FY 2025/2026 formula-summary tables — different documents, so a shared
+    retrieval failure is less likely than the topic overlap suggests.
+    SPOT-CHECK: misses single-shot, and hard — the conversational question
+    scores badly (top rerank logit around -5.9) because "before the program
+    was opened up to every student" is a framing the FY 2022 book cannot
+    contain: it was written before the expansion happened, so it does not
+    describe itself as the "before" state. All three facts sit in one chunk
+    and are reachable at rank 1 via "Empowerment Scholarship Account
+    enrollees average cost per recipient FY 2021 estimated expenses". An
+    agent must convert a temporal framing into a year, which is the exact
+    reformulation the historical shape exists to test.

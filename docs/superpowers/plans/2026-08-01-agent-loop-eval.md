@@ -2159,7 +2159,10 @@ def test_shape_quotas():
 
 
 def test_corpus_coverage():
-    assert sum(1 for q in QUERIES if q.corpus == "fiscal_notes") >= 4
+    # BUDGET ONLY — Destin, 2026-08-01: "this eval set should NOT utilize the
+    # fiscal note path, we are solely evaluating budget queries." A metric
+    # averaged across two corpora answers no question about either.
+    assert all(q.corpus == "budget" for q in QUERIES)
 
 
 def test_smoke_subset_is_small_and_diverse():
@@ -2217,12 +2220,11 @@ Coverage targets (mirroring the structural test):
 | analyze | 4+ | multi-retrieve synthesis ("what drove the change...") |
 | memo | 1+ | a `create_document` ask — the observed zero-citation failure shape; key facts on the ANSWER text still apply |
 | refusal | 4+ | out-of-corpus (federal budget, city budgets, current news) |
-| historical | 3+ | FY2005–FY2015 books — newly backfilled territory |
-| fiscal_notes corpus | 4+ | coordinator-triage shaped ("have we written a note on X?") — reuse topics from `eval/fiscal_note_queries.yaml` |
+| historical | 3+ | the OLDEST budget-book years present. Measured 2026-08-01, `budget_chunks` spans FY2021–FY2027 (FY2021 is a 169-chunk fragment), so this means FY2022–FY2023. Pre-FY2022 editions are STATUS.md's deferred backfill; re-author this shape against them when it lands |
 | dr-probe | exactly 4 | `tier: deep_research`, `subsets: [dr-probe]` — 2 comparison + 2 analyze |
 | smoke | 8–12 | tag existing standard-tier queries across ≥4 shapes |
 
-File header comment (adapt Layer 1's `queries.yaml` framing): state that this measures END-TO-END agent behavior, not retrieval recall; that key facts must exist verbatim-or-equivalent in corpus chunks; and the date + corpus counts it was authored against (24,841 budget / 13,278 fiscal-note chunks, 2026-08-01).
+File header comment (adapt Layer 1's `queries.yaml` framing): state that this measures END-TO-END agent behavior, not retrieval recall; that this set is **budget-corpus only** and why; that key facts must exist verbatim-or-equivalent in corpus chunks; and the date + corpus counts it was authored against (28,530 budget chunks spanning FY2021–FY2027, 2026-08-01).
 
 - [ ] **Step 3: Run the structural test**
 
