@@ -29,6 +29,7 @@ source. When something ships, update only this file.
 | Standalone consolidation — Plan 2 (app server + search UI) | ✓ Shipped (2026-07-30) | New `app/` (port 9300) + `webapp/` SPA: home, budget search (real corpus), fiscal notes directory. See the section below |
 | Standalone consolidation — Plan 3 (ingest) | ✓ Shipped (2026-07-31) | GUI upload → background queue → LanceDB; fiscal-note refresh; Add-a-JLBC-book. Postgres/Docker now needed for NOTHING. See the section below |
 | Standalone consolidation — Plan 4 (AI Mode) | ✓ Shipped (2026-07-31) | In-process OpenRouter tool loop; MCP and YouCoded dropped. Cited chat + PDF viewer on both corpora, Standard/Deep-Research tiers, per-user spend ledger. See the section below |
+| Standalone consolidation — Plan 5 (admin + packaging + deletion) | 🟡 **Tracks 1–3 done, 4–5 open** (2026-08-01) | Tracks 1–2 (tasks 1–13, Session A) shipped: admin identity + gate, settings API, OpenRouter catalog, model fallback, corpus health/restore, Admin + Settings pages, per-machine data dir, health ladder, lockout recovery. Track 3 (packaging, Session B) shipped separately. **Track 5 (handbook, 21–23) not started; Track 4 (legacy deletion, 18–20) still blocked** — `web/`, `mcp-server/`, `db/` remain in-tree. ⚠ **Two of Session B's app-side asks are unbuilt** (per-machine `ingest_enabled`; `machine_config` CLI). See the Session A section below |
 
 ## What's next
 
@@ -919,6 +920,152 @@ Phase C for the recency work, not for this.
   real fix.
 - `MonthUsage` gained `cached_tokens`; Plan 5's admin usage panel should
   render it, otherwise the number is recorded and never seen.
+  **Resolved in Plan 5 Session A, but not as written** — see that section's
+  "cached tokens are watched, not displayed".
+
+---
+
+## Standalone consolidation — Plan 5 Session A shipped (2026-07-31)
+
+**Tracks 1 and 2 (tasks 1–13).** Track 3 (packaging) shipped separately from
+Session B — see its own section. Track 5 (handbook, tasks 21–23, Session C)
+is not started. Track 4 (legacy deletion + remaining ingest defects, tasks
+18–20) waits on Session C, so `web/`, `mcp-server/`, `db/`, and the legacy
+`retrieval/` modules are **still in-tree and still unused**.
+
+> ⚠ **Session B filed four app-side requirements that are Session A's to
+> build, and two are still open.** See
+> `docs/superpowers/investigations/2026-08-01-bundle-app-requirements.md`.
+> Status as of this merge: **#1 (per-machine `ingest_enabled` flag + the
+> "nobody is processing uploads" admin warning) — NOT BUILT.** **#2
+> (`/health` returns 200 whenever the process serves) — already satisfied;**
+> the route is a plain dict with no status logic and the ladder deliberately
+> lives at `/api/health/detail`, so no change is needed. **#3
+> (`python -m app.machine_config --set-data-dir` so `install.cmd` stops
+> hand-writing JSON) — NOT BUILT.** #4 is informational.
+>
+> **#1 is the consequential one.** `launcher.pyw` calls `create_app()` with
+> no arguments, which starts the ingest worker — on ~20 office PCs that is 20
+> workers racing for one queue. `IngestLock` keeps it safe, but the winner is
+> arbitrary and may be an analyst's laptop that then spends six hours at 100%
+> CPU. Defaulting the flag to OFF re-creates the opposite failure (uploads
+> queue on the share and nothing drains them, silently), which is why the
+> admin warning is not optional.
+
+### What shipped
+
+- **Admin identity + soft gate** (`app/identity.py`). Keyed on the Windows
+  username. **This is not authentication and must never be described as
+  such** — it keeps a curious analyst out of the settings page, nothing
+  more. First run claims the admin slot one-way.
+- **Break-glass recovery.** A file named `RESET-ADMIN.txt` in the data dir
+  clears the admin slot; it is consumed on read, so it works once.
+- **Settings API** (`app/routes/admin.py`) — reads never return the API key
+  (only `api_key_set` and a last-4 hint); writes take a `"__unchanged__"`
+  sentinel so a round-trip cannot blank the key.
+- **Ledger breakdown** by user / model / tier, plus `/api/me` and
+  `/api/me/usage`.
+- **OpenRouter catalog** (`harness/catalog.py`) — tool-calling filter, 8
+  curated recommendations, 6-hour cache, offline-first with a bundled
+  fallback list.
+- **S13 model fallback** — a per-process runtime override with a persisted
+  notice. Deliberately **not** a settings write: a transient provider fault
+  must not silently rewrite what the admin chose.
+- **Corpus health + guarded one-click restore**; snapshot listing.
+- **Admin page + Settings page** (`webapp/src/admin/`, `webapp/src/pages/`).
+- **S18 per-machine data-dir pointer** below the env override.
+- **Launch health ladder + repair screen** — five short-circuiting rungs in
+  plain English.
+- **Corrupt-settings preservation** — an unparseable `settings.json` is
+  copied to `settings.json.corrupt-<timestamp>` before being overwritten.
+  Those bytes may hold the only recoverable copy of the API key.
+
+### The admin page was rebuilt across seven review rounds
+
+The first version passed its tests and was still wrong on the page. What
+Destin's review changed, in order: eliminate "unknown cost" at source; drop
+jargon; group into nested cards; make AI Mode a chain of switches; replace
+the orphaned Save button; fix toggle hitboxes; rebuild the model picker with
+cost and capability; keep it a dropdown rather than a list; replace "pages at
+once" with a real capability measure.
+
+### Decisions worth not re-litigating
+
+1. **A custom endpoint must declare both per-million prices.** This is not
+   cosmetic. `check_limit` previously treated *any* custom endpoint as
+   "limits structurally inactive", so an office on a custom endpoint had **no
+   spending cap at all**, silently. The gate is now `has_pricing`, and a
+   custom endpoint without prices is refused at save time.
+2. **AI Mode is a chain of switches**: master switch → API key → per-mode
+   switch → model choice. Each step unlocks the next.
+3. **In `ai_available()`, "no model configured" is checked BEFORE the
+   per-mode switch.** Saving resolves the unset sentinel, so without this
+   ordering a save-and-reload turned "never configured" into "explicitly
+   switched off" — two different things to an admin trying to fix it.
+4. **The model picker is a dropdown, not a list.** A radio list showed
+   eight rows permanently; this is a twice-a-year setting.
+5. **Intelligence is a percentage of a fixed ceiling** (`INTELLIGENCE_CEILING`
+   in `harness/catalog.py` — Opus 5's Artificial Analysis Intelligence Index
+   plus 10% headroom), not the raw index. The headroom is deliberate: a
+   leader at 100% would claim "as good as models get", which expires the week
+   a better model ships. Nothing on the shortlist may reach 100% — there is a
+   test that fails when it does.
+6. **No speed or latency rating anywhere.** OpenRouter publishes those fields
+   but returned `null` for every shipped recommendation on 2026-07-31. A
+   spec test asserts the words "latency", "throughput", and "speed" never
+   appear in the picker.
+7. **Cached tokens are watched, not displayed.** The prior follow-up asked
+   for a "cached input" column; "cached input" is meaningless to a
+   non-technical admin, so `cached_tokens` instead drives a
+   `cacheLooksBroken` health warning. The number is used, never shown.
+8. **First-party flagships stay off the shortlist** (S16). For scale, at the
+   prices and question profile in `TYPICAL_QUESTION`, Opus 5 costs ~42¢ for
+   a Standard lookup against ~1¢ on Qwen3.7 Plus.
+
+### What review caught that tests didn't
+
+The suite mocks the API and jsdom applies no stylesheet, so wire-format,
+layout, and paint-order bugs are **structurally invisible** to it. Every one
+of these came from opening the page:
+
+- **`ai_enabled` never reached the API.** It was added to the TS types and
+  the UI but not to `_redacted()`/`_merge()`, so the client read `undefined`
+  → falsy → a working install rendered AI Mode OFF. All vitest passed.
+- **Toggle hitboxes only worked on the label text.** `.adm-toggle-track` is
+  `position: relative`, so it painted above the `inset: 0` input and ate the
+  click; the statically-positioned text did not. Fixed with a `<label>`
+  wrapper — reverting it fails 4 of 8 specs.
+- **The picker popup was clipped by three separate contexts** —
+  `.card{overflow:hidden}`, `.adm-card{overflow:hidden}`, and
+  `.adm-panel{overflow-x:auto}`. The identical bug and fix already existed in
+  the same stylesheet for `.page-search .big-search-card`.
+- **`data_dir()` creates the directory as a side effect**, so the health
+  ladder could never detect a missing share — it conjured one and passed.
+  Split into a pure `resolve_data_dir()` for the check.
+- **`limits_active` was computed from the calling admin**, so an exempt admin
+  saw "limits inactive" for the whole office. Now probed against an org view.
+- **An empty corpus failed the health gate**, which would have locked a fresh
+  install behind a failure screen with no route to Upload. It is an OK rung.
+- **`tsc -b` (the production build) is stricter than `tsc --noEmit`** and
+  rejects unused imports the dev check allows.
+
+### Follow-ups this work created
+
+- **The whole page is unverified against a real browser on a JLBC machine.**
+  It was reviewed in a browser here against a synthetic data dir.
+- **Three recommendations tie at 66% intelligence** (raw 44.4 / 44.3 / 44.2).
+  Honest — that gap is noise — but the picker shows three identical numbers
+  and only cost separates them.
+- **The intelligence scale spans 50–85% in practice**, so the bottom half of
+  every bar is dead space. Rescaling to the shipped range would use the full
+  width at the cost of a fixed reference point.
+- **`INTELLIGENCE_CEILING` is a hardcoded constant** and goes stale when
+  Artificial Analysis re-scores. The re-derivation recipe is in its comment.
+- **Error-message standards were not audited** across the admin surfaces.
+- **Two of Session B's four app-side asks are unbuilt** (the box above):
+  the per-machine `ingest_enabled` flag with its admin warning, and the
+  `app.machine_config` CLI entry point. These are Session A work under the
+  parallel-execution contract and are the top of this list.
 
 ---
 
