@@ -10,13 +10,22 @@ The fake derives each document's TEXT from bytes inside the PDF
 severity failure this file guards against is two inputs with the same
 original filename being confused with each other, and a fake that echoed
 the filename could not tell a correct demux from a broken one.
+
+The fixture PDFs are GENUINELY VALID PDFs — a real pdfium-written document
+with the `BODY:` / `PAGES:` markers appended as a trailing comment — not
+files that merely end in `.pdf`. `run_batch` probes every candidate with
+pdfium before staging it (a truncated file used to abort the whole batch),
+so a placeholder byte string would be rejected as a poison pill and no test
+here would exercise the real path.
 """
 from __future__ import annotations
 
 import contextlib
+import io
 import json
 import sys
 import threading
+from functools import lru_cache
 from pathlib import Path
 
 import pytest
@@ -48,6 +57,22 @@ if a.fail:
 src = Path(a.p)
 pdfs = sorted(src.glob("*.pdf")) if src.is_dir() else [src]
 skip = {s for s in a.skip.split(",") if s}
+
+# The poison pill, reproduced faithfully (measured 2026-08-01): MinerU
+# collects and PROBES every input with pdfium before extracting anything,
+# so one file it cannot open aborts the whole invocation — rc=1 and zero
+# output for all 20 documents, in ~3.3 s. This is the one failure MinerU
+# is NOT per-file tolerant of, which is why run_batch filters candidates
+# before staging them.
+import pypdfium2
+for pdf in pdfs:
+    try:
+        doc = pypdfium2.PdfDocument(str(pdf))
+        len(doc)
+        doc.close()
+    except Exception as exc:
+        print(f"preflight failed on {pdf.name}: {exc}", file=sys.stderr)
+        sys.exit(1)
 
 for i, pdf in enumerate(pdfs):
     print(f"Processing {pdf.name}: {i + 1}/{len(pdfs)}", flush=True)
@@ -85,10 +110,53 @@ def fake_mineru(tmp_path):
     return [sys.executable, str(script)]
 
 
+@lru_cache(maxsize=None)
+def _blank_pdf_bytes(page_count: int) -> bytes:
+    """A real, pdfium-readable PDF with `page_count` blank pages.
+
+    Built with pypdfium2 rather than hand-written, so the bytes are exactly
+    what the probe in `run_batch` has to accept. Cached because every
+    fixture in this file needs one and they are identical.
+    """
+    import pypdfium2 as pdfium
+
+    pdf = pdfium.PdfDocument.new()
+    for _ in range(page_count):
+        pdf.new_page(200, 200)
+    buf = io.BytesIO()
+    pdf.save(buf)
+    return buf.getvalue()
+
+
 def make_pdf(path: Path, *, body: str, pages: int = 1) -> Path:
-    """A fake PDF whose CONTENT identifies it, independent of its name."""
+    """A VALID PDF whose CONTENT identifies it, independent of its name.
+
+    The markers ride in a trailing `%` comment, after `%%EOF`, so they never
+    disturb the byte offsets the PDF's own cross-reference table records —
+    pdfium opens the file, and the fake CLI still finds `BODY:` / `PAGES:`
+    by regex over the raw bytes.
+
+    `pages` is what the FAKE CLI is told to emit; the physical document is
+    never zero pages, because pdfium rejects a page-less PDF and the
+    zero-content case here is about MinerU returning nothing for a document
+    it read fine (the FY2024 AFR shape), not about an unreadable file.
+    """
     path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_bytes(f"%PDF-1.4\nBODY:{body}\nPAGES:{pages}\n".encode())
+    marker = f"\n%BODY:{body} PAGES:{pages}\n".encode()
+    path.write_bytes(_blank_pdf_bytes(max(pages, 1)) + marker)
+    return path
+
+
+def make_truncated_pdf(path: Path, *, keep: float = 0.9) -> Path:
+    """A real PDF cut short — the poison pill, as it arrives off the wire.
+
+    A partial download, not a file that merely has a `.pdf` name: the point
+    of the probe is that pdfium rejects this while PyMuPDF opens it, so a
+    fixture that is obvious garbage would not test the distinction.
+    """
+    path.parent.mkdir(parents=True, exist_ok=True)
+    whole = _blank_pdf_bytes(6)
+    path.write_bytes(whole[: int(len(whole) * keep)])
     return path
 
 
@@ -318,6 +386,135 @@ def test_a_missing_source_pdf_fails_alone(tmp_path, fake_mineru):
 
     assert results["doc-good"] is None
     assert results["doc-gone"] and "not-here.pdf" in results["doc-gone"]
+
+
+# --- the poison pill (measured 2026-08-01) ----------------------------------
+#
+# A PDF MinerU cannot OPEN is the one failure it is not tolerant of: it dies
+# in the input preflight, before extracting anything, and the whole batch
+# comes back with rc=1 and no output. These tests pin that such a file is
+# excluded before it is ever staged.
+
+
+def test_a_truncated_pdf_fails_alone_and_its_batch_mates_extract(
+    tmp_path, fake_mineru
+):
+    """The defect: one bad file marked all 40 of its batch-mates failed."""
+    items = batch_of(tmp_path, ["doc-a", "doc-b", "doc-c"])
+    poison = make_truncated_pdf(tmp_path / "src" / "doc-bad.pdf")
+    items.insert(1, ("doc-bad", poison, tmp_path / "out" / "doc-bad"))
+
+    results = MineruRunner(exe=fake_mineru).run_batch(items)
+
+    # One entry per input, always — the frozen run_batch contract.
+    assert len(results) == len(items)
+    assert results["doc-bad"] and "doc-bad.pdf" in results["doc-bad"]
+    for doc_id in ("doc-a", "doc-b", "doc-c"):
+        assert results[doc_id] is None
+    for doc_id, _pdf, out_dir in items:
+        if doc_id != "doc-bad":
+            assert page_text(out_dir, 1) == f"{doc_id} page 1"
+
+
+def test_a_truncated_pdf_leaves_no_output_directory(tmp_path, fake_mineru):
+    """An existing output directory is the worker's 'extraction already
+    done' signal, so a failure must never create one."""
+    good = make_pdf(tmp_path / "src" / "good.pdf", body="good")
+    poison = make_truncated_pdf(tmp_path / "src" / "bad.pdf")
+    items = [
+        ("doc-bad", poison, tmp_path / "out" / "bad"),
+        ("doc-good", good, tmp_path / "out" / "good"),
+    ]
+
+    MineruRunner(exe=fake_mineru).run_batch(items)
+
+    assert not items[0][2].exists()
+    assert items[1][2].exists()
+
+
+def test_a_poison_pill_is_never_staged(tmp_path, monkeypatch, fake_mineru):
+    """Excluded BEFORE staging, not filtered out of the results afterwards.
+
+    MinerU walks the staging directory itself, so a bad file that reaches
+    it is a bad file that kills the run — the CLI must never see it.
+    """
+    staged: list[list[str]] = []
+
+    def capture(self, cmd, *, timeout_s, on_page):
+        stage = Path(cmd[cmd.index("-p") + 1])
+        staged.append(sorted(p.name for p in stage.iterdir()))
+        raise _StopForTest()
+
+    monkeypatch.setattr(MineruRunner, "_stream", capture, raising=False)
+    good = make_pdf(tmp_path / "src" / "good.pdf", body="good")
+    poison = make_truncated_pdf(tmp_path / "src" / "bad.pdf")
+    items = [
+        ("doc-good", good, tmp_path / "out" / "good"),
+        ("doc-bad", poison, tmp_path / "out" / "bad"),
+    ]
+
+    with contextlib.suppress(_StopForTest):
+        MineruRunner(exe=["mineru"]).run_batch(items)
+
+    assert staged == [["doc-good.pdf"]]
+
+
+def test_a_batch_of_only_unreadable_pdfs_never_invokes_the_cli(tmp_path):
+    """Three real shapes seen off azjlbc.gov: a partial download, a 404 HTML
+    body saved as .pdf, and a genuinely empty file.
+
+    The executable does not exist, so any attempt to run it would raise —
+    reaching the CLI with nothing to extract is wasted model-loading time.
+    """
+    src = tmp_path / "src"
+    src.mkdir(parents=True, exist_ok=True)
+    truncated = make_truncated_pdf(src / "truncated.pdf")
+    html = src / "html.pdf"
+    html.write_bytes(b"<html><body>404 Not Found</body></html>")
+    empty = src / "empty.pdf"
+    empty.write_bytes(b"")
+    items = [
+        ("doc-truncated", truncated, tmp_path / "out" / "t"),
+        ("doc-html", html, tmp_path / "out" / "h"),
+        ("doc-empty", empty, tmp_path / "out" / "e"),
+    ]
+    seen: list[tuple[str, str]] = []
+
+    runner = MineruRunner(exe=["definitely-not-an-executable"])
+    results = runner.run_batch(items, on_document=lambda d, s: seen.append((d, s)))
+
+    assert len(results) == 3
+    assert all(isinstance(r, str) and r for r in results.values())
+    assert seen == [
+        ("doc-truncated", "failed"),
+        ("doc-html", "failed"),
+        ("doc-empty", "failed"),
+    ]
+    assert not (tmp_path / "out").exists()
+
+
+def test_the_probe_catches_what_pymupdf_would_have_waved_through(tmp_path):
+    """The reason the probe uses pdfium and NOT `_pdf_page_count`.
+
+    PyMuPDF is more tolerant than pdfium, and MinerU's preflight uses
+    pdfium — so a PyMuPDF check would pass the exact file that kills the
+    batch. This test measures that divergence on the fixture rather than
+    asserting it in a comment. If it ever fails because PyMuPDF got
+    stricter, the probe is still correct: pdfium is what MinerU uses.
+    """
+    pytest.importorskip("fitz")
+    from ingest.dispatcher import _pdf_page_count
+
+    poison = make_truncated_pdf(tmp_path / "src" / "bad.pdf")
+
+    assert _pdf_page_count(poison) == 6      # PyMuPDF: looks perfectly fine
+
+    # pdfium: rejected — and rejected without ever reaching the CLI, which
+    # is the whole point (the executable named here does not exist).
+    results = MineruRunner(exe=["definitely-not-an-executable"]).run_batch(
+        [("doc-bad", poison, tmp_path / "out" / "bad")]
+    )
+    assert results["doc-bad"]
 
 
 def test_a_whole_batch_failure_is_reported_per_document(tmp_path, fake_mineru):
