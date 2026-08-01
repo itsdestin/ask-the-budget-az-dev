@@ -421,6 +421,19 @@ class MonthUsage:
     cached_tokens: int = 0
 
 
+def _round_cents(amount: float) -> float:
+    """The ONE rounding of a dollar total in this module.
+
+    Summing raw floats (0.1 + 0.7 = 0.7999999999999999 in IEEE 754) can
+    leave a total that displays as the exact limit but compares as
+    narrowly under it. `month_total` and `breakdown` both round through
+    here so the per-user number on the Settings page and the same user's
+    row on the admin page can never disagree by a cent — which, seen by
+    an admin, discredits both numbers rather than one.
+    """
+    return round(amount, 2)
+
+
 def month_total(user: str, *, now: datetime | None = None) -> MonthUsage:
     """`user`'s usage for the calendar month containing `now` (default:
     the current Arizona-local month).
@@ -463,13 +476,108 @@ def month_total(user: str, *, now: datetime | None = None) -> MonthUsage:
         else:
             rows_with_unknown_cost += 1
     return MonthUsage(
-        cost_usd=round(cost_usd, 2),
+        cost_usd=_round_cents(cost_usd),
         tokens_in=tokens_in,
         tokens_out=tokens_out,
         rows=rows,
         rows_with_unknown_cost=rows_with_unknown_cost,
         cached_tokens=cached_tokens,
     )
+
+
+@dataclass(frozen=True)
+class UsageGroup:
+    """One row of the admin page's cost tables (Plan 5 Task 2).
+
+    Same fields as `MonthUsage` plus the `key` that identifies the group
+    — deliberately a separate type rather than `MonthUsage` with an extra
+    field, because `MonthUsage` is "one user's month" and is what
+    `check_limit` gates on; a shape that can also mean "one MODEL's
+    month" would invite passing a model's totals into a per-user limit
+    check.
+    """
+
+    key: str
+    cost_usd: float
+    tokens_in: int
+    tokens_out: int
+    rows: int
+    rows_with_unknown_cost: int
+    cached_tokens: int = 0
+
+
+# The only groupings the admin page offers. A closed set rather than "any
+# field name": an arbitrary key would let a typo (`by="username"`) return
+# one silent, empty group instead of an error, and the caller would render
+# an empty table that looks like "nobody spent anything this month".
+BREAKDOWN_KEYS = ("user", "model", "tier")
+
+# What a row missing its grouping field is filed under. Such a row is kept
+# rather than dropped so all three breakdowns of one month sum to the same
+# office total — three tabs that disagree is what makes an admin stop
+# trusting the page. Only reachable via a hand-edited row; every row this
+# module writes has all three fields.
+UNKNOWN_GROUP = ""
+
+
+def breakdown(month: str, *, by: str) -> list[UsageGroup]:
+    """Every user's rows for `month` (a "YYYY-MM" shard), grouped by `by`.
+
+    This is the admin-page counterpart to `month_total`: that one answers
+    "what has THIS user spent" for the spend gate, this one answers "where
+    did the office's money go". It reuses `_read_rows`, which already
+    drops corrupt lines and catches `(OSError, ValueError)` — do NOT add a
+    second reader here, because the two would drift on exactly the failure
+    modes (Ground truth 8's `UnicodeDecodeError`) that took the spend gate
+    down once already.
+
+    Sorted by dollars descending, ties broken by key, because the first
+    question an admin has is "who/what is costing the most" and a stable
+    order keeps the table from reshuffling between refreshes.
+    """
+    if by not in BREAKDOWN_KEYS:
+        raise ValueError(
+            f"breakdown(by={by!r}) — must be one of {', '.join(BREAKDOWN_KEYS)}"
+        )
+
+    totals: dict[str, dict[str, float | int]] = {}
+    for row in _read_rows(_usage_path(month)):
+        raw_key = row.get(by)
+        key = str(raw_key) if isinstance(raw_key, str) and raw_key else UNKNOWN_GROUP
+        acc = totals.setdefault(
+            key,
+            {"cost_usd": 0.0, "tokens_in": 0, "tokens_out": 0, "cached_tokens": 0,
+             "rows": 0, "rows_with_unknown_cost": 0},
+        )
+        acc["rows"] += 1
+        acc["tokens_in"] += _int_or_zero(row.get("tokens_in"))
+        acc["tokens_out"] += _int_or_zero(row.get("tokens_out"))
+        # Absent on pre-S22 rows; 0 is the honest reading — those calls
+        # genuinely were not served from a prompt cache.
+        acc["cached_tokens"] += _int_or_zero(row.get("cached_tokens"))
+        cost = row.get("cost_usd")
+        if isinstance(cost, (int, float)) and not isinstance(cost, bool):
+            acc["cost_usd"] += float(cost)
+        else:
+            # S15 custom endpoint: tokens are known, dollars are not.
+            # Counted, never treated as $0 — "unknown" and "free" are
+            # different facts and the admin page must say which it has.
+            acc["rows_with_unknown_cost"] += 1
+
+    groups = [
+        UsageGroup(
+            key=key,
+            cost_usd=_round_cents(float(acc["cost_usd"])),
+            tokens_in=int(acc["tokens_in"]),
+            tokens_out=int(acc["tokens_out"]),
+            rows=int(acc["rows"]),
+            rows_with_unknown_cost=int(acc["rows_with_unknown_cost"]),
+            cached_tokens=int(acc["cached_tokens"]),
+        )
+        for key, acc in totals.items()
+    ]
+    groups.sort(key=lambda g: (-g.cost_usd, g.key))
+    return groups
 
 
 # ---------------------------------------------------------------------------
@@ -557,13 +665,16 @@ def check_limit(
     `search is never affected` (S19) — this function is never called on
     the search path; only Task 6's AI Mode tool loop consults it.
     """
-    if settings.provider.provider == "custom":
-        # S15/S19: a custom endpoint's cost_usd is always None (no
-        # OpenRouter usage accounting), so there is nothing numeric to
-        # compare against a dollar limit. This is NOT "no limit was
-        # configured" — it is "there is no meaningful limit to check" —
-        # which is exactly what `reason="custom endpoint"` distinguishes
-        # for a caller.
+    if not settings.provider.has_pricing:
+        # A custom endpoint with NO per-million rates entered. There is
+        # nothing numeric to compare against a dollar limit, so limits are
+        # structurally inactive — NOT "no limit was configured", which is
+        # what `reason="custom endpoint"` distinguishes for a caller.
+        #
+        # Reachable only by hand-editing settings.json (2026-07-31): the
+        # admin page refuses to save a custom endpoint without both
+        # prices, precisely so this state — silently uncapped spending —
+        # stops being something an admin can wander into.
         return LimitStatus(
             status="allowed",
             message=None,

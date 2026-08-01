@@ -355,3 +355,321 @@ export async function ingestBook(
   if (!r.ok) await fail(r, "add book");
   return r.json();
 }
+
+// ---------------------------------------------------------------------------
+// Identity + admin (Plan 5)
+// ---------------------------------------------------------------------------
+
+/** `GET /api/me` — who the caller is and what the app will let them see.
+ *
+ *  The admin gate behind these types is SOFT (spec S11): it is keyed on the
+ *  Windows username, which anyone can override. It exists so the admin page
+ *  isn't advertised office-wide, not to keep anyone out. Nothing behind it is
+ *  harmful if bypassed. */
+export interface Me {
+  user: string;
+  is_admin: boolean;
+  admin_username: string;
+  /** No admin configured yet, OR a RESET-ADMIN.txt is present. */
+  admin_claimable: boolean;
+  /** A reset file is waiting to be used up by the next claim. */
+  admin_reset_pending: boolean;
+}
+
+export async function me(): Promise<Me> {
+  const r = await fetch("/api/me");
+  if (!r.ok) await fail(r, "who am I");
+  return r.json();
+}
+
+export async function claimAdmin(): Promise<{ admin_username: string }> {
+  const r = await fetch("/api/admin/claim", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ confirm: true }),
+  });
+  if (!r.ok) await fail(r, "claim admin");
+  return r.json();
+}
+
+/** The provider block as the server RETURNS it. There is no `api_key` field
+ *  and there never will be — `GET /api/admin/settings` never returns the key
+ *  (see app/routes/admin.py). `api_key_hint` is the last four characters only,
+ *  so it is safe to screenshot. */
+export interface AdminProvider {
+  provider: "openrouter" | "custom";
+  base_url: string;
+  api_key_set: boolean;
+  api_key_hint: string;
+  /** Dollars per million tokens, for a custom service. Required to save one
+   *  (2026-07-31): without both, every request lands with no cost, which
+   *  makes spending invisible AND silently switches limits off. Null on
+   *  OpenRouter, which reports its own exact cost per call. */
+  prompt_usd_per_m: number | null;
+  completion_usd_per_m: number | null;
+}
+
+export interface AdminSettings {
+  provider: AdminProvider;
+  /** `enabled` is a real setting, not view state: switching an answer mode
+   *  off keeps the model it was using, so switching it back on is not a
+   *  fresh decision. */
+  tiers: Record<string, { model: string; enabled: boolean }>;
+  admin_username: string;
+  /** The master switch. Distinct from "a key is configured" — an admin
+   *  pausing AI Mode must not have to delete the key and re-enter it. */
+  ai_enabled: boolean;
+  default_monthly_limit_usd: number | null;
+  user_limits: Record<string, number>;
+  exempt_users: string[];
+}
+
+/** The literal a client sends in place of the key to mean "I am not editing
+ *  this field". NOT the empty string — "" is a real edit (clearing the key to
+ *  turn AI Mode off), and a form that submits every field it rendered has no
+ *  other way to say "leave the one I was never shown alone". */
+export const UNCHANGED_KEY = "__unchanged__";
+
+export interface AdminSettingsWrite {
+  provider?: {
+    provider: string;
+    base_url: string;
+    prompt_usd_per_m?: number | null;
+    completion_usd_per_m?: number | null;
+  };
+  tiers?: Record<string, { model: string; enabled: boolean }>;
+  admin_username?: string;
+  ai_enabled?: boolean;
+  default_monthly_limit_usd?: number | null;
+  user_limits?: Record<string, number>;
+  exempt_users?: string[];
+  api_key?: string;
+  confirm_admin_transfer?: boolean;
+}
+
+export async function adminSettings(): Promise<AdminSettings> {
+  const r = await fetch("/api/admin/settings");
+  if (!r.ok) await fail(r, "admin settings");
+  return r.json();
+}
+
+export async function saveAdminSettings(
+  body: AdminSettingsWrite,
+): Promise<AdminSettings> {
+  const r = await fetch("/api/admin/settings", {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(body),
+  });
+  if (!r.ok) await fail(r, "save settings");
+  return r.json();
+}
+
+export interface ModelCard {
+  id: string;
+  name: string;
+  context_length: number | null;
+  prompt_usd_per_m: number | null;
+  completion_usd_per_m: number | null;
+  supports_tools: boolean;
+  /** False when the live catalog could not confirm the model exists. Such a
+   *  model renders greyed and unselectable — the admin needs to SEE that the
+   *  one their tier names has gone away. */
+  available: boolean;
+  tier_hint: string | null;
+  blurb: string | null;
+  /** Indicators, all straight from OpenRouter's catalog payload. There is
+   *  deliberately no speed or latency figure: OpenRouter publishes those
+   *  fields but returned null for every shipped recommendation, so there is
+   *  nothing real to show. */
+  max_output_tokens: number | null;
+  is_open_weights: boolean;
+  /** Roughly what one question in this mode costs on this model, sized from
+   *  a question that was actually measured. An estimate — every surface that
+   *  renders it says "about". */
+  usd_per_question: number | null;
+  /** Artificial Analysis's Intelligence Index, republished by OpenRouter.
+   *  Higher is better; a composite of public evaluations, not a mark out of
+   *  100. Null when the model has not been scored — such a model shows no
+   *  intelligence figure at all rather than a zero.
+   *
+   *  The RAW index. The picker shows `intelligence_percent`; this survives
+   *  for the tooltip that cites where the number came from. */
+  intelligence_index: number | null;
+  /** `intelligence_index` as a percentage of a fixed ceiling (Opus 5 + 10%
+   *  headroom), computed server-side in `harness/catalog.py` so there is one
+   *  definition of the scale.
+   *
+   *  This is what the picker renders. The ceiling sits deliberately above the
+   *  best available model, so nothing reaches 100% — a full bar would claim
+   *  "as good as models get", which expires the week a better one ships. */
+  intelligence_percent: number | null;
+  /** The same source's agentic score. AI Mode is a tool loop, so this is the
+   *  sub-score closest to the work this app actually asks of a model. */
+  agentic_index: number | null;
+}
+
+export interface ModelCatalog {
+  source: "live" | "cache" | "bundled";
+  fetched_at: string | null;
+  recommended: ModelCard[];
+  catalog: ModelCard[];
+  note: string | null;
+}
+
+export async function adminModels(refresh = false): Promise<ModelCatalog> {
+  const r = await fetch(`/api/admin/models?refresh=${refresh ? 1 : 0}`);
+  if (!r.ok) await fail(r, "model catalog");
+  return r.json();
+}
+
+export interface UsageGroup {
+  key: string;
+  cost_usd: number;
+  tokens_in: number;
+  tokens_out: number;
+  cached_tokens: number;
+  rows: number;
+  rows_with_unknown_cost: number;
+}
+
+export interface AdminUsage {
+  month: string;
+  total_usd: number;
+  rows: number;
+  /** Requests whose cost could not be recorded. Only reachable from rows
+   *  written before custom-service pricing became mandatory (2026-07-31);
+   *  no new request can produce one. Still surfaced when non-zero, because
+   *  a total that silently omits rows understates what was spent. */
+  rows_with_unknown_cost: number;
+  cached_tokens: number;
+  tokens_in: number;
+  by_user: UsageGroup[];
+  by_model: UsageGroup[];
+  by_tier: UsageGroup[];
+  limits_active: boolean;
+  limits_inactive_reason: string | null;
+}
+
+export async function adminUsage(month?: string): Promise<AdminUsage> {
+  const r = await fetch(`/api/admin/usage${month ? `?month=${month}` : ""}`);
+  if (!r.ok) await fail(r, "usage");
+  return r.json();
+}
+
+export interface MyUsage {
+  month: string;
+  month_usd: number | null;
+  limit_usd: number | null;
+  status: "allowed" | "warn" | "blocked";
+  /** The ledger's own sentence, emitted from one place. Never re-typed in the
+   *  UI — two subtly different "you're over your limit" messages is worse than
+   *  one blunt one. */
+  message: string | null;
+  reason: string | null;
+  rows_with_unknown_cost: number;
+}
+
+export async function myUsage(): Promise<MyUsage> {
+  const r = await fetch("/api/me/usage");
+  if (!r.ok) await fail(r, "my usage");
+  return r.json();
+}
+
+export interface AdminCorpus {
+  data_dir: string;
+  budget_chunks: number;
+  fiscal_note_chunks: number;
+  documents: number;
+  lancedb_bytes: number;
+  /** An ESTIMATE of the space held by superseded LanceDB versions; null when
+   *  it can't be measured. Render it as "about X", never as an exact figure —
+   *  see `_reclaimable_bytes` in app/routes/admin.py. */
+  dead_version_bytes: number | null;
+  last_ingest_at: string | null;
+  queue: { queued: number; running: number; failed: number };
+}
+
+export async function adminCorpus(): Promise<AdminCorpus> {
+  const r = await fetch("/api/admin/corpus");
+  if (!r.ok) await fail(r, "corpus health");
+  return r.json();
+}
+
+export interface Snapshot {
+  name: string;
+  created_at: string | null;
+  bytes: number;
+}
+
+export async function adminBackups(): Promise<{ snapshots: Snapshot[] }> {
+  const r = await fetch("/api/admin/backups");
+  if (!r.ok) await fail(r, "backups");
+  return r.json();
+}
+
+export async function restoreBackup(
+  name: string,
+): Promise<{ restored: string; restart_required: boolean }> {
+  const r = await fetch(`/api/admin/backups/${encodeURIComponent(name)}/restore`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    // The literal string is the guard: a mis-click, a double-submit or a stale
+    // tab replaying a request cannot produce it.
+    body: JSON.stringify({ confirm: "restore" }),
+  });
+  if (!r.ok) await fail(r, "restore");
+  return r.json();
+}
+
+export interface Notice {
+  at: string;
+  kind: string;
+  message: string;
+}
+
+export async function adminNotices(since?: string): Promise<{ notices: Notice[] }> {
+  const r = await fetch(`/api/admin/notices${since ? `?since=${encodeURIComponent(since)}` : ""}`);
+  if (!r.ok) await fail(r, "notices");
+  return r.json();
+}
+
+// ---------------------------------------------------------------------------
+// Health ladder + repair (Plan 5 Task 12, spec S18)
+// ---------------------------------------------------------------------------
+
+export interface HealthRung {
+  name: "server" | "machine_config" | "share" | "corpus" | "models";
+  /** null means "not checked" — the ladder short-circuits after the first
+   *  failure so an admin isn't sent chasing a second, phantom problem. */
+  ok: boolean | null;
+  detail: string;
+  fix: string | null;
+}
+
+export interface HealthReport {
+  ok: boolean;
+  rungs: HealthRung[];
+  data_dir: string | null;
+  /** True exactly when the SHARE rung is the first failure — the only case
+   *  where "point me at a different folder" can possibly help. */
+  can_repair: boolean;
+}
+
+export async function healthDetail(): Promise<HealthReport> {
+  const r = await fetch("/api/health/detail");
+  if (!r.ok) await fail(r, "health check");
+  return r.json();
+}
+
+export async function setDataDir(
+  path: string,
+): Promise<{ path: string; restart_required: boolean }> {
+  const r = await fetch("/api/config/data-dir", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ path }),
+  });
+  if (!r.ok) await fail(r, "set data folder");
+  return r.json();
+}

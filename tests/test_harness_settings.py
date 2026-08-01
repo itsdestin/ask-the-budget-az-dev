@@ -120,7 +120,95 @@ def test_save_and_load_round_trip(tmp_path):
     save_settings(settings)
     reset_settings_cache()
     reloaded = load_settings()
-    assert reloaded == settings
+
+    # Not `==` any more. Saving RESOLVES the on/off sentinels (2026-07-31):
+    # an in-memory `enabled=None` means "never explicitly set", but a file
+    # on the share is read by people in Notepad, and a `null` there reads
+    # as broken. So the write is explicit and the reload comes back with
+    # real booleans — equivalent in behaviour, not identical in value.
+    assert reloaded.provider == settings.provider
+    assert reloaded.admin_username == settings.admin_username
+    assert reloaded.default_monthly_limit_usd == settings.default_monthly_limit_usd
+    assert reloaded.user_limits == settings.user_limits
+    assert reloaded.exempt_users == settings.exempt_users
+    assert {n: c.model for n, c in reloaded.tiers.items()} == {
+        n: c.model for n, c in settings.tiers.items()
+    }
+    assert reloaded.ai_is_enabled == settings.ai_is_enabled
+    for name, cfg in settings.tiers.items():
+        assert reloaded.tiers[name].is_enabled == cfg.is_enabled
+
+
+def test_the_resolved_switches_are_written_explicitly(tmp_path):
+    """What an admin sees if they open settings.json in Notepad.
+
+    The handbook's last-resort recovery step tells them to do exactly
+    that, so the file has to be readable — `"enabled": null` is not.
+    """
+    save_settings(Settings(
+        provider=ProviderConfig(api_key="sk-or-xyz"),
+        tiers={"standard": TierConfig(model="vendor/m")},
+    ))
+    raw = json.loads(settings_path().read_text(encoding="utf-8"))
+    assert raw["ai_enabled"] is True
+    assert raw["tiers"]["standard"]["enabled"] is True
+
+
+def test_an_explicitly_disabled_mode_keeps_its_model(tmp_path):
+    """Switching a mode off must not throw away the admin's choice.
+
+    Before the switch existed the only way to disable Deep Research was to
+    blank its model, which made re-enabling it a fresh decision.
+    """
+    save_settings(Settings(
+        provider=ProviderConfig(api_key="sk-or-xyz"),
+        tiers={"deep_research": TierConfig(model="moonshotai/kimi-k3", enabled=False)},
+    ))
+    reset_settings_cache()
+    tier = load_settings().tiers["deep_research"]
+    assert tier.model == "moonshotai/kimi-k3"
+    assert tier.is_enabled is False
+    assert ai_available(load_settings(), "deep_research") == (
+        False, "this answer mode is switched off — ask the admin"
+    )
+
+
+def test_an_older_file_with_no_switches_still_works(tmp_path):
+    """The upgrade path. A settings.json from before this change has no
+    `ai_enabled` and no per-mode `enabled`, and must keep working exactly
+    as it did — not silently switch the office's AI Mode off."""
+    settings_path().write_text(json.dumps({
+        "provider": {"api_key": "sk-or-xyz", "provider": "openrouter"},
+        "tiers": {"standard": {"model": "vendor/m"}, "deep_research": {"model": ""}},
+    }), encoding="utf-8")
+    reset_settings_cache()
+
+    settings = load_settings()
+    assert settings.ai_is_enabled is True
+    assert ai_available(settings, "standard") == (True, None)
+    # And a mode that was never configured still reads as unconfigured,
+    # not as "switched off".
+    assert ai_available(settings, "deep_research") == (
+        False, "no model configured — ask the admin"
+    )
+
+
+def test_the_master_switch_beats_a_configured_mode(tmp_path):
+    settings = Settings(
+        provider=ProviderConfig(api_key="sk-or-xyz"),
+        tiers={"standard": TierConfig(model="vendor/m", enabled=True)},
+        ai_enabled=False,
+    )
+    assert ai_available(settings, "standard") == (
+        False, "AI Mode is switched off — ask the admin"
+    )
+
+
+def test_no_key_reads_as_no_key_even_when_switched_off(tmp_path):
+    # Telling an admin with no key that "AI Mode is switched off" would
+    # send them hunting for a toggle when what they need is a key.
+    settings = Settings(ai_enabled=False)
+    assert ai_available(settings, "standard") == (False, "no API key configured")
 
 
 def test_save_is_atomic_no_leftover_tmp_file(tmp_path):

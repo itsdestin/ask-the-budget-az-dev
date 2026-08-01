@@ -19,6 +19,7 @@ import sys
 import tempfile
 import threading
 from dataclasses import dataclass, field
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
@@ -55,20 +56,95 @@ class ProviderConfig:
     api_key: str = ""
     provider: str = _DEFAULT_PROVIDER  # "openrouter" | "custom" (S15)
 
+    # --- custom-endpoint pricing --------------------------------------
+    # Dollars per million tokens, as every model vendor quotes them.
+    #
+    # WHY these exist (2026-07-31, deviation from S15 as written): S15
+    # accepted that a custom endpoint reports no cost, so those rows went
+    # into the ledger with `cost_usd: None`. That had two consequences
+    # nobody wanted — every total had to be rendered "at least $X (N calls
+    # of unknown cost)", and `check_limit` switched spend limits OFF
+    # entirely, so an office on a custom endpoint had no cap at all.
+    #
+    # An admin who is standing up their own endpoint knows what it costs,
+    # so the app now ASKS (the admin page refuses to save a custom
+    # endpoint without both figures) and computes each call's cost from
+    # the token counts the provider does report. The result is an
+    # ESTIMATE from admin-entered prices rather than the provider's own
+    # exact figure — the UI says so — but it is a real number, it can be
+    # summed, and it can be enforced against a limit.
+    prompt_usd_per_m: float | None = None
+    completion_usd_per_m: float | None = None
+
+    @property
+    def has_pricing(self) -> bool:
+        """Can a per-call cost be worked out for this provider?
+
+        True for OpenRouter (it reports exact cost per call) and for a
+        custom endpoint with both prices filled in. False only for a
+        custom endpoint configured by hand-editing settings.json — the
+        admin page cannot produce that state.
+        """
+        if self.provider != "custom":
+            return True
+        return (
+            self.prompt_usd_per_m is not None
+            and self.completion_usd_per_m is not None
+        )
+
+    def estimate_cost(self, tokens_in: int, tokens_out: int) -> float | None:
+        """Dollars for one call, from the admin-entered per-million rates.
+
+        None when there is nothing to compute from — the caller then
+        records an unknown cost exactly as it always did, so a
+        hand-edited config degrades instead of crashing.
+        """
+        if self.prompt_usd_per_m is None or self.completion_usd_per_m is None:
+            return None
+        return (
+            (max(tokens_in, 0) / 1_000_000) * self.prompt_usd_per_m
+            + (max(tokens_out, 0) / 1_000_000) * self.completion_usd_per_m
+        )
+
 
 @dataclass(frozen=True)
 class TierConfig:
     """One analyst-facing tier's admin-assigned model (S16).
 
-    Deliberately just a model id. The effort-budget half of a tier (step
-    caps, deep_dive permission) is NOT admin-configurable — it's a
-    hardcoded constant consumed by harness/tools.py + harness/session.py
-    (Tasks 3/6) — because letting an admin accidentally set Standard's
-    step cap to 1 would silently break every quick lookup with no error
-    surface. Only the "which model" knob lives here.
+    Deliberately just a model id and an on/off switch. The effort-budget
+    half of a tier (step caps, deep_dive permission) is NOT
+    admin-configurable — it's a hardcoded constant consumed by
+    harness/tools.py + harness/session.py — because letting an admin
+    accidentally set Standard's step cap to 1 would silently break every
+    quick lookup with no error surface. Only the "which model" knob lives
+    here.
+
+    `enabled` exists so an admin can turn one answer mode off WITHOUT
+    losing which model they had chosen for it (2026-07-31). Before this
+    the only way to disable Deep Research was to blank its model, which
+    threw away the setting and made re-enabling a re-decision.
     """
 
     model: str = ""
+    # None means "never explicitly set", which resolves to `bool(model)` —
+    # see `is_enabled`. A plain False default would report every
+    # programmatically-built TierConfig as switched off, and a plain True
+    # would show a fresh install's answer modes as on with nothing behind
+    # them.
+    enabled: bool | None = None
+
+    @property
+    def is_enabled(self) -> bool:
+        """Is this answer mode switched on?
+
+        Unset resolves to "on if a model is assigned" — which is exactly
+        what the app meant before the switch existed, so an upgrade
+        changes nothing, and a fresh install (no model yet) shows the
+        mode off until an admin turns it on.
+        """
+        if self.enabled is None:
+            return bool(self.model)
+        return self.enabled
 
 
 _STANDARD = "standard"
@@ -99,6 +175,22 @@ class Settings:
     provider: ProviderConfig = field(default_factory=ProviderConfig)
     tiers: dict[str, TierConfig] = field(default_factory=_default_tiers)
     admin_username: str = ""
+
+    # The master switch for AI Mode (2026-07-31). Distinct from "is a key
+    # configured": an admin turning AI Mode off for a week — a budget
+    # freeze, a provider outage, an office-wide pause — must not have to
+    # delete the key and re-enter it afterwards.
+    #
+    # None means "never explicitly set", which resolves to ON: before this
+    # field existed AI Mode was never *switched* off, it was only
+    # unconfigured, so that is the faithful reading of an older
+    # settings.json. An install with no key still reports "no API key
+    # configured" rather than "switched off" — see `ai_available`.
+    ai_enabled: bool | None = None
+
+    @property
+    def ai_is_enabled(self) -> bool:
+        return True if self.ai_enabled is None else self.ai_enabled
 
     # --- S19 per-user spend limits -----------------------------------
     # None means "no cap" at every level below.
@@ -143,18 +235,39 @@ def ai_available(settings: Settings, tier: str) -> tuple[bool, str | None]:
     wants "is anything usable" loops over settings.tiers.keys() and ORs
     the results; that policy belongs at the call site, not baked in here.
 
-    Two failure reasons, exact strings pinned by the plan (later UI code
-    and tests match on them verbatim):
-      - "no API key configured"            — provider.api_key is empty
-      - "no model configured — ask the admin" — key present, but this
-        tier's model id is empty (an admin turned on AI Mode but hasn't
-        finished assigning a model to every tier yet)
+    Four failure reasons, exact strings (UI code and tests match them
+    verbatim), checked in the order an admin sets things up:
+      - "AI Mode is switched off — ask the admin"  — the master switch
+      - "no API key configured"                    — provider.api_key empty
+      - "this answer mode is switched off — ask the admin" — the master
+        switch is on and a key is present, but THIS mode is off
+      - "no model configured — ask the admin"      — mode on, no model yet
+
+    ADD NEW FAILURE MODES HERE, never at a call site. Every surface that
+    explains why AI Mode is unavailable reads these strings, so a sentence
+    invented elsewhere is a sentence that will eventually contradict this
+    one.
     """
     if not settings.provider.api_key:
         return False, "no API key configured"
+    # The key check comes FIRST on purpose. An install with no key has
+    # nothing to switch on, and telling that admin "AI Mode is switched
+    # off" would send them hunting for a toggle when what they need is a
+    # key. Once a key exists, the master switch is the meaningful answer.
+    if not settings.ai_is_enabled:
+        return False, "AI Mode is switched off — ask the admin"
     tier_config = settings.tiers.get(tier)
+    # NO MODEL BEATS THE SWITCH. A mode with nothing assigned is off
+    # either way, and "this answer mode is switched off" would send an
+    # admin looking for a toggle when the thing they have to do is pick a
+    # model. Checking the model first also keeps this function insensitive
+    # to whether `enabled` was stored as an explicit false or left unset —
+    # saving resolves the sentinel, so those two must mean the same thing
+    # here or a save/reload would change the message.
     if tier_config is None or not tier_config.model:
         return False, "no model configured — ask the admin"
+    if not tier_config.is_enabled:
+        return False, "this answer mode is switched off — ask the admin"
     return True, None
 
 
@@ -198,11 +311,37 @@ def _provider_from_dict(raw: Any) -> ProviderConfig:
         base_url=_str_or(raw, "base_url", _DEFAULT_BASE_URL),
         api_key=_str_or(raw, "api_key", ""),
         provider=_str_or(raw, "provider", _DEFAULT_PROVIDER),
+        prompt_usd_per_m=_float_or_none(raw, "prompt_usd_per_m"),
+        completion_usd_per_m=_float_or_none(raw, "completion_usd_per_m"),
     )
 
 
+def _float_or_none(d: dict[str, Any], key: str) -> float | None:
+    """A price, or None when it is absent or unusable.
+
+    Same tolerance as every other reader here: a hand-edited garbage
+    value reads as "not set" rather than crashing the load. A negative
+    price is also treated as unset — it cannot be what anyone meant, and
+    letting it through would produce negative spend totals.
+    """
+    value = d.get(key)
+    try:
+        number = float(value)  # type: ignore[arg-type]
+    except (TypeError, ValueError):
+        return None
+    return None if number < 0 else number
+
+
 def _tier_from_dict(d: dict[str, Any]) -> TierConfig:
-    return TierConfig(model=_str_or(d, "model", ""))
+    enabled = d.get("enabled")
+    # A file written before per-mode switches existed has no `enabled`
+    # key; None carries that through to `TierConfig.is_enabled`, which
+    # resolves it to "on if a model is assigned" — what the app meant
+    # before the switch existed.
+    return TierConfig(
+        model=_str_or(d, "model", ""),
+        enabled=enabled if isinstance(enabled, bool) else None,
+    )
 
 
 def _tiers_from_dict(raw: Any) -> dict[str, TierConfig]:
@@ -234,10 +373,14 @@ def _settings_from_dict(raw: dict[str, Any]) -> Settings:
     exempt_raw = raw.get("exempt_users")
     exempt_users = tuple(str(u) for u in exempt_raw) if isinstance(exempt_raw, list) else ()
 
+    ai_enabled = raw.get("ai_enabled")
     return Settings(
         provider=_provider_from_dict(raw.get("provider")),
         tiers=_tiers_from_dict(raw.get("tiers")),
         admin_username=_str_or(raw, "admin_username", ""),
+        # Absent stays None, which `ai_is_enabled` resolves to ON — see
+        # the field's comment. An older file simply never had a switch.
+        ai_enabled=ai_enabled if isinstance(ai_enabled, bool) else None,
         default_monthly_limit_usd=default_limit,
         user_limits=user_limits,
         exempt_users=exempt_users,
@@ -250,9 +393,19 @@ def _settings_to_dict(settings: Settings) -> dict[str, Any]:
             "base_url": settings.provider.base_url,
             "api_key": settings.provider.api_key,
             "provider": settings.provider.provider,
+            "prompt_usd_per_m": settings.provider.prompt_usd_per_m,
+            "completion_usd_per_m": settings.provider.completion_usd_per_m,
         },
-        "tiers": {name: {"model": cfg.model} for name, cfg in settings.tiers.items()},
+        # Resolved values, not the raw sentinels: once this file has been
+        # written by the admin page, "unset" is no longer a state anyone
+        # needs — and a `null` in settings.json would read as broken to an
+        # admin opening it in Notepad.
+        "tiers": {
+            name: {"model": cfg.model, "enabled": cfg.is_enabled}
+            for name, cfg in settings.tiers.items()
+        },
         "admin_username": settings.admin_username,
+        "ai_enabled": settings.ai_is_enabled,
         "default_monthly_limit_usd": settings.default_monthly_limit_usd,
         "user_limits": dict(settings.user_limits),
         "exempt_users": list(settings.exempt_users),
@@ -274,7 +427,16 @@ _settings_stamp: tuple[str, float, int] | None = None
 
 
 def reset_settings_cache() -> None:
-    """Test-only: force the next load_settings() to re-stat and re-parse.
+    """Force the next load_settings() to re-stat and re-parse.
+
+    Two callers, both legitimate. (1) Tests, per the original reason
+    below. (2) Plan 5's admin route, immediately after `save_settings` —
+    it must then re-read from disk to build its response, and the cache
+    stamp is `(path, mtime, size)`, so a write that lands in the same
+    coarse mtime tick AND happens to produce the same file size would
+    otherwise serve the admin their PREVIOUS settings as confirmation of
+    the save they just made. Dropping the cache after a write we know
+    happened is cheaper than making the stamp finer-grained and hoping.
 
     _document_metadata() in retrieval/api.py never needed a reset hook
     because its tests always repoint JLBC_DATA_DIR at a fresh tmp_path
@@ -339,6 +501,62 @@ def load_settings(path: Path | None = None) -> Settings:
         return _settings_cache
 
 
+def _preserve_if_corrupt(target: Path) -> None:
+    """Copy an UNPARSEABLE settings.json aside before it gets overwritten.
+
+    THE FAILURE THIS PREVENTS (Plan 5 Task 13). `load_settings` fails open:
+    a corrupt file degrades to `Settings()`, which makes admin claimable,
+    which is right — a file nobody can parse must not lock out the only
+    person who could fix it. But the very next thing that happens is
+    somebody claiming admin and saving, and that save would replace the
+    corrupt bytes with a clean default file.
+
+    Those bytes are usually the last surviving copy of the OpenRouter API
+    key. A hand-edit that breaks the JSON does not remove the key from it,
+    and `settings.json.corrupt-<timestamp>` can be opened in Notepad to
+    read it back out. Without this, the app's own fail-open behaviour eats
+    the evidence and the key is gone.
+
+    Only fires on a file that is present and does NOT parse — a healthy
+    save must not litter the share with copies. Never raises: this runs
+    inside the save path, and failing to make a backup copy is not a
+    reason to fail the save the admin actually asked for.
+    """
+    try:
+        raw = target.read_text(encoding="utf-8")
+    except FileNotFoundError:
+        return  # first write on a fresh install — nothing to preserve
+    except OSError:
+        return
+    try:
+        parsed = json.loads(raw)
+        if isinstance(parsed, dict):
+            return  # healthy; nothing to do
+    except ValueError:
+        pass
+
+    stamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%S%fZ")
+    # The microseconds matter: two corruptions in the same second must not
+    # overwrite each other's copy, and the OLDER one holds the key more
+    # likely to still be valid.
+    preserved = target.with_name(f"{target.name}.corrupt-{stamp}")
+    try:
+        preserved.write_text(raw, encoding="utf-8")
+        print(
+            f"harness.settings: {target} was unreadable and is being replaced. "
+            f"The previous contents are preserved at {preserved} — if AI Mode "
+            "stops working, the old API key can usually be read out of it.",
+            file=sys.stderr,
+        )
+    except OSError as err:
+        print(
+            f"harness.settings: {target} is corrupt and could NOT be preserved "
+            f"({err}). It is about to be overwritten; any API key in it will "
+            "be lost.",
+            file=sys.stderr,
+        )
+
+
 def save_settings(settings: Settings, path: Path | None = None) -> None:
     """Write settings.json via tmp-file + os.replace, to reduce (not
     eliminate) the window where a concurrent reader sees a partial file.
@@ -358,6 +576,7 @@ def save_settings(settings: Settings, path: Path | None = None) -> None:
     """
     target = path or settings_path()
     target.parent.mkdir(parents=True, exist_ok=True)
+    _preserve_if_corrupt(target)
     fd, tmp_name = tempfile.mkstemp(
         dir=str(target.parent), prefix=".settings-", suffix=".tmp"
     )

@@ -1,4 +1,6 @@
+import { useEffect, useState } from "react";
 import { Link, NavLink } from "react-router-dom";
+import * as api from "../api";
 
 // Ported from the mockup's `header.site` block (webapp/reference/index.html):
 // sticky white bar, 3px navy-900 bottom border, logo left, centered inline pill
@@ -23,6 +25,22 @@ const NAV_ITEMS = [
 ];
 
 export function Header() {
+  // The Admin pill renders only for the admin (Plan 5 Task 8). This is
+  // presentation, not protection — the gate that matters is server-side, and
+  // it is soft by design (spec S11). Hiding the pill keeps the page from
+  // being advertised office-wide; it does not keep anyone out, and nothing
+  // behind it would be harmful if it did not.
+  const [isAdmin, setIsAdmin] = useState(false);
+  useEffect(() => {
+    let cancelled = false;
+    // A failure here means no pill, which is the right default: better a
+    // missing link than a link that 403s.
+    api.me().then((m) => !cancelled && setIsAdmin(m.is_admin)).catch(() => {});
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
   return (
     <header className="site" data-testid="header">
       <div className="wrap head">
@@ -75,6 +93,11 @@ export function Header() {
               <NavLink to={item.to}>{item.label}</NavLink>
             </div>
           ))}
+          {isAdmin ? (
+            <div className="nav-item" data-testid="nav-admin">
+              <NavLink to="/admin">Admin</NavLink>
+            </div>
+          ) : null}
           {/* AI Mode (Destin, 2026-07-31). Icon-only in the house pill's exact
               shape — aria-label + title carry the accessible name — because it is
               a MODE, not another corpus, and giving it a word in the same row as

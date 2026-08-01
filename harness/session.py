@@ -229,10 +229,104 @@ def _extract_error_message(status: int, body: str) -> str:
 
 
 def _provider_error(status: int, body: str) -> ProviderError:
-    return ProviderError(
+    err = ProviderError(
         f"The model provider returned an error (HTTP {status}): "
         f"{_extract_error_message(status, body)}"
     )
+    # Carried structurally rather than re-parsed out of the message text:
+    # `_is_dead_model_error` below decides whether to fall back to another
+    # model, and basing that on a substring of a human sentence would make
+    # the fallback break the day the wording is improved.
+    err.status = status
+    return err
+
+
+# Phrases a provider uses when the MODEL is the problem — retired,
+# renamed, never existed, or no longer served by anyone OpenRouter routes
+# to. Matched case-insensitively against the extracted error detail.
+#
+# WHY a phrase list and not just "any 404": a 404 can also mean a
+# hand-edited base_url pointing at a path that doesn't exist, and
+# silently switching models because an admin typo'd the endpoint would
+# hide the real problem behind a working-looking answer from the wrong
+# model. Both signals have to agree.
+_DEAD_MODEL_PHRASES = (
+    "no endpoints found",
+    "not a valid model",
+    "no allowed providers",
+    "model not found",
+    "is not a valid model id",
+    "unknown model",
+    "deprecated",
+    "has been retired",
+    "no longer available",
+)
+
+
+def _is_dead_model_error(err: ProviderError) -> bool:
+    """Is this failure "the configured model is gone" (S13)?
+
+    Deliberately conservative. A false positive here answers the analyst
+    from a model their admin did not choose — quietly, at a different
+    price. A false negative just shows the honest provider error, which is
+    what the app did before this existed. When unsure, be wrong the second
+    way.
+    """
+    status = getattr(err, "status", None)
+    if status not in (400, 404):
+        return False
+    text = str(err).lower()
+    return any(phrase in text for phrase in _DEAD_MODEL_PHRASES)
+
+
+# ---------------------------------------------------------------------------
+# S13 runtime model fallback
+# ---------------------------------------------------------------------------
+# THE OVERRIDE IS PER-PROCESS AND IN MEMORY. It is deliberately NOT a
+# settings write: three office machines hitting the same dead model would
+# otherwise stage three concurrent writes to one settings.json on an SMB
+# share, and the last writer wins over whatever the admin happened to be
+# editing at that moment. The admin's configuration stays exactly as they
+# left it; the notices feed is how they find out a fallback is in effect
+# and can choose a new model deliberately.
+
+# (tier, configured_model) -> the model actually being used instead.
+_model_overrides: dict[tuple[str, str], str] = {}
+# (tier, from_model, to_model) already reported. A dead model fails on
+# EVERY turn, so without this the notices file would gain a row per
+# question, all day, and bury everything else in the feed.
+_notified_transitions: set[tuple[str, str, str]] = set()
+_fallback_lock = threading.Lock()
+
+
+def reset_model_overrides() -> None:
+    """Drop the per-process fallback state.
+
+    Test-only in practice, but also the honest answer to "how do I undo a
+    fallback?": restart the app. The override lives for the process's
+    lifetime by design — re-trying a model that was retired an hour ago,
+    once per turn, would spend an analyst's time on a request already
+    known to fail.
+    """
+    with _fallback_lock:
+        _model_overrides.clear()
+        _notified_transitions.clear()
+
+
+def _fallback_candidates(tier: str, current: str) -> list[str]:
+    """That tier's recommendation order, minus the model that just failed.
+
+    The order is `harness.catalog.RECOMMENDATIONS` — the same list the
+    admin page shows — so the model an analyst silently lands on is one an
+    admin would have been offered anyway, not an arbitrary pick.
+    """
+    from harness.catalog import RECOMMENDATIONS
+
+    return [
+        rec.id
+        for rec in RECOMMENDATIONS
+        if rec.tier_hint == tier and rec.id != current
+    ]
 
 
 # ---------------------------------------------------------------------------
@@ -496,7 +590,12 @@ class HarnessSession:
             yield self._error_frame(f"AI answers are unavailable — {reason}.")
             return
 
-        model = settings.tiers[self.tier].model
+        configured_model = settings.tiers[self.tier].model
+        # S13: if this model already failed as retired earlier in this
+        # process, start on the replacement instead of re-discovering that
+        # once per turn, forever.
+        model = self._effective_model(configured_model)
+        tried_models = {model}
         max_steps = self._max_steps()
         accumulator = _Accumulator()
 
@@ -534,6 +633,19 @@ class HarnessSession:
             try:
                 yield from self._stream_completion(messages, model, result, accumulator)
             except ProviderError as err:
+                # S13: a retired model degrades AI Mode to a DIFFERENT
+                # model, never to a dead feature. Retrying this same step
+                # costs one of the tier's steps, which is the honest
+                # accounting — it really is another attempt.
+                replacement = (
+                    self._fall_back(configured_model, model, tried_models)
+                    if _is_dead_model_error(err) else None
+                )
+                if replacement is not None:
+                    model = replacement
+                    tried_models.add(model)
+                    continue
+
                 # The turn dies here. History keeps the user message and
                 # whatever completed before the failure; it is still a
                 # legal request (a failed step appends nothing).
@@ -619,6 +731,63 @@ class HarnessSession:
         usage = usage_totals.as_turn_usage()
         yield _event("turn_complete", stopReason=stop_reason, model=model, usage=usage)
         yield accumulator.done_frame(stop_reason, usage, usage_totals.cost, incomplete_note)
+
+    # -- S13 model fallback -----------------------------------------------
+
+    def _effective_model(self, configured: str) -> str:
+        """The configured model, or the replacement already chosen for it.
+
+        Keyed on (tier, configured) rather than tier alone so that an admin
+        who fixes the setting mid-session is obeyed immediately: the new
+        model id has no override entry, so it is used as typed.
+        """
+        with _fallback_lock:
+            return _model_overrides.get((self.tier, configured), configured)
+
+    def _fall_back(
+        self, configured: str, failed: str, tried: set[str]
+    ) -> str | None:
+        """Pick the next model for this tier, or None to surface the error.
+
+        Returns None — meaning "show the analyst the real provider error" —
+        in three cases:
+
+        - **custom endpoint (S15).** There is no recommendation list for
+          someone else's server; a model id from OpenRouter's catalog
+          would almost certainly not exist there, so guessing would
+          replace one honest error with a more confusing one.
+        - **nothing left to try.** Every candidate for this tier has
+          already failed in this turn.
+        - **the failed model is the last resort.** Same thing.
+        """
+        if self.settings.provider.provider == "custom":
+            return None
+
+        for candidate in _fallback_candidates(self.tier, configured):
+            if candidate in tried:
+                continue
+            with _fallback_lock:
+                _model_overrides[(self.tier, configured)] = candidate
+                transition = (self.tier, failed, candidate)
+                first_time = transition not in _notified_transitions
+                if first_time:
+                    _notified_transitions.add(transition)
+            if first_time:
+                # One notice per DISTINCT transition, not per call: a dead
+                # model fails on every turn, and a notice per question
+                # would bury every other notice in the feed by lunchtime.
+                from harness.notices import KIND_MODEL_FALLBACK, record_notice
+
+                record_notice(
+                    KIND_MODEL_FALLBACK,
+                    f"The {self.tier} model “{failed}” is no longer available "
+                    f"from the provider, so AI Mode is using “{candidate}” "
+                    "instead. Pick a replacement on the Admin page when you "
+                    "get a chance — this fallback only lasts until the app "
+                    "is restarted.",
+                )
+            return candidate
+        return None
 
     # -- one provider call -------------------------------------------------
 
@@ -1069,11 +1238,18 @@ class HarnessSession:
         if not result.usage:
             return
         usage = result.usage
-        # S15: a custom endpoint reports no trustworthy cost, and the
-        # ledger's contract is that `None` means "unknown", not "free".
-        # The gate lives in ONE place — inside the totals — so the ledger
-        # row and the `_done` frame cannot report different money.
-        totals.add(usage, allow_cost=self.settings.provider.provider == "openrouter")
+        # A custom endpoint reports no trustworthy cost, so its own figure
+        # is discarded — but the admin had to enter per-million rates to
+        # configure it, so the cost is computed from this step's tokens
+        # instead of being recorded as unknown. The gate lives in ONE place
+        # (inside the totals) so the ledger row and the `_done` frame
+        # cannot report different money.
+        provider = self.settings.provider
+        totals.add(
+            usage,
+            allow_cost=provider.provider == "openrouter",
+            pricing=provider if provider.provider == "custom" else None,
+        )
         cost = totals.last_cost
         try:
             self._record_usage(
@@ -1382,14 +1558,33 @@ class _UsageTotals:
         # which the running total would hide.
         self.last_cache_read_tokens = 0
 
-    def add(self, usage: dict[str, Any], *, allow_cost: bool = True) -> None:
-        """Fold one step's usage in. `allow_cost=False` (S15's custom
-        endpoint) discards the reported cost entirely rather than
-        recording it anywhere — this is the single gate both the ledger
-        row and the `_done` frame read, so they cannot disagree about
-        whether dollars are known."""
-        self.input_tokens += _int_or_zero(usage.get("prompt_tokens"))
-        self.output_tokens += _int_or_zero(usage.get("completion_tokens"))
+    def add(
+        self,
+        usage: dict[str, Any],
+        *,
+        allow_cost: bool = True,
+        pricing: "ProviderConfig | None" = None,
+    ) -> None:
+        """Fold one step's usage in.
+
+        `allow_cost=False` (a custom endpoint) discards the provider's
+        reported cost — it isn't OpenRouter's exact accounting and must
+        not be treated as though it were.
+
+        `pricing` is the fallback that replaced "unknown" (2026-07-31).
+        When the reported cost is unusable but the admin has entered
+        per-million rates for their endpoint, the cost is computed from
+        THIS step's token counts. That keeps `cost_usd` a real number on
+        every row, which is what lets spend limits work on a custom
+        endpoint at all.
+
+        Either way this is the single gate both the ledger row and the
+        `_done` frame read, so they cannot disagree about the money.
+        """
+        step_in = _int_or_zero(usage.get("prompt_tokens"))
+        step_out = _int_or_zero(usage.get("completion_tokens"))
+        self.input_tokens += step_in
+        self.output_tokens += step_out
         details = usage.get("prompt_tokens_details")
         # A provider that reports no cache details means "we know of
         # none", which is 0. `cost_usd` is the only field where None
@@ -1400,6 +1595,8 @@ class _UsageTotals:
         self.cache_read_tokens += self.last_cache_read_tokens
         cost = usage.get("cost") if allow_cost else None
         self.last_cost = float(cost) if isinstance(cost, (int, float)) else None
+        if self.last_cost is None and pricing is not None:
+            self.last_cost = pricing.estimate_cost(step_in, step_out)
         if self.last_cost is not None:
             self.cost = (self.cost or 0.0) + self.last_cost
 
