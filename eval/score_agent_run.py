@@ -45,11 +45,21 @@ def _md(scores: dict, run_dir: Path) -> str:
     for r in scores["per_query"]:
         def fmt(v):
             return "—" if v is None else (f"{v:.2f}" if isinstance(v, float) else v)
+        # WHY cost gets its own formatter (2026-08 review, Finding 4): real
+        # Standard-tier per-query costs run roughly $0.002-$0.013, so the
+        # generic 2-decimal `fmt` above rendered every single one as "0.00" --
+        # cost per answer is one of the four things this harness exists to
+        # measure, and a report where that column is always "0.00" is
+        # useless for exactly the comparison it's meant to support.
+        # scores.json is untouched -- this only changes the human-readable
+        # scores.md rendering, not the stored data.
+        def fmt_cost(v):
+            return "—" if v is None else f"{v:.4f}"
         lines.append(
             f"| {r['query_id']} | {r['shape']} | {'✓' if r['ok'] else '✗'} "
             f"| {fmt(r['key_fact_rate'])} | {r['verified_citations']} "
             f"| {fmt(r['first_attempt_cite_rate'])} | {fmt(r['retrieval_efficiency'])} "
-            f"| {r['steps']} | {fmt(r['cost_usd'])} |")
+            f"| {r['steps']} | {fmt_cost(r['cost_usd'])} |")
     flagged = [r for r in scores["per_query"]
                if r.get("narration_hits") or r.get("token_leak") or r.get("false_refusal")]
     if flagged:

@@ -6,6 +6,7 @@ Each metric gets a transcript engineered to pin it. The golden fixture
 from __future__ import annotations
 
 import json
+import sys
 from pathlib import Path
 
 import pytest
@@ -164,6 +165,112 @@ def test_aggregate_summary():
     assert summary["key_fact_rate_mean"] == 1.0
     assert summary["first_attempt_cite_rate"] == 1.0
     assert summary["total_cost_usd"] == pytest.approx(0.0031)
+
+
+def test_errored_transcript_gives_no_refusal_credit():
+    # Finding 1: a crashed query (_error terminal) has zero verified
+    # citations BY CONSTRUCTION, which used to be indistinguishable from a
+    # genuine correct refusal. It must not contribute to refusal_correct at
+    # the row level, and it must not enter refusal_correct_rate in aggregate.
+    rq = make_query(id="aq-r", shape="refusal", should_refuse=True, key_facts=[])
+    errored = Transcript(meta={"query_id": "aq-r", "repeat": 1}, events=[],
+                         terminal={"frame": {"type": "_error", "message": "boom"},
+                                   "wall_ms": 5})
+    row = score_transcript(rq, errored)
+    assert row["ok"] is False
+    assert row["refusal_correct"] is None
+    summary = aggregate([row])
+    assert summary["refusal_correct_rate"] is None
+
+
+def test_false_refusal_none_for_errored_transcript():
+    # An errored non-refusal query must not be flagged false_refusal either --
+    # it never ran, so there is nothing to judge.
+    q = make_query(should_refuse=False, key_facts=[])
+    errored = Transcript(meta={"query_id": "aq-001", "repeat": 1}, events=[],
+                         terminal={"frame": {"type": "_error", "message": "boom"},
+                                   "wall_ms": 5})
+    row = score_transcript(q, errored)
+    assert row["false_refusal"] is None
+
+
+def test_retrieval_efficiency_bare_name_match_is_not_evidence():
+    # Finding 2 reproduction: 5 retrieved chunks that only mention an agency
+    # name in passing (kind="string" key fact), 1 actually cited. The old
+    # definition counted every chunk containing the name as "used" -> 1.0.
+    # The honest number is 1/5 = 0.2: a bare name match is not evidence.
+    q = make_query(key_facts=[KeyFact(kind="string", value="Department of Corrections")])
+    chunks = [chunk(f"c-{i}", "the department of corrections runs several programs")
+              for i in range(5)]
+    t = make_transcript([retrieve_call(chunks)], citations=[ok_citation("c-0")],
+                        final="The department of corrections received funding.")
+    row = score_transcript(q, t)
+    assert row["retrieval_efficiency"] == pytest.approx(0.2)
+
+
+def test_retrieval_efficiency_specific_fact_in_answer_counts_as_weak_evidence():
+    # A currency key fact that appears both in an uncited chunk and in the
+    # final answer is the defensible weaker signal described in Finding 2 --
+    # it still counts as "used" even without a citation.
+    q = make_query(key_facts=[KeyFact(kind="currency", value="$1,391,157,700")])
+    chunks = [chunk("c-1", "ADC received $1,391,157,700 this year"),
+             chunk("c-2", "totally unrelated text")]
+    t = make_transcript([retrieve_call(chunks)], citations=[],
+                        final="ADC received $1,391,157,700.")
+    row = score_transcript(q, t)
+    assert row["retrieval_efficiency"] == pytest.approx(0.5)
+
+
+def test_false_refusal_detected_with_no_key_facts():
+    # Finding 3: a non-refusal query authored with zero key facts (the
+    # memo/comparison/analyze shapes that lean on the LLM judge) used to make
+    # an incorrect refusal invisible everywhere in this scorer. It must now
+    # be flagged when the agent issues zero verified citations.
+    q = make_query(should_refuse=False, key_facts=[])
+    refused = make_transcript([], final="I can't answer that from this corpus.")
+    row = score_transcript(q, refused)
+    assert row["false_refusal"] is True
+
+
+def test_false_refusal_not_flagged_when_citations_were_issued_and_no_key_facts():
+    q = make_query(should_refuse=False, key_facts=[])
+    answered = make_transcript([], citations=[ok_citation()])
+    row = score_transcript(q, answered)
+    assert row["false_refusal"] is False
+
+
+def test_internal_vocab_bare_rerank_word_does_not_flag_policy_prose():
+    # Finding 5: "rerank" alone is ordinary English in budget policy prose,
+    # so it must not trip the internal-vocab hygiene check.
+    t = make_transcript([], final="The legislature chose to rerank funding priorities this year.")
+    row = score_transcript(make_query(key_facts=[]), t)
+    assert row["internal_vocab_hits"] == 0
+
+
+def test_scores_md_cost_column_has_enough_precision(tmp_path):
+    # Finding 4: real Standard-tier per-query costs run ~$0.002-$0.013, so
+    # the old 2-decimal formatting rendered every one as "0.00" -- useless
+    # for the exact comparison this column exists to support.
+    import shutil
+    from eval.score_agent_run import main
+
+    run_dir = tmp_path / "run"
+    run_dir.mkdir()
+    shutil.copy(FIXTURE, run_dir / "aq-001-r1.jsonl")
+    qfile = tmp_path / "queries.yaml"
+    qfile.write_text(
+        "- id: aq-001\n  question: ADC?\n  shape: lookup\n"
+        "  key_facts:\n    - kind: currency\n      value: \"$1,391,157,700\"\n",
+        encoding="utf-8")
+    argv = sys.argv
+    sys.argv = ["score_agent_run.py", str(run_dir), "--queries-file", str(qfile)]
+    try:
+        main()
+    finally:
+        sys.argv = argv
+    md = (run_dir / "scores.md").read_text(encoding="utf-8")
+    assert "0.0031" in md
+    assert "| 0.00 |" not in md
 
 
 def test_score_run_cli_writes_outputs(tmp_path):

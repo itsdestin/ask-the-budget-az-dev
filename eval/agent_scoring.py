@@ -99,9 +99,15 @@ NARRATION_MARKERS = (
     "retrying the cite", "let me retrieve", "i'll retrieve",
 )
 # Corpus mechanics an analyst should never see.
+# WHY "rerank" alone was dropped (2026-08 review): every other marker here is
+# unambiguously retrieval jargon, but "rerank" is ordinary English in budget
+# policy prose too ("the legislature chose to rerank funding priorities"),
+# so it flagged clean answers as leaking internals. "cross-encoder rerank" is
+# the phrase that actually appears in this system's internal vocabulary, so
+# that's the marker kept instead -- it can't collide with policy prose.
 INTERNAL_VOCAB = (
     "top_score", "chunk_id", "cite_batch", "deep_dive",
-    "first_call_capped", "rrf", "rerank", "refusal threshold",
+    "first_call_capped", "rrf", "cross-encoder rerank", "refusal threshold",
 )
 # The Plan 4 run leaked a raw download token into prose.
 _TOKEN_LEAK_RE = re.compile(r"token[=:]\s*[A-Za-z0-9_\-]{12,}")
@@ -179,10 +185,34 @@ def score_transcript(query: AgentQuery, t: Transcript) -> dict[str, Any]:
     distinct = {c.get("chunk_id"): c for c in all_chunks}
     row["retrieved_chunks_distinct"] = len(distinct)
     cited_ids = {c.get("chunkId") for c in verified}
+    # WHY a bare fact-in-text match no longer counts as "used" (2026-08
+    # review): a retrieved chunk used to count as used if it was cited OR if
+    # its text merely CONTAINED any key fact. For kind="string" facts -- an
+    # agency or program name, the common shape for lookup queries -- nearly
+    # any topically-adjacent chunk contains the string (table-of-contents
+    # entries, unrelated sections that just mention the agency in passing),
+    # so this saturated to ~1.0 regardless of whether the agent actually
+    # searched efficiently, defeating the metric's whole purpose.
+    #
+    # New definition of "used": a chunk counts as used if EITHER
+    #   (a) it was cited (the strong signal -- the agent explicitly pointed
+    #       at it), OR
+    #   (b) it contains a specific fact (kind="currency" or kind="regex" --
+    #       a dollar amount or a regex-pinned value, never a bare string/name)
+    #       that ALSO appears in the model's final answer. Requiring the
+    #       fact to appear in the answer too is what makes this a real (if
+    #       weaker) signal that the chunk's content was drawn on, rather than
+    #       merely topically nearby.
+    # A bare name match (kind="string") is deliberately NOT evidence under
+    # either path and can never make a chunk count as used on its own.
     used = 0
     for cid, c in distinct.items():
         text = c.get("text") or ""
-        if cid in cited_ids or (query.key_facts and _facts_covered(query, text)):
+        if cid in cited_ids:
+            used += 1
+            continue
+        specific_facts = [f for f in query.key_facts if f.kind in ("currency", "regex")]
+        if any(fact_matches(f, text) and fact_matches(f, answer) for f in specific_facts):
             used += 1
     row["retrieval_efficiency"] = (used / len(distinct)) if distinct else None
 
@@ -200,11 +230,37 @@ def score_transcript(query: AgentQuery, t: Transcript) -> dict[str, Any]:
     # Refusal scoring: 'refused' means no verified citation was issued.
     # REFUSAL_THRESHOLD is prompt-guidance only (never enforced in code),
     # so the observable refusal signal IS the absence of verified cites.
+    #
+    # WHY every judgment below is gated on row["ok"] (2026-08 review, Finding
+    # 1): an `_error` transcript (crashed query, never actually ran) has zero
+    # verified citations BY CONSTRUCTION, which is indistinguishable from a
+    # genuine correct refusal unless we gate on completion. Ungated, a single
+    # crashed transcript silently scored refusal_correct_rate: 1.0 -- a
+    # change that starts CRASHING on refusal-shaped queries would render as
+    # "refusal correctness better" next to "errors worse", with nothing to
+    # show the first arrow is an artifact of the crash. A transcript that
+    # did not complete must not contribute to any refusal judgment.
     refused = len(verified) == 0
     row["refused"] = refused
-    row["refusal_correct"] = (refused == query.should_refuse) if query.should_refuse else None
-    row["false_refusal"] = (
-        refused and total_facts > 0 and matched == 0) if not query.should_refuse else None
+    row["refusal_correct"] = (
+        (refused == query.should_refuse) if (row["ok"] and query.should_refuse) else None
+    )
+    # WHY false_refusal no longer requires total_facts > 0 (2026-08 review,
+    # Finding 3): a non-refusal query authored with zero key facts (plausible
+    # for memo/comparison/analyze shapes that lean on the LLM judge instead)
+    # used to make an incorrect refusal invisible everywhere in this scorer --
+    # `total_facts > 0` gated it out entirely, so it was never flagged, never
+    # counted, never aggregated. When there ARE key facts, "refused AND
+    # matched none of them" is the strongest available signal. When there are
+    # NONE, the only signal left is that the agent issued zero verified
+    # citations for a query that was authored expecting an answer -- flag
+    # that too, for human review; the LLM judge step covers subtler cases.
+    row["false_refusal"] = None
+    if row["ok"] and not query.should_refuse:
+        if total_facts > 0:
+            row["false_refusal"] = refused and matched == 0
+        else:
+            row["false_refusal"] = refused
 
     lower = answer.lower()
     row["narration_hits"] = sum(1 for m in NARRATION_MARKERS if m in lower)
@@ -223,7 +279,15 @@ def aggregate(rows: list[dict[str, Any]]) -> dict[str, Any]:
     walls = sorted(r["wall_ms"] for r in ok_rows if r["wall_ms"] is not None)
     attempts = sum(r["cite_attempts"] for r in ok_rows)
     failures = sum(r["cite_failures"] for r in ok_rows)
-    refusal_rows = [r for r in rows if r["refusal_correct"] is not None]
+    # WHY `r["ok"]` is checked here too, redundantly with score_transcript's
+    # own gating (2026-08 review, Finding 1): this is the aggregate that
+    # actually produces refusal_correct_rate, and unlike every other
+    # aggregate field it previously did NOT restrict to successful rows --
+    # it relied entirely on refusal_correct already being None for a crashed
+    # transcript. Keeping the check here too means a future regression in
+    # score_transcript's gating can't silently let a crashed query back into
+    # this rate a second time.
+    refusal_rows = [r for r in rows if r["ok"] and r["refusal_correct"] is not None]
     quote_meds = [r["median_quote_len"] for r in ok_rows if r["median_quote_len"] is not None]
     return {
         "n": len(rows),
