@@ -1,12 +1,15 @@
-"""Pure unit tests for retrieval/sql.py + retrieval/types.py.
+"""Pure unit tests for retrieval/types.py.
 
-No database required. Verifies the filter-clause builder emits the
-right SQL fragments + parameter shapes, and the RetrievedChunk
-dataclass round-trips correctly from a psycopg dict-row.
+RetrievalFilters.is_empty and the RetrievedChunk row adapter — both
+still live on the LanceDB path (search_lance.py builds RetrievedChunk
+from Lance result dicts, which carry the same column names the old
+psycopg rows did, which is why the adapter survived the store swap).
+
+The build_filter_clauses half of this file went with retrieval/sql.py
+in Plan 5 Track 4; ChunkStore.filter_expr is its LanceDB successor.
 """
 from __future__ import annotations
 
-from retrieval.sql import build_filter_clauses
 from retrieval.types import RetrievalFilters, RetrievedChunk
 
 
@@ -24,89 +27,6 @@ def test_filters_is_empty_only_if_all_unset():
     assert not RetrievalFilters(publisher=["jlbc"]).is_empty()
     assert not RetrievalFilters(is_table=True).is_empty()
     assert not RetrievalFilters(is_table=False).is_empty()  # False is a real filter, not "no filter"
-
-
-# ---------------------------------------------------------------------------
-# build_filter_clauses
-# ---------------------------------------------------------------------------
-
-
-def test_empty_filters_emit_nothing():
-    clauses, params, needs_join = build_filter_clauses(RetrievalFilters())
-    assert clauses == []
-    assert params == []
-    assert needs_join is False
-
-
-def test_fiscal_year_filter():
-    clauses, params, needs_join = build_filter_clauses(
-        RetrievalFilters(fiscal_year=[2026, 2027])
-    )
-    assert clauses == ["c.fiscal_year = ANY(%s)"]
-    assert params == [[2026, 2027]]
-    assert needs_join is False
-
-
-def test_publisher_filter_requires_documents_join():
-    clauses, params, needs_join = build_filter_clauses(
-        RetrievalFilters(publisher=["jlbc", "legislature"])
-    )
-    assert clauses == ["d.publisher = ANY(%s)"]
-    assert params == [["jlbc", "legislature"]]
-    assert needs_join is True
-
-
-def test_agency_filter_uses_array_overlap():
-    """Decision D2: agency filter is && over agency_canonical_ids[], not ANY()."""
-    clauses, params, _ = build_filter_clauses(
-        RetrievalFilters(agency_canonical_id=["agency:adc", "agency:ahcccs"])
-    )
-    assert clauses == ["c.agency_canonical_ids && %s::text[]"]
-    assert params == [["agency:adc", "agency:ahcccs"]]
-
-
-def test_fund_canonical_id_filter_uses_any():
-    """fund_canonical_id is scalar on chunks, so ANY() not && ."""
-    clauses, params, _ = build_filter_clauses(
-        RetrievalFilters(fund_canonical_id=["fund:ahcccs"])
-    )
-    assert clauses == ["c.fund_canonical_id = ANY(%s)"]
-    assert params == [["fund:ahcccs"]]
-
-
-def test_fund_mentions_filter_uses_array_overlap():
-    """fund_mentions is array, parallel to agency_canonical_ids."""
-    clauses, params, _ = build_filter_clauses(
-        RetrievalFilters(fund_mentions=["fund:general"])
-    )
-    assert clauses == ["c.fund_mentions && %s::text[]"]
-    assert params == [["fund:general"]]
-
-
-def test_is_table_filter_passes_bool():
-    clauses, params, _ = build_filter_clauses(RetrievalFilters(is_table=True))
-    assert clauses == ["c.is_table = %s"]
-    assert params == [True]
-
-
-def test_combined_filters_compose():
-    clauses, params, needs_join = build_filter_clauses(
-        RetrievalFilters(
-            fiscal_year=[2027],
-            publisher=["jlbc"],
-            agency_canonical_id=["agency:adc"],
-            is_table=False,
-        )
-    )
-    # Order matches the field order in build_filter_clauses
-    assert clauses == [
-        "c.fiscal_year = ANY(%s)",
-        "d.publisher = ANY(%s)",
-        "c.agency_canonical_ids && %s::text[]",
-        "c.is_table = %s",
-    ]
-    assert params == [[2027], ["jlbc"], ["agency:adc"], False]
-    assert needs_join is True
 
 
 # ---------------------------------------------------------------------------

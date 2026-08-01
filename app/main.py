@@ -1,8 +1,9 @@
 """Single-process app server (spec S1).
 
-Serves the built SPA (webapp/dist) plus the JSON API. Distinct from
-retrieval/api.py (the legacy Phase-1c sidecar on 9200): this is the
-consolidated app's front door, default port 9300. Static serving uses
+Serves the built SPA (webapp/dist) plus the JSON API — the consolidated
+app's one and only front door, default port 9300. (The Phase-1c
+retrieval sidecar on port 9200 that this replaced was deleted in Plan 5
+Track 4; there is no second process.) Static serving uses
 an SPA fallback: any unmatched path that is not under /api/ returns
 index.html so client-side routing works on refresh/deep links, while
 unmatched /api/ paths get a JSON 404 instead.
