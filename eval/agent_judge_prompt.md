@@ -18,7 +18,7 @@ Return ONLY a JSON object, no prose, no code fences:
                — a dollar figure, a change, a finding>",
      "cited_verified": true|false}
   ],
-  "holistic": 1-5,
+  "holistic": 3,
   "flags": {
     "hedging": true|false,
     "meta_narration": true|false,
@@ -32,8 +32,10 @@ Rules:
   comparison has ~3; a refusal has 0. Do NOT list trivia or hedges.
 - cited_verified: true only if a citation whose "ok" is true covers that
   claim AND its quote actually supports it per the cited chunk text.
-- holistic: 5 = correct, complete, direct; 3 = usable with friction;
-  1 = wrong, unusable, or confidently uncited.
+- holistic: a plain JSON number from 1 to 5 — write `4`, never `"4"` or
+  `"4/5"`. 5 = correct, complete, direct; 3 = usable with friction;
+  1 = wrong, unusable, or confidently uncited. (The example above shows 3
+  only because a template needs a value; grade the answer you were given.)
 - meta_narration: true if the answer narrates its own process
   ("let me search...", "I have what I need").
 - If the payload's answer is empty, return holistic 1 and no claims.
