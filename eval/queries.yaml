@@ -1,9 +1,92 @@
 # Eval query set for Ask the Budget AZ Layer 1 retrieval eval.
 #
-# 34 queries: 24 lookup + 5 comparison + 5 refusal. First seed set
-# generated 2026-05-21 via subagent-driven synthesis (the
-# synthesize_queries.py CLI requires an Anthropic API key not present
-# in .env.local at generation time).
+# 47 queries: 37 lookup + 5 comparison + 5 refusal.
+#
+#   q-001 .. q-034  the original seed set, generated 2026-05-21 via
+#                   subagent-driven synthesis (the synthesize_queries.py
+#                   CLI requires an Anthropic API key not present in
+#                   .env.local at generation time).
+#   n-001 .. n-013  NO-YEAR queries with pre-FY2025 ground truth,
+#                   hand-authored 2026-08-01. See the block below —
+#                   they exist to fix a structural blindness in the
+#                   original set, and they are read differently.
+#
+#
+# ============================================================================
+# THE n-* BLOCK: WHY IT EXISTS AND WHAT IT MEASURES
+# ============================================================================
+#
+# Every one of q-001..q-029 names a fiscal year (32 of the 34 entries
+# do), so `retrieval.query_year.parse_query_years` returns a year,
+# S21 layer 1 turns that into a HARD fiscal-year filter, and the
+# layer-3 recency boost in `retrieval/recency.py` is SKIPPED. The other
+# two are refusal queries with no ground truth to recall.
+#
+# So before 2026-08-01, ZERO queries in this file executed the recency
+# code path. That was not a harmless gap. The 13-weight sweep that
+# chose RECENCY_BOOST_PER_YEAR = 2.064 produced a perfectly FLAT recall
+# column for this set at every weight, which reads like proof the boost
+# is free and is proof of nothing at all — the set never ran the code.
+#
+# Second, related gap: every ground-truth chunk in q-001..q-029 is
+# FY2025 (9), FY2026 (12) or FY2027 (13). Nothing older. A recency
+# boost HELPS a recent target, so even the sweep's year-stripped proxy
+# column was optimistic by construction: it could not measure harm to
+# an OLD target because it had none to point at.
+#
+# The n-* entries close both gaps at once. Each one:
+#
+#   * names no fiscal year — `parse_query_years(query) == []`, verified
+#     mechanically, not by eye. If a future edit puts a year in one of
+#     these questions the entry silently stops measuring anything while
+#     still producing a plausible-looking number, which is exactly the
+#     failure this block exists to end.
+#   * has ground truth in FY2022, FY2023 or FY2024, so a ranking change
+#     that buries old material shows up here as lost recall.
+#
+# HOW THESE WERE AUTHORED (same discipline as eval/queries_historical.yaml)
+# ------------------------------------------------------------------------
+# Hand-authored against the live corpus on 2026-08-01 (28,530 budget
+# chunks / 1,429 documents). For every entry:
+#
+#   * the chunk_id was confirmed to EXIST in `budget_chunks`
+#   * the FULL chunk text was read and confirmed to answer the question
+#   * the anchor_text is a LITERAL substring of that chunk's `text`
+#   * publisher / doc_type / fiscal_year / agency were read off the row
+#   * the query was run through the real pipeline
+#     (`retrieve(RetrievalRequest(query=..., corpus="budget_chunks",
+#     top_k=20))`) at the SHIPPED weight, and the rank it landed at is
+#     recorded in each entry's comment
+#
+# Nothing here was invented. Candidate questions whose honest answer was
+# the NEWEST edition were dropped rather than pointed at an old chunk —
+# "what is the Basic State Aid deferral" is correctly answered by FY2027,
+# and pinning it to FY2024 would have manufactured a fake regression.
+#
+# WHY THE QUESTIONS LOOK LIKE THIS
+# --------------------------------
+# An undated question only has an old answer when the thing asked about
+# happened once, in an old cycle: the pandemic-era discretionary
+# allocations, Proposition 208's court defeat, the Florence prison
+# closure plan, a line-item veto, a one-time pilot appropriation. Those
+# are real analyst questions AND they have exactly one correct edition.
+# That is the shape to copy when extending this block.
+#
+# NO AGAO AFR ENTRIES, DELIBERATELY. The AFRs are near-identical fund
+# tables edition over edition, so an undated question about a fund is
+# legitimately answered by the newest AFR. Pointing one at FY2022 would
+# have been ground truth invented to fail.
+#
+# WHAT A FAILURE HERE MEANS
+# -------------------------
+# NOT automatically a bug. These queries put old and new editions in
+# the same result set, which is the one situation where the recency
+# boost bites: `anchor_fiscal_year` is the newest fiscal year IN THE
+# RESULT SET, so a query whose hits are all FY2022 takes no penalty at
+# all, while a query that surfaces one FY2027 chunk penalises an FY2022
+# target by 5 * 2.064 = 10.3 on a roughly -10..10 logit scale. Read a
+# failure as a measurement of that trade, and re-tune the weight, not
+# the query.
 #
 # IMPORTANT: This is a Layer 1 regression detector, not a usefulness
 # measure. Lookup/comparison queries were synthesized FROM chunks —
@@ -534,3 +617,292 @@
   expected_refusal: true
   synthesized_by: claude-opus-4-7
   synthesized_at: "2026-05-21T00:00Z"
+
+# ---------------------------------------------------------------------------
+# NO-YEAR queries with pre-FY2025 ground truth (n-001 .. n-013).
+# Hand-authored 2026-08-01. See the header block for why these exist and
+# how a failure here should be read. Every one satisfies
+# parse_query_years(query) == [] — pinned by test.
+# ---------------------------------------------------------------------------
+
+# FY2022. The pandemic-era discretionary allocations were reported once, in
+# the FY 2022 books, and never repeated — an undated question about them has
+# exactly one correct edition.
+# Rank 1/20 at the shipped weight, 1/20 with the boost off — the whole
+# result set is FY2022, so `anchor_fiscal_year` is 2022 and nothing is penalised.
+- id: n-001
+  query: How did the Executive allocate the discretionary COVID-19 funding it was given, and what were the largest planned expenditures?
+  type: lookup
+  expected_chunks:
+    - chunk_id: jlbc-baseline-fy2022-s82-0010
+      dimensions:
+        publisher: jlbc
+        doc_type: s-pdf
+        fiscal_year: 2022
+        agency: "agency:dhs"
+      anchor_text: "notified JLBC of its intent to spend"
+    - chunk_id: jlbc-baseline-fy2022-s82-0004
+      dimensions:
+        publisher: jlbc
+        doc_type: s-pdf
+        fiscal_year: 2022
+        agency: "agency:dhs"
+      anchor_text: "Two 2020 session laws appropriate state monies for responding to the COVID-19 pandemic"
+  expected_refusal: false
+  synthesized_by: hand-authored-no-year
+  synthesized_at: "2026-08-01T00:00Z"
+
+# FY2023. Proposition 208 was struck down once, in 2022, and the FY 2023
+# books are where the ruling is written up. Later editions barely mention it
+# (1 chunk each in FY2026/FY2027).
+# Rank 1/20 at the shipped weight, 1/20 with the boost off.
+- id: n-002
+  query: Why was the Proposition 208 income tax surcharge struck down by the courts?
+  type: lookup
+  expected_chunks:
+    - chunk_id: jlbc-approps-fy2023-ade-0122
+      dimensions:
+        publisher: jlbc
+        doc_type: approps-per-agency
+        fiscal_year: 2023
+        agency: "agency:ade"
+      anchor_text: "the Proposition 208 income tax surcharge is unconstitutional"
+  expected_refusal: false
+  synthesized_by: hand-authored-no-year
+  synthesized_at: "2026-08-01T00:00Z"
+
+# FY2023. The Summary of Fiscal-Related Vetoes is the ONLY veto-summary
+# document in the corpus, so this question has one correct answer and it is
+# four years old.
+# MEASURED HARM: rank 1/20 with the boost OFF, rank 8/20 at the shipped
+# 2.064. Three FY2027/FY2026 Capital-Projects boilerplate chunks about the veto
+# PROCESS outrank the document that lists the actual vetoes. Fails @5, passes @15.
+- id: n-003
+  query: Which appropriations did the Governor line-item veto from the General Appropriation Act?
+  type: lookup
+  expected_chunks:
+    - chunk_id: jlbc-approps-fy2023-bd12-0000
+      dimensions:
+        publisher: jlbc
+        doc_type: bd-pdf
+        fiscal_year: 2023
+        agency: "agency:vsc"
+      anchor_text: "Governor line-item vetoed appropriation in Department of Veterans' Services budget"
+  expected_refusal: false
+  synthesized_by: hand-authored-no-year
+  synthesized_at: "2026-08-01T00:00Z"
+
+# FY2023. The three-year Florence closure plan table. Later editions carry
+# only the annual adjustments, not the plan.
+# Rank 4/20 at the shipped weight, 4/20 with the boost off — the boost does
+# not bite here because the result set is almost entirely FY2023/FY2024.
+# NOTE: this is the one n-* entry that scores via `dimensions_fallback` rather
+# than an exact chunk_id — rank 1 is a different FY2023 ADC approps chunk about
+# the same closure, which satisfies the dimensions. Do not read its rank 1 in
+# the results file as exact-id recall; the table itself is at rank 4.
+- id: n-004
+  query: What did it cost to keep the Globe and Florence South units open while the rest of the Florence prison closed?
+  type: lookup
+  expected_chunks:
+    - chunk_id: jlbc-approps-fy2023-adc-0008
+      dimensions:
+        publisher: jlbc
+        doc_type: approps-per-agency
+        fiscal_year: 2023
+        agency: "agency:adc"
+      anchor_text: "Keep Florence South Unit Open"
+  expected_refusal: false
+  synthesized_by: hand-authored-no-year
+  synthesized_at: "2026-08-01T00:00Z"
+
+# FY2022. The Tax Omnibus BRB changed the UI benefit and the taxable payroll
+# base once, in the 2021 session; both halves of the answer are on the same
+# page of the FY 2022 Appropriations Report.
+# Rank 1/20 at the shipped weight, 1/20 with the boost off.
+- id: n-005
+  query: How did the Tax Omnibus budget reconciliation bill change the unemployment insurance taxable payroll base and the maximum weekly benefit amount?
+  type: lookup
+  expected_chunks:
+    - chunk_id: jlbc-approps-fy2022-des-0130
+      dimensions:
+        publisher: jlbc
+        doc_type: approps-per-agency
+        fiscal_year: 2022
+        agency: "agency:des"
+      anchor_text: "increases the maximum weekly unemployment insurance benefit from"
+    - chunk_id: jlbc-approps-fy2022-des-0131
+      dimensions:
+        publisher: jlbc
+        doc_type: approps-per-agency
+        fiscal_year: 2022
+        agency: "agency:des"
+      anchor_text: "increases the taxable payroll base from"
+  expected_refusal: false
+  synthesized_by: hand-authored-no-year
+  synthesized_at: "2026-08-01T00:00Z"
+
+# FY2022. The Public Health Emergencies Fund COVID-19 expenditure table.
+# Rank 2/20 at the shipped weight, 2/20 with the boost off.
+- id: n-006
+  query: How much did the Department of Health Services spend on COVID-19 testing and vaccination sites?
+  type: lookup
+  expected_chunks:
+    - chunk_id: jlbc-baseline-fy2022-dhs-0006
+      dimensions:
+        publisher: jlbc
+        doc_type: baseline-per-agency
+        fiscal_year: 2022
+        agency: "agency:dhs"
+      anchor_text: "Public Health Emergencies Fund COVID-19 Expenditures"
+  expected_refusal: false
+  synthesized_by: hand-authored-no-year
+  synthesized_at: "2026-08-01T00:00Z"
+
+# FY2023. Pairs with n-003: this is the line item that veto removed, written
+# up on the agency's own page. Later editions say only "no funding".
+# MEASURED HARM: rank 1/20 with the boost OFF, rank 3/20 at 2.064 — the two
+# FY2024 pages that say "no funding" now outrank the edition that explains why.
+- id: n-007
+  query: What deposit to the Hyperbaric Oxygen Therapy for Military Veterans Fund was removed from the General Appropriation Act?
+  type: lookup
+  expected_chunks:
+    - chunk_id: jlbc-approps-fy2023-vsc-0011
+      dimensions:
+        publisher: jlbc
+        doc_type: approps-per-agency
+        fiscal_year: 2023
+        agency: "agency:vsc"
+      anchor_text: "This amount was line item vetoed by the Governor."
+  expected_refusal: false
+  synthesized_by: hand-authored-no-year
+  synthesized_at: "2026-08-01T00:00Z"
+
+# FY2022. The federal coronavirus-response cross-cut (bh-pdf) is where the
+# ESSER allocations are enumerated; it exists only in the FY 2022 books.
+# Rank 2/20 at the shipped weight, 1/20 with the boost off.
+- id: n-008
+  query: How much federal Elementary and Secondary School Emergency Relief funding did Arizona K-12 schools receive?
+  type: lookup
+  expected_chunks:
+    - chunk_id: jlbc-approps-fy2022-bh29-0030
+      dimensions:
+        publisher: jlbc
+        doc_type: bh-pdf
+        fiscal_year: 2022
+        agency: "agency:ade"
+      anchor_text: "School districts and charter schools will receive at least 90% of the state allocation"
+  expected_refusal: false
+  synthesized_by: hand-authored-no-year
+  synthesized_at: "2026-08-01T00:00Z"
+
+# FY2024. Universal ESA eligibility (Laws 2022, Chapter 388) blew a hole in
+# the K-12 formula once; the supplemental that covered it is an FY2024-book
+# story.
+# MEASURED HARM: rank 1/20 with the boost OFF, rank 3/20 at 2.064.
+- id: n-009
+  query: How much of a supplemental appropriation was needed for higher-than-budgeted K-12 formula expenses after ESA enrollment grew under universal eligibility?
+  type: lookup
+  expected_chunks:
+    - chunk_id: jlbc-baseline-fy2024-ade-0087
+      dimensions:
+        publisher: jlbc
+        doc_type: baseline-per-agency
+        fiscal_year: 2024
+        agency: "agency:ade"
+      anchor_text: "enrollment increases for universal eligibility for the ESA program as enacted in Laws 2022, Chapter 388"
+    - chunk_id: jlbc-approps-fy2024-ade-0143
+      dimensions:
+        publisher: jlbc
+        doc_type: approps-per-agency
+        fiscal_year: 2024
+        agency: "agency:ade"
+      anchor_text: "The FY 2024 budget includes an FY 2023 supplemental appropriation of"
+  expected_refusal: false
+  synthesized_by: hand-authored-no-year
+  synthesized_at: "2026-08-01T00:00Z"
+
+# FY2022. A deliberate hard case: the Teachers Academy is funded EVERY year,
+# so half a dozen near-identical newer chunks compete with the one edition
+# that records the federal relief allocation.
+# MEASURED HARM, the worst @5 case in the block: rank 1/20 with the boost
+# OFF, rank 7/20 at 2.064. Six newer Teachers Academy chunks — none of which
+# mention federal relief — sit above the one that answers the question.
+- id: n-010
+  query: How much federal coronavirus relief money went to the Arizona Teachers Academy for tuition scholarships?
+  type: lookup
+  expected_chunks:
+    - chunk_id: jlbc-baseline-fy2022-s54-0022
+      dimensions:
+        publisher: jlbc
+        doc_type: s-pdf
+        fiscal_year: 2022
+        agency: "agency:ade"
+      anchor_text: "for the Arizona Teachers Academy to provide tuition grants"
+  expected_refusal: false
+  synthesized_by: hand-authored-no-year
+  synthesized_at: "2026-08-01T00:00Z"
+
+# FY2022. The Crisis Contingency and Safety Net Fund still exists and later
+# editions carry its fund description, but the Executive's actual pandemic
+# spending out of it was reported once.
+# Rank 5/20 at the shipped weight, 4/20 with the boost off.
+- id: n-011
+  query: What did the Executive spend out of the Crisis Contingency and Safety Net Fund during the pandemic?
+  type: lookup
+  expected_chunks:
+    - chunk_id: jlbc-baseline-fy2022-s82-0005
+      dimensions:
+        publisher: jlbc
+        doc_type: s-pdf
+        fiscal_year: 2022
+      anchor_text: "intent to spend monies from the Crisis Contingency and Safety Net Fund"
+  expected_refusal: false
+  synthesized_by: hand-authored-no-year
+  synthesized_at: "2026-08-01T00:00Z"
+
+# FY2024. A one-time pilot appropriation. FY2024 is the ONLY edition that
+# funded it; FY2025-FY2027 all say "no funding", which makes this a clean
+# test of whether a newer near-duplicate outranks the one real answer.
+# MEASURED HARM: rank 1/20 with the boost OFF, rank 4/20 at 2.064. Three
+# newer editions saying "no funding for this program" outrank the single
+# edition that funded it.
+- id: n-012
+  query: What did the budget appropriate for the brackish groundwater recovery pilot program?
+  type: lookup
+  expected_chunks:
+    - chunk_id: jlbc-approps-fy2024-wat-0014
+      dimensions:
+        publisher: jlbc
+        doc_type: approps-per-agency
+        fiscal_year: 2024
+        agency: "agency:wat"
+      anchor_text: "for the Brackish Groundwater Recovery Pilot Program line item"
+    - chunk_id: jlbc-approps-fy2024-wat-0015
+      dimensions:
+        publisher: jlbc
+        doc_type: approps-per-agency
+        fiscal_year: 2024
+        agency: "agency:wat"
+      anchor_text: "One-Time Pilot Program Funding"
+  expected_refusal: false
+  synthesized_by: hand-authored-no-year
+  synthesized_at: "2026-08-01T00:00Z"
+
+# FY2022. The ARPA State Fiscal Recovery Fund total and the Governor's
+# notified allocations. Every later edition carries a boilerplate fund
+# description of the same fund, which is what this query has to beat.
+# MEASURED HARM: rank 1/20 with the boost OFF, rank 8/20 at 2.064. Fails @5.
+- id: n-013
+  query: How much did the state receive from the federal Coronavirus State and Local Fiscal Recovery Fund, and how was it allocated?
+  type: lookup
+  expected_chunks:
+    - chunk_id: jlbc-approps-fy2022-bh29-0095
+      dimensions:
+        publisher: jlbc
+        doc_type: bh-pdf
+        fiscal_year: 2022
+        agency: "agency:des"
+      anchor_text: "Arizona will receive a total of"
+  expected_refusal: false
+  synthesized_by: hand-authored-no-year
+  synthesized_at: "2026-08-01T00:00Z"
