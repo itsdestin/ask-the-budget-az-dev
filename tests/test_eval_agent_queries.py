@@ -28,8 +28,18 @@ def test_shape_quotas():
     assert shapes["historical"] >= 3
 
 
-def test_corpus_coverage():
-    assert sum(1 for q in QUERIES if q.corpus == "fiscal_notes") >= 4
+def test_every_query_is_budget_corpus():
+    # WHY: scope correction from the project owner, 2026-08-01 -- "the plans
+    # assumption about historical budget books was not wrong. the final app
+    # will use only historical budget books. this eval set should NOT utilize
+    # the fiscal note path, we are solely evaluating budget queries." This
+    # assertion replaced a fiscal-notes >= 4 quota. A metric averaged across
+    # two corpora answers no question about either, so a single fiscal-note
+    # query re-admitted here would silently contaminate every aggregate the
+    # scorer reports. If a fiscal-note agent eval is ever wanted it belongs
+    # in its own file with its own results prefix, exactly as Layer 1 does.
+    offenders = [q.id for q in QUERIES if q.corpus != "budget"]
+    assert not offenders, f"non-budget queries in a budget-only set: {offenders}"
 
 
 def test_smoke_subset_is_small_and_diverse():
