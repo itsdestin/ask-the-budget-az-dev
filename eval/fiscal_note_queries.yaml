@@ -1,6 +1,46 @@
 # Fiscal-note eval set — coordinator-triage query shapes.
 #
-# STATUS: ground truth filled in 2026-08-01. ***DRAFT — AGENT-DRAFTED,
+# STATUS: ground truth filled in 2026-08-01 (agent-drafted), then the three
+# flagged entries were REVIEWED AND REWRITTEN the same day. See "Reviewed
+# entries" below. Remaining entries are still agent-drafted.
+#
+# HONEST NUMBERS (exact chunk_id matches only, 11 non-refusal queries):
+#   recall@5 72.7% (8/11) · recall@15 81.8% (9/11)
+# The runner PRINTS 81.82% / 100% because its scoring falls back to matching on
+# (publisher, doc_type, fiscal_year, agency) — and in THIS corpus every row is
+# publisher=legislature / doc_type=fiscal-note with only 48% agency-stamped, so
+# any note from the same session year counts as a hit. Two queries
+# (fn-ahcccs-provider-rates, fn-public-safety-retirement) pass ONLY that way,
+# against passages that are not the answer. Trust the exact numbers above.
+#
+# Reviewed entries, 2026-08-01 — what changed and why:
+#  * fn-water-infrastructure-appropriation — the query asked for WIFA
+#    "appropriations", which no note covers: WIFA's water money moved through
+#    budget bills, and budget bills get no fiscal notes. Reworded to the
+#    revolving-fund administration the corpus does cover; same answer chunk,
+#    now rank 1 instead of a stretch.
+#  * fn-k12-group-b-weights — asked two things at once (Group B weights AND
+#    special education) and the corpus has no note analysing a special-ed Group
+#    B weight change. Narrowed to the single concept, and re-pointed from a
+#    2001 note that did not retrieve to the FRPL-weight ANALYSIS passage that
+#    carries the real estimate.
+#  * fn-same-topic-across-sessions — the old query described a RELATIONSHIP
+#    between notes ("the same credit, twice"), which retrieval cannot express:
+#    it scores passages independently, and nothing in a 2011 note says it is
+#    the earlier version of a 2022 one. Reworded to name the topic, which is
+#    how a coordinator actually asks. A 2011 and a 2022 note now both return in
+#    the top 5, so it tests cross-session recall for real. The "find every
+#    session that scored this credit" capability is a genuine future feature —
+#    it needs grouping, not better ranking — and is deliberately NOT graded here.
+#
+# NOTE for S30 (section-aware ranking): this set deliberately contains BOTH
+# shapes, and they pull in opposite directions. fn-public-safety-retirement
+# wants the Estimated Impact section and is currently beaten by the note's own
+# Description; fn-same-topic-across-sessions is a triage question whose right
+# answers ARE Descriptions. A blanket section boost helps the first and hurts
+# the second — which is exactly the trade S30 leaves open for calibration.
+#
+# ***DRAFT — AGENT-DRAFTED,
 # PENDING HUMAN REVIEW BY SOMEONE WHO WRITES FISCAL NOTES.*** Do not treat
 # the numbers this set produces as a validated bar until that review happens.
 #
@@ -138,15 +178,15 @@
 # this to hb2854-100-0017.
 - id: fn-k12-group-b-weights
   type: lookup
-  query: fiscal notes on K-12 group B weights and special education funding
+  query: fiscal notes on changes to K-12 group B weight funding
   expected_chunks:
-    - chunk_id: legislature-fiscal-note-fy2001-sb1448-58-0005
+    - chunk_id: legislature-fiscal-note-fy2022-hb2854-100-0017
       dimensions:
         publisher: legislature
         doc_type: fiscal-note
-        fiscal_year: 2001
+        fiscal_year: 2022
         agency: "agency:equ"
-      anchor_text: 'The average per pupil reimbursement under the bill therefore would be'
+      anchor_text: 'The bill would establish a new Group B weight of 0.037'
   expected_refusal: false
   synthesized_by: agent-draft-2026-08-01
   synthesized_at: "2026-08-01T00:00Z"
@@ -272,7 +312,7 @@
 # agencies and are otherwise unrelated).
 - id: fn-water-infrastructure-appropriation
   type: lookup
-  query: fiscal notes about water infrastructure finance authority appropriations
+  query: water infrastructure finance authority revolving fund administration
   expected_chunks:
     - chunk_id: legislature-fiscal-note-fy2016-hb2666-61-0009
       dimensions:
@@ -366,21 +406,21 @@
 # empty rank list and would crash the runner.)
 - id: fn-same-topic-across-sessions
   type: comparison
-  query: fiscal notes on the same tax credit analyzed in more than one session
+  query: prior fiscal notes on the motion picture production tax credit
   expected_chunks:
-    - chunk_id: legislature-fiscal-note-fy2022-sb1708-57-0005
+    - chunk_id: legislature-fiscal-note-fy2022-sb1708-57-0002
       dimensions:
         publisher: legislature
         doc_type: fiscal-note
         fiscal_year: 2022
-      anchor_text: 'Evaluations of film tax credits in other states show a varied range'
+      anchor_text: 'The bill would create a motion picture production income tax credit'
     - chunk_id: legislature-fiscal-note-fy2011-sb1159-5-0001
       dimensions:
         publisher: legislature
         doc_type: fiscal-note
         fiscal_year: 2011
         agency: "agency:dor"
-      anchor_text: 'prior Motion Picture Tax Incentives program'
+      anchor_text: 'replaces the state’s prior Motion Picture Tax Incentives program'
   expected_refusal: false
   synthesized_by: agent-draft-2026-08-01
   synthesized_at: "2026-08-01T00:00Z"
