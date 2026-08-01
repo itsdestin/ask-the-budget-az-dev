@@ -27,6 +27,10 @@ def write_transcript(
     events: list[dict[str, Any]],
     terminal: dict[str, Any],
 ) -> None:
+    # ensure_ascii=False: document text (agency names, en-dashes, etc.) is
+    # frequently non-ASCII — writing it as \uXXXX escapes would still round-trip
+    # correctly, but every downstream tool that greps or diffs raw transcript
+    # text would see garbage instead of the actual characters.
     lines = [json.dumps({"kind": "meta", **meta}, ensure_ascii=False)]
     lines += [json.dumps({"kind": "event", "event": e}, ensure_ascii=False) for e in events]
     lines.append(json.dumps({"kind": "terminal", **terminal}, ensure_ascii=False))
@@ -37,10 +41,25 @@ def read_transcript(path: str | Path) -> Transcript:
     meta: dict[str, Any] = {}
     events: list[dict[str, Any]] = []
     terminal: dict[str, Any] | None = None
+    corrupted = False
     for line in Path(path).read_text(encoding="utf-8").splitlines():
         if not line.strip():
             continue
-        row = json.loads(line)
+        try:
+            row = json.loads(line)
+        except json.JSONDecodeError:
+            # write_transcript builds the whole file in memory and writes it in
+            # one Path.write_text call, so a crash/power-loss/full-disk mid-write
+            # is far more likely to leave a torn (invalid-JSON) FINAL line than a
+            # cleanly absent one. Treat any unparsable line as that same kind of
+            # damage rather than letting the exception escape — stop reading
+            # right there, since anything after an unparsable line is equally
+            # suspect, and fall through to the same synthesized-error path used
+            # for a wholly-missing terminal.
+            corrupted = True
+            break
+        # "kind" is a routing tag, not payload — pop it off and dispatch by
+        # value so each line lands in its list/slot without a second parse pass.
         kind = row.pop("kind", None)
         if kind == "meta":
             meta = row
@@ -49,9 +68,13 @@ def read_transcript(path: str | Path) -> Transcript:
         elif kind == "terminal":
             terminal = row
     if terminal is None:
-        # A crash mid-run leaves no terminal line; synthesize an honest
+        # A crash mid-run leaves no terminal line at all, or a torn write left
+        # one line unparsable (caught above); either way synthesize an honest
         # error so scorers count it as a failure, not a crash of their own.
-        terminal = {"frame": {"type": "_error", "message": "transcript truncated (no terminal line)"},
+        # Message says the FILE is damaged/incomplete, not that the agent
+        # failed — those are different findings for anyone reading results.
+        reason = "malformed line" if corrupted else "no terminal line"
+        terminal = {"frame": {"type": "_error", "message": f"transcript truncated ({reason})"},
                     "wall_ms": None}
     return Transcript(meta=meta, events=events, terminal=terminal)
 
@@ -61,6 +84,10 @@ def read_transcript(path: str | Path) -> Transcript:
 # never special-case crashed queries.
 
 def _frame(t: Transcript) -> dict[str, Any]:
+    # `.get("frame", {})` alone isn't enough: a terminal row can carry an
+    # explicit `"frame": null` (not just a missing key), which .get() would
+    # happily return as None and crash every accessor's .get() call below.
+    # The trailing `or {}` catches that explicit-null case too.
     return t.terminal.get("frame", {}) or {}
 
 

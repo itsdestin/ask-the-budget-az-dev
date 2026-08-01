@@ -115,3 +115,40 @@ def test_error_terminal_accessors_degrade(tmp_path):
     assert final_answer(t) == ""
     assert usage(t) == {}
     assert citations(t) == [] and tool_calls(t) == [] and retrieve_calls(t) == []
+
+
+def test_malformed_final_line_reads_as_error(tmp_path):
+    # The realistic crash shape: write_transcript writes the whole file in one
+    # shot, so an interrupted write (crash/disk full/power loss) is far more
+    # likely to leave a torn, invalid-JSON final line than to cleanly omit it.
+    # The reader must not raise json.JSONDecodeError on this — it's the exact
+    # input the truncation handling exists for.
+    path = make_transcript(tmp_path)
+    lines = path.read_text(encoding="utf-8").splitlines()
+    lines[-1] = lines[-1][: len(lines[-1]) // 2]  # truncate mid-line: invalid JSON
+    path.write_text("\n".join(lines) + "\n", encoding="utf-8")
+    t = read_transcript(path)
+    # meta and the intact events survive; only the corrupted terminal is lost.
+    assert t.meta["query_id"] == "aq-001"
+    assert len(t.events) == 2
+    assert t.terminal["frame"]["type"] == "_error"
+    assert "malformed line" in t.terminal["frame"]["message"]
+    assert "truncated" in t.terminal["frame"]["message"]
+
+
+def test_malformed_middle_line_does_not_crash(tmp_path):
+    # A damaged line doesn't have to be the last one — a bit flip or a
+    # short-write could land anywhere. The reader must survive that too,
+    # rather than assuming corruption only ever hits the terminal.
+    path = make_transcript(tmp_path)
+    lines = path.read_text(encoding="utf-8").splitlines()
+    assert len(lines) >= 3  # meta, >=1 event, terminal
+    lines[1] = "{not valid json"
+    path.write_text("\n".join(lines) + "\n", encoding="utf-8")
+    t = read_transcript(path)
+    # Reading stops at the damaged line rather than raising; whatever was
+    # parsed before it (meta) is kept, and the lost terminal degrades to the
+    # same honest error path as a wholly-truncated file.
+    assert t.meta["query_id"] == "aq-001"
+    assert t.terminal["frame"]["type"] == "_error"
+    assert "malformed line" in t.terminal["frame"]["message"]
