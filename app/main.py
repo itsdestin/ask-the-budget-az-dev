@@ -21,6 +21,7 @@ from pydantic import BaseModel
 
 from app.routes.admin import router as admin_router
 from app.routes.books import router as books_router
+from app.routes.corpus import router as corpus_router
 from app.routes.conversations import (
     ConversationRegistry,
     default_session_factory,
@@ -161,6 +162,7 @@ def create_app(
     app.include_router(upload_router)
     app.include_router(jobs_router)
     app.include_router(books_router)
+    app.include_router(corpus_router)
     # Identity + admin. Registered here, above the catch-all, for the reason
     # stated in the comment at the top of this block — a router added after
     # `/{path:path}` silently serves index.html to fetch() instead of JSON.

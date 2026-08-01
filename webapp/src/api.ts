@@ -120,6 +120,25 @@ export async function fiscalNotesStatus(): Promise<{ chunks: number }> {
   return r.json();
 }
 
+/** Live corpus size (Plan 5 Task 19).
+ *
+ *  The footer used to hardcode "382 docs". Plan 3's upload queue falsified
+ *  that the first time anyone uploaded and nothing in the app noticed, so
+ *  the number was removed rather than left to rot. This is what lets it be
+ *  stated truthfully again. Not admin-gated — every analyst sees the footer.
+ */
+export interface CorpusCounts {
+  documents: number;
+  budget_chunks: number;
+  fiscal_note_chunks: number;
+}
+
+export async function corpusCounts(): Promise<CorpusCounts> {
+  const r = await fetch("/api/corpus/counts");
+  if (!r.ok) await fail(r, "corpus counts");
+  return r.json();
+}
+
 // ---- AI Mode (Plan 4) ------------------------------------------------------
 
 /** One answer tier as `GET /api/ai/status` reports it.

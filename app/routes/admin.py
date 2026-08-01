@@ -654,28 +654,12 @@ def _dir_bytes(path: Path) -> int:
     return total
 
 
-def _chunk_counts() -> dict[str, int]:
-    """Row counts per corpus table, zero on anything unopenable.
-
-    A missing or unreadable table reads as 0 — the same number a genuinely
-    empty corpus produces. That ambiguity is deliberate and acceptable
-    here because the health ladder (Task 11) is what distinguishes "empty"
-    from "broken", with a sentence for each; this endpoint's job is the
-    numbers.
-    """
-    counts = {"budget_chunks": 0, "fiscal_note_chunks": 0}
-    try:
-        from store.chunk_store import ChunkStore
-
-        store = ChunkStore()
-        for name in counts:
-            try:
-                counts[name] = store.count(name)
-            except Exception:  # noqa: BLE001 — missing table, bad schema…
-                continue
-    except Exception:  # noqa: BLE001 — LanceDB itself unavailable
-        pass
-    return counts
+# Both counters live in app/routes/corpus.py, which serves the ungated
+# footer endpoint. Shared rather than reimplemented: the admin page and the
+# footer showing different corpus sizes on the same screen is exactly the
+# kind of thing that makes an admin stop trusting both numbers.
+from app.routes.corpus import chunk_counts as _chunk_counts  # noqa: E402
+from app.routes.corpus import document_count as _document_count  # noqa: E402
 
 
 def _reclaimable_bytes() -> int | None:
@@ -755,22 +739,6 @@ def _queue_summary() -> tuple[dict[str, int], str | None]:
         if job.state == "live" and (last_live is None or job.updated_at > last_live):
             last_live = job.updated_at
     return summary, last_live
-
-
-def _document_count() -> int:
-    try:
-        raw = json.loads(documents_path().read_text(encoding="utf-8"))
-    except FileNotFoundError:
-        return 0
-    except (OSError, ValueError) as err:
-        # This is the page an admin opens BECAUSE something is wrong.
-        print(
-            f"app.routes.admin: couldn't read {documents_path()} ({err}) — "
-            "reporting 0 documents.",
-            file=sys.stderr,
-        )
-        return 0
-    return len(raw) if isinstance(raw, dict) else 0
 
 
 @router.get("/api/admin/corpus")
