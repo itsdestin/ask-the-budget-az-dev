@@ -18,6 +18,42 @@ const markdownContentSrc = readFileSync(
   "utf-8",
 );
 
+const chatThreadSrc = readFileSync(
+  resolve(process.cwd(), "src/chat/ChatThread.tsx"),
+  "utf-8",
+);
+
+/** The stylesheet with every /* … *\/ comment removed.
+ *
+ *  WHY: several assertions below prove a declaration is ABSENT, and the
+ *  comments deliberately NAME those declarations (a WHY note explaining why
+ *  CSS containment must never come back has to say the words "container-type"
+ *  to be useful). A raw substring scan would read that prose as a live rule
+ *  and pass — or fail — for the wrong reason. Strip comments, then scan. */
+const bare = css.replace(/\/\*[\s\S]*?\*\//g, "");
+
+function escapeRe(s: string): string {
+  return s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+/** Body of the rule whose selector list ENDS in `selector` immediately before
+ *  the `{`. Unlike `ruleFor` above this cannot be fooled by a comment mention
+ *  or by a longer selector that merely starts with the same characters. */
+function bareRule(selector: string): string {
+  const match = bare.match(
+    new RegExp(escapeRe(selector) + "\\s*\\{([^}]*)\\}"),
+  );
+  expect(match, `selector ${selector} must exist`).not.toBeNull();
+  return match![1];
+}
+
+/** The numeric z-index declared by a rule, for order comparisons. */
+function zIndexOf(selector: string): number {
+  const m = bareRule(selector).match(/z-index:\s*(-?\d+)/);
+  expect(m, `${selector} must declare a numeric z-index`).not.toBeNull();
+  return Number(m![1]);
+}
+
 /** The full rule body for a selector (first occurrence).
  *  NOTE: this is a plain `indexOf`, so it finds the first substring match —
  *  it would silently return the WRONG rule if a later selector CONTAINS an
@@ -210,13 +246,54 @@ describe("chat CSS containment contract", () => {
     expect(ruleFor(".pdf-cited-text")).not.toMatch(/vh/);
   });
 
-  // Task 16 (review pass): the mascot used to clip mid-body against the
-  // column edge (right: calc(50% + 400px) never reacted to the source panel
-  // opening or a narrow window). It now docks/undocks off a container query
-  // on its own scroller instead of a fixed offset that assumed a
-  // fixed-width viewport.
-  it("the mascot's container query is on the scroller's own inline-size", () => {
-    expect(css).toMatch(/container-type:\s*inline-size/);
+  // ------------------------------------------------------------------
+  // FINAL REVIEW — CRITICAL 1. The citation tooltip is position:fixed so it
+  // escapes the thread scroller's clip (test above). `position: fixed` only
+  // resolves against the VIEWPORT while no ancestor establishes a containing
+  // block for it — and `container-type` (any value) and `contain` (layout /
+  // paint / strict / content) BOTH do exactly that, per CSS Containment 2
+  // §3.1. An ancestor with either one silently re-clips the tooltip inside
+  // the scroller AND turns that scroller into a stacking context, so the
+  // tooltip's z-index:80 no longer clears the sticky site header (50) or the
+  // sub-860 source drawer (60).
+  //
+  // That is not a cosmetic regression: `.chat-cite-fail` — the READABLE
+  // REASON a citation failed validation — lives inside the tooltip. A
+  // clipped tooltip is an Invariant 2 failure (citations are verified, not
+  // merely emitted; a failure must stay legible), which is why this is
+  // pinned as a contract rather than left to review.
+  //
+  // Scoped to the whole stylesheet on purpose: the tooltip's ancestor chain
+  // runs .chat-cite-* -> .chat-md -> .chat-bubble -> .chat-turn ->
+  // .chat-thread-column -> .chat-thread-anchor -> .chat-thread-scroll ->
+  // .chat-thread -> .ai-panel-chat -> .ai-panel-main -> .ai-panel ->
+  // .page-ai -> body, i.e. it crosses every section of this file, so
+  // enumerating selectors would leave gaps. This app uses no CSS containment
+  // anywhere today; if a future page genuinely needs it, narrow this test
+  // then — deliberately, with the tooltip re-checked.
+  it("no ancestor of the citation tooltip declares CSS containment", () => {
+    expect(
+      bare,
+      "container-type makes the element a containing block for position:fixed — it re-clips the citation tooltip",
+    ).not.toMatch(/container-type\s*:/);
+    expect(
+      bare,
+      "contain: layout/paint/strict/content does the same thing container-type does",
+    ).not.toMatch(/(^|[;{\s])contain\s*:/);
+  });
+
+  // Task 16 (review pass), amended by the final review: the mascot used to
+  // clip mid-body against the column edge (a fixed right offset never
+  // reacted to the source panel opening or a narrow window). The dock/undock
+  // is now driven from ChatThread.tsx's ResizeObserver — NOT from a CSS
+  // container query, which would have re-broken the tooltip above.
+  it("the mascot docks from JS, and the CSS only supplies the hidden state", () => {
+    expect(chatThreadSrc).toMatch(/ResizeObserver/);
+    expect(chatThreadSrc).toMatch(/is-cramped/);
+    expect(css).toMatch(/\.chat-mascot-slot\.is-cramped/);
+    // No @container rule may come back — the whole point of moving the
+    // measurement into JS is that this stylesheet stays containment-free.
+    expect(bare).not.toMatch(/@container/);
   });
 
   // The shipped 1040px was a rounded guess ("--ai-col + the widest scene +
@@ -224,17 +301,23 @@ describe("chat CSS containment contract", () => {
   // pinned here so a future edit to something obviously wrong (say, 100px)
   // fails loudly instead of silently reopening the clip bug.
   //
+  // The number and its derivation are UNCHANGED by the final review; only
+  // WHO measures moved (a CSS @container -> ChatThread.tsx's ResizeObserver,
+  // because container-type re-clipped the citation tooltip). A
+  // ResizeObserver's `contentRect.width` is the observed element's CONTENT
+  // box — the exact same quantity `@container … (inline-size)` reported —
+  // so the threshold carries over verbatim rather than needing a re-derive.
+  //
   // Derivation (re-derive this yourself before ever touching the number):
-  //   .chat-mascot-slot sits in .chat-thread-anchor (the @container's own
-  //   content box, per CSS Conditional 5 §6.1.3 — inline-size queries the
-  //   container's CONTENT box, so this ignores .chat-thread-scroll's own
+  //   .chat-mascot-slot sits in .chat-thread-anchor, inside
+  //   .chat-thread-scroll's content box — so this ignores that scroller's own
   //   16px+16px padding, which is the conservative direction: a real border
   //   between padding and content-box clip would buy ~16px more slack, not
-  //   less). Call that content box width A.
-  //   right: calc(50% + 400px) puts the slot's untransformed right edge a
-  //   constant 16px left of .chat-thread-column's left edge, for ANY A
-  //   (400 = 768/2 + 16, so the two halves of A always cancel out —
-  //   verified by algebra, not assumed).
+  //   less. Call that content box width A.
+  //   right: calc(50% + var(--ai-col)/2 + 16px) puts the slot's untransformed
+  //   right edge a constant 16px left of .chat-thread-column's left edge, for
+  //   ANY A (the two halves of A always cancel out — verified by algebra, not
+  //   assumed).
   //   Each scene's `transform: translate(tx, _)` shifts that right edge
   //   right by tx, and the div's shrink-to-fit width equals the rendered
   //   scene width (sceneWidth). No clipping requires:
@@ -250,16 +333,11 @@ describe("chat CSS containment contract", () => {
   //   translate offset is the smallest of the three. 1084 is therefore the
   //   smallest threshold that clips NO scene; anything lower reopens the
   //   exact bug this test exists to catch.
-  it("the container-query threshold is the real per-scene no-clip requirement (1084px, presenting binds)", () => {
-    const start = css.indexOf("@container (max-width: 1084px)");
+  it("the dock threshold is the real per-scene no-clip requirement (1084px, presenting binds)", () => {
     expect(
-      start,
+      chatThreadSrc,
       "threshold must be exactly 1084px — see the derivation comment above this test",
-    ).toBeGreaterThan(-1);
-    const firstClose = css.indexOf("}", start);
-    const secondClose = css.indexOf("}", firstClose + 1);
-    const body = css.slice(start, secondClose);
-    expect(body).toMatch(/\.chat-mascot-slot/);
+    ).toMatch(/MASCOT_DOCK_PX\s*=\s*1084/);
   });
 
   // Mascot/MascotTyping/MascotPresenting's role="img" aria-label ("JLBC
@@ -272,11 +350,8 @@ describe("chat CSS containment contract", () => {
   // worse than the old clipping bug, which at least left it in the tree.
   // Fixed with the classic visually-hidden clip recipe instead: gone from
   // the screen, still present (and readable) for assistive tech.
-  it("the container query visually hides the mascot without removing it from the accessibility tree", () => {
-    const start = css.indexOf("@container (max-width: 1084px)");
-    const firstClose = css.indexOf("}", start);
-    const secondClose = css.indexOf("}", firstClose + 1);
-    const body = css.slice(start, secondClose);
+  it("the docked state visually hides the mascot without removing it from the accessibility tree", () => {
+    const body = bareRule(".chat-mascot-slot.is-cramped");
     expect(body, "must not use display:none — that strips role=img from the a11y tree").not.toMatch(
       /display:\s*none/,
     );
@@ -296,5 +371,80 @@ describe("chat CSS containment contract", () => {
   // out from under it, not a re-measured constant.
   it("the welcome mascot clamp no longer hardcodes the chrome height", () => {
     expect(ruleFor(".chat-welcome-mascot")).not.toMatch(/440px/);
+  });
+
+  // ------------------------------------------------------------------
+  // FINAL REVIEW — IMPORTANT 2. One flex row, one auto margin. When BOTH
+  // `.pdf-head-spacer` and `.pdf-open-original` declare margin-left:auto the
+  // row's free space is split evenly BETWEEN them, so the zoom controls stop
+  // at neither edge and float mid-header. `.pdf-head-spacer` exists for
+  // exactly this job, so the duplicate on the button is what goes. Shared
+  // surface: SourceView renders in AI Mode AND in the search page's source
+  // drawer, so this was two pages wrong, not one.
+  it("the merged PDF header has exactly one auto-margin spacer", () => {
+    expect(bareRule(".pdf-head-spacer")).toMatch(/margin-left:\s*auto/);
+    expect(
+      bareRule(".pdf-open-original"),
+      "a second margin-left:auto splits the free space and floats the zoom controls mid-row",
+    ).not.toMatch(/margin-left:\s*auto/);
+  });
+
+  // ------------------------------------------------------------------
+  // FINAL REVIEW — IMPORTANT 3. `.chat-tool-group.is-failed .chat-tool-label`
+  // was a DESCENDANT selector, so expanding a group in which one call failed
+  // painted the labels of its SUCCESSFUL children red too. That is the mirror
+  // image of the failed-citation-hover bug fixed above (there: failure dressed
+  // as success; here: success dressed as failure) and it misinforms the
+  // analyst about WHICH call actually failed. The group header keeps the
+  // summary tint; each child row's own `.chat-tool.is-failed` rule is left to
+  // speak for itself. Child combinator, so it can never reach into the body.
+  it("the failed-group tint stops at the group's own header row", () => {
+    expect(bare).not.toMatch(
+      /\.chat-tool-group\.is-failed\s+\.chat-tool-label\s*\{/,
+    );
+    expect(bare).toMatch(
+      /\.chat-tool-group\.is-failed\s*>\s*\.chat-tool-head[^{]*\{/,
+    );
+  });
+
+  // ------------------------------------------------------------------
+  // FINAL REVIEW — IMPORTANT 5. Stacking order inside `.ai-panel-chat`.
+  // `.ai-bottom-chrome` carries a z-index, which makes it a stacking context,
+  // so `.ai-tier-pop`'s own z-index is TRAPPED inside it and the whole chrome
+  // competes with its siblings at the chrome's number. The jump pill was
+  // above that number, so the tier explainer — which opens upward into
+  // exactly the space the pill occupies — was painted over. The pill only
+  // ever needs to clear thread CONTENT (the mascot slot is the highest thing
+  // in there), never the chrome.
+  it("the jump pill sits above thread content but below the bottom chrome", () => {
+    const jump = zIndexOf(".chat-jump");
+    const chrome = zIndexOf(".ai-bottom-chrome");
+    const mascot = zIndexOf(".chat-mascot-slot");
+    expect(jump, "the tier explainer opens into the pill's space").toBeLessThan(
+      chrome,
+    );
+    expect(jump).toBeGreaterThan(mascot);
+  });
+
+  // ------------------------------------------------------------------
+  // FINAL REVIEW — MINOR. --ai-col is meant to be THE content measure; a
+  // hardcoded 400px (= 768/2 + 16) silently desynchronises the mascot the
+  // day someone changes the token.
+  it("the mascot offset is expressed in the --ai-col token, not a 400px literal", () => {
+    const rule = bareRule(".chat-mascot-slot");
+    expect(rule).toMatch(/var\(--ai-col\)/);
+    expect(rule).not.toMatch(/400px/);
+  });
+
+  // ------------------------------------------------------------------
+  // FINAL REVIEW — MINOR. Adjacent `.chat-tool` siblings only ever exist
+  // inside `.chat-tool-group-body` (a run of consecutive tool calls always
+  // coalesces into a group), and that body sets its own flex `gap`, so the
+  // sibling margin never applied anywhere — it was dead the moment ToolGroup
+  // shipped. The rule and the neutraliser that cancelled it go together;
+  // keeping either alone would just be confusing.
+  it("the unreachable adjacent-tool margin and its neutraliser are both gone", () => {
+    expect(bare).not.toMatch(/\.chat-tool\s*\+\s*\.chat-tool\s*\{/);
+    expect(bareRule(".chat-tool-group-body")).toMatch(/gap:\s*4px/);
   });
 });

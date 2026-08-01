@@ -17,6 +17,24 @@ import Mascot from "./mascot/Mascot.js";
 import MascotTyping from "./mascot/MascotTyping.js";
 import MascotPresenting from "./mascot/MascotPresenting.js";
 
+/** Below this measured width the chat column can no longer fit the content
+ *  measure (--ai-col) PLUS the mascot standing beside it, so the mascot docks
+ *  off rather than clipping mid-body against the column edge.
+ *
+ *  1084 is DERIVED, not eyeballed — the full per-scene derivation lives in
+ *  chat-css-contract.test.ts, which also pins this constant.
+ *
+ *  WHY this is measured in JavaScript and not with a CSS container query:
+ *  `container-type` applies layout containment, and a layout-contained element
+ *  becomes the containing block for every `position: fixed` descendant. The
+ *  citation tooltip is fixed-position precisely so it escapes this scroller's
+ *  overflow clip — and it carries the reason a citation FAILED validation, so
+ *  clipping it is a Core Invariant 2 failure, not a styling nit. Putting
+ *  `container-type` on the scroller (or any ancestor) silently re-clips it.
+ *  A ResizeObserver reports the same content-box width a container query
+ *  would have, with no containment side effect. */
+const MASCOT_DOCK_PX = 1084;
+
 interface Props {
   state: ChatState;
   /** Current mascot scene/pose, decided by useMascotPose() at the page level. */
@@ -29,7 +47,6 @@ interface Props {
 }
 
 export default function ChatThread({ state, mascot, refusal }: Props) {
-  const endRef = useRef<HTMLDivElement | null>(null);
   const containerRef = useRef<HTMLDivElement | null>(null);
   const anchorRef = useRef<HTMLDivElement | null>(null);
   // Whether to follow the bottom on new content. Flipped by the handlers
@@ -41,6 +58,11 @@ export default function ChatThread({ state, mascot, refusal }: Props) {
   // whether the jump-to-bottom pill is shown. The ref stays the source of
   // truth the effects read from; this is a display-only shadow of it.
   const [atBottom, setAtBottom] = useState(true);
+  // True when the scroller is narrower than MASCOT_DOCK_PX — see that
+  // constant for why this is measured here rather than in CSS. Starts false
+  // (mascot visible), which is also the state a browser without ResizeObserver
+  // keeps: the pre-existing "he might clip" behavior, never a missing mascot.
+  const [mascotCramped, setMascotCramped] = useState(false);
 
   // Conversation-wide chunk-id -> resolved-metadata map, so a cite() that
   // references a chunk from an earlier turn (which the system prompt allows)
@@ -140,6 +162,29 @@ export default function ChatThread({ state, mascot, refusal }: Props) {
     return () => obs.disconnect();
   }, []);
 
+  // Mascot dock/undock. Watches the SCROLLER's own inline size — a
+  // ResizeObserver entry's `contentRect.width` is the observed element's
+  // content box, i.e. exactly the number a CSS container query would have
+  // reported, so MASCOT_DOCK_PX carries over from the container-query version
+  // unchanged. Kept as a separate observer from the re-pin one above so the
+  // two concerns stay independently readable.
+  useEffect(() => {
+    const el = containerRef.current;
+    if (!el || typeof ResizeObserver === "undefined") return;
+    const obs = new ResizeObserver((entries) => {
+      // contentRect is guaranteed by the spec, but a polyfill or a partial
+      // test double can omit it, and a missing measurement must degrade to
+      // "leave the mascot as it is" rather than crash the whole thread.
+      const rect = entries[0]?.contentRect;
+      if (!rect) return;
+      const cramped = rect.width < MASCOT_DOCK_PX;
+      // Guarded so a drag-resize doesn't re-render the whole thread per frame.
+      setMascotCramped((prev) => (prev === cramped ? prev : cramped));
+    });
+    obs.observe(el);
+    return () => obs.disconnect();
+  }, []);
+
   // Sending a message re-arms following — the user asked a question, they
   // want to see the answer arrive.
   const lastTurn = state.turns[state.turns.length - 1];
@@ -224,12 +269,13 @@ export default function ChatThread({ state, mascot, refusal }: Props) {
                     sibling of the scroller. */}
                 {refusal && <RefusalBanner refusal={refusal} />}
               </div>
-              {/* The sentinel sits OUTSIDE the gap-bearing column: inside it, the
-                  column gap added invisible space between the last bubble and the
-                  sentinel, inflating the visible gap to the input bar. */}
-              <div ref={endRef} />
-
-              <div className={`chat-mascot-slot is-${scene}`}>
+              {/* `is-cramped` visually hides (never unmounts) the mascot when
+                  the column is too narrow for him — see MASCOT_DOCK_PX. */}
+              <div
+                className={`chat-mascot-slot is-${scene}${
+                  mascotCramped ? " is-cramped" : ""
+                }`}
+              >
                 {scene === "presenting" ? (
                   <MascotPresenting />
                 ) : scene === "thinking" ? (

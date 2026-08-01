@@ -158,12 +158,22 @@ function PanelBody({ chat, status, corpus }: PanelProps) {
   const [viewerOpen, setViewerOpen] = useState(false);
   useCitationSelected(() => setViewerOpen(true));
 
-  // Flag only the LATEST assistant turn. Older turns keep their own history;
-  // re-warning about every uncited turn in a long thread would bury the one
-  // the analyst is actually reading.
-  const latestAssistant = [...state.turns]
-    .reverse()
-    .find((t): t is AssistantTurn => t.kind === "assistant");
+  // Flag only the LATEST assistant turn, and only while it is still the LAST
+  // turn in the thread. Older turns keep their own history; re-warning about
+  // every uncited turn in a long thread would bury the one the analyst is
+  // actually reading.
+  //
+  // The "still last" half is not a detail. ChatThread renders this banner at
+  // the end of the turn list, and sending a follow-up appends a user turn and
+  // nothing else until the first streamed event arrives — so a reverse scan
+  // that ignored position left the PREVIOUS turn's refusal sitting directly
+  // beneath the analyst's brand-new question (with the send-re-arms-scrolling
+  // effect pinning the view right at it). Read in place, that reads as a
+  // verdict on the question they just asked. A refusal has to be attributed
+  // to the answer it belongs to or it is worse than no refusal at all.
+  const lastTurn = state.turns[state.turns.length - 1];
+  const latestAssistant =
+    lastTurn?.kind === "assistant" ? (lastTurn as AssistantTurn) : undefined;
   const refusal = latestAssistant ? detectRefusal(latestAssistant) : null;
 
   // The chrome measures itself so the thread scroller can pad by its REAL

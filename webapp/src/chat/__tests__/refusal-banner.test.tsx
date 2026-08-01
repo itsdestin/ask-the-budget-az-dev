@@ -351,6 +351,46 @@ describe("AiModePanel refusal scoping (pinned trade-off)", () => {
     // instead of silently reversing the decision.
     expect(screen.queryByRole("status")).not.toBeInTheDocument();
   });
+
+  // FINAL REVIEW — IMPORTANT 4. The scan above walked the turns in reverse and
+  // took the last ASSISTANT turn wherever it sat. Sending a follow-up appends
+  // a user turn and NOTHING else until the first streamed event lands, so for
+  // that whole window the previous turn's refusal banner rendered BELOW the
+  // analyst's brand-new question — and ChatThread's send-re-arms-scrolling
+  // effect pinned the view right at it. Read literally, that says "this
+  // question you just asked carries no verified citation", which is Invariant
+  // 3 territory: a refusal must be visible AND correctly attributed.
+  //
+  // The scoping decision pinned above is UNCHANGED (latest assistant turn
+  // only). This narrows it by one condition: that turn must also be the last
+  // turn in the thread. detectRefusal and RefusalBanner are untouched.
+  it("drops the banner the moment a follow-up question is appended below it", () => {
+    const refusing = turn({
+      id: "a1",
+      blocks: [retrieveBlock(), textBlock("AHCCCS gets $12.3 M.")],
+    });
+    const base = [userTurn("u1", "How much did AHCCCS get?"), refusing];
+
+    const { rerender } = render(
+      <AiModePanel chat={fakeChat(chatState(base))} status={null} corpus="budget" />,
+    );
+    expect(screen.getByRole("status")).toBeInTheDocument();
+
+    // The analyst types a follow-up. The reducer has appended their turn; the
+    // assistant has not produced a single token yet.
+    rerender(
+      <AiModePanel
+        chat={fakeChat(chatState([...base, userTurn("u2", "And ADOT?")]))}
+        status={null}
+        corpus="budget"
+      />,
+    );
+
+    expect(
+      screen.queryByRole("status"),
+      "the previous turn's refusal must not render beneath a newer user message",
+    ).not.toBeInTheDocument();
+  });
 });
 
 // ── Figures linked by the SYSTEM count as verification ──────────────────────
