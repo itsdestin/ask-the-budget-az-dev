@@ -48,3 +48,21 @@ def test_regex_fact():
 def test_currency_values_parser():
     vals = currency_values("$1.5 billion and $300,000 and 12 million")
     assert 1.5e9 in vals and 300_000.0 in vals and 12e6 in vals
+
+
+def test_currency_sentence_final_figure_parses_full_value():
+    # A bare sentence-ending '.' (no digit after it) must not force the
+    # comma-group repetition to backtrack away trailing 3-digit groups.
+    assert currency_values("The total was $1,214,000,000.") == {1214000000.0}
+
+
+def test_currency_sentence_final_period_does_not_create_false_positive():
+    # Regression for the 1000x-truncation bug: '$1,000,000,000.' used to
+    # truncate to 1,000,000 (dropping the last two comma groups because the
+    # old lookahead choked on the trailing '.'), which would wrongly match
+    # a $1,000,000 fact. It must parse to its true value and NOT match.
+    assert not fact_matches(cf("$1,000,000"), "The agency spent $1,000,000,000.")
+
+
+def test_currency_figure_followed_by_comma_still_parses_correctly():
+    assert currency_values("$1,391,157,700, up from last year") == {1391157700.0}

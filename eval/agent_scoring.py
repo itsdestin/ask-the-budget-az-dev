@@ -19,8 +19,24 @@ _CURRENCY_RE = re.compile(
     # The comma-grouped alternative MUST allow a decimal tail: without it
     # '$1,391.2 million' backtracks into '$1' + '391.2 million' — two wrong
     # numbers instead of one right one.
+    #
+    # The trailing lookahead used to be '(?![\w.])', which rejects a match
+    # immediately followed by ANY '.' — including a bare sentence-ending
+    # period with no digit after it. '$1,214,000,000.' has no legal way to
+    # satisfy that lookahead at its true length, so the engine backtracks
+    # the '(?:,\d{3})+' repetition, shedding trailing 3-digit groups one at
+    # a time until it finds a stopping point followed by something other
+    # than '.' — here, the very next comma — and silently returns
+    # '1,214,000' instead of '1,214,000,000' (1000x too small). Since
+    # "...totaled $X." is one of the most common sentence shapes in budget
+    # prose, this was a routine input, not an edge case. The replacement,
+    # '(?!\w)(?!\.\d)', splits the two backtracking hazards apart: '(?!\w)'
+    # still blocks stopping mid-word/mid-digit-run, while '(?!\.\d)' only
+    # blocks a '.' that is itself followed by a digit (a genuine decimal
+    # continuation, e.g. the '.2' in '1,391.2'). A bare '.' with no digit
+    # after it — sentence-final — no longer forces backtracking.
     r"(\$)?\s*(\d{1,3}(?:,\d{3})+(?:\.\d+)?|\d+(?:\.\d+)?)\s*"
-    r"(billion|million|thousand|[bmk])?(?![\w.])",
+    r"(billion|million|thousand|[bmk])?(?!\w)(?!\.\d)",
     re.IGNORECASE,
 )
 _SCALE = {"b": 1e9, "billion": 1e9, "m": 1e6, "million": 1e6, "k": 1e3, "thousand": 1e3}
