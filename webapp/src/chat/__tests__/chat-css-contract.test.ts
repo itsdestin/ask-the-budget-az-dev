@@ -13,6 +13,11 @@ const css = readFileSync(
   "utf-8",
 );
 
+const markdownContentSrc = readFileSync(
+  resolve(process.cwd(), "src/chat/MarkdownContent.tsx"),
+  "utf-8",
+);
+
 /** The full rule body for a selector (first occurrence).
  *  NOTE: this is a plain `indexOf`, so it finds the first substring match —
  *  it would silently return the WRONG rule if a later selector CONTAINS an
@@ -97,7 +102,17 @@ describe("chat CSS containment contract", () => {
   // the selector is GONE — keeping a CSS rule with no consumer would be dead
   // weight of the exact kind an earlier task deleted on sight.
   it("the error body class was retired along with its nested scrollbar", () => {
-    expect(css).not.toMatch(/\.chat-error-body\b/);
+    // Match a rule DEFINITION (selector + optional whitespace + `{`), not any
+    // textual mention — a plain \b scan already tripped once on this exact
+    // string appearing inside a comment, which is not a live rule.
+    expect(css).not.toMatch(/\.chat-error-body\s*\{/);
+  });
+
+  it("no third-party syntax theme — hljs classes are styled locally in navy", () => {
+    // Replaces highlight.js's github.css import (a fifth independent color
+    // source on a monochrome-navy page) with a handful of house-token rules.
+    expect(css).toMatch(/\.chat-md \.hljs-keyword/);
+    expect(markdownContentSrc).not.toMatch(/highlight\.js\/styles/);
   });
 
   // Task 13: radii + rhythm sweep. The scan range below covers BOTH the chat

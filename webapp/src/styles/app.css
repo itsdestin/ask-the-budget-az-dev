@@ -1024,6 +1024,15 @@ nav.primary{position:relative;padding-right:44px;}
 .chat-md code { font-family: var(--chat-mono); font-size: 13px; color: var(--copper); }
 .chat-md pre { border-radius: var(--r-sm); background: var(--canvas); border: 1px solid var(--line); padding: 12px; overflow-x: auto; font-size: 13px; margin: 0; }
 .chat-md pre code { color: inherit; }
+/* Syntax highlighting in the house palette — replaces the GitHub theme
+   import, which was a fifth color source on this page. Code is rare in
+   budget answers; this covers the common token classes and lets the rest
+   inherit the pre block's ink. */
+.chat-md .hljs-keyword, .chat-md .hljs-selector-tag, .chat-md .hljs-built_in { color: var(--navy); font-weight: 700; }
+.chat-md .hljs-string, .chat-md .hljs-attr { color: var(--teal); }
+.chat-md .hljs-number, .chat-md .hljs-literal { color: var(--copper); }
+.chat-md .hljs-comment { color: var(--ink-3); font-style: italic; }
+.chat-md .hljs-title, .chat-md .hljs-function { color: var(--az-gold-d); }
 .chat-md-pre-wrap { position: relative; margin: 12px 0; }
 .chat-md-table-wrap { overflow-x: auto; margin: 12px 0; }
 .chat-md table { border-collapse: collapse; font-size: 14px; width: 100%; }

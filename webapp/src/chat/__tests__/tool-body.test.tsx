@@ -338,4 +338,13 @@ describe("ToolBody dispatcher", () => {
     render(<ErrorBlock error={longError} />);
     expect(screen.getByRole("button", { name: /Show 20 more lines/ })).toBeInTheDocument();
   });
+
+  it("renders with the danger variant so a tool error never looks like ordinary output", () => {
+    // Pins the class CollapsibleBlock's variant="danger" adds. Without this,
+    // a future edit that drops the danger variant would make ErrorBlock
+    // render as plain output — Core Invariant 3 territory — and every other
+    // test here would still pass, since none of them check the tint.
+    const html = renderToString(<ErrorBlock error="store unreachable" />);
+    expect(html).toContain("is-danger");
+  });
 });
