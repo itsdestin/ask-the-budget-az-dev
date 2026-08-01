@@ -80,6 +80,51 @@ backlog. Earlier years of agency budget requests are NOT harvested and live on
 78 separate agency websites with no shared URL convention — a research project,
 not a crawl.
 
+## 🔴 FY2024 AFR ingested but effectively EMPTY (2026-08-01)
+
+**Found immediately after ingest, by comparing passage counts.** All four AFRs
+report `live`; three are fine and one is not:
+
+| doc | pages | passages | tokens |
+|---|---|---|---|
+| `agao-afr-fy2021` | 163 | 169 | — |
+| `agao-afr-fy2022` | 178 | 182 | — |
+| `agao-afr-fy2023` | 184 | 189 | 758,497 |
+| **`agao-afr-fy2024`** | **191** | **20** | **5,673** |
+
+FY2024 yielded chunks only from pages 58 and 184–191; **pages 1–183 produced
+nothing**, and its first chunk is a "THIS PAGE INTENTIONALLY LEFT BLANK" marker.
+
+**Not a bad download and not a scan.** The PDF is tagged (`StructTreeRoot`
+present) and its mid-page carries 8,700 characters of text — *more* than
+FY2023's 5,076. The source is fine.
+
+**Root cause: the publisher changed how it tags the document between years.**
+On page 100, FY2023 emits **1 table block** (rows/columns, 235 KB of page JSON)
+where FY2024 emits **17 paragraph blocks** (24 KB). GAO tagged FY2023's
+financial statements as tables and FY2024's as loose paragraphs.
+OpenDataLoader reported each faithfully; `chunking/builder.py` builds table
+chunks then narrative, and found almost nothing it recognised in the paragraph
+form.
+
+**Why this matters more than one document:** a publisher silently changing
+structure between editions is a recurring hazard for a corpus meant to be fed
+for years by non-technical staff, and **nothing flagged it** — the job says
+`live`, the queue is green, and an analyst searching FY2024 AFR content simply
+gets nothing and concludes the corpus lacks it.
+
+**This is exactly the S27 gate case, now with a real example**: a chunks-per-page
+floor (~0.10 here vs ~1.03 for its three siblings) would have quarantined it
+with an actionable reason. Use these four documents as the S27 calibration
+fixture — they are a rare clean control, same publisher and near-identical page
+counts.
+
+**Open decisions** (deliberately not made at 2 AM): whether to re-route this
+document to MinerU (S26's detect-don't-declare would do it automatically),
+whether the narrative chunker should handle paragraph-tagged tables, and
+whether to delete the near-empty document meanwhile so search does not answer
+"nothing" for FY2024.
+
 ## What's next
 
 - **🔵 RUNNING NOW — S20 backfill on the Z13** (`PROMPT-z13-backfill.md`).
