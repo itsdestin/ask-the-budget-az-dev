@@ -180,6 +180,23 @@ describe("chat CSS containment contract", () => {
     );
   });
 
+  // Review finding: the Task 13 hover sweep gave EVERY .chat-cite-inline —
+  // including .is-failed ones — the azure "valid" tint on hover. The red
+  // wavy underline survived, but a failed citation hovering into a
+  // success-colored highlight reads as "this one's fine", which is exactly
+  // backwards: a failed citation must look unmistakably failed, always,
+  // Invariant-2 territory (citations are verified, not just emitted; a
+  // failure must never be dressed up as a pass). The sibling .chat-cite-pill
+  // already gets this right (its .is-failed rule overrides the hover's
+  // border-color at equal specificity via source order); .chat-cite-inline
+  // needs its own guard because it never had an .is-failed color override to
+  // begin with.
+  it("a failed inline citation's hover never carries the success (gold) tint", () => {
+    const failedHover = ruleFor(".chat-cite-inline.is-failed:hover");
+    expect(failedHover).toMatch(/background:\s*var\(--chat-danger-tint\)/);
+    expect(failedHover).not.toMatch(/az-gold/);
+  });
+
   // Task 15: chat-first split + sub-860 drawer (replaces the hard 50/50 and
   // the old display:none breakpoint).
   it("split is chat-first, and small screens get a drawer instead of nothing", () => {

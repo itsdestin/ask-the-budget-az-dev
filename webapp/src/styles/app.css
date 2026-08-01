@@ -959,6 +959,15 @@ nav.primary{position:relative;padding-right:44px;}
 .chat-cite-inline.is-verbatim   { text-decoration: underline solid 1px var(--az-gold); }
 .chat-cite-inline.is-paraphrase { text-decoration: underline dashed 1px var(--ink-3); }
 .chat-cite-inline.is-failed     { text-decoration: underline wavy 1px var(--chat-danger); }
+/* WHY: the hover rule above applies to every .chat-cite-inline, including a
+   failed one — without this override, hovering a citation whose validation
+   FAILED painted the app's success-colored azure tint behind its red wavy
+   underline, i.e. it looked "fine" on hover. A failed citation must never
+   look reassuring. Three classes + :hover outranks the two-class base hover
+   rule on specificity alone, so this wins regardless of source order — reuse
+   the same --chat-danger-tint token the failed pill/tool/notice states
+   already use, not a new color. */
+.chat-cite-inline.is-failed:hover { background: var(--chat-danger-tint); }
 /* 4px radius on both is a deliberate exemption from the Task 13 token sweep
    (16/12/pill), not a leftover — these are ~14-16px-tall inline chips, too
    small for --r-sm (12px) to read as rounded at all. */
