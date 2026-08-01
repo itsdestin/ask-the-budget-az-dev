@@ -249,11 +249,12 @@ boost has the same blind spot.
   Runbook: [`PROMPT-z13-backfill.md`](PROMPT-z13-backfill.md) (the only
   active handoff). Recency plan:
   [`docs/superpowers/plans/2026-07-31-standalone-plan-recency-ranking.md`](docs/superpowers/plans/2026-07-31-standalone-plan-recency-ranking.md).
-- **Layer 2 agent-loop eval — BUILT, no live baseline run yet.** See "Layer 2
-  agent-loop eval harness shipped" below. Whoever has an OpenRouter key next
-  should run `uv run python -m eval.run_agent_eval --subset smoke`, score it,
-  and commit the result as the first baseline before trusting any
-  `compare_agent_runs.py` delta against it.
+- **Layer 2 agent-loop eval — BUILT, first smoke baseline COMMITTED
+  2026-08-01** (`eval/results/agent/2026-08-01T1157Z-25399b1/`, 11 queries,
+  $0.43, 0 errors, model `z-ai/glm-5.2`). The full 31-query baseline has NOT
+  been run — do that before trusting a `compare_agent_runs.py` delta on
+  anything outside the smoke set. What the first baseline says, and the four
+  improvement targets it hands us, are in the section below.
 
 ---
 
@@ -1449,6 +1450,41 @@ of these came from opening the page:
 ---
 
 ## Layer 2 agent-loop eval harness shipped (2026-08-01)
+
+### First live baseline — smoke, 2026-08-01
+
+`eval/results/agent/2026-08-01T1157Z-25399b1/` — 11 queries, Standard tier
+(`z-ai/glm-5.2`), **0 errors, $0.43, ~4 min**. Derived artefacts committed;
+transcripts are gitignored by policy. This is the number every future
+`compare_agent_runs.py` delta on the smoke set is measured against.
+
+| metric | baseline | reading |
+|---|---|---|
+| key-fact rate | **0.91** | the answers are largely correct |
+| refusal correctness | **1.00** | both out-of-scope questions correctly refused, nothing fabricated |
+| `cite_pass_rate` / `first_try_cite_rate` | **0.99 / 1.00** | citations essentially never fail or retry |
+| citations per answer | **9.0** | ⚠ far more than "a smaller number of high-value citations" |
+| median quote length | **131 chars** | ⚠ wide; the goal is narrow, targeted spans |
+| retrieval efficiency | **0.34** | ⚠ two thirds of retrieved chunks go unused |
+| input tokens / answer | **83.6k** (60.3k cached) | ⚠ the dominant cost driver |
+| steps / retrieves per answer | 3.5 / 2.1 | already tight |
+| cost per answer | $0.039 | ~3× the $0.0127 STATUS recorded for a Plan 4 lookup |
+| meta-narration | 1 of 11 queries | the known leak, now measured |
+
+**The four ⚠ rows are the improvement backlog** and they map onto the goals
+this harness was built to serve: citation volume and quote width (goal 4),
+retrieval efficiency (goal 3), and prompt tokens (goal 1). Accuracy and
+citation *reliability* are already strong, so the work is about doing the
+same job with less — not about correctness.
+
+**S22 prompt caching is VERIFIED LIVE by this run** — closing the acceptance
+criterion left open on 2026-07-31. Of 39 billed steps, 35 report
+`cached_tokens > 0`; the first step of each conversation reads 0 and every
+later step is ~90% cached (e.g. 13,835 in / 13,760 cached). The caching is
+real and is already saving roughly 72% of input tokens.
+
+**Not yet run:** the full 31-query set and the 4-query Deep Research probe,
+and the LLM judge (so `claim_coverage_precision` has no baseline yet).
 
 Spec: `docs/superpowers/specs/2026-08-01-agent-loop-eval-design.md`
 (the Layer 1 spec, `2026-05-20-retrieval-eval-harness-design.md`, is where

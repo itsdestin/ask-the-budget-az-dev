@@ -1,0 +1,33 @@
+{
+  "timestamp": "2026-08-01T1157Z",
+  "git_sha": "25399b1",
+  "subset": "smoke",
+  "repeats": 1,
+  "queries": [
+    "lk-adc-total-fy2026",
+    "lk-k12-basic-aid-fy2026",
+    "lk-dps-operating-fy2026",
+    "lk-prop123-increment",
+    "cm-basic-aid-3yr",
+    "cm-des-gf-growth",
+    "an-ahcccs-gf-drivers",
+    "mm-adc-briefing",
+    "rf-federal-budget",
+    "rf-other-state",
+    "hs-promise-program-2023"
+  ],
+  "queries_sha256": "4bca8321469308533036c9bc274b6f0cbb8ca906618bf3d009026a6e3c6d8132",
+  "tier_models": {
+    "standard": "z-ai/glm-5.2",
+    "deep_research": "moonshotai/kimi-k3"
+  },
+  "provider": "openrouter",
+  "base_url": "https://openrouter.ai/api/v1",
+  "api_key_set": true,
+  "prompt_sha256": "cfe3cda29adb0900a87be88393ad9bd6e27f1414d36a6c6c2f6a70a567e44e01",
+  "corpus_counts": {
+    "budget_chunks": 28530,
+    "fiscal_note_chunks": 13278
+  },
+  "note": "first live smoke — harness verification"
+}
