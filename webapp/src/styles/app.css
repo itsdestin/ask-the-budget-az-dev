@@ -821,12 +821,16 @@ nav.primary{position:relative;padding-right:44px;}
    computes overflow-x:auto, so anything absolutely positioned past the right
    edge (the 320px citation tooltip was the trigger) spawned a horizontal
    scrollbar across the whole thread. Same bug .yscroll fixed above. */
-.chat-thread-scroll { height: 100%; overflow-y: auto; overflow-x: hidden; padding: 24px 16px calc(var(--ai-bottom-chrome, 120px) + 12px); }
+/* Depth comes from the surface ramp (canvas page, card bubbles) — the thread
+   floor goes canvas so white bubbles lift off it without shadows (Task 13). */
+.chat-thread-scroll { height: 100%; overflow-y: auto; overflow-x: hidden; padding: 24px 16px calc(var(--ai-bottom-chrome, 120px) + 12px); background: var(--canvas); }
 /* min-height:100% + justify-content:flex-end bottom-anchors the column, so a
    session's first message lands just above the composer and later turns grow
    UPWARD. Also the positioning context for the mascot slot below. */
 .chat-thread-anchor { position: relative; min-height: 100%; display: flex; flex-direction: column; justify-content: flex-end; }
-.chat-thread-column { max-width: var(--ai-col); margin: 0 auto; width: 100%; display: flex; flex-direction: column; gap: 20px; }
+/* One rhythm (Task 13): 24px between turns, 8px inside a turn, 4px between
+   stacked tool rows (Task 10). Replaces the 20/4/8 three-source mishmash. */
+.chat-thread-column { max-width: var(--ai-col); margin: 0 auto; width: 100%; display: flex; flex-direction: column; gap: 24px; }
 
 /* Mascot slot — pinned to the bottom-left of the SCROLL CONTENT (not the
    viewport), so it sits beside the newest message and scrolls away with it.
@@ -844,17 +848,24 @@ nav.primary{position:relative;padding-right:44px;}
 .chat-mascot-slot.is-presenting { transform: translate(26px, 14px); }
 
 /* ----- turns --------------------------------------------------------------- */
-.chat-turn { display: flex; flex-direction: column; gap: 4px; }
-.chat-bubble { position: relative; background: var(--card); border: 1px solid var(--line); border-radius: var(--r-sm); padding: 8px 14px; color: var(--ink); font-size: 14px; max-width: 65ch; }
-/* The tail is applied ONLY to the newest assistant turn, so one carat points
-   from the mascot to the current message and older bubbles stay tail-less.
-   Two stacked triangles (line colour, then card colour) fake a 1px border
-   along the diagonal. */
-.chat-bubble.has-tail::before { content: ""; position: absolute; left: -9px; top: 12px; width: 0; height: 0; border-style: solid; border-width: 9px 9px 9px 0; border-color: transparent var(--line) transparent transparent; }
-.chat-bubble.has-tail::after  { content: ""; position: absolute; left: -8px; top: 13px; width: 0; height: 0; border-style: solid; border-width: 8px 8px 8px 0; border-color: transparent var(--card) transparent transparent; }
+.chat-turn { display: flex; flex-direction: column; gap: 8px; }
+/* Assistant bubble: 16px radius (token scale) with a 4px "tail" corner on the
+   newest turn — the token-scale version of the speech-bubble idiom (Task 13).
+   The triangle carats this used to grow (see the deleted ::before/::after
+   below in history) hung 9px outside the bubble, which is what forced the
+   mascot translate() dance and read as clip-art next to the mockup's card
+   grammar; a squared corner reads as "this one's newest" without either. */
+.chat-bubble { position: relative; background: var(--card); border: 1px solid var(--line); border-radius: var(--r-md); padding: 10px 16px; color: var(--ink); font-size: 14px; max-width: 65ch; }
+.chat-bubble.has-tail { border-bottom-left-radius: 4px; }
 
 .chat-user-row { display: flex; justify-content: flex-end; }
-.chat-user-bubble { background: var(--az-gold); color: #fff; border-radius: 12px 12px 4px 12px; padding: 8px 14px; max-width: 78%; font-size: 14px; line-height: 1.6; white-space: pre-wrap; }
+/* User bubble: solid navy — the app's own "active/selected" fill, the same
+   one the fiscal-notes bill-number pill and the segmented control's on-state
+   use (.fbill-no, .chseg.on) — not az-gold, which was the retired app's
+   accent-as-user-message colour and the only place outside citations/CTAs
+   that colour was doing double duty as both "action" and "the user" (Task 13).
+   Mirrors the assistant bubble's squared tail corner on the opposite side. */
+.chat-user-bubble { background: var(--navy); color: #fff; border-radius: var(--r-md); border-bottom-right-radius: 4px; padding: 10px 16px; max-width: 78%; font-size: 14px; line-height: 1.6; white-space: pre-wrap; }
 .chat-user-bubble.is-pending { opacity: .7; }
 
 /* Quiet one-liner for ordinary non-"end_turn" stop reasons. */
@@ -866,7 +877,7 @@ nav.primary{position:relative;padding-right:44px;}
    wrote. Used by SystemHealthBanner and by the max_steps "this answer is
    incomplete" notice — which is exactly why the harness stopped emitting that
    fact as synthetic assistant prose. */
-.chat-notice { border-radius: 10px; border: 1px solid; padding: 8px 12px; font-size: 12px; line-height: 1.5; }
+.chat-notice { border-radius: var(--r-sm); border: 1px solid; padding: 8px 12px; font-size: 12px; line-height: 1.5; }
 .chat-notice strong { font-weight: 800; }
 /* Two severities, because the two notices mean very different things and were
    previously indistinguishable at a glance:
@@ -883,13 +894,16 @@ nav.primary{position:relative;padding-right:44px;}
 .chat-notice-banner { max-width: var(--ai-col); margin: 12px auto 8px; }
 
 /* ----- composer ------------------------------------------------------------ */
-.chat-input { max-width: var(--ai-col); margin: 0 auto; background: var(--card); border: 1.5px solid var(--line); border-radius: 10px; display: flex; gap: 8px; align-items: flex-end; padding: 6px 8px; }
+.chat-input { max-width: var(--ai-col); margin: 0 auto; background: var(--card); border: 1.5px solid var(--line); border-radius: var(--r-sm); display: flex; gap: 8px; align-items: flex-end; padding: 6px 8px; }
 .chat-input:focus-within { border-color: var(--az-gold); box-shadow: 0 0 0 3px var(--az-gold-100); }
 .chat-input textarea { flex: 1 1 auto; resize: none; background: transparent; border: none; padding: 8px 12px; color: var(--ink); font-family: var(--font); font-size: 14px; line-height: 1.6; }
 .chat-input textarea:focus { outline: none; }
 .chat-input textarea:disabled { opacity: .5; }
-.chat-send { background: var(--az-gold); color: #fff; border: none; border-radius: 8px; padding: 6px 14px; font-family: var(--font); font-size: 12px; font-weight: 800; cursor: pointer; transition: background .15s, opacity .15s; }
-.chat-send:hover:not(:disabled) { background: var(--az-gold-d); }
+/* Send: the app's own primary-CTA recipe — pill + brightness hover, the same
+   one the home hero's search button uses (.page-home .search-field button,
+   above) — not the background-swap hover this used to carry (Task 13). */
+.chat-send { background: var(--az-gold); color: #fff; border: none; border-radius: var(--r-pill); padding: 7px 16px; font-family: var(--font); font-size: 12.5px; font-weight: 800; cursor: pointer; transition: filter .15s, opacity .15s; }
+.chat-send:hover:not(:disabled) { filter: brightness(1.05); }
 .chat-send:disabled { opacity: .4; cursor: not-allowed; }
 
 /* ----- welcome + suggestions ----------------------------------------------- */
@@ -920,7 +934,10 @@ nav.primary{position:relative;padding-right:44px;}
 .chat-suggestions { overflow-x: auto; }
 .chat-suggestions-row { display: flex; flex-direction: row; gap: 8px; padding: 8px 16px 4px; margin: 0 auto; width: fit-content; }
 .chat-suggestion { flex-shrink: 0; white-space: nowrap; border-radius: var(--r-pill); border: 1px solid var(--line); background: var(--card); padding: 6px 12px; font-family: var(--font); font-size: 12px; color: var(--ink); cursor: pointer; transition: border-color .15s, color .15s; }
-.chat-suggestion:hover { border-color: var(--az-gold); color: var(--az-gold); }
+/* Hover language (Task 13): azure border + -d text, the same recipe every
+   pill on the browse pages uses — not the opacity fades this surface used to
+   carry, which appear nowhere else in the app. */
+.chat-suggestion:hover { border-color: var(--az-gold); color: var(--az-gold-d); }
 
 /* ----- footer -------------------------------------------------------------- */
 /* One 11px muted line inside the floating chrome — the separate white banded
@@ -937,13 +954,18 @@ nav.primary{position:relative;padding-right:44px;}
 .chat-cite-wrap { position: relative; display: inline; }
 .chat-cite-pill-wrap { position: relative; display: inline-block; vertical-align: baseline; }
 .chat-cite-inline { display: inline; cursor: pointer; color: var(--ink); background: none; border: none; padding: 0; font: inherit; text-underline-offset: 2px; }
-.chat-cite-inline:hover { opacity: .8; }
+/* Hover language (Task 13): azure tint, matching the app's other pill hovers. */
+.chat-cite-inline:hover { opacity: 1; background: var(--az-gold-100); }
 .chat-cite-inline.is-verbatim   { text-decoration: underline solid 1px var(--az-gold); }
 .chat-cite-inline.is-paraphrase { text-decoration: underline dashed 1px var(--ink-3); }
 .chat-cite-inline.is-failed     { text-decoration: underline wavy 1px var(--chat-danger); }
+/* 4px radius on both is a deliberate exemption from the Task 13 token sweep
+   (16/12/pill), not a leftover — these are ~14-16px-tall inline chips, too
+   small for --r-sm (12px) to read as rounded at all. */
 .chat-cite-sup { margin-left: 2px; padding: 1px 4px; font-size: 9px; font-weight: 700; border-radius: 4px; border: 1px solid; vertical-align: super; }
 .chat-cite-pill { display: inline-flex; align-items: center; gap: 4px; padding: 1px 6px; font-size: 10px; font-weight: 700; border-radius: 4px; border: 1px solid; cursor: pointer; font-family: var(--font); transition: opacity .15s; }
-.chat-cite-pill:hover { opacity: .8; }
+/* Hover language (Task 13): azure border, matching .chat-cite-inline above. */
+.chat-cite-pill:hover { opacity: 1; border-color: var(--az-gold); }
 .chat-cite-sup.is-verbatim,   .chat-cite-pill.is-verbatim   { background: var(--az-gold-100); color: var(--az-gold-d); border-color: var(--az-gold); }
 .chat-cite-sup.is-paraphrase, .chat-cite-pill.is-paraphrase { background: var(--navy-100); color: var(--ink-2); border-color: var(--line); }
 .chat-cite-sup.is-failed,     .chat-cite-pill.is-failed     { background: var(--chat-danger-tint); color: var(--chat-danger); border-color: var(--chat-danger); text-decoration: line-through; }
@@ -956,7 +978,7 @@ nav.primary{position:relative;padding-right:44px;}
    horizontal scrollbar. z-index:80 clears the sticky site header (50) and
    the PDF drawer (60) — a fixed element competes with page chrome, not just
    thread content. */
-.chat-cite-tooltip { position: fixed; z-index: 80; width: 320px; border-radius: 10px; border: 1px solid var(--line); background: var(--card); box-shadow: var(--shadow); padding: 12px; font-size: 12px; color: var(--ink); cursor: default; text-align: left; }
+.chat-cite-tooltip { position: fixed; z-index: 80; width: 320px; border-radius: var(--r-sm); border: 1px solid var(--line); background: var(--card); box-shadow: var(--shadow); padding: 12px; font-size: 12px; color: var(--ink); cursor: default; text-align: left; }
 .chat-cite-tooltip-head { display: flex; align-items: center; gap: 8px; margin-bottom: 8px; }
 .chat-cite-tooltip-index { font-weight: 800; }
 .chat-cite-tooltip-title { color: var(--ink-2); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
@@ -968,7 +990,7 @@ nav.primary{position:relative;padding-right:44px;}
 .chat-cite-claim { color: var(--ink-3); font-size: 10px; margin-bottom: 8px; }
 .chat-cite-claim-label { text-transform: uppercase; letter-spacing: .06em; }
 .chat-cite-claim em { color: var(--ink-2); }
-.chat-cite-copy { width: 100%; font-size: 10px; text-transform: uppercase; letter-spacing: .06em; border-radius: 6px; border: 1px solid var(--line); background: var(--navy-100); color: var(--ink-2); padding: 4px; cursor: pointer; }
+.chat-cite-copy { width: 100%; font-size: 10px; text-transform: uppercase; letter-spacing: .06em; border-radius: var(--r-pill); border: 1px solid var(--line); background: var(--navy-100); color: var(--ink-2); padding: 4px; cursor: pointer; }
 .chat-cite-copy:hover { background: var(--az-gold-100); }
 
 /* A brief pop confirms the click registered and the source panel is opening. */
@@ -1000,7 +1022,7 @@ nav.primary{position:relative;padding-right:44px;}
 .chat-md a { color: var(--navy); text-decoration: underline; }
 .chat-md a:hover { color: var(--navy-700); }
 .chat-md code { font-family: var(--chat-mono); font-size: 13px; color: var(--copper); }
-.chat-md pre { border-radius: 10px; background: var(--canvas); border: 1px solid var(--line); padding: 12px; overflow-x: auto; font-size: 13px; margin: 0; }
+.chat-md pre { border-radius: var(--r-sm); background: var(--canvas); border: 1px solid var(--line); padding: 12px; overflow-x: auto; font-size: 13px; margin: 0; }
 .chat-md pre code { color: inherit; }
 .chat-md-pre-wrap { position: relative; margin: 12px 0; }
 .chat-md-table-wrap { overflow-x: auto; margin: 12px 0; }
@@ -1009,7 +1031,7 @@ nav.primary{position:relative;padding-right:44px;}
 .chat-md th { background: var(--navy-100); text-align: left; font-weight: 800; color: var(--navy); }
 /* The copy button only appears on hover over its own code block — or on
    keyboard focus, so it is reachable without a pointer. */
-.chat-md-copy { position: absolute; top: 8px; right: 8px; padding: 4px 8px; font-size: 11px; border-radius: 6px; border: 1px solid var(--line); background: var(--card); color: var(--ink-2); cursor: pointer; opacity: 0; transition: opacity .15s; }
+.chat-md-copy { position: absolute; top: 8px; right: 8px; padding: 4px 8px; font-size: 11px; border-radius: var(--r-pill); border: 1px solid var(--line); background: var(--card); color: var(--ink-2); cursor: pointer; opacity: 0; transition: opacity .15s; }
 .chat-md-pre-wrap:hover .chat-md-copy, .chat-md-copy:focus-visible { opacity: 1; }
 
 /* ----- tool rows -------------------------------------------------------------
@@ -1115,7 +1137,7 @@ nav.primary{position:relative;padding-right:44px;}
 /* ----- create_document view ----------------------------------------------------
    The tool returns {download_token, filename}; this view is what turns that
    into the download link the system prompt promised the analyst. */
-.chat-download { display: inline-flex; align-items: center; gap: 8px; border-radius: 8px; border: 1px solid var(--az-gold); background: var(--az-gold-100); color: var(--az-gold-d); padding: 6px 12px; font-size: 13px; font-weight: 800; text-decoration: none; }
+.chat-download { display: inline-flex; align-items: center; gap: 8px; border-radius: var(--r-pill); border: 1px solid var(--az-gold); background: var(--az-gold-100); color: var(--az-gold-d); padding: 6px 12px; font-size: 13px; font-weight: 800; text-decoration: none; }
 .chat-download:hover { background: var(--az-gold); color: #fff; text-decoration: none; }
 
 /* ----- mascot ------------------------------------------------------------------
@@ -1191,12 +1213,12 @@ nav.primary{position:relative;padding-right:44px;}
 .pdf-crumb-fy { color: var(--ink-3); margin-left: auto; flex: 0 0 auto; }
 
 .pdf-toolbar { display: flex; align-items: center; gap: 4px; padding: 6px 12px; border-bottom: 1px solid var(--line); background: var(--card); font-size: 12px; }
-.pdf-zoom-btn { padding: 4px 8px; border: 1px solid var(--line); border-radius: 6px; background: var(--navy-100); color: var(--ink-2); font: inherit; cursor: pointer; }
+.pdf-zoom-btn { padding: 4px 8px; border: 1px solid var(--line); border-radius: var(--r-sm); background: var(--navy-100); color: var(--ink-2); font: inherit; cursor: pointer; }
 .pdf-zoom-btn:hover:not(:disabled) { background: var(--card); }
 .pdf-zoom-btn:disabled { opacity: .4; cursor: default; }
 /* tabular-nums so the label does not jitter between 100% and 125%. */
 .pdf-zoom-level { min-width: 3.5rem; font-variant-numeric: tabular-nums; }
-.pdf-open-original { margin-left: auto; padding: 4px 8px; border: 1px solid var(--line); border-radius: 6px; background: var(--navy-100); color: var(--ink-2); }
+.pdf-open-original { margin-left: auto; padding: 4px 8px; border: 1px solid var(--line); border-radius: var(--r-sm); background: var(--navy-100); color: var(--ink-2); }
 
 /* The page scroller is the flex child that gets to grow; min-height:0 is what
    lets it actually scroll instead of stretching its parent (same trick the
@@ -1209,6 +1231,9 @@ nav.primary{position:relative;padding-right:44px;}
 .pdf-page { position: relative; width: fit-content; margin: 0 auto; }
 /* mix-blend-multiply keeps the underlying glyphs readable through the fill —
    an opaque box would hide the very words it is pointing at. */
+/* 2px radius is exempt from the Task 13 token sweep on purpose: this is a
+   mark drawn ON a document page, not UI chrome, so it does not owe the app
+   its own radius scale. */
 .pdf-highlight { position: absolute; pointer-events: none; border: 1px solid #d97706; background: rgba(252, 211, 77, .35); mix-blend-mode: multiply; border-radius: 2px; }
 
 .pdf-page-overlay { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; padding: 16px; text-align: center; font-size: 13px; color: var(--ink-3); background: rgba(245, 245, 250, .5); }
@@ -1218,7 +1243,7 @@ nav.primary{position:relative;padding-right:44px;}
 .pdf-not-located { position: absolute; top: 8px; left: 50%; transform: translateX(-50%); padding: 4px 8px; border: 1px solid var(--chat-warn); border-radius: 4px; background: var(--chat-warn-tint); color: var(--chat-warn); font-size: 11px; }
 
 .pdf-skeleton-wrap { display: flex; align-items: center; justify-content: center; padding: 32px 16px; }
-.pdf-skeleton { width: 100%; aspect-ratio: 8.5 / 11; border-radius: 6px; background: var(--card); animation: pdf-pulse 1.6s ease-in-out infinite; }
+.pdf-skeleton { width: 100%; aspect-ratio: 8.5 / 11; border-radius: var(--r-sm); background: var(--card); animation: pdf-pulse 1.6s ease-in-out infinite; }
 @keyframes pdf-pulse { 0%, 100% { opacity: 1; } 50% { opacity: .5; } }
 @media (prefers-reduced-motion: reduce) { .pdf-skeleton { animation: none; } }
 
@@ -1241,6 +1266,7 @@ nav.primary{position:relative;padding-right:44px;}
    expanded 4,000-character chunk from pushing the page off screen. */
 .pdf-cited-text { margin: 0; color: var(--ink); white-space: pre-wrap; max-height: 34vh; overflow: auto; }
 .pdf-cited-context { color: var(--ink-3); }
+/* Same exemption as .pdf-highlight above — a page-artifact mark, not chrome. */
 .pdf-cited-mark { background: rgba(252, 211, 77, .35); color: var(--ink); border-bottom: 1px solid #d97706; border-radius: 2px; }
 .pdf-cited-ellipsis { color: var(--ink-3); }
 .pdf-cited-source { margin-top: 8px; color: var(--ink-3); }
@@ -1591,7 +1617,7 @@ html.ai-fullpage header.site{flex:0 0 auto;}
 .chat-refusal{max-width:none;margin:8px 0 0;}
 .chat-refusal-scope{margin:6px 0 0;font-style:italic;}
 .chat-refusal-chunks{list-style:none;margin:8px 0 0;padding:0;display:flex;flex-direction:column;gap:6px;}
-.chat-refusal-chunk{background:var(--card);border:1px solid var(--line);border-radius:6px;padding:6px 8px;}
+.chat-refusal-chunk{background:var(--card);border:1px solid var(--line);border-radius:var(--r-sm);padding:6px 8px;}
 .chat-refusal-chunk-head{display:flex;flex-wrap:wrap;align-items:center;gap:6px;margin-bottom:3px;}
 .chat-refusal-rank{font-family:var(--chat-mono);color:var(--ink-3);flex:0 0 auto;}
 .chat-refusal-doc{font-weight:800;color:var(--ink);min-width:0;}

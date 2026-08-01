@@ -99,4 +99,69 @@ describe("chat CSS containment contract", () => {
   it("the error body class was retired along with its nested scrollbar", () => {
     expect(css).not.toMatch(/\.chat-error-body\b/);
   });
+
+  // Task 13: radii + rhythm sweep. The scan range below covers BOTH the chat
+  // block and the pdf block — deliberately, not by accident: the pdf viewer's
+  // 6px zoom-button/skeleton radii are part of this same sweep (Step 3 of the
+  // brief touches .pdf-zoom-btn/.pdf-open-original/.pdf-skeleton alongside the
+  // chat rules). Following the "one content measure" test's now-established
+  // style above: locate regions by their section-comment markers rather than
+  // inventing a third lookup approach. Named for what it actually bounds
+  // (end of the chat+pdf region, at the start of page-upload) — the brief's
+  // own sample called this same offset `pdfStart`, which describes neither
+  // what it points at (page-upload's marker, not pdf's) nor its role here
+  // (an end bound, not a start).
+  it("no off-scale radii survive in the chat+pdf blocks (16/12/pill + 4px tail/chips only)", () => {
+    const chatStart = css.indexOf("/* ===== chat =====");
+    const chatAndPdfEnd = css.indexOf("/* ===== page-upload");
+    expect(chatStart, "start-of-chat marker must exist").toBeGreaterThan(-1);
+    expect(
+      chatAndPdfEnd,
+      "start-of-page-upload marker must exist",
+    ).toBeGreaterThan(chatStart);
+    const block = css.slice(chatStart, chatAndPdfEnd);
+    // 6px, 8px and 10px radii were the retired app's scale. Exempt by
+    // selector, not by value, so this can't be satisfied by accident:
+    // .pdf-highlight/.pdf-cited-mark (2px, page marks not UI chrome) and
+    // .chat-cite-sup/.chat-cite-pill (4px, allowed) are excluded before the
+    // sweep is checked.
+    const swept = block
+      .replace(/\.pdf-highlight\s*\{[^}]*\}/g, "")
+      .replace(/\.pdf-cited-mark\s*\{[^}]*\}/g, "")
+      .replace(/\.chat-cite-sup\s*\{[^}]*\}/g, "")
+      .replace(/\.chat-cite-pill\s*\{[^}]*\}/g, "");
+    expect(swept).not.toMatch(/border-radius:\s*(6|8|10)px/);
+  });
+
+  it("turn rhythm is on one scale: 24 between turns, 8 within", () => {
+    expect(ruleFor(".chat-thread-column")).toMatch(/gap:\s*24px/);
+    expect(ruleFor(".chat-turn")).toMatch(/gap:\s*8px/);
+  });
+
+  it("the assistant bubble is on the token radius scale with a squared tail corner, no triangle carats", () => {
+    expect(ruleFor(".chat-bubble")).toMatch(/border-radius:\s*var\(--r-md\)/);
+    // The triangle-carat pseudo-elements are gone; the tail is now just one
+    // squared corner on the bubble itself.
+    expect(css).not.toMatch(/\.chat-bubble\.has-tail::before/);
+    expect(css).not.toMatch(/\.chat-bubble\.has-tail::after/);
+    expect(ruleFor(".chat-bubble.has-tail")).toMatch(
+      /border-bottom-left-radius:\s*4px/,
+    );
+  });
+
+  it("the user bubble is solid navy, not the retired app's az-gold accent", () => {
+    const rule = ruleFor(".chat-user-bubble");
+    expect(rule).toMatch(/background:\s*var\(--navy\)/);
+    expect(rule).not.toMatch(/var\(--az-gold\)/);
+    expect(rule).toMatch(/border-bottom-right-radius:\s*4px/);
+  });
+
+  it("hover language matches the browse pages: azure border/-d text, brightness on CTAs", () => {
+    expect(ruleFor(".chat-suggestion:hover")).toMatch(
+      /color:\s*var\(--az-gold-d\)/,
+    );
+    expect(ruleFor(".chat-send:hover:not(:disabled)")).toMatch(
+      /filter:\s*brightness/,
+    );
+  });
 });

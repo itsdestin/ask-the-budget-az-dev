@@ -51,7 +51,11 @@ export default function ToolGroup({ tools }: Props) {
         className="chat-tool-head"
         onClick={() => setOpen((v) => !v)}
         aria-expanded={open}
-        aria-label={`${tools.length} tool calls, ${suffix}`}
+        // Fold the coalesced tool-name breakdown into the label too — sighted
+        // users see "Search corpus ×2, Browse filters" in chat-tool-summary,
+        // and screen-reader users deserve the same detail, not just count +
+        // status (Task 13 accessibility fix).
+        aria-label={`${tools.length} tool calls, ${coalesceLabels(tools)} — ${suffix}`}
       >
         <span className="chat-tool-label">{tools.length} tool calls</span>
         <span className="chat-tool-summary">
