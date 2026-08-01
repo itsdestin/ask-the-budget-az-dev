@@ -781,6 +781,13 @@ nav.primary{position:relative;padding-right:44px;}
   /* Same stack the retired app's --font-mono carried, verbatim. */
   --chat-mono: "Cascadia Mono", "Cascadia Code", "Fira Code", "Consolas", "Menlo", monospace;
 
+  /* THE content measure for the AI route. The thread column, the composer,
+     every banner and the band's own content all read this one number — that
+     is what makes the page share a single left edge instead of the three
+     unaligned grids it shipped with (band at 1140, stage full-bleed, thread
+     at a private 768). Layout constant, not palette — S12 unaffected. */
+  --ai-col: 768px;
+
   /* Mascot palette. These are the hex values from the committed reference art
      (specs/assets/2026-05-15-mascot-reference/); the SVG components read them
      as variables so the figure is re-themed in one place. The cap and suit
@@ -812,7 +819,7 @@ nav.primary{position:relative;padding-right:44px;}
    session's first message lands just above the composer and later turns grow
    UPWARD. Also the positioning context for the mascot slot below. */
 .chat-thread-anchor { position: relative; min-height: 100%; display: flex; flex-direction: column; justify-content: flex-end; }
-.chat-thread-column { max-width: 768px; margin: 0 auto; width: 100%; display: flex; flex-direction: column; gap: 20px; }
+.chat-thread-column { max-width: var(--ai-col); margin: 0 auto; width: 100%; display: flex; flex-direction: column; gap: 20px; }
 
 /* Mascot slot — pinned to the bottom-left of the SCROLL CONTENT (not the
    viewport), so it sits beside the newest message and scrolls away with it.
@@ -866,10 +873,10 @@ nav.primary{position:relative;padding-right:44px;}
 .chat-notice.is-danger { border-color: var(--chat-danger); background: var(--chat-danger-tint); color: var(--chat-danger); }
 .chat-notice-reason { margin-left: 8px; opacity: .75; }
 /* Banner placement — matches the message column so it reads as part of the thread. */
-.chat-notice-banner { max-width: 768px; margin: 12px auto 8px; }
+.chat-notice-banner { max-width: var(--ai-col); margin: 12px auto 8px; }
 
 /* ----- composer ------------------------------------------------------------ */
-.chat-input { max-width: 768px; margin: 0 auto; background: var(--card); border: 1.5px solid var(--line); border-radius: 10px; display: flex; gap: 8px; align-items: flex-end; padding: 6px 8px; }
+.chat-input { max-width: var(--ai-col); margin: 0 auto; background: var(--card); border: 1.5px solid var(--line); border-radius: 10px; display: flex; gap: 8px; align-items: flex-end; padding: 6px 8px; }
 .chat-input:focus-within { border-color: var(--az-gold); box-shadow: 0 0 0 3px var(--az-gold-100); }
 .chat-input textarea { flex: 1 1 auto; resize: none; background: transparent; border: none; padding: 8px 12px; color: var(--ink); font-family: var(--font); font-size: 14px; line-height: 1.6; }
 .chat-input textarea:focus { outline: none; }
@@ -1330,7 +1337,10 @@ nav.primary{position:relative;padding-right:44px;}
    convention at the top of this file exists to prevent. */
 .page-ai .subhero{position:relative;overflow:hidden;color:#fff;flex:0 0 auto;
   background:linear-gradient(105deg,rgba(18,21,48,.94) 0%,rgba(20,23,52,.86) 60%,rgba(20,23,52,.78) 100%),url('/capitol-bg.jpg') center 28% / cover no-repeat;}
-.page-ai .subhero .wrap{position:relative;z-index:2;padding:12px 22px;}
+/* The band's content shares the thread's measure (+22px gutters), so the h1
+   sits flush over the first message instead of on the 1140px page grid the
+   chat below never uses. */
+.page-ai .subhero .wrap{position:relative;z-index:2;padding:12px 22px;max-width:calc(var(--ai-col) + 44px);}
 /* One row: title, picker, scope chip, switch warning. `flex-wrap` is the
    safety valve — on a narrow window the row becomes two or three lines and the
    band grows, which is correct: every item in it is load-bearing, so none of
@@ -1356,12 +1366,10 @@ nav.primary{position:relative;padding-right:44px;}
 .page-ai .ai-corpus-chip:hover{background:rgba(255,255,255,.18);border-color:rgba(255,255,255,.4);}
 .page-ai .ai-corpus-chip.on{background:#fff;border-color:#fff;color:var(--navy);}
 .page-ai .ai-corpus-chip.on:hover{background:#fff;border-color:#fff;}
-/* The warning that a switch discards the thread. Now inline at the end of the
-   row rather than on its own line under it — same words, no extra row. It is
-   dimmer than the chips because it is a consequence of the control, not
-   another option. `margin-left:auto` parks it at the right edge on a wide
-   window; when the row wraps it simply starts the next line. */
-.page-ai .ai-corpus-note{margin:0 0 0 auto;font-size:11.5px;font-weight:700;color:#b9c0e4;flex:0 1 auto;}
+/* Flows inline after the scope chip instead of margin-left:auto — parking it
+   at the far edge of a wide band left a dead gap mid-row, and the band is
+   now only as wide as the column anyway. */
+.page-ai .ai-corpus-note{margin:0;font-size:11.5px;font-weight:700;color:#b9c0e4;flex:0 1 auto;}
 
 /* ----- the full-page chat shell -------------------------------------------
    RESTORES the retired app's fixed-viewport layout (Destin, 2026-07-31): "I
@@ -1479,7 +1487,7 @@ html.ai-fullpage header.site{flex:0 0 auto;}
 
 /* ----- the tier control + composer ---------------------------------------- */
 .ai-composer{flex:0 0 auto;border-top:1px solid var(--line);padding:8px 16px 10px;position:relative;}
-.ai-tiers{display:flex;align-items:center;gap:10px;flex-wrap:wrap;max-width:768px;margin:0 auto 6px;}
+.ai-tiers{display:flex;align-items:center;gap:10px;flex-wrap:wrap;max-width:var(--ai-col);margin:0 auto 6px;}
 .ai-tiers-label{font-size:11px;font-weight:800;color:var(--ink-3);text-transform:uppercase;letter-spacing:.04em;}
 /* `.chswitch`/`.chseg` declarations, re-scoped: the same pill-in-a-track
    control the fiscal-notes chamber filter uses, sized for two segments. */
@@ -1492,7 +1500,7 @@ html.ai-fullpage header.site{flex:0 0 auto;}
 .ai-tier-info{background:none;border:0;padding:0;font-family:inherit;font-size:12px;font-weight:700;color:var(--navy);text-decoration:underline;cursor:pointer;}
 /* The explainer opens UPWARD — the composer sits at the bottom of the panel,
    so a downward popover would open past the panel's edge. */
-.ai-tier-pop{position:absolute;bottom:calc(100% - 4px);left:16px;right:16px;max-width:768px;margin:0 auto;z-index:20;
+.ai-tier-pop{position:absolute;bottom:calc(100% - 4px);left:16px;right:16px;max-width:var(--ai-col);margin:0 auto;z-index:20;
   background:var(--card);border:1px solid var(--line);border-radius:var(--r-sm);box-shadow:var(--shadow);padding:12px 14px;
   font-size:12.5px;line-height:1.5;color:var(--ink-2);}
 .ai-tier-explain + .ai-tier-explain{margin-top:10px;padding-top:10px;border-top:1px solid var(--line);}
@@ -1511,7 +1519,7 @@ html.ai-fullpage header.site{flex:0 0 auto;}
    chunk previews. Values are the tool-view primitives': small meta text, a
    --canvas-tinted row inside a --line border — so a refusal's passages look
    like every other piece of retrieved evidence in the thread. */
-.chat-refusal{flex:0 0 auto;max-width:768px;margin:8px auto;}
+.chat-refusal{flex:0 0 auto;max-width:var(--ai-col);margin:8px auto;}
 .chat-refusal-scope{margin:6px 0 0;font-style:italic;}
 .chat-refusal-chunks{list-style:none;margin:8px 0 0;padding:0;display:flex;flex-direction:column;gap:6px;}
 .chat-refusal-chunk{background:var(--card);border:1px solid var(--line);border-radius:6px;padding:6px 8px;}
