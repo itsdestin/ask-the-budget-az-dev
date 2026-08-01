@@ -144,11 +144,68 @@ def test_malformed_middle_line_does_not_crash(tmp_path):
     lines = path.read_text(encoding="utf-8").splitlines()
     assert len(lines) >= 3  # meta, >=1 event, terminal
     lines[1] = "{not valid json"
+    # Plant a fully valid, clearly-identifiable terminal AFTER the damage. The
+    # fixture is short enough (4 lines) that the corrupted line is nearly the
+    # last one already, so "doesn't crash" alone could pass by accident even
+    # if reading resumed past the damage. This sentinel pins the actual design
+    # contract — everything after an unparsable line is discarded as equally
+    # suspect, not just the damaged line itself — by proving its distinctive
+    # finalAnswer never surfaces.
+    sentinel_terminal = json.dumps(
+        {"kind": "terminal",
+         "frame": {"type": "_done", "finalAnswer": "SENTINEL-AFTER-CORRUPTION-SHOULD-NOT-APPEAR"},
+         "wall_ms": 1},
+        ensure_ascii=False,
+    )
+    lines.append(sentinel_terminal)
     path.write_text("\n".join(lines) + "\n", encoding="utf-8")
     t = read_transcript(path)
     # Reading stops at the damaged line rather than raising; whatever was
     # parsed before it (meta) is kept, and the lost terminal degrades to the
-    # same honest error path as a wholly-truncated file.
+    # same honest error path as a wholly-truncated file — the sentinel planted
+    # after the damage must never be returned.
     assert t.meta["query_id"] == "aq-001"
+    assert t.terminal["frame"]["type"] == "_error"
+    assert "malformed line" in t.terminal["frame"]["message"]
+    assert final_answer(t) != "SENTINEL-AFTER-CORRUPTION-SHOULD-NOT-APPEAR"
+
+
+def test_array_line_does_not_crash(tmp_path):
+    # A line can be syntactically valid JSON while still not being an object
+    # — `json.loads` succeeds, but `row.pop("kind", ...)` then raises
+    # TypeError on a list ("pop expected at most 1 argument, got 2"). This is
+    # the same class of file damage the malformed-JSON guard exists for, so it
+    # must degrade the same way rather than escaping as an uncaught exception.
+    path = make_transcript(tmp_path)
+    lines = path.read_text(encoding="utf-8").splitlines()
+    lines[-1] = json.dumps([1, 2, 3])
+    path.write_text("\n".join(lines) + "\n", encoding="utf-8")
+    t = read_transcript(path)
+    assert t.meta["query_id"] == "aq-001"
+    assert len(t.events) == 2
+    assert t.terminal["frame"]["type"] == "_error"
+    assert "malformed line" in t.terminal["frame"]["message"]
+
+
+def test_string_line_does_not_crash(tmp_path):
+    # Same defect, different scalar: a bare JSON string parses cleanly but
+    # has no `.pop` method, so it raises AttributeError instead of degrading.
+    path = make_transcript(tmp_path)
+    lines = path.read_text(encoding="utf-8").splitlines()
+    lines[-1] = json.dumps("just a string")
+    path.write_text("\n".join(lines) + "\n", encoding="utf-8")
+    t = read_transcript(path)
+    assert t.terminal["frame"]["type"] == "_error"
+    assert "malformed line" in t.terminal["frame"]["message"]
+
+
+def test_null_line_does_not_crash(tmp_path):
+    # Same defect, third scalar shape: a bare JSON `null` parses to Python
+    # None, which also has no `.pop` method and raises AttributeError.
+    path = make_transcript(tmp_path)
+    lines = path.read_text(encoding="utf-8").splitlines()
+    lines[-1] = "null"
+    path.write_text("\n".join(lines) + "\n", encoding="utf-8")
+    t = read_transcript(path)
     assert t.terminal["frame"]["type"] == "_error"
     assert "malformed line" in t.terminal["frame"]["message"]

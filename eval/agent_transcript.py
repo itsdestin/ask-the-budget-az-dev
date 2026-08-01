@@ -58,6 +58,18 @@ def read_transcript(path: str | Path) -> Transcript:
             # for a wholly-missing terminal.
             corrupted = True
             break
+        if not isinstance(row, dict):
+            # A line can be syntactically VALID JSON and still not be an
+            # object — `[1, 2, 3]`, `"a string"`, `null` all parse cleanly but
+            # would crash `row.pop("kind", ...)` below (TypeError on the list,
+            # AttributeError on the string/None) instead of raising the
+            # json.JSONDecodeError the guard above already catches. That's the
+            # same class of damage (a torn/bit-flipped line), so route it
+            # through the identical break-and-degrade path rather than a
+            # second, differently-worded failure — a reader should only ever
+            # have to recognize one shape of "this file is broken".
+            corrupted = True
+            break
         # "kind" is a routing tag, not payload — pop it off and dispatch by
         # value so each line lands in its list/slot without a second parse pass.
         kind = row.pop("kind", None)
