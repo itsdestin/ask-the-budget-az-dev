@@ -10,8 +10,9 @@ Behaviour, in order:
   2. Otherwise bind a free port, start uvicorn *in this process*, and record it.
   3. Wait for the server to answer /health. On timeout, show a message box
      naming the log file — never a traceback (nobody here can read one).
-  4. Open the UI: Chrome in --app mode, else Edge in --app mode, else the
-     default browser.
+  4. Open the UI as an ordinary browser tab: Chrome, else Edge, else whatever
+     the default browser is. Deliberately NOT Chrome's --app mode — see
+     open_window() for why that was reversed.
   5. Keep serving. Closing the browser window does not stop the server; that
      is deliberate (S8) and is what makes relaunch instant.
 
@@ -164,10 +165,17 @@ def open_window(port: int) -> None:
     for exe in _chrome_candidates():
         if exe.exists():
             try:
-                # --app strips the address bar and tabs: it looks like an
-                # application window rather than a web page, which is the whole
-                # point of S8's "native feel with zero Electron".
-                subprocess.Popen([str(exe), f"--app={url}"])
+                # A NORMAL browser tab, deliberately — not Chrome's `--app` mode.
+                #
+                # S8 originally specified `--app=`, which strips the address bar
+                # and tabs so the thing feels like a native application. Rejected
+                # after the first real Windows run (2026-08-01): this is a
+                # research tool used *alongside* a dozen other tabs, and app mode
+                # makes it an island you have to alt-tab to. Passing the URL bare
+                # also means a second launch lands as a tab in the Chrome window
+                # the analyst already has open, next to their other work, instead
+                # of spawning a separate window.
+                subprocess.Popen([str(exe), url])
                 return
             except OSError:
                 continue

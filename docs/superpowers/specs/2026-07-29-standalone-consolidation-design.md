@@ -80,7 +80,7 @@ and exposes it to anyone using AI Mode later.
 | S5 | **LanceDB** replaces Postgres + pgvector + ParadeDB. One embedded, file-based DB on the share: vectors + native BM25 FTS (tantivy family, same as ParadeDB) + metadata filtering. | No server, no Docker, works on SMB, corpus ≪ 1 GB. |
 | S6 | **Shared-drive data layout with single-writer locking.** Unlimited concurrent readers; writes (ingest/refresh) take `ingest.lock` with heartbeat-based stale-lock expiry. | Uploads are rare events; single-writer is a non-constraint in practice. |
 | S7 | **Install = unzip to `%LOCALAPPDATA%`; bundled python.org embeddable runtime + prebuilt site-packages** (not PyInstaller). All ONNX/MinerU model weights pre-bundled; first run downloads nothing. | PyInstaller is fragile with torch/MinerU-class deps. No admin rights needed. Offline-first. |
-| S8 | **Launcher exe → Chrome app mode** (`chrome.exe --app=http://127.0.0.1:<port>`), fallback Edge, then default browser. Server keeps running when the window closes; relaunch reuses it. | Native-app feel with zero Electron. Chrome/Edge are on every JLBC machine; Chrome is the office default. |
+| S8 | **Launcher → an ordinary browser tab** (`chrome.exe http://127.0.0.1:<port>`), fallback Edge, then default browser. Server keeps running when the window closes; relaunch reuses it. **Amended 2026-08-01** — originally Chrome *app* mode (`--app=`), reversed after the first real Windows run: app mode strips tabs and the address bar, which suits a program you live inside and not a reference tool consulted alongside a dozen research tabs. A bare URL lands in the analyst's existing Chrome window, beside the work that prompted the question. | Zero Electron either way; the change is purely about which window the answer appears in. Chrome/Edge are on every JLBC machine; Chrome is the office default. |
 | S9 | **Two corpora, one pattern**: budget documents and fiscal notes. Every corpus page = zero-inference semantic search + an **AI Mode toggle** (same search box; off = results list, on = cited chat answer). | Matches the coordinator triage workflow and the "fancy search without inference" requirement. |
 | S10 | **Fiscal notes become a full RAG corpus** with in-app refresh: port the mockup's `fiscal-notes-build/build.py` scraping into the app; refresh diffs azjlbc.gov sessions, downloads only new note PDFs, feeds the normal ingest queue. | Stays current across sessions with zero maintenance; scraper breakage degrades to last-good corpus, loudly but harmlessly. |
 | S11 | **Per-user cost tracking + soft-gated admin surface.** Users are Windows usernames. Every OpenRouter call logs exact billed cost (OpenRouter usage accounting) to a ledger on the share. Users see only their own total. One designated admin (username in `settings.json`, transferable) gets an Admin page. | Non-technical admin manages the key and sees costs without advertising individual spend office-wide. Explicitly *not* real security — accepted trade. |
@@ -106,7 +106,7 @@ and exposes it to anyone using AI Mode later.
 ## Architecture
 
 ```
-Browser window (Chrome --app mode; fallback Edge)
+Browser tab (Chrome; fallback Edge, then default browser)
   Home ─ Budget Search ─ Fiscal Notes ─ Settings ─ [Admin]
   static React build, mockup design system, SSE for chat streaming
         │ http://127.0.0.1:<port>

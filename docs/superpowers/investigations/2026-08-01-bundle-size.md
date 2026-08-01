@@ -2,7 +2,7 @@
 
 **Date:** 2026-08-01
 **Plan:** `docs/superpowers/plans/2026-08-01-standalone-plan-5-admin-packaging.md`, Track 3 Task 14
-**Spec:** S7 (unzip to `%LOCALAPPDATA%`, embeddable Python, all model weights pre-bundled, first run downloads nothing), S8 (launcher → Chrome `--app`)
+**Spec:** S7 (unzip to `%LOCALAPPDATA%`, embeddable Python, all model weights pre-bundled, first run downloads nothing), S8 (launcher → browser window)
 **Status:** measured; **decided 2026-08-01 — one bundle everywhere** (see [Decision](#decision-one-bundle-everywhere-decided-2026-08-01))
 **Reproduce:** `python packaging/measure.py --profile both --find-links <dir with the antlr4 wheel>`
 
@@ -326,14 +326,43 @@ below it:
 - **The vendored Temurin JRE executes** with nothing installed and no admin rights,
   which is the premise the whole one-bundle decision rests on.
 
+### Stage 2, same session — it runs
+
+`install.cmd` completed (no security prompt, no admin elevation, shortcuts created), and
+the Desktop shortcut started the server and opened the UI in a browser "relatively
+quickly, without issue". So: uvicorn starts under the embeddable interpreter, the SPA is
+served from `webapp/dist`, and the launcher's health-wait-then-open sequence works.
+
+**Instance reuse works.** After clicking the shortcut several times,
+`tasklist /FI "IMAGENAME eq pythonw.exe"` reported exactly one process. That is S8's
+"relaunch reuses it" confirmed by process count rather than by how fast the window felt —
+and it matters at 20 machines, where each analyst clicking the icon a few times a day
+must not accumulate servers competing for the same files.
+
+**No endpoint-security objection.** An unsigned interpreter running out of
+`%LOCALAPPDATA%`, PowerShell creating two shortcuts, and a process listening on localhost
+all passed without a prompt on this laptop. One machine's policy is not the estate's, but
+it is the first evidence that this deployment shape survives JLBC's IT environment at
+all — which was the largest non-technical risk to the whole no-admin-rights approach.
+
+**One thing the first run changed.** The UI opened in Chrome's `--app` mode, per S8, and
+Destin rejected it on sight: this is a reference tool consulted *alongside* a dozen
+research tabs, and app mode makes it an island to alt-tab to. S8 is amended and
+`open_window()` now passes a bare URL, so the app lands as a tab in the Chrome window the
+analyst already has open. Worth recording as a method note — the design was defensible on
+paper and wrong in ten seconds of contact with a real user, which is the argument for
+getting a rough build in front of someone early rather than polishing first.
+
 ## Still not verified
 
-- **That the server starts and serves.** Imports are not a running application.
 - **First-run offline behaviour.** The four environment levers are traced in source
-  and now known to *import*, but the network cable has not been pulled.
+  and now known to *import*, but the network cable has not been pulled. Note that the
+  laptop had internet during this run, so a lever that silently fell back to a download
+  would not have shown itself.
 - **Real retrieval.** No corpus was attached; `create_app()` falls back to stub search
   fixtures when `budget_chunks` is empty (confirmed on Linux), so the interface can be
   exercised without proving the retrieval path.
+- **opendataloader-pdf extracting a real document** with the bundled JRE.
 - **`java` reached through `PATH` rather than by direct path.** `jre\bin\java.exe` ran
   when invoked explicitly; the launcher's `PATH` prepend, which is how
   opendataloader-pdf actually finds it, has not been exercised.
