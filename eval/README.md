@@ -6,10 +6,14 @@ dense embeddings, RRF fusion, and the local cross-encoder rerank
 end-to-end usefulness to analysts. Read "What this measures (and
 doesn't)" before quoting the numbers.
 
-Layer 2 (an end-to-end agent eval that scores faithfulness, citation
-quality, and answer usefulness against open-ended analyst questions)
-is a separate workstream, deferred until WS3 (the faithfulness
-verifier) ships. See `docs/superpowers/specs/2026-05-20-retrieval-eval-harness-design.md` for the original spec.
+Layer 2 (an end-to-end agent-loop eval that drives the real harness
+session and scores answer key-facts, citation discipline, and output
+hygiene against open-ended analyst questions) has since shipped — see
+"Layer 2 — agent-loop eval" below. It no longer waits on WS3 (the
+faithfulness verifier): the mechanical scorer and LLM judge below are
+what stand in for it today. See
+`docs/superpowers/specs/2026-05-20-retrieval-eval-harness-design.md`
+for the original spec.
 
 ## What this measures (and doesn't)
 
@@ -234,9 +238,137 @@ this directory. When that lands, expect Layer 1's role to shift to
 | `chronological.py` | The newest-first order metric (`newest_first_rate`, `mean_fiscal_year_at_k`) |
 | `sweep_recency.py` | S21 weight sweep — recall AND chronological order, at every weight |
 | `results/` | Git-tracked result files (one JSON + one MD per run) |
+| `agent_queries.yaml` | Layer 2 ground truth — open-ended questions + key_facts + shape/subset tags |
+| `agent_schema.py` | Layer 2 query schema (`AgentQuery`, `KeyFact`) — `extra="forbid"` |
+| `run_agent_eval.py` | Layer 2 runner — drives real `HarnessSession`s, spends money, writes transcripts |
+| `agent_transcript.py` | Layer 2 transcript read/write — degrades a truncated file to an error record |
+| `agent_scoring.py` | Layer 2 mechanical scoring functions (free) |
+| `score_agent_run.py` | Layer 2 scorer CLI — transcripts → `scores.json` / `scores.md` (free) |
+| `judge_agent_run.py` | Layer 2 LLM judge CLI — `scores.json`'s companion, costs money |
+| `agent_judge_prompt.md` | The judge's system prompt |
+| `compare_agent_runs.py` | Diffs two Layer 2 run directories into a markdown report (free) |
+| `results/agent/` | Layer 2 run directories — derived artifacts committed, raw transcripts gitignored |
 
 ## Windows note
 
 All three CLI tools (run_eval, refresh_chunk_ids, calibrate_refusal)
 reconfigure stdout to utf-8 at startup so the default Windows cp1252
 console doesn't crash on the ✓ ✗ Δ ⚠ glyphs they print.
+
+## Layer 2 — agent-loop eval (`run_agent_eval.py`)
+
+Everything above is Layer 1: it measures retrieval health only, by
+calling `retrieve()` directly. Layer 2 drives the REAL harness session
+— the production `HarnessSession` code path, no HTTP server — for a set
+of open-ended analyst questions, and measures what Layer 1 structurally
+cannot: agent turns, tokens, cost, whether the final answer actually
+contains the right key facts, citation discipline (how often a cite
+passes verification on the first attempt), and output hygiene (meta-
+narration leaks, internal-vocabulary leaks, a leaked download token).
+Layer 1 stays the free, fast inner loop for retrieval-only changes;
+Layer 2 is the paid outer loop for anything that touches the harness
+loop or the system prompt. **Their numbers are not comparable to each
+other** — a recall percentage and a key-fact rate measure different
+things over different query sets.
+
+**This layer costs real money — every run calls a real model through
+OpenRouter.** Rough guide, Standard tier: `smoke` (~10 queries) ≈
+$0.15–0.30, `full` (~30 queries) ≈ $0.50–1.50. `dr-probe` (4
+Deep Research queries) ≈ $2–3 — Deep Research runs at roughly 40× the
+per-query cost of Standard (see the Plan 4 dogfood numbers in
+STATUS.md). The LLM judge (`judge_agent_run.py`) is a second, separate
+charge on top of a run — budget for it only when running `full`.
+
+Query authoring lives in `agent_queries.yaml`, validated by
+`agent_schema.py` (`AgentQuery` / `KeyFact`, both `extra="forbid"` so a
+typo'd field name fails the load instead of silently vanishing). Each
+query pins a `shape` (lookup / comparison / analyze / memo / refusal /
+historical), a `corpus`, a `tier`, zero or more `key_facts` (currency /
+string / regex, mechanically checkable in the final answer), and which
+`subsets` it belongs to (`smoke`, `full`, `dr-probe`).
+
+Workflow:
+
+```bash
+uv run python -m eval.run_agent_eval --subset smoke        # live run, spends money
+uv run python -m eval.score_agent_run eval/results/agent/<run>   # free, re-runnable
+uv run python -m eval.judge_agent_run eval/results/agent/<run>   # money — full runs only
+uv run python -m eval.compare_agent_runs <baseline-dir> <candidate-dir>  # free
+```
+
+`run_agent_eval.py` writes one directory per run —
+`eval/results/agent/<UTC-ISO>-<git-sha>/` — containing `manifest.json`
+(git sha, prompt sha256, tier→model map, corpus row counts — everything
+needed to know whether two runs are even comparable), one
+`<query_id>-r<N>.jsonl` transcript per (query, repeat) via
+`agent_transcript.py`, and `ledger.jsonl`. Use `--repeats N` to sample a
+query more than once — **a single run is stochastic**; a small delta
+between two single runs is noise, not signal, and `compare_agent_runs.py`
+says so loudly whenever either side has `repeats: 1`. `--model` pins the
+Standard-tier model for the run without touching `settings.json`.
+`--queries` restricts to specific query ids for a quick check on one
+failing case.
+
+**The runner writes its OWN ledger, isolated from the office.** Every
+eval query runs with `check_limit` stubbed to always-allow and
+`record_usage` writing into that run's own `ledger.jsonl` instead of the
+shared office spend ledger — an eval run is pre-authorized by the human
+who started it, and it must neither be blocked by S19 office limits nor
+silently accrue against them. If you're looking for eval spend in the
+office usage totals, it deliberately isn't there; add up `ledger.jsonl`
+rows (or read `total_cost_usd` in `scores.json`) instead.
+
+`score_agent_run.py` is free and re-runnable — it only reads transcripts,
+so a scoring-logic improvement can be re-applied to every historical run
+without spending another cent. It writes `scores.json` (machine-
+readable, one row per query plus an aggregate summary) and `scores.md`
+(a table + a hygiene-flags section for any query with narration hits, a
+token leak, or a false refusal). `agent_transcript.py`'s reader degrades
+a truncated or corrupt transcript file to a synthetic `_error` record
+instead of raising, so one bad write (this project has documented flaky
+writes to the shared network drive) costs one query's row, not the
+whole scoring run.
+
+`judge_agent_run.py` calls a separate judge model (default
+`anthropic/claude-sonnet-5` — deliberately not the model under test)
+against the prompt in `agent_judge_prompt.md`. The judge extracts the
+answer's load-bearing claims and says whether each is backed by a
+verified citation; `compute_citation_scores()` then derives
+claim-coverage precision/recall FROM the judge's claim list and the
+transcript's own citation count — the judge's own arithmetic is never
+trusted. A malformed or non-JSON judge reply becomes one `judge_error`
+row, not a run-ending crash.
+
+`compare_agent_runs.py` diffs a baseline run directory against a
+candidate one into a markdown report — what differed (git sha, prompt
+sha, tier models, repeats), every mechanical metric with a
+better/worse arrow, judge metrics if both sides were judged, and named
+per-query regressions in key-fact rate. **It refuses to compare two
+runs whose `manifest.json` corpus counts differ** (`--force` to
+override) — the corpus is still growing (see STATUS.md), and a delta
+between different corpus sizes measures the corpus, not the change
+under test.
+
+Experiment loop for a change to `harness/`, `retrieval/citations.py`, or
+`harness/system-prompt.md`:
+
+1. Cheap layer first — Layer 1 `run_eval.py`, and re-score any old
+   agent-eval transcripts for free if only the scorer changed.
+2. A live `--subset smoke` run against the same query ids as your
+   baseline; `compare_agent_runs.py` the two.
+3. Before merging: a `--subset full` run plus `judge_agent_run.py`,
+   then commit the compare report alongside the code change so the
+   regression record travels with the diff.
+
+**Results-committing policy.** Raw transcripts embed full retrieved
+chunk text — large, and derived from the corpus rather than from the
+change under test — so they stay out of git (see `.gitignore`).
+`manifest.json`, `scores.json`, `scores.md`, `judge.json`, and any
+`compare-*.md` report ARE committed: they're the derived regression
+record a future diff needs, at a fraction of the size.
+
+**No live baseline run has happened yet** — the harness above is built
+and unit-tested (transcripts, scoring, and the judge are all exercised
+against synthetic fixtures) but has never been pointed at a real
+OpenRouter key. The acceptance step for whoever runs the first one is
+in STATUS.md.

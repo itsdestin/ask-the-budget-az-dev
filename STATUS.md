@@ -179,6 +179,11 @@ whether to delete the near-empty document meanwhile so search does not answer
   Runbook: [`PROMPT-z13-backfill.md`](PROMPT-z13-backfill.md) (the only
   active handoff). Recency plan:
   [`docs/superpowers/plans/2026-07-31-standalone-plan-recency-ranking.md`](docs/superpowers/plans/2026-07-31-standalone-plan-recency-ranking.md).
+- **Layer 2 agent-loop eval — BUILT, no live baseline run yet.** See "Layer 2
+  agent-loop eval harness shipped" below. Whoever has an OpenRouter key next
+  should run `uv run python -m eval.run_agent_eval --subset smoke`, score it,
+  and commit the result as the first baseline before trusting any
+  `compare_agent_runs.py` delta against it.
 
 ---
 
@@ -1370,6 +1375,84 @@ of these came from opening the page:
 - ~~**Two of Session B's four app-side asks are unbuilt**~~ **DONE in
   Track 4, 2026-08-01** — the per-machine `ingest_enabled` flag, its admin
   warning, and the `app.machine_config` CLI entry point all shipped.
+
+---
+
+## Layer 2 agent-loop eval harness shipped (2026-08-01)
+
+Spec: `docs/superpowers/specs/2026-05-20-retrieval-eval-harness-design.md`
+(the deferred Layer 2 half). Nine tasks: query schema + transcript format,
+the money-spending runner, the free mechanical scorer, the LLM judge, and
+the run-comparison tool. Full usage docs, cost guide, and the experiment
+loop are in `eval/README.md` → "Layer 2 — agent-loop eval"; this section
+is the shipped-status record.
+
+**What it measures that Layer 1 cannot.** Layer 1 (`run_eval.py`) calls
+`retrieve()` directly and scores chunk recall — fast, free, and a strong
+regression detector, but blind to everything downstream of retrieval.
+Layer 2 (`run_agent_eval.py`) drives the REAL `HarnessSession` — the
+production tool loop, no HTTP server — against open-ended analyst
+questions and measures agent turns, tokens, cost, whether the final
+answer actually contains the right key facts, citation discipline (cite
+attempts vs. first-attempt passes), and output-hygiene leaks (meta-
+narration, internal vocabulary, a leaked download token). **The two
+layers' numbers are not interchangeable and must never be diffed against
+each other** — different query sets, different things measured.
+
+**It costs real money — unlike every eval that came before it.** A
+`smoke` run (~10 queries) runs roughly $0.15–0.30 on Standard tier, a
+`full` run (~30 queries) $0.50–1.50, and the 4-query `dr-probe` subset
+$2–3 (Deep Research runs ~40× the per-query cost of Standard — see the
+Plan 4 dogfood numbers above). The LLM judge is a second, separate
+charge layered on top of a run.
+
+**The runner writes its own ledger and never touches the office one.**
+`check_limit` is stubbed to always-allow and `record_usage` writes into
+the run directory's own `ledger.jsonl`, not the shared office spend
+ledger — an eval run is pre-authorized by the human who started it, so
+it must not be blocked by S19 office limits, and it must not silently
+accrue against them either. **Eval spending will never show up in the
+office usage totals** — that is by design, not a bug to chase.
+
+**Single runs are stochastic.** `--repeats N` exists because model
+output varies run to run; `compare_agent_runs.py` prints an explicit
+warning whenever either side of a comparison is a single run, so a
+small delta doesn't get mistaken for a real regression.
+
+**The experiment loop the harness exists to serve** (for any change to
+`harness/`, `retrieval/citations.py`, or `harness/system-prompt.md`):
+cheap layer first (Layer 1 + free re-scoring of old transcripts), then a
+live `smoke` run compared against a baseline `smoke` run, then before
+merging a `full` run plus the judge, with the compare report committed
+alongside the code change.
+
+**Results-committing policy, implemented and verified against real
+files, not just described.** Raw transcripts (`<query_id>-r<N>.jsonl`)
+embed full retrieved-chunk text — large, and derived from the corpus
+rather than from the change under test — so `.gitignore` now excludes
+`eval/results/agent/*/*-r*.jsonl` and `eval/results/agent/*/ledger.jsonl`.
+`manifest.json`, `scores.json`, `scores.md`, `judge.json`, and any
+`compare-*.md` report are NOT excluded — they're the derived regression
+record, at a fraction of the transcripts' size, and that's what a future
+diff needs. Verified with a throwaway run directory containing one file
+of each kind: `git status --porcelain` showed the untracked directory,
+`git check-ignore -v` confirmed the transcript and ledger files matched
+the new `.gitignore` lines and the five derived files matched nothing,
+and `git add -n` staged the five derived files while refusing the two
+ignored ones. The throwaway directory was deleted afterward — nothing
+from the verification is in this commit.
+
+**No live baseline run has happened yet.** The harness is built and
+unit-tested (80 pytest specs, synthetic fixtures throughout — transcript
+read/write, scoring, the judge's JSON parsing and error handling, the
+comparison tool's corpus-count refusal) but nobody has pointed it at a
+real OpenRouter key. `eval/agent_queries.yaml` (the query set itself —
+lookup/comparison/analyze/memo/refusal/historical shapes with mechanical
+key_facts) is a separate, concurrently-authored deliverable and may not
+even exist yet in every worktree. **The acceptance step for whoever has
+a key next:** run `--subset smoke`, score it, and commit the result as
+the first baseline — every later `compare_agent_runs.py` call needs one
+to diff against.
 
 ---
 
