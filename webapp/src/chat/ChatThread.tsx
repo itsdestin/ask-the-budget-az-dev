@@ -3,13 +3,15 @@
 // from Tailwind utilities to the `.chat-thread*` rules in app.css, behavior
 // unchanged.
 
-import { useEffect, useMemo, useRef } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 
 import { buildConversationResolvedChunkMap } from "./citation-extract.js";
 import type { AssistantTurn, ChatState } from "./chat-types.js";
 import AssistantTurnBubble from "./AssistantTurnBubble.js";
 import UserMessage from "./UserMessage.js";
 import WelcomeHero from "./WelcomeHero.js";
+import RefusalBanner from "./RefusalBanner.js";
+import type { detectRefusal } from "./RefusalBanner.js";
 import type { MascotState } from "./mascot/useMascotPose.js";
 import Mascot from "./mascot/Mascot.js";
 import MascotTyping from "./mascot/MascotTyping.js";
@@ -19,16 +21,26 @@ interface Props {
   state: ChatState;
   /** Current mascot scene/pose, decided by useMascotPose() at the page level. */
   mascot: MascotState;
+  /** Latest-turn refusal info, computed by AiModePanel. Rendered in the
+   *  thread FLOW (after the turns) so it appears via autoscroll when fresh
+   *  and scrolls away with history — instead of permanently eating thread
+   *  height as panel chrome, which is what it used to do. */
+  refusal?: ReturnType<typeof detectRefusal>;
 }
 
-export default function ChatThread({ state, mascot }: Props) {
+export default function ChatThread({ state, mascot, refusal }: Props) {
   const endRef = useRef<HTMLDivElement | null>(null);
   const containerRef = useRef<HTMLDivElement | null>(null);
+  const anchorRef = useRef<HTMLDivElement | null>(null);
   // Whether to follow the bottom on new content. Flipped by the handlers
   // below whenever the user scrolls away from the bottom. Held as a ref (not
   // state) so the auto-scroll effect can read the current value without
   // re-rendering when it flips.
   const stickToBottomRef = useRef(true);
+  // Mirrors stickToBottomRef into render-visible state, purely to decide
+  // whether the jump-to-bottom pill is shown. The ref stays the source of
+  // truth the effects read from; this is a display-only shadow of it.
+  const [atBottom, setAtBottom] = useState(true);
 
   // Conversation-wide chunk-id -> resolved-metadata map, so a cite() that
   // references a chunk from an earlier turn (which the system prompt allows)
@@ -49,21 +61,25 @@ export default function ChatThread({ state, mascot }: Props) {
   //     can drown out a single wheel-tick — the animation keeps pulling
   //     toward the bottom while the user's wheel-up tries to pull away.
   //     Reacting to the INPUT exits the loop immediately.
-  //   - SCROLL only ever RE-ENGAGES stickiness: scrolling back within 5px of
-  //     the bottom resumes following. The asymmetry (break on any scroll-up,
-  //     narrow window to re-engage) is what stops the "barely scrolled up but
-  //     yanked back" behavior.
+  //   - SCROLL only ever RE-ENGAGES stickiness: scrolling back within
+  //     BOTTOM_REENGAGE_PX of the bottom resumes following. The asymmetry
+  //     (break on any scroll-up, narrow window to re-engage) is what stops
+  //     the "barely scrolled up but yanked back" behavior.
   useEffect(() => {
     const el = containerRef.current;
     if (!el) return;
-    const BOTTOM_REENGAGE_PX = 5;
+    // 32px, not 5px: wheel physics rarely land a user EXACTLY on the bottom
+    // edge, and a re-stick window that narrow made autoscroll feel broken —
+    // you returned to the bottom and new messages still didn't follow.
+    const BOTTOM_REENGAGE_PX = 32;
     function onScroll() {
       if (!el) return;
       const distanceFromBottom =
         el.scrollHeight - el.scrollTop - el.clientHeight;
-      if (distanceFromBottom <= BOTTOM_REENGAGE_PX) {
-        stickToBottomRef.current = true;
-      }
+      const near = distanceFromBottom <= BOTTOM_REENGAGE_PX;
+      if (near) stickToBottomRef.current = true;
+      // Guarded setState so a wheel burst doesn't re-render per frame.
+      setAtBottom((prev) => (prev === near ? prev : near));
     }
     function onWheel(e: WheelEvent) {
       if (e.deltaY < 0) stickToBottomRef.current = false;
@@ -97,21 +113,57 @@ export default function ChatThread({ state, mascot }: Props) {
     };
   }, []);
 
+  // Pin = set scrollTop past the end and let the browser clamp. The old
+  // smooth scrollIntoView animated toward the bottom for hundreds of ms,
+  // which fought the user's wheel and made the unstick handlers hair-trigger.
+  const pin = () => {
+    const el = containerRef.current;
+    if (el) el.scrollTop = el.scrollHeight;
+  };
+
   // Auto-scroll on every state change, but ONLY when the user is already near
-  // the bottom. If they scrolled up to read history mid-stream, leave them
-  // alone. A sentinel div is used because the browser default
-  // scrollIntoView({block:"end"}) jumps past the input bar.
+  // the bottom (or hasn't scrolled away). If they scrolled up to read history
+  // mid-stream, leave them alone.
   useEffect(() => {
-    if (!stickToBottomRef.current) return;
-    endRef.current?.scrollIntoView({ behavior: "smooth", block: "end" });
+    if (stickToBottomRef.current) pin();
   }, [state.turns, state.isThinking]);
+
+  // Local growth the data layer can't see (a tool row expanding at the
+  // bottom) also re-pins — mirror of YouCoded's content ResizeObserver.
+  useEffect(() => {
+    const anchor = anchorRef.current;
+    if (!anchor || typeof ResizeObserver === "undefined") return;
+    const obs = new ResizeObserver(() => {
+      if (stickToBottomRef.current) pin();
+    });
+    obs.observe(anchor);
+    return () => obs.disconnect();
+  }, []);
+
+  // Sending a message re-arms following — the user asked a question, they
+  // want to see the answer arrive.
+  const lastTurn = state.turns[state.turns.length - 1];
+  useEffect(() => {
+    if (lastTurn?.kind === "user") {
+      stickToBottomRef.current = true;
+      setAtBottom(true);
+      pin();
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [lastTurn?.id]);
+
+  const jumpToBottom = () => {
+    stickToBottomRef.current = true;
+    setAtBottom(true);
+    pin();
+  };
 
   // -- Layout A: welcome ----------------------------------------------------
   // No turns yet and not thinking. Suggestion chips live in SuggestionRow at
-  // the page level, above the input bar.
-  if (state.turns.length === 0 && !state.isThinking) {
-    return <WelcomeHero />;
-  }
+  // the page level, above the input bar. Rendered INSIDE the scroller (below)
+  // rather than as an early return, so there is exactly one scroll container
+  // on the page in every state — see the .chat-thread-scroll CSS contract.
+  const isEmpty = state.turns.length === 0 && !state.isThinking;
 
   // -- Layout B: has messages (incl. thinking/presenting) -------------------
   // Mascot pose comes from the MascotState when it carries one, otherwise
@@ -147,37 +199,56 @@ export default function ChatThread({ state, mascot }: Props) {
   return (
     <div className="chat-thread">
       <div ref={containerRef} className="chat-thread-scroll">
-        <div className="chat-thread-anchor">
-          <div className="chat-thread-column">
-            {state.turns.map((turn, index) =>
-              turn.kind === "user" ? (
-                <UserMessage key={turn.id} turn={turn} />
-              ) : (
-                <AssistantTurnBubble
-                  key={turn.id}
-                  turn={turn}
-                  conversationResolvedChunks={conversationResolvedChunks}
-                  isLatest={index === lastAssistantIndex}
-                />
-              ),
-            )}
-          </div>
-          {/* The sentinel sits OUTSIDE the gap-bearing column: inside it, the
-              column gap added invisible space between the last bubble and the
-              sentinel, inflating the visible gap to the input bar. */}
-          <div ref={endRef} />
+        <div ref={anchorRef} className="chat-thread-anchor">
+          {isEmpty ? (
+            <WelcomeHero />
+          ) : (
+            <>
+              <div className="chat-thread-column">
+                {state.turns.map((turn, index) =>
+                  turn.kind === "user" ? (
+                    <UserMessage key={turn.id} turn={turn} />
+                  ) : (
+                    <AssistantTurnBubble
+                      key={turn.id}
+                      turn={turn}
+                      conversationResolvedChunks={conversationResolvedChunks}
+                      isLatest={index === lastAssistantIndex}
+                    />
+                  ),
+                )}
+                {/* In-flow, not panel chrome: scrolls away with history once a
+                    newer turn lands, and appears via the pin-to-bottom effect
+                    above like any other new content — instead of permanently
+                    eating thread height, which is what it used to do as a
+                    sibling of the scroller. */}
+                {refusal && <RefusalBanner refusal={refusal} />}
+              </div>
+              {/* The sentinel sits OUTSIDE the gap-bearing column: inside it, the
+                  column gap added invisible space between the last bubble and the
+                  sentinel, inflating the visible gap to the input bar. */}
+              <div ref={endRef} />
 
-          <div className={`chat-mascot-slot is-${scene}`}>
-            {scene === "presenting" ? (
-              <MascotPresenting />
-            ) : scene === "thinking" ? (
-              <MascotTyping />
-            ) : (
-              <Mascot pose={avatarPose} size="small" />
-            )}
-          </div>
+              <div className={`chat-mascot-slot is-${scene}`}>
+                {scene === "presenting" ? (
+                  <MascotPresenting />
+                ) : scene === "thinking" ? (
+                  <MascotTyping />
+                ) : (
+                  <Mascot pose={avatarPose} size="small" />
+                )}
+              </div>
+            </>
+          )}
         </div>
       </div>
+      {/* Only meaningful once there is a thread to scroll back into — the
+          welcome state has nothing below the fold to jump to. */}
+      {!atBottom && !isEmpty && (
+        <button type="button" className="chat-jump" onClick={jumpToBottom}>
+          Jump to latest ↓
+        </button>
+      )}
     </div>
   );
 }

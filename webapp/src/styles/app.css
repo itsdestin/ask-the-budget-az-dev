@@ -806,15 +806,22 @@ nav.primary{position:relative;padding-right:44px;}
 /* ----- thread layout ------------------------------------------------------
    min-height:0 on the outer flex child is load-bearing: without it the
    scrollable child's overflow never engages and the page body scrolls
-   instead. */
-.chat-thread { flex: 1 1 auto; min-height: 0; }
+   instead. position:relative makes this the jump-to-bottom pill's
+   positioning context — it is the scroller's parent, so the pill floats
+   over the scroller's bottom edge regardless of scroll position. */
+.chat-thread { flex: 1 1 auto; min-height: 0; position: relative; }
 /* Asymmetric padding: roomy at the top so scrolled-up history clears the
-   header, tight at the bottom so the newest bubble sits close to the composer. */
+   header. The bottom pads for the floating composer chrome (--ai-bottom-
+   chrome, published by AiModePanel) plus a 12px gap, so the newest bubble
+   clears the chrome instead of sliding under it — this scroller no longer
+   stacks above the composer, the composer floats OVER it (see the floating
+   bottom chrome block below). 120px fallback ≈ tier row + input + footer
+   before the chrome's first real measurement lands. */
 /* overflow-x:hidden is load-bearing, not tidiness: overflow-y:auto silently
    computes overflow-x:auto, so anything absolutely positioned past the right
    edge (the 320px citation tooltip was the trigger) spawned a horizontal
    scrollbar across the whole thread. Same bug .yscroll fixed above. */
-.chat-thread-scroll { height: 100%; overflow-y: auto; overflow-x: hidden; padding: 24px 16px 8px; }
+.chat-thread-scroll { height: 100%; overflow-y: auto; overflow-x: hidden; padding: 24px 16px calc(var(--ai-bottom-chrome, 120px) + 12px); }
 /* min-height:100% + justify-content:flex-end bottom-anchors the column, so a
    session's first message lands just above the composer and later turns grow
    UPWARD. Also the positioning context for the mascot slot below. */
@@ -886,7 +893,11 @@ nav.primary{position:relative;padding-right:44px;}
 .chat-send:disabled { opacity: .4; cursor: not-allowed; }
 
 /* ----- welcome + suggestions ----------------------------------------------- */
-.chat-welcome { flex: 1 1 auto; display: flex; flex-direction: column; align-items: center; justify-content: center; text-align: center; padding: 32px 24px; gap: 8px; overflow-y: auto; }
+/* Welcome now lives INSIDE the one thread scroller (no second scroll
+   context, no overflow of its own) — margin:auto centers it vertically
+   inside the anchor's flex column, the same way the bottom-anchored message
+   column centers horizontally via chat-thread-column's margin:0 auto. */
+.chat-welcome { display: flex; flex-direction: column; align-items: center; justify-content: center; text-align: center; padding: 32px 24px; gap: 8px; margin: auto; }
 /* Cap the hero mascot; width follows the viewBox ratio so the pixel art never
    distorts.
    RE-SIZED with the full-page shell (2026-07-31). The old cap was a flat 55vh,
@@ -1501,6 +1512,10 @@ html.ai-fullpage header.site{flex:0 0 auto;}
   .ai-bottom-chrome{background:rgba(255,255,255,.92);backdrop-filter:blur(6px);}
 }
 
+/* Jump-to-bottom pill, floating just above the chrome, app pill recipe. */
+.chat-jump{position:absolute;bottom:calc(var(--ai-bottom-chrome,120px) + 14px);left:50%;transform:translateX(-50%);z-index:16;background:var(--card);border:1px solid var(--line);border-radius:var(--r-pill);box-shadow:var(--shadow);padding:6px 14px;font-family:inherit;font-size:12px;font-weight:800;color:var(--ink-2);cursor:pointer;transition:border-color .15s,color .15s;}
+.chat-jump:hover{border-color:var(--az-gold);color:var(--az-gold-d);}
+
 /* ----- the tier control + composer ---------------------------------------- */
 .ai-composer{padding:8px 16px 4px;position:relative;}
 .ai-tiers{display:flex;align-items:center;gap:10px;flex-wrap:wrap;max-width:var(--ai-col);margin:0 auto 6px;}
@@ -1535,7 +1550,10 @@ html.ai-fullpage header.site{flex:0 0 auto;}
    chunk previews. Values are the tool-view primitives': small meta text, a
    --canvas-tinted row inside a --line border — so a refusal's passages look
    like every other piece of retrieved evidence in the thread. */
-.chat-refusal{flex:0 0 auto;max-width:var(--ai-col);margin:8px auto;}
+/* In-flow refusal: shares the column measure; the auto margins go — the
+   column already centers it (it renders as the last child of
+   .chat-thread-column now, not a sibling of the scroller). */
+.chat-refusal{max-width:none;margin:8px 0 0;}
 .chat-refusal-scope{margin:6px 0 0;font-style:italic;}
 .chat-refusal-chunks{list-style:none;margin:8px 0 0;padding:0;display:flex;flex-direction:column;gap:6px;}
 .chat-refusal-chunk{background:var(--card);border:1px solid var(--line);border-radius:6px;padding:6px 8px;}

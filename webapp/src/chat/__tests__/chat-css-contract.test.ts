@@ -51,4 +51,9 @@ describe("chat CSS containment contract", () => {
     expect(literals).toHaveLength(0);
     expect(css).toMatch(/--ai-col:\s*768px/);
   });
+
+  it("the scroller pads for the floating chrome and the welcome state has no second scroller", () => {
+    expect(ruleFor(".chat-thread-scroll")).toMatch(/var\(--ai-bottom-chrome/);
+    expect(ruleFor(".chat-welcome")).not.toMatch(/overflow/);
+  });
 });

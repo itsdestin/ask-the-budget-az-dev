@@ -17,7 +17,7 @@ import type { AiStatus } from "../api.js";
 import ChatThread from "./ChatThread.js";
 import Footer from "./Footer.js";
 import MessageInput from "./MessageInput.js";
-import RefusalBanner, { detectRefusal } from "./RefusalBanner.js";
+import { detectRefusal } from "./RefusalBanner.js";
 import SuggestionRow from "./SuggestionRow.js";
 import SystemHealthBanner from "./SystemHealthBanner.js";
 import { CitationBusProvider, useCitationSelected } from "./citation-context.js";
@@ -195,7 +195,7 @@ function PanelBody({ chat, status, corpus }: PanelProps) {
 
       <div className={viewerOpen ? "ai-panel-main has-source" : "ai-panel-main"}>
         <div className="ai-panel-chat" ref={chatColRef}>
-          <ChatThread state={state} mascot={mascot} />
+          <ChatThread state={state} mascot={mascot} refusal={refusal} />
 
           <div className="ai-bottom-chrome" data-testid="ai-bottom-chrome" ref={chromeRef}>
             {state.error && (
@@ -276,8 +276,6 @@ function PanelBody({ chat, status, corpus }: PanelProps) {
           </aside>
         )}
       </div>
-
-      {refusal && <RefusalBanner refusal={refusal} />}
     </section>
   );
 }
