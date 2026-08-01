@@ -2,7 +2,7 @@
 
 **Date:** 2026-08-01
 **Plan:** `docs/superpowers/plans/2026-08-01-standalone-plan-5-admin-packaging.md`, Track 3 Task 14
-**Spec:** S7 (unzip to `%LOCALAPPDATA%`, embeddable Python, all model weights pre-bundled, first run downloads nothing), S8 (launcher → Chrome `--app`)
+**Spec:** S7 (unzip to `%LOCALAPPDATA%`, embeddable Python, all model weights pre-bundled, first run downloads nothing), S8 (launcher → browser window)
 **Status:** measured; **decided 2026-08-01 — one bundle everywhere** (see [Decision](#decision-one-bundle-everywhere-decided-2026-08-01))
 **Reproduce:** `python packaging/measure.py --profile both --find-links <dir with the antlr4 wheel>`
 
@@ -326,14 +326,33 @@ below it:
 - **The vendored Temurin JRE executes** with nothing installed and no admin rights,
   which is the premise the whole one-bundle decision rests on.
 
+### Stage 2, same session — it runs
+
+`install.cmd` completed (no security prompt, no admin elevation, shortcuts created), and
+the Desktop shortcut started the server and opened the UI in a browser "relatively
+quickly, without issue". So: uvicorn starts under the embeddable interpreter, the SPA is
+served from `webapp/dist`, and the launcher's health-wait-then-open sequence works.
+
+**One thing the first run changed.** The UI opened in Chrome's `--app` mode, per S8, and
+Destin rejected it on sight: this is a reference tool consulted *alongside* a dozen
+research tabs, and app mode makes it an island to alt-tab to. S8 is amended and
+`open_window()` now passes a bare URL, so the app lands as a tab in the Chrome window the
+analyst already has open. Worth recording as a method note — the design was defensible on
+paper and wrong in ten seconds of contact with a real user, which is the argument for
+getting a rough build in front of someone early rather than polishing first.
+
 ## Still not verified
 
-- **That the server starts and serves.** Imports are not a running application.
 - **First-run offline behaviour.** The four environment levers are traced in source
-  and now known to *import*, but the network cable has not been pulled.
+  and now known to *import*, but the network cable has not been pulled. Note that the
+  laptop had internet during this run, so a lever that silently fell back to a download
+  would not have shown itself.
 - **Real retrieval.** No corpus was attached; `create_app()` falls back to stub search
   fixtures when `budget_chunks` is empty (confirmed on Linux), so the interface can be
   exercised without proving the retrieval path.
+- **Instance reuse on relaunch.** Not exercised yet — closing the window and clicking the
+  shortcut again should return in ~1 s against the already-running server rather than
+  starting a second one.
 - **`java` reached through `PATH` rather than by direct path.** `jre\bin\java.exe` ran
   when invoked explicitly; the launcher's `PATH` prepend, which is how
   opendataloader-pdf actually finds it, has not been exercised.
