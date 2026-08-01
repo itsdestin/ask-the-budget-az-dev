@@ -107,12 +107,19 @@ export function SourceView({
   // Measure the scrolling container so PdfPage knows what to fit to.
   // ResizeObserver tracks both the side panel resizing and the
   // window changing size mid-session.
+  //
+  // Must match .pdf-scroller's horizontal padding (12px each side). The seed
+  // and the observer MUST measure the same box: the observer reports
+  // contentRect (padding excluded), so the clientWidth seed subtracts the
+  // padding to match. Mixing the two box models is what used to render the
+  // page 24px short of fit-to-width.
+  const PDF_SCROLLER_PADDING_PX = 24;
   const scrollerRef = useRef<HTMLDivElement | null>(null);
   const [containerWidth, setContainerWidth] = useState(0);
   useEffect(() => {
     const el = scrollerRef.current;
     if (!el) return;
-    setContainerWidth(el.clientWidth);
+    setContainerWidth(Math.max(0, el.clientWidth - PDF_SCROLLER_PADDING_PX));
     // ResizeObserver isn't available in jsdom (used by vitest); the
     // initial clientWidth read above is enough for tests. In real
     // browsers we observe so a side-panel drag or window resize
@@ -120,8 +127,9 @@ export function SourceView({
     if (typeof ResizeObserver === "undefined") return;
     const obs = new ResizeObserver((entries) => {
       for (const entry of entries) {
-        // contentRect.width excludes scrollbar gutter — the right
-        // measurement when the canvas is the only flow child.
+        // contentRect.width excludes scrollbar gutter AND padding — the
+        // same content-box measurement as the seed above, so the two never
+        // disagree about which box they're measuring.
         setContainerWidth(entry.contentRect.width);
       }
     });
@@ -179,7 +187,7 @@ export function SourceView({
                   bbox={bbox}
                   searchTexts={searchTexts}
                   sourceText={sourceText}
-                  containerWidth={Math.max(0, containerWidth - 24)}
+                  containerWidth={containerWidth}
                   zoomLevel={zoom}
                 />
               </Suspense>
