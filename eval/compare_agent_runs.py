@@ -81,8 +81,14 @@ def compare(baseline: dict[str, Any], candidate: dict[str, Any]) -> str:
         lines += ["", "> ⚠ At least one side is a **single run**: model outputs are "
                   "stochastic, so small deltas here are noise, not signal. "
                   "Re-run with --repeats 3 before acting on a borderline delta."]
+    # WHY: ▲/▼ encode "better/worse", not "value rose/fell" — e.g. a cost
+    # increase is correctly ▼ even though the delta is positive. Without this
+    # line a skimming reader sees "+0.01 ▼" and reads it as self-contradictory.
+    # One line, placed right above the first table that uses the glyphs.
     lines += ["", "## Mechanical metrics", "",
-              "| metric | baseline | candidate | Δ |", "|---|---|---|---|"]
+              "> ▲ = improvement, ▼ = regression — the direction that's "
+              "*better* for that metric, not the sign of the Δ.",
+              "", "| metric | baseline | candidate | Δ |", "|---|---|---|---|"]
     for key in sorted(set(asum) | set(bsum)):
         lines.append(_delta_row(key, asum.get(key), bsum.get(key)))
     aj, bj = baseline.get("judge"), candidate.get("judge")

@@ -70,3 +70,77 @@ def test_compare_skips_judge_when_one_side_missing(tmp_path):
     b = load_run(write_run(tmp_path, "runB", judge_precision=0.8))
     md = compare(a, b)
     assert "judge" in md.lower() and "only one run" in md.lower()
+
+
+def test_compare_report_has_a_legend_for_the_arrows():
+    # Finding 1: "+0.01 ▼" reads as self-contradictory unless the report
+    # states, near the tables, that the glyphs mean better/worse rather
+    # than up/down. Pin that the explanation is actually present.
+    md = compare(_run({"total_cost_usd": 0.01}), _run({"total_cost_usd": 0.02}))
+    assert "improvement" in md.lower()
+    assert "regression" in md.lower()
+
+
+# --- Finding 2: nothing pinned the ▲/▼ direction itself. A future edit that
+# inverted the better/worse boolean would pass every test above (they only
+# check the delta value and the noise-warning text) while emitting a
+# backwards arrow on every regression report. These five tests construct
+# `compare()`'s dict input directly (its documented shape, not a file on
+# disk) so each one isolates a single metric in a single quadrant. ---
+
+def _run(summary: dict) -> dict:
+    """Minimal baseline/candidate dict in the shape `compare()` consumes.
+    repeats=3 keeps the single-run noise banner out of the report so it
+    can't be mistaken for part of an arrow assertion."""
+    return {"name": "r", "manifest": {"repeats": 3},
+            "scores": {"summary": summary, "per_query": []}, "judge": None}
+
+
+def _row_for(md: str, key: str) -> str:
+    """The one metrics-table row for `key` — isolating the row (not just
+    scanning the whole report) is what makes each assertion pin ONE
+    quadrant instead of being satisfiable by an arrow anywhere in the doc."""
+    for line in md.splitlines():
+        if line.startswith(f"| {key} |"):
+            return line
+    raise AssertionError(f"no row for {key!r} in report:\n{md}")
+
+
+def test_arrow_higher_is_better_metric_that_rose_is_improvement():
+    md = compare(_run({"key_fact_rate_mean": 0.5}), _run({"key_fact_rate_mean": 0.8}))
+    row = _row_for(md, "key_fact_rate_mean")
+    assert "▲" in row
+    assert "▼" not in row
+
+
+def test_arrow_higher_is_better_metric_that_fell_is_regression():
+    md = compare(_run({"first_attempt_cite_rate": 0.9}), _run({"first_attempt_cite_rate": 0.5}))
+    row = _row_for(md, "first_attempt_cite_rate")
+    assert "▼" in row
+    assert "▲" not in row
+
+
+def test_arrow_lower_is_better_metric_that_fell_is_improvement():
+    # total_cost_usd DROPPING is the improvement case even though the
+    # delta is negative — this is the exact quadrant Finding 1 was about.
+    md = compare(_run({"total_cost_usd": 0.05}), _run({"total_cost_usd": 0.01}))
+    row = _row_for(md, "total_cost_usd")
+    assert "▲" in row
+    assert "▼" not in row
+
+
+def test_arrow_lower_is_better_metric_that_rose_is_regression():
+    md = compare(_run({"steps_mean": 4.0}), _run({"steps_mean": 6.0}))
+    row = _row_for(md, "steps_mean")
+    assert "▼" in row
+    assert "▲" not in row
+
+
+def test_arrow_unclassified_metric_renders_with_no_arrow():
+    # "n" is in neither direction set — the omission must stay deliberate
+    # (an informational metric with no better/worse sense) rather than an
+    # accident that a later refactor papers over with a default arrow.
+    md = compare(_run({"n": 10}), _run({"n": 12}))
+    row = _row_for(md, "n")
+    assert "▲" not in row
+    assert "▼" not in row
