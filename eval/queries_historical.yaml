@@ -1,53 +1,299 @@
-# Recency-calibration query set (spec S21, plan Task 4).
+# Explicit-year query set (spec S21 layer 1, Phase D). AUTHORED 2026-08-01.
 #
-# STATUS: EMPTY ON PURPOSE. Do not "fix" this by inventing entries.
+# This file was a placeholder until now. Its old header said "EMPTY ON
+# PURPOSE" and described a ~16-entry file holding TWO groups: explicit-year
+# queries and no-year current-intent queries. That plan changed. Read the
+# next two sections before touching anything.
 #
-# WHY it's empty: every entry here needs a real chunk_id from a real
-# ingested document, and the documents this set exists to measure —
-# the FY1984-FY2024 editions — are not in the corpus yet. They arrive
-# with the S20 backfill (PROMPT-z13-backfill.md, Phase C). Authoring
-# ground truth before then would either point at chunks that do not
-# exist (permanent failures that mean nothing) or point only at the
-# FY25-FY27 documents already on file, which is the set the ordinary
-# eval/queries.yaml already covers.
 #
-# WHAT GOES IN HERE, once the backfill lands (~16 entries):
+# WHAT IS IN HERE
+# ---------------
+# Ten EXPLICIT-YEAR queries. Every one names a fiscal year, so
+# `retrieval.query_year.parse_query_years` returns a year for it, S21
+# layer 1 turns that into a HARD fiscal-year filter, and the layer-3
+# recency boost is SKIPPED entirely.
 #
-#   1. ~10 EXPLICIT-YEAR queries against backfilled editions. These
-#      name a fiscal year, so S21 layer 1 hard-filters them and the
-#      layer-3 recency boost never touches them. Their recall must be
-#      INVARIANT across the whole weight sweep — if it moves, the
-#      "skip the boost when a year filter is active" rule is broken.
-#      Shapes: "fy2014 ADC private prison per diem",
-#              "FY 2008 appropriations report DES funding".
+# That is the whole point of the file. These queries are immune to the
+# recency boost BY DESIGN, and this set is what proves the immunity holds.
+# Their recall must be INVARIANT across the entire
+# `RECENCY_BOOST_PER_YEAR` sweep. If a number in here moves when the
+# weight moves, the skip-the-boost-when-a-year-filter-is-active rule is
+# broken — that is a code defect in `retrieval/`, not a signal that the
+# weight is too high, and the sweep must refuse to recommend anything
+# until it is fixed.
 #
-#   2. ~6 NO-YEAR CURRENT-INTENT queries — questions that name no year
-#      but obviously mean the newest edition, with the NEWEST
-#      edition's chunk as ground truth. These are the ones the boost
-#      exists to rescue: after the backfill, twenty near-identical
-#      editions of the same per-agency page compete for the same
-#      query and the newest has no inherent advantage.
-#      Shapes: "what is the AHCCCS provider rate increase",
-#              "how many DCS caseworkers are funded".
 #
-# The two groups are NOT separate files and carry no group marker:
-# eval/calibrate_recency.py splits them by running the same year
-# parser retrieval uses (retrieval/query_year.parse_query_years), so
-# the split can never disagree with what the pipeline actually does.
+# WHAT IS *NOT* IN HERE ANY MORE — READ THIS IF YOU MAINTAIN calibrate_recency.py
+# ------------------------------------------------------------------------------
+# The old header promised a second group in this same file: ~6 NO-YEAR
+# current-intent queries whose ground truth was the newest edition's
+# chunk, which `eval/calibrate_recency.py` splits out by running the year
+# parser. Those queries now live in **eval/queries_recency.yaml** and they
+# are a DIFFERENT SHAPE — no `expected_chunks` at all, because their
+# ground truth turned out not to be a chunk.
 #
-# Schema is identical to eval/queries.yaml — id / query / type /
-# expected_chunks[{chunk_id, dimensions, anchor_text}] /
-# expected_refusal. Do not add refusal-type queries here; the sweep
-# scores recall, and a refusal query has no chunk to recall.
+# Why the shape changed: the requirement Destin actually stated on
+# 2026-08-01 is about ORDER, not membership. For a bare agency name, the
+# editions should come back roughly newest-first. A chunk-recall entry
+# cannot express that — a run can recall the FY2027 chunk at rank 9,
+# score a pass, and still show the analyst FY2023 at the top. So the
+# no-year group became an ordering set with its own scorer.
 #
-# TO FINISH (after the backfill):
-#   1. Author the ~16 entries above against the backfilled corpus.
-#   2. uv run python -m eval.calibrate_recency
-#   3. Set RECENCY_BOOST_PER_YEAR in retrieval/recency.py to the
-#      recommendation, then re-run eval/calibrate_refusal.py — the
-#      boost moves top_score, which is what REFUSAL_THRESHOLD in
-#      harness/constants.py is compared against.
+# CONSEQUENCE: `eval/calibrate_recency.py` as written expects to find both
+# groups here and to split them with the year parser. Pointed at this
+# file today it will find ten historical entries and ZERO no-year ones,
+# so its `no_year` set is empty. Its parser-based split is still the right
+# idea and should be kept as the guard that nothing year-named sneaks in
+# here — but the `no_year` half of the sweep must now read
+# eval/queries_recency.yaml through that file's ordering metric. That
+# wiring is the scorer's job, not this file's.
 #
-# Until then `uv run python -m eval.calibrate_recency` exits with a
-# message saying exactly this. That is the intended behaviour.
-[]
+#
+# SCHEMA
+# ------
+# Identical to eval/queries.yaml — id / query / type / expected_chunks
+# [{chunk_id, dimensions{publisher, doc_type, fiscal_year, agency},
+# anchor_text}] / expected_refusal. Validated by `eval.schema.EvalQuery`,
+# whose `type` is a Literal of lookup | comparison | refusal, so every
+# entry here is `lookup`.
+#
+# NO REFUSAL ENTRIES. The sweep scores recall, and a refusal query has no
+# chunk to recall.
+#
+#
+# HOW THESE WERE AUTHORED, AND WHAT WAS VERIFIED
+# ----------------------------------------------
+# Hand-authored against the live corpus, not synthesized. For every entry,
+# on 2026-08-01 against a 28,530-chunk / 1,429-document corpus:
+#
+#   * the chunk_id was confirmed to EXIST in `budget_chunks`
+#   * the anchor_text was confirmed to be a LITERAL substring of that
+#     chunk's `text` (byte-for-byte, `anchor in chunk.text`)
+#   * the dimensions were read off the row, not guessed
+#   * the query was run through the real pipeline
+#     (`retrieve(RetrievalRequest(query=..., corpus="budget_chunks",
+#     top_k=20))`) and the target chunk was confirmed present, at the rank
+#     recorded in each entry's comment. Every one lands in the top 5 today
+#   * `parse_query_years(query)` was confirmed NON-EMPTY, so layer 1
+#     really does filter and the entry really is testing immunity
+#
+# Nothing in this file was invented. A candidate query with no genuine
+# answer in the corpus was dropped rather than pointed at an approximate
+# chunk.
+#
+#
+# YEAR FORMS ARE VARIED ON PURPOSE
+# --------------------------------
+# `retrieval/query_year.py` parses several shapes and rejects several
+# look-alikes, and a set that only ever wrote "FY 2023" would exercise one
+# branch. Covered here: spaced four-digit ("FY 2022"), unspaced
+# four-digit ("FY2024"), bare four-digit ("2023", "2024"), and two-digit
+# with an fy prefix ("fy23", "fy25").
+#
+#
+# THE OLDER ENTRIES ARE THE VALUABLE ONES
+# ---------------------------------------
+# FIVE of the ten (h-001 … h-005) target FY2022 or FY2023 documents, where
+# the correct answer is genuinely an OLD edition. Those are the entries a
+# too-aggressive recency boost would break if the skip rule ever regressed
+# — a weight large enough to reorder by date would push a FY2022 page
+# below several FY2026/27 near-duplicates of itself. They are marked
+# `# GUARD:` individually.
+#
+#
+# CORPUS SCOPE AT AUTHORING TIME — do not extend past it
+# -----------------------------------------------------
+# JLBC Baselines FY2022-2027 and Appropriations Reports FY2022-2026 (11
+# editions, ~1,420 per-agency documents), plus 3 AGAO AFRs, 3 Governor's
+# Executive Budgets and 1 budget bill. **Pre-FY2022 editions (27 more) are
+# deliberately deferred.** Do NOT add queries assuming FY1984-FY2021
+# documents exist; there are 169 FY2021-stamped chunks in the corpus and
+# no FY2021 edition behind them. When the older editions land, THAT is the
+# moment to add "fy2014 ADC private prison per diem"-shaped entries — and
+# the moment to re-verify these ten, because a wider corpus changes what
+# competes with them inside the +/-1 year window.
+#
+#
+# ONE THING THAT WILL LOOK WRONG AND IS NOT
+# -----------------------------------------
+# h-008 names fy25 and its ground-truth chunk carries `fiscal_year: 2026`.
+# That is `ADJACENT_YEAR_WINDOW = 1` in retrieval/query_year.py working as
+# designed: a chunk's fiscal_year is the DOCUMENT's year, not the year the
+# passage is about, and an FY2025 supplemental appropriation is enacted in
+# the 2025 session's bill, which IS the FY2026 budget bill. The entry is
+# kept precisely because it exercises that window.
+#
+# AFTER ANY SWEEP: re-run eval/calibrate_refusal.py. A non-zero boost
+# lowers `top_score`, and `top_score` is what
+# `harness.constants.REFUSAL_THRESHOLD` is compared against.
+
+# GUARD: correct answer is a FY2022 document. Target at rank 1/20 on 2026-08-01.
+- id: h-001
+  query: FY 2022 Department of Child Safety caseworker funding
+  type: lookup
+  expected_chunks:
+    - chunk_id: jlbc-baseline-fy2022-dcs-0023
+      dimensions:
+        publisher: jlbc
+        doc_type: baseline-per-agency
+        fiscal_year: 2022
+        agency: "agency:dcs"
+      anchor_text: "and 1,406 FTE Positions in FY 2022 for caseworkers"
+  expected_refusal: false
+  synthesized_by: hand-authored-phase-d
+  synthesized_at: "2026-08-01T00:00Z"
+
+# GUARD: correct answer is the FY2022 document that ESTABLISHED the program.
+# Later editions describe the same program at a higher funding level, so a
+# date-sorted result set answers with the wrong number. Rank 3/20.
+- id: h-002
+  query: FY 2022 Arizona Board of Regents financial aid Arizona Promise Program
+  type: lookup
+  expected_chunks:
+    - chunk_id: jlbc-approps-fy2022-unibor-0018
+      dimensions:
+        publisher: jlbc
+        doc_type: approps-per-agency
+        fiscal_year: 2022
+        agency: "agency:unibor"
+      anchor_text: "in FY 2022 to fund the Arizona Promise Program"
+  expected_refusal: false
+  synthesized_by: hand-authored-phase-d
+  synthesized_at: "2026-08-01T00:00Z"
+
+# GUARD: FY2023. Six near-identical Private Prison Per Diem passages exist
+# across editions, differing mainly in the dollar figure — exactly the shape a
+# recency boost reorders. Rank 1/20.
+- id: h-003
+  query: FY 2023 Department of Corrections private prison per diem rate
+  type: lookup
+  expected_chunks:
+    - chunk_id: jlbc-baseline-fy2023-adc-0022
+      dimensions:
+        publisher: jlbc
+        doc_type: baseline-per-agency
+        fiscal_year: 2023
+        agency: "agency:adc"
+      anchor_text: "in FY 2023 for Private Prison Per Diem"
+  expected_refusal: false
+  synthesized_by: hand-authored-phase-d
+  synthesized_at: "2026-08-01T00:00Z"
+
+# GUARD: FY2023, two-digit year form. Rank 3/20.
+- id: h-004
+  query: fy23 AHCCCS capitation rate increase
+  type: lookup
+  expected_chunks:
+    - chunk_id: jlbc-baseline-fy2023-axs-0038
+      dimensions:
+        publisher: jlbc
+        doc_type: baseline-per-agency
+        fiscal_year: 2023
+        agency: "agency:axs"
+      anchor_text: "The Baseline also annualizes the FY 2022 capitation rate adjustment of 3.7%."
+  expected_refusal: false
+  synthesized_by: hand-authored-phase-d
+  synthesized_at: "2026-08-01T00:00Z"
+
+# GUARD: FY2023, bare four-digit year form, and a cross-cut summary document
+# (s-pdf) rather than a per-agency page. Rank 1/20.
+- id: h-005
+  query: 2023 Department of Environmental Quality water quality assurance revolving fund
+  type: lookup
+  expected_chunks:
+    - chunk_id: jlbc-baseline-fy2023-s52-0013
+      dimensions:
+        publisher: jlbc
+        doc_type: s-pdf
+        fiscal_year: 2023
+        agency: "agency:deq"
+      anchor_text: "annual funding level for the Water Quality Assurance Revolving Fund (WQARF)"
+  expected_refusal: false
+  synthesized_by: hand-authored-phase-d
+  synthesized_at: "2026-08-01T00:00Z"
+
+# Bare four-digit year form. Rank 2/20 — rank 1 is a FY2025 Executive Budget
+# passage about the same fund, which is the +/-1 window admitting a genuinely
+# adjacent document.
+- id: h-006
+  query: 2024 Department of Public Safety highway patrol funding
+  type: lookup
+  expected_chunks:
+    - chunk_id: jlbc-approps-fy2024-dps-0002
+      dimensions:
+        publisher: jlbc
+        doc_type: approps-per-agency
+        fiscal_year: 2024
+        agency: "agency:dps"
+      anchor_text: "Criminal Justice Enhancement Fund (CJEF) DPS Forensics Fund"
+  expected_refusal: false
+  synthesized_by: hand-authored-phase-d
+  synthesized_at: "2026-08-01T00:00Z"
+
+# Unspaced four-digit year form ("FY2024", no space). Rank 1/20.
+- id: h-007
+  query: FY2024 AHCCCS Proposition 204 services
+  type: lookup
+  expected_chunks:
+    - chunk_id: jlbc-baseline-fy2024-axs-0048
+      dimensions:
+        publisher: jlbc
+        doc_type: baseline-per-agency
+        fiscal_year: 2024
+        agency: "agency:axs"
+      anchor_text: "and 131 FTE Positions in FY 2024 for Proposition 204 - AHCCCS Administration costs"
+  expected_refusal: false
+  synthesized_by: hand-authored-phase-d
+  synthesized_at: "2026-08-01T00:00Z"
+
+# Two-digit year form, and the +/-1 window entry described in the header: the
+# query says fy25, the answering chunk is in the FY2026 budget bill because
+# that is where the FY2024-2025 supplemental was enacted. No agency dimension
+# — budget-bill chunks carry no agency stamp. Rank 1/20.
+- id: h-008
+  query: fy25 Arizona Department of Administration risk management premiums
+  type: lookup
+  expected_chunks:
+    - chunk_id: legislature-budget-bill-fy2026-sb1735-2025-0091
+      dimensions:
+        publisher: legislature
+        doc_type: budget-bill
+        fiscal_year: 2026
+      anchor_text: "the sum of $8,900,000 is appropriated from the risk management revolving fund"
+  expected_refusal: false
+  synthesized_by: hand-authored-phase-d
+  synthesized_at: "2026-08-01T00:00Z"
+
+# Recent edition. Present so the set is not all-old: a boost that somehow
+# LEAKED past the year filter would help h-009/h-010 and hurt h-001..h-005,
+# and a set without both halves cannot tell those apart. Rank 1/20.
+- id: h-009
+  query: FY 2026 Department of Child Safety adoption services line item
+  type: lookup
+  expected_chunks:
+    - chunk_id: jlbc-baseline-fy2026-dcs-0028
+      dimensions:
+        publisher: jlbc
+        doc_type: baseline-per-agency
+        fiscal_year: 2026
+        agency: "agency:dcs"
+      anchor_text: "in FY 2026 for Adoption Services"
+  expected_refusal: false
+  synthesized_by: hand-authored-phase-d
+  synthesized_at: "2026-08-01T00:00Z"
+
+# Newest edition in the corpus. Rank 1/20.
+- id: h-010
+  query: FY 2027 Department of Corrections inmate health care contract
+  type: lookup
+  expected_chunks:
+    - chunk_id: jlbc-baseline-fy2027-adc-0024
+      dimensions:
+        publisher: jlbc
+        doc_type: baseline-per-agency
+        fiscal_year: 2027
+        agency: "agency:adc"
+      anchor_text: "in FY 2027 for Inmate Health Care Contracted Services"
+  expected_refusal: false
+  synthesized_by: hand-authored-phase-d
+  synthesized_at: "2026-08-01T00:00Z"
