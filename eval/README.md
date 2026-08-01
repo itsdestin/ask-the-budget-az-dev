@@ -232,7 +232,6 @@ this directory. When that lands, expect Layer 1's role to shift to
 | `scoring.py` | Pure recall + refusal scoring functions |
 | `synthesize_queries.py` | One-shot LLM-driven query generator — **UNPORTED: imports retired Postgres `db.connection`, crashes** |
 | `run_eval.py` | Main runner — calls retrieve(), scores, writes results |
-| `refresh_chunk_ids.py` | Post-reingest stale-chunk_id fixer — **UNPORTED: imports retired Postgres `db.connection`, crashes** |
 | `calibrate_refusal.py` | Threshold sweep + recommendation (now reports recall) |
 | `calibrate_recency.py` | S21 weight sweep — minimal weight that restores recall |
 | `chronological.py` | The newest-first order metric (`newest_first_rate`, `mean_fiscal_year_at_k`) |
@@ -251,9 +250,9 @@ this directory. When that lands, expect Layer 1's role to shift to
 
 ## Windows note
 
-All three CLI tools (run_eval, refresh_chunk_ids, calibrate_refusal)
-reconfigure stdout to utf-8 at startup so the default Windows cp1252
-console doesn't crash on the ✓ ✗ Δ ⚠ glyphs they print.
+Every CLI tool in this directory reconfigures stdout to utf-8 at startup
+so the default Windows cp1252 console doesn't crash on the ✓ ✗ Δ ⚠ ▲ ▼
+glyphs they print.
 
 ## Layer 2 — agent-loop eval (`run_agent_eval.py`)
 
@@ -263,7 +262,9 @@ calling `retrieve()` directly. Layer 2 drives the REAL harness session
 of open-ended analyst questions, and measures what Layer 1 structurally
 cannot: agent turns, tokens, cost, whether the final answer actually
 contains the right key facts, citation discipline (how often a cite
-passes verification on the first attempt), and output hygiene (meta-
+passes verification, how often it passes on the FIRST try, and how many
+retries each citation cost), search efficiency including which filters
+the agent chose, and output hygiene (meta-
 narration leaks, internal-vocabulary leaks, a leaked download token).
 Layer 1 stays the free, fast inner loop for retrieval-only changes;
 Layer 2 is the paid outer loop for anything that touches the harness
@@ -272,12 +273,24 @@ other** — a recall percentage and a key-fact rate measure different
 things over different query sets.
 
 **This layer costs real money — every run calls a real model through
-OpenRouter.** Rough guide, Standard tier: `smoke` (~10 queries) ≈
-$0.15–0.30, `full` (~30 queries) ≈ $0.50–1.50. `dr-probe` (4
-Deep Research queries) ≈ $2–3 — Deep Research runs at roughly 40× the
-per-query cost of Standard (see the Plan 4 dogfood numbers in
-STATUS.md). The LLM judge (`judge_agent_run.py`) is a second, separate
-charge on top of a run — budget for it only when running `full`.
+OpenRouter.** Rough guide:
+
+| subset | what's in it | rough cost |
+|---|---|---|
+| `smoke` | 11 Standard-tier queries | $0.15–0.30 |
+| `full` | **all 31 Standard-tier queries — no Deep Research** | $0.50–1.50 |
+| `dr-probe` | the 4 Deep Research queries, and only those | $2–3 |
+
+**`full` is deliberately Standard-only** (spec Decision #4: "Standard for
+the full set + a fixed 4-query Deep Research probe"). Deep Research costs
+~44× Standard per query and takes ~5 minutes, so tagging even four DR
+queries into `full` would triple the run's price, push `wall_p95_ms` onto
+a ~295-second DR answer (hiding any Standard latency regression), and make
+the documented pre-merge run refuse to start on an install where an admin
+configured Standard and left Deep Research off — which `harness/settings.py`
+explicitly allows. Run `--subset dr-probe` separately, on demand or before
+a release. The LLM judge (`judge_agent_run.py`) is a second, separate charge
+on top of a run — budget for it only when running `full`.
 
 Query authoring lives in `agent_queries.yaml`, validated by
 `agent_schema.py` (`AgentQuery` / `KeyFact`, both `extra="forbid"` so a
@@ -298,8 +311,8 @@ uv run python -m eval.compare_agent_runs <baseline-dir> <candidate-dir>  # free
 
 `run_agent_eval.py` writes one directory per run —
 `eval/results/agent/<UTC-ISO>-<git-sha>/` — containing `manifest.json`
-(git sha, prompt sha256, tier→model map, corpus row counts — everything
-needed to know whether two runs are even comparable), one
+(git sha, prompt sha256, query-set sha256, tier→model map, corpus row
+counts — everything needed to know whether two runs are even comparable), one
 `<query_id>-r<N>.jsonl` transcript per (query, repeat) via
 `agent_transcript.py`, and `ledger.jsonl`. Use `--repeats N` to sample a
 query more than once — **a single run is stochastic**; a small delta
@@ -315,8 +328,46 @@ eval query runs with `check_limit` stubbed to always-allow and
 shared office spend ledger — an eval run is pre-authorized by the human
 who started it, and it must neither be blocked by S19 office limits nor
 silently accrue against them. If you're looking for eval spend in the
-office usage totals, it deliberately isn't there; add up `ledger.jsonl`
-rows (or read `total_cost_usd` in `scores.json`) instead.
+office usage totals, it deliberately isn't there.
+
+**`ledger.jsonl` is the authoritative spend record — `total_cost_usd` in
+`scores.json` is not the same number.** The ledger gets one row per model
+step, written as the step happens. `total_cost_usd` is derived from each
+query's terminal frame, and a query that CRASHED mid-turn produces an
+error frame carrying no usage at all — so the tokens it already paid for
+are invisible in `scores.json` no matter how the rows are summed.
+`cost_missing_queries` in the summary counts the queries whose cost is
+unknown for exactly this reason; if it is non-zero, add up `ledger.jsonl`
+instead of quoting `total_cost_usd`.
+
+**Reading the citation metrics.** Three numbers cover spec goal 4 and they
+answer different questions — quoting the wrong one overstates the result:
+
+- **`cite_pass_rate`** — passing attempts ÷ ALL attempts, retries included.
+  This is the number that used to be called `first_attempt_cite_rate`; it
+  never was one, and the two diverge exactly when retries happen.
+- **`first_try_cite_rate`** — of the citations the answer INTENDED (a
+  distinct `chunk_id` + `claim_span` pair), the share that passed on the
+  first attempt. This is the genuine first-try measure.
+- **`retries_per_citation`** — extra attempts per intended citation. 0 is
+  perfect; anything above 0 is the model re-shooting at a claim it already
+  tried. It under-counts by design: a retry that rewrites the `claim_span`
+  reads as a new citation rather than a retry.
+
+**Reading `retrieves_after_sufficient_mean`.** Never read it without
+`retrieves_after_sufficient_n` beside it. The per-query value only exists
+for queries where the retrieved text eventually contained every key fact,
+so the population is decided by the run's own success — a run that finds
+the facts on 20 of 31 queries averages over 20 where its baseline averaged
+over 5. `compare_agent_runs.py` withholds the better/worse arrow and prints
+a warning whenever that population moved between two runs.
+
+**Filter/corpus-parameter usage counts** (`retrieve_calls_with_filters`,
+`filtered_retrieve_rate`, `filter_dimension_counts`,
+`retrieve_calls_with_intent`, `retrieve_calls_with_top_k`,
+`deep_dive_calls`) are informational and carry **no** better/worse arrow.
+A filter is right or wrong depending on the question, and scoring filtering
+as good in itself would push the agent to filter itself out of the answer.
 
 `score_agent_run.py` is free and re-runnable — it only reads transcripts,
 so a scoring-logic improvement can be re-applied to every historical run
@@ -343,11 +394,20 @@ row, not a run-ending crash.
 candidate one into a markdown report — what differed (git sha, prompt
 sha, tier models, repeats), every mechanical metric with a
 better/worse arrow, judge metrics if both sides were judged, and named
-per-query regressions in key-fact rate. **It refuses to compare two
-runs whose `manifest.json` corpus counts differ** (`--force` to
-override) — the corpus is still growing (see STATUS.md), and a delta
-between different corpus sizes measures the corpus, not the change
-under test.
+per-query regressions in key-fact rate.
+
+**Two guards, one idea: a delta is only meaningful when you know what
+differed.** Both refuse by default and both take `--force`:
+
+- **Corpus counts differ** — the corpus is still growing (see STATUS.md),
+  so a delta between different corpus sizes measures the corpus.
+- **`queries_sha256` differs** — the runs asked different questions. This
+  hash covers each query's content (question, key facts, tier, shape), not
+  just the id list, because the case that matters most is two `full` runs
+  where somebody EDITED a key fact in between: the id lists are identical
+  and the whole delta is authoring drift. A run recorded before this hash
+  existed carries no `queries_sha256`, which reads as unknown and trips the
+  guard. A forced report carries a banner saying it was forced.
 
 Experiment loop for a change to `harness/`, `retrieval/citations.py`, or
 `harness/system-prompt.md`:

@@ -1380,8 +1380,10 @@ of these came from opening the page:
 
 ## Layer 2 agent-loop eval harness shipped (2026-08-01)
 
-Spec: `docs/superpowers/specs/2026-05-20-retrieval-eval-harness-design.md`
-(the deferred Layer 2 half). Nine tasks: query schema + transcript format,
+Spec: `docs/superpowers/specs/2026-08-01-agent-loop-eval-design.md`
+(the Layer 1 spec, `2026-05-20-retrieval-eval-harness-design.md`, is where
+the Layer 2 goal was first deferred from — it is NOT what this was built
+against). Nine tasks: query schema + transcript format,
 the money-spending runner, the free mechanical scorer, the LLM judge, and
 the run-comparison tool. Full usage docs, cost guide, and the experiment
 loop are in `eval/README.md` → "Layer 2 — agent-loop eval"; this section
@@ -1400,11 +1402,23 @@ layers' numbers are not interchangeable and must never be diffed against
 each other** — different query sets, different things measured.
 
 **It costs real money — unlike every eval that came before it.** A
-`smoke` run (~10 queries) runs roughly $0.15–0.30 on Standard tier, a
-`full` run (~30 queries) $0.50–1.50, and the 4-query `dr-probe` subset
-$2–3 (Deep Research runs ~40× the per-query cost of Standard — see the
-Plan 4 dogfood numbers above). The LLM judge is a second, separate
-charge layered on top of a run.
+`smoke` run (11 queries) runs roughly $0.15–0.30 on Standard tier, a
+`full` run $0.50–1.50, and the 4-query `dr-probe` subset $2–3 (Deep
+Research runs ~44× the per-query cost of Standard — see the Plan 4
+dogfood numbers above). The LLM judge is a second, separate charge
+layered on top of a run.
+
+**`full` is all 31 STANDARD-tier queries and contains no Deep Research
+query** — spec Decision #4, "Standard for the full set + a fixed 4-query
+Deep Research probe", which explicitly rejected full-set DR runs. The
+four DR queries briefly carried a `full` tag as well (fixed 2026-08-01):
+that put ~$3 of Deep Research into a run priced at $0.50–1.50, moved
+`wall_p95_ms` onto a ~295-second DR answer so Standard latency
+regressions became invisible, and made `--subset full` refuse to start
+on an install with Standard configured and Deep Research off — a
+configuration `harness/settings.py` explicitly allows.
+`tests/test_eval_agent_queries.py` now pins the exclusivity in both
+directions.
 
 **The runner writes its own ledger and never touches the office one.**
 `check_limit` is stubbed to always-allow and `record_usage` writes into
@@ -1442,17 +1456,53 @@ and `git add -n` staged the five derived files while refusing the two
 ignored ones. The throwaway directory was deleted afterward — nothing
 from the verification is in this commit.
 
+**Final-review fix batch, 2026-08-01** (all pre-baseline, so no committed
+results were invalidated):
+
+- **`full` is Standard-only** — see the paragraph above.
+- **`manifest.json` now carries `queries_sha256`**, a content hash of the
+  queries a run actually asked, and `compare_agent_runs.py` refuses a
+  comparison across differing query sets exactly the way it already refused
+  one across differing corpus counts (`--force` overrides both, and a forced
+  report says so). The id list alone was byte-identical when a query's
+  key_facts were EDITED between two `full` runs, so the whole delta was
+  authoring drift with nothing on the page saying so.
+- **Two metrics were renamed and two added** — anything reading `scores.json`
+  must follow. `first_attempt_cite_rate` was never a first-attempt rate; it is
+  now **`cite_pass_rate`** (passes ÷ all attempts). The genuine measure is the
+  new **`first_try_cite_rate`** (intended citations that passed on the first
+  try), with **`retries_per_citation`** beside it. The spec's promised
+  filter/corpus-parameter usage counts are now emitted too
+  (`filtered_retrieve_rate`, `filter_dimension_counts`, and friends —
+  informational, no better/worse arrow).
+- **`retrieves_after_sufficient_mean` publishes its population**
+  (`..._n` / `..._eligible`) and the compare tool withholds the better/worse
+  arrow when that population moved. The metric only exists for queries where
+  the facts were eventually found, so a genuine retrieval improvement could
+  otherwise render as a ▼ regression.
+- **`total_cost_usd` is not the authoritative spend number** — a query that
+  crashes mid-turn produces an error frame with no usage at all, so its
+  already-paid tokens are invisible. `cost_missing_queries` counts those
+  queries; `ledger.jsonl` (one row per step, written as it happens) is the
+  real record, and `eval/README.md` now says so instead of presenting the two
+  as equivalent.
+- **Transcripts are written tmp+replace**, like every other artifact here. The
+  reader's torn-file degradation stays — but a run should not manufacture the
+  damage it tolerates, since a torn transcript scores as a failed query.
+
 **No live baseline run has happened yet.** The harness is built and
-unit-tested (80 pytest specs, synthetic fixtures throughout — transcript
-read/write, scoring, the judge's JSON parsing and error handling, the
-comparison tool's corpus-count refusal) but nobody has pointed it at a
-real OpenRouter key. `eval/agent_queries.yaml` (the query set itself —
-lookup/comparison/analyze/memo/refusal/historical shapes with mechanical
-key_facts) is a separate, concurrently-authored deliverable and may not
-even exist yet in every worktree. **The acceptance step for whoever has
-a key next:** run `--subset smoke`, score it, and commit the result as
-the first baseline — every later `compare_agent_runs.py` call needs one
-to diff against.
+unit-tested (110 pytest specs, synthetic fixtures throughout —
+transcript read/write, scoring, the judge's JSON parsing and error
+handling, the comparison tool's corpus-count and query-set refusals, and
+a runner→scorer seam test that drives the REAL `HarnessSession` over a
+fake transport and then scores the transcript it produced) but nobody
+has pointed it at a real OpenRouter key. `eval/agent_queries.yaml` — the
+query set itself, 35 queries across the lookup / comparison / analyze /
+memo / refusal / historical shapes, all on the BUDGET corpus, with
+machine-checked key facts — is committed. **The acceptance step for
+whoever has a key next:** run `--subset smoke`, score it, and commit the
+result as the first baseline — every later `compare_agent_runs.py` call
+needs one to diff against.
 
 ---
 
