@@ -11,7 +11,7 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Literal
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 from ruamel.yaml import YAML
 
 
@@ -23,11 +23,24 @@ class KeyFact(BaseModel):
     substring; regex is a case-insensitive search pattern.
     """
 
+    # Forbid unknown fields — a typo'd key (e.g. "vlaue" for "value") in the
+    # hand-authored YAML would otherwise be silently dropped by pydantic's
+    # default extra="ignore", leaving this fact permanently unchecked and
+    # the query scoring a false pass/fail with no error anywhere.
+    model_config = ConfigDict(extra="forbid")
+
     kind: Literal["currency", "string", "regex"]
     value: str
 
 
 class AgentQuery(BaseModel):
+    # Forbid unknown fields — a typo'd key (e.g. "keyfacts" for "key_facts")
+    # would otherwise load silently with the field's default ([]) instead of
+    # erroring, turning a real query into a permanent, invisible failure
+    # (always 0 key facts checked) that nobody would notice without diffing
+    # the YAML against this schema by hand.
+    model_config = ConfigDict(extra="forbid")
+
     id: str
     question: str
     corpus: Literal["budget", "fiscal_notes"] = "budget"

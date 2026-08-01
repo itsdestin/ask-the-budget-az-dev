@@ -6,6 +6,7 @@ fail loudly at load time, not silently score as 0.
 from __future__ import annotations
 
 import pytest
+from pydantic import ValidationError
 
 from eval.agent_schema import AgentQuery, KeyFact, load_agent_queries
 
@@ -57,10 +58,20 @@ def test_defaults_applied(tmp_path):
 
 def test_unknown_corpus_rejected(tmp_path):
     bad = VALID.replace("corpus: budget", "corpus: postgres")
-    with pytest.raises(Exception):
+    with pytest.raises(ValidationError):
         load_agent_queries(_write(tmp_path, bad))
 
 
 def test_duplicate_ids_rejected(tmp_path):
     with pytest.raises(ValueError, match="duplicate"):
         load_agent_queries(_write(tmp_path, VALID + VALID))
+
+
+def test_misspelled_key_facts_field_rejected(tmp_path):
+    # A typo'd "keyfacts:" (missing underscore) must fail loudly at load
+    # time — with extra="ignore" (pydantic's default) this would silently
+    # load with key_facts=[] and the query would score as a permanent,
+    # invisible failure. See module docstring.
+    bad = VALID.replace("key_facts:", "keyfacts:")
+    with pytest.raises(ValidationError):
+        load_agent_queries(_write(tmp_path, bad))
