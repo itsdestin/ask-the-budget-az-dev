@@ -665,13 +665,16 @@ def check_limit(
     `search is never affected` (S19) — this function is never called on
     the search path; only Task 6's AI Mode tool loop consults it.
     """
-    if settings.provider.provider == "custom":
-        # S15/S19: a custom endpoint's cost_usd is always None (no
-        # OpenRouter usage accounting), so there is nothing numeric to
-        # compare against a dollar limit. This is NOT "no limit was
-        # configured" — it is "there is no meaningful limit to check" —
-        # which is exactly what `reason="custom endpoint"` distinguishes
-        # for a caller.
+    if not settings.provider.has_pricing:
+        # A custom endpoint with NO per-million rates entered. There is
+        # nothing numeric to compare against a dollar limit, so limits are
+        # structurally inactive — NOT "no limit was configured", which is
+        # what `reason="custom endpoint"` distinguishes for a caller.
+        #
+        # Reachable only by hand-editing settings.json (2026-07-31): the
+        # admin page refuses to save a custom endpoint without both
+        # prices, precisely so this state — silently uncapped spending —
+        # stops being something an admin can wander into.
         return LimitStatus(
             status="allowed",
             message=None,

@@ -91,6 +91,12 @@ MSG_BLANK_USERNAME = (
 )
 MSG_BAD_PROVIDER = "Provider must be either 'openrouter' or 'custom'."
 MSG_BAD_BASE_URL = "The endpoint address needs to start with http:// or https://."
+MSG_NEED_PRICES = (
+    "Enter what your AI service charges, per million tokens in and out. "
+    "Without both figures the app can't work out what anything costs, and "
+    "spending limits stop working."
+)
+MSG_NEGATIVE_PRICE = "A price can't be negative."
 MSG_BLANK_ADMIN = (
     "The admin username can't be blank — that would hand admin access "
     "to everyone. To hand over the app, type the new admin's Windows "
@@ -237,8 +243,19 @@ def _redacted(settings: Settings) -> dict[str, Any]:
             "base_url": settings.provider.base_url,
             "api_key_set": bool(settings.provider.api_key),
             "api_key_hint": _key_hint(settings.provider.api_key),
+            # Prices are NOT secret — they are what the admin typed, and
+            # the form has to render them back to be editable.
+            "prompt_usd_per_m": settings.provider.prompt_usd_per_m,
+            "completion_usd_per_m": settings.provider.completion_usd_per_m,
         },
-        "tiers": {name: {"model": cfg.model} for name, cfg in settings.tiers.items()},
+        # Resolved values, not the raw sentinels — the webapp renders these
+        # into switches, and `undefined` would read as "off" for an install
+        # whose settings.json simply predates the switches.
+        "tiers": {
+            name: {"model": cfg.model, "enabled": cfg.is_enabled}
+            for name, cfg in settings.tiers.items()
+        },
+        "ai_enabled": settings.ai_is_enabled,
         "admin_username": settings.admin_username,
         "default_monthly_limit_usd": settings.default_monthly_limit_usd,
         "user_limits": dict(settings.user_limits),
@@ -249,10 +266,13 @@ def _redacted(settings: Settings) -> dict[str, Any]:
 class ProviderBody(BaseModel):
     provider: str | None = None
     base_url: str | None = None
+    prompt_usd_per_m: float | None = None
+    completion_usd_per_m: float | None = None
 
 
 class TierBody(BaseModel):
     model: str = ""
+    enabled: bool | None = None
 
 
 class SettingsBody(BaseModel):
@@ -267,6 +287,7 @@ class SettingsBody(BaseModel):
 
     provider: ProviderBody | None = None
     tiers: dict[str, TierBody] | None = None
+    ai_enabled: bool | None = None
     admin_username: str | None = None
     default_monthly_limit_usd: float | None = None
     user_limits: dict[str, float] | None = None
@@ -315,6 +336,16 @@ def _validate(new: Settings, current: Settings, body: SettingsBody) -> None:
         raise _bad_request(MSG_BAD_PROVIDER)
     if not new.provider.base_url.startswith(("http://", "https://")):
         raise _bad_request(MSG_BAD_BASE_URL)
+    if new.provider.provider == "custom":
+        prices = (new.provider.prompt_usd_per_m, new.provider.completion_usd_per_m)
+        if any(p is not None and p < 0 for p in prices):
+            raise _bad_request(MSG_NEGATIVE_PRICE)
+        if any(p is None for p in prices):
+            # THE point of this rule: without prices, every call lands in
+            # the ledger with an unknown cost, which silently switches
+            # spend limits off office-wide. Refusing the save is how that
+            # stops being a state an admin can wander into.
+            raise _bad_request(MSG_NEED_PRICES)
 
     for cfg in new.tiers.values():
         if not _model_id_looks_valid(cfg.model, new):
@@ -363,6 +394,17 @@ def _merge(current: Settings, body: SettingsBody) -> Settings:
             provider,
             provider=(body.provider.provider or "") if "provider" in p_sent else provider.provider,
             base_url=(body.provider.base_url or "") if "base_url" in p_sent else provider.base_url,
+            # Explicit null is a real edit here ("clear this price"), so
+            # these read from the sent-set like every other field rather
+            # than treating None as "not supplied".
+            prompt_usd_per_m=(
+                body.provider.prompt_usd_per_m if "prompt_usd_per_m" in p_sent
+                else provider.prompt_usd_per_m
+            ),
+            completion_usd_per_m=(
+                body.provider.completion_usd_per_m if "completion_usd_per_m" in p_sent
+                else provider.completion_usd_per_m
+            ),
         )
     # The key rides at the TOP level of the body, not inside `provider`,
     # so a client can send the (redacted) provider block it was given back
@@ -375,11 +417,24 @@ def _merge(current: Settings, body: SettingsBody) -> Settings:
         # Per-tier merge: sending only {"standard": …} must not delete the
         # Deep Research assignment.
         for name, tier in body.tiers.items():
-            tiers[str(name)] = TierConfig(model=tier.model)
+            existing = tiers.get(str(name))
+            t_sent = tier.model_fields_set
+            tiers[str(name)] = TierConfig(
+                model=tier.model if "model" in t_sent else (existing.model if existing else ""),
+                # An omitted `enabled` keeps whatever was there — a client on
+                # an older shape must not silently switch a mode off.
+                enabled=(
+                    tier.enabled if "enabled" in t_sent
+                    else (existing.enabled if existing else None)
+                ),
+            )
 
     return Settings(
         provider=provider,
         tiers=tiers,
+        ai_enabled=(
+            body.ai_enabled if "ai_enabled" in sent else current.ai_enabled
+        ),
         admin_username=(
             body.admin_username if "admin_username" in sent and body.admin_username is not None
             else current.admin_username

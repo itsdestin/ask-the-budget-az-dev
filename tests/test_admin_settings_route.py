@@ -342,11 +342,14 @@ def test_models_route_serves_the_cached_catalog(admin_client, settings_with_key)
 
 
 def test_models_route_reports_a_custom_endpoint_honestly(admin_client, settings_with_key):
-    admin_client.put(
+    r = admin_client.put(
         "/api/admin/settings",
         json=base_body(provider={"provider": "custom",
-                                 "base_url": "https://example.test/v1"}),
+                                 "base_url": "https://example.test/v1",
+                                 "prompt_usd_per_m": 0.5,
+                                 "completion_usd_per_m": 1.5}),
     )
+    assert r.status_code == 200, r.text
     body = admin_client.get("/api/admin/models").json()
     assert body["source"] == "bundled"
     assert body["catalog"] == []
@@ -520,3 +523,152 @@ def test_the_gate_names_the_actual_admin(analyst_client):
     r = analyst_client.get("/api/admin/settings")
     assert r.status_code == 403
     assert "Someone-Else" in r.json()["detail"]
+
+
+# ---------------------------------------------------------------------------
+# Custom-endpoint pricing (2026-07-31): "unknown cost" must be unreachable
+# ---------------------------------------------------------------------------
+
+
+def test_a_custom_endpoint_without_prices_is_refused(admin_client, settings_with_key):
+    """The rule that eliminates the unknown-cost state at its source.
+
+    Without prices every call lands in the ledger with `cost_usd: None`,
+    which makes every total read "at least $X" AND switches spend limits
+    off office-wide — silently. Refusing the save is what stops that from
+    being somewhere an admin can wander into.
+    """
+    r = admin_client.put(
+        "/api/admin/settings",
+        json=base_body(provider={"provider": "custom",
+                                 "base_url": "https://example.test/v1"}),
+    )
+    assert r.status_code == 400
+    assert "per million tokens" in r.json()["detail"]
+    reset_settings_cache()
+    assert load_settings().provider.provider == "openrouter"   # untouched
+
+
+def test_a_custom_endpoint_with_only_one_price_is_refused(admin_client, settings_with_key):
+    r = admin_client.put(
+        "/api/admin/settings",
+        json=base_body(provider={"provider": "custom",
+                                 "base_url": "https://example.test/v1",
+                                 "prompt_usd_per_m": 0.5}),
+    )
+    assert r.status_code == 400
+
+
+def test_a_custom_endpoint_with_both_prices_saves(admin_client, settings_with_key):
+    r = admin_client.put(
+        "/api/admin/settings",
+        json=base_body(provider={"provider": "custom",
+                                 "base_url": "https://example.test/v1",
+                                 "prompt_usd_per_m": 0.5,
+                                 "completion_usd_per_m": 1.5}),
+    )
+    assert r.status_code == 200, r.text
+    reset_settings_cache()
+    provider = load_settings().provider
+    assert provider.provider == "custom"
+    assert provider.prompt_usd_per_m == 0.5
+    assert provider.completion_usd_per_m == 1.5
+    assert provider.has_pricing is True
+    # Round-tripped so the form can render them back for editing. Prices
+    # are not secret — unlike the key, which is still absent.
+    assert r.json()["provider"]["prompt_usd_per_m"] == 0.5
+    assert "api_key" not in r.json()["provider"]
+
+
+def test_a_negative_price_is_refused(admin_client, settings_with_key):
+    r = admin_client.put(
+        "/api/admin/settings",
+        json=base_body(provider={"provider": "custom",
+                                 "base_url": "https://example.test/v1",
+                                 "prompt_usd_per_m": -1,
+                                 "completion_usd_per_m": 1.5}),
+    )
+    assert r.status_code == 400
+    assert r.json()["detail"] == "A price can't be negative."
+
+
+def test_a_zero_price_is_allowed(admin_client, settings_with_key):
+    # A locally-hosted model genuinely costs nothing per token. That is a
+    # real answer, not a missing one.
+    r = admin_client.put(
+        "/api/admin/settings",
+        json=base_body(provider={"provider": "custom",
+                                 "base_url": "https://example.test/v1",
+                                 "prompt_usd_per_m": 0,
+                                 "completion_usd_per_m": 0}),
+    )
+    assert r.status_code == 200, r.text
+    reset_settings_cache()
+    assert load_settings().provider.has_pricing is True
+
+
+def test_openrouter_needs_no_prices(admin_client, settings_with_key):
+    # OpenRouter reports its own exact cost per call; asking the admin to
+    # retype vendor pricing would be busywork that goes stale.
+    r = admin_client.put("/api/admin/settings", json=base_body())
+    assert r.status_code == 200, r.text
+    reset_settings_cache()
+    assert load_settings().provider.has_pricing is True
+
+
+# ---------------------------------------------------------------------------
+# The AI Mode switches (2026-07-31)
+# ---------------------------------------------------------------------------
+
+
+def test_get_returns_the_switches(admin_client, settings_with_key):
+    """The webapp renders these into toggles.
+
+    Omitting them from the payload — which is exactly what shipped for an
+    hour — makes the client read `undefined`, which is falsy, so a fully
+    working install renders with AI Mode switched off.
+    """
+    body = admin_client.get("/api/admin/settings").json()
+    assert body["ai_enabled"] is True
+    assert body["tiers"]["standard"]["enabled"] is True
+    assert body["tiers"]["deep_research"]["enabled"] is True
+
+
+def test_the_master_switch_round_trips(admin_client, settings_with_key):
+    r = admin_client.put("/api/admin/settings", json=base_body(ai_enabled=False))
+    assert r.status_code == 200, r.text
+    assert r.json()["ai_enabled"] is False
+    reset_settings_cache()
+    settings = load_settings()
+    assert settings.ai_is_enabled is False
+    # NOT by deleting the key — an admin pausing AI Mode for a week must
+    # not have to re-enter it afterwards.
+    assert settings.provider.api_key == KEY
+
+
+def test_switching_a_mode_off_keeps_its_model(admin_client, settings_with_key):
+    r = admin_client.put(
+        "/api/admin/settings",
+        json=base_body(tiers={"standard": {"model": "vendor/standard", "enabled": False},
+                              "deep_research": {"model": "vendor/deep", "enabled": True}}),
+    )
+    assert r.status_code == 200, r.text
+    reset_settings_cache()
+    tier = load_settings().tiers["standard"]
+    assert tier.model == "vendor/standard"
+    assert tier.is_enabled is False
+
+
+def test_an_omitted_switch_does_not_turn_a_mode_off(admin_client, settings_with_key):
+    """A client on an older shape sends `{"model": ...}` with no `enabled`.
+
+    That must leave the mode exactly as it was, not silently switch it off.
+    """
+    r = admin_client.put(
+        "/api/admin/settings",
+        json=base_body(tiers={"standard": {"model": "vendor/other"}}),
+    )
+    assert r.status_code == 200, r.text
+    reset_settings_cache()
+    assert load_settings().tiers["standard"].is_enabled is True
+    assert load_settings().tiers["standard"].model == "vendor/other"

@@ -1238,11 +1238,18 @@ class HarnessSession:
         if not result.usage:
             return
         usage = result.usage
-        # S15: a custom endpoint reports no trustworthy cost, and the
-        # ledger's contract is that `None` means "unknown", not "free".
-        # The gate lives in ONE place — inside the totals — so the ledger
-        # row and the `_done` frame cannot report different money.
-        totals.add(usage, allow_cost=self.settings.provider.provider == "openrouter")
+        # A custom endpoint reports no trustworthy cost, so its own figure
+        # is discarded — but the admin had to enter per-million rates to
+        # configure it, so the cost is computed from this step's tokens
+        # instead of being recorded as unknown. The gate lives in ONE place
+        # (inside the totals) so the ledger row and the `_done` frame
+        # cannot report different money.
+        provider = self.settings.provider
+        totals.add(
+            usage,
+            allow_cost=provider.provider == "openrouter",
+            pricing=provider if provider.provider == "custom" else None,
+        )
         cost = totals.last_cost
         try:
             self._record_usage(
@@ -1551,14 +1558,33 @@ class _UsageTotals:
         # which the running total would hide.
         self.last_cache_read_tokens = 0
 
-    def add(self, usage: dict[str, Any], *, allow_cost: bool = True) -> None:
-        """Fold one step's usage in. `allow_cost=False` (S15's custom
-        endpoint) discards the reported cost entirely rather than
-        recording it anywhere — this is the single gate both the ledger
-        row and the `_done` frame read, so they cannot disagree about
-        whether dollars are known."""
-        self.input_tokens += _int_or_zero(usage.get("prompt_tokens"))
-        self.output_tokens += _int_or_zero(usage.get("completion_tokens"))
+    def add(
+        self,
+        usage: dict[str, Any],
+        *,
+        allow_cost: bool = True,
+        pricing: "ProviderConfig | None" = None,
+    ) -> None:
+        """Fold one step's usage in.
+
+        `allow_cost=False` (a custom endpoint) discards the provider's
+        reported cost — it isn't OpenRouter's exact accounting and must
+        not be treated as though it were.
+
+        `pricing` is the fallback that replaced "unknown" (2026-07-31).
+        When the reported cost is unusable but the admin has entered
+        per-million rates for their endpoint, the cost is computed from
+        THIS step's token counts. That keeps `cost_usd` a real number on
+        every row, which is what lets spend limits work on a custom
+        endpoint at all.
+
+        Either way this is the single gate both the ledger row and the
+        `_done` frame read, so they cannot disagree about the money.
+        """
+        step_in = _int_or_zero(usage.get("prompt_tokens"))
+        step_out = _int_or_zero(usage.get("completion_tokens"))
+        self.input_tokens += step_in
+        self.output_tokens += step_out
         details = usage.get("prompt_tokens_details")
         # A provider that reports no cache details means "we know of
         # none", which is 0. `cost_usd` is the only field where None
@@ -1569,6 +1595,8 @@ class _UsageTotals:
         self.cache_read_tokens += self.last_cache_read_tokens
         cost = usage.get("cost") if allow_cost else None
         self.last_cost = float(cost) if isinstance(cost, (int, float)) else None
+        if self.last_cost is None and pricing is not None:
+            self.last_cost = pricing.estimate_cost(step_in, step_out)
         if self.last_cost is not None:
             self.cost = (self.cost or 0.0) + self.last_cost
 

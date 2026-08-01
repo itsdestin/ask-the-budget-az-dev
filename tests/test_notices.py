@@ -309,3 +309,108 @@ def test_a_fixed_setting_is_obeyed_without_a_restart():
     after_first_turn = len(provider.bodies)
     _frames(session, "after the fix")
     assert provider.bodies[after_first_turn]["model"] == "vendor/freshly-chosen"
+
+
+# ---------------------------------------------------------------------------
+# Custom-endpoint cost estimation (2026-07-31)
+# ---------------------------------------------------------------------------
+# The change that eliminated "unknown cost". A custom endpoint's own
+# reported cost is still discarded — it isn't OpenRouter's exact
+# accounting — but the admin had to enter per-million rates to configure
+# it, so the cost is computed from the token counts instead of recorded
+# as None.
+
+
+def custom_settings(**over):
+    return Settings(
+        provider=ProviderConfig(
+            api_key="sk-test", provider="custom",
+            base_url="https://example.test/v1",
+            prompt_usd_per_m=2.0, completion_usd_per_m=10.0, **over,
+        ),
+        tiers={"standard": TierConfig(model="local/llama"),
+               "deep_research": TierConfig(model="local/llama")},
+    )
+
+
+def _recording_session(settings, provider):
+    recorded = []
+    session = HarnessSession(
+        "c1", tier="standard", user="analyst1", settings=settings,
+        executor=FakeExecutor(), transport=provider.transport(),
+        system_prompt=SYSTEM_PROMPT, tools=[],
+        check_limit=FakeLedger().check_limit,
+        record_usage=lambda *a, **k: recorded.append((a, k)),
+    )
+    return session, recorded
+
+
+def test_a_custom_endpoint_records_a_real_cost():
+    provider = Provider(lambda: sse(
+        text_chunk("hi"), finish_chunk(),
+        usage_chunk(prompt=1_000_000, completion=100_000, cost=None, cached=0),
+    ))
+    session, recorded = _recording_session(custom_settings(), provider)
+
+    list(session.stream_turn("hello"))
+
+    (_user, _tier, _model, tokens_in, tokens_out, cost), _kw = recorded[0]
+    assert tokens_in == 1_000_000 and tokens_out == 100_000
+    # 1M in at $2.00 + 0.1M out at $10.00 = $2.00 + $1.00.
+    assert cost == pytest.approx(3.0)
+
+
+def test_a_custom_endpoints_own_reported_cost_is_still_ignored():
+    """It is not OpenRouter's exact accounting and must not pose as it.
+
+    The admin's entered rates are the authority here — a number the
+    endpoint volunteered could be in another currency, or per-request, or
+    simply wrong.
+    """
+    provider = Provider(lambda: sse(
+        text_chunk("hi"), finish_chunk(),
+        usage_chunk(prompt=1_000_000, completion=0, cost=999.0, cached=0),
+    ))
+    session, recorded = _recording_session(custom_settings(), provider)
+
+    list(session.stream_turn("hello"))
+
+    (*_rest, cost), _kw = recorded[0]
+    assert cost == pytest.approx(2.0)   # from the admin's $2.00/M, not 999
+
+
+def test_an_unpriced_custom_endpoint_still_degrades_to_unknown():
+    """Only reachable by hand-editing settings.json — the admin page
+    refuses to save a custom endpoint without prices. It must degrade,
+    not crash."""
+    settings = Settings(
+        provider=ProviderConfig(api_key="sk-test", provider="custom",
+                                base_url="https://example.test/v1"),
+        tiers={"standard": TierConfig(model="local/llama")},
+    )
+    provider = Provider(lambda: sse(
+        text_chunk("hi"), finish_chunk(), usage_chunk(cost=None, cached=0),
+    ))
+    session, recorded = _recording_session(settings, provider)
+
+    list(session.stream_turn("hello"))
+
+    (*_rest, cost), _kw = recorded[0]
+    assert cost is None
+
+
+def test_spend_limits_now_work_on_a_priced_custom_endpoint():
+    """The second half of what "unknown cost" was costing the office.
+
+    A None cost didn't just make totals ugly — `check_limit` switched
+    limits off entirely, so a custom endpoint meant no cap at all.
+    """
+    from harness.ledger import check_limit
+
+    settings = custom_settings()
+    status = check_limit("analyst1", settings)
+    assert status.reason != "custom endpoint"
+
+    unpriced = Settings(provider=ProviderConfig(
+        api_key="sk-test", provider="custom", base_url="https://example.test/v1"))
+    assert check_limit("analyst1", unpriced).reason == "custom endpoint"
