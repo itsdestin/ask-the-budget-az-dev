@@ -74,6 +74,36 @@
 # on a negative figure — pick the positive side of the same sentence, or
 # use kind=regex. Bare counts (`9,200` enrollees) have no `$` and no
 # scale word either, so they must also be kind=regex.
+# `tests/test_eval_agent_queries.py::test_every_currency_fact_parses` and
+# `::test_every_regex_fact_compiles` are what MACHINE-CHECK the two traps
+# above. Before those existed (added 2026-08-01 after a review appended a
+# query with `value: "$(2.5) million"` and watched all 7 structural
+# assertions pass while fact_matches() raised at run time) this paragraph
+# was advice only, and the failure it warns about was a mid-run CRASH of
+# the scorer, discovered after paying for the model calls.
+#
+# CURRENCY FACTS MAY LIST SEVERAL ALTERNATIVES FOR ONE FIGURE.
+# `fact_matches` parses EVERY amount out of a fact's value and passes if
+# the answer contains ANY of them (`any(w ... for w in wanted)` in
+# eval/agent_scoring.py), so `value: "$A or $B"` reads as "either basis is
+# acceptable for this one number". Use it — never a second key_fact, which
+# would demand BOTH.
+#
+# REVISED FIGURES: PIN EVERY LEGITIMATE BASIS, OR YOU PUNISH ACCURACY.
+# JLBC republishes the same line across books and REVISES it. The FY 2025
+# ESA line is $822,030,600 as originally enacted, $872,588,300 in the FY
+# 2026 Baseline and $872,156,000 in the FY 2026 Appropriations Report — a
+# 6.1% spread, twelve times the scorer's 0.5% tolerance. A query that pins
+# only the original scores a model that correctly cites the LATER, MORE
+# ACCURATE figure as a key-fact MISS. (Found by review 2026-08-01 in
+# an-esa-growth and mm-esa-memo; both fixed by listing all bases.) So:
+# before pinning any figure, scan the corpus for the same line in later
+# books. Then either (a) list every basis in one currency fact, which is
+# right when the question names no document, or (b) name the required
+# basis IN THE QUESTION and say why in judge_notes — which is what
+# lk-gf-revenue-fy2026, lk-prop123-increment and lk-k12-basic-aid-fy2026
+# do, because for those the estimate-vs-enacted distinction IS the test.
+# Prefer (a) unless the query exists to test that distinction.
 #
 # RETRIEVABILITY SPOT-CHECK, 2026-08-01 (methodology + result):
 # Each of the 30 non-refusal queries was run as ONE top-20 retrieve of the
@@ -84,6 +114,12 @@
 # cm-basic-aid-3yr, cm-highway-construction, cm-supplementals-fy2026,
 # cm-adc-3yr-dr, cm-university-funding-dr, an-esa-growth, mm-esa-memo,
 # hs-enhanced-fmap-2022, hs-esa-cost-2022.
+# RE-RUN 2026-08-01 after the multi-basis ESA fix: IDENTICAL — 18 OK / 12
+# MISS, same twelve ids. Widening an-esa-growth's and mm-esa-memo's facts to
+# accept the revised figures did not make either query easier single-shot,
+# because the verbatim question reaches the ESA narrative on no basis at
+# all. That is the intended outcome: the fix stops punishing a correct
+# answer, it does not lower the retrieval bar.
 #
 # EVERY ONE OF THOSE MISSING FACTS WAS THEN CONFIRMED PRESENT IN THE
 # CORPUS by a full-table substring scan, and shown REACHABLE by a single
@@ -108,7 +144,11 @@
 # SUBSETS:
 #   full     every query (default)
 #   smoke    8-12 standard-tier queries across >=4 shapes — the cheap
-#            pre-merge run
+#            pre-merge run. Currently 11, covering ALL SIX shapes. The
+#            memo query (mm-adc-briefing) was added 2026-08-01: memo is
+#            the shape with a measured run-to-run citation-discipline
+#            failure, so the subset people actually run before merging is
+#            the last place it should have been missing. See that query.
 #   dr-probe exactly 4 deep_research queries (2 comparison, 2 analyze) —
 #            the only place the Deep Research tier is exercised, because
 #            it costs ~44x Standard and takes ~5 minutes per query
@@ -572,13 +612,23 @@
     $114,267,500 = 46%). So NAU is the most state-dependent by share and ASU
     the least, even though ASU is by far the largest in absolute dollars —
     an answer that ranks only by total dollars has missed the question.
-    HARD: the three figures sit in three separate budget-bill sections, so
-    this needs at least three retrieves. TRAP: UofA has a separate
-    Health Sciences Center section and Sierra Vista/Yuma branch lines; "main
-    campus" is the comparable unit. SPOT-CHECK: ASU and NAU surface
-    single-shot but UofA main campus does not; it is reachable at rank 1 via
-    "UNIVERSITY OF ARIZONA main campus agriculture cooperative extension
-    total main campus". Three separate retrieves are the expected behavior.
+    HARD: the three figures sit in three separate budget-bill sections
+    (legislature-budget-bill-fy2026-sb1735-2025-0082 ASU, -0083 NAU, -0084
+    UofA main campus). TRAP: UofA has a separate Health Sciences Center
+    section and Sierra Vista/Yuma branch lines; "main campus" is the
+    comparable unit. SPOT-CHECK (re-measured 2026-08-01 — the earlier note
+    was wrong on both halves and is corrected here): the question verbatim
+    surfaces NONE of the three figures, not just UofA — top_score is -4.17
+    and the top hits are Board-of-Regents and Land Department chunks. And it
+    does NOT require three retrieves: ONE reformulation naming all three
+    institutions in budget-bill vocabulary — "ARIZONA STATE UNIVERSITY
+    NORTHERN ARIZONA UNIVERSITY UNIVERSITY OF ARIZONA MAIN CAMPUS FTE
+    positions operating lump sum total appropriation" — returns all three
+    sections as the top three hits, matching NAU at rank 1, ASU at rank 2
+    and UofA main campus at rank 3. So the expected behavior is REFORMULATE
+    (toward the appropriations vocabulary), not FAN OUT; an agent that
+    issues three narrow retrieves is also fine, but an agent that issues one
+    conversational retrieve and answers from it has nothing to answer with.
 
 # ---------------------------------------------------------------------
 # ANALYZE — "what drove the change". Multi-retrieve synthesis where the
@@ -645,24 +695,57 @@
   shape: analyze
   subsets: [full]
   key_facts:
+    # MULTI-BASIS FACTS — see the "REVISED FIGURES" note in the file header.
+    # Each of these is ONE fact listing every legitimate basis for the same
+    # ESA line; fact_matches() parses all of them and passes on any one, so
+    # an answer read out of the later, MORE ACCURATE book scores the same as
+    # one read out of the original enacted budget. Pinning only the original
+    # would score the better answer as a miss.
+    #   FY 2025 ESA awards: 822,030,600 original FY 2025 enacted estimate ·
+    #     872,588,300 revised (FY 2026 Baseline) · 872,156,000 revised
+    #     (FY 2026 Appropriations Report). The revisions are +6.1%, far
+    #     outside the scorer's 0.5% currency tolerance.
+    #   FY 2026 ESA awards: 1,002,152,300 (FY 2026 Baseline) ·
+    #     1,001,720,000 (FY 2026 enacted — 0.04% apart, inside tolerance,
+    #     listed anyway so the intent is explicit rather than accidental) ·
+    #     1,061,508,600 revised (FY 2027 Baseline, +6.0%).
     - kind: currency
-      value: "$822,030,600"
+      value: "$822,030,600 or $872,588,300 or $872,156,000"
     - kind: currency
-      value: "$1,002,152,300"
+      value: "$1,002,152,300 or $1,001,720,000 or $1,061,508,600"
   judge_notes: >-
-    Empowerment Scholarship Accounts within the Basic State Aid formula:
-    $822,030,600 in FY 2025, $1,002,152,300 in FY 2026 — ESAs cross
-    $1 billion while total public school ADM is FALLING. The forecasting
-    miss is the real story: the enacted FY 2024 budget assumed 68,380 ESA
-    participants and $625,155,700 of awards; ADE reported 76,427 pupils
-    receiving disbursements, while district ADM came in 1.0% BELOW final
-    FY 2023 rather than the assumed +0.4% growth. A strong answer connects
-    the two — students moving out of districts into ESAs — and notes the
-    state does not fully recapture district-side savings. SPOT-CHECK: both
-    figures sit in the "Basic State Aid Formula Summary" Table 1 chunks and
-    miss single-shot; reachable at rank 3-4 via that table's own wording.
-    Genuinely hard, and kept: the number that matters analytically here is
-    the one buried in a table.
+    Empowerment Scholarship Accounts within the Basic State Aid formula rise
+    from roughly $822,030,600 in FY 2025 to roughly $1,002,152,300 in FY 2026
+    — ESAs cross $1 billion while total public school ADM is FALLING. WHICH
+    BASIS IS REQUIRED: either. The question asks what vouchers have done to
+    formula cost and names no budget document, so an answer built on the
+    original enacted estimates ($822,030,600 / $1,001,720,000) and an answer
+    built on the later JLBC revisions ($872,588,300 or $872,156,000 for FY
+    2025; $1,061,508,600 for FY 2026) are both correct, and the key facts
+    accept either. Do NOT grade down a revised figure — it is the more
+    accurate one. DO grade down an answer that mixes bases inside one
+    comparison (an original FY 2025 against a revised FY 2026 overstates the
+    growth) or that presents a revision without saying it is one. The
+    forecasting miss is the real story: the enacted FY 2024 budget assumed
+    68,380 ESA participants and $625,155,700 of awards; ADE reported 76,427
+    pupils receiving disbursements, while district ADM came in 1.0% BELOW
+    final FY 2023 rather than the assumed +0.4% growth. A strong answer
+    connects the two — students moving out of districts into ESAs — and notes
+    the state does not fully recapture district-side savings. SPOT-CHECK
+    (re-measured 2026-08-01): the question verbatim MISSES both facts
+    (top_score 0.88). The earlier claim that the figures live in the "Basic
+    State Aid Formula Summary" Table 1 chunks and are reachable at rank 3-4
+    via that table's wording was WRONG in two ways, and is corrected here:
+    that reformulation returns Table 1 chunks from the wrong years and
+    matches NEITHER fact, and in Table 1 the amount is a bare cell
+    ("Empowerment Scholarships 822,030,600") with no $ and no scale word, so
+    the currency matcher cannot see it in table text at all. The figures'
+    real home is the ESA-growth NARRATIVE. One reformulation —
+    "Empowerment Scholarship Account enrollment growth total awards FY 2025
+    FY 2026 estimate" — returns jlbc-baseline-fy2026-ade-0027 at RANK 1, and
+    that single chunk carries both facts ($872,588,300 and $1,002,152,300).
+    Genuinely hard, and kept: the analyst's natural wording does not reach
+    the paragraph that holds the numbers.
 
 - id: an-gf-structural-dr
   question: >-
@@ -758,7 +841,17 @@
     likely to ask about.
   corpus: budget
   shape: memo
-  subsets: [full]
+  # IN SMOKE, deliberately (2026-08-01 review, Finding 5). Smoke previously
+  # covered 5 shapes and omitted memo — precisely the shape this project has
+  # already MEASURED to be unstable: the Plan 4 live run produced 20
+  # citations on one memo prompt and ZERO on an identical rerun, an
+  # Invariant 1 failure in practice. Leaving it out of the cheap pre-merge
+  # subset meant the one run people actually make before merging could not
+  # see the one failure we know recurs. mm-adc-briefing is the memo picked
+  # (rather than mm-esa-memo) because its facts ARE single-shot retrievable,
+  # so a smoke failure here points at citation discipline rather than at
+  # retrieval difficulty — which is the whole reason it is in smoke.
+  subsets: [full, smoke]
   key_facts:
     - kind: currency
       value: "$1,600,697,200"
@@ -786,21 +879,34 @@
   shape: memo
   subsets: [full]
   key_facts:
+    # Multi-basis, for the same reason as an-esa-growth — see that query's
+    # comment and the "REVISED FIGURES" note in the file header. The FY 2026
+    # ESA line is $1,002,152,300 in the FY 2026 Baseline, $1,001,720,000 as
+    # enacted, and revised to $1,061,508,600 in the FY 2027 Baseline.
     - kind: currency
-      value: "$1,002,152,300"
+      value: "$1,002,152,300 or $1,001,720,000 or $1,061,508,600"
   judge_notes: >-
     Same instrument as mm-adc-briefing, different topic, deliberately
     duplicated because the Plan 4 finding was that citation discipline on
     memo-shaped asks is UNSTABLE RUN TO RUN — one memo query cannot
     distinguish "this model cites in memos" from "this run happened to".
-    Content: ESAs go $822,030,600 (FY 2025) to $1,002,152,300 (FY 2026)
-    inside Basic State Aid while public school ADM declines. Pass bar is
-    again verified_citations > 0 plus a real document. An answer that
-    editorializes about whether vouchers are good policy is out of scope and
-    violates the tool's framing — flag it. SPOT-CHECK: same retrieval
-    difficulty as an-esa-growth — the figure lives in a formula-summary
-    table and needs a reformulation to reach. Grade citations first
-    regardless.
+    Content: ESAs go from roughly $822,030,600 (FY 2025) to roughly
+    $1,002,152,300 (FY 2026) inside Basic State Aid while public school ADM
+    declines. WHICH BASIS IS REQUIRED: either, exactly as in an-esa-growth —
+    the later JLBC revisions ($872,588,300 / $872,156,000 for FY 2025,
+    $1,061,508,600 for FY 2026) are more accurate than the original enacted
+    estimates and must not be graded down; what IS gradeable is mixing bases
+    inside one two-year comparison, or presenting a revision without saying
+    it is one. Pass bar is again verified_citations > 0 plus a real
+    document. An answer that editorializes about whether vouchers are good
+    policy is out of scope and violates the tool's framing — flag it.
+    SPOT-CHECK (re-measured 2026-08-01): same retrieval difficulty as
+    an-esa-growth and the same correction applies — the figure is NOT
+    reachable through Basic State Aid Table 1 wording (there it is a bare
+    table cell with no $, invisible to the currency matcher); it lives in
+    the ESA-growth narrative, reachable at rank 1 via "Empowerment
+    Scholarship Account enrollment growth total awards FY 2025 FY 2026
+    estimate". Grade citations first regardless.
 
 # ---------------------------------------------------------------------
 # REFUSAL — genuinely outside this corpus. NOT merely obscure Arizona
@@ -883,16 +989,33 @@
   should_refuse: true
   judge_notes: >-
     Outside the corpus in TIME. Executive budgets in the corpus run through
-    FY 2027; no FY 2029 document exists or could. Verified 2026-08-01: with
-    the S21 year-parser hard filter in place this question retrieves ZERO
-    chunks — top_score comes back as the NO_RESULTS sentinel — so a model
-    that produces an FY 2029 answer has fabricated it with nothing in hand
-    at all. FAILURE MODE: the corpus does contain forward three-year
-    spending plans and FY 2028 revenue forecasts in the budget bill's
-    interim reporting section, so a model that broadens its query can find
-    real out-year numbers and present them as a proposal that was never
-    made. Citing an FY 2028 forecast while ANSWERING the FY 2029 question is
-    a fabrication, not partial credit.
+    FY 2027; no FY 2029 executive budget exists or could. Verified
+    2026-08-01: with the S21 year-parser hard filter in place this question
+    retrieves ZERO chunks — top_score comes back as the NO_RESULTS sentinel
+    — so a model that produces an FY 2029 answer off the verbatim question
+    has fabricated it with nothing in hand at all. FAILURE MODE, re-measured
+    2026-08-01 (the earlier note named the wrong lure — "FY 2028 revenue
+    forecasts in the budget bill's interim reporting section" — which
+    understates this badly): 152 budget chunks mention FY 2029, and TEN of
+    them are inside the Governor's own Executive Budget documents (9 in
+    governor-governors-budget-fy2027, 1 in the FY 2026 edition). The FY 2027
+    Executive Budget carries a GENERAL FUND CASH FLOW table and a GENERAL
+    FUND STRUCTURAL BALANCE table whose column headers read literally
+    "Executive Budget ... FY 2025 FY 2026 FY 2027 FY 2028 FY 2029", with
+    populated FY 2029 revenue, spending and ending-balance lines; its
+    Assumptions and Methodology section states that A.R.S. § 35-125 requires
+    estimates for the three subsequent years and that "the Executive Budget
+    provides those estimates for FY 2027, FY 2028, and FY 2029"; and several
+    initiatives advance-appropriate named FY 2029 dollar amounts (e.g.
+    $15.2 million ongoing for ADC body-worn cameras, $30.1 million for the
+    second phase of Tucson prison HVAC). So a model that broadens its query
+    can retrieve a real table, headed "Executive Budget", with a real FY 2029
+    column, and hand it over as "what the Governor proposed for FY 2029".
+    THAT is the lure, and it is a strong one. Those are FY 2029 out-year
+    ESTIMATES published inside the FY 2027 proposal, not an FY 2029 proposal
+    — no such document exists. Presenting them as one is a fabrication, not
+    partial credit; a correct answer may mention that four-year forecast
+    exists, but only while declining the question as asked.
 
 - id: rf-county-budget
   question: >-
