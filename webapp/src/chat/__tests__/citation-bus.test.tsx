@@ -4,12 +4,16 @@
 // + select() through the bus instance directly (extracted from a
 // no-op render) since CitationBus is just a typed pub/sub.
 
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { renderToString } from "react-dom/server";
+// fireEvent, not userEvent — this webapp has no @testing-library/user-event
+// dependency; every other test file in the suite drives clicks via fireEvent.
+import { fireEvent, render, screen } from "@testing-library/react";
 
 import {
   CitationBusProvider,
   useCitationBus,
+  useCitationSelected,
 } from "../citation-context";
 import type { Citation } from "../citation-extract.js";
 
@@ -92,6 +96,50 @@ describe("CitationBus contract", () => {
     bus.subscribe((c) => log.push(c));
     bus.select(fakeCitation(1));
     expect(log).toHaveLength(1);
+  });
+});
+
+// Reproduces the first-chip-click bug against the REAL provider (not the
+// standalone bus above): a viewer that mounts BECAUSE of the click that
+// selected a citation must still see that citation, even though its
+// subscribe-in-useEffect necessarily runs after the click was delivered.
+describe("CitationBusProvider replay", () => {
+  it("replays the last selection to a subscriber that mounts after the click", () => {
+    const seen = vi.fn();
+    const citation = fakeCitation(1);
+
+    function Clicker() {
+      const bus = useCitationBus();
+      return (
+        <button type="button" onClick={() => bus.select(citation)}>
+          fire
+        </button>
+      );
+    }
+    function LateViewer() {
+      useCitationSelected(seen);
+      return null;
+    }
+
+    const { rerender } = render(
+      <CitationBusProvider>
+        <Clicker />
+      </CitationBusProvider>,
+    );
+    fireEvent.click(screen.getByRole("button", { name: "fire" }));
+    expect(seen).not.toHaveBeenCalled();
+
+    // Same provider instance (React reconciles the root element in place),
+    // new child — the shape of PdfViewer mounting inside the aside that the
+    // click itself opened.
+    rerender(
+      <CitationBusProvider>
+        <Clicker />
+        <LateViewer />
+      </CitationBusProvider>,
+    );
+    expect(seen).toHaveBeenCalledTimes(1);
+    expect(seen).toHaveBeenCalledWith(citation);
   });
 });
 

@@ -15,7 +15,7 @@
 //     uses it everywhere, so the driving is RTL's.
 // Assertions are otherwise unchanged.
 
-import { act, render, screen } from "@testing-library/react";
+import { act, fireEvent, render, screen } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 
 import PdfViewer from "../PdfViewer";
@@ -129,5 +129,44 @@ describe("PdfViewer bus subscription", () => {
     expect(view.container.textContent).toContain("ghost-chunk");
     expect(view.container.textContent).toContain("[1]");
     expect(view.container.querySelector("embed")).toBeNull();
+  });
+});
+
+describe("PdfViewer mount-after-select (bus replay)", () => {
+  it("shows the source on the FIRST chip click (mount-after-select)", () => {
+    // The real sequence: chip click -> select() -> AiModePanel opens the
+    // aside -> PdfViewer mounts. Without the citation-bus replay (fixed in
+    // citation-context.tsx), PdfViewer's useCitationSelected subscribes only
+    // after this render, missing the click it was mounted to react to, and
+    // the panel would show the empty state until a second click.
+    function Clicker() {
+      const bus = useCitationBus();
+      return (
+        <button type="button" onClick={() => bus.select(citation())}>
+          chip
+        </button>
+      );
+    }
+
+    const { rerender } = render(
+      <CitationBusProvider>
+        <Clicker />
+      </CitationBusProvider>,
+    );
+    fireEvent.click(screen.getByRole("button", { name: "chip" }));
+
+    // Same provider instance, new child — PdfViewer mounting only because
+    // the click above told the surrounding panel to open it.
+    rerender(
+      <CitationBusProvider>
+        <Clicker />
+        <PdfViewer />
+      </CitationBusProvider>,
+    );
+
+    expect(screen.getByText("JLBC Baseline Book")).toBeInTheDocument();
+    expect(
+      screen.queryByText("Click a citation to see its source."),
+    ).not.toBeInTheDocument();
   });
 });

@@ -34,8 +34,16 @@ export function CitationBusProvider({ children }: { children: ReactNode }) {
   // automatically (React StrictMode mounts effects twice in dev —
   // that's the most common source of accidental double-subscribe).
   const handlersRef = useRef<Set<CitationHandler>>(new Set());
+  // The most recent selection, kept so a viewer that mounts BECAUSE of a
+  // click still receives that click. Without this the first chip click
+  // opened an empty source panel and the analyst had to click twice —
+  // the subscriber's useEffect can only run after the mount that the
+  // select() itself triggered, so by the time it subscribes the live
+  // broadcast has already passed it by.
+  const lastRef = useRef<Citation | null>(null);
 
   const select = useCallback((citation: Citation) => {
+    lastRef.current = citation;
     for (const h of handlersRef.current) {
       try {
         h(citation);
@@ -49,6 +57,19 @@ export function CitationBusProvider({ children }: { children: ReactNode }) {
 
   const subscribe = useCallback((handler: CitationHandler) => {
     handlersRef.current.add(handler);
+    if (lastRef.current !== null) {
+      // Replay is synchronous and one-shot, delivered only to the newly
+      // subscribing handler — existing subscribers already saw the live
+      // event and must not see it twice. StrictMode's double-mounted
+      // effect subscribes (and is thus replayed to) twice, but both
+      // deliveries carry the same citation into a setState, which is
+      // idempotent, so no de-dup guard is needed here.
+      try {
+        handler(lastRef.current);
+      } catch (err) {
+        console.error("[citation-bus] subscriber threw on replay:", err);
+      }
+    }
     return () => {
       handlersRef.current.delete(handler);
     };
