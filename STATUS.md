@@ -81,6 +81,57 @@ source. When something ships, update only this file.
 
 ---
 
+## Plan 5 Track 3 (packaging) — shipped, running on Windows (2026-08-01)
+
+Session B of the three parallel Plan 5 sessions. Tasks 14–17 complete; Tasks 1–13
+(Session A) and 18–27 remain. Merges `92028c5`, `74747e9`.
+
+**The bundle exists and runs.** `python packaging/build_bundle.py --version X` produces
+`dist/JLBC-Insight-X.zip` — **3.33 GB unzipped / 2.11 GB zipped**, 36,102 files —
+containing an embeddable CPython, the Windows wheel closure, a vendored Temurin JRE, the
+app source, the built SPA, and every model weight pre-seeded. **It builds on Linux**;
+`uv` resolves real Windows wheels for a foreign platform and everything else Windows-
+specific is a download rather than a compile.
+
+**Verified on Destin's work laptop, 2026-08-01** — a machine that had never had Python,
+standard user account, no admin rights: all 36,102 files extract; the full core and
+ingest closures import; `app.main` imports; the bundled JRE runs; `install.cmd` completes
+with no elevation and no endpoint-security prompt; the shortcut starts the server and
+serves the SPA; several clicks leave exactly one `pythonw.exe` (S8 relaunch-reuse);
+and **the acceptance criterion passed — an offline cold start with WiFi disconnected.**
+
+**Shape decision: one bundle everywhere** (~20 PCs), not the split the plan hedged
+toward. Vendoring a 47 MB Temurin JRE removed the need for an IT request for Java, which
+was the split's main argument; ~500 GB free per machine removed the disk argument. Two
+artefacts would have meant somebody eventually installing the search-only one on the
+ingest machine, with uploads queueing forever and no error anywhere.
+
+**S8 amended 2026-08-01:** the launcher opens an ordinary browser tab, not Chrome
+`--app` mode. Reversed within seconds of the first real user seeing it — this is a
+reference tool used alongside a dozen research tabs, not a program you live inside.
+
+**Four findings the plan did not anticipate**, all handled, all detailed in
+`docs/superpowers/investigations/2026-08-01-bundle-size.md`:
+- `opendataloader-pdf` shells out to `java` and bundles no JRE → JRE vendored
+- `mineru==3.1.6` cannot resolve wheel-only (`antlr4` 4.9.x is sdist-only) → one
+  pure-python wheel pre-built at build time. **`>=3.1.6` silently resolves to 3.4.4**,
+  which un-declines the corpus-wide re-ingest the plan rejected; it is pinned
+- `tiktoken` downloads its encoding at runtime and **fails soft** to different chunk
+  boundaries → cache pre-seeded, `TIKTOKEN_CACHE_DIR` set by the launcher
+- fastembed's model cache defaults to `%TEMP%`, which Windows deletes → `FASTEMBED_CACHE_PATH` set
+
+**Open, blocking nothing:**
+- **Real retrieval is untested.** Every Windows run so far had an empty data dir, where
+  `create_app()` serves stub fixtures. Needs the 4.9 GB corpus copied to the laptop —
+  deferred while the backfill is writing to it.
+- **Session A owes two changes** (`docs/superpowers/investigations/2026-08-01-bundle-app-requirements.md`):
+  a per-machine `ingest_enabled` flag defaulting to **OFF** — one bundle everywhere means
+  all 20 machines would otherwise start a worker — **and** a visible admin warning when
+  uploads are queued with no machine draining them, without which "off by default"
+  recreates the silent pile-up the one-bundle decision was made to avoid.
+- `install.cmd` writes `machine.json` by hand; should call `app/machine_config.py` once
+  Task 10 lands.
+
 ## Z13 backfill — IN PROGRESS (2026-07-31)
 
 Runbook: [`PROMPT-z13-backfill.md`](PROMPT-z13-backfill.md). Spec: S20 (scope),
@@ -761,6 +812,35 @@ Entries still marked 🔴 are genuinely open.**
 - **The footer states no corpus size.** It said "382 docs"; Plan 3's upload
   queue falsifies any hardcoded count on first use, and there is no
   corpus-count endpoint to read instead. Restore one when there is.
+- **[v2, DEFERRED 2026-07-31] Drop the AI Mode corpus picker; let relevance
+  choose the corpus.** Destin: "I really don't want a toggle for two distinct
+  budget/fiscal-note corpus modes — I'd rather the model pull the right
+  documents based on its own determination." Deferred to a v2 pass, not
+  rejected. The investigation is recorded here so it isn't re-done:
+  - **The UI is the cheap part** (~20 min): delete the picker, the `key={corpus}`
+    remount, and 3 specs in `webapp/src/pages/Ai.test.tsx`.
+  - **The cost is the system prompt** — `harness/system-prompt.md` carries **20
+    `{{#when corpus=…}}` blocks across 1,107 lines** (corpus-specific retrieval
+    recipes, filter dimensions, doc-lifecycle guidance). Merging them into one
+    both-corpora prompt is real prompt engineering with eval risk.
+  - **Nothing is needed in `retrieval/pipeline.py`** — `RetrievalRequest.corpus`
+    already exists, so retrieval is per-call corpus-aware today.
+  - **Preferred design: search BOTH corpora, don't make the model choose.**
+    Embed the query once (the embedding is corpus-independent), run both hybrid
+    searches concurrently, merge into ONE rerank pool (top-10 each, so the pool
+    stays at today's 20 and the cost is nearly unchanged), and label each result
+    with its corpus. This removes the failure mode rather than relying on the
+    model to avoid it — a mis-classified question currently answers out of the
+    wrong corpus, cited and confident. It also makes the S22 cache prefix
+    corpus-independent.
+  - **The subtle piece is `cite`.** `validate_cite(body, corpus=…)` needs to
+    know which corpus a chunk came from. Do NOT ask the model to re-state it —
+    have `ToolExecutor` record chunk_id → corpus from every retrieve result it
+    already sees, and resolve from that map. `/api/chunks/{id}` (which takes a
+    `corpus` query param) needs the same treatment.
+  - **Prerequisite:** build ground truth for `eval/fiscal_note_queries.yaml`
+    (~1 h against the now-complete note corpus). Without it a merged-retrieval
+    change is protected by the budget eval only.
 - Conversation persistence is in-memory per app run (accepted).
 - The faithfulness verifier (WS3) and audit-log writer (WS5) remain unbuilt —
   citation enforcement is still chunk-id + quote-in-text + span sanity.
