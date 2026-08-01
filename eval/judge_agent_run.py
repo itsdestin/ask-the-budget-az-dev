@@ -28,7 +28,41 @@ DEFAULT_QUERIES = "eval/agent_queries.yaml"
 DEFAULT_JUDGE_MODEL = "anthropic/claude-sonnet-5"
 PROMPT_PATH = Path(__file__).resolve().parent / "agent_judge_prompt.md"
 
+# Strips a code fence ONLY when it opens at the very start of the reply
+# and/or closes at the very end — i.e. a reply that is JUST
+# "```json\n{...}\n```" with nothing else around it. It does NOT help when
+# the judge adds any leading prose ("Here's my answer:\n```json...") or
+# trailing commentary after the closing fence, because `^`/`$` anchor to
+# the whole string, not to the fence's own position. _find_first_json_object
+# (below) is what handles those shapes; this stays as a cheap first pass.
 _FENCE_RE = re.compile(r"^\s*```(?:json)?\s*|\s*```\s*$")
+
+
+def _find_first_json_object(text: str) -> Any:
+    r"""Locate and parse the first complete JSON value that begins at a
+    literal `{` anywhere in `text`. Handles a judge reply with prose
+    around the JSON in either direction ("Here's my answer:\n```json\n{...}
+    \n```", or trailing chatter like "Hope that helps!" after the object)
+    that _FENCE_RE's edge-anchored strip does not reach.
+
+    Uses json.JSONDecoder.raw_decode rather than a brace-counting regex,
+    because raw_decode is a real JSON parser: it stops at the CORRECT
+    matching close-brace even when the object itself contains nested
+    objects (this prompt's "flags": {...}), which a naive non-greedy
+    `\{.*?\}` regex would cut short at the first inner `}` and a greedy
+    `\{.*\}` would over-extend into any trailing prose. Returns None if no
+    `{` in the text starts a parseable JSON value, so a genuinely
+    prose-only reply (no JSON at all) still fails to parse.
+    """
+    decoder = json.JSONDecoder()
+    start = text.find("{")
+    while start != -1:
+        try:
+            obj, _ = decoder.raw_decode(text, start)
+            return obj
+        except ValueError:
+            start = text.find("{", start + 1)
+    return None
 
 
 def build_judge_payload(query: AgentQuery, t: Transcript) -> dict[str, Any]:
@@ -38,14 +72,22 @@ def build_judge_payload(query: AgentQuery, t: Transcript) -> dict[str, Any]:
             cid = c.get("chunk_id")
             if cid:
                 chunk_texts[cid] = c.get("text") or ""
-    cited = {}
+    # WHY: a cited chunk_id sometimes has no entry in chunk_texts — the
+    # chunk was cited but never returned by a retrieve() call in THIS
+    # transcript (a real, tracked gap: STATUS.md's cross-turn-citation-
+    # metadata issue). The old code just omitted the key in that case,
+    # which looked identical to "the judge should check this text" against
+    # an empty string. Always record the key and use None as an explicit
+    # "no chunk text available to check" signal, distinct from "" (a chunk
+    # that really did retrieve with empty text) and from a real string.
+    cited: dict[str, str | None] = {}
     cite_rows = []
     for c in citations(t):
         cite_rows.append({"chunk_id": c.get("chunkId"), "quote": c.get("quote"),
                           "claim_span": c.get("claimSpan"), "ok": bool(c.get("ok"))})
         cid = c.get("chunkId")
-        if cid in chunk_texts:
-            cited[cid] = chunk_texts[cid]
+        if cid:
+            cited[cid] = chunk_texts.get(cid)
     return {"question": query.question, "judge_notes": query.judge_notes,
             "should_refuse": query.should_refuse,
             "final_answer": final_answer(t), "citations": cite_rows,
@@ -54,12 +96,26 @@ def build_judge_payload(query: AgentQuery, t: Transcript) -> dict[str, Any]:
 
 def parse_judge_json(content: str) -> dict[str, Any]:
     stripped = _FENCE_RE.sub("", content.strip())
-    try:
-        parsed = json.loads(stripped)
-    except ValueError as exc:
-        raise ValueError(f"judge returned non-JSON: {content[:200]!r}") from exc
+    parsed = _find_first_json_object(stripped)
+    if parsed is None:
+        raise ValueError(f"judge returned non-JSON: {content[:200]!r}")
     if not isinstance(parsed, dict) or "load_bearing_claims" not in parsed:
         raise ValueError(f"judge JSON missing load_bearing_claims: {stripped[:200]!r}")
+    claims = parsed["load_bearing_claims"]
+    # WHY: the prompt asks for "the claims that carry the answer", and a
+    # judge model can plausibly reply with bare strings instead of
+    # {claim, cited_verified} objects. compute_citation_scores() calls
+    # `.get(...)` on each item — a string there raises AttributeError, and
+    # because judge.json is written once at the very end of the whole run,
+    # that single uncaught exception would discard every already-graded
+    # row, not just this query's. Reject the bad shape HERE, still inside
+    # judge_one's try/except, so it becomes one judge_error row instead of
+    # a run-ending crash.
+    if not isinstance(claims, list) or not all(isinstance(c, dict) for c in claims):
+        raise ValueError(
+            f"load_bearing_claims must be a list of claim objects, not "
+            f"{type(claims).__name__}: {stripped[:200]!r}"
+        )
     return parsed
 
 
@@ -83,7 +139,16 @@ def judge_one(client: httpx.Client, base_url: str, api_key: str, model: str,
 
 
 def compute_citation_scores(judge_result: dict[str, Any], t: Transcript) -> dict[str, Any]:
-    claims = judge_result.get("load_bearing_claims") or []
+    raw_claims = judge_result.get("load_bearing_claims")
+    # WHY: hardened independently of parse_judge_json's shape validation —
+    # this function is exercised directly by tests, and a future caller
+    # could pass it unvalidated judge output too. A claim item that isn't a
+    # dict (a bare string, most plausibly) would crash `c.get(...)` with an
+    # AttributeError; filter to dict items instead of trusting the shape.
+    # Non-dict items don't count toward EITHER denominator below — they
+    # can't be judged covered or uncovered, so they can't inform precision
+    # or recall in either direction.
+    claims = [c for c in raw_claims if isinstance(c, dict)] if isinstance(raw_claims, list) else []
     covered = sum(1 for c in claims if c.get("cited_verified"))
     emitted = len(citations(t))
     return {
@@ -95,10 +160,14 @@ def compute_citation_scores(judge_result: dict[str, Any], t: Transcript) -> dict
 
 
 def main() -> int:
+    # Windows-friendly: ensure stdout can encode non-ASCII characters that
+    # show up in judge output and query text (accented agency names,
+    # en-dashes, etc.). Default cp1252 console crashes on these. Safe no-op
+    # on POSIX where stdout is already utf-8.
     try:
         sys.stdout.reconfigure(encoding="utf-8")
     except Exception:
-        pass
+        pass  # Non-stream stdout (e.g. captured in tests) lacks reconfigure
     parser = argparse.ArgumentParser(description="LLM judge over an agent-eval run (spends money)")
     parser.add_argument("run_dir", type=Path)
     parser.add_argument("--queries-file", default=DEFAULT_QUERIES)
