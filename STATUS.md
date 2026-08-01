@@ -258,6 +258,94 @@ boost has the same blind spot.
 
 ---
 
+## Plan 7 — batch extraction: Tasks 1–4 shipped (2026-08-01)
+
+Plan: `docs/superpowers/plans/2026-08-01-standalone-plan-7-batch-extraction.md`.
+Measurement: `docs/superpowers/investigations/2026-08-01-mineru-batch-mode.md`.
+Merges `71ac0ae` (runner), `6a78d64` (worker), `516542e` (spike), `10f7a50`
+(poison-pill fix). **Default-off**: `JLBC_INGEST_BATCH` unset = today's exact
+per-document behaviour, which is what made it safe to merge while the office
+is live on the ingest path.
+
+### Ground truth 2 of the plan was FALSE — found by the spike, as designed
+
+**A truncated PDF aborts the ENTIRE `mineru -p <dir>` batch**, zero output for
+every batch-mate. It fails in MinerU's pdfium preflight *before* any
+extraction, so it costs ~3.3 s rather than a wasted batch — but at
+`JLBC_INGEST_BATCH=40` one bad file would mark 40 documents failed.
+
+Fixed by probing every candidate with **pypdfium2 before staging** and
+excluding bad ones individually. **Do not "simplify" this to
+`ingest.dispatcher._pdf_page_count`** — that uses PyMuPDF, which is more
+tolerant than pdfium and therefore does not predict MinerU. Measured: a real
+PDF cut to 90% of its bytes opens fine in PyMuPDF and reports all 6 pages,
+while pdfium rejects it; **an HTML 404 body renamed `.pdf` reads to PyMuPDF as
+a valid 1-page document**, and that is a shape azjlbc.gov has actually served.
+Pinned by `test_the_probe_catches_what_pymupdf_would_have_waved_through`.
+
+A second hazard the plan did not anticipate: zero-byte and garbage PDFs are
+**silently dropped** by MinerU — `rc=0`, batch completes, filename never
+mentioned in 46 log lines. Already covered, because `_demux_one` fails any
+staged document that produced no output (the FY2024-AFR shape).
+
+### Measured, not projected
+
+**3.55×–4.64× at 20 documents** (~4.0× at the batch mean). Reported as a range
+because the two batch runs disagree 23.5% — page-cache warmth on ~5.5 GB of
+weights; the *second* was faster despite higher load. The serial half is
+corroborated externally at 41.6 s/doc / 87 docs/hr against this file's
+independently recorded ~40 s/doc / 93 docs/hr.
+
+| batch | s/page | docs/hr | peak tree RSS |
+|---|---|---|---|
+| 1 (serial) | 10.67 | 87 | 3.9 GB |
+| 5 | 3.19 | 282 | 4.5 GB |
+| 10 | 2.38 | 378 | 5.1 GB |
+| 20 | 3.01 / 2.30 | 307 / 401 | ~8 GB |
+| 40 | 1.55 | 625 | 11.7 GB |
+
+**No knee found** — 40 was the edge of the measurement, not a plateau.
+
+**Two plan claims corrected.** `WORKERS=12 BATCH=20` is NOT runnable here
+(12 × 8.1 GB ≈ 97 GB on a 121 GB box); use `WORKERS=4`. And "3.7 h → roughly
+one hour" was optimistic — **~2 h is the defensible claim**.
+
+**Extraction is not perfectly reproducible across batch sizes.** 17 of 20
+documents were byte-identical; the 3 that differ do so by **exactly one
+character** each in table HTML, with **every numeric token identical**. Isolated
+by experiment, not guessed: batch-20-vs-batch-20 is 20/20 identical, while
+batch-3 and both single-document forms agree with each other and all differ
+from batch-20. So it is batch *composition*, not run-to-run noise. No dollar
+figure moves, but a document's chunk text depends slightly on what it was
+batched with.
+
+### Task 4 — live validation, JLBC Baseline FY2021 (2026-08-01)
+
+`WORKERS=4 BATCH=20`. **134 queued → 132 live, 2 failed, in 964 s = 500
+docs/hr.** Peak memory 47 GB of 121 GB.
+
+Both failures are **azjlbc.gov 404s** (`21baseline/legsen.pdf`, `otr.pdf`) —
+the sources do not exist, not a code defect.
+
+Audited rather than assumed: documents.json count == distinct doc_ids in
+LanceDB (132 == 132), 0 duplicate chunk_ids, 0 chunks missing page or bbox,
+0 documents with zero passages. **Chunks-per-page 3.52, dead centre of its
+siblings (FY2022–27 span 3.24–3.66)**, and 0 documents in the FY2024-AFR
+shape. Spot-read 3 documents: `adc` is Corrections, `acc` is Community
+Colleges, `dps` is Public Safety — each document's text is genuinely its own,
+which is the only check that catches a stem-collision demux bug.
+
+**12 empty-text chunks (0.65%) are PRE-EXISTING, not a batch regression** —
+proven by control: FY2022 0.45%, FY2023 0.46%, FY2024 0.58%, FY2025 0.53%,
+all ingested without batch mode, all on page 2. (FY2026/27 have none.) Worth
+its own look; not caused by this work.
+
+**Ingest is per-machine and default-OFF since Plan 5 Track 4**, so a backfill
+run must set `JLBC_INGEST_ENABLED=1` or the queue silently will not run.
+`~/backfill-scripts/restart_batch.sh` does this.
+
+---
+
 ## Plan 5 Track 4 (cleanup) — shipped (2026-08-01)
 
 Tasks 18–20 plus the three orphaned bundle requirements. Handoff:
