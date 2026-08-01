@@ -1035,6 +1035,15 @@ nav.primary{position:relative;padding-right:44px;}
 .chat-tool-chevron { margin-left: auto; flex-shrink: 0; color: var(--ink-3); transition: transform .15s; }
 .chat-tool-chevron.is-open { transform: rotate(180deg); }
 .chat-tool-body { border-top: 1px solid var(--line); padding: 8px 12px; }
+
+/* ----- tool group ------------------------------------------------------------
+   Same row geometry as a single tool; the body has no background of its own so
+   header+children read as one surface, children lifted by is-inset. */
+.chat-tool-group { border-radius: var(--r-sm); border: 1px solid var(--line); background: var(--card); max-width: 65ch; overflow: hidden; }
+.chat-tool-group.is-failed { border-color: var(--chat-danger); }
+.chat-tool-group.is-failed .chat-tool-label { color: var(--chat-danger); }
+.chat-tool-group-body { padding: 4px 8px 8px; display: flex; flex-direction: column; gap: 4px; }
+.chat-tool-group-body .chat-tool + .chat-tool { margin-top: 0; }
 .chat-pulse { animation: chat-pulse 1.4s ease-in-out infinite; }
 @keyframes chat-pulse { 0%, 100% { opacity: 1; } 50% { opacity: .4; } }
 @media (prefers-reduced-motion: reduce) { .chat-pulse { animation: none; } }
