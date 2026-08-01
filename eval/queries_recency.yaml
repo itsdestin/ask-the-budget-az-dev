@@ -1,0 +1,333 @@
+# Recency-ORDERING query set (spec S21 layer 3, Phase D).
+#
+# ============================================================================
+# THIS FILE IS A CONTRACT. READ THE WHOLE HEADER BEFORE WRITING A SCORER.
+# ============================================================================
+#
+# WHY THIS FILE EXISTS
+# --------------------
+# Destin's requirement, stated 2026-08-01, in his words: for a simple
+# inquiry — just an agency name and nothing else — results should feel
+# like they come back in roughly chronological order, newest first.
+#
+# That is NOT what eval/queries.yaml measures. That file asks "did the
+# one correct chunk come back in the top N?" — a set question. This file
+# asks "were the editions returned in a sensible order?" — a sequence
+# question. A run can score 100% recall and still hand the analyst a
+# FY2023 page above a FY2027 one.
+#
+# So the ground truth here is NOT a chunk_id. There is no `expected_chunks`
+# key anywhere in this file and adding one would be a category error. The
+# ground truth is the ORDERING OF `fiscal_year` ACROSS THE RANKED RESULTS.
+#
+#
+# WHAT A QUERY IN THIS FILE IS
+# ----------------------------
+# A bare entity name. No fiscal year, no topic, no verb — the laziest
+# thing an analyst types into the box. Every query in this file was
+# checked to satisfy BOTH of:
+#
+#   * `retrieval.query_year.parse_query_years(query) == []`
+#     (load-bearing: if a query named a year, S21 layer 1 would hard-filter
+#     it and layer 3 would be SKIPPED, so the entry would silently measure
+#     nothing while still producing a plausible-looking number)
+#   * the top-10 spans >= 4 distinct fiscal years, so there is a real
+#     ordering to get right or wrong
+#
+#
+# HOW TO RUN AN ENTRY  (this is the contract — the scorer must do exactly this)
+# ----------------------------------------------------------------------------
+#   from retrieval.pipeline import RetrievalRequest, retrieve
+#   r = retrieve(RetrievalRequest(query=entry["query"],
+#                                 corpus="budget_chunks",
+#                                 top_k=entry["top_k"]))
+#   years = [h.fiscal_year for h in r.chunks]        # .chunks, NOT .results
+#
+# `years` is IN RANK ORDER, best first. `corpus` is the TABLE name
+# `budget_chunks`; the friendly name `budget` raises. Every row in the live
+# corpus has a non-null `fiscal_year` (verified 2026-08-01: 0 of 28,530),
+# but a scorer should still drop `None` before scoring rather than crash,
+# and report how many it dropped — a sudden non-zero count means an ingest
+# regression, not a ranking one.
+#
+#
+# WHAT "CORRECT" MEANS
+# --------------------
+# `years` should trend DESCENDING. Not strictly: several editions of the
+# same year legitimately tie, and one genuinely-more-relevant older page
+# outranking a newer one is fine. "Roughly chronological, newest first" is
+# the bar, which is why the baseline below is recorded as a fraction and
+# not as a pass/fail.
+#
+# The metric used to compute every `baseline` block in this file — so the
+# scorer can reproduce the numbers before changing anything:
+#
+#   adjacent_pairs      = len(years) - 1
+#   adjacent_inversions = count of (a, b) in zip(years, years[1:]) where b > a
+#                         (a strictly-newer result sitting BELOW an older one;
+#                          ties are not inversions)
+#   descending_pair_fraction = 1 - adjacent_inversions / adjacent_pairs
+#
+# 1.0 = perfectly newest-first. The measured 2026-08-01 baseline across
+# these ten queries is 0.444–0.778 (mean ~0.60), i.e. scattered.
+#
+# The scorer OWNS the final metric and may well pick a better one —
+# full-pair Kendall tau, or Spearman of fiscal_year against rank, both of
+# which see long-range disorder that adjacent pairs miss. If it does, it
+# should recompute the baselines rather than compare a new metric against
+# the `descending_pair_fraction` numbers stored here. What the scorer must
+# NOT change is the retrieval call above or the meaning of `years`.
+#
+#
+# HOW THIS SET IS MEANT TO BE USED
+# --------------------------------
+# Sweep `retrieval.recency.RECENCY_BOOST_PER_YEAR` (it is 0.0 = OFF today)
+# and watch this set's ordering score rise. It is one of three sets that
+# must be read TOGETHER, because each alone recommends a wrong answer:
+#
+#   this file              ordering improves as the weight rises — on its
+#                          own it recommends the LARGEST weight
+#   eval/queries.yaml      the 34-query regression set that gates G1. The
+#                          boost is not allowed to buy ordering at its
+#                          expense — on its own it recommends 0.0
+#   queries_historical.yaml explicit-year queries, which S21 layer 1
+#                          hard-filters. Their recall must be INVARIANT
+#                          across the whole sweep; a moving number there
+#                          means the skip-the-boost-when-filtering rule is
+#                          broken, not that the weight is too high
+#
+# Pick the SMALLEST weight that gets this file's ordering acceptable, not
+# the largest one the other two still tolerate.
+#
+# AFTERWARDS: re-run eval/calibrate_refusal.py. A non-zero boost lowers
+# `top_score`, and `top_score` is what `harness.constants.REFUSAL_THRESHOLD`
+# is compared against.
+#
+#
+# FIELD REFERENCE
+# ---------------
+#   id            r-NNN, stable. Never renumber; results are diffed by id.
+#   query         the literal query string. Must parse to zero years.
+#   type          always `recency_order`. Present so a loader can reject a
+#                 chunk-recall entry that wanders into this file.
+#   entity        the agency's catalog name, for a human reading the file.
+#   entity_form   how the query names it: `formal` | `short` | `acronym`.
+#                 Recorded because an acronym and a formal name retrieve
+#                 different documents, and if ordering behaves differently
+#                 by form that is a finding worth seeing.
+#   agency_id     canonical id from chunking/agency_catalog.py. INFORMATIONAL
+#                 ONLY — do NOT filter or score on it. Retrieval for a bare
+#                 name legitimately returns Executive Budget and budget-bill
+#                 passages that carry no agency stamp, and those are real
+#                 results an analyst sees.
+#   top_k         how many results to rank. 10 everywhere: it is what a
+#                 first screen shows, and it is what the baselines below
+#                 were measured at.
+#   min_distinct_years
+#                 the distinct-year count measured at baseline. A guard,
+#                 not a target: if a future run returns FEWER distinct
+#                 years than this, the query has stopped spanning editions
+#                 and the ordering number it produces is meaningless. Flag
+#                 the entry rather than scoring it.
+#   baseline      the 2026-08-01 measurement, for reproduction. Fields:
+#                 measured_at, recency_boost_per_year (0.0 = the shipped
+#                 OFF state), corpus_budget_chunks (28530), years,
+#                 distinct_years, adjacent_inversions, adjacent_pairs,
+#                 descending_pair_fraction.
+#
+# CORPUS AT MEASUREMENT TIME: 28,530 budget chunks / 1,429 documents.
+# JLBC Baselines FY2022-2027 and Appropriations Reports FY2022-2026 (11
+# editions, ~1,420 per-agency documents), 3 AGAO AFRs, 3 Executive Budgets,
+# 1 budget bill. Pre-FY2022 editions are deliberately deferred. Re-measure
+# the baselines when that changes — a wider corpus changes both the years
+# returned and the disorder among them.
+
+- id: r-001
+  query: Department of Corrections
+  type: recency_order
+  entity: Corrections, State Department of
+  entity_form: short
+  agency_id: agency:adc
+  top_k: 10
+  min_distinct_years: 4
+  baseline:
+    measured_at: "2026-08-01"
+    recency_boost_per_year: 0.0
+    corpus_budget_chunks: 28530
+    years: [2025, 2026, 2027, 2025, 2025, 2027, 2027, 2026, 2024, 2024]
+    distinct_years: 4
+    adjacent_inversions: 3
+    adjacent_pairs: 9
+    descending_pair_fraction: 0.667
+
+- id: r-002
+  query: AHCCCS
+  type: recency_order
+  entity: AHCCCS (Arizona Health Care Cost Containment System)
+  entity_form: acronym
+  agency_id: agency:axs
+  top_k: 10
+  min_distinct_years: 4
+  # The worst-ordered entry in the set and the most valuable one: the
+  # single most-asked-about agency, typed the way everyone types it, comes
+  # back with FY2023 in second place and FY2027 nowhere in the top ten.
+  baseline:
+    measured_at: "2026-08-01"
+    recency_boost_per_year: 0.0
+    corpus_budget_chunks: 28530
+    years: [2025, 2023, 2024, 2023, 2024, 2025, 2025, 2026, 2024, 2025]
+    distinct_years: 4
+    adjacent_inversions: 5
+    adjacent_pairs: 9
+    descending_pair_fraction: 0.444
+
+- id: r-003
+  query: Department of Child Safety
+  type: recency_order
+  entity: Child Safety, Department of
+  entity_form: short
+  agency_id: agency:dcs
+  top_k: 10
+  min_distinct_years: 6
+  baseline:
+    measured_at: "2026-08-01"
+    recency_boost_per_year: 0.0
+    corpus_budget_chunks: 28530
+    years: [2025, 2027, 2026, 2023, 2027, 2026, 2025, 2022, 2023, 2024]
+    distinct_years: 6
+    adjacent_inversions: 4
+    adjacent_pairs: 9
+    descending_pair_fraction: 0.556
+
+- id: r-004
+  query: Department of Economic Security
+  type: recency_order
+  entity: Economic Security, Department of
+  entity_form: short
+  agency_id: agency:des
+  top_k: 10
+  min_distinct_years: 4
+  baseline:
+    measured_at: "2026-08-01"
+    recency_boost_per_year: 0.0
+    corpus_budget_chunks: 28530
+    years: [2025, 2027, 2026, 2026, 2024, 2024, 2024, 2025, 2024, 2026]
+    distinct_years: 4
+    adjacent_inversions: 3
+    adjacent_pairs: 9
+    descending_pair_fraction: 0.667
+
+- id: r-005
+  query: Department of Health Services
+  type: recency_order
+  entity: Health Services, Department of
+  entity_form: short
+  agency_id: agency:dhs
+  top_k: 10
+  min_distinct_years: 6
+  baseline:
+    measured_at: "2026-08-01"
+    recency_boost_per_year: 0.0
+    corpus_budget_chunks: 28530
+    years: [2025, 2025, 2026, 2022, 2026, 2023, 2027, 2023, 2022, 2024]
+    distinct_years: 6
+    adjacent_inversions: 4
+    adjacent_pairs: 9
+    descending_pair_fraction: 0.556
+
+- id: r-006
+  query: Department of Public Safety
+  type: recency_order
+  entity: Public Safety, Department of
+  entity_form: short
+  agency_id: agency:dps
+  top_k: 10
+  min_distinct_years: 4
+  baseline:
+    measured_at: "2026-08-01"
+    recency_boost_per_year: 0.0
+    corpus_budget_chunks: 28530
+    years: [2025, 2026, 2027, 2027, 2026, 2025, 2026, 2026, 2025, 2022]
+    distinct_years: 4
+    adjacent_inversions: 3
+    adjacent_pairs: 9
+    descending_pair_fraction: 0.667
+
+- id: r-007
+  query: Arizona Board of Regents
+  type: recency_order
+  entity: Regents, Arizona Board of
+  entity_form: formal
+  agency_id: agency:unibor
+  top_k: 10
+  min_distinct_years: 5
+  baseline:
+    measured_at: "2026-08-01"
+    recency_boost_per_year: 0.0
+    corpus_budget_chunks: 28530
+    years: [2025, 2022, 2026, 2024, 2023, 2025, 2026, 2024, 2026, 2022]
+    distinct_years: 5
+    adjacent_inversions: 4
+    adjacent_pairs: 9
+    descending_pair_fraction: 0.556
+
+- id: r-008
+  query: ADEQ
+  type: recency_order
+  entity: Environmental Quality, Department of
+  entity_form: acronym
+  agency_id: agency:deq
+  top_k: 10
+  min_distinct_years: 5
+  # Second acronym in the set, and the one that retrieves almost entirely
+  # per-agency JLBC pages rather than Executive Budget prose — so it
+  # measures ordering among near-identical editions, which is the exact
+  # shape S21 layer 3 was designed for.
+  baseline:
+    measured_at: "2026-08-01"
+    recency_boost_per_year: 0.0
+    corpus_budget_chunks: 28530
+    years: [2025, 2027, 2023, 2023, 2026, 2023, 2025, 2022, 2026, 2027]
+    distinct_years: 5
+    adjacent_inversions: 5
+    adjacent_pairs: 9
+    descending_pair_fraction: 0.444
+
+- id: r-009
+  query: Department of Emergency and Military Affairs
+  type: recency_order
+  entity: Emergency and Military Affairs, Department of
+  entity_form: formal
+  agency_id: agency:ema
+  top_k: 10
+  min_distinct_years: 6
+  # Best-ordered entry at baseline (0.778). Kept deliberately: a set made
+  # only of bad cases cannot show a boost DAMAGING something that already
+  # worked.
+  baseline:
+    measured_at: "2026-08-01"
+    recency_boost_per_year: 0.0
+    corpus_budget_chunks: 28530
+    years: [2025, 2027, 2026, 2026, 2025, 2024, 2023, 2025, 2025, 2022]
+    distinct_years: 6
+    adjacent_inversions: 2
+    adjacent_pairs: 9
+    descending_pair_fraction: 0.778
+
+- id: r-010
+  query: Department of Insurance and Financial Institutions
+  type: recency_order
+  entity: Insurance and Financial Institutions, Department of
+  entity_form: formal
+  agency_id: agency:dif
+  top_k: 10
+  min_distinct_years: 5
+  baseline:
+    measured_at: "2026-08-01"
+    recency_boost_per_year: 0.0
+    corpus_budget_chunks: 28530
+    years: [2025, 2027, 2026, 2025, 2025, 2024, 2022, 2025, 2025, 2026]
+    distinct_years: 5
+    adjacent_inversions: 3
+    adjacent_pairs: 9
+    descending_pair_fraction: 0.667
