@@ -142,7 +142,19 @@
 # that inflates the score without improving the agent.
 #
 # SUBSETS:
-#   full     every query (default)
+#   full     every STANDARD-TIER query (the default tag). It is deliberately
+#            NOT "every query": the four deep_research queries below carry
+#            ONLY the dr-probe tag. Spec Decision #4 is "Standard for the
+#            full set + a fixed 4-query Deep Research probe", and it rejected
+#            full-set DR runs outright. Tagging the DR queries `full` too
+#            (the state before the 2026-08 review, Finding 1) broke that
+#            three ways: it put ~$3 of Deep Research into a run documented at
+#            $0.50-1.50; it moved wall_p95_ms onto a ~295-second DR query so
+#            a Standard latency regression became invisible; and it made the
+#            documented pre-merge run refuse to start at all on an install
+#            where an admin wired up Standard and left Deep Research off,
+#            which harness/settings.py explicitly allows.
+#            tests/test_eval_agent_queries.py::test_dr_probe_subset pins this.
 #   smoke    8-12 standard-tier queries across >=4 shapes — the cheap
 #            pre-merge run. Currently 11, covering ALL SIX shapes. The
 #            memo query (mm-adc-briefing) was added 2026-08-01: memo is
@@ -566,7 +578,7 @@
   corpus: budget
   tier: deep_research
   shape: comparison
-  subsets: [full, dr-probe]
+  subsets: [dr-probe]
   key_facts:
     - kind: currency
       value: "$1,600,697,200"
@@ -598,7 +610,7 @@
   corpus: budget
   tier: deep_research
   shape: comparison
-  subsets: [full, dr-probe]
+  subsets: [dr-probe]
   key_facts:
     - kind: currency
       value: "$1,218,177,000"
@@ -756,7 +768,7 @@
   corpus: budget
   tier: deep_research
   shape: analyze
-  subsets: [full, dr-probe]
+  subsets: [dr-probe]
   key_facts:
     - kind: currency
       value: "$18.5 billion"
@@ -787,7 +799,7 @@
   corpus: budget
   tier: deep_research
   shape: analyze
-  subsets: [full, dr-probe]
+  subsets: [dr-probe]
   key_facts:
     - kind: currency
       value: "$12.8 billion"
