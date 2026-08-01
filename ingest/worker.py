@@ -120,7 +120,7 @@ from ingest.jobs import (
 )
 from ingest.lance_writer import build_title, write_doc
 from ingest.lock import IngestLock
-from ingest.mineru_runner import MineruCancelled, MineruRunner
+from ingest.mineru_runner import MineruCancelled, MineruRunner, batch_timeout_s
 from ingest.validate import validate_doc
 from store.backup import snapshot
 from store.chunk_store import ChunkStore
@@ -510,16 +510,11 @@ def _extraction_complete(out: Path, pages: int) -> bool:
 def _batch_timeout_s(count: int) -> int | None:
     """The runner's own budget for a batch of `count` documents.
 
-    Resolved at call time rather than imported at module scope so the worker
-    half and the runner half of this feature can land on separate branches
-    without breaking each other's import. Once both are merged this can
-    become a plain import. None means "runner decides", which is the
-    documented default of `run_batch`.
+    Deliberately delegates instead of computing a budget here: the runner is
+    what actually enforces the timeout, and two independent formulas would
+    drift the moment either side is tuned.
     """
-    from ingest import mineru_runner
-
-    helper = getattr(mineru_runner, "batch_timeout_s", None)
-    return helper(count) if helper is not None else None
+    return batch_timeout_s(count)
 
 
 def extract_batch(
