@@ -344,6 +344,70 @@ its own look; not caused by this work.
 run must set `JLBC_INGEST_ENABLED=1` or the queue silently will not run.
 `~/backfill-scripts/restart_batch.sh` does this.
 
+### 🔴 A STOLEN INGEST LOCK NEVER HEARTBEATED — fixed, merge `6c7c19b`
+
+**S6 single-writer invariant violation, observed live, not theorised.**
+`IngestLock.acquire()` had two paths that take the lock; `_start_heartbeat()`
+had exactly ONE call site, on the ordinary-create path. **The stale-steal path
+set `_held = True` and returned without starting the beat.**
+
+Consequence on the shared drive: a lock taken by stealing keeps its
+`heartbeat_at` frozen at acquisition, so after the 120 s stale window **every
+other machine correctly judges it stale and steals it while the first is still
+writing** — two writers on one corpus. It is also **self-perpetuating**: once
+one steal happens, each later holder also acquires by stealing, so the
+heartbeat never runs again for that corpus's lifetime.
+
+Found by accident: a mid-write server restart left a stale lockfile, the new
+worker stole it, and the heartbeat then sat frozen for **866 seconds** while a
+live holder did real work and 147 threads queued behind it. Neither existing
+lock suite caught it because both exercised only the ordinary-create path.
+
+Fixed with a single `_take()` helper both success paths call, deliberately
+rather than a second `_start_heartbeat()` call — two paths independently
+assigning `_held` is the *shape* that allowed the omission. Guard:
+`tests/test_ingest_lock_heartbeat.py` (3 specs, verified failing before the
+fix, incl. a rival that collected 13 successful steals against an expected 0).
+Intra-process double-write was never possible — `_process_mutex` covers that —
+so the exposure was strictly cross-machine.
+
+### 🔴 SNAPSHOTS ARE THE INGEST BOTTLENECK, and Task 5's premise was wrong
+
+Plan 7 Task 5 says per-batch snapshots removed the O(n²) that justified
+`JLBC_INGEST_SNAPSHOT=off`. **They did not — they moved it.** Per-batch cut the
+count from ~3,775 to 29, but `store/backup.py::snapshot()` zips the WHOLE
+corpus with single-threaded Python `ZIP_DEFLATED` **while holding the ingest
+lock**, and the corpus grows all run.
+
+Measured 2026-08-01 mid-backfill:
+
+| symptom | measurement |
+|---|---|
+| snapshot archives | 2.3 → 10.8 → 16.8 → **17.4 GB**, one per edition |
+| lock held per snapshot | 7–15 min, single core, all other workers blocked |
+| corpus on disk | **13 GB for 37,709 rows** |
+| live LanceDB versions | **522** |
+| throughput with snapshots on | 370 docs/hr |
+| throughput with `SNAPSHOT=off` + `RETENTION=2` | **727 docs/hr**, corpus 12.5 → 6.1 GB while running |
+
+**Root cause of the 13 GB is version pileup, not row count.** `optimize()`
+prunes versions older than `JLBC_LANCE_RETENTION_MINUTES` (default 10). Writes
+land every ~1.3 s during a bulk run, so ~460 versions are always inside the
+window — 522 observed is arithmetic, not a defect in `optimize()`.
+
+**Bulk-run settings are supervised-only and live in the environment** (they die
+with the process). `~/backfill-scripts/restart_batch.sh` sets both with the
+reasoning inline. **Do NOT make the 2-minute retention an office default** —
+the prune compares version timestamps against the *pruning* machine's clock and
+~20 machines read this corpus off a shared drive.
+
+**This probably degrades the OFFICE experience too, and is not fixed.** One
+analyst uploading one document triggers a full-corpus zip under the lock; at
+6 GB that is minutes of apparent hang for a single upload, and the corpus only
+grows. Office write rates will not pile up 500 versions, so the corpus should
+stay smaller there — but zip-the-whole-corpus-per-write does not scale. An
+incremental or copy-on-write snapshot is the real fix. **Follow-up, not done.**
+
 ---
 
 ## Plan 5 Track 4 (cleanup) — shipped (2026-08-01)
