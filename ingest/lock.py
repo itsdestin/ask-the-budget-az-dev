@@ -179,9 +179,7 @@ class IngestLock:
         try:
             while True:
                 if self._try_create():
-                    self._held = True
-                    self._start_heartbeat()
-                    return self
+                    return self._take()
 
                 owner = self._read_owner()
                 if self._is_stale(owner):
@@ -190,8 +188,7 @@ class IngestLock:
                     # the deadline check rather than spinning on a busy share.
                     self._unlink_quietly()
                     if self._try_create():
-                        self._held = True
-                        return self
+                        return self._take()
 
                 remaining = deadline - time.monotonic()
                 if remaining <= 0:
@@ -200,6 +197,39 @@ class IngestLock:
         except BaseException:
             self._release_mutex()
             raise
+
+    def _take(self) -> "IngestLock":
+        """The ONE place a successful acquisition is recorded. Do not inline.
+
+        `acquire()` has two ways to win the file — the ordinary create, and
+        the create that follows stealing a stale lock — and for a while only
+        the ordinary one started the heartbeat. A lock taken by stealing
+        therefore never refreshed itself: its `heartbeat_at` stayed frozen at
+        the instant of acquisition, so after `stale_after_s` (120s) every
+        OTHER machine correctly judged it dead and stole it out from under a
+        writer that was still writing. Two writers on one corpus — the exact
+        S6 failure the heartbeat was added to prevent, reintroduced through
+        the recovery path.
+
+        It is also self-perpetuating: once one steal happens the next holder
+        also acquires by stealing, so the heartbeat never runs again for the
+        life of the corpus.
+
+        OBSERVED LIVE 2026-08-01, not theorised. A server restart during a
+        book backfill left a stale lockfile; the new worker stole it and the
+        lockfile's `heartbeat_at` then sat frozen for 866 seconds while the
+        holder did genuine work and 147 threads queued behind it.
+
+        Two paths each setting `_held = True` by hand is what let the
+        omission happen, so both now funnel through here. Keep it that way:
+        adding a third success path without a heartbeat costs one line and
+        has NO symptom until a corpus is silently corrupted.
+        """
+        self._held = True
+        # After `_held`, never before: the beat thread returns early when it
+        # sees a lock that is not held.
+        self._start_heartbeat()
+        return self
 
     def release(self) -> None:
         """Drop the lock. Safe to call when we never held it or lost it.

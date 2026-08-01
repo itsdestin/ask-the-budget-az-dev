@@ -174,6 +174,120 @@ def test_explicit_heartbeat_still_works(tmp_path):
         assert _owner(lock)["heartbeat_at"] > first
 
 
+# --- the stale-steal path (2026-08-01) --------------------------------------
+#
+# `acquire()` has TWO ways to end up holding the lock: the ordinary create,
+# and the create that follows stealing a stale lockfile. Only the first one
+# started the heartbeat, so a lock taken by stealing sat with a frozen
+# `heartbeat_at` and was itself stolen a stale window later — while its holder
+# was still writing. Observed live: 866 seconds frozen during a book backfill,
+# 147 threads queued behind it. Everything above this line tests the ordinary
+# path only, which is why the bug survived.
+
+
+def _plant_stale_lockfile(tmp_path) -> None:
+    """A crashed holder as it really looks on disk: a file, an old
+    timestamp, no process behind it."""
+    (tmp_path / "ingest.lock").write_text(
+        json.dumps({"machine": "DEAD-PC", "pid": 1, "user": "x",
+                    "heartbeat_at": time.time() - 999}),
+        encoding="utf-8",
+    )
+
+
+def test_a_lock_taken_by_stealing_heartbeats(tmp_path):
+    """THE regression guard. Same assertion as
+    `test_the_lock_heartbeats_itself_while_held`, reached down the steal
+    path instead of the create path."""
+    _plant_stale_lockfile(tmp_path)
+
+    lock = IngestLock(tmp_path, stale_after_s=0.1, heartbeat_every_s=0.05)
+    lock.acquire()
+    try:
+        assert lock.held
+        # It really was a steal, not a create — the planted file was there.
+        assert _owner(lock)["machine"] != "DEAD-PC", "we did not take the lock"
+
+        first = _owner(lock)["heartbeat_at"]
+        time.sleep(0.3)
+        later = _owner(lock)["heartbeat_at"]
+    finally:
+        lock.release()
+
+    assert later > first, (
+        "a lock acquired by stealing never refreshed itself — after the "
+        "stale window every other machine will steal it from a live writer"
+    )
+
+
+def test_a_stolen_lock_is_not_judged_stale_while_it_is_still_held(tmp_path):
+    """The end-to-end property the bug broke: a rival must never conclude a
+    live holder is dead, even when that holder acquired by stealing.
+
+    Time compressed exactly as in `test_a_long_write_cannot_have_its_lock_
+    stolen` — a 0.4s hold against a 0.15s stale window has the same shape as
+    a 200s write against the real 120s window.
+    """
+    _plant_stale_lockfile(tmp_path)
+
+    stolen: list[bool] = []
+    holder_done = threading.Event()
+
+    def hold():
+        # Acquires by STEALING the planted lockfile, then works far longer
+        # than the stale window.
+        with IngestLock(tmp_path, stale_after_s=0.15, heartbeat_every_s=0.02):
+            time.sleep(0.4)
+        holder_done.set()
+
+    holder = threading.Thread(target=hold)
+    holder.start()
+    time.sleep(0.05)
+
+    deadline = time.monotonic() + 0.35
+    while time.monotonic() < deadline:
+        # A separate object per pass, contending through the lockfile the way
+        # another MACHINE would rather than through the in-process mutex.
+        rival = IngestLock(tmp_path, stale_after_s=0.15)
+        rival._root.mkdir(parents=True, exist_ok=True)
+        if rival._try_create():
+            stolen.append(True)
+            rival._unlink_quietly()
+        elif rival._is_stale(rival._read_owner()):
+            stolen.append(True)
+        time.sleep(0.02)
+
+    holder.join(timeout=5)
+    assert holder_done.is_set()
+    assert stolen == [], (
+        "a live holder that acquired by stealing was itself judged stale — "
+        "two writers on one corpus"
+    )
+
+
+def test_release_after_a_steal_stops_and_joins_the_heartbeat(tmp_path):
+    """The hazard `release()`'s docstring names, on the steal path: an
+    in-flight beat that fires after the unlink resurrects an OWNERLESS
+    lockfile, blocking every machine until it goes stale. Plus the plain
+    leak check — no heartbeat thread may outlive its lock."""
+    _plant_stale_lockfile(tmp_path)
+    before = threading.active_count()
+
+    lock = IngestLock(tmp_path, stale_after_s=0.1, heartbeat_every_s=0.01)
+    lock.acquire()
+    assert lock.held
+    beat = lock._beat_thread
+    assert beat is not None, "the steal path started no heartbeat thread"
+
+    time.sleep(0.05)
+    lock.release()
+    time.sleep(0.08)  # long enough for several missed beats to have fired
+
+    assert not beat.is_alive(), "the heartbeat thread outlived its lock"
+    assert threading.active_count() <= before
+    assert not lock.path.exists(), "a beat resurrected the lockfile after release"
+
+
 def test_heartbeat_interval_defaults_to_well_under_the_stale_window():
     """A beat that fires once per stale window is a coin flip: one slow
     SMB round-trip and the holder looks dead."""
