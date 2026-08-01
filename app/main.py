@@ -83,6 +83,7 @@ async def _lifespan(app: FastAPI):
     embedding model; only actually *serving* should. Starlette runs this on
     real startup and when a test opts in with `with TestClient(app)`.
     """
+    from app.machine_config import ingest_enabled
     from ingest.worker import ensure_started
 
     # `create_app(ingest_worker=None)` is the explicit opt-out: this process
@@ -90,6 +91,28 @@ async def _lifespan(app: FastAPI):
     # `ensure_started` BUILDS a worker when it finds none attached, which would
     # turn the opt-out into a no-op.
     if getattr(app.state, "ingest_worker", None) is None:
+        yield
+        return
+
+    # The per-machine switch (S18 / Session B's app-requirement #1). ONE
+    # bundle is installed on all ~20 office PCs and `launcher.pyw` calls
+    # `create_app()` with no arguments, so without this every one of them
+    # starts a worker against the single shared queue. IngestLock keeps that
+    # safe, but the winner is arbitrary and may be an analyst's laptop that
+    # then spends six hours at 100% CPU on a Baseline book.
+    #
+    # Said out loud on stderr rather than silently: "off by default" plus
+    # silence is how uploads pile up on the share with nothing draining them.
+    # The admin page's queue panel carries the same warning where somebody
+    # will actually see it.
+    if not ingest_enabled():
+        print(
+            "jlbc-insight: this computer is not set to process uploads, so the "
+            "queue will not run here. Turn on 'Process uploads on this computer' "
+            "in Admin -> Corpus if this should be the machine that does it.",
+            file=sys.stderr,
+            flush=True,
+        )
         yield
         return
 

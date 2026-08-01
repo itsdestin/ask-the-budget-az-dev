@@ -49,18 +49,30 @@ if not exist "%DATA_DIR%\" (
     echo.
 )
 
-rem  Written directly rather than through the app because the app is not
-rem  running yet. SHAPE COUPLING: app/machine_config.py (Plan 5 Task 10) is the
-rem  canonical reader/writer of this file - if its schema changes, this block
-rem  changes with it. See packaging/README.md.
-if not exist "%STATE_DIR%" mkdir "%STATE_DIR%"
-> "%STATE_DIR%\machine.json" (
-    echo {
-    echo   "data_dir": "!DATA_DIR:\=\\!"
-    echo }
+rem  Written BY THE APP, not by this script. This block used to emit the JSON
+rem  by hand, which duplicated app/machine_config.py's schema in a batch file -
+rem  and that schema has already grown a second key (ingest_enabled). One
+rem  writer, one definition.
+rem
+rem  The entry point does not start a server, and it exits 0 even when the
+rem  folder cannot be reached: a network drive that is not connected during
+rem  setup is normal, and refusing to record the path would strand the user.
+"%INSTALL_DIR%\python\python.exe" -m app.machine_config --set-data-dir "!DATA_DIR!"
+if errorlevel 1 (
+    echo   WARNING: could not record the shared folder. You can set it from
+    echo            inside the app the first time you run it.
+) else (
+    echo   Recorded shared folder: !DATA_DIR!
 )
-echo   Recorded shared folder: !DATA_DIR!
 :skip_data
+
+rem --- 1b. this computer does NOT process uploads by default ----------------
+rem  One bundle is installed on every office PC. If they all processed the
+rem  upload queue, the machine that picked up a 210-page book would be
+rem  arbitrary - quite possibly an analyst's laptop, which would then sit at
+rem  100%% CPU all night. Exactly one machine should have this turned on, from
+rem  Admin -> Corpus inside the app.
+"%INSTALL_DIR%\python\python.exe" -m app.machine_config --set-ingest-enabled false >nul 2>&1
 
 rem --- 2. make MinerU's model path absolute ---------------------------------
 rem  The bundle ships a placeholder because the install location is not known

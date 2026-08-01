@@ -607,11 +607,38 @@ export interface AdminCorpus {
   dead_version_bytes: number | null;
   last_ingest_at: string | null;
   queue: { queued: number; running: number; failed: number };
+  /** Is THIS computer set to process the upload queue? Defaults to false —
+   *  one bundle is installed on ~20 office PCs and they must not all start a
+   *  worker. See app/machine_config.py::ingest_enabled. */
+  ingest_enabled_here: boolean;
+  /** Uploads are waiting and no machine is draining them. The server owns
+   *  the wording (`MSG_QUEUE_STALLED`) so it cannot drift from the flag's
+   *  own semantics; the UI renders `queue_stalled_message` verbatim. */
+  queue_stalled: boolean;
+  queue_stalled_message: string | null;
 }
 
 export async function adminCorpus(): Promise<AdminCorpus> {
   const r = await fetch("/api/admin/corpus");
   if (!r.ok) await fail(r, "corpus health");
+  return r.json();
+}
+
+/** Make (or unmake) this computer the one that processes uploads.
+ *
+ *  Per-machine, not a shared setting — settings.json lives on the share and
+ *  every machine reads it. Takes effect on the next restart here, because
+ *  the worker starts from the server's lifespan hook; the server says so in
+ *  `message` and the UI shows that sentence rather than inventing one. */
+export async function adminSetMachineIngest(
+  enabled: boolean,
+): Promise<{ ingest_enabled_here: boolean; message: string }> {
+  const r = await fetch("/api/admin/machine/ingest", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ enabled }),
+  });
+  if (!r.ok) await fail(r, "ingest switch");
   return r.json();
 }
 

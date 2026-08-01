@@ -1,6 +1,7 @@
 import { useState } from "react";
 import * as api from "../api";
 import { CollapsibleCard } from "./Card";
+import { Toggle } from "./Toggle";
 import { bytes, count, when } from "./format";
 
 // Documents, the processing queue, and the one destructive button in the app.
@@ -23,11 +24,18 @@ export function CorpusPanel({
   snapshots,
   onRestore,
   restoreState,
+  onSetIngest,
+  ingestMessage,
 }: {
   corpus: api.AdminCorpus;
   snapshots: api.Snapshot[];
   onRestore: (name: string) => void;
   restoreState: { pending: boolean; error: string | null; restored: string | null };
+  onSetIngest: (enabled: boolean) => void;
+  /** The server's own "takes effect after a restart" sentence, or null.
+   *  Not re-typed here: the reason it needs a restart lives in the server
+   *  (the worker starts from the lifespan hook) and so should the wording. */
+  ingestMessage: string | null;
 }) {
   const [confirming, setConfirming] = useState<string | null>(null);
   const [typed, setTyped] = useState("");
@@ -78,12 +86,44 @@ export function CorpusPanel({
         ) : null}
       </p>
 
+      {/* The counterweight to `ingest_enabled` defaulting to off. Without
+          this, "off by default" just relocates the failure: uploads queue on
+          the share and nothing ever drains them, with no error anywhere. The
+          server decides WHETHER to warn and supplies the sentence, so the
+          rule and its wording can't drift apart. */}
+      {corpus.queue_stalled && corpus.queue_stalled_message ? (
+        <p className="adm-warn" role="alert" data-testid="admin-queue-stalled">
+          {corpus.queue_stalled_message}
+        </p>
+      ) : null}
+
+      <div className="adm-row">
+        <div>
+          <h3>Process uploads on this computer</h3>
+          <p className="adm-sub">
+            {corpus.ingest_enabled_here
+              ? "This computer turns uploaded documents into searchable text. It should be one that stays on and isn't needed for other work — processing a whole book can take all night."
+              : "This computer doesn't process uploads. One computer in the office needs this turned on, or uploads will wait forever."}
+          </p>
+        </div>
+        <Toggle
+          checked={corpus.ingest_enabled_here}
+          onChange={onSetIngest}
+          label="Process uploads on this computer"
+          testId="admin-ingest-toggle"
+        />
+      </div>
+      {ingestMessage ? (
+        <p className="adm-ok" role="status" data-testid="admin-ingest-message">
+          {ingestMessage}
+        </p>
+      ) : null}
+
       {deadWorthShowing ? (
         <p className="adm-warn" data-testid="admin-dead-versions">
           About {bytes(dead)} of this folder is old copies left behind by past
-          updates. They are safe to remove, and removing them makes the folder
-          much faster to copy or back up — worth asking whoever maintains the
-          app to run a cleanup.
+          updates. The app clears these out as it works, so this number should
+          fall on its own the next time a document is added.
         </p>
       ) : null}
 

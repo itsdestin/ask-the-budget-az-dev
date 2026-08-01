@@ -219,6 +219,12 @@ def test_unfingerprinted_public_files_are_revalidated(tmp_path):
 @pytest.fixture()
 def worker_data_dir(tmp_path, monkeypatch):
     monkeypatch.setenv("JLBC_DATA_DIR", str(tmp_path))
+    # The per-machine ingest switch defaults to OFF (one bundle, ~20 office
+    # PCs — see app/machine_config.py::ingest_enabled). These tests are about
+    # what happens once a machine IS the ingest machine, so they opt in
+    # explicitly. `test_the_queue_does_not_run_when_this_machine_is_not_the_
+    # ingest_machine` below covers the default.
+    monkeypatch.setenv("JLBC_INGEST_ENABLED", "1")
     return tmp_path
 
 
@@ -284,6 +290,40 @@ def test_a_queued_job_runs_with_no_upload_activity(worker_data_dir):
         worker.stop()
 
     assert load_job(job.job_id).state == "live"
+
+
+def test_the_queue_does_not_run_when_this_machine_is_not_the_ingest_machine(
+    worker_data_dir, monkeypatch, capsys
+):
+    """One bundle goes on all ~20 office PCs and launcher.pyw calls
+    `create_app()` with no arguments. Without the per-machine switch every
+    one of them starts a worker against the single shared queue — safe
+    (IngestLock), but the winner is arbitrary and may be an analyst's
+    laptop that then spends six hours at 100% CPU on a Baseline book.
+
+    The server must still serve; only the queue stays idle. And it must
+    SAY SO — "off by default" plus silence is the pile-up this switch was
+    supposed to prevent, just relocated.
+    """
+    from ingest.jobs import load_job
+    from ingest.worker import IngestWorker
+
+    monkeypatch.setenv("JLBC_INGEST_ENABLED", "0")
+
+    job = _queue_a_job(worker_data_dir)
+    worker = IngestWorker(ctx=_fake_context(worker_data_dir), poll_interval_s=0.01)
+    app = create_app(provider=StubSearchProvider(), static_dir=None,
+                     ingest_worker=worker)
+
+    try:
+        with TestClient(app) as client:
+            assert client.get("/health").status_code == 200   # still serving
+            time.sleep(0.3)
+    finally:
+        worker.stop()
+
+    assert load_job(job.job_id).state == "queued"
+    assert "not set to process uploads" in capsys.readouterr().err
 
 
 def test_starting_the_worker_twice_does_not_build_a_second_pool(worker_data_dir):
