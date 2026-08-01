@@ -157,15 +157,42 @@ def run_suite(queries: list[AgentQuery], run_dir: Path,
                 if session is not None:
                     try:
                         session.close()
-                    except Exception:
-                        pass
+                    except Exception as exc:
+                        # Swallowing this silently (the old behavior) leaves no
+                        # trace of a leaked HTTP client/file handle, which then
+                        # surfaces dozens of queries later as an unrelated-looking
+                        # failure with nothing to point back at the real cause.
+                        # House style (harness/session.py's ledger-write path):
+                        # print a diagnostic and keep going, never re-raise.
+                        print(f"eval.run_agent_eval: session.close() failed for "
+                              f"{query.id} r{rep} ({type(exc).__name__}: {exc}); "
+                              "continuing (a leaked client/handle may surface "
+                              "later as an unrelated failure).", file=sys.stderr)
             elapsed_ms = int((time.monotonic() - start) * 1000)
-            write_transcript(path, meta, events,
-                             {"frame": frame, "wall_ms": elapsed_ms})
+            # write_transcript and progress used to run OUTSIDE any per-query
+            # guard, so a transient failure here (this project has documented
+            # write flakiness on the shared network drive) escaped run_suite
+            # entirely and killed the whole multi-hour paid run. Each gets its
+            # own try/except so a failure costs only THIS query's record —
+            # reported loudly (never silently) so a missing transcript is never
+            # mistaken for a query that simply wasn't run.
+            try:
+                write_transcript(path, meta, events,
+                                 {"frame": frame, "wall_ms": elapsed_ms})
+            except Exception as exc:
+                print(f"eval.run_agent_eval: FAILED to write transcript for "
+                      f"{query.id} r{rep} ({type(exc).__name__}: {exc}) — this "
+                      "query's result is LOST; continuing with the rest of the "
+                      "run.", file=sys.stderr)
             status = frame.get("type", "?")
             cost = (frame.get("usage") or {}).get("cost")
-            progress(f"{query.id} r{rep}: {status} "
-                     f"({elapsed_ms / 1000:.0f}s, cost={cost})")
+            try:
+                progress(f"{query.id} r{rep}: {status} "
+                         f"({elapsed_ms / 1000:.0f}s, cost={cost})")
+            except Exception as exc:
+                print(f"eval.run_agent_eval: progress callback failed for "
+                      f"{query.id} r{rep} ({type(exc).__name__}: {exc}); "
+                      "continuing.", file=sys.stderr)
 
 
 def main() -> int:

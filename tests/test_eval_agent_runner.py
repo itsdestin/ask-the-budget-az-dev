@@ -99,6 +99,62 @@ def test_one_exploding_session_does_not_abort_the_run(tmp_path):
     assert t2.terminal["frame"]["type"] == "_done"
 
 
+def test_session_close_failure_does_not_lose_transcript_or_abort_run(tmp_path, capsys):
+    """Finding 2/3: session.close() raising must (a) print a diagnostic to
+    stderr instead of vanishing silently, (b) still write that query's
+    transcript (the close failure happens AFTER send_turn already produced a
+    frame), and (c) not stop later queries from running."""
+    def factory(query, conv_id):
+        session = fake_factory(simple_provider)(query, conv_id)
+
+        def exploding_close():
+            raise RuntimeError("close blew up")
+
+        session.close = exploding_close  # instance attr; called with no args
+        return session
+
+    run_suite([q("aq-001"), q("aq-002")], tmp_path, factory, progress=lambda *_: None)
+
+    t1 = read_transcript(tmp_path / "aq-001-r1.jsonl")
+    assert t1.terminal["frame"]["type"] == "_done"  # transcript NOT lost
+    t2 = read_transcript(tmp_path / "aq-002-r1.jsonl")
+    assert t2.terminal["frame"]["type"] == "_done"  # run kept going
+
+    err = capsys.readouterr().err
+    assert "aq-001" in err
+    assert "close" in err.lower()
+    assert "RuntimeError" in err
+
+
+def test_write_transcript_failure_does_not_abort_run(tmp_path, capsys, monkeypatch):
+    """Finding 1/3: a write_transcript failure on one query (this project has
+    documented write flakiness on the shared network drive) must not escape
+    run_suite and kill the rest of a multi-hour paid run — it must be reported
+    loudly and the remaining queries must still execute and land."""
+    import eval.run_agent_eval as runner
+    real_write = runner.write_transcript
+    calls = {"n": 0}
+
+    def flaky_write(path, meta, events, terminal):
+        calls["n"] += 1
+        if calls["n"] == 1:
+            raise OSError("simulated network-share write failure")
+        return real_write(path, meta, events, terminal)
+
+    monkeypatch.setattr(runner, "write_transcript", flaky_write)
+
+    run_suite([q("aq-001"), q("aq-002")], tmp_path, fake_factory(simple_provider),
+              progress=lambda *_: None)
+
+    assert not (tmp_path / "aq-001-r1.jsonl").exists()  # that one query's record is lost...
+    t2 = read_transcript(tmp_path / "aq-002-r1.jsonl")
+    assert t2.terminal["frame"]["type"] == "_done"  # ...but the run continued
+
+    err = capsys.readouterr().err
+    assert "aq-001" in err
+    assert "OSError" in err
+
+
 def test_select_queries_by_subset_and_ids():
     qs = [q("a", subsets=["smoke", "full"]), q("b", subsets=["full"]),
           q("c", subsets=["dr-probe"], tier="deep_research")]
