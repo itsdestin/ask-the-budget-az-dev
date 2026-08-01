@@ -277,6 +277,12 @@ class MineruRunner:
         non-zero exit is recorded against the documents that produced no
         output and NOT against their 19 healthy batch-mates.
 
+        That tolerance has ONE exception, and it is why every candidate is
+        probed before it is staged: a PDF MinerU cannot even open fails in
+        its input preflight, before extraction starts, and takes the whole
+        invocation down with it. `_unreadable_pdf_reason` keeps those files
+        out of the batch so they fail alone.
+
         Cancel and timeout are the two batch-level exits — they kill the one
         child, so nothing unfinished can be salvaged. Both notify every
         unfinished document and then raise, matching `run()`.
@@ -302,6 +308,15 @@ class MineruRunner:
 
             runnable: list[tuple[str, Path, Path]] = []
             for doc_id, pdf, out_dir in items:
+                # Probe BEFORE staging: an unreadable PDF that reaches the
+                # staging directory takes the whole batch down with it. See
+                # `_unreadable_pdf_reason` for the measurement.
+                unreadable = _unreadable_pdf_reason(pdf)
+                if unreadable is not None:
+                    results[doc_id] = unreadable
+                    if on_document:
+                        on_document(doc_id, "failed")
+                    continue
                 try:
                     # Stage under doc_id, NEVER the original filename: MinerU
                     # names its output by input stem, and 508.pdf exists in
@@ -534,6 +549,60 @@ def _check_batch_doc_ids(items: Sequence[tuple[str, Path, Path]]) -> None:
         if doc_id in seen:
             raise ValueError(f"doc_id {doc_id!r} appears twice in one batch")
         seen.add(doc_id)
+
+
+def _unreadable_pdf_reason(pdf: Path) -> str | None:
+    """None if this file is a PDF MinerU can open; else why it isn't.
+
+    WHY this exists — measured 2026-08-01: **one truncated PDF aborted an
+    entire batch.** MinerU collects and probes every input in the folder
+    BEFORE it extracts anything, and one file it cannot open raises out of
+    that preflight and exits the whole invocation with `rc=1` and zero
+    output — for all 20 documents. It costs only ~3.3 s, because nothing was
+    extracted yet, but at `JLBC_INGEST_BATCH=40` it marks 40 documents
+    failed on account of one bad file. Excluding the bad file here means it
+    fails alone and its batch-mates run.
+
+    This is not hypothetical: the backfill fetches ~3,500 PDFs over the
+    network from azjlbc.gov, which has already served us a genuinely empty
+    PDF and 404 HTML bodies saved under a `.pdf` name. A poison pill is
+    expected.
+
+    WHY pdfium, and NOT `ingest.dispatcher._pdf_page_count` — this is the
+    crux, and reusing that helper is the obvious "simplification" that
+    would silently bring the bug back. `_pdf_page_count` uses PyMuPDF, and
+    **PyMuPDF is more tolerant than pdfium**. Measured on the same files:
+    a real PDF cut to 90% of its bytes is opened happily by PyMuPDF, which
+    reports all 6 pages, and REJECTED by pdfium; an HTML 404 body renamed
+    `.pdf` reads to PyMuPDF as a 1-page document and is likewise rejected
+    by pdfium. MinerU's own preflight uses pdfium, so pdfium is the only
+    library whose answer predicts what MinerU will do. A PyMuPDF check
+    would wave through the exact file that kills the batch.
+
+    Deliberately narrow: `PdfiumError` (a `RuntimeError` subclass, raised
+    for truncated / empty / not-actually-a-PDF input) and `OSError` (the
+    file is missing, unreadable, or the share dropped mid-read). Anything
+    else propagates — a bug in our own code must not be filed away as
+    "unreadable PDF" and blamed on the publisher.
+    """
+    # Lazy, matching `ingest.dispatcher._pdf_page_count`: importing
+    # pypdfium2 loads a native library, and only the batch path needs it.
+    # It is already installed — MinerU depends on it.
+    import pypdfium2
+
+    doc = None
+    try:
+        doc = pypdfium2.PdfDocument(str(pdf))
+        # Read the page count, which is what MinerU's preflight actually
+        # asks for. Opening is where a poison pill fails today, but a file
+        # that opens and then cannot be counted is just as fatal there.
+        len(doc)
+    except (pypdfium2.PdfiumError, OSError) as exc:
+        return f"unreadable PDF {pdf}: {exc}"
+    finally:
+        if doc is not None:
+            doc.close()
+    return None
 
 
 def _stage_pdf(src: Path, dest: Path) -> None:
