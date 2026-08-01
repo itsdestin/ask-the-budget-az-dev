@@ -1086,18 +1086,9 @@ nav.primary{position:relative;padding-right:44px;}
 .mascot[data-blink="true"] [data-mascot-eye] { fill: var(--mascot-skin); }
 @media (prefers-reduced-motion: reduce) { .mascot-animate { animation: none; } }
 
-/* The seated typing scene. The tapping hand needs its own transform-box so
-   the 2px tap is hand-local rather than viewBox-relative.
-   NOTE: `.mascot-typing-hand` currently has no consumer — MascotTyping was
-   rewritten to drive its hands from the `.work-hand-*` rules it generates in
-   its own inline <style>, and this rule was already orphaned in the source
-   app. It is carried anyway because a future scene that wants a simple tap
-   should reuse it rather than invent a fourth keyframe; drop it in Plan 5 if
-   nothing has claimed it by then. */
-.mascot-typing-hand   { animation: mascot-tap 460ms steps(2, end) infinite; transform-origin: 50% 100%; transform-box: fill-box; }
 .mascot-typing-cursor { animation: mascot-cursor 600ms steps(2, end) infinite; }
 @media (prefers-reduced-motion: reduce) {
-  .mascot-typing-hand, .mascot-typing-cursor { animation: none; }
+  .mascot-typing-cursor { animation: none; }
   /* MascotTyping generates .work-* animations in an inline <style> and never
      shipped a reduced-motion escape for them, so the seated scene kept
      nodding and typing for users who asked motion to stop. Halting them here
@@ -1325,8 +1316,9 @@ nav.primary{position:relative;padding-right:44px;}
    declarations themselves are re-used verbatim below for the corpus picker —
    same band, same pill recipe, same "on" fill.
 
-   `AiModeToggle` still EXISTS in chat/AiModePanel.tsx (that file is shared and
-   was not edited by this change) but is imported by nothing. */
+   `AiModeToggle` itself is gone too (Task 6, 2026-08-01) — it had been dead
+   since this route replaced the per-page toggle and nothing ever imported it
+   again. */
 
 /* The navy band, ported from the search page's subhero rules so the sub-pages
    are one design — but COMPACT (2026-07-31), because on this page the chat
@@ -1430,21 +1422,12 @@ html.ai-fullpage header.site{flex:0 0 auto;}
 .page-ai .ai-gate-reason{margin-top:8px;font-weight:600;color:var(--ink-3);}
 
 /* ----- the panel ----------------------------------------------------------
-   A bounded column, NOT a section that grows with the conversation. The thread
-   scrolls internally (`.chat-thread` needs a bounded flex parent — Task 10's
-   note) and the composer stays reachable without scrolling down to it.
-
-   The clamp() here is the FALLBACK height, for any future host that mounts
-   this shared panel inside an ordinary scrolling page. On the AI route the
-   rule below replaces it with "whatever is left of the viewport". */
-.ai-panel{display:flex;flex-direction:column;height:clamp(440px,68vh,760px);margin-top:16px;
-  background:var(--card);border:1px solid var(--line);border-radius:var(--r-sm);box-shadow:var(--shadow-sm);overflow:hidden;}
-/* On its own route the panel IS the page: it takes the whole stage instead of
-   a clamped slice of it, which is what gives the thread, the source column and
-   the mascot back the room the retired app gave them. `height:auto` cancels
-   the clamp above so `flex:1 1 auto` is what decides the size; `margin-top:0`
-   because `.ai-stage` already supplies the gap under the band. */
-.page-ai .ai-panel{flex:1 1 auto;min-height:0;height:auto;margin-top:0;}
+   The panel fills the stage (the AI route is the only mount — the old
+   clamp(440px,68vh,760px) "future host" fallback was dead weight whose only
+   surviving declaration was an accidental overflow:hidden). overflow:hidden
+   is kept DELIBERATELY: it is what clips the thread and source columns to
+   the viewport instead of letting them push the composer off-screen. */
+.ai-panel{display:flex;flex-direction:column;flex:1 1 auto;min-height:0;overflow:hidden;}
 
 /* ----- on its own route the chat IS the window ----------------------------
    Destin, 2026-07-31: "i don't want the weird card, it should take up the full
@@ -1460,10 +1443,6 @@ html.ai-fullpage header.site{flex:0 0 auto;}
    centered) each cap themselves. Removing the outer max-width widens the
    SURFACE, not the text — which is exactly what a native chat client does. */
 .page-ai .ai-stage{max-width:none;padding:0;}
-.page-ai .ai-panel{background:none;border:0;border-radius:0;box-shadow:none;}
-/* The divider between thread and source column now runs the full window height,
-   so it reads as a split pane rather than an internal seam of a card. */
-.page-ai .ai-panel-main.has-source .ai-panel-chat{border-right:1px solid var(--line);}
 /* min-height:0 on the flex child is what lets the thread's overflow engage
    instead of the panel growing to fit its content. */
 .ai-panel-main{flex:1 1 auto;min-height:0;display:flex;flex-direction:row;}

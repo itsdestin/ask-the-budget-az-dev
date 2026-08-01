@@ -40,59 +40,6 @@ export const AI_PROBING_TOOLTIP =
 const TIER_ORDER: Tier[] = ["standard", "deep_research"];
 
 // ---------------------------------------------------------------------------
-// The header pill
-// ---------------------------------------------------------------------------
-
-interface ToggleProps {
-  on: boolean;
-  onChange: (on: boolean) => void;
-  status: AiStatus | null;
-}
-
-/** The mode switch. Mockup pill idiom (the subhero's `.chip` recipe with an
- *  "on" fill), `aria-pressed` because it is a two-state control, not a link. */
-export function AiModeToggle({ on, onChange, status }: ToggleProps) {
-  const gated = !status?.available;
-  // Two different explanations, because they are two different facts. During
-  // the probe the pill is already inert (opening a mode we cannot confirm
-  // would be worse), but saying "requires an API key" before anyone has
-  // checked would state a cause nobody knows yet — so the in-flight state says
-  // so instead of staying silent.
-  const gateTooltip =
-    status === null
-      ? AI_PROBING_TOOLTIP
-      : status.available
-        ? undefined
-        : AI_GATED_TOOLTIP;
-  return (
-    <button
-      type="button"
-      className={`ai-toggle${on ? " on" : ""}${gated ? " is-gated" : ""}`}
-      // aria-disabled rather than `disabled`: a genuinely disabled button is
-      // skipped by keyboard navigation and, in most browsers, never shows its
-      // `title` on hover — which would hide the one sentence that explains why
-      // the control is dead. It stays focusable and hoverable; the click is
-      // what's inert.
-      aria-disabled={gated || undefined}
-      aria-pressed={on}
-      title={gateTooltip}
-      onClick={() => {
-        if (gated) return;
-        onChange(!on);
-      }}
-    >
-      {/* The mockup's Arizona star — it reads as the conventional "AI sparkle"
-          and is the only glyph in the mockup that could. Same path Home's AI
-          card uses. */}
-      <svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
-        <path d="M12 2l2.9 6.3 6.9.7-5.1 4.6 1.4 6.8L12 17.8 5.9 20.4l1.4-6.8L2.2 9l6.9-.7L12 2z" />
-      </svg>
-      AI Mode
-    </button>
-  );
-}
-
-// ---------------------------------------------------------------------------
 // The tier control
 // ---------------------------------------------------------------------------
 
