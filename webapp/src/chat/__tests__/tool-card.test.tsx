@@ -7,6 +7,7 @@
 // glyph and left border rather than inside the body.
 
 import { describe, expect, it } from "vitest";
+import { render } from "@testing-library/react";
 import { renderToString } from "react-dom/server";
 import ToolCard from "../ToolCard.js";
 import type { AssistantBlock } from "../chat-types.js";
@@ -77,5 +78,27 @@ describe("ToolCard status", () => {
     // Collapsed: the body is not rendered until the header is clicked.
     expect(html).toContain('aria-expanded="false"');
     expect(html).not.toContain("chat-tool-body");
+  });
+
+  it("renders as a compact row: chevron toggle, neutral glyph, danger only on failure", () => {
+    const completeTool = block({ status: "complete" });
+    const failedTool = block({ status: "failed" });
+    const { container, rerender } = render(<ToolCard tool={completeTool} />);
+    expect(container.querySelector(".chat-tool-chevron")).not.toBeNull();
+    expect(container.querySelector(".chat-tool")!.className).not.toContain(
+      "is-failed",
+    );
+    rerender(<ToolCard tool={failedTool} />);
+    expect(container.querySelector(".chat-tool")!.className).toContain(
+      "is-failed",
+    );
+  });
+
+  it("inGroup renders the inset variant", () => {
+    const completeTool = block({ status: "complete" });
+    const { container } = render(<ToolCard tool={completeTool} inGroup />);
+    expect(container.querySelector(".chat-tool")!.className).toContain(
+      "is-inset",
+    );
   });
 });

@@ -44,10 +44,18 @@ describe("chat CSS containment contract", () => {
   it("one content measure: no 768px literals outside the --ai-col definition", () => {
     // Everything that used to hardcode the column width must read the token,
     // so the band, thread, banners and composer share one left edge. Sliced
-    // from the chat block to end-of-file because the 768px literals live in
-    // BOTH the chat block and the later AI Mode block.
-    const chatBlock = css.slice(css.indexOf("/* ===== chat ====="));
-    const literals = chatBlock.match(/max-width:\s*768px/g) ?? [];
+    // from the chat block through the end of the AI Mode block (the 768px
+    // literals used to live in BOTH), stopping at page-admin/settings/repair —
+    // that CSS is unrelated to the AI Mode column and must not be swept in by
+    // this assertion (an admin-page 768px literal, if one is ever added,
+    // should not fail an AI Mode contract test).
+    const start = css.indexOf("/* ===== chat =====");
+    const end = css.indexOf(
+      "/* ===== page-admin + page-settings (Plan 5 Tasks 8/9) =====",
+    );
+    expect(end, "end-of-region marker must exist").toBeGreaterThan(start);
+    const aiModeRegion = css.slice(start, end);
+    const literals = aiModeRegion.match(/max-width:\s*768px/g) ?? [];
     expect(literals).toHaveLength(0);
     expect(css).toMatch(/--ai-col:\s*768px/);
   });
