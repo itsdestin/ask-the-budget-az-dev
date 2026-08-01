@@ -1,6 +1,6 @@
 # Project Status
 
-**Last updated:** 2026-07-31
+**Last updated:** 2026-08-01
 
 This file is the single source of truth for what's shipped, what's
 open, and what's blocked. The phase plans under `docs/superpowers/`
@@ -83,8 +83,10 @@ source. When something ships, update only this file.
 
 ## Plan 5 Track 3 (packaging) — shipped, running on Windows (2026-08-01)
 
-Session B of the three parallel Plan 5 sessions. Tasks 14–17 complete; Tasks 1–13
-(Session A) and 18–27 remain. Merges `92028c5`, `74747e9`.
+Session B of the three parallel Plan 5 sessions. Tasks 14–17 complete. Merges
+`92028c5`, `74747e9`. (Written while Session A was still in flight — Tasks 1–13
+have since landed; Tasks 18–27 remain. Two of the four app-side requirements
+this track filed are still unbuilt: see the Session A section below.)
 
 **The bundle exists and runs.** `python packaging/build_bundle.py --version X` produces
 `dist/JLBC-Insight-X.zip` — **3.33 GB unzipped / 2.11 GB zipped**, 36,102 files —
@@ -1005,7 +1007,7 @@ Phase C for the recency work, not for this.
 
 ---
 
-## Standalone consolidation — Plan 5 Session A shipped (2026-07-31)
+## Standalone consolidation — Plan 5 Session A shipped (2026-08-01)
 
 **Tracks 1 and 2 (tasks 1–13).** Track 3 (packaging) shipped separately from
 Session B — see its own section. Track 5 (handbook, tasks 21–23, Session C)
