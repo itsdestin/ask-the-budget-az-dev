@@ -803,7 +803,11 @@ nav.primary{position:relative;padding-right:44px;}
 .chat-thread { flex: 1 1 auto; min-height: 0; }
 /* Asymmetric padding: roomy at the top so scrolled-up history clears the
    header, tight at the bottom so the newest bubble sits close to the composer. */
-.chat-thread-scroll { height: 100%; overflow-y: auto; padding: 24px 16px 8px; }
+/* overflow-x:hidden is load-bearing, not tidiness: overflow-y:auto silently
+   computes overflow-x:auto, so anything absolutely positioned past the right
+   edge (the 320px citation tooltip was the trigger) spawned a horizontal
+   scrollbar across the whole thread. Same bug .yscroll fixed above. */
+.chat-thread-scroll { height: 100%; overflow-y: auto; overflow-x: hidden; padding: 24px 16px 8px; }
 /* min-height:100% + justify-content:flex-end bottom-anchors the column, so a
    session's first message lands just above the composer and later turns grow
    UPWARD. Also the positioning context for the mascot slot below. */
@@ -1013,7 +1017,10 @@ nav.primary{position:relative;padding-right:44px;}
 .chat-chip.is-info   { background: var(--navy-100); color: var(--ink-2); border-color: var(--line); }
 
 .chat-block { position: relative; }
-.chat-block pre { font-size: 12px; color: var(--ink-2); background: var(--canvas); border: 1px solid var(--line); border-radius: 6px; padding: 8px; overflow: auto; white-space: pre-wrap; font-family: var(--chat-mono); margin: 0; }
+/* No overflow rule: white-space:pre-wrap means the x axis can never overflow,
+   and CollapsibleBlock caps the y axis at 20 lines — the old overflow:auto
+   only manufactured a nested scrollbar inside a scrollbar. */
+.chat-block pre { font-size: 12px; color: var(--ink-2); background: var(--canvas); border: 1px solid var(--line); border-radius: 6px; padding: 8px; white-space: pre-wrap; font-family: var(--chat-mono); margin: 0; }
 .chat-more { margin-top: 4px; font-size: 10px; text-transform: uppercase; letter-spacing: .06em; color: var(--ink-3); background: none; border: none; padding: 0; cursor: pointer; }
 .chat-more:hover { color: var(--ink); }
 
