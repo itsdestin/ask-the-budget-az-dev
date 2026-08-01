@@ -64,6 +64,29 @@ The write phase — the part that CANNOT overlap — is seconds per document.
 The value is clamped (see `configured_worker_count`) to both a hard ceiling
 and a CPU-derived one, because the same env var typed on a 4-core office PC
 would otherwise make that PC unusable and swap-thrash on MinerU's RAM.
+
+`JLBC_INGEST_BATCH` — how many documents to hand to ONE MinerU run.
+
+- unset, or `1` (the DEFAULT): today's behaviour exactly. One MinerU
+  invocation per document. The office install must never change unless
+  someone deliberately changes it.
+- `N` > 1: **opt-in batch mode, for a supervised backfill.** A worker claims
+  up to N eligible documents, stages them into one directory, and extracts
+  them in a single `mineru -p <dir>` run.
+
+WHY: a MinerU invocation was measured at ~38 s for a 2-page document, of
+which ~33 s is LOADING MODELS. Paid per document across a ~3,500-document
+backfill that is roughly 32 core-hours of pure loading. Batch mode pays it
+once per batch instead.
+
+This composes with `JLBC_INGEST_WORKERS` — each worker claims and runs its
+own batch — and changes NOTHING about the write phase, which stays
+serialized behind `IngestLock` one document at a time.
+
+Only whole, small documents are batched (see `BATCH_MAX_PAGES` and
+`batch_eligible`). A long book keeps the per-document path because its
+resume granularity is the page RANGE, and that is what makes an overnight
+extraction survivable.
 """
 from __future__ import annotations
 
@@ -160,6 +183,43 @@ THREADS_PER_WORKER = 2
 # machines without ever loosening the office guarantee.
 SINGLE_WORKER_MAX_CPUS = 8
 
+# Batch extraction. Same shape as the two switches above: the default is a
+# literal here, not "whatever the env happens to say".
+BATCH_ENV_VAR = "JLBC_INGEST_BATCH"
+DEFAULT_BATCH = 1
+
+# Hard ceiling on documents per MinerU run. Unlike JLBC_INGEST_WORKERS this
+# gets NO cpu-derived clamp, because batch size does not multiply concurrent
+# processes — a batch of 40 is still one `mineru` invocation, so it costs one
+# machine's worth of RAM and cores whatever N is.
+#
+# What batch size DOES multiply is the blast radius. MinerU's output is
+# demuxed after the run, so a machine that dies mid-batch loses every
+# document in it and re-extracts them all next time. 40 small documents is
+# roughly one book edition's worth of re-work — bad but bounded — and past
+# that a single interruption starts costing more than the model loads saved.
+MAX_BATCH = 40
+
+# The page ceiling for a batched document, in pages of the source PDF.
+#
+# WHY there is a ceiling at all (Plan 7 ground truth 3): extraction resume
+# granularity today is the page RANGE inside a document, which exists because
+# a 210-page Baseline book runs overnight on an office i5 and WILL be
+# interrupted. Batch mode extracts whole documents, so putting a book in a
+# batch would trade that resume point away for a model load it barely
+# amortizes anyway.
+#
+# WHY 12: the corpus median is 2 pages and the volume is all per-agency book
+# pages (2-6) and fiscal notes (~2) — everything batch mode exists for sits
+# far below this. 12 pages is still under an hour of extraction on the
+# slowest machine we run on, so losing one to an interrupted batch is an
+# annoyance; a book is a night's work, which is not.
+BATCH_MAX_PAGES = 12
+
+# The one extractor that has a batch mode. Named rather than compared against
+# the class so `batch_eligible` reads as the routing question it is.
+MINERU_EXTRACTOR_NAME = "mineru"
+
 # How long a worker will wait for the corpus lock before failing its job.
 # Generous because the wait is EXPECTED in parallel mode: while one worker
 # writes, the others queue behind it. Still bounded, so a wedged writer on
@@ -202,6 +262,11 @@ class WorkerContext:
     # Overrides the registry lookup. Tests inject a fake; production leaves
     # it None so dispatcher.pick_extractor routes by (doc_type, format).
     extractor: Any | None = None
+    # The batch-extraction counterpart of `extractor`: something exposing
+    # `run_batch(items, *, timeout_s, on_document)`. Tests inject a fake;
+    # production leaves it None so a real `MineruRunner` is built per batch,
+    # the same way the per-document path builds one per job.
+    batch_runner: Any | None = None
     agency_names: dict[str, str] = field(default_factory=id_to_name)
     # How long the write phase waits for the corpus lock, or None to decide
     # from `JLBC_INGEST_WORKERS`. It lives on the context rather than as a
@@ -368,6 +433,176 @@ def _extract_with_mineru(job: JobRecord, *, source: Path, out: Path) -> None:
 
     job.completed_ranges = completed
     save(job)
+
+
+# --- batch extraction -------------------------------------------------------
+
+
+def batch_eligible(job: JobRecord) -> bool:
+    """Can this document share a MinerU run with others?
+
+    Four conditions, each of which costs something real when broken:
+
+    1. **It is a document.** A fiscal-note refresh has no PDF at all.
+    2. **It routes to MinerU.** A batch is one `mineru -p <dir>` invocation,
+       so an AFR (OpenDataLoader) or a bill (python-docx) shares nothing with
+       it. Note this asks the REGISTRY, not `ctx.extractor`: that override is
+       the test seam for the per-document path, and the batch path has its
+       own (`ctx.batch_runner`).
+    3. **It is not part-way through its pages.** A job carrying
+       `completed_ranges` is mid-extraction on the per-document path, whose
+       resume granularity is the page range. Batch mode extracts whole
+       documents, so batching it would re-do the pages it already paid for.
+    4. **It is small** (`BATCH_MAX_PAGES`). Checked separately by the caller,
+       because it needs the file on disk and this predicate must stay cheap
+       enough to run over every queued job.
+    """
+    if job.kind != "document":
+        return False
+    if job.completed_ranges:
+        return False
+    try:
+        return dispatcher.pick_extractor(job.doc_type, _batch_format(job)).name \
+            == MINERU_EXTRACTOR_NAME
+    except ValueError:
+        # An unregistered (doc_type, format) pair is a caller bug; let the
+        # per-document path raise it with its own clear message rather than
+        # swallowing it here as "not batchable".
+        return False
+
+
+def _batch_format(job: JobRecord) -> str:
+    """Source format for a job that may not have been downloaded yet.
+
+    "Add a JLBC book" queues ~130 URL-only jobs, and those are exactly the
+    documents batch mode exists for — reading the format off `source_path`
+    alone would make every one of them ineligible.
+    """
+    raw = job.source_path or (job.source_url or "").split("?")[0]
+    return Path(raw).suffix.lstrip(".").lower()
+
+
+def _pdf_pages(source: Path) -> int | None:
+    """Page count, or None when the file cannot be read as a PDF.
+
+    None is deliberately NOT an error here: it only ever means "do not batch
+    this", and the per-document path will produce the real diagnosis.
+    """
+    try:
+        return dispatcher._pdf_page_count(source)
+    except Exception:  # noqa: BLE001 — an unreadable file is simply not batchable
+        return None
+
+
+def _extraction_complete(out: Path, pages: int) -> bool:
+    """Is this document's extractor output already on the share, in full?
+
+    `<data_dir>/extractor-output/<doc_id>/` IS the resume signal — batch mode
+    adds no journal of its own. This is safe because a document that FAILS
+    inside a batch leaves no output directory behind, so a partial directory
+    can never be mistaken for a finished one.
+    """
+    return pages > 0 and all(
+        (out / f"page-{page}.json").is_file() for page in range(1, pages + 1)
+    )
+
+
+def _batch_timeout_s(count: int) -> int | None:
+    """The runner's own budget for a batch of `count` documents.
+
+    Resolved at call time rather than imported at module scope so the worker
+    half and the runner half of this feature can land on separate branches
+    without breaking each other's import. Once both are merged this can
+    become a plain import. None means "runner decides", which is the
+    documented default of `run_batch`.
+    """
+    from ingest import mineru_runner
+
+    helper = getattr(mineru_runner, "batch_timeout_s", None)
+    return helper(count) if helper is not None else None
+
+
+def extract_batch(
+    jobs: Sequence[JobRecord], ctx: WorkerContext
+) -> dict[str, str | None]:
+    """Extract several documents in ONE MinerU run.
+
+    Returns `doc_id -> None` on success, or a per-document failure reason.
+    Nothing here writes to the corpus: this is the read-only, hours-long half
+    of ingest, and every caller still takes `IngestLock` for the seconds-long
+    write half afterwards.
+    """
+    results: dict[str, str | None] = {}
+    pages_by_doc: dict[str, int] = {}
+    items: list[tuple[str, Path, Path]] = []
+
+    for job in jobs:
+        try:
+            source = _ensure_source(job)
+            out = _extract_dir(job)
+            out.mkdir(parents=True, exist_ok=True)
+            pages = _pdf_pages(source) or 0
+            pages_by_doc[job.doc_id] = pages
+            if _extraction_complete(out, pages):
+                # Resume: an interrupted batch must not re-pay for the
+                # documents it already finished.
+                results[job.doc_id] = None
+                continue
+            items.append((job.doc_id, source, out))
+        except Exception as exc:  # noqa: BLE001 — one document's problem
+            results[job.doc_id] = f"{type(exc).__name__}: {exc}"
+
+    if not items:
+        return results
+
+    by_doc = {job.doc_id: job for job in jobs}
+
+    def on_document(doc_id: str, state: str) -> None:
+        # The callback is terminal-only — one CLI invocation gives MinerU
+        # nothing attributable per document while it runs, so these arrive
+        # during demux after it exits. Failure and cancellation are handled
+        # from run_batch's return value and its exceptions, so the only thing
+        # worth journalling here is a finished document.
+        job = by_doc.get(doc_id)
+        if job is not None and state == "done":
+            _progress(job, "extracting", pct=100, detail="extracted")
+
+    count = len(items)
+    for doc_id, _source, _out in items:
+        job = by_doc.get(doc_id)
+        if job is not None:
+            # Batch-level progress, honestly labelled. Anything finer would
+            # be invented: MinerU reports nothing per document mid-run.
+            _progress(
+                job, "extracting", pct=0,
+                detail=f"extracting with {count - 1} other document(s)",
+            )
+
+    runner = ctx.batch_runner or MineruRunner()
+    returned = runner.run_batch(
+        items,
+        timeout_s=_batch_timeout_s(count),
+        on_document=on_document,
+    )
+
+    for doc_id, _source, _out in items:
+        # A doc_id the runner said nothing about is a failure, not a success.
+        # Treating silence as success is how a document lands `live` and
+        # empty with nothing flagging it.
+        reason = returned.get(
+            doc_id, "MinerU returned no result for this document in its batch."
+        )
+        results[doc_id] = reason
+        if reason is None:
+            job = by_doc.get(doc_id)
+            pages = pages_by_doc.get(doc_id, 0)
+            if job is not None and pages > 0:
+                # Record the whole document as one completed range so that a
+                # later resume on the PER-DOCUMENT path also knows extraction
+                # is done and does not start MinerU again.
+                job.completed_ranges = [[1, pages]]
+                save(job)
+    return results
 
 
 def _chunk(job: JobRecord, ctx: WorkerContext) -> list[Chunk]:
@@ -540,6 +775,58 @@ def _parallel_announcement(count: int) -> str:
     )
 
 
+def configured_batch_size() -> int:
+    """How many documents to hand to one MinerU run, after clamping.
+
+    Fails SAFE in exactly the same directions as `configured_worker_count`:
+    unset, empty, a typo, zero, or a negative number all mean 1 — today's
+    behaviour, one invocation per document. This runs on the live ingest path
+    of a working office, so a mistyped variable must never change it.
+    """
+    raw = os.environ.get(BATCH_ENV_VAR, "").strip()
+    if not raw:
+        return DEFAULT_BATCH
+    try:
+        requested = int(raw)
+    except ValueError:
+        return DEFAULT_BATCH
+    if requested <= 1:
+        return DEFAULT_BATCH
+    return min(requested, MAX_BATCH)
+
+
+def _batch_announcement(count: int) -> str:
+    requested = os.environ.get(BATCH_ENV_VAR, "").strip()
+    clamped = (
+        f" (clamped from {requested}; ceiling is {MAX_BATCH})"
+        if requested.isdigit() and int(requested) != count
+        else ""
+    )
+    return (
+        f"jlbc-insight: BATCH EXTRACTION — up to {count} documents per MinerU "
+        f"run{clamped}, set by {BATCH_ENV_VAR}={requested}. Only whole "
+        f"documents of {BATCH_MAX_PAGES} pages or fewer are batched; anything "
+        "larger keeps the one-document-at-a-time path so a long book still "
+        "resumes page by page. A machine that dies mid-batch re-extracts the "
+        f"whole batch. Unset {BATCH_ENV_VAR} to return to one document per run."
+    )
+
+
+def _batch_ignored_announcement(raw: str) -> str:
+    """Said out loud because the alternative is a silent no-op.
+
+    An operator who sets `JLBC_INGEST_BATCH=twenty` and sees nothing will plan
+    a night around a speed-up that never happens — the same reasoning as the
+    clamped-to-one message for `JLBC_INGEST_WORKERS`, extended to typos
+    because a batch size is far more likely to be typed by hand.
+    """
+    return (
+        f"jlbc-insight: {BATCH_ENV_VAR}={raw!r} is not a batch size above 1 — "
+        "ingest is running ONE document per MinerU run (today's behaviour). "
+        f"Set {BATCH_ENV_VAR} to a whole number above 1 to batch."
+    )
+
+
 def _snapshot_suppressed() -> bool:
     """True only when the operator explicitly asked for bulk mode.
 
@@ -648,6 +935,7 @@ class IngestWorker:
         ctx: WorkerContext | None = None,
         poll_interval_s: float = DEFAULT_POLL_INTERVAL_S,
         workers: int | None = None,
+        batch: int | None = None,
     ) -> None:
         self._ctx = ctx
         self._ctx_lock = threading.Lock()
@@ -655,6 +943,7 @@ class IngestWorker:
         # None means "read the environment at start()". An explicit number
         # (tests, and any future admin toggle) wins over the env var.
         self._workers = workers
+        self._batch = batch
         self._stop = threading.Event()
         self._threads: list[threading.Thread] = []
 
@@ -672,6 +961,10 @@ class IngestWorker:
     @property
     def worker_count(self) -> int:
         return self._workers if self._workers is not None else configured_worker_count()
+
+    @property
+    def batch_size(self) -> int:
+        return self._batch if self._batch is not None else configured_batch_size()
 
     def start(self) -> None:
         if any(t.is_alive() for t in self._threads):
@@ -699,6 +992,17 @@ class IngestWorker:
                     f"than {SINGLE_WORKER_MAX_CPUS}). Set "
                     f"{WORKERS_ENV_VAR} on a larger machine to use it.",
                     file=sys.stderr, flush=True,
+                )
+        batch = self.batch_size
+        if batch > 1:
+            print(_batch_announcement(batch), file=sys.stderr, flush=True)
+        elif BATCH_ENV_VAR in os.environ:
+            # Set-but-unusable. Silence is reserved for an UNSET variable, so
+            # an explicit `=1` (a deliberate "today, please") is silent too.
+            raw = os.environ[BATCH_ENV_VAR]
+            if raw.strip() != str(DEFAULT_BATCH):
+                print(
+                    _batch_ignored_announcement(raw), file=sys.stderr, flush=True
                 )
         self._stop.clear()
         self._threads = [
@@ -758,13 +1062,23 @@ class IngestWorker:
                 continue
 
             job, claim = claimed
+            mates: list[tuple[JobRecord, JobClaim]] = []
             try:
-                self.run_one(job)
+                # Empty whenever batching is off, so the default install never
+                # reaches the batch code at all.
+                mates = self._claim_batch_mates(job)
+                if mates:
+                    self.run_batch([(job, claim), *mates])
+                else:
+                    self.run_one(job)
             finally:
                 # Always, even on a crash inside run_one (which shouldn't
                 # happen — it swallows everything — but a leaked claim parks
-                # that document for the whole stale window).
+                # that document for the whole stale window). Every claim the
+                # batch took is released here, not just the lead's.
                 claim.release()
+                for _mate, mate_claim in mates:
+                    mate_claim.release()
 
     def _claim_next(self) -> tuple[JobRecord, JobClaim] | None:
         """Take exclusive ownership of the next job this worker should run.
@@ -786,30 +1100,158 @@ class IngestWorker:
         for candidate in self._candidates():
             if self._stop.is_set():
                 return None
-            claim = JobClaim(candidate.job_id, doc_id=candidate.doc_id)
-            if not claim.try_acquire():
-                continue  # a sibling worker, or another machine, has it
-
-            # Re-read under the claim. The listing that produced this
-            # candidate may be seconds old: the job could have been cancelled,
-            # retried, or finished by whoever held the claim before us.
-            fresh = load_job(candidate.job_id)
-            if fresh is None or fresh.state in TERMINAL_STATES:
-                claim.release()
-                continue
-            if fresh.state != "queued" and fresh.machine != socket.gethostname():
-                # Mid-flight on ANOTHER machine, whose extractor output we
-                # can read but whose progress we shouldn't hijack.
-                claim.release()
-                continue
-
-            if fresh.state == "queued":
-                # Same stamp the serial worker wrote — this is what the queue
-                # page shows as "who is running this".
-                fresh.machine = socket.gethostname()
-                save(fresh)
-            return fresh, claim
+            claimed = self._claim(candidate)
+            if claimed is not None:
+                return claimed
         return None
+
+    def _claim(self, candidate: JobRecord) -> tuple[JobRecord, JobClaim] | None:
+        """Take one candidate's claim and re-read it, or None if we can't."""
+        claim = JobClaim(candidate.job_id, doc_id=candidate.doc_id)
+        if not claim.try_acquire():
+            return None  # a sibling worker, or another machine, has it
+
+        # Re-read under the claim. The listing that produced this candidate
+        # may be seconds old: the job could have been cancelled, retried, or
+        # finished by whoever held the claim before us.
+        fresh = load_job(candidate.job_id)
+        if fresh is None or fresh.state in TERMINAL_STATES:
+            claim.release()
+            return None
+        if fresh.state != "queued" and fresh.machine != socket.gethostname():
+            # Mid-flight on ANOTHER machine, whose extractor output we can
+            # read but whose progress we shouldn't hijack.
+            claim.release()
+            return None
+
+        if fresh.state == "queued":
+            # Same stamp the serial worker wrote — this is what the queue page
+            # shows as "who is running this".
+            fresh.machine = socket.gethostname()
+            save(fresh)
+        return fresh, claim
+
+    def _claim_batch_mates(
+        self, lead: JobRecord
+    ) -> list[tuple[JobRecord, JobClaim]]:
+        """Claim documents to share `lead`'s MinerU run. Empty = no batch.
+
+        Returns empty — having done nothing at all — whenever batching is off,
+        which is what makes `JLBC_INGEST_BATCH` unset byte-identical to
+        today's path rather than merely equivalent to it.
+
+        Also returns empty when only the lead is eligible: a "batch" of one is
+        exactly the per-document path with extra staging, so it takes the
+        per-document path.
+        """
+        size = self.batch_size
+        if size <= 1:
+            return []
+        if not batch_eligible(lead) or not self._small_enough(lead):
+            return []
+
+        mates: list[tuple[JobRecord, JobClaim]] = []
+        taken = {lead.job_id}
+        for candidate in self._candidates():
+            if len(mates) + 1 >= size or self._stop.is_set():
+                break
+            if candidate.job_id in taken or candidate.doc_id == lead.doc_id:
+                continue
+            taken.add(candidate.job_id)
+            # Cheap predicates first: this runs over the whole queue, and the
+            # page count below needs the file on disk.
+            if not batch_eligible(candidate):
+                continue
+            claimed = self._claim(candidate)
+            if claimed is None:
+                continue
+            fresh, claim = claimed
+            # Re-checked under the claim, because the listing may be stale —
+            # and the page count is only knowable once we own the download.
+            if not batch_eligible(fresh) or not self._small_enough(fresh):
+                claim.release()
+                continue
+            mates.append((fresh, claim))
+        return mates
+
+    def _small_enough(self, job: JobRecord) -> bool:
+        """The page half of batch eligibility — needs the file, so it's late.
+
+        A document we cannot download or cannot read is not batchable; the
+        per-document path will produce the real error message for it.
+        """
+        try:
+            source = _ensure_source(job)
+        except Exception:  # noqa: BLE001 — diagnosed on the per-document path
+            return False
+        pages = _pdf_pages(source)
+        return pages is not None and 0 < pages <= BATCH_MAX_PAGES
+
+    def run_batch(self, members: Sequence[tuple[JobRecord, JobClaim]]) -> None:
+        """Extract several claimed documents in one MinerU run, then finish
+        each one separately.
+
+        Only EXTRACTION is shared. Chunking, embedding and the write phase
+        still run per document, and the write phase still takes `IngestLock`
+        one document at a time — batching changes what MinerU is invoked with,
+        nothing about the single-writer invariant.
+        """
+        ctx = self.context
+        prepared: list[JobRecord] = []
+        for job, _claim in members:
+            try:
+                _check_cancelled(job)
+                if job.state == "queued":
+                    advance(job, "extracting")
+                prepared.append(job)
+            except JobCancelled:
+                _finish_cancelled(job)
+            except Exception as exc:  # noqa: BLE001 — one document's failure
+                traceback.print_exc()
+                _fail(job, exc)
+
+        if not prepared:
+            return
+
+        try:
+            results = extract_batch(prepared, ctx)
+        except MineruCancelled:
+            # Ordered before RuntimeError on purpose: MineruCancelled and
+            # MineruTimeout both subclass it, and recording a cancel as a
+            # generic failure would put a "retry" button on something the user
+            # deliberately stopped.
+            for job in prepared:
+                _finish_cancelled(job)
+            return
+        except Exception as exc:  # noqa: BLE001 — the whole batch died
+            traceback.print_exc()
+            for job in prepared:
+                _fail(job, exc)
+            return
+
+        for job in prepared:
+            reason = results.get(
+                job.doc_id, "MinerU returned no result for this document."
+            )
+            if reason is not None:
+                # Quarantined with its OWN reason. One bad PDF costs one
+                # document, not the nineteen it shared a run with.
+                _fail(job, RuntimeError(reason))
+                continue
+            try:
+                _check_cancelled(job)
+                if job.state == "extracting":
+                    advance(job, "chunking")
+            except JobCancelled:
+                _finish_cancelled(job)
+                continue
+            except Exception as exc:  # noqa: BLE001
+                traceback.print_exc()
+                _fail(job, exc)
+                continue
+            # From here it is the ordinary pipeline: run_job sees a job past
+            # `extracting` and re-derives chunks from the output on the share.
+            self.run_one(job)
 
     def _candidates(self) -> list[JobRecord]:
         """Jobs worth attempting, best first: our resumable work, then queued."""
