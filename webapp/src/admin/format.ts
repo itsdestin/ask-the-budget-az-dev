@@ -8,18 +8,22 @@ export function usd(amount: number | null | undefined): string {
   return amount.toLocaleString("en-US", { style: "currency", currency: "USD" });
 }
 
-/** The honest office total (spec S19 / Ground truth 6).
+/** The office total, plus a footnote only when one is actually needed.
  *
- *  A call on a custom endpoint has no dollar cost — OpenRouter's exact-cost
- *  accounting isn't available there — so its tokens are known and its price is
- *  not. Rendering the sum alone would understate spend with no sign it
- *  happened, which is precisely the number an admin budgets against. So an
- *  unknown-cost row turns the figure into "at least $X".
+ *  Since 2026-07-31 a call CANNOT be recorded without a cost: OpenRouter
+ *  reports its own, and a custom endpoint can't be saved without per-million
+ *  prices to compute one from. So the second half of this pair is only ever
+ *  reached by rows written before that change, and the normal reading is a
+ *  plain dollar figure with no caveat attached.
+ *
+ *  It still has to be said when it happens — a total that silently omits
+ *  rows understates the number an admin budgets against — but it is said in
+ *  plain words underneath, not welded into the headline.
  */
-export function honestTotal(total: number, unknownRows: number): string {
-  if (unknownRows <= 0) return usd(total);
-  const calls = unknownRows === 1 ? "1 call" : `${unknownRows} calls`;
-  return `at least ${usd(total)} (${calls} of unknown cost)`;
+export function unpricedNote(unknownRows: number): string | null {
+  if (unknownRows <= 0) return null;
+  const calls = unknownRows === 1 ? "1 older request isn't" : `${unknownRows} older requests aren't`;
+  return `${calls} counted here — they were made before prices were set up.`;
 }
 
 export function bytes(value: number | null | undefined): string {
@@ -36,11 +40,11 @@ export function bytes(value: number | null | undefined): string {
 }
 
 /** Dollars per million tokens, as every model vendor quotes prices.
- *  `null` means the live catalog had no usable price — shown as "price
- *  unknown" rather than a confident $0.00. */
+ *  `null` means the live list had no usable price — shown as "price unknown"
+ *  rather than a confident $0.00. */
 export function perMillion(value: number | null): string {
   if (value === null) return "price unknown";
-  return `$${value < 1 ? value.toFixed(3) : value.toFixed(2)}/M`;
+  return `$${value < 1 ? value.toFixed(2) : value.toFixed(2)}`;
 }
 
 export function count(value: number): string {
@@ -63,13 +67,22 @@ export function when(iso: string | null | undefined): string {
   });
 }
 
-/** "prompt caching: N% of input tokens served from cache".
+/** Below this share of input served from cache, something is wrong.
  *
- *  THE number that reveals a silently broken cache prefix (S22). A broken
- *  cache produces identical answers, identical tokens and identical logs —
- *  and a bill roughly 10x larger. Nothing else in the system can tell.
+ *  Prompt caching is invisible when it works and invisible when it breaks —
+ *  same answers, same logs, same token counts, and a bill roughly ten times
+ *  larger. It is the one thing on this page a non-technical admin cannot
+ *  possibly be expected to monitor, so it is NOT shown as a statistic. It
+ *  surfaces only as a warning, only when it has actually gone wrong.
+ *
+ *  40% is well under the ~80% a healthy multi-step turn produces and well
+ *  above the noise of a month with only one or two short questions in it.
  */
-export function cachePercent(cached: number, tokensIn: number): number | null {
-  if (tokensIn <= 0) return null;
-  return Math.round((cached / tokensIn) * 100);
+const CACHE_TROUBLE_BELOW = 0.4;
+const CACHE_MIN_TOKENS = 200_000;
+
+export function cacheLooksBroken(cached: number, tokensIn: number): boolean {
+  // Not enough traffic to judge — a quiet month must not raise an alarm.
+  if (tokensIn < CACHE_MIN_TOKENS) return false;
+  return cached / tokensIn < CACHE_TROUBLE_BELOW;
 }

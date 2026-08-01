@@ -102,13 +102,18 @@ describe("your own usage", () => {
     expect(await screen.findByTestId("settings-limit-message")).toHaveTextContent(warn);
   });
 
-  it("never reports a total that lies by omission", async () => {
+  it("footnotes older unpriced requests instead of mangling the total", async () => {
     mockAll({
       usage: myUsage({ month_usd: 1.0, limit_usd: null, rows_with_unknown_cost: 2 }),
     });
     render(<Settings />);
-    expect(await screen.findByTestId("settings-total")).toHaveTextContent(
-      "at least $1.00 (2 calls of unknown cost)",
+    // Since custom-service pricing became mandatory (2026-07-31) no new
+    // request can be unpriced, so the headline is a plain figure. Older
+    // rows still get said — a total that silently omits them understates
+    // what was spent — but underneath, in words.
+    expect(await screen.findByTestId("settings-total")).toHaveTextContent("$1.00");
+    expect(screen.getByTestId("settings-unpriced-note")).toHaveTextContent(
+      /2 older requests aren't counted here/i,
     );
   });
 
@@ -120,12 +125,14 @@ describe("your own usage", () => {
     );
   });
 
-  it("explains why limits are off on a custom endpoint", async () => {
+  it("explains an unenforced limit in terms the reader can act on", async () => {
     mockAll({ usage: myUsage({ limit_usd: null, reason: "custom endpoint" }) });
     render(<Settings />);
-    expect(await screen.findByTestId("settings-no-limit")).toHaveTextContent(
-      /exact costs aren't available/i,
-    );
+    // "custom endpoint" means nothing to an analyst. What they can do with
+    // this is know it is their admin's to fix.
+    const note = await screen.findByTestId("settings-no-limit");
+    expect(note).toHaveTextContent(/your admin hasn't told the app what/i);
+    expect(note.textContent?.toLowerCase()).not.toContain("endpoint");
   });
 });
 

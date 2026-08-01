@@ -1,25 +1,28 @@
 import * as api from "../api";
-import { cachePercent, count, honestTotal, usd } from "./format";
+import { CollapsibleCard } from "./Card";
+import { cacheLooksBroken, count, unpricedNote, usd } from "./format";
 
-// The first panel a new admin sees, because "what is this costing us" is the
-// first question they have.
+// "What is this costing us" — the first question a new admin has, so the
+// first thing on the page.
 //
-// Two numbers here are load-bearing beyond their face value:
+// What was deliberately REMOVED here (2026-07-31, Destin): the per-row
+// "cached input" column and the "prompt caching: N% of input tokens served
+// from cache" line. Both were true, and neither was usable by a
+// non-technical admin — a percentage nobody can act on is noise, and noise
+// on this page costs attention that the numbers below actually need.
 //
-//  1. The total is rendered "at least $X (N calls of unknown cost)" whenever
-//     any row has no price (S15 custom endpoints). A bare sum would quietly
-//     understate spend.
-//  2. The prompt-cache percentage (S22). The same system prompt is resent on
-//     every step of every turn, and cache reads cost roughly a tenth of fresh
-//     input. A broken cache prefix is INVISIBLE — same answers, same tokens,
-//     same logs — except as a bill ~10x larger. This percentage is the only
-//     early warning anyone gets.
+// The fact underneath still matters: a broken cache prefix produces a bill
+// roughly ten times larger with no other symptom. So it now surfaces the
+// only way it usefully can — as a plain warning, only when it has actually
+// gone wrong (see `cacheLooksBroken`).
 
-const TABS: { key: keyof Pick<api.AdminUsage, "by_user" | "by_model" | "by_tier">; label: string }[] = [
+const TABS = [
   { key: "by_user", label: "By person" },
   { key: "by_model", label: "By model" },
-  { key: "by_tier", label: "By mode" },
-];
+  { key: "by_tier", label: "By answer mode" },
+] as const;
+
+type Tab = (typeof TABS)[number]["key"];
 
 export function CostsPanel({
   usage,
@@ -27,104 +30,111 @@ export function CostsPanel({
   onMonthChange,
   tab,
   onTabChange,
+  isCustomEndpoint,
 }: {
   usage: api.AdminUsage;
   month: string;
   onMonthChange: (month: string) => void;
-  tab: "by_user" | "by_model" | "by_tier";
-  onTabChange: (tab: "by_user" | "by_model" | "by_tier") => void;
+  tab: Tab;
+  onTabChange: (tab: Tab) => void;
+  isCustomEndpoint: boolean;
 }) {
-  const cache = cachePercent(usage.cached_tokens, usage.tokens_in);
   const rows = usage[tab];
+  const footnote = unpricedNote(usage.rows_with_unknown_cost);
 
   return (
     <section className="card adm-panel" aria-labelledby="adm-costs-h" data-testid="admin-costs">
-      <h2 id="adm-costs-h">Costs</h2>
-
-      <div className="adm-month">
-        <label htmlFor="adm-month">Month</label>
-        <input
-          id="adm-month"
-          type="month"
-          value={month}
-          onChange={(e) => onMonthChange(e.target.value)}
-        />
+      <div className="adm-panel-head">
+        <h2 id="adm-costs-h">Spending</h2>
+        <label className="adm-month">
+          <span className="adm-vh">Month</span>
+          <input
+            type="month"
+            value={month}
+            onChange={(e) => onMonthChange(e.target.value)}
+            aria-label="Month"
+          />
+        </label>
       </div>
 
       <p className="adm-total" data-testid="admin-total">
-        {honestTotal(usage.total_usd, usage.rows_with_unknown_cost)}
+        {usd(usage.total_usd)}
       </p>
       <p className="adm-sub">
-        {count(usage.rows)} {usage.rows === 1 ? "call" : "calls"} this month
-        {!usage.limits_active && usage.limits_inactive_reason ? (
-          <>
-            {" · "}
-            <span data-testid="admin-limits-inactive">
-              spend limits are not being enforced ({usage.limits_inactive_reason})
-            </span>
-          </>
-        ) : null}
+        {count(usage.rows)} {usage.rows === 1 ? "request" : "requests"} this month
+        {isCustomEndpoint ? ", worked out from the prices you entered" : ""}
       </p>
 
-      {cache === null ? null : (
-        <p className="adm-cache" data-testid="admin-cache">
-          Prompt caching: {cache}% of input tokens served from cache.{" "}
-          <span className="adm-hint">
-            If this drops near zero and stays there, caching has broken and the
-            bill will rise roughly tenfold with no other symptom.
-          </span>
+      {footnote ? (
+        <p className="adm-hint" data-testid="admin-unpriced-note">
+          {footnote}
         </p>
-      )}
+      ) : null}
 
-      <div className="adm-tabs" role="tablist" aria-label="Break costs down by">
-        {TABS.map((t) => (
-          <button
-            key={t.key}
-            type="button"
-            role="tab"
-            aria-selected={tab === t.key}
-            className={tab === t.key ? "adm-tab is-on" : "adm-tab"}
-            onClick={() => onTabChange(t.key)}
-          >
-            {t.label}
-          </button>
-        ))}
-      </div>
+      {cacheLooksBroken(usage.cached_tokens, usage.tokens_in) ? (
+        <p className="adm-warn" data-testid="admin-cache-warning">
+          Costs are running higher than they should. The app normally reuses
+          most of each question's setup text instead of paying for it again,
+          and that has stopped working. Worth reporting — nothing you can
+          change here will fix it.
+        </p>
+      ) : null}
 
-      {rows.length === 0 ? (
-        <p className="adm-empty">No AI Mode usage recorded this month.</p>
-      ) : (
-        <table className="adm-table" data-testid="admin-usage-table">
-          <thead>
-            <tr>
-              <th scope="col">{tab === "by_user" ? "Person" : tab === "by_model" ? "Model" : "Mode"}</th>
-              <th scope="col">Cost</th>
-              <th scope="col">Calls</th>
-              <th scope="col">Cached input</th>
-            </tr>
-          </thead>
-          <tbody>
-            {rows.map((row) => {
-              const rowCache = cachePercent(row.cached_tokens, row.tokens_in);
-              return (
+      {!usage.limits_active && usage.limits_inactive_reason ? (
+        <p className="adm-warn" data-testid="admin-limits-inactive">
+          {usage.limits_inactive_reason === "custom endpoint"
+            ? "Nobody is capped right now: this AI service has no prices set, so the app can't tell when someone reaches a limit."
+            : "Nobody is capped right now — no monthly limit is set below."}
+        </p>
+      ) : null}
+
+      <CollapsibleCard
+        title="Who spent what"
+        hint={`${usage.by_user.length} ${usage.by_user.length === 1 ? "person" : "people"}`}
+        testId="admin-breakdown"
+      >
+        <div className="adm-tabs" role="tablist" aria-label="Break spending down by">
+          {TABS.map((t) => (
+            <button
+              key={t.key}
+              type="button"
+              role="tab"
+              aria-selected={tab === t.key}
+              className={tab === t.key ? "adm-tab is-on" : "adm-tab"}
+              onClick={() => onTabChange(t.key)}
+            >
+              {t.label}
+            </button>
+          ))}
+        </div>
+
+        {rows.length === 0 ? (
+          <p className="adm-empty">Nothing recorded this month.</p>
+        ) : (
+          <div className="adm-table-wrap">
+          <table className="adm-table" data-testid="admin-usage-table">
+            <thead>
+              <tr>
+                <th scope="col">
+                  {tab === "by_user" ? "Person" : tab === "by_model" ? "Model" : "Answer mode"}
+                </th>
+                <th scope="col">Spent</th>
+                <th scope="col">Requests</th>
+              </tr>
+            </thead>
+            <tbody>
+              {rows.map((row) => (
                 <tr key={row.key || "(unrecorded)"}>
                   <th scope="row">{row.key || "(not recorded)"}</th>
-                  <td>{honestTotal(row.cost_usd, row.rows_with_unknown_cost)}</td>
+                  <td>{usd(row.cost_usd)}</td>
                   <td>{count(row.rows)}</td>
-                  <td>{rowCache === null ? "—" : `${rowCache}%`}</td>
                 </tr>
-              );
-            })}
-          </tbody>
-        </table>
-      )}
-
-      <p className="adm-note">
-        Costs come from OpenRouter's own per-call figures, recorded as each call
-        finishes. The hard monthly cap on your OpenRouter dashboard is the only
-        limit that stops spending outright — the limits below decide who this app
-        lets keep asking. Total across all people: {usd(usage.total_usd)}.
-      </p>
+              ))}
+            </tbody>
+          </table>
+          </div>
+        )}
+      </CollapsibleCard>
     </section>
   );
 }

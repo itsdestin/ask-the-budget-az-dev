@@ -1,11 +1,12 @@
 import { useCallback, useEffect, useState } from "react";
 import * as api from "../api";
+import { AdvancedPanel } from "../admin/AdvancedPanel";
 import { CorpusPanel } from "../admin/CorpusPanel";
 import { CostsPanel } from "../admin/CostsPanel";
-import { LimitsPanel } from "../admin/LimitsPanel";
 import { NoticesPanel } from "../admin/NoticesPanel";
 import { ProviderPanel } from "../admin/ProviderPanel";
-import { TransferPanel } from "../admin/TransferPanel";
+import { SaveBar } from "../admin/SaveBar";
+import { describeChanges } from "../admin/changes";
 
 // The admin surface (Plan 5 Track 1).
 //
@@ -52,6 +53,7 @@ export function Admin() {
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [saveError, setSaveError] = useState<string | null>(null);
+  const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
   const [restoreState, setRestoreState] = useState({
     pending: false,
@@ -126,13 +128,22 @@ export function Admin() {
     if (!draft) return;
     setSaveError(null);
     setSaved(false);
+    setSaving(true);
     try {
       const body: api.AdminSettingsWrite = {
         provider: {
           provider: draft.provider.provider,
           base_url: draft.provider.base_url,
+          // Always sent, including as nulls: the server treats an explicit
+          // null as "clear this price", which is how switching back to
+          // OpenRouter drops rates that no longer apply. Omitting them
+          // would leave a stale custom price attached to an OpenRouter
+          // config, where it means nothing but reads as if it does.
+          prompt_usd_per_m: draft.provider.prompt_usd_per_m,
+          completion_usd_per_m: draft.provider.completion_usd_per_m,
         },
         tiers: draft.tiers,
+        ai_enabled: draft.ai_enabled,
         default_monthly_limit_usd: draft.default_monthly_limit_usd,
         user_limits: draft.user_limits,
         exempt_users: draft.exempt_users,
@@ -155,7 +166,21 @@ export function Admin() {
       // The server's own sentence. It is written for this reader and is more
       // specific than anything this component could infer.
       setSaveError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setSaving(false);
     }
+  }
+
+  /** Throw away every pending edit and go back to what is on disk. The
+   *  counterpart to naming the changes: an admin who reads the list and
+   *  decides they did not mean any of it needs one click, not a reload. */
+  function discard() {
+    if (!settings) return;
+    setDraft(settings);
+    setApiKey(null);
+    setTransferTo(null);
+    setSaveError(null);
+    setSaved(false);
   }
 
   async function restore(name: string) {
@@ -213,10 +238,27 @@ export function Admin() {
     );
   }
 
+  // Named so the save bar can say what is pending. Labels come from
+  // /api/ai/status so the answer modes are called what the rest of the app
+  // calls them.
+  const changes = describeChanges(
+    settings,
+    draft,
+    apiKey,
+    transferTo,
+    Object.fromEntries(
+      Object.entries(tierCopy ?? {}).map(([tier, info]) => [tier, info.label]),
+    ),
+  );
+
   return (
     <main className="page-admin" data-testid="admin">
       <div className="wrap">
         <h1>Admin</h1>
+
+        {/* Anything wrong goes FIRST and disappears entirely when there is
+            nothing — a panel that is present every day gets scrolled past. */}
+        <NoticesPanel notices={notices} />
 
         <CostsPanel
           usage={usage}
@@ -224,28 +266,45 @@ export function Admin() {
           onMonthChange={setMonth}
           tab={tab}
           onTabChange={setTab}
+          isCustomEndpoint={draft.provider.provider === "custom"}
         />
 
+        {/* AI Mode is one section now: key, models, spending limits and which
+            service, in that order of how often they are touched. They used to
+            be three panels, which put a spending cap several screens away
+            from the model choice that drives it. */}
         <ProviderPanel
           settings={draft}
           models={models}
           tierCopy={tierCopy}
           apiKey={apiKey}
           onApiKeyChange={setApiKey}
+          onAiEnabledChange={(ai_enabled) => setDraft({ ...draft, ai_enabled })}
+          onTierEnabledChange={(tier, enabled) =>
+            setDraft({
+              ...draft,
+              // Spread the existing tier: switching a mode off must keep the
+              // model it was using, or turning it back on becomes a fresh
+              // decision the admin already made once.
+              tiers: { ...draft.tiers, [tier]: { ...draft.tiers[tier], enabled } },
+            })
+          }
           onProviderChange={(provider) =>
             setDraft({ ...draft, provider: { ...draft.provider, provider } })
           }
           onBaseUrlChange={(base_url) =>
             setDraft({ ...draft, provider: { ...draft.provider, base_url } })
           }
+          onPriceChange={(field, value) =>
+            setDraft({ ...draft, provider: { ...draft.provider, [field]: value } })
+          }
           onTierModelChange={(tier, model) =>
-            setDraft({ ...draft, tiers: { ...draft.tiers, [tier]: { model } } })
+            setDraft({
+              ...draft,
+              tiers: { ...draft.tiers, [tier]: { ...draft.tiers[tier], model } },
+            })
           }
           onRefreshModels={() => loadModels(true)}
-        />
-
-        <LimitsPanel
-          settings={draft}
           limitsActive={usage.limits_active}
           limitsInactiveReason={usage.limits_inactive_reason}
           onDefaultChange={(default_monthly_limit_usd) =>
@@ -255,22 +314,6 @@ export function Admin() {
           onExemptChange={(exempt_users) => setDraft({ ...draft, exempt_users })}
         />
 
-        <div className="adm-save">
-          <button type="button" className="adm-btn" onClick={save} data-testid="admin-save">
-            Save changes
-          </button>
-          {saved ? (
-            <span className="adm-ok" role="status" data-testid="admin-saved">
-              Saved. Every machine picks this up without restarting.
-            </span>
-          ) : null}
-          {saveError ? (
-            <span className="adm-warn" role="alert" data-testid="admin-save-error">
-              {saveError}
-            </span>
-          ) : null}
-        </div>
-
         <CorpusPanel
           corpus={corpus}
           snapshots={snapshots}
@@ -278,55 +321,34 @@ export function Admin() {
           restoreState={restoreState}
         />
 
-        <NoticesPanel notices={notices} />
+        {saved ? (
+          <p className="adm-ok" role="status" data-testid="admin-saved">
+            Saved. Every machine picks this up without restarting.
+          </p>
+        ) : null}
 
-        <TransferPanel
+        <AdvancedPanel
           settings={settings ?? draft}
           me={me}
+          dataDir={corpus.data_dir}
           onTransfer={(username) => {
             setTransferTo(username);
             setDraft({ ...draft, admin_username: username });
           }}
         />
-
-        <section className="card adm-panel" data-testid="admin-locations">
-          <h2>Where things live</h2>
-          <dl className="adm-stats">
-            <div>
-              <dt>Shared data folder</dt>
-              <dd>
-                <code>{corpus.data_dir}</code>
-              </dd>
-            </div>
-            <div>
-              <dt>Settings file</dt>
-              <dd>
-                <code>{corpus.data_dir}/settings.json</code>
-              </dd>
-            </div>
-            <div>
-              <dt>Spending records</dt>
-              <dd>
-                <code>{corpus.data_dir}/usage/</code>
-              </dd>
-            </div>
-            <div>
-              <dt>Snapshots</dt>
-              <dd>
-                <code>{corpus.data_dir}/backups/</code>
-              </dd>
-            </div>
-            <div>
-              <dt>Your OpenRouter account</dt>
-              <dd>
-                <a href="https://openrouter.ai/settings/credits" target="_blank" rel="noreferrer">
-                  openrouter.ai — credits and the hard monthly cap
-                </a>
-              </dd>
-            </div>
-          </dl>
-        </section>
       </div>
+
+      {/* Outside the .wrap so it can stick to the viewport rather than to a
+          point in the page. It renders nothing at all when there is nothing
+          pending — the reason the old button was confusing is that it was
+          always there, saying the same thing, attached to no one card. */}
+      <SaveBar
+        changes={changes}
+        onSave={save}
+        onDiscard={discard}
+        saving={saving}
+        error={saveError}
+      />
     </main>
   );
 }

@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import * as api from "../api";
-import { honestTotal, usd } from "../admin/format";
+import { unpricedNote, usd } from "../admin/format";
 
 // The Settings page every analyst sees (Plan 5 Task 9). Not an admin surface —
 // it answers the three questions a person has about themselves: what have I
@@ -117,9 +117,14 @@ export function Settings() {
           ) : (
             <>
               <p className="adm-total" data-testid="settings-total">
-                {honestTotal(usage.month_usd ?? 0, usage.rows_with_unknown_cost)}
+                {usd(usage.month_usd ?? 0)}
                 {usage.limit_usd !== null ? ` of ${usd(usage.limit_usd)}` : ""}
               </p>
+              {unpricedNote(usage.rows_with_unknown_cost) ? (
+                <p className="adm-hint" data-testid="settings-unpriced-note">
+                  {unpricedNote(usage.rows_with_unknown_cost)}
+                </p>
+              ) : null}
               {pct !== null ? (
                 <div
                   className="adm-meter"
@@ -148,7 +153,7 @@ export function Settings() {
                   {usage.reason === "exempt"
                     ? "You have no spending limit."
                     : usage.reason === "custom endpoint"
-                      ? "This office is using a custom AI endpoint, so exact costs aren't available and no limit is being enforced."
+                      ? "No limit is being enforced — your admin hasn't told the app what this office's AI service charges."
                       : "No spending limit is set for you."}
                 </p>
               ) : null}

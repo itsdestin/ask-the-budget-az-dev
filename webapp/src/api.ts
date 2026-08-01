@@ -401,12 +401,24 @@ export interface AdminProvider {
   base_url: string;
   api_key_set: boolean;
   api_key_hint: string;
+  /** Dollars per million tokens, for a custom service. Required to save one
+   *  (2026-07-31): without both, every request lands with no cost, which
+   *  makes spending invisible AND silently switches limits off. Null on
+   *  OpenRouter, which reports its own exact cost per call. */
+  prompt_usd_per_m: number | null;
+  completion_usd_per_m: number | null;
 }
 
 export interface AdminSettings {
   provider: AdminProvider;
-  tiers: Record<string, { model: string }>;
+  /** `enabled` is a real setting, not view state: switching an answer mode
+   *  off keeps the model it was using, so switching it back on is not a
+   *  fresh decision. */
+  tiers: Record<string, { model: string; enabled: boolean }>;
   admin_username: string;
+  /** The master switch. Distinct from "a key is configured" — an admin
+   *  pausing AI Mode must not have to delete the key and re-enter it. */
+  ai_enabled: boolean;
   default_monthly_limit_usd: number | null;
   user_limits: Record<string, number>;
   exempt_users: string[];
@@ -419,9 +431,15 @@ export interface AdminSettings {
 export const UNCHANGED_KEY = "__unchanged__";
 
 export interface AdminSettingsWrite {
-  provider?: { provider: string; base_url: string };
-  tiers?: Record<string, { model: string }>;
+  provider?: {
+    provider: string;
+    base_url: string;
+    prompt_usd_per_m?: number | null;
+    completion_usd_per_m?: number | null;
+  };
+  tiers?: Record<string, { model: string; enabled: boolean }>;
   admin_username?: string;
+  ai_enabled?: boolean;
   default_monthly_limit_usd?: number | null;
   user_limits?: Record<string, number>;
   exempt_users?: string[];
@@ -460,6 +478,35 @@ export interface ModelCard {
   available: boolean;
   tier_hint: string | null;
   blurb: string | null;
+  /** Indicators, all straight from OpenRouter's catalog payload. There is
+   *  deliberately no speed or latency figure: OpenRouter publishes those
+   *  fields but returned null for every shipped recommendation, so there is
+   *  nothing real to show. */
+  max_output_tokens: number | null;
+  is_open_weights: boolean;
+  /** Roughly what one question in this mode costs on this model, sized from
+   *  a question that was actually measured. An estimate — every surface that
+   *  renders it says "about". */
+  usd_per_question: number | null;
+  /** Artificial Analysis's Intelligence Index, republished by OpenRouter.
+   *  Higher is better; a composite of public evaluations, not a mark out of
+   *  100. Null when the model has not been scored — such a model shows no
+   *  intelligence figure at all rather than a zero.
+   *
+   *  The RAW index. The picker shows `intelligence_percent`; this survives
+   *  for the tooltip that cites where the number came from. */
+  intelligence_index: number | null;
+  /** `intelligence_index` as a percentage of a fixed ceiling (Opus 5 + 10%
+   *  headroom), computed server-side in `harness/catalog.py` so there is one
+   *  definition of the scale.
+   *
+   *  This is what the picker renders. The ceiling sits deliberately above the
+   *  best available model, so nothing reaches 100% — a full bar would claim
+   *  "as good as models get", which expires the week a better one ships. */
+  intelligence_percent: number | null;
+  /** The same source's agentic score. AI Mode is a tool loop, so this is the
+   *  sub-score closest to the work this app actually asks of a model. */
+  agentic_index: number | null;
 }
 
 export interface ModelCatalog {
@@ -490,9 +537,10 @@ export interface AdminUsage {
   month: string;
   total_usd: number;
   rows: number;
-  /** Calls whose dollar cost is unknown (a custom endpoint, S15). The page
-   *  must render "at least $X (N calls of unknown cost)" — a total that
-   *  silently omits them lies by omission. */
+  /** Requests whose cost could not be recorded. Only reachable from rows
+   *  written before custom-service pricing became mandatory (2026-07-31);
+   *  no new request can produce one. Still surfaced when non-zero, because
+   *  a total that silently omits rows understates what was spent. */
   rows_with_unknown_cost: number;
   cached_tokens: number;
   tokens_in: number;

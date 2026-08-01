@@ -1529,7 +1529,11 @@ html.ai-fullpage header.site{flex:0 0 auto;}
    tokens — nothing here introduces a new one. */
 .page-admin .wrap,.page-settings .wrap{display:block;padding-top:28px;padding-bottom:40px;}
 .page-admin h1,.page-settings h1{font-size:26px;color:var(--navy);font-weight:800;margin-bottom:16px;}
-.adm-panel{padding:20px 24px;margin-bottom:var(--gap);}
+/* overflow:visible overrides the shared `.card` primitive's overflow:hidden
+   for the same reason `.page-search .big-search-card` does it: a popup
+   anchored inside the card (here the model dropdown) is otherwise clipped to
+   the card's box, which is what made the menu look truncated. */
+.adm-panel{padding:20px 24px;margin-bottom:var(--gap);overflow:visible;}
 .adm-panel h2{font-size:18px;color:var(--navy);font-weight:800;margin:0 0 4px;}
 .adm-panel h3{font-size:14px;color:var(--navy);font-weight:800;margin:18px 0 6px;}
 .adm-sub{font-size:13.5px;color:var(--ink-2);margin:0 0 10px;}
@@ -1555,9 +1559,10 @@ html.ai-fullpage header.site{flex:0 0 auto;}
 .adm-table th,.adm-table td{text-align:left;padding:7px 10px;border-bottom:1px solid var(--line);}
 .adm-table thead th{font-size:11.5px;text-transform:uppercase;letter-spacing:.04em;color:var(--ink-3);}
 .adm-table tbody th{font-weight:800;color:var(--ink);}
-/* A wide table must scroll inside its panel rather than widening the page —
-   the app already forbids horizontal panning of the document. */
-.adm-panel{overflow-x:auto;}
+/* The scroll container is the TABLE's wrapper, not the panel. On the panel
+   it made every ancestor of the model dropdown a clipping context, so the
+   popup was cut off at the panel edge. */
+.adm-table-wrap{overflow-x:auto;}
 
 .adm-stats{display:grid;grid-template-columns:repeat(auto-fit,minmax(190px,1fr));gap:12px 20px;margin:8px 0 0;}
 .adm-stats dt{font-size:11.5px;text-transform:uppercase;letter-spacing:.04em;color:var(--ink-3);}
@@ -1573,9 +1578,51 @@ fieldset.adm-field{border:0;padding:0;}
 .adm-keyhint{font-weight:400;color:var(--ink-3);font-size:12.5px;}
 
 .adm-tier{margin:14px 0 0;padding:12px 14px;background:var(--canvas);border-radius:var(--r-sm);}
-.adm-tier select,.adm-tier input{width:min(520px,100%);margin-top:4px;}
-.adm-tier option:disabled{color:var(--ink-3);}
+.adm-tier input{width:min(520px,100%);margin-top:4px;}
 .adm-blurb{font-size:12.5px;color:var(--ink-2);margin:6px 0 0;line-height:1.5;}
+
+/* Model picker. A closed dropdown that opens into a rich menu — one row at
+   rest, because this is a setting an admin touches twice a year, and eight
+   always-visible options is more weight than that deserves. A native
+   <select> can't carry the chips and blurbs, hence the hand-rolled listbox
+   in ModelPicker.tsx. */
+.adm-select{position:relative;margin-top:6px;width:100%;}
+.adm-select-trigger{display:flex;align-items:center;justify-content:space-between;gap:10px;width:100%;padding:9px 12px;border:1px solid var(--line);border-radius:var(--r-sm);background:var(--card);font:inherit;text-align:left;cursor:pointer;}
+.adm-select-trigger:hover{border-color:var(--az-gold);}
+.adm-select-trigger:focus-visible{outline:2px solid var(--az-gold);outline-offset:1px;}
+.adm-select-trigger.is-open{border-color:var(--navy);box-shadow:inset 0 0 0 1px var(--navy);}
+.adm-select-value{display:flex;align-items:center;gap:8px;flex-wrap:wrap;min-width:0;}
+.adm-select-name{font-size:13.5px;font-weight:800;color:var(--ink);}
+.adm-select-caret{flex:0 0 auto;width:0;height:0;border-left:5px solid transparent;border-right:5px solid transparent;border-top:6px solid var(--ink-3);transition:transform .12s ease;}
+.adm-select-trigger.is-open .adm-select-caret{transform:rotate(180deg);}
+
+.adm-select-menu{position:absolute;z-index:30;top:calc(100% + 4px);left:0;right:0;margin:0;padding:4px;list-style:none;background:var(--card);border:1px solid var(--line);border-radius:var(--r-sm);box-shadow:var(--shadow);max-height:min(60vh,420px);overflow-y:auto;}
+.adm-select-menu:focus{outline:none;}
+.adm-select-option{display:block;padding:9px 11px;border-radius:var(--r-sm);cursor:pointer;}
+/* One highlight, driven by keyboard AND hover, so the two never disagree
+   about which row Enter would choose. */
+.adm-select-option.is-active{background:var(--canvas);}
+.adm-select-option.is-on{box-shadow:inset 0 0 0 1px var(--navy);}
+.adm-select-option.is-gone{opacity:.55;cursor:not-allowed;}
+.adm-option-head{display:flex;align-items:center;gap:8px;flex-wrap:wrap;}
+.adm-option-name{font-size:13.5px;font-weight:800;color:var(--ink);}
+.adm-option-blurb{display:block;font-size:12.5px;color:var(--ink-2);line-height:1.5;margin-top:3px;}
+.adm-select-foot{padding:8px 11px 4px;font-size:11.5px;color:var(--ink-3);line-height:1.5;border-top:1px solid var(--line);margin-top:4px;}
+
+/* Intelligence. The percentage travels with a bar because a bar is read at a
+   glance and a number is read one at a time — scanning eight rows for the
+   strongest model should not require comparing digits. The bar's width is
+   the same figure as the label (see ModelPicker's Capability), so the two
+   cannot disagree; it used to be the raw index, which only looked right by
+   coincidence. */
+.adm-cap{display:inline-flex;align-items:center;gap:6px;flex:0 0 auto;}
+.adm-cap-label{font-size:11.5px;font-weight:800;color:var(--ink-3);white-space:nowrap;}
+.adm-cap-bar{display:block;width:52px;height:6px;border-radius:var(--r-pill);background:var(--line);overflow:hidden;}
+.adm-cap-bar>span{display:block;height:100%;background:var(--copper);border-radius:var(--r-pill);}
+
+.adm-chip{font-size:11.5px;font-weight:800;background:var(--canvas);border:1px solid var(--line);border-radius:var(--r-pill);padding:2px 9px;color:var(--ink-3);white-space:nowrap;}
+.adm-chip.is-cost{background:var(--teal-100);border-color:transparent;color:#12607f;}
+.adm-chip.is-gone{background:var(--az-red-100);border-color:transparent;color:var(--navy-900);}
 
 /* S15's caveats and the transfer confirmation share this treatment: a tinted
    inset that reads as "read this before continuing" without the alarm colour
@@ -1597,7 +1644,22 @@ fieldset.adm-field{border:0;padding:0;}
 .adm-btn-danger{background:var(--az-red);}
 .adm-link{border:0;background:none;padding:0;font:inherit;font-size:12.5px;font-weight:800;color:var(--az-gold-d);text-decoration:underline;cursor:pointer;}
 
-.adm-save{display:flex;flex-wrap:wrap;gap:12px;align-items:center;margin:0 0 var(--gap);}
+/* The save bar. Sticks to the bottom of the viewport and exists only while
+   something is pending — it replaced a "Save changes" button parked in the
+   gap between two cards, which read as belonging to whichever panel you
+   happened to be looking at and never said what it would save. */
+.adm-savebar{position:sticky;bottom:0;z-index:20;margin-top:calc(var(--gap) * -1);padding:0 0 14px;}
+.adm-savebar-inner{max-width:var(--maxw);margin:0 auto;display:flex;align-items:center;justify-content:space-between;gap:16px;flex-wrap:wrap;background:var(--navy);color:#fff;border-radius:var(--r-md);padding:12px 18px;box-shadow:var(--shadow);}
+.adm-savebar-text{display:flex;align-items:baseline;gap:10px;flex-wrap:wrap;min-width:0;font-size:13px;}
+.adm-savebar-text strong{font-size:13.5px;}
+/* The list is the point of the bar — legible, not a whisper. */
+.adm-savebar-list{color:#c9cbe6;min-width:0;overflow-wrap:anywhere;}
+.adm-savebar-error{color:#ffd7d7;font-weight:800;flex:1 1 100%;}
+.adm-savebar-actions{display:flex;align-items:center;gap:14px;flex:0 0 auto;}
+.adm-savebar .adm-btn{background:#fff;color:var(--navy);}
+.adm-savebar .adm-link{color:#c9cbe6;}
+/* Room for the bar so it never sits on top of the last card's content. */
+.page-admin .wrap{padding-bottom:96px;}
 .adm-ok{font-size:13px;font-weight:800;color:var(--teal);}
 .adm-warn{font-size:13px;color:var(--navy-900);background:var(--az-red-100);border-radius:var(--r-sm);padding:9px 12px;margin:10px 0 0;line-height:1.55;}
 
@@ -1613,6 +1675,69 @@ fieldset.adm-field{border:0;padding:0;}
 .adm-meter span{display:block;height:100%;background:var(--teal);}
 .adm-meter span.is-warn{background:var(--copper);}
 .adm-meter span.is-blocked{background:var(--az-red);}
+
+/* --- nesting + grouping pass (2026-07-31, Destin) -------------------------
+   The page was seven equal full-width panels, every control and every
+   explanation visible at once. It is now four sections, with anything an
+   admin touches once (or only when something is wrong) behind a <details>
+   whose summary line says what is inside. These rules style that disclosure
+   and tighten the panel rhythm so the sections read as a hierarchy rather
+   than a list. */
+.adm-panel-head{display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap;}
+.adm-panel-head h2{margin:0;}
+/* Visually hidden but still announced — used for labels whose visible text
+   would just repeat the control next to it. */
+.adm-vh{position:absolute;width:1px;height:1px;padding:0;margin:-1px;overflow:hidden;clip:rect(0 0 0 0);white-space:nowrap;border:0;}
+.adm-label{display:block;font-weight:800;color:var(--ink);font-size:13.5px;margin-bottom:4px;}
+
+/* Sub-cards. These REPLACED a nested <details> treatment (2026-07-31,
+   Destin): a thin vertical rule plus a small triangle beside a bold line
+   read as an outline tree — a "fingernail" — rather than as settings you can
+   act on, and it compounded the moment one nested inside another. Cards nest
+   by containment, so they need neither rule nor caret. */
+/* NO `overflow:hidden` here. It was clipping the model dropdown's popup to
+   the card, which is what made the menu look truncated and janky. Card
+   corners are fine without it — nothing inside paints to the edge. */
+.adm-card{border:1px solid var(--line);border-radius:var(--r-sm);background:var(--card);margin-top:12px;}
+.adm-card.is-muted{background:var(--canvas);}
+.adm-card-head{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:12px 14px;width:100%;}
+.adm-card-title{display:flex;align-items:baseline;gap:9px;flex-wrap:wrap;min-width:0;}
+.adm-card-title h3{margin:0;font-size:13.5px;font-weight:800;color:var(--navy);}
+.adm-card-hint{font-size:12.5px;color:var(--ink-3);min-width:0;overflow-wrap:anywhere;}
+.adm-card-action{flex:0 0 auto;}
+.adm-card-body{padding:0 14px 14px;}
+.adm-card-body>*:first-child{margin-top:0;}
+/* The whole header row is the control on a collapsible card — one keyboard
+   target, no separate caret to find. */
+.adm-card-toggle{background:none;border:0;font:inherit;text-align:left;cursor:pointer;}
+.adm-card-toggle:hover .adm-card-title h3{color:var(--az-gold-d);}
+.adm-card-more{flex:0 0 auto;font-size:12.5px;font-weight:800;color:var(--az-gold-d);}
+.adm-card.is-open{background:var(--canvas);}
+
+/* The pill switch. A real checkbox sits on top of it at zero opacity so the
+   control keeps native focus, keyboard and screen-reader behaviour. */
+/* The label IS the hit target — see Toggle.tsx. Negative margin cancels the
+   padding so a bigger target doesn't push the header row around. */
+.adm-toggle{position:relative;display:inline-flex;align-items:center;gap:8px;cursor:pointer;padding:6px 4px;margin:-6px -4px;user-select:none;}
+/* Hidden, NOT stretched over the control. The previous version overlaid the
+   whole pill and lost every click to the track's stacking context. */
+.adm-toggle input{position:absolute;width:1px;height:1px;margin:0;opacity:0;pointer-events:none;}
+.adm-toggle-track{position:relative;display:block;flex:0 0 auto;width:38px;height:22px;border-radius:var(--r-pill);background:var(--line);transition:background .14s ease;}
+.adm-toggle-knob{position:absolute;top:3px;left:3px;width:16px;height:16px;border-radius:50%;background:#fff;box-shadow:var(--shadow-sm);transition:transform .14s ease;}
+.adm-toggle input:checked+.adm-toggle-track{background:var(--teal);}
+.adm-toggle input:checked+.adm-toggle-track .adm-toggle-knob{transform:translateX(16px);}
+.adm-toggle input:focus-visible+.adm-toggle-track{outline:2px solid var(--az-gold);outline-offset:2px;}
+.adm-toggle-state{font-size:12px;font-weight:800;color:var(--ink-3);min-width:20px;}
+.adm-toggle input:checked~.adm-toggle-state{color:var(--teal);}
+.adm-toggle.is-disabled{opacity:.5;}
+
+.adm-panel-alert{border-left:4px solid var(--az-red);}
+.adm-panel-alert h2{color:var(--az-red);}
+
+.adm-inline{display:flex;gap:10px;align-items:flex-end;flex-wrap:wrap;}
+.adm-inline input{width:auto;min-width:120px;}
+.adm-inline label{display:block;}
+.adm-price{color:var(--ink-3);}
 
 /* ===== page-repair (Plan 5 Task 12, S18) =====
    The screen that renders INSTEAD of the app when it can't start. Centred,
