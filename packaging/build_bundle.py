@@ -123,7 +123,6 @@ EXCLUDED_PREFIXES = (
     "docs/",                    # specs, plans, investigations — not runtime
     "tests/",                   # dev only
     "eval/",                    # dev only
-    "db/",                      # retired Postgres layer (Task 18)
     "primer/",                  # authoring tooling for the reference primer
     "funds/",                   # Phase 0 working notes
     "webapp/src/",              # source; only webapp/dist ships

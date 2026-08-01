@@ -8,7 +8,7 @@ It also writes `<data_dir>/documents.json` — the per-document metadata
 schema but that `/docs/{doc_id}` needs to point the PDF viewer at a file.
 
 chunk_ids are preserved verbatim, so eval/queries.yaml ground truth
-stays valid with no refresh_chunk_ids pass.
+stays valid with no chunk-id refresh pass.
 
 Usage:  uv run python scripts/migrate_to_lancedb.py [--batch 128]
         uv run python scripts/migrate_to_lancedb.py --docs-only

@@ -6,8 +6,10 @@
 #   - Runs `uv sync` to set up the Python venv from uv.lock
 #   - Installs + builds webapp/ (the live SPA — the only Node tree left;
 #     mcp-server/ and web/ were deleted in Plan 5 Track 4)
-#   - Brings up the Postgres container ONLY if Docker is running (Plan 3
-#     removed Postgres from every runtime path; it is migration-era only)
+#
+# There is no Postgres step and no Docker step. Plan 1 moved retrieval to
+# embedded LanceDB and Plan 3 moved ingest off Postgres; Plan 5 Track 4
+# deleted db/ outright. Nothing this repo does needs a database server.
 #
 # What this does NOT do (deliberately):
 #   - Restore the corpus (data/insight-data/ + data/cached-pdfs/). Copy
@@ -54,10 +56,9 @@ fail() {
 
 step "Checking prerequisites"
 
-# Docker is NO LONGER a prerequisite. Plan 1 moved retrieval to embedded
-# LanceDB and Plan 3 moved ingest off Postgres, so nothing the app does at
-# runtime needs a database server. The container is kept only for the
-# migration-era scripts, and setup skips it when Docker is absent.
+# Docker is NOT a prerequisite and neither is Postgres — Plan 5 Track 4
+# deleted the last of that tree. Node is here only to build the SPA; the
+# shipped app serves a static bundle.
 command -v node   >/dev/null 2>&1 || fail "node is not installed. Install Node 20+: https://nodejs.org"
 command -v npm    >/dev/null 2>&1 || fail "npm is not installed."
 command -v uv     >/dev/null 2>&1 || fail "uv is not installed. Install with: pip install uv  (https://github.com/astral-sh/uv)"
@@ -91,62 +92,14 @@ step "Building webapp (vite)"
 ( cd webapp && npm run build )
 
 # -----------------------------------------------------------------------------
-# Postgres
-# -----------------------------------------------------------------------------
-
-# Optional: nothing at runtime needs it. Skipped silently when Docker isn't
-# running, so a fresh clone on a locked-down machine still sets up cleanly.
-if command -v docker >/dev/null 2>&1 && docker info >/dev/null 2>&1; then
-    step "Starting Postgres (docker compose up -d) — migration-era only"
-    ( cd db && docker compose up -d )
-
-    echo "  Waiting for Postgres to become healthy..."
-    deadline=$(( $(date +%s) + 60 ))
-    while [ "$(date +%s)" -lt "$deadline" ]; do
-        if ( cd db && docker compose ps --format json 2>/dev/null | grep -q '"Health":"healthy"' ); then
-            break
-        fi
-        sleep 2
-    done
-else
-    step "Skipping Postgres — Docker not running (not needed; see STATUS.md)"
-fi
-
-# -----------------------------------------------------------------------------
-# DB reachability check
-# -----------------------------------------------------------------------------
-
-step "Validating DB reachability (migration-era only)"
-if ! command -v docker >/dev/null 2>&1 || ! docker info >/dev/null 2>&1; then
-    echo "  Skipped: Docker not running. Search, ingest and the app do not use Postgres."
-elif [ -f .env.local ]; then
-    set -a
-    # shellcheck disable=SC1091
-    source .env.local
-    set +a
-    if uv run python -m db.validate 2>&1 | tee /tmp/budget-validate.log | tail -5; then
-        echo "  OK: DB reachable"
-    else
-        echo
-        echo "  DB validate failed. This is expected on a fresh machine with no data."
-        echo "  See README.md → 'Moving to a new device' to populate the DB."
-    fi
-else
-    echo "  Skipped (no .env.local)"
-fi
-
-# -----------------------------------------------------------------------------
 # Tests (optional)
 # -----------------------------------------------------------------------------
 
 if [ "$VERIFY" -eq 1 ]; then
     step "Running Python tests (pytest)"
-    if [ -f .env.local ]; then
-        set -a
-        # shellcheck disable=SC1091
-        source .env.local
-        set +a
-    fi
+    # No .env.local sourcing: there is no env file on any path any more, and
+    # sourcing one used to leak DATABASE_URL into the process, un-skipping the
+    # Postgres suites mid-run. Those suites are gone; so is the sourcing.
     uv run pytest -q
 
     step "Running webapp tests (vitest)"

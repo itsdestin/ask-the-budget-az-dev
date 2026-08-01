@@ -6,8 +6,10 @@ No DB, no I/O — trivially testable.
 
 The matching algorithm:
   1. chunk_id exact match → "chunk_id" (tight)
-  2. dimensions all match → "dimensions_fallback" (loose, used after
-     re-ingest until refresh_chunk_ids.py updates the chunk_ids)
+  2. dimensions all match → "dimensions_fallback" (loose, and now the
+     ONLY thing standing between a re-ingest and a scoring collapse —
+     the refresh tool that used to re-bind stale chunk_ids was deleted
+     with the Postgres tooling; see eval/schema.py)
   3. neither → None (this chunk doesn't satisfy this expected)
 
 Lookup: pass if ANY expected_chunk has a match in top K.
