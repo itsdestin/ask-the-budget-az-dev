@@ -1,0 +1,562 @@
+{
+  "git_sha": "8d00ad5",
+  "timestamp": "2026-08-01T0933Z",
+  "summary": {
+    "recall_at_5": 0.6206896551724138,
+    "recall_at_15": 0.9655172413793104,
+    "recall_at_20": 1.0,
+    "fallback_rate": 0.41379310344827586,
+    "latency_p50_ms": 763,
+    "latency_p95_ms": 832,
+    "refusal_precision": 0.4,
+    "refusal_recall": 0.4,
+    "by_type": {
+      "lookup": {
+        "recall_at_5": 0.5833333333333334,
+        "recall_at_15": 0.9583333333333334,
+        "recall_at_20": 1.0,
+        "count": 24
+      },
+      "comparison": {
+        "recall_at_5": 0.8,
+        "recall_at_15": 1.0,
+        "recall_at_20": 1.0,
+        "count": 5
+      },
+      "refusal": {
+        "precision": 0.4,
+        "count": 5
+      }
+    }
+  },
+  "per_query": [
+    {
+      "id": "q-001",
+      "type": "lookup",
+      "status": "pass",
+      "matched_via": "dimensions_fallback",
+      "rank": 1,
+      "latency_ms": 1560,
+      "top_score": 4.579037189483643,
+      "top_chunk_ids": [
+        "jlbc-baseline-fy2026-crr-0001",
+        "jlbc-baseline-fy2027-crr-0001",
+        "jlbc-approps-fy2027-517-0008",
+        "jlbc-approps-fy2026-502-0008",
+        "jlbc-approps-fy2026-444-0010"
+      ]
+    },
+    {
+      "id": "q-002",
+      "type": "lookup",
+      "status": "pass",
+      "matched_via": "chunk_id",
+      "rank": 3,
+      "latency_ms": 813,
+      "top_score": 6.313631534576416,
+      "top_chunk_ids": [
+        "jlbc-approps-fy2026-lan-0011",
+        "jlbc-approps-fy2025-lan-0013",
+        "legislature-budget-bill-fy2026-sb1735-2025-0053",
+        "jlbc-approps-fy2026-nrc-0007",
+        "jlbc-baseline-fy2025-lan-0010"
+      ]
+    },
+    {
+      "id": "q-003",
+      "type": "lookup",
+      "status": "pass",
+      "matched_via": "dimensions_fallback",
+      "rank": 6,
+      "latency_ms": 860,
+      "top_score": 4.186445236206055,
+      "top_chunk_ids": [
+        "governor-governors-budget-fy2027-1192",
+        "governor-governors-budget-fy2027-1191",
+        "governor-governors-budget-fy2027-0743",
+        "jlbc-approps-fy2026-bh3-0025",
+        "jlbc-baseline-fy2027-s7-0001"
+      ]
+    },
+    {
+      "id": "q-004",
+      "type": "lookup",
+      "status": "pass",
+      "matched_via": "chunk_id",
+      "rank": 10,
+      "latency_ms": 832,
+      "top_score": 5.988771915435791,
+      "top_chunk_ids": [
+        "governor-governors-budget-fy2025-0246",
+        "governor-governors-budget-fy2026-0215",
+        "jlbc-approps-fy2025-cor-0008",
+        "governor-governors-budget-fy2026-0863",
+        "jlbc-approps-fy2025-cor-0002"
+      ]
+    },
+    {
+      "id": "q-005",
+      "type": "lookup",
+      "status": "pass",
+      "matched_via": "chunk_id",
+      "rank": 7,
+      "latency_ms": 790,
+      "top_score": 5.089861869812012,
+      "top_chunk_ids": [
+        "jlbc-approps-fy2026-des-0064",
+        "jlbc-approps-fy2026-axs-0099",
+        "jlbc-approps-fy2025-des-0039",
+        "jlbc-approps-fy2026-des-0063",
+        "jlbc-approps-fy2026-des-0025"
+      ]
+    },
+    {
+      "id": "q-006",
+      "type": "lookup",
+      "status": "pass",
+      "matched_via": "chunk_id",
+      "rank": 1,
+      "latency_ms": 790,
+      "top_score": 7.193047523498535,
+      "top_chunk_ids": [
+        "jlbc-baseline-fy2027-att-0010",
+        "jlbc-approps-fy2026-att-0009",
+        "jlbc-baseline-fy2026-att-0011",
+        "jlbc-baseline-fy2027-att-0021",
+        "jlbc-approps-fy2026-att-0006"
+      ]
+    },
+    {
+      "id": "q-007",
+      "type": "lookup",
+      "status": "pass",
+      "matched_via": "chunk_id",
+      "rank": 1,
+      "latency_ms": 778,
+      "top_score": 4.517006874084473,
+      "top_chunk_ids": [
+        "governor-governors-budget-fy2027-1148",
+        "governor-governors-budget-fy2026-1302",
+        "governor-governors-budget-fy2027-0143",
+        "governor-governors-budget-fy2026-0177",
+        "governor-governors-budget-fy2027-0141"
+      ]
+    },
+    {
+      "id": "q-008",
+      "type": "lookup",
+      "status": "pass",
+      "matched_via": "dimensions_fallback",
+      "rank": 7,
+      "latency_ms": 825,
+      "top_score": 2.702880620956421,
+      "top_chunk_ids": [
+        "jlbc-approps-fy2025-adc-0057",
+        "jlbc-approps-fy2025-axs-0034",
+        "jlbc-approps-fy2026-axs-0037",
+        "jlbc-baseline-fy2026-axs-0029",
+        "jlbc-approps-fy2026-508-0017"
+      ]
+    },
+    {
+      "id": "q-009",
+      "type": "lookup",
+      "status": "pass",
+      "matched_via": "chunk_id",
+      "rank": 17,
+      "latency_ms": 798,
+      "top_score": 4.255992889404297,
+      "top_chunk_ids": [
+        "jlbc-approps-fy2026-482-0095",
+        "jlbc-baseline-fy2025-rev-0012",
+        "jlbc-baseline-fy2026-rev-0013",
+        "jlbc-approps-fy2026-rev-0016",
+        "jlbc-approps-fy2025-rev-0013"
+      ]
+    },
+    {
+      "id": "q-010",
+      "type": "lookup",
+      "status": "pass",
+      "matched_via": "chunk_id",
+      "rank": 9,
+      "latency_ms": 686,
+      "top_score": 4.737008571624756,
+      "top_chunk_ids": [
+        "jlbc-approps-fy2026-dhs-0068",
+        "jlbc-baseline-fy2027-nur-0007",
+        "jlbc-baseline-fy2027-dhs-0049",
+        "jlbc-approps-fy2025-dhs-0067",
+        "jlbc-approps-fy2026-nur-0010"
+      ]
+    },
+    {
+      "id": "q-011",
+      "type": "lookup",
+      "status": "pass",
+      "matched_via": "chunk_id",
+      "rank": 4,
+      "latency_ms": 763,
+      "top_score": 3.6060004234313965,
+      "top_chunk_ids": [
+        "governor-governors-budget-fy2025-0925",
+        "jlbc-approps-fy2025-485-0058",
+        "jlbc-approps-fy2026-482-0079",
+        "agao-afr-fy2025-0013",
+        "jlbc-approps-fy2026-444-0008"
+      ]
+    },
+    {
+      "id": "q-012",
+      "type": "lookup",
+      "status": "pass",
+      "matched_via": "chunk_id",
+      "rank": 1,
+      "latency_ms": 772,
+      "top_score": 5.215504169464111,
+      "top_chunk_ids": [
+        "governor-governors-budget-fy2027-1334",
+        "governor-governors-budget-fy2027-0905",
+        "governor-governors-budget-fy2027-1336",
+        "governor-governors-budget-fy2027-1333",
+        "governor-governors-budget-fy2026-1041"
+      ]
+    },
+    {
+      "id": "q-013",
+      "type": "lookup",
+      "status": "pass",
+      "matched_via": "dimensions_fallback",
+      "rank": 4,
+      "latency_ms": 769,
+      "top_score": 5.883565425872803,
+      "top_chunk_ids": [
+        "governor-governors-budget-fy2025-1046",
+        "governor-governors-budget-fy2025-1048",
+        "jlbc-approps-fy2025-acc-0038",
+        "jlbc-approps-fy2025-unibor-0019",
+        "jlbc-baseline-fy2026-unibor-0012"
+      ]
+    },
+    {
+      "id": "q-014",
+      "type": "lookup",
+      "status": "pass",
+      "matched_via": "dimensions_fallback",
+      "rank": 7,
+      "latency_ms": 741,
+      "top_score": 1.6362650394439697,
+      "top_chunk_ids": [
+        "jlbc-approps-fy2026-des-0077",
+        "jlbc-approps-fy2026-axs-0040",
+        "jlbc-baseline-fy2027-des-0054",
+        "jlbc-approps-fy2026-bh3-0000",
+        "jlbc-baseline-fy2026-axs-0032"
+      ]
+    },
+    {
+      "id": "q-015",
+      "type": "lookup",
+      "status": "pass",
+      "matched_via": "chunk_id",
+      "rank": 1,
+      "latency_ms": 719,
+      "top_score": 5.855432987213135,
+      "top_chunk_ids": [
+        "jlbc-approps-fy2025-doa-0024",
+        "jlbc-approps-fy2025-doa-0025",
+        "jlbc-approps-fy2026-doa-0021",
+        "jlbc-approps-fy2024-doa-0015",
+        "jlbc-approps-fy2026-doa-apf-0008"
+      ]
+    },
+    {
+      "id": "q-016",
+      "type": "lookup",
+      "status": "pass",
+      "matched_via": "chunk_id",
+      "rank": 6,
+      "latency_ms": 690,
+      "top_score": 8.006834030151367,
+      "top_chunk_ids": [
+        "jlbc-approps-fy2026-doa-0071",
+        "jlbc-baseline-fy2025-ade-0088",
+        "jlbc-approps-fy2026-tre-0098",
+        "jlbc-approps-fy2026-482-0098",
+        "jlbc-approps-fy2026-tre-0099"
+      ]
+    },
+    {
+      "id": "q-017",
+      "type": "lookup",
+      "status": "pass",
+      "matched_via": "chunk_id",
+      "rank": 5,
+      "latency_ms": 763,
+      "top_score": 3.2696433067321777,
+      "top_chunk_ids": [
+        "jlbc-approps-fy2026-adc-0056",
+        "governor-governors-budget-fy2025-0270",
+        "jlbc-approps-fy2025-adc-0001",
+        "jlbc-baseline-fy2025-adc-0017",
+        "agao-afr-fy2025-0088"
+      ]
+    },
+    {
+      "id": "q-018",
+      "type": "lookup",
+      "status": "pass",
+      "matched_via": "chunk_id",
+      "rank": 11,
+      "latency_ms": 742,
+      "top_score": 6.302206039428711,
+      "top_chunk_ids": [
+        "governor-governors-budget-fy2025-0477",
+        "jlbc-approps-fy2026-482-0079",
+        "jlbc-baseline-fy2025-for-0018",
+        "jlbc-approps-fy2026-for-0023",
+        "jlbc-baseline-fy2027-for-0018"
+      ]
+    },
+    {
+      "id": "q-019",
+      "type": "lookup",
+      "status": "pass",
+      "matched_via": "dimensions_fallback",
+      "rank": 7,
+      "latency_ms": 781,
+      "top_score": 2.908111333847046,
+      "top_chunk_ids": [
+        "governor-governors-budget-fy2026-0665",
+        "governor-governors-budget-fy2026-0184",
+        "jlbc-baseline-fy2025-unibor-0037",
+        "jlbc-approps-fy2025-unibor-0038",
+        "governor-governors-budget-fy2026-0696"
+      ]
+    },
+    {
+      "id": "q-020",
+      "type": "lookup",
+      "status": "pass",
+      "matched_via": "chunk_id",
+      "rank": 1,
+      "latency_ms": 722,
+      "top_score": 7.518763542175293,
+      "top_chunk_ids": [
+        "jlbc-baseline-fy2027-axs-0068",
+        "jlbc-baseline-fy2026-axs-0082",
+        "jlbc-baseline-fy2025-axs-0082",
+        "jlbc-baseline-fy2027-axs-0067",
+        "jlbc-baseline-fy2026-axs-0081"
+      ]
+    },
+    {
+      "id": "q-021",
+      "type": "lookup",
+      "status": "pass",
+      "matched_via": "dimensions_fallback",
+      "rank": 1,
+      "latency_ms": 783,
+      "top_score": 3.4596080780029297,
+      "top_chunk_ids": [
+        "governor-governors-budget-fy2027-1192",
+        "jlbc-baseline-fy2027-s2-0005",
+        "governor-governors-budget-fy2027-0268",
+        "governor-governors-budget-fy2027-0395",
+        "governor-governors-budget-fy2026-1539"
+      ]
+    },
+    {
+      "id": "q-022",
+      "type": "lookup",
+      "status": "pass",
+      "matched_via": "chunk_id",
+      "rank": 1,
+      "latency_ms": 683,
+      "top_score": 7.267064094543457,
+      "top_chunk_ids": [
+        "legislature-budget-bill-fy2026-sb1735-2025-0101",
+        "jlbc-approps-fy2026-sos-0025",
+        "jlbc-approps-fy2026-sos-0014",
+        "jlbc-approps-fy2026-482-0096",
+        "jlbc-approps-fy2026-sos-0021"
+      ]
+    },
+    {
+      "id": "q-023",
+      "type": "lookup",
+      "status": "pass",
+      "matched_via": "chunk_id",
+      "rank": 1,
+      "latency_ms": 754,
+      "top_score": 6.721845626831055,
+      "top_chunk_ids": [
+        "jlbc-approps-fy2025-adc-0012",
+        "jlbc-baseline-fy2026-adc-0017",
+        "jlbc-approps-fy2026-adc-0012",
+        "jlbc-baseline-fy2025-adc-0011",
+        "jlbc-approps-fy2024-adc-0016"
+      ]
+    },
+    {
+      "id": "q-024",
+      "type": "lookup",
+      "status": "pass",
+      "matched_via": "chunk_id",
+      "rank": 2,
+      "latency_ms": 782,
+      "top_score": 5.902292251586914,
+      "top_chunk_ids": [
+        "jlbc-baseline-fy2027-sdb-0007",
+        "governor-governors-budget-fy2027-1165",
+        "governor-governors-budget-fy2026-1323",
+        "jlbc-baseline-fy2027-s18-0003",
+        "legislature-budget-bill-fy2026-sb1735-2025-0022"
+      ]
+    },
+    {
+      "id": "q-025",
+      "type": "comparison",
+      "status": "pass",
+      "matched_via": "dimensions_fallback",
+      "rank": 4,
+      "latency_ms": 749,
+      "top_score": 5.847665309906006,
+      "top_chunk_ids": [
+        "jlbc-baseline-fy2027-s2-0011",
+        "jlbc-baseline-fy2027-des-0023",
+        "jlbc-baseline-fy2025-des-0080",
+        "jlbc-baseline-fy2026-des-0065",
+        "jlbc-baseline-fy2027-des-0064"
+      ]
+    },
+    {
+      "id": "q-026",
+      "type": "comparison",
+      "status": "pass",
+      "matched_via": "dimensions_fallback",
+      "rank": 6,
+      "latency_ms": 806,
+      "top_score": 1.9386305809020996,
+      "top_chunk_ids": [
+        "jlbc-baseline-fy2027-s18-0001",
+        "jlbc-baseline-fy2026-att-0017",
+        "jlbc-baseline-fy2027-dcs-0019",
+        "jlbc-baseline-fy2026-dcs-0016",
+        "governor-governors-budget-fy2027-0098"
+      ]
+    },
+    {
+      "id": "q-027",
+      "type": "comparison",
+      "status": "pass",
+      "matched_via": "dimensions_fallback",
+      "rank": 2,
+      "latency_ms": 808,
+      "top_score": 6.016530990600586,
+      "top_chunk_ids": [
+        "jlbc-baseline-fy2027-adc-0024",
+        "jlbc-baseline-fy2026-adc-0026",
+        "jlbc-baseline-fy2026-adc-0025",
+        "jlbc-approps-fy2026-adc-0007",
+        "governor-governors-budget-fy2027-0193"
+      ]
+    },
+    {
+      "id": "q-028",
+      "type": "comparison",
+      "status": "pass",
+      "matched_via": "dimensions_fallback",
+      "rank": 3,
+      "latency_ms": 742,
+      "top_score": 4.840856552124023,
+      "top_chunk_ids": [
+        "jlbc-baseline-fy2026-doa-apf-0020",
+        "jlbc-baseline-fy2026-des-0065",
+        "jlbc-baseline-fy2027-des-0063",
+        "jlbc-baseline-fy2027-s9-0001",
+        "jlbc-baseline-fy2025-des-0044"
+      ]
+    },
+    {
+      "id": "q-029",
+      "type": "comparison",
+      "status": "pass",
+      "matched_via": "dimensions_fallback",
+      "rank": 2,
+      "latency_ms": 768,
+      "top_score": 4.925522804260254,
+      "top_chunk_ids": [
+        "jlbc-baseline-fy2027-acc-0026",
+        "jlbc-baseline-fy2026-acc-0023",
+        "jlbc-baseline-fy2027-s2-0008",
+        "jlbc-baseline-fy2025-acc-0024",
+        "jlbc-baseline-fy2027-acc-0022"
+      ]
+    },
+    {
+      "id": "q-030",
+      "type": "refusal",
+      "status": "fail",
+      "latency_ms": 739,
+      "top_score": 3.1191437244415283,
+      "top_chunk_ids": [
+        "jlbc-approps-fy2023-ade-0122",
+        "jlbc-baseline-fy2023-ade-0077",
+        "jlbc-approps-fy2024-ade-0063",
+        "jlbc-baseline-fy2022-s1-0011",
+        "jlbc-approps-fy2022-bh29-0032"
+      ]
+    },
+    {
+      "id": "q-031",
+      "type": "refusal",
+      "status": "pass",
+      "latency_ms": 736,
+      "top_score": 0.8336673378944397,
+      "top_chunk_ids": [
+        "governor-governors-budget-fy2027-1335",
+        "governor-governors-budget-fy2026-1506",
+        "jlbc-baseline-fy2023-wat-0015",
+        "jlbc-baseline-fy2024-wat-0018",
+        "jlbc-approps-fy2023-wat-0034"
+      ]
+    },
+    {
+      "id": "q-032",
+      "type": "refusal",
+      "status": "pass",
+      "latency_ms": 97,
+      "top_score": -1000000000.0,
+      "top_chunk_ids": []
+    },
+    {
+      "id": "q-033",
+      "type": "refusal",
+      "status": "fail",
+      "latency_ms": 736,
+      "top_score": 5.540185451507568,
+      "top_chunk_ids": [
+        "jlbc-baseline-fy2025-hla-0003",
+        "jlbc-baseline-fy2027-hla-0002",
+        "legislature-budget-bill-fy2026-sb1735-2025-0041",
+        "jlbc-baseline-fy2027-hla-0009",
+        "jlbc-baseline-fy2026-hla-0005"
+      ]
+    },
+    {
+      "id": "q-034",
+      "type": "refusal",
+      "status": "fail",
+      "latency_ms": 754,
+      "top_score": 3.759211540222168,
+      "top_chunk_ids": [
+        "jlbc-approps-fy2027-502-0013",
+        "jlbc-approps-fy2026-bh3-0004",
+        "jlbc-approps-fy2026-426-0026",
+        "jlbc-approps-fy2027-502-0015",
+        "jlbc-approps-fy2026-426-0020"
+      ]
+    }
+  ]
+}
