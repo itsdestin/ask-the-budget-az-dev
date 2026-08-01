@@ -24,7 +24,8 @@ from typing import Any, Sequence
 
 from chunking.types import Chunk, DocMeta
 from store.chunk_store import ChunkStore
-from store.config import DOCS_FIELDS, documents_path, write_documents_sidecar
+from store.config import DOCS_FIELDS, write_documents_sidecar
+from store.documents import load_documents
 
 # Document-metadata fields ingest adds on top of the migration's set. They
 # answer the two questions the migration never had to: "have we seen this
@@ -278,17 +279,17 @@ def _merge_document_entry(
 
 
 def _read_documents() -> dict[str, dict[str, Any]]:
-    path = documents_path()
-    if not path.is_file():
-        return {}
-    try:
-        data = json.loads(path.read_text(encoding="utf-8"))
-    except ValueError as exc:
-        # Refuse rather than start a fresh sidecar: overwriting a corrupt
-        # documents.json would silently orphan every PDF in the viewer.
-        raise RuntimeError(
-            f"{path} is not valid JSON ({exc}). Restore it from a corpus "
-            "snapshot or regenerate it with scripts/migrate_to_lancedb.py "
-            "--docs-only before ingesting."
-        ) from exc
-    return data if isinstance(data, dict) else {}
+    """The sidecar, read the WRITE path's way (Plan 5 Task 19).
+
+    `strict=True` is load-bearing, not a style choice. Every other reader
+    degrades a corrupt documents.json to `{}` so search keeps working. Here
+    that would be a data-loss bug: this is a read-modify-write, so an empty
+    read means the merge writes a sidecar containing ONE document and
+    silently orphans every PDF in the viewer. The corrupt bytes are the
+    only remaining record of where those files live.
+
+    `strict` also re-validates instead of trusting the mtime cache, which
+    matters here for the same reason — a good read earlier in the process
+    must not license writing over a file that has since been damaged.
+    """
+    return load_documents(strict=True)

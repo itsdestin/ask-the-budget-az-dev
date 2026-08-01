@@ -58,7 +58,12 @@ from harness.constants import (
 from retrieval import DEFAULT_PIPELINE_TOP_K, RetrievalRequest, pipeline, retrieve
 from retrieval.citations import CiteValidateBody, validate_cite, validate_cites
 from store.chunk_store import CORPUS_TABLES
-from store.config import documents_path
+from store.documents import (
+    humanize_doc_id,
+    load_documents,
+    reset_documents_cache,
+    titles_for,
+)
 
 # ---------------------------------------------------------------------------
 # Corpus naming
@@ -89,100 +94,21 @@ def resolve_corpus(name: str) -> str:
 # doc_title is in every retrieve() result the model reads, so a blank or
 # ugly one shows up in ANSWERS, not just in the UI.
 #
-# WHY a local copy of this cache: the same lookup lives in
-# `retrieval/api.py`, but importing that module builds a FastAPI app at
-# import time — the harness would drag the entire retired sidecar in just
-# to read a JSON file. `app/search_provider.py` has a third variant.
-# Three copies is one too many; the right home is a `store/documents.py`
-# next to `documents_path()`, and consolidating them is a Plan 5 item
-# (this task may not touch `store/`). Until then the shapes are kept
-# deliberately identical so they cannot drift in behavior.
+# The cache, the parse, the humanizer and the acronym table all moved to
+# `store/documents.py` in Plan 5 Task 19 — there used to be four copies
+# and they had already drifted. These are thin aliases so the harness's
+# internal call sites (and the tests that reach for the reset hook) keep
+# their existing names.
+#
+# NOTE the harness deliberately does NOT pass `require_ingested=True`:
+# here the sidecar is the ONLY title source, so gating out the 378
+# migration-era entries would swap real agency names for doc-id slugs in
+# answers. See `store.documents.title_for`.
 
-_docs_lock = threading.Lock()
-_docs_cache: dict[str, dict[str, Any]] = {}
-# (path, mtime, size) of the file the cache was built from. Comparing all
-# three invalidates the cache both when the file is rewritten AND when
-# JLBC_DATA_DIR is repointed at a different corpus.
-_docs_stamp: tuple[str, float, int] | None = None
-
-
-def reset_document_title_cache() -> None:
-    """Test-only: force the next lookup to re-stat and re-parse."""
-    global _docs_cache, _docs_stamp
-    with _docs_lock:
-        _docs_cache, _docs_stamp = {}, None
-
-
-def _document_metadata() -> dict[str, dict[str, Any]]:
-    """Parsed documents.json, cached until the file changes on disk.
-
-    Reload is mtime+size based rather than load-once-at-startup so an
-    ingest (or a `--docs-only` refresh) shows up without restarting the
-    server. A missing file is normal and returns {}; a malformed one
-    warns to stderr and also returns {}, because degrading to derived
-    titles beats failing every search.
-    """
-    global _docs_cache, _docs_stamp
-    path = documents_path()
-    try:
-        st = path.stat()
-        stamp: tuple[str, float, int] | None = (str(path), st.st_mtime, st.st_size)
-    except OSError:
-        stamp = None  # absent or unreadable — fall back silently
-    with _docs_lock:
-        if stamp == _docs_stamp:
-            return _docs_cache
-        if stamp is None:
-            _docs_cache, _docs_stamp = {}, None
-            return _docs_cache
-        try:
-            loaded = json.loads(path.read_text(encoding="utf-8"))
-            if not isinstance(loaded, dict):
-                raise ValueError(
-                    "expected a JSON object of doc_id -> metadata, got "
-                    f"{type(loaded).__name__}"
-                )
-        except (OSError, ValueError) as err:
-            print(
-                f"harness.tools: ignoring {path} ({err}) — document titles fall "
-                "back to doc_id slugs. Rebuild it with: uv run python "
-                "scripts/migrate_to_lancedb.py --docs-only",
-                file=sys.stderr,
-            )
-            loaded = {}
-        _docs_cache, _docs_stamp = loaded, stamp
-        return _docs_cache
-
-
-# Slug parts that are acronyms, not words — .capitalize() would render
-# them "Jlbc" / "Afr". Kept character-identical to the copies in
-# retrieval/api.py and app/search_provider.py so no two layers ever show
-# a different title for the same document.
-_SLUG_ACRONYMS = ("jlbc", "agao", "afr", "sad")
-
-
-def _title_from_doc_id(doc_id: str) -> str:
-    """FALLBACK ONLY: 'jlbc-baseline-fy2027-axs' -> 'JLBC Baseline FY 2027
-    Axs'. The real ingest title ('JLBC FY2026 — AHCCCS') is much better,
-    which is why documents.json wins whenever it knows the doc."""
-    out: list[str] = []
-    for part in doc_id.split("-"):
-        if part.startswith("fy") and part[2:].isdigit():
-            out.append(f"FY {part[2:]}")
-        elif part in _SLUG_ACRONYMS:
-            out.append(part.upper())
-        else:
-            out.append(part.capitalize())
-    return " ".join(out)
-
-
-def _doc_titles(doc_ids: Iterable[str]) -> dict[str, str]:
-    """doc_id -> display title, real title preferred, slug as fallback."""
-    docs = _document_metadata()
-    return {
-        doc_id: (docs.get(doc_id, {}).get("title") or _title_from_doc_id(doc_id))
-        for doc_id in doc_ids
-    }
+reset_document_title_cache = reset_documents_cache
+_document_metadata = load_documents
+_title_from_doc_id = humanize_doc_id
+_doc_titles = titles_for
 
 
 # ---------------------------------------------------------------------------
