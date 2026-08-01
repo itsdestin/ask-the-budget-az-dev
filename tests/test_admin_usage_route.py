@@ -35,7 +35,27 @@ from store.config import data_dir
 
 ADMIN = "Destin"
 ANALYST = "analyst1"
+
+# A fixed month for the endpoints that TAKE a `month` parameter.
 MONTH = "2026-07"
+
+
+def current_month() -> str:
+    """The month `/api/me/usage` will actually read (Arizona is UTC-7, no DST).
+
+    WHY this exists: `/api/me/usage` takes no month parameter — it always
+    reports the caller's CURRENT month. Three tests below used to seed the
+    fixed `MONTH` shard and then call it, which passed only for as long as
+    the wall clock happened to be in July 2026. They went red at midnight on
+    2026-08-01, in a run that had nothing to do with the ledger.
+
+    A test that fails on a date boundary teaches whoever finds it that the
+    suite is flaky, which is the expensive kind of wrong.
+    """
+    from datetime import datetime, timedelta, timezone
+
+    now = datetime.now(timezone(timedelta(hours=-7)))
+    return f"{now.year:04d}-{now.month:02d}"
 
 
 @pytest.fixture(autouse=True)
@@ -216,7 +236,7 @@ def test_limits_are_inactive_when_none_is_configured(admin_client):
 
 def test_me_usage_is_not_admin_gated(analyst_client):
     configure(default_monthly_limit_usd=25.0)
-    write_rows(ROWS)
+    write_rows(ROWS, shard=current_month())
 
     r = analyst_client.get("/api/me/usage")
 
@@ -233,7 +253,7 @@ def test_me_usage_is_not_admin_gated(analyst_client):
 
 def test_me_usage_returns_the_ledgers_exact_blocked_sentence(analyst_client):
     configure(user_limits={ANALYST: 0.05})
-    write_rows(ROWS)
+    write_rows(ROWS, shard=current_month())
 
     body = analyst_client.get("/api/me/usage").json()
 
@@ -249,7 +269,7 @@ def test_me_usage_returns_the_ledgers_exact_blocked_sentence(analyst_client):
 
 def test_me_usage_warns_at_the_ledgers_boundary(analyst_client):
     configure(user_limits={ANALYST: 0.11})   # $0.10 spent = 90%
-    write_rows(ROWS)
+    write_rows(ROWS, shard=current_month())
 
     body = analyst_client.get("/api/me/usage").json()
 
