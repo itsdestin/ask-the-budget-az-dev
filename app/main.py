@@ -1,8 +1,9 @@
 """Single-process app server (spec S1).
 
-Serves the built SPA (webapp/dist) plus the JSON API. Distinct from
-retrieval/api.py (the legacy Phase-1c sidecar on 9200): this is the
-consolidated app's front door, default port 9300. Static serving uses
+Serves the built SPA (webapp/dist) plus the JSON API — the consolidated
+app's one and only front door, default port 9300. (The Phase-1c
+retrieval sidecar on port 9200 that this replaced was deleted in Plan 5
+Track 4; there is no second process.) Static serving uses
 an SPA fallback: any unmatched path that is not under /api/ returns
 index.html so client-side routing works on refresh/deep links, while
 unmatched /api/ paths get a JSON 404 instead.
@@ -20,6 +21,7 @@ from pydantic import BaseModel
 
 from app.routes.admin import router as admin_router
 from app.routes.books import router as books_router
+from app.routes.corpus import router as corpus_router
 from app.routes.conversations import (
     ConversationRegistry,
     default_session_factory,
@@ -81,6 +83,7 @@ async def _lifespan(app: FastAPI):
     embedding model; only actually *serving* should. Starlette runs this on
     real startup and when a test opts in with `with TestClient(app)`.
     """
+    from app.machine_config import ingest_enabled
     from ingest.worker import ensure_started
 
     # `create_app(ingest_worker=None)` is the explicit opt-out: this process
@@ -88,6 +91,28 @@ async def _lifespan(app: FastAPI):
     # `ensure_started` BUILDS a worker when it finds none attached, which would
     # turn the opt-out into a no-op.
     if getattr(app.state, "ingest_worker", None) is None:
+        yield
+        return
+
+    # The per-machine switch (S18 / Session B's app-requirement #1). ONE
+    # bundle is installed on all ~20 office PCs and `launcher.pyw` calls
+    # `create_app()` with no arguments, so without this every one of them
+    # starts a worker against the single shared queue. IngestLock keeps that
+    # safe, but the winner is arbitrary and may be an analyst's laptop that
+    # then spends six hours at 100% CPU on a Baseline book.
+    #
+    # Said out loud on stderr rather than silently: "off by default" plus
+    # silence is how uploads pile up on the share with nothing draining them.
+    # The admin page's queue panel carries the same warning where somebody
+    # will actually see it.
+    if not ingest_enabled():
+        print(
+            "jlbc-insight: this computer is not set to process uploads, so the "
+            "queue will not run here. Turn on 'Process uploads on this computer' "
+            "in Admin -> Corpus if this should be the machine that does it.",
+            file=sys.stderr,
+            flush=True,
+        )
         yield
         return
 
@@ -160,6 +185,7 @@ def create_app(
     app.include_router(upload_router)
     app.include_router(jobs_router)
     app.include_router(books_router)
+    app.include_router(corpus_router)
     # Identity + admin. Registered here, above the catch-all, for the reason
     # stated in the comment at the top of this block — a router added after
     # `/{path:path}` silently serves index.html to fetch() instead of JSON.

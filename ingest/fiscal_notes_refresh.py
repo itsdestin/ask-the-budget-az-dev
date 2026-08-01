@@ -178,6 +178,10 @@ def run_refresh(
                 fiscal_year=year,
                 user_title=f"Fiscal Note — {row['bill_number']}: {row['title']}",
                 source_url=row["fiscal_note_url"],
+                # One restore point per legislative SESSION, not per note. A
+                # backfill session can be hundreds of notes and they arrive
+                # and fail as a unit. See ingest/worker.py::_should_snapshot.
+                batch_id=f"fiscal-notes-{year}",
             )
             enqueue(job)
             queued += 1

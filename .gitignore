@@ -94,15 +94,17 @@ coverage/
 companion-dist/
 companion-out/
 
-# pdfjs-dist worker bundle — copied to web/public/ by the postinstall
-# script (web/scripts/copy-pdf-worker.mjs) so the renderer can load it
-# from a stable URL. Auto-regenerated on every `npm install`; not worth
-# ~1.2 MB of git history.
-web/public/pdf.worker.min.mjs
-
 # Vite webapp (Plan 2). Root-level node_modules/ + dist/ patterns already match
 # these, but pin them explicitly so the webapp build output can never be staged.
 webapp/node_modules/
+# …and again WITHOUT the trailing slash, because a `dir/` pattern does not
+# match a SYMLINK to a directory. CLAUDE.md requires non-trivial work to happen
+# in a git worktree, and the cheap way to test in one is to symlink the main
+# checkout's node_modules and .venv rather than provision multi-GB copies. With
+# only the slashed patterns, both show up as untracked in every worktree and a
+# `git add -A` commits them.
+webapp/node_modules
+.venv
 webapp/dist/
 
 .youcoded/

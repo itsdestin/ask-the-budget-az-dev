@@ -15,6 +15,8 @@ so a read-only process on the office share never writes to it.
 """
 from __future__ import annotations
 
+import os
+from datetime import timedelta
 from pathlib import Path
 from typing import Any, Iterable
 
@@ -30,6 +32,46 @@ from store.schema import chunk_schema
 # refuses to open the table the migration just wrote.
 DEFAULT_DIM = 768  # snowflake/snowflake-arctic-embed-m
 CORPUS_TABLES = ("budget_chunks", "fiscal_note_chunks")
+
+# How long a superseded LanceDB version survives before `optimize()` prunes
+# it. See `ChunkStore.optimize` for why this is not LanceDB's 7-day default.
+#
+# WHY 10 MINUTES — the number is a balance between two concrete things, not a
+# round guess:
+#
+#  * It must not be 0. ~20 office machines read this corpus off a share.
+#    `_open()` calls `checkout_latest()` and then runs a query, so a reader
+#    holds a specific version for the DURATION OF ONE QUERY — a few seconds
+#    here. Ten minutes is two orders of magnitude of headroom over that, and
+#    also absorbs the modest clock skew you get between office PCs, which
+#    matters because the prune compares version timestamps against the
+#    pruning machine's clock.
+#  * It must not be long. The bug being fixed is a bulk run at ~945 docs/hr
+#    where every version is minutes old, so any window measured in hours
+#    reclaims nothing while it matters most. Ten minutes bounds the garbage
+#    to roughly 150 documents' worth at that rate instead of all of it.
+#
+# Version history is NOT this app's recovery mechanism — `store/backup.py`'s
+# S17 snapshots are — so nothing is being given up by pruning aggressively.
+DEFAULT_RETENTION_MINUTES = 10
+_RETENTION_ENV_VAR = "JLBC_LANCE_RETENTION_MINUTES"
+
+
+def version_retention() -> timedelta:
+    """Retention window for superseded versions, from the environment.
+
+    `0` is honoured — it is the right answer for a supervised bulk backfill
+    on a machine nobody else is reading, and it is unambiguous. Anything
+    that is not a non-negative integer (a typo, a blank, a float) falls back
+    to the default and does NOT read as zero: silently pruning every version
+    because somebody fat-fingered a shell variable is how a reader on
+    another machine gets its dataset yanked mid-query.
+    """
+    raw = (os.environ.get(_RETENTION_ENV_VAR) or "").strip()
+    if raw.isdigit():
+        return timedelta(minutes=int(raw))
+    return timedelta(minutes=DEFAULT_RETENTION_MINUTES)
+
 
 def sql_str(value: str) -> str:
     """Render a Python string as a SQL string literal, safely quoted.
@@ -126,16 +168,34 @@ class ChunkStore:
         tbl = self._open(name)
         return 0 if tbl is None else tbl.count_rows()
 
-    def optimize(self, name: str) -> None:
-        """Compact data files and rebuild indices.
+    def optimize(self, name: str, *, retention: timedelta | None = None) -> None:
+        """Compact data files, rebuild indices, and PRUNE dead versions.
 
         Worth calling after a bulk load: a many-batch migration leaves one
         data file per batch (61 after the Task 10 backfill), which measurably
         slows queries until compacted.
+
+        `retention` is what fixes the measured 5.1-GB-holding-18k-chunks
+        problem. LanceDB keeps every superseded version until a prune
+        removes it, and every write in this app is delete-then-add, so a
+        re-ingested document leaves its whole previous self behind. The
+        prune is already part of `optimize()` — but its `cleanup_older_than`
+        DEFAULTS TO SEVEN DAYS, so on a bulk run where every version is
+        minutes old it prunes exactly nothing while returning successfully.
+        That is why nobody caught it by reading the call site.
+
+        `delete_unverified` is deliberately left False. It would also remove
+        files from apparently-in-progress transactions, and LanceDB's own
+        docs warn that is only safe when no other process is touching the
+        dataset — which is not something a shared office drive can promise.
         """
         tbl = self._open(name)
         if tbl is not None:
-            tbl.optimize()
+            tbl.optimize(
+                cleanup_older_than=(
+                    version_retention() if retention is None else retention
+                )
+            )
 
     # -- writes ---------------------------------------------------------
     def upsert_chunks(self, name: str, rows: Iterable[dict[str, Any]]) -> None:

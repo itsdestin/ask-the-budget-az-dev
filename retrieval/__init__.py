@@ -8,9 +8,9 @@ Hybrid retrieval composing:
 - `retrieve()`: top-level orchestrator returning RetrievalResult
 
 The legacy Postgres/Voyage stages (`retrieval.bm25`, `retrieval.dense`,
-`retrieval.rerank`) are no longer re-exported here — they are dead code
-kept only for their tests until the cutover is finished. Import them
-from their concrete modules if you need them.
+`retrieval.rerank`, `retrieval.sql`) and the FastAPI sidecar
+(`retrieval.api`) were DELETED in Plan 5 Track 4. `retrieval.citations`
+is live — the AI Mode harness calls it in-process for every citation.
 """
 
 from retrieval.local_embedder import LocalEmbedder

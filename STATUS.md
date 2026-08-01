@@ -29,7 +29,7 @@ source. When something ships, update only this file.
 | Standalone consolidation — Plan 2 (app server + search UI) | ✓ Shipped (2026-07-30) | New `app/` (port 9300) + `webapp/` SPA: home, budget search (real corpus), fiscal notes directory. See the section below |
 | Standalone consolidation — Plan 3 (ingest) | ✓ Shipped (2026-07-31) | GUI upload → background queue → LanceDB; fiscal-note refresh; Add-a-JLBC-book. Postgres/Docker now needed for NOTHING. See the section below |
 | Standalone consolidation — Plan 4 (AI Mode) | ✓ Shipped (2026-07-31) | In-process OpenRouter tool loop; MCP and YouCoded dropped. Cited chat + PDF viewer on both corpora, Standard/Deep-Research tiers, per-user spend ledger. See the section below |
-| Standalone consolidation — Plan 5 (admin + packaging + deletion) | 🟡 **Tracks 1–3 done, 4–5 open** (2026-08-01) | Tracks 1–2 (tasks 1–13, Session A) shipped: admin identity + gate, settings API, OpenRouter catalog, model fallback, corpus health/restore, Admin + Settings pages, per-machine data dir, health ladder, lockout recovery. Track 3 (packaging, Session B) shipped separately. **Track 5 (handbook, 21–23) not started; Track 4 (legacy deletion, 18–20) still blocked** — `web/`, `mcp-server/`, `db/` remain in-tree. ⚠ **Two of Session B's app-side asks are unbuilt** (per-machine `ingest_enabled`; `machine_config` CLI). See the Session A section below |
+| Standalone consolidation — Plan 5 (admin + packaging + deletion) | 🟡 **Tracks 1–4 done, 5–6 open** (2026-08-01) | 20 of 27 tasks. Tracks 1–2 (1–13, Session A): admin identity + gate, settings API, OpenRouter catalog, model fallback, corpus health/restore, Admin + Settings pages, per-machine data dir, health ladder, lockout recovery. Track 3 (14–17, Session B): the Windows bundle. **Track 4 (18–20) shipped 2026-08-01** — `web/`, `mcp-server/`, `db/` and the dead `retrieval/` modules are DELETED (~36,000 lines), one `documents.json` reader, four ingest defects fixed, and all three of Session B's orphaned app-side asks built. **Track 5 (handbook, 21–23) and Track 6 (gates, 24–27) remain.** See the Track 4 section below |
 
 ## Corpus — what is ingested and what is NOT (2026-08-01)
 
@@ -144,7 +144,14 @@ whether to delete the near-empty document meanwhile so search does not answer
   server), and
   ~~[`PROMPT-parallel-write-plan5.md`](PROMPT-parallel-write-plan5.md)~~
   **DONE 2026-07-31** — the plan is written (see the next bullet).
-- **Plan 5 — WRITTEN, ready to implement:**
+- **Plan 5 — Tracks 1–4 SHIPPED; Tracks 5–6 remain (20 of 27 tasks).**
+  What is left: **Track 5, the Administrator Handbook** (tasks 21–23,
+  [`PROMPT-plan5-session-c.md`](PROMPT-plan5-session-c.md) — Task 21's memo
+  renderer can start now; 22–23 describe admin screens that now exist, so
+  they are unblocked) and **Track 6, gates G2/G3** (24–27), which need a
+  finished bundle and a finished handbook. Track 4's handoff
+  (`PROMPT-plan5-track4-cleanup.md`) is retired — do not execute.
+  The original plan, for reference:
   [`docs/superpowers/plans/2026-08-01-standalone-plan-5-admin-packaging.md`](docs/superpowers/plans/2026-08-01-standalone-plan-5-admin-packaging.md).
   27 tasks in six tracks: admin/settings UI (S11/S13/S15/S16/S17/S19),
   resilience (S18 repair flow + launch health ladder + a `RESET-ADMIN.txt`
@@ -172,6 +179,175 @@ whether to delete the near-empty document meanwhile so search does not answer
   Runbook: [`PROMPT-z13-backfill.md`](PROMPT-z13-backfill.md) (the only
   active handoff). Recency plan:
   [`docs/superpowers/plans/2026-07-31-standalone-plan-recency-ranking.md`](docs/superpowers/plans/2026-07-31-standalone-plan-recency-ranking.md).
+
+---
+
+## Plan 5 Track 4 (cleanup) — shipped (2026-08-01)
+
+Tasks 18–20 plus the three orphaned bundle requirements. Handoff:
+`PROMPT-plan5-track4-cleanup.md` (now retired — do not execute).
+
+**Plan 5 is 20 of 27 tasks done.** Remaining: Track 5 (handbook, 21–23) and
+Track 6 (gates, 24–27).
+
+### Task 18 — the retired architecture is GONE
+
+`web/`, `mcp-server/`, `db/`, and `retrieval/{api,bm25,dense,rerank,sql}.py`
+plus their suites: **~36,000 lines deleted.** Every directory in the repo is
+now live code.
+
+`setup.sh` went from eight steps to four. It used to run `npm ci` twice, a
+tsc build, and 277 vitest specs across two directories Plan 4 retired, plus
+bring up a Postgres container and run `db.validate` against it — on every
+fresh clone, including the G3 cold-start install.
+
+**The known test-isolation defect is gone with it, not worked around.**
+`setup.sh` sourced `.env.local` before pytest, which leaked `DATABASE_URL`
+into the process and un-skipped the Postgres suites mid-run against a schema
+they did not own. Both the suites and the sourcing are deleted.
+
+- **`eval/synthesize_queries.py` was PORTED, not deleted** — eval-set
+  expansion is a live Phase 3 need. Both samplers pushed their randomness
+  into SQL (`ORDER BY RANDOM()`, a self-join for comparison pairs) and
+  LanceDB has neither, so the sampling happens in Python over one projected
+  scan. Adds `--corpus fiscal_note_chunks`. Verified against the real corpus:
+  25 seeds balanced across all four publishers, 5 valid cross-FY pairs.
+- **`retrieval/sql.py` was not on the deletion list but is orphaned by it** —
+  its only consumers were bm25.py and dense.py. `tests/test_retrieval_sql.py`
+  became `test_retrieval_types.py`: half of it covered `RetrievedChunk.from_row`,
+  which is still live (search_lance.py builds RetrievedChunk from Lance dicts —
+  same column names psycopg rows had, which is why the adapter survived).
+- **`docs/corpus-recovery.md` advertised a one-command recovery** running a
+  script this deleted. Rewritten: the acquisition trail is still what makes
+  recovery possible, but the flow is manual and now says so, and the two
+  recovery-posture checks are re-expressed against `documents.json`. Verified
+  on the live corpus — 0 missing `source_url`, 0 out-of-tree paths.
+
+> ⚠ **THE ONE REAL CAPABILITY LOST.** `eval/refresh_chunk_ids.py` was the tool
+> that re-bound stale eval chunk_ids after a re-ingest. It never ran against
+> LanceDB and was deleted per the handoff. **Nothing replaces it.** What
+> absorbs the damage is `eval/scoring.py`'s dimensions fallback — which is
+> loose, and can credit a different chunk of the same document. `anchor_text`
+> is still recorded for every expected chunk and is the manual repair path.
+> **This bit within hours** (see the eval note below). Written up at
+> `eval/README.md` → "After a re-ingest", `eval/schema.py` and `eval/scoring.py`.
+
+**Verified from a FRESH CLONE, not the working tree:** `bash setup.sh --verify`
+→ **exit 0**, 1559 pytest + 426 vitest, four steps.
+
+### Task 19 — one `documents.json` reader
+
+`store/documents.py` replaces what the brief called four readers and was
+actually **five** — `app/routes/admin.py::_document_count()` hand-rolled its
+own parse that nobody had listed. They had already drifted three ways, and
+each divergence is preserved deliberately rather than averaged away:
+
+1. **mtime resolution** — one stamped float seconds, one nanoseconds.
+   Nanoseconds wins; a rewrite inside one filesystem tick is what a fast
+   local ingest looks like, and the float version served stale titles with no
+   symptom.
+2. **corrupt-file policy** — read paths degrade to `{}` so search keeps
+   working; the WRITE path RAISES. Not fastidiousness: the writer does a
+   read-modify-write, so degrading there writes a sidecar containing one
+   document and orphans every PDF in the viewer.
+3. **the `ingested_at` title gate — OPTIONAL, defaulting OFF.** Measured
+   before choosing: 378 live documents lack `ingested_at`, and gating them
+   turns *"JLBC FY2027 — AHCCCS"* into *"JLBC Baseline FY 2027 Axs"*. The
+   gate is right on the search page (mockup index is primary, this is the
+   tiebreak) and wrong in AI Mode (sidecar is the only source, and an ugly
+   title lands in the ANSWER). **A consolidation that picked one policy
+   would have silently degraded 378 documents.**
+
+Also `GET /api/corpus/counts` (ungated — it feeds a footer every analyst
+sees) and the footer states a true corpus size again: **3,527 documents /
+24,841 budget chunks / 13,278 fiscal-note chunks**. The number renders only
+once the server has answered; first paint and a failed fetch both show
+nothing rather than guessing.
+
+### Task 20 — the remaining ingest defects
+
+| Defect | Evidence |
+|---|---|
+| **Dead LanceDB versions never pruned** | Live corpus measured at **1.91 GB on disk holding 0.14 GB of live data**, 105 versions. `optimize()` *was* pruning — `cleanup_older_than` just defaults to **seven days**, so on a bulk run where every version is minutes old it pruned nothing and returned successfully. Retention now 10 min (`JLBC_LANCE_RETENTION_MINUTES`). Measured 98% reclaimed on an ingest-shaped run. |
+| **`DownloadCache` concurrency** | Per-instance tmp path, a lock, and — the part locking alone would not have fixed — **re-read-merge-write**, because each instance wrote its own in-memory copy back wholesale. Verified on the REAL 7,482-entry manifest: 12 concurrent writers, zero lost. |
+| **`IngestLock` heartbeat** | `_write` beat before `write_doc`, not during; `build_fts_index` + `optimize` will pass the 120s window as the corpus grows, so a **live, healthy writer** gets its lock stolen. `acquire()` now runs a daemon beat at ¼ the stale window. Verified at production ratios: held through a 6s write against a 2s window, rival judged it stale 0 times in 22 checks. |
+| **Per-batch snapshots** | One restore point per book edition / note session instead of per document — 1 zip instead of ~130. `JLBC_INGEST_SNAPSHOT=off` still wins outright. |
+
+Two chosen defaults worth not re-litigating: the version retention is **10
+minutes, not 0**, because ~20 machines read this corpus and the prune compares
+version timestamps to the *pruning* machine's clock; and `delete_unverified`
+stays False because LanceDB's own docs say it is only safe when no other
+process is touching the dataset, which a shared drive cannot promise.
+
+### The three orphaned bundle requirements — now built
+
+Session B filed four; Session A merged with two unbuilt and one half-noted.
+(`docs/superpowers/investigations/2026-08-01-bundle-app-requirements.md`.)
+
+- **Per-machine `ingest_enabled`, default OFF.** One bundle on ~20 PCs and
+  `launcher.pyw` calls `create_app()` with no arguments, so all twenty would
+  start a worker on one queue. Resolution order mirrors the data dir:
+  `JLBC_INGEST_ENABLED` > `machine.json` > False. A machine.json without the
+  key reads as False (that is install.cmd's file — silence is not consent);
+  an unrecognised env value falls through to the FILE, because a typo on the
+  one machine doing the work would otherwise stop the office silently.
+  **`set_data_dir` is now read-modify-write** — it wrote `{"data_dir": …}`
+  wholesale, so using the repair screen would have switched off the ingest
+  machine.
+- **The "nobody is processing uploads" warning**, which is not optional: OFF
+  by default re-creates the silent pile-up the one-bundle decision existed to
+  avoid. Fires only when something is queued AND nothing is running AND
+  ingest is off here. The server owns both the decision and the sentence.
+- **`python -m app.machine_config`** so `install.cmd` stops hand-writing JSON.
+  Silent exit 0 on success; a validation failure is a WARNING and **still**
+  exit 0, because a network drive that is not connected during setup is
+  normal and refusing to record the path would strand the user.
+
+### Eval — retrieval-neutral, but the corpus moved under it
+
+**recall@5 62.07%, recall@15 96.55%, recall@20 100%, p95 832ms. Gate G1
+passes.** recall@5 is 21 points below the last recorded run and **none of it
+is Track 4** — proven by control, not asserted: the same eval on
+`origin/master` with none of this branch's code, same corpus, produced
+identical figures (`eval/results/2026-08-01T0934Z-6cd522e`). Nothing here
+touches ranking.
+
+**The fallback rate is 41% of passes** — two in five ground-truth chunk_ids
+no longer resolve and are matching on dimensions instead. That is the
+re-ingest hazard above, arriving within hours because the parallel session's
+User-Agent fix re-fetched and re-ingested documents. **Do not read 62% as a
+retrieval regression; re-point the stale chunk_ids first.**
+
+### Found and fixed on the way (neither caused by Track 4)
+
+- **Three `/api/me/usage` specs went red at midnight.** They seeded a
+  hardcoded `2026-07` shard and called an endpoint that always reads the
+  CURRENT month, so they passed only while the wall clock was in July.
+- **`test_the_query_set_is_honestly_marked_as_unbaselined` was red on
+  `origin/master`** — the parallel session filled in fiscal-note ground truth
+  but left the guard asserting the old "NOT YET FILLED IN" marker. Re-pointed
+  at the DRAFT / PENDING HUMAN REVIEW banner the file now carries; the
+  property it protects is unchanged.
+
+### Follow-ups this work created
+
+- **`pyproject.toml` still DECLARES the retired stack** even though the tree
+  is gone: `psycopg`, `pgvector`, `voyageai` have zero importers, and
+  `python-dotenv` had exactly one (`retrieval/api.py`, deleted). Not dropped
+  here on purpose — it changes the wheel closure that Session B's 3.33 GB
+  bundle was verified against on real Windows hardware, and that verification
+  cannot be re-run from this machine. **Whoever next rebuilds the bundle
+  should drop them and re-verify.** `psycopg` has one remaining consumer,
+  `scripts/migrate_to_lancedb.py`, kept as the migration-era record.
+- **Provenance comments across ~35 files cite `web/…` paths** ("ported from
+  web/components/ChatThread.tsx"). They resolve against git history and are
+  honest attribution, so they were left alone; CLAUDE.md now says so
+  explicitly, with the `git log --diff-filter=D` incantation that recovers
+  the deleted trees.
+- **The admin queue warning and ingest toggle are unverified in a real
+  browser.** Same gap Session A recorded for the rest of that page.
+- **`data/cached-pdfs/` vs `<data_dir>/pdfs/` is still two homes for the same
+  bytes** — untouched here (it is a decision, not a defect).
 
 ---
 
@@ -220,13 +396,11 @@ reference tool used alongside a dozen research tabs, not a program you live insi
 - **Real retrieval is untested.** Every Windows run so far had an empty data dir, where
   `create_app()` serves stub fixtures. Needs the 4.9 GB corpus copied to the laptop —
   deferred while the backfill is writing to it.
-- **Session A owes two changes** (`docs/superpowers/investigations/2026-08-01-bundle-app-requirements.md`):
-  a per-machine `ingest_enabled` flag defaulting to **OFF** — one bundle everywhere means
-  all 20 machines would otherwise start a worker — **and** a visible admin warning when
-  uploads are queued with no machine draining them, without which "off by default"
-  recreates the silent pile-up the one-bundle decision was made to avoid.
-- `install.cmd` writes `machine.json` by hand; should call `app/machine_config.py` once
-  Task 10 lands.
+- ~~Session A owes two changes~~ ~~`install.cmd` writes `machine.json` by hand~~
+  **ALL THREE BUILT in Track 4, 2026-08-01** — per-machine `ingest_enabled`
+  (default OFF), the "nobody is processing uploads" admin warning, and
+  `python -m app.machine_config`, which `install.cmd` now calls instead of
+  emitting JSON by hand. See the Track 4 section above.
 
 ## Z13 backfill — IN PROGRESS (2026-07-31)
 
@@ -724,11 +898,6 @@ Entries still marked 🔴 are genuinely open.**
   **This entry said "not merged" until 2026-07-31** — it had in fact shipped
   earlier the same day, and the stale text caused a later session to report it
   as still-open work. Verify with `git merge-base --is-ancestor`, not prose.
-- **A >120 s write can have its lock legitimately stolen cross-machine.**
-  `_write` heartbeats before `write_doc` but not during it, and
-  `build_fts_index` + `optimize` will exceed the 120 s stale window as the
-  corpus grows. Needs a background auto-heartbeat thread on `IngestLock`.
-  Not fixed anywhere yet.
 - **✅ FIXED — `IngestWorker` was constructed at startup but never
   `.start()`ed.** Only the upload POST route started it, so on the shared
   drive a colleague's queued job sat untouched until somebody on *that*
@@ -787,32 +956,11 @@ Entries still marked 🔴 are genuinely open.**
   tool that would re-bind it from `anchor_text` — is unported and still
   imports the retired Postgres `db.connection`. **Port the refresh tool before
   any from-scratch rebuild**, or re-point q-001 by hand at that time.
-- **🔴 `DownloadCache` is not safe for concurrent writers AND its manifest tmp
-  path is shared across instances.** Two simultaneous cache misses can
-  interleave manifest writes; a corrupted manifest parses as an **empty**
-  cache, which would re-download the entire ~7,400-PDF corpus from state web
-  servers one file at a time. Not triggered during the Z13 backfill only
-  because the pre-fetch had already cached 7,419 of 7,428 in-scope URLs before
-  parallel ingest was enabled — i.e. we were saved by luck of ordering, not by
-  design. **Fix the per-instance tmp path (and add a lock) before any parallel
-  ingest runs against a cold cache.**
 - **Pre-fetched PDFs landed in the wrong directory for ingest.**
   `ingest/cache.py`'s `DownloadCache` writes `data/cached-pdfs/` but the
   worker reads `<data_dir>/pdfs/`. Worked around during the backfill by
   hardlinking 7,479 blobs (0 extra GB). Decide on one canonical location —
   two caches for the same bytes is a trap for whoever maintains this next.
-- **`optimize()` never drops superseded LanceDB versions** (previously
-  noted, now quantified): 200 MB of on-disk table held 39 MB of live data,
-  and the untouched migration-era `budget_chunks` was already ~50% dead
-  weight. One-line fix: pass `cleanup_older_than` / expose
-  `cleanup_old_versions`. Matters most on the SMB share.
-- **Bulk-ingest snapshot mode exists** (`JLBC_INGEST_SNAPSHOT=off`, shipped
-  2026-07-31 after the per-document S17 snapshot was measured as O(n²) on a
-  bulk run: it re-zips all of `lancedb/` per document). Adopting it during
-  the backfill took throughput 89.3 → 96.4 docs/hour and flattened a curve
-  that was decaying toward ~25 docs/hour. **Better long-term design: snapshot
-  once per BATCH** (per book edition / per fiscal-note session) rather than
-  per document, so bulk runs keep protection without the quadratic cost.
 - **🔴 Shared `mineru-api` server: TRIED, CRASHED, ROLLED BACK — do not retry
   at high concurrency.** The idea was sound and the measurement was real: a
   per-document `mineru` invocation spends ~33 s of ~38 s loading models, and a
@@ -905,9 +1053,6 @@ Entries still marked 🔴 are genuinely open.**
   S12's one-palette rule. The mockup palette is monochrome navy — `--az-red` is
   `#2f55c4`, a blue — so there is no error/warning colour, and a failed-citation
   chip rendered in navy would regress Invariants 1–3. **Worth Destin's eye.**
-- **The footer states no corpus size.** It said "382 docs"; Plan 3's upload
-  queue falsifies any hardcoded count on first use, and there is no
-  corpus-count endpoint to read instead. Restore one when there is.
 - **[v2, DEFERRED 2026-07-31] Drop the AI Mode corpus picker; let relevance
   choose the corpus.** Destin: "I really don't want a toggle for two distinct
   budget/fiscal-note corpus modes — I'd rather the model pull the right
@@ -940,22 +1085,6 @@ Entries still marked 🔴 are genuinely open.**
 - Conversation persistence is in-memory per app run (accepted).
 - The faithfulness verifier (WS3) and audit-log writer (WS5) remain unbuilt —
   citation enforcement is still chunk-id + quote-in-text + span sanity.
-- Four `documents.json` readers now exist (`retrieval/api.py`,
-  `harness/tools.py`, `app/search_provider.py`, and `app/routes/pdf.py` reusing
-  the harness one). Consolidate into `store/documents.py`.
-- Two corpus-name alias tables (`harness/tools.py`, `harness/prompt.py`) that
-  normalise in **opposite** directions — merging them naively would be wrong.
-- The `chunking.agency_catalog` import guard in `harness/tools.py` can come
-  out now that Plan 3 is merged (verified binding: 157 entries,
-  `agency:axs` → AHCCCS).
-- A DOCX-backed citation in **AI Mode** still shows pdfjs's raw error instead of
-  the backend's sentence; the search page gets the friendly wording. One
-  `api.chunk()` call in `PdfViewer.Loaded` fixes it.
-- The refusal banner evaluates only the latest turn by design; scrolling back
-  to an earlier unverified answer shows unbannered prose.
-- `eval/calibrate_refusal.py` and `eval/README.md` still tell operators to edit
-  `mcp-server/system-prompt.md`; the threshold now lives in
-  `harness/constants.py`.
 - **Bulk-ingest mode exists (`JLBC_INGEST_SNAPSHOT=off`, 2026-07-31)** — it
   suppresses the per-document S17 snapshot for supervised backfills, because
   zipping the whole corpus once per document is O(n²) (measured: ~54 MB zip
@@ -1109,16 +1238,16 @@ is not started. Track 4 (legacy deletion + remaining ingest defects, tasks
 18–20) waits on Session C, so `web/`, `mcp-server/`, `db/`, and the legacy
 `retrieval/` modules are **still in-tree and still unused**.
 
-> ⚠ **Session B filed four app-side requirements that are Session A's to
-> build, and two are still open.** See
+> ✅ **RESOLVED in Track 4 (2026-08-01) — all three open items are built.**
+> Kept below as the record of what was owed and why. See
 > `docs/superpowers/investigations/2026-08-01-bundle-app-requirements.md`.
 > Status as of this merge: **#1 (per-machine `ingest_enabled` flag + the
-> "nobody is processing uploads" admin warning) — NOT BUILT.** **#2
+> "nobody is processing uploads" admin warning) — **BUILT, Track 4**. **#2
 > (`/health` returns 200 whenever the process serves) — already satisfied;**
 > the route is a plain dict with no status logic and the ladder deliberately
 > lives at `/api/health/detail`, so no change is needed. **#3
 > (`python -m app.machine_config --set-data-dir` so `install.cmd` stops
-> hand-writing JSON) — NOT BUILT.** #4 is informational.
+> hand-writing JSON) — **BUILT, Track 4**. #4 is informational.
 >
 > **#1 is the consequential one.** `launcher.pyw` calls `create_app()` with
 > no arguments, which starts the ingest worker — on ~20 office PCs that is 20
@@ -1238,10 +1367,9 @@ of these came from opening the page:
 - **`INTELLIGENCE_CEILING` is a hardcoded constant** and goes stale when
   Artificial Analysis re-scores. The re-derivation recipe is in its comment.
 - **Error-message standards were not audited** across the admin surfaces.
-- **Two of Session B's four app-side asks are unbuilt** (the box above):
-  the per-machine `ingest_enabled` flag with its admin warning, and the
-  `app.machine_config` CLI entry point. These are Session A work under the
-  parallel-execution contract and are the top of this list.
+- ~~**Two of Session B's four app-side asks are unbuilt**~~ **DONE in
+  Track 4, 2026-08-01** — the per-machine `ingest_enabled` flag, its admin
+  warning, and the `app.machine_config` CLI entry point all shipped.
 
 ---
 

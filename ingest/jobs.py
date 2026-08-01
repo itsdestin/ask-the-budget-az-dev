@@ -91,6 +91,16 @@ class JobRecord:
     # "document" (the normal ingest) or "refresh" (scrape azjlbc.gov for new
     # fiscal notes). Decides which state pipeline applies.
     kind: str = "document"
+    # Which bulk run this job belongs to — one book edition, or one
+    # fiscal-note session. The S17 snapshot is taken ONCE per batch instead
+    # of once per document (see ingest/worker.py::_should_snapshot); a
+    # snapshot zips the whole corpus, so per-document is quadratic on a
+    # 7,000-document backfill.
+    #
+    # None means "not part of a batch" — a hand upload — and still
+    # snapshots per document, which is right: that is exactly when an
+    # analyst wants a restore point, and one upload is one zip.
+    batch_id: str | None = None
     # Page ranges MinerU has already finished, as [[start, end], ...]. The
     # resume granularity is the range because that's one CLI invocation.
     completed_ranges: list[list[int]] = field(default_factory=list)
@@ -151,6 +161,7 @@ def new_job(
     user: str | None = None,
     source_url: str | None = None,
     kind: str = "document",
+    batch_id: str | None = None,
 ) -> JobRecord:
     """Build a queued job. Does not persist — call `save()`."""
     now = _now()
@@ -175,6 +186,7 @@ def new_job(
         user_title=user_title,
         source_url=source_url,
         kind=kind,
+        batch_id=batch_id,
     )
 
 

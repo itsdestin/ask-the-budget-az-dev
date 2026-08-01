@@ -53,6 +53,12 @@ LOCK_FILENAME = "ingest.lock"
 # reboots mid-upload isn't blocked for the rest of the afternoon.
 DEFAULT_STALE_AFTER_S = 120
 
+# How often a held lock refreshes itself. A quarter of the stale window, so a
+# holder has to miss FOUR consecutive beats before another machine writes it
+# off — one slow SMB round-trip must not be enough to make a live writer look
+# dead. Cheap: one small write every 30s while a document is being ingested.
+DEFAULT_HEARTBEAT_EVERY_S = DEFAULT_STALE_AFTER_S / 4
+
 # How long an unreadable lockfile gets to become readable before it is judged
 # corrupt (and therefore stealable). See `_read_owner`.
 _SETTLE_PATIENCE_S = 1.0
@@ -86,8 +92,24 @@ class IngestLock:
     """Cross-process, cross-machine single-writer lock on the shared data dir.
 
     Usable as a context manager (`with IngestLock():`) or explicitly via
-    `acquire()` / `release()`. `heartbeat()` must be called periodically
-    during long work or another machine will consider the lock abandoned.
+    `acquire()` / `release()`.
+
+    **Holding it is enough to keep it.** `acquire()` starts a daemon thread
+    that refreshes the lockfile every `heartbeat_every_s` until `release()`,
+    so no caller has to remember anything.
+
+    That auto-heartbeat is not a convenience. `ingest/worker.py::_write`
+    beat the lock before `write_doc` and not during it, and inside
+    `write_doc` are `build_fts_index` and `optimize` — both of which grow
+    with the corpus and, at 24,841 budget chunks and climbing, will pass
+    the 120s stale window. When they do, another machine reads a
+    two-minute-old timestamp, correctly concludes the holder is dead,
+    steals the lock, and writes to a corpus that is being written. That is
+    the S6 single-writer invariant failing on a live, healthy writer.
+
+    `heartbeat()` remains public and still works — `ingest/worker.py` and
+    the backfill maintainer script both call it — it is simply no longer
+    load-bearing.
     """
 
     def __init__(
@@ -96,6 +118,7 @@ class IngestLock:
         *,
         stale_after_s: int = DEFAULT_STALE_AFTER_S,
         wait_s: float = 0.0,
+        heartbeat_every_s: float = DEFAULT_HEARTBEAT_EVERY_S,
     ) -> None:
         # How long `with IngestLock(...)` will wait for a busy writer. Zero
         # (the default) preserves the original fail-fast behaviour for every
@@ -103,10 +126,16 @@ class IngestLock:
         self._wait_s = wait_s
         self._root = Path(root) if root is not None else data_dir()
         self._stale_after_s = stale_after_s
+        self._heartbeat_every_s = heartbeat_every_s
         self._held = False
         # Set only while we hold the in-process gate, so release() knows
         # whether it has anything to give back.
         self._mutex: threading.Lock | None = None
+        # The auto-heartbeat thread and its stop signal. Recreated per
+        # acquire: an Event stays set once set, so reusing one across
+        # acquisitions would stop the second beat before it began.
+        self._beat_thread: threading.Thread | None = None
+        self._beat_stop: threading.Event | None = None
 
     @property
     def held(self) -> bool:
@@ -151,6 +180,7 @@ class IngestLock:
             while True:
                 if self._try_create():
                     self._held = True
+                    self._start_heartbeat()
                     return self
 
                 owner = self._read_owner()
@@ -172,17 +202,75 @@ class IngestLock:
             raise
 
     def release(self) -> None:
-        """Drop the lock. Safe to call when we never held it or lost it."""
+        """Drop the lock. Safe to call when we never held it or lost it.
+
+        ORDER IS LOAD-BEARING: the heartbeat thread is stopped and JOINED
+        before the lockfile is unlinked. Unlinking first leaves a window in
+        which a beat already in flight writes the file back — producing an
+        ownerless lockfile that blocks every other machine until it goes
+        stale two minutes later, with no process to explain it.
+        """
+        self._stop_heartbeat()
         if self._held:
             self._unlink_quietly()
         self._held = False
         self._release_mutex()
 
     def heartbeat(self) -> None:
-        """Refresh the timestamp so other machines don't judge us dead."""
+        """Refresh the timestamp so other machines don't judge us dead.
+
+        Still public, still works, no longer load-bearing: `acquire()` now
+        does this on a timer. `ingest/worker.py` and the backfill
+        maintainer both call it and should keep working unchanged.
+        """
         if not self._held:
             return
         self._write_payload()
+
+    # --- auto-heartbeat -----------------------------------------------------
+
+    def _start_heartbeat(self) -> None:
+        if self._heartbeat_every_s <= 0:
+            return  # opt-out, used by tests that drive the timestamp by hand
+        stop = threading.Event()
+
+        def beat() -> None:
+            # `wait()` rather than `sleep()`: release() returns promptly
+            # instead of blocking for up to a full interval.
+            while not stop.wait(self._heartbeat_every_s):
+                if not self._held:
+                    return
+                try:
+                    self._write_payload()
+                except Exception:  # noqa: BLE001
+                    # `_write_payload` already swallows OSError, but a
+                    # thread that died on anything else would leave a LIVE
+                    # writer silently un-heartbeated — which is precisely
+                    # the bug this thread exists to fix, now invisible
+                    # instead of merely present. Keep beating; if the share
+                    # really is gone the lock goes stale on its own.
+                    pass
+
+        thread = threading.Thread(
+            target=beat,
+            name=f"ingest-lock-heartbeat-{self._root.name}",
+            daemon=True,  # must never hold up interpreter shutdown
+        )
+        self._beat_stop = stop
+        self._beat_thread = thread
+        thread.start()
+
+    def _stop_heartbeat(self) -> None:
+        stop, self._beat_stop = self._beat_stop, None
+        thread, self._beat_thread = self._beat_thread, None
+        if stop is not None:
+            stop.set()
+        if thread is not None and thread is not threading.current_thread():
+            # Bounded join: a beat is one small write, so this is
+            # effectively instant — but a hung share must not wedge
+            # release() forever. The thread is a daemon, so worst case it
+            # is abandoned rather than leaked past process exit.
+            thread.join(timeout=5.0)
 
     # --- context manager ----------------------------------------------------
 
