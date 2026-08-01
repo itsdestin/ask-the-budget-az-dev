@@ -179,4 +179,17 @@ describe("chat CSS containment contract", () => {
       /filter:\s*brightness/,
     );
   });
+
+  // Task 15: chat-first split + sub-860 drawer (replaces the hard 50/50 and
+  // the old display:none breakpoint).
+  it("split is chat-first, and small screens get a drawer instead of nothing", () => {
+    expect(css).toMatch(/\.ai-panel-main\.has-source \.ai-panel-chat\s*\{[^}]*flex:\s*0 0 clamp\(/);
+    // The old behavior hid the source entirely below 860px.
+    const media = css.slice(css.indexOf("@media (max-width:860px)"));
+    expect(media.slice(0, media.indexOf("}") + 200)).not.toMatch(/\.ai-panel-source\s*\{\s*display:\s*none/);
+  });
+
+  it("cited text is capped in px, not vh", () => {
+    expect(ruleFor(".pdf-cited-text")).not.toMatch(/vh/);
+  });
 });

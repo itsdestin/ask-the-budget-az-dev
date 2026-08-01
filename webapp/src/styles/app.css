@@ -1213,21 +1213,34 @@ nav.primary{position:relative;padding-right:44px;}
 /* ----- the viewer shell --------------------------------------------------- */
 .pdf-view { display: flex; flex-direction: column; height: 100%; min-height: 0; background: var(--canvas); }
 
-.pdf-crumb { display: flex; align-items: center; gap: 6px; padding: 8px 12px; border-bottom: 1px solid var(--line); background: var(--card); font-size: 12px; }
+/* One header row: crumb + zoom + open + close. Task 15 merges what used to
+   be two stacked bars (`.pdf-crumb` then `.pdf-toolbar`) — that pair painted
+   a second white band before any page pixels did. */
+.pdf-head { display: flex; align-items: center; gap: 6px; padding: 8px 12px; border-bottom: 1px solid var(--line); background: var(--card); font-size: 12px; }
 .pdf-crumb-label { color: var(--ink-3); flex: 0 0 auto; }
 .pdf-crumb-page { color: var(--ink); font-weight: 800; }
 /* The title is the one growable item; truncation keeps a 90-character report
    name from pushing the FY badge out of the panel. */
 .pdf-crumb-doc { color: var(--ink-2); font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.pdf-crumb-fy { color: var(--ink-3); margin-left: auto; flex: 0 0 auto; }
+.pdf-crumb-fy { color: var(--ink-3); flex: 0 0 auto; }
+/* Pushes zoom + open + close to the right edge of the ONE header row now —
+   `.pdf-crumb-fy`'s own margin-left:auto did this job when it lived at the
+   end of a separate breadcrumb bar; that bar is gone, so the job moved here. */
+.pdf-head-spacer { margin-left: auto; }
 
-.pdf-toolbar { display: flex; align-items: center; gap: 4px; padding: 6px 12px; border-bottom: 1px solid var(--line); background: var(--card); font-size: 12px; }
 .pdf-zoom-btn { padding: 4px 8px; border: 1px solid var(--line); border-radius: var(--r-sm); background: var(--navy-100); color: var(--ink-2); font: inherit; cursor: pointer; }
 .pdf-zoom-btn:hover:not(:disabled) { background: var(--card); }
 .pdf-zoom-btn:disabled { opacity: .4; cursor: default; }
 /* tabular-nums so the label does not jitter between 100% and 125%. */
 .pdf-zoom-level { min-width: 3.5rem; font-variant-numeric: tabular-nums; }
 .pdf-open-original { margin-left: auto; padding: 4px 8px; border: 1px solid var(--line); border-radius: var(--r-sm); background: var(--navy-100); color: var(--ink-2); }
+/* Same 28px close pill AiModePanel used to float over this panel (see
+   `.ai-source-close` below), now rendered INLINE at the end of the merged
+   header for the loaded state. `.is-inline` swaps the floating positioning
+   for a fixed square footprint that sits in the row like any other button;
+   the empty/unresolved states have no header row, so they keep the
+   absolutely-positioned base rule instead. */
+.ai-source-close.is-inline { position: static; width: 24px; height: 24px; }
 
 /* The page scroller is the flex child that gets to grow; min-height:0 is what
    lets it actually scroll instead of stretching its parent (same trick the
@@ -1272,8 +1285,11 @@ nav.primary{position:relative;padding-right:44px;}
 .pdf-cited-toggle:hover { color: var(--ink-2); text-decoration: underline; }
 /* pre-wrap preserves the chunk's own line breaks — budget tables read as
    nonsense when their rows are reflowed into a paragraph. max-height keeps an
-   expanded 4,000-character chunk from pushing the page off screen. */
-.pdf-cited-text { margin: 0; color: var(--ink); white-space: pre-wrap; max-height: 34vh; overflow: auto; }
+   expanded 4,000-character chunk from pushing the page off screen.
+   Task 15: px cap, not vh — 34vh was measured against the WINDOW, but this
+   panel is not window-tall (it sits beside the chat column, below a header
+   row), so the expanded text could eat a third of the actual screen. */
+.pdf-cited-text { margin: 0; color: var(--ink); white-space: pre-wrap; max-height: 220px; overflow: auto; }
 .pdf-cited-context { color: var(--ink-3); }
 /* Same exemption as .pdf-highlight above — a page-artifact mark, not chrome. */
 .pdf-cited-mark { background: rgba(252, 211, 77, .35); color: var(--ink); border-bottom: 1px solid #d97706; border-radius: 2px; }
@@ -1281,8 +1297,17 @@ nav.primary{position:relative;padding-right:44px;}
 .pdf-cited-source { margin-top: 8px; color: var(--ink-3); }
 
 /* ----- empty / unresolved states (AI Mode) -------------------------------- */
-.pdf-empty { height: 100%; display: flex; align-items: center; justify-content: center; padding: 48px 24px; background: var(--canvas); color: var(--ink-3); font-size: 13px; }
+/* position:relative makes this the positioning context for the floating
+   `.ai-source-close` these two states render (Task 15) — they have no
+   header row of their own to put a close button in. */
+.pdf-empty { height: 100%; display: flex; align-items: center; justify-content: center; padding: 32px 24px; background: var(--canvas); color: var(--ink-3); font-size: 13px; position: relative; }
 .pdf-empty-inner { max-width: 24rem; text-align: center; display: flex; flex-direction: column; align-items: center; gap: 8px; }
+/* Task 15: the hero mascot was unclamped here and got clipped by a
+   half-width panel — its natural 240x420 size assumed the full-window
+   layout the retired app had. min(300px, 50%) keeps it inside whatever
+   space this state actually has, the same idea `.chat-welcome-mascot`
+   already applies to the welcome-screen mascot. */
+.pdf-empty-inner svg { max-height: min(300px, 50%); width: auto; }
 .pdf-unresolved { max-width: 30rem; text-align: left; display: flex; flex-direction: column; gap: 10px; }
 .pdf-unresolved h2 { font-size: 15px; font-weight: 800; color: var(--ink); }
 .pdf-unresolved p { margin: 0; }
@@ -1547,7 +1572,18 @@ html.ai-fullpage header.site{flex:0 0 auto;}
    from its container's `clientWidth` and renders nothing at all while that is
    0 — a width derived from the viewer's own content is circular. */
 .ai-panel-chat{flex:1 1 0;min-width:0;min-height:0;display:flex;flex-direction:column;}
-.ai-panel-main.has-source .ai-panel-chat{border-right:1px solid var(--line);}
+/* The divider between thread and source column runs the full panel height,
+   so it reads as a split pane rather than an internal seam of a card (this
+   WHY was lost when an earlier duplicate of this rule — a page-scoped
+   `.page-ai` copy — was deleted; only the divider's own explanation went
+   missing, not the rule).
+   Task 15's `flex` is the other half of the same line: the hard 50/50 split
+   this rule used to leave implicit (both columns at `flex:1 1 0` above)
+   shrank the chat column below its own comfortable reading measure at
+   1440px. The chat side now claims a clamped width FIRST — never under
+   480px, never over 760px, otherwise 46% of the row — and the source column
+   (`.ai-panel-source`, still `flex:1 1 0` below) takes whatever is left. */
+.ai-panel-main.has-source .ai-panel-chat{border-right:1px solid var(--line);flex:0 0 clamp(480px, 46%, 760px);}
 /* min-height:0 as well as min-width:0 (added with the full-page shell): at the
    old clamped panel height the source column was short enough that its own
    content rarely overran it. At full viewport height a PDF page plus the cited-
@@ -1557,15 +1593,24 @@ html.ai-fullpage header.site{flex:0 0 auto;}
 /* position:relative makes this the positioning context for .ai-source-close
    below, which is absolutely positioned in its top-right corner. */
 .ai-panel-source{flex:1 1 0;min-width:0;min-height:0;display:flex;flex-direction:column;position:relative;}
-/* One column below the mockup's own 860px breakpoint: a source page and a
-   65ch message column cannot both be legible in half of a phone. */
+/* Task 15: below 860px the source becomes an overlay drawer — the same
+   fixed-panel recipe the search page's `.pdf-drawer` already uses — instead
+   of vanishing outright. A citation that simply could not be inspected on a
+   narrow window was the defect this replaces, not a design choice worth
+   keeping. The chat column drops back to an even `flex:1 1 0` here since the
+   clamp above is tuned for a side-by-side split that no longer exists at
+   this width. */
 @media (max-width:860px){
-  .ai-panel-source{display:none;}
+  .ai-panel-main.has-source .ai-panel-chat{flex:1 1 0;}
+  .ai-panel-source{position:fixed;top:0;right:0;bottom:0;z-index:60;width:min(560px,100vw);background:var(--canvas);border-left:1px solid var(--line);box-shadow:var(--shadow);}
 }
 
 /* Close pill for the source column. Same 28px circular affordance as the
    search drawer's close, restyled for the light header area it floats over.
-   Task 15 moves it into the merged PDF header row; keep the class. */
+   Task 15 moved the LOADED state's close button into the merged PDF header
+   row (`.ai-source-close.is-inline` above); this floating base rule is now
+   only reached by the empty/unresolved states, which have no header row of
+   their own to put a close button in. */
 .ai-source-close{position:absolute;top:8px;right:8px;z-index:5;display:inline-flex;align-items:center;justify-content:center;width:28px;height:28px;border:1px solid var(--line);border-radius:var(--r-pill);background:var(--card);color:var(--ink-2);cursor:pointer;transition:border-color .15s,color .15s;}
 .ai-source-close:hover{border-color:var(--az-gold);color:var(--az-gold-d);}
 

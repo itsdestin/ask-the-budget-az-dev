@@ -16,6 +16,7 @@
 // Assertions are otherwise unchanged.
 
 import { act, fireEvent, render, screen } from "@testing-library/react";
+import { useEffect } from "react";
 import { describe, expect, it } from "vitest";
 
 import PdfViewer from "../PdfViewer";
@@ -125,10 +126,54 @@ describe("PdfViewer bus subscription", () => {
     // explicitly tells the user the click landed but we can't load
     // the source. The chunk_id and chip number must surface so the
     // user has something concrete to debug from.
-    expect(view.container.textContent).toContain("Couldn’t open source PDF");
+    // Task 15 rewrote the headline in plain language ("Couldn't find the
+    // source page") — see the copy-rewrite test below for the demoted-ids
+    // half of that change.
+    expect(view.container.textContent).toContain("Couldn’t find the source page");
     expect(view.container.textContent).toContain("ghost-chunk");
     expect(view.container.textContent).toContain("[1]");
     expect(view.container.querySelector("embed")).toBeNull();
+  });
+});
+
+describe("PdfViewer unresolved-state copy (Task 15)", () => {
+  const unresolvedCitation: Citation = {
+    index: 3,
+    chunkId: "doc-B:p12:s4",
+    spanStart: 0,
+    spanEnd: 5,
+    confidence: "paraphrase",
+    claimSpan: "a prior-turn claim",
+    // No `resolved` block — same "click landed, can't load it" shape as the
+    // `dangling` fixture above.
+  };
+
+  /** Fires bus.select() with an unresolved citation as soon as it mounts,
+   *  standing in for the real chip click. The bus replays the last
+   *  selection to new subscribers (citation-context.tsx), so this works
+   *  regardless of whether PdfViewer's own subscribe-effect or this
+   *  component's effect commits first. */
+  function UnresolvedDriver({ citation }: { citation: Citation }) {
+    const bus = useCitationBus();
+    useEffect(() => {
+      bus.select(citation);
+    }, [bus, citation]);
+    return <PdfViewer />;
+  }
+
+  it("unresolved state leads with plain language, ids demoted", () => {
+    render(
+      <CitationBusProvider>
+        <UnresolvedDriver citation={unresolvedCitation} />
+      </CitationBusProvider>,
+    );
+    expect(
+      screen.getByText(/couldn.t find the source page/i),
+    ).toBeInTheDocument();
+    // The chunk id is still there for audit, but as a detail line.
+    expect(
+      screen.getByText(unresolvedCitation.chunkId, { exact: false }),
+    ).toBeInTheDocument();
   });
 });
 

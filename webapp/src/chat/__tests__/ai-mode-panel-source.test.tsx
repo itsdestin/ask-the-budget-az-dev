@@ -24,8 +24,20 @@ import { stubScrollIntoView } from "../../pages/ai-test-fixtures";
 
 // Mocked so pdfjs (React.lazy inside PdfViewer -> SourceView) never loads in
 // this DOM-only suite; the marker div is enough to prove the panel opened.
+// Task 15 moved the close button OUT of AiModePanel and INTO PdfViewer
+// (SourceView's merged header for the real component), so this stand-in
+// must render one too and forward `onClose` — otherwise this suite tests a
+// button that no longer exists anywhere in the real render tree.
 vi.mock("../../pdf/PdfViewer", () => ({
-  default: () => <div data-testid="pdf-viewer" />,
+  default: ({ onClose }: { onClose?: () => void }) => (
+    <div data-testid="pdf-viewer">
+      {onClose && (
+        <button type="button" onClick={onClose}>
+          Close source panel
+        </button>
+      )}
+    </div>
+  ),
 }));
 
 const CHUNK = {
