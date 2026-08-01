@@ -3,26 +3,32 @@ cross-corpus comparisons and labeling single-run noise (spec §5)."""
 from __future__ import annotations
 
 import json
+import sys
 
 import pytest
 
-from eval.compare_agent_runs import compare, corpus_counts_differ, load_run
+from eval.compare_agent_runs import (
+    compare,
+    corpus_counts_differ,
+    load_run,
+    query_sets_differ,
+)
 
 
 def write_run(tmp_path, name, *, counts=None, repeats=1, kf=0.8, cites=1.0,
-              judge_precision=None):
+              judge_precision=None, queries_sha="qs-1"):
     d = tmp_path / name
     d.mkdir()
     (d / "manifest.json").write_text(json.dumps({
         "timestamp": name, "git_sha": name[:7], "subset": "smoke",
-        "repeats": repeats, "queries": ["aq-001"],
+        "repeats": repeats, "queries": ["aq-001"], "queries_sha256": queries_sha,
         "tier_models": {"standard": "test/model"},
         "provider": "openrouter", "base_url": "x", "api_key_set": True,
         "prompt_sha256": "abc", "corpus_counts": counts or {"budget_chunks": 100},
         "note": ""}), encoding="utf-8")
     (d / "scores.json").write_text(json.dumps({
         "summary": {"n": 1, "errors": 0, "key_fact_rate_mean": kf,
-                    "first_attempt_cite_rate": cites, "steps_mean": 4.0,
+                    "cite_pass_rate": cites, "steps_mean": 4.0,
                     "total_cost_usd": 0.01},
         "per_query": [{"query_id": "aq-001", "ok": True, "key_fact_rate": kf}],
         "skipped": []}), encoding="utf-8")
@@ -114,8 +120,8 @@ def test_arrow_higher_is_better_metric_that_rose_is_improvement():
 
 
 def test_arrow_higher_is_better_metric_that_fell_is_regression():
-    md = compare(_run({"first_attempt_cite_rate": 0.9}), _run({"first_attempt_cite_rate": 0.5}))
-    row = _row_for(md, "first_attempt_cite_rate")
+    md = compare(_run({"cite_pass_rate": 0.9}), _run({"cite_pass_rate": 0.5}))
+    row = _row_for(md, "cite_pass_rate")
     assert "▼" in row
     assert "▲" not in row
 
@@ -136,6 +142,13 @@ def test_arrow_lower_is_better_metric_that_rose_is_regression():
     assert "▲" not in row
 
 
+def test_arrow_lower_is_better_retries_per_citation():
+    # Finding 5's new metric has to carry a direction, or it renders bare.
+    md = compare(_run({"retries_per_citation": 0.4}), _run({"retries_per_citation": 0.1}))
+    row = _row_for(md, "retries_per_citation")
+    assert "▲" in row and "▼" not in row
+
+
 def test_arrow_unclassified_metric_renders_with_no_arrow():
     # "n" is in neither direction set — the omission must stay deliberate
     # (an informational metric with no better/worse sense) rather than an
@@ -144,3 +157,83 @@ def test_arrow_unclassified_metric_renders_with_no_arrow():
     row = _row_for(md, "n")
     assert "▲" not in row
     assert "▼" not in row
+
+
+# --- Finding 2: query-set guard -----------------------------------------
+#
+# Verified before the fix: a 1-query smoke run compared against a fabricated
+# 3-query "full" run produced a clean report showing key_fact_rate_mean
+# 0 → 0.9 ▲ with no warning anywhere. The worse case is two `full` runs where
+# a query's key_facts were EDITED in between — the manifests were then
+# byte-identical and the entire delta was authoring drift.
+
+def test_query_sets_differ_detects_an_edited_query_set(tmp_path):
+    a = load_run(write_run(tmp_path, "runA", queries_sha="aaa"))
+    b = load_run(write_run(tmp_path, "runB", queries_sha="bbb"))
+    assert query_sets_differ(a, b) is True
+    c = load_run(write_run(tmp_path, "runC", queries_sha="aaa"))
+    assert query_sets_differ(a, c) is False
+
+
+def test_a_manifest_with_no_hash_trips_the_guard_against_one_that_has_it(tmp_path):
+    """A run recorded before hashing existed carries no queries_sha256. That
+    is 'unknown', not 'the same' — the operator decides with --force."""
+    old = load_run(write_run(tmp_path, "runOld"))
+    old["manifest"].pop("queries_sha256")
+    new = load_run(write_run(tmp_path, "runNew", queries_sha="aaa"))
+    assert query_sets_differ(old, new) is True
+    # Two equally-old runs agree (both unknown) and must not trip it.
+    other_old = load_run(write_run(tmp_path, "runOld2"))
+    other_old["manifest"].pop("queries_sha256")
+    assert query_sets_differ(old, other_old) is False
+
+
+def test_cli_refuses_a_mismatched_query_set_and_force_overrides(tmp_path, capsys):
+    from eval.compare_agent_runs import main
+
+    a = write_run(tmp_path, "runA", queries_sha="aaa")
+    b = write_run(tmp_path, "runB", queries_sha="bbb")
+    argv = sys.argv
+    try:
+        sys.argv = ["compare_agent_runs.py", str(a), str(b)]
+        assert main() == 2
+        err = capsys.readouterr().err
+        assert "REFUSING" in err and "query set" in err.lower()
+
+        sys.argv = ["compare_agent_runs.py", str(a), str(b), "--force"]
+        assert main() == 0
+    finally:
+        sys.argv = argv
+    # A forced report must carry the reason it needed forcing.
+    report = next(tmp_path.glob("compare-*.md")).read_text(encoding="utf-8")
+    assert "DIFFERENT query sets" in report
+    assert "authoring drift" in report
+
+
+def test_report_shows_the_query_hash_in_what_differed(tmp_path):
+    a = load_run(write_run(tmp_path, "runA", queries_sha="aaa"))
+    b = load_run(write_run(tmp_path, "runB", queries_sha="aaa"))
+    assert "queries_sha256" in compare(a, b)
+
+
+# --- Finding 4: population-dependent means get no arrow ------------------
+
+def test_no_arrow_when_the_retrieves_after_sufficient_population_moved():
+    """A retrieval improvement can raise this mean (more queries reach
+    sufficiency, including slow ones), so a ▼ would report an improvement as
+    a regression. When the denominator moved, withhold the verdict."""
+    md = compare(
+        _run({"retrieves_after_sufficient_mean": 0.5, "retrieves_after_sufficient_n": 5}),
+        _run({"retrieves_after_sufficient_mean": 1.2, "retrieves_after_sufficient_n": 20}))
+    row = _row_for(md, "retrieves_after_sufficient_mean")
+    assert "▲" not in row and "▼" not in row
+    assert "different denominators" in md
+
+
+def test_arrow_kept_when_the_population_is_unchanged():
+    md = compare(
+        _run({"retrieves_after_sufficient_mean": 1.2, "retrieves_after_sufficient_n": 20}),
+        _run({"retrieves_after_sufficient_mean": 0.5, "retrieves_after_sufficient_n": 20}))
+    row = _row_for(md, "retrieves_after_sufficient_mean")
+    assert "▲" in row  # fewer wasted searches over the same population
+    assert "different denominators" not in md

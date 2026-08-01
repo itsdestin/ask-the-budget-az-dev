@@ -94,6 +94,27 @@ def select_queries(queries: list[AgentQuery], subset: str,
     return picked
 
 
+def query_set_sha256(queries: list[AgentQuery]) -> str:
+    """Content hash of the queries this run actually asked.
+
+    WHY the manifest's `queries` id list is not enough (2026-08 review,
+    Finding 2): it catches a run that dropped or added a query, but it is
+    byte-identical when somebody EDITS a query — rewords the question, fixes a
+    key fact — between two `full` runs. `compare_agent_runs.py` would then
+    report the whole authoring delta as a change in the system under test,
+    with nothing on the page saying otherwise. Hashing the loaded models (not
+    the YAML file's bytes) means a comment or a reordering does NOT trip the
+    guard, while any change to what is actually measured does.
+
+    Sorted by id so file order never enters the hash.
+    """
+    payload = json.dumps(
+        [q.model_dump(mode="json") for q in sorted(queries, key=lambda q: q.id)],
+        sort_keys=True, ensure_ascii=False,
+    )
+    return hashlib.sha256(payload.encode("utf-8")).hexdigest()
+
+
 def build_manifest(settings: Settings, queries: list[AgentQuery], *,
                    subset: str, repeats: int, results_note: str = "") -> dict[str, Any]:
     """Everything needed to know what a run measured. The spec's rule:
@@ -118,6 +139,7 @@ def build_manifest(settings: Settings, queries: list[AgentQuery], *,
         "subset": subset,
         "repeats": repeats,
         "queries": [q.id for q in queries],
+        "queries_sha256": query_set_sha256(queries),
         "tier_models": {name: cfg.model for name, cfg in settings.tiers.items()},
         "provider": settings.provider.provider,
         "base_url": settings.provider.base_url,

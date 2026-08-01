@@ -15,14 +15,23 @@ from typing import Any
 # Metrics where UP is better; everything else in the table is
 # informational. Direction matters for the ▲/▼ glyphs only.
 _HIGHER_IS_BETTER = {
-    "key_fact_rate_mean", "first_attempt_cite_rate", "retrieval_efficiency_mean",
-    "refusal_correct_rate", "cached_tokens_mean",
+    "key_fact_rate_mean", "cite_pass_rate", "first_try_cite_rate",
+    "retrieval_efficiency_mean", "refusal_correct_rate", "cached_tokens_mean",
 }
 _LOWER_IS_BETTER = {
     "steps_mean", "retrieve_calls_mean", "input_tokens_mean", "output_tokens_mean",
     "total_cost_usd", "cost_mean_usd", "wall_p50_ms", "wall_p95_ms",
-    "retrieves_after_sufficient_mean", "errors", "false_refusals",
-    "narration_hit_queries", "token_leaks", "internal_vocab_queries",
+    "retrieves_after_sufficient_mean", "retries_per_citation", "errors",
+    "false_refusals", "narration_hit_queries", "token_leaks",
+    "internal_vocab_queries", "cost_missing_queries",
+}
+# Metrics whose mean is taken over a population the run itself decides, keyed
+# to the summary field that reports that population's size. When the two runs
+# disagree on the population, the delta compares two different denominators, so
+# the better/worse arrow is withheld and a footnote says why (2026-08 review,
+# Finding 4).
+_POPULATION_DEPENDENT = {
+    "retrieves_after_sufficient_mean": "retrieves_after_sufficient_n",
 }
 _JUDGE_METRICS = ("claim_coverage_precision_mean", "claim_coverage_recall_mean",
                   "holistic_mean")
@@ -43,6 +52,25 @@ def corpus_counts_differ(a: dict[str, Any], b: dict[str, Any]) -> bool:
     return a["manifest"].get("corpus_counts") != b["manifest"].get("corpus_counts")
 
 
+def query_sets_differ(a: dict[str, Any], b: dict[str, Any]) -> bool:
+    """Did the two runs ask the same questions, with the same key facts?
+
+    WHY a content hash and not the manifest's `queries` id list (2026-08
+    review, Finding 2): the id list catches a run that dropped or added a
+    query, but it is byte-identical for the case that matters more — two
+    `full` runs where somebody EDITED a query's key_facts in between. The
+    whole reported delta is then authoring drift, and nothing on the report
+    says so. Same reasoning, and the same refuse-unless---force behavior, as
+    the corpus-count guard beside it: a delta is only meaningful when you know
+    what differed.
+
+    A manifest written before hashing existed carries no `queries_sha256`;
+    that reads as unknown, and unknown != a known hash, so such a run trips
+    the guard and the operator makes the call with --force.
+    """
+    return a["manifest"].get("queries_sha256") != b["manifest"].get("queries_sha256")
+
+
 def _fmt(v: Any) -> str:
     if v is None:
         return "—"
@@ -51,15 +79,17 @@ def _fmt(v: Any) -> str:
     return str(v)
 
 
-def _delta_row(key: str, av: Any, bv: Any) -> str:
+def _delta_row(key: str, av: Any, bv: Any, *, arrow_ok: bool = True) -> str:
     arrow = ""
     if isinstance(av, (int, float)) and isinstance(bv, (int, float)):
         diff = bv - av
-        if diff:
+        if diff and arrow_ok:
             better = ((diff > 0 and key in _HIGHER_IS_BETTER)
                       or (diff < 0 and key in _LOWER_IS_BETTER))
             arrow = f" {'▲' if better else '▼'}" if (key in _HIGHER_IS_BETTER or key in _LOWER_IS_BETTER) else ""
         delta = f"{diff:+.4g}"
+        if not arrow_ok:
+            delta += " ⚠"
     else:
         delta = "—"
     return f"| {key} | {_fmt(av)} | {_fmt(bv)} | {delta}{arrow} |"
@@ -71,8 +101,18 @@ def compare(baseline: dict[str, Any], candidate: dict[str, Any]) -> str:
     lines = [f"# Agent-eval compare — {baseline['name']} → {candidate['name']}", ""]
     lines += ["## What differed", "",
               "| | baseline | candidate |", "|---|---|---|"]
-    for key in ("git_sha", "subset", "repeats", "prompt_sha256", "tier_models", "note"):
+    for key in ("git_sha", "subset", "repeats", "prompt_sha256",
+                "queries_sha256", "tier_models", "note"):
         lines.append(f"| {key} | {_fmt(am.get(key))} | {_fmt(bm.get(key))} |")
+    # WHY this banner exists even though main() refuses by default: --force
+    # gets used, and a forced report must carry the reason it needed forcing
+    # into the artifact somebody reads later. Same shape as the noise warning.
+    if query_sets_differ(baseline, candidate):
+        lines += ["", "> ⚠ **The two runs used DIFFERENT query sets** "
+                  "(`queries_sha256` differs — a question, a key fact, or the "
+                  "set's membership changed between them). Some or all of the "
+                  "delta below is authoring drift, not a change in the system "
+                  "under test."]
     # WHY: model outputs are stochastic, so a single run vs single run
     # comparison can look like a regression (or improvement) that is
     # really just sampling noise. Surface that loudly rather than let a
@@ -89,8 +129,21 @@ def compare(baseline: dict[str, Any], candidate: dict[str, Any]) -> str:
               "> ▲ = improvement, ▼ = regression — the direction that's "
               "*better* for that metric, not the sign of the Δ.",
               "", "| metric | baseline | candidate | Δ |", "|---|---|---|---|"]
+    population_moved = []
     for key in sorted(set(asum) | set(bsum)):
-        lines.append(_delta_row(key, asum.get(key), bsum.get(key)))
+        pop_key = _POPULATION_DEPENDENT.get(key)
+        arrow_ok = True
+        if pop_key is not None and asum.get(pop_key) != bsum.get(pop_key):
+            arrow_ok = False
+            population_moved.append((key, pop_key))
+        lines.append(_delta_row(key, asum.get(key), bsum.get(key), arrow_ok=arrow_ok))
+    for key, pop_key in population_moved:
+        lines += ["", f"> ⚠ `{key}` is averaged over only the queries that "
+                  f"produced a value, and that population MOVED between these "
+                  f"runs ({pop_key}: {_fmt(asum.get(pop_key))} → "
+                  f"{_fmt(bsum.get(pop_key))}). The two means have different "
+                  f"denominators, so no better/worse arrow is shown — the Δ is "
+                  f"not a like-for-like comparison."]
     aj, bj = baseline.get("judge"), candidate.get("judge")
     if aj and bj:
         lines += ["", "## Judge metrics", "",
@@ -124,10 +177,23 @@ def main() -> int:
     parser.add_argument("candidate", type=Path)
     parser.add_argument("--out", type=Path, default=None)
     parser.add_argument("--force", action="store_true",
-                        help="compare despite differing corpus counts")
+                        help="compare despite differing corpus counts or query sets")
     args = parser.parse_args()
 
     a, b = load_run(args.baseline), load_run(args.candidate)
+    # WHY this guard reads exactly like the corpus one below it (2026-08
+    # review, Finding 2): they are the same idea — refuse a delta whose cause
+    # is something other than the change under test. Two guards that behaved
+    # differently would invite a reader to think one of them is advisory.
+    if query_sets_differ(a, b) and not args.force:
+        print("REFUSING: the two runs used different query sets — the delta "
+              "would measure the questions, not your change. Use --force to "
+              "override (the report will say so).", file=sys.stderr)
+        print(f"  baseline:  queries_sha256={a['manifest'].get('queries_sha256')} "
+              f"({len(a['manifest'].get('queries') or [])} queries)", file=sys.stderr)
+        print(f"  candidate: queries_sha256={b['manifest'].get('queries_sha256')} "
+              f"({len(b['manifest'].get('queries') or [])} queries)", file=sys.stderr)
+        return 2
     # WHY: the corpus is still growing (see STATUS.md backfill). Comparing
     # two runs taken against different corpus sizes produces a delta that
     # measures the corpus, not the change under test — refuse by default.
