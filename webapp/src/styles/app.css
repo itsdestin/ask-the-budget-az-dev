@@ -1483,12 +1483,20 @@ html.ai-fullpage header.site{flex:0 0 auto;}
    text panel comfortably does, and without min-height:0 this column would floor
    at its content height and push the composer off the bottom of the screen
    instead of scrolling inside itself. */
-.ai-panel-source{flex:1 1 0;min-width:0;min-height:0;display:flex;flex-direction:column;}
+/* position:relative makes this the positioning context for .ai-source-close
+   below, which is absolutely positioned in its top-right corner. */
+.ai-panel-source{flex:1 1 0;min-width:0;min-height:0;display:flex;flex-direction:column;position:relative;}
 /* One column below the mockup's own 860px breakpoint: a source page and a
    65ch message column cannot both be legible in half of a phone. */
 @media (max-width:860px){
   .ai-panel-source{display:none;}
 }
+
+/* Close pill for the source column. Same 28px circular affordance as the
+   search drawer's close, restyled for the light header area it floats over.
+   Task 15 moves it into the merged PDF header row; keep the class. */
+.ai-source-close{position:absolute;top:8px;right:8px;z-index:5;display:inline-flex;align-items:center;justify-content:center;width:28px;height:28px;border:1px solid var(--line);border-radius:var(--r-pill);background:var(--card);color:var(--ink-2);cursor:pointer;transition:border-color .15s,color .15s;}
+.ai-source-close:hover{border-color:var(--az-gold);color:var(--az-gold-d);}
 
 /* ----- the tier control + composer ---------------------------------------- */
 .ai-composer{flex:0 0 auto;border-top:1px solid var(--line);padding:8px 16px 10px;position:relative;}

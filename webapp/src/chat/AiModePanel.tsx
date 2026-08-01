@@ -201,8 +201,11 @@ function PanelBody({ chat, status, corpus }: PanelProps) {
   const { state } = chat;
   const mascot = useMascotPose(state, false);
 
-  // The source column is allocated on the first chip click and then stays for
-  // the rest of the session. Opening on ANY click, even an unresolved one, is
+  // The source column is allocated on chip click and closes on its own close
+  // button below (Task 5 — it used to stay open for the rest of the session,
+  // which left the chat column permanently halved; the analyst can now get
+  // that width back). A later chip click re-opens it regardless, via the
+  // subscription just below. Opening on ANY click, even an unresolved one, is
   // deliberate: PdfViewer renders a specific "couldn't open this" state, which
   // beats a click that silently does nothing.
   const [viewerOpen, setViewerOpen] = useState(false);
@@ -228,6 +231,28 @@ function PanelBody({ chat, status, corpus }: PanelProps) {
         </div>
         {viewerOpen && (
           <aside className="ai-panel-source" aria-label="Source document">
+            {/* Reversal of the "stays for the rest of the session" decision
+                (spec D6): the split halves the chat column, so the analyst
+                must be able to get their reading width back. Any later chip
+                click re-opens via the useCitationSelected subscription
+                above — closing only hides the panel, it doesn't unsubscribe
+                anything. */}
+            <button
+              type="button"
+              className="ai-source-close"
+              aria-label="Close source panel"
+              onClick={() => setViewerOpen(false)}
+            >
+              <svg viewBox="0 0 16 16" width="16" height="16" aria-hidden="true">
+                <path
+                  d="M3 3l10 10M13 3L3 13"
+                  stroke="currentColor"
+                  strokeWidth="2"
+                  strokeLinecap="round"
+                  fill="none"
+                />
+              </svg>
+            </button>
             <PdfViewer />
           </aside>
         )}
