@@ -134,6 +134,60 @@ the retrieval-layer mechanism can't reliably refuse the failure modes
 in your eval set — investing in a query classifier or faithfulness
 verifier will be much higher leverage than tweaking the threshold.
 
+## Calibrating the recency weight (S21 layer 3)
+
+Two tools, two different questions. Both drive the real pipeline and
+both sweep `RECENCY_BOOST_PER_YEAR` through `retrieval.recency.recency_weight()`
+rather than editing the constant.
+
+```bash
+uv run python -m eval.calibrate_recency   # minimal weight that restores recall
+uv run python -m eval.sweep_recency       # recall AND chronological order
+```
+
+`calibrate_recency.py` asks *what is the smallest weight that restores
+no-year recall without damaging the standing set?* It needs
+`eval/queries_historical.yaml` and refuses to run until that file is
+authored.
+
+`sweep_recency.py` asks the question recall cannot express — Destin's
+acceptance criterion, *"for a simple inquiry, just an agency name, no
+year, no topic, results should come back roughly newest-first."* It adds
+a third metric (`eval/chronological.py`) and tolerates a missing query
+file by blanking that column instead of exiting.
+
+**The headline number is `ORDER`**: of every pair of returned results
+where one document is newer than the other, the share that came back
+with the newer one first. 100% is perfectly newest-first, **50% means
+the ranking carries no year signal at all**, 0% is exactly backwards.
+Ties are excluded from the denominator, so twenty chunks from one
+edition neither help nor hurt. `vintage` beside it is the mean fiscal
+year of the top 5 — ordering alone is not enough, since 2010-2009-2008
+scores a perfect 100%.
+
+Three things worth knowing before reading its output:
+
+- **`eval/queries.yaml` cannot measure this.** 32 of its 34 queries name
+  a fiscal year, so S21 layer 1 hard-filters them and the boost never
+  runs; the other 2 are refusal queries with no ground truth. Its recall
+  column is flat at every weight, and that is not evidence of safety.
+  The sweep prints a warning saying so.
+- **The `prx@` columns are a stand-in, not a measurement.** With
+  `queries_historical.yaml` empty, the sweep derives a set by stripping
+  the year out of each explicit-year query and keeping the original
+  ground truth. Every one of those targets is FY2025-2027, so the boost
+  *helps* them — it is an optimistic probe, not a cost measurement.
+  Delete the stand-in (`--no-proxy`) once the real file exists.
+- **The sweep is fast because it retrieves once per query** and re-applies
+  the boost offline at each weight, which is valid only because nothing
+  upstream of the boost depends on the weight. `--verify N` re-runs N
+  queries through the real pipeline and diffs the order; if that ever
+  prints MISMATCH, the pipeline moved and `replay()` has to follow.
+
+Afterwards, whatever weight is chosen, **re-run `calibrate_refusal.py`** —
+a non-zero boost lowers `top_score`, which is what `REFUSAL_THRESHOLD`
+is compared against.
+
 ## Adding queries
 
 Two paths:
@@ -176,6 +230,9 @@ this directory. When that lands, expect Layer 1's role to shift to
 | `run_eval.py` | Main runner — calls retrieve(), scores, writes results |
 | `refresh_chunk_ids.py` | Post-reingest stale-chunk_id fixer — **UNPORTED: imports retired Postgres `db.connection`, crashes** |
 | `calibrate_refusal.py` | Threshold sweep + recommendation (now reports recall) |
+| `calibrate_recency.py` | S21 weight sweep — minimal weight that restores recall |
+| `chronological.py` | The newest-first order metric (`newest_first_rate`, `mean_fiscal_year_at_k`) |
+| `sweep_recency.py` | S21 weight sweep — recall AND chronological order, at every weight |
 | `results/` | Git-tracked result files (one JSON + one MD per run) |
 
 ## Windows note
