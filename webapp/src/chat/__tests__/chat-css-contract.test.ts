@@ -209,4 +209,23 @@ describe("chat CSS containment contract", () => {
   it("cited text is capped in px, not vh", () => {
     expect(ruleFor(".pdf-cited-text")).not.toMatch(/vh/);
   });
+
+  // Task 16: the mascot used to clip mid-body against the column edge
+  // (right: calc(50% + 400px) never reacted to the source panel opening or a
+  // narrow window). It now docks/undocks off a container query on its own
+  // scroller instead of a fixed offset that assumed a fixed-width viewport.
+  it("the mascot hides via container query instead of clipping off-canvas", () => {
+    expect(css).toMatch(/container-type:\s*inline-size/);
+    expect(css).toMatch(
+      /@container[^{]*max-width[^{]*\{[^}]*\.chat-mascot-slot[^}]*display:\s*none/s,
+    );
+  });
+
+  // The 440px in the old clamp was hand-measured chrome height that every
+  // later task (footer restyle, floating composer, etc.) silently
+  // invalidated. The welcome mascot must size off something that can't drift
+  // out from under it, not a re-measured constant.
+  it("the welcome mascot clamp no longer hardcodes the chrome height", () => {
+    expect(ruleFor(".chat-welcome-mascot")).not.toMatch(/440px/);
+  });
 });

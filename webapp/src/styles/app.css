@@ -824,6 +824,19 @@ nav.primary{position:relative;padding-right:44px;}
 /* Depth comes from the surface ramp (canvas page, card bubbles) — the thread
    floor goes canvas so white bubbles lift off it without shadows (Task 13). */
 .chat-thread-scroll { height: 100%; overflow-y: auto; overflow-x: hidden; padding: 24px 16px calc(var(--ai-bottom-chrome, 120px) + 12px); background: var(--canvas); }
+/* The scroller is the mascot's container: when the chat column is too narrow
+   to fit the 768px column PLUS the mascot beside it (the source panel open,
+   a narrow window), he fades out instead of being clipped mid-body by the
+   column edge — which is what right:calc(50% + 400px) used to do.
+   1040px = --ai-col + the widest scene (~184px) + gutters.
+   container-type:inline-size applies inline-size containment (the element's
+   width can no longer be influenced by its own content) — safe here because
+   .chat-thread-scroll is a flex child of .ai-panel-chat (flex:1 1 0), so its
+   width is already parent-driven, never content-driven. */
+.chat-thread-scroll { container-type: inline-size; }
+@container (max-width: 1040px) {
+  .chat-mascot-slot { display: none; }
+}
 /* min-height:100% + justify-content:flex-end bottom-anchors the column, so a
    session's first message lands just above the composer and later turns grow
    UPWARD. Also the positioning context for the mascot slot below. */
@@ -914,17 +927,15 @@ nav.primary{position:relative;padding-right:44px;}
 .chat-welcome { display: flex; flex-direction: column; align-items: center; justify-content: center; text-align: center; padding: 32px 24px; gap: 8px; margin: auto; }
 /* Cap the hero mascot; width follows the viewBox ratio so the pixel art never
    distorts.
-   RE-SIZED with the full-page shell (2026-07-31). The old cap was a flat 55vh,
-   inherited from the retired app where the chat was the ENTIRE window. Here the
-   thread sits below the site header and the page band and above the composer
-   and the footer — about 440px of chrome and greeting text — so 55vh (594px on
-   a 1080px screen) pushed the "Hi — let's look at the budget" line under the
-   fold and made the welcome screen scroll on any laptop.
-   clamp() reads outside-in: never smaller than 150px, otherwise the space
-   actually left over, never larger than 420px. 420 is not a guess — it is
-   MASCOT_DIMENSIONS.hero.height, so he is drawn at most at his natural size and
-   never upscaled. */
-.chat-welcome-mascot { max-height: clamp(150px, calc(100dvh - 440px), 420px); width: auto; margin-bottom: 8px; }
+   RE-SIZED (Task 16) to drop the hand-measured 440px chrome constant — every
+   task since it was written (footer restyle, floating composer, panel
+   splits) changed the surrounding chrome height and silently invalidated it.
+   Welcome now lives inside the scroller (see above), whose own padding
+   already accounts for the real chrome, so the mascot can size against the
+   viewport instead of re-measuring the page around it: min(420px, 40dvh)
+   — 420px is MASCOT_DIMENSIONS.hero.height (never upscaled past his natural
+   size), 40dvh keeps the greeting text above the fold on a laptop. */
+.chat-welcome-mascot { max-height: min(420px, 40dvh); width: auto; margin-bottom: 8px; }
 .chat-welcome h1 { font-size: 28px; font-weight: 800; color: var(--navy); }
 .chat-welcome p { color: var(--ink-2); max-width: 36rem; margin: 0; }
 
