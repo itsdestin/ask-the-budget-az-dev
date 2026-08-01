@@ -89,9 +89,14 @@ Companion tools alongside the runner:
   precision, recall, and retrieval pass-rate at each. Useful when the
   rerank model changes or the corpus shifts; the runtime threshold is
   `REFUSAL_THRESHOLD` in `harness/constants.py`.
-- `eval/refresh_chunk_ids.py` and `eval/synthesize_queries.py` are
-  **UNPORTED to LanceDB** — both still import the retired Postgres
-  `db.connection` and will crash. Don't run them until they're ported.
+- `uv run python -m eval.synthesize_queries` — writes new eval queries
+  by seeding Claude with real chunks. Runs against LanceDB as of Plan 5
+  Track 4; `--corpus fiscal_note_chunks` seeds from the note corpus,
+  which still has queries but no ground truth.
+- `eval/refresh_chunk_ids.py` is **deleted** (Plan 5 Track 4). It was
+  the tool that re-bound stale chunk_ids after a re-ingest and it never
+  ran against LanceDB. See [`eval/README.md`](eval/README.md) →
+  "After a re-ingest" for the manual path.
 
 ## Moving to a new device
 
@@ -138,8 +143,9 @@ and emits verified citations per claim — chat thread with citation chips
 and a side-panel PDF viewer. Search, fiscal notes, and upload need zero
 API keys; one OpenRouter key in `<data_dir>/settings.json` unlocks AI
 Mode. Corpus + settings live on the shared drive (`JLBC_DATA_DIR`).
-Legacy trees (`web/`, `mcp-server/`, `db/`, the old `retrieval/` sidecar
-modules) remain in-tree unused pending Plan 5 deletion.
+The retired pre-consolidation trees (`web/`, `mcp-server/`, `db/`, the
+old `retrieval/` sidecar modules) were **deleted** in Plan 5 Track 4;
+every directory in this repo is live code.
 
 ## Repos in this project
 
@@ -162,7 +168,10 @@ Historical (retired architectures; record only):
 - [Citation-tool schema](docs/superpowers/decisions/2026-05-06-citation-tool-schema.md) — `retrieve()` / `cite()` shape (semantics carried into `harness/tools.py`)
 - Phase 1a → Phase 1b hand-off contract: [`data/chunks/MANIFEST.md`](data/chunks/MANIFEST.md)
 - [Phase 1b plan](docs/superpowers/plans/2026-05-06-phase-1b-storage-and-retrieval.md) · [Phase 1c plan](docs/superpowers/plans/2026-05-06-phase-1c-companion-and-ui.md)
-- Retired Budget MCP server: [`mcp-server/README.md`](mcp-server/README.md)
+- The retired Budget MCP server, Next.js UI and Postgres layer
+  (`mcp-server/`, `web/`, `db/`) were deleted in Plan 5 Track 4. They are
+  recoverable from git history — `git show b9f6e72:mcp-server/README.md`,
+  or `git log --diff-filter=D -- web/` to find the deletion commit.
 - Phase 0 findings memo: [`docs/superpowers/investigations/2026-05-06-phase-0-findings.md`](docs/superpowers/investigations/2026-05-06-phase-0-findings.md)
 - Chunk-shape decisions: [`docs/superpowers/investigations/2026-05-05-chunk-shape-decisions.md`](docs/superpowers/investigations/2026-05-05-chunk-shape-decisions.md)
 - Source-data model: [`docs/superpowers/investigations/2026-05-06-data-model.md`](docs/superpowers/investigations/2026-05-06-data-model.md)
