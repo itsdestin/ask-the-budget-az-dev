@@ -293,8 +293,10 @@ def test_retrieve_description_carries_the_injected_refusal_threshold():
     assert str(REFUSAL_THRESHOLD) in description
     # The literal, so a refactor that stops injecting the constant but leaves
     # a hardcoded number behind still fails. Updated 1.9 -> 1.04 when the
-    # threshold was recalibrated for the recency boost (2026-08-01).
-    assert "1.04" in description
+    # threshold was recalibrated for the recency boost (2026-08-01), and
+    # 1.04 -> 1.46 when the weight came down to 0.85 against the completed
+    # FY2005-2027 corpus (2026-08-02).
+    assert "1.46" in description
 
 
 def test_no_stale_refusal_threshold_appears_in_any_description():

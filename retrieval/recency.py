@@ -47,62 +47,49 @@ from retrieval.types import RetrievedChunk
 # fall when this is switched on, and why REFUSAL_THRESHOLD has to be
 # recalibrated at the same time.
 #
-# CALIBRATED 2026-08-01 against the backfilled corpus (28,530 budget chunks,
-# JLBC Baselines FY2022-2027 + Approps FY2022-2026). Full sweep:
-# eval/results/recency-sweep-2026-08-01T1009Z-f35d8d4.json, reproduce with
+# RE-CALIBRATED 2026-08-02 against the COMPLETE corpus — 77,574 budget chunks,
+# every ingestable JLBC edition FY2005-2027. Sweep:
+# eval/results/recency-sweep-2026-08-02T1101Z-c9c16b7.json, reproduce with
 # `python -m eval.sweep_recency`.
 #
-#   weight | chronological order | explicit-year set | year-stripped proxy@5
-#   -------+---------------------+-------------------+----------------------
-#    0.000 |        59.5%        |       100%        |        75.0%
-#    2.064 |        78.5%        |       100%        |        79.2%   <- chosen
-#    2.752 |        83.9%        |       100%        |        66.7%
-#    4.128 |        92.1%        |       100%        |        62.5%
+#   weight | recall@5 | chronological order | explicit-year set
+#   -------+----------+---------------------+------------------
+#    0.000 |  73.8%   |        59.1%        |       100%
+#    0.700 |  73.8%   |        91.0%        |       100%
+#    0.850 |  73.8%   |        92.5%        |       100%   <- chosen
+#    1.000 |  71.4%   |        93.4%        |       100%
+#    1.169 |  71.4%   |        94.1%        |       100%   (the tool's pick)
+#    2.064 |  69.0%   |        97.7%        |       100%   (previously shipped)
 #
-# WHY 2.064 and not the 4.128 that hits a 90% ordering target: 2.064 is the
-# last weight that costs nothing. Ordering improves 19 points AND the
-# year-stripped proxy recall goes UP (75.0 -> 79.2). The cliff is immediately
-# after: by 2.752 the boost has stopped being a tiebreaker and starts pushing
-# FY2027 material above FY2025/26 targets that are the actual answer, and three
-# real queries fall out of the top 5 (q-002, q-015, q-023). Buying 13 more
-# points of ordering for 12.5 points of top-5 recall is a bad trade for a tool
-# whose job is finding the right document.
+# WHY 0.85: it is the LARGEST weight that costs nothing. recall@5 is identical
+# to switching the boost off, while chronological ordering goes 59.1% -> 92.5%
+# and clears the 90% target. The cost cliff starts at 1.0.
+#
+# WHY NOT the sweep's own recommendation of 1.169: that recommendation is
+# GRID-LIMITED, not principled. sweep_recency derives its grid from the observed
+# score spread — here 13 steps of 0.585 — so the smallest grid point clearing
+# 90% ordering was 1.169, and 0.70-0.85 were never tested at all. Pass an
+# explicit `--weights` grid before trusting any recommendation it prints.
+#
+# WHY THE PREVIOUS 2.064 WAS WRONG. It was chosen on 2026-08-01 by this same
+# "last weight that costs nothing" rule — but against an eval set where 32 of
+# 34 queries named a fiscal year and so never executed this code, and where
+# every ground-truth chunk was FY2025-2027, which a recency boost HELPS. The
+# flat recall column it was justified by was not evidence of safety; it was
+# evidence the set never ran the code. eval/queries.yaml now carries 13 no-year
+# queries (n-001..n-013) with FY2022-2024 ground truth, and against them 2.064
+# measurably costs 4.8 points of recall@5.
 #
 # The explicit-year column is flat at 100% because S21 layer 1 hard-filters a
-# query that names a year before this ever runs — that immunity is now measured,
-# not assumed (eval/queries_historical.yaml, 5 of whose 10 entries are
-# deliberate FY2022/FY2023 over-boost guards).
+# query that names a year before this ever runs — measured, not assumed
+# (eval/queries_historical.yaml).
 #
-# THE BLIND SPOT THIS WAS CHOSEN UNDER IS NOW MEASURED (2026-08-01, after the
-# fact). When 2.064 was picked, 32 of the 34 queries in eval/queries.yaml named
-# a fiscal year — so they never executed this code — and every ground-truth
-# chunk in that file was FY2025-2027, which a recency boost HELPS. The set could
-# not measure harm to an older target, so the flat recall column above was not
-# evidence of safety.
-#
-# eval/queries.yaml now carries 13 no-year queries (n-001..n-013) with
-# FY2022-2024 ground truth. Measured against them on the same corpus:
-#
-#   weight | n-* recall@5 | n-* recall@15
-#   -------+--------------+--------------
-#    0.000 |    100.0%    |    100.0%
-#    2.064 |     76.9%    |    100.0%     <- shipped
-#
-# So the shipped weight costs **23 points of top-5 recall on old targets**, and
-# costs nothing at @15. Ten of the thirteen sit at rank 1 with the boost off;
-# five of them are demoted, three out of the top 5 (n-003 1->8, n-010 1->7,
-# n-013 1->8). The recurring shape is a newer near-duplicate that says "no
-# funding for this program" outranking the one edition that funded it.
-#
-# Whether that is the right trade is a JUDGEMENT, not a defect — @15 is the
-# gate, AI Mode reads all 15, and the ordering win this weight buys is real.
-# But it is now a trade made with numbers on both sides, which it was not
-# before. Re-decide it in the same breath as the next sweep.
-#
-# RE-CALIBRATE when the 27 deferred pre-FY2022 editions land: a corpus spanning
-# 2005-2027 instead of 2022-2027 changes both the year spread this is measured
-# against and what competes inside it.
-RECENCY_BOOST_PER_YEAR = 2.064
+# COUPLED — never move this alone. The boost is a PENALTY, so it lowers
+# `top_score`, and `harness.constants.REFUSAL_THRESHOLD` is compared against
+# `top_score`. LOWERING the weight RAISES scores: refusal query q-030 went
+# -1.17 -> +1.42 and sailed over the old 1.04, answering a question it should
+# have refused, until the threshold moved 1.04 -> 1.46 in this same change.
+RECENCY_BOOST_PER_YEAR = 0.85
 
 
 @contextmanager

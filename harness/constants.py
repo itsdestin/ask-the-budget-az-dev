@@ -33,11 +33,19 @@ from types import MappingProxyType
 # ever lower a score, so it lowers `top_score` too, and this number is compared
 # against `top_score`. Leaving it at 1.9 would have quietly made the system
 # refuse more often — looking like caution, actually just a units mismatch.
+#
+# RE-CALIBRATED AGAIN 2026-08-02, 1.04 -> 1.46, when the weight came DOWN to
+# 0.85 against the completed FY2005-2027 corpus. The coupling runs both ways:
+# a SMALLER penalty depresses `top_score` less, so scores rise and a threshold
+# tuned for the larger penalty stops separating. Observed directly — refusal
+# query q-030 scored -1.17 at weight 2.064 and +1.42 at 0.85, sailing over the
+# old 1.04 and answering a question it should have refused. That is Invariant 3
+# failing quietly, which is why these two numbers must always move together.
 # Sweep: eval/calibrate_refusal.py against
-# eval/results/2026-08-01T1027Z-3b43f74.json — at 1.04 refusal precision is
-# 1.00 (no query is refused that shouldn't be), refusal recall 0.60, and
+# eval/results/2026-08-02T1107Z-c9c16b7.json — at 1.46 refusal precision is
+# 1.00 (nothing is refused that shouldn't be), refusal recall 0.60, and
 # retrieval pass-rate 1.00 (no real question is turned away).
-REFUSAL_THRESHOLD = 1.04
+REFUSAL_THRESHOLD = 1.46
 
 # Bounds the model may pass in a `fiscal_year` filter.
 #

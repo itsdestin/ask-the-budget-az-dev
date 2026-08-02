@@ -63,11 +63,20 @@ def test_the_shipped_weight_and_refusal_threshold_move_together():
     This guard used to assert the weight was 0.0 ("ships inert"). It was
     calibrated on 2026-08-01 (0.0 -> 2.064) and REFUSAL_THRESHOLD moved with
     it (1.9 -> 1.04) in the same change. The pairing is what matters, not
-    either number alone, so the test now pins BOTH — a future recalibration
-    that touches only one of them fails here.
+    either number alone, so the test pins BOTH — a future recalibration that
+    touches only one of them fails here.
+
+    RE-CALIBRATED 2026-08-02 against the completed FY2005-2027 corpus:
+    0.85 / 1.46. This guard earned its keep on that change — it failed,
+    correctly, and the direction is the counter-intuitive one. LOWERING the
+    weight RAISES `top_score`, because a smaller penalty depresses scores
+    less, so the threshold had to go UP. Refusal query q-030 scored -1.17 at
+    2.064 and +1.42 at 0.85; without moving the threshold it would have
+    answered a question it should have refused, which is Invariant 3 failing
+    silently.
     """
-    assert RECENCY_BOOST_PER_YEAR == 2.064
-    assert REFUSAL_THRESHOLD == 1.04
+    assert RECENCY_BOOST_PER_YEAR == 0.85
+    assert REFUSAL_THRESHOLD == 1.46
 
 
 def test_zero_weight_changes_neither_scores_nor_order():

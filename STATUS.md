@@ -509,6 +509,57 @@ text is its own — the only check that catches a stem-collision demux bug.
 snapshot (4.34 GB, 353 entries); the five stale pre-fix archives were deleted,
 taking `backups/` from 54 GB to 4.1 GB.
 
+### Task 6 — recency RE-CALIBRATED against the finished corpus (2026-08-02)
+
+**`RECENCY_BOOST_PER_YEAR` 2.064 → 0.85, `REFUSAL_THRESHOLD` 1.04 → 1.46.**
+Sweep `eval/results/recency-sweep-2026-08-02T1101Z-c9c16b7.json`; eval
+`eval/results/2026-08-02T1109Z-f7ff858.json`.
+
+**Verified the instrument BEFORE trusting it:** 0 of 61 ground-truth chunk_ids
+across all three query sets had gone missing. The backfill was purely additive
+(`source_url` dedup), so none of the 41%-fallback damage of the last re-ingest
+recurred.
+
+| weight | recall@5 | chronological order |
+|---|---|---|
+| 0.000 | 73.8% | 59.1% |
+| 0.700 | 73.8% | 91.0% |
+| **0.850** | **73.8%** | **92.5%** |
+| 1.000 | 71.4% | 93.4% |
+| 1.169 | 71.4% | 94.1% |
+| 2.064 (was shipped) | 69.0% | 97.7% |
+
+**0.85 is the largest weight that costs NOTHING** — recall@5 identical to the
+boost being off, while ordering clears the 90% target. The cliff starts at 1.0.
+
+**The sweep's own recommendation (1.169) was GRID-LIMITED, not principled.**
+`sweep_recency` derives its grid from the score spread — 13 steps of 0.585 here
+— so 0.70 and 0.85 were never tested and the smallest grid point clearing 90%
+won by default. **Always pass an explicit `--weights` grid before believing the
+recommendation it prints.**
+
+**Why the old 2.064 was wrong:** it was picked by the same "costs nothing" rule
+on 2026-08-01, but against an eval set where 32 of 34 queries named a year and
+never executed the code. The flat recall column justifying it was evidence the
+set never ran the boost, not evidence of safety.
+
+**The coupling bit in the counter-intuitive direction, and the guard caught
+it.** LOWERING the weight RAISES `top_score` (a smaller penalty depresses less),
+so the threshold had to go UP. Refusal query q-030 went −1.17 → +1.42 and
+answered a question it should have refused until 1.46 landed.
+`test_the_shipped_weight_and_refusal_threshold_move_together` failed exactly as
+designed.
+
+**Final eval: recall@5 73.81%, recall@15 97.62%, recall@20 97.62%, refusal
+precision 60%, p95 852 ms. Gate G1 passes.** recall@5 is up 7.1 points on the
+same corpus.
+
+**One genuine regression, and it is the CORPUS, not the weight.** `q-009` was
+passing at rank 17 and its ground truth now sits outside the top 20, pushed
+out by a newly-ingested FY2024 document. `cur@20` is 97.6% at weight **0.000**
+too, so switching the boost off would not recover it. Re-point or accept that
+query; do not read it as a ranking regression.
+
 ### 🔴 THE PDFIUM PROBE WAS NOT THREAD-SAFE — it failed 224 VALID PDFs
 
 **Introduced by the poison-pill fix earlier the same day, caught in the live
