@@ -1752,8 +1752,18 @@ class _Accumulator:
                 if not cid:
                     continue
                 chunks[cid] = c.get("text") or ""
+                # doc_type/fiscal_year drive authority ranking; the rest is
+                # what the PDF viewer needs to actually OPEN the source. A
+                # chunk_id alone leaves every figure chip on "Couldn't open
+                # source PDF", which is what shipped on 2026-08-02.
                 meta[cid] = {"doc_type": c.get("doc_type"),
-                             "fiscal_year": c.get("fiscal_year")}
+                             "fiscal_year": c.get("fiscal_year"),
+                             "doc_id": c.get("doc_id"),
+                             "doc_title": c.get("doc_title"),
+                             "publisher": c.get("publisher"),
+                             "page_start": c.get("page_start"),
+                             "page_end": c.get("page_end"),
+                             "bbox": c.get("bbox")}
         return chunks, meta
 
     def annotation(self) -> dict:

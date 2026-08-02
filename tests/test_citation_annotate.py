@@ -83,3 +83,42 @@ def test_derived_from_reports_reading_order_indices_not_list_positions():
     assert figs[0]["verdict"] == "unverified"
     assert [f["verdict"] for f in figs[1:3]] == ["linked", "linked"]
     assert sorted(figs[3]["derived_from"]) == [2, 3]
+
+
+def test_primary_carries_enough_metadata_to_open_the_pdf():
+    # Seen in a browser 2026-08-02: clicking a figure chip always landed on
+    # "Couldn't open source PDF". The viewer needs doc_id and page_start, and
+    # the annotation carried neither — so the design's whole payoff (click a
+    # number, see it highlighted on the page) could never work.
+    #
+    # Chunk TEXT is deliberately NOT carried: it would multiply the
+    # annotation's size by the chunk body for every figure on the page, and
+    # the highlighter searches `source_text` first anyway.
+    answer = "ADE received $1,391,157,700."
+    chunks = {"c-approps": "ADE 1,391,157,700 enacted"}
+    meta = {"c-approps": {
+        "doc_type": "approps-per-agency", "fiscal_year": 2026,
+        "doc_id": "jlbc-approps-fy2026-ade", "doc_title": "FY2026 Approps — ADE",
+        "publisher": "jlbc", "page_start": 47, "page_end": 47,
+        "bbox": [10.0, 20.0, 300.0, 40.0],
+    }}
+    primary = annotate_answer(answer, chunks, meta)["figures"][0]["primary"]
+    assert primary["doc_id"] == "jlbc-approps-fy2026-ade"
+    assert primary["page_start"] == 47
+    assert primary["page_end"] == 47
+    assert primary["bbox"] == [10.0, 20.0, 300.0, 40.0]
+    assert primary["doc_title"] == "FY2026 Approps — ADE"
+    assert primary["publisher"] == "jlbc"
+    assert primary["fiscal_year"] == 2026
+    assert "text" not in primary
+
+
+def test_missing_locator_metadata_degrades_to_nulls_not_a_crash():
+    # A retrieve payload without page/bbox must still yield a linked figure —
+    # the chip simply cannot open a page.
+    answer = "ADE received $1,391,157,700."
+    primary = annotate_answer(
+        answer, {"c-approps": "ADE 1,391,157,700"}, META)["figures"][0]["primary"]
+    assert primary["doc_id"] is None
+    assert primary["page_start"] is None
+    assert primary["bbox"] is None

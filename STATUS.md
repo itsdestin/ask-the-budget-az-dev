@@ -346,6 +346,52 @@ No key, no network.
 
 **Suites: 1986 pytest, 451 vitest, `tsc -b` exit 0.**
 
+### Three defects found in the FIRST browser session (2026-08-02)
+
+All three shipped green: 1986 pytest, 451 vitest, `tsc -b` clean, and a
+92.9% offline measurement. **Every one of them was invisible to all of
+that**, and each is a distinct lesson about what those numbers cover.
+
+1. **🔴 The refusal banner fired on every fully-linked numeric answer.**
+   `detectRefusal` recognised only a `cite()` ack as verification. Task 7
+   told the model to stop citing figures, so a linked answer has ZERO
+   acks — the banner announced "This answer carries no verified citation"
+   over an answer where every number was linked, and its five raw-passage
+   previews filled the viewport and pushed the answer off screen. Fixed:
+   a linked figure counts as verification, and is the stronger kind (an
+   ack validates a quote the MODEL retyped; a linked figure is a value the
+   SYSTEM located). `derived` and `unverified` deliberately do not count.
+   **Lesson: the change removed a signal another component was reading,
+   and nothing tested the consumer.**
+
+2. **🔴 Clicking a figure chip could never open the PDF.** `PdfViewer`
+   gates on `citation.resolved.docId` + `pageStart`; the annotation
+   carried only `chunk_id`, so every chip landed on "Couldn't open source
+   PDF". The design's entire payoff was dead on arrival. Fixed: the
+   annotation now carries `doc_id`, `doc_type`, `doc_title`, `publisher`,
+   `fiscal_year`, `page_start`, `page_end`, `bbox` per source, making it
+   self-describing for the judge and any later audit too. Chunk TEXT is
+   deliberately still absent — it would ship a chunk body per figure, and
+   the highlighter searches `source_text` first.
+   **Lesson: every test asserted the annotation was PRODUCED; none
+   asserted it was USABLE by its consumer.**
+
+3. **🔴 A real figure was silently dropped: "took in $27,362,036.72".**
+   The year guard treated a preceding "in" as a year cue. Worse, the
+   guard had **no true positives available to it** — `_FIGURE_RE` needs
+   comma-grouping or a currency marker with a decimal, so a bare `2026`
+   can never match it in the first place. It could only ever cost real
+   money. Deleted, and pinned by
+   `test_no_year_can_reach_the_extractor_in_the_first_place`.
+   **Lesson, and the sharpest one: re-running the 31-transcript
+   measurement after the fix gives byte-identical numbers — 435 figures,
+   92.9% coverage, before and after.** The recorded corpus simply never
+   contained that sentence shape. A clean offline measurement over a
+   fixed transcript set says nothing about the shapes it happens not to
+   contain, and the FIRST live answer found one.
+
+Suites after all three: **1997 pytest, 459 vitest, `tsc -b` exit 0.**
+
 ### 🔴 OUTSTANDING — needs a machine with an OpenRouter key
 
 Plan Task 12 Steps 3–4 could not run here: `ai_available` reports **"no

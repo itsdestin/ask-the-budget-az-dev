@@ -91,3 +91,23 @@ def test_a_word_ending_in_in_does_not_swallow_the_figure():
         "$1,000,000"]
     assert [f.text for f in extract_figures("a margin 1,234,567 wide")] == [
         "1,234,567"]
+
+
+def test_a_figure_after_the_word_in_is_still_a_figure():
+    # Seen in a real answer 2026-08-02: "took in $27,362,036.72 in revenues"
+    # lost its chip entirely, because the year guard read the bare word "in"
+    # as a year cue. "in", "resulted in", "took in" are ordinary English
+    # before a dollar amount, so this was a silent hole in coverage.
+    assert [f.text for f in extract_figures("took in $27,362,036.72 in revenues")] == [
+        "$27,362,036.72"]
+    assert [f.text for f in extract_figures("resulted in 1,320,598,100 of costs")] == [
+        "1,320,598,100"]
+
+
+def test_no_year_can_reach_the_extractor_in_the_first_place():
+    # This is WHY the year guard was deleted rather than narrowed. A figure
+    # must be comma-grouped or carry a currency marker with a decimal, and a
+    # bare four-digit year is neither — so the guard had no true positives
+    # available to it and could only ever cost real figures.
+    for text in ("FY 2026", "in 2026", "fiscal year 2025", "2026", "FY2026"):
+        assert extract_figures(text) == [], text
