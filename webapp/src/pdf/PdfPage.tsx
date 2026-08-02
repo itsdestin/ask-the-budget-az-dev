@@ -76,6 +76,10 @@ interface Props {
    *  due to PDF text-extraction quirks. There is deliberately NO
    *  bbox fallback: see `notLocated` below. */
   searchTexts?: string[];
+  /** The figure as the SOURCE renders it, from the citation linker.
+   *  Searched before `searchTexts` — the PDF text layer holds the
+   *  source's form, never the answer's. */
+  sourceText?: string;
   /** Width of the parent container in CSS pixels. The page is fit-
    *  to-width by default; if 0 or undefined, falls back to a
    *  reasonable default (800px) so the page still renders even
@@ -132,6 +136,7 @@ export default function PdfPage({
   pageNumber,
   bbox,
   searchTexts,
+  sourceText,
   containerWidth,
   zoomLevel = 1,
   coordMap,
@@ -240,6 +245,7 @@ export default function PdfPage({
           page,
           viewport,
           quote,
+          sourceText,
           fullChunkText,
           bbox: restrictRect,
           coordMap,
@@ -277,6 +283,7 @@ export default function PdfPage({
     pageNumber,
     bbox,
     (searchTexts ?? []).join(" "),
+    sourceText,
     containerWidth,
     zoomLevel,
     coordMap,

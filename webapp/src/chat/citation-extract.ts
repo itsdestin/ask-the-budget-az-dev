@@ -54,6 +54,13 @@ export interface Citation {
   /** Source-side metadata pulled from a same-turn retrieve() result.
    *  Undefined when no retrieve in the turn surfaced this chunk_id. */
   resolved?: ResolvedChunk;
+  /** The figure AS THE SOURCE RENDERS IT, set only for citations the
+   *  system's figure linker produced. The PDF highlighter searches it
+   *  first. It is carried explicitly rather than sliced out of
+   *  chunk.text so a figure still highlights when this turn's chunk
+   *  metadata never resolved — the case where searchTexts is empty and
+   *  nothing gets searched at all. */
+  sourceText?: string;
   /** When this Citation came from a cite_batch tool_use block, set to
    *  that block's toolUseId. Used by dedup to suppress FIFO-fail-with-
    *  OK pairing across entries of the SAME batch (within one batch

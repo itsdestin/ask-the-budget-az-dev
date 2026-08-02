@@ -136,7 +136,7 @@ export function FigureChip({ figure }: { figure: AnnotationFigure }) {
     // chip must not open a viewer — claiming a source it hasn't got is
     // exactly the failure this design exists to remove.
     if (figure.verdict === "linked" && figure.primary) {
-      bus.select({
+      const selected: Citation = {
         chunkId: figure.primary.chunkId,
         claimSpan: figure.text,
         confidence: "verbatim",
@@ -144,7 +144,8 @@ export function FigureChip({ figure }: { figure: AnnotationFigure }) {
         spanStart: figure.primary.start,
         spanEnd: figure.primary.end,
         sourceText: figure.primary.sourceText,
-      } as unknown as Citation);
+      };
+      bus.select(selected);
     }
     setFiring(true);
     setTimeout(() => setFiring(false), 250);
