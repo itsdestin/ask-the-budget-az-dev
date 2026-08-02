@@ -147,6 +147,12 @@ def parsed_output(call: dict[str, Any]) -> dict[str, Any] | None:
     return out if isinstance(out, dict) else None
 
 
+def annotation(t: Transcript) -> dict[str, Any]:
+    """The figure annotation recorded on the terminal frame. Absent on
+    transcripts recorded before citation linking shipped."""
+    return _frame(t).get("annotation") or {"figures": []}
+
+
 def retrieve_calls(t: Transcript) -> list[dict[str, Any]]:
     """Each retrieve call's parsed output dict (with its 'chunks' list),
     in call order. Calls whose output failed to parse are skipped."""
