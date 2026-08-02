@@ -258,6 +258,120 @@ boost has the same blind spot.
 
 ---
 
+## Citation linking — code complete, re-baseline OUTSTANDING (2026-08-02)
+
+Spec: `docs/superpowers/specs/2026-08-02-citation-linking-design.md`.
+Plan: `docs/superpowers/plans/2026-08-02-citation-linking.md`.
+Branch `citation-linking`, 12 tasks, all 12 implemented.
+
+**The system links figures now; the model cites only prose.** A new
+`citation/` package runs in-process at turn end: it extracts every figure
+from the final answer with offsets and scale, locates each value in the
+chunks that turn retrieved (scale-aware), ranks candidate sources by
+document authority (AFR > Approps > Baseline > Governor), reconciles the
+leftovers as arithmetic over linked figures, and emits ONE annotation on
+the `_done` frame. The webapp renders it as chips; the eval judge renders
+the same annotation as inline markers, so the two cannot drift.
+
+**Measured over the 31-query 2026-08-02 baseline, 435 figures:**
+
+| verdict | count | share |
+|---|---|---|
+| linked | 357 | 82.1% |
+| derived | 47 | 10.8% |
+| **unverified** | **31** | **7.1%** |
+
+**Coverage (linked + derived) 92.9%**, against the design's measured
+feasibility ceiling of 93.6% locatable. Under the plan's ~10% stop
+threshold.
+
+**The specificity floor is calibrated, not guessed.** Floors 3/4/5/6 link
+357/357/342/300 of 435. Floor 4 ships: indistinguishable from 3 on this
+corpus, so it costs nothing measured while still refusing 3-digit
+collisions. Floor 5 was rejected by READING all 15 links it would drop —
+every one is correct (student counts, FTE positions, inmate counts,
+average awards).
+
+### The unverified 31 were read, and one of them is a real find
+
+They are two honest shapes: model-computed deltas whose own inputs are
+never stated in the answer ("+$18.3M"), and approximations ("caseload now
+above 50,000").
+
+**Except `lk-gf-revenue-fy2026`, which is 6 of 6 unverified — and its
+retrieved chunks contain ZERO grouped numbers across 4,413 characters
+while the answer states six specific dollar figures.** That is a genuine
+Invariant 3 case (retrieval gap or unsourced assertion) surfaced for the
+first time by this instrument, not a matcher failure. Worth its own look.
+
+### Defects found and fixed that the plan did not anticipate
+
+Each was caught by making the thing work, not by the tests as written:
+
+- **`find_in_chunks` applied the context scale twice.** It walked the
+  scale ladder from `fig.absolute`, so `scale_used` always returned 1 and
+  a source that tabulates in millions could never match. Caught by the
+  plan's own `test_scale_shifted_match`.
+- **The extractor did not know "M"/"B"/"K".** Real answers write
+  "+$243.5M" far more often than "$243.5 million"; scale read as 1, which
+  broke the match AND made the floor treat $243 million as three digits.
+- **The year guard had no word boundary**, so `within $1,000,000` and
+  `margin 1,234,567` silently dropped a real figure.
+- **🔴 THE ANNOTATION NEVER REACHED THE UI.** `turn_complete` closes the
+  turn and `_done` — the only frame carrying the annotation — arrives
+  after it, so the reducer's "no open turn, do nothing" early return
+  dropped **every figure chip in production** while every component test
+  passed. This is the one that would have shipped a feature that does
+  nothing.
+- **Annotation offsets are not safe to trust in the renderer.** They
+  index the whole `finalAnswer`, but `CitedMarkdownContent` renders PER
+  TEXT BLOCK and its content may have been rewritten by inline-`<cite>`
+  stripping. `placeFigures()` verifies the offset before using it and
+  otherwise finds the text; a figure it cannot locate gets NO chip,
+  because an absence is visible and a chip on the wrong number is a false
+  provenance claim.
+- **Both plan test fixtures carried offsets that did not index their own
+  answer** (judge figure 1 at 12:20 slices `'287.7 an'`). Both now derive
+  offsets and assert they slice correctly.
+
+### Verified offline, end to end
+
+`tests/test_citation_end_to_end.py` drives a REAL `HarnessSession`
+through the REAL SSE route with the reported defect's shape — a markdown
+table, a chunk whose text fuses the agency name onto the number, and a
+stated total — and asserts linked/linked/derived with `derived_from`
+[1, 2], `source_text` carrying the SOURCE's rendering, indices in reading
+order, and **zero `cite`/`cite_batch` calls** for a fully-numeric answer.
+No key, no network.
+
+**Suites: 1986 pytest, 451 vitest, `tsc -b` exit 0.**
+
+### 🔴 OUTSTANDING — needs a machine with an OpenRouter key
+
+Plan Task 12 Steps 3–4 could not run here: `ai_available` reports **"no
+API key configured"** on this machine, and both steps spend real money.
+
+1. **The live reproduction** of *"what are the biggest agencies by
+   budget"*. The offline end-to-end test covers its shape, but nobody has
+   watched a real model answer under the new prompt.
+2. **The Layer 2 re-baseline** (`--subset full`, ~$0.50–1.50, plus the
+   judge as a separate charge), then `compare_agent_runs.py` against
+   `eval/results/agent/2026-08-02T0900Z-0b08221`. Expected direction:
+   `figure_coverage_mean` high, `unverified_rate` low, `steps_mean` and
+   `input_tokens_mean` DOWN (cite round-trips removed), `cite_pass_rate`
+   no longer dominated by figure citations.
+
+**Until that runs, the prompt change (Task 7) is unmeasured.** Everything
+else in this section is measured against recorded transcripts or pinned
+by tests.
+
+**Also unverified in a real browser:** the chips themselves — derived and
+unverified tone, the "Also appears in:" list, and chip click opening the
+PDF at the source rendering. 22 new vitest specs cover the logic; nobody
+has watched it render.
+
+---
+
 ## Plan 7 — batch extraction: Tasks 1–4 shipped (2026-08-01)
 
 Plan: `docs/superpowers/plans/2026-08-01-standalone-plan-7-batch-extraction.md`.
