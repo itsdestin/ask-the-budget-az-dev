@@ -561,6 +561,22 @@ describe("chat CSS containment contract", () => {
     expect(bare).not.toMatch(/\.chat-welcome-bubble(::before|::after)/);
   });
 
+  // The stop button's ring is the ONLY indication that a turn is still
+  // generating — there is no separate spinner anywhere. If the animation is
+  // dropped the button silently becomes a static circle and the composer stops
+  // reporting that anything is happening.
+  it("the stop button spins while generating, and halts rather than vanishing", () => {
+    const ring = bareRule(".ask-stop::before");
+    expect(ring).toMatch(/animation:\s*ask-spin/);
+    expect(ring).toMatch(/border-top-color:\s*var\(--chat-danger\)/);
+    expect(bare).toMatch(/@keyframes\s+ask-spin\s*\{[^}]*rotate\(360deg\)/);
+    // Reduced motion stops the rotation but keeps a complete ring, so the
+    // control still reads as active-and-interruptible.
+    const reduced = bare.slice(bare.indexOf("@media (prefers-reduced-motion: reduce){\n  .ask-stop"));
+    expect(reduced.slice(0, 200)).toMatch(/animation:\s*none/);
+    expect(reduced.slice(0, 200)).not.toMatch(/display:\s*none/);
+  });
+
   // The pip is the only thing standing between an analyst and invisible state:
   // Deep Research costs ~44x a Standard answer and the corpus decides which
   // documents a citation can come from, and BOTH toggles live inside a menu

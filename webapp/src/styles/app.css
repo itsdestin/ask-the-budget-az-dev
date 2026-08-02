@@ -1712,24 +1712,38 @@ html.ai-fullpage header.site{flex:0 0 auto;}
   font-family:inherit;font-size:15.5px;color:var(--ink);padding:4px 6px;}
 .ask-bar input::placeholder{color:var(--ink-3);}
 .ask-bar input:disabled{opacity:.6;}
-/* Send is a glyph now, so it is a circle rather than a text pill — 36px, a
-   touch larger than the leading icons, because it is the bar's primary action
-   and the only filled thing in it. */
-.ask-send{flex:0 0 auto;display:inline-flex;align-items:center;justify-content:center;
-  width:36px;height:36px;border:0;cursor:pointer;color:#fff;background:var(--az-gold);
-  border-radius:50%;transition:filter .15s,opacity .15s;}
-.ask-send svg{width:18px;height:18px;}
+.ask-send{flex:0 0 auto;border:0;cursor:pointer;font-family:inherit;font-weight:800;
+  font-size:14px;color:#fff;background:var(--az-gold);border-radius:var(--r-pill);
+  padding:9px 18px;transition:filter .15s,opacity .15s;}
 .ask-send:hover:not(:disabled){filter:brightness(1.05);}
 .ask-send:disabled{opacity:.45;cursor:not-allowed;}
-/* Stop appears BESIDE Send while a turn streams (see MessageInput on why it
-   does not replace it). Outlined in the danger colour rather than filled: two
-   filled buttons would compete, and stopping is a correction, not the thing
-   the bar is for. */
-.ask-stop{flex:0 0 auto;display:inline-flex;align-items:center;justify-content:center;
-  width:36px;height:36px;cursor:pointer;color:var(--chat-danger);background:var(--card);
-  border:1.5px solid var(--chat-danger);border-radius:50%;transition:background .15s;}
-.ask-stop svg{width:16px;height:16px;}
+
+/* Stop: a small square inside a ring that spins while the model generates.
+   Left of Send and deliberately SMALLER than it — stopping is a correction,
+   not the thing the bar is for, and the spinning ring already draws the eye.
+
+   The ring is the turn's progress indicator as well as the button's border:
+   it exists for exactly as long as `onStop` is passed, which is exactly as
+   long as a turn is streaming, so there is nothing to keep in sync. A
+   separate spinner elsewhere would be a second thing saying the same thing.
+
+   No background and no solid border of its own — the ring IS the border, so
+   the resting state is the tinted track with one danger-coloured arc running
+   round it. */
+.ask-stop{position:relative;flex:0 0 auto;display:inline-flex;align-items:center;justify-content:center;
+  width:30px;height:30px;padding:0;cursor:pointer;color:var(--chat-danger);
+  background:transparent;border:0;border-radius:50%;transition:background .15s;}
+.ask-stop svg{width:11px;height:11px;}
+.ask-stop::before{content:"";position:absolute;inset:0;border-radius:50%;
+  border:2px solid var(--chat-danger-tint);border-top-color:var(--chat-danger);
+  animation:ask-spin .8s linear infinite;}
 .ask-stop:hover{background:var(--chat-danger-tint);}
+@keyframes ask-spin{to{transform:rotate(360deg);}}
+/* Halted, not hidden: the ring stays as a complete danger-coloured circle, so
+   the control still reads as active-and-interruptible without moving. */
+@media (prefers-reduced-motion: reduce){
+  .ask-stop::before{animation:none;border-color:var(--chat-danger);}
+}
 
 /* the two leading icon buttons */
 .ask-icon{flex:0 0 auto;display:inline-flex;align-items:center;justify-content:center;

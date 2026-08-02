@@ -103,45 +103,36 @@ export default function MessageInput({
         placeholder={placeholder ?? "Ask about the budget…"}
         disabled={disabled}
       />
-      {/* Send and Stop sit SIDE BY SIDE while a turn streams, rather than one
-          swapping into the other's place. Swapping is the commoner pattern and
-          it is worse here: the button under the cursor changes identity mid-
-          stream, so the click that meant "send my next question" lands on
-          "throw away the answer". Send simply goes inert instead. */}
-      <button
-        type="button"
-        onClick={handleSubmit}
-        disabled={disabled || value.trim().length === 0}
-        className="ask-send"
-        aria-label="Send"
-        title="Send"
-      >
-        <svg
-          viewBox="0 0 24 24"
-          fill="none"
-          stroke="currentColor"
-          strokeWidth="2.2"
-          strokeLinecap="round"
-          strokeLinejoin="round"
-          aria-hidden="true"
-        >
-          <path d="M12 19V5" />
-          <path d="m5 12 7-7 7 7" />
-        </svg>
-      </button>
+      {/* Stop sits to the LEFT of Send, and does not replace it. Swapping is
+          the commoner pattern and is worse here: the button under the cursor
+          would change identity mid-stream, so a click meaning "send my next
+          question" would land on "throw away the answer". Send goes inert
+          instead, and stays exactly where it was. */}
       {onStop && (
         <button
           type="button"
           onClick={onStop}
           className="ask-stop"
           aria-label="Stop"
-          title="Stop"
+          title="Stop generating"
         >
+          {/* The ring around it is CSS (see .ask-stop::before) — it spins for
+              as long as this button exists, which is exactly as long as a turn
+              is streaming. The button IS the progress indicator; a separate
+              spinner would be a second thing saying the same thing. */}
           <svg viewBox="0 0 24 24" aria-hidden="true">
-            <rect x="7" y="7" width="10" height="10" rx="2" fill="currentColor" />
+            <rect x="8" y="8" width="8" height="8" rx="1.5" fill="currentColor" />
           </svg>
         </button>
       )}
+      <button
+        type="button"
+        onClick={handleSubmit}
+        disabled={disabled || value.trim().length === 0}
+        className="ask-send"
+      >
+        Send
+      </button>
     </div>
   );
 }
