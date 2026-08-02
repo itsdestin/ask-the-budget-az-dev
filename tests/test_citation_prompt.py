@@ -28,3 +28,22 @@ def test_prompt_does_not_ask_the_model_to_quote_table_rows():
     lowered = PROMPT.lower()
     assert "quote the table row" not in lowered
     assert "quote the row" not in lowered
+
+
+def test_prompt_bans_announcing_that_citations_were_registered():
+    # Observed in a browser 2026-08-02: the model closed an answer with
+    # "All citations are now registered. The answer above covers ADOT's
+    # FY 2024 enacted appropriations..." The hygiene section already banned
+    # "All cites now anchored" — the model simply used different words, so
+    # the rule needed to name the BEHAVIOUR, not just three phrasings.
+    lowered = PROMPT.lower()
+    assert "registered" in lowered
+    # And the general form: no closing status paragraph about the answer.
+    assert "status" in lowered or "recap" in lowered
+
+
+def test_prompt_tells_the_model_not_to_announce_the_automatic_linking():
+    # A model told "figures are linked automatically" may helpfully report
+    # that it happened. It is UI behaviour; the analyst can see it.
+    section = PROMPT.lower()
+    assert "do not announce" in section or "never announce" in section

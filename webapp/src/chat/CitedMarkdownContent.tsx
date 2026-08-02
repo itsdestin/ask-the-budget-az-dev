@@ -95,6 +95,33 @@ export default function CitedMarkdownContent({
     return out;
   }, [content, citations, figures]);
 
+  // ONE sequence across both kinds of mark, assigned by position in the
+  // finished markdown.
+  //
+  // Figures are numbered 1..N by the server annotation and prose citations
+  // 1..M by citation-extract; rendered together those two sequences collide,
+  // so an analyst saw a "4" sitting under figures numbered 1-3, and a prose
+  // [1] could coexist with a figure [1] pointing somewhere else entirely.
+  // The number has to mean "the Nth mark down this answer" or it means
+  // nothing.
+  //
+  // Derived from `augmentedContent` rather than from the two source lists
+  // because that string is the only place their relative order actually
+  // exists — cite sentinels are placed BY LINE and figure sentinels BY
+  // OFFSET, so neither list knows where the other landed.
+  const displayNumbers = useMemo(() => {
+    const map = new Map<string, number>();
+    const re = /\{\{(cite|fig):(\d+)\}\}/g;
+    let match: RegExpExecArray | null;
+    let next = 1;
+    while ((match = re.exec(augmentedContent)) !== null) {
+      const key = `${match[1]}:${match[2]}`;
+      // A retry can emit the same sentinel twice; it is one mark.
+      if (!map.has(key)) map.set(key, next++);
+    }
+    return map;
+  }, [augmentedContent]);
+
   // Closure that wraps a ReactMarkdown element override and runs the
   // sentinel-replacement walker on its children. Applied to every
   // text-bearing block element so a sentinel landing in any of them becomes
@@ -103,7 +130,9 @@ export default function CitedMarkdownContent({
     const wrap = (render: ChildRenderer) => {
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       return ({ children, ...props }: any) => {
-        const transformed = walkAndReplaceSentinels(children, citations, figures);
+        const transformed = walkAndReplaceSentinels(
+          children, citations, figures, displayNumbers,
+        );
         return render(transformed, props);
       };
     };
@@ -128,7 +157,7 @@ export default function CitedMarkdownContent({
         </div>
       ),
     };
-  }, [citations, figures]);
+  }, [citations, figures, displayNumbers]);
 
   return (
     <div className="chat-md">
@@ -161,10 +190,11 @@ function walkAndReplaceSentinels(
   children: ReactNode,
   citations: Citation[],
   figures: AnnotationFigure[] = [],
+  displayNumbers: Map<string, number> = new Map(),
 ): ReactNode {
   return React.Children.map(children, (child) => {
     if (typeof child === "string") {
-      return splitStringOnSentinels(child, citations, figures);
+      return splitStringOnSentinels(child, citations, figures, displayNumbers);
     }
     if (typeof child === "number") return child;
     if (child === null || child === undefined) return child;
@@ -176,6 +206,7 @@ function walkAndReplaceSentinels(
           props.children,
           citations,
           figures,
+          displayNumbers,
         );
         return React.cloneElement(element, undefined, newChildren);
       }
@@ -189,6 +220,7 @@ function splitStringOnSentinels(
   text: string,
   citations: Citation[],
   figures: AnnotationFigure[] = [],
+  displayNumbers: Map<string, number> = new Map(),
 ): ReactNode {
   const hasCite = text.includes("{{cite:");
   const hasFig = text.includes("{{fig:");
@@ -209,11 +241,23 @@ function splitStringOnSentinels(
   collect(CITE_SENTINEL_RE, (idx) => {
     const cite = citations[idx];
     // Out of range — surface the sentinel so the bug is visible.
-    return cite ? <CitationChip key={`cite-${idx}`} citation={cite} /> : null;
+    return cite ? (
+      <CitationChip
+        key={`cite-${idx}`}
+        citation={cite}
+        displayIndex={displayNumbers.get(`cite:${idx}`)}
+      />
+    ) : null;
   });
   collect(FIG_SENTINEL_RE, (idx) => {
     const figure = figures[idx];
-    return figure ? <FigureChip key={`fig-${idx}`} figure={figure} /> : null;
+    return figure ? (
+      <FigureChip
+        key={`fig-${idx}`}
+        figure={figure}
+        displayIndex={displayNumbers.get(`fig:${idx}`)}
+      />
+    ) : null;
   });
   marks.sort((a, b) => a.at - b.at);
 

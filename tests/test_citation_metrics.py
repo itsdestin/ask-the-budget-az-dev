@@ -86,3 +86,25 @@ def test_figureless_answers_do_not_drag_the_aggregate_to_zero():
             score_transcript(QUERY, transcript([]))]
     summary = aggregate(rows)
     assert summary["figure_coverage_mean"] == pytest.approx(1.0)
+
+
+def test_citation_bookkeeping_narration_is_detected():
+    # The exact sentence a real answer closed with on 2026-08-02. The eval
+    # could not see it before, so any prompt fix for it was unmeasurable.
+    t = transcript([])
+    t.terminal["frame"]["finalAnswer"] = (
+        "ADOT received $1,391,157,700. All citations are now registered. "
+        "The answer above covers ADOT's FY 2024 enacted appropriations."
+    )
+    assert score_transcript(QUERY, t)["narration_hits"] >= 1
+
+
+def test_ordinary_budget_prose_is_not_flagged_as_narration():
+    # The markers must not collide with policy language — the same bar the
+    # "rerank" exclusion in agent_scoring.py records.
+    t = transcript([])
+    t.terminal["frame"]["finalAnswer"] = (
+        "The Legislature registered the fund transfer in statute and "
+        "anchored the formula to enrollment growth."
+    )
+    assert score_transcript(QUERY, t)["narration_hits"] == 0
