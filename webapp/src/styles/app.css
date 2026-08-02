@@ -935,7 +935,10 @@ nav.primary{position:relative;padding-right:44px;}
 /* ----- composer ------------------------------------------------------------ */
 .chat-input { max-width: var(--ai-col); margin: 0 auto; background: var(--card); border: 1.5px solid var(--line); border-radius: var(--r-sm); display: flex; gap: 8px; align-items: flex-end; padding: 6px 8px; }
 .chat-input:focus-within { border-color: var(--az-gold); box-shadow: 0 0 0 3px var(--az-gold-100); }
-.chat-input textarea { flex: 1 1 auto; resize: none; background: transparent; border: none; padding: 8px 12px; color: var(--ink); font-family: var(--font); font-size: 14px; line-height: 1.6; }
+/* overflow-y starts hidden so the first painted frame can't show a scrollbar;
+   MessageInput's auto-grow effect promotes it to `auto` only once the box is
+   capped at MAX_HEIGHT_PX. See the WHY comment there. */
+.chat-input textarea { flex: 1 1 auto; resize: none; overflow-y: hidden; background: transparent; border: none; padding: 8px 12px; color: var(--ink); font-family: var(--font); font-size: 14px; line-height: 1.6; }
 .chat-input textarea:focus { outline: none; }
 .chat-input textarea:disabled { opacity: .5; }
 /* Send: the app's own primary-CTA recipe — pill + brightness hover, the same
