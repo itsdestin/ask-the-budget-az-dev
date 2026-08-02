@@ -446,3 +446,69 @@ def test_main_survives_a_row_that_raises_outside_the_model_call(tmp_path, monkey
     # the healthy row kept its grade, and the summary means skip the error row
     assert any(r.get("holistic") == 4 for r in out["per_query"])
     assert out["summary"]["claim_coverage_precision_mean"] == 1.0
+
+
+def test_reasoning_model_that_returns_null_content_gives_a_clear_error():
+    """Observed live 2026-08-02 with deepseek-v4-flash-0731: a reasoning
+    model spends its completion budget thinking, hits finish_reason
+    "length", and returns content: null. The judge crashed with
+    AttributeError: 'NoneType' has no attribute 'strip' — a message that
+    tells the operator nothing about what actually went wrong, on 5 of 31
+    queries in a paid run.
+    """
+    def handler(request):
+        return httpx.Response(200, json={"choices": [
+            {"finish_reason": "length",
+             "message": {"content": None, "reasoning": "thinking..."}}]})
+
+    client = httpx.Client(transport=httpx.MockTransport(handler))
+    result = judge_one(client, "https://x.test/api/v1", "sk-x", "m", "sys", {"q": 1})
+    assert "judge_error" in result
+    assert "no content" in result["judge_error"].lower()
+
+
+def test_request_sets_max_tokens_so_a_reasoning_model_can_finish():
+    """Without max_tokens a reasoning model is cut off mid-thought and
+    never emits its answer. The budget must leave room for reasoning AND
+    the JSON that follows it."""
+    seen = {}
+
+    def handler(request):
+        seen.update(json.loads(request.content))
+        return httpx.Response(200, json={"choices": [
+            {"message": {"content": json.dumps(JUDGE_REPLY)}}]})
+
+    client = httpx.Client(transport=httpx.MockTransport(handler))
+    judge_one(client, "https://x.test/api/v1", "sk-x", "m", "sys", {"q": 1})
+    assert seen["max_tokens"] >= 4000
+
+
+def test_reasoning_can_be_disabled_for_speed():
+    """A structured grading task does not always need chain-of-thought.
+    Disabling it measured 15x faster and 2.75x cheaper on the same query."""
+    seen = {}
+
+    def handler(request):
+        seen.update(json.loads(request.content))
+        return httpx.Response(200, json={"choices": [
+            {"message": {"content": json.dumps(JUDGE_REPLY)}}]})
+
+    client = httpx.Client(transport=httpx.MockTransport(handler))
+    judge_one(client, "https://x.test/api/v1", "sk-x", "m", "sys", {"q": 1},
+              reasoning=False)
+    assert seen["reasoning"] == {"enabled": False}
+
+
+def test_reasoning_is_left_alone_by_default():
+    """Most models have no reasoning control; sending the field to them
+    is an unnecessary compatibility risk."""
+    seen = {}
+
+    def handler(request):
+        seen.update(json.loads(request.content))
+        return httpx.Response(200, json={"choices": [
+            {"message": {"content": json.dumps(JUDGE_REPLY)}}]})
+
+    client = httpx.Client(transport=httpx.MockTransport(handler))
+    judge_one(client, "https://x.test/api/v1", "sk-x", "m", "sys", {"q": 1})
+    assert "reasoning" not in seen

@@ -210,19 +210,50 @@ def parse_judge_json(content: str) -> dict[str, Any]:
     return parsed
 
 
+# A reasoning model spends completion tokens thinking BEFORE it answers.
+# With no cap, OpenRouter's default cut deepseek-v4-flash-0731 off mid-thought
+# on 5 of 31 queries in a paid run: finish_reason "length", content null, the
+# grade lost. This budget leaves room for the reasoning AND the JSON after it.
+JUDGE_MAX_TOKENS = 8000
+
+
 def judge_one(client: httpx.Client, base_url: str, api_key: str, model: str,
-              system_prompt: str, payload: dict[str, Any]) -> dict[str, Any]:
+              system_prompt: str, payload: dict[str, Any],
+              *, reasoning: bool = True) -> dict[str, Any]:
+    """Grade one answer.
+
+    `reasoning=False` asks the provider to skip chain-of-thought. On a
+    reasoning model that measured 15x faster and 2.75x cheaper for this
+    structured task — but it is opt-in, because thinking changes the
+    grades and a judge swap must be a deliberate, measured decision.
+    The field is omitted entirely by default: most models have no
+    reasoning control and sending it is a needless compatibility risk.
+    """
     try:
+        body: dict[str, Any] = {
+            "model": model, "temperature": 0,
+            "max_tokens": JUDGE_MAX_TOKENS,
+            "messages": [{"role": "system", "content": system_prompt},
+                         {"role": "user",
+                          "content": json.dumps(payload, ensure_ascii=False)}],
+        }
+        if not reasoning:
+            body["reasoning"] = {"enabled": False}
         resp = client.post(
             f"{base_url.rstrip('/')}/chat/completions",
             headers={"Authorization": f"Bearer {api_key}"},
-            json={"model": model, "temperature": 0,
-                  "messages": [{"role": "system", "content": system_prompt},
-                               {"role": "user",
-                                "content": json.dumps(payload, ensure_ascii=False)}]},
-            timeout=120.0)
+            json=body,
+            timeout=600.0)
         resp.raise_for_status()
-        content = resp.json()["choices"][0]["message"]["content"]
+        choice = resp.json()["choices"][0]
+        content = choice["message"].get("content")
+        if content is None:
+            # Name the real cause. "'NoneType' has no attribute 'strip'"
+            # told the operator nothing about a truncated reasoning trace.
+            finish = choice.get("finish_reason")
+            raise ValueError(
+                f"judge returned no content (finish_reason={finish!r}) — a "
+                f"reasoning model likely exhausted max_tokens before answering")
         return parse_judge_json(content)
     except Exception as exc:
         # One flaky judge call must not lose the whole run's judging.
@@ -291,6 +322,11 @@ def main() -> int:
     parser.add_argument("--queries-file", default=DEFAULT_QUERIES)
     parser.add_argument("--judge-model", default=DEFAULT_JUDGE_MODEL)
     parser.add_argument("--limit", type=int, default=None, help="judge only the first N transcripts")
+    parser.add_argument("--no-reasoning", action="store_true",
+                        help="ask the provider to skip chain-of-thought. On a "
+                             "reasoning judge this measured 15x faster and 2.75x "
+                             "cheaper — but it changes the grades, so a run using "
+                             "it is not comparable to one without.")
     args = parser.parse_args()
 
     settings = load_settings()
@@ -323,7 +359,8 @@ def main() -> int:
                     payload = build_judge_payload(queries[qid], t)
                     result = judge_one(client, settings.provider.base_url,
                                        settings.provider.api_key, args.judge_model,
-                                       system_prompt, payload)
+                                       system_prompt, payload,
+                                       reasoning=not args.no_reasoning)
                     row = {"query_id": qid, "repeat": t.meta.get("repeat", 1), **result}
                     if "judge_error" not in result:
                         row.update(compute_citation_scores(result, t))
@@ -355,6 +392,7 @@ def main() -> int:
                 if isinstance(r.get(key), (int, float)) and not isinstance(r.get(key), bool)]
         return (sum(vals) / len(vals)) if vals else None
     out = {"judge_model": args.judge_model,
+           "judge_reasoning": not args.no_reasoning,
            "judge_prompt_sha256": hashlib.sha256(system_prompt.encode()).hexdigest(),
            "summary": {"n": len(per_query), "errors": len(per_query) - len(graded),
                        "claim_coverage_precision_mean": mean("claim_coverage_precision"),
