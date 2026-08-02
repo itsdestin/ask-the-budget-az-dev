@@ -1,0 +1,989 @@
+{
+  "judge_model": "deepseek/deepseek-v4-flash-0731",
+  "judge_reasoning": false,
+  "judge_prompt_sha256": "d303d08b3219de65dddefe1134e72cf4f8b86719abdcd2a7dd13cb341b4eda25",
+  "summary": {
+    "n": 31,
+    "errors": 0,
+    "claim_coverage_precision_mean": 0.4810620507274473,
+    "claim_coverage_recall_mean": 0.9555555555555556,
+    "holistic_mean": 4.580645161290323
+  },
+  "per_query": [
+    {
+      "query_id": "an-ahcccs-enrollment",
+      "repeat": 1,
+      "load_bearing_claims": [
+        {
+          "claim": "AHCCCS capitated enrollment was 1.58 million through June 2025, about 190,000 below the enacted budget assumption of 1.77 million.",
+          "cited_verified": true
+        },
+        {
+          "claim": "The October 2024 capitation rate adjustment, with the largest increases for ages 1-20, added $55,575,200 in General Fund expenses, partially offsetting caseload savings.",
+          "cited_verified": true
+        },
+        {
+          "claim": "The FY 2026 budget included a total $94.1 million General Fund ex-appropriation for FY 2025, reflecting the FY 2025 surplus.",
+          "cited_verified": true
+        },
+        {
+          "claim": "The FY 2025 base adjustment into FY 2026 was $102.2 million from state match and $305.1 million from Total Funds.",
+          "cited_verified": true
+        },
+        {
+          "claim": "Annualized caseload declines produced additional FY 2026 savings of $186.4 million from state match and $127.4 million from Total Funds.",
+          "cited_verified": true
+        }
+      ],
+      "holistic": 5,
+      "figure_coverage_ok": true,
+      "placement_ok": true,
+      "flags": {
+        "hedging": false,
+        "meta_narration": false,
+        "answered_wrong_question": false
+      },
+      "rationale": "The answer directly and comprehensively addresses both the enrollment shortfall and the offsetting rate adjustments, with all key figures properly cited and verified. It correctly explains the ripple into FY 2026, making it complete and accurate.",
+      "claim_coverage_precision": 0.17857142857142858,
+      "claim_coverage_recall": 1.0
+    },
+    {
+      "query_id": "an-ahcccs-gf-drivers",
+      "repeat": 1,
+      "load_bearing_claims": [
+        {
+          "claim": "AHCCCS General Fund spending rose $36.1 million (1.4%) in FY 2026",
+          "cited_verified": true
+        },
+        {
+          "claim": "Gross formula adjustments increased General Fund spending by $180.3 million",
+          "cited_verified": true
+        },
+        {
+          "claim": "A $150 million shift of Medicaid services costs to the Prescription Drug Rebate Fund offset most of the increase",
+          "cited_verified": true
+        },
+        {
+          "claim": "Caseload growth produced $186 million in state-match savings, not costs",
+          "cited_verified": true
+        },
+        {
+          "claim": "Non-General Fund offsets absorbed $37 million of the state match increase",
+          "cited_verified": true
+        },
+        {
+          "claim": "The FY 2025 ex-appropriation backfill added $94.1 million to FY 2026 General Fund spending",
+          "cited_verified": true
+        }
+      ],
+      "holistic": 5,
+      "figure_coverage_ok": true,
+      "placement_ok": true,
+      "flags": {
+        "hedging": false,
+        "meta_narration": true,
+        "answered_wrong_question": false
+      },
+      "rationale": "The answer directly and correctly explains the arithmetic, identifying the PDRF shift as the key offset, with all figures properly cited and verified. Minor meta-narration at the end does not detract from the substantive completeness.",
+      "claim_coverage_precision": 0.2727272727272727,
+      "claim_coverage_recall": 1.0
+    },
+    {
+      "query_id": "an-esa-growth",
+      "repeat": 1,
+      "load_bearing_claims": [
+        {
+          "claim": "ESA costs grew from ~$124 million in FY 2021 to a projected $1.22 billion in FY 2027, roughly a tenfold increase.",
+          "cited_verified": true
+        },
+        {
+          "claim": "The state consistently underestimated ESA enrollment, with FY 2024 actuals (76,427 pupils, $717.6 million) exceeding enacted assumptions (68,380, $625.2 million).",
+          "cited_verified": true
+        },
+        {
+          "claim": "FY 2026 revised estimates show 101,602 enrollees and $1.06 billion in awards, above the enacted assumption of 97,905 and ~$1.0 billion.",
+          "cited_verified": true
+        },
+        {
+          "claim": "A large share of new ESA enrollees were not previously in public school, so the state pays for them on top of public school funding, causing combined K-12 enrollment to grow faster than the school-age population.",
+          "cited_verified": true
+        }
+      ],
+      "holistic": 4,
+      "figure_coverage_ok": true,
+      "placement_ok": true,
+      "flags": {
+        "hedging": false,
+        "meta_narration": true,
+        "answered_wrong_question": false
+      },
+      "rationale": "The answer directly addresses both parts of the question with accurate, well-cited figures and a clear connection between ESA growth and enrollment misses. Minor deduction for meta-narration in the closing recap and a slight overstatement of the FY 2026 budget figure as 'about $1.0 billion' when the enacted amount was $1,001,720,000, but the core claims are solid and verified.",
+      "claim_coverage_precision": 0.125,
+      "claim_coverage_recall": 1.0
+    },
+    {
+      "query_id": "cm-basic-aid-3yr",
+      "repeat": 1,
+      "load_bearing_claims": [
+        {
+          "claim": "K-12 formula funding is climbing at roughly 3-4% per year in total terms.",
+          "cited_verified": true
+        },
+        {
+          "claim": "FY 2025 total BSA formula funding was $9,940,709,400; FY 2026 was $10,316,913,300; FY 2027 baseline is $10,625,695,800.",
+          "cited_verified": true
+        },
+        {
+          "claim": "The General Fund share grew 8.2% in FY 2026 due to the Proposition 123 cliff.",
+          "cited_verified": true
+        },
+        {
+          "claim": "ESA enrollment growth is the biggest driver of formula funding growth.",
+          "cited_verified": true
+        }
+      ],
+      "holistic": 5,
+      "figure_coverage_ok": true,
+      "placement_ok": true,
+      "flags": {
+        "hedging": false,
+        "meta_narration": true,
+        "answered_wrong_question": false
+      },
+      "rationale": "The answer directly and correctly answers the question with accurate figures, correctly labels the FY 2027 figure as a baseline, and provides well-supported analysis. The only minor issue is meta-narration at the end, but it does not detract from the substance.",
+      "claim_coverage_precision": 0.2222222222222222,
+      "claim_coverage_recall": 1.0
+    },
+    {
+      "query_id": "cm-des-gf-growth",
+      "repeat": 1,
+      "load_bearing_claims": [
+        {
+          "claim": "DES General Fund spending increased by $243.5M (18.1%) in FY 2026 baseline, driven by DDD formula adjustments of $262.5M.",
+          "cited_verified": true
+        },
+        {
+          "claim": "DES General Fund spending increased by $551.5M (41.2%) in FY 2026 enacted, driven by DD formula adjustments of $434.0M.",
+          "cited_verified": true
+        },
+        {
+          "claim": "DES General Fund spending increased by $119.5M (9.9%) in FY 2025 baseline, driven by DD formula adjustments of $142.3M.",
+          "cited_verified": true
+        },
+        {
+          "claim": "DES General Fund spending increased by $104.8M (12.3%) in FY 2023 baseline, driven by DD formula adjustments of $114.3M.",
+          "cited_verified": true
+        },
+        {
+          "claim": "DES General Fund spending increased by $89.1M (11.0%) in FY 2022 baseline, driven by DD formula adjustments.",
+          "cited_verified": true
+        },
+        {
+          "claim": "DES General Fund spending increased by $191.2M (10.1%) in FY 2027 baseline, driven by DD formula adjustments of $286.3M and SNAP cost shift of $32.7M.",
+          "cited_verified": true
+        },
+        {
+          "claim": "Medicaid Developmental Disability caseloads projected to reach 52,098 by June 2027, up from 32,277 in June 2018.",
+          "cited_verified": true
+        },
+        {
+          "claim": "FY 2026 enacted includes $309.5M annualization cost due to 25.5% capitation rate increase and 7.3% caseload growth.",
+          "cited_verified": true
+        },
+        {
+          "claim": "H.R. 1 raises state share of SNAP administrative costs from 50% to 75%, shifting $32.7M to General Fund in FY 2027.",
+          "cited_verified": true
+        },
+        {
+          "claim": "JLBC noted a $96.8M FY 2026 supplemental for the DD program.",
+          "cited_verified": true
+        }
+      ],
+      "holistic": 4,
+      "figure_coverage_ok": true,
+      "placement_ok": true,
+      "flags": {
+        "hedging": false,
+        "meta_narration": true,
+        "answered_wrong_question": false
+      },
+      "rationale": "The answer directly addresses the question with accurate figures and correctly identifies DDD as the primary driver, supported by verified citations. Minor issues: some citations for FY 2018/2019 are marked not ok, and the answer includes meta-narration, but overall it is comprehensive and correct.",
+      "claim_coverage_precision": 0.625,
+      "claim_coverage_recall": 1.0
+    },
+    {
+      "query_id": "cm-highway-construction",
+      "repeat": 1,
+      "load_bearing_claims": [
+        {
+          "claim": "State highway funding has not been holding steady; it has grown markedly.",
+          "cited_verified": true
+        },
+        {
+          "claim": "Highway Maintenance line item increased from $122.8M in FY2021 to $182.1M in FY2027 baseline.",
+          "cited_verified": true
+        },
+        {
+          "claim": "State Highway Fund appropriation grew from $369.1M in FY2021 to $511.2M in FY2027 baseline, a 38% increase.",
+          "cited_verified": true
+        },
+        {
+          "claim": "Preventive Surface Treatments has held steady at $36.1M from FY2022 through FY2027.",
+          "cited_verified": true
+        }
+      ],
+      "holistic": 4,
+      "figure_coverage_ok": true,
+      "placement_ok": true,
+      "flags": {
+        "hedging": false,
+        "meta_narration": true,
+        "answered_wrong_question": false
+      },
+      "rationale": "The answer directly addresses the question with well-supported figures and citations, though it includes meta-narration and some extraneous detail. The core claims are verified and correctly placed.",
+      "claim_coverage_precision": 0.25,
+      "claim_coverage_recall": 1.0
+    },
+    {
+      "query_id": "cm-supplementals-fy2026",
+      "repeat": 1,
+      "load_bearing_claims": [
+        {
+          "claim": "Three programs (DES/DDD, AHCCCS, ADE) need FY 2026 General Fund supplementals totaling $208.6 million.",
+          "cited_verified": true
+        },
+        {
+          "claim": "DES/DDD supplemental is $96,818,700 General Fund plus $241,928,300 expenditure authority.",
+          "cited_verified": true
+        },
+        {
+          "claim": "AHCCCS supplemental is $64,528,400 General Fund plus $340,175,800 expenditure authority.",
+          "cited_verified": true
+        },
+        {
+          "claim": "ADE supplemental is $47,230,800 General Fund.",
+          "cited_verified": true
+        }
+      ],
+      "holistic": 5,
+      "figure_coverage_ok": true,
+      "placement_ok": true,
+      "flags": {
+        "hedging": false,
+        "meta_narration": true,
+        "answered_wrong_question": false
+      },
+      "rationale": "The answer correctly identifies the three programs and their General Fund supplemental amounts, avoiding the trap of conflating expenditure authority with General Fund costs. All key figures are supported by verified citations, though the closing meta-narration is unnecessary.",
+      "claim_coverage_precision": 0.3333333333333333,
+      "claim_coverage_recall": 1.0
+    },
+    {
+      "query_id": "hs-building-renewal-2023",
+      "repeat": 1,
+      "load_bearing_claims": [
+        {
+          "claim": "FY 2023 building renewal grant total appropriation was $199,967,900, with $183,300,000 one-time and $16,667,900 ongoing base.",
+          "cited_verified": true
+        },
+        {
+          "claim": "The ongoing base funding has been $16,667,900 since FY 2014.",
+          "cited_verified": true
+        },
+        {
+          "claim": "FY 2022 total available was $200,617,000, with $183,949,100 one-time, including a $93,117,000 supplemental.",
+          "cited_verified": true
+        },
+        {
+          "claim": "The FY 2024 baseline eliminates the $183,300,000 one-time funding, confirming it is not ongoing.",
+          "cited_verified": true
+        }
+      ],
+      "holistic": 5,
+      "figure_coverage_ok": true,
+      "placement_ok": true,
+      "flags": {
+        "hedging": false,
+        "meta_narration": false,
+        "answered_wrong_question": false
+      },
+      "rationale": "The answer directly addresses the question with accurate, well-cited figures for both FY 2023 and FY 2022, correctly distinguishing one-time from ongoing funding and avoiding the traps. All figures are properly cited and supported by the provided chunks.",
+      "claim_coverage_precision": 0.5714285714285714,
+      "claim_coverage_recall": 1.0
+    },
+    {
+      "query_id": "hs-enhanced-fmap-2022",
+      "repeat": 1,
+      "load_bearing_claims": [
+        {
+          "claim": "The enhanced FMAP saved Arizona's General Fund well over $1 billion across FY 2020–FY 2023.",
+          "cited_verified": false
+        },
+        {
+          "claim": "FY 2022: AHCCCS saved $180 million, DES $77 million, DCS $10 million from the enhanced match.",
+          "cited_verified": true
+        },
+        {
+          "claim": "FY 2023: AHCCCS's enacted budget included a $180 million General Fund increase to remove the one-time FY 2022 enhanced-match savings.",
+          "cited_verified": true
+        },
+        {
+          "claim": "FY 2024: AHCCCS saw an $864.7 million increase in state costs from FMAP adjustments.",
+          "cited_verified": true
+        },
+        {
+          "claim": "The enhanced match was phased down starting April 2023 and eliminated in January 2024.",
+          "cited_verified": true
+        }
+      ],
+      "holistic": 4,
+      "figure_coverage_ok": true,
+      "placement_ok": true,
+      "flags": {
+        "hedging": false,
+        "meta_narration": true,
+        "answered_wrong_question": false
+      },
+      "rationale": "The answer is comprehensive and well-cited, covering the enhanced FMAP's value and phase-out, but it misses the specific FY 2022 surplus figures from the judge's notes and includes a meta-narration at the end. The $1 billion total is not directly supported by a single citation, but the individual figures are verified.",
+      "claim_coverage_precision": 0.23529411764705882,
+      "claim_coverage_recall": 0.8
+    },
+    {
+      "query_id": "hs-esa-cost-2022",
+      "repeat": 1,
+      "load_bearing_claims": [
+        {
+          "claim": "Before universal eligibility, the ESA program had about 9,200 enrollees in FY 2021 and 10,674 in FY 2022.",
+          "cited_verified": true
+        },
+        {
+          "claim": "The average cost per recipient was about $15,761 in FY 2021 and $16,061 in FY 2022.",
+          "cited_verified": true
+        },
+        {
+          "claim": "Total program costs were about $145 million in FY 2021 and $171.4 million in FY 2022.",
+          "cited_verified": true
+        },
+        {
+          "claim": "Expenditures on the original ESA program reached $176 million in FY 2022.",
+          "cited_verified": true
+        }
+      ],
+      "holistic": 5,
+      "figure_coverage_ok": true,
+      "placement_ok": true,
+      "flags": {
+        "hedging": false,
+        "meta_narration": true,
+        "answered_wrong_question": false
+      },
+      "rationale": "The answer directly and accurately answers the question with verified figures from the cited sources, correctly distinguishing pre-universal program size and cost. It includes a minor meta-narration ('All citations registered cleanly') but this does not detract from the substance.",
+      "claim_coverage_precision": 0.6666666666666666,
+      "claim_coverage_recall": 1.0
+    },
+    {
+      "query_id": "hs-promise-program-2023",
+      "repeat": 1,
+      "load_bearing_claims": [
+        {
+          "claim": "The Arizona Promise Program was established with a $7,500,000 appropriation in FY 2022.",
+          "cited_verified": true
+        },
+        {
+          "claim": "In its first year, the program funded approximately 1,677 students with an average award of $4,471.",
+          "cited_verified": true
+        },
+        {
+          "claim": "In FY 2023, funding increased to $20,000,000, expected to fund 4,473 total students.",
+          "cited_verified": true
+        }
+      ],
+      "holistic": 4,
+      "figure_coverage_ok": true,
+      "placement_ok": true,
+      "flags": {
+        "hedging": false,
+        "meta_narration": true,
+        "answered_wrong_question": false
+      },
+      "rationale": "The answer directly addresses the question with accurate, well-cited figures, though it repeats the main content and includes a meta-narration phrase. The FY 2023 figures are correctly sourced from the enacted budget, not the baseline, and the guarantee note is included.",
+      "claim_coverage_precision": 0.75,
+      "claim_coverage_recall": 1.0
+    },
+    {
+      "query_id": "hs-water-augmentation-2023",
+      "repeat": 1,
+      "load_bearing_claims": [
+        {
+          "claim": "The state committed $1,000,000,000 over three years to the Long-Term Water Augmentation Fund, with $334M in FY2023 from a TPT diversion and $333M each in FY2024 and FY2025 from the General Fund.",
+          "cited_verified": true
+        },
+        {
+          "claim": "Actual deposits to the fund totaled $445,200,000 after subsequent legislation reduced the FY2024 appropriation, transferred $78M out, and repealed the FY2025 appropriation.",
+          "cited_verified": true
+        },
+        {
+          "claim": "75% of the fund's monies are reserved for projects importing water from outside Arizona.",
+          "cited_verified": true
+        }
+      ],
+      "holistic": 4,
+      "figure_coverage_ok": true,
+      "placement_ok": true,
+      "flags": {
+        "hedging": false,
+        "meta_narration": true,
+        "answered_wrong_question": false
+      },
+      "rationale": "The answer directly and accurately addresses the question with verified citations, including the key nuance of the TPT diversion and the later reduction in actual deposits. It loses a point for meta-narration and a slightly overlong closing that adds no substance.",
+      "claim_coverage_precision": 0.42857142857142855,
+      "claim_coverage_recall": 1.0
+    },
+    {
+      "query_id": "lk-adc-officer-stipend-fy2026",
+      "repeat": 1,
+      "load_bearing_claims": [
+        {
+          "claim": "The FY 2026 budget set aside $17,075,300 for a one-time correctional officer stipend equal to 4% of annual salary.",
+          "cited_verified": true
+        },
+        {
+          "claim": "The FY 2026 budget set aside $3,767,200 for a one-time correctional officer stipend equal to 4% of annual salary.",
+          "cited_verified": true
+        },
+        {
+          "claim": "The FY 2026 budget set aside $542,200 for a one-time correctional officer stipend equal to 4% of annual salary.",
+          "cited_verified": true
+        },
+        {
+          "claim": "The stipend was equal to 4% of each eligible officer's annual salary.",
+          "cited_verified": true
+        }
+      ],
+      "holistic": 4,
+      "figure_coverage_ok": true,
+      "placement_ok": true,
+      "flags": {
+        "hedging": false,
+        "meta_narration": true,
+        "answered_wrong_question": false
+      },
+      "rationale": "The answer correctly identifies all three appropriations and the 4% formula, with verified citations for each figure. It is slightly repetitive and includes meta-narration, but it directly answers the question and avoids the trap of reporting only the private-prison pass-through.",
+      "claim_coverage_precision": 0.8,
+      "claim_coverage_recall": 1.0
+    },
+    {
+      "query_id": "lk-adc-total-fy2026",
+      "repeat": 1,
+      "load_bearing_claims": [
+        {
+          "claim": "Total baseline budget of $1,720,518,500",
+          "cited_verified": true
+        },
+        {
+          "claim": "General Fund share of $1,527,944,500",
+          "cited_verified": true
+        },
+        {
+          "claim": "Other appropriated funds of $55,985,000",
+          "cited_verified": true
+        },
+        {
+          "claim": "Non-appropriated federal funds of $136,589,000",
+          "cited_verified": true
+        }
+      ],
+      "holistic": 3,
+      "figure_coverage_ok": true,
+      "placement_ok": true,
+      "flags": {
+        "hedging": true,
+        "meta_narration": true,
+        "answered_wrong_question": false
+      },
+      "rationale": "The answer provides correct figures from the JLBC baseline, but the question asked for the FY 2026 enacted appropriation, not the baseline, so it is usable but not fully direct. It also includes meta-narration and hedging about baseline versus enacted figures.",
+      "claim_coverage_precision": 0.2857142857142857,
+      "claim_coverage_recall": 1.0
+    },
+    {
+      "query_id": "lk-asrs-rate-fy2026",
+      "repeat": 1,
+      "load_bearing_claims": [
+        {
+          "claim": "ASRS employer and employee rates are 11.98% in FY 2027, down from 12.00% in FY 2026.",
+          "cited_verified": true
+        },
+        {
+          "claim": "PSPRS aggregate employer rate is 45.79% in FY 2027, unchanged from FY 2026.",
+          "cited_verified": true
+        },
+        {
+          "claim": "CORP aggregate employer rate is 12.70% in FY 2027, down from 14.38% in FY 2026.",
+          "cited_verified": true
+        },
+        {
+          "claim": "EORP employer rate is 70.44% in FY 2027, down from 70.70% in FY 2026.",
+          "cited_verified": true
+        },
+        {
+          "claim": "UORP employer and employee rates are fixed at 7.0% in FY 2027.",
+          "cited_verified": true
+        },
+        {
+          "claim": "Total state funds cost for all retirement systems in FY 2027 is $663.8 million.",
+          "cited_verified": true
+        }
+      ],
+      "holistic": 4,
+      "figure_coverage_ok": true,
+      "placement_ok": true,
+      "flags": {
+        "hedging": false,
+        "meta_narration": true,
+        "answered_wrong_question": false
+      },
+      "rationale": "The answer directly addresses the question with accurate, well-cited rates and directions for all five systems, though it focuses on FY 2027 rather than the current FY 2026. Minor meta-narration at the end slightly detracts from an otherwise complete response.",
+      "claim_coverage_precision": 0.46153846153846156,
+      "claim_coverage_recall": 1.0
+    },
+    {
+      "query_id": "lk-asu-operating-fy2026",
+      "repeat": 1,
+      "load_bearing_claims": [
+        {
+          "claim": "ASU's total operating budget from all sources is $5,368,069,300",
+          "cited_verified": true
+        },
+        {
+          "claim": "Appropriated funds total $1,320,198,200",
+          "cited_verified": true
+        },
+        {
+          "claim": "General Fund (state tax dollars) is $412,438,700",
+          "cited_verified": true
+        },
+        {
+          "claim": "University Collections Fund is $907,759,500",
+          "cited_verified": true
+        },
+        {
+          "claim": "Only about 31% of appropriated funds are General Fund tax dollars",
+          "cited_verified": true
+        },
+        {
+          "claim": "University Collections Fund is not tax revenue but the university's own collections",
+          "cited_verified": true
+        }
+      ],
+      "holistic": 4,
+      "figure_coverage_ok": true,
+      "placement_ok": true,
+      "flags": {
+        "hedging": false,
+        "meta_narration": true,
+        "answered_wrong_question": false
+      },
+      "rationale": "The answer correctly distinguishes General Fund from University Collections Fund, but it answers for FY 2027 baseline rather than the requested 'this budget year' (FY 2026), and includes meta-narration about sourcing.",
+      "claim_coverage_precision": 0.6,
+      "claim_coverage_recall": 1.0
+    },
+    {
+      "query_id": "lk-bsf-balance-fy2026",
+      "repeat": 1,
+      "load_bearing_claims": [
+        {
+          "claim": "Arizona's rainy day fund balance is $1.5588 billion as of June 30, 2025.",
+          "cited_verified": true
+        },
+        {
+          "claim": "The fund increased by $55.2 million from the prior year, due to $61.9 million in interest earnings and $6.6 million in net transfers out.",
+          "cited_verified": true
+        }
+      ],
+      "holistic": 5,
+      "figure_coverage_ok": true,
+      "placement_ok": true,
+      "flags": {
+        "hedging": false,
+        "meta_narration": false,
+        "answered_wrong_question": false
+      },
+      "rationale": "The answer directly provides the audited BSF balance as of June 30, 2025, with accurate citations that support the figures and the change. It correctly identifies the source as the AGAO Annual Financial Report, avoiding the trap of mixing bases.",
+      "claim_coverage_precision": 1.0,
+      "claim_coverage_recall": 1.0
+    },
+    {
+      "query_id": "lk-dps-operating-fy2026",
+      "repeat": 1,
+      "load_bearing_claims": [
+        {
+          "claim": "DPS total FY 2026 appropriation is $389,947,400",
+          "cited_verified": true
+        },
+        {
+          "claim": "DPS operating lump sum is $281,005,300",
+          "cited_verified": true
+        },
+        {
+          "claim": "Remainder of $108,942,100 is spread across 16 earmarked special line items",
+          "cited_verified": true
+        }
+      ],
+      "holistic": 5,
+      "figure_coverage_ok": true,
+      "placement_ok": true,
+      "flags": {
+        "hedging": false,
+        "meta_narration": false,
+        "answered_wrong_question": false
+      },
+      "rationale": "The answer directly and accurately provides the total appropriation and operating lump sum, with all figures properly cited and supported by the cited chunks. It also correctly avoids the JLBC per-agency narrative trap by using the budget bill's own figures.",
+      "claim_coverage_precision": 0.07142857142857142,
+      "claim_coverage_recall": 1.0
+    },
+    {
+      "query_id": "lk-eorp-offset",
+      "repeat": 1,
+      "load_bearing_claims": [
+        {
+          "claim": "The state appropriates $3,000,000 from the General Fund each year for the EORP Offset.",
+          "cited_verified": true
+        },
+        {
+          "claim": "The amount is divided equally among the 12 smallest counties (population under 300,000 per 2020 Census), each receiving $250,000.",
+          "cited_verified": true
+        },
+        {
+          "claim": "Counties may use the monies only for required employer contributions to the elected officials' retirement plan, supplementing normal cost plus amortization of unfunded accrued liability.",
+          "cited_verified": true
+        }
+      ],
+      "holistic": 5,
+      "figure_coverage_ok": true,
+      "placement_ok": true,
+      "flags": {
+        "hedging": false,
+        "meta_narration": true,
+        "answered_wrong_question": false
+      },
+      "rationale": "The answer directly and correctly provides the yearly amount and allocation rule, with all key claims supported by verified citations. The only minor issue is the meta-narration at the end, but it does not detract from the substance.",
+      "claim_coverage_precision": 0.5,
+      "claim_coverage_recall": 1.0
+    },
+    {
+      "query_id": "lk-gf-revenue-fy2026",
+      "repeat": 1,
+      "load_bearing_claims": [
+        {
+          "claim": "General Fund revenues of $17.77 billion",
+          "cited_verified": true
+        },
+        {
+          "claim": "General Fund spending of $17.57 billion",
+          "cited_verified": true
+        },
+        {
+          "claim": "Projected year-end cash balance of $199.8 million",
+          "cited_verified": true
+        },
+        {
+          "claim": "Budget Stabilization Fund balance of $1.63 billion",
+          "cited_verified": true
+        }
+      ],
+      "holistic": 5,
+      "figure_coverage_ok": true,
+      "placement_ok": true,
+      "flags": {
+        "hedging": false,
+        "meta_narration": false,
+        "answered_wrong_question": false
+      },
+      "rationale": "The answer directly and correctly answers the question with verified figures and appropriately notes the later revision without confusing the enactment-time assumptions.",
+      "claim_coverage_precision": 1.0,
+      "claim_coverage_recall": 1.0
+    },
+    {
+      "query_id": "lk-hurf-split",
+      "repeat": 1,
+      "load_bearing_claims": [
+        {
+          "claim": "HURF distributes 30.5% to cities, 19.0% to counties, 7.7% to controlled access, and 42.8% to the State Highway Fund.",
+          "cited_verified": true
+        },
+        {
+          "claim": "The local share (cities plus counties) is about 49.5%, and the state share is about 50.5%.",
+          "cited_verified": true
+        },
+        {
+          "claim": "The controlled-access share is 7.7% of HURF, derived from 15.2% of the SHF's 50.5% statutory allocation, split 75% Maricopa / 25% Pima.",
+          "cited_verified": true
+        }
+      ],
+      "holistic": 5,
+      "figure_coverage_ok": true,
+      "placement_ok": true,
+      "flags": {
+        "hedging": false,
+        "meta_narration": true,
+        "answered_wrong_question": false
+      },
+      "rationale": "The answer directly and correctly answers the question with accurate, well-cited figures, correctly distinguishing the net distribution from the statutory SHF share. The only minor issue is the meta-narration at the end, but it does not detract from the substance.",
+      "claim_coverage_precision": 0.5,
+      "claim_coverage_recall": 1.0
+    },
+    {
+      "query_id": "lk-k12-basic-aid-fy2026",
+      "repeat": 1,
+      "load_bearing_claims": [
+        {
+          "claim": "The appropriated portion of Basic State Aid for FY 2026 is $7,623,574,500.",
+          "cited_verified": true
+        },
+        {
+          "claim": "The total K-12 Basic State Aid formula cost is $10,316,913,300, including $2,693,338,800 in non-appropriated local property taxes.",
+          "cited_verified": true
+        },
+        {
+          "claim": "The enacted FY 2026 budget included $531.6 million from the General Fund for Additional State Aid.",
+          "cited_verified": true
+        },
+        {
+          "claim": "$800,727,700 of Basic State Aid payments for FY 2026 was deferred into FY 2027.",
+          "cited_verified": true
+        }
+      ],
+      "holistic": 5,
+      "figure_coverage_ok": true,
+      "placement_ok": true,
+      "flags": {
+        "hedging": false,
+        "meta_narration": true,
+        "answered_wrong_question": false
+      },
+      "rationale": "The answer correctly identifies the enacted FY 2026 Basic State Aid appropriation of $7,623,574,500, distinguishes it from the total formula cost including non-appropriated local property taxes, and provides accurate supporting details with verified citations. It directly answers the question and includes all necessary context.",
+      "claim_coverage_precision": 0.25,
+      "claim_coverage_recall": 1.0
+    },
+    {
+      "query_id": "lk-prop123-increment",
+      "repeat": 1,
+      "load_bearing_claims": [
+        {
+          "claim": "Proposition 123 provided $285,626,000 in incremental funds to K-12 schools in FY 2025.",
+          "cited_verified": true
+        },
+        {
+          "claim": "The 4.4% incremental increase expired at the end of FY 2025, so no incremental funds are scheduled for FY 2026.",
+          "cited_verified": true
+        },
+        {
+          "claim": "Proposition 123 raised the annual distribution rate from 2.5% to 6.9% for FY 2016 through FY 2025.",
+          "cited_verified": true
+        }
+      ],
+      "holistic": 5,
+      "figure_coverage_ok": true,
+      "placement_ok": true,
+      "flags": {
+        "hedging": false,
+        "meta_narration": true,
+        "answered_wrong_question": false
+      },
+      "rationale": "The answer directly and correctly addresses both parts of the question, citing verified sources for the FY 2025 increment and the expiration. The table of historical figures is not cited but is supplementary and not load-bearing.",
+      "claim_coverage_precision": 1.0,
+      "claim_coverage_recall": 1.0
+    },
+    {
+      "query_id": "lk-scotus-salary",
+      "repeat": 1,
+      "load_bearing_claims": [
+        {
+          "claim": "Chief Justice salary was $212,000 before the FY 2025 enacted budget.",
+          "cited_verified": true
+        },
+        {
+          "claim": "Chief Justice salary increased to $222,000 on January 1, 2025 and to $232,000 on January 1, 2026.",
+          "cited_verified": true
+        },
+        {
+          "claim": "An additional $63,000 from the General Fund is included in FY 2027 to complete the three-year phase-in for Supreme Court justices.",
+          "cited_verified": true
+        }
+      ],
+      "holistic": 5,
+      "figure_coverage_ok": true,
+      "placement_ok": true,
+      "flags": {
+        "hedging": false,
+        "meta_narration": false,
+        "answered_wrong_question": false
+      },
+      "rationale": "The answer correctly identifies the current salary ($232,000) and the two-step phase-in, with all figures properly cited and verified. It also correctly distinguishes the $63,000 FY 2027 appropriation as the final phase-in installment, not a salary figure.",
+      "claim_coverage_precision": 1.0,
+      "claim_coverage_recall": 1.0
+    },
+    {
+      "query_id": "mm-adc-briefing",
+      "repeat": 1,
+      "load_bearing_claims": [
+        {
+          "claim": "Total FY 2026 ADC appropriation is $1,600,697,200",
+          "cited_verified": true
+        },
+        {
+          "claim": "General Fund share is $1,537,433,000",
+          "cited_verified": true
+        },
+        {
+          "claim": "One-time correctional officer stipend is $20.8 million, with $17.1 million in operating and $3.8 million in private prison per diem",
+          "cited_verified": true
+        },
+        {
+          "claim": "One-time operating funding is $9.5 million",
+          "cited_verified": true
+        },
+        {
+          "claim": "Private prison per diem one-time funding of $55.3 million falls out in FY 2028",
+          "cited_verified": true
+        },
+        {
+          "claim": "Governor's FY 2027 proposal includes $118.3 million one-time and $108.2 million ongoing for injunction",
+          "cited_verified": true
+        },
+        {
+          "claim": "Overtime funding shift of $59.8 million",
+          "cited_verified": true
+        },
+        {
+          "claim": "Opioid remediation transfer of $40 million is non-appropriated",
+          "cited_verified": true
+        }
+      ],
+      "holistic": 4,
+      "figure_coverage_ok": true,
+      "placement_ok": true,
+      "flags": {
+        "hedging": false,
+        "meta_narration": true,
+        "answered_wrong_question": false
+      },
+      "rationale": "The memo is comprehensive and accurate, with all key figures supported by verified citations, though the meta-narration about citation registration and the repeated offer to produce a document detract from the memo's polish.",
+      "claim_coverage_precision": 0.2222222222222222,
+      "claim_coverage_recall": 1.0
+    },
+    {
+      "query_id": "mm-esa-memo",
+      "repeat": 1,
+      "load_bearing_claims": [
+        {
+          "claim": "ESA awards in the school funding formula rose from about $822 million in FY 2025 to about $1.0 billion in FY 2026.",
+          "cited_verified": true
+        },
+        {
+          "claim": "ESA enrollment increased from 82,452 in FY 2025 to 97,905 in FY 2026.",
+          "cited_verified": true
+        },
+        {
+          "claim": "The increase is driven by universal eligibility, formula-based funding, and enrollment growth exceeding forecasts.",
+          "cited_verified": true
+        }
+      ],
+      "holistic": 5,
+      "figure_coverage_ok": true,
+      "placement_ok": true,
+      "flags": {
+        "hedging": false,
+        "meta_narration": true,
+        "answered_wrong_question": false
+      },
+      "rationale": "The answer directly addresses the question with accurate, well-cited figures and a clear explanation of the drivers, meeting the pass bar. The only minor issue is meta-narration in the closing notes, but it does not detract from the substance.",
+      "claim_coverage_precision": 0.15789473684210525,
+      "claim_coverage_recall": 1.0
+    },
+    {
+      "query_id": "rf-city-budget",
+      "repeat": 1,
+      "load_bearing_claims": [],
+      "holistic": 5,
+      "figure_coverage_ok": true,
+      "placement_ok": true,
+      "flags": {
+        "hedging": false,
+        "meta_narration": false,
+        "answered_wrong_question": false
+      },
+      "rationale": "The assistant correctly refused to answer a question about municipal budgets, which are outside the corpus, and offered relevant state-level alternatives without fabricating figures.",
+      "claim_coverage_precision": null,
+      "claim_coverage_recall": null
+    },
+    {
+      "query_id": "rf-county-budget",
+      "repeat": 1,
+      "load_bearing_claims": [
+        {
+          "claim": "Maricopa County's own adopted general fund budget is not in the corpus; the corpus covers state-level documents only.",
+          "cited_verified": false
+        }
+      ],
+      "holistic": 5,
+      "figure_coverage_ok": true,
+      "placement_ok": true,
+      "flags": {
+        "hedging": false,
+        "meta_narration": true,
+        "answered_wrong_question": false
+      },
+      "rationale": "The answer correctly refuses the county-level budget request, distinguishes state appropriations to county entities from the county's own budget, and provides no figures, so coverage and placement are fine. The meta-narration flag is set because the answer describes its own lookup process.",
+      "claim_coverage_precision": null,
+      "claim_coverage_recall": 0.0
+    },
+    {
+      "query_id": "rf-federal-budget",
+      "repeat": 1,
+      "load_bearing_claims": [],
+      "holistic": 5,
+      "figure_coverage_ok": true,
+      "placement_ok": true,
+      "flags": {
+        "hedging": false,
+        "meta_narration": false,
+        "answered_wrong_question": false
+      },
+      "rationale": "The assistant correctly identified the question as out of scope for the Arizona state budget corpus and refused to answer, providing appropriate guidance on where to find federal appropriations. No figures were stated, so coverage and placement are trivially satisfied.",
+      "claim_coverage_precision": null,
+      "claim_coverage_recall": null
+    },
+    {
+      "query_id": "rf-future-budget",
+      "repeat": 1,
+      "load_bearing_claims": [],
+      "holistic": 4,
+      "figure_coverage_ok": true,
+      "placement_ok": true,
+      "flags": {
+        "hedging": false,
+        "meta_narration": false,
+        "answered_wrong_question": false
+      },
+      "rationale": "The answer correctly refuses to fabricate an FY 2029 executive budget, accurately states the corpus coverage, and offers a helpful alternative. It is direct and complete for a question that should be declined.",
+      "claim_coverage_precision": null,
+      "claim_coverage_recall": null
+    },
+    {
+      "query_id": "rf-other-state",
+      "repeat": 1,
+      "load_bearing_claims": [],
+      "holistic": 5,
+      "figure_coverage_ok": true,
+      "placement_ok": true,
+      "flags": {
+        "hedging": false,
+        "meta_narration": false,
+        "answered_wrong_question": false
+      },
+      "rationale": "The assistant correctly refused to answer a question about Nevada, which is outside the corpus scope, and clearly explained the boundary while offering to help with Arizona data. This is the ideal response for this failure mode.",
+      "claim_coverage_precision": null,
+      "claim_coverage_recall": null
+    }
+  ]
+}
