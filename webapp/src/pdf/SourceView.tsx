@@ -47,6 +47,9 @@ export interface SourceViewProps {
    *  page's passages have no cited span; whole-chunk display, no underline). */
   spanStart: number;
   spanEnd: number;
+  /** The figure as the SOURCE renders it, when this view was opened
+   *  from a system-linked figure chip. */
+  sourceText?: string;
   /** Breadcrumb title. */
   docTitle: string;
   fiscalYear?: number | null;
@@ -66,6 +69,7 @@ export function SourceView({
   chunkText,
   spanStart,
   spanEnd,
+  sourceText,
   docTitle,
   fiscalYear,
   sourceLabel,
@@ -174,6 +178,7 @@ export function SourceView({
                   pageNumber={page!}
                   bbox={bbox}
                   searchTexts={searchTexts}
+                  sourceText={sourceText}
                   containerWidth={Math.max(0, containerWidth - 24)}
                   zoomLevel={zoom}
                 />

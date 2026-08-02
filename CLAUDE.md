@@ -74,6 +74,7 @@ One repo, one process. The live directories:
 Long-running handoff prompts that may need to be picked up live as standalone files at the repo root. See `STATUS.md` for which handoffs are active vs. done.
 
 - [`PROMPT-z13-backfill.md`](PROMPT-z13-backfill.md) — **ACTIVE** — historical-year corpus backfill + recency-ranking calibration, run on the Z13 Linux machine.
+- [`PROMPT-citation-linking-baseline.md`](PROMPT-citation-linking-baseline.md) — **ACTIVE** — live reproduction + Layer 2 re-baseline after citation linking. **Needs an OpenRouter key and spends real money.** Run on a keyed machine.
 - `PROMPT-plan1-storage-retrieval.md`, `PROMPT-plan2-app-shell.md`, `PROMPT-plan3-ingest.md`, `PROMPT-plan4-ai-mode.md`, `PROMPT-volume-ingest.md`, `PROMPT-plan5-session-a.md`, `PROMPT-plan5-session-b.md`, `PROMPT-plan5-track4-cleanup.md` — retired/shipped historical records. Do not execute. (`PROMPT-plan5-session-c.md` — the Administrator Handbook, Track 5 — is still LIVE.)
 
 ## Project Phases

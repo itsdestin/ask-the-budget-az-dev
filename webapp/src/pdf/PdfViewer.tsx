@@ -98,6 +98,7 @@ function Loaded({ citation }: { citation: Citation }) {
       chunkText={r.text ?? ""}
       spanStart={citation.spanStart}
       spanEnd={citation.spanEnd}
+      sourceText={citation.sourceText}
       docTitle={r.docTitle || r.docId}
       fiscalYear={r.fiscalYear}
       sourceLabel={formatCopyCitation(citation)}

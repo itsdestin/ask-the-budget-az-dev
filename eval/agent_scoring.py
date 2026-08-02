@@ -15,6 +15,7 @@ from typing import Any
 from eval.agent_schema import AgentQuery, KeyFact
 from eval.agent_transcript import (
     Transcript,
+    annotation,
     citations,
     final_answer,
     parsed_output,
@@ -381,6 +382,24 @@ def score_transcript(query: AgentQuery, t: Transcript) -> dict[str, Any]:
     row["narration_hits"] = sum(1 for m in NARRATION_MARKERS if m in lower)
     row["internal_vocab_hits"] = sum(1 for v in INTERNAL_VOCAB if v in lower)
     row["token_leak"] = bool(_TOKEN_LEAK_RE.search(answer))
+
+    # Figure-citation coverage. This replaces citation COUNT as the
+    # citation-quality signal: many citations are fine, missing ones are
+    # not. `None` when the answer states no figures — that is not a
+    # coverage failure and must not average in as a zero.
+    ann_figures = annotation(t).get("figures") or []
+    counts = {"linked": 0, "derived": 0, "unverified": 0}
+    for entry in ann_figures:
+        verdict = entry.get("verdict")
+        if verdict in counts:
+            counts[verdict] += 1
+    row["figures_total"] = len(ann_figures)
+    row["figures_linked"] = counts["linked"]
+    row["figures_derived"] = counts["derived"]
+    row["figures_unverified"] = counts["unverified"]
+    row["figure_coverage"] = (
+        (counts["linked"] + counts["derived"]) / len(ann_figures)
+        if ann_figures else None)
     return row
 
 
@@ -442,6 +461,16 @@ def aggregate(rows: list[dict[str, Any]]) -> dict[str, Any]:
         "wall_p50_ms": walls[len(walls) // 2] if walls else None,
         "wall_p95_ms": walls[min(len(walls) - 1, int(len(walls) * 0.95))] if walls else None,
         "key_fact_rate_mean": _mean([r["key_fact_rate"] for r in ok_rows]),
+        # Figure coverage replaces citation VOLUME as the citation-quality
+        # signal. Both means skip figureless answers rather than scoring
+        # them 0 — a correct refusal states no figures, and averaging it in
+        # as a total coverage failure would make a run of good refusals
+        # look like a citation collapse. _mean already drops None, and
+        # unverified_rate filters on figures_total for the same reason.
+        "figure_coverage_mean": _mean([r["figure_coverage"] for r in ok_rows]),
+        "unverified_rate": _mean(
+            [r["figures_unverified"] / r["figures_total"]
+             for r in ok_rows if r["figures_total"]]),
         "retrieval_efficiency_mean": _mean([r["retrieval_efficiency"] for r in ok_rows]),
         "retrieves_after_sufficient_mean": _mean(
             [r["retrieves_after_sufficient"] for r in ras_rows]),

@@ -46,6 +46,12 @@ export interface ResolveArgs {
   viewport: PageViewport;
   /** Cited substring of chunk.text. */
   quote: string;
+  /** The figure AS THE SOURCE RENDERS IT ("8,287,700,000"), supplied by
+   *  the citation linker. Searched FIRST, because the PDF text layer
+   *  contains the source's form and never the answer's ("$8,287.7") —
+   *  which is why the old quote-first search missed. Absent for prose
+   *  citations, which have no scale mismatch to bridge. */
+  sourceText?: string;
   /** Full chunk text — used as a wider fallback search target when
    *  the quote can't be matched. */
   fullChunkText: string;
@@ -67,8 +73,8 @@ export interface HighlightStrategy {
  *  bbox if present. */
 export class TextLayerSearchStrategy implements HighlightStrategy {
   async resolve(args: ResolveArgs): Promise<HighlightRect[]> {
-    const { page, viewport, quote, fullChunkText, bbox } = args;
-    const targets = [quote, fullChunkText].filter(
+    const { page, viewport, quote, sourceText, fullChunkText, bbox } = args;
+    const targets = [sourceText, quote, fullChunkText].filter(
       (t): t is string => typeof t === "string" && t.length > 0,
     );
     for (const target of targets) {

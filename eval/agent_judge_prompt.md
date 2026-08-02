@@ -10,6 +10,11 @@ available to check that citation — it is NOT the same as an empty or
 non-supporting chunk. Treat a `null` chunk as unverifiable rather than as
 evidence the quote fails to support the claim.
 
+You also receive `annotated_answer`: the answer exactly as the analyst
+sees it, with each figure's citation state inline — `[1]` for a figure
+linked to a source, `[DERIVED: 1, 2]` for one computed from other figures,
+and `[UNCITED]` for one that is neither.
+
 Return ONLY a JSON object, no prose, no code fences:
 
 {
@@ -19,6 +24,8 @@ Return ONLY a JSON object, no prose, no code fences:
      "cited_verified": true|false}
   ],
   "holistic": 3,
+  "figure_coverage_ok": true,
+  "placement_ok": true,
   "flags": {
     "hedging": true|false,
     "meta_narration": true|false,
@@ -36,6 +43,13 @@ Rules:
   `"4/5"`. 5 = correct, complete, direct; 3 = usable with friction;
   1 = wrong, unusable, or confidently uncited. (The example above shows 3
   only because a template needs a value; grade the answer you were given.)
+- figure_coverage_ok: is EVERY figure either linked or derived?
+- placement_ok: is each marker on the figure it supports?
+- Judge figure coverage on the annotated answer, not on citation count. A
+  figure marked `[UNCITED]` is a defect. Many citations are not a defect —
+  completeness and correct placement are what matter.
+- An answer that states no figures at all is `figure_coverage_ok: true`
+  and `placement_ok: true` — there is nothing to cover or misplace.
 - meta_narration: true if the answer narrates its own process
   ("let me search...", "I have what I need").
 - If the payload's answer is empty, return holistic 1 and no claims.

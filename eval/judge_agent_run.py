@@ -19,7 +19,8 @@ import httpx
 
 from eval.agent_schema import AgentQuery, load_agent_queries
 from eval.agent_transcript import (
-    Transcript, citations, final_answer, read_transcript, retrieve_calls,
+    Transcript, annotation, citations, final_answer, read_transcript,
+    retrieve_calls,
 )
 from harness.settings import load_settings
 
@@ -65,6 +66,29 @@ def _find_first_json_object(text: str) -> Any:
     return None
 
 
+def render_annotated_answer(answer: str, annotation: dict[str, Any]) -> str:
+    """The answer as the analyst sees it, with each figure's citation state
+    inline. The webapp draws chips from this same annotation, so the judge
+    grades the artifact the user actually reads."""
+    figures = sorted(annotation.get("figures") or [],
+                     key=lambda f: f.get("start", 0), reverse=True)
+    out = answer
+    # Right-to-left insertion: a marker inserted early would shift every
+    # later figure's offsets.
+    for fig in figures:
+        verdict = fig.get("verdict")
+        if verdict == "linked":
+            marker = f" [{fig.get('index')}]"
+        elif verdict == "derived":
+            inputs = ", ".join(str(i) for i in fig.get("derived_from") or [])
+            marker = f" [DERIVED: {inputs}]"
+        else:
+            marker = " [UNCITED]"
+        end = fig.get("end", 0)
+        out = out[:end] + marker + out[end:]
+    return out
+
+
 def build_judge_payload(query: AgentQuery, t: Transcript) -> dict[str, Any]:
     chunk_texts: dict[str, str] = {}
     for call in retrieve_calls(t):
@@ -88,10 +112,21 @@ def build_judge_payload(query: AgentQuery, t: Transcript) -> dict[str, Any]:
         cid = c.get("chunkId")
         if cid:
             cited[cid] = chunk_texts.get(cid)
+    # The annotated answer is what the analyst actually reads. It rides
+    # ALONGSIDE final_answer rather than replacing it, so the judge can
+    # still quote the answer's own prose without the markers in it.
+    ann = annotation(t)
+    counts = {"linked": 0, "derived": 0, "unverified": 0}
+    for fig in ann.get("figures") or []:
+        verdict = fig.get("verdict")
+        if verdict in counts:
+            counts[verdict] += 1
     return {"question": query.question, "judge_notes": query.judge_notes,
             "should_refuse": query.should_refuse,
             "final_answer": final_answer(t), "citations": cite_rows,
-            "cited_chunks": cited}
+            "cited_chunks": cited,
+            "annotated_answer": render_annotated_answer(final_answer(t), ann),
+            "figure_counts": counts}
 
 
 # The prompt asks for a 1-5 grade. Anything outside that range is not a

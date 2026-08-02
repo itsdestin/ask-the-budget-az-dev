@@ -17,13 +17,14 @@ from typing import Any
 _HIGHER_IS_BETTER = {
     "key_fact_rate_mean", "cite_pass_rate", "first_try_cite_rate",
     "retrieval_efficiency_mean", "refusal_correct_rate", "cached_tokens_mean",
+    "figure_coverage_mean",
 }
 _LOWER_IS_BETTER = {
     "steps_mean", "retrieve_calls_mean", "input_tokens_mean", "output_tokens_mean",
     "total_cost_usd", "cost_mean_usd", "wall_p50_ms", "wall_p95_ms",
     "retrieves_after_sufficient_mean", "retries_per_citation", "errors",
     "false_refusals", "narration_hit_queries", "token_leaks",
-    "internal_vocab_queries", "cost_missing_queries",
+    "internal_vocab_queries", "cost_missing_queries", "unverified_rate",
 }
 # Metrics whose value is taken over a population the run itself decides, keyed
 # to the summary field that reports that population's size. When the two runs
