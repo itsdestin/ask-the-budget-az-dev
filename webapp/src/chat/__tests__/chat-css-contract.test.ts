@@ -488,13 +488,38 @@ describe("chat CSS containment contract", () => {
   // Putting a background back on `.ai-bottom-chrome` would silently swallow
   // them into the composer container again — the exact thing Destin asked to
   // undo — with no test failing anywhere else.
-  it("the measured chrome is transparent; only the inner panel paints", () => {
-    const chrome = bareRule(".ai-bottom-chrome");
-    expect(chrome).not.toMatch(/background/);
-    expect(chrome).not.toMatch(/border-top/);
-    const panel = bareRule(".ai-chrome-panel");
-    expect(panel).toMatch(/background:\s*var\(--card\)/);
-    expect(panel).toMatch(/border-top/);
+  it("nothing at the bottom of the column paints a card-coloured slab", () => {
+    // REWRITTEN 2026-08-02. This used to assert the opposite — that
+    // `.ai-chrome-panel` painted an opaque card with a top border — back when
+    // the point was only to keep the starter chips OUTSIDE that panel. The
+    // panel itself then cut a hard white band across the bottom of the ground,
+    // so it is gone: the chrome fades into the ground instead, and the chips,
+    // the pill and the footer all float on one continuous surface.
+    //
+    // The intent that survives from the old spec is the same one: nothing down
+    // here may re-acquire a slab, because a slab is what breaks the ground.
+    const panel = bareRulesFor(".ai-chrome-panel");
+    expect(panel).not.toMatch(/var\(--card\)/);
+    expect(panel).not.toMatch(/border-top/);
+
+    const chrome = bareRulesFor(".ai-bottom-chrome");
+    // The fade must START fully transparent, or the last message stops
+    // dissolving into the ground and slides under a visible edge again.
+    expect(chrome).toMatch(/linear-gradient\(180deg,\s*transparent 0%/);
+    // …and END on the ground's own bottom tone, or the seam shows.
+    expect(chrome).toMatch(/rgba\(43,47,99,\.105\)/);
+    expect(chrome).toMatch(/var\(--canvas\)/);
+  });
+
+  // The obvious way to fade a scroller is `mask-image` on the scroller. It is
+  // also a re-run of the container-type Critical: masking clips everything the
+  // element paints, including position:fixed descendants, so the citation
+  // tooltip — and the panel saying WHY a citation failed — would be cut off
+  // again, and both existing containment specs would stay green.
+  it("the thread scroller is never masked or clipped", () => {
+    const scroller = bareRulesFor(".chat-thread-scroll");
+    expect(scroller).not.toMatch(/mask/);
+    expect(scroller).not.toMatch(/clip-path/);
   });
 
   // The chrome is absolutely positioned across the chat column; at right:0 it

@@ -1682,9 +1682,11 @@ html.ai-fullpage header.site{flex:0 0 auto;}
     /* the pool the floating composer sits on, so its blur has something to do */
     radial-gradient(120% 52% at 50% 100%, rgba(43,47,99,.105) 0%, rgba(43,47,99,0) 72%),
     /* a wash off the header, so the thread is attached to the page above it */
-    linear-gradient(180deg, rgba(43,47,99,.055) 0%, rgba(43,47,99,0) 20%),
-    /* and an edge vignette that quietly aims the eye at the 768px column */
-    radial-gradient(72% 68% at 50% 44%, rgba(43,47,99,0) 42%, rgba(43,47,99,.05) 100%),
+    linear-gradient(180deg, rgba(43,47,99,.075) 0%, rgba(43,47,99,0) 22%),
+    /* and an edge vignette aiming the eye at the 768px column. Deliberately
+       reaching further in (30% vs 42%) and landing heavier (.12 vs .05) than
+       the first pass — at .05 it was doing nothing you could see. */
+    radial-gradient(76% 72% at 50% 42%, rgba(43,47,99,0) 30%, rgba(43,47,99,.12) 100%),
     var(--canvas);
 }
 /* `right` is INSET by the thread scroller's own scrollbar width, published as
@@ -1695,16 +1697,34 @@ html.ai-fullpage header.site{flex:0 0 auto;}
    The fallback is 0px, which is also the correct value on overlay-scrollbar
    platforms, where there is no bar to clear. */
 .ai-bottom-chrome{position:absolute;left:0;right:var(--ai-scrollbar,0px);bottom:0;z-index:15;}
-/* The opaque surface is the INNER panel, not the whole chrome. The starter
-   chips are the chrome's first child and sit outside this box, so they float
-   on the thread's own background (Destin, 2026-08-02: the chips "should be
-   ABOVE the chat input area container floating by themselves, not within the
-   container"). The measured height still covers both, so nothing overlaps the
-   last message. */
-.ai-chrome-panel{border-top:1px solid var(--line);background:var(--card);}
-@supports (backdrop-filter: blur(6px)){
-  .ai-chrome-panel{background:rgba(255,255,255,.92);backdrop-filter:blur(6px);}
+/* NOTHING here paints a card-coloured slab (Destin, 2026-08-02: make the ground
+   "one unified background with the input region and messages floating above
+   it"). The white panel-with-a-border that used to sit here cut a hard band
+   across the bottom of the page and undid the ground above it.
+
+   Instead the measured chrome carries a FADE that ends on the ground's own
+   bottom tone, so the column reads as one continuous surface with the pill,
+   the chips and the footer floating on it. The top of the fade is fully
+   transparent, which is what lets the last message dissolve into the ground
+   as it scrolls under rather than sliding beneath a visible edge.
+
+   Why a fade here and NOT `mask-image` on `.chat-thread-scroll`, which is the
+   obvious way to do this: masking clips everything the element paints,
+   including `position:fixed` descendants — it would re-clip the citation
+   tooltip exactly the way `container-type` did (see the containment specs
+   above), and just as silently.
+
+   The stops are matched to the ground, not guessed: --canvas under
+   rgba(43,47,99,.105) is the same pair the bottom pool lands on, so the seam
+   between the two is not visible. `transparent` is safe as a gradient stop —
+   CSS gradients interpolate in premultiplied alpha, so it no longer produces
+   the grey fringe it used to. */
+.ai-bottom-chrome{
+  background:
+    linear-gradient(180deg, rgba(43,47,99,0) 0%, rgba(43,47,99,.105) 46%, rgba(43,47,99,.105) 100%),
+    linear-gradient(180deg, transparent 0%, var(--canvas) 46%);
 }
+.ai-chrome-panel{background:none;border:0;}
 
 /* Jump-to-bottom pill, floating just above the chrome, app pill recipe.
    z-index 14 sits ABOVE thread content (the mascot slot at 10 is the highest
