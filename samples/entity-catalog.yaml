@@ -2187,6 +2187,12 @@ agencies:
 - canonical_name: Corrections, State Department of
   canonical_id: agency:adc
   slug: adc
+  # Named directly by the project owner as a query he types ("doc baseline"),
+  # so it is approved evidence rather than a drafted guess. It is also an
+  # ordinary English word, which is why retrieval/query_agency.py stoplists it
+  # to a boost instead of letting it hard-filter.
+  aliases:
+  - doc
   names_observed_jlbc:
     Corrections, State Department of:
     - approps-fy2015
@@ -3044,8 +3050,6 @@ agencies:
     - baseline-fy2025
     - baseline-fy2026
     - baseline-fy2027
-    pp y, Economic Security, Department of:
-    - approps-fy2026
   indexes:
     approps-fy2015:
       page: 105
@@ -3267,6 +3271,10 @@ agencies:
 - canonical_name: Emergency and Military Affairs, Department of
   canonical_id: agency:ema
   slug: ema
+  # Named directly by the project owner as a query he types ("dema ar").
+  # Unlike "doc" this is not an ordinary word, so it may hard-filter.
+  aliases:
+  - dema
   names_observed_jlbc:
     Emergency and Military Affairs, Department of:
     - approps-fy2015
