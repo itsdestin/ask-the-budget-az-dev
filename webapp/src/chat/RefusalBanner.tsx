@@ -18,6 +18,7 @@
 //   a completed turn (stopReason "end_turn")
 //   + at least one finished retrieve() call
 //   + ZERO surviving citations
+//   + ZERO figures linked by the system's citation linker (2026-08-02)
 //
 // `extractCitations` walks TOOL blocks, so what the condition really tests is
 // "did any citation pass server-side validation" — a `citation_id` in a cite()
@@ -66,6 +67,7 @@
 //     but auto-detection never returns it.
 
 import type { AssistantBlock, AssistantTurn } from "./chat-types.js";
+import { figuresForRender } from "./citation-annotation.js";
 import { extractCitations } from "./citation-extract.js";
 
 export interface RefusalChunkPreview {
@@ -123,6 +125,24 @@ export function detectRefusal(turn: AssistantTurn): RefusalReason | null {
   // says "verified" rather than "no citation".
   const cites = extractCitations(turn);
   if (cites.some((c) => c.citationId)) return null;
+
+  // A figure the SYSTEM linked is verification too, and stronger verification
+  // than a cite() ack: an ack validates a quote the MODEL retyped, whereas a
+  // linked figure is a value the system located itself in a chunk this turn
+  // actually retrieved, carrying the source's own rendering and offsets.
+  //
+  // This is not a nicety. Citation linking told the model to stop calling
+  // cite() for figures, so a fully-linked numeric answer has ZERO citationIds
+  // — and without this the banner fired on exactly those answers, announcing
+  // "no verified citation" over an answer in which every number was linked,
+  // and burying it under five raw passages. Seen in a browser 2026-08-02.
+  //
+  // `linked` only. `derived` is arithmetic and `unverified` is the honest
+  // failure this banner exists to report; neither can stand in for a source.
+  // An answer whose figures are ALL unverified still fires, correctly.
+  if (figuresForRender(turn.annotation).some((f) => f.verdict === "linked")) {
+    return null;
+  }
 
   // Prose is the thing being flagged. A turn that is nothing but tool calls
   // has no claim to warn about.
