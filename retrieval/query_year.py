@@ -146,6 +146,16 @@ def iter_jlbc_shorthand(query: str) -> list[tuple[int, str, str]]:
         year = _expand_two_digit(int(match.group(1)))
         if year is None or year < _SHORTHAND_MIN_YEAR:
             continue
+        # Same designator guard the four-digit rule uses, for the same reason
+        # — and it matters MORE here. The optional space in the pattern lets
+        # "chapter 21 baseline" look like shorthand, and unlike a nonsense
+        # year that guess would SUCCEED: FY2021 baselines exist, so the
+        # pipeline's empty-result fallback never fires and the analyst
+        # silently gets one year's documents for a query about something
+        # else. Checked against what precedes the DIGITS, not the whole
+        # match, mirroring parse_query_years.
+        if _YEAR_LOOKALIKE_PREFIX.search(query[: match.start(1)]):
+            continue
         out.append((year, _SHORTHAND_DOC_TYPE[match.group(2).lower()], match.group(0)))
     return out
 

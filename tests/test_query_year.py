@@ -167,3 +167,21 @@ def test_a_bare_two_digit_number_is_not_shorthand():
 
 def test_an_implausible_year_is_rejected():
     assert parse_jlbc_shorthand("99ar") == []
+
+
+def test_a_citation_designator_is_not_read_as_jlbc_shorthand():
+    """"chapter 21 baseline" must not become a FY2021 hard filter.
+
+    This one is nastier than a nonsense year: FY2021 baselines EXIST, so the
+    pipeline's empty-result fallback never fires and the analyst silently gets
+    one year's documents for a question about something else.
+    """
+    assert parse_jlbc_shorthand("chapter 21 baseline") == []
+    assert parse_jlbc_shorthand("laws 2025, chapter 26 ar") == []
+    assert 2021 not in parse_query_years("chapter 21 baseline")
+
+
+def test_the_real_url_convention_still_resolves_after_the_guard():
+    """The guard must not cost the shape it exists to serve."""
+    assert parse_jlbc_shorthand("ahcccs 27ar") == [(2027, "approps-per-agency")]
+    assert parse_jlbc_shorthand("adc 21baseline") == [(2021, "baseline-per-agency")]

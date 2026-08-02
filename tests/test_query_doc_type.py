@@ -79,3 +79,22 @@ def test_shorthand_doc_type_is_exact_unlike_bare_ar():
     """The '27' suffix disambiguates what a bare 'ar' cannot."""
     ms = parse_query_doc_types("ahcccs 27ar")
     assert ms[0].confidence is Confidence.EXACT
+
+
+def test_the_name_of_a_law_is_not_a_request_for_the_bill():
+    """"General Appropriation Act" names the law; analysts discuss what it did
+    far more often than they want the bill document.
+
+    Measured 2026-08-02 on the live corpus: the phrase appears in 6,253 chunks
+    and ZERO are budget-bill, while the whole budget-bill type is a single
+    document. Filtering on it discards every chunk that uses the phrase — and
+    it SUCCEEDS, so the pipeline's empty-result fallback never rescues it.
+    """
+    assert _vals("Which appropriations did the Governor line-item veto from "
+                 "the General Appropriation Act?") == []
+
+
+def test_an_explicit_bill_request_still_resolves():
+    """The guard above must not cost the case the type genuinely serves."""
+    assert "budget-bill" in _vals("fy2026 budget bill")
+    assert "budget-bill" in _vals("the appropriations bill")

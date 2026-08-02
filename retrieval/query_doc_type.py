@@ -79,7 +79,16 @@ _PHRASES: dict[str, tuple[str, Confidence]] = {
     "executive recommendation": ("governors-budget", Confidence.EXACT),
     "executive budget": ("governors-budget", Confidence.EXACT),
     # -- The enacted bill ---------------------------------------------------
-    "general appropriation act": ("budget-bill", Confidence.EXACT),
+    # "general appropriation act" is DELIBERATELY ABSENT. It is the NAME OF A
+    # LAW, not a request for the bill document, and analysts discuss what the
+    # Act did far more often than they want the Act itself. Measured against
+    # the live corpus on 2026-08-02: the phrase appears in 6,253 chunks, and
+    # ZERO of them are budget-bill — while the whole budget-bill type is one
+    # document (136 chunks). Mapping it here sent the query to the single
+    # document that never uses the phrase and away from every document that
+    # does. Worse, it SUCCEEDS, so the pipeline's empty-result fallback never
+    # fires and the analyst never learns a filter was guessed. It cost two
+    # eval queries (n-003, n-007) their ground truth.
     "appropriations bill": ("budget-bill", Confidence.EXACT),
     "appropriation bill": ("budget-bill", Confidence.EXACT),
     "budget bill": ("budget-bill", Confidence.EXACT),
