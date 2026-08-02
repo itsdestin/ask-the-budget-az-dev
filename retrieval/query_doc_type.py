@@ -41,6 +41,7 @@ from __future__ import annotations
 import re
 
 from retrieval.query_match import Confidence, Match
+from retrieval.query_year import iter_jlbc_shorthand
 
 # phrase -> (doc_type, confidence).
 #
@@ -133,14 +134,27 @@ def parse_query_doc_types(query: str) -> list[Match]:
     doc_type filter, let the search fan out across every publication".
 
     Each `doc_type` appears at most once. When the same type is named twice
-    at different strengths, the EXACT reading wins: the stronger evidence is
-    real evidence, and `is_filterable` is all-or-nothing, so leaving the weak
-    duplicate in would demote the whole set to a boost.
+    at different strengths ("27ar appropriations report ar", say), the EXACT
+    reading wins: the stronger evidence is real evidence, and
+    `is_filterable` is all-or-nothing, so leaving the weak duplicate in would
+    demote the whole set to a boost.
     """
     if not query or not query.strip():
         return []
 
     found: list[tuple[int, Match]] = []
+
+    # JLBC's own URL shorthand ("27ar", "21baseline") — spec Q5. These are
+    # EXACT even though a bare "ar" is WEAK: the two-digit fiscal year glued
+    # to the front is exactly the disambiguation a stray English "ar" lacks.
+    cursor = 0
+    for _year, doc_type, matched_text in iter_jlbc_shorthand(query):
+        # Re-locate the span so the results can be ordered by where they
+        # appear. The cursor advances so a query naming the same shorthand
+        # twice reports the second one's real position, not the first's.
+        start = query.find(matched_text, cursor)
+        cursor = start + len(matched_text) if start >= 0 else cursor
+        found.append((max(start, 0), Match(doc_type, Confidence.EXACT, matched_text)))
 
     for match in _PHRASE_RE.finditer(query):
         text = match.group(0)

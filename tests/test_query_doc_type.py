@@ -69,3 +69,13 @@ def test_only_real_doc_type_values_are_ever_emitted():
               "budget bill", "detailed list", "annual financial report"]:
         for m in parse_query_doc_types(q):
             assert m.value in real, f"{q!r} emitted {m.value!r}"
+
+
+def test_shorthand_yields_the_document_type_too():
+    assert "approps-per-agency" in _vals("ahcccs 27ar")
+
+
+def test_shorthand_doc_type_is_exact_unlike_bare_ar():
+    """The '27' suffix disambiguates what a bare 'ar' cannot."""
+    ms = parse_query_doc_types("ahcccs 27ar")
+    assert ms[0].confidence is Confidence.EXACT
