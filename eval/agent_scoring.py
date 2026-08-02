@@ -145,7 +145,14 @@ def cite_target(attempt: dict[str, Any]) -> tuple[str, str]:
     as a new citation here. The metric therefore under-counts retries; it
     never invents them.
     """
-    inp = attempt.get("input") or {}
+    # A malformed slot is not necessarily a dict — observed live on
+    # 2026-08-02, the model emitted cite_batch citations as bare STRINGS
+    # (fragments of a double-encoded JSON payload). Key such an attempt by
+    # its own repr so two distinct malformed slots never collapse into one
+    # "retry" of each other.
+    inp = attempt.get("input")
+    if not isinstance(inp, dict):
+        return (f"<malformed:{inp!r}>", "")
     return (str(inp.get("chunk_id")), str(inp.get("claim_span")))
 
 

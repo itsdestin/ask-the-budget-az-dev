@@ -401,3 +401,33 @@ def test_score_run_cli_writes_outputs(tmp_path):
     scores = score_run(run_dir, str(qfile))
     assert scores["summary"]["n"] == 1
     assert scores["per_query"][0]["ok"] is True
+
+
+def test_a_malformed_cite_batch_slot_scores_as_a_failure_instead_of_crashing():
+    """Observed live, 2026-08-02 (an-esa-growth, first full baseline): the
+    model emitted cite_batch with `citations` holding STRINGS — fragments of
+    a double-encoded JSON payload — instead of objects. The tool layer
+    handled it and returned per-slot errors, but the scorer crashed with
+    AttributeError, taking down the whole run's scoring after the money had
+    already been spent. A malformed slot is a real cite attempt that failed;
+    it must count as one, not abort scoring.
+    """
+    batch = {"toolUseId": "t-b", "toolName": "cite_batch",
+             "input": {"citations": [
+                 '[{"chunk_id": "c-1"',          # the live shape: a bare string
+                 {"chunk_id": "c-1", "quote": "q", "confidence": "verbatim",
+                  "claim_span": "a"},
+             ]},
+             "output": json.dumps({"citations": [
+                 {"ok": False, "error": "citations[0] must be an object"},
+                 {"ok": True, "citation_id": "x"}]}),
+             "isError": False}
+    t = make_transcript([batch], citations=[ok_citation()])
+
+    attempts = cite_attempts(t)
+    assert len(attempts) == 2
+
+    row = score_transcript(make_query(), t)
+    assert row["cite_attempts"] == 2
+    assert row["cite_failures"] == 1
+    assert row["cite_pass_rate"] == pytest.approx(0.5)

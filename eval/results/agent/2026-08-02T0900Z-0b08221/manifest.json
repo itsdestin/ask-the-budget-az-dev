@@ -1,0 +1,53 @@
+{
+  "timestamp": "2026-08-02T0900Z",
+  "git_sha": "0b08221",
+  "subset": "full",
+  "repeats": 1,
+  "queries": [
+    "lk-adc-total-fy2026",
+    "lk-k12-basic-aid-fy2026",
+    "lk-gf-revenue-fy2026",
+    "lk-dps-operating-fy2026",
+    "lk-asu-operating-fy2026",
+    "lk-adc-officer-stipend-fy2026",
+    "lk-eorp-offset",
+    "lk-asrs-rate-fy2026",
+    "lk-scotus-salary",
+    "lk-bsf-balance-fy2026",
+    "lk-prop123-increment",
+    "lk-hurf-split",
+    "cm-basic-aid-3yr",
+    "cm-des-gf-growth",
+    "cm-highway-construction",
+    "cm-supplementals-fy2026",
+    "an-ahcccs-enrollment",
+    "an-ahcccs-gf-drivers",
+    "an-esa-growth",
+    "mm-adc-briefing",
+    "mm-esa-memo",
+    "rf-federal-budget",
+    "rf-other-state",
+    "rf-city-budget",
+    "rf-future-budget",
+    "rf-county-budget",
+    "hs-promise-program-2023",
+    "hs-enhanced-fmap-2022",
+    "hs-water-augmentation-2023",
+    "hs-building-renewal-2023",
+    "hs-esa-cost-2022"
+  ],
+  "queries_sha256": "5b1154c203ccae8f3f31280db99a46854edd12e75c05465b4745307c16fc241e",
+  "tier_models": {
+    "standard": "z-ai/glm-5.2",
+    "deep_research": "moonshotai/kimi-k3"
+  },
+  "provider": "openrouter",
+  "base_url": "https://openrouter.ai/api/v1",
+  "api_key_set": true,
+  "prompt_sha256": "cfe3cda29adb0900a87be88393ad9bd6e27f1414d36a6c6c2f6a70a567e44e01",
+  "corpus_counts": {
+    "budget_chunks": 73580,
+    "fiscal_note_chunks": 13278
+  },
+  "note": "first full Standard baseline"
+}
