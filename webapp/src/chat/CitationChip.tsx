@@ -25,9 +25,19 @@ interface Props {
    *  Without it, falls back to the pill-only rendering used for unmatched
    *  citations. */
   inlineText?: string;
+  /** The mark's position in the answer's ONE reading-order sequence. Falls
+   *  back to `citation.index` (this citation's position among the model's
+   *  own citations) only when the renderer didn't supply one — those two
+   *  sequences diverge as soon as system-linked figures share the page. */
+  displayIndex?: number;
 }
 
-export default function CitationChip({ citation, inlineText }: Props) {
+export default function CitationChip({
+  citation,
+  inlineText,
+  displayIndex,
+}: Props) {
+  const shown = displayIndex ?? citation.index;
   const [open, setOpen] = useState(false);
   // `firing` drives the 250ms pop that plays on click — a brief scale + glow
   // confirms the click registered and the source panel is opening/scrolling.
@@ -68,12 +78,12 @@ export default function CitationChip({ citation, inlineText }: Props) {
           onFocus={() => setOpen(true)}
           onBlur={() => setOpen(false)}
           className={`cite-chip${fireClass} chat-cite-inline ${tone}`}
-          aria-label={`Citation ${citation.index} (${citation.confidence}): ${inlineText}`}
+          aria-label={`Citation ${shown} (${citation.confidence}): ${inlineText}`}
         >
           {inlineText}
           <sup className={`chat-cite-sup ${tone}`} aria-hidden>
             {glyph}
-            {citation.index}
+            {shown}
           </sup>
         </button>
         {open && <CitationTooltip citation={citation} />}
@@ -93,10 +103,10 @@ export default function CitationChip({ citation, inlineText }: Props) {
         onFocus={() => setOpen(true)}
         onBlur={() => setOpen(false)}
         className={`cite-chip${fireClass} chat-cite-pill ${tone}`}
-        aria-label={`Citation ${citation.index} (${citation.confidence})`}
+        aria-label={`Citation ${shown} (${citation.confidence})`}
       >
         <span aria-hidden>{glyph}</span>
-        <span>{citation.index}</span>
+        <span data-testid="prose-chip">{shown}</span>
       </button>
       {open && <CitationTooltip citation={citation} />}
     </span>
@@ -112,7 +122,17 @@ export default function CitationChip({ citation, inlineText }: Props) {
  *  - derived     — says what it was computed FROM, offers no source link
  *  - unverified  — says plainly that it was not found in the sources
  */
-export function FigureChip({ figure }: { figure: AnnotationFigure }) {
+export function FigureChip({
+  figure,
+  displayIndex,
+}: {
+  figure: AnnotationFigure;
+  displayIndex?: number;
+}) {
+  // The annotation's `index` is the figure's position among FIGURES; the
+  // number on screen must be its position among ALL marks, or two
+  // sequences collide on one answer.
+  const shown = displayIndex ?? figure.index;
   const [open, setOpen] = useState(false);
   const [firing, setFiring] = useState(false);
   const bus = useCitationBus();
@@ -129,7 +149,7 @@ export function FigureChip({ figure }: { figure: AnnotationFigure }) {
   // 10-row table). The WRAPPER carries the verdict-and-index marker, so a
   // test can also assert that figure 3 specifically renders as derived.
   // One element cannot answer both questions: data-testid is single-valued.
-  const wrapperTestId = `citation-chip-${figure.verdict}-${figure.index}`;
+  const wrapperTestId = `citation-chip-${figure.verdict}-${shown}`;
 
   const handleClick = () => {
     // Only a linked figure has somewhere to go. A derived or unverified
@@ -185,9 +205,9 @@ export function FigureChip({ figure }: { figure: AnnotationFigure }) {
         onFocus={() => setOpen(true)}
         onBlur={() => setOpen(false)}
         className={`cite-chip${firing ? " cite-chip-firing" : ""} chat-cite-pill ${tone}`}
-        aria-label={`Figure ${figure.index}, ${figure.verdict}: ${figure.text}`}
+        aria-label={`Figure ${shown}, ${figure.verdict}: ${figure.text}`}
       >
-        {figure.index}
+        {shown}
       </button>
       {open && <FigureTooltip figure={figure} />}
     </span>

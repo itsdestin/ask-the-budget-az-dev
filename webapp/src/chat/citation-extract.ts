@@ -1250,10 +1250,23 @@ export function injectCiteSentinels(
   let result = lines.join("\n");
   if (unmatched.length > 0) {
     const sentinels = unmatched.map((i) => `{{cite:${i}}}`).join(" ");
-    result += "\n\n" + sentinels;
+    // LABELLED, not bare. A citation lands here when its claim_span matches
+    // no line in the answer — the model cited something it did not go on to
+    // write in those words. Rendered as a naked pill at the foot of the
+    // answer, that reads as a numbering bug ("why is there a 4 attached to
+    // nothing?"), which is exactly how it was reported on 2026-08-02. The
+    // label says what the mark IS. The citations stay visible rather than
+    // being dropped, because the model did emit them and the server did
+    // validate them — Invariant 1 wants that provenance on the page.
+    result += "\n\n" + UNMATCHED_CITATIONS_LABEL + " " + sentinels;
   }
   return result;
 }
+
+/** Prefix for the trailing group of citations that could not be attached to
+ *  any sentence. Exported so the renderer's test can assert the copy rather
+ *  than duplicating the string. */
+export const UNMATCHED_CITATIONS_LABEL = "Other sources for this answer:";
 
 /** Format a citation for the "Copy citation" button per spec §10.2:
  *  `JLBC Baseline Book FY24, p. 47`. Falls back gracefully when

@@ -13,6 +13,7 @@ import {
   findNormalizedMatch,
   formatCopyCitation,
   injectCiteSentinels,
+  UNMATCHED_CITATIONS_LABEL,
   normalizeForMatch,
   planCitationPlacements,
   type Citation,
@@ -1130,7 +1131,11 @@ describe("planCitationPlacements + injectCiteSentinels", () => {
     ]);
     expect(placements[0]?.lineIndex).toBe(-1);
     const augmented = injectCiteSentinels(content, placements);
-    expect(augmented).toBe("Just a single line.\n\n{{cite:0}}");
+    // Labelled since 2026-08-02: a bare pill at the foot of an answer,
+    // attached to nothing, reads as a numbering bug rather than as a source.
+    expect(augmented).toBe(
+      `Just a single line.\n\n${UNMATCHED_CITATIONS_LABEL} {{cite:0}}`,
+    );
   });
 
   it("groups multiple citations on the same line in original order", () => {

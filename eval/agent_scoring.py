@@ -96,6 +96,16 @@ NARRATION_MARKERS = (
     "let me search", "let me look", "i'll search", "i will search",
     "i have what i need", "searching the corpus", "now i'll",
     "retrying the cite", "let me retrieve", "i'll retrieve",
+    # Citation-bookkeeping announcements (added 2026-08-02, seen in a
+    # browser). The prompt banned this shape by example already, and the
+    # model simply reworded it — "All citations are now registered." Without
+    # markers for it the eval could not measure the behaviour at all, so the
+    # prompt hardening that followed would have been unfalsifiable.
+    # Each phrase is chosen to be impossible in budget policy prose, the
+    # same bar the "rerank" note below records.
+    "citations are now registered", "citations registered",
+    "citations have been registered", "cites now anchored",
+    "all cites anchored", "all citations anchored",
 )
 # Corpus mechanics an analyst should never see.
 # WHY "rerank" alone was dropped (2026-08 review): every other marker here is
