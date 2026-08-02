@@ -35,6 +35,7 @@ from ingest.mineru_runner import (
     MineruCancelled,
     MineruRunner,
     MineruTimeout,
+    _unreadable_pdf_reason,
     batch_timeout_s,
 )
 
@@ -515,6 +516,72 @@ def test_the_probe_catches_what_pymupdf_would_have_waved_through(tmp_path):
         [("doc-bad", poison, tmp_path / "out" / "bad")]
     )
     assert results["doc-bad"]
+
+
+def test_the_probe_is_serialized_because_pdfium_is_not_thread_safe(tmp_path):
+    """Concurrent probing must never reject a VALID PDF.
+
+    This is the 2026-08-02 defect, reproduced: `run_batch` runs on a worker
+    thread, and at `JLBC_INGEST_WORKERS=4` several threads probe at once.
+    pdfium keeps global state and is not thread-safe, so concurrent use
+    returned `PdfiumError: Failed to load document (PDFium: Data format
+    error)` for files that are perfectly fine — **224 valid documents were
+    failed in one six-minute window of a live backfill.**
+
+    Measured on 80 real corpus PDFs with `_PDFIUM_MUTEX` removed: 0 failures
+    serially, then 56 / 80 / 80 of 80 over three 4-thread rounds. This
+    fixture reproduces that shape closely — 0 serially, then 34-44 / 80 / 80
+    per round, 194-204 of 240 over three repeats, in ~0.3 s. With the lock
+    it is exactly 0, which is what this asserts.
+
+    Real pdfium on purpose — a mocked probe cannot exhibit a data race, so a
+    fake here would pass against the broken code and pin nothing.
+
+    WHY the fixtures are 500 pages and not the 2 the rest of this file uses:
+    the race needs the threads to actually be inside pdfium together. A
+    662-byte 2-page fixture is parsed too fast to overlap — measured 0 of
+    600 failures unlocked, i.e. a test that proves nothing. At 500 pages the
+    file is ~62 KB, the median size of a real cached corpus PDF, and the
+    unlocked failure rate matches what the live backfill saw. If this ever
+    needs re-tuning, tune it against that size, not downward.
+    """
+    files = [
+        make_pdf(tmp_path / "src" / f"valid-{i:03d}.pdf", body=f"v{i}", pages=500)
+        for i in range(80)
+    ]
+    # Sanity floor: whatever the threads report, these files are readable.
+    assert [p for p in files if _unreadable_pdf_reason(p) is not None] == []
+
+    threads_n = 4
+    rejected: list[str] = []
+    rejected_lock = threading.Lock()
+    # A barrier so every thread is inside the probe at the same moment —
+    # threads that merely start together can still end up running serially.
+    gate = threading.Barrier(threads_n)
+
+    def probe(chunk: list[Path]) -> None:
+        gate.wait()
+        for path in chunk:
+            reason = _unreadable_pdf_reason(path)
+            if reason is not None:
+                with rejected_lock:
+                    rejected.append(reason)
+
+    # Three rounds: the unlocked version failed 60/80 on the first round and
+    # 80/80 on the two after it, so one round alone would be the flakiest
+    # possible version of this test.
+    for _round in range(3):
+        gate.reset()
+        workers = [
+            threading.Thread(target=probe, args=(files[i::threads_n],))
+            for i in range(threads_n)
+        ]
+        for w in workers:
+            w.start()
+        for w in workers:
+            w.join()
+
+    assert rejected == []
 
 
 def test_a_whole_batch_failure_is_reported_per_document(tmp_path, fake_mineru):
