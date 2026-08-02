@@ -37,6 +37,7 @@ stamper uses.
 """
 from __future__ import annotations
 
+import re
 from functools import lru_cache
 from pathlib import Path
 
@@ -258,20 +259,27 @@ def parse_query_agencies(
         ids = index.phrase_to_ids[phrase]
         # Ambiguity is decided by the catalog, not by a hand-written list: two
         # agencies really are called "Education", so neither one may hard-filter.
-        confidence = Confidence.EXACT if len(ids) == 1 else Confidence.WEAK
-        for canonical_id in ids:
+        #
+        # But two catalog ids for ONE agency are not ambiguity, they are a
+        # catalog defect (see _logical_key). Resolving to every id in the group
+        # and staying EXACT is what makes "revenue, department of" and "child
+        # safety" filter again — AND it re-unites chunks the duplicate ids had
+        # split, which is the larger of the two wins.
+        exact = _one_logical_agency(index, ids)
+        confidence = Confidence.EXACT if exact else Confidence.WEAK
+        for canonical_id in _expand_group(index, ids) if exact else ids:
             _add(canonical_id, confidence, phrase)
 
     # --- Tier 3: slugs and reviewed acronyms --------------------------------
     for alias in _scan_phrases(normalized, index.aliases_longest_first):
         ids = index.alias_to_ids[alias]
         exact = (
-            len(ids) == 1
+            _one_logical_agency(index, ids)
             and alias not in AMBIGUOUS_ALIASES
             and len(alias) >= _MIN_EXACT_ALIAS_LEN
         )
         confidence = Confidence.EXACT if exact else Confidence.WEAK
-        for canonical_id in ids:
+        for canonical_id in _expand_group(index, ids) if exact else ids:
             _add(canonical_id, confidence, alias)
 
     # --- Tier 4: fuzzy fallback ---------------------------------------------
@@ -307,6 +315,8 @@ class _AgencyIndex:
         "aliases_longest_first",
         "fuzzy_names",
         "fuzzy_name_to_ids",
+        "logical_group",
+        "group_members",
     )
 
     def __init__(self, catalog_path: str | None) -> None:
@@ -314,8 +324,13 @@ class _AgencyIndex:
         alias_to_ids: dict[str, set[str]] = {}
         fuzzy_name_to_ids: dict[str, set[str]] = {}
         fuzzy_names: list[str] = []
+        logical_group: dict[str, tuple[str, ...]] = {}
+        group_members: dict[tuple[str, ...], set[str]] = {}
 
         for entry in load_agency_catalog(catalog_path).values():
+            key = _logical_key(entry.canonical_name)
+            logical_group[entry.canonical_id] = key
+            group_members.setdefault(key, set()).add(entry.canonical_id)
             for phrase in _name_phrases(entry.canonical_name, entry.name_variants):
                 phrase_to_ids.setdefault(phrase, set()).add(entry.canonical_id)
 
@@ -341,11 +356,79 @@ class _AgencyIndex:
         self.alias_to_ids = alias_to_ids
         self.fuzzy_name_to_ids = fuzzy_name_to_ids
         self.fuzzy_names = fuzzy_names
+        self.logical_group = logical_group
+        self.group_members = group_members
         # Longest-first is what makes overlapping names behave: "juvenile
         # corrections" claims its span before "corrections" can match inside it.
         # Same rationale as `_scan_for_names` in chunking/entity_stamper.py.
         self.phrases_longest_first = sorted(phrase_to_ids, key=len, reverse=True)
         self.aliases_longest_first = sorted(alias_to_ids, key=len, reverse=True)
+
+
+def _one_logical_agency(index: "_AgencyIndex", ids: "set[str]") -> bool:
+    """True when every id names the SAME real agency (one id, or one duplicate
+    group). False for genuine ambiguity — two agencies really called
+    "Education" — where a hard filter would pick a side and be wrong half the
+    time."""
+    if len(ids) == 1:
+        return True
+    return len({index.logical_group.get(i) for i in ids}) == 1
+
+
+def _expand_group(index: "_AgencyIndex", ids: "set[str]") -> "set[str]":
+    """Every catalog id naming the same real agency as `ids`.
+
+    Applied ONLY when the match is already EXACT, so it widens a filter across
+    a catalog defect and never across genuine ambiguity.
+
+    WHY widening matters as much as the confidence fix: the duplicate ids also
+    SPLIT the stamped chunks. `asu` resolves to agency:uniasu, which JLBC used
+    from FY2021 — filtering to that id alone silently hides every ASU document
+    from FY2015-2020, which live under agency:uniasum. Expanding to the group
+    is what makes one agency's history whole again without a re-ingest.
+    """
+    out: set[str] = set()
+    for canonical_id in ids:
+        key = index.logical_group.get(canonical_id)
+        out |= index.group_members.get(key, {canonical_id}) if key else {canonical_id}
+    return out
+
+
+_LOGICAL_KEY_STOPWORDS = frozenset({"of", "the", "for", "and", "a"})
+
+
+def _logical_key(name: str) -> tuple[str, ...]:
+    """A key that is identical for two catalog entries naming ONE real agency.
+
+    WHY this exists: the Phase 0 catalog carries entries that are the same
+    agency recorded twice, and a duplicated name is not a cosmetic problem —
+    it costs retrieval twice over.
+
+      * `parse_query_agencies` only marks a name EXACT when it resolves to one
+        id, so a duplicate silently DOWNGRADES that agency from a hard filter
+        to a weak boost. "revenue, department of" was one such.
+      * the two ids also SPLIT the stamped chunks, so even a correct filter on
+        one of them misses the rest. Child Safety is split 1,510 / 505 / 18
+        across three live ids.
+
+    A sorted token multiset rather than string equality, because the catalog
+    writes the same agency both ways round: "Child Safety, Department of" and
+    "Department of Child Safety" are five entries for one agency and only
+    match after inversion. Measured on the 2026-08-02 catalog this produces 5
+    groups covering 12 ids, and every one was hand-checked to be a genuine
+    duplicate — no two DIFFERENT agencies collide under it.
+
+    The fix this enables is query-side only: resolve a name to ALL the ids in
+    its group and filter on all of them. That recovers both the hard filter
+    and the split chunks WITHOUT a re-ingest, which merging the catalog
+    entries themselves would require.
+    """
+    tokens = [
+        t
+        for t in re.split(r"[^a-z0-9]+", (name or "").lower())
+        if t and t not in _LOGICAL_KEY_STOPWORDS
+    ]
+    return tuple(sorted(tokens))
 
 
 @lru_cache(maxsize=None)
