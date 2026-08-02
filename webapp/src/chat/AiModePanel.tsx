@@ -241,12 +241,12 @@ function PanelBody({
                       }
                     />
                   }
+                  // Present only while a turn is streaming — that is what puts
+                  // the square stop icon in the bar beside Send, instead of the
+                  // full-width button that used to sit under the composer and
+                  // shove the whole thread up when it appeared.
+                  onStop={chat.busy ? chat.stop : undefined}
                 />
-                {chat.busy && (
-                  <button type="button" className="ai-stop" onClick={chat.stop}>
-                    Stop
-                  </button>
-                )}
               </div>
 
               <Footer />

@@ -86,3 +86,43 @@ describe("the paperclip is an honest stub", () => {
     expect(composer().value).toBe("");
   });
 });
+
+describe("send and stop", () => {
+  it("Send is an icon that still announces itself", () => {
+    // The visible label went; the accessible one must not. A button whose only
+    // content is an <svg> is unlabelled to a screen reader without this.
+    render(<MessageInput onSubmit={vi.fn()} />);
+    const send = screen.getByRole("button", { name: "Send" });
+    expect(send.querySelector("svg")).not.toBeNull();
+    expect(send).toHaveTextContent("");
+  });
+
+  it("offers no Stop when nothing is streaming", () => {
+    render(<MessageInput onSubmit={vi.fn()} />);
+    expect(screen.queryByRole("button", { name: "Stop" })).toBeNull();
+  });
+
+  it("shows Stop BESIDE Send while a turn streams, and Send stays put", () => {
+    // Deliberately not a swap. If Send became Stop in place, the click that
+    // meant "send my next question" would land on "throw away the answer"
+    // whenever the stream started between the intent and the click.
+    const onStop = vi.fn();
+    render(<MessageInput onSubmit={vi.fn()} disabled onStop={onStop} />);
+    const send = screen.getByRole("button", { name: "Send" });
+    const stop = screen.getByRole("button", { name: "Stop" });
+    expect(send).toBeInTheDocument();
+    expect(send).toBeDisabled();
+    // Stop follows Send in the bar.
+    expect(send.nextElementSibling).toBe(stop);
+    fireEvent.click(stop);
+    expect(onStop).toHaveBeenCalledTimes(1);
+  });
+
+  it("keeps Stop live even though the bar is disabled", () => {
+    // `disabled` is about the INPUT. An interrupt that went inert the moment
+    // the turn it interrupts began would never be clickable at all.
+    const onStop = vi.fn();
+    render(<MessageInput onSubmit={vi.fn()} disabled onStop={onStop} />);
+    expect(screen.getByRole("button", { name: "Stop" })).not.toBeDisabled();
+  });
+});

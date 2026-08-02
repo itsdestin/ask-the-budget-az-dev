@@ -26,6 +26,11 @@ interface Props {
    *  conversation state (tier, corpus) that the composer has no business
    *  knowing about. */
   tools?: ReactNode;
+  /** Interrupts the streaming turn. Present ONLY while one is in flight — the
+   *  caller decides that, because "is a turn streaming" is conversation state
+   *  and `disabled` alone does not mean it (a blocked spend limit disables the
+   *  bar too, and there is nothing to stop in that case). */
+  onStop?: () => void;
 }
 
 export default function MessageInput({
@@ -33,6 +38,7 @@ export default function MessageInput({
   disabled,
   placeholder,
   tools,
+  onStop,
 }: Props) {
   const [value, setValue] = useState("");
 
@@ -97,14 +103,45 @@ export default function MessageInput({
         placeholder={placeholder ?? "Ask about the budget…"}
         disabled={disabled}
       />
+      {/* Send and Stop sit SIDE BY SIDE while a turn streams, rather than one
+          swapping into the other's place. Swapping is the commoner pattern and
+          it is worse here: the button under the cursor changes identity mid-
+          stream, so the click that meant "send my next question" lands on
+          "throw away the answer". Send simply goes inert instead. */}
       <button
         type="button"
         onClick={handleSubmit}
         disabled={disabled || value.trim().length === 0}
         className="ask-send"
+        aria-label="Send"
+        title="Send"
       >
-        Send
+        <svg
+          viewBox="0 0 24 24"
+          fill="none"
+          stroke="currentColor"
+          strokeWidth="2.2"
+          strokeLinecap="round"
+          strokeLinejoin="round"
+          aria-hidden="true"
+        >
+          <path d="M12 19V5" />
+          <path d="m5 12 7-7 7 7" />
+        </svg>
       </button>
+      {onStop && (
+        <button
+          type="button"
+          onClick={onStop}
+          className="ask-stop"
+          aria-label="Stop"
+          title="Stop"
+        >
+          <svg viewBox="0 0 24 24" aria-hidden="true">
+            <rect x="7" y="7" width="10" height="10" rx="2" fill="currentColor" />
+          </svg>
+        </button>
+      )}
     </div>
   );
 }
