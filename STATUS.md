@@ -258,7 +258,43 @@ boost has the same blind spot.
 
 ---
 
-## Citation linking — code complete, re-baseline OUTSTANDING (2026-08-02)
+## Citation linking — SHIPPED, then found to OVERCLAIM (2026-08-02)
+
+> ### 🔴 READ THIS BEFORE TRUSTING ANY NUMBER BELOW
+>
+> This feature is on `master` and running. **Three browser sessions on
+> 2026-08-02 found eight defects; five were fixed, and two are
+> fundamental and NOT fixed.** Direction is undecided — Destin stopped
+> the session to resume citations separately.
+>
+> **Full write-up:
+> [`docs/superpowers/investigations/2026-08-02-citation-linking-review.md`](docs/superpowers/investigations/2026-08-02-citation-linking-review.md)**
+> — old design, why it was replaced, what replaced it, every defect, and
+> how to reproduce each measurement offline for free.
+>
+> The two unfixed problems:
+>
+> 1. **34.2% of linked figures match a value in more than one document**,
+>    and the primary source is picked by document authority — a rule that
+>    cannot see whether the chunk concerns the right agency, fund or
+>    topic. Observed live: `$16.28 billion` linked to an irrelevant source.
+> 2. **A rounded figure is a weak fingerprint.** An *invented* figure
+>    falsely links **3.7%** of the time at the profile of `$12.49B`
+>    (2.9% for millions) against **0.4%** for an exactly-written
+>    `1,391,157,700`. The code treats both identically.
+>
+> Also unfixed: `reconcile`'s flat 1% tolerance asserts "computed from"
+> on figures that are not computed (`13.24 + 3.53 = 16.77` was accepted
+> as `$16.83`), and `_significant_digits` measures magnitude rather than
+> distinctiveness, so the specificity floor is bypassed for exactly the
+> rounded figures that need it.
+>
+> **The 92.9% coverage figure below measures how often a link is
+> PRODUCED, never whether it is RIGHT.** That was the wrong gate, and it
+> is why ~2,000 passing tests missed all of this. Any future work here
+> should be accepted on the **false-link rate**, not coverage. Building
+> that measurement took ten minutes against transcripts already on disk.
+
 
 Spec: `docs/superpowers/specs/2026-08-02-citation-linking-design.md`.
 Plan: `docs/superpowers/plans/2026-08-02-citation-linking.md`.
