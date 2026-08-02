@@ -46,16 +46,35 @@ from retrieval.types import RetrievedChunk
 # reranker's own output (roughly -10..10). Matching chunks are left exactly as
 # the reranker scored them — nothing is ever inflated.
 #
-# 0.0 IS A DELIBERATE PLACEHOLDER AWAITING CALIBRATION, NOT A FORGOTTEN VALUE.
-# The machinery ships ahead of the number on purpose, exactly as the recency
-# boost did: the weight is then one calibrated constant rather than a code
-# change. It is set by plan Task 9 ("Calibrate, eval, and record") in
-# docs/superpowers/plans/2026-08-02-query-understanding.md — Step 2 sweeps an
-# EXPLICIT `--weights` grid the way `eval/sweep_recency.py` does, Step 3
-# re-checks REFUSAL_THRESHOLD against the new score distribution.
+# CALIBRATED 2026-08-02 against the completed FY2005-2027 corpus, with an
+# EXPLICIT weight grid (eval/sweep_match_penalty.py refuses to run without
+# one — the derived grid in sweep_recency stepped 0.585 and is how
+# RECENCY_BOOST_PER_YEAR shipped at 2.064 when 0.85 was free).
 #
-# At 0.0 this function is a strict no-op: same scores, same order, no re-sort.
-MATCH_PENALTY = 0.0
+# Whole-set recall@5 over the 47-query eval set:
+#
+#     0.0   0.25   0.5    1.0    2.0    2.5    3.0    3.5
+#   .8095  .8333 .8571  .8571  .8571  .8571  .8571  .8333
+#                 └──────── plateau ────────┘   cliff ┘
+#
+# WHY 2.0 AND NOT 3.0, the largest weight that costs nothing — because that
+# rule is not the right one here. It was right for recency, where every step
+# up bought measurably better chronological ordering, so the largest safe
+# weight was the best weight. This penalty buys NOTHING past 2.0 on either
+# instrument: recall@5 is identical at 2.0/2.5/3.0, and navigational
+# precision@5 (eval/navigational_check.py) is identical too — agency 0.867 /
+# doc-type 0.867 at both 2.0 and 3.0. Given a tie on every measurement, the
+# smaller weight wins: it intervenes less, and it sits 1.5 from the measured
+# cliff instead of 0.5.
+#
+# REFUSAL_THRESHOLD did NOT move with it, and the reason is worth knowing
+# rather than assuming it never will: `max_top_score` was 8.6779 at EVERY
+# weight from 0.0 to 4.0, because a penalty only lowers NON-matching chunks
+# and the best chunk on these queries always matched. That is a property of
+# this query set, not a guarantee — a query whose top chunk does not match the
+# inference will see top_score fall. Re-run eval/calibrate_refusal.py if this
+# weight changes. tests/test_recency.py pins the pair.
+MATCH_PENALTY = 2.0
 
 
 def _matches(

@@ -18,6 +18,7 @@ from dataclasses import replace
 import pytest
 
 from harness.constants import REFUSAL_THRESHOLD
+from retrieval.agency_boost import MATCH_PENALTY
 from retrieval.recency import (
     RECENCY_BOOST_PER_YEAR,
     anchor_fiscal_year,
@@ -74,9 +75,24 @@ def test_the_shipped_weight_and_refusal_threshold_move_together():
     2.064 and +1.42 at 0.85; without moving the threshold it would have
     answered a question it should have refused, which is Invariant 3 failing
     silently.
+
+    EXTENDED 2026-08-02 to cover MATCH_PENALTY (spec Q4). It is a SECOND
+    penalty feeding the same `top_score` that REFUSAL_THRESHOLD is compared
+    against, so the three are one calibration, not two. Pinning it here rather
+    than only in its own module is deliberate: the failure mode is somebody
+    tuning one penalty in isolation and shifting the refusal point by
+    accident.
+
+    On the sweep that chose it, `max_top_score` did NOT move — 8.6779 at every
+    weight from 0.0 to 4.0 — because the penalty only lowers NON-matching
+    chunks and the top result on those queries always matched. That is a
+    property of the query set, not a guarantee: a query whose best chunk does
+    not match the inference WILL see top_score fall. Re-run
+    eval/calibrate_refusal.py whenever this weight changes.
     """
     assert RECENCY_BOOST_PER_YEAR == 0.85
     assert REFUSAL_THRESHOLD == 1.46
+    assert MATCH_PENALTY == 2.0
 
 
 def test_zero_weight_changes_neither_scores_nor_order():

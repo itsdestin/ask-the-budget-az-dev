@@ -98,11 +98,31 @@ def test_both_criteria_must_hold_for_a_chunk_to_escape_the_penalty():
     assert out[0].score == 3.0
 
 
-def test_the_shipped_default_is_a_no_op_until_calibrated():
-    """MATCH_PENALTY ships at 0.0 pending an eval sweep. If someone sets it
-    without calibrating, REFUSAL_THRESHOLD silently drifts out of tune."""
-    assert MATCH_PENALTY == 0.0
+def test_the_shipped_default_is_the_calibrated_weight():
+    """CALIBRATED 2026-08-02 (was 0.0 "pending an eval sweep").
+
+    Chosen from an explicit grid: recall@5 plateaus at .8571 from 0.5 through
+    3.0 and falls to .8333 at 3.5. 2.0 is the SMALLEST weight reaching the
+    plateau, picked over 3.0 because nothing measurable improves past it —
+    navigational precision@5 is identical at both — so the smaller weight
+    intervenes less and sits further from the cliff.
+
+    The pairing with REFUSAL_THRESHOLD is pinned in tests/test_recency.py,
+    which is where all three penalties feeding `top_score` are asserted
+    together. Setting this weight without re-running eval/calibrate_refusal.py
+    is how the refusal line moves for reasons nobody intended.
+    """
+    assert MATCH_PENALTY == 2.0
     chunks = [make_chunk("a", score=5.0, agency_ids=["agency:ade"])]
+    out = apply_match_penalty(chunks, agency_ids=["agency:adc"], doc_types=[])
+    assert out[0].score == 3.0  # 5.0 - 2.0, the shipped weight applied
+
+
+def test_a_matching_chunk_is_untouched_at_the_shipped_weight():
+    """The safety property, asserted against the REAL constant rather than a
+    test-supplied one: nothing is ever scored above what the reranker gave it,
+    so `top_score` can only fall."""
+    chunks = [make_chunk("a", score=5.0, agency_ids=["agency:adc"])]
     out = apply_match_penalty(chunks, agency_ids=["agency:adc"], doc_types=[])
     assert out[0].score == 5.0
 
