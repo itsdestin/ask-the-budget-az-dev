@@ -371,6 +371,58 @@ fix, incl. a rival that collected 13 successful steals against an expected 0).
 Intra-process double-write was never possible — `_process_mutex` covers that —
 so the exposure was strictly cross-machine.
 
+### Task 5 — the backfill is DONE (2026-08-02)
+
+**Every ingestable JLBC book edition is in the corpus.** 4,957 book documents
+live, 7 failed — all of them azjlbc.gov 404s where the PDF does not exist.
+
+| | session start | final |
+|---|---|---|
+| `budget_chunks` | 28,530 | **77,574** |
+| documents | 3,533 | **7,434** |
+| book editions | 11 | **38 (all ingestable ones)** |
+
+Quality audited across all 21 editions, not assumed: **0 documents in the
+FY2024-AFR shape** (<0.5 chunks/page) anywhere, 0 missing titles, and the seven
+oldest editions (FY2005–2011) land at 3.65–4.84 chunks/page against the
+pre-existing FY2022–27 range of 3.24–5.24. Spot-reads confirmed each document's
+text is its own — the only check that catches a stem-collision demux bug.
+
+**Snapshots restored to normal, bulk env discarded.** One fresh verified
+snapshot (4.34 GB, 353 entries); the five stale pre-fix archives were deleted,
+taking `backups/` from 54 GB to 4.1 GB.
+
+### 🔴 THE PDFIUM PROBE WAS NOT THREAD-SAFE — it failed 224 VALID PDFs
+
+**Introduced by the poison-pill fix earlier the same day, caught in the live
+run.** `pypdfium2` has global state and is not thread-safe. The pre-stage probe
+runs inside `run_batch`, which runs on a worker thread, so at
+`JLBC_INGEST_WORKERS=4` several threads probed concurrently, corrupted pdfium,
+and rejected **perfectly valid** PDFs with `PdfiumError: Data format error`.
+
+Proven, not inferred: all 224 rejected files open fine single-threaded, and
+their mtimes showed they had been byte-final on disk since 2026-07-31 — two
+days before the failure. Nothing was wrong with the files.
+
+Reproduced on demand with the same 80 real PDFs in one process:
+
+| | failures |
+|---|---|
+| serial | **0 / 80** |
+| 4 threads | **60, 80, 80 of 80** |
+
+Fixed with `_PDFIUM_MUTEX` around the whole open→count→close sequence, mirroring
+`_EMBED_MUTEX`. Merge `71e85a7`.
+
+**The regression test is size-dependent and that matters.** With the suite's
+existing 662-byte fixture PDFs the unlocked code passed 0 failures out of 600 —
+a test that would have proven nothing. The guard only arms at realistic file
+sizes, so the fixture is 500 pages (~62 KB, the real corpus median) and the
+docstring says never to shrink it for speed.
+
+**Office exposure was nil** — the default is one worker. Only parallel
+backfills could hit this.
+
 ### 🔴 SNAPSHOTS ARE THE INGEST BOTTLENECK, and Task 5's premise was wrong
 
 Plan 7 Task 5 says per-batch snapshots removed the O(n²) that justified
@@ -401,12 +453,15 @@ reasoning inline. **Do NOT make the 2-minute retention an office default** —
 the prune compares version timestamps against the *pruning* machine's clock and
 ~20 machines read this corpus off a shared drive.
 
-**This probably degrades the OFFICE experience too, and is not fixed.** One
-analyst uploading one document triggers a full-corpus zip under the lock; at
-6 GB that is minutes of apparent hang for a single upload, and the corpus only
-grows. Office write rates will not pile up 500 versions, so the corpus should
-stay smaller there — but zip-the-whole-corpus-per-write does not scale. An
-incremental or copy-on-write snapshot is the real fix. **Follow-up, not done.**
+**This DOES degrade the OFFICE experience, now measured rather than predicted.**
+The final post-backfill snapshot — a healthy corpus at normal retention, not
+the bloated one — took **3 minutes 30 seconds** to zip 4.7 GB into 4.34 GB, one
+core, single-threaded. In the office that is what one analyst uploading one
+document costs: a 3.5-minute apparent hang with the ingest lock held, growing
+with the corpus. Office write rates will not pile up 500 versions, so the
+corpus stays smaller there — but zip-the-whole-corpus-per-write does not scale.
+An incremental or copy-on-write snapshot is the real fix. **Follow-up, not
+done, and it should be done before the office relies on uploads.**
 
 ---
 
