@@ -823,7 +823,11 @@ nav.primary{position:relative;padding-right:44px;}
    scrollbar across the whole thread. Same bug .yscroll fixed above. */
 /* Depth comes from the surface ramp (canvas page, card bubbles) — the thread
    floor goes canvas so white bubbles lift off it without shadows (Task 13). */
-.chat-thread-scroll { height: 100%; overflow-y: auto; overflow-x: hidden; padding: 24px 16px calc(var(--ai-bottom-chrome, 120px) + 12px); background: var(--canvas); }
+/* TRANSPARENT on purpose — the ground is painted by `.ai-panel-chat` (search
+   "the chat ground" below). Painting `var(--canvas)` here again would cover it
+   completely, and nothing else would look wrong; the gradient would simply
+   stop existing. A contract spec pins this. */
+.chat-thread-scroll { height: 100%; overflow-y: auto; overflow-x: hidden; padding: 24px 16px calc(var(--ai-bottom-chrome, 120px) + 12px); background: transparent; }
 /* NOTHING IN THE TOOLTIP'S ANCESTOR CHAIN MAY DECLARE CSS CONTAINMENT.
    This scroller briefly carried `container-type: inline-size` (to drive a
    container query that docked the mascot). That undid the fix two commits
@@ -1660,6 +1664,29 @@ html.ai-fullpage header.site{flex:0 0 auto;}
    the slide-behind reads as depth, with a solid fallback where blur is
    unsupported. */
 .ai-panel-chat{position:relative;}
+/* ----- the chat ground -------------------------------------------------------
+   A flat sheet of --canvas across a viewport-height column read as a lot of
+   nothing, most of all on the empty state where the mascot has a whole screen
+   to himself (Destin, 2026-08-02: "there's too much white space rn").
+
+   Three navy washes over the canvas, painted on the NON-scrolling container so
+   they stay put while the thread moves under them — a ground that scrolled
+   with the messages would read as content.
+
+   The colour is `--navy` (#2b2f63 = 43,47,99) at low alpha. tokens.css defines
+   no alpha variants and S12 forbids inventing palette entries, so this is the
+   same alpha-composited-navy vocabulary the mockup's own subhero used
+   (`rgba(18,21,48,.94)` etc). No new hue enters the page. */
+.ai-panel-chat{
+  background:
+    /* the pool the floating composer sits on, so its blur has something to do */
+    radial-gradient(120% 52% at 50% 100%, rgba(43,47,99,.105) 0%, rgba(43,47,99,0) 72%),
+    /* a wash off the header, so the thread is attached to the page above it */
+    linear-gradient(180deg, rgba(43,47,99,.055) 0%, rgba(43,47,99,0) 20%),
+    /* and an edge vignette that quietly aims the eye at the 768px column */
+    radial-gradient(72% 68% at 50% 44%, rgba(43,47,99,0) 42%, rgba(43,47,99,.05) 100%),
+    var(--canvas);
+}
 /* `right` is INSET by the thread scroller's own scrollbar width, published as
    --ai-scrollbar by AiModePanel's measuring effect. At right:0 this block
    painted over the bottom of that scrollbar, so the bar appeared to run under
@@ -1731,9 +1758,9 @@ html.ai-fullpage header.site{flex:0 0 auto;}
    the resting state is the tinted track with one danger-coloured arc running
    round it. */
 .ask-stop{position:relative;flex:0 0 auto;display:inline-flex;align-items:center;justify-content:center;
-  width:30px;height:30px;padding:0;cursor:pointer;color:var(--chat-danger);
+  width:26px;height:26px;padding:0;cursor:pointer;color:var(--chat-danger);
   background:transparent;border:0;border-radius:50%;transition:background .15s;}
-.ask-stop svg{width:11px;height:11px;}
+.ask-stop svg{width:20px;height:20px;}
 .ask-stop::before{content:"";position:absolute;inset:0;border-radius:50%;
   border:2px solid var(--chat-danger-tint);border-top-color:var(--chat-danger);
   animation:ask-spin .8s linear infinite;}

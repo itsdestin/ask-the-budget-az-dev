@@ -69,6 +69,21 @@ function ruleFor(selector: string): string {
   return css.slice(open + 1, close);
 }
 
+/** EVERY rule body whose selector list ends in `selector`, concatenated.
+ *
+ *  Unlike `bareRule`, which returns the first match only. This stylesheet
+ *  deliberately splits a selector across thematic blocks — `.ai-panel-chat`
+ *  carries its flex sizing in the panel block, `position:relative` in the
+ *  floating-chrome block, and its background in the ground block — so a
+ *  first-match lookup silently asserts against whichever one happens to come
+ *  first in the file. */
+function bareRulesFor(selector: string): string {
+  const re = new RegExp(escapeRe(selector) + "\\s*\\{([^}]*)\\}", "g");
+  const bodies = [...bare.matchAll(re)].map((m) => m[1]);
+  expect(bodies.length, `selector ${selector} must exist`).toBeGreaterThan(0);
+  return bodies.join("\n");
+}
+
 describe("chat CSS containment contract", () => {
   it("the thread scroller guards its x axis", () => {
     expect(ruleFor(".chat-thread-scroll")).toMatch(/overflow-x:\s*hidden/);
@@ -559,6 +574,33 @@ describe("chat CSS containment contract", () => {
     const bubble = bareRule(".chat-welcome-bubble");
     expect(bubble).toMatch(/border-bottom-left-radius:\s*4px/);
     expect(bare).not.toMatch(/\.chat-welcome-bubble(::before|::after)/);
+  });
+
+  // 2026-08-02. The thread's ground is painted on `.ai-panel-chat` — the
+  // non-scrolling container — so it stays put while messages move under it.
+  // The scroller sits ON TOP of it and must stay transparent: re-adding
+  // `background: var(--canvas)` there covers the gradient completely, and
+  // NOTHING else looks wrong. The page just goes back to being a flat sheet,
+  // which is the exact thing this replaced.
+  it("the thread ground is on the panel, and the scroller does not cover it", () => {
+    const ground = bareRulesFor(".ai-panel-chat");
+    expect(ground, "the ground lives on the non-scrolling container").toMatch(
+      /radial-gradient/,
+    );
+    expect(ground).toMatch(/var\(--canvas\)/);
+    const scroller = bareRule(".chat-thread-scroll");
+    expect(scroller).toMatch(/background:\s*transparent/);
+    expect(scroller).not.toMatch(/background:\s*var\(--canvas\)/);
+  });
+
+  // S12: one palette, tokens copied verbatim, no invented entries. The washes
+  // are alpha-composited --navy (#2b2f63 = 43,47,99), the same vocabulary the
+  // mockup's own subhero used — so no NEW hue may appear in them.
+  it("the ground introduces no colour that is not navy", () => {
+    const ground = bareRulesFor(".ai-panel-chat");
+    for (const rgba of ground.match(/rgba\([^)]*\)/g) ?? []) {
+      expect(rgba, `${rgba} is not the navy token`).toMatch(/rgba\(43,\s*47,\s*99,/);
+    }
   });
 
   // The stop button's ring is the ONLY indication that a turn is still
