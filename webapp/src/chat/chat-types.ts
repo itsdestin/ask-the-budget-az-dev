@@ -53,6 +53,10 @@ export interface AssistantTurn {
   stopReason?: string;
   model?: string;
   anthropicRequestId?: string;
+  /** The server's figure annotation, from the `_done` frame: what every
+   *  figure in this turn's answer is backed by. Absent on turns that
+   *  predate citation linking, and on turns that ended in an error. */
+  annotation?: unknown;
   /** Token + cache usage from the turn-complete event. */
   usage?: {
     inputTokens: number;
@@ -132,6 +136,7 @@ export type ChatAction =
       stopReason: string;
       model?: string;
       anthropicRequestId?: string;
+      annotation?: unknown;
       usage?: AssistantTurn["usage"];
       uuid: string;
       timestamp: number;

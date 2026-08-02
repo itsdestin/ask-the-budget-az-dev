@@ -167,6 +167,7 @@ export default function AssistantTurnBubble({
               <CitedMarkdownContent
                 content={renderText}
                 citations={blockCitations}
+                annotation={turn.annotation}
               />
             </div>
           );

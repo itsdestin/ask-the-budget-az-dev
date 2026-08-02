@@ -342,15 +342,23 @@ function handleSseFrame(frame: string, dispatch: Dispatch): FrameOutcome {
   }
   if (typeof parsed !== "object" || parsed === null) return "ignored";
 
-  const obj = parsed as { type?: string; message?: string; stopReason?: string };
+  const obj = parsed as {
+    type?: string;
+    message?: string;
+    stopReason?: string;
+    annotation?: unknown;
+  };
 
   if (obj.type === "_done") {
     // `turn_complete` normally arrived just before this and already closed the
     // turn; dispatching again is a no-op on a closed turn and a safety net if
-    // the harness ever ends a turn without one.
+    // the harness ever ends a turn without one. The figure annotation rides
+    // ONLY on this frame, so it is attached here even though the turn is
+    // already closed — the reducer merges it onto the closed turn.
     dispatch({
       type: "TURN_COMPLETE",
       stopReason: obj.stopReason ?? "end_turn",
+      annotation: obj.annotation,
       uuid: "done",
       timestamp: Date.now(),
     });

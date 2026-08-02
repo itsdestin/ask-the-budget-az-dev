@@ -15,6 +15,7 @@ import { useState } from "react";
 
 import { formatCopyCitation, type Citation } from "./citation-extract.js";
 import { useCitationBus } from "./citation-context.js";
+import type { AnnotationFigure } from "./citation-annotation.js";
 
 interface Props {
   citation: Citation;
@@ -99,6 +100,131 @@ export default function CitationChip({ citation, inlineText }: Props) {
       </button>
       {open && <CitationTooltip citation={citation} />}
     </span>
+  );
+}
+
+/** The chip for a figure the SYSTEM linked, as opposed to a claim the model
+ *  cited. Three states, and the difference between them is the whole point
+ *  of Decision 1 in the design: a computed total that renders like a sourced
+ *  figure is what erodes trust in a table.
+ *
+ *  - linked      — opens the primary source, lists outranked editions
+ *  - derived     — says what it was computed FROM, offers no source link
+ *  - unverified  — says plainly that it was not found in the sources
+ */
+export function FigureChip({ figure }: { figure: AnnotationFigure }) {
+  const [open, setOpen] = useState(false);
+  const [firing, setFiring] = useState(false);
+  const bus = useCitationBus();
+
+  const tone =
+    figure.verdict === "linked"
+      ? "is-verbatim"
+      : figure.verdict === "derived"
+        ? "is-paraphrase"
+        : "is-failed";
+  // Two test hooks, deliberately on different elements. The BUTTON is
+  // always "citation-chip", so a test can count every chip on the page in
+  // reading order — that count is the reported defect (2 chips on a
+  // 10-row table). The WRAPPER carries the verdict-and-index marker, so a
+  // test can also assert that figure 3 specifically renders as derived.
+  // One element cannot answer both questions: data-testid is single-valued.
+  const wrapperTestId = `citation-chip-${figure.verdict}-${figure.index}`;
+
+  const handleClick = () => {
+    // Only a linked figure has somewhere to go. A derived or unverified
+    // chip must not open a viewer — claiming a source it hasn't got is
+    // exactly the failure this design exists to remove.
+    if (figure.verdict === "linked" && figure.primary) {
+      bus.select({
+        chunkId: figure.primary.chunkId,
+        claimSpan: figure.text,
+        confidence: "verbatim",
+        index: figure.index,
+        spanStart: figure.primary.start,
+        spanEnd: figure.primary.end,
+        sourceText: figure.primary.sourceText,
+      } as unknown as Citation);
+    }
+    setFiring(true);
+    setTimeout(() => setFiring(false), 250);
+  };
+
+  return (
+    <span
+      className="chat-cite-pill-wrap"
+      data-testid={wrapperTestId}
+      onMouseEnter={() => setOpen(true)}
+      onMouseLeave={() => setOpen(false)}
+    >
+      <button
+        type="button"
+        data-testid="citation-chip"
+        data-figure-verdict={figure.verdict}
+        onClick={handleClick}
+        onFocus={() => setOpen(true)}
+        onBlur={() => setOpen(false)}
+        className={`cite-chip${firing ? " cite-chip-firing" : ""} chat-cite-pill ${tone}`}
+        aria-label={`Figure ${figure.index}, ${figure.verdict}: ${figure.text}`}
+      >
+        {figure.index}
+      </button>
+      {open && <FigureTooltip figure={figure} />}
+    </span>
+  );
+}
+
+function FigureTooltip({ figure }: { figure: AnnotationFigure }) {
+  if (figure.verdict === "derived") {
+    const inputs = figure.derivedFrom.map((n) => `[${n}]`).join(" and ");
+    return (
+      <div role="tooltip" className="chat-cite-tooltip">
+        <div className="chat-cite-tooltip-head">
+          <span className="chat-cite-tooltip-index">[{figure.index}]</span>
+          <span className="chat-cite-tooltip-title">Computed figure</span>
+        </div>
+        <div className="chat-cite-claim">
+          {inputs ? `Computed from ${inputs}` : "Computed from other figures"}
+        </div>
+      </div>
+    );
+  }
+  if (figure.verdict === "unverified") {
+    return (
+      <div role="tooltip" className="chat-cite-tooltip">
+        <div className="chat-cite-tooltip-head">
+          <span className="chat-cite-tooltip-index">[{figure.index}]</span>
+          <span className="chat-cite-tooltip-title">No source found</span>
+        </div>
+        <div className="chat-cite-fail">
+          <div>This figure was not found in the retrieved sources.</div>
+        </div>
+      </div>
+    );
+  }
+  return (
+    <div role="tooltip" className="chat-cite-tooltip">
+      <div className="chat-cite-tooltip-head">
+        <span className="chat-cite-tooltip-index">[{figure.index}]</span>
+        <span className="chat-cite-tooltip-title">
+          {figure.primary ? `chunk ${figure.primary.chunkId}` : "source"}
+        </span>
+      </div>
+      {figure.primary && (
+        <blockquote className="chat-cite-quote">
+          {figure.primary.sourceText}
+        </blockquote>
+      )}
+      {figure.additional.length > 0 && (
+        // Outranked editions of the same material. Shown rather than
+        // hidden: the analyst decides whether the Baseline agreeing with
+        // the Approps Report matters to their question.
+        <div className="chat-cite-claim">
+          <span className="chat-cite-claim-label">Also appears in:</span>{" "}
+          {figure.additional.map((a) => a.chunkId).join(", ")}
+        </div>
+      )}
+    </div>
   );
 }
 

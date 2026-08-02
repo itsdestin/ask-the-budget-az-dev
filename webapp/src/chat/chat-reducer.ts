@@ -190,7 +190,21 @@ export function chatReducer(state: ChatState, action: ChatAction): ChatState {
       // is open, do nothing — defensive against stray events.
       const idx = lastOpenAssistantIndex(state);
       if (idx < 0) {
-        return { ...state, isThinking: false };
+        // The turn is ALREADY closed — the normal case for the `_done`
+        // frame, which arrives after `turn_complete` has closed it. `_done`
+        // is the only frame carrying the figure annotation, so returning
+        // early here would drop every figure chip in production while every
+        // unit test still passed. Attach it to the turn that just closed.
+        const closedIdx = lastAssistantIndex(state);
+        if (action.annotation === undefined || closedIdx < 0) {
+          return { ...state, isThinking: false };
+        }
+        const turns = [...state.turns];
+        turns[closedIdx] = {
+          ...(turns[closedIdx] as AssistantTurn),
+          annotation: action.annotation,
+        };
+        return { ...state, turns, isThinking: false };
       }
       const existing = state.turns[idx] as AssistantTurn;
       const closed: AssistantTurn = {
@@ -202,6 +216,12 @@ export function chatReducer(state: ChatState, action: ChatAction): ChatState {
           ? { anthropicRequestId: action.anthropicRequestId }
           : {}),
         ...(action.usage !== undefined ? { usage: action.usage } : {}),
+        // Only overwrite when the frame actually carried one. `turn_complete`
+        // arrives just before `_done` and has no annotation; letting it write
+        // `undefined` would erase the annotation the very next event brings.
+        ...(action.annotation !== undefined
+          ? { annotation: action.annotation }
+          : {}),
       };
       const turns = state.turns.slice();
       turns[idx] = closed;
@@ -319,6 +339,17 @@ export function chatActionFromProviderEvent(
 // ---------------------------------------------------------------------------
 
 /** Returns -1 if no open assistant turn exists. */
+/** The most recent assistant turn regardless of whether it is still open.
+ *  Needed because the annotation arrives on `_done`, one frame AFTER
+ *  `turn_complete` has already closed the turn it belongs to. */
+function lastAssistantIndex(state: ChatState): number {
+  for (let i = state.turns.length - 1; i >= 0; i--) {
+    const t = state.turns[i];
+    if (t && t.kind === "assistant") return i;
+  }
+  return -1;
+}
+
 function lastOpenAssistantIndex(state: ChatState): number {
   for (let i = state.turns.length - 1; i >= 0; i--) {
     const t = state.turns[i];

@@ -39,25 +39,61 @@ import {
   type Citation,
 } from "./citation-extract.js";
 
-import CitationChip from "./CitationChip.js";
+import CitationChip, { FigureChip } from "./CitationChip.js";
+import {
+  figuresForRender,
+  placeFigures,
+  type AnnotationFigure,
+} from "./citation-annotation.js";
 
 const remarkPluginsStable = [remarkGfm];
 const rehypePluginsStable = [rehypeHighlight];
 
+/** Figure sentinel, deliberately a separate namespace from `{{cite:N}}`.
+ *  Model-issued prose citations and system-linked figures are different
+ *  things with different chips; sharing one sentinel would make an
+ *  off-by-one in either resolve to the other's chip. */
+const FIG_SENTINEL_RE = /\{\{fig:(\d+)\}\}/g;
+
 interface Props {
   content: string;
   citations: Citation[];
+  /** The server's figure annotation for this turn. Absent on turns
+   *  recorded before citation linking shipped, which must still render. */
+  annotation?: unknown;
 }
 
-export default function CitedMarkdownContent({ content, citations }: Props) {
+export default function CitedMarkdownContent({
+  content,
+  citations,
+  annotation,
+}: Props) {
+  const figures = useMemo(() => figuresForRender(annotation), [annotation]);
+
   // Build the augmented markdown once per (content, citations) change. Both
   // inputs are stable across re-renders because the parent memoizes
   // citations, so this runs roughly once per turn, not per streamed token.
   const augmentedContent = useMemo(() => {
-    if (citations.length === 0) return content;
-    const placements = planCitationPlacements(content, citations);
-    return injectCiteSentinels(content, placements);
-  }, [content, citations]);
+    let out = content;
+    if (citations.length > 0) {
+      const placements = planCitationPlacements(out, citations);
+      out = injectCiteSentinels(out, placements);
+    }
+    if (figures.length > 0) {
+      // Resolve positions against the text the cite pass just produced —
+      // injecting cite sentinels first shifts every later offset, so
+      // resolving beforehand would put figure chips adrift by exactly the
+      // number of characters the cite sentinels added.
+      const placed = placeFigures(out, figures);
+      // Right-to-left, so an earlier insertion cannot move a later target.
+      for (let i = placed.length - 1; i >= 0; i -= 1) {
+        const { figure, at } = placed[i]!;
+        const slot = figures.indexOf(figure);
+        out = `${out.slice(0, at)}{{fig:${slot}}}${out.slice(at)}`;
+      }
+    }
+    return out;
+  }, [content, citations, figures]);
 
   // Closure that wraps a ReactMarkdown element override and runs the
   // sentinel-replacement walker on its children. Applied to every
@@ -67,7 +103,7 @@ export default function CitedMarkdownContent({ content, citations }: Props) {
     const wrap = (render: ChildRenderer) => {
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       return ({ children, ...props }: any) => {
-        const transformed = walkAndReplaceSentinels(children, citations);
+        const transformed = walkAndReplaceSentinels(children, citations, figures);
         return render(transformed, props);
       };
     };
@@ -92,7 +128,7 @@ export default function CitedMarkdownContent({ content, citations }: Props) {
         </div>
       ),
     };
-  }, [citations]);
+  }, [citations, figures]);
 
   return (
     <div className="chat-md">
@@ -124,10 +160,11 @@ type ChildRenderer = (
 function walkAndReplaceSentinels(
   children: ReactNode,
   citations: Citation[],
+  figures: AnnotationFigure[] = [],
 ): ReactNode {
   return React.Children.map(children, (child) => {
     if (typeof child === "string") {
-      return splitStringOnSentinels(child, citations);
+      return splitStringOnSentinels(child, citations, figures);
     }
     if (typeof child === "number") return child;
     if (child === null || child === undefined) return child;
@@ -135,7 +172,11 @@ function walkAndReplaceSentinels(
       const element = child as React.ReactElement<{ children?: ReactNode }>;
       const props = element.props;
       if (props.children !== undefined) {
-        const newChildren = walkAndReplaceSentinels(props.children, citations);
+        const newChildren = walkAndReplaceSentinels(
+          props.children,
+          citations,
+          figures,
+        );
         return React.cloneElement(element, undefined, newChildren);
       }
       return child;
@@ -147,26 +188,41 @@ function walkAndReplaceSentinels(
 function splitStringOnSentinels(
   text: string,
   citations: Citation[],
+  figures: AnnotationFigure[] = [],
 ): ReactNode {
-  if (!text.includes("{{cite:")) return text;
+  const hasCite = text.includes("{{cite:");
+  const hasFig = text.includes("{{fig:");
+  if (!hasCite && !hasFig) return text;
+
+  // Both sentinel kinds are collected in ONE positional pass. Running two
+  // sequential passes would let the second pass's slicing lose the chips
+  // the first pass had already turned into React elements.
+  const marks: { at: number; len: number; node: ReactNode; raw: string }[] = [];
+  const collect = (re: RegExp, build: (i: number) => ReactNode) => {
+    re.lastIndex = 0; // global regexes carry state across calls
+    let m: RegExpExecArray | null;
+    while ((m = re.exec(text)) !== null) {
+      const idx = Number.parseInt(m[1]!, 10);
+      marks.push({ at: m.index, len: m[0].length, node: build(idx), raw: m[0] });
+    }
+  };
+  collect(CITE_SENTINEL_RE, (idx) => {
+    const cite = citations[idx];
+    // Out of range — surface the sentinel so the bug is visible.
+    return cite ? <CitationChip key={`cite-${idx}`} citation={cite} /> : null;
+  });
+  collect(FIG_SENTINEL_RE, (idx) => {
+    const figure = figures[idx];
+    return figure ? <FigureChip key={`fig-${idx}`} figure={figure} /> : null;
+  });
+  marks.sort((a, b) => a.at - b.at);
+
   const out: ReactNode[] = [];
   let lastEnd = 0;
-  // Reset the regex index — global regexes carry state across calls.
-  CITE_SENTINEL_RE.lastIndex = 0;
-  let match: RegExpExecArray | null;
-  while ((match = CITE_SENTINEL_RE.exec(text)) !== null) {
-    const idx = Number.parseInt(match[1]!, 10);
-    const cite = citations[idx];
-    if (match.index > lastEnd) {
-      out.push(text.slice(lastEnd, match.index));
-    }
-    if (cite) {
-      out.push(<CitationChip key={`cite-${idx}`} citation={cite} />);
-    } else {
-      // Out of range — surface the sentinel so the bug is visible.
-      out.push(match[0]);
-    }
-    lastEnd = match.index + match[0].length;
+  for (const mark of marks) {
+    if (mark.at > lastEnd) out.push(text.slice(lastEnd, mark.at));
+    out.push(mark.node ?? mark.raw);
+    lastEnd = mark.at + mark.len;
   }
   if (lastEnd < text.length) out.push(text.slice(lastEnd));
   // Keep the original string when no sentinels were found, so React doesn't
