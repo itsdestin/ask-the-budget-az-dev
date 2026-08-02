@@ -1,6 +1,6 @@
 # Project Status
 
-**Last updated:** 2026-08-01
+**Last updated:** 2026-08-02
 
 This file is the single source of truth for what's shipped, what's
 open, and what's blocked. The phase plans under `docs/superpowers/`
@@ -454,6 +454,169 @@ by tests.
 unverified tone, the "Also appears in:" list, and chip click opening the
 PDF at the source rendering. 22 new vitest specs cover the logic; nobody
 has watched it render.
+
+---
+
+## Query understanding — SHIPPED (2026-08-02)
+
+Spec: `docs/superpowers/specs/2026-08-02-query-understanding-design.md` (Q1–Q6).
+Plan: `docs/superpowers/plans/2026-08-02-query-understanding.md`. Branch
+`query-understanding`, 9 tasks.
+
+**An analyst typing the shorthand they actually use now gets that agency's
+documents, of that type.** `RetrievalRequest` already carried `agency_canonical_id`
+and `doc_type` filters that reached LanceDB; nothing populated them from query
+text. Three parsers now do, mirroring the existing `query_year.py`.
+
+**Measured against a CONTROL run of unmodified master on the same machine
+under the same load** — not against the morning's recorded baseline, because
+the box was at load 11 and the apparent latency regression was entirely
+contention:
+
+| | control (master) | shipped |
+|---|---|---|
+| recall@5 | 73.81% | **85.71%** |
+| recall@15 / @20 | 97.62% | 97.62% |
+| refusal precision | 60% | 60% |
+
+**+11.9 points of recall@5. Gate G1 passes.** Suite 1986 → **2169**.
+
+On the six shorthand queries that motivated the work
+(`eval/navigational_check.py`, precision@5):
+
+| | before | after |
+|---|---|---|
+| mean agency precision | 0.767 | **0.867** |
+| mean doc-type precision | 0.200 | **0.867** |
+| mean chronological | 0.750 | 0.750 |
+
+### 🔴 What this does NOT fix — the newest edition is not in the pool
+
+**Chronological order is UNCHANGED at 0.750, and raising the recency weight
+does not move it.** Measured, not assumed: at `RECENCY_BOOST_PER_YEAR` 0.85,
+2.0 and 4.0, `ahcccs appropriations report` returns FY2025/FY2024 and **never
+surfaces FY2026, which exists**. `doc baseline` tops out at FY2026 when FY2027
+exists.
+
+The cause is one stage upstream of the boost. With the agency + doc-type
+filter applied there are still ~2,000 near-identical AHCCCS approps chunks
+spanning FY2005–2026; the RRF pool is capped at 20, and which 20 surface is
+close to arbitrary. `pipeline.py` already warns that the boost "can only
+reorder chunks it can see" — this is that failure, one layer earlier than the
+fix addresses.
+
+**Do not re-tune `RECENCY_BOOST_PER_YEAR` for this.** It was measured not to
+help, and 0.85 was deliberately calibrated on 2026-08-02. The real fix is
+edition diversity in the candidate pool, which touches every query.
+
+### Calibration
+
+**`MATCH_PENALTY = 2.0`** (`retrieval/agency_boost.py`), penalty-shaped like
+the recency boost so `top_score` can only fall. recall@5 plateaus at .8571
+from 0.5 through 3.0 and drops to .8333 at 3.5.
+
+**2.0 is the SMALLEST weight on the plateau, and that inverts the recency
+rule on purpose.** "Largest weight that costs nothing" was right for recency
+because every step up bought better ordering. Here nothing improves past 2.0
+on either instrument — recall@5 and navigational precision are identical at
+2.0 and 3.0 — so the smaller weight wins: it intervenes less and sits 1.5
+from the cliff rather than 0.5.
+
+**`REFUSAL_THRESHOLD` stays 1.46**, and `calibrate_refusal.py`'s −0.77
+recommendation was deliberately rejected. The penalty did not disturb the
+distribution (`max_top_score` 8.6779 at every weight 0.0–4.0, because a
+penalty only lowers NON-matching chunks and the best chunk always matched),
+and −0.77 trades refusal RECALL 0.60 → 0.40 for precision, i.e. it refuses
+LESS — backwards under Invariant 3. Reasoning is recorded at the constant.
+
+### 🔴 The stoplist was load-bearing, and the review gate would NOT have caught it
+
+`chunking/agency_catalog.py` adds every JLBC slug as an alias unconditionally,
+and **13 of the 145 slugs are ordinary English words** — `art ban bar bat den
+des dot for lot opt per pod tax`.
+
+**`for` is a preposition and appears as a standalone token in 14 of the 47
+eval queries.** Unstoplisted it resolved EXACT and hard-filtered all of them
+onto the Department of Forestry and Fire Management.
+
+These arrive through SLUGS, not through drafted aliases, so **Task 8's human
+review gate could not have caught them** — they are live whether or not any
+alias is ever approved. Two independent derivations agreed: a frequency count
+over 247,607 tokens of real budget English (`gov` 5944 · `per` 3993 · `tax`
+541 · `for` 474, then a ~190 noise floor) and an ordinary-word scan.
+
+`AMBIGUOUS_AGENCIES` was added beside `AMBIGUOUS_ALIASES` because the alias
+stoplist demotes a STRING in one tier only: `gov` sat in it doing nothing
+while *"the Governor"* resolved EXACT by NAME in tier 1 and hard-filtered
+n-003 onto the Governor's Office.
+
+### Two silent wrong-answer paths, found before the eval was run
+
+Both share a shape worth naming: **a bad guess that SUCCEEDS**, so the Q3
+empty-result fallback never fires and the analyst is never told a filter was
+inferred. A guess returning nothing is self-correcting; a guess returning the
+wrong thing is not.
+
+- **`chapter 21 baseline`** read as a FY2021 hard filter — the JLBC shorthand
+  bypassed the designator guard the four-digit rule already used. FY2021
+  baselines exist, so the query silently returned one year's documents.
+- **`general appropriation act` → `budget-bill`.** It is the NAME OF A LAW,
+  not a request for the bill. The phrase appears in **6,253 corpus chunks,
+  ZERO of them budget-bill**, while the whole `budget-bill` type is a single
+  136-chunk document. It cost eval queries n-003 and n-007 their ground truth.
+
+Found by `tests/test_query_understanding_eval_safety.py`, which checks the
+parsers against the eval set's own ground truth — Risk 2 in the plan is that
+the stoplist is hand-maintained and will drift, and a hand-written list
+cannot guard itself.
+
+### 🔴 The corpus has the SAME missing-alias problem, on the ingest side
+
+**q-009 is the one query a correct inference still loses, and it is the
+corpus's fault.** The query names "the DOR Unclaimed Property Fund"; the
+parser resolves `agency:dor` correctly; the AFR chunk that answers it is
+stamped **only `agency:sba`**, because `chunking/entity_stamper.py` cannot
+resolve "DOR" in document text either — **103 of the 157 agencies carry no
+alias at all.**
+
+The query side now has aliases. **The ingest side does not, and fixing it
+means a re-ingest.** q-009 was already failing before this work (ground truth
+outside the top 20), so nothing regressed — a hard filter just makes it
+unrecoverable rather than low-ranked. It is an explicit allow-list entry with
+two tests keeping the list from growing.
+
+**Approving the alias checklist would therefore improve BOTH sides**, but only
+the query side takes effect without re-ingesting.
+
+### ⏸ Task 8 — the alias checklist is DRAFTED and AWAITING REVIEW
+
+`docs/superpowers/investigations/2026-08-02-agency-alias-review.md` — **158
+proposals across 100 agencies** (47 high / 38 medium / 15 low), 56 collisions
+already dropped, ~35–50 minutes to review. **Nothing drafted has been applied.**
+Only two aliases ship, both named by Destin himself: `doc` → Corrections,
+`dema` → Emergency and Military Affairs.
+
+### Catalog debris removed
+
+Two PDF-extraction fragments that would fuzzy-match noise:
+`'pp y, Economic Security, Department of'` on `agency:des`, and a bare
+`'Board of'` on `agency:ost` — a page break split *"…, Arizona / Board of"*
+and the harvester kept both halves; it would have hard-filtered *"board of
+regents"* onto Osteopathic Examiners. Guarded as a class, not as two
+instances.
+
+### Follow-ups this created
+
+- **Edition diversity in the candidate pool** — the chronological finding
+  above. The real fix for navigational queries.
+- **Fund resolution** has the identical gap and the identical fix shape;
+  deliberately deferred to keep this one reviewable (spec, Out of scope).
+- **The UI does not yet show what was inferred or dropped.** `RetrievalResult`
+  now carries `inferred_agencies`, `inferred_doc_types` and `dropped_filters`
+  precisely so it can — coordinate with the in-flight AI Mode UI redesign
+  rather than inventing a second pattern.
+- **`AMBIGUOUS_ALIASES` remains hand-maintained** and must be re-reviewed
+  whenever the catalog gains aliases.
 
 ---
 
