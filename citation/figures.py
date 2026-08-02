@@ -20,10 +20,14 @@ _FIGURE_RE = re.compile(
     r"|\$\s?\d+\.\d+"                         # $1.06
     r"|\d{1,3}(?:,\d{3})+(?:\.\d+)?"          # 101,602
 )
-# "FY 2026" and "in 2026" are labels, never amounts. The \b matters: without
-# it every word ending in "in" ("within", "margin") reads as a year cue and
-# silently drops a real figure.
-_YEAR_CONTEXT = re.compile(r"\b(?:FY|fiscal year|in)\s*$", re.IGNORECASE)
+# NO YEAR GUARD, deliberately. An earlier version skipped a match preceded by
+# "FY" / "fiscal year" / "in", to keep "FY 2026" from reading as an amount.
+# It had no true positives available to it: _FIGURE_RE requires comma-grouping
+# or a currency marker with a decimal, so a bare four-digit year can never
+# match it in the first place (pinned by
+# test_no_year_can_reach_the_extractor_in_the_first_place). All it did was
+# cost real money — "took in $27,362,036.72" lost its chip in a live answer on
+# 2026-08-02, because "in" before a dollar amount is ordinary English.
 _SUFFIX = (
     (re.compile(r"^\s*billion", re.IGNORECASE), 1_000_000_000),
     (re.compile(r"^\s*million", re.IGNORECASE), 1_000_000),
@@ -76,9 +80,6 @@ def extract_figures(answer: str) -> list[Figure]:
     figures: list[Figure] = []
     for m in _FIGURE_RE.finditer(answer):
         raw = m.group(0)
-        # Reject year labels: "FY 2026" reads as a figure without this.
-        if _YEAR_CONTEXT.search(answer[max(0, m.start() - 16):m.start()]):
-            continue
         # A percentage is virtually always computed, not quoted.
         if answer[m.end():m.end() + 1] == "%":
             continue

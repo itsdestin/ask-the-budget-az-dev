@@ -134,3 +134,21 @@ def test_the_model_is_not_asked_to_cite_the_figures():
     # ...and the figures are cited anyway.
     assert all(f["verdict"] != "unverified"
                for f in done["annotation"]["figures"])
+
+
+def test_a_figure_chip_has_what_it_needs_to_open_the_pdf():
+    # The payoff of the whole design: click a number, see it highlighted on
+    # the page. On 2026-08-02 every figure chip landed on "Couldn't open
+    # source PDF" because the annotation carried only a chunk_id, and the
+    # viewer needs doc_id + page_start.
+    configure_ai()
+    c = client_for(build_app(session_factory=_real_session_factory()))
+    cid = new_conversation(c)
+    r = c.post(f"/api/conversations/{cid}/messages",
+               json={"text": "biggest agencies", "tier": "standard"})
+    primary = frames_of(r)[-1]["annotation"]["figures"][0]["primary"]
+    assert primary["doc_id"] == "d1"
+    assert primary["page_start"] == 3
+    assert primary["doc_title"] == "FY2026 Approps"
+    assert primary["publisher"] == "jlbc"
+    assert primary["fiscal_year"] == 2026

@@ -136,14 +136,33 @@ export function FigureChip({ figure }: { figure: AnnotationFigure }) {
     // chip must not open a viewer — claiming a source it hasn't got is
     // exactly the failure this design exists to remove.
     if (figure.verdict === "linked" && figure.primary) {
+      const p = figure.primary;
       const selected: Citation = {
-        chunkId: figure.primary.chunkId,
+        chunkId: p.chunkId,
         claimSpan: figure.text,
         confidence: "verbatim",
         index: figure.index,
-        spanStart: figure.primary.start,
-        spanEnd: figure.primary.end,
-        sourceText: figure.primary.sourceText,
+        spanStart: p.start,
+        spanEnd: p.end,
+        sourceText: p.sourceText,
+        // PdfViewer opens nothing without resolved.docId + pageStart — it
+        // renders "Couldn't open source PDF" instead, which is what every
+        // figure chip did until the annotation started carrying these.
+        // `text` is absent by design (the annotation does not ship chunk
+        // bodies), so the highlighter works from `sourceText`.
+        resolved: p.docId
+          ? {
+              docId: p.docId,
+              docTitle: p.docTitle ?? "",
+              publisher: p.publisher ?? "",
+              docType: p.docType ?? "",
+              fiscalYear: p.fiscalYear,
+              pageStart: p.pageStart,
+              pageEnd: p.pageEnd,
+              bbox: p.bbox,
+              text: "",
+            }
+          : undefined,
       };
       bus.select(selected);
     }

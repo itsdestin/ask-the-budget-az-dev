@@ -14,6 +14,17 @@ export interface AnnotationSource {
   sourceText: string;
   start: number;
   end: number;
+  /** Locator fields — what the PDF viewer needs to OPEN this source. A
+   *  chunkId alone leaves every figure chip on "Couldn't open source PDF".
+   *  Null whenever the retrieve payload didn't carry them. */
+  docId: string | null;
+  docType: string | null;
+  docTitle: string | null;
+  publisher: string | null;
+  fiscalYear: number | null;
+  pageStart: number | null;
+  pageEnd: number | null;
+  bbox: number[] | null;
 }
 
 export interface AnnotationFigure {
@@ -31,11 +42,23 @@ function toSource(raw: unknown): AnnotationSource | null {
   if (!raw || typeof raw !== "object") return null;
   const r = raw as Record<string, unknown>;
   if (typeof r.chunk_id !== "string") return null;
+  const str = (v: unknown) => (typeof v === "string" && v ? v : null);
+  const num = (v: unknown) => (typeof v === "number" ? v : null);
   return {
     chunkId: r.chunk_id,
     sourceText: typeof r.source_text === "string" ? r.source_text : "",
     start: typeof r.start === "number" ? r.start : 0,
     end: typeof r.end === "number" ? r.end : 0,
+    docId: str(r.doc_id),
+    docType: str(r.doc_type),
+    docTitle: str(r.doc_title),
+    publisher: str(r.publisher),
+    fiscalYear: num(r.fiscal_year),
+    pageStart: num(r.page_start),
+    pageEnd: num(r.page_end),
+    bbox: Array.isArray(r.bbox)
+      ? r.bbox.filter((n): n is number => typeof n === "number")
+      : null,
   };
 }
 

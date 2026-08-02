@@ -15,9 +15,30 @@ from citation.matching import find_in_chunks
 from citation.reconcile import reconcile
 
 
-def _hit_dict(hit) -> dict[str, Any]:
+def _hit_dict(hit, meta: dict[str, dict[str, Any]]) -> dict[str, Any]:
+    """One source record, carrying enough to OPEN it.
+
+    `chunk_id` alone is not enough: the PDF viewer needs `doc_id` and
+    `page_start` or it renders "Couldn't open source PDF", which is what
+    every figure chip did before this. The locator fields ride on the
+    annotation so it is self-describing — the eval judge and any later
+    audit read the same record the UI does.
+
+    Chunk TEXT is deliberately absent. It would multiply the annotation by
+    a chunk body per figure, and the highlighter searches `source_text`
+    first anyway.
+    """
+    info = meta.get(hit.chunk_id) or {}
     return {"chunk_id": hit.chunk_id, "source_text": hit.source_text,
-            "start": hit.start, "end": hit.end}
+            "start": hit.start, "end": hit.end,
+            "doc_id": info.get("doc_id"),
+            "doc_type": info.get("doc_type"),
+            "doc_title": info.get("doc_title"),
+            "publisher": info.get("publisher"),
+            "fiscal_year": info.get("fiscal_year"),
+            "page_start": info.get("page_start"),
+            "page_end": info.get("page_end"),
+            "bbox": info.get("bbox")}
 
 
 def annotate_answer(
@@ -43,9 +64,9 @@ def annotate_answer(
         if hits:
             ranked = rank_hits(hits, meta, prefer_fiscal_year=prefer_fiscal_year)
             record["verdict"] = "linked"
-            record["primary"] = _hit_dict(ranked[0])
+            record["primary"] = _hit_dict(ranked[0], meta)
             # Outranked sources are corroboration, shown on demand.
-            record["additional"] = [_hit_dict(h) for h in ranked[1:]]
+            record["additional"] = [_hit_dict(h, meta) for h in ranked[1:]]
             linked_figs.append(fig)
             linked_indices.append(i)
         records.append(record)
