@@ -25,8 +25,18 @@ from eval.agent_transcript import (
 from harness.settings import load_settings
 
 DEFAULT_QUERIES = "eval/agent_queries.yaml"
-# Not the model under test (spec): a capable, cheap-enough judge.
-DEFAULT_JUDGE_MODEL = "anthropic/claude-sonnet-5"
+# Destin's call, 2026-08-02: glm-5.2 judges everything. Measured against
+# claude-sonnet-5 over one identical set of 31 answers — 0 errors, holistic
+# means 4.13 vs 4.06, EVERY disagreement within one point, rank correlation
+# 0.89, and comparable claim counts (144 vs 135), which is what keeps
+# claim_coverage_* meaning the same thing. ~8x cheaper per pass, so every
+# run can be judged instead of only the ones that gate a merge.
+#
+# Known and accepted: this is currently also the model under test, so it
+# grades its own output. It caught 5 of the 9 answers sonnet graded weak,
+# missing 4 that sit on the 3-vs-4 boundary. The confound disappears if the
+# agent tier ever moves off glm-5.2.
+DEFAULT_JUDGE_MODEL = "z-ai/glm-5.2"
 PROMPT_PATH = Path(__file__).resolve().parent / "agent_judge_prompt.md"
 
 # Strips a code fence ONLY when it opens at the very start of the reply

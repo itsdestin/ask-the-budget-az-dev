@@ -381,7 +381,7 @@ writes to the shared network drive) costs one query's row, not the
 whole scoring run.
 
 `judge_agent_run.py` calls a separate judge model (default
-`anthropic/claude-sonnet-5` — deliberately not the model under test)
+`z-ai/glm-5.2` — see docs/superpowers/investigations/2026-08-02-judge-model-comparison.md)
 against the prompt in `agent_judge_prompt.md`. The judge extracts the
 answer's load-bearing claims and says whether each is backed by a
 verified citation; `compute_citation_scores()` then derives

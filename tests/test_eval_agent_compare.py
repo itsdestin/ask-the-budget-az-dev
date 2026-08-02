@@ -267,3 +267,38 @@ def test_arrow_kept_when_cost_missing_queries_unchanged():
     row = _row_for(md, "total_cost_usd")
     assert "▲" in row  # genuine cost reduction, same population
     assert "crashed silently" not in md
+
+
+def _add_judge(run_dir, model, precision=0.5):
+    (run_dir / "judge.json").write_text(json.dumps({
+        "judge_model": model, "judge_prompt_sha256": "s",
+        "summary": {"claim_coverage_precision_mean": precision},
+        "per_query": []}), encoding="utf-8")
+
+
+def test_judge_metrics_are_withheld_when_the_judge_model_differs(tmp_path):
+    """Judge results are not comparable across judge models. Measured
+    2026-08-02 on one identical set of 31 answers: claude-sonnet-5 and
+    deepseek-v4-flash-0731 found 135 vs 113 load-bearing claims, which
+    moves claim_coverage_precision for reasons that have nothing to do
+    with the agent under test. The corpus and query-set guards exist to
+    stop exactly this class of false conclusion; the judge needs one too.
+    """
+    a = write_run(tmp_path, "runA")
+    b = write_run(tmp_path, "runB")
+    _add_judge(a, "anthropic/claude-sonnet-5", 0.53)
+    _add_judge(b, "z-ai/glm-5.2", 0.58)
+    md = compare(load_run(a), load_run(b))
+    assert "different judge" in md.lower()
+    # The misleading delta must NOT be presented as an improvement.
+    assert "claim_coverage_precision_mean | 0.53 | 0.58" not in md
+
+
+def test_judge_metrics_compare_normally_when_the_judge_matches(tmp_path):
+    a = write_run(tmp_path, "runA")
+    b = write_run(tmp_path, "runB")
+    _add_judge(a, "z-ai/glm-5.2", 0.50)
+    _add_judge(b, "z-ai/glm-5.2", 0.60)
+    md = compare(load_run(a), load_run(b))
+    assert "claim_coverage_precision_mean" in md
+    assert "different judge" not in md.lower()

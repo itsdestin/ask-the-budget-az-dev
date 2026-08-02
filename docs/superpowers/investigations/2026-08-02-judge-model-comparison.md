@@ -3,26 +3,46 @@
 **Date:** 2026-08-02
 **Question:** the judge is `anthropic/claude-sonnet-5` at $2/$10 per M. Can a
 cheaper model do the job, so we can afford far more eval runs?
-**Answer: no, not from the models tested. Keep sonnet-5 for grading.**
+**Answer: yes — `z-ai/glm-5.2`. Destin's call, 2026-08-02: it judges
+everything from now on, sonnet-5 is retired as a judge.** The two deepseek
+configurations were rejected; glm-5.2 tracks sonnet closely at ~8x less.
 
 All runs judge the SAME 31 recorded answers
 (`eval/results/agent/2026-08-02T0900Z-0b08221/`), so differences are the
 judge and nothing else. Per-judge outputs are committed beside the run as
-`judge-<model>.json`; `judge.json` remains the canonical sonnet-5 grading.
+`judge-<model>.json`; `judge.json` is the canonical grading and now holds
+the glm-5.2 pass.
 
 ## Results
 
-| | sonnet-5 | deepseek-v4-flash-0731 (reasoning off) | deepseek-v4-flash-0731 (reasoning on) |
-|---|---|---|---|
-| errors | 0 | 0 | **8 of 31** |
-| holistic mean | 4.06 | 4.58 | 3.96 |
-| **weak answers caught (≤3)** | **9 of 9** | **1 of 9** | 3 of 5 comparable |
-| `answered_wrong_question` | 2 | **0** | — |
-| load-bearing claims found | 135 | 0.84× | 0.78× |
-| latency / query | ~10 s | 4 s | 59 s |
-| cost / 31-query pass | ~$0.60 | ~$0.03 | ~$0.08 |
+| | sonnet-5 | **glm-5.2 (adopted)** | deepseek-v4-flash-0731 (reasoning off) | deepseek-v4-flash-0731 (reasoning on) |
+|---|---|---|---|---|
+| errors | 0 | **0** | 0 | **8 of 31** |
+| holistic mean | 4.06 | **4.13** | 4.58 | 3.96 |
+| **weak answers caught (≤3)** | 9 of 9 | **5 of 9** | **1 of 9** | 3 of 5 comparable |
+| `answered_wrong_question` | 2 | 1 | **0** | — |
+| load-bearing claims found | 135 | **144 (1.07×)** | 0.84× | 0.78× |
+| latency / query | ~10 s | ~15 s | 4 s | 59 s |
+| cost / 31-query pass | ~$0.60 | **~$0.08** | ~$0.03 | ~$0.08 |
 
-## Why each cheap option fails
+## Why glm-5.2 was adopted
+
+Every disagreement with sonnet is **within one point** (31/31), rank
+correlation 0.89, and it identifies slightly MORE load-bearing claims than
+sonnet (1.07x) where both deepseek configs found 16-22% fewer. That last
+number is what makes `claim_coverage_*` keep roughly its old meaning.
+
+It caught 5 of the 9 answers sonnet graded weak; the 4 it missed all sit on
+the 3-vs-4 boundary rather than being wild misreads.
+
+**Accepted risk, stated plainly:** glm-5.2 is currently also the model under
+test, so it grades its own output, and generosity at the weak-answer
+threshold is the shape self-evaluation bias takes. Its overall mean (4.13 vs
+4.06) argues against a strong effect, but this data cannot separate "glm is
+slightly lenient" from "glm is lenient about glm". The confound disappears
+if the agent tier moves off glm-5.2.
+
+## Why the deepseek options failed
 
 **Reasoning off — misses the problems.** It caught 1 of the 9 answers
 sonnet graded ≤3, and zero of the 2 it flagged as answering the wrong
@@ -73,8 +93,12 @@ product question worth answering with the harness rather than assuming.
   meta-narration on 17–21 of 31 answers; `NARRATION_MARKERS` caught **1**.
   Rely on the judge for narration. Keep `token_leak`, which is a precise
   regex for a specific observed failure, not a fuzzy judgment.
-- **`deepseek/deepseek-v4-pro`** ($0.435/M in, 4.6× cheaper than sonnet) is
-  the untested middle option if a cheaper judge is wanted later.
-- **Judge results are not comparable across judge models.** A judge swap
-  invalidates every prior judge number, so it must be a deliberate,
-  re-baselined decision — not a config tweak.
+- **`deepseek/deepseek-v4-pro`** ($0.435/M in) remains untested.
+- **Judge results are not comparable across judge models** — sonnet and
+  deepseek found 135 vs 113 load-bearing claims on identical answers. That
+  is now enforced: `compare_agent_runs.py` withholds the judge section when
+  the two runs used different judge models, alongside its existing corpus
+  and query-set guards.
+- **The committed baseline was re-judged with glm-5.2** and `judge.json`
+  re-pointed, so future comparisons diff like against like. The sonnet and
+  deepseek outputs are kept beside it as `judge-<model>.json`.

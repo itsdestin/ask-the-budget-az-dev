@@ -189,7 +189,20 @@ def compare(baseline: dict[str, Any], candidate: dict[str, Any]) -> str:
         note = _POPULATION_DEPENDENT_NOTES[key].format(pop=pop)
         lines += ["", f"> ⚠ `{key}` {note}"]
     aj, bj = baseline.get("judge"), candidate.get("judge")
-    if aj and bj:
+    if aj and bj and aj.get("judge_model") != bj.get("judge_model"):
+        # WHY: judge results are not comparable across judge models. Measured
+        # 2026-08-02 over one identical set of 31 answers, claude-sonnet-5 and
+        # deepseek-v4-flash-0731 identified 135 vs 113 load-bearing claims —
+        # so claim_coverage_precision moves for a reason that has nothing to
+        # do with the agent under test. Same failure the corpus-count and
+        # query-set guards exist to prevent, so it gets the same treatment.
+        lines += ["", "## Judge metrics", "",
+                  "> ⚠ Withheld: the two runs used **different judge models** "
+                  f"(`{aj.get('judge_model')}` → `{bj.get('judge_model')}`). "
+                  "Judges differ in how many claims they call load-bearing, so "
+                  "a delta here would measure the judge, not the change. "
+                  "Re-judge both runs with the same model to compare."]
+    elif aj and bj:
         lines += ["", "## Judge metrics", "",
                   "| metric | baseline | candidate | Δ |", "|---|---|---|---|"]
         for key in _JUDGE_METRICS:

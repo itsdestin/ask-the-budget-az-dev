@@ -1858,8 +1858,24 @@ criterion left open on 2026-07-31. Of 39 billed steps, 35 report
 later step is ~90% cached (e.g. 13,835 in / 13,760 cached). The caching is
 real and is already saving roughly 72% of input tokens.
 
-**Not yet run:** the full 31-query set and the 4-query Deep Research probe,
-and the LLM judge (so `claim_coverage_precision` has no baseline yet).
+**Superseded by the full baseline** — `eval/results/agent/2026-08-02T0900Z-0b08221/`,
+31 queries, 0 errors, $1.20. Key figures: key-fact rate 0.81, refusal
+correctness 1.00, `cite_pass_rate` 0.84, `first_try_cite_rate` 0.90,
+citations/answer 10.1, retrieval efficiency 0.44, 138k input tokens/answer.
+Judged by **`z-ai/glm-5.2`**: `claim_coverage_precision` 0.578,
+`claim_coverage_recall` 0.969, holistic 4.13.
+
+**The judge is glm-5.2 for everything from 2026-08-02** (Destin's call).
+Measured against claude-sonnet-5 over these same 31 answers: 0 errors, every
+disagreement within one point, rank correlation 0.89, comparable claim counts
+(144 vs 135), ~8x cheaper — so every run can be judged, not just merge gates.
+Accepted risk: glm-5.2 is also the model under test, so it grades its own
+output. Evidence and the rejected alternatives:
+`docs/superpowers/investigations/2026-08-02-judge-model-comparison.md`.
+**Judge results are not comparable across judge models** — now enforced by
+`compare_agent_runs.py`, which withholds the judge section when they differ.
+
+**Still not run:** the 4-query Deep Research probe.
 
 Spec: `docs/superpowers/specs/2026-08-01-agent-loop-eval-design.md`
 (the Layer 1 spec, `2026-05-20-retrieval-eval-harness-design.md`, is where
