@@ -145,13 +145,54 @@ describe("AI Mode page — the corpus picker", () => {
     );
   });
 
-  it("warns that switching corpus starts a new conversation", async () => {
+  it("warns about the discard only once there is a conversation to discard", async () => {
+    // The warning moved out of the page band with the rest of it (2026-08-02)
+    // and became conditional. Both halves matter: standing permanently over an
+    // empty thread it was wallpaper an analyst learns to skip, and an analyst
+    // who loses a long conversation to a stray chip click has been ambushed by
+    // the UI. Showing it exactly when the next click would destroy something is
+    // what makes it readable at the moment it is true.
     stubConversationFetch();
     mountAi();
     await screen.findByTestId("ai-panel");
     expect(
+      screen.queryByText(/switching corpus starts a new conversation/i),
+    ).toBeNull();
+
+    await ask("how much for provider rates?");
+    await screen.findByText("how much for provider rates?");
+
+    expect(
       screen.getByText(/switching corpus starts a new conversation/i),
     ).toBeInTheDocument();
+  });
+
+  it("names each corpus's scope on the segment itself", async () => {
+    // The scope chip ("Baselines, appropriations reports, …") went with the
+    // band. It is not decoration: "AI Mode" alone does not tell an analyst
+    // which documents an answer was built from, and that is the first thing a
+    // citation audit depends on. It survives as the segment's title.
+    stubConversationFetch();
+    mountAi();
+    await screen.findByTestId("ai-panel");
+    expect(corpusChip(/budget documents/i)).toHaveAttribute(
+      "title",
+      expect.stringMatching(/baselines/i),
+    );
+    expect(corpusChip(/fiscal notes/i)).toHaveAttribute(
+      "title",
+      expect.stringMatching(/fiscal notes/i),
+    );
+  });
+
+  it("keeps the page's accessible name without drawing a band", async () => {
+    stubConversationFetch();
+    mountAi();
+    await screen.findByTestId("ai-panel");
+    // Clipped, not display:none — a removed h1 leaves <main> unnamed, and the
+    // route indistinguishable from the other five to a screen reader.
+    const heading = screen.getByRole("heading", { name: "AI Mode" });
+    expect(heading).toHaveClass("ai-vh");
   });
 });
 

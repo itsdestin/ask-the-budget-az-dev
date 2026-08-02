@@ -40,6 +40,71 @@ export const AI_PROBING_TOOLTIP =
 const TIER_ORDER: Tier[] = ["standard", "deep_research"];
 
 // ---------------------------------------------------------------------------
+// The corpus control
+// ---------------------------------------------------------------------------
+
+export interface CorpusOption {
+  value: Corpus;
+  label: string;
+  /** What the assistant can actually see when this corpus is picked. Carried
+   *  as the segment's `title` since the band that used to spell it out on the
+   *  page is gone — "AI Mode" alone does not tell an analyst which documents
+   *  an answer was built from, and that is the first thing a citation audit
+   *  depends on. */
+  scope: string;
+}
+
+interface CorpusProps {
+  options: CorpusOption[];
+  corpus: Corpus;
+  onChange: (corpus: Corpus) => void;
+  /** True once there is a conversation on screen that a switch would discard. */
+  hasConversation: boolean;
+}
+
+/** Budget documents / Fiscal notes, beside the tier switch.
+ *
+ *  It moved here from the page band (Destin, 2026-08-02). It belongs next to
+ *  Standard / Deep Research because the two answer the same class of question —
+ *  "how should this be answered?" — and an analyst who has just been told the
+ *  mode is wrong looks in one place to fix either.
+ *
+ *  The switch warning is rendered ONLY when there is a conversation to lose.
+ *  Standing permanently on the page it was wallpaper; appearing the moment a
+ *  thread exists, it is the sentence that stops an analyst discarding a long
+ *  conversation with a stray click. */
+function CorpusSwitch({ options, corpus, onChange, hasConversation }: CorpusProps) {
+  return (
+    <div className="ai-corpus-field">
+      <span className="ai-tiers-label" id="ai-corpus-label">
+        Corpus
+      </span>
+      <div className="ai-corpus" role="group" aria-labelledby="ai-corpus-label">
+        {options.map((option) => (
+          <button
+            key={option.value}
+            type="button"
+            className={
+              option.value === corpus ? "ai-corpus-chip on" : "ai-corpus-chip"
+            }
+            aria-pressed={option.value === corpus}
+            title={option.scope}
+            onClick={() => onChange(option.value)}
+          >
+            {option.label}
+          </button>
+        ))}
+      </div>
+      {hasConversation && (
+        <p className="ai-corpus-note">
+          Switching corpus starts a new conversation.
+        </p>
+      )}
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
 // The tier control
 // ---------------------------------------------------------------------------
 
@@ -127,10 +192,16 @@ function TierSwitch({ status, tier, onChange }: TierProps) {
 interface PanelProps {
   chat: UseChatResult;
   status: AiStatus | null;
-  /** Which corpus this panel is asking about. Only the starter chips read it
-   *  today — see the gate on SuggestionRow — but it is the panel's own
-   *  identity and anything corpus-specific added later belongs behind it. */
+  /** Which corpus this panel is asking about. Read by the starter chips (see
+   *  the gate on SuggestionRow) and by the corpus switch below. */
   corpus: Corpus;
+  /** The corpus switch renders only when the OWNER supplies both of these —
+   *  it cannot change the corpus by itself, because switching means discarding
+   *  the conversation, and only the owner (Ai.tsx, via `key={corpus}`) can do
+   *  that. A panel mounted without them is read-only on corpus, which is what
+   *  every corpus-agnostic test harness wants. */
+  corpusOptions?: CorpusOption[];
+  onCorpusChange?: (corpus: Corpus) => void;
 }
 
 export function AiModePanel(props: PanelProps) {
@@ -144,7 +215,13 @@ export function AiModePanel(props: PanelProps) {
   );
 }
 
-function PanelBody({ chat, status, corpus }: PanelProps) {
+function PanelBody({
+  chat,
+  status,
+  corpus,
+  corpusOptions,
+  onCorpusChange,
+}: PanelProps) {
   const { state } = chat;
   const mascot = useMascotPose(state, false);
 
@@ -188,12 +265,32 @@ function PanelBody({ chat, status, corpus }: PanelProps) {
     const chrome = chromeRef.current;
     const col = chatColRef.current;
     if (!chrome || !col) return;
-    const publish = () =>
+    // Queried rather than ref'd: the scroller is ChatThread's own element, and
+    // threading a ref out of it just to measure a scrollbar would make the
+    // thread's internals part of this file's contract.
+    const scroller = col.querySelector<HTMLElement>(".chat-thread-scroll");
+    const publish = () => {
       col.style.setProperty("--ai-bottom-chrome", `${chrome.offsetHeight}px`);
+      // The chrome is absolutely positioned across the chat column, so at
+      // right:0 it paints over the bottom of the thread's OWN scrollbar — the
+      // bar appears to run under the composer and stop, which is what a
+      // half-drawn scrollbar looks like. Insetting it by the exact bar width
+      // lets the full track stay visible. Classic (non-overlay) scrollbars
+      // report a positive difference here; overlay scrollbars report 0, which
+      // is also correct — there is nothing to clear.
+      if (scroller) {
+        const bar = scroller.offsetWidth - scroller.clientWidth;
+        col.style.setProperty("--ai-scrollbar", `${Math.max(0, bar)}px`);
+      }
+    };
     publish();
     if (typeof ResizeObserver === "undefined") return;
     const obs = new ResizeObserver(publish);
     obs.observe(chrome);
+    // Observed too, because the bar appears and disappears as the thread
+    // crosses one screen of content — and its arrival shrinks the scroller's
+    // content box, which is exactly what ResizeObserver reports.
+    if (scroller) obs.observe(scroller);
     return () => obs.disconnect();
   }, []);
 
@@ -207,19 +304,14 @@ function PanelBody({ chat, status, corpus }: PanelProps) {
         <div className="ai-panel-chat" ref={chatColRef}>
           <ChatThread state={state} mascot={mascot} refusal={refusal} />
 
+          {/* The chrome is ONE measured block — the scroller pads by its full
+              height — but only the panel inside it is opaque. The starter
+              chips sit above that panel on the thread's own background, so
+              they read as offered questions floating over the conversation
+              rather than as furniture bolted to the composer (Destin,
+              2026-08-02). Keeping them inside the measured element is what
+              stops them overlapping the last message. */}
           <div className="ai-bottom-chrome" data-testid="ai-bottom-chrome" ref={chromeRef}>
-            {state.error && (
-              // The message is the server's, rendered verbatim — the S19
-              // over-limit refusal arrives here with the real dollar
-              // figures in it.
-              <div className="chat-notice is-danger chat-notice-banner" role="alert">
-                <span>{state.error}</span>{" "}
-                <button type="button" className="ai-dismiss" onClick={chat.clearError}>
-                  dismiss
-                </button>
-              </div>
-            )}
-
             {/* Budget only. SuggestionRow's three starters are hardcoded
                 budget questions ("the FY2025 Aviation Fund balance", "ADOT
                 in FY2024") and the component is Task 10's, so they cannot be
@@ -233,29 +325,53 @@ function PanelBody({ chat, status, corpus }: PanelProps) {
               <SuggestionRow onPick={chat.send} />
             )}
 
-            <div className="ai-composer">
-              <TierSwitch status={status} tier={chat.tier} onChange={chat.setTier} />
-              <MessageInput
-                onSubmit={chat.send}
-                // Disabling on send is the front line against a duplicate
-                // turn: the server answers a second concurrent POST with
-                // 409, and a 409 is a mistake to prevent, not an error to
-                // render.
-                disabled={chat.busy}
-                placeholder={
-                  chat.busy
-                    ? "Working — press Stop to interrupt."
-                    : "Ask a question — Enter to send, Shift+Enter for a newline"
-                }
-              />
-              {chat.busy && (
-                <button type="button" className="ai-stop" onClick={chat.stop}>
-                  Stop
-                </button>
+            <div className="ai-chrome-panel">
+              {state.error && (
+                // The message is the server's, rendered verbatim — the S19
+                // over-limit refusal arrives here with the real dollar
+                // figures in it.
+                <div className="chat-notice is-danger chat-notice-banner" role="alert">
+                  <span>{state.error}</span>{" "}
+                  <button type="button" className="ai-dismiss" onClick={chat.clearError}>
+                    dismiss
+                  </button>
+                </div>
               )}
-            </div>
 
-            <Footer connected={Boolean(status?.available) && !state.error} />
+              <div className="ai-composer">
+                <div className="ai-controls">
+                  {corpusOptions && onCorpusChange && (
+                    <CorpusSwitch
+                      options={corpusOptions}
+                      corpus={corpus}
+                      onChange={onCorpusChange}
+                      hasConversation={state.turns.length > 0}
+                    />
+                  )}
+                  <TierSwitch status={status} tier={chat.tier} onChange={chat.setTier} />
+                </div>
+                <MessageInput
+                  onSubmit={chat.send}
+                  // Disabling on send is the front line against a duplicate
+                  // turn: the server answers a second concurrent POST with
+                  // 409, and a 409 is a mistake to prevent, not an error to
+                  // render.
+                  disabled={chat.busy}
+                  placeholder={
+                    chat.busy
+                      ? "Working — press Stop to interrupt."
+                      : "Ask a question — Enter to send, Shift+Enter for a newline"
+                  }
+                />
+                {chat.busy && (
+                  <button type="button" className="ai-stop" onClick={chat.stop}>
+                    Stop
+                  </button>
+                )}
+              </div>
+
+              <Footer connected={Boolean(status?.available) && !state.error} />
+            </div>
           </div>
         </div>
         {viewerOpen && (

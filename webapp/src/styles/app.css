@@ -971,7 +971,9 @@ nav.primary{position:relative;padding-right:44px;}
 /* overflow-x:auto gives the chip row native two-finger horizontal scroll; the
    inner row is width:fit-content + auto margins so it CENTERS while it fits
    and scrolls once it doesn't. */
-.chat-suggestions { overflow-x: auto; }
+/* Floating above `.ai-chrome-panel`, on the thread's background — so the row
+   needs its own breathing room rather than inheriting the panel's padding. */
+.chat-suggestions { overflow-x: auto; padding-bottom: 8px; }
 .chat-suggestions-row { display: flex; flex-direction: row; gap: 8px; padding: 8px 16px 4px; margin: 0 auto; width: fit-content; }
 .chat-suggestion { flex-shrink: 0; white-space: nowrap; border-radius: var(--r-pill); border: 1px solid var(--line); background: var(--card); padding: 6px 12px; font-family: var(--font); font-size: 12px; color: var(--ink); cursor: pointer; transition: border-color .15s, color .15s; }
 /* Hover language (Task 13): azure border + -d text, the same recipe every
@@ -1486,61 +1488,36 @@ nav.primary{position:relative;padding-right:44px;}
  * design one — see the note on it.
  */
 
-/* ----- page-ai: the subhero band, the corpus picker, the gate --------------
-   REPLACES the per-page `.ai-toggle` rules (2026-07-31). AI Mode is its own
-   route now, so the toggle those rules styled no longer renders anywhere; they
-   are deleted rather than kept "just in case", because dead page-scoped CSS is
+/* ----- page-ai: the corpus picker, the gate --------------------------------
+   The navy band this section used to open with — `.page-ai .subhero`, its
+   `.wrap`, its h1, its `.chip`, and `.ai-band` — is DELETED (Destin,
+   2026-08-02: "i want to remove the 'ai mode' hero strip thing"). Nothing
+   renders those classes on this page any more, and dead page-scoped CSS is
    exactly what the convention at the top of this file exists to prevent. The
-   declarations themselves are re-used verbatim below for the corpus picker —
-   same band, same pill recipe, same "on" fill.
+   h1 survives as `.ai-vh`, clipped, because <main> still needs a name.
 
-   `AiModeToggle` itself is gone too (Task 6, 2026-08-01) — it had been dead
-   since this route replaced the per-page toggle and nothing ever imported it
-   again. */
+   These rules had already replaced the per-page `.ai-toggle` rules
+   (2026-07-31), and `AiModeToggle` itself went in Task 6. */
 
-/* The navy band, ported from the search page's subhero rules so the sub-pages
-   are one design — but COMPACT (2026-07-31), because on this page the chat
-   below it is pinned to the viewport and every pixel this band spends is a
-   pixel of conversation that is gone for good.
-   The `.lead` and `.chips` rules that used to live here are DELETED, not
-   commented out: nothing renders those classes on this page any more (see the
-   band note in Ai.tsx), and dead page-scoped CSS is exactly what the
-   convention at the top of this file exists to prevent. */
-.page-ai .subhero{position:relative;overflow:hidden;color:#fff;flex:0 0 auto;
-  background:linear-gradient(105deg,rgba(18,21,48,.94) 0%,rgba(20,23,52,.86) 60%,rgba(20,23,52,.78) 100%),url('/capitol-bg.jpg') center 28% / cover no-repeat;}
-/* The band's content shares the thread's measure (+22px gutters), so the h1
-   sits flush over the first message instead of on the 1140px page grid the
-   chat below never uses. */
-.page-ai .subhero .wrap{position:relative;z-index:2;padding:12px 22px;max-width:calc(var(--ai-col) + 44px);}
-/* One row: title, picker, scope chip, switch warning. `flex-wrap` is the
-   safety valve — on a narrow window the row becomes two or three lines and the
-   band grows, which is correct: every item in it is load-bearing, so none of
-   them may be pushed off-screen to save height. */
-.page-ai .ai-band{display:flex;flex-wrap:wrap;align-items:center;gap:8px 14px;}
-/* 17px flat, not the sub-pages' clamp(24px,3.2vw,34px): at 34px the title alone
-   is taller than the picker beside it, which would set the height of the whole
-   row for a word the analyst reads once. */
-.page-ai .subhero h1{font-size:17px;font-weight:800;letter-spacing:-.2px;flex:0 0 auto;}
-/* The scope chip keeps the subhero `.chip` recipe verbatim; `min-width:0` +
-   ellipsis so a long scope sentence shortens rather than wrapping the row. */
-.page-ai .subhero .chip{display:inline-flex;align-items:center;gap:7px;min-width:0;background:rgba(255,255,255,.1);border:1px solid rgba(255,255,255,.2);border-radius:var(--r-pill);padding:6px 13px;font-size:12.5px;font-weight:700;color:#eef0fb;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
+/* The page's accessible name, kept out of the picture. Same recipe as the
+   admin block's `.adm-vh`, duplicated rather than shared because the page-scoped
+   convention at the top of this file keeps blocks independent — one line each,
+   and neither page can silently restyle the other's. */
+.ai-vh{position:absolute;width:1px;height:1px;padding:0;margin:-1px;overflow:hidden;clip:rect(0 0 0 0);white-space:nowrap;border:0;}
 
-/* The corpus picker. The retired toggle's declarations, re-scoped: the same
-   subhero `.chip` recipe with a solid-white "on" fill — the strongest contrast
-   available on this band, because "which corpus am I asking?" has to be
-   answerable at a glance. `.ai-corpus` is a 2px-gapped group so the two chips
-   read as ONE control (pick-one) rather than two independent chips. */
-.page-ai .ai-corpus{display:inline-flex;gap:2px;background:rgba(255,255,255,.07);border-radius:var(--r-pill);padding:3px;}
-.page-ai .ai-corpus-chip{display:inline-flex;align-items:center;gap:7px;cursor:pointer;font-family:inherit;
-  background:transparent;border:1px solid transparent;border-radius:var(--r-pill);
-  padding:6px 13px;font-size:12.5px;font-weight:700;color:#eef0fb;transition:background .14s,border-color .14s,color .14s;}
-.page-ai .ai-corpus-chip:hover{background:rgba(255,255,255,.18);border-color:rgba(255,255,255,.4);}
-.page-ai .ai-corpus-chip.on{background:#fff;border-color:#fff;color:var(--navy);}
-.page-ai .ai-corpus-chip.on:hover{background:#fff;border-color:#fff;}
-/* Flows inline after the scope chip instead of margin-left:auto — parking it
-   at the far edge of a wide band left a dead gap mid-row, and the band is
-   now only as wide as the column anyway. */
-.page-ai .ai-corpus-note{margin:0;font-size:11.5px;font-weight:700;color:#b9c0e4;flex:0 1 auto;}
+/* The corpus picker, relocated out of the navy band and into the composer
+   chrome beside the tier switch. It is now on LIGHT chrome, so it drops the
+   band's white-on-navy recipe and shares the tier switch's declarations
+   outright (see `.ai-tierswitch` / `.ai-tierseg` below, whose selector lists
+   name both controls). Two controls that sit side by side and mean the same
+   kind of thing must not be two different-looking controls.
+
+   `.ai-corpus-field` is the label+control+note cluster, mirroring `.ai-tiers`. */
+.ai-corpus-field{display:flex;align-items:center;gap:8px;flex-wrap:wrap;}
+/* The switch warning. Rendered only while a conversation exists (AiModePanel),
+   so unlike the band version it is never wallpaper — when it is on screen it
+   is describing something the next click would actually destroy. */
+.ai-corpus-note{margin:0;font-size:11.5px;font-weight:700;color:var(--ink-3);flex:0 1 auto;}
 
 /* ----- the full-page chat shell -------------------------------------------
    RESTORES the retired app's fixed-viewport layout (Destin, 2026-07-31): "I
@@ -1684,9 +1661,23 @@ html.ai-fullpage header.site{flex:0 0 auto;}
    the slide-behind reads as depth, with a solid fallback where blur is
    unsupported. */
 .ai-panel-chat{position:relative;}
-.ai-bottom-chrome{position:absolute;left:0;right:0;bottom:0;z-index:15;border-top:1px solid var(--line);background:var(--card);}
+/* `right` is INSET by the thread scroller's own scrollbar width, published as
+   --ai-scrollbar by AiModePanel's measuring effect. At right:0 this block
+   painted over the bottom of that scrollbar, so the bar appeared to run under
+   the composer and stop dead — Destin, 2026-08-02: "the primary scroll bar is
+   partially hidden behind the chat region's container, which looks janky."
+   The fallback is 0px, which is also the correct value on overlay-scrollbar
+   platforms, where there is no bar to clear. */
+.ai-bottom-chrome{position:absolute;left:0;right:var(--ai-scrollbar,0px);bottom:0;z-index:15;}
+/* The opaque surface is the INNER panel, not the whole chrome. The starter
+   chips are the chrome's first child and sit outside this box, so they float
+   on the thread's own background (Destin, 2026-08-02: the chips "should be
+   ABOVE the chat input area container floating by themselves, not within the
+   container"). The measured height still covers both, so nothing overlaps the
+   last message. */
+.ai-chrome-panel{border-top:1px solid var(--line);background:var(--card);}
 @supports (backdrop-filter: blur(6px)){
-  .ai-bottom-chrome{background:rgba(255,255,255,.92);backdrop-filter:blur(6px);}
+  .ai-chrome-panel{background:rgba(255,255,255,.92);backdrop-filter:blur(6px);}
 }
 
 /* Jump-to-bottom pill, floating just above the chrome, app pill recipe.
@@ -1702,14 +1693,23 @@ html.ai-fullpage header.site{flex:0 0 auto;}
 
 /* ----- the tier control + composer ---------------------------------------- */
 .ai-composer{padding:8px 16px 4px;position:relative;}
-.ai-tiers{display:flex;align-items:center;gap:10px;flex-wrap:wrap;max-width:var(--ai-col);margin:0 auto 6px;}
+/* The controls row: corpus on the left, mode beside it, both capped to the
+   message measure so they share the composer's left edge. flex-wrap is the
+   safety valve — on a narrow column the two clusters stack rather than
+   squeezing either control. */
+.ai-controls{display:flex;align-items:center;gap:8px 18px;flex-wrap:wrap;max-width:var(--ai-col);margin:0 auto 6px;}
+.ai-tiers{display:flex;align-items:center;gap:10px;flex-wrap:wrap;}
 .ai-tiers-label{font-size:11px;font-weight:800;color:var(--ink-3);text-transform:uppercase;letter-spacing:.04em;}
 /* `.chswitch`/`.chseg` declarations, re-scoped: the same pill-in-a-track
    control the fiscal-notes chamber filter uses, sized for two segments. */
-.ai-tierswitch{display:inline-grid;grid-template-columns:auto auto;gap:3px;background:var(--canvas);border:1px solid var(--line);border-radius:var(--r-pill);padding:4px;}
-.ai-tierseg{cursor:pointer;font-family:inherit;text-align:center;font-size:12.5px;font-weight:800;color:var(--ink-2);background:transparent;border:0;border-radius:var(--r-pill);padding:6px 14px;transition:.13s;}
-.ai-tierseg:hover{color:var(--az-gold-d);}
-.ai-tierseg.on{background:var(--navy);color:#fff;}
+.ai-tierswitch,
+.ai-corpus{display:inline-grid;grid-template-columns:auto auto;gap:3px;background:var(--canvas);border:1px solid var(--line);border-radius:var(--r-pill);padding:4px;}
+.ai-tierseg,
+.ai-corpus-chip{cursor:pointer;font-family:inherit;text-align:center;font-size:12.5px;font-weight:800;color:var(--ink-2);background:transparent;border:0;border-radius:var(--r-pill);padding:6px 14px;transition:.13s;}
+.ai-tierseg:hover,
+.ai-corpus-chip:hover{color:var(--az-gold-d);}
+.ai-tierseg.on,
+.ai-corpus-chip.on{background:var(--navy);color:#fff;}
 .ai-tierseg[aria-disabled="true"]{opacity:.55;cursor:not-allowed;}
 .ai-tierseg[aria-disabled="true"]:hover{color:var(--ink-2);}
 .ai-tier-info{background:none;border:0;padding:0;font-family:inherit;font-size:12px;font-weight:700;color:var(--navy);text-decoration:underline;cursor:pointer;}

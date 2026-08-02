@@ -466,4 +466,50 @@ describe("chat CSS containment contract", () => {
     expect(bare).not.toMatch(/\.chat-tool\s*\+\s*\.chat-tool\s*\{/);
     expect(bareRule(".chat-tool-group-body")).toMatch(/gap:\s*4px/);
   });
+
+  // ------------------------------------------------------------------
+  // 2026-08-02. The bottom chrome is one MEASURED block but only its inner
+  // panel is opaque, so the starter chips float on the thread's background.
+  // Putting a background back on `.ai-bottom-chrome` would silently swallow
+  // them into the composer container again — the exact thing Destin asked to
+  // undo — with no test failing anywhere else.
+  it("the measured chrome is transparent; only the inner panel paints", () => {
+    const chrome = bareRule(".ai-bottom-chrome");
+    expect(chrome).not.toMatch(/background/);
+    expect(chrome).not.toMatch(/border-top/);
+    const panel = bareRule(".ai-chrome-panel");
+    expect(panel).toMatch(/background:\s*var\(--card\)/);
+    expect(panel).toMatch(/border-top/);
+  });
+
+  // The chrome is absolutely positioned across the chat column; at right:0 it
+  // painted over the bottom of the thread's own scrollbar, so the bar looked
+  // half-drawn. AiModePanel measures the real bar width into --ai-scrollbar.
+  it("the bottom chrome insets itself off the thread's scrollbar", () => {
+    expect(bareRule(".ai-bottom-chrome")).toMatch(
+      /right:\s*var\(--ai-scrollbar,\s*0px\)/,
+    );
+  });
+
+  // Corpus and mode sit side by side and mean the same kind of thing ("how
+  // should this question be answered?"). Two adjacent controls that look
+  // different read as two unrelated mechanisms, so they share one recipe
+  // rather than two that drift.
+  it("the corpus switch and the tier switch share one segmented-control recipe", () => {
+    for (const prop of ["display:inline-grid", "border-radius:var(--r-pill)"]) {
+      expect(
+        bare.match(
+          new RegExp(
+            "\\.ai-tierswitch,\\s*\\n?\\s*\\.ai-corpus\\s*\\{[^}]*" +
+              escapeRe(prop),
+          ),
+        ),
+        `the shared track rule must set ${prop}`,
+      ).not.toBeNull();
+    }
+    // The navy band's white-on-navy corpus recipe must not survive: on light
+    // chrome `color:#eef0fb` is invisible.
+    expect(bare).not.toMatch(/\.page-ai\s+\.ai-corpus-chip/);
+    expect(bare).not.toMatch(/\.page-ai\s+\.subhero/);
+  });
 });
