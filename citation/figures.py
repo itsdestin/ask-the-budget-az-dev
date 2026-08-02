@@ -28,6 +28,14 @@ _SUFFIX = (
     (re.compile(r"^\s*billion", re.IGNORECASE), 1_000_000_000),
     (re.compile(r"^\s*million", re.IGNORECASE), 1_000_000),
     (re.compile(r"^\s*thousand", re.IGNORECASE), 1_000),
+    # Abbreviated forms. Measured on the 2026-08-02 baseline: answers
+    # write "+$243.5M" far more often than "$243.5 million", and without
+    # these the scale reads as 1 — which both breaks the match and makes
+    # the specificity floor judge a $243 million figure as three digits.
+    # The \b keeps "M" from firing on "$104.8 Mesa" or "$1.5 Basic".
+    (re.compile(r"^\s?B\b"), 1_000_000_000),
+    (re.compile(r"^\s?M\b"), 1_000_000),
+    (re.compile(r"^\s?K\b", re.IGNORECASE), 1_000),
 )
 # A markdown table header may declare the unit once for every cell below.
 _HEADER_SCALE = (

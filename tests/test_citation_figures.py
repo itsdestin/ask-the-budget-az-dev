@@ -68,6 +68,21 @@ def test_offsets_are_correct_for_every_figure_in_order():
     assert [f.start for f in figs] == sorted(f.start for f in figs)
 
 
+def test_abbreviated_suffixes_set_scale():
+    # Real answers in the 2026-08-02 baseline write "+$243.5M", not
+    # "$243.5 million". Reading that as scale 1 both breaks the match and
+    # makes the specificity floor treat $243 million as a 3-digit figure.
+    assert extract_figures("growth of +$243.5M over baseline")[0].scale == 1_000_000
+    assert extract_figures("a $1.5B fund")[0].scale == 1_000_000_000
+    assert extract_figures("$104.8M in savings")[0].absolute == 104_800_000
+
+
+def test_a_capital_m_that_starts_a_word_is_not_a_suffix():
+    # "$1.5 Mesa" must not read as $1.5 million.
+    assert extract_figures("$1.5 Mesa district")[0].scale == 1
+    assert extract_figures("$1.5 Basic aid")[0].scale == 1
+
+
 def test_a_word_ending_in_in_does_not_swallow_the_figure():
     # The year guard looks for "FY"/"in" before a figure. Without a word
     # boundary, "within" and "margin" end in "in" and would silently drop
