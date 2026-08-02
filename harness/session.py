@@ -55,6 +55,7 @@ from typing import Any, Callable, Iterator, Sequence
 
 import httpx
 
+from citation.annotate import annotate_answer
 from harness.constants import DEFAULT_TIER, TIER_BUDGETS
 from harness.ledger import check_limit as _ledger_check_limit
 from harness.ledger import record_usage as _ledger_record_usage
@@ -1731,6 +1732,42 @@ class _Accumulator:
         reason."""
         return "\n\n".join(self._text_by_uuid[u] for u in self._text_order)
 
+    def _retrieved_chunk_map(self) -> tuple[dict[str, str], dict[str, dict]]:
+        """chunk_id -> text, and chunk_id -> {doc_type, fiscal_year}, taken
+        from this turn's retrieve results. The linker needs the text it was
+        already sent; it must never go back to the store."""
+        chunks: dict[str, str] = {}
+        meta: dict[str, dict] = {}
+        for call in self.tool_calls:
+            if call.get("toolName") != "retrieve":
+                continue
+            try:
+                parsed = json.loads(call.get("output") or "")
+            except (TypeError, ValueError):
+                continue
+            if not isinstance(parsed, dict):
+                continue
+            for c in (parsed.get("chunks") or []):
+                cid = c.get("chunk_id")
+                if not cid:
+                    continue
+                chunks[cid] = c.get("text") or ""
+                meta[cid] = {"doc_type": c.get("doc_type"),
+                             "fiscal_year": c.get("fiscal_year")}
+        return chunks, meta
+
+    def annotation(self) -> dict:
+        """Link every figure in the answer to a source. Never raises: a
+        citation bug must not cost the user an answer they already paid
+        for."""
+        try:
+            chunks, meta = self._retrieved_chunk_map()
+            return annotate_answer(self.final_answer(), chunks, meta)
+        except Exception as exc:  # noqa: BLE001 - deliberate, see docstring
+            print(f"citation linking failed: {type(exc).__name__}: {exc}",
+                  file=sys.stderr)
+            return {"figures": []}
+
     def done_frame(
         self,
         stop_reason: str,
@@ -1755,6 +1792,7 @@ class _Accumulator:
             "citations": self.citations,
             "retrievedChunkIds": self.retrieved_chunk_ids,
             "toolCalls": self.tool_calls,
+            "annotation": self.annotation(),
             "usage": {**usage, "cost": cost},
         }
 
