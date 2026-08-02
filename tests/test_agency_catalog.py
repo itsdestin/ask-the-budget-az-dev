@@ -80,3 +80,29 @@ def test_the_slug_is_not_duplicated_when_the_reviewed_list_repeats_it():
     from chunking.agency_catalog import _aliases
 
     assert _aliases({"slug": "adc", "aliases": ["ADC", "doc"]}) == ["adc", "doc"]
+
+
+def test_no_variant_is_a_bare_organisational_fragment():
+    """A page break split "…, Arizona / Board of" across two lines and the
+    harvester recorded BOTH halves, leaving a literal "Board of" variant on
+    agency:ost. That fragment matches "board of regents", "board of
+    education" and a dozen more, so it would hard-filter unrelated queries
+    onto Osteopathic Examiners.
+
+    Guarded as a class rather than as the one instance, because the same
+    page-break shape can recur on any future harvest.
+    """
+    generic = {
+        "board of", "department of", "office of", "commission of",
+        "commission on", "council of", "division of", "authority of",
+        "bd of", "dept of", "board", "department", "office", "commission",
+        "state", "arizona", "of", "the",
+    }
+    cat = load_agency_catalog()
+    offenders = [
+        (entry.canonical_id, text)
+        for entry in cat.values()
+        for text in list(entry.name_variants) + list(entry.aliases)
+        if text.strip().lower().rstrip(":").strip() in generic
+    ]
+    assert offenders == [], f"generic fragments would match anything: {offenders}"

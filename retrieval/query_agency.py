@@ -92,8 +92,44 @@ from retrieval.query_match import Confidence, Match
 #
 # Re-derive with the recipe above whenever the catalog gains aliases.
 AMBIGUOUS_ALIASES: frozenset[str] = frozenset(
-    {"doc", "ar", "afr", "des", "pp", "for", "per", "tax", "gov"}
+    {
+        "doc", "ar", "afr", "des", "pp", "for", "per", "tax", "gov",
+        # The remaining JLBC slugs that are also ordinary English words. These
+        # sit BELOW the ~190 noise floor of the frequency count above, i.e.
+        # they are rare in budget prose — but the count measured DOCUMENT text,
+        # and what matters here is what an analyst TYPES. "raise the bar",
+        # "a lot of", "opt out" cost nothing to guard against, because demoting
+        # a slug only removes its right to empty the page: the agency's real
+        # name is a higher tier and still resolves EXACT.
+        #
+        # Kept as an explicit list rather than a dictionary check because there
+        # is no English word list in this dependency closure, and the Windows
+        # bundle must not grow one for this.
+        "art",  # Arts, Arizona Commission on the
+        "ban",  # Financial Institutions, Department of
+        "bar",  # Barbers, Board of
+        "bat",  # Athletic Training, Board of
+        "den",  # Dental Examiners, State Board of
+        "dot",  # Transportation, Department of
+        "lot",  # Lottery Commission, Arizona State
+        "opt",  # Optometry, State Board of
+        "pod",  # Podiatry Examiners, State Board of
+    }
 )
+
+# Agencies that must never hard-filter NO MATTER HOW they were named.
+#
+# `AMBIGUOUS_ALIASES` demotes a STRING and only in the alias tier; this demotes
+# an AGENCY across every tier. The Governor is the case that forced it: in a
+# budget question "the Governor" almost always names an actor or a document
+# ("the Governor's Executive Budget", "the Governor vetoed…"), not the Office
+# of the Governor's own agency budget. Filtering to `agency:gov` there answers
+# a different question, and it SUCCEEDS — the office has chunks — so the
+# pipeline's empty-result fallback never fires.
+#
+# Measured: this alone cost eval query n-003 its ground truth, which is stamped
+# to three other agencies entirely.
+AMBIGUOUS_AGENCIES: frozenset[str] = frozenset({"agency:gov"})
 
 # Shortest catalog phrase the substring scan will trust — the SAME floor
 # `chunking/entity_stamper.py` uses for its corpus-side name scan, and imported
@@ -204,6 +240,14 @@ def parse_query_agencies(
         if canonical_id in seen:
             return
         seen.add(canonical_id)
+        # The agency-level cap is applied HERE, where every tier converges,
+        # rather than in one tier's branch. AMBIGUOUS_ALIASES sits in tier 3
+        # and so could only ever demote a slug — but `agency:gov` is reachable
+        # by its NAME in tier 1, which is how "Which appropriations did the
+        # Governor line-item veto…" hard-filtered onto the Governor's Office
+        # while `gov` sat in the alias stoplist doing nothing.
+        if canonical_id in AMBIGUOUS_AGENCIES:
+            confidence = Confidence.WEAK
         matches.append(Match(canonical_id, confidence, matched_text))
 
     # --- Tiers 1 + 2: catalog names and their heads -------------------------
