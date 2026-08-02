@@ -87,6 +87,32 @@ API_URL_ENV = "JLBC_MINERU_API_URL"
 # we already asked it to die.
 _KILL_GRACE_S = 5
 
+# One pdfium call at a time inside this process. Same shape, and the same
+# reason, as `_EMBED_MUTEX` in ingest/worker.py: one shared native library,
+# several worker threads, and no thread-safety guarantee from the library.
+#
+# THIS LOCK IS REQUIRED FOR CORRECTNESS, NOT PERFORMANCE. Do not delete it
+# because it guards a call that takes a millisecond. **pypdfium2 is not
+# thread-safe** — pdfium keeps global state, and concurrent use corrupts it,
+# so a PERFECTLY VALID PDF comes back as
+# `PdfiumError: Failed to load document (PDFium: Data format error)`.
+#
+# Measured 2026-08-02, same 80 real PDFs, same process:
+#   serial probe of 80 files ................ 0 failures
+#   4 threads over the same 80 files ........ 60, then 80, then 80 failures
+#
+# And it is not theoretical: at `JLBC_INGEST_WORKERS=4` this cost the live
+# backfill **224 valid documents**, all failed inside one six-minute window
+# with that identical message, every one of them a file that opens fine and
+# had been byte-final on disk for two days.
+#
+# It is held only around the open -> page-count -> close sequence, which is
+# milliseconds, and never across staging or any other I/O — so it does not
+# pace the batch. Retrying instead of locking would paper over a data race
+# and still fail under load; dropping the probe reinstates the whole-batch
+# abort it was written for. Neither is a fix.
+_PDFIUM_MUTEX = threading.Lock()
+
 
 class MineruCancelled(RuntimeError):
     """The caller cancelled this extraction."""
@@ -584,24 +610,35 @@ def _unreadable_pdf_reason(pdf: Path) -> str | None:
     file is missing, unreadable, or the share dropped mid-read). Anything
     else propagates — a bug in our own code must not be filed away as
     "unreadable PDF" and blamed on the publisher.
+
+    WHY the whole body is under `_PDFIUM_MUTEX`: `run_batch` runs on a worker
+    thread, and at `JLBC_INGEST_WORKERS=4` four of them probe at once. pdfium
+    is not thread-safe and concurrent use rejects VALID files — see the
+    measurements on `_PDFIUM_MUTEX`. The lock spans open -> count -> close,
+    not just the constructor, because it is concurrent *use* that corrupts
+    pdfium's state, not only concurrent construction.
     """
     # Lazy, matching `ingest.dispatcher._pdf_page_count`: importing
     # pypdfium2 loads a native library, and only the batch path needs it.
-    # It is already installed — MinerU depends on it.
+    # It is already installed — MinerU depends on it. Outside the mutex on
+    # purpose: CPython already serializes module imports, and holding our
+    # lock through a native-library load would stall every other worker on
+    # the very first probe.
     import pypdfium2
 
-    doc = None
-    try:
-        doc = pypdfium2.PdfDocument(str(pdf))
-        # Read the page count, which is what MinerU's preflight actually
-        # asks for. Opening is where a poison pill fails today, but a file
-        # that opens and then cannot be counted is just as fatal there.
-        len(doc)
-    except (pypdfium2.PdfiumError, OSError) as exc:
-        return f"unreadable PDF {pdf}: {exc}"
-    finally:
-        if doc is not None:
-            doc.close()
+    with _PDFIUM_MUTEX:
+        doc = None
+        try:
+            doc = pypdfium2.PdfDocument(str(pdf))
+            # Read the page count, which is what MinerU's preflight actually
+            # asks for. Opening is where a poison pill fails today, but a file
+            # that opens and then cannot be counted is just as fatal there.
+            len(doc)
+        except (pypdfium2.PdfiumError, OSError) as exc:
+            return f"unreadable PDF {pdf}: {exc}"
+        finally:
+            if doc is not None:
+                doc.close()
     return None
 
 
