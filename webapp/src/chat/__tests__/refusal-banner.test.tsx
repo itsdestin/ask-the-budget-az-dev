@@ -352,3 +352,91 @@ describe("AiModePanel refusal scoping (pinned trade-off)", () => {
     expect(screen.queryByRole("status")).not.toBeInTheDocument();
   });
 });
+
+// ── Figures linked by the SYSTEM count as verification ──────────────────────
+//
+// Regression, seen in a real browser 2026-08-02. Citation linking told the
+// model to stop calling cite() for figures, because the system now links every
+// figure itself. The detector only recognised a cite() ack, so a fully-linked
+// numeric answer had ZERO citationIds and the banner fired on it — announcing
+// "no verified citation" over an answer in which every number was linked, and
+// burying the answer under five raw passages.
+//
+// A linked figure is not a weaker citation than a cite() ack; it is a stronger
+// one. A cite() ack validates a quote the MODEL retyped. A linked figure is a
+// value the SYSTEM located in a chunk the turn actually retrieved, with the
+// source's own rendering and offsets. Treating it as unverified inverted the
+// invariant this banner exists to serve.
+describe("detectRefusal — system-linked figures", () => {
+  const annotationWith = (...verdicts: string[]) => ({
+    figures: verdicts.map((verdict, i) => ({
+      text: "$12,300,000",
+      start: 0,
+      end: 11,
+      index: i + 1,
+      verdict,
+      primary:
+        verdict === "linked"
+          ? { chunk_id: "ch-1", source_text: "12,300,000", start: 0, end: 10 }
+          : null,
+      additional: [],
+      derived_from: verdict === "derived" ? [1] : [],
+    })),
+  });
+
+  it("stays silent when the system linked the answer's figures", () => {
+    expect(
+      detectRefusal(
+        turn({
+          blocks: [retrieveBlock(), textBlock("AHCCCS gets $12,300,000.")],
+          annotation: annotationWith("linked"),
+        }),
+      ),
+    ).toBeNull();
+  });
+
+  it("stays silent when a figure is linked and another is derived", () => {
+    expect(
+      detectRefusal(
+        turn({
+          blocks: [retrieveBlock(), textBlock("$12,300,000 plus more.")],
+          annotation: annotationWith("linked", "derived"),
+        }),
+      ),
+    ).toBeNull();
+  });
+
+  it("still fires when every figure came back unverified", () => {
+    // Nothing was located, so nothing is verified — the banner is telling the
+    // truth here and must keep firing.
+    expect(
+      detectRefusal(
+        turn({
+          blocks: [retrieveBlock(), textBlock("AHCCCS gets $99,999,999.")],
+          annotation: annotationWith("unverified", "unverified"),
+        }),
+      ),
+    ).not.toBeNull();
+  });
+
+  it("still fires on a prose answer that states no figures at all", () => {
+    // An empty annotation must not be read as "verified". A refusal, or an
+    // uncited prose claim, still needs its passages shown.
+    expect(
+      detectRefusal(
+        turn({
+          blocks: [retrieveBlock(), textBlock("The corpus does not cover that.")],
+          annotation: { figures: [] },
+        }),
+      ),
+    ).not.toBeNull();
+  });
+
+  it("is unaffected by a turn recorded before linking shipped", () => {
+    expect(
+      detectRefusal(
+        turn({ blocks: [retrieveBlock(), textBlock("An uncited claim.")] }),
+      ),
+    ).not.toBeNull();
+  });
+});
