@@ -933,46 +933,6 @@ nav.primary{position:relative;padding-right:44px;}
 .chat-notice-banner { max-width: var(--ai-col); margin: 12px auto 8px; }
 
 /* ----- composer ------------------------------------------------------------ */
-.chat-input { max-width: var(--ai-col); margin: 0 auto; background: var(--card); border: 1.5px solid var(--line); border-radius: var(--r-sm); display: flex; gap: 8px; align-items: flex-end; padding: 6px 8px; }
-.chat-input:focus-within { border-color: var(--az-gold); box-shadow: 0 0 0 3px var(--az-gold-100); }
-/* overflow-y starts hidden so the first painted frame can't show a scrollbar;
-   MessageInput's auto-grow effect promotes it to `auto` only once the box is
-   capped at MAX_HEIGHT_PX. See the WHY comment there. */
-.chat-input textarea { flex: 1 1 auto; resize: none; overflow-y: hidden; background: transparent; border: none; padding: 8px 12px; color: var(--ink); font-family: var(--font); font-size: 14px; line-height: 1.6; }
-.chat-input textarea:focus { outline: none; }
-.chat-input textarea:disabled { opacity: .5; }
-/* Send: the app's own primary-CTA recipe — pill + brightness hover, the same
-   one the home hero's search button uses (.page-home .search-field button,
-   above) — not the background-swap hover this used to carry (Task 13). */
-.chat-send { background: var(--az-gold); color: #fff; border: none; border-radius: var(--r-pill); padding: 7px 16px; font-family: var(--font); font-size: 12.5px; font-weight: 800; cursor: pointer; transition: filter .15s, opacity .15s; }
-.chat-send:hover:not(:disabled) { filter: brightness(1.05); }
-.chat-send:disabled { opacity: .4; cursor: not-allowed; }
-
-/* ----- welcome + suggestions ----------------------------------------------- */
-/* Welcome now lives INSIDE the one thread scroller (no second scroll
-   context, no overflow of its own) — margin:auto centers it vertically
-   inside the anchor's flex column, the same way the bottom-anchored message
-   column centers horizontally via chat-thread-column's margin:0 auto. */
-.chat-welcome { display: flex; flex-direction: column; align-items: center; justify-content: center; text-align: center; padding: 32px 24px; gap: 8px; margin: auto; }
-/* Cap the hero mascot; width follows the viewBox ratio so the pixel art never
-   distorts.
-   RE-SIZED (Task 16) to drop the hand-measured 440px chrome constant — every
-   task since it was written (footer restyle, floating composer, panel
-   splits) changed the surrounding chrome height and silently invalidated it.
-   Welcome now lives inside the scroller (see above), whose own padding
-   already accounts for the real chrome, so the mascot can size against the
-   viewport instead of re-measuring the page around it: min(420px, 40dvh)
-   — 420px is MASCOT_DIMENSIONS.hero.height (never upscaled past his natural
-   size), 40dvh keeps the greeting text above the fold on a laptop. */
-.chat-welcome-mascot { max-height: min(420px, 40dvh); width: auto; margin-bottom: 8px; }
-.chat-welcome h1 { font-size: 28px; font-weight: 800; color: var(--navy); }
-.chat-welcome p { color: var(--ink-2); max-width: 36rem; margin: 0; }
-
-/* overflow-x:auto gives the chip row native two-finger horizontal scroll; the
-   inner row is width:fit-content + auto margins so it CENTERS while it fits
-   and scrolls once it doesn't. */
-/* Floating above `.ai-chrome-panel`, on the thread's background — so the row
-   needs its own breathing room rather than inheriting the panel's padding. */
 .chat-suggestions { overflow-x: auto; padding-bottom: 8px; }
 .chat-suggestions-row { display: flex; flex-direction: row; gap: 8px; padding: 8px 16px 4px; margin: 0 auto; width: fit-content; }
 .chat-suggestion { flex-shrink: 0; white-space: nowrap; border-radius: var(--r-pill); border: 1px solid var(--line); background: var(--card); padding: 6px 12px; font-family: var(--font); font-size: 12px; color: var(--ink); cursor: pointer; transition: border-color .15s, color .15s; }
@@ -1505,20 +1465,6 @@ nav.primary{position:relative;padding-right:44px;}
    and neither page can silently restyle the other's. */
 .ai-vh{position:absolute;width:1px;height:1px;padding:0;margin:-1px;overflow:hidden;clip:rect(0 0 0 0);white-space:nowrap;border:0;}
 
-/* The corpus picker, relocated out of the navy band and into the composer
-   chrome beside the tier switch. It is now on LIGHT chrome, so it drops the
-   band's white-on-navy recipe and shares the tier switch's declarations
-   outright (see `.ai-tierswitch` / `.ai-tierseg` below, whose selector lists
-   name both controls). Two controls that sit side by side and mean the same
-   kind of thing must not be two different-looking controls.
-
-   `.ai-corpus-field` is the label+control+note cluster, mirroring `.ai-tiers`. */
-.ai-corpus-field{display:flex;align-items:center;gap:8px;flex-wrap:wrap;}
-/* The switch warning. Rendered only while a conversation exists (AiModePanel),
-   so unlike the band version it is never wallpaper — when it is on screen it
-   is describing something the next click would actually destroy. */
-.ai-corpus-note{margin:0;font-size:11.5px;font-weight:700;color:var(--ink-3);flex:0 1 auto;}
-
 /* ----- the full-page chat shell -------------------------------------------
    RESTORES the retired app's fixed-viewport layout (Destin, 2026-07-31): "I
    also want to bring back more of the animation/style of the original
@@ -1570,12 +1516,34 @@ html.ai-fullpage header.site{flex:0 0 auto;}
 /* (The former `.page-ai .wrap{padding:22px 22px 30px}` is gone: this page has
    exactly two `.wrap`s — the band and the stage — and both now set their own
    padding, so the general rule could only ever be overridden or unused.) */
-/* The gate (no key, or the probe still running). One sentence in the shared
-   `.card`, using the same dimming posture as Home's inert gateway card — a live
-   composer over a server that cannot answer would waste the analyst's question. */
-.page-ai .ai-gate{padding:22px 24px;font-size:14px;font-weight:700;color:var(--ink-2);}
-.page-ai .ai-gate p{margin:0;}
-.page-ai .ai-gate-reason{margin-top:8px;font-weight:600;color:var(--ink-3);}
+/* The AI Mode states — a WHOLE SCREEN, replacing both the `.ai-gate` card and
+   the footer's "AI Mode available" status line (Destin, 2026-08-02: "if it's
+   working, the analyst doesn't need separate text telling them so"). Only the
+   failing case ever carried information, and a condition that stops the page
+   working deserves more than 11px of grey. */
+.page-ai .ai-state-wrap{flex:1 1 auto;min-height:0;display:flex;align-items:center;justify-content:center;}
+.page-ai .ai-state{max-width:44rem;padding:44px 32px;text-align:center;display:flex;
+  flex-direction:column;align-items:center;gap:14px;}
+.page-ai .ai-state-glyph{width:64px;height:64px;border-radius:50%;display:flex;align-items:center;
+  justify-content:center;background:var(--navy-100);color:var(--navy);}
+.page-ai .ai-state-glyph svg{width:30px;height:30px;}
+.page-ai .ai-state h2{margin:0;font-size:24px;font-weight:800;letter-spacing:-.01em;color:var(--navy);text-wrap:balance;}
+.page-ai .ai-state p{margin:0;font-size:14.5px;line-height:1.6;color:var(--ink-2);max-width:40rem;}
+.page-ai .ai-state-acts{display:flex;gap:10px;flex-wrap:wrap;justify-content:center;margin-top:4px;}
+.page-ai .ai-state-btn{display:inline-flex;align-items:center;cursor:pointer;font-family:inherit;
+  font-weight:800;font-size:13.5px;border-radius:var(--r-pill);padding:9px 18px;
+  border:1.5px solid transparent;background:var(--az-gold);color:#fff;text-decoration:none;
+  transition:filter .15s,border-color .15s,color .15s;}
+.page-ai .ai-state-btn:hover{filter:brightness(1.05);}
+.page-ai .ai-state-btn.quiet{background:transparent;border-color:var(--line);color:var(--ink-2);}
+.page-ai .ai-state-btn.quiet:hover{filter:none;border-color:var(--az-gold);color:var(--az-gold-d);}
+/* The server's own sentence, kept but demoted: it names WHICH thing is missing,
+   which is what an administrator needs and what the analyst cannot act on. */
+.page-ai .ai-state-reason{margin-top:6px;font-size:11.5px;color:var(--ink-3);}
+.page-ai .ai-state-reason b{font-weight:800;color:var(--ink-2);}
+/* Probing is not failure, and must not look like it. */
+.page-ai .ai-state.is-probing .ai-state-glyph{background:var(--canvas);color:var(--ink-3);}
+.page-ai .ai-state.is-probing h2{color:var(--ink-2);font-size:19px;}
 
 /* ----- the panel ----------------------------------------------------------
    The panel fills the stage (the AI route is the only mount — the old
@@ -1595,7 +1563,7 @@ html.ai-fullpage header.site{flex:0 0 auto;}
    reads as a widget rather than an application.
 
    Safe to go edge-to-edge because line length is NOT protected by this
-   container: `.chat-thread-column` (768px, centered) and `.chat-input` (768px,
+   container: `.chat-thread-column` (768px, centered) and `.ask-bar` (768px,
    centered) each cap themselves. Removing the outer max-width widens the
    SURFACE, not the text — which is exactly what a native chat client does. */
 .page-ai .ai-stage{max-width:none;padding:0;}
@@ -1691,39 +1659,85 @@ html.ai-fullpage header.site{flex:0 0 auto;}
 .chat-jump{position:absolute;bottom:calc(var(--ai-bottom-chrome,120px) + 14px);left:50%;transform:translateX(-50%);z-index:14;background:var(--card);border:1px solid var(--line);border-radius:var(--r-pill);box-shadow:var(--shadow);padding:6px 14px;font-family:inherit;font-size:12px;font-weight:800;color:var(--ink-2);cursor:pointer;transition:border-color .15s,color .15s;}
 .chat-jump:hover{border-color:var(--az-gold);color:var(--az-gold-d);}
 
-/* ----- the tier control + composer ---------------------------------------- */
+/* ----- the ask bar -----------------------------------------------------------
+   REPLACES `.ai-controls` + `.chat-input` + `.ai-tier*` + `.ai-corpus*`
+   (Destin, 2026-08-02). Those rules are DELETED, not commented out: nothing
+   renders their classes any more, and dead page-scoped CSS is what the
+   convention at the top of this file exists to prevent. The tier explainer
+   popover went with them — its copy now sits inside each toggle in the tools
+   menu, where the decision is actually made.
+
+   The bar adopts `.page-home .search-field`'s recipe VERBATIM: pill, canvas
+   fill, 2px line, navy border + white fill + navy-100 ring on focus. That is
+   already the app's search-input identity on Home and the search page, so AI
+   Mode's composer is now the same object a third time rather than a third
+   design. Anything changed here should be changed there too, or they diverge. */
 .ai-composer{padding:8px 16px 4px;position:relative;}
-/* The controls row: corpus on the left, mode beside it, both capped to the
-   message measure so they share the composer's left edge. flex-wrap is the
-   safety valve — on a narrow column the two clusters stack rather than
-   squeezing either control. */
-.ai-controls{display:flex;align-items:center;gap:8px 18px;flex-wrap:wrap;max-width:var(--ai-col);margin:0 auto 6px;}
-.ai-tiers{display:flex;align-items:center;gap:10px;flex-wrap:wrap;}
-.ai-tiers-label{font-size:11px;font-weight:800;color:var(--ink-3);text-transform:uppercase;letter-spacing:.04em;}
-/* `.chswitch`/`.chseg` declarations, re-scoped: the same pill-in-a-track
-   control the fiscal-notes chamber filter uses, sized for two segments. */
-.ai-tierswitch,
-.ai-corpus{display:inline-grid;grid-template-columns:auto auto;gap:3px;background:var(--canvas);border:1px solid var(--line);border-radius:var(--r-pill);padding:4px;}
-.ai-tierseg,
-.ai-corpus-chip{cursor:pointer;font-family:inherit;text-align:center;font-size:12.5px;font-weight:800;color:var(--ink-2);background:transparent;border:0;border-radius:var(--r-pill);padding:6px 14px;transition:.13s;}
-.ai-tierseg:hover,
-.ai-corpus-chip:hover{color:var(--az-gold-d);}
-.ai-tierseg.on,
-.ai-corpus-chip.on{background:var(--navy);color:#fff;}
-.ai-tierseg[aria-disabled="true"]{opacity:.55;cursor:not-allowed;}
-.ai-tierseg[aria-disabled="true"]:hover{color:var(--ink-2);}
-.ai-tier-info{background:none;border:0;padding:0;font-family:inherit;font-size:12px;font-weight:700;color:var(--navy);text-decoration:underline;cursor:pointer;}
-/* The explainer opens UPWARD — the composer sits at the bottom of the panel,
-   so a downward popover would open past the panel's edge. */
-.ai-tier-pop{position:absolute;bottom:calc(100% - 4px);left:16px;right:16px;max-width:var(--ai-col);margin:0 auto;z-index:20;
-  background:var(--card);border:1px solid var(--line);border-radius:var(--r-sm);box-shadow:var(--shadow);padding:12px 14px;
-  font-size:12.5px;line-height:1.5;color:var(--ink-2);}
-.ai-tier-explain + .ai-tier-explain{margin-top:10px;padding-top:10px;border-top:1px solid var(--line);}
-.ai-tier-explain strong{color:var(--navy);font-weight:800;}
-.ai-tier-explain ul{margin:6px 0 0;padding-left:18px;color:var(--ink-3);}
-.ai-tier-explain li{margin-top:2px;}
-/* Stop sits beside the composer rather than inside it: MessageInput is Task
-   10's component and this task does not edit it. */
+.ask-bar{max-width:var(--ai-col);margin:0 auto;display:flex;align-items:center;gap:6px;
+  background:var(--canvas);border:2px solid var(--line);border-radius:var(--r-pill);
+  padding:7px 8px 7px 10px;transition:border-color .15s,box-shadow .15s,background .15s;}
+.ask-bar:focus-within{border-color:var(--navy);background:var(--card);box-shadow:0 0 0 4px var(--navy-100);}
+.ask-bar input{flex:1 1 auto;min-width:0;border:0;outline:0;background:transparent;
+  font-family:inherit;font-size:15.5px;color:var(--ink);padding:4px 6px;}
+.ask-bar input::placeholder{color:var(--ink-3);}
+.ask-bar input:disabled{opacity:.6;}
+.ask-send{flex:0 0 auto;border:0;cursor:pointer;font-family:inherit;font-weight:800;
+  font-size:14px;color:#fff;background:var(--az-gold);border-radius:var(--r-pill);
+  padding:9px 18px;transition:filter .15s,opacity .15s;}
+.ask-send:hover:not(:disabled){filter:brightness(1.05);}
+.ask-send:disabled{opacity:.45;cursor:not-allowed;}
+
+/* the two leading icon buttons */
+.ask-icon{flex:0 0 auto;display:inline-flex;align-items:center;justify-content:center;
+  width:34px;height:34px;border-radius:50%;cursor:pointer;background:transparent;border:0;
+  color:var(--ink-3);transition:background .14s,color .14s;}
+.ask-icon:hover{background:var(--navy-100);color:var(--navy);}
+.ask-icon svg{width:19px;height:19px;}
+.ask-icon.is-on{background:var(--navy);color:#fff;}
+.ask-icon.is-on:hover{background:var(--navy-700);color:#fff;}
+/* The paperclip is a STUB (see MessageInput). `default` rather than
+   `not-allowed`: this is a coming feature, not a refused action, and the title
+   says which. It keeps pointer events precisely so the title can appear. */
+.ask-attach[aria-disabled="true"]{cursor:default;}
+.ask-attach[aria-disabled="true"]:hover{background:transparent;color:var(--ink-3);}
+
+/* Badge on the tools icon: a non-default setting is live behind a closed menu.
+   Deep Research costs ~44x a Standard answer and the corpus decides which
+   documents a citation can come from — neither may be invisible state. */
+.ask-tools{position:relative;flex:0 0 auto;display:flex;}
+.ask-pip{position:absolute;top:-1px;right:-3px;width:9px;height:9px;border-radius:50%;
+  background:var(--teal);border:2px solid var(--canvas);pointer-events:none;}
+/* The pip's ring fakes a cut-out in whatever is behind it, so it has to follow
+   the bar's fill when focus turns it white. */
+.ask-bar:focus-within .ask-pip{border-color:var(--card);}
+
+/* the tools popover. Opens UPWARD — the composer sits at the bottom of the
+   panel, so a downward popover would open past the panel's edge. */
+.ask-pop{position:absolute;bottom:calc(100% + 10px);left:-6px;z-index:30;width:330px;
+  background:var(--card);border:1px solid var(--line);border-radius:var(--r-md);
+  box-shadow:var(--shadow);padding:6px;text-align:left;}
+.ask-opt{display:flex;align-items:flex-start;gap:12px;width:100%;text-align:left;
+  cursor:pointer;background:none;border:0;border-radius:var(--r-sm);padding:11px 12px;
+  font-family:inherit;color:var(--ink);transition:background .13s;}
+.ask-opt:hover{background:var(--canvas);}
+.ask-opt.is-inert{cursor:not-allowed;opacity:.6;}
+.ask-opt.is-inert:hover{background:none;}
+.ask-opt-body{flex:1 1 auto;min-width:0;}
+.ask-opt-title{display:block;font-size:13.5px;font-weight:800;}
+.ask-opt-desc{display:block;margin-top:3px;font-size:11.5px;line-height:1.5;color:var(--ink-3);font-weight:600;}
+.ask-pop-sep{height:1px;background:var(--line);margin:4px 10px;}
+
+/* The switch itself is `.adm-toggle`'s track/knob recipe, re-scoped. Same
+   control, so the same shape — an analyst who has seen the admin page's
+   switches should not have to learn a second kind. */
+.ask-sw{position:relative;flex:0 0 auto;margin-top:2px;}
+.ask-sw-track{position:relative;display:block;width:38px;height:22px;border-radius:var(--r-pill);
+  background:var(--line);transition:background .14s ease;}
+.ask-sw-knob{position:absolute;top:3px;left:3px;width:16px;height:16px;border-radius:50%;
+  background:#fff;box-shadow:var(--shadow-sm);transition:transform .14s ease;}
+.ask-opt[aria-checked="true"] .ask-sw-track{background:var(--teal);}
+.ask-opt[aria-checked="true"] .ask-sw-knob{transform:translateX(16px);}
+
 .ai-stop{display:block;margin:6px auto 0;background:var(--card);border:1.5px solid var(--chat-danger);color:var(--chat-danger);
   border-radius:var(--r-pill);padding:4px 14px;font-family:inherit;font-size:12px;font-weight:800;cursor:pointer;}
 .ai-stop:hover{background:var(--chat-danger-tint);}

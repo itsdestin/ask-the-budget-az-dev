@@ -1,44 +1,40 @@
-// The composer. Ported from web/components/MessageInput.tsx.
+// The composer. Ported from web/components/MessageInput.tsx, then rebuilt as
+// the single-line "ask bar" (Destin, 2026-08-02).
 //
-// Layout-level concerns (border, page-edge padding, background) are owned by
-// the parent so the input can share one visual container with the suggestion
-// chips. This component renders only the input itself.
+// It wears Home's hero-search recipe verbatim — pill radius, canvas fill, 2px
+// line, navy focus ring on white (`.page-home .search-field` in app.css). That
+// is already the app's search-input identity on two pages, so AI Mode's box is
+// now recognisably the same object rather than a third kind of input.
+//
+// WHY an <input> and not the auto-growing <textarea> it used to be: Destin
+// asked for a single-line box. The cost is that Shift+Enter no longer inserts a
+// newline and a pasted multi-paragraph question flattens to one line. That is
+// accepted; if it bites, the fix is a one-row <textarea> styled identically
+// that grows only when a newline actually arrives — the surrounding layout does
+// not care which element is in here. (The auto-grow effect that used to live in
+// this file, and the overflow-y juggling that stopped Firefox painting a
+// scrollbar inside an empty box, went with the textarea.)
 
-import { useEffect, useRef, useState } from "react";
+import { useState, type ReactNode } from "react";
 
 interface Props {
   onSubmit: (text: string) => void;
   disabled?: boolean;
   placeholder?: string;
+  /** The tools menu, rendered between the paperclip and the input. Passed in
+   *  rather than imported so this component stays a dumb bar — the menu needs
+   *  conversation state (tier, corpus) that the composer has no business
+   *  knowing about. */
+  tools?: ReactNode;
 }
-
-const MAX_HEIGHT_PX = 240;
 
 export default function MessageInput({
   onSubmit,
   disabled,
   placeholder,
+  tools,
 }: Props) {
   const [value, setValue] = useState("");
-  const ref = useRef<HTMLTextAreaElement | null>(null);
-
-  // Auto-grow up to a cap. Height is zeroed first so scrollHeight reports the
-  // content height rather than the current (possibly larger) box.
-  useEffect(() => {
-    const ta = ref.current;
-    if (!ta) return;
-    ta.style.height = "0px";
-    const contentHeight = ta.scrollHeight;
-    ta.style.height = `${Math.min(contentHeight, MAX_HEIGHT_PX)}px`;
-    // Scroll ONLY once the box is genuinely capped. Left on the default
-    // `overflow-y: auto`, an uncapped composer still overflows itself: our
-    // line box is fractional (14px x 1.6 = 22.4px) and scrollHeight is an
-    // integer, so height lands a fraction of a pixel short of the content it
-    // was measured from. Firefox treats any overflow as overflow and paints a
-    // full scrollbar — the stray up/down arrow glyph inside an empty
-    // one-line composer.
-    ta.style.overflowY = contentHeight > MAX_HEIGHT_PX ? "auto" : "hidden";
-  }, [value]);
 
   const handleSubmit = () => {
     const text = value.trim();
@@ -48,29 +44,64 @@ export default function MessageInput({
   };
 
   return (
-    <div className="chat-input">
-      <textarea
-        ref={ref}
+    <div className="ask-bar">
+      {/* STUB, deliberately. Attachments do not exist: the harness reads the
+          corpus and Invariant 7 keeps it off the share, so there is nothing
+          for a file to attach TO yet.
+
+          It is rendered now because of where it is going. Destin, 2026-08-02:
+          analysts will eventually hand the agent a ONE-OFF context document —
+          a bill, a memo — to ask about WITHOUT ingesting it into the corpus.
+          That is a different feature from the Upload page, which adds
+          documents permanently for everyone. A future session should NOT
+          "finish" this button by pointing it at /upload; that would quietly
+          turn a per-conversation scratch document into a shared corpus write.
+
+          aria-disabled rather than `disabled`: a genuinely disabled button
+          receives no pointer events, so the browser never shows its title —
+          and the tooltip explaining why the button does nothing would itself
+          do nothing. */}
+      <button
+        type="button"
+        className="ask-icon ask-attach"
+        aria-disabled="true"
+        aria-label="Attach a document"
+        title="Attachments not yet implemented"
+        data-testid="ask-attach"
+      >
+        <svg
+          viewBox="0 0 24 24"
+          fill="none"
+          stroke="currentColor"
+          strokeWidth="2"
+          strokeLinecap="round"
+          strokeLinejoin="round"
+          aria-hidden="true"
+        >
+          <path d="M21.4 11.05 12.25 20.2a5.5 5.5 0 1 1-7.78-7.78l9.2-9.2a3.67 3.67 0 0 1 5.18 5.19l-9.19 9.19a1.83 1.83 0 1 1-2.6-2.59l8.5-8.49" />
+        </svg>
+      </button>
+
+      {tools}
+
+      <input
+        type="text"
         value={value}
         onChange={(e) => setValue(e.target.value)}
         onKeyDown={(e) => {
-          if (e.key === "Enter" && !e.shiftKey) {
+          if (e.key === "Enter") {
             e.preventDefault();
             handleSubmit();
           }
         }}
-        placeholder={
-          placeholder ??
-          "Ask about Arizona's budget — Enter to send, Shift+Enter for newline"
-        }
+        placeholder={placeholder ?? "Ask about the budget…"}
         disabled={disabled}
-        rows={1}
       />
       <button
         type="button"
         onClick={handleSubmit}
         disabled={disabled || value.trim().length === 0}
-        className="chat-send"
+        className="ask-send"
       >
         Send
       </button>

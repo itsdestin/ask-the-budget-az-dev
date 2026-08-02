@@ -19,170 +19,42 @@ import Footer from "./Footer.js";
 import MessageInput from "./MessageInput.js";
 import { detectRefusal } from "./RefusalBanner.js";
 import SuggestionRow from "./SuggestionRow.js";
+import ToolsMenu from "./ToolsMenu.js";
 import SystemHealthBanner from "./SystemHealthBanner.js";
 import { CitationBusProvider, useCitationSelected } from "./citation-context.js";
 import type { AssistantTurn } from "./chat-types.js";
 import { useMascotPose } from "./mascot/useMascotPose.js";
 import PdfViewer from "../pdf/PdfViewer.js";
-import type { Corpus, Tier, UseChatResult } from "./use-chat.js";
+import type { Corpus, UseChatResult } from "./use-chat.js";
 
-/** The one string this task hardcodes. It is the gate's explanation, not tier
- *  copy — the S16 sentences all come off the wire (see AiStatus.tiers). */
-export const AI_GATED_TOOLTIP =
-  "AI answers require an API key — ask your admin.";
+/** The unavailable screen's headline. Deliberately says WHAT is true, not what
+ *  is missing — "requires an API key" was an implementation detail aimed at an
+ *  audience (the analyst) who cannot act on it. The cause still reaches the
+ *  person who can: `status.reason`, rendered below and addressed to them.
+ *
+ *  Not tier copy — the S16 sentences all come off the wire (AiStatus.tiers). */
+export const AI_GATED_HEADLINE = "AI Mode is currently unavailable";
 
-/** Shown while `GET /api/ai/status` is still in flight. Without it a hung
- *  probe leaves a permanently inert pill with no explanation at all, which
- *  reads as a broken control rather than an unanswered question. */
-export const AI_PROBING_TOOLTIP =
+/** The action, under the headline. One sentence, one instruction. */
+export const AI_GATED_ACTION = "Contact your administrator to turn it on.";
+
+/** Shown while `GET /api/ai/status` is still in flight. Without it a hung probe
+ *  would fall through to the unavailable screen, which states a cause nobody
+ *  has checked yet — an unanswered question rendered as a settled failure. */
+export const AI_PROBING_HEADLINE =
   "Checking whether AI answers are available on this server…";
 
-const TIER_ORDER: Tier[] = ["standard", "deep_research"];
-
-// ---------------------------------------------------------------------------
-// The corpus control
-// ---------------------------------------------------------------------------
-
+/** Corpus options the panel offers in its tools menu. Owned by the page (only
+ *  it can act on a change — a corpus switch discards the conversation), passed
+ *  down so the menu can name what each corpus contains. */
 export interface CorpusOption {
   value: Corpus;
   label: string;
-  /** What the assistant can actually see when this corpus is picked. Carried
-   *  as the segment's `title` since the band that used to spell it out on the
-   *  page is gone — "AI Mode" alone does not tell an analyst which documents
-   *  an answer was built from, and that is the first thing a citation audit
-   *  depends on. */
+  /** What the assistant can actually see when this corpus is picked. Surfaced
+   *  in the tools menu because "AI Mode" alone does not tell an analyst which
+   *  documents the answer will be built from — and that is the first thing a
+   *  citation audit depends on. */
   scope: string;
-}
-
-interface CorpusProps {
-  options: CorpusOption[];
-  corpus: Corpus;
-  onChange: (corpus: Corpus) => void;
-  /** True once there is a conversation on screen that a switch would discard. */
-  hasConversation: boolean;
-}
-
-/** Budget documents / Fiscal notes, beside the tier switch.
- *
- *  It moved here from the page band (Destin, 2026-08-02). It belongs next to
- *  Standard / Deep Research because the two answer the same class of question —
- *  "how should this be answered?" — and an analyst who has just been told the
- *  mode is wrong looks in one place to fix either.
- *
- *  The switch warning is rendered ONLY when there is a conversation to lose.
- *  Standing permanently on the page it was wallpaper; appearing the moment a
- *  thread exists, it is the sentence that stops an analyst discarding a long
- *  conversation with a stray click. */
-function CorpusSwitch({ options, corpus, onChange, hasConversation }: CorpusProps) {
-  return (
-    <div className="ai-corpus-field">
-      <span className="ai-tiers-label" id="ai-corpus-label">
-        Corpus
-      </span>
-      <div className="ai-corpus" role="group" aria-labelledby="ai-corpus-label">
-        {options.map((option) => (
-          <button
-            key={option.value}
-            type="button"
-            className={
-              option.value === corpus ? "ai-corpus-chip on" : "ai-corpus-chip"
-            }
-            aria-pressed={option.value === corpus}
-            title={option.scope}
-            onClick={() => onChange(option.value)}
-          >
-            {option.label}
-          </button>
-        ))}
-      </div>
-      {hasConversation && (
-        <p className="ai-corpus-note">
-          Switching corpus starts a new conversation.
-        </p>
-      )}
-    </div>
-  );
-}
-
-// ---------------------------------------------------------------------------
-// The tier control
-// ---------------------------------------------------------------------------
-
-interface TierProps {
-  status: AiStatus | null;
-  tier: Tier;
-  onChange: (tier: Tier) => void;
-}
-
-/** Standard / Deep Research, plus an explainer.
- *
- *  Every user-visible word except "Mode" and the explainer's own toggle label
- *  is read from `GET /api/ai/status`. The S16 sentences are server-side (see
- *  api.ts's AiTierInfo) so the admin surface in Plan 5 renders the same
- *  strings; retyping them here is how the two start disagreeing. */
-function TierSwitch({ status, tier, onChange }: TierProps) {
-  const [explainerOpen, setExplainerOpen] = useState(false);
-  const tiers = status?.tiers ?? {};
-  return (
-    <div className="ai-tiers">
-      <span className="ai-tiers-label" id="ai-tier-label">
-        Mode
-      </span>
-      <div className="ai-tierswitch" role="group" aria-labelledby="ai-tier-label">
-        {TIER_ORDER.map((key) => {
-          const info = tiers[key];
-          const unavailable = info ? !info.available : false;
-          return (
-            <button
-              key={key}
-              type="button"
-              className={tier === key ? "ai-tierseg on" : "ai-tierseg"}
-              aria-pressed={tier === key}
-              aria-disabled={unavailable || undefined}
-              // Per-tier reason, not the global one: an admin can wire up
-              // Standard and leave Deep Research without a model.
-              title={unavailable ? (info?.reason ?? undefined) : undefined}
-              onClick={() => {
-                if (unavailable) return;
-                onChange(key);
-              }}
-            >
-              {info?.label ?? key}
-            </button>
-          );
-        })}
-      </div>
-      <button
-        type="button"
-        className="ai-tier-info"
-        aria-expanded={explainerOpen}
-        aria-controls="ai-tier-pop"
-        onClick={() => setExplainerOpen((v) => !v)}
-      >
-        What&apos;s the difference?
-      </button>
-      {explainerOpen && (
-        <div id="ai-tier-pop" className="ai-tier-pop" role="note">
-          {TIER_ORDER.map((key) => {
-            const info = tiers[key];
-            if (!info) return null;
-            return (
-              <div key={key} className="ai-tier-explain">
-                <strong>{info.label}</strong> — {info.description}
-                {info.examples.length > 0 && (
-                  <ul>
-                    {info.examples.map((example) => (
-                      <li key={example}>{example}</li>
-                    ))}
-                  </ul>
-                )}
-              </div>
-            );
-          })}
-        </div>
-      )}
-    </div>
-  );
 }
 
 // ---------------------------------------------------------------------------
@@ -339,17 +211,6 @@ function PanelBody({
               )}
 
               <div className="ai-composer">
-                <div className="ai-controls">
-                  {corpusOptions && onCorpusChange && (
-                    <CorpusSwitch
-                      options={corpusOptions}
-                      corpus={corpus}
-                      onChange={onCorpusChange}
-                      hasConversation={state.turns.length > 0}
-                    />
-                  )}
-                  <TierSwitch status={status} tier={chat.tier} onChange={chat.setTier} />
-                </div>
                 <MessageInput
                   onSubmit={chat.send}
                   // Disabling on send is the front line against a duplicate
@@ -357,10 +218,28 @@ function PanelBody({
                   // 409, and a 409 is a mistake to prevent, not an error to
                   // render.
                   disabled={chat.busy}
+                  // The placeholder NAMES THE CORPUS, and that is load-bearing
+                  // rather than flavour: the corpus toggle lives inside a menu
+                  // that closes, so without this the only permanent statement
+                  // of which documents an answer can come from would be gone.
                   placeholder={
                     chat.busy
                       ? "Working — press Stop to interrupt."
-                      : "Ask a question — Enter to send, Shift+Enter for a newline"
+                      : corpus === "fiscal_notes"
+                        ? "Ask about fiscal notes…"
+                        : "Ask about the budget…"
+                  }
+                  tools={
+                    <ToolsMenu
+                      status={status}
+                      tier={chat.tier}
+                      onTierChange={chat.setTier}
+                      corpus={corpus}
+                      onCorpusChange={onCorpusChange}
+                      fiscalNotesScope={
+                        corpusOptions?.find((c) => c.value === "fiscal_notes")?.scope
+                      }
+                    />
                   }
                 />
                 {chat.busy && (
@@ -370,7 +249,7 @@ function PanelBody({
                 )}
               </div>
 
-              <Footer connected={Boolean(status?.available) && !state.error} />
+              <Footer />
             </div>
           </div>
         </div>

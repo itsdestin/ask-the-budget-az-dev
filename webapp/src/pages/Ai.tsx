@@ -1,8 +1,10 @@
 import { useEffect, useState } from "react";
+import { Link } from "react-router-dom";
 
 import {
-  AI_GATED_TOOLTIP,
-  AI_PROBING_TOOLTIP,
+  AI_GATED_ACTION,
+  AI_GATED_HEADLINE,
+  AI_PROBING_HEADLINE,
   AiModePanel,
   type CorpusOption,
 } from "../chat/AiModePanel";
@@ -111,13 +113,62 @@ export function Ai() {
           absorbs the viewport and hands it to the panel. */}
       <div className="wrap ai-stage">
         {probing || gated ? (
-          <section className="card ai-gate" data-testid="ai-gate">
-            <p>{probing ? AI_PROBING_TOOLTIP : AI_GATED_TOOLTIP}</p>
-            {gated && status.reason && (
-              // The server's own sentence, verbatim — it knows whether the key
-              // is missing, the model is unset, or the config failed to load.
-              <p className="ai-gate-reason">Reported reason: {status.reason}</p>
-            )}
+          // A WHOLE SCREEN, not a card (Destin, 2026-08-02). The footer used to
+          // carry "AI Mode unavailable" in 11px grey next to a red dot, which
+          // is the wrong weight for the one condition that stops the page doing
+          // its job at all.
+          //
+          // PROBING IS NOT THE SAME AS UNAVAILABLE, and the ladder below is
+          // ordered so it cannot be told otherwise: `probing` is checked first,
+          // because announcing a missing API key before anything has been
+          // checked states a cause nobody knows yet.
+          <section className="ai-state-wrap" data-testid="ai-gate">
+            <div className={probing ? "ai-state is-probing" : "ai-state"}>
+              <span className="ai-state-glyph" aria-hidden="true">
+                {probing ? (
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.9" strokeLinecap="round">
+                    <circle cx="12" cy="12" r="9" opacity=".3" />
+                    <path d="M12 3a9 9 0 0 1 9 9" />
+                  </svg>
+                ) : (
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.9" strokeLinecap="round" strokeLinejoin="round">
+                    <path d="M12 3.2 13.9 8l4.8 1.9-4.8 1.9L12 16.6l-1.9-4.8L5.3 9.9 10.1 8z" />
+                    <path d="M18.5 15.5 20 19l3.5 1.5-3.5 1.5" />
+                  </svg>
+                )}
+              </span>
+              <h2>{probing ? AI_PROBING_HEADLINE : AI_GATED_HEADLINE}</h2>
+              {gated && (
+                <>
+                  {/* Search and fiscal notes need no API key — a hard spec
+                      constraint, not luck. A dead end that failed to say so
+                      would make the app look far more broken than it is. */}
+                  <p>
+                    {AI_GATED_ACTION} Everything else still works — budget
+                    document search and fiscal notes do not use AI and are
+                    unaffected.
+                  </p>
+                  <div className="ai-state-acts">
+                    <Link className="ai-state-btn" to="/search">
+                      Search budget documents
+                    </Link>
+                    <Link className="ai-state-btn quiet" to="/fiscal-notes">
+                      Browse fiscal notes
+                    </Link>
+                  </div>
+                  {status.reason && (
+                    // The server's own sentence, verbatim — it is the ONLY
+                    // thing that knows whether the key is missing, the model is
+                    // unset, or the config failed to load. Demoted, not
+                    // dropped: that is what an administrator needs to fix this,
+                    // and it is not addressed to the analyst.
+                    <p className="ai-state-reason">
+                      <b>For your administrator:</b> {status.reason}
+                    </p>
+                  )}
+                </>
+              )}
+            </div>
           </section>
         ) : (
           // key={corpus} REMOUNTS the conversation on every corpus switch, and

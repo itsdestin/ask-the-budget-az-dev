@@ -211,7 +211,7 @@ describe("chat CSS containment contract", () => {
     expect(ruleFor(".chat-suggestion:hover")).toMatch(
       /color:\s*var\(--az-gold-d\)/,
     );
-    expect(ruleFor(".chat-send:hover:not(:disabled)")).toMatch(
+    expect(ruleFor(".ask-send:hover:not(:disabled)")).toMatch(
       /filter:\s*brightness/,
     );
   });
@@ -491,25 +491,60 @@ describe("chat CSS containment contract", () => {
     );
   });
 
-  // Corpus and mode sit side by side and mean the same kind of thing ("how
-  // should this question be answered?"). Two adjacent controls that look
-  // different read as two unrelated mechanisms, so they share one recipe
-  // rather than two that drift.
-  it("the corpus switch and the tier switch share one segmented-control recipe", () => {
-    for (const prop of ["display:inline-grid", "border-radius:var(--r-pill)"]) {
-      expect(
-        bare.match(
-          new RegExp(
-            "\\.ai-tierswitch,\\s*\\n?\\s*\\.ai-corpus\\s*\\{[^}]*" +
-              escapeRe(prop),
-          ),
-        ),
-        `the shared track rule must set ${prop}`,
-      ).not.toBeNull();
+  // ------------------------------------------------------------------
+  // 2026-08-02. The composer is now the ask bar, and its whole design claim is
+  // that it IS Home's hero search field — same pill, same fill, same focus
+  // ring — so the app has one search-input identity instead of three. That
+  // claim is only true while the declarations actually match, and nothing else
+  // would fail if they silently drifted apart.
+  it("the ask bar wears Home's search-field recipe", () => {
+    const home = bareRule(".page-home .search-field");
+    const ask = bareRule(".ask-bar");
+    for (const decl of [
+      /background:\s*var\(--canvas\)/,
+      /border:\s*2px solid var\(--line\)/,
+      /border-radius:\s*var\(--r-pill\)/,
+    ]) {
+      expect(home, `home must set ${decl}`).toMatch(decl);
+      expect(ask, `the ask bar must match home on ${decl}`).toMatch(decl);
     }
-    // The navy band's white-on-navy corpus recipe must not survive: on light
-    // chrome `color:#eef0fb` is invisible.
-    expect(bare).not.toMatch(/\.page-ai\s+\.ai-corpus-chip/);
-    expect(bare).not.toMatch(/\.page-ai\s+\.subhero/);
+    const homeFocus = bareRule(".page-home .search-field:focus-within");
+    const askFocus = bareRule(".ask-bar:focus-within");
+    expect(homeFocus).toMatch(/border-color:\s*var\(--navy\)/);
+    expect(askFocus).toMatch(/border-color:\s*var\(--navy\)/);
+    expect(askFocus).toMatch(/box-shadow:\s*0 0 0 4px var\(--navy-100\)/);
+  });
+
+  // The controls the ask bar replaced. Their CSS is deleted, not orphaned —
+  // this file's own convention is that dead page-scoped CSS does not survive
+  // the markup that used it.
+  it("no CSS survives for the retired tier and corpus switches", () => {
+    for (const dead of [
+      ".ai-tierswitch",
+      ".ai-tierseg",
+      ".ai-tier-pop",
+      ".ai-tier-info",
+      ".ai-controls",
+      ".ai-corpus-chip",
+      ".ai-corpus-note",
+      ".chat-input",
+    ]) {
+      expect(bare, `${dead} has no markup left to style`).not.toContain(dead);
+    }
+  });
+
+  // The pip is the only thing standing between an analyst and invisible state:
+  // Deep Research costs ~44x a Standard answer and the corpus decides which
+  // documents a citation can come from, and BOTH toggles live inside a menu
+  // that closes. Its ring fakes a cut-out, so it has to follow the bar's fill.
+  it("the tools pip is drawn outside the icon and tracks the bar's fill", () => {
+    const pip = bareRule(".ask-pip");
+    expect(pip).toMatch(/position:\s*absolute/);
+    // Negative offsets = it sits ON the icon's edge, like a badge.
+    expect(pip).toMatch(/top:\s*-\d/);
+    expect(pip).toMatch(/right:\s*-\d/);
+    expect(bareRule(".ask-bar:focus-within .ask-pip")).toMatch(
+      /border-color:\s*var\(--card\)/,
+    );
   });
 });
