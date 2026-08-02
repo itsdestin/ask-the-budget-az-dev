@@ -533,6 +533,34 @@ describe("chat CSS containment contract", () => {
     }
   });
 
+  // ------------------------------------------------------------------
+  // 2026-08-02, written because it already happened. Removing the retired
+  // `.chat-input` block took `.chat-welcome*` with it — the two were adjacent,
+  // the deletion was by range, and the welcome screen lost its layout with
+  // nothing failing anywhere. Every other rule in this file has a component
+  // that renders it; these are the ones whose ABSENCE is silent, because a
+  // flex container that stops existing just leaves its children in the flow
+  // looking approximately fine.
+  it("the welcome screen still has layout rules at all", () => {
+    const welcome = bareRule(".chat-welcome");
+    expect(welcome, "the mascot/greeting row").toMatch(/display:\s*flex/);
+    expect(welcome).toMatch(/flex-direction:\s*row/);
+    // margin:auto inside the scroller is what vertically centres the whole
+    // empty state; without it the mascot pins to the top of the thread.
+    expect(welcome).toMatch(/margin:\s*auto/);
+    expect(bareRule(".chat-welcome-mascot")).toMatch(/max-height/);
+  });
+
+  // The greeting is a speech bubble aimed at the mascot beside it. The app's
+  // bubble idiom is a squared CORNER, never a triangle carat — Task 13 deleted
+  // those from .chat-bubble for hanging outside the box; regrowing one here
+  // would undo that decision in the most visible place on the page.
+  it("the welcome bubble points at the mascot with a corner, not a carat", () => {
+    const bubble = bareRule(".chat-welcome-bubble");
+    expect(bubble).toMatch(/border-bottom-left-radius:\s*4px/);
+    expect(bare).not.toMatch(/\.chat-welcome-bubble(::before|::after)/);
+  });
+
   // The pip is the only thing standing between an analyst and invisible state:
   // Deep Research costs ~44x a Standard answer and the corpus decides which
   // documents a citation can come from, and BOTH toggles live inside a menu

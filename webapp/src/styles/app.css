@@ -933,6 +933,37 @@ nav.primary{position:relative;padding-right:44px;}
 .chat-notice-banner { max-width: var(--ai-col); margin: 12px auto 8px; }
 
 /* ----- composer ------------------------------------------------------------ */
+/* ----- welcome (empty thread) -----------------------------------------------
+   RESTORED 2026-08-02. These rules were deleted by accident along with the
+   retired `.chat-input` block, which sat immediately before them — the mascot
+   lost its centring and drifted, and nothing failed, because no spec covered
+   this block. There is one now (chat-css-contract).
+
+   Mascot and greeting are a ROW, centred as a group, which is what puts the
+   mascot slightly left of the page's centre line without hardcoding an offset
+   against a character whose art can change size. */
+.chat-welcome { display: flex; flex-direction: row; align-items: center; justify-content: center;
+  flex-wrap: wrap; gap: clamp(4px, 2vw, 20px); padding: 32px 24px; margin: auto; }
+.chat-welcome-mascot { flex: 0 0 auto; max-height: min(420px, 40dvh); width: auto; }
+/* The bubble rides UP from the row's centre line so it sits nearer his head
+   than his knees. Expressed in dvh because the mascot's own height is
+   (min(420px, 40dvh)) — a fixed px nudge would drift out of relation to him on
+   a short viewport, which is exactly when there is least room to be wrong. */
+.chat-welcome-bubble { flex: 0 1 auto; margin: 0 0 clamp(36px, 11dvh, 104px);
+  background: var(--card); border: 1px solid var(--line); border-radius: var(--r-md);
+  border-bottom-left-radius: 4px; box-shadow: var(--shadow-sm);
+  padding: 14px 20px; max-width: 20ch;
+  font-size: clamp(19px, 2.4vw, 26px); font-weight: 800; line-height: 1.25;
+  color: var(--navy); text-wrap: balance; }
+/* Side by side stops working before the column does. Stacked, the squared
+   corner moves to the TOP left so it still points at the mascot — a tail
+   aimed at nothing is worse than no tail. */
+@media (max-width: 560px) {
+  .chat-welcome { flex-direction: column; }
+  .chat-welcome-bubble { margin: 0; text-align: center;
+    border-bottom-left-radius: var(--r-md); border-top-left-radius: 4px; }
+}
+
 .chat-suggestions { overflow-x: auto; padding-bottom: 8px; }
 .chat-suggestions-row { display: flex; flex-direction: row; gap: 8px; padding: 8px 16px 4px; margin: 0 auto; width: fit-content; }
 .chat-suggestion { flex-shrink: 0; white-space: nowrap; border-radius: var(--r-pill); border: 1px solid var(--line); background: var(--card); padding: 6px 12px; font-family: var(--font); font-size: 12px; color: var(--ink); cursor: pointer; transition: border-color .15s, color .15s; }
