@@ -350,6 +350,9 @@ No key, no network.
 
 Plan Task 12 Steps 3–4 could not run here: `ai_available` reports **"no
 API key configured"** on this machine, and both steps spend real money.
+**Runbook: [`PROMPT-citation-linking-baseline.md`](PROMPT-citation-linking-baseline.md)**
+— it carries the exact commands, the expected metric directions, and the
+browser checks.
 
 1. **The live reproduction** of *"what are the biggest agencies by
    budget"*. The offline end-to-end test covers its shape, but nobody has
