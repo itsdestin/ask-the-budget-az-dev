@@ -307,6 +307,33 @@ class ConversationRegistry:
         with self._lock:
             return self._items.get(conversation_id)
 
+    def get_or_add(
+        self, conversation_id: str, entry_factory: Callable[[], _Conversation]
+    ) -> tuple[_Conversation, bool]:
+        """Atomically get-or-create a conversation entry.
+
+        The `create_conversation` resume path needs to check-then-add under
+        the lock: a resumed id is not unique like uuid4, so it can already
+        be in the registry (the analyst reopened a chat they already
+        continued this session). Doing that as `get` + `add` would race
+        under concurrency (two tabs resuming the same chat), so this method
+        does both under `_lock` and returns `(entry, created)`. The entry
+        factory is called only when the id is NOT found, so a live session
+        is never replaced and its httpx client is never leaked.
+        """
+        with self._lock:
+            existing = self._items.get(conversation_id)
+            if existing is not None:
+                return existing, False
+            entry = entry_factory()
+            self._items[entry.id] = entry
+            victims = self._overflow_victims()
+            for victim in victims:
+                del self._items[victim.id]
+        for victim in victims:
+            _close_quietly(victim.session)
+        return entry, True
+
 
 def _close_quietly(session: Any) -> None:
     close = getattr(session, "close", None)
@@ -325,7 +352,8 @@ def _close_quietly(session: Any) -> None:
 
 
 def default_session_factory(
-    conversation_id: str, *, corpus: str, tier: str, user: str
+    conversation_id: str, *, corpus: str, tier: str, user: str,
+    history: list[dict] | None = None,
 ) -> Any:
     """Build the real tool loop. Imported lazily so tests that inject a fake
     session never pay for (or depend on) the retrieval stack behind it.
@@ -334,12 +362,17 @@ def default_session_factory(
     the API key mid-session helps the next conversation without a restart. An
     already-open conversation keeps the settings it was built with — the UI
     creates a conversation per thread, so the blast radius is one thread.
+
+    `history` is forwarded ONLY when resuming a stored chat; a fresh
+    conversation passes nothing and gets the default (empty list).
+    HarnessSession.__init__ already accepts it.
     """
     from harness.session import HarnessSession
 
     return HarnessSession(
         conversation_id, corpus=corpus, tier=tier, user=user,
         settings=load_settings(),
+        history=history,
     )
 
 
@@ -411,6 +444,11 @@ def persist_turn(entry: _Conversation) -> None:
 
 class CreateConversationBody(BaseModel):
     corpus: str = Field(default="budget", pattern="^(budget|fiscal_notes)$")
+    # Continuing a stored chat reuses THIS route rather than getting its own.
+    # A parallel "resume" endpoint would be a second code path doing the same
+    # job, and the two would drift; reusing create is what makes a rehydrated
+    # conversation indistinguishable from a fresh one downstream.
+    resume_from: str | None = None
 
 
 class MessageBody(BaseModel):
@@ -433,13 +471,65 @@ def create_conversation(body: CreateConversationBody, request: Request) -> dict:
     for a UI that wants to dim one toggle rather than the whole feature.
     """
     ok, reason = ai_available(load_settings(), DEFAULT_TIER)
-    conversation_id = uuid.uuid4().hex
+
+    stored = None
+    if body.resume_from:
+        try:
+            stored = history.load(body.resume_from)
+        except ValueError:
+            raise HTTPException(status_code=400, detail="bad conversation id")
+        if stored is None:
+            raise HTTPException(status_code=404, detail="no such conversation")
+
+        # A resumed id is NOT unique the way uuid4() is, so it can already be
+        # in the registry — the analyst reopened a chat they already
+        # continued this session, or has it open in a second tab.
+        # `ConversationRegistry.add` would overwrite the entry outright and
+        # never close the old session, so /stop and the next message would
+        # address a different object under the same id while the first kept
+        # streaming and billing. Reuse it instead.
+        live = _registry(request).get(stored.id)
+        if live is not None:
+            if live.busy:
+                # Same answer begin_turn gives a double-submit, for the same
+                # reason: this conversation is mid-answer.
+                raise HTTPException(
+                    status_code=409,
+                    detail=(
+                        "This conversation is still answering the previous "
+                        "question. Wait for it to finish before reopening it."
+                    ),
+                )
+            health: dict[str, Any] = {"ok": ok}
+            if reason:
+                health["reason"] = reason
+            return {
+                "conversation_id": live.id,
+                "health": health,
+                "tier_default": DEFAULT_TIER,
+                "resumed": True,
+            }
+
+    # Keep the ORIGINAL id so continuing a chat updates it rather than
+    # forking a second transcript with the same content.
+    conversation_id = stored.id if stored else uuid.uuid4().hex
+    # The stored corpus wins over whatever the client asked for: the
+    # transcript was recorded against one corpus and answering it out of the
+    # other would be wrong, cited and confident.
+    corpus = stored.corpus if stored else body.corpus
+
+    # `history=` is passed ONLY when resuming. Passing it unconditionally
+    # would break every session_factory that does not accept it — which is
+    # all of them today: default_session_factory (:327) and the ~25 call
+    # sites behind tests/test_conversations_route.py's `factory_for` (:119).
+    extra = {"history": list(stored.messages)} if stored else {}
     session = _session_factory(request)(
-        conversation_id, corpus=body.corpus, tier=DEFAULT_TIER,
+        conversation_id, corpus=corpus, tier=DEFAULT_TIER,
         user=current_user(),
+        **extra,
     )
     _registry(request).add(
-        _Conversation(id=conversation_id, session=session, corpus=body.corpus)
+        _Conversation(id=conversation_id, session=session, corpus=corpus)
     )
     health: dict[str, Any] = {"ok": ok}
     if reason:
@@ -448,6 +538,7 @@ def create_conversation(body: CreateConversationBody, request: Request) -> dict:
         "conversation_id": conversation_id,
         "health": health,
         "tier_default": DEFAULT_TIER,
+        "resumed": stored is not None,
     }
 
 
