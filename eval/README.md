@@ -239,11 +239,13 @@ this directory. When that lands, expect Layer 1's role to shift to
 | `results/` | Git-tracked result files (one JSON + one MD per run) |
 | `agent_queries.yaml` | Layer 2 ground truth — open-ended questions + key_facts + shape/subset tags |
 | `agent_schema.py` | Layer 2 query schema (`AgentQuery`, `KeyFact`) — `extra="forbid"` |
-| `run_agent_eval.py` | Layer 2 runner — drives real `HarnessSession`s, spends money, writes transcripts |
+| `run_agent_eval.py` | Layer 2 runner — drives real `HarnessSession`s, spends money, writes transcripts. `--workers N` runs queries concurrently |
+| `run_full_layer2.py` | One-shot orchestrator — run → score → judge in one command, one pinned run dir |
+| `defend_agent_run.py` | Defend mechanism — drives a fresh session to justify/amend a poorly-scored transcript (spends money) |
 | `agent_transcript.py` | Layer 2 transcript read/write — degrades a truncated file to an error record |
 | `agent_scoring.py` | Layer 2 mechanical scoring functions (free) |
 | `score_agent_run.py` | Layer 2 scorer CLI — transcripts → `scores.json` / `scores.md` (free) |
-| `judge_agent_run.py` | Layer 2 LLM judge CLI — `scores.json`'s companion, costs money |
+| `judge_agent_run.py` | Layer 2 LLM judge CLI — `scores.json`'s companion, costs money. `--workers N` grades concurrently |
 | `agent_judge_prompt.md` | The judge's system prompt |
 | `compare_agent_runs.py` | Diffs two Layer 2 run directories into a markdown report (free) |
 | `results/agent/` | Layer 2 run directories — derived artifacts committed, raw transcripts gitignored |
@@ -303,11 +305,34 @@ string / regex, mechanically checkable in the final answer), and which
 Workflow:
 
 ```bash
-uv run python -m eval.run_agent_eval --subset smoke        # live run, spends money
-uv run python -m eval.score_agent_run eval/results/agent/<run>   # free, re-runnable
-uv run python -m eval.judge_agent_run eval/results/agent/<run>   # money — full runs only
+uv run python -m eval.run_agent_eval --subset smoke --workers 8   # live run, spends money
+uv run python -m eval.run_full_layer2 --subset smoke --workers 8  # run + score + judge, one command
+uv run python -m eval.score_agent_run eval/results/agent/<run>    # free, re-runnable
+uv run python -m eval.judge_agent_run eval/results/agent/<run> --workers 8  # money — full runs only
 uv run python -m eval.compare_agent_runs <baseline-dir> <candidate-dir>  # free
 ```
+
+**Parallelism.** `run_agent_eval --workers N`, `judge_agent_run --workers N`
+and `run_full_layer2 --workers N` all fan their paid OpenRouter calls out
+across N concurrent worker threads. The Layer 2 runner is dominated by
+waiting on model latency, not CPU, so issuing several queries at once
+overlaps that latency instead of stacking it — a `full` run (31 Standard
+queries) that took ~10 minutes serially can drop to roughly a third at
+`--workers 8` when the provider keeps up. The default is **1 (serial)**,
+preserving the historical behaviour and guarding against accidentally
+hammering OpenRouter; pass `--workers` explicitly when you want speed.
+The judge is inherently network-latency-bound too, and gets the same
+treatment. Both are thread-based (not process) because the paid work is
+I/O — the two ONNX models are shared singletons already used concurrently
+by the office app's threadpool, and full-process isolation would multiply
+model memory for no wall-clock gain.
+
+**`run_full_layer2`** is the one-shot wrapper: it drives `run_agent_eval`
+→ `score_agent_run` → `judge_agent_run` in order as subprocesses (stop at
+the first non-zero exit), pointing all three at one pinned run directory
+so you never guess which dir was just created. `--skip-judge` runs only
+run + score (judging is a second, separate charge). It re-runs cleanly
+and produces byte-identical artifacts to running each step by hand.
 
 `run_agent_eval.py` writes one directory per run —
 `eval/results/agent/<UTC-ISO>-<git-sha>/` — containing `manifest.json`
@@ -432,3 +457,46 @@ and unit-tested (transcripts, scoring, and the judge are all exercised
 against synthetic fixtures) but has never been pointed at a real
 OpenRouter key. The acceptance step for whoever runs the first one is
 in STATUS.md.
+
+## Defending a weak transcript (`defend_agent_run.py`)
+
+When a query scores poorly on the mechanical scorer, or the LLM judge
+hands it a bad ranking, it is often worth letting the model DEFEND its
+output before treating the score as truth. A defense frequently
+uncovers a *faulty eval* rather than a bad model — a checked fact that
+was actually present, a citation that genuinely supported a claim the
+judge flagged as uncovered. This tool automates exactly that loop, and
+it costs money (real OpenRouter calls), so it is opt-in and manual.
+
+```bash
+# defend one named query from a finished run
+uv run python -m eval.defend_agent_run eval/results/agent/<run> --queries lk-k12-basic-aid-fy2026
+
+# defend every badly-scored/flagged/under-judged query in one go
+uv run python -m eval.defend_agent_run eval/results/agent/<run> --all-poorly --workers 8
+```
+
+What it does, per target:
+
+1. reads that query's transcript from the run dir,
+2. composes the evaluation's feedback for it — from `scores.json`
+   (missing key facts, hygiene flags, false refusal) and/or `judge.json`
+   (holistic grade, rationale, claims the judge said were uncovered) —
+   or an explicit `--feedback` string you supply,
+3. drives a **fresh `HarnessSession`** (the production code path, same
+   as the run) whose question embeds the original question, the original
+   answer, and the feedback, asking the model to *defend or revise* —
+   point out where the evaluator is wrong, quoting and citing the
+   supporting text, or acknowledge a fair criticism,
+4. writes each defense as a normal `<id>-defend-r1.jsonl` transcript
+   under `eval/results/agent/defend/<UTC>-<sha>/`, with its **own
+   isolated ledger**, so you can `read_transcript` it like any other.
+
+Deliberate non-features, so a defense never fakes a better score: it
+does NOT mechanically re-score the defense (a defense has no clean
+key-fact target, and re-scoring would read as a second, misleading
+result). The deliverable is the justification itself, for a human to
+read and judge — exactly the "audit the claim, don't grade on vibes"
+ethos. `--workers` fans defenses out in parallel; defaults to serial.
+One bad defense never aborts the rest, and model fallbacks are reset
+per query, matching every other Layer 2 tool.

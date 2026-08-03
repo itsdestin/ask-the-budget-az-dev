@@ -8,6 +8,7 @@ count — judge arithmetic is never trusted (spec Decision #3).
 from __future__ import annotations
 
 import argparse
+import concurrent.futures
 import hashlib
 import json
 import re
@@ -337,6 +338,10 @@ def main() -> int:
                              "reasoning judge this measured 15x faster and 2.75x "
                              "cheaper — but it changes the grades, so a run using "
                              "it is not comparable to one without.")
+    parser.add_argument("--workers", type=int, default=1,
+                        help="judge calls in flight at once (parallel OpenRouter "
+                             "calls; default 1 = serial, the historical "
+                             "behaviour).")
     args = parser.parse_args()
 
     settings = load_settings()
@@ -348,46 +353,78 @@ def main() -> int:
 
     per_query: list[dict[str, Any]] = []
     interrupted = False
-    with httpx.Client() as client:
-        paths = sorted(p for p in args.run_dir.glob("*-r*.jsonl")
-                       if p.name != "ledger.jsonl")
-        if args.limit:
-            paths = paths[: args.limit]
+    paths = sorted(p for p in args.run_dir.glob("*-r*.jsonl")
+                   if p.name != "ledger.jsonl")
+    if args.limit:
+        paths = paths[: args.limit]
+
+    def _grade_one(path: Path) -> dict[str, Any] | None:
+        """Read one transcript, judge it, score it. Runs on a worker
+        thread when --workers > 1, so it builds its OWN httpx.Client — a
+        client is not thread-safe to share, and the judge is pure
+        network-latency-bound work, so per-thread clients are exactly the
+        right isolation. Returns None when the query isn't in the set
+        (the old `continue`), else a row dict.
+        """
+        # WHY this try/except: judge_one already swallows failures of
+        # the model CALL, but everything around it — reading a torn
+        # transcript, building the payload, scoring the result — can
+        # still raise, and judge.json is written ONCE after the loop.
+        # So a single bad file used to discard every already-paid
+        # grade in the run. One bad row must cost one row.
         try:
+            t = read_transcript(path)
+            qid = t.meta.get("query_id")
+            if qid not in queries:
+                return None
+            payload = build_judge_payload(queries[qid], t)
+            with httpx.Client() as client:
+                result = judge_one(client, settings.provider.base_url,
+                                   settings.provider.api_key, args.judge_model,
+                                   system_prompt, payload,
+                                   reasoning=not args.no_reasoning)
+            row = {"query_id": qid, "repeat": t.meta.get("repeat", 1), **result}
+            if "judge_error" not in result:
+                row.update(compute_citation_scores(result, t))
+        except Exception as exc:
+            # query_id comes from the filename here because the
+            # failure may BE that the file couldn't be read.
+            row = {"query_id": path.stem, "repeat": None,
+                   "judge_error": f"{type(exc).__name__}: {exc}"}
+        return row
+
+    def _run_judge() -> None:
+        """Fan the grade calls out. `--workers` is the number of judge
+        calls in flight at once; default 1 preserves the historical serial
+        behaviour. Results are collected back in `paths` order so judge.json
+        rows are deterministic regardless of completion order — the same
+        set of transcripts always yields the same row order.
+        """
+        tries = [p for p in paths]
+        if args.workers <= 1:
             for path in paths:
-                # WHY this try/except: judge_one already swallows failures of
-                # the model CALL, but everything around it — reading a torn
-                # transcript, building the payload, scoring the result — can
-                # still raise, and judge.json is written ONCE after the loop.
-                # So a single bad file used to discard every already-paid
-                # grade in the run. One bad row must cost one row.
-                try:
-                    t = read_transcript(path)
-                    qid = t.meta.get("query_id")
-                    if qid not in queries:
-                        continue
-                    payload = build_judge_payload(queries[qid], t)
-                    result = judge_one(client, settings.provider.base_url,
-                                       settings.provider.api_key, args.judge_model,
-                                       system_prompt, payload,
-                                       reasoning=not args.no_reasoning)
-                    row = {"query_id": qid, "repeat": t.meta.get("repeat", 1), **result}
-                    if "judge_error" not in result:
-                        row.update(compute_citation_scores(result, t))
-                except Exception as exc:
-                    # query_id comes from the filename here because the
-                    # failure may BE that the file couldn't be read.
-                    row = {"query_id": path.stem, "repeat": None,
-                           "judge_error": f"{type(exc).__name__}: {exc}"}
-                per_query.append(row)
-                print(f"{row['query_id']}: "
-                      f"{'ERROR' if 'judge_error' in row else row.get('holistic')}")
-        except KeyboardInterrupt:
-            # A judge run spends real money per row. Ctrl-C keeps whatever
-            # has already been graded instead of binning the lot; the exit
-            # code below says the run was cut short.
-            print("interrupted — writing the rows graded so far", file=sys.stderr)
-            interrupted = True
+                row = _grade_one(path)
+                if row is not None:
+                    per_query.append(row)
+        else:
+            # One task per path; map preserves input order on the results.
+            with concurrent.futures.ThreadPoolExecutor(max_workers=args.workers) as ex:
+                for path, row in zip(paths, ex.map(_grade_one, paths)):
+                    if row is not None:
+                        per_query.append(row)
+
+    try:
+        _run_judge()
+        for row in per_query:
+            print(f"{row['query_id']}: "
+                  f"{'ERROR' if 'judge_error' in row else row.get('holistic')}")
+    except KeyboardInterrupt:
+        # A judge run spends real money per row. Ctrl-C keeps whatever
+        # has already been graded instead of binning the lot; the exit
+        # code below says the run was cut short. (With parallelism, Ctrl-C
+        # also cancels the in-flight tasks on the next context manager exit.)
+        print("interrupted — writing the rows graded so far", file=sys.stderr)
+        interrupted = True
 
     graded = [r for r in per_query if "judge_error" not in r]
     def mean(key):

@@ -1,0 +1,343 @@
+{
+  "judge_model": "z-ai/glm-5.2",
+  "judge_reasoning": true,
+  "judge_prompt_sha256": "d303d08b3219de65dddefe1134e72cf4f8b86719abdcd2a7dd13cb341b4eda25",
+  "summary": {
+    "n": 11,
+    "errors": 0,
+    "claim_coverage_precision_mean": 0.6715686274509803,
+    "claim_coverage_recall_mean": 0.6222222222222222,
+    "holistic_mean": 3.4545454545454546
+  },
+  "per_query": [
+    {
+      "query_id": "an-ahcccs-gf-drivers",
+      "repeat": 1,
+      "load_bearing_claims": [
+        {
+          "claim": "AHCCCS FY 2026 General Fund spending increases by $113.6 million from FY 2025",
+          "cited_verified": true
+        },
+        {
+          "claim": "Gross state-match cost pressure totals $156,069,200 from four formula adjustments",
+          "cited_verified": true
+        },
+        {
+          "claim": "Non-General Fund state match sources increase by a net $37,288,000",
+          "cited_verified": true
+        },
+        {
+          "claim": "Net General Fund formula adjustments equal $118.8 million",
+          "cited_verified": true
+        },
+        {
+          "claim": "Removal of one-time FY 2025 funding totals $5.2 million ($1M + $4.2M)",
+          "cited_verified": true
+        },
+        {
+          "claim": "FY 2027 General Fund costs projected to increase by $268.8 million",
+          "cited_verified": true
+        }
+      ],
+      "holistic": 2,
+      "figure_coverage_ok": false,
+      "placement_ok": true,
+      "flags": {
+        "hedging": false,
+        "meta_narration": true,
+        "answered_wrong_question": true
+      },
+      "rationale": "The answer provides detailed, well-cited arithmetic for the JLBC baseline but completely omits the $150M Prescription Drug Rebate Fund shift that the judge notes identify as the core mechanism explaining why the state share barely moved. Five figures in the non-GF table are marked [UNCITED] despite matching citations existing in the list, and the answer includes meta-narration about its own citation process.",
+      "claim_coverage_precision": 0.35294117647058826,
+      "claim_coverage_recall": 1.0
+    },
+    {
+      "query_id": "cm-basic-aid-3yr",
+      "repeat": 1,
+      "load_bearing_claims": [
+        {
+          "claim": "FY 2025 Basic State Aid enacted: $7,288,548,000",
+          "cited_verified": true
+        },
+        {
+          "claim": "FY 2026 Basic State Aid enacted: $7,623,574,500",
+          "cited_verified": true
+        },
+        {
+          "claim": "FY 2027 Basic State Aid baseline (not enacted): $7,882,367,000",
+          "cited_verified": true
+        },
+        {
+          "claim": "Year-over-year growth: +4.6% (FY25→FY26) then +3.4% (FY26→FY27)",
+          "cited_verified": true
+        },
+        {
+          "claim": "Formula funding is climbing at roughly 3–4% per year in nominal dollars",
+          "cited_verified": true
+        }
+      ],
+      "holistic": 4,
+      "figure_coverage_ok": false,
+      "placement_ok": true,
+      "flags": {
+        "hedging": false,
+        "meta_narration": false,
+        "answered_wrong_question": false
+      },
+      "rationale": "The answer correctly presents all three years with the right figures, properly labels FY 2027 as a JLBC baseline rather than enacted, and avoids the Baseline/Appropriations mixing trap. Four secondary figures (property-tax totals, inflation and ESA growth line-items) are uncited, which prevents a perfect score but does not undermine the core trajectory analysis.",
+      "claim_coverage_precision": 1.0,
+      "claim_coverage_recall": 1.0
+    },
+    {
+      "query_id": "cm-des-gf-growth",
+      "repeat": 1,
+      "load_bearing_claims": [
+        {
+          "claim": "DES General Fund spending increased $243.5M (+18.1%) in FY 2026",
+          "cited_verified": true
+        },
+        {
+          "claim": "DDD formula adjustments ($262.5M) drove the FY 2026 increase, exceeding the agency's total GF growth",
+          "cited_verified": true
+        },
+        {
+          "claim": "DES General Fund spending increased $119.5M (+9.9%) in FY 2025",
+          "cited_verified": true
+        },
+        {
+          "claim": "DDD is the dominant structural driver of DES GF growth across all years (caseload, capitation, declining FMAP)",
+          "cited_verified": true
+        },
+        {
+          "claim": "FY 2027 Baseline adds $286.3M in General Fund for DDD formula changes alone",
+          "cited_verified": true
+        }
+      ],
+      "holistic": 4,
+      "figure_coverage_ok": true,
+      "placement_ok": true,
+      "flags": {
+        "hedging": false,
+        "meta_narration": true,
+        "answered_wrong_question": false
+      },
+      "rationale": "Answer correctly identifies DDD as the dominant driver and provides well-cited year-over-year figures with supporting chunk text; however, it opens with process narration ('Let me search the corpus…') and includes some forward-looking detail beyond the question's scope.",
+      "claim_coverage_precision": 0.5,
+      "claim_coverage_recall": 1.0
+    },
+    {
+      "query_id": "hs-arra-k12-stabilization-2010",
+      "repeat": 1,
+      "load_bearing_claims": [
+        {
+          "claim": "Required General Fund reduction to Basic State Aid for FY 2010 was $472,114,000",
+          "cited_verified": false
+        }
+      ],
+      "holistic": 2,
+      "figure_coverage_ok": true,
+      "placement_ok": true,
+      "flags": {
+        "hedging": false,
+        "meta_narration": false,
+        "answered_wrong_question": false
+      },
+      "rationale": "The dollar figure is correct, but no citations were issued despite the annotated answer showing a [1] marker, leaving the load-bearing claim unverified.",
+      "claim_coverage_precision": null,
+      "claim_coverage_recall": 0.0
+    },
+    {
+      "query_id": "lk-adc-total-fy2026",
+      "repeat": 1,
+      "load_bearing_claims": [
+        {
+          "claim": "ADC total FY 2026 appropriation is $1,600,697,200",
+          "cited_verified": true
+        },
+        {
+          "claim": "General Fund share is $1,537,433,000",
+          "cited_verified": true
+        },
+        {
+          "claim": "Other dedicated funds total $63,264,200",
+          "cited_verified": true
+        },
+        {
+          "claim": "General Fund is ~96% of total, other funds ~4%",
+          "cited_verified": true
+        }
+      ],
+      "holistic": 4,
+      "figure_coverage_ok": true,
+      "placement_ok": true,
+      "flags": {
+        "hedging": false,
+        "meta_narration": true,
+        "answered_wrong_question": false
+      },
+      "rationale": "All figures match the cited budget bill chunk exactly and are properly linked or derived; the fund-source breakdown is thorough and correctly placed. The total ($1,600,697,200) is lower than the JLBC report figure ($1,637,564,700) noted in the judge notes, suggesting the budget bill may omit some appropriations, but the answer is internally consistent and well-sourced from a primary document.",
+      "claim_coverage_precision": 1.0,
+      "claim_coverage_recall": 1.0
+    },
+    {
+      "query_id": "lk-dps-operating-fy2026",
+      "repeat": 1,
+      "load_bearing_claims": [
+        {
+          "claim": "DPS total FY 2026 appropriation is $405,616,000",
+          "cited_verified": false
+        },
+        {
+          "claim": "DPS plain operating budget (Operating Subtotal) is $294,057,800",
+          "cited_verified": false
+        },
+        {
+          "claim": "General Fund share is $313,660,800",
+          "cited_verified": false
+        }
+      ],
+      "holistic": 1,
+      "figure_coverage_ok": false,
+      "placement_ok": false,
+      "flags": {
+        "hedging": false,
+        "meta_narration": false,
+        "answered_wrong_question": false
+      },
+      "rationale": "Every key figure contradicts the expected values (total should be $389,947,400; operating $281,005,300; GF $296,200,000), and the citations array is empty so none of the 17 inline markers can be verified.",
+      "claim_coverage_precision": null,
+      "claim_coverage_recall": 0.0
+    },
+    {
+      "query_id": "lk-k12-basic-aid-fy2026",
+      "repeat": 1,
+      "load_bearing_claims": [
+        {
+          "claim": "Enacted FY 2026 Basic State Aid total is $7,623,574,500",
+          "cited_verified": false
+        },
+        {
+          "claim": "General Fund component is $7,400,931,000",
+          "cited_verified": false
+        },
+        {
+          "claim": "Permanent State School Fund component is $72,263,000",
+          "cited_verified": false
+        },
+        {
+          "claim": "Education Sales Tax component is $150,380,500",
+          "cited_verified": false
+        }
+      ],
+      "holistic": 3,
+      "figure_coverage_ok": true,
+      "placement_ok": true,
+      "flags": {
+        "hedging": false,
+        "meta_narration": true,
+        "answered_wrong_question": false
+      },
+      "rationale": "The answer correctly identifies the enacted $7,623,574,500 figure (not the baseline estimate) and properly notes exclusion of local property taxes, but no citations were actually issued despite markers appearing in the annotated answer, making the claims unverifiable. Meta-narration about searching is present but minor.",
+      "claim_coverage_precision": null,
+      "claim_coverage_recall": 0.0
+    },
+    {
+      "query_id": "lk-prop123-increment",
+      "repeat": 1,
+      "load_bearing_claims": [
+        {
+          "claim": "$285,626,000 in incremental K-12 funding in FY 2025",
+          "cited_verified": true
+        },
+        {
+          "claim": "The 4.4% incremental increase expired at the end of FY 2025; no incremental funds scheduled for FY 2026",
+          "cited_verified": true
+        },
+        {
+          "claim": "Proposition 123 raised the distribution rate from 2.5% to 6.9% for FY 2016 through FY 2025",
+          "cited_verified": true
+        }
+      ],
+      "holistic": 5,
+      "figure_coverage_ok": true,
+      "placement_ok": true,
+      "flags": {
+        "hedging": false,
+        "meta_narration": false,
+        "answered_wrong_question": false
+      },
+      "rationale": "The answer correctly reports the FY 2025 incremental amount ($285,626,000) and clearly states the 4.4% increment expired at the end of FY 2025 with reversion to 2.5%, addressing both parts of the question with verified citations.",
+      "claim_coverage_precision": 1.0,
+      "claim_coverage_recall": 1.0
+    },
+    {
+      "query_id": "mm-adc-briefing",
+      "repeat": 1,
+      "load_bearing_claims": [
+        {
+          "claim": "Total FY 2026 appropriated funding is $1,637,564,700",
+          "cited_verified": false
+        },
+        {
+          "claim": "General Fund share is $1,574,113,200 (~96%)",
+          "cited_verified": false
+        },
+        {
+          "claim": "One-time 4% correctional officer stipend totals $3,767,200",
+          "cited_verified": true
+        },
+        {
+          "claim": "$55,283,500 in private prison per diem labeled one-time through FY 2027",
+          "cited_verified": true
+        },
+        {
+          "claim": "General Fund costs projected to decrease $30,331,000 in FY 2027 and $54,283,500 in FY 2028",
+          "cited_verified": true
+        }
+      ],
+      "holistic": 3,
+      "figure_coverage_ok": true,
+      "placement_ok": false,
+      "flags": {
+        "hedging": false,
+        "meta_narration": true,
+        "answered_wrong_question": false
+      },
+      "rationale": "The memo is well-structured and names multiple one-time items with verified citations, but the two headline figures ($1,637,564,700 total and $1,574,113,200 GF) are attached to citations from the Baseline Book showing different numbers ($1,583,929,500 and $1,527,944,500), so those markers are misplaced. Process narration ('Now let me check…', 'Now let me fix…') leaked into the final answer.",
+      "claim_coverage_precision": 0.17647058823529413,
+      "claim_coverage_recall": 0.6
+    },
+    {
+      "query_id": "rf-federal-budget",
+      "repeat": 1,
+      "load_bearing_claims": [],
+      "holistic": 5,
+      "figure_coverage_ok": true,
+      "placement_ok": true,
+      "flags": {
+        "hedging": false,
+        "meta_narration": false,
+        "answered_wrong_question": false
+      },
+      "rationale": "Correct out-of-scope refusal: the assistant identifies the corpus as Arizona state budget documents and explains that federal VA appropriations are outside its scope, avoiding the trap of citing the similarly-named state agency.",
+      "claim_coverage_precision": null,
+      "claim_coverage_recall": null
+    },
+    {
+      "query_id": "rf-other-state",
+      "repeat": 1,
+      "load_bearing_claims": [],
+      "holistic": 5,
+      "figure_coverage_ok": true,
+      "placement_ok": true,
+      "flags": {
+        "hedging": false,
+        "meta_narration": false,
+        "answered_wrong_question": false
+      },
+      "rationale": "Correct refusal that clearly names the corpus boundary (Arizona-only) and explains why Nevada per-pupil funding cannot be answered, while offering a relevant alternative.",
+      "claim_coverage_precision": null,
+      "claim_coverage_recall": null
+    }
+  ]
+}

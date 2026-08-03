@@ -81,6 +81,75 @@ def test_run_suite_writes_transcript_per_query(tmp_path):
         assert t.terminal["frame"]["usage"]["cost"] == pytest.approx(0.003)
 
 
+def test_parallel_workers_write_all_transcripts(tmp_path):
+    """`workers=N` runs queries concurrently and still lands one correct
+    transcript per (query, repeat). Each session gets a FRESH scripted
+    Provider (the fake_factory contract), so concurrent threads replay
+    independent streams and there is no shared-response race."""
+    queries = [q("aq-001"), q("aq-002"), q("aq-003")]
+    run_suite(queries, tmp_path, fake_factory(simple_provider),
+              progress=lambda *_: None, workers=3)
+    for qid in ("aq-001", "aq-002", "aq-003"):
+        t = read_transcript(tmp_path / f"{qid}-r1.jsonl")
+        assert t.meta["query_id"] == qid
+        assert t.terminal["frame"]["type"] == "_done"
+        assert t.terminal["frame"]["usage"]["cost"] == pytest.approx(0.003)
+
+
+def test_parallel_workers_one_exploding_session_does_not_abort_others(tmp_path):
+    """The 'one bad query never aborts the run' guarantee must hold under
+    parallelism: a session that explodes during construction costs only
+    its own transcript, and the concurrent healthy queries still land."""
+    calls = {"n": 0}
+
+    def factory(query, conv_id):
+        calls["n"] += 1
+        if calls["n"] == 1:
+            raise RuntimeError("session construction blew up")
+        return fake_factory(simple_provider)(query, conv_id)
+
+    run_suite([q("aq-001"), q("aq-002"), q("aq-003")], tmp_path, factory,
+              progress=lambda *_: None, workers=3)
+    t1 = read_transcript(tmp_path / "aq-001-r1.jsonl")
+    assert t1.terminal["frame"]["type"] == "_error"
+    assert "RuntimeError" in t1.terminal["frame"]["message"]
+    for qid in ("aq-002", "aq-003"):
+        t = read_transcript(tmp_path / f"{qid}-r1.jsonl")
+        assert t.terminal["frame"]["type"] == "_done"
+
+
+def test_make_usage_recorder_serializes_concurrent_ledger_appends(tmp_path):
+    """With --workers > 1 several sessions bill into the SAME ledger.jsonl
+    from different threads. The recorder's lock must keep every line a
+    complete JSON object — a spliced line would break the ledger readback."""
+    import threading
+    import eval.run_agent_eval as runner
+
+    recorder = runner.make_usage_recorder(tmp_path)
+    errors = []
+
+    def hammer(seed):
+        try:
+            for i in range(25):
+                recorder("eval", "standard", "m", seed + i, i,
+                         cost_usd=0.001, cached_tokens=0)
+        except Exception as exc:  # pragma: no cover
+            errors.append(str(exc))
+
+    threads = [threading.Thread(target=hammer, args=(t * 1000,))
+               for t in range(8)]
+    for t in threads:
+        t.start()
+    for t in threads:
+        t.join()
+    assert not errors
+    lines = (tmp_path / "ledger.jsonl").read_text(encoding="utf-8").splitlines()
+    assert len(lines) == 8 * 25
+    for line in lines:
+        parsed = json.loads(line)  # every line must be complete, parseable JSON
+        assert parsed["cost_usd"] == 0.001
+
+
 def test_repeats_write_separate_files(tmp_path):
     run_suite([q()], tmp_path, fake_factory(simple_provider), repeats=2,
               progress=lambda *_: None)

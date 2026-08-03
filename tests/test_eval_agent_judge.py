@@ -448,6 +448,50 @@ def test_main_survives_a_row_that_raises_outside_the_model_call(tmp_path, monkey
     assert out["summary"]["claim_coverage_precision_mean"] == 1.0
 
 
+def test_main_judges_transcripts_in_parallel_workers(tmp_path, monkeypatch):
+    """--workers N must grade every transcript into judge.json, in the same
+    deterministic path order as a serial run, even when the calls run
+    concurrently. The httpx.Client is patched (as elsewhere in this suite)
+    so this never makes a real network call."""
+    run_dir = tmp_path / "run"
+    run_dir.mkdir()
+    # Two transcripts with DISTINCT meta query_ids (the judge reads the
+    # query_id from the transcript meta, not the filename).
+    from eval.agent_transcript import write_transcript
+    base = Transcript(meta={"query_id": "x"}, terminal={"frame": {"type": "_done"}})
+    for qid in ("aq-001", "aq-002"):
+        meta = dict(base.meta, query_id=qid, repeat=1)
+        write_transcript(run_dir / f"{qid}-r1.jsonl", meta,
+                         [], {"frame": {"type": "_done", "finalAnswer": "x",
+                                        "citations": [], "toolCalls": [],
+                                        "annotation": {"figures": []}},
+                              "wall_ms": 1})
+    queries_file = tmp_path / "queries.yaml"
+    queries_file.write_text(
+        "- id: aq-001\n  question: ADC? \n  shape: lookup\n"
+        "- id: aq-002\n  question: DEMA?  \n  shape: lookup\n",
+        encoding="utf-8")
+
+    def handler(request):
+        return httpx.Response(200, json={"choices": [
+            {"message": {"content": json.dumps(JUDGE_REPLY)}}]})
+
+    real_client = httpx.Client
+    monkeypatch.setattr(judge_agent_run.httpx, "Client",
+                        lambda *a, **k: real_client(transport=httpx.MockTransport(handler)))
+    monkeypatch.setattr(judge_agent_run, "load_settings", lambda: _FakeSettings())
+    monkeypatch.setattr(sys, "argv",
+                        ["judge", str(run_dir), "--queries-file", str(queries_file),
+                         "--workers", "2"])
+    assert main() == 0
+    out = json.loads((run_dir / "judge.json").read_text(encoding="utf-8"))
+    # Both transcripts were graded (n = 2), in the sorted path order.
+    assert out["summary"]["n"] == 2
+    assert out["summary"]["errors"] == 0
+    assert [r["query_id"] for r in out["per_query"]] == ["aq-001", "aq-002"]
+    assert all(r.get("holistic") == 4 for r in out["per_query"])
+
+
 def test_reasoning_model_that_returns_null_content_gives_a_clear_error():
     """Observed live 2026-08-02 with deepseek-v4-flash-0731: a reasoning
     model spends its completion budget thinking, hits finish_reason
