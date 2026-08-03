@@ -23,6 +23,11 @@ interface StoredMessage {
   }> | null;
   tool_call_id?: string;
   name?: string;
+  /** Only on the FINAL assistant message of a turn: the server's figure
+   *  annotation (Handoff Issue 1). Persisted with the transcript so a
+   *  rehydrated chat can restore its citation chips instead of showing them
+   *  unlinked. Absent on turns that predate citation linking. */
+  annotation?: unknown;
 }
 
 /**
@@ -71,6 +76,11 @@ export function rehydrateTurns(
       // Collect consecutive assistant + tool messages into one AssistantTurn.
       const blocks: AssistantBlock[] = [];
       const blockIndexById = new Map<string, number>();
+      // The turn's figure annotation, taken from the LAST assistant message
+      // (the answer proper). The server attaches it to the final assistant
+      // message of the turn (HarnessSession._attach_annotation) so it persists
+      // with the transcript and restores citation chips on rehydrate.
+      let annotation: unknown;
 
       while (i < msgs.length) {
         const m = msgs[i];
@@ -78,6 +88,7 @@ export function rehydrateTurns(
         if (m.role === "user") break;
 
         if (m.role === "assistant") {
+          if (m.annotation !== undefined) annotation = m.annotation;
           // Text content (when non-empty) becomes a text block.
           if (typeof m.content === "string" && m.content) {
             blocks.push({
@@ -163,6 +174,7 @@ export function rehydrateTurns(
           blocks,
           isComplete: true,
           timestamp: ts,
+          ...(annotation !== undefined ? { annotation } : {}),
         };
         turns.push(turn);
       }

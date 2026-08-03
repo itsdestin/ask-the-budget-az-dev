@@ -149,6 +149,68 @@ describe("rehydrateTurns", () => {
     expect(rehydrateTurns([])).toEqual([]);
   });
 
+  it("restores the annotation from the final assistant message (Handoff Issue 1)", () => {
+    const annotation = {
+      figures: [
+        { text: "$1,391,157,700", start: 0, end: 15, index: 1, verdict: "linked",
+          primary: { chunk_id: "c1", doc_id: "d1", page_start: 3 } },
+      ],
+    };
+    const turns = rehydrateTurns(
+      [
+        { role: "user", content: "what did ADC spend?" },
+        {
+          role: "assistant",
+          content: "Let me search.",
+          tool_calls: [
+            { id: "call_1", type: "function",
+              function: { name: "retrieve", arguments: '{"query": "ADC"}' } },
+          ],
+        },
+        { role: "tool", tool_call_id: "call_1", content: '{"chunks": []}' },
+        { role: "assistant", content: "ADC spent $1,391,157,700.", annotation },
+      ],
+      TS,
+    );
+    expect(turns).toHaveLength(2);
+    const last = turns[turns.length - 1];
+    if (last.kind === "assistant") {
+      expect(last.annotation).toEqual(annotation);
+    }
+  });
+
+  it("leaves annotation undefined when no assistant message carries it", () => {
+    const turns = rehydrateTurns(
+      [
+        { role: "user", content: "q" },
+        { role: "assistant", content: "answer" },
+      ],
+      TS,
+    );
+    const last = turns[turns.length - 1];
+    if (last.kind === "assistant") {
+      expect(last.annotation).toBeUndefined();
+    }
+  });
+
+  it("takes the annotation from a tool-calling turn's answer, not its narration", () => {
+    // The server attaches the annotation to the FINAL assistant message (the
+    // answer). Narration messages before it carry none.
+    const turns = rehydrateTurns(
+      [
+        { role: "user", content: "q" },
+        { role: "assistant", content: "Let me search." },
+        { role: "tool", tool_call_id: "call_9", content: "{}" },
+        { role: "assistant", content: "The answer.", annotation: { figures: [{ text: "x" }] } },
+      ],
+      TS,
+    );
+    const last = turns[turns.length - 1];
+    if (last.kind === "assistant") {
+      expect(last.annotation).toEqual({ figures: [{ text: "x" }] });
+    }
+  });
+
   it("timestamps are fabricated from createdAt", () => {
     const ts = "2026-08-02T10:00:00+00:00";
     const turns = rehydrateTurns(
