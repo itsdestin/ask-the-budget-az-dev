@@ -1,6 +1,6 @@
 # Project Status
 
-**Last updated:** 2026-08-01
+**Last updated:** 2026-08-02
 
 This file is the single source of truth for what's shipped, what's
 open, and what's blocked. The phase plans under `docs/superpowers/`
@@ -454,6 +454,96 @@ by tests.
 unverified tone, the "Also appears in:" list, and chip click opening the
 PDF at the source rendering. 22 new vitest specs cover the logic; nobody
 has watched it render.
+
+---
+
+## AI Mode UI redesign — shipped (2026-08-02)
+
+Spec: `docs/superpowers/specs/2026-08-01-ai-mode-ui-redesign-design.md`.
+Plan: `docs/superpowers/plans/2026-08-01-ai-mode-ui-redesign.md`.
+Merge `2cef0f9`. **Webapp-only** — nothing under `retrieval/`, `ingest/`,
+`chunking/` or `harness/` is touched, so the CLAUDE.md eval rule does not
+apply and no eval was run.
+
+**571 vitest across 54 files** (was 432) + pytest 2012, tsc and build clean.
+
+Started from four complaints: "the tool cards are ugly and disproportionate
+to chat, there are weird extra scroll bars all over, the citation viewer
+renders strangely, and there is a lot of wasted space." All four traced to
+root causes and fixed — but the live browser pass changed more than the
+plan did, and that part is below.
+
+### As shipped
+
+- **One scroll container** in the chat column. The composer floats over it
+  and publishes its measured height, so messages scroll behind it.
+- **Tool rows**, not cards: ~30px, capped below the prose measure,
+  consecutive calls coalesced into one row, status carried by glyph shape
+  so only failure spends a colour.
+- **One `--ai-col` measure** governs thread, banners and composer.
+- **The ask bar.** Single-line-then-wrapping composer wearing Home's
+  hero-search recipe verbatim (pill, canvas fill, navy focus ring), so the
+  app has ONE search-input identity instead of three. Paperclip stub +
+  tools menu + Send. Grows to four lines, then scrolls with no scrollbar
+  and a per-edge fade.
+- **Corpus and mode are two toggles** behind the tools icon, each carrying
+  the copy describing its own consequence. The tier sentences still come
+  off the wire (S16). A pip on the closed icon reports any non-default
+  setting, and the placeholder names the live corpus — those are the only
+  permanent statements of either, now that both live behind a menu.
+- **The navy hero strip is gone**; the thread has a navy-wash ground the
+  composer fades INTO rather than sitting on.
+- **The footer's "AI Mode available" line is gone.** A working system does
+  not need to announce it. The failing case got the whole page instead,
+  with the server's reason demoted and addressed to the administrator, and
+  probing kept as a separate screen.
+- **Header:** the row is the two corpora with AI Mode between them, plus
+  one menu holding Upload, Settings and Admin. Home left (the logo goes
+  there). The AI icon's spark orbits the glyph on select, and the label
+  rolls out to its own measured width.
+
+### 🔴 Five defects found by REVIEW, not by tests
+
+Recorded because the same classes will recur, and every one of them left
+the suite green:
+
+1. **`container-type: inline-size` on the thread scroller silently
+   re-clipped the citation tooltip** — including `.chat-cite-fail`, the
+   panel saying WHY a citation failed (Invariant 2). Layout containment
+   makes an element a containing block for `position: fixed`. Both
+   existing contract specs stayed green because each was individually true
+   and jointly wrong. The guard now covers `contain`, `container`,
+   `container-type` and `content-visibility`, and a later spec forbids
+   `mask-image` on the scroller for the same reason.
+2. **A hover rule painted the azure SUCCESS tint behind FAILED citations.**
+3. **A cross-branch defect neither side could see.** Master's `FigureChip`
+   renders `.chat-cite-tooltip`, which this branch had made
+   `position: fixed` with JS-supplied coordinates. FigureChip passed none,
+   so its tooltips detached from their chips on the first scroll. The two
+   changes never touched the same lines; git merged them without a murmur
+   and both suites stayed green.
+4. **The bottom chrome painted over the thread's own scrollbar** — it sat
+   at `right:0`, so the bar looked half-drawn.
+5. **The tools menu was unreachable by pointer.** Trigger and popover are
+   both absolutely positioned, so the gap between them belonged to
+   neither; crossing it left the subtree and fired `mouseleave`.
+
+### 🔴 And one this work CAUSED
+
+Removing the retired `.chat-input` block **by range** took `.chat-welcome*`
+with it — the empty state lost its centring and the mascot drifted. Nothing
+failed, because no spec covered that block. There are two now, verified by
+re-running the exact accident. **The lesson generalises: this stylesheet
+has several rules whose ABSENCE is silent, because a flex container that
+stops existing just leaves its children looking approximately fine.**
+
+### Still unverified
+
+- **The AI-mode animations have not been confirmed on a machine with
+  `prefers-reduced-motion` OFF.** The app honours it everywhere; with it on,
+  the spark throw and the stop-button spinner are disabled by design and
+  snap between states. Worth knowing before anyone reports them as broken.
+- The bundle has not been rebuilt against this webapp.
 
 ---
 
