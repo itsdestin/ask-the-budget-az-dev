@@ -20,6 +20,7 @@ from tests.test_harness_session import (
     FakeExecutor, Provider, finish_chunk, make_settings, sse, text_chunk,
     tool_chunk, usage_chunk,
 )
+from harness import history
 
 ANSWER = (
     "| Agency | FY 2026 Appropriation |\n"
@@ -134,6 +135,32 @@ def test_the_model_is_not_asked_to_cite_the_figures():
     # ...and the figures are cited anyway.
     assert all(f["verdict"] != "unverified"
                for f in done["annotation"]["figures"])
+
+
+def test_the_annotation_persists_to_the_transcript_on_disk(monkeypatch, tmp_path):
+    """Handoff Issue 1: the figure→chunk annotation must survive INTO the
+    saved transcript, not just the ephemeral `_done` frame, so a reopened chat
+    can restore its citation chips. Drive a real HarnessSession through the
+    real SSE route, then read the transcript back off disk."""
+    monkeypatch.setenv("JLBC_HISTORY_DIR", str(tmp_path / "conversations"))
+    configure_ai()
+    c = client_for(build_app(session_factory=_real_session_factory()))
+    cid = new_conversation(c)
+    r = c.post(f"/api/conversations/{cid}/messages",
+               json={"text": "biggest agencies", "tier": "standard"})
+    assert r.status_code == 200, r.text
+
+    stored = history.load(cid)
+    assert stored is not None, "the transcript was not persisted"
+    last_assistant = next(
+        m for m in reversed(stored.messages) if m.get("role") == "assistant"
+    )
+    figures = last_assistant["annotation"]["figures"]
+    # Same linkage the `_done` frame carried — persisted, not ephemeral.
+    assert [f["text"] for f in figures] == [
+        "$1,391,157,700", "$2,613,700,000", "$4,004,857,700"]
+    assert figures[0]["primary"]["doc_id"] == "d1"
+    assert figures[0]["primary"]["page_start"] == 3
 
 
 def test_a_figure_chip_has_what_it_needs_to_open_the_pdf():
