@@ -14,9 +14,11 @@ from __future__ import annotations
 
 import json
 import os
+import threading
 from dataclasses import asdict, dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
+from uuid import uuid4
 
 HISTORY_DIR_ENV = "JLBC_HISTORY_DIR"
 _APP_FOLDER = "JLBC-Insight"
@@ -72,6 +74,33 @@ def _path_for(conversation_id: str) -> Path:
     return conversations_dir() / f"{conversation_id}.json"
 
 
+# Per-id write locks. save/rename/delete each do a load-then-write (or a
+# delete), and two of them can run on the SAME id at once: persist_turn's
+# turn-end write rides a BackgroundTask thread while a rail rename/delete
+# rides a request thread. Without a lock the writes interleave — a turn end
+# can clobber a rename, or resurrect a just-deleted chat. The app is one
+# process per analyst's machine (Plan 5 Track 3), so a threading lock is the
+# whole job; there is no second process to coordinate with. Reads (load /
+# list_all / search) stay lock-free: os.replace is atomic, so a reader sees a
+# whole old or whole new file, and a torn read is already handled as "skip
+# that chat". Keyed by id so two DIFFERENT chats never wait on each other.
+_locks_guard = threading.Lock()
+# RLock, not Lock: rename() holds its id's lock across an internal save(),
+# and save() takes the same lock — a plain Lock would deadlock there. The
+# re-entrant lock lets one logical write (load→mutate→save) own the id while
+# the nested save re-acquires it.
+_write_locks: dict[str, threading.RLock] = {}
+
+
+def _write_lock(conversation_id: str) -> threading.RLock:
+    with _locks_guard:
+        lock = _write_locks.get(conversation_id)
+        if lock is None:
+            lock = threading.RLock()
+            _write_locks[conversation_id] = lock
+        return lock
+
+
 def now_iso() -> str:
     return datetime.now(timezone.utc).isoformat()
 
@@ -92,9 +121,21 @@ def save(transcript: Transcript) -> None:
     # the last dotted segment, so an id that ever contains a dot would have
     # part of itself eaten and the replace would land on the wrong file.
     # Ids are uuid4 hex today; this costs nothing and removes the trap.
-    tmp = path.parent / f"{path.name}.{os.getpid()}.tmp"
-    tmp.write_text(json.dumps(payload, ensure_ascii=False), encoding="utf-8")
-    os.replace(tmp, path)
+    #
+    # The tmp name must be unique PER CALL, not per process: persist_turn
+    # (a BackgroundTask thread) and rename (a request thread) can both be
+    # saving the SAME id at once, and a shared `{pid}.tmp` lets one writer's
+    # os.replace empty the file out from under the other's, which then raises
+    # FileNotFoundError (or, worse, replaces with a half-written payload).
+    # A uuid suffix keeps the atomic tmp+replace pattern while making each
+    # concurrent write its own file.
+    # Serialized against rename/delete for THIS id via the write lock, so a
+    # turn-end save can never clobber a rename or resurrect a delete that is
+    # mid-flight. The lock is held only for the write itself.
+    with _write_lock(transcript.id):
+        tmp = path.parent / f"{path.name}.{os.getpid()}.{uuid4().hex}.tmp"
+        tmp.write_text(json.dumps(payload, ensure_ascii=False), encoding="utf-8")
+        os.replace(tmp, path)
 
 
 def _read(path: Path) -> Transcript | None:
@@ -158,26 +199,34 @@ def list_all() -> list[Transcript]:
 
 def delete(conversation_id: str) -> bool:
     path = _path_for(conversation_id)
-    if not path.is_file():
-        return False
-    path.unlink()
-    return True
+    # Under the write lock so a turn-end save can't slip in between the
+    # existence check and the unlink (or resurrect the file right after).
+    with _write_lock(conversation_id):
+        if not path.is_file():
+            return False
+        path.unlink()
+        return True
 
 
 def rename(conversation_id: str, title: str) -> bool:
-    t = load(conversation_id)
-    if t is None:
-        return False
-    t.title = title
-    # Set once and never unset: auto-naming checks this flag so an analyst's
-    # own title is never overwritten by a later model-generated one.
-    t.title_is_manual = True
-    # `updated_at` is deliberately NOT touched. The rail sorts on it, and it
-    # means "when did this conversation last have something said in it" — a
-    # rename is bookkeeping. Bumping it would float a retitled March chat
-    # above this morning's.
-    save(t)
-    return True
+    # Hold the id's write lock across the WHOLE load→mutate→save so a turn-end
+    # persist can't overwrite the analyst's new title with a stale in-memory
+    # one mid-rename. Re-entrant (RLock) because save() re-acquires the lock.
+    with _write_lock(conversation_id):
+        t = load(conversation_id)
+        if t is None:
+            return False
+        t.title = title
+        # Set once and never unset: auto-naming checks this flag so an
+        # analyst's own title is never overwritten by a later model-generated
+        # one.
+        t.title_is_manual = True
+        # `updated_at` is deliberately NOT touched. The rail sorts on it, and
+        # it means "when did this conversation last have something said in
+        # it" — a rename is bookkeeping. Bumping it would float a retitled
+        # March chat above this morning's.
+        save(t)
+        return True
 
 
 _SNIPPET_RADIUS = 90

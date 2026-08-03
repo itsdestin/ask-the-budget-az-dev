@@ -103,12 +103,16 @@ export default function CitationChip({
   const [firing, setFiring] = useState(false);
   const bus = useCitationBus();
 
-  // H5: the viewer publishes an unresolvable verdict when it checks whether
-  // this citation's source still resolves. The chip marks itself so the
-  // analyst can see the source is stale without opening the viewer.
+  // H5: the viewer publishes a source-check verdict for this citation. A
+  // "gone"/"moved" verdict marks the chip stale; a "resolved" verdict clears
+  // the mark, because a stale brand from a transient failure (an ingest
+  // mid-rewrite returning a momentary 404) must not stick to a citation that
+  // actually still resolves. Invariant 2 cuts both ways: never silently drop,
+  // but never falsely brand either.
   const [unresolvable, setUnresolvable] = useState<"gone" | "moved" | null>(null);
   useUnresolvable((chunkId, reason) => {
-    if (chunkId === citation.chunkId) setUnresolvable(reason);
+    if (chunkId !== citation.chunkId) return;
+    setUnresolvable(reason === "resolved" ? null : reason);
   });
 
   const verbatim = citation.confidence === "verbatim";

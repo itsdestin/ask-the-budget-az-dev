@@ -26,6 +26,13 @@ export function useHistory() {
   // response comes back, if the number is stale we drop it.
   const seqRef = useRef(0);
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  // Whether a non-empty search is active. This — NOT the seq counter — is the
+  // right signal for "clearing the box should restore the full list": the seq
+  // counter is bumped by the mount fetch too, so gating on it re-fires a
+  // redundant list load on mount and (worse) would stop restoring the list
+  // the day the initial load ever stopped bumping it. Gate on the actual
+  // search state instead.
+  const searchedRef = useRef(false);
 
   const fetchList = useCallback(async () => {
     const seq = ++seqRef.current;
@@ -70,14 +77,17 @@ export function useHistory() {
     if (debounceRef.current) clearTimeout(debounceRef.current);
     const trimmed = query.trim();
     if (!trimmed) {
-      // Empty query restores the full list — but only if we previously had
-      // a search active (otherwise this is the initial mount and the
-      // fetchList above already handled it).
-      if (seqRef.current > 0) {
+      // Empty query restores the full list — but only if a search was active
+      // (otherwise this is the initial mount and the fetchList above already
+      // handled it). Tracked by searchedRef, not the seq counter: see its
+      // declaration for why the counter is the wrong signal here.
+      if (searchedRef.current) {
+        searchedRef.current = false;
         debounceRef.current = setTimeout(() => fetchList(), DEBOUNCE_MS);
       }
       return;
     }
+    searchedRef.current = true;
     debounceRef.current = setTimeout(() => fetchSearch(trimmed), DEBOUNCE_MS);
     return () => {
       if (debounceRef.current) clearTimeout(debounceRef.current);

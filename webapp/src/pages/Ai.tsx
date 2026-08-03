@@ -8,6 +8,7 @@ import {
   AiModePanel,
   type CorpusOption,
 } from "../chat/AiModePanel";
+import * as api from "../api";
 import { useAiStatus } from "../chat/use-ai-status";
 import { useChat, type Corpus } from "../chat/use-chat";
 
@@ -107,16 +108,30 @@ export function Ai() {
   const probing = status === null;
   const gated = !probing && !status.available;
 
-  // Selecting a stored chat must also set corpus from the transcript's own
-  // corpus field, or the picker and the thread disagree — the rail lists
-  // both corpora, and the server will resume on the stored one regardless
-  // (Task 6). For now we set it here; the transcript's corpus is adopted
-  // server-side, and the rail does not carry corpus in its row. A follow-up
-  // could read the corpus from the history row; this keeps the picker in
-  // sync for the common case where the analyst is already on the right
-  // corpus.
+  // Selecting a stored chat must ALSO move the corpus picker to that chat's
+  // corpus. The rail lists both corpora, and the server adopts the stored
+  // corpus on resume regardless of what the client asked for — so if the
+  // picker stays on the old corpus, the thread answers out of one corpus
+  // while the UI claims another, which is exactly the "cited and confident,
+  // but on the wrong corpus" failure H2 warns about. The rail row carries
+  // `corpus`, but Ai.tsx fetches the transcript here (rather than trusting
+  // the row) so the corpus and the rehydration body come from the same read —
+  // and so a chat whose fetch fails is never selected at all. The key is
+  // `${corpus}:${selectedChatId}`, so setting both in the same handler
+  // remounts the conversation once, on the right corpus.
   const handleSelectChat = (id: string) => {
-    setSelectedChatId(id);
+    void api
+      .getHistoryChat(id)
+      .then((chat) => {
+        setCorpus(chat.corpus);
+        setSelectedChatId(id);
+      })
+      .catch(() => {
+        // A chat we cannot read (corrupt file, raced a delete) must not be
+        // selected — selecting it would mount a conversation that then fails
+        // its own fetch. Leave the current view untouched; the rail already
+        // surfaces the load error via useHistory when it next refreshes.
+      });
   };
   const handleNewChat = () => {
     setSelectedChatId(null);

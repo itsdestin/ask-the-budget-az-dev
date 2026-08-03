@@ -127,8 +127,13 @@ export default function PdfViewer({ onClose, corpus = "budget" }: PdfViewerProps
             }
           }
         }
-        // 200 + quote present (or no stored quote to compare): the
-        // existing Loaded path, unchanged.
+        // 200 + quote present (or no stored quote to compare): the source
+        // still resolves. Clear any stale brand this citation was carrying —
+        // a transient 404 (e.g. an ingest mid-rewrite) may have marked it
+        // "gone" earlier, and a false "your source is dead" that never clears
+        // is its own kind of lie. The existing Loaded path is otherwise
+        // unchanged.
+        bus.markUnresolvable(citation.chunkId, "resolved");
       } catch {
         if (seq !== checkSeqRef.current) return;
         // Network error — NOT a stale citation. Same posture as a 503:

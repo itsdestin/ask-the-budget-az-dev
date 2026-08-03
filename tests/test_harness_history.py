@@ -113,7 +113,13 @@ def test_this_module_imports_nothing_that_knows_where_the_share_is():
     the share in one or two hops, and an allowlist refuses every one of them
     including the ones added next year.
     """
-    allowed = {"__future__", "dataclasses", "datetime", "json", "os", "pathlib"}
+    # `uuid` and `threading` are stdlib and cannot reach the share: uuid backs
+    # the per-call tmp name in save(), threading backs the per-id write locks.
+    # Everything else remains an allowlist refusal.
+    allowed = {
+        "__future__", "dataclasses", "datetime", "json", "os", "pathlib",
+        "threading", "uuid",
+    }
     tree = ast.parse(MODULE_SOURCE_PATH.read_text(encoding="utf-8"))
     roots: set[str] = set()
     for node in ast.walk(tree):

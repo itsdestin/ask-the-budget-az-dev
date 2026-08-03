@@ -23,8 +23,11 @@ export type CitationHandler = (citation: Citation) => void;
 /** A verdict the viewer publishes when it checks whether a citation's source
  *  still resolves. The chip subscribes and marks itself accordingly.
  *  `gone` = chunk 404; `moved` = chunk exists but the cited span is no longer
- *  in it (document was re-ingested). */
-export type UnresolvableReason = "gone" | "moved";
+ *  in it (document was re-ingested); `resolved` = a re-check succeeded, so a
+ *  chip that was marked stale (e.g. by a transient 404 during an ingest
+ *  rewrite) clears itself. "We cannot tell" (503, network error) publishes
+ *  nothing — it neither marks nor clears. */
+export type UnresolvableReason = "gone" | "moved" | "resolved";
 
 export type UnresolvableHandler = (chunkId: string, reason: UnresolvableReason) => void;
 
@@ -33,8 +36,9 @@ export interface CitationBus {
   select(citation: Citation): void;
   /** Subscribe to selections; returns an unsubscribe function. */
   subscribe(handler: CitationHandler): () => void;
-  /** Publish that a citation's source no longer resolves. The chip with the
-   *  matching chunkId marks itself. */
+  /** Publish the outcome of a click-time source check. `gone`/`moved` mark
+   *  the matching chip stale; `resolved` clears a stale mark. The chip with
+   *  the matching chunkId updates itself. */
   markUnresolvable(chunkId: string, reason: UnresolvableReason): void;
   /** Subscribe to unresolvable verdicts; returns an unsubscribe function. */
   subscribeUnresolvable(handler: UnresolvableHandler): () => void;
