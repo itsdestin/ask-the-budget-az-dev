@@ -20,20 +20,49 @@
 // and unresolved states below have no header row, so they keep a floating
 // variant (`FloatingClose`) — the panel must be closable in every state.
 
-import { useState } from "react";
+import { useRef, useState } from "react";
 
 import type { Citation } from "../chat/citation-extract";
-import { formatCopyCitation } from "../chat/citation-extract";
-import { useCitationSelected } from "../chat/citation-context";
+import { formatCopyCitation, normalizeForMatch } from "../chat/citation-extract";
+import { useCitationBus, useCitationSelected } from "../chat/citation-context";
 import Mascot from "../chat/mascot/Mascot";
 import { SourceView } from "./SourceView";
 
-export default function PdfViewer({ onClose }: { onClose?: () => void } = {}) {
+// H5 as amended: PdfViewer checks at click time whether the citation's source
+// still resolves, and treats TWO shapes as unresolvable:
+//   - 404 (the chunk is gone — the document was deleted or the corpus
+//     re-ingested with different chunking)
+//   - 200 but the stored quote is no longer in the returned text (the document
+//     was re-ingested and this passage moved or changed)
+// A 503 (share offline) is NOT reported as stale — "we cannot tell" is a worse
+// lie than saying nothing. The existing error surface handles it.
+//
+// The verdict is published on the citation bus so the chip can mark itself
+// (Invariant 2: a citation that no longer resolves is VISIBLE, never silently
+// dropped).
+
+interface PdfViewerProps {
+  onClose?: () => void;
+  /** Which corpus to fetch chunks from. AiModePanel passes this so the
+   *  staleness check hits the right /api/chunks/{id}?corpus=… endpoint. */
+  corpus?: string;
+}
+
+export default function PdfViewer({ onClose, corpus = "budget" }: PdfViewerProps = {}) {
   const [selected, setSelected] = useState<Citation | null>(null);
   // Track the last-clicked unresolved citation so we can show
   // *which* citation we couldn't load, instead of looking
   // identical to the no-clicks-yet state.
   const [unresolvedClick, setUnresolvedClick] = useState<Citation | null>(null);
+  // H5: a citation whose source no longer resolves (gone or moved).
+  const [staleCitation, setStaleCitation] = useState<{ citation: Citation; reason: "gone" | "moved" } | null>(null);
+
+  const bus = useCitationBus();
+
+  // Guard the async staleness check: two fast citation clicks race, and the
+  // panel must render the verdict for the citation the analyst clicked LAST.
+  // A request sequence number ignores any answer that is not the latest.
+  const checkSeqRef = useRef(0);
 
   useCitationSelected((citation) => {
     if (!citation.resolved?.docId || citation.resolved.pageStart == null) {
@@ -43,12 +72,73 @@ export default function PdfViewer({ onClose }: { onClose?: () => void } = {}) {
       // Surface that explicitly so the user knows the click landed.
       setUnresolvedClick(citation);
       setSelected(null);
+      setStaleCitation(null);
       return;
     }
     setUnresolvedClick(null);
+    setStaleCitation(null);
     setSelected(citation);
+
+    // H5: check at click time whether the chunk still resolves. Nothing
+    // is fetched until a citation is selected — verifying on open would
+    // cost one round-trip per citation, which is what H2 exists to avoid.
+    // A direct fetch rather than api.chunk because we need the STATUS CODE
+    // to distinguish 404 (chunk gone) from 503 (share offline) — api.chunk
+    // wraps the error and loses the status.
+    const seq = ++checkSeqRef.current;
+    void (async () => {
+      try {
+        const chunkUrl =
+          `/api/chunks/${encodeURIComponent(citation.chunkId)}?corpus=${encodeURIComponent(corpus)}`;
+        const resp = await fetch(chunkUrl);
+        if (seq !== checkSeqRef.current) return; // a later click won
+        if (!resp.ok) {
+          if (resp.status === 404) {
+            setStaleCitation({ citation, reason: "gone" });
+            setSelected(null);
+            bus.markUnresolvable(citation.chunkId, "gone");
+          }
+          // 503 or any other failure: NOT a stale citation. "We cannot
+          // tell" is better than a false "your source is dead." Leave
+          // the existing state — SourceView will surface its own error.
+          return;
+        }
+        const chunk = await resp.json();
+        if (seq !== checkSeqRef.current) return; // a later click won
+        // 200 + text: check if the cited span is still in the chunk.
+        // The cited span is the slice of the STORED resolved text —
+        // what the model saw when it cited. If the document was
+        // re-ingested, the chunk may still exist but carry different
+        // text, so the quote would be gone even though the chunk is not.
+        const r = citation.resolved;
+        if (r?.text) {
+          const start = Math.max(0, citation.spanStart);
+          const end = Math.min(r.text.length, citation.spanEnd);
+          const storedQuote = r.text.slice(start, end);
+          if (storedQuote) {
+            const storedNorm = normalizeForMatch(storedQuote).normalized.trim();
+            const currentNorm = normalizeForMatch(chunk.text || "").normalized;
+            if (storedNorm && !currentNorm.includes(storedNorm)) {
+              // The chunk exists but the cited passage is no longer in it.
+              setStaleCitation({ citation, reason: "moved" });
+              setSelected(null);
+              bus.markUnresolvable(citation.chunkId, "moved");
+              return;
+            }
+          }
+        }
+        // 200 + quote present (or no stored quote to compare): the
+        // existing Loaded path, unchanged.
+      } catch {
+        if (seq !== checkSeqRef.current) return;
+        // Network error — NOT a stale citation. Same posture as a 503:
+        // "we cannot tell" beats a false positive.
+      }
+    })();
   });
 
+  if (staleCitation)
+    return <StaleState citation={staleCitation.citation} reason={staleCitation.reason} onClose={onClose} />;
   if (selected) return <Loaded citation={selected} onClose={onClose} />;
   if (unresolvedClick)
     return <UnresolvedState citation={unresolvedClick} onClose={onClose} />;
@@ -124,6 +214,55 @@ function UnresolvedState({
         )}
         <p className="pdf-unresolved-note">
           Ask the question again to refresh the sources. Reference: chip{" "}
+          <span className="pdf-mono">[{citation.index}]</span>, passage{" "}
+          <span className="pdf-mono">{citation.chunkId}</span>.
+        </p>
+      </div>
+    </div>
+  );
+}
+
+/** H5: a citation whose source no longer resolves. Two reasons:
+ *  `gone` — the chunk was deleted (document removed or corpus re-ingested
+ *  with different chunking); `moved` — the chunk exists but the cited
+ *  passage is no longer in it (document re-ingested, passage changed).
+ *  Invariant 2: the verified quote IS still shown — it WAS verified when
+ *  written, which is a fact about the past, not a claim about the present. */
+function StaleState({
+  citation,
+  reason,
+  onClose,
+}: {
+  citation: Citation;
+  reason: "gone" | "moved";
+  onClose?: () => void;
+}) {
+  return (
+    <div className="pdf-empty">
+      {onClose && <FloatingClose onClose={onClose} />}
+      <div className="pdf-unresolved">
+        <h2>Source no longer available</h2>
+        <p>
+          {reason === "gone"
+            ? "The document this citation came from is no longer in the system — it may have been removed or replaced."
+            : "This document was updated since the citation was made, and the passage it pointed at has moved or changed."}
+        </p>
+        {/* The verified quote is still shown — it was verified when written. */}
+        {citation.resolved?.text && (() => {
+          const start = Math.max(0, citation.spanStart);
+          const end = Math.min(citation.resolved.text.length, citation.spanEnd);
+          const quote = citation.resolved.text.slice(start, end);
+          return quote ? (
+            <blockquote className="pdf-unresolved-quote">{quote}</blockquote>
+          ) : null;
+        })()}
+        {citation.claimSpan && (
+          <div className="pdf-unresolved-note">
+            <strong>Claim:</strong> {citation.claimSpan}
+          </div>
+        )}
+        <p className="pdf-unresolved-note">
+          Reference: chip{" "}
           <span className="pdf-mono">[{citation.index}]</span>, passage{" "}
           <span className="pdf-mono">{citation.chunkId}</span>.
         </p>

@@ -317,7 +317,7 @@ function PanelBody({
                 instead of this one plus a second one buried in SourceView.
                 The aside stays `position:relative` (app.css) for those
                 floating variants' positioning context. */}
-            <PdfViewer onClose={() => setViewerOpen(false)} />
+            <PdfViewer onClose={() => setViewerOpen(false)} corpus={corpus} />
           </aside>
         )}
       </div>
