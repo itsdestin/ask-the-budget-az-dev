@@ -52,20 +52,25 @@
 #     FY2022  4,422 · FY2023  4,426 · FY2024  4,221
 #     FY2025  6,058 · FY2026  5,836 · FY2027  3,398
 #
-# WHAT "HISTORICAL" MEANS IN THIS FILE, AND WHY IT IS FY2022-FY2023.
-# The budget corpus does not start in the mid-2000s. It starts at FY2021
-# and is only dense from FY2022, so the oldest budget-book territory an
-# agent can actually be tested against today is the FY 2022 and FY 2023
-# JLBC Baseline / Appropriations Report editions (plus the FY2022 and
-# FY2023 AGAO Annual Financial Reports). FY2022 is therefore not an odd
-# choice — it is the floor. STATUS.md records the reason: 27 pre-FY2022
-# JLBC book editions (Baselines FY2012-2021, Approps FY2005-2021) are a
-# DELIBERATE deferred backfill from the 2026-07-31 MVP call, not an
-# oversight, and are runnable with `JLBC_BACKFILL_UNITS=books`.
-# ==> WHEN THOSE 27 EDITIONS LAND, RE-AUTHOR THE `historical` SHAPE
-#     against the genuinely old books and re-run the spot-check. The
-#     five queries below become ordinary mid-corpus queries at that
-#     point; they are not wrong, just no longer the oldest material.
+# WHAT "HISTORICAL" MEANS IN THIS FILE. The `historical` shape probes the
+# OLDEST budget-book territory actually in the corpus — material written
+# before the FY2025-2027 books and describing policies that have since
+# changed names, agencies or statutory bases. From authoring in 2026-08-01
+# through the S20 backfill, the oldest dense territory was FY2022-FY2023
+# (the corpus floor was FY2021), so the first five `historical` queries
+# targeted the FY 2022/2023 JLBC editions. The S20 backfill (2026-08-02)
+# added every ingestable JLBC book edition back to FY2005, so on 2026-08-03
+# those five queries were RE-AUTHORED (all five replaced, not edited) to
+# target genuinely old material — FY2005 through FY2010, including
+# Great-Recession measures (ARRA stabilization, sale/lease-back, BSF draw)
+# that have NO modern near-duplicate, so the only way to score is to find
+# the old book. The figures pinned below were verified present in the
+# corpus by a full-table substring scan and shown REACHABLE by a single
+# top-20 retrieve of the verbatim question (see the 2026-08-03 re-run
+# note in the spot-check paragraph above). The old ids (hs-promise-program-
+# 2023, hs-enhanced-fmap-2022, hs-water-augmentation-2023, hs-building-
+# renewal-2023, hs-esa-cost-2022) are gone; they were not wrong, they are
+# simply no longer the oldest material.
 #
 # CURRENCY FACTS: PARENTHESIZED NEGATIVES DO NOT PARSE. eval.agent_scoring
 # requires a `$` or a scale word adjacent to the digits, so `$(2.5) million`
@@ -120,6 +125,14 @@
 # because the verbatim question reaches the ESA narrative on no basis at
 # all. That is the intended outcome: the fix stops punishing a correct
 # answer, it does not lower the retrieval bar.
+# RE-RUN 2026-08-03 after the `historical` re-authoring against the
+# FY2005-2010 books (all five replaced): the five new historical ids
+# each pass as ONE top-20 retrieve of the verbatim question — every pinned
+# figure lands in the concatenated chunk text. This set is deliberately
+# MORE single-shot-recoverable than the old FY2022/23 ones: the new
+# questions name a year and a distinctive program, the old books carry
+# no modern near-duplicate, and the whole point of re-authoring was to
+# make the old material reachable at all.
 #
 # EVERY ONE OF THOSE MISSING FACTS WAS THEN CONFIRMED PRESENT IN THE
 # CORPUS by a full-table substring scan, and shown REACHABLE by a single
@@ -1050,12 +1063,15 @@
     from "a county's own adopted budget" and decline the latter.
 
 # ---------------------------------------------------------------------
-# HISTORICAL — the OLDEST budget-book material actually in the corpus,
-# which today means the FY 2022 and FY 2023 JLBC editions (plus the
-# FY2022/FY2023 AGAO Annual Financial Reports). See the file header:
-# the budget corpus starts at FY2021 and is dense only from FY2022,
-# because 27 pre-FY2022 book editions are a deliberate deferred
-# backfill. Re-author this shape against those editions when they land.
+# HISTORICAL — the OLDEST budget-book material actually in the corpus.
+# Re-authored 2026-08-03 after the S20 backfill brought every JLBC book
+# edition back to FY2005 (77,574 budget chunks spanning FY2005-FY2027).
+# The five queries below target the FY2005-FY2010 books, including
+# Great-Recession measures that have no modern near-duplicate, so the
+# only way to score is to find the old book. Figure recurrence was
+# checked across the whole corpus (see the per-query notes) to confirm
+# each pinned figure is distinctive to the old era rather than echoed
+# by a modern near-duplicate that would let the agent score wrong.
 #
 # These documents are older, thinner in the index than the FY2025-2027
 # books, and describe policies that have since changed names, agencies
@@ -1063,181 +1079,170 @@
 # shape exists to probe.
 # ---------------------------------------------------------------------
 
-- id: hs-promise-program-2023
+
+- id: hs-arra-k12-stabilization-2010
   question: >-
-    There's a state scholarship for Arizona high school graduates who
-    qualify for Pell grants. When it first got stood up, how many students
-    did it actually reach, and what happened to it the year after?
+    The federal stimulus money the state took in fiscal 2010 came with a
+    condition that Arizona cut its own K-12 formula funding to match. How
+    big was that required General Fund reduction to Basic State Aid?
   corpus: budget
   shape: historical
   subsets: [full, smoke]
   key_facts:
     - kind: currency
-      value: "$4,471"
-    - kind: currency
-      value: "$20,000,000"
-    - kind: regex
-      value: '\b1,677\b'
+      value: "$472,114,000"
   judge_notes: >-
-    The Arizona Promise Program was created by the FY 2022 Higher Education
-    Budget Reconciliation Bill with $7,500,000 from the General Fund, which
-    funded approximately 1,677 students at an average award of $4,471. The
-    FY 2023 budget added $12,500,000, taking the program to $20,000,000 and
-    an expected 4,473 total students. TRAP, and the point of the query: the
-    January FY 2023 JLBC BASELINE carries $7,500,000, "unchanged from FY
-    2022" — the $20,000,000 exists only in the enacted budget. Both numbers
-    are in the corpus and both are real; an answer that reports the Baseline
-    figure as the FY 2023 outcome has quoted the pre-session estimate. Worth
-    a mention: the universities must GUARANTEE awards to any additional
-    eligible student, so the appropriation is not a hard cap on
-    participation. The student count is a bare number with no dollar sign,
-    so it is kind=regex — currency would not parse it.
+    The American Recovery and Reinvestment Act (ARRA) made Arizona eligible
+    for a share of the federal State Fiscal Stabilization Fund, but Laws
+    2009, 3rd Special Session, Chapter 11 conditioned the state's receipt
+    on a $472,114,000 "cut and backfill" of the FY 2010 Basic State Aid and
+    Additional State Aid General Fund appropriation (ADE $250,000,000 +
+    $222,114,000). The FY 2010 ADE pages and the ARRA overview (book
+    section bh17) state the figure plainly in positive form, so it is
+    kind=currency — no parenthesized-negative parsing trap. This is a
+    genuinely historical measure: the $472,114,000 appears only in FY2010
+    and FY2011 books, never in a modern near-duplicate, so the only way to
+    score is to find the recession-era book. TRAP: the same Chapter 11
+    language reappears per-university in the FY 2011 book as much smaller
+    cuts ($10,000,000 total across ABOR, split into e.g. ASU-East
+    $287,500), so an answer that reports the university-level reductions
+    instead of the K-12 Basic State Aid figure has found the wrong scope.
+    SPOT-CHECK: reachable at rank 1 via the verbatim question; the FY 2010
+    ADE "ARRA" narrative carries the figure. The query names a year and a
+    distinctive program, which the old book can stand on — unlike the
+    temporal-framing reformulation the old hs-* queries needed.
 
-- id: hs-enhanced-fmap-2022
+- id: hs-leaseback-prisons-2010
   question: >-
-    During the pandemic the federal government temporarily picked up a bigger
-    share of Medicaid costs. What was that worth to Arizona's general fund,
-    and what happened when it went away?
+    To balance the FY 2010 budget Arizona sold state buildings and leased
+    them back, including prisons. How much did that sale-and-leaseback
+    need to raise for the General Fund?
   corpus: budget
   shape: historical
   subsets: [full]
   key_facts:
     - kind: currency
-      value: "$180,000,000"
-    - kind: regex
-      value: '\b6\.2\s*%'
+      value: "$735,419,300"
   judge_notes: >-
-    The Families First Coronavirus Response Act raised the federal Medicaid
-    match rate by 6.2 percentage points for the duration of the public health
-    emergency. The FY 2022 enacted budget booked a one-time General Fund
-    savings of $180,000,000 at AHCCCS on the assumption the enhanced rate
-    would end in December 2021; the FY 2023 budget then added $180,000,000
-    back to remove those savings, inside $319,312,500 of formula adjustments.
-    Because the emergency kept being extended, the realised saving grew — and
-    the two books disagree about how much, because they were written at
-    different moments. The FY 2023 BASELINE (January) puts the FY 2022
-    surplus at $(77,932,400) beyond the appropriation, for total savings of
-    about $257,932,400; the FY 2023 APPROPRIATIONS REPORT (July) puts it at
-    $(167,932,400), for about $347,932,400. Those are the same quantity
-    measured twice, not a correction, and an answer that gives either without
-    dating it is misleading. Mechanism worth naming: there was no
-    ex-appropriation — the surplus was realised through General Fund
-    revertments. TRAP: the enhanced match also flowed to DES and DCS, so the
-    savings across all three Medicaid agencies is a larger and different
-    number than AHCCCS's alone. NOTE: every surplus figure above is printed
-    as a parenthesized negative and cannot be pinned mechanically, so the
-    scorer checks the positive $180,000,000 add-back instead.
-    SPOT-CHECK: partial miss — the conversational question DOES surface the
-    6.2% rate (the FY 2023 Baseline summary discusses it in plain prose) but
-    NOT the $180,000,000, which lives in the AHCCCS per-agency "Public
-    Health Emergency" narrative. Reachable at rank 1 via "AHCCCS public
-    health emergency 6.2% enhanced federal match rate one-time savings
-    removed formula adjustments". This is a useful shape: an agent that
-    stops after one retrieve will produce a directionally-right answer with
-    no dollar figure in it.
+    The Criminal Justice Budget Reconciliation Bill (Laws 2009, 3rd Special
+    Session, Chapter 6) authorized ADOA to enter into sale-and-simultaneous
+    lease-purchase agreements in FY 2010 for existing state-owned
+    facilities, including prison facilities, and required the transactions
+    to generate $735,419,300 in proceeds to the General Fund (with not more
+    than $250,000,000 prior to December 31, 2009). This is one of the
+    one-time financing measures the recession budget leaned on — it is
+    listed in the FY 2010 "one-time financing" revenue narrative and in the
+    ADC (Corrections) and capital-outlay (book section 444) pages. The
+    figure is distinctive to FY2010-2012 books, so there is no modern
+    near-duplicate to score against. TRAP: around the same era the state
+    also did a separate prison concession agreement projected at $100.0
+    million and a second round of lease-backs in FY 2011 (reported as a
+    revised $1.51B total for FY 2010), so an answer confusing the
+    concession income or the revised aggregate for the $735,419,300
+    sale/lease-back requirement has merged distinct measures. The pinned
+    figure is the required PROCEEDS of the sale-and-leaseback alone.
+    SPOT-CHECK: reachable at rank 1 via the verbatim question (the ADC or
+    444 pages state $735,419,300 in positive form).
 
-- id: hs-water-augmentation-2023
+- id: hs-bsf-draw-2008
   question: >-
-    Arizona put a big pot of money toward bringing in water from outside the
-    state a few years ago. How much was committed, over what period, and did
-    it come out of the regular budget?
+    In fiscal 2008 Arizona pulled money out of its rainy-day Budget
+    Stabilization Fund to help close a General Fund shortfall. How much
+    was transferred to the General Fund that year?
   corpus: budget
   shape: historical
   subsets: [full]
   key_facts:
     - kind: currency
-      value: "$334,000,000"
-    - kind: currency
-      value: "$1,000,000,000"
+      value: "$487,000,000"
   judge_notes: >-
-    Laws 2022, Chapter 366 committed $1,000,000,000 over three years to the
-    newly-created Long-Term Water Augmentation Fund at the Water
-    Infrastructure Finance Authority: $334,000,000 in FY 2023 as a DIVERSION
-    of the General Fund's share of Transaction Privilege Tax revenue, then
-    advance appropriations of $333,000,000 each directly from the General
-    Fund in FY 2024 and FY 2025. Two details separate a good answer from a
-    superficial one. First, the FY 2023 money is a TPT diversion rather than
-    a General Fund appropriation, so it never shows up as FY 2023 General
-    Fund spending. Second, the fund itself is NON-APPROPRIATED — the
-    Legislature does not approve the individual awards; the WIFA Board does,
-    with awards over $50,000,000 reviewed by the Joint Legislative Water
-    Committee. 75% of the deposits are reserved for projects importing water
-    from outside Arizona. TRAP: WIFA's own appropriated budget in these years
-    is tiny — the FY 2023 Baseline shows WIFA spending falling $(12.0)
-    million, or 100% — so an answer that reports WIFA's appropriation as the
-    state's water investment is off by roughly two orders of magnitude.
+    Laws 2008, Chapter 53 (the FY 2008 budget-fix legislation) authorized a
+    $487.0 million transfer from the Budget Stabilization Fund (BSF) to the
+    General Fund in FY 2008 to help balance the state budget, as part of a
+    package that also included $295.8 million of one-time agency fund
+    balance transfers. The BSF is Arizona's rainy-day fund (enacted 1990,
+    A.R.S. § 35-144); this was a recession-era drawdown reported in the
+    FY 2009, FY 2010 and FY 2011 books' BSF sections. The figure is stated
+    in positive form ("487.0 million"), so kind=currency works. It is
+    distinctive to FY2009-2011 — no modern edition echoes it. TRAP: the
+    FY 2008 story is layered — Chapter 53 first moved $487.0M, then (on the
+    estimated $99.0M shortfall) required an additional $100.0M transfer
+    that left an estimated $118.0M in the BSF going into FY 2009; and the
+    statutory BSF formula would NOT have recommended a withdrawal that year
+    (income grew 2.88% vs a 3.63% 7-year average, above the 2% floor, so
+    only one of the two withdrawal conditions was met — the drawdown was a
+    legislated override, not a formula payment). An answer that reports the
+    extra $100.0M as the headline, or that says the formula drove the draw,
+    has missed the point. The pinned fact is the $487.0M Chapter 53 draw.
+    SPOT-CHECK: reachable at rank 1 via the verbatim question (FY 2009 BSF
+    section, "Laws 2008, Chapter 53 authorized a BSF transfer of $487.0
+    million").
 
-- id: hs-building-renewal-2023
+- id: hs-full-day-kindergarten-2005
   question: >-
-    Around FY 2023, how much was the state really putting into fixing up
-    existing school buildings, and how much of that was one-time money rather
-    than something districts could count on?
+    When Arizona first started phasing in full-day kindergarten, it
+    targeted schools serving low-income kids and set a deadline to go
+    statewide. How much General Fund money did the FY 2005 start-up put in
+    for classroom instruction?
   corpus: budget
   shape: historical
   subsets: [full]
   key_facts:
     - kind: currency
-      value: "$199,967,900"
-    - kind: currency
-      value: "$16,667,900"
+      value: "$21,000,000"
   judge_notes: >-
-    Building Renewal Grants. Since FY 2014 the ongoing "base" appropriation
-    has been $16,667,900. FY 2022 got $107,500,000 in the original budget
-    plus a $93,117,000 FY 2022 supplemental enacted in the FY 2023 budget, so
-    $200,617,000 was available, of which $183,949,100 was one-time. FY 2023
-    got $183,300,000 of one-time funding on top of the base, for a
-    $199,967,900 total. So the two years are within half a percent of each
-    other on the headline while the RECURRING commitment never moved off
-    ~$16.7 million — that gap is the answer, and a response that reports only
-    the ~$200 million total has told the analyst the least useful half.
-    TRAP: the FY 2022 total is reachable only by ADDING the supplemental to
-    the original appropriation; an answer that gives $107,500,000 as FY 2022
-    building renewal funding has missed it. Second trap, specific to this
-    era: the administering agency CHANGED mid-series — the School Facilities
-    Board (doc ids ...-sfb-...) became the School Facilities Division inside
-    the Department of Administration (...-doa-sfd-...) — so the same program
-    appears under two different agencies across FY 2022 and FY 2023, and a
-    model that filters by agency will silently see only half the story.
+    Laws 2002, Chapter 278 (the FY 2005 Education Budget Reconciliation
+    Bill) included $21,000,000 from the General Fund in FY 2005 to start
+    Full-Day Kindergarten, appropriated by Section 13 of that chapter, and
+    set a statutory goal of statewide Full-Day Kindergarten by FY 2010.
+    The FY 2005 funding was directed to schools in which at least 90% of
+    pupils were eligible for free or reduced-price lunches under the
+    federal school lunch program; the same chapter separately gave the
+    School Facilities Board $4,000,000 for capital grants for classroom
+    space (see hs-school-facilities-kindergarten-2005). Full-Day
+    Kindergarten as a program appears only in FY2005-2013 books, so it is
+    genuinely historical. TRAP: two different 278s and two different
+    numbers — the $21,000,000 is the statewide INSTRUCTIONAL appropriation,
+    while a separate $4,000,000 went to SFB for CAPITAL. An answer that
+    reports $4,000,000 as the start-up size, or that merges the two chapter
+    278 figures, has conflated the operating and capital legs. The pinned
+    fact is the $21,000,000 instruction figure. SPOT-CHECK: reachable at
+    rank 1 via the verbatim question (FY 2005 ADE "Ch. 278 Full-Day
+    Kindergarten" narrative). $21,000,000 is a round figure, so it recurs
+    across many years as an unrelated budget line — the query is protected
+    by naming FY 2005 + full-day kindergarten specifically, which forces
+    the old book; do not weaken the question by dropping the year.
 
-- id: hs-esa-cost-2022
+- id: hs-fy2010-oneshot-financing
   question: >-
-    Before the voucher program was opened up to every student, how big was it
-    really — roughly how many kids, and how much per kid?
+    The FY 2010 budget leaned heavily on one-time financing instead of
+    ongoing revenue to balance. Roughly how much one-time financing did it
+    rely on?
   corpus: budget
   shape: historical
   subsets: [full]
   key_facts:
     - kind: currency
-      value: "$15,761"
-    - kind: currency
-      value: "$145,000,000"
-    - kind: regex
-      value: '\b9,200\b'
+      value: "$1,104,000,000 or $1,510,000,000"
   judge_notes: >-
-    The FY 2022 Baseline reports roughly 9,200 Empowerment Scholarship
-    Account enrollees in FY 2021 costing about $145,000,000, an average of
-    $15,761 per recipient, and projects FY 2022 at 10,674 enrollees, $16,061
-    average and $171,430,700 total — an increase of $26,430,700 over FY 2021.
-    That is the program BEFORE the 2022 universal-eligibility expansion, and
-    the contrast is why this query exists: by FY 2026 ESAs inside Basic State
-    Aid are $1,002,152,300 (see an-esa-growth), about 7x this. TRAP, stated
-    explicitly in the source and easy to miss: the $26,430,700 is the
-    projected TOTAL cost increase for ESA allocations, NOT the net General
-    Fund impact, because Basic State Aid savings for students leaving public
-    schools are netted out elsewhere in the formula. An answer that presents
-    ESA cost as net new General Fund spending has made exactly the mistake
-    the book warns against. The enrollment count is a bare number with no
-    dollar sign, so it is kind=regex. NOTE for maintainers: this query,
-    an-esa-growth and mm-esa-memo all concern ESAs, but this one draws on a
-    FY 2022 per-agency Baseline narrative while the other two draw on the
-    FY 2025/2026 formula-summary tables — different documents, so a shared
-    retrieval failure is less likely than the topic overlap suggests.
-    SPOT-CHECK: misses single-shot, and hard — the conversational question
-    scores badly (top rerank logit around -5.9) because "before the program
-    was opened up to every student" is a framing the FY 2022 book cannot
-    contain: it was written before the expansion happened, so it does not
-    describe itself as the "before" state. All three facts sit in one chunk
-    and are reachable at rank 1 via "Empowerment Scholarship Account
-    enrollees average cost per recipient FY 2021 estimated expenses". An
-    agent must convert a temporal framing into a year, which is the exact
-    reformulation the historical shape exists to test.
+    The FY 2010 General Fund budget balanced itself with $1.104 billion of
+    one-time financing sources ($32.8M balance forward, $8.4M VLT transfer,
+    $100.0M prison concession, $735.4M state asset sale/lease-back, $227.8M
+    agency fund transfers), as reported in the FY 2010 book's revenue
+    section. The FY 2011 book REVISES the same FY 2010 total to $1.51
+    billion. This is exactly the header's "revised figures" case: the same
+    quantity measured at two different moments, and a correct answer may
+    legitimately cite either, so the key fact lists BOTH bases rather than
+    punishing an answer that cites the later, more accurate figure. This is
+    the archetype of a Great-Recession-only measure — the notion of
+    balancing a budget on one-time asset sales has no FY2025-27 analog, so
+    the only way to score is the old book. TRAP: the one-time financing
+    total is a SUM of many distinct items; an answer that quotes only the
+    single largest piece ($735.4M lease-back) or that reports the FY 2009
+    one-time total has stopped short of the aggregate the question asks
+    for. Also note FY 2011's own one-time financing is a different,
+    separately-reported number — do not conflate years. SPOT-CHECK:
+    reachable at rank 1 via the verbatim question; the FY 2010 "FY 2010"
+    one-time-financing narrative states $1.104 billion and the FY 2011 book
+    states the revised $1.51 billion, so either basis sits in the top-20
+    retrieve.

@@ -202,6 +202,15 @@ boost has the same blind spot.
 
 ## What's next
 
+- **The post-backfill retrieval regression — the free half DONE 2026-08-03**
+  (`PROMPT-retrieval-accuracy-regression.md`). The `historical` agent-eval
+  queries were RE-AUTHORED against the genuinely old books (see the section
+  below) — the one piece of that handoff that needs no OpenRouter key. The
+  keyed half still stands: finish the interrupted glm-vs-deepseek head-to-head
+  (deepseek run is 25/31 on a keyed machine) and, per the handoff, only then
+  make the retrieval change (year-inference-as-default-filter is the highest-
+  leverage target, but it must be validated with a Layer 2 run — never Layer 1
+  numbers alone). **Nothing on the retrieval path was changed here.**
 - **🔵 RUNNING NOW — S20 backfill on the Z13** (`PROMPT-z13-backfill.md`).
   Phase A (parity gate) and Phase B (recency machinery) are DONE and merged.
   Phase C (the backfill itself) is ~65% through the fiscal notes with the
@@ -260,6 +269,59 @@ boost has the same blind spot.
   been run — do that before trusting a `compare_agent_runs.py` delta on
   anything outside the smoke set. What the first baseline says, and the four
   improvement targets it hands us, are in the section below.
+
+---
+
+## ✅ The `historical` agent-eval queries re-authored against the old books (2026-08-03)
+
+The one free piece of `PROMPT-retrieval-accuracy-regression.md`'s §5 done on a
+key-less machine. Before the S20 backfill the corpus floor was FY2022, so the
+five `historical` Layer 2 queries were authored to the FY 2022/23 JLBC editions
+and the file header promised to re-author them once the old books landed. The
+backfill (2026-08-02) brought every ingestable book edition back to FY2005, so
+they were re-authored — all five REPLACED, not edited — to target genuinely old
+material with no modern near-duplicate.
+
+The old five (hs-promise-program-2023, hs-enhanced-fmap-2022,
+hs-water-augmentation-2023, hs-building-renewal-2023, hs-esa-cost-2022) were
+"not wrong, just no longer the oldest material" and are gone, replaced by:
+
+| query | targets | pinned figure(s) |
+|---|---|---|
+| `hs-arra-k12-stabilization-2010` *smoke* | FY2010 ARRA State Fiscal Stabilization cut-and-backfill of Basic State Aid | $472,114,000 |
+| `hs-leaseback-prisons-2010` | FY2010 state sale/lease-back requirement (incl. prisons) | $735,419,300 |
+| `hs-bsf-draw-2008` | FY2008 Budget Stabilization Fund drawdown (Laws 2008 Ch. 53) | $487,000,000 |
+| `hs-full-day-kindergarten-2005` | FY2005 Full-Day Kindergarten start-up (Ch. 278) | $21,000,000 |
+| `hs-fy2010-oneshot-financing` | FY2010 one-time financing total (with the revised-figure dual basis) | $1,104,000,000 or $1,510,000,000 |
+
+**Authoring discipline followed exactly as the file header prescribes:**
+
+- **Every pinned figure verified present in the corpus** by a full-table
+  substring scan against the live 77,574-chunk `budget_chunks`, not assumed.
+- **Figure recurrence checked across all FYs** to reject weak fingerprints:
+  `$21M`/`$4M` and `1,677` recur in modern editions as unrelated lines, so the
+  FDK query names FY2005 + the program specifically rather than relying on the
+  round figure alone; `$472,114,000`, `$735,419,300` and `$487.0M` are
+  distinctive to FY2009–2012, so the only way to score is the actual old book.
+- **The chance to score from a wrong-but-modern near-duplicate is closed by
+  construction** — the recession measures have no FY2025-27 analog.
+- **REACHABLE, verified offline** (no API key needed): each passed the header's
+  spot-check — ONE top-20 retrieve of the verbatim question, every key fact
+  present in the concatenated chunk text; the pipeline correctly inferred the
+  fiscal year and ranked the old book first.
+
+Guards: `tests/test_eval_agent_queries.py` (shape quotas still `historical
+>= 3`, smoke still 11 queries across ≥4 shapes incl. exactly 1 historical) and
+`tests/test_eval_agent_schema.py` pass; **2168 pytest / 5 skipped** (the 5
+skips are the documented ONNX/model-closure skips). Nothing under
+`retrieval/`, `harness/`, `ingest/`, `chunking/` or `citation/` was touched —
+this is a query-set change, so no eval was run (per the CLAUDE.md rule).
+
+**Still open, needs a keyed machine (unchanged by this work):** finish the
+interrupted glm-vs-deepseek head-to-head (deepseek `.../2026-08-03T0242Z/
+9a8fd91` is 25/31 — its six `hs-*` transcripts and `rf-county-budget` are
+missing, and those six hs- queries no longer exist under the old ids, so the
+re-run should use the new set), then make the retrieval fix.
 
 ---
 
