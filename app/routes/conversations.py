@@ -33,6 +33,7 @@ from starlette.background import BackgroundTask
 
 from app import identity
 from harness import history
+from harness import titles
 from harness.constants import DEFAULT_TIER
 from harness.ledger import check_limit
 from harness.settings import ai_available, load_settings
@@ -382,6 +383,23 @@ def persist_turn(entry: _Conversation) -> None:
                 messages=list(messages),
             )
         )
+        # Title only once, on the first completed exchange, and never over a
+        # title the analyst set themselves.
+        #
+        # This is a blocking HTTP call of up to _TIMEOUT_S. It is safe HERE and
+        # nowhere earlier: persist_turn's single call site is at the END of
+        # _release_turn, after registry.end_turn has released the conversation,
+        # in a BackgroundTask (a threadpool, not the event loop). Move this call
+        # any earlier in the teardown and the conversation stays `busy` for the
+        # duration, so the analyst's next question gets a 409 from begin_turn.
+        stored = history.load(entry.id)
+        if stored and not stored.title and not stored.title_is_manual:
+            first_q = next((m.get("content", "") for m in stored.messages
+                            if m.get("role") == "user"), "")
+            first_a = next((m.get("content", "") for m in stored.messages
+                            if m.get("role") == "assistant" and m.get("content")), "")
+            stored.title = titles.generate_title(first_q, first_a, user=current_user())
+            history.save(stored)
     except Exception as exc:                      # noqa: BLE001
         print(f"jlbc-insight: could not save chat history: {exc}", file=sys.stderr, flush=True)
 
