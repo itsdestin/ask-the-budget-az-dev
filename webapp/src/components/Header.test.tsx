@@ -1,4 +1,4 @@
-import { render, screen, waitFor } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { MemoryRouter } from "react-router-dom";
 import { vi } from "vitest";
 import * as api from "../api";
@@ -6,15 +6,48 @@ import { Header } from "./Header";
 
 // MemoryRouter (not BrowserRouter) because NavLink needs a router context and
 // this test only cares about the links, not the URL bar.
-test("header has nav pills for the app's surfaces", () => {
+test("the nav row is the two corpora and AI Mode, and nothing else", () => {
+  // Destin, 2026-08-02. Home left (the logo already goes there, and two
+  // controls for one destination is one too many in a row this narrow), and
+  // Upload/Settings/Admin moved into the tools menu — they are places you
+  // administer, not places you read, and they were taking width from the two
+  // things analysts actually came for.
   render(
     <MemoryRouter>
       <Header />
     </MemoryRouter>,
   );
-  for (const label of ["Home", "Budget Documents", "Fiscal Notes", "Settings"]) {
+  for (const label of ["Budget Documents", "AI Mode", "Fiscal Notes"]) {
     expect(screen.getByRole("link", { name: label })).toBeInTheDocument();
   }
+  expect(screen.queryByRole("link", { name: "Home" })).toBeNull();
+  for (const gone of ["Upload", "Settings"]) {
+    expect(screen.queryByRole("link", { name: gone })).toBeNull();
+  }
+});
+
+test("home is still reachable, from the logo", () => {
+  render(
+    <MemoryRouter>
+      <Header />
+    </MemoryRouter>,
+  );
+  expect(screen.getByRole("link", { name: /JLBC home/i })).toHaveAttribute("href", "/");
+});
+
+test("AI Mode sits between the two corpus pills", () => {
+  // It is the thing you do WITH either corpus, so the middle is where it
+  // belongs — being flanked says that more clearly than the old right-hand
+  // slot said "stands apart".
+  const { container } = render(
+    <MemoryRouter>
+      <Header />
+    </MemoryRouter>,
+  );
+  const labels = [...container.querySelectorAll("nav.primary .nav-item > a")].map(
+    (a) => a.getAttribute("aria-label") ?? a.textContent,
+  );
+  expect(labels).toEqual(["Budget Documents", "AI Mode", "Fiscal Notes"]);
 });
 
 // AI Mode's nav pill (Destin, 2026-07-31). Three things are pinned because each
@@ -22,7 +55,7 @@ test("header has nav pills for the app's surfaces", () => {
 // page), it is ICON-ONLY with the accessible name carried by aria-label + title
 // exactly as the house pill does it, and it sits apart from the corpus pills on
 // the right (`.nav-ai`, which is the hook the right-alignment CSS keys off).
-test("AI Mode is an icon-only pill on the right of the nav", () => {
+test("AI Mode's pill carries its label but keeps one accessible name", () => {
   render(
     <MemoryRouter>
       <Header />
@@ -31,17 +64,24 @@ test("AI Mode is an icon-only pill on the right of the nav", () => {
   const ai = screen.getByRole("link", { name: "AI Mode" });
   expect(ai).toHaveAttribute("href", "/ai");
   expect(ai).toHaveAttribute("title", "AI Mode");
-  // No visible text — the accessible name comes from aria-label alone, same as
-  // Home. A label appearing here would read as a fourth place to browse.
-  expect(ai.textContent).toBe("");
+  // The label rolls out of the pill when active (see .nav-ai-text), so the
+  // text IS in the markup — but it is aria-hidden, because the link already
+  // carries `aria-label`. Without that the accessible name would double up to
+  // "AI Mode AI Mode" the moment the pill opened.
+  expect(ai.textContent).toContain("AI");
+  expect(ai.querySelector(".nav-ai-text")).toHaveAttribute("aria-hidden", "true");
+  expect(ai).toHaveAccessibleName("AI Mode");
+  // The spark is a separate group so CSS can move it between the icon's two
+  // states; a flat pair of paths could not be animated as one.
+  expect(ai.querySelector(".nav-ai-spark")).not.toBeNull();
   const glyph = ai.querySelector("svg.ai-ic");
   expect(glyph).not.toBeNull();
   // Same construction as the house glyph: stroke-only, no fills.
   expect(glyph).toHaveAttribute("fill", "none");
   expect(glyph).toHaveAttribute("stroke", "currentColor");
   expect(glyph).toHaveAttribute("aria-hidden", "true");
-  // The right-aligned slot. Markup-side only (jsdom applies no stylesheet), so
-  // keep this class and the `.nav-item.nav-ai` rule in app.css in step by hand.
+  // Markup-side only (jsdom applies no stylesheet), so keep this class and the
+  // `.nav-item.nav-ai` rules in app.css in step by hand.
   expect(ai.closest(".nav-item")).toHaveClass("nav-ai");
 });
 
@@ -58,7 +98,7 @@ test("only the current surface gets the mockup's azure active pill", () => {
     </MemoryRouter>,
   );
   expect(screen.getByRole("link", { name: "Fiscal Notes" })).toHaveClass("active");
-  expect(screen.getByRole("link", { name: "Home" })).not.toHaveClass("active");
+  expect(screen.getByRole("link", { name: "Budget Documents" })).not.toHaveClass("active");
 });
 
 // Guards the MARKUP side of the port only: the ported CSS is keyed to this selector
@@ -101,8 +141,10 @@ test("the Admin pill renders only for the admin", async () => {
       <Header />
     </MemoryRouter>,
   );
-  const pill = await screen.findByRole("link", { name: "Admin" });
-  expect(pill).toHaveAttribute("href", "/admin");
+  // It lives inside the tools menu now, so it has to be opened first.
+  fireEvent.click(await screen.findByTestId("nav-tools-button"));
+  const item = await screen.findByRole("menuitem", { name: /Admin/ });
+  expect(item).toHaveAttribute("href", "/admin");
   vi.restoreAllMocks();
 });
 
@@ -121,7 +163,12 @@ test("a non-admin never sees the Admin pill", async () => {
   );
   await screen.findByRole("link", { name: "Budget Documents" });
   await waitFor(() => expect(api.me).toHaveBeenCalled());
-  expect(screen.queryByRole("link", { name: "Admin" })).toBeNull();
+  fireEvent.click(screen.getByTestId("nav-tools-button"));
+  expect(screen.queryByRole("menuitem", { name: /Admin/ })).toBeNull();
+  // …and the two anyone may reach are still there, so a missing seat costs the
+  // one item and not the menu.
+  expect(screen.getByRole("menuitem", { name: /Upload/ })).toBeInTheDocument();
+  expect(screen.getByRole("menuitem", { name: /Settings/ })).toBeInTheDocument();
   vi.restoreAllMocks();
 });
 
@@ -137,6 +184,72 @@ test("a failed identity probe still renders the rest of the nav", async () => {
   );
   expect(await screen.findByRole("link", { name: "Budget Documents" })).toBeInTheDocument();
   await waitFor(() => expect(api.me).toHaveBeenCalled());
-  expect(screen.queryByRole("link", { name: "Admin" })).toBeNull();
+  fireEvent.click(screen.getByTestId("nav-tools-button"));
+  expect(screen.queryByRole("menuitem", { name: /Admin/ })).toBeNull();
   vi.restoreAllMocks();
+});
+
+// The tools menu (Destin, 2026-08-02).
+test("the tools menu opens on click as well as hover", () => {
+  // Hover is what was asked for, but it cannot be the only way in: a keyboard
+  // user has no pointer, and this is the app's only route to Settings.
+  render(
+    <MemoryRouter>
+      <Header />
+    </MemoryRouter>,
+  );
+  const btn = screen.getByTestId("nav-tools-button");
+  expect(btn).toHaveAttribute("aria-expanded", "false");
+  expect(screen.queryByRole("menu")).toBeNull();
+
+  fireEvent.click(btn);
+  expect(btn).toHaveAttribute("aria-expanded", "true");
+  expect(screen.getByRole("menuitem", { name: /Upload/ })).toHaveAttribute("href", "/upload");
+  expect(screen.getByRole("menuitem", { name: /Settings/ })).toHaveAttribute("href", "/settings");
+});
+
+test("Escape closes the menu", () => {
+  render(
+    <MemoryRouter>
+      <Header />
+    </MemoryRouter>,
+  );
+  fireEvent.click(screen.getByTestId("nav-tools-button"));
+  fireEvent.keyDown(document, { key: "Escape" });
+  expect(screen.queryByRole("menu")).toBeNull();
+});
+
+test("the trigger reads as selected when the current page lives in the menu", () => {
+  // Without this the header shows NO active pill on /settings, and the app
+  // looks like it has lost track of where you are.
+  render(
+    <MemoryRouter initialEntries={["/settings"]}>
+      <Header />
+    </MemoryRouter>,
+  );
+  expect(screen.getByTestId("nav-tools-button")).toHaveClass("is-current");
+});
+
+test("the trigger is NOT selected on a page outside the menu", () => {
+  render(
+    <MemoryRouter initialEntries={["/search"]}>
+      <Header />
+    </MemoryRouter>,
+  );
+  expect(screen.getByTestId("nav-tools-button")).not.toHaveClass("is-current");
+});
+
+test("the current tool is marked so the fill has something to start on", () => {
+  // `is-current` is ours rather than NavLink's `active`, because the fill must
+  // be able to LEAVE this item when the pointer moves to another one — that is
+  // a CSS rule keyed on hovering the popover, and it needs the two ideas
+  // ("where you are" vs "what you are pointing at") kept separable.
+  render(
+    <MemoryRouter initialEntries={["/upload"]}>
+      <Header />
+    </MemoryRouter>,
+  );
+  fireEvent.click(screen.getByTestId("nav-tools-button"));
+  expect(screen.getByRole("menuitem", { name: /Upload/ })).toHaveClass("is-current");
+  expect(screen.getByRole("menuitem", { name: /Settings/ })).not.toHaveClass("is-current");
 });

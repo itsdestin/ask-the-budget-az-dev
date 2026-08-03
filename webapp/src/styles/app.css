@@ -64,7 +64,6 @@ nav.primary{flex:1 1 auto;display:flex;flex-wrap:nowrap;align-items:center;justi
    moved one level down. Must stay AFTER the :hover rule above — equal specificity,
    so source order is what keeps the active pill from graying out on hover. */
 .nav-item>a.active{background:var(--az-gold);color:#fff;}
-.home-ic{width:18px;height:18px;display:block;}
 
 /* New (Destin, 2026-07-31): the AI Mode pill sits APART from the corpus pills,
    pinned to the right end of the nav.
@@ -80,8 +79,81 @@ nav.primary{flex:1 1 auto;display:flex;flex-wrap:nowrap;align-items:center;justi
    contains the logo, so `right:0` there would be the same edge by accident
    rather than by intent). */
 nav.primary{position:relative;padding-right:44px;}
-.nav-item.nav-ai{position:absolute;right:0;top:50%;transform:translateY(-50%);}
 .ai-ic{width:19px;height:19px;display:block;}
+
+/* ----- AI Mode pill --------------------------------------------------------
+   It sits BETWEEN the two corpus pills now (2026-08-02) — it is the thing you
+   do WITH either corpus, and being flanked says that better than the old
+   absolute-right slot said "stands apart".
+
+   gap:0 because the label supplies its own margin as it opens; the inherited
+   6px would otherwise reserve a gap around a zero-width span and leave the
+   collapsed pill lopsided. */
+.nav-item.nav-ai>a{gap:0;}
+/* The label rolls out only when active. max-width rather than width so the
+   open state does not have to know how wide "AI Mode" renders in whatever font
+   actually loaded — the mockup names Nunito but ships no webfont, so this text
+   is Nunito on some machines and Segoe UI on the rest. */
+.nav-ai-text{display:inline-block;overflow:hidden;white-space:nowrap;max-width:0;opacity:0;margin-left:0;
+  transition:max-width .3s cubic-bezier(.4,0,.2,1),opacity .18s ease,margin-left .3s cubic-bezier(.4,0,.2,1);}
+.nav-item.nav-ai>a.active .nav-ai-text{max-width:7em;opacity:1;margin-left:7px;}
+/* The spark is the icon's second state: up-right when AI Mode is somewhere you
+   could go, down-left when you are in it. In SVG a CSS px IS a user unit, so
+   this is a move within the 24-unit box, not a screen-pixel offset that would
+   drift as the glyph resizes at the two breakpoints below. */
+.nav-ai-spark{transition:transform .34s cubic-bezier(.34,1.3,.5,1);}
+.nav-item.nav-ai>a.active .nav-ai-spark{transform:translate(-14.5px,13px);}
+@media (prefers-reduced-motion: reduce){
+  /* The states still differ — only the travel between them stops. */
+  .nav-ai-text,.nav-ai-spark{transition:none;}
+}
+
+/* ----- tools menu (Upload / Settings / Admin) ------------------------------
+   Takes the slot AI Mode used to occupy. The trigger reads as selected whenever
+   the page you are on lives inside the menu, so the header never shows an empty
+   active state and leaves the app looking lost. */
+.nav-tools{position:absolute;right:0;top:50%;transform:translateY(-50%);}
+.nav-tools-btn{display:inline-flex;align-items:center;justify-content:center;width:36px;height:36px;
+  padding:0;border:0;border-radius:var(--r-pill);background:transparent;color:var(--ink-2);
+  cursor:pointer;transition:background .15s,color .15s;}
+.nav-tools-btn svg{width:19px;height:19px;display:block;}
+.nav-tools-btn:hover{background:var(--navy-100);color:var(--navy);}
+.nav-tools-btn.is-current{background:var(--az-gold);color:#fff;}
+.nav-tools-btn.is-current:hover{background:var(--az-gold);color:#fff;}
+
+.nav-tools-pop{position:absolute;top:calc(100% + 8px);right:0;z-index:60;width:268px;
+  background:var(--card);border:1px solid var(--line);border-radius:var(--r-md);
+  box-shadow:var(--shadow);padding:6px;}
+.nav-tools-item{display:flex;align-items:flex-start;gap:11px;padding:9px 10px;border-radius:var(--r-sm);
+  color:var(--ink-2);transition:background .13s,color .13s;}
+.nav-tools-item:hover{text-decoration:none;}
+.nav-tools-ic{flex:0 0 auto;display:flex;width:20px;height:20px;margin-top:1px;}
+.nav-tools-ic svg{width:20px;height:20px;}
+.nav-tools-body{min-width:0;}
+.nav-tools-label{display:block;font-size:13.5px;font-weight:800;color:var(--ink);}
+.nav-tools-hint{display:block;margin-top:1px;font-size:11.5px;line-height:1.4;color:var(--ink-3);font-weight:600;}
+
+/* THE FILL TRAVELS. Where you are is filled at rest; the moment the pointer is
+   in the menu the current item gives its fill up, and whatever is under the
+   cursor takes it. Three rules in this order and no others — the hover rule
+   must come last, because it ties on specificity (0,3,0) with the release rule
+   above it and wins on source order alone. Reordering them silently pins the
+   fill to the current page. */
+.nav-tools-item.is-current{background:var(--az-gold);}
+.nav-tools-item.is-current .nav-tools-label,
+.nav-tools-item.is-current .nav-tools-hint{color:#fff;}
+.nav-tools-pop:hover .nav-tools-item.is-current,
+.nav-tools-pop:focus-within .nav-tools-item.is-current{background:transparent;}
+.nav-tools-pop:hover .nav-tools-item.is-current .nav-tools-label,
+.nav-tools-pop:focus-within .nav-tools-item.is-current .nav-tools-label{color:var(--ink);}
+.nav-tools-pop:hover .nav-tools-item.is-current .nav-tools-hint,
+.nav-tools-pop:focus-within .nav-tools-item.is-current .nav-tools-hint{color:var(--ink-3);}
+.nav-tools-pop .nav-tools-item:hover,
+.nav-tools-pop .nav-tools-item:focus-visible{background:var(--az-gold);}
+.nav-tools-pop .nav-tools-item:hover .nav-tools-label,
+.nav-tools-pop .nav-tools-item:hover .nav-tools-hint,
+.nav-tools-pop .nav-tools-item:focus-visible .nav-tools-label,
+.nav-tools-pop .nav-tools-item:focus-visible .nav-tools-hint{color:#fff;}
 
 /* Deviation: the mockup's `.caret` / `.dropdown` rules are not ported — this app has
    four flat surfaces and no submenus, so that CSS would be dead weight. Lift it from
@@ -110,7 +182,9 @@ nav.primary{position:relative;padding-right:44px;}
      (A `.nav-label` span would be tidier, but the header renders labels as bare
      text nodes and this file does not own that component.) */
   .nav-item>a{font-size:0;padding:7px 8px;}
-  .home-ic,.ai-ic{width:20px;height:20px;}
+  /* The label cannot roll out in a row that has already dropped its text. */
+  .nav-ai-text{display:none;}
+  .ai-ic{width:20px;height:20px;}
   nav.primary{padding-right:38px;}
 }
 

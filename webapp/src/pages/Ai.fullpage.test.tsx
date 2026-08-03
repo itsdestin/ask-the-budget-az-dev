@@ -64,6 +64,9 @@ describe("AI Mode pins the viewport — and only AI Mode", () => {
   });
 
   it("un-pins when the analyst navigates to another page", async () => {
+    // Navigates via the LOGO. The header's house pill is gone (2026-08-02) —
+    // the logo is now the only route home, which is exactly why it is worth
+    // clicking here rather than picking some other pill.
     mountAt("/ai");
     await screen.findByTestId("ai-panel");
     expect(pinned()).toBe(true);
@@ -72,7 +75,7 @@ describe("AI Mode pins the viewport — and only AI Mode", () => {
     // actually leaves AI Mode. If the cleanup ever stops running, Home would
     // render inside a viewport that cannot scroll.
     // Exact name: the logo is also a link to "/" and is labelled "JLBC home".
-    fireEvent.click(screen.getByRole("link", { name: "Home" }));
+    fireEvent.click(screen.getByRole("link", { name: /JLBC home/i }));
 
     expect(await screen.findByTestId("home")).toBeInTheDocument();
     expect(pinned()).toBe(false);
