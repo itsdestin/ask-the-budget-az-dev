@@ -124,6 +124,13 @@ nav.primary{position:relative;padding-right:44px;}
 .nav-tools-pop{position:absolute;top:calc(100% + 8px);right:0;z-index:60;width:268px;
   background:var(--card);border:1px solid var(--line);border-radius:var(--r-md);
   box-shadow:var(--shadow);padding:6px;}
+/* BRIDGES THE GAP between the trigger and this popover. Both are absolutely
+   positioned, so those 8px belong to neither and the pointer crossing them is
+   outside `.nav-tools` entirely — `mouseleave` fired and the menu shut before
+   anyone could reach an item. This strip is part of the popover, so the subtree
+   is never left. Invisible and 10px tall (the 8px gap plus slack); it must NOT
+   grow past the trigger or it would swallow clicks meant for it. */
+.nav-tools-pop::before{content:"";position:absolute;left:0;right:0;top:-10px;height:10px;}
 .nav-tools-item{display:flex;align-items:flex-start;gap:11px;padding:9px 10px;border-radius:var(--r-sm);
   color:var(--ink-2);transition:background .13s,color .13s;}
 .nav-tools-item:hover{text-decoration:none;}

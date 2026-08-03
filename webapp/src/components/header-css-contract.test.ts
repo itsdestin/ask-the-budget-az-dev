@@ -38,6 +38,21 @@ describe("header CSS contract", () => {
     expect(bare).toContain(".nav-tools-pop:focus-within .nav-tools-item.is-current");
   });
 
+  // The JS grace period is only half the fix. Without this strip the pointer
+  // is genuinely outside the subtree while crossing the gap, and no timing
+  // tweak makes a menu you have to sprint at feel right.
+  it("the popover bridges the gap between itself and the trigger", () => {
+    const bridge = bare.match(/\.nav-tools-pop::before\{([^}]*)\}/);
+    expect(bridge, "the gap bridge must exist").not.toBeNull();
+    const body = bridge![1];
+    expect(body).toMatch(/position:absolute/);
+    // Reaches UP into the gap…
+    expect(body).toMatch(/top:-\d+px/);
+    // …and spans the popover's full width, or the diagonal path still misses.
+    expect(body).toMatch(/left:0/);
+    expect(body).toMatch(/right:0/);
+  });
+
   it("the AI pill has two spark states and rolls its label out", () => {
     // The icon's second state and the label's roll-out are the two things
     // Destin asked to SEE happen. Both are pure CSS hung off NavLink's

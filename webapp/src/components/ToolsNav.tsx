@@ -11,6 +11,20 @@
 // Settings in the app. So the trigger is a real <button> with aria-expanded
 // that also opens on click and on focus, and the menu closes on Escape, on
 // outside click, and on pointer-leave.
+//
+// TWO THINGS MAKE THE POINTER TRIP SURVIVABLE, and the menu was unusable
+// without them (Destin, 2026-08-02: "i cant reach upload/settings, they
+// disappear when i try to scroll to them"):
+//
+//  1. The popover is absolutely positioned, so the 8px between it and the
+//     button belongs to NEITHER element. Crossing that dead space put the
+//     pointer over the header, which is outside this component's subtree, so
+//     `mouseleave` fired and the menu shut before it could be reached.
+//     `.nav-tools-pop::before` bridges it — a transparent strip that is part
+//     of the popover, so the subtree is never actually left.
+//  2. A short grace period before closing, so a diagonal path toward the last
+//     item — which briefly clips outside the popover's box — does not kill it
+//     either. Re-entering cancels the pending close.
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import { NavLink, useLocation } from "react-router-dom";
@@ -80,9 +94,15 @@ const ICONS: Record<string, () => JSX.Element> = {
   "/admin": AdminIcon,
 };
 
+/** Grace period before a pointer-leave actually closes the menu. Long enough to
+ *  forgive a diagonal path across the popover's corner, short enough that it
+ *  never feels stuck open. */
+const CLOSE_GRACE_MS = 160;
+
 export function ToolsNav({ isAdmin }: { isAdmin: boolean }) {
   const [open, setOpen] = useState(false);
   const wrapRef = useRef<HTMLDivElement | null>(null);
+  const closeTimer = useRef<number | null>(null);
   const { pathname } = useLocation();
 
   const items = TOOLS.filter((t) => !t.adminOnly || isAdmin);
@@ -93,7 +113,35 @@ export function ToolsNav({ isAdmin }: { isAdmin: boolean }) {
     (t) => pathname === t.to || pathname.startsWith(`${t.to}/`),
   );
 
-  const close = useCallback(() => setOpen(false), []);
+  const cancelPendingClose = useCallback(() => {
+    if (closeTimer.current === null) return;
+    window.clearTimeout(closeTimer.current);
+    closeTimer.current = null;
+  }, []);
+
+  /** Shut it now — Escape, an outside click, a navigation. */
+  const close = useCallback(() => {
+    cancelPendingClose();
+    setOpen(false);
+  }, [cancelPendingClose]);
+
+  const openNow = useCallback(() => {
+    cancelPendingClose();
+    setOpen(true);
+  }, [cancelPendingClose]);
+
+  /** Shut it shortly — the pointer left, but it may be on its way back. */
+  const closeSoon = useCallback(() => {
+    cancelPendingClose();
+    closeTimer.current = window.setTimeout(() => {
+      closeTimer.current = null;
+      setOpen(false);
+    }, CLOSE_GRACE_MS);
+  }, [cancelPendingClose]);
+
+  // A pending close outliving the component would call setState on an
+  // unmounted one every time the header re-renders during a route change.
+  useEffect(() => cancelPendingClose, [cancelPendingClose]);
 
   useEffect(() => {
     if (!open) return;
@@ -120,8 +168,8 @@ export function ToolsNav({ isAdmin }: { isAdmin: boolean }) {
     <div
       className="nav-tools"
       ref={wrapRef}
-      onMouseEnter={() => setOpen(true)}
-      onMouseLeave={close}
+      onMouseEnter={openNow}
+      onMouseLeave={closeSoon}
     >
       <button
         type="button"
@@ -131,8 +179,11 @@ export function ToolsNav({ isAdmin }: { isAdmin: boolean }) {
         aria-haspopup="menu"
         aria-expanded={open}
         data-testid="nav-tools-button"
-        onClick={() => setOpen((v) => !v)}
-        onFocus={() => setOpen(true)}
+        onClick={() => {
+          cancelPendingClose();
+          setOpen((v) => !v);
+        }}
+        onFocus={openNow}
       >
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" aria-hidden="true">
           <path d="M4 7h16M4 12h16M4 17h16" />

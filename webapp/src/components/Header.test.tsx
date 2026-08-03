@@ -1,4 +1,4 @@
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { MemoryRouter } from "react-router-dom";
 import { vi } from "vitest";
 import * as api from "../api";
@@ -252,4 +252,59 @@ test("the current tool is marked so the fill has something to start on", () => {
   fireEvent.click(screen.getByTestId("nav-tools-button"));
   expect(screen.getByRole("menuitem", { name: /Upload/ })).toHaveClass("is-current");
   expect(screen.getByRole("menuitem", { name: /Settings/ })).not.toHaveClass("is-current");
+});
+
+// "i cant reach upload/settings, they disappear when i try to scroll to them"
+// (Destin, 2026-08-02). The popover is absolutely positioned, so the gap
+// between it and the trigger belongs to neither — crossing it left the
+// component's subtree, fired mouseleave, and shut the menu mid-journey.
+test("the menu survives the pointer leaving briefly", () => {
+  vi.useFakeTimers();
+  try {
+    render(
+      <MemoryRouter>
+        <Header />
+      </MemoryRouter>,
+    );
+    const wrap = screen.getByTestId("nav-tools-button").parentElement!;
+    fireEvent.mouseEnter(wrap);
+    expect(screen.getByRole("menu")).toBeInTheDocument();
+
+    // Pointer slips out on its way to an item…
+    fireEvent.mouseLeave(wrap);
+    act(() => {
+      vi.advanceTimersByTime(80);
+    });
+    expect(screen.getByRole("menu"), "must not close instantly").toBeInTheDocument();
+
+    // …and comes back. The pending close is cancelled, not merely deferred.
+    fireEvent.mouseEnter(wrap);
+    act(() => {
+      vi.advanceTimersByTime(1000);
+    });
+    expect(screen.getByRole("menu")).toBeInTheDocument();
+  } finally {
+    vi.useRealTimers();
+  }
+});
+
+test("the menu does close once the pointer is really gone", () => {
+  // The other half: a grace period that never expires is a menu stuck open.
+  vi.useFakeTimers();
+  try {
+    render(
+      <MemoryRouter>
+        <Header />
+      </MemoryRouter>,
+    );
+    const wrap = screen.getByTestId("nav-tools-button").parentElement!;
+    fireEvent.mouseEnter(wrap);
+    fireEvent.mouseLeave(wrap);
+    act(() => {
+      vi.advanceTimersByTime(400);
+    });
+    expect(screen.queryByRole("menu")).toBeNull();
+  } finally {
+    vi.useRealTimers();
+  }
 });
