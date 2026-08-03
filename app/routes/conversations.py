@@ -384,6 +384,26 @@ def _session_factory(request: Request) -> Callable[..., Any]:
     return request.app.state.session_factory
 
 
+def _is_first_turn(messages: list) -> bool:
+    """True when `messages` holds only a conversation's opening exchange.
+
+    persist_turn uses this to tell "first save of a brand-new conversation"
+    (nothing on disk yet — always create) from "continuation whose file was
+    deleted mid-turn" (the analyst deleted it — do not resurrect).
+
+    The discriminator is the USER-message count, and only that: the first
+    turn contributes exactly one user message, and every later turn appends
+    another, so one user message IS the first persist regardless of how the
+    assistant replied. (A first turn that called tools is [user, assistant-
+    tool_calls, tool, assistant-answer] — TWO assistant messages on the very
+    first turn — so an assistant-message count would misread a tool-using
+    first turn as a deleted continuation and skip writing it. The user count
+    has no such ambiguity.)
+    """
+    users = sum(1 for m in messages if isinstance(m, dict) and m.get("role") == "user")
+    return users <= 1
+
+
 def persist_turn(entry: _Conversation) -> None:
     """Write this conversation's transcript to the analyst's own disk.
 
@@ -404,6 +424,17 @@ def persist_turn(entry: _Conversation) -> None:
         if messages is None:
             return
         existing = history.load(entry.id)
+        # A continuation whose file is GONE from disk was deleted out from
+        # under the live session (the rail lets the analyst delete mid-turn).
+        # Writing now would resurrect it as an untitled ghost — the same
+        # ghost-row bug the client fixed, one layer down. A FIRST persist is
+        # always existing-is-None (nothing on disk yet) and carries exactly
+        # one user message; a continuation always carries at least two. So
+        # "no file on disk" + "more than one user message" = the analyst
+        # deleted it, and the delete should win. (See _is_first_turn for why
+        # the user count, not the assistant count, is the discriminator.)
+        if existing is None and not _is_first_turn(messages):
+            return
         now = history.now_iso()
         history.save(
             history.Transcript(
@@ -426,7 +457,17 @@ def persist_turn(entry: _Conversation) -> None:
         # any earlier in the teardown and the conversation stays `busy` for the
         # duration, so the analyst's next question gets a 409 from begin_turn.
         stored = history.load(entry.id)
-        if stored and not stored.title and not stored.title_is_manual:
+        if stored is None:
+            # Deleted between our save and this read — the analyst's delete
+            # wins over our write. Nothing more to do.
+            return
+        # A manual rename can no longer be clobbered by our save above:
+        # history.save serializes against history.rename via the store's
+        # per-id write lock, so whichever landed last is the whole, correct
+        # record. We only act here when there is still NO title — the
+        # auto-naming path, which the manual flag already guards against
+        # overwriting an analyst-set title.
+        if not stored.title and not stored.title_is_manual:
             first_q = next((m.get("content", "") for m in stored.messages
                             if m.get("role") == "user"), "")
             first_a = next((m.get("content", "") for m in stored.messages
