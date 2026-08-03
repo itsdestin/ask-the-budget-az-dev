@@ -82,6 +82,37 @@ describe("header CSS contract", () => {
     expect(bare).toMatch(/\.nav-ai-spark\{[^}]*transition:transform/);
   });
 
+  // The spark and the label are ONE gesture. They were two — .5s against .3s,
+  // a spring against an ease, an opacity finishing before either — and read as
+  // two things happening near each other. The shared tokens are what keep them
+  // tunable as a unit; hardcoding a duration back into either rule is how they
+  // drift apart again, silently, because both still animate.
+  it("the spark and the label are timed as one gesture", () => {
+    expect(bare).toMatch(/--ai-throw:[\d.]+s/);
+    expect(bare).toMatch(/--ai-roll:[\d.]+s/);
+    expect(bare).toMatch(/--ai-lead:[\d.]+s/);
+    expect(bare).toMatch(/\.nav-ai-spark\{[^}]*transition:transform var\(--ai-throw\) var\(--ai-ease-throw\)/);
+    expect(bare).toMatch(/\.nav-ai-text\{[^}]*max-width var\(--ai-roll\) var\(--ai-ease\)/);
+  });
+
+  // The stagger runs BOTH ways round, and not symmetrically: going in the
+  // spark leads and the label follows; coming out the label clears first so the
+  // spark is not arcing across a word still on screen. Lose either delay and
+  // the two halves collide.
+  it("the stagger reverses on the way out", () => {
+    expect(bare).toMatch(
+      /\.nav-item\.nav-ai>a\.active \.nav-ai-text\{[^}]*transition-delay:var\(--ai-lead\)/,
+    );
+    expect(bare).toMatch(
+      /\.nav-item\.nav-ai>a \.nav-ai-spark\{[^}]*transition-delay:var\(--ai-lead\)/,
+    );
+    // …and the leading half of each direction must NOT be delayed, or nothing
+    // staggers and both just start late.
+    expect(bare).toMatch(
+      /\.nav-item\.nav-ai>a\.active \.nav-ai-spark\{[^}]*transition-delay:0s/,
+    );
+  });
+
   it("reduced motion keeps both states and drops only the travel", () => {
     const at = bare.indexOf(".nav-ai-text,.nav-ai-spark{transition:none;}");
     expect(at, "reduced-motion override must exist").toBeGreaterThan(-1);

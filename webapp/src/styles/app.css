@@ -91,14 +91,34 @@ nav.primary{position:relative;padding-right:44px;}
    gap:0 because the label supplies its own margin as it opens; the inherited
    6px would otherwise reserve a gap around a zero-width span and leave the
    collapsed pill lopsided. */
+.nav-item.nav-ai{
+  /* One set of numbers for the whole transition, because the spark and the
+     label are one gesture and were previously two: .5s against .3s, a spring
+     against an ease, and an opacity that finished before either. Tuned here
+     and nowhere else. */
+  --ai-throw:.62s;          /* the spark's arc */
+  --ai-roll:.5s;            /* the label opening or closing */
+  --ai-lead:.09s;           /* the stagger between them */
+  --ai-ease:cubic-bezier(.22,1,.36,1);        /* long, quiet settle */
+  --ai-ease-throw:cubic-bezier(.32,1.06,.4,1);/* the same, with a hair of overshoot */
+}
 .nav-item.nav-ai>a{gap:0;}
 /* The label rolls out only when active. max-width rather than width so the
    open state does not have to know how wide "AI Mode" renders in whatever font
    actually loaded — the mockup names Nunito but ships no webfont, so this text
    is Nunito on some machines and Segoe UI on the rest. */
 .nav-ai-text{display:inline-block;overflow:hidden;white-space:nowrap;max-width:0;opacity:0;margin-left:0;
-  transition:max-width .3s cubic-bezier(.4,0,.2,1),opacity .18s ease,margin-left .3s cubic-bezier(.4,0,.2,1);}
-.nav-item.nav-ai>a.active .nav-ai-text{max-width:7em;opacity:1;margin-left:7px;}
+  transition:
+    max-width var(--ai-roll) var(--ai-ease),
+    margin-left var(--ai-roll) var(--ai-ease),
+    /* Opacity runs at half the width's pace so the text is gone before it can
+       be seen squeezed into a closing box, and fully there well before the box
+       stops opening. Linear because a fade that eases reads as a flicker at
+       this size. */
+    opacity calc(var(--ai-roll) * .5) linear;}
+/* ON: the switch throws, THEN the label follows it out. */
+.nav-item.nav-ai>a.active .nav-ai-text{max-width:7em;opacity:1;margin-left:7px;
+  transition-delay:var(--ai-lead);}
 /* The spark is the icon's second state, and it ARCS between them like a switch
    being thrown: down-right for off, up-right for on.
 
@@ -125,9 +145,13 @@ nav.primary{position:relative;padding-right:44px;}
    default for SVG children, and the difference here is an orbit about the
    star's centre versus one about the corner of the viewBox. */
 .nav-ai-spark{transform-box:view-box;transform-origin:12px 11.5px;
-  transition:transform .5s cubic-bezier(.34,1.32,.5,1);}
-.nav-item.nav-ai>a .nav-ai-spark{transform:rotate(90deg);}
-.nav-item.nav-ai>a.active .nav-ai-spark{transform:rotate(0deg);}
+  transition:transform var(--ai-throw) var(--ai-ease-throw);}
+/* OFF: reversed, so it is not the same move played backwards. The label clears
+   out first and the spark swings back into a pill that has already closed —
+   going out the way it came in would have the spark arcing across a word that
+   is still on screen. */
+.nav-item.nav-ai>a .nav-ai-spark{transform:rotate(90deg);transition-delay:var(--ai-lead);}
+.nav-item.nav-ai>a.active .nav-ai-spark{transform:rotate(0deg);transition-delay:0s;}
 @media (prefers-reduced-motion: reduce){
   /* The states still differ — only the travel between them stops. */
   .nav-ai-text,.nav-ai-spark{transition:none;}
