@@ -71,6 +71,21 @@ from harness.settings import Settings, ai_available
 # the same time we do (7s of sleeping, plus the failed attempts).
 RETRY_BACKOFF_SECONDS: tuple[float, ...] = (1.0, 2.0, 4.0)
 
+# The ceiling on a single completion. Sending no cap makes the request ask
+# for the model's maximum (65,536 on the current tiers), and OpenRouter
+# RESERVES credit for that worst case before it will begin — so a key with
+# real headroom is refused outright: "You requested up to 65536 tokens, but
+# can only afford 7473" (HTTP 402, observed 2026-08-03, which killed 12 of
+# 31 eval queries after $0.84 had already been spent). In the office the
+# same reservation means every analyst hits a hard failure the moment the
+# shared key runs low, while the balance still looks healthy.
+#
+# Sized from measurement, not taste: across 319 billed steps of every
+# recorded eval run the median completion was 207 tokens, p95 was 4,220,
+# the largest was 7,426, and NOTHING exceeded 8,000. 16,000 is better than
+# twice the observed ceiling while cutting the credit reservation 4x.
+MAX_COMPLETION_TOKENS = 16_000
+
 # A provider is allowed to ask us to wait, but not to park a turn
 # forever — a `Retry-After: 3600` would leave the analyst watching a
 # spinner for an hour with no way to know why.
@@ -928,6 +943,10 @@ class HarnessSession:
             "messages": messages,
             "tools": self._tool_schemas(),
             "stream": True,
+            # Without this the request implicitly asks for the model's
+            # maximum, and OpenRouter reserves credit for that worst case
+            # before it will start — see MAX_COMPLETION_TOKENS.
+            "max_tokens": MAX_COMPLETION_TOKENS,
             # The portable way to get token counts out of a STREAMING
             # OpenAI-compatible response — without it the final chunk
             # carries no usage at all and the ledger records nothing.
