@@ -79,7 +79,9 @@ nav.primary{flex:1 1 auto;display:flex;flex-wrap:nowrap;align-items:center;justi
    contains the logo, so `right:0` there would be the same edge by accident
    rather than by intent). */
 nav.primary{position:relative;padding-right:44px;}
-.ai-ic{width:19px;height:19px;display:block;}
+/* overflow:visible so the orbiting spark is not clipped at the far point of
+   its arc, where it reaches the edge of the 24-unit box. */
+.ai-ic{width:19px;height:19px;display:block;overflow:visible;}
 
 /* ----- AI Mode pill --------------------------------------------------------
    It sits BETWEEN the two corpus pills now (2026-08-02) — it is the thing you
@@ -97,27 +99,35 @@ nav.primary{position:relative;padding-right:44px;}
 .nav-ai-text{display:inline-block;overflow:hidden;white-space:nowrap;max-width:0;opacity:0;margin-left:0;
   transition:max-width .3s cubic-bezier(.4,0,.2,1),opacity .18s ease,margin-left .3s cubic-bezier(.4,0,.2,1);}
 .nav-item.nav-ai>a.active .nav-ai-text{max-width:7em;opacity:1;margin-left:7px;}
-/* The spark is the icon's second state, and it THROWS like a light switch:
-   down-right when AI Mode is somewhere you could go, up-right when you are in
-   it, travelling the same side of the glyph rather than diagonally across it.
+/* The spark is the icon's second state, and it ARCS between them like a switch
+   being thrown: down-right for off, up-right for on.
 
-   The 180deg is what makes the travel read as a flip rather than a slide. It
-   also has to be a real rotation and not a shape swap, because the spark is a
-   PLUS — 4-fold symmetric, so its start and end poses are identical and only
-   the sweep between them is visible. That is the point: it passes through 45
-   and 135 degrees, where the plus reads as an x, so the twist is legible while
-   it happens and the resting states stay clean.
+   ONE rotation does all of it, which is why this is a rotate and not a
+   translate. The spark ORBITS the star's centre, so its path is a circular arc
+   bowing out to the right — the travel Destin asked for — and because the whole
+   group turns, the plus twists as it goes. A translate could only ever slide it
+   up a straight line, which is what the previous version did and what read as
+   "disappears and reappears" rather than movement.
 
-   transform-box/origin are set explicitly rather than left to the initial
-   value: browsers have disagreed about the default for SVG children, and the
-   difference here is a spark that spins about its own centre versus one that
-   swings from the corner of the viewBox. In SVG a CSS px IS a user unit, so
-   19px 5px is the spark's centre in the 24-unit box — no screen-pixel offset
-   to drift when the glyph resizes at the two breakpoints below. */
-.nav-ai-spark{transform-box:view-box;transform-origin:19px 5px;
-  transition:transform .38s cubic-bezier(.34,1.42,.5,1);}
-.nav-item.nav-ai>a .nav-ai-spark{transform:translate(0,13px) rotate(-180deg);}
-.nav-item.nav-ai>a.active .nav-ai-spark{transform:translate(0,0) rotate(0deg);}
+   Exactly 90deg, not an angle chosen for position. The spark is a PLUS, which
+   is 4-fold symmetric, so a quarter turn leaves both resting poses looking
+   identically upright while the sweep through 45deg — where a plus reads as an
+   x — is what makes the twist visible. Any other angle would leave the icon
+   sitting subtly crooked at one end of its travel.
+
+   Geometry: origin (12, 11.5) is the star's centre, the spark is drawn at
+   (19, 5), so the orbit radius is ~9.6 user units and the arc's far point sits
+   near the right edge of the 24-unit box. `.ai-ic{overflow:visible}` is what
+   keeps the arms and their round caps from being clipped there — an SVG root
+   clips to its viewport by default.
+
+   transform-box/origin are explicit because browsers have disagreed about the
+   default for SVG children, and the difference here is an orbit about the
+   star's centre versus one about the corner of the viewBox. */
+.nav-ai-spark{transform-box:view-box;transform-origin:12px 11.5px;
+  transition:transform .5s cubic-bezier(.34,1.32,.5,1);}
+.nav-item.nav-ai>a .nav-ai-spark{transform:rotate(90deg);}
+.nav-item.nav-ai>a.active .nav-ai-spark{transform:rotate(0deg);}
 @media (prefers-reduced-motion: reduce){
   /* The states still differ — only the travel between them stops. */
   .nav-ai-text,.nav-ai-spark{transition:none;}
