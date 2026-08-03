@@ -21,9 +21,11 @@
 
 import { describe, expect, it } from "vitest";
 import { renderToString } from "react-dom/server";
+import { render, screen } from "@testing-library/react";
 
 import {
   basename,
+  ErrorBlock,
   parentDir,
   stripCarriageReturns,
   unescapeForDisplay,
@@ -325,5 +327,24 @@ describe("ToolBody dispatcher", () => {
     const html = renderToString(<ToolBody tool={tool} />);
     expect(html).toContain("Error");
     expect(html).toContain("store unreachable");
+  });
+
+  it("long errors collapse behind a Show-more instead of a nested scrollbar", () => {
+    // Was: a 192px-tall .chat-error-body with its own overflow:auto, scrolling
+    // INSIDE the thread's own scroller. Now ErrorBlock renders through the
+    // same CollapsibleBlock every other tool body uses, so a long error
+    // collapses behind a button instead of a second nested scrollbar.
+    const longError = Array.from({ length: 40 }, (_, i) => `line ${i}`).join("\n");
+    render(<ErrorBlock error={longError} />);
+    expect(screen.getByRole("button", { name: /Show 20 more lines/ })).toBeInTheDocument();
+  });
+
+  it("renders with the danger variant so a tool error never looks like ordinary output", () => {
+    // Pins the class CollapsibleBlock's variant="danger" adds. Without this,
+    // a future edit that drops the danger variant would make ErrorBlock
+    // render as plain output — Core Invariant 3 territory — and every other
+    // test here would still pass, since none of them check the tint.
+    const html = renderToString(<ErrorBlock error="store unreachable" />);
+    expect(html).toContain("is-danger");
   });
 });

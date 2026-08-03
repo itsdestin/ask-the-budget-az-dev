@@ -16,7 +16,9 @@
 //     is the default there. No in-tree caller passes it, so this is a
 //     narrowing rather than a breakage — but it IS a narrowing, and a future
 //     view that wants a variant should add a named modifier class here rather
-//     than reopening a free-form className hole.
+//     than reopening a free-form className hole. (Task 12 added exactly one
+//     such named modifier — `variant="danger"` — for ErrorBlock; it is still
+//     not a className hole, just a second fixed option.)
 //
 // The pure string helpers below DID come across even though their last
 // in-tree caller was one of those retired views — they are dependency-free,
@@ -121,11 +123,16 @@ export function stripCarriageReturns(s: string): string {
 interface CollapsibleBlockProps {
   children: string;
   maxLines?: number;
+  /** Named modifier, not a className hole (see the port note above). "danger"
+   *  renders the error tint — this is how ErrorBlock gets a red block without
+   *  reopening free-form styling. */
+  variant?: "danger";
 }
 
 export function CollapsibleBlock({
   children,
   maxLines = 20,
+  variant,
 }: CollapsibleBlockProps) {
   const [open, setOpen] = useState(false);
   const lines = children.split("\n");
@@ -133,7 +140,7 @@ export function CollapsibleBlock({
   const shown =
     open || !overflow ? children : lines.slice(0, maxLines).join("\n");
   return (
-    <div className="chat-block">
+    <div className={`chat-block${variant === "danger" ? " is-danger" : ""}`}>
       <pre>
         {shown}
         {overflow && !open && <span className="chat-muted">{"\n…"}</span>}
@@ -188,7 +195,14 @@ export function ErrorBlock({ error }: { error: string }) {
   return (
     <div>
       <div className="chat-error-label">Error</div>
-      <pre className="chat-error-body">{error}</pre>
+      {/* Collapse, don't scroll: a 192px inner scrollbar inside the thread
+          scroller was one of the "scrollbars everywhere" offenders (Task 12).
+          Routing through the same CollapsibleBlock every other tool body uses
+          also means a long error gets a "Show N more lines" toggle instead of
+          a bespoke scroll box — one behavior for long output, not two. */}
+      <CollapsibleBlock maxLines={20} variant="danger">
+        {error}
+      </CollapsibleBlock>
     </div>
   );
 }

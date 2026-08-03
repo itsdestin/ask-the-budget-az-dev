@@ -15,7 +15,7 @@
 // remounts via key={corpus}; the two specs below are what stop that mechanism
 // from being "simplified" away.
 
-import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { MemoryRouter } from "react-router-dom";
 
 import { Ai } from "./Ai";
@@ -48,7 +48,22 @@ async function ask(text: string) {
   });
 }
 
-const corpusChip = (name: RegExp) => screen.getByRole("button", { name });
+/** Open the ask bar's tools menu. Both settings live behind it now, so every
+ *  spec that used to click a segmented pill has to open this first. */
+function openTools() {
+  fireEvent.click(screen.getByTestId("ask-tools-button"));
+}
+
+/** A toggle inside the tools menu, opening the menu if it is shut. */
+function tool(id: "tool-deep-research" | "tool-fiscal-notes") {
+  if (!screen.queryByTestId(id)) openTools();
+  return screen.getByTestId(id);
+}
+
+/** Flip a toggle the way an analyst does: open the menu, click the row. */
+function toggle(id: "tool-deep-research" | "tool-fiscal-notes") {
+  fireEvent.click(tool(id));
+}
 
 /** Every POST that opened a conversation, with the corpus it asked for. */
 function createdCorpora(calls: { url: string; init?: RequestInit }[]): string[] {
@@ -61,12 +76,17 @@ beforeEach(() => stubScrollIntoView());
 afterEach(() => vi.unstubAllGlobals());
 
 describe("AI Mode page — the corpus picker", () => {
-  it("opens on the budget corpus with the picker showing it", async () => {
+  it("opens on the budget corpus, with the toggle off and the box saying so", async () => {
     stubConversationFetch();
     mountAi();
     await screen.findByTestId("ai-panel");
-    expect(corpusChip(/budget documents/i)).toHaveAttribute("aria-pressed", "true");
-    expect(corpusChip(/fiscal notes/i)).toHaveAttribute("aria-pressed", "false");
+    // The placeholder is the permanent statement — the toggle is behind a menu
+    // that spends most of its life closed.
+    expect(screen.getByRole("textbox")).toHaveAttribute(
+      "placeholder",
+      "Ask about the budget…",
+    );
+    expect(tool("tool-fiscal-notes")).toHaveAttribute("aria-checked", "false");
   });
 
   it("asks the fiscal-note corpus when Fiscal notes is picked", async () => {
@@ -74,7 +94,7 @@ describe("AI Mode page — the corpus picker", () => {
     mountAi();
     await screen.findByTestId("ai-panel");
 
-    fireEvent.click(corpusChip(/fiscal notes/i));
+    toggle("tool-fiscal-notes");
     await ask("have we noted a parks bill before?");
 
     expect(createdCorpora(calls)).toEqual(["fiscal_notes"]);
@@ -93,7 +113,7 @@ describe("AI Mode page — the corpus picker", () => {
     await ask("how much for provider rates?");
     await screen.findByText("how much for provider rates?");
 
-    fireEvent.click(corpusChip(/fiscal notes/i));
+    toggle("tool-fiscal-notes");
     await ask("have we noted a parks bill before?");
 
     // TWO creates, in order, with the corpus each question was actually asked
@@ -112,7 +132,7 @@ describe("AI Mode page — the corpus picker", () => {
     await ask("how much for provider rates?");
     await screen.findByText("how much for provider rates?");
 
-    fireEvent.click(corpusChip(/fiscal notes/i));
+    toggle("tool-fiscal-notes");
     await waitFor(() =>
       expect(screen.queryByText("how much for provider rates?")).toBeNull(),
     );
@@ -126,32 +146,67 @@ describe("AI Mode page — the corpus picker", () => {
     mountAi();
     await screen.findByTestId("ai-panel");
 
-    fireEvent.click(screen.getByRole("button", { name: "Deep Research" }));
-    expect(screen.getByRole("button", { name: "Deep Research" })).toHaveAttribute(
-      "aria-pressed",
-      "true",
-    );
+    toggle("tool-deep-research");
+    expect(tool("tool-deep-research")).toHaveAttribute("aria-checked", "true");
 
-    fireEvent.click(corpusChip(/fiscal notes/i));
+    toggle("tool-fiscal-notes");
+    // Visibly back off: the remount resets the tier, and an analyst who left
+    // Deep Research on must be able to SEE that it is no longer on.
     await waitFor(() =>
-      expect(screen.getByRole("button", { name: "Standard" })).toHaveAttribute(
-        "aria-pressed",
-        "true",
-      ),
-    );
-    expect(screen.getByRole("button", { name: "Deep Research" })).toHaveAttribute(
-      "aria-pressed",
-      "false",
+      expect(tool("tool-deep-research")).toHaveAttribute("aria-checked", "false"),
     );
   });
 
-  it("warns that switching corpus starts a new conversation", async () => {
+  it("shows a pip on the closed menu whenever a non-default setting is live", async () => {
+    // Both settings are invisible once the menu shuts, and both are
+    // consequential — Deep Research costs ~44x a Standard answer, and the
+    // corpus decides which documents a citation can come from. Without this
+    // badge an analyst can spend that money with no cue on screen.
     stubConversationFetch();
     mountAi();
     await screen.findByTestId("ai-panel");
-    expect(
-      screen.getByText(/switching corpus starts a new conversation/i),
-    ).toBeInTheDocument();
+    expect(screen.queryByTestId("ask-tools-pip")).toBeNull();
+
+    toggle("tool-deep-research");
+    expect(screen.getByTestId("ask-tools-pip")).toBeInTheDocument();
+
+    toggle("tool-deep-research");
+    expect(screen.queryByTestId("ask-tools-pip")).toBeNull();
+  });
+
+  it("renames the box when the corpus changes", async () => {
+    stubConversationFetch();
+    mountAi();
+    await screen.findByTestId("ai-panel");
+    toggle("tool-fiscal-notes");
+    await waitFor(() =>
+      expect(screen.getByRole("textbox")).toHaveAttribute(
+        "placeholder",
+        "Ask about fiscal notes…",
+      ),
+    );
+  });
+
+  it("says the switch discards the conversation, in the toggle that does it", async () => {
+    // The warning used to be a standing line on the page, which made it
+    // wallpaper. It is now part of the description of the control that causes
+    // it — read at the moment of the click, which is the only moment it means
+    // anything.
+    stubConversationFetch();
+    mountAi();
+    await screen.findByTestId("ai-panel");
+    expect(tool("tool-fiscal-notes")).toHaveTextContent(
+      /starts a new conversation/i,
+    );
+  });
+
+  it("names each corpus's scope where the corpus is chosen", async () => {
+    // "AI Mode" alone does not tell an analyst which documents an answer was
+    // built from, and that is the first thing a citation audit depends on.
+    stubConversationFetch();
+    mountAi();
+    await screen.findByTestId("ai-panel");
+    expect(tool("tool-fiscal-notes")).toHaveTextContent(/fiscal notes/i);
   });
 });
 
@@ -170,7 +225,7 @@ describe("AI Mode page — starter questions", () => {
     stubConversationFetch();
     mountAi();
     await screen.findByTestId("ai-panel");
-    fireEvent.click(corpusChip(/fiscal notes/i));
+    toggle("tool-fiscal-notes");
     await waitFor(() =>
       expect(screen.queryByText(/Aviation Fund balance/)).toBeNull(),
     );
@@ -178,18 +233,38 @@ describe("AI Mode page — starter questions", () => {
 });
 
 describe("AI Mode page — the gate", () => {
-  it("explains the missing key instead of showing a composer", async () => {
-    // Migrated from the two toggle suites, where the same fact dimmed a pill.
-    // The tab is always reachable now, so the page itself has to say why it
-    // cannot answer — and must not offer a box that swallows the question.
+  it("takes the whole page, and does not offer a box that swallows the question", async () => {
     stubConversationFetch();
     mountAi({ ...AI_STATUS, available: false, reason: "no API key configured" });
-    expect(await screen.findByTestId("ai-gate")).toHaveTextContent(
-      "AI answers require an API key — ask your admin.",
-    );
-    expect(screen.getByText(/no API key configured/)).toBeInTheDocument();
+    const gate = await screen.findByTestId("ai-gate");
+    expect(gate).toHaveTextContent("AI Mode is currently unavailable");
+    expect(gate).toHaveTextContent(/contact your administrator/i);
     expect(screen.queryByTestId("ai-panel")).toBeNull();
     expect(screen.queryByRole("textbox")).toBeNull();
+  });
+
+  it("keeps the server's reason, addressed to the person who can act on it", async () => {
+    // /api/ai/status is the ONLY thing that knows whether the key is missing,
+    // the model is unset, or the config failed to load. That sentence is what
+    // an administrator needs; dropping it would leave nobody able to fix this.
+    stubConversationFetch();
+    mountAi({ ...AI_STATUS, available: false, reason: "no model configured" });
+    const gate = await screen.findByTestId("ai-gate");
+    expect(gate).toHaveTextContent(/for your administrator/i);
+    expect(gate).toHaveTextContent("no model configured");
+  });
+
+  it("offers the parts of the app that still work", async () => {
+    // Search and fiscal notes need no API key — a hard spec constraint, not
+    // luck. A dead end that failed to say so would make the app look far more
+    // broken than it is.
+    stubConversationFetch();
+    mountAi({ ...AI_STATUS, available: false, reason: "no API key configured" });
+    await screen.findByTestId("ai-gate");
+    expect(screen.getByRole("link", { name: /search budget documents/i }))
+      .toHaveAttribute("href", "/search");
+    expect(screen.getByRole("link", { name: /browse fiscal notes/i }))
+      .toHaveAttribute("href", "/fiscal-notes");
   });
 
   it("says it is still checking while the probe is in flight", async () => {
@@ -202,30 +277,53 @@ describe("AI Mode page — the gate", () => {
         <Ai />
       </MemoryRouter>,
     );
-    expect(await screen.findByTestId("ai-gate")).toHaveTextContent(
+    const gate = await screen.findByTestId("ai-gate");
+    expect(gate).toHaveTextContent(
       "Checking whether AI answers are available on this server…",
     );
+    // Must NOT have decided anything yet — no verdict, and no way out offered
+    // for a problem that may not exist.
+    expect(gate).not.toHaveTextContent(/currently unavailable/i);
+    expect(gate).not.toHaveTextContent(/contact your administrator/i);
+    expect(screen.queryByRole("link", { name: /search budget documents/i })).toBeNull();
   });
 });
 
 describe("AI Mode page — the panel behaviours that moved here", () => {
-  it("defaults to Standard and explains the tiers from the API", async () => {
+  it("defaults to Standard, and explains Deep Research from the API", async () => {
     stubConversationFetch();
     mountAi();
-    const standard = await screen.findByRole("button", { name: "Standard" });
-    expect(standard).toHaveAttribute("aria-pressed", "true");
+    await screen.findByTestId("ai-panel");
+    expect(tool("tool-deep-research")).toHaveAttribute("aria-checked", "false");
+    // The S16 sentence comes off the wire — nothing in the webapp retypes it.
+    // It sits in the toggle rather than behind a "What's the difference?" link
+    // because copy describing a decision belongs where the decision is made.
+    expect(tool("tool-deep-research")).toHaveTextContent(
+      new RegExp(escapeRe(AI_STATUS.tiers.deep_research.description)),
+    );
+  });
 
-    fireEvent.click(screen.getByRole("button", { name: /what's the difference/i }));
-    // Every example string comes from GET /api/ai/status — nothing in the
-    // webapp retypes the S16 sentences.
-    const popover = document.getElementById("ai-tier-pop")!;
-    for (const tier of Object.values(AI_STATUS.tiers)) {
-      for (const example of tier.examples) {
-        expect(
-          within(popover).getAllByText(new RegExp(escapeRe(example))).length,
-        ).toBeGreaterThan(0);
-      }
-    }
+  it("renders Deep Research inert, with the server's reason, when no model is set", async () => {
+    // An admin can wire up Standard and leave Deep Research without a model.
+    stubConversationFetch();
+    mountAi({
+      ...AI_STATUS,
+      tiers: {
+        ...AI_STATUS.tiers,
+        deep_research: {
+          ...AI_STATUS.tiers.deep_research,
+          available: false,
+          reason: "no model configured for Deep Research",
+        },
+      },
+    });
+    await screen.findByTestId("ai-panel");
+    const row = tool("tool-deep-research");
+    expect(row).toHaveAttribute("aria-disabled", "true");
+    expect(row).toHaveTextContent("no model configured for Deep Research");
+
+    fireEvent.click(row);
+    expect(tool("tool-deep-research")).toHaveAttribute("aria-checked", "false");
   });
 
   it("renders an over-limit _error message verbatim in the thread", async () => {

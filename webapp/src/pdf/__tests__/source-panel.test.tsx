@@ -50,8 +50,11 @@ describe("SourcePanel", () => {
     expect(view.container.textContent).toContain("47");
     expect(view.container.textContent).toContain("Cited text from this chunk");
     expect(view.container.textContent).toContain("$2,587,400");
-    // The full-PDF escape hatch points at the streaming route.
-    expect(screen.getByRole("link", { name: /open original/i })).toHaveAttribute(
+    // The full-PDF escape hatch points at the streaming route. Task 15
+    // shortened the link text from "Open original ↗" to "Open ↗" when the
+    // breadcrumb and toolbar merged into one header row — the query below
+    // is adjusted to match, the assertion's meaning (the href) is not.
+    expect(screen.getByRole("link", { name: /open/i })).toHaveAttribute(
       "href",
       "/api/pdf/jlbc-baseline-fy2027-ahcccs#page=47",
     );

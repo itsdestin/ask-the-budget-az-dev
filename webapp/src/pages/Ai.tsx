@@ -1,9 +1,12 @@
 import { useEffect, useState } from "react";
+import { Link } from "react-router-dom";
 
 import {
-  AI_GATED_TOOLTIP,
-  AI_PROBING_TOOLTIP,
+  AI_GATED_ACTION,
+  AI_GATED_HEADLINE,
+  AI_PROBING_HEADLINE,
   AiModePanel,
+  type CorpusOption,
 } from "../chat/AiModePanel";
 import { useAiStatus } from "../chat/use-ai-status";
 import { useChat, type Corpus } from "../chat/use-chat";
@@ -26,16 +29,13 @@ import { useChat, type Corpus } from "../chat/use-chat";
 // tier control, composer, source viewer, honesty footer) and this file only
 // decides WHICH corpus it is pointed at and WHETHER the server can answer at
 // all.
-
-interface CorpusOption {
-  value: Corpus;
-  label: string;
-  /** What the assistant can actually see when this corpus is picked. Stated on
-   *  the page because "AI Mode" alone does not tell an analyst which documents
-   *  the answer will be built from — and that is the first thing a citation
-   *  audit depends on. */
-  scope: string;
-}
+//
+// The navy band is GONE (Destin, 2026-08-02): "i want to remove the 'ai mode'
+// hero strip thing. we can move the budget/fiscal note corpus toggle alongside
+// the standard/deep research toggle." On a viewport-pinned chat the band spent
+// ~110px of thread on every screen to label a page the nav pill already
+// labels. This file still OWNS the corpus — `key={corpus}` below is the whole
+// safety mechanism — it just no longer draws the control.
 
 const CORPORA: CorpusOption[] = [
   {
@@ -85,69 +85,90 @@ export function Ai() {
   // API key" before anyone has checked would state a cause nobody knows yet.
   const probing = status === null;
   const gated = !probing && !status.available;
-  const picked = CORPORA.find((c) => c.value === corpus)!;
 
   return (
     <main className="page-ai" data-testid="ai">
-      {/* ── the page band ────────────────────────────────────────────────────
-          COLLAPSED to a single row (2026-07-31), from the tall subhero the
-          other sub-pages use. On a scrolling page a 34px headline over a
-          two-line lead costs nothing — you scroll past it. Above a chat that is
-          pinned to the viewport it costs ~140px of thread, permanently, on
-          every screen. And it was saying the same thing twice: the lead's
-          "ask a question in plain language … every claim carries a citation"
-          is what the welcome hero inside the thread already says, in the place
-          the analyst is actually looking.
+      {/* ── the page's accessible name ───────────────────────────────────────
+          The navy band that used to carry this h1, the corpus picker, a scope
+          chip and a switch warning is GONE (Destin, 2026-08-02) — see the
+          note at the top of this file. The h1 stays because deleting it would
+          leave <main> unnamed and the route indistinguishable from the others
+          to a screen reader; it is clipped rather than `display:none` so it
+          stays in the accessibility tree.
 
-          What survives, and why each earns its row:
-            h1                — the page's accessible name; also the only thing
-                                telling you which tab you are on if the nav
-                                pill scrolls out of a narrow window.
-            the corpus picker — not decoration. It decides which documents the
-                                answer is built from, which is the first thing
-                                a citation audit depends on.
-            the scope chip    — spells out what "Budget documents" contains, so
-                                the picker is answerable without guessing.
-            the switch notice — a corpus switch discards the thread on screen
-                                (see the key= note below); an analyst who loses
-                                a long conversation to a chip click without
-                                warning has been ambushed by the UI. */}
-      <section className="subhero">
-        <div className="wrap ai-band">
-          <h1>AI Mode</h1>
-          <div className="ai-corpus" role="group" aria-label="Corpus">
-            {CORPORA.map((option) => (
-              <button
-                key={option.value}
-                type="button"
-                className={
-                  option.value === corpus ? "ai-corpus-chip on" : "ai-corpus-chip"
-                }
-                aria-pressed={option.value === corpus}
-                onClick={() => setCorpus(option.value)}
-              >
-                {option.label}
-              </button>
-            ))}
-          </div>
-          <span className="chip">{picked.scope}</span>
-          <p className="ai-corpus-note">
-            Switching corpus starts a new conversation.
-          </p>
-        </div>
-      </section>
+          The band's other three items were not dropped, they moved:
+            corpus picker — now beside the Standard / Deep Research switch in
+                            the composer chrome, which is where every other
+                            "how should this question be answered?" control
+                            already lives.
+            scope text    — the `title` on each corpus segment (AiModePanel),
+                            plus the footer's standing "Sources: JLBC · AGAO ·
+                            AZ Legislature · Governor's Office · N documents".
+            switch notice — rendered by AiModePanel only once there is a
+                            conversation to lose, which is the only moment it
+                            says anything. */}
+      <h1 className="ai-vh">AI Mode</h1>
 
-      {/* The growth region: everything above is fixed-height, so this is what
-          absorbs the rest of the viewport and hands it to the panel. */}
+      {/* The growth region: everything above is zero-height, so this is what
+          absorbs the viewport and hands it to the panel. */}
       <div className="wrap ai-stage">
         {probing || gated ? (
-          <section className="card ai-gate" data-testid="ai-gate">
-            <p>{probing ? AI_PROBING_TOOLTIP : AI_GATED_TOOLTIP}</p>
-            {gated && status.reason && (
-              // The server's own sentence, verbatim — it knows whether the key
-              // is missing, the model is unset, or the config failed to load.
-              <p className="ai-gate-reason">Reported reason: {status.reason}</p>
-            )}
+          // A WHOLE SCREEN, not a card (Destin, 2026-08-02). The footer used to
+          // carry "AI Mode unavailable" in 11px grey next to a red dot, which
+          // is the wrong weight for the one condition that stops the page doing
+          // its job at all.
+          //
+          // PROBING IS NOT THE SAME AS UNAVAILABLE, and the ladder below is
+          // ordered so it cannot be told otherwise: `probing` is checked first,
+          // because announcing a missing API key before anything has been
+          // checked states a cause nobody knows yet.
+          <section className="ai-state-wrap" data-testid="ai-gate">
+            <div className={probing ? "ai-state is-probing" : "ai-state"}>
+              <span className="ai-state-glyph" aria-hidden="true">
+                {probing ? (
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.9" strokeLinecap="round">
+                    <circle cx="12" cy="12" r="9" opacity=".3" />
+                    <path d="M12 3a9 9 0 0 1 9 9" />
+                  </svg>
+                ) : (
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.9" strokeLinecap="round" strokeLinejoin="round">
+                    <path d="M12 3.2 13.9 8l4.8 1.9-4.8 1.9L12 16.6l-1.9-4.8L5.3 9.9 10.1 8z" />
+                    <path d="M18.5 15.5 20 19l3.5 1.5-3.5 1.5" />
+                  </svg>
+                )}
+              </span>
+              <h2>{probing ? AI_PROBING_HEADLINE : AI_GATED_HEADLINE}</h2>
+              {gated && (
+                <>
+                  {/* Search and fiscal notes need no API key — a hard spec
+                      constraint, not luck. A dead end that failed to say so
+                      would make the app look far more broken than it is. */}
+                  <p>
+                    {AI_GATED_ACTION} Everything else still works — budget
+                    document search and fiscal notes do not use AI and are
+                    unaffected.
+                  </p>
+                  <div className="ai-state-acts">
+                    <Link className="ai-state-btn" to="/search">
+                      Search budget documents
+                    </Link>
+                    <Link className="ai-state-btn quiet" to="/fiscal-notes">
+                      Browse fiscal notes
+                    </Link>
+                  </div>
+                  {status.reason && (
+                    // The server's own sentence, verbatim — it is the ONLY
+                    // thing that knows whether the key is missing, the model is
+                    // unset, or the config failed to load. Demoted, not
+                    // dropped: that is what an administrator needs to fix this,
+                    // and it is not addressed to the analyst.
+                    <p className="ai-state-reason">
+                      <b>For your administrator:</b> {status.reason}
+                    </p>
+                  )}
+                </>
+              )}
+            </div>
           </section>
         ) : (
           // key={corpus} REMOUNTS the conversation on every corpus switch, and
@@ -160,7 +181,13 @@ export function Ai() {
           // back cited, confident, and drawn from the wrong corpus, which is the
           // worst failure this app has. Remounting also resets the tier to
           // Standard, which is what S16 requires of every new conversation.
-          <AiConversation key={corpus} corpus={corpus} status={status} />
+          <AiConversation
+            key={corpus}
+            corpus={corpus}
+            corpusOptions={CORPORA}
+            onCorpusChange={setCorpus}
+            status={status}
+          />
         )}
       </div>
     </main>
@@ -172,11 +199,26 @@ export function Ai() {
  *  `AiModePanel` would not help, because the hook lives in the parent. */
 function AiConversation({
   corpus,
+  corpusOptions,
+  onCorpusChange,
   status,
 }: {
   corpus: Corpus;
+  corpusOptions: CorpusOption[];
+  onCorpusChange: (corpus: Corpus) => void;
   status: ReturnType<typeof useAiStatus>;
 }) {
   const chat = useChat(corpus);
-  return <AiModePanel chat={chat} status={status} corpus={corpus} />;
+  return (
+    <AiModePanel
+      chat={chat}
+      status={status}
+      corpus={corpus}
+      corpusOptions={corpusOptions}
+      // Calling this re-keys THIS component from the parent, so the picker
+      // unmounts itself along with the conversation it is discarding. That is
+      // fine — it is stateless, and React commits the remount synchronously.
+      onCorpusChange={onCorpusChange}
+    />
+  );
 }

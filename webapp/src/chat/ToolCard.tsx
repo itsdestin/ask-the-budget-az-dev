@@ -18,6 +18,9 @@ type ToolBlock = Extract<AssistantBlock, { kind: "tool" }>;
 
 interface Props {
   tool: ToolBlock;
+  /** Rendered inside a ToolGroup — takes the recessed tint so the group
+   *  header and its children read as one surface with a lifted inner step. */
+  inGroup?: boolean;
 }
 
 const STATUS_LABEL: Record<ToolBlock["status"], string> = {
@@ -26,44 +29,32 @@ const STATUS_LABEL: Record<ToolBlock["status"], string> = {
   failed: "failed",
 };
 
-// Glyph colour encodes status on its own — running amber, failed red,
-// complete the accent blue. The separate coloured circle dot that used to sit
-// next to the glyph was dropped: two status indicators side by side were
-// redundant and visually noisy. The square pixel-glyph is the single source
-// of truth.
-const STATUS_GLYPH_COLOR: Record<ToolBlock["status"], string> = {
-  running: "var(--chat-warn)",
-  complete: "var(--az-gold)",
-  failed: "var(--chat-danger)",
-};
-
-export default function ToolCard({ tool }: Props) {
+export default function ToolCard({ tool, inGroup = false }: Props) {
   const [open, setOpen] = useState(false);
   const label = toolDisplayLabel(tool.toolName);
   const summary = toolHeaderSummary(tool.toolName, tool.input);
-
-  // Failed status also drives the left-border accent, because a failed tool
-  // is the case worth shouting about and the border picks it up even when the
-  // 12px glyph does not.
   const isFailed = tool.status === "failed";
 
   return (
-    <div className={`chat-tool${isFailed ? " is-failed" : ""}`}>
+    <div
+      className={`chat-tool${isFailed ? " is-failed" : ""}${inGroup ? " is-inset" : ""}`}
+    >
       <button
         type="button"
         className="chat-tool-head"
         onClick={() => setOpen((v) => !v)}
         aria-expanded={open}
       >
-        {/* Pixel-art tool glyph — colour encodes status. Pulses while running. */}
+        {/* Status is carried by the glyph's SHAPE plus the pulse — color goes
+            neutral so a run of successful tools reads quiet. Only failure
+            keeps a color, because failure is the state worth shouting about
+            (Core Invariant 3). Tinting moved from inline style to CSS. */}
         <svg
           viewBox="0 0 12 12"
           width={12}
           height={12}
-          style={{ color: STATUS_GLYPH_COLOR[tool.status] }}
           className={
-            "chat-tool-glyph" +
-            (tool.status === "running" ? " chat-pulse" : "")
+            "chat-tool-glyph" + (tool.status === "running" ? " chat-pulse" : "")
           }
           role="img"
           aria-label={STATUS_LABEL[tool.status]}
@@ -72,7 +63,21 @@ export default function ToolCard({ tool }: Props) {
         </svg>
         <span className="chat-tool-label">{label}</span>
         {summary && <span className="chat-tool-summary">{summary}</span>}
-        <span className="chat-tool-toggle">{open ? "−" : "+"}</span>
+        <svg
+          viewBox="0 0 10 6"
+          width={10}
+          height={6}
+          className={`chat-tool-chevron${open ? " is-open" : ""}`}
+          aria-hidden="true"
+        >
+          <path
+            d="M1 1l4 4 4-4"
+            stroke="currentColor"
+            strokeWidth="1.6"
+            fill="none"
+            strokeLinecap="round"
+          />
+        </svg>
       </button>
       {open && <ToolBody tool={tool} />}
     </div>

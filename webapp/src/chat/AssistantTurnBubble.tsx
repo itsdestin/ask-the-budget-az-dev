@@ -27,6 +27,7 @@ import {
 import type { AssistantBlock, AssistantTurn } from "./chat-types.js";
 import CitedMarkdownContent from "./CitedMarkdownContent.js";
 import ToolCard from "./ToolCard.js";
+import ToolGroup from "./ToolGroup.js";
 
 // Plain boolean predicate — the `block is …` form narrows the false branch to
 // `never`, which breaks `block.toolUseId` on the line after.
@@ -148,10 +149,33 @@ export default function AssistantTurnBubble({
 
   const stopReason = turn.isComplete ? turn.stopReason : undefined;
 
+  // Partition the block stream into text blocks and RUNS of consecutive
+  // tool calls, so 2+ adjacent tools collapse into one ToolGroup row instead
+  // of stacking as separate cards that out-shout the answer. Cite tools stay
+  // invisible (the chips are their surface — see the suppression ruling
+  // above the CITE_TOOL_NAMES declaration), and — this is the subtle part —
+  // they do NOT break a run: retrieve, cite, retrieve is still one group of
+  // two retrieves, because the cite call is simply skipped rather than
+  // treated as a segment boundary.
+  type Segment =
+    | { kind: "text"; block: Extract<AssistantBlock, { kind: "text" }> }
+    | { kind: "tools"; blocks: Extract<AssistantBlock, { kind: "tool" }>[] };
+  const segments: Segment[] = [];
+  for (const block of turn.blocks) {
+    if (block.kind === "text") {
+      segments.push({ kind: "text", block });
+    } else if (!isCiteToolBlock(block)) {
+      const last = segments[segments.length - 1];
+      if (last?.kind === "tools") last.blocks.push(block);
+      else segments.push({ kind: "tools", blocks: [block] });
+    }
+  }
+
   return (
     <div className="chat-turn">
-      {turn.blocks.map((block) => {
-        if (block.kind === "text") {
+      {segments.map((seg) => {
+        if (seg.kind === "text") {
+          const block = seg.block;
           const tool = toolCitationsByBlock.get(block.uuid) ?? [];
           const inline = blockData.get(block.uuid);
           const blockCitations = [...tool, ...(inline?.citations ?? [])];
@@ -172,8 +196,14 @@ export default function AssistantTurnBubble({
             </div>
           );
         }
-        if (isCiteToolBlock(block)) return null;
-        return <ToolCard key={block.toolUseId} tool={block} />;
+        // A lone tool call still renders bare — group chrome (the "N tool
+        // calls" header) only earns its keep once there's more than one row
+        // to summarize.
+        if (seg.blocks.length === 1) {
+          const tool = seg.blocks[0]!;
+          return <ToolCard key={tool.toolUseId} tool={tool} />;
+        }
+        return <ToolGroup key={seg.blocks[0]!.toolUseId} tools={seg.blocks} />;
       })}
       {stopReason === "max_steps" && (
         <div className="chat-notice is-warn" role="status">
