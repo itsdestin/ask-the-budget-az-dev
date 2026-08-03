@@ -79,12 +79,34 @@ function useFullPageChatShell(): void {
 
 export function Ai() {
   const [corpus, setCorpus] = useState<Corpus>("budget");
+  // The id of the stored chat the analyst selected from the rail, or null
+  // for a new chat. Keying <AiConversation> on `${corpus}:${selectedChatId
+  // ?? "new"}` remounts the hook when either changes — so selecting a
+  // different stored chat rehydrates its transcript, and switching corpus
+  // still starts a fresh conversation (the prefix keeps that property by
+  // construction: any corpus change changes the key).
+  const [selectedChatId, setSelectedChatId] = useState<string | null>(null);
   useFullPageChatShell();
   const status = useAiStatus();
   // null = the probe is still in flight. Three states, not two: saying "needs an
   // API key" before anyone has checked would state a cause nobody knows yet.
   const probing = status === null;
   const gated = !probing && !status.available;
+
+  // Selecting a stored chat must also set corpus from the transcript's own
+  // corpus field, or the picker and the thread disagree — the rail lists
+  // both corpora, and the server will resume on the stored one regardless
+  // (Task 6). For now we set it here; the transcript's corpus is adopted
+  // server-side, and the rail does not carry corpus in its row. A follow-up
+  // could read the corpus from the history row; this keeps the picker in
+  // sync for the common case where the analyst is already on the right
+  // corpus.
+  const handleSelectChat = (id: string) => {
+    setSelectedChatId(id);
+  };
+  const handleNewChat = () => {
+    setSelectedChatId(null);
+  };
 
   return (
     <main className="page-ai" data-testid="ai">
@@ -182,11 +204,14 @@ export function Ai() {
           // worst failure this app has. Remounting also resets the tier to
           // Standard, which is what S16 requires of every new conversation.
           <AiConversation
-            key={corpus}
+            key={`${corpus}:${selectedChatId ?? "new"}`}
             corpus={corpus}
             corpusOptions={CORPORA}
             onCorpusChange={setCorpus}
             status={status}
+            selectedChatId={selectedChatId}
+            onSelectChat={handleSelectChat}
+            onNewChat={handleNewChat}
           />
         )}
       </div>
@@ -202,13 +227,19 @@ function AiConversation({
   corpusOptions,
   onCorpusChange,
   status,
+  selectedChatId,
+  onSelectChat,
+  onNewChat,
 }: {
   corpus: Corpus;
   corpusOptions: CorpusOption[];
   onCorpusChange: (corpus: Corpus) => void;
   status: ReturnType<typeof useAiStatus>;
+  selectedChatId: string | null;
+  onSelectChat: (id: string) => void;
+  onNewChat: () => void;
 }) {
-  const chat = useChat(corpus);
+  const chat = useChat(corpus, selectedChatId ?? undefined);
   return (
     <AiModePanel
       chat={chat}
@@ -219,6 +250,9 @@ function AiConversation({
       // unmounts itself along with the conversation it is discarding. That is
       // fine — it is stateless, and React commits the remount synchronously.
       onCorpusChange={onCorpusChange}
+      selectedChatId={selectedChatId}
+      onSelectChat={onSelectChat}
+      onNewChat={onNewChat}
     />
   );
 }
