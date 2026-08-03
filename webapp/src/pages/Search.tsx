@@ -1,542 +1,822 @@
-import { useEffect, useRef, useState } from "react";
+import { memo, useEffect, useMemo, useRef, useState } from "react";
 import { useSearchParams } from "react-router-dom";
-// Namespace import, and every call goes through `api.search(...)`: the page's test
-// intercepts the request with vi.spyOn(api, "search"), which can only see calls
+// Namespace import, and every call goes through `api.corpusDocuments()`: the page's test
+// intercepts the request with vi.spyOn(api, "corpusDocuments"), which can only see calls
 // made through the module object.
 import * as api from "../api";
-import type { SearchFilters, SearchResponse, SearchResult } from "../api";
-import { FilterBar, type FilterKey } from "../components/FilterBar";
-import { ResultCard, type DocGroup, type FamilyGroup } from "../components/ResultCard";
+import { publisherLabel } from "../components/FilterBar";
 import { SearchIcon } from "../components/SearchIcon";
-import { SourcePanel } from "../pdf/SourcePanel";
 import { familyOf, familyTitle, reportFormats } from "../reportFamilies";
 
-// Budget Search — ported from the approved mockup's search page
-// (webapp/reference/subpage-search_jlbc.html), keeping its class names so its CSS
-// applies unmodified (spec S12: port, don't redesign). Top to bottom, the mockup's
-// own structure: `.subhero` title band → `.search-wrap` → the `.card.big-search-card`
-// holding the `.big-search` pill and the `.filters` chip strip → `.search-status`
-// line → the `.card` results panel (`.card-head`/`.head-row` + grouped `.grp` tiles).
+// Budget Documents — a browse-first directory, rebuilt 2026-08-03 from the
+// approved interactive mockup `mockups/budget-documents-browse.html` (port,
+// don't redesign — spec S12). It replaces the old retrieval-backed "type a
+// search to see anything" results page with the Fiscal Notes layout: a sticky
+// `.docside` filter rail (search pill + two named multi-select dropdowns)
+// beside a `.docmain` results column of one `.yg` year card per fiscal year,
+// each holding one `.grp` card per report family.
 //
-// Dropped from the mockup, with reasons:
-//   - `.examples-row` (its "try one of these" query pills): the example queries were
-//     written for JLBC's own document index; inventing four for this corpus would be
-//     making up content.
-//   - `#reportModal` (the TOC-vs-single-file format chooser): per Destin
-//     (2026-07-29), `.grp-full` links STRAIGHT to the single-file PDF instead —
-//     see reportFamilies.ts. `.grp-more` IS ported (2026-07-30) as the
-//     collapsed-tray toggle in ResultCard. Per-chunk opening is Plan 4's viewer.
-//   - `.acc*` (the year accordion) and the sidebar/footer blocks: not part of this page.
+// THE PAGE AUTO-LOADS WITH CONTENT: an empty search box shows the corpus
+// grouped by fiscal year — there is no "type to begin" dead end. The data is
+// ONE listing (`GET /api/corpus/documents`), filtered/grouped/searched
+// entirely client-side, so there is no server round-trip per keystroke.
+//
+// Differences from the old page (all Destin-approved in the mockup; see its
+// header comment):
+//   - Rail filters are Document Type and Fiscal Year only (multi-select, "Any
+//     type" / "Any year" defaults, trigger shows the pick or "N selected",
+//     tints gold while active). NO Publisher filter — publisher is a chip on
+//     each row (the folded JLBC · OSPB · GAO vocabulary, see publisherLabel).
+//   - Two card states per family: IDLE (empty box) a bare report card whose
+//     top-level row IS the report; SEARCHING the matched agency page promoted
+//     to the top with "Part of the FY Y Baseline" framing and the rest behind
+//     "N more matches".
+//   - Searching collapses the year cards into ONE unified "Results" card
+//     (newest year first); clearing returns to the year browse.
+//   - Latest FY expanded, prior years collapsed by default; toggle state
+//     persists across filter/search round-trips.
+//   - Single-document families (AFR, Exec Budget) get no dashed tray.
+//   - Removed: the per-card Sort menu (fixed title A→Z), the `.doc-ic` icon
+//     tile (the publisher chip leads the row), the "N documents" sub-line, and
+//     the per-type divider headers.
+//
+// PORT DEVIATIONS from the mockup's throwaway JS (same rendering, same values):
+//   1. React state, not DOM-innerHTML re-renders. The mockup re-renders
+//      `#cards` wholesale on every click (renderCards), which destroys focus.
+//      Here every year's body is MOUNTED ONCE and shown/hidden via the
+//      `hidden` attribute, so a collapsed year's open trays and — critically —
+//      the keyboard focus on a year-toggle button survive a toggle. (The
+//      mockup re-creates the button on each render; a real port must not.)
+//   2. `?q=` is still honored (Home's hero navigates to /search?q=…): an
+//      arriving ?q= seeds the rail box and lands in the unified-search state,
+//      and the box stays one-way synced FROM the URL so back/forward works.
+//      The old page's retrieval-backed keyword search is GONE — this page
+//      searches document titles/publisher, not chunk text (the listing has no
+//      chunk text). Content search lives in AI Mode now.
 
-/** What the page is currently showing. One state, so "loading" and "error" and
- *  "results" can never be true at the same time. */
+// ---------------------------------------------------------------------------
+// Types + data shaping
+// ---------------------------------------------------------------------------
+
+/** What the page is currently showing. One state, so "loading" / "error" /
+ *  "ready" can never be true at the same time. */
 type Phase =
-  | { kind: "idle" }
-  // `prev` is the response still on screen while a new one is fetched — see the
-  // stale-while-revalidate note in the component.
-  | { kind: "loading"; prev?: SearchResponse }
-  | { kind: "ready"; res: SearchResponse }
+  | { kind: "loading" }
+  | { kind: "ready"; docs: api.CorpusDocument[] }
   | { kind: "error"; message: string };
 
-/** Year options harvested from results, remembered per query (see mergeFacets).
- *  Years are the only derived facet left: publishers and type buckets are fixed
- *  curated lists (FilterBar.tsx / reportFamilies.ts). */
-interface Facets {
-  q: string;
-  years: number[];
+/** The five report families, in display order within a year card — the same
+ *  order the mockup lists them and `reportFamilies.ts` names them. */
+const FAMILY_ORDER = [
+  "Baseline",
+  "Appropriations Report",
+  "Annual Financial Report",
+  "Executive Budget",
+  "Budget Bill",
+];
+
+/** One report family within one fiscal year, with its documents. */
+interface FamilyGroup {
+  family: string;
+  docs: api.CorpusDocument[];
 }
 
-/** Collapse a flat result list into one entry per document, best chunk first.
- *  Exported for readability of the page below, not used elsewhere. */
-export function groupByDoc(results: SearchResult[]): DocGroup[] {
-  const byDoc = new Map<string, DocGroup>();
-  for (const r of results) {
-    let group = byDoc.get(r.doc_id);
-    if (!group) {
-      group = {
-        doc_id: r.doc_id,
-        doc_title: r.doc_title,
-        publisher: r.publisher,
-        fiscal_year: r.fiscal_year,
-        doc_type: r.doc_type,
-        doc_url: r.doc_url,
-        doc_meta: r.doc_meta,
-        chunks: [],
-      };
-      byDoc.set(r.doc_id, group);
-    }
-    group.chunks.push(r);
+/** The fixed document order inside a family: title A→Z (the mockup's one
+ *  order — its per-card "Sort A→Z" menu was removed, so there is nothing
+ *  else). Case-insensitive so "AHCCCS" and "Arizona…" interleave the way a
+ *  reader expects. */
+const byTitle = (a: api.CorpusDocument, b: api.CorpusDocument) =>
+  a.title.toLowerCase().localeCompare(b.title.toLowerCase());
+
+/** Group a set of documents into the page's year → family structure. Years are
+ *  returned newest-first; families in FAMILY_ORDER; docs title-sorted. */
+function groupCorpus(docs: api.CorpusDocument[]): { year: number; families: FamilyGroup[] }[] {
+  const byYear = new Map<number, Map<string, api.CorpusDocument[]>>();
+  for (const d of docs) {
+    // A document with no fiscal_year can't be placed in a year card. The
+    // browse page's whole structure is year-grouped, so an unknown year is
+    // bucketed as 0 ("Fiscal year unknown") rather than dropped silently —
+    // it still renders, honestly labeled, at the bottom.
+    const year = d.fiscal_year ?? 0;
+    const family = familyOf(d.doc_type);
+    if (!byYear.has(year)) byYear.set(year, new Map());
+    const fams = byYear.get(year)!;
+    if (!fams.has(family)) fams.set(family, []);
+    fams.get(family)!.push(d);
   }
-  // Sort chunks within each document, then the documents by their best chunk.
-  // ONE posture for both, rather than trusting the provider's insertion order for
-  // groups while defensively re-sorting chunks: a provider that returns rows
-  // ungrouped or unordered (or a future one that re-ranks) then still produces
-  // best-document-first, which is the only order this page claims to show.
-  const groups = [...byDoc.values()];
-  for (const group of groups) group.chunks.sort((a, b) => b.score - a.score);
-  groups.sort((a, b) => b.chunks[0].score - a.chunks[0].score);
-  return groups;
+  return [...byYear.entries()]
+    .sort((a, b) => b[0] - a[0])
+    .map(([year, fams]) => ({
+      year,
+      families: FAMILY_ORDER.filter((f) => fams.has(f)).map((f) => ({
+        family: f,
+        docs: [...fams.get(f)!].sort(byTitle),
+      })),
+    }));
 }
 
-/** Collapse documents into report families ("FY 2027 Baseline") — the grouping
- *  the mockup's engine used and Destin asked for: a Baseline year's per-agency
- *  pages and summary sections are ONE report to an analyst, not 100 documents.
- *  Families order by their best document's best chunk, same posture as
- *  groupByDoc. Exported for its unit test. */
-export function groupByFamily(results: SearchResult[]): FamilyGroup[] {
-  const docs = groupByDoc(results);
-  const byFamily = new Map<string, FamilyGroup>();
-  for (const doc of docs) {
-    const family = familyOf(doc.doc_type);
-    const key = `${family}:${doc.fiscal_year ?? "any"}`;
-    let group = byFamily.get(key);
-    if (!group) {
-      group = {
-        key,
-        title: familyTitle(family, doc.fiscal_year),
-        publisher: doc.publisher,
-        fiscal_year: doc.fiscal_year,
-        docs: [],
-        formats: reportFormats(family, doc.fiscal_year),
-      };
-      byFamily.set(key, group);
-    }
-    group.docs.push(doc);
-  }
-  // groupByDoc already emitted docs best-first, so a family's first doc holds its
-  // best chunk — order families by that.
-  return [...byFamily.values()].sort(
-    (a, b) => b.docs[0].chunks[0].score - a.docs[0].chunks[0].score,
+/** Does this document match the typed query? Ported from the mockup's
+ *  queryHit: a case-insensitive substring of the title OR of the publisher's
+ *  DISPLAY label (so "osb" finds OSPB docs). NOT multi-term AND — the mockup
+ *  matches a single substring, and splitting would redesign the filter. */
+function queryHit(d: api.CorpusDocument, q: string): boolean {
+  if (!q) return false;
+  const needle = q.toLowerCase();
+  return (
+    d.title.toLowerCase().includes(needle) ||
+    publisherLabel(d.publisher).toLowerCase().includes(needle)
   );
 }
 
-/** Fold a response's fiscal years and doc types into the chip options.
+/** Passes the two rail filters (Document Type family, Fiscal Year). An empty
+ *  set means "any". */
+function passesFilters(
+  d: api.CorpusDocument,
+  types: ReadonlySet<string>,
+  years: ReadonlySet<number>,
+): boolean {
+  if (types.size && !types.has(familyOf(d.doc_type))) return false;
+  if (years.size && !years.has(d.fiscal_year ?? 0)) return false;
+  return true;
+}
+
+// ---------------------------------------------------------------------------
+// Glyphs — the mockup's inline SVGs, paths verbatim.
+// ---------------------------------------------------------------------------
+
+function DocIcon() {
+  return (
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden="true">
+      <path d="M6 2h9l5 5v15H6z" />
+      <path d="M14 2v6h6" />
+    </svg>
+  );
+}
+function BookIcon() {
+  return (
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden="true">
+      <path d="M4 4h13a2 2 0 0 1 2 2v14H6a2 2 0 0 1-2-2z" />
+      <path d="M4 18a2 2 0 0 1 2-2h13" />
+    </svg>
+  );
+}
+function ChevronIcon() {
+  return (
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden="true">
+      <path d="m6 9 6 6 6-6" />
+    </svg>
+  );
+}
+function OpenIcon() {
+  return (
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden="true">
+      <path d="M5 12h14M13 6l6 6-6 6" />
+    </svg>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Document + report rows
+// ---------------------------------------------------------------------------
+
+/** The copper publisher chip that leads every row — the mockup's one new
+ *  element. Budget docs have no bill number, so the publisher is the
+ *  identifying chip. ONE color for every publisher (it labels the source, it
+ *  doesn't color-code it); the folded JLBC · OSPB · GAO vocabulary. */
+function PubChip({ publisher }: { publisher: string }) {
+  return <span className="doc-pub">{publisherLabel(publisher)}</span>;
+}
+
+/** A single-document row (an agency page). The whole row links to the source
+ *  PDF; with no verified `doc_url` it renders unlinked rather than as a dead
+ *  href (honesty invariant). */
+function DocRow({ doc }: { doc: api.CorpusDocument }) {
+  const body = (
+    <>
+      <PubChip publisher={doc.publisher} />
+      <div className="doc-main">
+        <span className="doc-title">{doc.title}</span>
+      </div>
+      {doc.doc_url && (
+        <span className="doc-pill">
+          <OpenIcon /> Open
+        </span>
+      )}
+    </>
+  );
+  return doc.doc_url ? (
+    <a className="doc" href={doc.doc_url} target="_blank" rel="noopener noreferrer">
+      {body}
+    </a>
+  ) : (
+    <div className="doc doc-unlinked">{body}</div>
+  );
+}
+
+/** A whole-REPORT top-level row (idle state): "FY Y Family". Clicking opens
+ *  the single-file PDF when a hand-verified URL exists, else the family's
+ *  first document (which itself may be unlinked). */
+function ReportRow({ year, family, docs }: { year: number; family: string; docs: api.CorpusDocument[] }) {
+  const title = familyTitle(family, year === 0 ? null : year);
+  // A report family's documents share one publisher in this corpus, so the
+  // chip reads the first document's — same posture as the mockup.
+  const publisher = docs[0]?.publisher ?? "";
+  const { singleFile } = reportFormats(family, year === 0 ? null : year);
+  const href = singleFile ?? docs[0]?.doc_url ?? null;
+  const body = (
+    <>
+      <PubChip publisher={publisher} />
+      <div className="doc-main">
+        <span className="doc-title">{title}</span>
+      </div>
+      {href && (
+        <span className="doc-pill">
+          <OpenIcon /> Open
+        </span>
+      )}
+    </>
+  );
+  return href ? (
+    <a className="doc" href={href} target="_blank" rel="noopener noreferrer">
+      {body}
+    </a>
+  ) : (
+    <div className="doc doc-unlinked">{body}</div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Family cards — the two states
+// ---------------------------------------------------------------------------
+
+/** ONE family card, two states (the mockup's familyCard):
  *
- *  WHY the options ACCUMULATE instead of being rebuilt from the latest response:
- *  filtering shrinks the result set, so rebuilding would delete the very chip you
- *  need to click to undo the filter (pick FY 2027, and every other year's chip
- *  disappears — a dead end). They reset when the query itself changes, since a new
- *  search is a new set of documents. */
-function mergeFacets(prev: Facets, q: string, results: SearchResult[]): Facets {
-  const base: Facets = prev.q === q ? prev : { q, years: [] };
-  const years = new Set(base.years);
-  for (const r of results) {
-    if (r.fiscal_year !== null) years.add(r.fiscal_year);
+ *  IDLE (search box empty): a bare report card — the top-level IS the report,
+ *  with a dashed box listing/collapsing the documents inside it. No "Part of"
+ *  framing. A single-document family gets NO dashed tray.
+ *
+ *  SEARCHING: the most-relevant matching agency page is promoted to the top,
+ *  the dashed box switches to "Part of the FY Y Family", and the other matches
+ *  sit behind "N more matches". */
+function FamilyCard({
+  year,
+  group,
+  query,
+  trayOpen,
+  onToggleTray,
+}: {
+  year: number;
+  group: FamilyGroup;
+  query: string;
+  trayOpen: boolean;
+  onToggleTray: () => void;
+}) {
+  const searching = query !== "";
+  const { singleFile } = reportFormats(group.family, year === 0 ? null : year);
+  const title = familyTitle(group.family, year === 0 ? null : year);
+
+  if (!searching) {
+    const docs = group.docs; // already title-sorted by groupCorpus
+    // A single-document family (the AFR is only ever one doc) gets NO dashed
+    // "N documents / Browse documents" box — the report row already links the
+    // one document, so the box would only restate it.
+    if (docs.length === 1) {
+      return (
+        <article className="grp">
+          <ReportRow year={year} family={group.family} docs={docs} />
+        </article>
+      );
+    }
+    return (
+      <article className="grp">
+        <ReportRow year={year} family={group.family} docs={docs} />
+        <div className="ctx">
+          <div className="ctx-row">
+            <span className="badge">
+              <DocIcon /> {docs.length} documents in this report
+            </span>
+            <span className="spacer" />
+            <button
+              type="button"
+              className={trayOpen ? "grp-more open" : "grp-more"}
+              aria-expanded={trayOpen}
+              onClick={onToggleTray}
+            >
+              {trayOpen ? "Hide documents" : "Browse documents"} <ChevronIcon />
+            </button>
+            {singleFile && (
+              <a className="grp-full" href={singleFile} target="_blank" rel="noopener noreferrer">
+                <BookIcon /> Full report
+              </a>
+            )}
+          </div>
+          {trayOpen && (
+            <div className="tray open">
+              {docs.map((d) => (
+                <DocRow key={d.doc_id} doc={d} />
+              ))}
+            </div>
+          )}
+        </div>
+      </article>
+    );
   }
-  return {
-    q,
-    years: [...years].sort((a, b) => b - a), // newest fiscal year first
-  };
+
+  // Search state: promote the best (title-sorted-first) match; the rest
+  // collapse behind "N more".
+  const matches = group.docs.filter((d) => queryHit(d, query));
+  if (!matches.length) return null;
+  const [featured, ...siblings] = matches;
+  return (
+    <article className="grp">
+      <DocRow doc={featured} />
+      <div className="ctx">
+        <div className="ctx-row">
+          <span className="badge">
+            <BookIcon /> Part of the {title}
+          </span>
+          <span className="spacer" />
+          {siblings.length > 0 && (
+            <button
+              type="button"
+              className={trayOpen ? "grp-more open" : "grp-more"}
+              aria-expanded={trayOpen}
+              onClick={onToggleTray}
+            >
+              {siblings.length === 1 ? "1 more match" : `${siblings.length} more matches`}{" "}
+              <ChevronIcon />
+            </button>
+          )}
+          {singleFile && (
+            <a className="grp-full" href={singleFile} target="_blank" rel="noopener noreferrer">
+              <BookIcon /> Full report
+            </a>
+          )}
+        </div>
+        {trayOpen && siblings.length > 0 && (
+          <div className="tray open">
+            {siblings.map((d) => (
+              <DocRow key={d.doc_id} doc={d} />
+            ))}
+          </div>
+        )}
+      </div>
+    </article>
+  );
 }
 
-/** Add or remove one value in one filter dimension, returning a new filter object.
- *  An emptied dimension is DELETED rather than sent as `[]`, so the request body
- *  only ever carries filters the user actually set. */
-function toggleFilter(
-  prev: SearchFilters,
-  key: FilterKey,
-  value: string | number,
-): SearchFilters {
-  const next: SearchFilters = { ...prev };
-  if (key === "fiscal_year") {
-    const year = Number(value);
-    const list = prev.fiscal_year ?? [];
-    const updated = list.includes(year) ? list.filter((v) => v !== year) : [...list, year];
-    if (updated.length) next.fiscal_year = updated;
-    else delete next.fiscal_year;
-  } else {
-    const code = String(value);
-    const list = prev[key] ?? [];
-    const updated = list.includes(code) ? list.filter((v) => v !== code) : [...list, code];
-    if (updated.length) next[key] = updated;
-    else delete next[key];
-  }
-  return next;
+// ---------------------------------------------------------------------------
+// The collapsible year card
+// ---------------------------------------------------------------------------
+
+/** One fiscal-year card. The head is a full-width toggle button; the newest
+ *  in-scope year starts open, prior years collapsed. The body is MOUNTED ONCE
+ *  and toggled via `hidden` (see port deviation 1): open trays inside it, and
+ *  the keyboard focus on the head button, survive a collapse/expand. */
+const YearCard = memo(function YearCard({
+  year,
+  families,
+  query,
+  isOpen,
+  onToggleYear,
+  openTrays,
+  onToggleTray,
+}: {
+  year: number;
+  families: FamilyGroup[];
+  query: string;
+  isOpen: boolean;
+  onToggleYear: (year: number) => void;
+  openTrays: ReadonlySet<string>;
+  onToggleTray: (key: string) => void;
+}) {
+  const total = families.reduce((n, f) => n + f.docs.length, 0);
+  const yearLabel = year === 0 ? "Fiscal year unknown" : `Fiscal Year ${year}`;
+  return (
+    <section className={`yg${isOpen ? " yg-open" : " yg-closed"}`} data-year-card={year}>
+      <button
+        type="button"
+        className="yg-head"
+        aria-expanded={isOpen}
+        aria-label={`${yearLabel}: ${families.length} report${families.length === 1 ? "" : "s"}, ${total} document${total === 1 ? "" : "s"}`}
+        onClick={() => onToggleYear(year)}
+      >
+        <div className="yg-ttl">
+          <span className="yg-yr">{yearLabel}</span>
+          <span className="yg-meta">
+            {families.length} report{families.length === 1 ? "" : "s"} · {total} document
+            {total === 1 ? "" : "s"}
+          </span>
+        </div>
+        <span className={`yg-chev${isOpen ? " open" : ""}`}>
+          <ChevronIcon />
+        </span>
+      </button>
+      {/* `hidden`, not conditional mount: keeps tray state and head focus. */}
+      <div className="yg-body" hidden={!isOpen}>
+        {families.map((f) => (
+          <FamilyCard
+            key={f.family}
+            year={year}
+            group={f}
+            query={query}
+            trayOpen={openTrays.has(`${year}|${f.family}`)}
+            onToggleTray={() => onToggleTray(`${year}|${f.family}`)}
+          />
+        ))}
+      </div>
+    </section>
+  );
+});
+
+// ---------------------------------------------------------------------------
+// The rail's named multi-select dropdown (the search FilterBar recipe)
+// ---------------------------------------------------------------------------
+
+interface MultiSelectOption {
+  key: string;
+  label: string;
+  count: number;
 }
 
-/** Toggle a curated type bucket: all of its slugs in, or all of them out.
- *  (Buckets are the only doc_type control, so mixed states can't arise.) */
-function toggleBucket(prev: SearchFilters, slugs: string[]): SearchFilters {
-  const next: SearchFilters = { ...prev };
-  const current = prev.doc_type ?? [];
-  const on = slugs.every((s) => current.includes(s));
-  const updated = on
-    ? current.filter((s) => !slugs.includes(s))
-    : [...new Set([...current, ...slugs])];
-  if (updated.length) next.doc_type = updated;
-  else delete next.doc_type;
-  return next;
-}
-
-/** Set (or clear, with null) the single-select fiscal-year filter. */
-function setYearFilter(prev: SearchFilters, year: number | null): SearchFilters {
-  const next: SearchFilters = { ...prev };
-  if (year === null) delete next.fiscal_year;
-  else next.fiscal_year = [year];
-  return next;
-}
-
-export function Search() {
-  const [params, setParams] = useSearchParams();
-  // The URL is the source of truth for the query — that's what makes a results
-  // page linkable and what lets Home's hero hand a search over by navigating.
-  const query = (params.get("q") ?? "").trim();
-
-  // The text box is separate local state so typing doesn't refetch on every
-  // keystroke; submitting is what writes ?q= and therefore what runs a search.
-  const [text, setText] = useState(query);
-  const box = useRef<HTMLInputElement>(null);
-  const [filters, setFilters] = useState<SearchFilters>({});
-  const [phase, setPhase] = useState<Phase>({ kind: "idle" });
-  const [facets, setFacets] = useState<Facets>({ q: "", years: [] });
-
-  // Retry counter. WHY it exists: the search runs off ?q=, so re-submitting the
-  // SAME text writes the same ?q= — `query` never changes, the effect never
-  // re-runs, and the click appears to do nothing. That is a dead end after a
-  // failed search, where re-running the identical query is exactly what the user
-  // wants. Bumping this on every submit/retry gives the effect something that
-  // always changes, so the request always fires.
-  const [attempt, setAttempt] = useState(0);
-
-  // The passage whose source is open in the side drawer (Plan 4 Task 11), or
-  // null. Holds the display title alongside the id because the row that was
-  // clicked already knows it — see app/routes/pdf.py's get_chunk for why the
-  // route deliberately doesn't return a second title.
-  const [openPassage, setOpenPassage] = useState<{
-    chunkId: string;
-    docTitle: string;
-    fiscalYear: number | null;
-  } | null>(null);
-
-  // NO AI Mode here (Destin, 2026-07-31). This page had a toggle that swapped
-  // the results panel for a conversation; AI Mode is now its own tab
-  // (`pages/Ai.tsx`) with a corpus picker, so this page is the document browser
-  // and nothing else. Do not reintroduce a toggle — see STATUS.md's Plan 4
-  // deviation note.
-
-  // Keep the box in step with the URL if ?q= changes underneath us (back button, or
-  // a second search arriving from elsewhere in the app).
-  useEffect(() => setText(query), [query]);
-
-  // A new query means a new result set; leaving the drawer open would keep a
-  // passage from the PREVIOUS search on screen next to results that no longer
-  // contain it.
-  useEffect(() => setOpenPassage(null), [query]);
+/** One labelled multi-select dropdown — "Document Type" / "Fiscal Year". The
+ *  trigger shows "Any …" when nothing is picked, the single pick's label, or
+ *  "N selected"; it tints gold (`.has`) while active. The menu stays open for
+ *  multi-picking; outside click / Escape closes it (the FilterBar idiom). */
+function RailMultiSelect({
+  label,
+  anyLabel,
+  options,
+  selected,
+  onToggle,
+}: {
+  label: string;
+  anyLabel: string;
+  options: MultiSelectOption[];
+  selected: ReadonlySet<string>;
+  onToggle: (key: string) => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const root = useRef<HTMLDivElement>(null);
+  const labelId = useRef(`ms-${label.replace(/\W+/g, "-").toLowerCase()}`).current;
 
   useEffect(() => {
-    if (!query) {
-      setPhase({ kind: "idle" });
-      return;
-    }
-    // Stale-response guard. If the query or the filters change while a request is
-    // still in flight, React runs this effect's cleanup first, which flips
-    // `ignore` — so when the OLD (slower) request finally answers, it returns here
-    // and does nothing instead of overwriting the newer results.
+    if (!open) return;
+    const onDocClick = (e: MouseEvent) => {
+      if (root.current && !root.current.contains(e.target as Node)) setOpen(false);
+    };
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") setOpen(false);
+    };
+    document.addEventListener("click", onDocClick);
+    document.addEventListener("keydown", onKey);
+    return () => {
+      document.removeEventListener("click", onDocClick);
+      document.removeEventListener("keydown", onKey);
+    };
+  }, [open]);
+
+  const triggerText =
+    selected.size === 0
+      ? anyLabel
+      : selected.size === 1
+        ? (options.find((o) => selected.has(o.key))?.label ?? anyLabel)
+        : `${selected.size} selected`;
+
+  return (
+    <div className="fgrp">
+      <div className="flbl" id={labelId}>
+        {label}
+      </div>
+      <div className="fctl" ref={root}>
+        <button
+          type="button"
+          className={selected.size > 0 ? "fbtn has" : "fbtn"}
+          aria-expanded={open}
+          aria-labelledby={labelId}
+          onClick={() => setOpen((v) => !v)}
+        >
+          <span className="fb-label">{triggerText}</span>
+          <svg className="chev" viewBox="0 0 10 6" fill="none" stroke="currentColor" strokeWidth="1.8" aria-hidden="true">
+            <path d="m1 1 4 4 4-4" />
+          </svg>
+        </button>
+        {open && (
+          <div className="fmenu" role="group" aria-label={`${label} options`}>
+            {options.map((o) => {
+              const on = selected.has(o.key);
+              return (
+                <button
+                  key={o.key}
+                  type="button"
+                  className={on ? "fopt on" : "fopt"}
+                  aria-pressed={on}
+                  onClick={() => onToggle(o.key)}
+                >
+                  <span className="ck" aria-hidden="true">
+                    <svg viewBox="0 0 12 10" fill="none" stroke="currentColor" strokeWidth="2.4">
+                      <path d="m1 5 3.5 3.5L11 1" />
+                    </svg>
+                  </span>
+                  {o.label}
+                  <span className="fopt-n">{o.count}</span>
+                </button>
+              );
+            })}
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Page
+// ---------------------------------------------------------------------------
+
+export function Search() {
+  const [params] = useSearchParams();
+  // ?q= is the read-only hand-off (Home's hero navigates here with it). It
+  // seeds the box; it does NOT live-sync while the user types (the box is the
+  // ephemeral state).
+  const urlQuery = (params.get("q") ?? "").trim();
+
+  const [phase, setPhase] = useState<Phase>({ kind: "loading" });
+  const [attempt, setAttempt] = useState(0);
+  const [query, setQuery] = useState(urlQuery);
+  const [types, setTypes] = useState<ReadonlySet<string>>(new Set());
+  const [years, setYears] = useState<ReadonlySet<number>>(new Set());
+  // Years the user has manually toggled open/closed. Absent = the default:
+  // newest in-scope year expanded, every prior year collapsed.
+  const [yearToggle, setYearToggle] = useState<ReadonlyMap<number, boolean>>(new Map());
+  // "year|family" keys with an open tray.
+  const [openTrays, setOpenTrays] = useState<ReadonlySet<string>>(new Set());
+  const box = useRef<HTMLInputElement>(null);
+
+  // One-way sync FROM the URL: a ?q= arriving while the page is mounted (Home
+  // hero, back/forward) replaces the box. Typing does NOT write the URL.
+  useEffect(() => setQuery(urlQuery), [urlQuery]);
+
+  useEffect(() => {
     let ignore = false;
-    // Stale-while-revalidate: keep the results that are already on screen while the
-    // next response is in flight (they render dimmed). Blanking the panel on every
-    // chip toggle would make the list flash and the page jump back up — on the
-    // page's primary interaction. Invisible with the stub's instant fixtures, very
-    // visible once a real provider takes network time.
-    setPhase((p) => ({
-      kind: "loading",
-      prev: p.kind === "ready" ? p.res : p.kind === "loading" ? p.prev : undefined,
-    }));
-    api.search(query, filters, "budget").then(
-      (res) => {
-        if (ignore) return;
-        setPhase({ kind: "ready", res });
-        setFacets((prev) => mergeFacets(prev, query, res.results));
+    setPhase({ kind: "loading" });
+    api.corpusDocuments().then(
+      (data) => {
+        if (!ignore) setPhase({ kind: "ready", docs: data.documents });
       },
       (err: unknown) => {
-        if (ignore) return;
-        // The api client already put the backend's own `detail` in the message;
-        // show it verbatim rather than replacing it with a guess at the cause.
-        setPhase({ kind: "error", message: err instanceof Error ? err.message : String(err) });
+        if (!ignore)
+          setPhase({
+            kind: "error",
+            message: err instanceof Error ? err.message : String(err),
+          });
       },
     );
     return () => {
       ignore = true;
     };
-    // `filters` is a state object, so its identity only changes when a chip is
-    // toggled — it is safe as a dependency and is what re-runs the search.
-    // `attempt` re-runs an identical query on demand (see its declaration).
-  }, [query, filters, attempt]);
+  }, [attempt]);
 
-  /** Bump the attempt counter so the effect refetches even if nothing else changed. */
-  function runSearch(next?: string) {
-    if (next !== undefined) setParams({ q: next });
-    setAttempt((a) => a + 1);
-  }
+  const docs = phase.kind === "ready" ? phase.docs : [];
+  const q = query.trim();
+  const searching = q !== "";
 
-  // The response being displayed: the fresh one, or the previous one still held
-  // during a refetch. Errors show no results panel at all.
-  const shown =
-    phase.kind === "ready" ? phase.res : phase.kind === "loading" ? phase.prev : undefined;
-  const families = shown ? groupByFamily(shown.results) : [];
-  // Analysts still count in documents (the per-agency pages), so the status and
-  // header keep a document count even though the cards group one level higher.
-  const docCount = families.reduce((n, f) => n + f.docs.length, 0);
+  // The whole corpus grouped into year → family, BEFORE the rail filters (the
+  // filter option counts are computed off this so a picked filter doesn't
+  // erase its own siblings' counts).
+  const grouped = useMemo(() => groupCorpus(docs), [docs]);
 
-  /** Open the source drawer for a clicked matching-passage row.
-   *
-   *  WHY event delegation instead of a callback prop through ResultCard: the
-   *  passage rows already carry `data-chunk-id` (Plan 2 put the attribute
-   *  there for exactly this task), and the results presentation was iterated
-   *  live with Destin — spec S12 says wire it, don't restructure it. One
-   *  listener on `.results` reaches every row, at any nesting depth, without
-   *  touching the card components. ResultCard's own onClick calls
-   *  preventDefault but not stopPropagation, so the click still bubbles here. */
-  function onResultsClick(e: React.MouseEvent<HTMLDivElement>) {
-    const target = e.target as HTMLElement | null;
-    const row = target?.closest?.("[data-chunk-id]");
-    const chunkId = row?.getAttribute("data-chunk-id");
-    if (!chunkId) return;
-    // The row is an <a href="#">; without this the click would also jump the
-    // page to the top.
-    e.preventDefault();
-    openChunk(chunkId);
-  }
+  const allYears = useMemo(() => grouped.map((g) => g.year), [grouped]);
 
-  /** The keyboard half of the same delegation. WHY it is needed even though
-   *  the rows are anchors: their href is "#", a placeholder, so the browser's
-   *  own Enter-activates-a-link behavior would scroll to the top of the page
-   *  instead of opening the source. Space is handled too because ResultCard
-   *  gives the rows role="button", and a button is expected to answer both. */
-  function onResultsKeyDown(e: React.KeyboardEvent<HTMLDivElement>) {
-    if (e.key !== "Enter" && e.key !== " " && e.key !== "Spacebar") return;
-    const target = e.target as HTMLElement | null;
-    const row = target?.closest?.("[data-chunk-id]");
-    const chunkId = row?.getAttribute("data-chunk-id");
-    if (!chunkId) return;
-    // Space would otherwise scroll the results panel out from under the row
-    // the user just activated.
-    e.preventDefault();
-    openChunk(chunkId);
-  }
+  // In-scope years: the picked ones, else every year. Newest-first already.
+  const scopedYears = useMemo(
+    () => (years.size ? allYears.filter((y) => years.has(y)) : allYears),
+    [allYears, years],
+  );
 
-  function openChunk(chunkId: string) {
-    // Fixture rows (StubSearchProvider, on any machine with no migrated
-    // corpus) carry synthetic ids that exist in no corpus. Opening the viewer
-    // for one would show a 404 and imply the corpus is broken, when the real
-    // fact is that there is no corpus at all.
-    if (chunkId.startsWith("stub-")) return;
-    const hit = shown?.results.find((r) => r.chunk_id === chunkId);
-    setOpenPassage({
-      chunkId,
-      docTitle: hit?.doc_title ?? "",
-      fiscalYear: hit?.fiscal_year ?? null,
+  // Filter option counts (docs per family / per year), from the FULL corpus.
+  const typeOptions = useMemo<MultiSelectOption[]>(
+    () =>
+      FAMILY_ORDER.map((f) => ({
+        key: f,
+        label: f,
+        count: docs.filter((d) => familyOf(d.doc_type) === f).length,
+      })),
+    [docs],
+  );
+  const yearOptions = useMemo<MultiSelectOption[]>(
+    () =>
+      allYears.map((y) => ({
+        key: String(y),
+        label: y === 0 ? "Unknown" : `FY ${y}`,
+        count: docs.filter((d) => (d.fiscal_year ?? 0) === y).length,
+      })),
+    [allYears, docs],
+  );
+
+  // The filtered, in-scope year cards.
+  const visibleGroups = useMemo(() => {
+    return scopedYears
+      .map((year) => {
+        const g = grouped.find((x) => x.year === year);
+        if (!g) return null;
+        const families = g.families
+          .map((f) => ({ ...f, docs: f.docs.filter((d) => passesFilters(d, types, years)) }))
+          .filter((f) => f.docs.length > 0);
+        return families.length ? { year, families } : null;
+      })
+      .filter((g): g is { year: number; families: FamilyGroup[] } => g !== null);
+  }, [scopedYears, grouped, types, years]);
+
+  // Default open year: newest in-scope. A manual toggle overrides it.
+  const latestYear = visibleGroups[0]?.year ?? null;
+  const isYearOpen = (year: number) =>
+    yearToggle.has(year) ? yearToggle.get(year)! : year === latestYear;
+
+  // --- counts for the status line -------------------------------------------
+  const matched = docs.filter((d) => passesFilters(d, types, years) && (!searching || queryHit(d, q)));
+  const matchedFamilies = new Set(matched.map((d) => `${d.fiscal_year ?? 0}|${familyOf(d.doc_type)}`)).size;
+  const yearScope = years.size
+    ? years.size === 1
+      ? `FY ${[...years][0]}`
+      : `${years.size} fiscal years`
+    : "all fiscal years";
+
+  function toggleIn(setter: React.Dispatch<React.SetStateAction<ReadonlySet<string>>>, key: string) {
+    setter((prev) => {
+      const next = new Set(prev);
+      if (next.has(key)) next.delete(key);
+      else next.add(key);
+      return next;
     });
   }
+  const toggleYearFilter = (key: string) => {
+    const y = Number(key);
+    setYears((prev) => {
+      const next = new Set(prev);
+      if (next.has(y)) next.delete(y);
+      else next.add(y);
+      return next;
+    });
+  };
+  const toggleYearCard = (year: number) =>
+    setYearToggle((prev) => new Map(prev).set(year, !isYearOpen(year)));
+  const toggleTray = (key: string) =>
+    setOpenTrays((prev) => {
+      const next = new Set(prev);
+      if (next.has(key)) next.delete(key);
+      else next.add(key);
+      return next;
+    });
+
+  const clearQuery = () => {
+    setQuery("");
+    box.current?.focus();
+  };
+
+  // --- the unified search view ----------------------------------------------
+  // Collapse the year cards into ONE "Results" card holding every matching
+  // family card across in-scope years, newest year first.
+  const searchTiles = searching
+    ? visibleGroups.flatMap((g) =>
+        g.families
+          .filter((f) => f.docs.some((d) => queryHit(d, q)))
+          .map((f) => ({ year: g.year, family: f })),
+      )
+    : [];
+  const searchTotal = searching
+    ? docs.filter((d) => passesFilters(d, types, years) && queryHit(d, q)).length
+    : 0;
 
   return (
-    <main className="page-search" data-testid="search">
-      {/* The mockup's `.subhero` band. It sits inside <main> here (the mockup keeps
-          it outside, but every ported rule is scoped under `.page-search`, which is
-          on this element). Its aria-label="Page header" is dropped: it would add a
-          landmark named "Page header" that says nothing a heading doesn't. */}
+    <main className="page-docs" data-testid="search">
       <section className="subhero">
         <div className="wrap">
-          <h1>Budget Document Search</h1>
-          {/* DESIGN-SYSTEM.md §6: the lead is reserved at two lines and CLAMPED at
-              two, so this copy is written to fit (~124 chars ≈ two 66ch lines)
-              rather than left to ellipsis mid-sentence. */}
+          <h1>Budget Documents</h1>
           <p className="lead">
-            Full-text search across every Arizona budget document ingested so far —
-            baselines, appropriations reports, and budget bills.
+            Every Arizona budget document ingested so far — baselines, appropriations reports,
+            annual financial reports, executive budgets, and budget bills.
           </p>
-          {/* §6 also requires the chip row on every sub-page. The mockup's first chip
-              was a document COUNT ("419 documents") — dropped, because this page has
-              no honest number to put there: the API returns per-search counts, not a
-              corpus size. These two state the page's shape instead. */}
           <div className="chips">
             <span className="chip">
-              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden="true">
-                <path d="M6 2h9l5 5v15H6z" />
-                <path d="M14 2v6h6" />
-              </svg>{" "}
-              {/* The corpus's four publishers, same labels as the filter chips.
-                  AGAO is left abbreviated on purpose: it is the Arizona General
-                  Accounting Office (data/system-prompt-context.md line 73) — NOT
-                  the Auditor General, a different agency. */}
-              JLBC · Governor's Office · AGAO · Legislature
+              <DocIcon /> JLBC · OSPB · GAO
             </span>
             <span className="chip">
-              <SearchIcon /> Every match carries the page it came from
+              <SearchIcon /> Every document opens its source PDF
             </span>
           </div>
         </div>
       </section>
 
-      <div className="wrap">
-        <div className="search-wrap">
-          <section className="card big-search-card">
-            <form
-              className="big-search"
-              role="search"
-              onSubmit={(e) => {
-                e.preventDefault();
-                const next = text.trim();
-                // Same guard as Home's hero: a blank search would fire a request the
-                // backend rejects ("query is empty") and show an error for something
-                // the user hasn't typed yet.
-                if (!next) return;
-                // ONE destination again: this box runs a keyword search and
-                // nothing else. It used to fork to the assistant when AI Mode
-                // was on; AI Mode has its own tab and its own composer now.
-                // Writes ?q= AND bumps the attempt counter, so submitting the same
-                // text again really does re-run the search.
-                runSearch(next);
-              }}
-            >
-              <SearchIcon className="s-ic" />
-              <input
-                id="q"
-                ref={box}
-                type="search"
-                name="q"
-                value={text}
-                onChange={(e) => setText(e.target.value)}
-                placeholder="e.g. how much does the Medicaid program get?"
-                aria-label="Search Arizona budget documents"
-                autoComplete="off"
-              />
-              {/* The mockup's custom clear-X: shown only when there's text, and it
-                  clears the results too (it drops ?q=), which is what its own inline
-                  script did — clear the value, reset the results, refocus the box. */}
-              <button
-                type="button"
-                className={text ? "clr-x show" : "clr-x"}
-                aria-label="Clear search"
-                onClick={() => {
-                  setText("");
-                  setParams({});
-                  box.current?.focus();
-                }}
-              >
-                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" aria-hidden="true">
-                  <path d="M6 6l12 12M18 6 6 18" />
-                </svg>
-              </button>
-              <button type="submit" className="s-btn">
+      <div className="wrap docwrap">
+        <p className="fnnote docstatus" role="status">
+          {phase.kind === "loading" && "Loading…"}
+          {phase.kind === "error" && <span className="err">{phase.message}</span>}
+          {phase.kind === "ready" &&
+            (searching
+              ? `${matched.length} document${matched.length === 1 ? "" : "s"} across ${matchedFamilies} report${matchedFamilies === 1 ? "" : "s"}, in ${yearScope}, matching “${q}”.`
+              : `${matchedFamilies} report${matchedFamilies === 1 ? "" : "s"} · ${matched.length} document${matched.length === 1 ? "" : "s"}, across ${yearScope}.`)}
+        </p>
+
+        <div className="doclayout">
+          <aside className="docside">
+            <div className="fgrp">
+              <label className="fside-search">
                 <SearchIcon />
-                Search
-              </button>
-            </form>
+                <input
+                  ref={box}
+                  type="text"
+                  value={query}
+                  onChange={(e) => setQuery(e.target.value)}
+                  placeholder="Agency or keyword…"
+                  aria-label="Filter documents by agency or keyword"
+                  autoComplete="off"
+                />
+                <button
+                  type="button"
+                  className={query ? "clr-x show" : "clr-x"}
+                  aria-label="Clear search"
+                  onClick={clearQuery}
+                >
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" aria-hidden="true">
+                    <path d="M6 6l12 12M18 6 6 18" />
+                  </svg>
+                </button>
+              </label>
+            </div>
 
-            <FilterBar
-              selected={filters}
-              years={facets.q === query ? facets.years : []}
-              onToggle={(key, value) => setFilters((prev) => toggleFilter(prev, key, value))}
-              onToggleBucket={(slugs) => setFilters((prev) => toggleBucket(prev, slugs))}
-              onYearChange={(year) => setFilters((prev) => setYearFilter(prev, year))}
+            <RailMultiSelect
+              label="Document Type"
+              anyLabel="Any type"
+              options={typeOptions}
+              selected={types}
+              onToggle={(k) => toggleIn(setTypes, k)}
             />
-          </section>
+            <RailMultiSelect
+              label="Fiscal Year"
+              anyLabel="Any year"
+              options={yearOptions}
+              selected={new Set([...years].map(String))}
+              onToggle={toggleYearFilter}
+            />
+          </aside>
 
-          {/* The mockup's status line under the card. Every phase says something
-              true; none of them leaves the page blank.
-
-              role="status" makes this a live region, so a screen reader announces
-              "Searching…", the result count, and errors as they replace each other.
-              Without it the only feedback for the whole search is visual, and a
-              non-sighted user gets silence after pressing Search. */}
-          <div className="search-status" role="status">
-            {phase.kind === "idle" && "Type a search above to query the budget corpus."}
-            {phase.kind === "loading" && "Searching…"}
-            {phase.kind === "error" && (
-              <>
-                {/* `.err` is the mockup's own error color on this line. The message
-                    is the backend's, passed through untouched. */}
-                <span className="err">{phase.message}</span>{" "}
-                {/* Retry re-runs the identical query, which the URL alone cannot do
-                    (see the attempt counter). Styled as a filter chip — the mockup's
-                    only small inline button — rather than a new button design. */}
-                <button type="button" className="fchip" onClick={() => runSearch()}>
+          <div className="docmain">
+            {phase.kind === "error" ? (
+              <div className="allbar">
+                <button type="button" className="allbtn" onClick={() => setAttempt((a) => a + 1)}>
                   Retry
                 </button>
-              </>
-            )}
-            {phase.kind === "ready" && (
-              <>
-                {/* The counts moved into the Results header's pill (Destin
-                    2026-07-30) — repeating them here said the same thing twice
-                    one inch apart. The line still announces (role="status")
-                    via the stub badge or stays quiet; min-height keeps the
-                    layout from jumping. */}
-                {/* Dev honesty: say so when the rows are fixtures rather than
-                    the real corpus. */}
-                {phase.res.provider === "stub" && <span className="stub-badge">stub data</span>}
-              </>
-            )}
-          </div>
-
-          {/* Rendered whenever there is a response to show — including the previous
-              one during a refetch, dimmed via `.stale` and marked aria-busy so the
-              list neither disappears nor silently lies about being current. */}
-          {shown && (
-            <section
-              className={phase.kind === "loading" ? "card stale" : "card"}
-              aria-busy={phase.kind === "loading"}
-            >
-              <div className="card-head">
-                <div className="head-row">
-                  <span className="ic">
-                    {/* Deviation: the mockup's own Results header reuses its HOUSE
-                        icon here — plainly a copy-paste slip in a hand-built mockup
-                        (it is the `.home-ic` path). Using the magnifier instead;
-                        same glyph family, same 20px slot. */}
-                    <SearchIcon />
-                  </span>
-                  <h2>Results</h2>
-                  {/* Both counts live here now, mockup-meta style with the
-                      divider dot: "20 matches · 7 documents". */}
-                  <span className="count">
-                    {shown.total} {shown.total === 1 ? "match" : "matches"} ·{" "}
-                    {docCount} {docCount === 1 ? "document" : "documents"}
-                  </span>
-                </div>
               </div>
-              {/* `.results`, not the mockup's `#results`: an id inside a component is
-                  a page-wide uniqueness claim a component can't keep. Same rules,
-                  ported onto the class. */}
-              {/* One delegated listener for every passage row's click (see
-                  onResultsClick). Additive: the results markup below is
-                  unchanged. Plan 4 Task 12 closed the keyboard gap noted here
-                  previously — the rows are now real buttons (ResultCard) and
-                  onResultsKeyDown below handles Enter/Space. */}
-              <div className="results" onClick={onResultsClick} onKeyDown={onResultsKeyDown}>
-                {families.length === 0 ? (
-                  // Two messages, because "nothing in the corpus matched" and "your
-                  // filters excluded everything" are different facts and the second
-                  // one is actionable. Saying the first when filters are on would
-                  // blame the corpus for the user's own narrowing.
+            ) : searching ? (
+              <section className="yg">
+                <div className="yg-head-static">
+                  <div className="yg-ttl">
+                    <span className="yg-yr">Results</span>
+                    <span className="yg-meta">
+                      {searchTiles.length} report{searchTiles.length === 1 ? "" : "s"} · {searchTotal}{" "}
+                      document{searchTotal === 1 ? "" : "s"} matching “{q}”
+                    </span>
+                  </div>
+                </div>
+                {searchTiles.length === 0 ? (
                   <p className="empty">
-                    {Object.keys(filters).length > 0
-                      ? "No matches for that search with the filters above. Try clearing a filter."
-                      : "No matches in the corpus for that search."}
+                    No documents match “{q}” with those filters — try clearing one.
                   </p>
                 ) : (
-                  families.map((family) => <ResultCard key={family.key} family={family} />)
+                  searchTiles.map(({ year, family }) => (
+                    <FamilyCard
+                      key={`${year}|${family.family}`}
+                      year={year}
+                      group={family}
+                      query={q}
+                      trayOpen={openTrays.has(`${year}|${family.family}`)}
+                      onToggleTray={() => toggleTray(`${year}|${family.family}`)}
+                    />
+                  ))
                 )}
-              </div>
-            </section>
-          )}
+              </section>
+            ) : visibleGroups.length === 0 ? (
+              <section className="yg">
+                <p className="empty">No documents match those filters — try clearing one.</p>
+              </section>
+            ) : (
+              visibleGroups.map((g) => (
+                <YearCard
+                  key={g.year}
+                  year={g.year}
+                  families={g.families}
+                  query={q}
+                  isOpen={isYearOpen(g.year)}
+                  onToggleYear={toggleYearCard}
+                  openTrays={openTrays}
+                  onToggleTray={toggleTray}
+                />
+              ))
+            )}
+          </div>
         </div>
       </div>
-
-      {/* Source drawer — overlays the page rather than taking a column, so the
-          results layout above is untouched (spec S12). */}
-      {openPassage && (
-        <SourcePanel
-          // Keyed on the chunk so switching passages remounts rather than
-          // showing the previous page while the next one loads.
-          key={openPassage.chunkId}
-          chunkId={openPassage.chunkId}
-          docTitle={openPassage.docTitle}
-          fiscalYear={openPassage.fiscalYear}
-          onClose={() => setOpenPassage(null)}
-        />
-      )}
     </main>
   );
 }

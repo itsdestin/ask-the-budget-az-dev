@@ -1,353 +1,242 @@
-import { render, screen, waitFor, fireEvent } from "@testing-library/react";
+import { render, screen, fireEvent, within } from "@testing-library/react";
 import { MemoryRouter } from "react-router-dom";
 import { Search } from "./Search";
 import * as api from "../api";
 
-const RESULT = {
-  chunk_id: "c1", doc_id: "d1",
-  doc_title: "Health Care Cost Containment System, Arizona — FY 2027 Baseline",
-  snippet: "…provider rate increases…", page: 14, score: 0.91,
-  doc_type: "baseline-per-agency", fiscal_year: 2027, publisher: "jlbc",
-  agencies: ["ahcccs"],
-  doc_url: "https://www.azjlbc.gov/27baseline/axs.pdf",
-  doc_meta: "Agency Budget Detail · Baseline Book · FY 2027",
-};
-const TITLE = /Health Care Cost Containment System/;
+// Budget Documents browse page — the 2026-08-03 rebuild. These replace the old
+// retrieval-backed Search tests: the page now auto-loads the corpus listing
+// (api.corpusDocuments) and filters/searches it client-side. The tests
+// intercept the listing with vi.spyOn and assert behavior, not mechanism —
+// filtered rows are REMOVED (not display:none), the two card states are
+// pinned, the latest-year-expanded default holds, and searching collapses the
+// year cards into one unified Results region.
 
-test("runs the ?q= query on mount and groups results by document", async () => {
-  vi.spyOn(api, "search").mockResolvedValue({
-    results: [RESULT, { ...RESULT, chunk_id: "c2", page: 15 }],
-    total: 2, provider: "stub",
-  });
-  render(
-    <MemoryRouter initialEntries={["/search?q=ahcccs"]}><Search /></MemoryRouter>,
+/** A small hand-built corpus: two years, several families, one single-doc
+ *  family (AFR), one folded-publisher doc (legislature), one with no URL. */
+const DOCS: api.CorpusDocument[] = [
+  { doc_id: "b27-ahcccs", title: "FY 2027 Baseline — AHCCCS", publisher: "jlbc", doc_type: "baseline-per-agency", fiscal_year: 2027, doc_url: "https://x/axs.pdf" },
+  { doc_id: "b27-edu", title: "FY 2027 Baseline — Department of Education", publisher: "jlbc", doc_type: "baseline-per-agency", fiscal_year: 2027, doc_url: "https://x/edu.pdf" },
+  { doc_id: "b27-dcs", title: "FY 2027 Baseline — Department of Child Safety", publisher: "jlbc", doc_type: "baseline-per-agency", fiscal_year: 2027, doc_url: "https://x/dcs.pdf" },
+  { doc_id: "eb27", title: "FY 2027 Executive Budget — Governor's Office", publisher: "governor", doc_type: "governors-budget", fiscal_year: 2027, doc_url: "https://x/eb27.pdf" },
+  { doc_id: "ar26-ahcccs", title: "FY 2026 Appropriations Report — AHCCCS", publisher: "jlbc", doc_type: "approps-per-agency", fiscal_year: 2026, doc_url: "https://x/ar-axs.pdf" },
+  { doc_id: "ar26-edu", title: "FY 2026 Appropriations Report — Department of Education", publisher: "jlbc", doc_type: "approps-per-agency", fiscal_year: 2026, doc_url: "https://x/ar-edu.pdf" },
+  { doc_id: "afr26", title: "FY 2026 Annual Financial Report", publisher: "agao", doc_type: "afr", fiscal_year: 2026, doc_url: "https://x/afr26.pdf" },
+  // The folded "legislature" code displays as JLBC; this one has no URL.
+  { doc_id: "bb26", title: "FY 2026 General Appropriations Act (SB 1735)", publisher: "legislature", doc_type: "budget-bill", fiscal_year: 2026, doc_url: null },
+];
+
+function mount(docs = DOCS, entry = "/search") {
+  vi.spyOn(api, "corpusDocuments").mockResolvedValue({ documents: docs });
+  return render(
+    <MemoryRouter initialEntries={[entry]}>
+      <Search />
+    </MemoryRouter>,
   );
-  await waitFor(() => expect(screen.getByText(TITLE)).toBeInTheDocument());
-  // The row shows the TITLE only — no tagline/meta, no passage text, no
-  // publisher pill, no visible percentage (Destin 2026-07-30: the mockup-index
-  // titles already carry agency/report/year). Passages live in the collapsed
-  // tray.
-  expect(
-    screen.queryByText("Agency Budget Detail · Baseline Book · FY 2027"),
-  ).not.toBeInTheDocument();
-  expect(screen.queryByText(/provider rate increases/)).not.toBeInTheDocument();
-  expect(screen.queryByText(/%/)).not.toBeInTheDocument();
-  // No publisher pill in the RESULTS (the filter strip's JLBC chip is separate
-  // and must stay).
-  expect(document.querySelector(".results")?.textContent).not.toContain("JLBC");
-  expect(screen.queryByText(/p\.\s*1[45]/)).not.toBeInTheDocument();
-  fireEvent.click(screen.getByRole("button", { name: /2 passages/i }));
-  expect(screen.getAllByText(/p\.\s*1[45]/)).toHaveLength(2);
-  expect(api.search).toHaveBeenCalledWith("ahcccs", expect.anything(), "budget");
+}
+
+const AHCCCS27 = /FY 2027 Baseline — AHCCCS/;
+
+// --- browse: auto-load + year grouping + the default open year -------------
+
+test("auto-loads the corpus grouped by fiscal year, newest year expanded", async () => {
+  mount();
+  // Both year cards render; FY 2027 is the newest and starts expanded…
+  const y27 = await screen.findByRole("button", { name: /Fiscal Year 2027:/i });
+  const y26 = screen.getByRole("button", { name: /Fiscal Year 2026:/i });
+  expect(y27).toHaveAttribute("aria-expanded", "true");
+  expect(y26).toHaveAttribute("aria-expanded", "false");
+  // …so FY 2027's bare report rows are visible, FY 2026's are mounted but hidden.
+  expect(screen.getByText("FY 2027 Baseline")).toBeInTheDocument();
+  const y26card = document.querySelector('[data-year-card="2026"]') as HTMLElement;
+  expect(within(y26card).getByText("FY 2026 Annual Financial Report")).toBeInTheDocument();
+  expect(y26card.querySelector(".yg-body")).toHaveAttribute("hidden");
 });
 
-test("the headline row links to the document's own source PDF", async () => {
-  vi.spyOn(api, "search").mockResolvedValue({
-    results: [RESULT], total: 1, provider: "stub",
-  });
-  render(<MemoryRouter initialEntries={["/search?q=x"]}><Search /></MemoryRouter>);
-  const row = await screen.findByRole("link", { name: TITLE });
-  expect(row).toHaveAttribute("href", "https://www.azjlbc.gov/27baseline/axs.pdf");
-  expect(row).toHaveAttribute("target", "_blank");
+test("a collapsed year expands on click and the toggle persists", async () => {
+  mount();
+  const y26 = await screen.findByRole("button", { name: /Fiscal Year 2026:/i });
+  const y26card = document.querySelector('[data-year-card="2026"]') as HTMLElement;
+  // The body is mounted but hidden while collapsed (the mockup's innerHTML
+  // re-render would destroy it); the same node is revealed on expand.
+  const bodyBefore = y26card.querySelector(".yg-body");
+  fireEvent.click(y26);
+  expect(y26).toHaveAttribute("aria-expanded", "true");
+  expect(y26card.querySelector(".yg-body")).not.toHaveAttribute("hidden");
+  expect(y26card.querySelector(".yg-body")).toBe(bodyBefore); // revealed, not remounted
+  // FY 2027 stays open; expanding a prior year does not collapse the latest.
+  expect(screen.getByRole("button", { name: /Fiscal Year 2027:/i })).toHaveAttribute("aria-expanded", "true");
 });
 
-test("a row with no doc_url renders unlinked, not as a dead link", async () => {
-  vi.spyOn(api, "search").mockResolvedValue({
-    results: [{ ...RESULT, doc_url: null }], total: 1, provider: "stub",
-  });
-  render(<MemoryRouter initialEntries={["/search?q=x"]}><Search /></MemoryRouter>);
-  await waitFor(() =>
-    expect(screen.getByText(TITLE)).toBeInTheDocument(),
-  );
-  expect(
-    screen.queryByRole("link", { name: TITLE }),
-  ).not.toBeInTheDocument();
+// --- idle card state: bare report rows + the dashed tray --------------------
+
+test("idle family cards are bare report rows with a collapsible documents tray", async () => {
+  mount();
+  await screen.findByRole("button", { name: /Fiscal Year 2027:/i });
+  // The FY 2027 Baseline report row is the top level; its 3 documents sit
+  // behind the dashed tray, not listed.
+  expect(screen.getByText("FY 2027 Baseline")).toBeInTheDocument();
+  expect(screen.queryByText(AHCCCS27)).not.toBeInTheDocument();
+  fireEvent.click(screen.getByRole("button", { name: /browse documents/i }));
+  // All three FY 2027 baseline agency pages are now listed, title A→Z.
+  const titles = screen.getAllByText(/FY 2027 Baseline — /).map((n) => n.textContent);
+  expect(titles).toEqual([
+    "FY 2027 Baseline — AHCCCS",
+    "FY 2027 Baseline — Department of Child Safety",
+    "FY 2027 Baseline — Department of Education",
+  ]);
 });
 
-test("sibling documents of the same report start collapsed and expand", async () => {
-  vi.spyOn(api, "search").mockResolvedValue({
-    results: [
-      RESULT,
-      {
-        ...RESULT, chunk_id: "c9", doc_id: "d2", score: 0.5,
-        doc_title: "Child Safety, Department of — FY 2027 Baseline", page: 4,
-        doc_url: "https://www.azjlbc.gov/27baseline/dcs.pdf",
-      },
-    ],
-    total: 2, provider: "stub",
-  });
-  render(<MemoryRouter initialEntries={["/search?q=x"]}><Search /></MemoryRouter>);
-  await waitFor(() =>
-    expect(screen.getByText(TITLE)).toBeInTheDocument(),
-  );
-  // The sibling is behind the collapsed "more" tray…
-  expect(screen.queryByText(/Child Safety, Department of/)).not.toBeInTheDocument();
-  fireEvent.click(screen.getByRole("button", { name: /1 more document/i }));
-  // …and is a real link once revealed.
-  const sibling = screen.getByRole("link", { name: /Child Safety, Department of/ });
-  expect(sibling).toHaveAttribute("href", "https://www.azjlbc.gov/27baseline/dcs.pdf");
+test("single-document families get no dashed tray", async () => {
+  mount();
+  const y26 = await screen.findByRole("button", { name: /Fiscal Year 2026:/i });
+  fireEvent.click(y26);
+  // The AFR is a one-document report: the report row links the document and
+  // there is NO "N documents in this report" box for it.
+  const afr = screen.getByText("FY 2026 Annual Financial Report");
+  expect(afr.closest(".grp")!.querySelector(".ctx")).toBeNull();
 });
 
-test("picking a publisher in its dropdown menu re-queries", async () => {
-  const spy = vi.spyOn(api, "search").mockResolvedValue({
-    results: [], total: 0, provider: "stub",
-  });
-  render(<MemoryRouter initialEntries={["/search?q=x"]}><Search /></MemoryRouter>);
-  await waitFor(() => expect(spy).toHaveBeenCalled());
-  // The dropdown rail: options live behind the trigger.
-  fireEvent.click(screen.getByRole("button", { name: /^publisher$/i }));
-  fireEvent.click(screen.getByRole("button", { name: /jlbc/i }));
-  await waitFor(() =>
-    expect(spy).toHaveBeenLastCalledWith(
-      "x", expect.objectContaining({ publisher: ["jlbc"] }), "budget",
-    ),
-  );
-  // The trigger carries the selection as a plain parenthetical (no badge),
-  // and the menu STAYED OPEN for further multi-picking.
-  expect(screen.getByRole("button", { name: /publisher \(1\)/i })).toBeInTheDocument();
-  expect(screen.getByRole("button", { name: /governor/i })).toBeInTheDocument();
-});
-
-test("empty results show honest message, not blank", async () => {
-  vi.spyOn(api, "search").mockResolvedValue({ results: [], total: 0, provider: "stub" });
-  render(<MemoryRouter initialEntries={["/search?q=zz"]}><Search /></MemoryRouter>);
-  await waitFor(() =>
-    expect(screen.getByText(/no matches/i)).toBeInTheDocument(),
-  );
-});
-
-// Toggling a filter must not blank the results while the new response is in
-// flight. With the stub's instant fixtures the gap is invisible, so only a test
-// that HOLDS the second request open can pin it — and a real provider on a slow
-// network is exactly this test in slow motion.
-test("keeps the previous results on screen while refetching", async () => {
-  let releaseSecond: (r: { results: typeof RESULT[]; total: number; provider: string }) => void;
-  const spy = vi
-    .spyOn(api, "search")
-    .mockResolvedValueOnce({ results: [RESULT], total: 1, provider: "stub" })
-    .mockImplementationOnce(() => new Promise((resolve) => { releaseSecond = resolve; }));
-
-  render(<MemoryRouter initialEntries={["/search?q=ahcccs"]}><Search /></MemoryRouter>);
-  await waitFor(() =>
-    expect(screen.getByText(TITLE)).toBeInTheDocument(),
-  );
-
-  // Narrow by publisher (via its menu); the second request is now hanging.
-  fireEvent.click(screen.getByRole("button", { name: /^publisher$/i }));
-  fireEvent.click(screen.getByRole("button", { name: /jlbc/i }));
-  await waitFor(() => expect(spy).toHaveBeenCalledTimes(2));
-
-  // The old results are STILL rendered (not replaced by a blank panel), and the
-  // panel says it is busy so the stale rows aren't presented as current.
-  expect(screen.getByText(TITLE)).toBeInTheDocument();
-  expect(screen.getByText("Searching…")).toBeInTheDocument();
-  expect(document.querySelector(".card.stale")).toHaveAttribute("aria-busy", "true");
-
-  releaseSecond!({ results: [RESULT], total: 1, provider: "stub" });
-  await waitFor(() =>
-    expect(document.querySelector(".card.stale")).not.toBeInTheDocument(),
-  );
-});
-
-// A failed search must be recoverable. The search runs off ?q=, so re-submitting
-// the same text writes an identical ?q= and used to change nothing at all — the
-// error was a dead end for the one action that would fix a transient failure.
-test("a failed search surfaces the backend detail and can be retried", async () => {
-  const spy = vi
-    .spyOn(api, "search")
-    .mockRejectedValueOnce(new Error("search: index is rebuilding"))
-    .mockResolvedValue({ results: [RESULT], total: 1, provider: "stub" });
-
-  render(<MemoryRouter initialEntries={["/search?q=ahcccs"]}><Search /></MemoryRouter>);
-
-  // The api client's message reaches the screen verbatim — not replaced by a guess.
-  await waitFor(() =>
-    expect(screen.getByText(/index is rebuilding/)).toBeInTheDocument(),
-  );
-  expect(spy).toHaveBeenCalledTimes(1);
-
-  fireEvent.click(screen.getByRole("button", { name: /retry/i }));
-
-  await waitFor(() =>
-    expect(screen.getByText(TITLE)).toBeInTheDocument(),
-  );
-  // Same query, second request actually issued.
-  expect(spy).toHaveBeenCalledTimes(2);
-  expect(spy).toHaveBeenLastCalledWith("ahcccs", {}, "budget");
-  // The error is gone, not stacked under the results.
-  expect(screen.queryByText(/index is rebuilding/)).not.toBeInTheDocument();
-});
-
-// Same dead end, reached through the search box instead of the Retry button:
-// pressing Search again on unchanged text must re-run the query.
-test("resubmitting the identical query re-runs the search", async () => {
-  const spy = vi
-    .spyOn(api, "search")
-    .mockResolvedValue({ results: [RESULT], total: 1, provider: "stub" });
-
-  render(<MemoryRouter initialEntries={["/search?q=ahcccs"]}><Search /></MemoryRouter>);
-  await waitFor(() => expect(spy).toHaveBeenCalledTimes(1));
-
-  // Text untouched, so ?q= will be written with the value it already has.
-  fireEvent.submit(screen.getByLabelText(/search arizona budget documents/i));
-  await waitFor(() => expect(spy).toHaveBeenCalledTimes(2));
-});
-
-// Regression guard: a filter you set must stay clearable even when it matches
-// nothing. Year options are derived from the results, and the derived list is
-// RESET when the query changes — but the filter itself persists. So searching
-// again under a filter that now excludes every row used to erase that filter's
-// own option, leaving it applied and still sent to the API with no way to undo
-// it.
-//
-// NOTE for whoever edits this: the failure needs the QUERY to change. Choosing a
-// filter on the same query can't reproduce it, because the facet list accumulates
-// within a query (see mergeFacets in Search.tsx).
-test("a year filter kept across a new query stays selectable and clearable", async () => {
-  const spy = vi
-    .spyOn(api, "search")
-    // Only the FIRST search finds anything, and it is what offers FY 2027.
-    .mockResolvedValueOnce({ results: [RESULT], total: 1, provider: "stub" })
-    .mockResolvedValue({ results: [], total: 0, provider: "stub" });
-
-  render(<MemoryRouter initialEntries={["/search?q=ahcccs"]}><Search /></MemoryRouter>);
-
-  // Open the year menu once the first response has offered FY 2027.
-  await waitFor(() => expect(spy).toHaveBeenCalled());
-  fireEvent.click(screen.getByRole("button", { name: /^fiscal year$/i }));
-  fireEvent.click(await screen.findByRole("button", { name: "FY 2027" }));
-  await waitFor(() =>
-    expect(spy).toHaveBeenLastCalledWith(
-      "ahcccs",
-      expect.objectContaining({ fiscal_year: [2027] }),
-      "budget",
-    ),
-  );
-
-  // Search for something else. FY 2027 stays selected, but the new (empty)
-  // response offers no years at all — the moment the option used to disappear.
-  const box = screen.getByLabelText(/search arizona budget documents/i);
-  fireEvent.change(box, { target: { value: "roads" } });
-  fireEvent.submit(box);
-  await waitFor(() =>
-    expect(spy).toHaveBeenLastCalledWith(
-      "roads",
-      expect.objectContaining({ fiscal_year: [2027] }),
-      "budget",
-    ),
-  );
-
-  // The selection survives: the trigger still shows it, and reopening the
-  // menu still offers FY 2027 (union of selected into options).
-  expect(screen.getByRole("button", { name: /fiscal year \(1\)/i })).toBeInTheDocument();
-  fireEvent.click(screen.getByRole("button", { name: /fiscal year \(1\)/i }));
-  expect(screen.getByRole("button", { name: "FY 2027" })).toBeInTheDocument();
-  // The empty state blames the filter, not the corpus.
-  expect(screen.getByText(/with the filters above/i)).toBeInTheDocument();
-
-  // And it really does undo: "All years" drops the dimension entirely, not
-  // sending an empty array.
-  fireEvent.click(screen.getByRole("button", { name: /all years/i }));
-  await waitFor(() => expect(spy).toHaveBeenLastCalledWith("roads", {}, "budget"));
-});
-
-// The curated type buckets (reportFamilies.ts): one chip toggles its whole slug
-// family through the doc_type filter, and toggling off drops the dimension.
-test("a type bucket chip sends its whole slug family", async () => {
-  const spy = vi
-    .spyOn(api, "search")
-    .mockResolvedValue({ results: [], total: 0, provider: "stub" });
-
-  render(<MemoryRouter initialEntries={["/search?q=x"]}><Search /></MemoryRouter>);
-  await waitFor(() => expect(spy).toHaveBeenCalled());
-
-  // Buckets are a fixed curated set behind the Type trigger — available
-  // before any results exist.
-  fireEvent.click(screen.getByRole("button", { name: /^type$/i }));
-  const row = screen.getByRole("button", { name: /baseline books/i });
-  fireEvent.click(row);
-  await waitFor(() =>
-    expect(spy).toHaveBeenLastCalledWith(
-      "x",
-      expect.objectContaining({
-        doc_type: ["baseline-per-agency", "baseline-cross-cut"],
-      }),
-      "budget",
-    ),
-  );
-  expect(row).toHaveAttribute("aria-pressed", "true");
-  // Trigger text counts BUCKETS, plain parenthetical.
-  expect(screen.getByRole("button", { name: /type \(1\)/i })).toBeInTheDocument();
-
-  fireEvent.click(row);
-  await waitFor(() => expect(spy).toHaveBeenLastCalledWith("x", {}, "budget"));
-});
-
-// Family grouping (Destin, 2026-07-29): documents of the same report and year
-// share one card titled for the report, with a link to its full single-file PDF
-// when a hand-verified URL exists.
-test("results group under their report family with a full-PDF link", async () => {
-  vi.spyOn(api, "search").mockResolvedValue({
-    results: [
-      RESULT,
-      { ...RESULT, chunk_id: "c9", doc_id: "d2", doc_title: "Child Safety, Department of — FY 2027 Baseline", page: 4 },
-    ],
-    total: 2,
-    provider: "stub",
-  });
-  render(<MemoryRouter initialEntries={["/search?q=x"]}><Search /></MemoryRouter>);
-
-  // One family card: the best document is the headline, the family identity
-  // lives in the "Part of the …" badge, the sibling waits in a collapsed tray.
-  await waitFor(() =>
-    expect(screen.getByText(/Part of the FY 2027 Baseline/)).toBeInTheDocument(),
-  );
-  expect(screen.getByText(TITLE)).toBeInTheDocument();
-  expect(screen.queryByText(/Child Safety, Department of/)).not.toBeInTheDocument();
-
-  // "Full report" opens the mockup's format chooser (both hand-verified
-  // formats exist for this report) — Linked TOC vs Single File PDF.
-  fireEvent.click(screen.getByRole("button", { name: /full report/i }));
-  const dialog = screen.getByRole("dialog", { name: /open the full report/i });
-  expect(dialog).toBeInTheDocument();
-  expect(screen.getByRole("link", { name: /linked table of contents/i })).toHaveAttribute(
-    "href",
-    "https://www.azjlbc.gov/budget/27baselinelinks.pdf",
-  );
-  expect(screen.getByRole("link", { name: /single file pdf/i })).toHaveAttribute(
+test("full-report links appear only where a hand-verified URL exists", async () => {
+  mount();
+  await screen.findByRole("button", { name: /Fiscal Year 2027:/i });
+  // FY 2027 Baseline has a verified single-file URL.
+  expect(screen.getByRole("link", { name: /full report/i })).toHaveAttribute(
     "href",
     "https://www.azjlbc.gov/budget/27baselinesinglefile.pdf",
   );
-  // Escape closes it, like the mockup.
-  fireEvent.keyDown(document, { key: "Escape" });
-  expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+  // FY 2026's families have none.
+  fireEvent.click(screen.getByRole("button", { name: /Fiscal Year 2026:/i }));
+  const y26card = document.querySelector('[data-year-card="2026"]') as HTMLElement;
+  expect(within(y26card).queryByRole("link", { name: /full report/i })).toBeNull();
 });
 
-// No verified URL for a family -> no button at all. A guessed link behind an
-// "open the report" action would violate the auditability invariants.
-test("families without a known single-file PDF get no full-report link", async () => {
-  vi.spyOn(api, "search").mockResolvedValue({
-    results: [
-      {
-        ...RESULT,
-        doc_id: "d3",
-        doc_title: "FY 2026 Budget Bill (SB 1735)",
-        doc_type: "budget-bill",
-        fiscal_year: 2026,
-        publisher: "legislature",
-      },
-    ],
-    total: 1,
-    provider: "stub",
-  });
-  render(<MemoryRouter initialEntries={["/search?q=x"]}><Search /></MemoryRouter>);
+// --- the publisher chip (folded vocabulary) ---------------------------------
 
-  // A standalone document with no verified report formats and no siblings gets
-  // NO report card at all — no "Part of…" badge, no Full report action.
-  await waitFor(() =>
-    expect(screen.getByText(/FY 2026 Budget Bill \(SB 1735\)/)).toBeInTheDocument(),
-  );
-  expect(screen.queryByText(/part of the/i)).not.toBeInTheDocument();
-  expect(screen.queryByRole("link", { name: /full report/i })).not.toBeInTheDocument();
-  expect(screen.queryByRole("button", { name: /full report/i })).not.toBeInTheDocument();
+test("every row leads with a copper publisher chip in the folded vocabulary", async () => {
+  mount();
+  await screen.findByRole("button", { name: /Fiscal Year 2027:/i });
+  // governor → OSPB on the Executive Budget report row.
+  expect(screen.getByText("FY 2027 Executive Budget").closest(".doc")!
+    .querySelector(".doc-pub")).toHaveTextContent("OSPB");
+  // The folded legislature → JLBC on the budget-bill report row (FY 2026).
+  fireEvent.click(screen.getByRole("button", { name: /Fiscal Year 2026:/i }));
+  const bill = screen.getByText("FY 2026 Budget Bill").closest(".doc")!;
+  expect(bill.querySelector(".doc-pub")).toHaveTextContent("JLBC");
+  // And jlbc → JLBC inside a tray. Scope to FY 2027's card to click ITS button.
+  const y27card = document.querySelector('[data-year-card="2027"]') as HTMLElement;
+  fireEvent.click(within(y27card).getByRole("button", { name: /browse documents/i }));
+  expect(screen.getByText(AHCCCS27).closest(".doc")!.querySelector(".doc-pub")).toHaveTextContent("JLBC");
+  // Nowhere does the page render the OLD vocabulary.
+  expect(document.querySelector(".page-docs")!.textContent).not.toMatch(/AGAO|Governor's Office of|Legislature/);
+});
+
+test("a row with no doc_url renders unlinked, not as a dead link", async () => {
+  mount();
+  const y26 = await screen.findByRole("button", { name: /Fiscal Year 2026:/i });
+  fireEvent.click(y26);
+  // The budget-bill report row has no verified URL and its single document has
+  // none either, so it renders unlinked — the title is there, no <a> wraps it.
+  expect(screen.queryByRole("link", { name: /FY 2026 Budget Bill/ })).toBeNull();
+  expect(screen.getByText("FY 2026 Budget Bill")).toBeInTheDocument();
+});
+
+// --- rail filters -------------------------------------------------------------
+
+/** The rail's filter trigger buttons. Scoped to `.docside` because the year
+ *  CARD toggle buttons ("Fiscal Year 2026: …") would otherwise also match a
+ *  bare /fiscal year/i name query. */
+function railTrigger(name: RegExp) {
+  return within(document.querySelector(".docside") as HTMLElement).getByRole("button", { name });
+}
+
+test("the Document Type filter removes non-matching families", async () => {
+  mount();
+  await screen.findByRole("button", { name: /Fiscal Year 2027:/i });
+  fireEvent.click(railTrigger(/document type/i));
+  fireEvent.click(screen.getByRole("button", { name: /^annual financial report/i }));
+  // Only the AFR family survives, in FY 2026; FY 2027 (no AFR) disappears, and
+  // the trigger tints with the single pick's label.
+  expect(screen.getByRole("button", { name: /annual financial report/i })).toBeInTheDocument();
+  expect(screen.queryByRole("button", { name: /Fiscal Year 2027:/i })).toBeNull();
+  expect(screen.getByText("FY 2026 Annual Financial Report")).toBeInTheDocument();
+  expect(screen.queryByText("FY 2027 Baseline")).toBeNull();
+});
+
+test("the Fiscal Year filter scopes the year cards", async () => {
+  mount();
+  await screen.findByRole("button", { name: /Fiscal Year 2027:/i });
+  fireEvent.click(railTrigger(/fiscal year/i));
+  fireEvent.click(screen.getByRole("button", { name: /^fy 2027/i }));
+  expect(screen.getByRole("button", { name: /Fiscal Year 2027:/i })).toBeInTheDocument();
+  expect(screen.queryByRole("button", { name: /Fiscal Year 2026:/i })).toBeNull();
+});
+
+// --- search: unified collapse + promoted match -------------------------------
+
+test("searching collapses the years into one Results card with promoted matches", async () => {
+  mount();
+  await screen.findByRole("button", { name: /Fiscal Year 2027:/i });
+  fireEvent.change(screen.getByLabelText(/filter documents by agency or keyword/i), {
+    target: { value: "ahcccs" },
+  });
+  // The year cards are gone; ONE Results card holds the AHCCCS matches across
+  // both years, the match promoted to the card top with "Part of" framing.
+  expect(screen.queryByRole("button", { name: /Fiscal Year 2027:/i })).toBeNull();
+  expect(screen.getByText("Results")).toBeInTheDocument();
+  expect(screen.getByText(AHCCCS27)).toBeInTheDocument();
+  expect(screen.getByText(/Part of the FY 2027 Baseline/)).toBeInTheDocument();
+  expect(screen.getByText(/FY 2026 Appropriations Report — AHCCCS/)).toBeInTheDocument();
+});
+
+test("a query in the title matches; non-matching documents are removed", async () => {
+  mount();
+  await screen.findByRole("button", { name: /Fiscal Year 2027:/i });
+  fireEvent.change(screen.getByLabelText(/filter documents by agency or keyword/i), {
+    target: { value: "child safety" },
+  });
+  expect(screen.getByText(/FY 2027 Baseline — Department of Child Safety/)).toBeInTheDocument();
+  expect(screen.queryByText(AHCCCS27)).toBeNull();
+  expect(screen.queryByText(/Department of Education/)).toBeNull();
+});
+
+test("a query matching nothing shows an honest empty state", async () => {
+  mount();
+  await screen.findByRole("button", { name: /Fiscal Year 2027:/i });
+  fireEvent.change(screen.getByLabelText(/filter documents by agency or keyword/i), {
+    target: { value: "zzz-no-such-thing" },
+  });
+  expect(screen.getByText(/no documents match/i)).toBeInTheDocument();
+});
+
+test("clearing the box returns to the year browse", async () => {
+  mount();
+  await screen.findByRole("button", { name: /Fiscal Year 2027:/i });
+  const box = screen.getByLabelText(/filter documents by agency or keyword/i);
+  fireEvent.change(box, { target: { value: "ahcccs" } });
+  expect(screen.getByText("Results")).toBeInTheDocument();
+  fireEvent.click(screen.getByRole("button", { name: /clear search/i }));
+  expect(screen.queryByText("Results")).toBeNull();
+  expect(screen.getByRole("button", { name: /Fiscal Year 2027:/i })).toBeInTheDocument();
+});
+
+// --- the ?q= hand-off ---------------------------------------------------------
+
+test("an arriving ?q= seeds the box and lands in the unified search state", async () => {
+  mount(DOCS, "/search?q=ahcccs");
+  // No year cards; the unified Results state, with the query in the box.
+  await screen.findByText("Results");
+  expect(screen.getByLabelText(/filter documents by agency or keyword/i)).toHaveValue("ahcccs");
+  expect(screen.getByText(AHCCCS27)).toBeInTheDocument();
+});
+
+// --- status line --------------------------------------------------------------
+
+test("the status line reports honest counts", async () => {
+  mount();
+  // 5 reports · 8 documents across all fiscal years.
+  await screen.findByText(/5 reports · 8 documents, across all fiscal years\./i);
+  fireEvent.change(screen.getByLabelText(/filter documents by agency or keyword/i), {
+    target: { value: "ahcccs" },
+  });
+  await screen.findByText(/2 documents across 2 reports, in all fiscal years, matching “ahcccs”\./i);
 });

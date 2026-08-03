@@ -830,6 +830,162 @@ nav.primary{position:relative;padding-right:44px;}
   .page-fiscal-notes .fnstatus{margin-left:0;}
 }
 
+/* ===== page-docs — Budget Documents browse (mockups/budget-documents-browse.html) =====
+ * The 2026-08-03 browse-first rebuild of the Budget Documents page. SOURCE: the
+ * approved interactive mockup at the repo root, which is itself a RE-SCOPE of
+ * this file's own recipes (its header comment: "verbatim …, re-scoped"). So
+ * these rules are that mockup's declarations with the same `.page-docs` prefix
+ * this file applies per the convention at the top — no new values are invented.
+ *
+ * Where each recipe comes FROM (the mockup documents its own borrowing):
+ *   - subhero band          → .page-fiscal-notes's, verbatim
+ *   - rail (.docside/.fgrp/.flbl) + .fside-search + .clr-x
+ *                           → .page-fiscal-notes's rail, verbatim
+ *   - the two named multi-selects (.fctl/.fbtn/.fmenu/.fopt) + .has/.on
+ *                           → the search page's FilterBar dropdown rail
+ *   - .yg year card head    → .page-fiscal-notes's session-card head, plus a
+ *                             toggle (full-width <button> + chevron) the mockup
+ *                             adds; the button resets below are UA-only
+ *   - .grp/.doc/.doc-main/.doc-title/.doc-pill/.ctx/.tray/.grp-more/.grp-full
+ *                           → the search page's report-family recipe
+ *   - .doc-pub (publisher chip)  the ONE new element; the mockup builds it from
+ *                             existing tokens (--copper, --r-pill), one color
+ *                             for every publisher (Destin 2026-08-03)
+ *
+ * NOT ported, and why:
+ *   - the per-card "Sort A to Z" menu (.sortctl/.sortbtn/.sortmenu/.sortopt):
+ *     removed at Destin's direction; documents use one fixed title-A→Z order.
+ *   - the square .doc-ic icon tile on each row: the publisher chip leads instead.
+ */
+
+/* Sub-page hero band — verbatim from .page-fiscal-notes's, re-scoped. */
+.page-docs .subhero{position:relative;overflow:hidden;color:#fff;
+  background:linear-gradient(105deg,rgba(18,21,48,.94) 0%,rgba(20,23,52,.86) 60%,rgba(20,23,52,.78) 100%),url('/capitol-bg.jpg') center 28% / cover no-repeat;}
+.page-docs .subhero .wrap{position:relative;z-index:2;padding:32px 22px 34px;}
+.page-docs .subhero h1{font-size:clamp(24px,3.2vw,34px);font-weight:800;letter-spacing:-.4px;}
+.page-docs .subhero .lead{margin:10px 0 0;font-size:clamp(14px,1.5vw,16.5px);color:#d9dcf2;font-weight:600;max-width:66ch;line-height:1.5;min-height:3em;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;}
+.page-docs .subhero .chips{display:flex;flex-wrap:wrap;gap:8px;margin-top:16px;min-height:31px;}
+.page-docs .subhero .chip{display:inline-flex;align-items:center;gap:7px;background:rgba(255,255,255,.1);border:1px solid rgba(255,255,255,.2);border-radius:var(--r-pill);padding:6px 13px;font-size:12.5px;font-weight:700;color:#eef0fb;}
+.page-docs .subhero .chip svg{width:14px;height:14px;color:#9fc4ee;flex:0 0 auto;}
+
+/* ===== layout: filter rail + year cards ===== */
+.page-docs .wrap.docwrap{display:block;padding:28px 22px 22px;}
+.page-docs .doclayout{display:grid;grid-template-columns:248px 1fr;gap:var(--gap);align-items:start;}
+/* Sticky offset is 100px, not the mockup's 84 — the fiscal rail uses 100 and
+   the real sticky header is that tall. */
+.page-docs .docside{background:#fff;border:1px solid var(--line);border-radius:var(--r-lg);box-shadow:var(--shadow-sm);padding:8px;position:sticky;top:100px;}
+.page-docs .docside .fgrp{padding:8px 8px 14px;}
+.page-docs .docside .fgrp+.fgrp{border-top:1px solid var(--line);}
+.page-docs .docside .flbl{font-size:11px;font-weight:800;text-transform:uppercase;letter-spacing:.08em;color:var(--ink-3);padding:6px 8px 8px;display:block;}
+.page-docs .docmain{display:flex;flex-direction:column;gap:var(--gap);min-width:0;}
+/* The year card hosts .grp tiles, so it gets the results-panel padding, not
+   overflow:hidden + a flush list (mockup comment). */
+.page-docs .yg{background:#fff;border:1px solid var(--line);border-radius:var(--r-lg);box-shadow:var(--shadow-sm);overflow:hidden;}
+
+/* ===== rail: search box — .fside-search + .clr-x, verbatim ===== */
+.page-docs .fside-search{display:flex;align-items:center;gap:8px;background:var(--canvas);border:1px solid var(--line);border-radius:var(--r-pill);padding:8px 12px;margin:2px 4px 6px;}
+.page-docs .fside-search:focus-within{border-color:var(--navy);background:#fff;box-shadow:0 0 0 3px var(--navy-100);}
+.page-docs .fside-search svg{width:16px;height:16px;color:var(--ink-3);}
+.page-docs .fside-search input{border:0;background:transparent;outline:0;font-family:inherit;font-size:13.5px;flex:1;min-width:0;color:var(--ink);}
+.page-docs .clr-x{flex:0 0 auto;display:none;align-items:center;justify-content:center;width:24px;height:24px;border-radius:50%;border:1px solid var(--line);background:#fff;color:var(--ink-2);cursor:pointer;padding:0;transition:background .14s,color .14s,border-color .14s,transform .08s;}
+.page-docs .clr-x:hover{background:var(--navy-100);color:var(--navy);border-color:var(--navy);}
+.page-docs .clr-x:active{transform:scale(.88);}
+.page-docs .clr-x svg{width:13px;height:13px;}
+.page-docs .clr-x.show{display:inline-flex;}
+
+/* ===== rail: the two named multi-select dropdowns (the FilterBar recipe) ===== */
+.page-docs .fctl{position:relative;margin:0 4px;}
+.page-docs .fbtn{display:flex;align-items:center;gap:7px;width:100%;cursor:pointer;font-family:inherit;font-size:12.5px;font-weight:800;color:var(--ink-2);background:var(--canvas);border:1.5px solid var(--line);border-radius:var(--r-pill);padding:8px 13px;white-space:nowrap;transition:.14s;}
+.page-docs .fbtn:hover{border-color:var(--az-gold);color:var(--az-gold-d);}
+.page-docs .fbtn.has{background:var(--az-gold-100);border-color:var(--az-gold);color:var(--az-gold-d);}
+.page-docs .fbtn .fb-label{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;text-align:left;}
+.page-docs .fbtn .chev{flex:0 0 auto;width:10px;height:6px;opacity:.7;transition:transform .2s;}
+.page-docs .fbtn[aria-expanded="true"] .chev{transform:rotate(180deg);}
+.page-docs .fmenu{position:absolute;top:100%;left:0;right:0;margin-top:6px;background:#fff;border:1px solid var(--line);border-radius:var(--r-md);box-shadow:var(--shadow);padding:6px;z-index:30;max-height:264px;overflow-y:auto;}
+.page-docs .fopt{display:flex;align-items:center;gap:10px;width:100%;text-align:left;font-family:inherit;font-size:13.5px;font-weight:700;color:var(--ink-2);padding:9px 12px;border-radius:var(--r-sm);cursor:pointer;white-space:nowrap;background:transparent;border:0;}
+.page-docs .fopt:hover{background:var(--canvas);color:var(--navy);}
+.page-docs .fopt.on{background:var(--az-gold-100);color:var(--az-gold-d);}
+.page-docs .fopt .ck{flex:0 0 16px;width:16px;height:16px;border-radius:5px;border:1.5px solid var(--line);display:grid;place-items:center;background:#fff;}
+.page-docs .fopt.on .ck{border-color:var(--az-gold);background:var(--az-gold);}
+.page-docs .fopt .ck svg{width:10px;height:10px;color:#fff;opacity:0;}
+.page-docs .fopt.on .ck svg{opacity:1;}
+.page-docs .fopt .fopt-n{margin-left:auto;font-size:11px;font-weight:800;color:var(--ink-3);}
+
+/* ===== year card head — a full-width <button> that expands/collapses ===== */
+.page-docs .yg-head{display:flex;align-items:center;gap:12px;width:100%;padding:15px 18px;background:transparent;border:0;border-bottom:1px solid transparent;font-family:inherit;cursor:pointer;text-align:left;transition:background .14s;}
+.page-docs .yg-head:hover{background:#fafafe;}
+.page-docs .yg-head:focus-visible{outline:2px solid var(--navy);outline-offset:-2px;border-radius:var(--r-lg) var(--r-lg) 0 0;}
+/* The hairline only shows once the card is open (a collapsed card has no body
+   to separate from). */
+.page-docs .yg-open .yg-head{border-bottom-color:var(--line);}
+/* The static (non-toggle) head on the unified "Results" card: same look, no
+   button affordance. */
+.page-docs .yg-head-static{display:flex;align-items:center;gap:12px;padding:15px 18px;border-bottom:1px solid var(--line);}
+.page-docs .yg-ttl{display:flex;flex-direction:column;gap:2px;min-width:0;flex:1;}
+.page-docs .yg-yr{font-size:18px;font-weight:800;color:var(--navy);}
+.page-docs .yg-meta{font-size:12.5px;font-weight:700;color:var(--ink-3);}
+.page-docs .yg-chev{flex:0 0 auto;width:18px;height:18px;color:var(--ink-3);transition:transform .18s;}
+.page-docs .yg-head:hover .yg-chev{color:var(--az-gold-d);}
+.page-docs .yg-chev.open{transform:rotate(180deg);}
+.page-docs .yg-body{padding:2px 0 0;}
+
+/* ===== report-family cards — the search page's .grp recipe ===== */
+.page-docs .grp{margin:12px 14px 0;border:1px solid var(--line);border-radius:var(--r-lg);overflow:hidden;box-shadow:var(--shadow-sm);}
+.page-docs .doc{display:flex;align-items:center;gap:15px;padding:14px 22px;border-bottom:1px solid var(--line);transition:background .15s;color:inherit;}
+.page-docs .doc:last-child{border-bottom:0;}
+.page-docs .doc:hover{background:#fafafe;text-decoration:none;}
+.page-docs .grp>.doc{border-bottom:0;}
+.page-docs .doc-main{flex:1;min-width:0;}
+.page-docs .doc-title{display:block;font-size:15.5px;font-weight:700;color:var(--navy);}
+.page-docs .doc:hover .doc-title{color:var(--az-gold-d);}
+.page-docs .doc-sub{display:block;font-size:13px;color:var(--ink-3);font-weight:600;margin-top:2px;}
+.page-docs .doc-pill{flex:0 0 auto;display:inline-flex;align-items:center;gap:7px;font-size:12px;font-weight:800;color:var(--ink-2);background:var(--canvas);border:1px solid var(--line);border-radius:var(--r-pill);padding:6px 13px;white-space:nowrap;}
+.page-docs .doc:hover .doc-pill{border-color:var(--az-gold);color:var(--az-gold-d);}
+.page-docs .doc-pill svg{width:13px;height:13px;}
+/* The publisher chip leads the row (one copper color for every publisher). */
+.page-docs .doc-pub{flex:0 0 auto;font-size:10.5px;font-weight:800;color:#fff;background:var(--copper);border-radius:var(--r-pill);padding:3px 10px;letter-spacing:.05em;text-transform:uppercase;}
+/* A row with no verified doc_url renders unlinked — same hover-neutralization
+   as the search page's .doc-unlinked. */
+.page-docs .doc.doc-unlinked:hover{background:transparent;}
+.page-docs .doc.doc-unlinked:hover .doc-title{color:var(--navy);}
+.page-docs .doc.doc-unlinked:hover .doc-pill{border-color:var(--line);color:var(--ink-2);}
+.page-docs .doc.doc-unlinked{cursor:default;}
+
+/* dashed context box + collapse tray + full-report button (verbatim) */
+.page-docs .ctx{margin:0 14px 14px;border:1px dashed #cdd3e6;border-radius:var(--r-md);background:#fafbff;}
+.page-docs .ctx-row{display:flex;align-items:center;gap:10px;padding:11px 14px;flex-wrap:wrap;}
+.page-docs .ctx-row .badge{display:inline-flex;align-items:center;gap:7px;font-size:12.5px;font-weight:800;color:var(--navy);}
+.page-docs .ctx-row .badge svg{width:15px;height:15px;color:var(--az-gold-d);flex:0 0 auto;}
+.page-docs .ctx-row .spacer{flex:1;}
+.page-docs .ctx .tray{display:none;border-top:1px dashed #cdd3e6;}
+.page-docs .ctx .tray.open{display:block;}
+.page-docs .ctx .tray .doc{padding:11px 14px;}
+.page-docs .ctx .tray .doc:not(:last-child){border-bottom:1px dashed #e3e7f1;}
+.page-docs .grp-more{display:inline-flex;align-items:center;gap:6px;font-size:12px;font-weight:800;color:var(--ink-2);background:var(--card);border:1px solid var(--line);border-radius:var(--r-pill);padding:6px 13px;cursor:pointer;white-space:nowrap;font-family:inherit;}
+.page-docs .grp-more svg{width:13px;height:13px;transition:transform .18s;}
+.page-docs .grp-more:hover{border-color:var(--az-gold);color:var(--az-gold-d);}
+.page-docs .grp-more.open svg{transform:rotate(180deg);}
+.page-docs .grp-full{display:inline-flex;align-items:center;gap:6px;font-size:12px;font-weight:800;border-radius:var(--r-pill);padding:6px 13px;cursor:pointer;white-space:nowrap;background:var(--az-gold);border:1px solid var(--az-gold);color:#fff;text-decoration:none;}
+.page-docs .grp-full svg{width:13px;height:13px;transition:transform .18s;}
+.page-docs .grp-full:hover{background:var(--az-gold-d);color:#fff;text-decoration:none;}
+/* The empty-state line inside a .yg card — the search page's .empty recipe. */
+.page-docs .empty{padding:20px 22px;font-size:14px;font-weight:600;color:var(--ink-2);}
+/* The error Retry pill reuses the fiscal notes page's standalone action. */
+.page-docs .allbar{display:flex;justify-content:center;padding:2px 0;}
+.page-docs .allbtn{display:inline-flex;align-items:center;gap:9px;cursor:pointer;font-size:13.5px;font-weight:800;color:var(--az-gold-d);background:#fff;border:1px solid var(--az-gold-100);border-radius:var(--r-pill);padding:11px 20px;box-shadow:var(--shadow-sm);transition:.14s;font-family:inherit;}
+.page-docs .allbtn:hover{border-color:var(--az-gold);background:var(--az-gold-100);}
+
+/* ===== status note — .fnnote, above the grid, indented to the results column ===== */
+.page-docs .fnnote{font-size:12.5px;font-weight:700;color:var(--ink-3);margin:0;}
+.page-docs .docstatus{padding:0 2px;margin:0 0 12px calc(248px + var(--gap));}
+.page-docs .docstatus .err{color:var(--az-red);}
+
+@media (max-width:860px){
+  .page-docs .doclayout{grid-template-columns:1fr;}
+  .page-docs .docside{position:static;}
+  .page-docs .docstatus{margin-left:0;}
+}
+
 /* ===== Settings stub (replaced by the real Settings surface in Plan 5) =====
    No mockup counterpart exists yet, so this borrows the mockup's `.card` panel above
    and reuses existing mockup values: the 34px/12px page padding from home's

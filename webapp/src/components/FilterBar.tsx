@@ -22,18 +22,28 @@ import { FILTER_BUCKETS } from "../reportFamilies";
 
 export type FilterKey = "publisher" | "fiscal_year" | "doc_type";
 
-// The corpus's four publishers, from data/ingest-plan.yaml (`publisher:`
-// values). Fixed list — not dependent on what a search returned.
+// The corpus's publisher CODES, from data/ingest-plan.yaml (`publisher:`
+// values). The stored codes are unchanged — changing them would be a re-tag of
+// every ingested document and the ingest plan. What changed (Destin, 2026-08-03)
+// is only the LABEL each code displays as: the Governor's Office of Strategic
+// Planning & Budgeting publishes the Executive Budget ("governor" → OSPB), the
+// General Accounting Office publishes the AFR ("agao" → GAO), and the separate
+// "legislature" code is folded into JLBC — the budget bills it tagged are JLBC
+// products in this corpus. Displayed as three chips: JLBC · OSPB · GAO.
 const PUBLISHERS: { value: string; label: string }[] = [
   { value: "jlbc", label: "JLBC" },
-  { value: "governor", label: "Governor" },
-  { value: "agao", label: "AGAO" },
-  { value: "legislature", label: "Legislature" },
+  { value: "governor", label: "OSPB" },
+  { value: "agao", label: "GAO" },
+  { value: "legislature", label: "JLBC" },
 ];
 
-/** The label for a publisher code, so result surfaces and filter menus can
- *  never disagree about what "agao" is called. An unknown code falls through
- *  to itself rather than being hidden or guessed at. */
+/** The DISPLAY label for a stored publisher code, so result surfaces and
+ *  filter menus can never disagree about what "agao" is called.
+ *
+ *  Two codes map to JLBC ("jlbc" and the folded "legislature") — this is a
+ *  display fold, not a data change: the stored code is untouched, only what
+ *  the reader sees. An unknown code falls through to itself rather than being
+ *  hidden or guessed at (an honest raw code beats an invented label). */
 export function publisherLabel(value: string): string {
   return PUBLISHERS.find((p) => p.value === value)?.label ?? value;
 }
