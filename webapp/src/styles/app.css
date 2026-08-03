@@ -64,7 +64,6 @@ nav.primary{flex:1 1 auto;display:flex;flex-wrap:nowrap;align-items:center;justi
    moved one level down. Must stay AFTER the :hover rule above — equal specificity,
    so source order is what keeps the active pill from graying out on hover. */
 .nav-item>a.active{background:var(--az-gold);color:#fff;}
-.home-ic{width:18px;height:18px;display:block;}
 
 /* New (Destin, 2026-07-31): the AI Mode pill sits APART from the corpus pills,
    pinned to the right end of the nav.
@@ -80,8 +79,158 @@ nav.primary{flex:1 1 auto;display:flex;flex-wrap:nowrap;align-items:center;justi
    contains the logo, so `right:0` there would be the same edge by accident
    rather than by intent). */
 nav.primary{position:relative;padding-right:44px;}
-.nav-item.nav-ai{position:absolute;right:0;top:50%;transform:translateY(-50%);}
-.ai-ic{width:19px;height:19px;display:block;}
+/* overflow:visible so the orbiting spark is not clipped at the far point of
+   its arc, where it reaches the edge of the 24-unit box. */
+.ai-ic{width:19px;height:19px;display:block;overflow:visible;}
+
+/* ----- AI Mode pill --------------------------------------------------------
+   It sits BETWEEN the two corpus pills now (2026-08-02) — it is the thing you
+   do WITH either corpus, and being flanked says that better than the old
+   absolute-right slot said "stands apart".
+
+   gap:0 because the label supplies its own margin as it opens; the inherited
+   6px would otherwise reserve a gap around a zero-width span and leave the
+   collapsed pill lopsided. */
+.nav-item.nav-ai{
+  /* One set of numbers for the whole transition, because the spark and the
+     label are one gesture and were previously two: .5s against .3s, a spring
+     against an ease, and an opacity that finished before either. Tuned here
+     and nowhere else. */
+  --ai-throw:.62s;          /* the spark's arc */
+  --ai-roll:.5s;            /* the label opening or closing */
+  --ai-lead:.09s;           /* the stagger between them */
+  --ai-ease:cubic-bezier(.22,1,.36,1);        /* long, quiet settle */
+  --ai-ease-throw:cubic-bezier(.32,1.06,.4,1);/* the same, with a hair of overshoot */
+  /* The label wants its motion spread through the MIDDLE. --ai-ease is an
+     ease-out: it is 80% travelled by a third of the way, which on a reveal
+     reads as a pop however long the duration is. */
+  --ai-ease-roll:cubic-bezier(.45,.05,.25,1);
+}
+.nav-item.nav-ai>a{gap:0;}
+/* The label rolls out only when active. max-width rather than width so the
+   open state does not have to know how wide "AI Mode" renders in whatever font
+   actually loaded — the mockup names Nunito but ships no webfont, so this text
+   is Nunito on some machines and Segoe UI on the rest. */
+/* IT ROLLS TO THE TEXT'S OWN WIDTH — 0fr to 1fr on a one-column grid — and NOT
+   from max-width:0 to a guessed maximum. That guess is what made this pop
+   instead of roll (Destin, 2026-08-02: "still feels more pop in than roll
+   out"), and the reason is arithmetic rather than easing:
+
+   the label's natural width is ~4em, so animating max-width to 7em spent the
+   first ~60% of the travel revealing text and the remaining 40% growing a
+   limit nothing was hitting. With an ease-out curve front-loading the motion
+   on top of that, the reveal finished inside the first fifth of the duration.
+   Slowing it only lengthened the dead half.
+
+   The guess could not simply be tightened, either: the mockup names Nunito and
+   ships no webfont (see tokens.css), so this text is Nunito on some machines
+   and Segoe UI on the rest. A max-width tuned to one clips the label on the
+   other, and a clipped label is worse than a fast one. `1fr` resolves to
+   whatever the text actually measures, on every machine, with no JS.
+
+   `.nav-ai-text-inner` is what gets clipped; the grid track is what animates. */
+.nav-ai-text{display:grid;grid-template-columns:0fr;align-items:center;opacity:0;margin-left:0;
+  transition:
+    grid-template-columns var(--ai-roll) var(--ai-ease-roll),
+    margin-left var(--ai-roll) var(--ai-ease-roll),
+    /* Short and linear: the CLIP is the animation now, so the fade only takes
+       the hard edge off it. Eased, at this size, it reads as a flicker. */
+    opacity calc(var(--ai-roll) * .35) linear;}
+.nav-ai-text-inner{min-width:0;overflow:hidden;white-space:nowrap;}
+/* ON: the switch throws, THEN the label follows it out. */
+.nav-item.nav-ai>a.active .nav-ai-text{grid-template-columns:1fr;opacity:1;margin-left:7px;
+  transition-delay:var(--ai-lead);}
+/* The spark is the icon's second state, and it ARCS between them like a switch
+   being thrown: down-right for off, up-right for on.
+
+   ONE rotation does all of it, which is why this is a rotate and not a
+   translate. The spark ORBITS the star's centre, so its path is a circular arc
+   bowing out to the right — the travel Destin asked for — and because the whole
+   group turns, the plus twists as it goes. A translate could only ever slide it
+   up a straight line, which is what the previous version did and what read as
+   "disappears and reappears" rather than movement.
+
+   Exactly 90deg, not an angle chosen for position. The spark is a PLUS, which
+   is 4-fold symmetric, so a quarter turn leaves both resting poses looking
+   identically upright while the sweep through 45deg — where a plus reads as an
+   x — is what makes the twist visible. Any other angle would leave the icon
+   sitting subtly crooked at one end of its travel.
+
+   Geometry: origin (12, 11.5) is the star's centre, the spark is drawn at
+   (19, 5), so the orbit radius is ~9.6 user units and the arc's far point sits
+   near the right edge of the 24-unit box. `.ai-ic{overflow:visible}` is what
+   keeps the arms and their round caps from being clipped there — an SVG root
+   clips to its viewport by default.
+
+   transform-box/origin are explicit because browsers have disagreed about the
+   default for SVG children, and the difference here is an orbit about the
+   star's centre versus one about the corner of the viewBox. */
+.nav-ai-spark{transform-box:view-box;transform-origin:12px 11.5px;
+  transition:transform var(--ai-throw) var(--ai-ease-throw);}
+/* OFF: reversed, so it is not the same move played backwards. The label clears
+   out first and the spark swings back into a pill that has already closed —
+   going out the way it came in would have the spark arcing across a word that
+   is still on screen. */
+.nav-item.nav-ai>a .nav-ai-spark{transform:rotate(90deg);transition-delay:var(--ai-lead);}
+.nav-item.nav-ai>a.active .nav-ai-spark{transform:rotate(0deg);transition-delay:0s;}
+@media (prefers-reduced-motion: reduce){
+  /* The states still differ — only the travel between them stops. */
+  .nav-ai-text,.nav-ai-spark{transition:none;}
+}
+
+/* ----- tools menu (Upload / Settings / Admin) ------------------------------
+   Takes the slot AI Mode used to occupy. The trigger reads as selected whenever
+   the page you are on lives inside the menu, so the header never shows an empty
+   active state and leaves the app looking lost. */
+.nav-tools{position:absolute;right:0;top:50%;transform:translateY(-50%);}
+.nav-tools-btn{display:inline-flex;align-items:center;justify-content:center;width:36px;height:36px;
+  padding:0;border:0;border-radius:var(--r-pill);background:transparent;color:var(--ink-2);
+  cursor:pointer;transition:background .15s,color .15s;}
+.nav-tools-btn svg{width:19px;height:19px;display:block;}
+.nav-tools-btn:hover{background:var(--navy-100);color:var(--navy);}
+.nav-tools-btn.is-current{background:var(--az-gold);color:#fff;}
+.nav-tools-btn.is-current:hover{background:var(--az-gold);color:#fff;}
+
+.nav-tools-pop{position:absolute;top:calc(100% + 8px);right:0;z-index:60;width:268px;
+  background:var(--card);border:1px solid var(--line);border-radius:var(--r-md);
+  box-shadow:var(--shadow);padding:6px;}
+/* BRIDGES THE GAP between the trigger and this popover. Both are absolutely
+   positioned, so those 8px belong to neither and the pointer crossing them is
+   outside `.nav-tools` entirely — `mouseleave` fired and the menu shut before
+   anyone could reach an item. This strip is part of the popover, so the subtree
+   is never left. Invisible and 10px tall (the 8px gap plus slack); it must NOT
+   grow past the trigger or it would swallow clicks meant for it. */
+.nav-tools-pop::before{content:"";position:absolute;left:0;right:0;top:-10px;height:10px;}
+.nav-tools-item{display:flex;align-items:flex-start;gap:11px;padding:9px 10px;border-radius:var(--r-sm);
+  color:var(--ink-2);transition:background .13s,color .13s;}
+.nav-tools-item:hover{text-decoration:none;}
+.nav-tools-ic{flex:0 0 auto;display:flex;width:20px;height:20px;margin-top:1px;}
+.nav-tools-ic svg{width:20px;height:20px;}
+.nav-tools-body{min-width:0;}
+.nav-tools-label{display:block;font-size:13.5px;font-weight:800;color:var(--ink);}
+.nav-tools-hint{display:block;margin-top:1px;font-size:11.5px;line-height:1.4;color:var(--ink-3);font-weight:600;}
+
+/* THE FILL TRAVELS. Where you are is filled at rest; the moment the pointer is
+   in the menu the current item gives its fill up, and whatever is under the
+   cursor takes it. Three rules in this order and no others — the hover rule
+   must come last, because it ties on specificity (0,3,0) with the release rule
+   above it and wins on source order alone. Reordering them silently pins the
+   fill to the current page. */
+.nav-tools-item.is-current{background:var(--az-gold);}
+.nav-tools-item.is-current .nav-tools-label,
+.nav-tools-item.is-current .nav-tools-hint{color:#fff;}
+.nav-tools-pop:hover .nav-tools-item.is-current,
+.nav-tools-pop:focus-within .nav-tools-item.is-current{background:transparent;}
+.nav-tools-pop:hover .nav-tools-item.is-current .nav-tools-label,
+.nav-tools-pop:focus-within .nav-tools-item.is-current .nav-tools-label{color:var(--ink);}
+.nav-tools-pop:hover .nav-tools-item.is-current .nav-tools-hint,
+.nav-tools-pop:focus-within .nav-tools-item.is-current .nav-tools-hint{color:var(--ink-3);}
+.nav-tools-pop .nav-tools-item:hover,
+.nav-tools-pop .nav-tools-item:focus-visible{background:var(--az-gold);}
+.nav-tools-pop .nav-tools-item:hover .nav-tools-label,
+.nav-tools-pop .nav-tools-item:hover .nav-tools-hint,
+.nav-tools-pop .nav-tools-item:focus-visible .nav-tools-label,
+.nav-tools-pop .nav-tools-item:focus-visible .nav-tools-hint{color:#fff;}
 
 /* Deviation: the mockup's `.caret` / `.dropdown` rules are not ported — this app has
    four flat surfaces and no submenus, so that CSS would be dead weight. Lift it from
@@ -110,7 +259,9 @@ nav.primary{position:relative;padding-right:44px;}
      (A `.nav-label` span would be tidier, but the header renders labels as bare
      text nodes and this file does not own that component.) */
   .nav-item>a{font-size:0;padding:7px 8px;}
-  .home-ic,.ai-ic{width:20px;height:20px;}
+  /* The label cannot roll out in a row that has already dropped its text. */
+  .nav-ai-text{display:none;}
+  .ai-ic{width:20px;height:20px;}
   nav.primary{padding-right:38px;}
 }
 
@@ -781,6 +932,13 @@ nav.primary{position:relative;padding-right:44px;}
   /* Same stack the retired app's --font-mono carried, verbatim. */
   --chat-mono: "Cascadia Mono", "Cascadia Code", "Fira Code", "Consolas", "Menlo", monospace;
 
+  /* THE content measure for the AI route. The thread column, the composer,
+     every banner and the band's own content all read this one number — that
+     is what makes the page share a single left edge instead of the three
+     unaligned grids it shipped with (band at 1140, stage full-bleed, thread
+     at a private 768). Layout constant, not palette — S12 unaffected. */
+  --ai-col: 768px;
+
   /* Mascot palette. These are the hex values from the committed reference art
      (specs/assets/2026-05-15-mascot-reference/); the SVG components read them
      as variables so the figure is re-themed in one place. The cap and suit
@@ -799,20 +957,60 @@ nav.primary{position:relative;padding-right:44px;}
 /* ----- thread layout ------------------------------------------------------
    min-height:0 on the outer flex child is load-bearing: without it the
    scrollable child's overflow never engages and the page body scrolls
-   instead. */
-.chat-thread { flex: 1 1 auto; min-height: 0; }
+   instead. position:relative makes this the jump-to-bottom pill's
+   positioning context — it is the scroller's parent, so the pill floats
+   over the scroller's bottom edge regardless of scroll position. */
+.chat-thread { flex: 1 1 auto; min-height: 0; position: relative; }
 /* Asymmetric padding: roomy at the top so scrolled-up history clears the
-   header, tight at the bottom so the newest bubble sits close to the composer. */
-.chat-thread-scroll { height: 100%; overflow-y: auto; padding: 24px 16px 8px; }
+   header. The bottom pads for the floating composer chrome (--ai-bottom-
+   chrome, published by AiModePanel) plus a 12px gap, so the newest bubble
+   clears the chrome instead of sliding under it — this scroller no longer
+   stacks above the composer, the composer floats OVER it (see the floating
+   bottom chrome block below). 120px fallback ≈ tier row + input + footer
+   before the chrome's first real measurement lands. */
+/* overflow-x:hidden is load-bearing, not tidiness: overflow-y:auto silently
+   computes overflow-x:auto, so anything absolutely positioned past the right
+   edge (the 320px citation tooltip was the trigger) spawned a horizontal
+   scrollbar across the whole thread. Same bug .yscroll fixed above. */
+/* Depth comes from the surface ramp (canvas page, card bubbles) — the thread
+   floor goes canvas so white bubbles lift off it without shadows (Task 13). */
+/* TRANSPARENT on purpose — the ground is painted by `.ai-panel-chat` (search
+   "the chat ground" below). Painting `var(--canvas)` here again would cover it
+   completely, and nothing else would look wrong; the gradient would simply
+   stop existing. A contract spec pins this. */
+.chat-thread-scroll { height: 100%; overflow-y: auto; overflow-x: hidden; padding: 24px 16px calc(var(--ai-bottom-chrome, 120px) + 12px); background: transparent; }
+/* NOTHING IN THE TOOLTIP'S ANCESTOR CHAIN MAY DECLARE CSS CONTAINMENT.
+   This scroller briefly carried `container-type: inline-size` (to drive a
+   container query that docked the mascot). That undid the fix two commits
+   earlier: any containment value — `container-type` OR `contain: layout /
+   paint / strict / content` — makes the element a containing block for
+   `position: fixed` descendants. The citation tooltip is fixed-position
+   precisely so it escapes this scroller's overflow clip, and it is a DOM
+   descendant of it, so containment here silently re-clipped it AND made the
+   scroller a stacking context, trapping the tooltip's z-index:80 below the
+   sticky site header (50) and the sub-860 source drawer (60).
+   The tooltip carries `.chat-cite-fail` — the readable reason a citation
+   failed validation — so a clipped tooltip is an Invariant 2 failure, not a
+   cosmetic one. The mascot's dock/undock therefore measures from JavaScript
+   (ChatThread.tsx's ResizeObserver, which reports the same content-box
+   inline size a container query would have) and this stylesheet only
+   supplies the resulting hidden state below. Pinned by
+   chat-css-contract.test.ts, "no ancestor of the citation tooltip declares
+   CSS containment". */
 /* min-height:100% + justify-content:flex-end bottom-anchors the column, so a
    session's first message lands just above the composer and later turns grow
    UPWARD. Also the positioning context for the mascot slot below. */
 .chat-thread-anchor { position: relative; min-height: 100%; display: flex; flex-direction: column; justify-content: flex-end; }
-.chat-thread-column { max-width: 768px; margin: 0 auto; width: 100%; display: flex; flex-direction: column; gap: 20px; }
+/* One rhythm (Task 13): 24px between turns, 8px inside a turn, 4px between
+   stacked tool rows (Task 10). Replaces the 20/4/8 three-source mishmash. */
+.chat-thread-column { max-width: var(--ai-col); margin: 0 auto; width: 100%; display: flex; flex-direction: column; gap: 24px; }
 
 /* Mascot slot — pinned to the bottom-left of the SCROLL CONTENT (not the
    viewport), so it sits beside the newest message and scrolls away with it.
-   right: calc(50% + 400px) = half the 768px column + a 16px gap.
+   The right offset is half the content column plus a 16px gap, written in
+   terms of --ai-col rather than the 400px literal it used to hardcode: the
+   token IS the single content measure, and a literal would desynchronise the
+   mascot the day someone widens the column.
    The per-variant translate() values come from the original and are NOT
    arbitrary: each scene's SVG has a different amount of empty space below and
    to the right of the figure inside its viewBox, and these offsets push each
@@ -820,23 +1018,48 @@ nav.primary{position:relative;padding-right:44px;}
    number and the mascot jumps when the scene swaps.
    pointer-events:none — the typing scene's box overhangs the message column
    by ~38px of transparent SVG, which would otherwise swallow clicks. */
-.chat-mascot-slot { position: absolute; bottom: 0; z-index: 10; right: calc(50% + 400px); pointer-events: none; }
+.chat-mascot-slot { position: absolute; bottom: 0; z-index: 10; right: calc(50% + (var(--ai-col) / 2) + 16px); pointer-events: none; }
 .chat-mascot-slot.is-idle       { transform: translate(5px, 18px); }
 .chat-mascot-slot.is-thinking   { transform: translate(54px, 8px); }
 .chat-mascot-slot.is-presenting { transform: translate(26px, 14px); }
+/* Docked state, applied by ChatThread.tsx when the scroller's measured
+   content-box width drops below MASCOT_DOCK_PX (1084) — i.e. when the column
+   is too narrow to fit the content measure PLUS the mascot beside it (the
+   source panel open, or a narrow window). Without it the figure clips
+   mid-body against the column edge.
+   Hides via the visually-hidden clip recipe, NOT display:none:
+   Mascot/MascotTyping/MascotPresenting's role="img" aria-label is the ONLY
+   place a screen reader learns the assistant is searching/presenting
+   anywhere on this page — there is no aria-live region elsewhere in
+   ChatThread.tsx. display:none removes an element from the accessibility
+   tree outright, so a screen-reader user who narrows the column would
+   silently lose their one status indicator — worse than the clipping bug,
+   which at least left it readable. visibility:hidden is avoided for the same
+   reason (assistive tech treats it as absent, not "hidden but present").
+   Kept beside the .is-* scene rules for readability — it shares no property
+   with them (they only set transform), so nothing here depends on source
+   order. */
+.chat-mascot-slot.is-cramped { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0, 0, 0, 0); white-space: nowrap; border: 0; }
 
 /* ----- turns --------------------------------------------------------------- */
-.chat-turn { display: flex; flex-direction: column; gap: 4px; }
-.chat-bubble { position: relative; background: var(--card); border: 1px solid var(--line); border-radius: var(--r-sm); padding: 8px 14px; color: var(--ink); font-size: 14px; max-width: 65ch; }
-/* The tail is applied ONLY to the newest assistant turn, so one carat points
-   from the mascot to the current message and older bubbles stay tail-less.
-   Two stacked triangles (line colour, then card colour) fake a 1px border
-   along the diagonal. */
-.chat-bubble.has-tail::before { content: ""; position: absolute; left: -9px; top: 12px; width: 0; height: 0; border-style: solid; border-width: 9px 9px 9px 0; border-color: transparent var(--line) transparent transparent; }
-.chat-bubble.has-tail::after  { content: ""; position: absolute; left: -8px; top: 13px; width: 0; height: 0; border-style: solid; border-width: 8px 8px 8px 0; border-color: transparent var(--card) transparent transparent; }
+.chat-turn { display: flex; flex-direction: column; gap: 8px; }
+/* Assistant bubble: 16px radius (token scale) with a 4px "tail" corner on the
+   newest turn — the token-scale version of the speech-bubble idiom (Task 13).
+   The triangle carats this used to grow (see the deleted ::before/::after
+   below in history) hung 9px outside the bubble, which is what forced the
+   mascot translate() dance and read as clip-art next to the mockup's card
+   grammar; a squared corner reads as "this one's newest" without either. */
+.chat-bubble { position: relative; background: var(--card); border: 1px solid var(--line); border-radius: var(--r-md); padding: 10px 16px; color: var(--ink); font-size: 14px; max-width: 65ch; }
+.chat-bubble.has-tail { border-bottom-left-radius: 4px; }
 
 .chat-user-row { display: flex; justify-content: flex-end; }
-.chat-user-bubble { background: var(--az-gold); color: #fff; border-radius: 12px 12px 4px 12px; padding: 8px 14px; max-width: 78%; font-size: 14px; line-height: 1.6; white-space: pre-wrap; }
+/* User bubble: solid navy — the app's own "active/selected" fill, the same
+   one the fiscal-notes bill-number pill and the segmented control's on-state
+   use (.fbill-no, .chseg.on) — not az-gold, which was the retired app's
+   accent-as-user-message colour and the only place outside citations/CTAs
+   that colour was doing double duty as both "action" and "the user" (Task 13).
+   Mirrors the assistant bubble's squared tail corner on the opposite side. */
+.chat-user-bubble { background: var(--navy); color: #fff; border-radius: var(--r-md); border-bottom-right-radius: 4px; padding: 10px 16px; max-width: 78%; font-size: 14px; line-height: 1.6; white-space: pre-wrap; }
 .chat-user-bubble.is-pending { opacity: .7; }
 
 /* Quiet one-liner for ordinary non-"end_turn" stop reasons. */
@@ -848,7 +1071,7 @@ nav.primary{position:relative;padding-right:44px;}
    wrote. Used by SystemHealthBanner and by the max_steps "this answer is
    incomplete" notice — which is exactly why the harness stopped emitting that
    fact as synthetic assistant prose. */
-.chat-notice { border-radius: 10px; border: 1px solid; padding: 8px 12px; font-size: 12px; line-height: 1.5; }
+.chat-notice { border-radius: var(--r-sm); border: 1px solid; padding: 8px 12px; font-size: 12px; line-height: 1.5; }
 .chat-notice strong { font-weight: 800; }
 /* Two severities, because the two notices mean very different things and were
    previously indistinguishable at a glance:
@@ -862,46 +1085,53 @@ nav.primary{position:relative;padding-right:44px;}
 .chat-notice.is-danger { border-color: var(--chat-danger); background: var(--chat-danger-tint); color: var(--chat-danger); }
 .chat-notice-reason { margin-left: 8px; opacity: .75; }
 /* Banner placement — matches the message column so it reads as part of the thread. */
-.chat-notice-banner { max-width: 768px; margin: 12px auto 8px; }
+.chat-notice-banner { max-width: var(--ai-col); margin: 12px auto 8px; }
 
 /* ----- composer ------------------------------------------------------------ */
-.chat-input { max-width: 768px; margin: 0 auto; background: var(--card); border: 1.5px solid var(--line); border-radius: 10px; display: flex; gap: 8px; align-items: flex-end; padding: 6px 8px; }
-.chat-input:focus-within { border-color: var(--az-gold); box-shadow: 0 0 0 3px var(--az-gold-100); }
-.chat-input textarea { flex: 1 1 auto; resize: none; background: transparent; border: none; padding: 8px 12px; color: var(--ink); font-family: var(--font); font-size: 14px; line-height: 1.6; }
-.chat-input textarea:focus { outline: none; }
-.chat-input textarea:disabled { opacity: .5; }
-.chat-send { background: var(--az-gold); color: #fff; border: none; border-radius: 8px; padding: 6px 14px; font-family: var(--font); font-size: 12px; font-weight: 800; cursor: pointer; transition: background .15s, opacity .15s; }
-.chat-send:hover:not(:disabled) { background: var(--az-gold-d); }
-.chat-send:disabled { opacity: .4; cursor: not-allowed; }
+/* ----- welcome (empty thread) -----------------------------------------------
+   RESTORED 2026-08-02. These rules were deleted by accident along with the
+   retired `.chat-input` block, which sat immediately before them — the mascot
+   lost its centring and drifted, and nothing failed, because no spec covered
+   this block. There is one now (chat-css-contract).
 
-/* ----- welcome + suggestions ----------------------------------------------- */
-.chat-welcome { flex: 1 1 auto; display: flex; flex-direction: column; align-items: center; justify-content: center; text-align: center; padding: 32px 24px; gap: 8px; overflow-y: auto; }
-/* Cap the hero mascot; width follows the viewBox ratio so the pixel art never
-   distorts.
-   RE-SIZED with the full-page shell (2026-07-31). The old cap was a flat 55vh,
-   inherited from the retired app where the chat was the ENTIRE window. Here the
-   thread sits below the site header and the page band and above the composer
-   and the footer — about 440px of chrome and greeting text — so 55vh (594px on
-   a 1080px screen) pushed the "Hi — let's look at the budget" line under the
-   fold and made the welcome screen scroll on any laptop.
-   clamp() reads outside-in: never smaller than 150px, otherwise the space
-   actually left over, never larger than 420px. 420 is not a guess — it is
-   MASCOT_DIMENSIONS.hero.height, so he is drawn at most at his natural size and
-   never upscaled. */
-.chat-welcome-mascot { max-height: clamp(150px, calc(100dvh - 440px), 420px); width: auto; margin-bottom: 8px; }
-.chat-welcome h1 { font-size: 28px; font-weight: 800; color: var(--navy); }
-.chat-welcome p { color: var(--ink-2); max-width: 36rem; margin: 0; }
+   Mascot and greeting are a ROW, centred as a group, which is what puts the
+   mascot slightly left of the page's centre line without hardcoding an offset
+   against a character whose art can change size. */
+.chat-welcome { display: flex; flex-direction: row; align-items: center; justify-content: center;
+  flex-wrap: wrap; gap: clamp(4px, 2vw, 20px); padding: 32px 24px; margin: auto; }
+.chat-welcome-mascot { flex: 0 0 auto; max-height: min(420px, 40dvh); width: auto; }
+/* The bubble rides UP from the row's centre line so it sits nearer his head
+   than his knees. Expressed in dvh because the mascot's own height is
+   (min(420px, 40dvh)) — a fixed px nudge would drift out of relation to him on
+   a short viewport, which is exactly when there is least room to be wrong. */
+.chat-welcome-bubble { flex: 0 1 auto; margin: 0 0 clamp(36px, 11dvh, 104px);
+  background: var(--card); border: 1px solid var(--line); border-radius: var(--r-md);
+  border-bottom-left-radius: 4px; box-shadow: var(--shadow-sm);
+  padding: 14px 20px; max-width: 20ch;
+  font-size: clamp(19px, 2.4vw, 26px); font-weight: 800; line-height: 1.25;
+  color: var(--navy); text-wrap: balance; }
+/* Side by side stops working before the column does. Stacked, the squared
+   corner moves to the TOP left so it still points at the mascot — a tail
+   aimed at nothing is worse than no tail. */
+@media (max-width: 560px) {
+  .chat-welcome { flex-direction: column; }
+  .chat-welcome-bubble { margin: 0; text-align: center;
+    border-bottom-left-radius: var(--r-md); border-top-left-radius: 4px; }
+}
 
-/* overflow-x:auto gives the chip row native two-finger horizontal scroll; the
-   inner row is width:fit-content + auto margins so it CENTERS while it fits
-   and scrolls once it doesn't. */
-.chat-suggestions { overflow-x: auto; }
+.chat-suggestions { overflow-x: auto; padding-bottom: 8px; }
 .chat-suggestions-row { display: flex; flex-direction: row; gap: 8px; padding: 8px 16px 4px; margin: 0 auto; width: fit-content; }
 .chat-suggestion { flex-shrink: 0; white-space: nowrap; border-radius: var(--r-pill); border: 1px solid var(--line); background: var(--card); padding: 6px 12px; font-family: var(--font); font-size: 12px; color: var(--ink); cursor: pointer; transition: border-color .15s, color .15s; }
-.chat-suggestion:hover { border-color: var(--az-gold); color: var(--az-gold); }
+/* Hover language (Task 13): azure border + -d text, the same recipe every
+   pill on the browse pages uses — not the opacity fades this surface used to
+   carry, which appear nowhere else in the app. */
+.chat-suggestion:hover { border-color: var(--az-gold); color: var(--az-gold-d); }
 
 /* ----- footer -------------------------------------------------------------- */
-.chat-footer { flex-shrink: 0; border-top: 1px solid var(--line); background: var(--card); padding: 0 16px; min-height: 26px; display: flex; align-items: center; justify-content: space-between; gap: 12px; font-size: 11px; color: var(--ink-3); }
+/* One 11px muted line inside the floating chrome — the separate white banded
+   footer read as page chrome on a page that has none. Content unchanged:
+   the honesty sentence is Core Invariant 5 territory. */
+.chat-footer { flex-shrink: 0; border: 0; background: none; padding: 2px 16px 8px; min-height: 0; display: flex; align-items: center; justify-content: center; flex-wrap: wrap; column-gap: 12px; font-size: 11px; color: var(--ink-3); max-width: var(--ai-col); margin: 0 auto; }
 .chat-footer-status { display: flex; align-items: center; gap: 8px; }
 .chat-footer-dot { display: inline-block; width: 8px; height: 8px; border-radius: 50%; }
 
@@ -912,18 +1142,40 @@ nav.primary{position:relative;padding-right:44px;}
 .chat-cite-wrap { position: relative; display: inline; }
 .chat-cite-pill-wrap { position: relative; display: inline-block; vertical-align: baseline; }
 .chat-cite-inline { display: inline; cursor: pointer; color: var(--ink); background: none; border: none; padding: 0; font: inherit; text-underline-offset: 2px; }
-.chat-cite-inline:hover { opacity: .8; }
+/* Hover language (Task 13): azure tint, matching the app's other pill hovers. */
+.chat-cite-inline:hover { opacity: 1; background: var(--az-gold-100); }
 .chat-cite-inline.is-verbatim   { text-decoration: underline solid 1px var(--az-gold); }
 .chat-cite-inline.is-paraphrase { text-decoration: underline dashed 1px var(--ink-3); }
 .chat-cite-inline.is-failed     { text-decoration: underline wavy 1px var(--chat-danger); }
+/* WHY: the hover rule above applies to every .chat-cite-inline, including a
+   failed one — without this override, hovering a citation whose validation
+   FAILED painted the app's success-colored azure tint behind its red wavy
+   underline, i.e. it looked "fine" on hover. A failed citation must never
+   look reassuring. Three classes + :hover outranks the two-class base hover
+   rule on specificity alone, so this wins regardless of source order — reuse
+   the same --chat-danger-tint token the failed pill/tool/notice states
+   already use, not a new color. */
+.chat-cite-inline.is-failed:hover { background: var(--chat-danger-tint); }
+/* 4px radius on both is a deliberate exemption from the Task 13 token sweep
+   (16/12/pill), not a leftover — these are ~14-16px-tall inline chips, too
+   small for --r-sm (12px) to read as rounded at all. */
 .chat-cite-sup { margin-left: 2px; padding: 1px 4px; font-size: 9px; font-weight: 700; border-radius: 4px; border: 1px solid; vertical-align: super; }
 .chat-cite-pill { display: inline-flex; align-items: center; gap: 4px; padding: 1px 6px; font-size: 10px; font-weight: 700; border-radius: 4px; border: 1px solid; cursor: pointer; font-family: var(--font); transition: opacity .15s; }
-.chat-cite-pill:hover { opacity: .8; }
+/* Hover language (Task 13): azure border, matching .chat-cite-inline above. */
+.chat-cite-pill:hover { opacity: 1; border-color: var(--az-gold); }
 .chat-cite-sup.is-verbatim,   .chat-cite-pill.is-verbatim   { background: var(--az-gold-100); color: var(--az-gold-d); border-color: var(--az-gold); }
 .chat-cite-sup.is-paraphrase, .chat-cite-pill.is-paraphrase { background: var(--navy-100); color: var(--ink-2); border-color: var(--line); }
 .chat-cite-sup.is-failed,     .chat-cite-pill.is-failed     { background: var(--chat-danger-tint); color: var(--chat-danger); border-color: var(--chat-danger); text-decoration: line-through; }
 
-.chat-cite-tooltip { position: absolute; bottom: calc(100% + 4px); left: 0; z-index: 50; width: 320px; border-radius: 10px; border: 1px solid var(--line); background: var(--card); box-shadow: var(--shadow); padding: 12px; font-size: 12px; color: var(--ink); cursor: default; text-align: left; }
+/* position:fixed, coords supplied inline by CitationChip at open time. The
+   tooltip stays a DOM child of the hover span (portal would break the
+   mouseleave hand-off to "Copy citation") but fixed positioning takes it out
+   of the thread scroller's clip — a chip on the first visible line used to
+   have its tooltip decapitated by overflow, and a right-edge chip spawned a
+   horizontal scrollbar. z-index:80 clears the sticky site header (50) and
+   the PDF drawer (60) — a fixed element competes with page chrome, not just
+   thread content. */
+.chat-cite-tooltip { position: fixed; z-index: 80; width: 320px; border-radius: var(--r-sm); border: 1px solid var(--line); background: var(--card); box-shadow: var(--shadow); padding: 12px; font-size: 12px; color: var(--ink); cursor: default; text-align: left; }
 .chat-cite-tooltip-head { display: flex; align-items: center; gap: 8px; margin-bottom: 8px; }
 .chat-cite-tooltip-index { font-weight: 800; }
 .chat-cite-tooltip-title { color: var(--ink-2); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
@@ -935,7 +1187,7 @@ nav.primary{position:relative;padding-right:44px;}
 .chat-cite-claim { color: var(--ink-3); font-size: 10px; margin-bottom: 8px; }
 .chat-cite-claim-label { text-transform: uppercase; letter-spacing: .06em; }
 .chat-cite-claim em { color: var(--ink-2); }
-.chat-cite-copy { width: 100%; font-size: 10px; text-transform: uppercase; letter-spacing: .06em; border-radius: 6px; border: 1px solid var(--line); background: var(--navy-100); color: var(--ink-2); padding: 4px; cursor: pointer; }
+.chat-cite-copy { width: 100%; font-size: 10px; text-transform: uppercase; letter-spacing: .06em; border-radius: var(--r-pill); border: 1px solid var(--line); background: var(--navy-100); color: var(--ink-2); padding: 4px; cursor: pointer; }
 .chat-cite-copy:hover { background: var(--az-gold-100); }
 
 /* A brief pop confirms the click registered and the source panel is opening. */
@@ -967,8 +1219,17 @@ nav.primary{position:relative;padding-right:44px;}
 .chat-md a { color: var(--navy); text-decoration: underline; }
 .chat-md a:hover { color: var(--navy-700); }
 .chat-md code { font-family: var(--chat-mono); font-size: 13px; color: var(--copper); }
-.chat-md pre { border-radius: 10px; background: var(--canvas); border: 1px solid var(--line); padding: 12px; overflow-x: auto; font-size: 13px; margin: 0; }
+.chat-md pre { border-radius: var(--r-sm); background: var(--canvas); border: 1px solid var(--line); padding: 12px; overflow-x: auto; font-size: 13px; margin: 0; }
 .chat-md pre code { color: inherit; }
+/* Syntax highlighting in the house palette — replaces the GitHub theme
+   import, which was a fifth color source on this page. Code is rare in
+   budget answers; this covers the common token classes and lets the rest
+   inherit the pre block's ink. */
+.chat-md .hljs-keyword, .chat-md .hljs-selector-tag, .chat-md .hljs-built_in { color: var(--navy); font-weight: 700; }
+.chat-md .hljs-string, .chat-md .hljs-attr { color: var(--teal); }
+.chat-md .hljs-number, .chat-md .hljs-literal { color: var(--copper); }
+.chat-md .hljs-comment { color: var(--ink-3); font-style: italic; }
+.chat-md .hljs-title, .chat-md .hljs-function { color: var(--az-gold-d); }
 .chat-md-pre-wrap { position: relative; margin: 12px 0; }
 .chat-md-table-wrap { overflow-x: auto; margin: 12px 0; }
 .chat-md table { border-collapse: collapse; font-size: 14px; width: 100%; }
@@ -976,21 +1237,48 @@ nav.primary{position:relative;padding-right:44px;}
 .chat-md th { background: var(--navy-100); text-align: left; font-weight: 800; color: var(--navy); }
 /* The copy button only appears on hover over its own code block — or on
    keyboard focus, so it is reachable without a pointer. */
-.chat-md-copy { position: absolute; top: 8px; right: 8px; padding: 4px 8px; font-size: 11px; border-radius: 6px; border: 1px solid var(--line); background: var(--card); color: var(--ink-2); cursor: pointer; opacity: 0; transition: opacity .15s; }
+.chat-md-copy { position: absolute; top: 8px; right: 8px; padding: 4px 8px; font-size: 11px; border-radius: var(--r-pill); border: 1px solid var(--line); background: var(--card); color: var(--ink-2); cursor: pointer; opacity: 0; transition: opacity .15s; }
 .chat-md-pre-wrap:hover .chat-md-copy, .chat-md-copy:focus-visible { opacity: 1; }
 
-/* ----- tool cards ----------------------------------------------------------- */
-.chat-tool { border-radius: var(--r-sm); border: 1px solid var(--line); background: var(--card); margin: 8px 0; overflow: hidden; }
-/* A failed tool is the case worth shouting about; the left border catches the
-   eye even when the 12px glyph does not. */
-.chat-tool.is-failed { border-left: 2px solid var(--chat-danger); }
-.chat-tool-head { width: 100%; display: flex; align-items: center; gap: 8px; padding: 8px 12px; font-size: 14px; color: var(--ink-2); background: var(--card); border: none; cursor: pointer; text-align: left; transition: background .15s; }
+/* ----- tool rows -------------------------------------------------------------
+   ~30px single-line rows, not cards: 12.5px type (below the 14px prose so the
+   row reads as an annotation, not a competing message), neutral glyph, friendly
+   label + truncated detail, chevron. The row shares the prose measure — a
+   supporting artifact must never be wider than the answer it supports. */
+.chat-tool { border-radius: var(--r-sm); border: 1px solid var(--line); background: var(--card); max-width: 65ch; overflow: hidden; }
+.chat-tool.is-failed { border-color: var(--chat-danger); }
+.chat-tool.is-inset { background: var(--canvas); }
+.chat-tool-head { width: 100%; display: flex; align-items: center; gap: 8px; padding: 6px 12px; font-size: 12.5px; color: var(--ink-2); background: none; border: none; cursor: pointer; text-align: left; transition: background .15s; }
 .chat-tool-head:hover { background: var(--navy-100); }
-.chat-tool-glyph { flex-shrink: 0; }
-.chat-tool-label { font-weight: 800; color: var(--ink); flex-shrink: 0; }
-.chat-tool-summary { color: var(--ink-3); font-size: 12px; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.chat-tool-toggle { margin-left: auto; font-family: var(--chat-mono); color: var(--ink-3); font-size: 12px; user-select: none; flex-shrink: 0; }
+.chat-tool-glyph { flex-shrink: 0; color: var(--ink-3); }
+.chat-tool.is-failed .chat-tool-glyph, .chat-tool.is-failed .chat-tool-label { color: var(--chat-danger); }
+.chat-tool-label { font-weight: 700; color: var(--ink-2); flex-shrink: 0; }
+/* The ↳ marks the detail as subordinate to the label — YouCoded's idiom,
+   rendered in CSS so no component carries punctuation. */
+.chat-tool-summary { color: var(--ink-3); font-size: 12px; min-width: 0; flex: 1 1 auto; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.chat-tool-summary::before { content: "↳ "; }
+.chat-tool-chevron { margin-left: auto; flex-shrink: 0; color: var(--ink-3); transition: transform .15s; }
+.chat-tool-chevron.is-open { transform: rotate(180deg); }
 .chat-tool-body { border-top: 1px solid var(--line); padding: 8px 12px; }
+
+/* ----- tool group ------------------------------------------------------------
+   Same row geometry as a single tool; the body has no background of its own so
+   header+children read as one surface, children lifted by is-inset. */
+.chat-tool-group { border-radius: var(--r-sm); border: 1px solid var(--line); background: var(--card); max-width: 65ch; overflow: hidden; }
+.chat-tool-group.is-failed { border-color: var(--chat-danger); }
+/* CHILD combinator, and only as far as the group's own header row. As a
+   descendant selector this reddened the labels of the group's SUCCESSFUL
+   children too whenever it was expanded, telling the analyst that calls
+   which actually worked had failed. Each child row already has its own
+   `.chat-tool.is-failed` treatment; the header keeps the run-level summary
+   tint and nothing reaches into the body. */
+.chat-tool-group.is-failed > .chat-tool-head > .chat-tool-label { color: var(--chat-danger); }
+/* The flex `gap` here is the ONLY thing spacing stacked child rows — which is
+   why the old `.chat-tool + .chat-tool { margin-top: 4px }` (and the rule that
+   cancelled it again inside this body) were both deleted: a run of
+   consecutive tool calls always coalesces into a group, so two adjacent
+   `.chat-tool` siblings never exist anywhere else. */
+.chat-tool-group-body { padding: 4px 8px 8px; display: flex; flex-direction: column; gap: 4px; }
 .chat-pulse { animation: chat-pulse 1.4s ease-in-out infinite; }
 @keyframes chat-pulse { 0%, 100% { opacity: 1; } 50% { opacity: .4; } }
 @media (prefers-reduced-motion: reduce) { .chat-pulse { animation: none; } }
@@ -998,14 +1286,18 @@ nav.primary{position:relative;padding-right:44px;}
 /* ----- tool-view primitives -------------------------------------------------- */
 .chat-stack { display: flex; flex-direction: column; gap: 8px; }
 .chat-row { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; font-size: 12px; }
-.chat-label { font-size: 10px; text-transform: uppercase; letter-spacing: .06em; color: var(--ink-3); margin-bottom: 4px; }
+/* Micro-labels use the app's canonical idiom (11px/800/upper/.08em — the
+   fiscal-notes rail label, app.css:550), not the 10px/.06em "devtools" look
+   the tool-view primitives were ported in with. That look was the retired
+   app's, not this one's, and appeared nowhere else here. */
+.chat-label { font-size: 11px; font-weight: 800; text-transform: uppercase; letter-spacing: .08em; color: var(--ink-3); margin-bottom: 4px; }
 .chat-muted { color: var(--ink-3); }
 .chat-dim { color: var(--ink-2); }
 .chat-note { font-size: 12px; color: var(--ink-3); font-style: italic; }
 .chat-mono { font-family: var(--chat-mono); }
 .chat-spacer { margin-left: auto; }
 
-.chat-chip { padding: 1px 6px; font-size: 10px; text-transform: uppercase; letter-spacing: .06em; border-radius: 6px; border: 1px solid var(--line); background: var(--navy-100); color: var(--ink-3); font-weight: 700; white-space: nowrap; }
+.chat-chip { padding: 1px 7px; font-size: 11px; text-transform: uppercase; letter-spacing: .08em; border-radius: var(--r-pill); border: 1px solid var(--line); background: var(--canvas); color: var(--ink-3); font-weight: 800; white-space: nowrap; }
 /* add / remove / warn keep their own hues: they signal an outcome, not brand. */
 .chat-chip.is-add    { background: var(--chat-ok-tint); color: var(--chat-ok); border-color: var(--chat-ok); }
 .chat-chip.is-remove { background: var(--chat-danger-tint); color: var(--chat-danger); border-color: var(--chat-danger); }
@@ -1013,38 +1305,52 @@ nav.primary{position:relative;padding-right:44px;}
 .chat-chip.is-info   { background: var(--navy-100); color: var(--ink-2); border-color: var(--line); }
 
 .chat-block { position: relative; }
-.chat-block pre { font-size: 12px; color: var(--ink-2); background: var(--canvas); border: 1px solid var(--line); border-radius: 6px; padding: 8px; overflow: auto; white-space: pre-wrap; font-family: var(--chat-mono); margin: 0; }
-.chat-more { margin-top: 4px; font-size: 10px; text-transform: uppercase; letter-spacing: .06em; color: var(--ink-3); background: none; border: none; padding: 0; cursor: pointer; }
-.chat-more:hover { color: var(--ink); }
+/* No overflow rule: white-space:pre-wrap means the x axis can never overflow,
+   and CollapsibleBlock caps the y axis at 20 lines — the old overflow:auto
+   only manufactured a nested scrollbar inside a scrollbar. */
+.chat-block pre { font-size: 12px; color: var(--ink-2); background: var(--canvas); border: 1px solid var(--line); border-radius: var(--r-sm); padding: 8px; white-space: pre-wrap; font-family: var(--chat-mono); margin: 0; }
+.chat-more { margin-top: 4px; font-size: 11px; font-weight: 800; text-transform: uppercase; letter-spacing: .08em; color: var(--ink-3); background: none; border: none; padding: 0; cursor: pointer; transition: color .15s; }
+.chat-more:hover { color: var(--az-gold-d); }
 
-.chat-copy { font-size: 10px; text-transform: uppercase; letter-spacing: .06em; color: var(--ink-3); background: none; border: none; padding: 0 4px; border-radius: 4px; cursor: pointer; }
-.chat-copy:hover { color: var(--ink); }
-.chat-error-label { font-size: 10px; text-transform: uppercase; letter-spacing: .06em; color: var(--chat-danger); margin-bottom: 4px; font-weight: 800; }
-.chat-error-body { font-size: 12px; color: var(--chat-danger); background: var(--chat-danger-tint); border-radius: 6px; padding: 8px; overflow: auto; max-height: 192px; white-space: pre-wrap; margin: 0; font-family: var(--chat-mono); }
-.chat-code { color: var(--ink-2); background: var(--navy-100); padding: 2px 6px; border-radius: 6px; font-family: var(--chat-mono); word-break: break-all; }
+.chat-copy { font-size: 11px; font-weight: 800; text-transform: uppercase; letter-spacing: .08em; color: var(--ink-3); background: none; border: none; padding: 0 4px; cursor: pointer; transition: color .15s; }
+.chat-copy:hover { color: var(--az-gold-d); }
+.chat-error-label { font-size: 11px; font-weight: 800; text-transform: uppercase; letter-spacing: .08em; color: var(--chat-danger); margin-bottom: 4px; }
+/* Error text renders inside a danger-tinted CollapsibleBlock now (ErrorBlock,
+   primitives.tsx) instead of its own bordered/scrolling <pre> — the old
+   error-body rule this replaced is gone on purpose (Task 12): once ErrorBlock
+   stopped rendering that class, keeping the rule around would have been dead
+   CSS, which an earlier task already established this file doesn't carry.
+   Danger tint still reads unmistakably as an error, just via a modifier on
+   the shared block instead of a bespoke class. */
+.chat-block.is-danger pre { color: var(--chat-danger); background: var(--chat-danger-tint); border-color: var(--chat-danger); }
+.chat-code { color: var(--ink-2); background: var(--navy-100); padding: 2px 6px; border-radius: var(--r-pill); font-family: var(--chat-mono); word-break: break-all; }
 .chat-quote { border-left: 2px solid var(--chat-danger); padding-left: 12px; margin: 0; font-style: italic; font-size: 14px; color: var(--ink-2); }
 
 /* ----- retrieve view ---------------------------------------------------------- */
-.chat-chunks { display: flex; flex-direction: column; gap: 8px; list-style: none; margin: 0; padding: 0; }
-.chat-chunk { border-radius: 6px; border: 1px solid var(--line); background: var(--canvas); padding: 8px; font-size: 12px; }
+/* Chunk rows: hairline-separated list on the recessed body, not a stack of
+   individually-bordered/backgrounded boxes (matches the app's .ctx tray
+   idiom elsewhere) — Task 12's "flatten the triple-nested boxes" pass. */
+.chat-chunks { display: flex; flex-direction: column; gap: 0; list-style: none; margin: 0; padding: 0; }
+.chat-chunk { border: 0; border-bottom: 1px dashed #e3e7f1; background: none; border-radius: 0; padding: 8px 2px; font-size: 12px; }
+.chat-chunk:last-of-type { border-bottom: 0; }
 .chat-chunk-rank { color: var(--ink-3); font-family: var(--chat-mono); flex-shrink: 0; }
 .chat-chunk-title { color: var(--ink-2); font-weight: 700; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .chat-chunk-path { font-size: 10px; color: var(--ink-3); margin-bottom: 4px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .chat-chunk-text { color: var(--ink-2); white-space: pre-wrap; }
 
 /* ----- list_filter_values view ------------------------------------------------ */
-.chat-table-wrap { border-radius: 6px; border: 1px solid var(--line); background: var(--canvas); overflow: hidden; }
+.chat-table-wrap { border-radius: var(--r-sm); border: 1px solid var(--line); background: var(--canvas); overflow: hidden; }
 .chat-table { width: 100%; font-size: 12px; border-collapse: collapse; }
-.chat-table th { font-size: 10px; text-transform: uppercase; letter-spacing: .06em; color: var(--ink-3); border-bottom: 1px solid var(--line); padding: 4px 8px; font-weight: 700; text-align: left; }
+.chat-table th { font-size: 11px; font-weight: 800; text-transform: uppercase; letter-spacing: .08em; color: var(--ink-3); border-bottom: 1px solid var(--line); padding: 4px 8px; text-align: left; }
 .chat-table th.is-num, .chat-table td.is-num { text-align: right; font-variant-numeric: tabular-nums; color: var(--ink-3); }
 .chat-table td { padding: 4px 8px; border-bottom: 1px solid var(--line); color: var(--ink-2); }
 .chat-table tr:last-child td { border-bottom: none; }
-.chat-table-more { display: block; width: 100%; font-size: 10px; text-transform: uppercase; letter-spacing: .06em; color: var(--ink-3); padding: 4px; border: none; border-top: 1px solid var(--line); background: none; cursor: pointer; }
+.chat-table-more { display: block; width: 100%; font-size: 11px; font-weight: 800; text-transform: uppercase; letter-spacing: .08em; color: var(--ink-3); padding: 4px; border: none; border-top: 1px solid var(--line); background: none; cursor: pointer; }
 
 /* ----- create_document view ----------------------------------------------------
    The tool returns {download_token, filename}; this view is what turns that
    into the download link the system prompt promised the analyst. */
-.chat-download { display: inline-flex; align-items: center; gap: 8px; border-radius: 8px; border: 1px solid var(--az-gold); background: var(--az-gold-100); color: var(--az-gold-d); padding: 6px 12px; font-size: 13px; font-weight: 800; text-decoration: none; }
+.chat-download { display: inline-flex; align-items: center; gap: 8px; border-radius: var(--r-pill); border: 1px solid var(--az-gold); background: var(--az-gold-100); color: var(--az-gold-d); padding: 6px 12px; font-size: 13px; font-weight: 800; text-decoration: none; }
 .chat-download:hover { background: var(--az-gold); color: #fff; text-decoration: none; }
 
 /* ----- mascot ------------------------------------------------------------------
@@ -1071,18 +1377,9 @@ nav.primary{position:relative;padding-right:44px;}
 .mascot[data-blink="true"] [data-mascot-eye] { fill: var(--mascot-skin); }
 @media (prefers-reduced-motion: reduce) { .mascot-animate { animation: none; } }
 
-/* The seated typing scene. The tapping hand needs its own transform-box so
-   the 2px tap is hand-local rather than viewBox-relative.
-   NOTE: `.mascot-typing-hand` currently has no consumer — MascotTyping was
-   rewritten to drive its hands from the `.work-hand-*` rules it generates in
-   its own inline <style>, and this rule was already orphaned in the source
-   app. It is carried anyway because a future scene that wants a simple tap
-   should reuse it rather than invent a fourth keyframe; drop it in Plan 5 if
-   nothing has claimed it by then. */
-.mascot-typing-hand   { animation: mascot-tap 460ms steps(2, end) infinite; transform-origin: 50% 100%; transform-box: fill-box; }
 .mascot-typing-cursor { animation: mascot-cursor 600ms steps(2, end) infinite; }
 @media (prefers-reduced-motion: reduce) {
-  .mascot-typing-hand, .mascot-typing-cursor { animation: none; }
+  .mascot-typing-cursor { animation: none; }
   /* MascotTyping generates .work-* animations in an inline <style> and never
      shipped a reduced-motion escape for them, so the seated scene kept
      nodding and typing for users who asked motion to stop. Halting them here
@@ -1120,21 +1417,40 @@ nav.primary{position:relative;padding-right:44px;}
 /* ----- the viewer shell --------------------------------------------------- */
 .pdf-view { display: flex; flex-direction: column; height: 100%; min-height: 0; background: var(--canvas); }
 
-.pdf-crumb { display: flex; align-items: center; gap: 6px; padding: 8px 12px; border-bottom: 1px solid var(--line); background: var(--card); font-size: 12px; }
+/* One header row: crumb + zoom + open + close. Task 15 merges what used to
+   be two stacked bars (`.pdf-crumb` then `.pdf-toolbar`) — that pair painted
+   a second white band before any page pixels did. */
+.pdf-head { display: flex; align-items: center; gap: 6px; padding: 8px 12px; border-bottom: 1px solid var(--line); background: var(--card); font-size: 12px; }
 .pdf-crumb-label { color: var(--ink-3); flex: 0 0 auto; }
 .pdf-crumb-page { color: var(--ink); font-weight: 800; }
 /* The title is the one growable item; truncation keeps a 90-character report
    name from pushing the FY badge out of the panel. */
 .pdf-crumb-doc { color: var(--ink-2); font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.pdf-crumb-fy { color: var(--ink-3); margin-left: auto; flex: 0 0 auto; }
+.pdf-crumb-fy { color: var(--ink-3); flex: 0 0 auto; }
+/* Pushes zoom + open + close to the right edge of the ONE header row now —
+   `.pdf-crumb-fy`'s own margin-left:auto did this job when it lived at the
+   end of a separate breadcrumb bar; that bar is gone, so the job moved here. */
+.pdf-head-spacer { margin-left: auto; }
 
-.pdf-toolbar { display: flex; align-items: center; gap: 4px; padding: 6px 12px; border-bottom: 1px solid var(--line); background: var(--card); font-size: 12px; }
-.pdf-zoom-btn { padding: 4px 8px; border: 1px solid var(--line); border-radius: 6px; background: var(--navy-100); color: var(--ink-2); font: inherit; cursor: pointer; }
+.pdf-zoom-btn { padding: 4px 8px; border: 1px solid var(--line); border-radius: var(--r-sm); background: var(--navy-100); color: var(--ink-2); font: inherit; cursor: pointer; }
 .pdf-zoom-btn:hover:not(:disabled) { background: var(--card); }
 .pdf-zoom-btn:disabled { opacity: .4; cursor: default; }
 /* tabular-nums so the label does not jitter between 100% and 125%. */
 .pdf-zoom-level { min-width: 3.5rem; font-variant-numeric: tabular-nums; }
-.pdf-open-original { margin-left: auto; padding: 4px 8px; border: 1px solid var(--line); border-radius: 6px; background: var(--navy-100); color: var(--ink-2); }
+/* NO margin-left:auto here. `.pdf-head-spacer` above already pushes this
+   whole trailing group right; a second auto margin in the same flex row makes
+   the browser SPLIT the free space between the two, which floated the zoom
+   controls mid-header instead of parking them at the right edge. Shared
+   surface — SourceView renders both in AI Mode and in the search page's
+   source drawer — so this was wrong on two pages. */
+.pdf-open-original { padding: 4px 8px; border: 1px solid var(--line); border-radius: var(--r-sm); background: var(--navy-100); color: var(--ink-2); }
+/* Same 28px close pill AiModePanel used to float over this panel (see
+   `.ai-source-close` below), now rendered INLINE at the end of the merged
+   header for the loaded state. `.is-inline` swaps the floating positioning
+   for a fixed square footprint that sits in the row like any other button;
+   the empty/unresolved states have no header row, so they keep the
+   absolutely-positioned base rule instead. */
+.ai-source-close.is-inline { position: static; width: 24px; height: 24px; }
 
 /* The page scroller is the flex child that gets to grow; min-height:0 is what
    lets it actually scroll instead of stretching its parent (same trick the
@@ -1147,6 +1463,9 @@ nav.primary{position:relative;padding-right:44px;}
 .pdf-page { position: relative; width: fit-content; margin: 0 auto; }
 /* mix-blend-multiply keeps the underlying glyphs readable through the fill —
    an opaque box would hide the very words it is pointing at. */
+/* 2px radius is exempt from the Task 13 token sweep on purpose: this is a
+   mark drawn ON a document page, not UI chrome, so it does not owe the app
+   its own radius scale. */
 .pdf-highlight { position: absolute; pointer-events: none; border: 1px solid #d97706; background: rgba(252, 211, 77, .35); mix-blend-mode: multiply; border-radius: 2px; }
 
 .pdf-page-overlay { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; padding: 16px; text-align: center; font-size: 13px; color: var(--ink-3); background: rgba(245, 245, 250, .5); }
@@ -1156,7 +1475,7 @@ nav.primary{position:relative;padding-right:44px;}
 .pdf-not-located { position: absolute; top: 8px; left: 50%; transform: translateX(-50%); padding: 4px 8px; border: 1px solid var(--chat-warn); border-radius: 4px; background: var(--chat-warn-tint); color: var(--chat-warn); font-size: 11px; }
 
 .pdf-skeleton-wrap { display: flex; align-items: center; justify-content: center; padding: 32px 16px; }
-.pdf-skeleton { width: 100%; aspect-ratio: 8.5 / 11; border-radius: 6px; background: var(--card); animation: pdf-pulse 1.6s ease-in-out infinite; }
+.pdf-skeleton { width: 100%; aspect-ratio: 8.5 / 11; border-radius: var(--r-sm); background: var(--card); animation: pdf-pulse 1.6s ease-in-out infinite; }
 @keyframes pdf-pulse { 0%, 100% { opacity: 1; } 50% { opacity: .5; } }
 @media (prefers-reduced-motion: reduce) { .pdf-skeleton { animation: none; } }
 
@@ -1176,16 +1495,29 @@ nav.primary{position:relative;padding-right:44px;}
 .pdf-cited-toggle:hover { color: var(--ink-2); text-decoration: underline; }
 /* pre-wrap preserves the chunk's own line breaks — budget tables read as
    nonsense when their rows are reflowed into a paragraph. max-height keeps an
-   expanded 4,000-character chunk from pushing the page off screen. */
-.pdf-cited-text { margin: 0; color: var(--ink); white-space: pre-wrap; max-height: 34vh; overflow: auto; }
+   expanded 4,000-character chunk from pushing the page off screen.
+   Task 15: px cap, not vh — 34vh was measured against the WINDOW, but this
+   panel is not window-tall (it sits beside the chat column, below a header
+   row), so the expanded text could eat a third of the actual screen. */
+.pdf-cited-text { margin: 0; color: var(--ink); white-space: pre-wrap; max-height: 220px; overflow: auto; }
 .pdf-cited-context { color: var(--ink-3); }
+/* Same exemption as .pdf-highlight above — a page-artifact mark, not chrome. */
 .pdf-cited-mark { background: rgba(252, 211, 77, .35); color: var(--ink); border-bottom: 1px solid #d97706; border-radius: 2px; }
 .pdf-cited-ellipsis { color: var(--ink-3); }
 .pdf-cited-source { margin-top: 8px; color: var(--ink-3); }
 
 /* ----- empty / unresolved states (AI Mode) -------------------------------- */
-.pdf-empty { height: 100%; display: flex; align-items: center; justify-content: center; padding: 48px 24px; background: var(--canvas); color: var(--ink-3); font-size: 13px; }
+/* position:relative makes this the positioning context for the floating
+   `.ai-source-close` these two states render (Task 15) — they have no
+   header row of their own to put a close button in. */
+.pdf-empty { height: 100%; display: flex; align-items: center; justify-content: center; padding: 32px 24px; background: var(--canvas); color: var(--ink-3); font-size: 13px; position: relative; }
 .pdf-empty-inner { max-width: 24rem; text-align: center; display: flex; flex-direction: column; align-items: center; gap: 8px; }
+/* Task 15: the hero mascot was unclamped here and got clipped by a
+   half-width panel — its natural 240x420 size assumed the full-window
+   layout the retired app had. min(300px, 50%) keeps it inside whatever
+   space this state actually has, the same idea `.chat-welcome-mascot`
+   already applies to the welcome-screen mascot. */
+.pdf-empty-inner svg { max-height: min(300px, 50%); width: auto; }
 .pdf-unresolved { max-width: 30rem; text-align: left; display: flex; flex-direction: column; gap: 10px; }
 .pdf-unresolved h2 { font-size: 15px; font-weight: 800; color: var(--ink); }
 .pdf-unresolved p { margin: 0; }
@@ -1302,59 +1634,22 @@ nav.primary{position:relative;padding-right:44px;}
  * design one — see the note on it.
  */
 
-/* ----- page-ai: the subhero band, the corpus picker, the gate --------------
-   REPLACES the per-page `.ai-toggle` rules (2026-07-31). AI Mode is its own
-   route now, so the toggle those rules styled no longer renders anywhere; they
-   are deleted rather than kept "just in case", because dead page-scoped CSS is
+/* ----- page-ai: the corpus picker, the gate --------------------------------
+   The navy band this section used to open with — `.page-ai .subhero`, its
+   `.wrap`, its h1, its `.chip`, and `.ai-band` — is DELETED (Destin,
+   2026-08-02: "i want to remove the 'ai mode' hero strip thing"). Nothing
+   renders those classes on this page any more, and dead page-scoped CSS is
    exactly what the convention at the top of this file exists to prevent. The
-   declarations themselves are re-used verbatim below for the corpus picker —
-   same band, same pill recipe, same "on" fill.
+   h1 survives as `.ai-vh`, clipped, because <main> still needs a name.
 
-   `AiModeToggle` still EXISTS in chat/AiModePanel.tsx (that file is shared and
-   was not edited by this change) but is imported by nothing. */
+   These rules had already replaced the per-page `.ai-toggle` rules
+   (2026-07-31), and `AiModeToggle` itself went in Task 6. */
 
-/* The navy band, ported from the search page's subhero rules so the sub-pages
-   are one design — but COMPACT (2026-07-31), because on this page the chat
-   below it is pinned to the viewport and every pixel this band spends is a
-   pixel of conversation that is gone for good.
-   The `.lead` and `.chips` rules that used to live here are DELETED, not
-   commented out: nothing renders those classes on this page any more (see the
-   band note in Ai.tsx), and dead page-scoped CSS is exactly what the
-   convention at the top of this file exists to prevent. */
-.page-ai .subhero{position:relative;overflow:hidden;color:#fff;flex:0 0 auto;
-  background:linear-gradient(105deg,rgba(18,21,48,.94) 0%,rgba(20,23,52,.86) 60%,rgba(20,23,52,.78) 100%),url('/capitol-bg.jpg') center 28% / cover no-repeat;}
-.page-ai .subhero .wrap{position:relative;z-index:2;padding:12px 22px;}
-/* One row: title, picker, scope chip, switch warning. `flex-wrap` is the
-   safety valve — on a narrow window the row becomes two or three lines and the
-   band grows, which is correct: every item in it is load-bearing, so none of
-   them may be pushed off-screen to save height. */
-.page-ai .ai-band{display:flex;flex-wrap:wrap;align-items:center;gap:8px 14px;}
-/* 17px flat, not the sub-pages' clamp(24px,3.2vw,34px): at 34px the title alone
-   is taller than the picker beside it, which would set the height of the whole
-   row for a word the analyst reads once. */
-.page-ai .subhero h1{font-size:17px;font-weight:800;letter-spacing:-.2px;flex:0 0 auto;}
-/* The scope chip keeps the subhero `.chip` recipe verbatim; `min-width:0` +
-   ellipsis so a long scope sentence shortens rather than wrapping the row. */
-.page-ai .subhero .chip{display:inline-flex;align-items:center;gap:7px;min-width:0;background:rgba(255,255,255,.1);border:1px solid rgba(255,255,255,.2);border-radius:var(--r-pill);padding:6px 13px;font-size:12.5px;font-weight:700;color:#eef0fb;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
-
-/* The corpus picker. The retired toggle's declarations, re-scoped: the same
-   subhero `.chip` recipe with a solid-white "on" fill — the strongest contrast
-   available on this band, because "which corpus am I asking?" has to be
-   answerable at a glance. `.ai-corpus` is a 2px-gapped group so the two chips
-   read as ONE control (pick-one) rather than two independent chips. */
-.page-ai .ai-corpus{display:inline-flex;gap:2px;background:rgba(255,255,255,.07);border-radius:var(--r-pill);padding:3px;}
-.page-ai .ai-corpus-chip{display:inline-flex;align-items:center;gap:7px;cursor:pointer;font-family:inherit;
-  background:transparent;border:1px solid transparent;border-radius:var(--r-pill);
-  padding:6px 13px;font-size:12.5px;font-weight:700;color:#eef0fb;transition:background .14s,border-color .14s,color .14s;}
-.page-ai .ai-corpus-chip:hover{background:rgba(255,255,255,.18);border-color:rgba(255,255,255,.4);}
-.page-ai .ai-corpus-chip.on{background:#fff;border-color:#fff;color:var(--navy);}
-.page-ai .ai-corpus-chip.on:hover{background:#fff;border-color:#fff;}
-/* The warning that a switch discards the thread. Now inline at the end of the
-   row rather than on its own line under it — same words, no extra row. It is
-   dimmer than the chips because it is a consequence of the control, not
-   another option. `margin-left:auto` parks it at the right edge on a wide
-   window; when the row wraps it simply starts the next line. */
-.page-ai .ai-corpus-note{margin:0 0 0 auto;font-size:11.5px;font-weight:700;color:#b9c0e4;flex:0 1 auto;}
+/* The page's accessible name, kept out of the picture. Same recipe as the
+   admin block's `.adm-vh`, duplicated rather than shared because the page-scoped
+   convention at the top of this file keeps blocks independent — one line each,
+   and neither page can silently restyle the other's. */
+.ai-vh{position:absolute;width:1px;height:1px;padding:0;margin:-1px;overflow:hidden;clip:rect(0 0 0 0);white-space:nowrap;border:0;}
 
 /* ----- the full-page chat shell -------------------------------------------
    RESTORES the retired app's fixed-viewport layout (Destin, 2026-07-31): "I
@@ -1407,29 +1702,42 @@ html.ai-fullpage header.site{flex:0 0 auto;}
 /* (The former `.page-ai .wrap{padding:22px 22px 30px}` is gone: this page has
    exactly two `.wrap`s — the band and the stage — and both now set their own
    padding, so the general rule could only ever be overridden or unused.) */
-/* The gate (no key, or the probe still running). One sentence in the shared
-   `.card`, using the same dimming posture as Home's inert gateway card — a live
-   composer over a server that cannot answer would waste the analyst's question. */
-.page-ai .ai-gate{padding:22px 24px;font-size:14px;font-weight:700;color:var(--ink-2);}
-.page-ai .ai-gate p{margin:0;}
-.page-ai .ai-gate-reason{margin-top:8px;font-weight:600;color:var(--ink-3);}
+/* The AI Mode states — a WHOLE SCREEN, replacing both the `.ai-gate` card and
+   the footer's "AI Mode available" status line (Destin, 2026-08-02: "if it's
+   working, the analyst doesn't need separate text telling them so"). Only the
+   failing case ever carried information, and a condition that stops the page
+   working deserves more than 11px of grey. */
+.page-ai .ai-state-wrap{flex:1 1 auto;min-height:0;display:flex;align-items:center;justify-content:center;}
+.page-ai .ai-state{max-width:44rem;padding:44px 32px;text-align:center;display:flex;
+  flex-direction:column;align-items:center;gap:14px;}
+.page-ai .ai-state-glyph{width:64px;height:64px;border-radius:50%;display:flex;align-items:center;
+  justify-content:center;background:var(--navy-100);color:var(--navy);}
+.page-ai .ai-state-glyph svg{width:30px;height:30px;}
+.page-ai .ai-state h2{margin:0;font-size:24px;font-weight:800;letter-spacing:-.01em;color:var(--navy);text-wrap:balance;}
+.page-ai .ai-state p{margin:0;font-size:14.5px;line-height:1.6;color:var(--ink-2);max-width:40rem;}
+.page-ai .ai-state-acts{display:flex;gap:10px;flex-wrap:wrap;justify-content:center;margin-top:4px;}
+.page-ai .ai-state-btn{display:inline-flex;align-items:center;cursor:pointer;font-family:inherit;
+  font-weight:800;font-size:13.5px;border-radius:var(--r-pill);padding:9px 18px;
+  border:1.5px solid transparent;background:var(--az-gold);color:#fff;text-decoration:none;
+  transition:filter .15s,border-color .15s,color .15s;}
+.page-ai .ai-state-btn:hover{filter:brightness(1.05);}
+.page-ai .ai-state-btn.quiet{background:transparent;border-color:var(--line);color:var(--ink-2);}
+.page-ai .ai-state-btn.quiet:hover{filter:none;border-color:var(--az-gold);color:var(--az-gold-d);}
+/* The server's own sentence, kept but demoted: it names WHICH thing is missing,
+   which is what an administrator needs and what the analyst cannot act on. */
+.page-ai .ai-state-reason{margin-top:6px;font-size:11.5px;color:var(--ink-3);}
+.page-ai .ai-state-reason b{font-weight:800;color:var(--ink-2);}
+/* Probing is not failure, and must not look like it. */
+.page-ai .ai-state.is-probing .ai-state-glyph{background:var(--canvas);color:var(--ink-3);}
+.page-ai .ai-state.is-probing h2{color:var(--ink-2);font-size:19px;}
 
 /* ----- the panel ----------------------------------------------------------
-   A bounded column, NOT a section that grows with the conversation. The thread
-   scrolls internally (`.chat-thread` needs a bounded flex parent — Task 10's
-   note) and the composer stays reachable without scrolling down to it.
-
-   The clamp() here is the FALLBACK height, for any future host that mounts
-   this shared panel inside an ordinary scrolling page. On the AI route the
-   rule below replaces it with "whatever is left of the viewport". */
-.ai-panel{display:flex;flex-direction:column;height:clamp(440px,68vh,760px);margin-top:16px;
-  background:var(--card);border:1px solid var(--line);border-radius:var(--r-sm);box-shadow:var(--shadow-sm);overflow:hidden;}
-/* On its own route the panel IS the page: it takes the whole stage instead of
-   a clamped slice of it, which is what gives the thread, the source column and
-   the mascot back the room the retired app gave them. `height:auto` cancels
-   the clamp above so `flex:1 1 auto` is what decides the size; `margin-top:0`
-   because `.ai-stage` already supplies the gap under the band. */
-.page-ai .ai-panel{flex:1 1 auto;min-height:0;height:auto;margin-top:0;}
+   The panel fills the stage (the AI route is the only mount — the old
+   clamp(440px,68vh,760px) "future host" fallback was dead weight whose only
+   surviving declaration was an accidental overflow:hidden). overflow:hidden
+   is kept DELIBERATELY: it is what clips the thread and source columns to
+   the viewport instead of letting them push the composer off-screen. */
+.ai-panel{display:flex;flex-direction:column;flex:1 1 auto;min-height:0;overflow:hidden;}
 
 /* ----- on its own route the chat IS the window ----------------------------
    Destin, 2026-07-31: "i don't want the weird card, it should take up the full
@@ -1441,14 +1749,10 @@ html.ai-fullpage header.site{flex:0 0 auto;}
    reads as a widget rather than an application.
 
    Safe to go edge-to-edge because line length is NOT protected by this
-   container: `.chat-thread-column` (768px, centered) and `.chat-input` (768px,
+   container: `.chat-thread-column` (768px, centered) and `.ask-bar` (768px,
    centered) each cap themselves. Removing the outer max-width widens the
    SURFACE, not the text — which is exactly what a native chat client does. */
 .page-ai .ai-stage{max-width:none;padding:0;}
-.page-ai .ai-panel{background:none;border:0;border-radius:0;box-shadow:none;}
-/* The divider between thread and source column now runs the full window height,
-   so it reads as a split pane rather than an internal seam of a card. */
-.page-ai .ai-panel-main.has-source .ai-panel-chat{border-right:1px solid var(--line);}
 /* min-height:0 on the flex child is what lets the thread's overflow engage
    instead of the panel growing to fit its content. */
 .ai-panel-main{flex:1 1 auto;min-height:0;display:flex;flex-direction:row;}
@@ -1461,47 +1765,263 @@ html.ai-fullpage header.site{flex:0 0 auto;}
    from its container's `clientWidth` and renders nothing at all while that is
    0 — a width derived from the viewer's own content is circular. */
 .ai-panel-chat{flex:1 1 0;min-width:0;min-height:0;display:flex;flex-direction:column;}
-.ai-panel-main.has-source .ai-panel-chat{border-right:1px solid var(--line);}
+/* The divider between thread and source column runs the full panel height,
+   so it reads as a split pane rather than an internal seam of a card (this
+   WHY was lost when an earlier duplicate of this rule — a page-scoped
+   `.page-ai` copy — was deleted; only the divider's own explanation went
+   missing, not the rule).
+   Task 15's `flex` is the other half of the same line: the hard 50/50 split
+   this rule used to leave implicit (both columns at `flex:1 1 0` above)
+   shrank the chat column below its own comfortable reading measure at
+   1440px. The chat side now claims a clamped width FIRST — never under
+   480px, never over 760px, otherwise 46% of the row — and the source column
+   (`.ai-panel-source`, still `flex:1 1 0` below) takes whatever is left. */
+.ai-panel-main.has-source .ai-panel-chat{border-right:1px solid var(--line);flex:0 0 clamp(480px, 46%, 760px);}
 /* min-height:0 as well as min-width:0 (added with the full-page shell): at the
    old clamped panel height the source column was short enough that its own
    content rarely overran it. At full viewport height a PDF page plus the cited-
    text panel comfortably does, and without min-height:0 this column would floor
    at its content height and push the composer off the bottom of the screen
    instead of scrolling inside itself. */
-.ai-panel-source{flex:1 1 0;min-width:0;min-height:0;display:flex;flex-direction:column;}
-/* One column below the mockup's own 860px breakpoint: a source page and a
-   65ch message column cannot both be legible in half of a phone. */
+/* position:relative makes this the positioning context for .ai-source-close
+   below, which is absolutely positioned in its top-right corner. */
+.ai-panel-source{flex:1 1 0;min-width:0;min-height:0;display:flex;flex-direction:column;position:relative;}
+/* Task 15: below 860px the source becomes an overlay drawer — the same
+   fixed-panel recipe the search page's `.pdf-drawer` already uses — instead
+   of vanishing outright. A citation that simply could not be inspected on a
+   narrow window was the defect this replaces, not a design choice worth
+   keeping. The chat column drops back to an even `flex:1 1 0` here since the
+   clamp above is tuned for a side-by-side split that no longer exists at
+   this width. */
 @media (max-width:860px){
-  .ai-panel-source{display:none;}
+  .ai-panel-main.has-source .ai-panel-chat{flex:1 1 0;}
+  .ai-panel-source{position:fixed;top:0;right:0;bottom:0;z-index:60;width:min(560px,100vw);background:var(--canvas);border-left:1px solid var(--line);box-shadow:var(--shadow);}
 }
 
-/* ----- the tier control + composer ---------------------------------------- */
-.ai-composer{flex:0 0 auto;border-top:1px solid var(--line);padding:8px 16px 10px;position:relative;}
-.ai-tiers{display:flex;align-items:center;gap:10px;flex-wrap:wrap;max-width:768px;margin:0 auto 6px;}
-.ai-tiers-label{font-size:11px;font-weight:800;color:var(--ink-3);text-transform:uppercase;letter-spacing:.04em;}
-/* `.chswitch`/`.chseg` declarations, re-scoped: the same pill-in-a-track
-   control the fiscal-notes chamber filter uses, sized for two segments. */
-.ai-tierswitch{display:inline-grid;grid-template-columns:auto auto;gap:3px;background:var(--canvas);border:1px solid var(--line);border-radius:var(--r-pill);padding:4px;}
-.ai-tierseg{cursor:pointer;font-family:inherit;text-align:center;font-size:12.5px;font-weight:800;color:var(--ink-2);background:transparent;border:0;border-radius:var(--r-pill);padding:6px 14px;transition:.13s;}
-.ai-tierseg:hover{color:var(--az-gold-d);}
-.ai-tierseg.on{background:var(--navy);color:#fff;}
-.ai-tierseg[aria-disabled="true"]{opacity:.55;cursor:not-allowed;}
-.ai-tierseg[aria-disabled="true"]:hover{color:var(--ink-2);}
-.ai-tier-info{background:none;border:0;padding:0;font-family:inherit;font-size:12px;font-weight:700;color:var(--navy);text-decoration:underline;cursor:pointer;}
-/* The explainer opens UPWARD — the composer sits at the bottom of the panel,
-   so a downward popover would open past the panel's edge. */
-.ai-tier-pop{position:absolute;bottom:calc(100% - 4px);left:16px;right:16px;max-width:768px;margin:0 auto;z-index:20;
-  background:var(--card);border:1px solid var(--line);border-radius:var(--r-sm);box-shadow:var(--shadow);padding:12px 14px;
-  font-size:12.5px;line-height:1.5;color:var(--ink-2);}
-.ai-tier-explain + .ai-tier-explain{margin-top:10px;padding-top:10px;border-top:1px solid var(--line);}
-.ai-tier-explain strong{color:var(--navy);font-weight:800;}
-.ai-tier-explain ul{margin:6px 0 0;padding-left:18px;color:var(--ink-3);}
-.ai-tier-explain li{margin-top:2px;}
-/* Stop sits beside the composer rather than inside it: MessageInput is Task
-   10's component and this task does not edit it. */
-.ai-stop{display:block;margin:6px auto 0;background:var(--card);border:1.5px solid var(--chat-danger);color:var(--chat-danger);
-  border-radius:var(--r-pill);padding:4px 14px;font-family:inherit;font-size:12px;font-weight:800;cursor:pointer;}
-.ai-stop:hover{background:var(--chat-danger-tint);}
+/* Close pill for the source column. Same 28px circular affordance as the
+   search drawer's close, restyled for the light header area it floats over.
+   Task 15 moved the LOADED state's close button into the merged PDF header
+   row (`.ai-source-close.is-inline` above); this floating base rule is now
+   only reached by the empty/unresolved states, which have no header row of
+   their own to put a close button in. */
+.ai-source-close{position:absolute;top:8px;right:8px;z-index:5;display:inline-flex;align-items:center;justify-content:center;width:28px;height:28px;border:1px solid var(--line);border-radius:var(--r-pill);background:var(--card);color:var(--ink-2);cursor:pointer;transition:border-color .15s,color .15s;}
+.ai-source-close:hover{border-color:var(--az-gold);color:var(--az-gold-d);}
+
+/* ----- floating bottom chrome ----------------------------------------------
+   The composer block floats OVER the thread scroller instead of stacking
+   under it — the scroller pads its bottom by the measured --ai-bottom-chrome
+   height (see .chat-thread-scroll), so content slides behind the chrome and
+   there is exactly one scroll container on the page. Translucency + blur so
+   the slide-behind reads as depth, with a solid fallback where blur is
+   unsupported. */
+.ai-panel-chat{position:relative;}
+/* ----- the chat ground -------------------------------------------------------
+   A flat sheet of --canvas across a viewport-height column read as a lot of
+   nothing, most of all on the empty state where the mascot has a whole screen
+   to himself (Destin, 2026-08-02: "there's too much white space rn").
+
+   Three navy washes over the canvas, painted on the NON-scrolling container so
+   they stay put while the thread moves under them — a ground that scrolled
+   with the messages would read as content.
+
+   The colour is `--navy` (#2b2f63 = 43,47,99) at low alpha. tokens.css defines
+   no alpha variants and S12 forbids inventing palette entries, so this is the
+   same alpha-composited-navy vocabulary the mockup's own subhero used
+   (`rgba(18,21,48,.94)` etc). No new hue enters the page. */
+.ai-panel-chat{
+  background:
+    /* the pool the floating composer sits on, so its blur has something to do */
+    radial-gradient(120% 52% at 50% 100%, rgba(43,47,99,.105) 0%, rgba(43,47,99,0) 72%),
+    /* a wash off the header, so the thread is attached to the page above it */
+    linear-gradient(180deg, rgba(43,47,99,.075) 0%, rgba(43,47,99,0) 22%),
+    /* and an edge vignette aiming the eye at the 768px column. Deliberately
+       reaching further in (30% vs 42%) and landing heavier (.12 vs .05) than
+       the first pass — at .05 it was doing nothing you could see. */
+    radial-gradient(76% 72% at 50% 42%, rgba(43,47,99,0) 30%, rgba(43,47,99,.12) 100%),
+    var(--canvas);
+}
+/* `right` is INSET by the thread scroller's own scrollbar width, published as
+   --ai-scrollbar by AiModePanel's measuring effect. At right:0 this block
+   painted over the bottom of that scrollbar, so the bar appeared to run under
+   the composer and stop dead — Destin, 2026-08-02: "the primary scroll bar is
+   partially hidden behind the chat region's container, which looks janky."
+   The fallback is 0px, which is also the correct value on overlay-scrollbar
+   platforms, where there is no bar to clear. */
+.ai-bottom-chrome{position:absolute;left:0;right:var(--ai-scrollbar,0px);bottom:0;z-index:15;}
+/* NOTHING here paints a card-coloured slab (Destin, 2026-08-02: make the ground
+   "one unified background with the input region and messages floating above
+   it"). The white panel-with-a-border that used to sit here cut a hard band
+   across the bottom of the page and undid the ground above it.
+
+   Instead the measured chrome carries a FADE that ends on the ground's own
+   bottom tone, so the column reads as one continuous surface with the pill,
+   the chips and the footer floating on it. The top of the fade is fully
+   transparent, which is what lets the last message dissolve into the ground
+   as it scrolls under rather than sliding beneath a visible edge.
+
+   Why a fade here and NOT `mask-image` on `.chat-thread-scroll`, which is the
+   obvious way to do this: masking clips everything the element paints,
+   including `position:fixed` descendants — it would re-clip the citation
+   tooltip exactly the way `container-type` did (see the containment specs
+   above), and just as silently.
+
+   The stops are matched to the ground, not guessed: --canvas under
+   rgba(43,47,99,.105) is the same pair the bottom pool lands on, so the seam
+   between the two is not visible. `transparent` is safe as a gradient stop —
+   CSS gradients interpolate in premultiplied alpha, so it no longer produces
+   the grey fringe it used to. */
+.ai-bottom-chrome{
+  background:
+    linear-gradient(180deg, rgba(43,47,99,0) 0%, rgba(43,47,99,.105) 46%, rgba(43,47,99,.105) 100%),
+    linear-gradient(180deg, transparent 0%, var(--canvas) 46%);
+}
+.ai-chrome-panel{background:none;border:0;}
+
+/* Jump-to-bottom pill, floating just above the chrome, app pill recipe.
+   z-index 14 sits ABOVE thread content (the mascot slot at 10 is the highest
+   thing in there) and BELOW `.ai-bottom-chrome` at 15. That ordering is
+   load-bearing: the chrome's own z-index makes it a stacking context, so
+   `.ai-tier-pop`'s z-index:20 is trapped INSIDE it and the whole chrome
+   competes with its siblings at 15. At 16 this pill therefore painted over
+   the tier explainer, which opens upward into exactly the space the pill
+   occupies. The pill never needs to clear the chrome — only the thread. */
+.chat-jump{position:absolute;bottom:calc(var(--ai-bottom-chrome,120px) + 14px);left:50%;transform:translateX(-50%);z-index:14;background:var(--card);border:1px solid var(--line);border-radius:var(--r-pill);box-shadow:var(--shadow);padding:6px 14px;font-family:inherit;font-size:12px;font-weight:800;color:var(--ink-2);cursor:pointer;transition:border-color .15s,color .15s;}
+.chat-jump:hover{border-color:var(--az-gold);color:var(--az-gold-d);}
+
+/* ----- the ask bar -----------------------------------------------------------
+   REPLACES `.ai-controls` + `.chat-input` + `.ai-tier*` + `.ai-corpus*`
+   (Destin, 2026-08-02). Those rules are DELETED, not commented out: nothing
+   renders their classes any more, and dead page-scoped CSS is what the
+   convention at the top of this file exists to prevent. The tier explainer
+   popover went with them — its copy now sits inside each toggle in the tools
+   menu, where the decision is actually made.
+
+   The bar adopts `.page-home .search-field`'s recipe VERBATIM: pill, canvas
+   fill, 2px line, navy border + white fill + navy-100 ring on focus. That is
+   already the app's search-input identity on Home and the search page, so AI
+   Mode's composer is now the same object a third time rather than a third
+   design. Anything changed here should be changed there too, or they diverge. */
+.ai-composer{padding:8px 16px 4px;position:relative;}
+.ask-bar{max-width:var(--ai-col);margin:0 auto;display:flex;align-items:flex-end;gap:6px;
+  background:var(--canvas);border:2px solid var(--line);border-radius:var(--r-pill);
+  padding:7px 8px 7px 10px;transition:border-color .15s,box-shadow .15s,background .15s,border-radius .15s;}
+/* A full pill around a four-line box reads as a stadium — the round ends eat
+   the corners. --r-lg once it has actually grown; both are existing tokens. */
+.ask-bar.is-grown{border-radius:var(--r-lg);}
+.ask-bar:focus-within{border-color:var(--navy);background:var(--card);box-shadow:0 0 0 4px var(--navy-100);}
+/* The field WRAPS and grows to MAX_ROWS lines, then scrolls (MessageInput
+   sets --ask-max-rows from that constant, so the ceiling is stated once).
+   The +.5 is deliberate: at a whole number of lines the next line is hidden
+   completely and the box looks finished, where half a faded line is what
+   says "there is more of this". */
+.ask-bar textarea{flex:1 1 auto;min-width:0;width:100%;border:0;outline:0;background:transparent;
+  resize:none;overflow-y:auto;font-family:inherit;font-size:15.5px;line-height:1.6;
+  color:var(--ink);padding:4px 6px;
+  max-height:calc((var(--ask-max-rows,4) + .5) * 1.6em + 8px);
+  scrollbar-width:none;-ms-overflow-style:none;}
+/* No scrollbar at all — the fade is the affordance. Removing the bar without
+   the fade would leave hidden text with nothing at all pointing to it. */
+.ask-bar textarea::-webkit-scrollbar{width:0;height:0;display:none;}
+.ask-bar textarea::placeholder{color:var(--ink-3);}
+.ask-bar textarea:disabled{opacity:.6;}
+
+/* Fade at whichever edge has text behind it, applied per-edge by MessageInput
+   rather than always-on: a permanent top fade on a one-line question just
+   looks like the text is broken. ~half a line each. */
+.ask-bar textarea{--ask-fade:.8em;}
+.ask-bar textarea.is-fade-top{
+  -webkit-mask-image:linear-gradient(180deg,transparent 0,#000 var(--ask-fade));
+  mask-image:linear-gradient(180deg,transparent 0,#000 var(--ask-fade));}
+.ask-bar textarea.is-fade-bottom{
+  -webkit-mask-image:linear-gradient(180deg,#000 calc(100% - var(--ask-fade)),transparent 100%);
+  mask-image:linear-gradient(180deg,#000 calc(100% - var(--ask-fade)),transparent 100%);}
+.ask-bar textarea.is-fade-both{
+  -webkit-mask-image:linear-gradient(180deg,transparent 0,#000 var(--ask-fade),#000 calc(100% - var(--ask-fade)),transparent 100%);
+  mask-image:linear-gradient(180deg,transparent 0,#000 var(--ask-fade),#000 calc(100% - var(--ask-fade)),transparent 100%);}
+.ask-send{flex:0 0 auto;border:0;cursor:pointer;font-family:inherit;font-weight:800;
+  font-size:14px;color:#fff;background:var(--az-gold);border-radius:var(--r-pill);
+  padding:9px 18px;transition:filter .15s,opacity .15s;}
+.ask-send:hover:not(:disabled){filter:brightness(1.05);}
+.ask-send:disabled{opacity:.45;cursor:not-allowed;}
+
+/* Stop: a small square inside a ring that spins while the model generates.
+   Left of Send and deliberately SMALLER than it — stopping is a correction,
+   not the thing the bar is for, and the spinning ring already draws the eye.
+
+   The ring is the turn's progress indicator as well as the button's border:
+   it exists for exactly as long as `onStop` is passed, which is exactly as
+   long as a turn is streaming, so there is nothing to keep in sync. A
+   separate spinner elsewhere would be a second thing saying the same thing.
+
+   No background and no solid border of its own — the ring IS the border, so
+   the resting state is the tinted track with one danger-coloured arc running
+   round it. */
+.ask-stop{position:relative;flex:0 0 auto;display:inline-flex;align-items:center;justify-content:center;
+  width:26px;height:26px;padding:0;cursor:pointer;color:var(--chat-danger);
+  background:transparent;border:0;border-radius:50%;transition:background .15s;}
+.ask-stop svg{width:20px;height:20px;}
+.ask-stop::before{content:"";position:absolute;inset:0;border-radius:50%;
+  border:2px solid var(--chat-danger-tint);border-top-color:var(--chat-danger);
+  animation:ask-spin .8s linear infinite;}
+.ask-stop:hover{background:var(--chat-danger-tint);}
+@keyframes ask-spin{to{transform:rotate(360deg);}}
+/* Halted, not hidden: the ring stays as a complete danger-coloured circle, so
+   the control still reads as active-and-interruptible without moving. */
+@media (prefers-reduced-motion: reduce){
+  .ask-stop::before{animation:none;border-color:var(--chat-danger);}
+}
+
+/* the two leading icon buttons */
+.ask-icon{flex:0 0 auto;display:inline-flex;align-items:center;justify-content:center;
+  width:34px;height:34px;border-radius:50%;cursor:pointer;background:transparent;border:0;
+  color:var(--ink-3);transition:background .14s,color .14s;}
+.ask-icon:hover{background:var(--navy-100);color:var(--navy);}
+.ask-icon svg{width:19px;height:19px;}
+.ask-icon.is-on{background:var(--navy);color:#fff;}
+.ask-icon.is-on:hover{background:var(--navy-700);color:#fff;}
+/* The paperclip is a STUB (see MessageInput). `default` rather than
+   `not-allowed`: this is a coming feature, not a refused action, and the title
+   says which. It keeps pointer events precisely so the title can appear. */
+.ask-attach[aria-disabled="true"]{cursor:default;}
+.ask-attach[aria-disabled="true"]:hover{background:transparent;color:var(--ink-3);}
+
+/* Badge on the tools icon: a non-default setting is live behind a closed menu.
+   Deep Research costs ~44x a Standard answer and the corpus decides which
+   documents a citation can come from — neither may be invisible state. */
+.ask-tools{position:relative;flex:0 0 auto;display:flex;}
+.ask-pip{position:absolute;top:-1px;right:-3px;width:9px;height:9px;border-radius:50%;
+  background:var(--teal);border:2px solid var(--canvas);pointer-events:none;}
+/* The pip's ring fakes a cut-out in whatever is behind it, so it has to follow
+   the bar's fill when focus turns it white. */
+.ask-bar:focus-within .ask-pip{border-color:var(--card);}
+
+/* the tools popover. Opens UPWARD — the composer sits at the bottom of the
+   panel, so a downward popover would open past the panel's edge. */
+.ask-pop{position:absolute;bottom:calc(100% + 10px);left:-6px;z-index:30;width:330px;
+  background:var(--card);border:1px solid var(--line);border-radius:var(--r-md);
+  box-shadow:var(--shadow);padding:6px;text-align:left;}
+.ask-opt{display:flex;align-items:flex-start;gap:12px;width:100%;text-align:left;
+  cursor:pointer;background:none;border:0;border-radius:var(--r-sm);padding:11px 12px;
+  font-family:inherit;color:var(--ink);transition:background .13s;}
+.ask-opt:hover{background:var(--canvas);}
+.ask-opt.is-inert{cursor:not-allowed;opacity:.6;}
+.ask-opt.is-inert:hover{background:none;}
+.ask-opt-body{flex:1 1 auto;min-width:0;}
+.ask-opt-title{display:block;font-size:13.5px;font-weight:800;}
+.ask-opt-desc{display:block;margin-top:3px;font-size:11.5px;line-height:1.5;color:var(--ink-3);font-weight:600;}
+.ask-pop-sep{height:1px;background:var(--line);margin:4px 10px;}
+
+/* The switch itself is `.adm-toggle`'s track/knob recipe, re-scoped. Same
+   control, so the same shape — an analyst who has seen the admin page's
+   switches should not have to learn a second kind. */
+.ask-sw{position:relative;flex:0 0 auto;margin-top:2px;}
+.ask-sw-track{position:relative;display:block;width:38px;height:22px;border-radius:var(--r-pill);
+  background:var(--line);transition:background .14s ease;}
+.ask-sw-knob{position:absolute;top:3px;left:3px;width:16px;height:16px;border-radius:50%;
+  background:#fff;box-shadow:var(--shadow-sm);transition:transform .14s ease;}
+.ask-opt[aria-checked="true"] .ask-sw-track{background:var(--teal);}
+.ask-opt[aria-checked="true"] .ask-sw-knob{transform:translateX(16px);}
+
 .ai-dismiss{background:none;border:0;padding:0;font-family:inherit;font-size:11px;color:inherit;text-decoration:underline;cursor:pointer;}
 
 /* ----- refusal banner ------------------------------------------------------
@@ -1509,10 +2029,13 @@ html.ai-fullpage header.site{flex:0 0 auto;}
    chunk previews. Values are the tool-view primitives': small meta text, a
    --canvas-tinted row inside a --line border — so a refusal's passages look
    like every other piece of retrieved evidence in the thread. */
-.chat-refusal{flex:0 0 auto;max-width:768px;margin:8px auto;}
+/* In-flow refusal: shares the column measure; the auto margins go — the
+   column already centers it (it renders as the last child of
+   .chat-thread-column now, not a sibling of the scroller). */
+.chat-refusal{max-width:none;margin:8px 0 0;}
 .chat-refusal-scope{margin:6px 0 0;font-style:italic;}
 .chat-refusal-chunks{list-style:none;margin:8px 0 0;padding:0;display:flex;flex-direction:column;gap:6px;}
-.chat-refusal-chunk{background:var(--card);border:1px solid var(--line);border-radius:6px;padding:6px 8px;}
+.chat-refusal-chunk{background:var(--card);border:1px solid var(--line);border-radius:var(--r-sm);padding:6px 8px;}
 .chat-refusal-chunk-head{display:flex;flex-wrap:wrap;align-items:center;gap:6px;margin-bottom:3px;}
 .chat-refusal-rank{font-family:var(--chat-mono);color:var(--ink-3);flex:0 0 auto;}
 .chat-refusal-doc{font-weight:800;color:var(--ink);min-width:0;}

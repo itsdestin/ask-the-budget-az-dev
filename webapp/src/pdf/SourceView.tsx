@@ -1,5 +1,6 @@
-// The provenance surface itself: breadcrumb + zoom toolbar + the rendered
-// PDF page + the always-visible cited-text panel underneath.
+// The provenance surface itself: one merged header (crumb + zoom + open +
+// close) + the rendered PDF page + the always-visible cited-text panel
+// underneath.
 //
 // Extracted from web/components/PdfViewer.tsx's `Loaded` sub-component (Plan 4
 // Task 11) so BOTH entry points share one implementation:
@@ -15,6 +16,12 @@
 // links to its source page, and a source with no page image (DOCX bills,
 // Plan 3's fiscal notes) still renders its verbatim text so the analyst can
 // verify by eye.
+//
+// Task 15: the breadcrumb and the zoom toolbar used to be two stacked bars
+// (`Breadcrumb` then `Toolbar`), which painted two white bands before any
+// page pixels appeared. They are now one `SourceHead` row, and the close
+// button AiModePanel used to float over this whole panel now lives at the
+// right end of that row for the loaded state — see `onClose` below.
 
 import { Suspense, lazy, useEffect, useMemo, useRef, useState } from "react";
 
@@ -60,6 +67,12 @@ export interface SourceViewProps {
    *  PDF canvas is skipped entirely and the cited-text panel carries the
    *  verification burden. */
   pdfUnavailable?: string | null;
+  /** Closes the panel. Optional: AI Mode's `PdfViewer` passes this so the
+   *  merged header below can render a close button; the search page's
+   *  `SourcePanel` passes nothing — it wraps this component in its own
+   *  fixed drawer with its own navy header and close button, and rendering
+   *  a second one here would be a duplicate. */
+  onClose?: () => void;
 }
 
 export function SourceView({
@@ -74,6 +87,7 @@ export function SourceView({
   fiscalYear,
   sourceLabel,
   pdfUnavailable,
+  onClose,
 }: SourceViewProps) {
   // The exact source text to highlight, most specific first. cite()
   // emits character offsets (span_start, span_end) into the chunk
@@ -107,12 +121,19 @@ export function SourceView({
   // Measure the scrolling container so PdfPage knows what to fit to.
   // ResizeObserver tracks both the side panel resizing and the
   // window changing size mid-session.
+  //
+  // Must match .pdf-scroller's horizontal padding (12px each side). The seed
+  // and the observer MUST measure the same box: the observer reports
+  // contentRect (padding excluded), so the clientWidth seed subtracts the
+  // padding to match. Mixing the two box models is what used to render the
+  // page 24px short of fit-to-width.
+  const PDF_SCROLLER_PADDING_PX = 24;
   const scrollerRef = useRef<HTMLDivElement | null>(null);
   const [containerWidth, setContainerWidth] = useState(0);
   useEffect(() => {
     const el = scrollerRef.current;
     if (!el) return;
-    setContainerWidth(el.clientWidth);
+    setContainerWidth(Math.max(0, el.clientWidth - PDF_SCROLLER_PADDING_PX));
     // ResizeObserver isn't available in jsdom (used by vitest); the
     // initial clientWidth read above is enough for tests. In real
     // browsers we observe so a side-panel drag or window resize
@@ -120,8 +141,9 @@ export function SourceView({
     if (typeof ResizeObserver === "undefined") return;
     const obs = new ResizeObserver((entries) => {
       for (const entry of entries) {
-        // contentRect.width excludes scrollbar gutter — the right
-        // measurement when the canvas is the only flow child.
+        // contentRect.width excludes scrollbar gutter AND padding — the
+        // same content-box measurement as the seed above, so the two never
+        // disagree about which box they're measuring.
         setContainerWidth(entry.contentRect.width);
       }
     });
@@ -148,7 +170,21 @@ export function SourceView({
 
   return (
     <div className="pdf-view">
-      <Breadcrumb docTitle={docTitle} page={page} fiscalYear={fiscalYear} />
+      {/* Rendered unconditionally — even the no-page-image branch below gets
+          a crumb + close button, just no zoom/open controls (showZoom is
+          false whenever there's no page to draw). */}
+      <SourceHead
+        docTitle={docTitle}
+        page={page}
+        fiscalYear={fiscalYear}
+        zoom={zoom}
+        onZoomIn={zoomIn}
+        onZoomOut={zoomOut}
+        onResetZoom={resetZoom}
+        docId={docId}
+        onClose={onClose}
+        showZoom={!noPageReason}
+      />
       {noPageReason ? (
         // Failure-mode A from the catalog: the source is a DOCX bill (or a
         // Plan 3 fiscal note), so there is no page to draw. Say so in the
@@ -159,33 +195,23 @@ export function SourceView({
           <p>{noPageReason}</p>
         </div>
       ) : (
-        <>
-          {/* `page!` is safe in this branch: a null page IS a noPageReason
-              above, so this subtree only renders when one exists. */}
-          <Toolbar
-            zoom={zoom}
-            onZoomIn={zoomIn}
-            onZoomOut={zoomOut}
-            onResetZoom={resetZoom}
-            docId={docId}
-            page={page!}
-          />
-          <div ref={scrollerRef} className="pdf-scroller">
-            {containerWidth > 0 && (
-              <Suspense fallback={<PageSkeleton />}>
-                <PdfPage
-                  docId={docId}
-                  pageNumber={page!}
-                  bbox={bbox}
-                  searchTexts={searchTexts}
-                  sourceText={sourceText}
-                  containerWidth={Math.max(0, containerWidth - 24)}
-                  zoomLevel={zoom}
-                />
-              </Suspense>
-            )}
-          </div>
-        </>
+        // `page!` is safe in this branch: a null page IS a noPageReason
+        // above, so this subtree only renders when one exists.
+        <div ref={scrollerRef} className="pdf-scroller">
+          {containerWidth > 0 && (
+            <Suspense fallback={<PageSkeleton />}>
+              <PdfPage
+                docId={docId}
+                pageNumber={page!}
+                bbox={bbox}
+                searchTexts={searchTexts}
+                sourceText={sourceText}
+                containerWidth={containerWidth}
+                zoomLevel={zoom}
+              />
+            </Suspense>
+          )}
+        </div>
       )}
       {/* CitedTextPanel renders below the PDF scroller — ALWAYS visible so
           the analyst can read the verbatim source text even when the PDF
@@ -211,19 +237,43 @@ function PageSkeleton() {
   );
 }
 
-function Breadcrumb({
+/** The merged header row: "Page N of <title>" + zoom controls + "open
+ *  original" + close, all in one bar. Replaces the old `Breadcrumb` +
+ *  `Toolbar` pair (Task 15) — stacking two bars meant two white bands
+ *  painted before any page pixels did. */
+function SourceHead({
   docTitle,
   page,
   fiscalYear,
+  zoom,
+  onZoomIn,
+  onZoomOut,
+  onResetZoom,
+  docId,
+  onClose,
+  showZoom,
 }: {
   docTitle: string;
   page: number | null;
   fiscalYear?: number | null;
+  zoom: number;
+  onZoomIn: () => void;
+  onZoomOut: () => void;
+  onResetZoom: () => void;
+  docId: string;
+  onClose?: () => void;
+  showZoom: boolean;
 }) {
+  // pdfjs's URL fragment `#page=N` is the standard PDF Open Parameters
+  // syntax; Chrome/Edge/Firefox built-in viewers all honor it. `page ?? 1`
+  // is a defensive fallback only — the link itself never renders unless
+  // showZoom is true, which requires a real page (see noPageReason above).
+  const fullDocHref = `/api/pdf/${encodeURIComponent(docId)}#page=${page ?? 1}`;
   return (
-    <div className="pdf-crumb">
-      {/* "Page N of <title>" — dropped entirely when there is no page, rather
-          than printing "Page — of", which reads like a rendering bug. */}
+    <div className="pdf-head">
+      {/* "Page N of <title>" — dropped entirely when there is no page,
+          rather than printing "Page — of", which reads like a rendering
+          bug. */}
       {page != null && (
         <>
           <span className="pdf-crumb-label">Page</span>
@@ -235,70 +285,65 @@ function Breadcrumb({
         {docTitle}
       </span>
       {fiscalYear != null && <span className="pdf-crumb-fy">FY{fiscalYear}</span>}
-    </div>
-  );
-}
-
-/** Bar above the rendered page: zoom controls + "open original PDF"
- *  link. The link target opens the API's full-PDF response in a
- *  new tab — Range-streamed, so opening the full doc is cheap. */
-function Toolbar({
-  zoom,
-  onZoomIn,
-  onZoomOut,
-  onResetZoom,
-  docId,
-  page,
-}: {
-  zoom: number;
-  onZoomIn: () => void;
-  onZoomOut: () => void;
-  onResetZoom: () => void;
-  docId: string;
-  page: number;
-}) {
-  // pdfjs's URL fragment `#page=N` is the standard PDF Open Parameters
-  // syntax; Chrome/Edge/Firefox built-in viewers all honor it.
-  const fullDocHref = `/api/pdf/${encodeURIComponent(docId)}#page=${page}`;
-  const zoomLabel = `${Math.round(zoom * 100)}%`;
-  return (
-    <div className="pdf-toolbar">
-      <button
-        type="button"
-        onClick={onZoomOut}
-        aria-label="Zoom out"
-        className="pdf-zoom-btn"
-        disabled={zoom <= MIN_ZOOM + 0.001}
-      >
-        −
-      </button>
-      <button
-        type="button"
-        onClick={onResetZoom}
-        aria-label="Reset zoom to fit width"
-        className="pdf-zoom-btn pdf-zoom-level"
-        title="Click to reset to fit-to-width"
-      >
-        {zoomLabel}
-      </button>
-      <button
-        type="button"
-        onClick={onZoomIn}
-        aria-label="Zoom in"
-        className="pdf-zoom-btn"
-        disabled={zoom >= MAX_ZOOM - 0.001}
-      >
-        +
-      </button>
-      <a
-        href={fullDocHref}
-        target="_blank"
-        rel="noopener noreferrer"
-        className="pdf-open-original"
-        title="Open the full PDF in a new browser tab"
-      >
-        Open original ↗
-      </a>
+      <span className="pdf-head-spacer" />
+      {showZoom && (
+        <>
+          <button
+            type="button"
+            onClick={onZoomOut}
+            aria-label="Zoom out"
+            className="pdf-zoom-btn"
+            disabled={zoom <= MIN_ZOOM + 0.001}
+          >
+            −
+          </button>
+          <button
+            type="button"
+            onClick={onResetZoom}
+            aria-label="Reset zoom to fit width"
+            className="pdf-zoom-btn pdf-zoom-level"
+            title="Click to reset to fit-to-width"
+          >
+            {`${Math.round(zoom * 100)}%`}
+          </button>
+          <button
+            type="button"
+            onClick={onZoomIn}
+            aria-label="Zoom in"
+            className="pdf-zoom-btn"
+            disabled={zoom >= MAX_ZOOM - 0.001}
+          >
+            +
+          </button>
+          <a
+            href={fullDocHref}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="pdf-open-original"
+            title="Open the full PDF in a new browser tab"
+          >
+            Open ↗
+          </a>
+        </>
+      )}
+      {onClose && (
+        <button
+          type="button"
+          className="ai-source-close is-inline"
+          aria-label="Close source panel"
+          onClick={onClose}
+        >
+          <svg viewBox="0 0 16 16" width="14" height="14" aria-hidden="true">
+            <path
+              d="M3 3l10 10M13 3L3 13"
+              stroke="currentColor"
+              strokeWidth="2"
+              strokeLinecap="round"
+              fill="none"
+            />
+          </svg>
+        </button>
+      )}
     </div>
   );
 }

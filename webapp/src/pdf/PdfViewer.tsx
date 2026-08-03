@@ -13,6 +13,12 @@
 // `Loaded` body moved into SourceView so the search page can reuse it,
 // next/dynamic became React.lazy (inside SourceView), and the Tailwind
 // classes became `pdf-`-prefixed semantic ones.
+//
+// Task 15: `onClose` is threaded through from AiModePanel, which used to
+// float its own close button on top of this whole panel. That button now
+// lives INSIDE SourceView's merged header for the loaded state; the empty
+// and unresolved states below have no header row, so they keep a floating
+// variant (`FloatingClose`) — the panel must be closable in every state.
 
 import { useState } from "react";
 
@@ -22,7 +28,7 @@ import { useCitationSelected } from "../chat/citation-context";
 import Mascot from "../chat/mascot/Mascot";
 import { SourceView } from "./SourceView";
 
-export default function PdfViewer() {
+export default function PdfViewer({ onClose }: { onClose?: () => void } = {}) {
   const [selected, setSelected] = useState<Citation | null>(null);
   // Track the last-clicked unresolved citation so we can show
   // *which* citation we couldn't load, instead of looking
@@ -43,14 +49,43 @@ export default function PdfViewer() {
     setSelected(citation);
   });
 
-  if (selected) return <Loaded citation={selected} />;
-  if (unresolvedClick) return <UnresolvedState citation={unresolvedClick} />;
-  return <EmptyState />;
+  if (selected) return <Loaded citation={selected} onClose={onClose} />;
+  if (unresolvedClick)
+    return <UnresolvedState citation={unresolvedClick} onClose={onClose} />;
+  return <EmptyState onClose={onClose} />;
 }
 
-function EmptyState() {
+/** Floating × — the same class + markup AiModePanel used to render directly
+ *  over this whole panel before Task 15 moved the loaded-state close button
+ *  into SourceView's merged header. The empty and unresolved states have no
+ *  header row to put a close button in, so they keep this absolutely
+ *  positioned variant instead (`.ai-source-close`'s own CSS positions it
+ *  top-right of `.pdf-empty`, which Task 15 gave `position: relative`). */
+function FloatingClose({ onClose }: { onClose: () => void }) {
+  return (
+    <button
+      type="button"
+      className="ai-source-close"
+      aria-label="Close source panel"
+      onClick={onClose}
+    >
+      <svg viewBox="0 0 16 16" width="16" height="16" aria-hidden="true">
+        <path
+          d="M3 3l10 10M13 3L3 13"
+          stroke="currentColor"
+          strokeWidth="2"
+          strokeLinecap="round"
+          fill="none"
+        />
+      </svg>
+    </button>
+  );
+}
+
+function EmptyState({ onClose }: { onClose?: () => void }) {
   return (
     <div className="pdf-empty">
+      {onClose && <FloatingClose onClose={onClose} />}
       <div className="pdf-empty-inner">
         {/* Mascot with clipboard pose — welcoming prompt to click a citation. */}
         <Mascot pose="clipboard" size="hero" />
@@ -60,35 +95,50 @@ function EmptyState() {
   );
 }
 
-function UnresolvedState({ citation }: { citation: Citation }) {
+function UnresolvedState({
+  citation,
+  onClose,
+}: {
+  citation: Citation;
+  onClose?: () => void;
+}) {
   return (
     <div className="pdf-empty">
+      {onClose && <FloatingClose onClose={onClose} />}
       <div className="pdf-unresolved">
-        <h2>Couldn&rsquo;t open source PDF</h2>
+        {/* Task 15: plain-language headline first; the raw chunk_id and chip
+            index used to lead the copy, which reads as an internal error
+            message rather than something a non-developer analyst can act
+            on. They still appear below — an analyst reporting a bad
+            citation needs something concrete to quote. */}
+        <h2>Couldn&rsquo;t find the source page</h2>
         <p>
-          The citation the model emitted (chip{" "}
-          <span className="pdf-mono">[{citation.index}]</span>) references chunk{" "}
-          <span className="pdf-mono">{citation.chunkId}</span>, but the
-          retrieve() call in this turn didn&rsquo;t surface a doc_id or
-          page_start for it.
-        </p>
-        <p className="pdf-unresolved-note">
-          Common causes: the model is citing a chunk_id from prior context, or
-          the chunk&rsquo;s source isn&rsquo;t a PDF (legislative bills are
-          DOCX, viewer comes in Phase 2). Open the cite tool card in the chat
-          for the raw chunk_id and re-ask if you want a fresh retrieve().
+          This citation points at a passage the current view can&rsquo;t
+          locate — usually because it comes from an earlier question, or
+          because the source is a Word document rather than a PDF.
         </p>
         {citation.claimSpan && (
           <blockquote className="pdf-unresolved-quote">
             {citation.claimSpan}
           </blockquote>
         )}
+        <p className="pdf-unresolved-note">
+          Ask the question again to refresh the sources. Reference: chip{" "}
+          <span className="pdf-mono">[{citation.index}]</span>, passage{" "}
+          <span className="pdf-mono">{citation.chunkId}</span>.
+        </p>
       </div>
     </div>
   );
 }
 
-function Loaded({ citation }: { citation: Citation }) {
+function Loaded({
+  citation,
+  onClose,
+}: {
+  citation: Citation;
+  onClose?: () => void;
+}) {
   const r = citation.resolved!;
   return (
     <SourceView
@@ -102,6 +152,7 @@ function Loaded({ citation }: { citation: Citation }) {
       docTitle={r.docTitle || r.docId}
       fiscalYear={r.fiscalYear}
       sourceLabel={formatCopyCitation(citation)}
+      onClose={onClose}
     />
   );
 }

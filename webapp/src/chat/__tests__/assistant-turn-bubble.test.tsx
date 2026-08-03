@@ -9,6 +9,7 @@
 // failure mode Core Invariant 3 exists to prevent.
 
 import { describe, expect, it } from "vitest";
+import { render } from "@testing-library/react";
 import { renderToString } from "react-dom/server";
 
 import AssistantTurnBubble from "../AssistantTurnBubble.js";
@@ -113,5 +114,82 @@ describe("AssistantTurnBubble — tool blocks", () => {
     );
     expect(html).not.toContain("Cite claim");
     expect(html).toContain("Search corpus");
+  });
+
+  it("groups consecutive tool calls but leaves a lone one bare", () => {
+    // blocks: text, tool, tool, text, tool  ->  one group of 2, one bare card
+    const { container } = render(
+      <AssistantTurnBubble
+        turn={turn({
+          blocks: [
+            { kind: "text", uuid: "u1", text: "Looking this up." },
+            {
+              kind: "tool",
+              toolUseId: "toolA",
+              toolName: "retrieve",
+              input: { query: "Aviation Fund" },
+              status: "complete",
+            },
+            {
+              kind: "tool",
+              toolUseId: "toolB",
+              toolName: "list_filter_values",
+              input: { field: "agency" },
+              status: "complete",
+            },
+            { kind: "text", uuid: "u2", text: "One more check." },
+            {
+              kind: "tool",
+              toolUseId: "toolC",
+              toolName: "retrieve",
+              input: { query: "General Fund" },
+              status: "complete",
+            },
+          ],
+        })}
+      />,
+    );
+    expect(container.querySelectorAll(".chat-tool-group")).toHaveLength(1);
+    expect(
+      container.querySelectorAll(
+        ":not(.chat-tool-group) > .chat-tool:not(.is-inset)",
+      ),
+    ).toHaveLength(1);
+  });
+
+  it("keeps a run intact across an interleaved cite call (cite is invisible to grouping)", () => {
+    const { container } = render(
+      <AssistantTurnBubble
+        turn={turn({
+          blocks: [
+            {
+              kind: "tool",
+              toolUseId: "toolA",
+              toolName: "retrieve",
+              input: { query: "Aviation Fund" },
+              status: "complete",
+            },
+            {
+              kind: "tool",
+              toolUseId: "toolCite",
+              toolName: "cite",
+              input: { chunk_id: "c1", confidence: "verbatim" },
+              status: "complete",
+            },
+            {
+              kind: "tool",
+              toolUseId: "toolB",
+              toolName: "retrieve",
+              input: { query: "General Fund" },
+              status: "complete",
+            },
+          ],
+        })}
+      />,
+    );
+    // retrieve, cite, retrieve -> one group of two (cite stays hidden and
+    // doesn't split the run).
+    expect(container.querySelectorAll(".chat-tool-group")).toHaveLength(1);
+    expect(container.querySelectorAll(".chat-tool.is-inset")).toHaveLength(0);
   });
 });

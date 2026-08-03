@@ -13,12 +13,6 @@ import ReactMarkdown from "react-markdown";
 import rehypeHighlight from "rehype-highlight";
 import remarkGfm from "remark-gfm";
 
-// Syntax-highlight theme for rehype-highlight's output. Imported from a
-// component rather than app.css because a CSS `@import` is only legal at the
-// top of a stylesheet, and app.css opens with the mockup's own base layer.
-// Vite inlines it into the same bundle either way.
-import "highlight.js/styles/github.css";
-
 const remarkPluginsStable = [remarkGfm];
 const rehypePluginsStable = [rehypeHighlight];
 
