@@ -45,6 +45,24 @@ from types import MappingProxyType
 # eval/results/2026-08-02T1107Z-c9c16b7.json — at 1.46 refusal precision is
 # 1.00 (nothing is refused that shouldn't be), refusal recall 0.60, and
 # retrieval pass-rate 1.00 (no real question is turned away).
+#
+# RE-CHECKED 2026-08-02 after MATCH_PENALTY was calibrated (query
+# understanding, spec Q4) and DELIBERATELY LEFT AT 1.46. Recorded because
+# `calibrate_refusal.py` recommends -0.77 against that run and a future reader
+# will wonder why the recommendation was ignored:
+#
+#   1. The new penalty did not move the distribution. `max_top_score` was
+#      8.6779 at EVERY weight from 0.0 to 4.0 — a penalty only lowers
+#      NON-matching chunks, and the best chunk on these queries always
+#      matched. Refusal precision is 0.60 both before and after the change.
+#   2. -0.77 trades refusal RECALL (0.60 -> 0.40) for PRECISION (0.60 ->
+#      1.00), i.e. it refuses LESS. Invariant 3 wants the opposite: "high
+#      refusal rate = fixable, confident hallucination = trust-destroying."
+#   3. It is derived from five refusal queries. That is a thin basis for
+#      moving a shipped constant.
+#
+# Moving this belongs in its own change with its own evidence, not smuggled
+# in beside an unrelated calibration.
 REFUSAL_THRESHOLD = 1.46
 
 # Bounds the model may pass in a `fiscal_year` filter.

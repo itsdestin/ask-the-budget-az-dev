@@ -35,6 +35,11 @@ class AgencyEntry:
     canonical_name: str
     slug: str | None
     name_variants: list[str] = field(default_factory=list)
+    # Analyst shorthand — "DOC", "DEMA" — plus the JLBC slug. Deliberately
+    # SEPARATE from name_variants, which is provenance: names really printed in
+    # JLBC documents. An acronym an analyst says out loud is not one of those,
+    # and filing it there would make the stamper's evidence trail a lie.
+    aliases: list[str] = field(default_factory=list)
 
 
 def load_agency_catalog(path: Path | str | None = None) -> dict[str, AgencyEntry]:
@@ -81,8 +86,33 @@ def _load_cached(path_str: str) -> dict[str, AgencyEntry]:
             # "no slug" value to check instead of two.
             slug=entry.get("slug") or None,
             name_variants=_name_variants(entry),
+            aliases=_aliases(entry),
         )
     return catalog
+
+
+def _aliases(entry: dict) -> list[str]:
+    """Analyst-facing shorthand for one agency.
+
+    The slug is included unconditionally because it is DERIVED, not invented:
+    JLBC's own URLs are /26AR/adc.pdf, so `adc` is already how the publisher
+    itself abbreviates this agency. Reviewed colloquial acronyms come from the
+    catalog's own `aliases:` key — drafted by scripts/draft_agency_aliases.py
+    and added only after a human approves them, because an alias can become a
+    HARD retrieval filter and a wrong one sends a query confidently to the
+    wrong agency.
+    """
+    out: list[str] = []
+    slug = entry.get("slug")
+    if slug:
+        out.append(slug)
+    for alias in entry.get("aliases") or []:
+        # Case-insensitive dedupe: the reviewed list may spell the slug "ADC"
+        # where the slug field says "adc", and two spellings of one alias would
+        # double-count in every ambiguity check downstream.
+        if alias and alias.lower() not in {a.lower() for a in out}:
+            out.append(alias)
+    return out
 
 
 def _name_variants(entry: dict) -> list[str]:

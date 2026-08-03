@@ -35,8 +35,12 @@ from __future__ import annotations
 import threading
 from dataclasses import dataclass, field, replace as dataclass_replace
 
+from retrieval.agency_boost import apply_match_penalty
 from retrieval.local_embedder import LocalEmbedder
 from retrieval.local_rerank import LocalReranker
+from retrieval.query_agency import parse_query_agencies
+from retrieval.query_doc_type import parse_query_doc_types
+from retrieval.query_match import is_filterable
 from retrieval.query_year import fiscal_year_filter, parse_query_years
 from retrieval.recency import anchor_fiscal_year, apply_recency_boost
 from retrieval.rrf import RankedList, rrf_fuse
@@ -194,6 +198,32 @@ class RetrievalResult:
     was inferred). It exists so a UI or tool response can say "filtered
     to FY 2019" instead of leaving the analyst wondering where the other
     years went.
+
+    `inferred_agencies` and `inferred_doc_types` report what was parsed out
+    of the query and applied — but they are applied DIFFERENTLY, and a UI
+    must not describe them the same way.
+
+    `inferred_doc_types` is a hard FILTER: those document types are the only
+    ones searched. Empty when the caller passed its own `doc_type`, when the
+    match was too weak to filter on, or when the filter matched nothing and
+    had to be dropped (see `dropped_filters`).
+
+    `inferred_agencies` is only a ranking PREFERENCE — measured to beat a
+    hard filter by ~5 points of recall at every cutoff, because the corpus
+    is stamped incompletely and a correct reading of the question can still
+    exclude the answer. Nothing is removed from the results, so an analyst
+    seeing "preferring Corrections" still gets everything else below it.
+    Empty only when the caller passed its own `agency_canonical_id`. The
+    reasoning and the measurement are at the inference site in `retrieve`.
+
+    `dropped_filters` (spec Q3) names the dimensions whose INFERRED filter
+    returned nothing and was therefore abandoned for a second, unfiltered
+    search. In practice that is only ever `["doc_type"]`, since agency no
+    longer filters and so can never empty the page. It exists so the UI can say
+    "showing all documents — no Corrections results matched" rather than
+    silently pretending no filter was ever guessed. A filter that is
+    invisibly not applied is the kind of thing that makes a tool feel
+    haunted.
     """
 
     chunks: list[RetrievedChunk] = field(default_factory=list)
@@ -203,6 +233,9 @@ class RetrievalResult:
     dense_count: int = 0
     fused_count: int = 0
     inferred_fiscal_years: list[int] = field(default_factory=list)
+    inferred_agencies: list[str] = field(default_factory=list)
+    inferred_doc_types: list[str] = field(default_factory=list)
+    dropped_filters: list[str] = field(default_factory=list)
 
 
 def retrieve(
@@ -269,32 +302,117 @@ def retrieve(
                 filters, fiscal_year=fiscal_year_filter(inferred_fiscal_years)
             )
 
-    bm25_hits = bm25_query_lance(
-        req.query,
-        store=store,
-        corpus=req.corpus,
-        top_k=bm25_top_k,
-        filters=filters,
-    )
-    # The dense leg doesn't own a model — the caller embeds the query and
-    # passes the vector in, so the store stays model-agnostic.
-    qvec = embedder.embed_one(req.query, input_type="query")
-    dense_hits = dense_query_lance(
-        qvec,
-        store=store,
-        corpus=req.corpus,
-        top_k=dense_top_k,
-        filters=filters,
-    )
+    # Spec Q2: the same "the analyst typed it, so filter on it" idea as the
+    # year parser above, extended to agency and document type — the two
+    # dimensions an analyst actually names ("doc baseline", "dema ar").
+    #
+    # WHY confidence decides filter-versus-boost: a year token is
+    # unambiguous, an agency acronym is not. `doc`, `ar` and `pp` are
+    # ordinary words, so is_filterable() only lets a match through when
+    # EVERY match is exact. Anything weaker is kept aside and handed to the
+    # post-rerank penalty below, which competes with reranker scores instead
+    # of overriding them.
+    # AGENCY IS A RANKING PREFERENCE, NEVER A HARD FILTER — a deliberate
+    # deviation from spec Q2, which specified a hard filter for an exact match.
+    # Measured on the 47-query eval set, agency-filter ON vs OFF, everything
+    # else identical:
+    #
+    #                       recall@5   recall@15   recall@20   failed lookups
+    #     hard filter         83.33%      95.24%      95.24%     q-009, q-022
+    #     preference only     88.10%     100.00%     100.00%     none
+    #
+    # WHY the filter loses, and it is not a tuning accident: the corpus is
+    # stamped incompletely, so a CORRECT reading of the question can still
+    # exclude the answer. q-009 names "the DOR Unclaimed Property Fund" and the
+    # AFR passage answering it is stamped only agency:sba; q-022 names the
+    # Secretary of State and its answer sits in a House document. In both the
+    # parser is right and the filter still deletes the answer — and it deletes
+    # it SILENTLY, because the agency has other chunks so the empty-result
+    # fallback never fires.
+    #
+    # The cost is one slot on one navigational query (dema ar) out of six.
+    # That is a good trade for 4.8 points of recall at every cutoff.
+    #
+    # Re-open this only with a measurement, and re-run it after any re-ingest
+    # that improves agency stamping — the trade could genuinely reverse once
+    # the corpus side has the aliases the query side now has.
+    inferred_agencies: list[str] = []
+    weak_agencies: list[str] = []
+    if not req.agency_canonical_id:
+        weak_agencies = [m.value for m in parse_query_agencies(req.query)]
+        inferred_agencies = list(weak_agencies)
 
-    fused = rrf_fuse(
-        [
-            RankedList(chunks=bm25_hits, weight=bm25_weight),
-            RankedList(chunks=dense_hits, weight=dense_weight),
-        ],
-        k=rrf_k,
-        top_k=fused_top_k,
-    )
+    inferred_doc_types: list[str] = []
+    weak_doc_types: list[str] = []
+    if not req.doc_type:
+        type_matches = parse_query_doc_types(req.query)
+        if is_filterable(type_matches):
+            inferred_doc_types = [m.value for m in type_matches]
+            filters = dataclass_replace(filters, doc_type=inferred_doc_types)
+        else:
+            weak_doc_types = [m.value for m in type_matches]
+
+    # The query vector does not depend on the filters, so a retry below must
+    # not pay to embed twice — embedding is the second-most expensive stage
+    # after rerank.
+    qvec_cache: list[list[float]] = []
+
+    def _search(active: RetrievalFilters):
+        bm25_hits = bm25_query_lance(
+            req.query,
+            store=store,
+            corpus=req.corpus,
+            top_k=bm25_top_k,
+            filters=active,
+        )
+        # The dense leg doesn't own a model — the caller embeds the query and
+        # passes the vector in, so the store stays model-agnostic.
+        if not qvec_cache:
+            qvec_cache.append(embedder.embed_one(req.query, input_type="query"))
+        dense_hits = dense_query_lance(
+            qvec_cache[0],
+            store=store,
+            corpus=req.corpus,
+            top_k=dense_top_k,
+            filters=active,
+        )
+        fused = rrf_fuse(
+            [
+                RankedList(chunks=bm25_hits, weight=bm25_weight),
+                RankedList(chunks=dense_hits, weight=dense_weight),
+            ],
+            k=rrf_k,
+            top_k=fused_top_k,
+        )
+        return bm25_hits, dense_hits, fused
+
+    bm25_hits, dense_hits, fused = _search(filters)
+
+    # Spec Q3, non-negotiable: an inferred filter is a GUESS, and a wrong
+    # guess must cost the analyst ranking quality, never the whole page.
+    # When one empties the result set we search again without it and report
+    # what was let go, so the UI can say "showing all documents — no
+    # Corrections results matched" instead of leaving them to wonder where
+    # everything went.
+    #
+    # Only filters THIS pipeline inferred are droppable. A caller's explicit
+    # filter was an instruction, not a guess; discarding it would answer a
+    # different question than the one asked. The inferred YEAR filter is also
+    # left alone — that is shipped S21 behaviour and changing it here would
+    # alter refusal semantics as a side effect.
+    # Only DOC TYPE can be dropped, because only doc type is ever applied as a
+    # filter — agency is a ranking preference and so can never empty the page.
+    dropped_filters: list[str] = []
+    if not fused and inferred_doc_types:
+        dropped_filters.append("doc_type")
+        filters = dataclass_replace(filters, doc_type=req.doc_type)
+        # The guess no longer describes what was applied, and `inferred_*`
+        # means "inferred AND applied" — see RetrievalResult. It becomes a weak
+        # signal instead, so the penalty below can still prefer the right
+        # document type inside the unfiltered set.
+        weak_doc_types = weak_doc_types or inferred_doc_types
+        inferred_doc_types = []
+        bm25_hits, dense_hits, fused = _search(filters)
 
     if not fused:
         # Return before touching the reranker: it is the expensive stage,
@@ -305,6 +423,9 @@ def retrieve(
             dense_count=len(dense_hits),
             fused_count=0,
             inferred_fiscal_years=inferred_fiscal_years,
+            inferred_agencies=inferred_agencies,
+            inferred_doc_types=inferred_doc_types,
+            dropped_filters=dropped_filters,
         )
 
     if reranker is None:
@@ -333,6 +454,19 @@ def retrieve(
             reranked, anchor_fy=anchor_fiscal_year(reranked)
         )
 
+    # Spec Q4: the low-confidence half of query understanding. A match too
+    # weak to hard-filter on ("doc baseline") still says something, so it
+    # penalises chunks that do NOT match instead of being thrown away.
+    #
+    # Applied at the same seam as the recency boost, and penalty-shaped for
+    # the same reason: `top_score` is what REFUSAL_THRESHOLD is compared
+    # against, so an adjustment that RAISED a score would silently weaken
+    # refusal. Ships at weight 0.0 until calibrated — see agency_boost.py.
+    if weak_agencies or weak_doc_types:
+        reranked = apply_match_penalty(
+            reranked, agency_ids=weak_agencies, doc_types=weak_doc_types
+        )
+
     reranked = reranked[: req.top_k]
 
     return RetrievalResult(
@@ -345,4 +479,7 @@ def retrieve(
         dense_count=len(dense_hits),
         fused_count=len(fused),
         inferred_fiscal_years=inferred_fiscal_years,
+        inferred_agencies=inferred_agencies,
+        inferred_doc_types=inferred_doc_types,
+        dropped_filters=dropped_filters,
     )

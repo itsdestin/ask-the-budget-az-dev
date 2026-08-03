@@ -1,0 +1,130 @@
+{
+  "top_n": 5,
+  "rows": [
+    {
+      "query": "ahcccs baseline",
+      "agency_precision": 1.0,
+      "doc_type_precision": 1.0,
+      "chronological": 0.75,
+      "newest_year": 2027,
+      "years": [
+        2027,
+        2026,
+        2027,
+        2026,
+        2025
+      ],
+      "inferred_agencies": [
+        "agency:axs"
+      ],
+      "inferred_doc_types": [
+        "baseline-per-agency"
+      ],
+      "dropped_filters": []
+    },
+    {
+      "query": "doc baseline",
+      "agency_precision": 0.2,
+      "doc_type_precision": 1.0,
+      "chronological": 0.5,
+      "newest_year": 2026,
+      "years": [
+        2026,
+        2018,
+        2019,
+        2017,
+        2018
+      ],
+      "inferred_agencies": [],
+      "inferred_doc_types": [
+        "baseline-per-agency"
+      ],
+      "dropped_filters": []
+    },
+    {
+      "query": "ahcccs appropriations report",
+      "agency_precision": 1.0,
+      "doc_type_precision": 1.0,
+      "chronological": 0.75,
+      "newest_year": 2025,
+      "years": [
+        2025,
+        2024,
+        2025,
+        2024,
+        2024
+      ],
+      "inferred_agencies": [
+        "agency:axs"
+      ],
+      "inferred_doc_types": [
+        "approps-per-agency"
+      ],
+      "dropped_filters": []
+    },
+    {
+      "query": "dema ar",
+      "agency_precision": 1.0,
+      "doc_type_precision": 0.2,
+      "chronological": 0.5,
+      "newest_year": 2027,
+      "years": [
+        2027,
+        2025,
+        2026,
+        2027,
+        2023
+      ],
+      "inferred_agencies": [
+        "agency:ema"
+      ],
+      "inferred_doc_types": [],
+      "dropped_filters": []
+    },
+    {
+      "query": "ahcccs 27ar",
+      "agency_precision": 1.0,
+      "doc_type_precision": 1.0,
+      "chronological": 1.0,
+      "newest_year": 2026,
+      "years": [
+        2026,
+        2026,
+        2026,
+        2026,
+        2026
+      ],
+      "inferred_agencies": [
+        "agency:axs"
+      ],
+      "inferred_doc_types": [
+        "approps-per-agency"
+      ],
+      "dropped_filters": []
+    },
+    {
+      "query": "ahcccs 2027 approps report",
+      "agency_precision": 1.0,
+      "doc_type_precision": 1.0,
+      "chronological": 1.0,
+      "newest_year": 2026,
+      "years": [
+        2026,
+        2026,
+        2026,
+        2026,
+        2026
+      ],
+      "inferred_agencies": [
+        "agency:axs"
+      ],
+      "inferred_doc_types": [
+        "approps-per-agency"
+      ],
+      "dropped_filters": []
+    }
+  ],
+  "mean_agency_precision": 0.867,
+  "mean_doc_type_precision": 0.867,
+  "mean_chronological": 0.75
+}

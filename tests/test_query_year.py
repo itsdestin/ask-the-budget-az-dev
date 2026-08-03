@@ -18,6 +18,7 @@ from retrieval.query_year import (
     MAX_PLAUSIBLE_YEAR,
     MIN_PLAUSIBLE_YEAR,
     fiscal_year_filter,
+    parse_jlbc_shorthand,
     parse_query_years,
 )
 
@@ -136,3 +137,51 @@ def test_the_window_is_one_year_either_side() -> None:
     # Pinned: ±2 measured no better than filtering nothing at all
     # (recall@5 back to the unfiltered 72.41%), ±0 failed gate G1.
     assert ADJACENT_YEAR_WINDOW == 1
+
+
+# ---------------------------------------------------------------------------
+# parse_jlbc_shorthand — JLBC's own URL convention (spec Q5)
+# ---------------------------------------------------------------------------
+
+
+def test_the_corpus_url_convention_is_understood():
+    """azjlbc.gov/26AR/508.pdf and /21baseline/adc.pdf — this is how an
+    analyst who lives in these files writes a citation."""
+    assert parse_jlbc_shorthand("ahcccs 27ar") == [(2027, "approps-per-agency")]
+    assert parse_jlbc_shorthand("adc 21baseline") == [(2021, "baseline-per-agency")]
+
+
+def test_shorthand_feeds_the_year_parser():
+    assert 2027 in parse_query_years("ahcccs 27ar")
+
+
+def test_shorthand_is_case_insensitive():
+    assert parse_jlbc_shorthand("AHCCCS 27AR") == [(2027, "approps-per-agency")]
+
+
+def test_a_bare_two_digit_number_is_not_shorthand():
+    """'27' alone is not a JLBC file reference and must not become FY2027
+    here — the existing two-digit rule already governs that case."""
+    assert parse_jlbc_shorthand("27 positions") == []
+
+
+def test_an_implausible_year_is_rejected():
+    assert parse_jlbc_shorthand("99ar") == []
+
+
+def test_a_citation_designator_is_not_read_as_jlbc_shorthand():
+    """"chapter 21 baseline" must not become a FY2021 hard filter.
+
+    This one is nastier than a nonsense year: FY2021 baselines EXIST, so the
+    pipeline's empty-result fallback never fires and the analyst silently gets
+    one year's documents for a question about something else.
+    """
+    assert parse_jlbc_shorthand("chapter 21 baseline") == []
+    assert parse_jlbc_shorthand("laws 2025, chapter 26 ar") == []
+    assert 2021 not in parse_query_years("chapter 21 baseline")
+
+
+def test_the_real_url_convention_still_resolves_after_the_guard():
+    """The guard must not cost the shape it exists to serve."""
+    assert parse_jlbc_shorthand("ahcccs 27ar") == [(2027, "approps-per-agency")]
+    assert parse_jlbc_shorthand("adc 21baseline") == [(2021, "baseline-per-agency")]

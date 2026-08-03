@@ -175,6 +175,12 @@ agencies:
 - canonical_name: Administration, Arizona Department of
   canonical_id: agency:doa
   slug: doa
+  # ADOA is unambiguously Administration in Arizona usage. The generator
+  # DROPPED it as colliding with Agriculture (both 'Arizona Department of
+  # A...'), which is a rule too blunt for a real-world acronym; approved by
+  # name during review.
+  aliases:
+  - adoa
   names_observed_jlbc:
     Administration, Arizona Department of:
     - approps-fy2015
@@ -348,10 +354,6 @@ agencies:
   canonical_id: agency:doa-apf
   slug: doa-apf
   names_observed_jlbc:
-    ', p Automation Projects Fund':
-    - approps-fy2016
-    - approps-fy2020
-    - approps-fy2026
     Automation Projects Fund:
     - approps-fy2017
     - approps-fy2019
@@ -361,9 +363,6 @@ agencies:
     - approps-fy2024
     - approps-fy2025
     - baseline-fy2024
-    ministration, Arizona Department of   Automation Projects Fund:
-    - approps-fy2018
-    - baseline-fy2023
     ADOA - Automation Projects Fund:
     - baseline-fy2025
     - baseline-fy2026
@@ -734,6 +733,10 @@ agencies:
 - canonical_name: Arizona State University
   canonical_id: agency:uniasu
   slug: uniasu
+  # Was blocked while agency:uniasum carried this entry's name; that entry is
+  # the Tempe campus and has been renamed, so `asu` is unambiguous again.
+  aliases:
+  - asu
   names_observed_jlbc:
     Arizona State University:
     - approps-fy2021
@@ -787,6 +790,17 @@ agencies:
   page_in_gov_fy27: 414
   observed_in_sample:
   - department of the university
+# SAME AGENCY as agency:uniasu, split by a JLBC naming change — deliberately
+# NOT renamed, because the shared name is what groups them (see _logical_key in
+# retrieval/query_agency.py).
+#
+# The evidence is the year ranges, which are contiguous and never overlap:
+# this id is printed "Arizona State University - Tempe/DPC" FY2015-2018 and
+# then plain "Arizona State University" FY2019-2020; agency:uniasu is
+# "Arizona State University" FY2021-2027. JLBC stopped listing campuses
+# separately after FY2018 (agency:uniasue / uniasuw both end there) and folded
+# them into the Tempe line, and the harvester minted a fresh id once the name
+# settled. So the two ids are one university either side of FY2020/FY2021.
 - canonical_name: Arizona State University
   canonical_id: agency:uniasum
   slug: uniasum
@@ -1857,6 +1871,12 @@ agencies:
 - canonical_name: Community Colleges, Arizona
   canonical_id: agency:acc
   slug: acc
+  # Approved by Destin 2026-08-02. Deliberately STOPLISTED to a boost, not a
+  # filter: 'universities and colleges funding' is a real question and a
+  # hard filter would hide the universities. 'community colleges' already
+  # resolves EXACT via the canonical name; 'comm colleges' is curated.
+  aliases:
+  - colleges
   names_observed_jlbc:
     Community Colleges, Arizona:
     - approps-fy2015
@@ -2187,6 +2207,12 @@ agencies:
 - canonical_name: Corrections, State Department of
   canonical_id: agency:adc
   slug: adc
+  # Named directly by the project owner as a query he types ("doc baseline"),
+  # so it is approved evidence rather than a drafted guess. It is also an
+  # ordinary English word, which is why retrieval/query_agency.py stoplists it
+  # to a boost instead of letting it hard-filter.
+  aliases:
+  - doc
   names_observed_jlbc:
     Corrections, State Department of:
     - approps-fy2015
@@ -3044,8 +3070,6 @@ agencies:
     - baseline-fy2025
     - baseline-fy2026
     - baseline-fy2027
-    pp y, Economic Security, Department of:
-    - approps-fy2026
   indexes:
     approps-fy2015:
       page: 105
@@ -3267,6 +3291,10 @@ agencies:
 - canonical_name: Emergency and Military Affairs, Department of
   canonical_id: agency:ema
   slug: ema
+  # Named directly by the project owner as a query he types ("dema ar").
+  # Unlike "doc" this is not an ordinary word, so it may hard-filter.
+  aliases:
+  - dema
   names_observed_jlbc:
     Emergency and Military Affairs, Department of:
     - approps-fy2015
@@ -3831,6 +3859,11 @@ agencies:
 - canonical_name: Forestry and Fire Management, Arizona Department of
   canonical_id: agency:for
   slug: for
+  # The department's real acronym. Its JLBC slug `for` is SUPPRESSED in
+  # retrieval/query_agency.py — it is an English preposition and was
+  # hard-filtering 14 of 47 eval queries onto this agency.
+  aliases:
+  - dffm
   names_observed_jlbc:
     Forester, State:
     - approps-fy2015
@@ -3850,8 +3883,6 @@ agencies:
     - baseline-fy2025
     - baseline-fy2026
     - baseline-fy2027
-    ', Forestry and Fire Management, Arizona Department of':
-    - approps-fy2026
   indexes:
     approps-fy2015:
       page: 153
@@ -4580,6 +4611,10 @@ agencies:
 - canonical_name: Homeland Security, Arizona Department of
   canonical_id: agency:hla
   slug: hla
+  # Approved by name during review. The generator only offered `adhs`, which
+  # is one letter from agency:dhs (Health Services).
+  aliases:
+  - dohs
   names_observed_jlbc:
     Homeland Security, Arizona Department of:
     - approps-fy2015
@@ -5109,6 +5144,10 @@ agencies:
 - canonical_name: Insurance and Financial Institutions, Department of
   canonical_id: agency:dif
   slug: dif
+  # The department's own acronym. Note agency:ins and agency:ban are its
+  # PREDECESSORS, merged into DIFI in 2020 — not duplicates.
+  aliases:
+  - difi
   names_observed_jlbc:
     Insurance and Financial Institutions, Department of:
     - approps-fy2021
@@ -6137,6 +6176,9 @@ agencies:
 - canonical_name: Northern Arizona University
   canonical_id: agency:uninau
   slug: uninau
+  # Approved by name during the 2026-08-02 review. One entry, unambiguous.
+  aliases:
+  - nau
   names_observed_jlbc:
     Northern Arizona University:
     - approps-fy2015
@@ -6727,9 +6769,6 @@ agencies:
     Osteopathic Examiners in Medicine and Surgery, Arizona:
     - baseline-fy2025
     - baseline-fy2026
-    Board of:
-    - baseline-fy2025
-    - baseline-fy2026
     ? Osteopathic Examiners in Medicine and Surgery, Arizona ...   342  Board of........................................................................
     : - baseline-fy2027
   indexes:
@@ -7207,6 +7246,10 @@ agencies:
 - canonical_name: Pioneers' Home, Arizona
   canonical_id: agency:pio
   slug: pio
+  # Approved by name during review. `pio` is already the JLBC slug and so is
+  # already an alias; `aph` is the form analysts say out loud.
+  aliases:
+  - aph
   names_observed_jlbc:
     Pioneers' Home, Arizona:
     - approps-fy2015
@@ -9261,8 +9304,6 @@ agencies:
   canonical_id: agency:uniuhsc
   slug: uniuhsc
   names_observed_jlbc:
-    p University of Arizona - Health Sciences Center:
-    - approps-fy2015
     University of Arizona - Health Sciences Center:
     - approps-fy2016
     - approps-fy2017

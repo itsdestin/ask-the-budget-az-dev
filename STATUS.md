@@ -1,6 +1,6 @@
 # Project Status
 
-**Last updated:** 2026-08-02
+**Last updated:** 2026-08-03
 
 This file is the single source of truth for what's shipped, what's
 open, and what's blocked. The phase plans under `docs/superpowers/`
@@ -454,6 +454,222 @@ by tests.
 unverified tone, the "Also appears in:" list, and chip click opening the
 PDF at the source rendering. 22 new vitest specs cover the logic; nobody
 has watched it render.
+
+---
+
+## Query understanding — SHIPPED (2026-08-03)
+
+Spec: `docs/superpowers/specs/2026-08-02-query-understanding-design.md` (Q1–Q6).
+Plan: `docs/superpowers/plans/2026-08-02-query-understanding.md`. Branch
+`query-understanding`.
+
+**An analyst typing the shorthand they actually use now gets that agency's
+documents, of that type.** `RetrievalRequest` already carried
+`agency_canonical_id` and `doc_type` filters that reached LanceDB; nothing
+populated them from query text. Three parsers now do, mirroring `query_year.py`.
+
+**Measured against a CONTROL run of unmodified master on the same machine
+under the same load** — not the morning's recorded baseline, because the box
+was at load 11 and the apparent latency regression was entirely contention:
+
+| | control (master) | shipped |
+|---|---|---|
+| recall@5 | 73.81% | **88.10%** |
+| recall@15 | 97.62% | **100.00%** |
+| recall@20 | 97.62% | **100.00%** |
+| refusal precision | 60% | 60% |
+
+**+14.3 points of recall@5, and perfect recall at 15 and 20. Gate G1 passes.**
+Suite 1986 → **2155**.
+
+On the six shorthand queries that motivated the work
+(`eval/navigational_check.py`, precision@5): mean agency precision 0.767 →
+0.833, mean doc-type precision **0.200 → 0.833**.
+
+### 🔴 AGENCY IS A PREFERENCE, NOT A FILTER — a measured deviation from spec Q2
+
+The spec says an exact agency match becomes a hard filter. **It was measured
+and it loses.** Same eval set, agency-filter ON vs OFF, nothing else changed:
+
+| | recall@5 | recall@15 | recall@20 | failed lookups |
+|---|---|---|---|---|
+| hard filter (spec Q2) | 83.33% | 95.24% | 95.24% | q-009, q-022 |
+| **preference only** | **88.10%** | **100%** | **100%** | none |
+
+**Why the filter loses, and it is not a tuning accident: the corpus is stamped
+incompletely, so a CORRECT reading of the question can still exclude the
+answer.** q-009 names "the DOR Unclaimed Property Fund" and the AFR passage
+answering it carries only `agency:sba`; q-022 names the Secretary of State and
+its answer sits in a House document. In both the parser is right and the filter
+deletes the answer anyway — **silently**, because the agency has other chunks so
+the Q3 empty-result fallback never fires.
+
+Cost: one slot on one navigational query of six (`dema ar`).
+
+**Doc type still hard-filters** — it has no equivalent stamping gap, and it is
+what took doc-type precision from 0.200 to 0.833.
+
+**Re-open this only with a measurement, and re-run it after any re-ingest that
+improves agency stamping** — the trade could genuinely reverse once the corpus
+side has the aliases the query side now has.
+
+### 🔴 The corpus has the SAME missing-alias problem, on the ingest side
+
+This is the finding behind the deviation above and it outlives it.
+`chunking/entity_stamper.py` cannot resolve "DOR" in document text any better
+than the query parser could before this work: **103 of the 157 agencies carry
+no alias at all**. The query side now has them. **The ingest side does not, and
+fixing it needs a re-ingest.**
+
+### Calibration
+
+**`MATCH_PENALTY = 2.0`** (`retrieval/agency_boost.py`), penalty-shaped like the
+recency boost so `top_score` can only fall. Re-swept after agency became a
+preference, which routes the whole agency signal through it: recall@5 plateaus
+at .8810 from 1.0 through 3.0, falling to .8333 at 0.0 and .8571 at 4.0. **2.0
+is the plateau CENTRE** — the right pick when the metric degrades in both
+directions, unlike the recency weight where lower was always safe.
+
+**`REFUSAL_THRESHOLD` stays 1.46.** `calibrate_refusal.py` recommends −0.77;
+rejected, with the reasoning at the constant. The penalty does not disturb the
+distribution (`max_top_score` 8.6779 at every weight 0.0–4.0, because a penalty
+only lowers non-matching chunks), and −0.77 trades refusal RECALL 0.60 → 0.40
+for precision — it refuses LESS, which is backwards under Invariant 3.
+
+### 🔴 The stoplist was load-bearing, and the review gate would NOT have caught it
+
+Every JLBC slug becomes an alias unconditionally, and **13 of the 145 slugs are
+ordinary English words**. **`for` is a preposition appearing as a standalone
+token in 14 of the 47 eval queries** — unguarded it hard-filtered all of them
+onto the Department of Forestry.
+
+These arrive through SLUGS, not drafted aliases, so **Task 8's human review gate
+could not have caught them.** Two independent derivations agreed: a frequency
+count over 247,607 tokens of real budget English (`gov` 5944 · `per` 3993 ·
+`tax` 541 · `for` 474, then a ~190 noise floor) and an ordinary-word scan.
+
+Three escalation levels now exist, and the distinction is load-bearing:
+
+| mechanism | effect | examples |
+|---|---|---|
+| `AMBIGUOUS_ALIASES` | demote to a boost | `doc`, `colleges`, `art`, `bar` |
+| `SUPPRESSED_ALIASES` | never resolve at all | `tax`, `for`, `ban` |
+| `AMBIGUOUS_PHRASES` | demote a NAME head | `insurance` |
+| `AMBIGUOUS_AGENCIES` | demote an agency, every tier | `agency:gov` |
+
+**A demotion is not always enough** — even a boost pulls the wrong agency up the
+page, which is what "2024 income tax rate" did to the Board of Tax Appeals.
+And `AMBIGUOUS_PHRASES` exists because the same defect occurs one tier up where
+a suppressed slug cannot reach it: "Insurance, Department of" has the
+single-word head "Insurance", so "health insurance premiums for state
+employees" hard-filtered onto the insurance regulator.
+
+### Four silent wrong-answer paths, all found before the eval was run
+
+All share a shape worth naming: **a bad guess that SUCCEEDS**, so the Q3
+fallback never fires and the analyst is never told a filter was inferred. A
+guess returning nothing is self-correcting; a guess returning the wrong thing
+is not.
+
+- **`chapter 21 baseline`** read as a FY2021 hard filter — the JLBC shorthand
+  bypassed the designator guard the four-digit rule already used.
+- **`general appropriation act` → `budget-bill`.** It is the NAME OF A LAW. The
+  phrase appears in **6,253 corpus chunks, ZERO of them budget-bill**, while the
+  whole type is a single 136-chunk document. Cost n-003 and n-007 their ground
+  truth.
+- **`for` → Forestry**, above.
+- **`insurance` → the regulator**, above.
+
+Found by `tests/test_query_understanding_eval_safety.py`, which checks the
+parsers against the eval set's own ground truth. **That guard is also what
+forced the agency-filter deviation**: it fired on q-009, then on q-022 the
+moment `for` was suppressed, and two exemptions was the signal to measure the
+policy rather than keep exempting.
+
+### Duplicate catalog entries cost a filter AND split the corpus
+
+Found by Destin reviewing the checklist. Five agencies are recorded twice
+(ASU, Child Safety ×5, Revenue, WIFA, Constable Ethics, Equal Opportunity).
+A duplicated name is not cosmetic: entries resolving to two ids were treated as
+ambiguous, and the duplicate ids **split the stamped chunks**.
+
+Fixed query-side, no re-ingest: entries whose canonical name matches as a
+sorted token multiset are ONE logical agency, and a match resolves to every id
+in the group. Token multiset rather than string equality because the catalog
+writes the same agency both ways round — "Child Safety, Department of" and
+"Department of Child Safety" are five entries for one agency.
+
+| query | chunks reachable | years now returned |
+|---|---|---|
+| `asu` | 1,263 → **1,343** | 2019–2025 |
+| `child safety` | 505 → **2,033** | 2018–2027 |
+| `water infrastructure finance authority` | 169 → **295** | 2022–2027 |
+
+**ASU is one university split by a naming change, not two agencies** — printed
+"ASU – Tempe/DPC" FY2015–2018 then plain "Arizona State University"
+FY2019–2020, while `agency:uniasu` runs FY2021–2027. Contiguous, never
+overlapping.
+
+**UA is the opposite case and needed its own mechanism.** No entry is named
+plainly "University of Arizona"; Main Campus (959 chunks) and Health Sciences
+Center (564) run in PARALLEL every year, so neither supersedes the other.
+`CURATED_ALIAS_AGENCIES` holds aliases that deliberately name a SET of entries
+— also used for `financial institutions` → {ban, dif}, since a MERGER cannot be
+detected the way a rename can.
+
+### ⏸ Aliases — eight applied, the rest deferred
+
+Approved by Destin by name: **`adoa` `difi` `dohs` `dhs` `asu` `nau` `aph`
+`dffm`**, plus `doc` and `dema` from the spec's own evidence. A test pins this
+as the whole set — anything beyond an agency's own slug fails the suite.
+
+**The 158 machine-drafted proposals in
+`docs/superpowers/investigations/2026-08-02-agency-alias-review.md` are NOT
+applied** and the review is deferred. That document is on master and is now
+**stale in six places** (ASU, Administration, DIFI, Homeland Security, NAU,
+Pioneers' Home) — regenerate it if the review resumes.
+
+**Worth knowing before spending 35–50 minutes on it:** the generator builds
+acronyms from initials only, so it proposed `nu` for Northern Arizona
+University and `ph` for Pioneers' Home. Destin supplied `nau` and `aph` from
+memory. On both cases he cared about, human knowledge beat the drafted list —
+the document's real value may be its appendix, which surfaced the 13
+ordinary-word slugs nobody knew were live.
+
+### Catalog debris removed
+
+Five PDF-extraction fragments that would fuzzy-match noise: `'pp y, Economic
+Security…'` (`agency:des`), a bare `'Board of'` (`agency:ost`, from a page
+break — it would have hard-filtered "board of regents" onto Osteopathic
+Examiners), `'p University of Arizona…'` (`agency:uniuhsc`), a leading-comma
+Forestry variant, and **`'ministration, Arizona Department of…'`**
+(`agency:doa-apf`) — a truncated "Administration" that registered as a
+single-word phrase and HARD-FILTERED. Guarded as a class, not as five
+instances.
+
+### Follow-ups this created
+
+- **Edition diversity in the candidate pool.** Chronological ordering is
+  UNCHANGED at 0.750 and **raising the recency weight does not help** —
+  measured at 0.85, 2.0 and 4.0, `ahcccs appropriations report` never surfaces
+  FY2026, which exists. The newest edition is not in the RRF pool to be
+  reordered: ~2,000 near-identical AHCCCS chunks span FY2005–2026 and the pool
+  is capped at 20. **Do not re-tune `RECENCY_BOOST_PER_YEAR` for this.**
+- **Agency stamping on the ingest side** (above) — the largest remaining win,
+  and it would let the agency-filter decision be re-measured.
+- **Fund resolution** has the identical gap and fix shape; deferred to keep
+  this change reviewable.
+- **The UI does not yet show what was inferred.** `RetrievalResult` carries
+  `inferred_agencies`, `inferred_doc_types` and `dropped_filters` so it can —
+  and they must be described DIFFERENTLY, since doc type filters and agency
+  only prefers. The AI Mode UI redesign shipped alongside this (see the
+  section below), so there is now a settled surface to add it to.
+- **`AMBIGUOUS_PHRASES` candidates not acted on:** `administration`, `housing`,
+  `nursing`, `senate`. Judgement calls, not clear defects.
+- **The shared normalizer keeps hyphens**, so a hyphenated catalog name only
+  matches tier 1 if the analyst types the dash. It belongs to
+  `entity_stamper.py` and both sides must agree, so changing it is its own
+  change with its own re-ingest question.
 
 ---
 

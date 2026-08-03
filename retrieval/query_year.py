@@ -99,6 +99,26 @@ _YEAR_LOOKALIKE_PREFIX = re.compile(
 # ("'19"). Both straight and curly apostrophes appear in pasted text.
 _TWO_DIGIT = re.compile(r"(?<![\w$])(?:fy[\s-]?|['‘’])(\d{2})(?![\w])", re.IGNORECASE)
 
+# JLBC's own URL convention: azjlbc.gov/26AR/508.pdf, /21baseline/adc.pdf.
+# The type suffix is REQUIRED — it is what makes the two digits a fiscal
+# year rather than an ordinary number.
+_JLBC_SHORTHAND = re.compile(
+    r"(?<![\w$])(\d{2})\s?(ar|baseline)(?![\w])", re.IGNORECASE
+)
+
+_SHORTHAND_DOC_TYPE = {"ar": "approps-per-agency", "baseline": "baseline-per-agency"}
+
+# The shorthand is a 20xx-only convention, so this form never expands into
+# the 1900s even though `_expand_two_digit` would happily read "99" as 1999.
+#
+# WHY: the convention IS the website's directory naming, and JLBC only ever
+# used it from FY2002 on (02recbk, 03app, … 13AR, 21baseline, 27baseline —
+# see data/jlbc-book-catalog.json). Pre-2000 editions are single files with
+# the year spelled out, FY1984AppropRpt.pdf. So "99ar" is not a reference to
+# anything that exists, and reading it as FY1999 would hard-filter a query
+# onto a year with no such document in it.
+_SHORTHAND_MIN_YEAR = 2000
+
 
 def _expand_two_digit(n: int) -> int | None:
     """Expand a two-digit shorthand to whichever century lands inside the
@@ -112,6 +132,48 @@ def _expand_two_digit(n: int) -> int | None:
         if MIN_PLAUSIBLE_YEAR <= candidate <= MAX_PLAUSIBLE_YEAR:
             return candidate
     return None
+
+
+def iter_jlbc_shorthand(query: str) -> list[tuple[int, str, str]]:
+    """`(fiscal_year, doc_type, matched_text)` for every JLBC shorthand token.
+
+    The third element exists for `query_doc_type.parse_query_doc_types`,
+    which reports the span of the query each match came from. Everything
+    else wants `parse_jlbc_shorthand`, which drops it.
+    """
+    out: list[tuple[int, str, str]] = []
+    for match in _JLBC_SHORTHAND.finditer(query or ""):
+        year = _expand_two_digit(int(match.group(1)))
+        if year is None or year < _SHORTHAND_MIN_YEAR:
+            continue
+        # Same designator guard the four-digit rule uses, for the same reason
+        # — and it matters MORE here. The optional space in the pattern lets
+        # "chapter 21 baseline" look like shorthand, and unlike a nonsense
+        # year that guess would SUCCEED: FY2021 baselines exist, so the
+        # pipeline's empty-result fallback never fires and the analyst
+        # silently gets one year's documents for a query about something
+        # else. Checked against what precedes the DIGITS, not the whole
+        # match, mirroring parse_query_years.
+        if _YEAR_LOOKALIKE_PREFIX.search(query[: match.start(1)]):
+            continue
+        out.append((year, _SHORTHAND_DOC_TYPE[match.group(2).lower()], match.group(0)))
+    return out
+
+
+def parse_jlbc_shorthand(query: str) -> list[tuple[int, str]]:
+    """`(fiscal_year, doc_type)` pairs from JLBC's own URL convention.
+
+    WHY this exists: the corpus's source URLs are literally
+    azjlbc.gov/26AR/508.pdf and /21baseline/adc.pdf, so an analyst who works
+    from those files types "27ar" without thinking about it. Reusing the
+    publisher's own shorthand costs one regex and removes a whole class of
+    zero-result query.
+
+    Requires the type suffix. A bare "27" stays with the ordinary two-digit
+    rule, which needs an "FY" or apostrophe prefix — otherwise every
+    "27 positions" in a budget table becomes a fiscal year.
+    """
+    return [(year, doc_type) for year, doc_type, _text in iter_jlbc_shorthand(query)]
 
 
 def parse_query_years(query: str) -> list[int]:
@@ -140,6 +202,10 @@ def parse_query_years(query: str) -> list[int]:
         expanded = _expand_two_digit(int(match.group(1)))
         if expanded is not None:
             years.add(expanded)
+
+    # "27ar" / "26baseline" carry a year the two rules above cannot see: the
+    # digits have no FY prefix and no apostrophe, and are glued to a word.
+    years.update(year for year, _doc_type in parse_jlbc_shorthand(query))
 
     return sorted(years)
 
