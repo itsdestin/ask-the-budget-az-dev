@@ -211,6 +211,15 @@ boost has the same blind spot.
   make the retrieval change (year-inference-as-default-filter is the highest-
   leverage target, but it must be validated with a Layer 2 run — never Layer 1
   numbers alone). **Nothing on the retrieval path was changed here.**
+- **Eval speed + the defend loop SHIPPED 2026-08-03 (no eval numbers changed).**
+  `run_agent_eval --workers N`, `judge_agent_run --workers N`, and a new
+  one-shot `eval.run_full_layer2` (run → score → judge, one pinned run dir)
+  all parallelize the paid OpenRouter calls; `eval.defend_agent_run` replays
+  a weakly-scored transcript through a fresh session so the model can defend
+  or revise its answer against the evaluator's feedback — useful for spotting
+  faulty evals. Thread-based (not process): the paid work is I/O, and the two
+  ONNX models are already shared singletons. Defaults stay serial (1 worker).
+  No Layer 1 or Layer 2 numbers changed.
 - **🔵 RUNNING NOW — S20 backfill on the Z13** (`PROMPT-z13-backfill.md`).
   Phase A (parity gate) and Phase B (recency machinery) are DONE and merged.
   Phase C (the backfill itself) is ~65% through the fiscal notes with the

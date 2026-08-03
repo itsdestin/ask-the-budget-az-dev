@@ -350,14 +350,14 @@ value not on this list is a silent zero-result filter):
 | `topic-pdf` | JLBC topic-specific reports (FY26, FY27) | jlbc | One-off topical analyses — formula spending, K-12, AHCCCS, etc. |
 | `afr` | AGAO Annual Financial Report (FY25) | agao | **Fund balances, cash position, ending balances — anything beyond appropriations** |
 | `governors-budget` | Governor's Executive Budget (FY27) | governor | Governor's recommendation (vs JLBC's baseline) |
-| `budget-bill` | Legislature passed budget bill (FY26) | legislature | Statutory appropriation language, session-law text |
+| `budget-bill` | Legislature passed budget bill (FY26) | legislature | Statutory appropriation language, session-law text. **CAUTION: the bill's per-agency line-item totals exclude statewide adjustments, so they understate total final appropriations — prefer `approps-per-agency` for "what did the agency get in total."** |
 
 **Choosing the right doc_type:**
 
 - "What was appropriated?" → `baseline-per-agency` (JLBC baseline) or `approps-per-agency` (after enactment)
 - "What's the fund balance? / How much is in the fund?" → `afr` (the only doc type with balance data — appropriations docs only show how much is *budgeted*, not what's *actually in the fund*)
 - "What did the Governor recommend?" → `governors-budget`
-- "What's in the actual passed bill?" → `budget-bill`
+- "What's in the actual passed bill?" → `budget-bill` — but for **"what did the agency get in total"**, prefer `approps-per-agency`: the enacted bill's agency totals exclude statewide adjustments and understate the final appropriation
 - Cross-cutting comparisons / overview → `s-pdf`, `bd-pdf`, `bh-pdf`
 - Don't know yet → omit `doc_type` filter and let the search fan out across types
 {{/when}}
@@ -764,7 +764,7 @@ their N-2 Actual slot).
   1. AFR — `filters: { doc_type: ["afr"], fiscal_year: [N] }`
   2. Latest baseline/approps with FY N in its Actual column — `filters: { doc_type: ["baseline-per-agency", "approps-per-agency"], fiscal_year: [N+2] }`
   Present the AFR number; flag any material discrepancy.
-- **"What was appropriated for X in FY N?"** → First try `filters: { doc_type: ["approps-per-agency", "budget-bill"], fiscal_year: [N] }` (the "Approved" column / bill text). If passages come back, answer from those. If empty, the FY N general appropriations act has not been ingested (or has not yet passed) — retrieve `filters: { doc_type: ["baseline-per-agency"], fiscal_year: [N] }` and label the number "baseline appropriation, not yet enacted — reflects statutory formulas and caseload adjustments only, not the Legislature's final choice."
+- **"What was appropriated for X in FY N?"** → First try `filters: { doc_type: ["approps-per-agency"], fiscal_year: [N] }` (the "Approved" column). **Prefer the Approps Report over the budget bill for "what did the agency get in total."** The enacted budget bill states per-agency line-item statutory appropriations, but its agency totals **do not include statewide adjustments** (e.g. lapse-back, vacancy savings sweep, other across-the-board adjustments) — so the bill's total routinely UNDERSTATES the full, final enacted appropriation. The Approps Report is the authoritative source for the final enacted total because it consolidates those adjustments. If the Approps Report passage is empty, fall back to `filters: { doc_type: ["budget-bill"], fiscal_year: [N] }` and label the figure "from the enacted bill — the line-item total, which may not include statewide adjustments; the JLBC Approps Report would show the consolidated total." If that too is empty, the FY N general appropriations act has not been ingested (or has not yet passed) — retrieve `filters: { doc_type: ["baseline-per-agency"], fiscal_year: [N] }` and label the number "baseline appropriation, not yet enacted — reflects statutory formulas and caseload adjustments only, not the Legislature's final choice."
 - **"What did the Governor propose for X in FY N?"** → `filters: { doc_type: ["governors-budget"], fiscal_year: [N] }`.
 - **"What's the fund balance for X?"** → `filters: { doc_type: ["afr"] }`. Appropriations docs don't report fund balances.
 
@@ -983,7 +983,7 @@ the most common source of wrong answers.
 | Document | Publisher | Released | Represents |
 |---|---|---|---|
 | **JLBC Baseline Book** | JLBC | Fall, year before FY | Forecast + bare-minimum statutory spending. **Not the enacted budget.** Used to identify discretionary capacity. |
-| **JLBC Appropriations Report** | JLBC | Summer, after Legislature acts | What the Legislature actually appropriated. Authoritative for enacted figures. |
+| **JLBC Appropriations Report** | JLBC | Summer, after Legislature acts | What the Legislature actually appropriated. Authoritative for enacted figures — **including statewide adjustments** (lapse-back, vacancy savings, other across-the-board adjustments) that the enacted budget bill's line-item totals do **not** include. For "what did the agency get in total," prefer this over the budget bill. |
 | **Governor's Budget** (State Agency Detail + Sources & Uses) | OSPB | January, ~5 days into legislative session | The Governor's *proposal*. Submitted to the Legislature. Not enacted. |
 | **Annual Financial Report (AFR)** | AGAO | Fall, after fiscal-year close | Audited record of what was actually spent. Authoritative for after-the-fact figures. |
 

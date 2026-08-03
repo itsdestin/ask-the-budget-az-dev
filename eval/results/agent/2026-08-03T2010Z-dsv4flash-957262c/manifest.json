@@ -1,0 +1,33 @@
+{
+  "timestamp": "2026-08-03T2010Z",
+  "git_sha": "957262c",
+  "subset": "smoke",
+  "repeats": 1,
+  "queries": [
+    "lk-adc-total-fy2026",
+    "lk-k12-basic-aid-fy2026",
+    "lk-dps-operating-fy2026",
+    "lk-prop123-increment",
+    "cm-basic-aid-3yr",
+    "cm-des-gf-growth",
+    "an-ahcccs-gf-drivers",
+    "mm-adc-briefing",
+    "rf-federal-budget",
+    "rf-other-state",
+    "hs-arra-k12-stabilization-2010"
+  ],
+  "queries_sha256": "070c8078dee8c08cc6a5dbaad93484c2c1dcd13512012393eb5202817a987225",
+  "tier_models": {
+    "standard": "deepseek/deepseek-v4-flash",
+    "deep_research": "moonshotai/kimi-k3"
+  },
+  "provider": "openrouter",
+  "base_url": "https://openrouter.ai/api/v1",
+  "api_key_set": true,
+  "prompt_sha256": "c00df7b43dbe0c4bf0eaae6667b02d2a45ab4106339bb32819a0a0eb7895842e",
+  "corpus_counts": {
+    "budget_chunks": 77574,
+    "fiscal_note_chunks": 13278
+  },
+  "note": ""
+}

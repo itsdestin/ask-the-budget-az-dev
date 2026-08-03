@@ -565,12 +565,18 @@
       value: '\b18\.1\s*%'
   judge_notes: >-
     DES General Fund spending rose $133,115,400 (+11.0%) in FY 2025 and
-    $243,506,900 (+18.1%) in FY 2026. In both years the driver is Division of
-    Developmental Disabilities formula adjustments ($142,289,900 of the FY
-    2025 increase; $262,456,900 of the FY 2026 increase) — i.e. DDD growth
-    EXCEEDS the agency's total growth, with one-time removals and small line
-    items offsetting it downward. A correct answer names DDD as the driver
-    and does not attribute growth to the tribal/food/aging line items, which
+    $243,506,900 (+18.1%) in FY 2026. (The $133,115,400 FY 2025 figure is
+    the ENACTED figure from the FY 2025 Approps Report —
+    jlbc-approps-fy2025-des-0022. The FY 2025 BASELINE reports the lower
+    $119,529,100/9.9% — a model that answers "how much did DES GF spending
+    rise" with the BASELINE figure instead of the enacted Approps Report
+    figure is giving the wrong (pre-enactment) number and should be marked
+    wrong.) In both years the driver is Division of Developmental
+    Disabilities formula adjustments ($142,289,900 of the FY 2025 increase;
+    $262,456,900 of the FY 2026 increase) — i.e. DDD growth EXCEEDS the
+    agency's total growth, with one-time removals and small line items
+    offsetting it downward. A correct answer names DDD as the driver and
+    does not attribute growth to the tribal/food/aging line items, which
     are small.
 
 - id: cm-highway-construction

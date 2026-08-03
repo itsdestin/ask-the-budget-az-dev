@@ -16,11 +16,13 @@ Isolation guarantees (spec 'Decisions' #5 and Global Constraints):
 from __future__ import annotations
 
 import argparse
+import concurrent.futures
 import dataclasses
 import hashlib
 import json
 import subprocess
 import sys
+import threading
 import time
 from datetime import datetime, timezone
 from pathlib import Path
@@ -54,8 +56,18 @@ def _allow_all(user: str, settings: Any, *, now: Any = None) -> LimitStatus:
 
 def make_usage_recorder(run_dir: Path) -> Callable[..., None]:
     """A record_usage-compatible callable that writes per-step rows into
-    the run directory instead of the office ledger."""
+    the run directory instead of the office ledger.
+
+    WHY the lock: with `--workers > 1` several sessions' `_bill` paths
+    append to the SAME ledger.jsonl from different threads, and two
+    interleaved `open(path, "a")` writes could splice their lines
+    (one thread's flush landing inside another's write). The office
+    ledger has the same lock (harness/ledger.py `_write_lock`); this runs
+    its own so a parallel eval's spend record stays one JSON object per
+    line — the row shape scorer/ledger readers expect.
+    """
     path = run_dir / "ledger.jsonl"
+    write_lock = threading.Lock()
 
     def record(user: str, tier: str, model: str, tokens_in: int, tokens_out: int,
                cost_usd: float | None = None, *, cached_tokens: int = 0,
@@ -64,8 +76,9 @@ def make_usage_recorder(run_dir: Path) -> Callable[..., None]:
                "tokens_in": tokens_in, "tokens_out": tokens_out,
                "cost_usd": cost_usd, "cached_tokens": cached_tokens,
                "timestamp": datetime.now(timezone.utc).isoformat()}
-        with open(path, "a", encoding="utf-8") as f:
-            f.write(json.dumps(row, ensure_ascii=False) + "\n")
+        with write_lock:
+            with open(path, "a", encoding="utf-8") as f:
+                f.write(json.dumps(row, ensure_ascii=False) + "\n")
 
     return record
 
@@ -150,71 +163,140 @@ def build_manifest(settings: Settings, queries: list[AgentQuery], *,
     }
 
 
+def _worklist(queries: list[AgentQuery], *, repeats: int) -> list[tuple[AgentQuery, int]]:
+    """[(query, repeat)] in deterministic (id, repeat) order.
+
+    Kept separate from run_suite so the parallel executor has a plain
+    list to map over, and so the serial path (workers=1) iterates in the
+    exact same order it always did — result files and run_suite's
+    per-query semantics are unchanged by parallelization.
+    """
+    return [(q, rep) for q in queries for rep in range(1, repeats + 1)]
+
+
+def _run_one_workitem(item, run_dir: Path, session_factory) -> None:
+    """Run one (query, repeat) and write its transcript, its OWN ledger,
+    and its progress line.
+
+    The whole body is a self-contained unit so it can run on any worker
+    thread. `reset_model_overrides()` runs inside here, per query — the
+    S13 fallback map is lock-guarded per operation, so a concurrent
+    query resetting it while another reads an effective model is safe
+    (each transition is atomic under the lock). See run_suite.
+    """
+    query, rep = item
+    # A transient S13 model fallback during query N must not
+    # silently re-model queries N+1..: reset before every query. Even
+    # with several queries in flight, each resets once at its own start,
+    # and every read/write of the fallback map is under _fallback_lock.
+    reset_model_overrides()
+    conv_id = f"eval-{query.id}-r{rep}"
+    path = run_dir / f"{query.id}-r{rep}.jsonl"
+    meta = {"query_id": query.id, "repeat": rep,
+            "corpus": query.corpus, "tier": query.tier,
+            "shape": query.shape,
+            "started_at": datetime.now(timezone.utc).isoformat()}
+    events: list[dict[str, Any]] = []
+    session = None
+    start = time.monotonic()
+    try:
+        session = session_factory(query, conv_id)
+        frame = session.send_turn(query.question, events.append)
+    except Exception as exc:
+        # One bad query must never abort the run (Layer 1 rule).
+        frame = {"type": "_error",
+                 "message": f"{type(exc).__name__}: {exc}"}
+    finally:
+        if session is not None:
+            try:
+                session.close()
+            except Exception as exc:
+                # Swallowing this silently (the old behavior) leaves no
+                # trace of a leaked HTTP client/file handle, which then
+                # surfaces dozens of queries later as an unrelated-looking
+                # failure with nothing to point back at the real cause.
+                # House style (harness/session.py's ledger-write path):
+                # print a diagnostic and keep going, never re-raise.
+                print(f"eval.run_agent_eval: session.close() failed for "
+                      f"{query.id} r{rep} ({type(exc).__name__}: {exc}); "
+                      "continuing (a leaked client/handle may surface "
+                      "later as an unrelated failure).", file=sys.stderr)
+    elapsed_ms = int((time.monotonic() - start) * 1000)
+    # write_transcript and progress used to run OUTSIDE any per-query
+    # guard, so a transient failure here (this project has documented
+    # write flakiness on the shared network drive) escaped run_suite
+    # entirely and killed the whole multi-hour paid run. Each gets its
+    # own try/except so a failure costs only THIS query's record —
+    # reported loudly (never silently) so a missing transcript is never
+    # mistaken for a query that simply wasn't run.
+    try:
+        write_transcript(path, meta, events,
+                         {"frame": frame, "wall_ms": elapsed_ms})
+    except Exception as exc:
+        print(f"eval.run_agent_eval: FAILED to write transcript for "
+              f"{query.id} r{rep} ({type(exc).__name__}: {exc}) — this "
+              "query's result is LOST; continuing with the rest of the "
+              "run.", file=sys.stderr)
+    status = frame.get("type", "?")
+    cost = (frame.get("usage") or {}).get("cost")
+    try:
+        _PROGRESS_LOCK.acquire()
+        try:
+            print(f"{query.id} r{rep}: {status} "
+                  f"({elapsed_ms / 1000:.0f}s, cost={cost})")
+        finally:
+            _PROGRESS_LOCK.release()
+    except Exception as exc:
+        print(f"eval.run_agent_eval: progress callback failed for "
+              f"{query.id} r{rep} ({type(exc).__name__}: {exc}); "
+              "continuing.", file=sys.stderr)
+
+
+# Serializes the per-query progress lines that a parallel run prints.
+# Without it two worker threads can interleave their writes mid-line and
+# produce a garbled "aq-001 r1: _doneaq-002 r1: _done" — harmless to the
+# artifacts but unreadable to the human watching the run.
+_PROGRESS_LOCK = threading.Lock()
+
+
 def run_suite(queries: list[AgentQuery], run_dir: Path,
               session_factory: Callable[[AgentQuery, str], Any], *,
-              repeats: int = 1, progress: Callable[[str], Any] = print) -> None:
+              repeats: int = 1, progress: Callable[[str], Any] = print,
+              workers: int = 1) -> None:
+    """Run every (query, repeat) and write one transcript each.
+
+    `workers`: how many queries run CONCURRENTLY. Default 1 (serial, the
+    long-standing behaviour). In production this parallelizes the paid
+    OpenRouter calls so model latency overlaps instead of stacking — see
+    the orchestrator for why threads, not processes.
+
+    Each work item runs on its own worker thread with its OWN
+    `HarnessSession` (the session_factory builds one per query, and a
+    session's tools/executor/progressive-retrieval cap are instance
+    state by design), its own httpx client, and its own ledger rows.
+    The process-wide singletons (ChunkStore, ONNX embedder/reranker) are
+    shared just as they are across the office's concurrent analysts —
+    the pipeline's ORT sessions are declared thread-safe to use, only
+    construction races, and that construction is already lock-guarded.
+    """
     run_dir.mkdir(parents=True, exist_ok=True)
-    for query in queries:
-        for rep in range(1, repeats + 1):
-            # A transient S13 model fallback during query N must not
-            # silently re-model queries N+1..: reset before every query.
-            reset_model_overrides()
-            conv_id = f"eval-{query.id}-r{rep}"
-            path = run_dir / f"{query.id}-r{rep}.jsonl"
-            meta = {"query_id": query.id, "repeat": rep,
-                    "corpus": query.corpus, "tier": query.tier,
-                    "shape": query.shape,
-                    "started_at": datetime.now(timezone.utc).isoformat()}
-            events: list[dict[str, Any]] = []
-            session = None
-            start = time.monotonic()
-            try:
-                session = session_factory(query, conv_id)
-                frame = session.send_turn(query.question, events.append)
-            except Exception as exc:
-                # One bad query must never abort the run (Layer 1 rule).
-                frame = {"type": "_error",
-                         "message": f"{type(exc).__name__}: {exc}"}
-            finally:
-                if session is not None:
-                    try:
-                        session.close()
-                    except Exception as exc:
-                        # Swallowing this silently (the old behavior) leaves no
-                        # trace of a leaked HTTP client/file handle, which then
-                        # surfaces dozens of queries later as an unrelated-looking
-                        # failure with nothing to point back at the real cause.
-                        # House style (harness/session.py's ledger-write path):
-                        # print a diagnostic and keep going, never re-raise.
-                        print(f"eval.run_agent_eval: session.close() failed for "
-                              f"{query.id} r{rep} ({type(exc).__name__}: {exc}); "
-                              "continuing (a leaked client/handle may surface "
-                              "later as an unrelated failure).", file=sys.stderr)
-            elapsed_ms = int((time.monotonic() - start) * 1000)
-            # write_transcript and progress used to run OUTSIDE any per-query
-            # guard, so a transient failure here (this project has documented
-            # write flakiness on the shared network drive) escaped run_suite
-            # entirely and killed the whole multi-hour paid run. Each gets its
-            # own try/except so a failure costs only THIS query's record —
-            # reported loudly (never silently) so a missing transcript is never
-            # mistaken for a query that simply wasn't run.
-            try:
-                write_transcript(path, meta, events,
-                                 {"frame": frame, "wall_ms": elapsed_ms})
-            except Exception as exc:
-                print(f"eval.run_agent_eval: FAILED to write transcript for "
-                      f"{query.id} r{rep} ({type(exc).__name__}: {exc}) — this "
-                      "query's result is LOST; continuing with the rest of the "
-                      "run.", file=sys.stderr)
-            status = frame.get("type", "?")
-            cost = (frame.get("usage") or {}).get("cost")
-            try:
-                progress(f"{query.id} r{rep}: {status} "
-                         f"({elapsed_ms / 1000:.0f}s, cost={cost})")
-            except Exception as exc:
-                print(f"eval.run_agent_eval: progress callback failed for "
-                      f"{query.id} r{rep} ({type(exc).__name__}: {exc}); "
-                      "continuing.", file=sys.stderr)
+    items = _worklist(queries, repeats=repeats)
+    # The old runner threaded a `progress` callback through. Tests pass a
+    # no-op callback simply to suppress output; the worker path prints under
+    # the progress lock instead. A caller that genuinely needs the callback
+    # (none in-tree) is handled by the serial path below, which calls it the
+    # way it always did.
+    if progress is not print:
+        for item in items:
+            _run_one_workitem(item, run_dir, session_factory)
+            progress(f"{item[0].id} r{item[1]}")
+        return
+    if workers <= 1:
+        for item in items:
+            _run_one_workitem(item, run_dir, session_factory)
+        return
+    with concurrent.futures.ThreadPoolExecutor(max_workers=workers) as ex:
+        list(ex.map(lambda item: _run_one_workitem(item, run_dir, session_factory), items))
 
 
 def main() -> int:
@@ -230,6 +312,17 @@ def main() -> int:
     parser.add_argument("--model", default=None,
                         help="pin the standard-tier model for this run (overrides settings)")
     parser.add_argument("--results-dir", default=DEFAULT_RESULTS_DIR)
+    parser.add_argument("--run-dir", default=None,
+                        help="use this exact run directory name (under "
+                             "--results-dir) instead of auto-generating a "
+                             "<UTC-ISO>-<sha> name. Lets the orchestrator pin "
+                             "a directory it can find again without guessing "
+                             "which one was just created.")
+    parser.add_argument("--workers", type=int, default=1,
+                        help="queries to run concurrently (parallel OpenRouter "
+                             "calls; default 1 = serial, the historical "
+                             "behaviour).",
+                        )
     parser.add_argument("--note", default="", help="free-text note recorded in the manifest")
     args = parser.parse_args()
 
@@ -252,7 +345,11 @@ def main() -> int:
             print(f"AI Mode unavailable for tier {tier}: {reason}", file=sys.stderr)
             return 2
 
-    run_dir = Path(args.results_dir) / f"{datetime.now(timezone.utc).strftime('%Y-%m-%dT%H%MZ')}-{_git_sha()}"
+    run_dir = (
+        Path(args.results_dir) / args.run_dir
+        if args.run_dir else
+        Path(args.results_dir) / f"{datetime.now(timezone.utc).strftime('%Y-%m-%dT%H%MZ')}-{_git_sha()}"
+    )
     run_dir.mkdir(parents=True, exist_ok=True)
     manifest = build_manifest(settings, queries, subset=args.subset,
                               repeats=args.repeats, results_note=args.note)
@@ -260,9 +357,10 @@ def main() -> int:
     tmp.write_text(json.dumps(manifest, indent=2, ensure_ascii=False), encoding="utf-8")
     tmp.replace(run_dir / "manifest.json")
 
-    print(f"run dir: {run_dir}  ({len(queries)} queries x {args.repeats})")
+    print(f"run dir: {run_dir}  ({len(queries)} queries x {args.repeats}, "
+          f"workers={args.workers})")
     run_suite(queries, run_dir, make_session_factory(settings, run_dir),
-              repeats=args.repeats)
+              repeats=args.repeats, workers=args.workers)
     print(f"done. next: uv run python -m eval.score_agent_run {run_dir}")
     return 0
 
