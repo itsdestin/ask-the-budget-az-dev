@@ -1751,14 +1751,42 @@ html.ai-fullpage header.site{flex:0 0 auto;}
    Mode's composer is now the same object a third time rather than a third
    design. Anything changed here should be changed there too, or they diverge. */
 .ai-composer{padding:8px 16px 4px;position:relative;}
-.ask-bar{max-width:var(--ai-col);margin:0 auto;display:flex;align-items:center;gap:6px;
+.ask-bar{max-width:var(--ai-col);margin:0 auto;display:flex;align-items:flex-end;gap:6px;
   background:var(--canvas);border:2px solid var(--line);border-radius:var(--r-pill);
-  padding:7px 8px 7px 10px;transition:border-color .15s,box-shadow .15s,background .15s;}
+  padding:7px 8px 7px 10px;transition:border-color .15s,box-shadow .15s,background .15s,border-radius .15s;}
+/* A full pill around a four-line box reads as a stadium — the round ends eat
+   the corners. --r-lg once it has actually grown; both are existing tokens. */
+.ask-bar.is-grown{border-radius:var(--r-lg);}
 .ask-bar:focus-within{border-color:var(--navy);background:var(--card);box-shadow:0 0 0 4px var(--navy-100);}
-.ask-bar input{flex:1 1 auto;min-width:0;border:0;outline:0;background:transparent;
-  font-family:inherit;font-size:15.5px;color:var(--ink);padding:4px 6px;}
-.ask-bar input::placeholder{color:var(--ink-3);}
-.ask-bar input:disabled{opacity:.6;}
+/* The field WRAPS and grows to MAX_ROWS lines, then scrolls (MessageInput
+   sets --ask-max-rows from that constant, so the ceiling is stated once).
+   The +.5 is deliberate: at a whole number of lines the next line is hidden
+   completely and the box looks finished, where half a faded line is what
+   says "there is more of this". */
+.ask-bar textarea{flex:1 1 auto;min-width:0;width:100%;border:0;outline:0;background:transparent;
+  resize:none;overflow-y:auto;font-family:inherit;font-size:15.5px;line-height:1.6;
+  color:var(--ink);padding:4px 6px;
+  max-height:calc((var(--ask-max-rows,4) + .5) * 1.6em + 8px);
+  scrollbar-width:none;-ms-overflow-style:none;}
+/* No scrollbar at all — the fade is the affordance. Removing the bar without
+   the fade would leave hidden text with nothing at all pointing to it. */
+.ask-bar textarea::-webkit-scrollbar{width:0;height:0;display:none;}
+.ask-bar textarea::placeholder{color:var(--ink-3);}
+.ask-bar textarea:disabled{opacity:.6;}
+
+/* Fade at whichever edge has text behind it, applied per-edge by MessageInput
+   rather than always-on: a permanent top fade on a one-line question just
+   looks like the text is broken. ~half a line each. */
+.ask-bar textarea{--ask-fade:.8em;}
+.ask-bar textarea.is-fade-top{
+  -webkit-mask-image:linear-gradient(180deg,transparent 0,#000 var(--ask-fade));
+  mask-image:linear-gradient(180deg,transparent 0,#000 var(--ask-fade));}
+.ask-bar textarea.is-fade-bottom{
+  -webkit-mask-image:linear-gradient(180deg,#000 calc(100% - var(--ask-fade)),transparent 100%);
+  mask-image:linear-gradient(180deg,#000 calc(100% - var(--ask-fade)),transparent 100%);}
+.ask-bar textarea.is-fade-both{
+  -webkit-mask-image:linear-gradient(180deg,transparent 0,#000 var(--ask-fade),#000 calc(100% - var(--ask-fade)),transparent 100%);
+  mask-image:linear-gradient(180deg,transparent 0,#000 var(--ask-fade),#000 calc(100% - var(--ask-fade)),transparent 100%);}
 .ask-send{flex:0 0 auto;border:0;cursor:pointer;font-family:inherit;font-weight:800;
   font-size:14px;color:#fff;background:var(--az-gold);border-radius:var(--r-pill);
   padding:9px 18px;transition:filter .15s,opacity .15s;}

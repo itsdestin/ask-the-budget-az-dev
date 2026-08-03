@@ -6,16 +6,25 @@
 // is already the app's search-input identity on two pages, so AI Mode's box is
 // now recognisably the same object rather than a third kind of input.
 //
-// WHY an <input> and not the auto-growing <textarea> it used to be: Destin
-// asked for a single-line box. The cost is that Shift+Enter no longer inserts a
-// newline and a pasted multi-paragraph question flattens to one line. That is
-// accepted; if it bites, the fix is a one-row <textarea> styled identically
-// that grows only when a newline actually arrives — the surrounding layout does
-// not care which element is in here. (The auto-grow effect that used to live in
-// this file, and the overflow-y juggling that stopped Firefox painting a
-// scrollbar inside an empty box, went with the textarea.)
+// It is a <textarea> that WRAPS and grows to a hard ceiling of four lines,
+// then scrolls (Destin, 2026-08-02). The plain <input> it briefly was pushed
+// long questions sideways off the end of the field, which is unreadable while
+// you are still writing the thing.
+//
+// Past four lines it scrolls with NO scrollbar and a fade at whichever edge
+// has more text behind it. The fade is the entire affordance — with the bar
+// hidden, a faded half-line is the only thing telling you the box has more in
+// it, so the fade may not be decorative and may not be always-on: a permanent
+// top fade on a one-line question would just look like the text was broken.
 
-import { useState, type ReactNode } from "react";
+import {
+  useCallback,
+  useEffect,
+  useRef,
+  useState,
+  type CSSProperties,
+  type ReactNode,
+} from "react";
 
 interface Props {
   onSubmit: (text: string) => void;
@@ -33,6 +42,9 @@ interface Props {
   onStop?: () => void;
 }
 
+/** The ceiling, in lines. Past this the box stops growing and starts scrolling. */
+const MAX_ROWS = 4;
+
 export default function MessageInput({
   onSubmit,
   disabled,
@@ -41,6 +53,43 @@ export default function MessageInput({
   onStop,
 }: Props) {
   const [value, setValue] = useState("");
+  const taRef = useRef<HTMLTextAreaElement | null>(null);
+  /** Height of the empty box, captured once — the yardstick for "has it grown
+   *  past one line?", which drives the corner radius below. */
+  const oneLineRef = useRef<number | null>(null);
+  const [grown, setGrown] = useState(false);
+  const [fade, setFade] = useState({ top: false, bottom: false });
+
+  /** Re-measure after anything that can change the content or the scroll
+   *  position. Height is zeroed first so scrollHeight reports the CONTENT's
+   *  height rather than the box's current (possibly already-clamped) one. */
+  const measure = useCallback(() => {
+    const ta = taRef.current;
+    if (!ta) return;
+    ta.style.height = "auto";
+    const content = ta.scrollHeight;
+    if (oneLineRef.current === null) oneLineRef.current = content;
+    // Assign the full height and let CSS `max-height` do the clamping — that
+    // keeps the four-line ceiling expressed once, in em, next to the
+    // line-height it depends on, instead of duplicated as a pixel constant
+    // here that would silently drift if the type scale changed.
+    ta.style.height = `${content}px`;
+    const visible = ta.clientHeight;
+
+    setGrown(content > (oneLineRef.current ?? content) + 2);
+    // 2px of slack: a fractional line box (15.5px x 1.6 = 24.8px) rounds
+    // against an integer scrollHeight, and a half-pixel of "overflow" is not
+    // overflow — it is the same rounding that used to make Firefox paint a
+    // scrollbar inside an empty composer.
+    const overflowing = content - visible > 2;
+    const top = ta.scrollTop;
+    setFade({
+      top: overflowing && top > 2,
+      bottom: overflowing && top + visible < content - 2,
+    });
+  }, []);
+
+  useEffect(measure, [value, measure]);
 
   const handleSubmit = () => {
     const text = value.trim();
@@ -50,7 +99,10 @@ export default function MessageInput({
   };
 
   return (
-    <div className="ask-bar">
+    // A full pill around a four-line box reads as a stadium, so the radius
+    // steps down to --r-lg once it has actually grown. Both are existing
+    // tokens; nothing new enters the palette.
+    <div className={grown ? "ask-bar is-grown" : "ask-bar"}>
       {/* STUB, deliberately. Attachments do not exist: the harness reads the
           corpus and Invariant 7 keeps it off the share, so there is nothing
           for a file to attach TO yet.
@@ -90,16 +142,30 @@ export default function MessageInput({
 
       {tools}
 
-      <input
-        type="text"
+      <textarea
+        ref={taRef}
+        rows={1}
+        style={{ "--ask-max-rows": MAX_ROWS } as CSSProperties}
         value={value}
         onChange={(e) => setValue(e.target.value)}
+        onScroll={measure}
         onKeyDown={(e) => {
-          if (e.key === "Enter") {
+          // Enter sends; Shift+Enter is a newline, which is why this is a
+          // textarea again.
+          if (e.key === "Enter" && !e.shiftKey) {
             e.preventDefault();
             handleSubmit();
           }
         }}
+        className={
+          fade.top && fade.bottom
+            ? "is-fade-both"
+            : fade.top
+              ? "is-fade-top"
+              : fade.bottom
+                ? "is-fade-bottom"
+                : undefined
+        }
         placeholder={placeholder ?? "Ask about the budget…"}
         disabled={disabled}
       />
