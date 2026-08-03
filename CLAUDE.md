@@ -117,6 +117,7 @@ One repo, one process. Every directory here is live code.
 
 `PROMPT-*.md` files at the repo root are long-running handoffs. **`STATUS.md` decides which are live** — this list is only a map, and a file existing does not mean it should be executed.
 
+- [`PROMPT-retrieval-accuracy-regression.md`](PROMPT-retrieval-accuracy-regression.md) — the post-backfill accuracy regression (`key_fact_rate` 0.81 → 0.66, 74% of misses never retrieved) and the unfinished glm-vs-deepseek agent head-to-head. **Needs an OpenRouter key and spends real money.**
 - [`PROMPT-citation-linking-baseline.md`](PROMPT-citation-linking-baseline.md) — live reproduction + Layer 2 re-baseline. **Needs an OpenRouter key and spends real money.**
 - [`PROMPT-plan5-session-c.md`](PROMPT-plan5-session-c.md) — the Administrator Handbook (Plan 5 Track 5).
 - Everything else at the root — `PROMPT-z13-backfill.md` (the backfill it describes is complete), `PROMPT-volume-ingest.md`, `PROMPT-parallel-*.md`, `PROMPT-plan1..4`, `PROMPT-plan5-session-{a,b}.md`, `PROMPT-plan5-track4-cleanup.md` — is a **shipped historical record. Do not execute.**
