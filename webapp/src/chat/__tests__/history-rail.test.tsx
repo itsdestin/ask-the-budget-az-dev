@@ -60,6 +60,18 @@ it("shows a snippet on search results", async () => {
   expect(await screen.findByText(/Florence prison closure/)).toBeInTheDocument();
 });
 
+it("renders a fallback label for a chat with an empty title instead of a blank ghost row", async () => {
+  vi.spyOn(api, "listHistory").mockResolvedValue({
+    conversations: [row({ title: "" })],
+  });
+  render(<HistoryRail activeId={null} onSelect={() => {}}
+                      onNewChat={() => {}}
+                      collapsed={false} onToggle={() => {}} />);
+  // The row must render a readable label (so the rename/delete buttons sit
+  // beside something), never an empty strip.
+  expect(await screen.findByText("Untitled chat")).toBeInTheDocument();
+});
+
 it("an empty history explains itself rather than rendering nothing", async () => {
   vi.spyOn(api, "listHistory").mockResolvedValue({ conversations: [] });
   render(<HistoryRail activeId={null} onSelect={() => {}}

@@ -28,6 +28,20 @@ function dayLabel(updatedAt: string): string {
   return "Earlier";
 }
 
+// Every chat STORE row has a title field, but it can be an empty string:
+// auto-naming (harness/titles.py) runs only after the first completed
+// exchange and falls back to truncation on any failure, so a chat that
+// never got a generated title (or whose naming call failed) persists with
+// title="". Rendering that as-is left a blank strip beside the rename/delete
+// buttons — a ghost row that looked like a rendering bug. A fallback label
+// means every stored chat reads as a row, and gives the rename/delete
+// actions something to sit next to. (This is a DISPLAY default only; the
+// stored title field is never mutated here.)
+function displayTitle(title: string): string {
+  const trimmed = (title || "").trim();
+  return trimmed ? trimmed : "Untitled chat";
+}
+
 interface Group {
   label: string;
   chats: ReturnType<typeof useHistory>["chats"];
@@ -174,7 +188,7 @@ export function HistoryRail({
                       onClick={() => onSelect(chat.id)}
                       title={chat.title}
                     >
-                      <span className="history-rail-chat-title">{chat.title}</span>
+                      <span className="history-rail-chat-title">{displayTitle(chat.title)}</span>
                       {chat.snippet && (
                         <span className="history-rail-chat-snippet">
                           {chat.snippet}
@@ -191,7 +205,10 @@ export function HistoryRail({
                         title="Rename"
                         onClick={() => {
                           setEditingId(chat.id);
-                          setEditValue(chat.title);
+                          // Use the display fallback so the rename box opens
+                          // with a visible default to edit, not a blank input
+                          // that looks broken (and would save empty on blur).
+                          setEditValue(displayTitle(chat.title));
                         }}
                       >
                         ✎
