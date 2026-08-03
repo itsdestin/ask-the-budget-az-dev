@@ -75,10 +75,27 @@ describe("header CSS contract", () => {
     // The arc's far point reaches the edge of the 24-unit box, and an SVG root
     // clips to its viewport by default.
     expect(bare).toMatch(/\.ai-ic\{[^}]*overflow:visible/);
-    expect(bare).toMatch(/\.nav-item\.nav-ai>a\.active \.nav-ai-text\{[^}]*max-width/);
+    // ROLLS TO THE TEXT'S OWN WIDTH. `max-width:0 -> 7em` is the version that
+    // popped: the label measures ~4em, so 40% of the travel was growing a limit
+    // nothing was hitting, and an ease-out curve finished the visible part in
+    // the first fifth of the duration. Tightening the guess is not the fix —
+    // the mockup ships no webfont, so this text is Nunito on some machines and
+    // Segoe UI on the rest, and a max-width tuned to one CLIPS the label on the
+    // other.
+    expect(bare).toMatch(
+      /\.nav-item\.nav-ai>a\.active \.nav-ai-text\{grid-template-columns:1fr/,
+    );
+    expect(bare, "no guessed width may come back").not.toMatch(
+      /\.nav-ai-text\{[^}]*max-width/,
+    );
     // Collapsed at rest — a label that is merely transparent still reserves its
     // width, and the pill would sit wide and empty on every other route.
-    expect(bare).toMatch(/\.nav-ai-text\{[^}]*max-width:0/);
+    expect(bare).toMatch(/\.nav-ai-text\{[^}]*grid-template-columns:0fr/);
+    // The clip lives on the inner span; the track is what animates. Without
+    // `overflow:hidden` here the text spills out of a zero-width column and the
+    // pill shows its label on every route.
+    expect(bare).toMatch(/\.nav-ai-text-inner\{[^}]*overflow:hidden/);
+    expect(bare).toMatch(/\.nav-ai-text-inner\{[^}]*min-width:0/);
     expect(bare).toMatch(/\.nav-ai-spark\{[^}]*transition:transform/);
   });
 
@@ -92,7 +109,13 @@ describe("header CSS contract", () => {
     expect(bare).toMatch(/--ai-roll:[\d.]+s/);
     expect(bare).toMatch(/--ai-lead:[\d.]+s/);
     expect(bare).toMatch(/\.nav-ai-spark\{[^}]*transition:transform var\(--ai-throw\) var\(--ai-ease-throw\)/);
-    expect(bare).toMatch(/\.nav-ai-text\{[^}]*max-width var\(--ai-roll\) var\(--ai-ease\)/);
+    expect(bare).toMatch(
+      /\.nav-ai-text\{[^}]*grid-template-columns var\(--ai-roll\) var\(--ai-ease-roll\)/,
+    );
+    // The reveal gets its OWN curve. --ai-ease is an ease-out — 80% travelled
+    // by a third of the way — which on a reveal reads as a pop however long the
+    // duration is; the roll needs its motion through the middle instead.
+    expect(bare).toMatch(/--ai-ease-roll:cubic-bezier/);
   });
 
   // The stagger runs BOTH ways round, and not symmetrically: going in the

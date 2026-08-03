@@ -101,23 +101,44 @@ nav.primary{position:relative;padding-right:44px;}
   --ai-lead:.09s;           /* the stagger between them */
   --ai-ease:cubic-bezier(.22,1,.36,1);        /* long, quiet settle */
   --ai-ease-throw:cubic-bezier(.32,1.06,.4,1);/* the same, with a hair of overshoot */
+  /* The label wants its motion spread through the MIDDLE. --ai-ease is an
+     ease-out: it is 80% travelled by a third of the way, which on a reveal
+     reads as a pop however long the duration is. */
+  --ai-ease-roll:cubic-bezier(.45,.05,.25,1);
 }
 .nav-item.nav-ai>a{gap:0;}
 /* The label rolls out only when active. max-width rather than width so the
    open state does not have to know how wide "AI Mode" renders in whatever font
    actually loaded — the mockup names Nunito but ships no webfont, so this text
    is Nunito on some machines and Segoe UI on the rest. */
-.nav-ai-text{display:inline-block;overflow:hidden;white-space:nowrap;max-width:0;opacity:0;margin-left:0;
+/* IT ROLLS TO THE TEXT'S OWN WIDTH — 0fr to 1fr on a one-column grid — and NOT
+   from max-width:0 to a guessed maximum. That guess is what made this pop
+   instead of roll (Destin, 2026-08-02: "still feels more pop in than roll
+   out"), and the reason is arithmetic rather than easing:
+
+   the label's natural width is ~4em, so animating max-width to 7em spent the
+   first ~60% of the travel revealing text and the remaining 40% growing a
+   limit nothing was hitting. With an ease-out curve front-loading the motion
+   on top of that, the reveal finished inside the first fifth of the duration.
+   Slowing it only lengthened the dead half.
+
+   The guess could not simply be tightened, either: the mockup names Nunito and
+   ships no webfont (see tokens.css), so this text is Nunito on some machines
+   and Segoe UI on the rest. A max-width tuned to one clips the label on the
+   other, and a clipped label is worse than a fast one. `1fr` resolves to
+   whatever the text actually measures, on every machine, with no JS.
+
+   `.nav-ai-text-inner` is what gets clipped; the grid track is what animates. */
+.nav-ai-text{display:grid;grid-template-columns:0fr;align-items:center;opacity:0;margin-left:0;
   transition:
-    max-width var(--ai-roll) var(--ai-ease),
-    margin-left var(--ai-roll) var(--ai-ease),
-    /* Opacity runs at half the width's pace so the text is gone before it can
-       be seen squeezed into a closing box, and fully there well before the box
-       stops opening. Linear because a fade that eases reads as a flicker at
-       this size. */
-    opacity calc(var(--ai-roll) * .5) linear;}
+    grid-template-columns var(--ai-roll) var(--ai-ease-roll),
+    margin-left var(--ai-roll) var(--ai-ease-roll),
+    /* Short and linear: the CLIP is the animation now, so the fade only takes
+       the hard edge off it. Eased, at this size, it reads as a flicker. */
+    opacity calc(var(--ai-roll) * .35) linear;}
+.nav-ai-text-inner{min-width:0;overflow:hidden;white-space:nowrap;}
 /* ON: the switch throws, THEN the label follows it out. */
-.nav-item.nav-ai>a.active .nav-ai-text{max-width:7em;opacity:1;margin-left:7px;
+.nav-item.nav-ai>a.active .nav-ai-text{grid-template-columns:1fr;opacity:1;margin-left:7px;
   transition-delay:var(--ai-lead);}
 /* The spark is the icon's second state, and it ARCS between them like a switch
    being thrown: down-right for off, up-right for on.

@@ -87,7 +87,11 @@ export function Header() {
                   without this the accessible name would double up to
                   "AI Mode AI Mode" the moment the pill opened. */}
               <span className="nav-ai-text" aria-hidden="true">
-                AI&nbsp;Mode
+                {/* The inner span is not decoration: the roll-out animates the
+                    OUTER element's grid column from 0fr to 1fr, and this is
+                    what gets clipped as it opens. See `.nav-ai-text` in
+                    app.css for why it cannot just be a max-width. */}
+                <span className="nav-ai-text-inner">AI&nbsp;Mode</span>
               </span>
             </NavLink>
           </div>
