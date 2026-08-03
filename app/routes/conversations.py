@@ -32,6 +32,7 @@ from pydantic import BaseModel, Field
 from starlette.background import BackgroundTask
 
 from app import identity
+from harness import history
 from harness.constants import DEFAULT_TIER
 from harness.ledger import check_limit
 from harness.settings import ai_available, load_settings
@@ -349,6 +350,42 @@ def _session_factory(request: Request) -> Callable[..., Any]:
     return request.app.state.session_factory
 
 
+def persist_turn(entry: _Conversation) -> None:
+    """Write this conversation's transcript to the analyst's own disk.
+
+    Called on EVERY turn teardown, including an aborted one — a cancelled
+    turn is still a turn the analyst had.
+
+    Swallows its own errors on purpose. History is a convenience; a full
+    disk or a locked file must never turn a working answer into a failed
+    one. The cost of being wrong here is one missing chat in a list, which
+    is visible and survivable.
+    """
+    try:
+        # getattr, not entry.session.history: the session_factory seam does
+        # not oblige a session to keep a history list, and a fake that
+        # doesn't must be a no-op rather than an exception this function
+        # then has to swallow and print about.
+        messages = getattr(entry.session, "history", None)
+        if messages is None:
+            return
+        existing = history.load(entry.id)
+        now = history.now_iso()
+        history.save(
+            history.Transcript(
+                id=entry.id,
+                title=existing.title if existing else "",
+                title_is_manual=existing.title_is_manual if existing else False,
+                corpus=entry.corpus,
+                created_at=existing.created_at if existing else now,
+                updated_at=now,
+                messages=list(messages),
+            )
+        )
+    except Exception as exc:                      # noqa: BLE001
+        print(f"jlbc-insight: could not save chat history: {exc}", file=sys.stderr, flush=True)
+
+
 # ---------------------------------------------------------------------------
 # Routes
 # ---------------------------------------------------------------------------
@@ -504,6 +541,13 @@ def _release_turn(
     # conversation would stay busy for the life of the process. Scoped to this
     # turn's token, so by now it is usually a no-op — see end_turn.
     registry.end_turn(entry, token)
+    # Persist the transcript AFTER releasing the conversation: persist_turn
+    # may hang an LLM call off the same function (Task 5), and doing that
+    # before end_turn leaves the conversation `busy`, so the analyst's next
+    # question gets a 409 from begin_turn — a working app that appears to
+    # refuse input for no visible reason. A sync BackgroundTask runs in
+    # Starlette's threadpool, so blocking here does not stall the event loop.
+    persist_turn(entry)
 
 
 @router.post("/api/conversations/{conversation_id}/messages")
