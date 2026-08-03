@@ -86,6 +86,20 @@ export function Ai() {
   // still starts a fresh conversation (the prefix keeps that property by
   // construction: any corpus change changes the key).
   const [selectedChatId, setSelectedChatId] = useState<string | null>(null);
+  // A nonce that ratchets on every "+ New chat". The conversation is keyed on
+  // `${corpus}:${selectedChatId ?? "new"}:${newNonce}`; when the analyst is
+  // ALREADY in a fresh chat (selectedChatId null, key already "...:new") the
+  // only way to force a remount — and therefore a genuinely blank next chat —
+  // is to change the key. The nonce does that where setting selectedChatId to
+  // null again would be a no-op.
+  //
+  // WHY auto-save needs no code here: the server persists every completed
+  // turn to history at turn teardown (conversations.py::persist_turn). So by
+  // the time "+ New chat" is pressed the current conversation is already on
+  // disk; remounting discards nothing. The nonce is purely "give me a blank
+  // chat" — nothing is lost, so no discard warning is warranted (Destin,
+  // 2026-08-03).
+  const [newChatNonce, setNewChatNonce] = useState(0);
   useFullPageChatShell();
   const status = useAiStatus();
   // null = the probe is still in flight. Three states, not two: saying "needs an
@@ -106,6 +120,11 @@ export function Ai() {
   };
   const handleNewChat = () => {
     setSelectedChatId(null);
+    // Ratchet the nonce so "+ New chat" ALWAYS remounts, even from an already
+    // fresh (null-selected, unsent-to or started) chat. Without this, pressing
+    // "+ New chat" twice in a row — or "new chat" right after starting a
+    // conversation — is a no-op key-wise and the analyst's view is stuck.
+    setNewChatNonce((n) => n + 1);
   };
 
   return (
@@ -204,7 +223,7 @@ export function Ai() {
           // worst failure this app has. Remounting also resets the tier to
           // Standard, which is what S16 requires of every new conversation.
           <AiConversation
-            key={`${corpus}:${selectedChatId ?? "new"}`}
+            key={`${corpus}:${selectedChatId ?? "new"}:${newChatNonce}`}
             corpus={corpus}
             corpusOptions={CORPORA}
             onCorpusChange={setCorpus}
