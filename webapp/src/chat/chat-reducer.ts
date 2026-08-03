@@ -33,6 +33,18 @@ export function chatReducer(state: ChatState, action: ChatAction): ChatState {
         conversationId: action.conversationId,
       };
 
+    case "REHYDRATED":
+      // Opening a stored chat replaces the timeline wholesale — it never
+      // merges into an existing one. Shaped like CONVERSATION_STARTED
+      // (which resets to initialChatState) but carries turns and keeps
+      // conversationId null: the session is rebuilt on the first send,
+      // not when the chat was opened (H2: browsing is free).
+      return {
+        ...initialChatState,
+        conversationId: action.conversationId,
+        turns: action.turns,
+      };
+
     case "USER_PROMPT": {
       const userTurn: Turn = {
         kind: "user",

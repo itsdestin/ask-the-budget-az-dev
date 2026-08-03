@@ -29,6 +29,7 @@ import * as api from "../api.js";
 import { chatActionFromProviderEvent, chatReducer } from "./chat-reducer.js";
 import type { ChatAction, ChatState } from "./chat-types.js";
 import { initialChatState } from "./chat-types.js";
+import { rehydrateTurns } from "./history-rehydrate.js";
 import type { ProviderEvent } from "./provider-events.js";
 
 export type Tier = "standard" | "deep_research";
@@ -53,7 +54,7 @@ export interface UseChatResult {
 
 type Dispatch = React.Dispatch<ChatAction>;
 
-export function useChat(corpus: Corpus): UseChatResult {
+export function useChat(corpus: Corpus, resumeFrom?: string): UseChatResult {
   const [state, dispatch] = useReducer(chatReducer, initialChatState);
   // S16: Standard is the default for every new conversation. A conversation
   // lives exactly as long as this hook instance, so initializing here IS the
@@ -77,6 +78,11 @@ export function useChat(corpus: Corpus): UseChatResult {
   // depend on it (a changing identity would re-render every consumer).
   const tierRef = useRef<Tier>(tier);
   tierRef.current = tier;
+  // Held in a ref rather than closing over the prop: `send` is a useCallback
+  // keyed on [corpus, safeDispatch], and adding `resumeFrom` there would
+  // rebuild it on every render of the panel.
+  const resumeFromRef = useRef(resumeFrom);
+  resumeFromRef.current = resumeFrom;
 
   useEffect(() => {
     mountedRef.current = true;
@@ -86,6 +92,37 @@ export function useChat(corpus: Corpus): UseChatResult {
       // client disconnect, so the server tears the turn down on its own.
       abortRef.current?.abort();
     };
+  }, []);
+
+  // H2: on mount, when resuming, fetch the stored transcript and rehydrate it
+  // into the timeline. Do NOT create a conversation — browsing is free. The
+  // session is rebuilt on the first send (resumeFrom passed to
+  // createConversation), which is the analyst's own choice.
+  useEffect(() => {
+    const id = resumeFromRef.current;
+    if (!id) return;
+    let cancelled = false;
+    (async () => {
+      try {
+        const chat = await api.getHistoryChat(id);
+        if (cancelled || !mountedRef.current) return;
+        const turns = rehydrateTurns(chat.messages, chat.created_at);
+        safeDispatch({ type: "REHYDRATED", conversationId: null, turns });
+      } catch (err) {
+        if (cancelled || !mountedRef.current) return;
+        // A failed fetch must not leave a blank panel that looks like an
+        // empty chat — surface the server's message.
+        safeDispatch({
+          type: "TURN_ERROR",
+          message:
+            err instanceof Error
+              ? err.message
+              : "Could not open this chat.",
+        });
+      }
+    })();
+    return () => { cancelled = true; };
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   const safeDispatch = useCallback((action: ChatAction) => {
@@ -106,7 +143,7 @@ export function useChat(corpus: Corpus): UseChatResult {
         let conversationId = conversationIdRef.current;
         if (!conversationId) {
           try {
-            const handle = await api.createConversation(corpus);
+            const handle = await api.createConversation(corpus, resumeFromRef.current);
             conversationId = handle.conversation_id;
             conversationIdRef.current = conversationId;
             if (mountedRef.current) setHealth(handle.health ?? { ok: true });

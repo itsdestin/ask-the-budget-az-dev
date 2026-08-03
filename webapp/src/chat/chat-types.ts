@@ -99,6 +99,7 @@ export const initialChatState: ChatState = {
  */
 export type ChatAction =
   | { type: "CONVERSATION_STARTED"; conversationId: string }
+  | { type: "REHYDRATED"; conversationId: string | null; turns: Turn[] }
   | { type: "USER_PROMPT"; text: string; clientUuid: string; timestamp: number }
   | {
       type: "USER_MESSAGE_CONFIRMED";
