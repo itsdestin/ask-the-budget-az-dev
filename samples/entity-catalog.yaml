@@ -6174,6 +6174,9 @@ agencies:
 - canonical_name: Northern Arizona University
   canonical_id: agency:uninau
   slug: uninau
+  # Approved by name during the 2026-08-02 review. One entry, unambiguous.
+  aliases:
+  - nau
   names_observed_jlbc:
     Northern Arizona University:
     - approps-fy2015
@@ -7241,6 +7244,10 @@ agencies:
 - canonical_name: Pioneers' Home, Arizona
   canonical_id: agency:pio
   slug: pio
+  # Approved by name during review. `pio` is already the JLBC slug and so is
+  # already an alias; `aph` is the form analysts say out loud.
+  aliases:
+  - aph
   names_observed_jlbc:
     Pioneers' Home, Arizona:
     - approps-fy2015
@@ -9295,8 +9302,6 @@ agencies:
   canonical_id: agency:uniuhsc
   slug: uniuhsc
   names_observed_jlbc:
-    p University of Arizona - Health Sciences Center:
-    - approps-fy2015
     University of Arizona - Health Sciences Center:
     - approps-fy2016
     - approps-fy2017

@@ -132,6 +132,35 @@ AMBIGUOUS_ALIASES: frozenset[str] = frozenset(
 # to three other agencies entirely.
 AMBIGUOUS_AGENCIES: frozenset[str] = frozenset({"agency:gov"})
 
+# Aliases that DELIBERATELY name more than one catalog entry, because the
+# institution an analyst means is budgeted as several lines.
+#
+# This is not the duplicate case `_logical_key` handles. Those are one agency
+# recorded twice by accident, detectable because the names match. These are
+# genuinely distinct entries that a person refers to with one word.
+#
+# `ua`: there is NO plain "University of Arizona" entry. The catalog has
+# "University of Arizona - Main Campus" (959 chunks) and "- Health Sciences
+# Center" (564), and unlike the ASU pair these run in PARALLEL — both are
+# printed every year FY2015-2027, so neither supersedes the other and picking
+# one would silently hide the other. "UA" means the university, so it resolves
+# to both.
+#
+# Entries here bypass the `_MIN_EXACT_ALIAS_LEN` floor and the one-logical-
+# agency rule, which is the whole point of the list: both exist to stop a
+# MACHINE-derived alias hard-filtering on a guess, and every entry here was
+# named by a human who knows what it means. Keep it that way — this must never
+# become a place to silence an inconvenient ambiguity.
+CURATED_ALIAS_AGENCIES: dict[str, frozenset[str]] = {
+    "ua": frozenset({"agency:uniumain", "agency:uniuhsc"}),
+    # The spelled-out form has to resolve the same way, or the MORE explicit
+    # query does WORSE: no catalog entry is named plainly "University of
+    # Arizona", so this phrase reached only tier 4 (fuzzy, always WEAK) and
+    # matched Main Campus alone — an analyst typing the full name got a weak
+    # match on half the university while "ua" got an exact match on all of it.
+    "university of arizona": frozenset({"agency:uniumain", "agency:uniuhsc"}),
+}
+
 # Shortest catalog phrase the substring scan will trust — the SAME floor
 # `chunking/entity_stamper.py` uses for its corpus-side name scan, and imported
 # from there rather than re-picked so the two sides cannot drift.
@@ -273,7 +302,18 @@ def parse_query_agencies(
     # --- Tier 3: slugs and reviewed acronyms --------------------------------
     for alias in _scan_phrases(normalized, index.aliases_longest_first):
         ids = index.alias_to_ids[alias]
-        exact = (
+        # A SPECIFIC name beats a curated umbrella. "university of arizona" is
+        # curated to both UA lines, but it is also a prefix of each line's own
+        # full name — so without this, asking for the Health Sciences Center by
+        # name also dragged in Main Campus. If an earlier tier already resolved
+        # any member of the umbrella, the analyst was more precise than the
+        # umbrella and it must not widen their query back out.
+        if alias in CURATED_ALIAS_AGENCIES and ids & seen:
+            continue
+        # A curated alias was approved by a human for exactly these agencies,
+        # so it clears the length floor and the one-agency rule — both of which
+        # exist to stop a MACHINE-derived alias filtering on a guess.
+        exact = alias in CURATED_ALIAS_AGENCIES or (
             _one_logical_agency(index, ids)
             and alias not in AMBIGUOUS_ALIASES
             and len(alias) >= _MIN_EXACT_ALIAS_LEN
@@ -351,6 +391,14 @@ class _AgencyIndex:
                 if key not in fuzzy_name_to_ids:
                     fuzzy_names.append(name)
                 fuzzy_name_to_ids.setdefault(key, set()).add(entry.canonical_id)
+
+        # Curated aliases are not in the catalog — they name a SET of entries,
+        # which the per-agency `aliases:` key cannot express. Seeded last so a
+        # catalog alias of the same spelling widens rather than being replaced.
+        for alias, curated_ids in CURATED_ALIAS_AGENCIES.items():
+            key = _normalize_for_match(alias)
+            if key:
+                alias_to_ids.setdefault(key, set()).update(curated_ids)
 
         self.phrase_to_ids = phrase_to_ids
         self.alias_to_ids = alias_to_ids

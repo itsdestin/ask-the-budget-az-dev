@@ -223,3 +223,79 @@ def test_the_aliases_approved_during_review_resolve():
         ms = parse_query_agencies(alias)
         assert [m.value for m in ms] == [expected], alias
         assert ms[0].confidence is Confidence.EXACT, alias
+
+
+# ---------------------------------------------------------------------------
+# The aliases Destin approved by name, 2026-08-02. This is the WHOLE approved
+# set — the 158 machine-drafted proposals are deliberately NOT applied.
+# ---------------------------------------------------------------------------
+
+
+def test_the_approved_alias_set_resolves_exactly():
+    for query, expected in [
+        ("nau budget", {"agency:uninau"}),
+        ("asu budget", {"agency:uniasu", "agency:uniasum"}),
+        ("adoa budget", {"agency:doa"}),
+        ("dohs funding", {"agency:hla"}),
+        ("dhs budget", {"agency:dhs"}),          # Health Services, via its slug
+        ("difi rates", {"agency:dif"}),
+        ("pio budget", {"agency:pio"}),
+        ("aph budget", {"agency:pio"}),
+    ]:
+        ms = parse_query_agencies(query)
+        assert {m.value for m in ms} == expected, query
+        assert all(m.confidence is Confidence.EXACT for m in ms), query
+
+
+def test_dhs_is_health_services_and_dohs_is_homeland_security():
+    """One letter apart and easy to swap. The generator's own proposal for
+    Homeland Security was `adhs`, which is one letter from Health Services'
+    slug — which is exactly why `dohs` was approved instead."""
+    assert _ids("dhs budget") == ["agency:dhs"]
+    assert _ids("dohs funding") == ["agency:hla"]
+
+
+def test_ua_names_both_university_of_arizona_lines():
+    """No catalog entry is named plainly "University of Arizona": there is a
+    Main Campus (959 chunks) and a Health Sciences Center (564), and unlike
+    the ASU pair they run in PARALLEL every year FY2015-2027 — neither
+    supersedes the other, so picking one would silently hide the other."""
+    for query in ("ua budget", "university of arizona"):
+        ms = parse_query_agencies(query)
+        assert {m.value for m in ms} == {"agency:uniumain", "agency:uniuhsc"}, query
+        assert all(m.confidence is Confidence.EXACT for m in ms), query
+
+
+def test_a_two_letter_curated_alias_clears_the_length_floor():
+    """`ua` is shorter than _MIN_EXACT_ALIAS_LEN. That floor exists to stop a
+    MACHINE-derived alias filtering on a guess; a human approved this one."""
+    from retrieval.query_agency import CURATED_ALIAS_AGENCIES, _MIN_EXACT_ALIAS_LEN
+
+    assert len("ua") < _MIN_EXACT_ALIAS_LEN
+    assert "ua" in CURATED_ALIAS_AGENCIES
+    assert parse_query_agencies("ua budget")[0].confidence is Confidence.EXACT
+
+
+def test_a_specific_name_beats_the_curated_umbrella():
+    """Asking for one UA line by its full catalog name must not drag in the
+    other. The umbrella phrase is a prefix of both lines' own names."""
+    assert _ids("university of arizona - health sciences center budget") == [
+        "agency:uniuhsc"
+    ]
+    assert _ids("university of arizona - main campus budget") == ["agency:uniumain"]
+
+
+def test_no_unreviewed_alias_was_applied():
+    """The 158 machine-drafted proposals stay in the review document until
+    Destin approves them. A wrong alias under a hard filter sends a query
+    confidently to the wrong agency — the reason the gate exists."""
+    from chunking.agency_catalog import load_agency_catalog
+
+    approved = {"doc", "dema", "adoa", "difi", "dohs", "asu", "nau", "aph"}
+    for entry in load_agency_catalog().values():
+        for alias in entry.aliases:
+            # Every agency gets its own slug for free; anything else must be
+            # on the approved list.
+            assert alias == entry.slug or alias in approved, (
+                f"{entry.canonical_id} carries unreviewed alias {alias!r}"
+            )
