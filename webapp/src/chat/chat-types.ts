@@ -98,7 +98,15 @@ export const initialChatState: ChatState = {
  * directly.
  */
 export type ChatAction =
-  | { type: "CONVERSATION_STARTED"; conversationId: string }
+  | {
+      type: "CONVERSATION_STARTED";
+      conversationId: string;
+      /** When true the timeline is PRESERVED, not reset — the first send of a
+       *  resumed chat, where the rehydrated turns are already on screen and
+       *  wiping them would make the transcript vanish the moment the analyst
+       *  continues it. Absent/false on a genuinely new chat, which resets. */
+      keepTurns?: boolean;
+    }
   | { type: "REHYDRATED"; conversationId: string | null; turns: Turn[] }
   | { type: "USER_PROMPT"; text: string; clientUuid: string; timestamp: number }
   | {
