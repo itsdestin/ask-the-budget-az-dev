@@ -82,3 +82,8 @@ def test_history_works_with_no_api_key(client, monkeypatch):
     """No paid API is load-bearing — listing must not need AI Mode at all."""
     _seed()
     assert client.get("/api/history").status_code == 200
+
+
+def test_search_is_not_swallowed_by_the_id_route(client):
+    """Route order is load-bearing; a refactor that reorders them breaks this."""
+    assert client.get("/api/history/search?q=anything").status_code == 200

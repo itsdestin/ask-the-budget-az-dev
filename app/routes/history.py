@@ -52,6 +52,14 @@ def list_history() -> dict:
     return {"conversations": [_row(t) for t in history.list_all()]}
 
 
+@router.get("/api/history/search")
+def search_history(q: str = "") -> dict:
+    # Declared BEFORE /api/history/{conversation_id} on purpose: FastAPI
+    # matches in declaration order, so a later literal route loses to an
+    # earlier path parameter and "search" would be read as an id.
+    return {"results": [dict(_row(t), snippet=snippet) for t, snippet in history.search(q)]}
+
+
 @router.get("/api/history/{conversation_id}")
 def get_history(conversation_id: str) -> dict:
     t = _load_or_404(conversation_id)

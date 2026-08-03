@@ -178,3 +178,55 @@ def rename(conversation_id: str, title: str) -> bool:
     # above this morning's.
     save(t)
     return True
+
+
+_SNIPPET_RADIUS = 90
+
+# H4 as amended: only what was SAID is searchable. `role: "tool"` messages
+# carry retrieve() output — full corpus passage text, as a JSON string — so
+# including them would turn "find the chat where we discussed Florence" into
+# "find every chat where a retrieved passage mentioned Florence", and hand
+# back a slice of JSON as the snippet. An isinstance(str) check does NOT
+# exclude them; the role is what distinguishes prose from payload.
+_SEARCHABLE_ROLES = {"user", "assistant"}
+
+
+def search(query: str, limit: int = 50) -> list[tuple[Transcript, str]]:
+    """Chats matching `query` in their title or their prose, newest first.
+
+    A plain scan, deliberately: an index over a few hundred small files buys
+    milliseconds and costs a whole class of drift bug, because an index that
+    disagrees with the files it describes fails silently. If this ever gets
+    slow, THAT is the moment to add one — see Task 1 Step 5 for the measured
+    size this assumption rests on.
+    """
+    needle = query.strip().lower()
+    if not needle:
+        return []
+
+    hits: list[tuple[Transcript, str]] = []
+    for path in conversations_dir().glob("*.json"):
+        t = _read(path)
+        if t is None:
+            continue
+        snippet = ""
+        for message in t.messages:
+            if message.get("role") not in _SEARCHABLE_ROLES:
+                continue
+            content = message.get("content")
+            if not isinstance(content, str):
+                continue          # an assistant tool_calls turn has no prose
+            found = content.lower().find(needle)
+            if found >= 0:
+                start = max(0, found - _SNIPPET_RADIUS)
+                end = min(len(content), found + len(needle) + _SNIPPET_RADIUS)
+                snippet = ("…" if start else "") + content[start:end] + ("…" if end < len(content) else "")
+                break
+        if not snippet and needle in t.title.lower():
+            snippet = t.title
+        if snippet:
+            t.messages = []
+            hits.append((t, snippet))
+
+    hits.sort(key=lambda pair: pair[0].updated_at, reverse=True)
+    return hits[:limit]
