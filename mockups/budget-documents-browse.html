@@ -1,0 +1,589 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Budget Documents — browse mockup (not shipped code)</title>
+<!--
+
+  MOCKUP ONLY — design visualization for the proposed Budget Documents
+  redesign, NOT a ported page. It mirrors the Fiscal Notes layout (sticky left
+  filter rail) but renders the RESULTS as the search page's report-family
+  `.grp` cards, so the two tabs feel like the same tool.
+
+  Open this file directly in a browser; the JS at the bottom is throwaway demo
+  wiring (filter/sort over ~40 hand-written entries) so the controls respond.
+  Data is illustrative, not the real corpus.
+
+  v3 changes (Destin, 2026-08-03):
+    - Results are now GROUPED like the existing Budget Document Search: each
+      year card holds ONE `.grp` card per report family (Baseline,
+      Appropriations Report, AFR, Executive Budget, Budget Bill). The card's
+      top-level is the best/featured document; sibling documents sit in the
+      dashed "N more documents in this report" tray, and a gold "Full report"
+      button opens the single-file PDF.
+    - Searching (e.g. "ahcccs") re-surfaces the matching document as the card's
+      headline and re-counts the tray — the same promotion the search page does.
+    - The type sub-group header pill is now the only thing labelling a family
+      card (no separate family title row), keeping the year card scannable.
+
+  New design vocabulary vs. Fiscal Notes: the publisher pill in the doc row's
+  icon slot, and the two-state family card (bare report when the search box is
+  empty, promoted agency-page + "Part of…" once it has text).
+-->
+<style>
+/* Design tokens — verbatim from webapp/src/styles/tokens.css. */
+:root {
+  --navy:#2b2f63; --navy-700:#232752; --navy-900:#181b3d; --navy-100:#e7e8f2;
+  --az-red:#2f55c4; --az-red-100:#e1e6fa;
+  --az-gold:#1b6fc4; --az-gold-d:#145aa6; --az-gold-100:#dceaf7;
+  --copper:#3d6a99; --copper-100:#e3ebf3;
+  --teal:#1782b3; --teal-100:#dbeef8;
+  --ink:#21243f; --ink-2:#4a4e6a; --ink-3:#757895;
+  --line:#e6e6ef; --canvas:#f5f5fa; --card:#fff;
+  --r-lg:22px; --r-md:16px; --r-sm:12px; --r-pill:999px; --gap:22px;
+  --shadow:0 1px 2px rgba(27,27,61,.05),0 10px 26px rgba(27,27,61,.08);
+  --shadow-sm:0 1px 2px rgba(27,27,61,.06),0 3px 10px rgba(27,27,61,.05);
+  --maxw:1140px; --font:"Nunito","Segoe UI",system-ui,-apple-system,sans-serif;
+}
+
+*{box-sizing:border-box;}
+html{scroll-behavior:smooth;}
+body{margin:0;font-family:var(--font);background:var(--canvas);color:var(--ink);-webkit-font-smoothing:antialiased;}
+a{color:inherit;text-decoration:none;}
+button{font-family:inherit;}
+
+/* ---- minimal static site header (simplified components/Header.tsx) ------- */
+header.site{position:sticky;top:0;z-index:50;background:rgba(255,255,255,.92);backdrop-filter:blur(8px);border-bottom:1px solid var(--line);}
+header.site .bar{max-width:var(--maxw);margin:0 auto;padding:12px 22px;display:flex;align-items:center;gap:18px;}
+.brand{display:flex;align-items:center;gap:11px;}
+.brand img{width:38px;height:38px;border-radius:10px;}
+.brand .bt{line-height:1.1;}
+.brand .bt b{display:block;font-size:14.5px;font-weight:800;color:var(--navy);letter-spacing:-.2px;}
+.brand .bt span{font-size:11.5px;font-weight:700;color:var(--ink-3);}
+nav.pills{display:flex;gap:4px;margin-left:auto;background:var(--canvas);border:1px solid var(--line);border-radius:var(--r-pill);padding:4px;}
+nav.pills a{font-size:13px;font-weight:800;color:var(--ink-2);padding:8px 16px;border-radius:var(--r-pill);transition:.13s;}
+nav.pills a:hover{color:var(--navy);}
+nav.pills a.active{background:var(--navy);color:#fff;}
+
+/* ===== subhero band — verbatim .page-fiscal-notes rules, re-scoped ========= */
+.page-docs .subhero{position:relative;overflow:hidden;color:#fff;
+  background:linear-gradient(105deg,rgba(18,21,48,.94) 0%,rgba(20,23,52,.86) 60%,rgba(20,23,52,.78) 100%),url('../webapp/public/capitol-bg.jpg') center 28% / cover no-repeat;}
+.page-docs .subhero .wrap{position:relative;z-index:2;padding:32px 22px 34px;}
+.page-docs .subhero h1{margin:0;font-size:clamp(24px,3.2vw,34px);font-weight:800;letter-spacing:-.4px;}
+.page-docs .subhero .lead{margin:10px 0 0;font-size:clamp(14px,1.5vw,16.5px);color:#d9dcf2;font-weight:600;max-width:66ch;line-height:1.5;min-height:3em;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;}
+.page-docs .subhero .chips{display:flex;flex-wrap:wrap;gap:8px;margin-top:16px;min-height:31px;}
+.page-docs .subhero .chip{display:inline-flex;align-items:center;gap:7px;background:rgba(255,255,255,.1);border:1px solid rgba(255,255,255,.2);border-radius:var(--r-pill);padding:6px 13px;font-size:12.5px;font-weight:700;color:#eef0fb;}
+.page-docs .subhero .chip svg{width:14px;height:14px;color:#9fc4ee;flex:0 0 auto;}
+
+/* ===== layout: filter rail + year cards ==================================== */
+.wrap{max-width:var(--maxw);margin:0 auto;}
+.page-docs .wrap.docwrap{display:block;padding:28px 22px 22px;}
+.page-docs .doclayout{display:grid;grid-template-columns:248px 1fr;gap:var(--gap);align-items:start;}
+.page-docs .docside{background:#fff;border:1px solid var(--line);border-radius:var(--r-lg);box-shadow:var(--shadow-sm);padding:8px;position:sticky;top:84px;}
+.page-docs .docside .fgrp{padding:8px 8px 14px;}
+.page-docs .docside .fgrp+.fgrp{border-top:1px solid var(--line);}
+.page-docs .docside .flbl{font-size:11px;font-weight:800;text-transform:uppercase;letter-spacing:.08em;color:var(--ink-3);padding:6px 8px 8px;display:block;}
+.page-docs .docmain{display:flex;flex-direction:column;gap:var(--gap);min-width:0;}
+/* The year card hosts .grp tiles, so it gets the results-panel padding, not
+   overflow:hidden + a flush list. */
+.page-docs .yg{background:#fff;border:1px solid var(--line);border-radius:var(--r-lg);box-shadow:var(--shadow-sm);overflow:hidden;}
+
+/* ===== rail: search box — .fside-search + .clr-x ========================== */
+.page-docs .fside-search{display:flex;align-items:center;gap:8px;background:var(--canvas);border:1px solid var(--line);border-radius:var(--r-pill);padding:8px 12px;margin:2px 4px 6px;}
+.page-docs .fside-search:focus-within{border-color:var(--navy);background:#fff;box-shadow:0 0 0 3px var(--navy-100);}
+.page-docs .fside-search svg{width:16px;height:16px;color:var(--ink-3);}
+.page-docs .fside-search input{border:0;background:transparent;outline:0;font-family:inherit;font-size:13.5px;flex:1;min-width:0;color:var(--ink);}
+.page-docs .clr-x{flex:0 0 auto;display:none;align-items:center;justify-content:center;width:24px;height:24px;border-radius:50%;border:1px solid var(--line);background:#fff;color:var(--ink-2);cursor:pointer;padding:0;transition:background .14s,color .14s,border-color .14s,transform .08s;}
+.page-docs .clr-x:hover{background:var(--navy-100);color:var(--navy);border-color:var(--navy);}
+.page-docs .clr-x:active{transform:scale(.88);}
+.page-docs .clr-x svg{width:13px;height:13px;}
+.page-docs .clr-x.show{display:inline-flex;}
+
+/* ===== rail: the two named multi-select dropdowns (search FilterBar recipe) */
+.page-docs .fctl{position:relative;margin:0 4px;}
+.page-docs .fbtn{display:flex;align-items:center;gap:7px;width:100%;cursor:pointer;font-family:inherit;font-size:12.5px;font-weight:800;color:var(--ink-2);background:var(--canvas);border:1.5px solid var(--line);border-radius:var(--r-pill);padding:8px 13px;white-space:nowrap;transition:.14s;}
+.page-docs .fbtn:hover{border-color:var(--az-gold);color:var(--az-gold-d);}
+.page-docs .fbtn.has{background:var(--az-gold-100);border-color:var(--az-gold);color:var(--az-gold-d);}
+.page-docs .fbtn .fb-label{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;text-align:left;}
+.page-docs .fbtn .chev{flex:0 0 auto;width:10px;height:6px;opacity:.7;transition:transform .2s;}
+.page-docs .fbtn[aria-expanded="true"] .chev{transform:rotate(180deg);}
+.page-docs .fmenu{position:absolute;top:100%;left:0;right:0;margin-top:6px;background:#fff;border:1px solid var(--line);border-radius:var(--r-md);box-shadow:var(--shadow);padding:6px;z-index:30;max-height:264px;overflow-y:auto;}
+.page-docs .fopt{display:flex;align-items:center;gap:10px;width:100%;text-align:left;font-family:inherit;font-size:13.5px;font-weight:700;color:var(--ink-2);padding:9px 12px;border-radius:var(--r-sm);cursor:pointer;white-space:nowrap;background:transparent;border:0;}
+.page-docs .fopt:hover{background:var(--canvas);color:var(--navy);}
+.page-docs .fopt.on{background:var(--az-gold-100);color:var(--az-gold-d);}
+.page-docs .fopt .ck{flex:0 0 16px;width:16px;height:16px;border-radius:5px;border:1.5px solid var(--line);display:grid;place-items:center;background:#fff;}
+.page-docs .fopt.on .ck{border-color:var(--az-gold);background:var(--az-gold);}
+.page-docs .fopt .ck svg{width:10px;height:10px;color:#fff;opacity:0;}
+.page-docs .fopt.on .ck svg{opacity:1;}
+.page-docs .fopt .fopt-n{margin-left:auto;font-size:11px;font-weight:800;color:var(--ink-3);}
+
+/* ===== year card head — .yg-head/.yg-yr/.yg-meta ==========================
+   (The per-card "Sort A to Z" menu — .sortctl/.sortbtn/.sortmenu/.sortopt —
+   was removed at Destin's direction 2026-08-03; documents use one fixed
+   title-A→Z order, so the card head carries no control.) */
+/* The year-card head is a full-width <button> that expands/collapses the card
+   (latest year starts open, prior years start collapsed). Button UA resets
+   only; the layout/type are the page's own. */
+.page-docs .yg-head{display:flex;align-items:center;gap:12px;width:100%;padding:15px 18px;background:transparent;border:0;border-bottom:1px solid transparent;font-family:inherit;cursor:pointer;text-align:left;transition:background .14s;}
+.page-docs .yg-head:hover{background:#fafafe;}
+.page-docs .yg-head:focus-visible{outline:2px solid var(--navy);outline-offset:-2px;border-radius:var(--r-lg) var(--r-lg) 0 0;}
+/* The hairline only shows once the card is open (a collapsed card has no body
+   to separate from). */
+.page-docs .yg-open .yg-head{border-bottom-color:var(--line);}
+.page-docs .yg-ttl{display:flex;flex-direction:column;gap:2px;min-width:0;flex:1;}
+.page-docs .yg-yr{font-size:18px;font-weight:800;color:var(--navy);}
+.page-docs .yg-meta{font-size:12.5px;font-weight:700;color:var(--ink-3);}
+.page-docs .yg-chev{flex:0 0 auto;width:18px;height:18px;color:var(--ink-3);transition:transform .18s;}
+.page-docs .yg-head:hover .yg-chev{color:var(--az-gold-d);}
+.page-docs .yg-chev.open{transform:rotate(180deg);}
+.page-docs .yg-body{padding:2px 0 0;}
+
+/* ===== report-family cards — the search page's .grp recipe =================
+   One per report family inside the year card. The headline is the featured
+   document; siblings collapse into the dashed tray; "Full report" opens the
+   single-file PDF. */
+.page-docs .grp{margin:12px 14px 0;border:1px solid var(--line);border-radius:var(--r-lg);overflow:hidden;box-shadow:var(--shadow-sm);}
+.page-docs .doc{display:flex;align-items:center;gap:15px;padding:14px 22px;border-bottom:1px solid var(--line);transition:background .15s;color:inherit;}
+.page-docs .doc:last-child{border-bottom:0;}
+.page-docs .doc:hover{background:#fafafe;text-decoration:none;}
+.page-docs .grp>.doc{border-bottom:0;}
+.page-docs .doc-main{flex:1;min-width:0;}
+.page-docs .doc-title{display:block;font-size:15.5px;font-weight:700;color:var(--navy);}
+.page-docs .doc:hover .doc-title{color:var(--az-gold-d);}
+.page-docs .doc-sub{display:block;font-size:13px;color:var(--ink-3);font-weight:600;margin-top:2px;}
+.page-docs .doc-pill{flex:0 0 auto;display:inline-flex;align-items:center;gap:7px;font-size:12px;font-weight:800;color:var(--ink-2);background:var(--canvas);border:1px solid var(--line);border-radius:var(--r-pill);padding:6px 13px;white-space:nowrap;}
+.page-docs .doc:hover .doc-pill{border-color:var(--az-gold);color:var(--az-gold-d);}
+.page-docs .doc-pill svg{width:13px;height:13px;}
+/* The publisher pill leads the doc row — budget docs have no bill number, so
+   the publisher is the identifying chip. One color for every publisher
+   (Destin, 2026-08-03): the chip labels the source, it doesn't color-code it.
+   (The square .doc-ic icon tile was removed; the pill opens the row.) */
+.page-docs .doc-pub{flex:0 0 auto;font-size:10.5px;font-weight:800;color:#fff;background:var(--copper);border-radius:var(--r-pill);padding:3px 10px;letter-spacing:.05em;text-transform:uppercase;}
+
+/* dashed context box + collapse tray + full-report button (verbatim) */
+.page-docs .ctx{margin:0 14px 14px;border:1px dashed #cdd3e6;border-radius:var(--r-md);background:#fafbff;}
+.page-docs .ctx-row{display:flex;align-items:center;gap:10px;padding:11px 14px;flex-wrap:wrap;}
+.page-docs .ctx-row .badge{display:inline-flex;align-items:center;gap:7px;font-size:12.5px;font-weight:800;color:var(--navy);}
+.page-docs .ctx-row .badge svg{width:15px;height:15px;color:var(--az-gold-d);flex:0 0 auto;}
+.page-docs .ctx-row .spacer{flex:1;}
+.page-docs .ctx .tray{display:none;border-top:1px dashed #cdd3e6;}
+.page-docs .ctx .tray.open{display:block;}
+.page-docs .ctx .tray .doc{padding:11px 14px;}
+.page-docs .ctx .tray .doc:not(:last-child){border-bottom:1px dashed #e3e7f1;}
+.page-docs .grp-more{display:inline-flex;align-items:center;gap:6px;font-size:12px;font-weight:800;color:var(--ink-2);background:var(--card);border:1px solid var(--line);border-radius:var(--r-pill);padding:6px 13px;cursor:pointer;white-space:nowrap;font-family:inherit;}
+.page-docs .grp-more svg{width:13px;height:13px;transition:transform .18s;}
+.page-docs .grp-more:hover{border-color:var(--az-gold);color:var(--az-gold-d);}
+.page-docs .grp-more.open svg{transform:rotate(180deg);}
+.page-docs .grp-full{display:inline-flex;align-items:center;gap:6px;font-size:12px;font-weight:800;border-radius:var(--r-pill);padding:6px 13px;cursor:pointer;white-space:nowrap;background:var(--az-gold);border:1px solid var(--az-gold);color:#fff;text-decoration:none;}
+.page-docs .grp-full svg{width:13px;height:13px;transition:transform .18s;}
+.page-docs .grp-full:hover{background:var(--az-gold-d);color:#fff;text-decoration:none;}
+
+/* ===== status note ========================================================= */
+.page-docs .fnnote{font-size:12.5px;font-weight:700;color:var(--ink-3);margin:0;}
+.page-docs .docstatus{padding:0 2px;margin:0 0 12px calc(248px + var(--gap));}
+
+@media (max-width:860px){
+  .page-docs .doclayout{grid-template-columns:1fr;}
+  .page-docs .docside{position:static;}
+  .page-docs .docstatus{margin-left:0;}
+}
+</style>
+</head>
+<body>
+
+<!-- Static site header (simplified components/Header.tsx) -->
+<header class="site">
+  <div class="bar">
+    <a class="brand" href="#">
+      <img src="../webapp/public/jlbc-logo.png" alt="JLBC logo">
+      <span class="bt"><b>Ask the Budget</b><span>Arizona budget documents</span></span>
+    </a>
+    <nav class="pills" aria-label="Primary">
+      <a href="#" class="active" aria-current="page">Budget Documents</a>
+      <a href="#">AI Mode</a>
+      <a href="#">Fiscal Notes</a>
+    </nav>
+  </div>
+</header>
+
+<main class="page-docs">
+
+  <section class="subhero">
+    <div class="wrap">
+      <h1>Budget Documents</h1>
+      <p class="lead">
+        Every Arizona budget document ingested so far — baselines, appropriations
+        reports, annual financial reports, executive budgets, and budget bills.
+      </p>
+      <div class="chips">
+        <span class="chip">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M6 2h9l5 5v15H6z"/><path d="M14 2v6h6"/></svg>
+          JLBC · OSPB · GAO
+        </span>
+        <span class="chip">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="m21 21-4.3-4.3"/></svg>
+          Every document opens its source PDF
+        </span>
+      </div>
+    </div>
+  </section>
+
+  <div class="wrap docwrap">
+    <p class="fnnote docstatus" id="status" role="status">Loading…</p>
+
+    <div class="doclayout">
+
+      <!-- ============ LEFT: search + two named multi-select dropdowns ======== -->
+      <aside class="docside">
+        <div class="fgrp">
+          <label class="fside-search">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="m21 21-4.3-4.3"/></svg>
+            <input id="q" type="text" placeholder="Agency or keyword…" aria-label="Filter documents by agency or keyword" autocomplete="off">
+            <button type="button" class="clr-x" id="qclear" aria-label="Clear search">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" aria-hidden="true"><path d="M6 6l12 12M18 6 6 18"/></svg>
+            </button>
+          </label>
+        </div>
+
+        <div class="fgrp">
+          <div class="flbl" id="type-label">Document Type</div>
+          <div class="fctl">
+            <button type="button" class="fbtn" id="type-btn" aria-expanded="false" aria-labelledby="type-label">
+              <span class="fb-label" id="type-btn-label">Any type</span>
+              <svg class="chev" viewBox="0 0 10 6" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><path d="m1 1 4 4 4-4"/></svg>
+            </button>
+            <div class="fmenu" id="type-menu" hidden role="group" aria-label="Document type options"></div>
+          </div>
+        </div>
+
+        <div class="fgrp">
+          <div class="flbl" id="year-label">Fiscal Year</div>
+          <div class="fctl">
+            <button type="button" class="fbtn" id="year-btn" aria-expanded="false" aria-labelledby="year-label">
+              <span class="fb-label" id="year-btn-label">Any year</span>
+              <svg class="chev" viewBox="0 0 10 6" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><path d="m1 1 4 4 4-4"/></svg>
+            </button>
+            <div class="fmenu" id="year-menu" hidden role="group" aria-label="Fiscal year options"></div>
+          </div>
+        </div>
+      </aside>
+
+      <!-- ============ RIGHT: year cards holding family cards ============ -->
+      <div class="docmain" id="cards"></div>
+    </div>
+  </div>
+</main>
+
+<script>
+/* Throwaway demo wiring. Each doc: title, publisher, family, fiscal_year, url.
+   A family card picks a FEATURED doc (the search match, else the first) and
+   tucks the rest into the "more documents" tray — the search page's behavior. */
+/* Publisher vocabulary (Destin, 2026-08-03): "governor" → OSPB (the Governor's
+   Office of Strategic Planning & Budgeting publishes the Executive Budget),
+   "agao" → GAO, and the separate "legislature" publisher is dropped — budget
+   bills are JLBC products in this corpus. Three publishers: JLBC, OSPB, GAO. */
+const PUBLISHERS = { jlbc:"JLBC", governor:"OSPB", agao:"GAO" };
+const TYPES = [
+  { key:"Baseline",               label:"Baseline" },
+  { key:"Appropriations Report",  label:"Appropriations Report" },
+  { key:"Annual Financial Report",label:"Annual Financial Report" },
+  { key:"Executive Budget",       label:"Executive Budget" },
+  { key:"Budget Bill",            label:"Budget Bill" },
+];
+// Hand-verified single-file URLs exist for only a few families (reportFamilies.ts);
+// the rest get no Full report button. Mirrors the real constraint.
+const FULL_REPORT = {
+  "Baseline:2027":"https://www.azjlbc.gov/budget/27baselinesinglefile.pdf",
+  "Baseline:2026":"https://www.azjlbc.gov/26baseline/26baselinesinglefile.pdf",
+  "Appropriations Report:2025":"https://www.azjlbc.gov/25ar/fy2025approprpt.pdf",
+};
+
+const DOCS = [
+  {t:"FY 2027 Baseline — AHCCCS", p:"jlbc", f:"Baseline", y:2027},
+  {t:"FY 2027 Baseline — Department of Education", p:"jlbc", f:"Baseline", y:2027},
+  {t:"FY 2027 Baseline — Department of Corrections", p:"jlbc", f:"Baseline", y:2027},
+  {t:"FY 2027 Baseline — Department of Transportation", p:"jlbc", f:"Baseline", y:2027},
+  {t:"FY 2027 Baseline — Department of Economic Security", p:"jlbc", f:"Baseline", y:2027},
+  {t:"FY 2027 Baseline — Industrial Commission of Arizona", p:"jlbc", f:"Baseline", y:2027},
+  {t:"FY 2027 Baseline — Summary and Cross-Cut Sections", p:"jlbc", f:"Baseline", y:2027},
+  {t:"FY 2027 Executive Budget — Governor's Office", p:"governor", f:"Executive Budget", y:2027},
+  {t:"FY 2026 Baseline — AHCCCS", p:"jlbc", f:"Baseline", y:2026},
+  {t:"FY 2026 Baseline — Department of Education", p:"jlbc", f:"Baseline", y:2026},
+  {t:"FY 2026 Baseline — Department of Child Safety", p:"jlbc", f:"Baseline", y:2026},
+  {t:"FY 2026 Baseline — Department of Corrections", p:"jlbc", f:"Baseline", y:2026},
+  {t:"FY 2026 Baseline — Universities: Arizona State University", p:"jlbc", f:"Baseline", y:2026},
+  {t:"FY 2026 Appropriations Report — AHCCCS", p:"jlbc", f:"Appropriations Report", y:2026},
+  {t:"FY 2026 Appropriations Report — Department of Education", p:"jlbc", f:"Appropriations Report", y:2026},
+  {t:"FY 2026 Appropriations Report — Capital Outlay", p:"jlbc", f:"Appropriations Report", y:2026},
+  {t:"FY 2026 Executive Budget — Governor's Office", p:"governor", f:"Executive Budget", y:2026},
+  {t:"FY 2026 Annual Financial Report — AGAO", p:"agao", f:"Annual Financial Report", y:2026},
+  {t:"FY 2026 General Appropriations Act (HB 2911)", p:"jlbc", f:"Budget Bill", y:2026},
+  {t:"FY 2025 Appropriations Report — AHCCCS", p:"jlbc", f:"Appropriations Report", y:2025},
+  {t:"FY 2025 Appropriations Report — Department of Education", p:"jlbc", f:"Appropriations Report", y:2025},
+  {t:"FY 2025 Appropriations Report — Department of Economic Security", p:"jlbc", f:"Appropriations Report", y:2025},
+  {t:"FY 2025 Appropriations Report — Summary and Cross-Cut", p:"jlbc", f:"Appropriations Report", y:2025},
+  {t:"FY 2025 Baseline — Department of Child Safety", p:"jlbc", f:"Baseline", y:2025},
+  {t:"FY 2025 Annual Financial Report — AGAO", p:"agao", f:"Annual Financial Report", y:2025},
+  {t:"FY 2025 General Appropriations Act (SB 1601)", p:"jlbc", f:"Budget Bill", y:2025},
+  {t:"FY 2024 Appropriations Report — AHCCCS", p:"jlbc", f:"Appropriations Report", y:2024},
+  {t:"FY 2024 Appropriations Report — Department of Education", p:"jlbc", f:"Appropriations Report", y:2024},
+  {t:"FY 2024 Appropriations Report — Judiciary", p:"jlbc", f:"Appropriations Report", y:2024},
+  {t:"FY 2024 Baseline — Department of Corrections", p:"jlbc", f:"Baseline", y:2024},
+  {t:"FY 2024 Annual Financial Report — AGAO", p:"agao", f:"Annual Financial Report", y:2024},
+  {t:"FY 2024 General Appropriations Act (HB 2601)", p:"jlbc", f:"Budget Bill", y:2024},
+  {t:"FY 2023 Appropriations Report — AHCCCS", p:"jlbc", f:"Appropriations Report", y:2023},
+  {t:"FY 2023 Appropriations Report — Department of Education", p:"jlbc", f:"Appropriations Report", y:2023},
+  {t:"FY 2023 Annual Financial Report — AGAO", p:"agao", f:"Annual Financial Report", y:2023},
+];
+DOCS.forEach((d,i)=>{ d.url="#doc-"+i; });
+
+/* Fixed document order: title A→Z. (The per-card "Sort A to Z" menu was
+   removed at Destin's direction 2026-08-03 — browse cards and the unified
+   Results region both just use this one order.) */
+const byTitle = (a,b)=>a.t.localeCompare(b.t);
+
+const ALL_YEARS = [...new Set(DOCS.map(d=>d.y))].sort((a,b)=>b-a);
+const state = { q:"", types:new Set(), years:new Set() };
+const $ = s=>document.querySelector(s);
+const open = new Set(); // "y|family" keys with an open tray
+// Years the user has manually toggled open/closed. Absent = the default:
+// newest in-scope year expanded, every prior year collapsed (Destin 2026-08-03).
+const yearToggle = new Map();
+
+let openMenu = null;
+function closeMenus(){
+  openMenu = null;
+  $("#type-menu").hidden = true; $("#year-menu").hidden = true;
+  $("#type-btn").setAttribute("aria-expanded","false");
+  $("#year-btn").setAttribute("aria-expanded","false");
+}
+function btnLabel(set, anyLabel, nameOf){
+  if (set.size===0) return anyLabel;
+  if (set.size===1) return nameOf([...set][0]);
+  return `${set.size} selected`;
+}
+
+function renderMenus(){
+  $("#type-menu").innerHTML = TYPES.map(t=>{
+    const on = state.types.has(t.key);
+    const n = new Set(DOCS.filter(d=>d.f===t.key).map(d=>d.y)).size ? DOCS.filter(d=>d.f===t.key).length : 0;
+    return `<button type="button" class="fopt${on?" on":""}" data-type="${t.key}" aria-pressed="${on}">
+      <span class="ck"><svg viewBox="0 0 12 10" fill="none" stroke="currentColor" stroke-width="2.4"><path d="m1 5 3.5 3.5L11 1"/></svg></span>
+      ${t.label}<span class="fopt-n">${n}</span></button>`;
+  }).join("");
+  $("#year-menu").innerHTML = ALL_YEARS.map(y=>{
+    const on = state.years.has(y);
+    const n = DOCS.filter(d=>d.y===y).length;
+    return `<button type="button" class="fopt${on?" on":""}" data-year="${y}" aria-pressed="${on}">
+      <span class="ck"><svg viewBox="0 0 12 10" fill="none" stroke="currentColor" stroke-width="2.4"><path d="m1 5 3.5 3.5L11 1"/></svg></span>
+      FY ${y}<span class="fopt-n">${n}</span></button>`;
+  }).join("");
+  $("#type-btn-label").textContent = btnLabel(state.types, "Any type", k=>TYPES.find(t=>t.key===k).label);
+  $("#year-btn-label").textContent = btnLabel(state.years, "Any year", y=>`FY ${y}`);
+  $("#type-btn").classList.toggle("has", state.types.size>0);
+  $("#year-btn").classList.toggle("has", state.years.size>0);
+}
+
+function queryHit(d){
+  if (!state.q) return false;
+  const q = state.q.toLowerCase();
+  return d.t.toLowerCase().includes(q) || PUBLISHERS[d.p].toLowerCase().includes(q);
+}
+function passesFilters(d){
+  if (state.types.size && !state.types.has(d.f)) return false;
+  if (state.years.size && !state.years.has(d.y)) return false;
+  return true;
+}
+
+const CHEV = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="m6 9 6 6 6-6"/></svg>`;
+const BOOK = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M4 4h13a2 2 0 0 1 2 2v14H6a2 2 0 0 1-2-2z"/><path d="M4 18a2 2 0 0 1 2-2h13"/></svg>`;
+const OPEN = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M5 12h14M13 6l6 6-6 6"/></svg>`;
+const DOCIC = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M6 2h9l5 5v15H6z"/><path d="M14 2v6h6"/></svg>`;
+
+/* A single-document row (agency page). Icon slot is the gold doc tile. */
+function docRow(d){
+  return `<a class="doc" href="${d.url}">
+    <span class="doc-pub pub-${d.p}">${PUBLISHERS[d.p]}</span>
+    <div class="doc-main"><span class="doc-title">${d.t}</span></div>
+    <span class="doc-pill">${OPEN} Open</span>
+  </a>`;
+}
+
+/* A whole-REPORT top-level row (idle state): navy book tile + "FY Y Family".
+   Clicking opens the single-file PDF when we have a verified URL, else the
+   first document. No count sub-line — the document count is already in the
+   dashed box below, and repeating it under the title said it twice. */
+function reportRow(y, familyKey, docs){
+  const label = TYPES.find(t=>t.key===familyKey).label;
+  const pub = docs[0].p; // a family's docs share one publisher in this corpus
+  const full = FULL_REPORT[`${familyKey}:${y}`];
+  const href = full ?? docs[0].url;
+  return `<a class="doc" href="${href}" ${full?'target="_blank" rel="noopener noreferrer"':""}>
+    <span class="doc-pub pub-${pub}">${PUBLISHERS[pub]}</span>
+    <div class="doc-main">
+      <span class="doc-title">FY ${y} ${label}</span>
+    </div>
+    <span class="doc-pill">${OPEN} Open</span>
+  </a>`;
+}
+
+/* ONE family card, two states.
+
+   IDLE (search box empty): a bare report card — the top-level IS the report
+   ("FY 2027 Baseline"), with a dashed box listing / collapsing the documents
+   inside it. No "Part of" framing: there's no featured page to relate.
+
+   SEARCH (box has text): the most-relevant matching agency page becomes the
+   card's top-level, and the dashed box switches to "Part of the FY 2027
+   Baseline" with the other matches behind "N more". This is the search page's
+   own promotion behavior. */
+function familyCard(y, familyKey, allDocs){
+  const label = TYPES.find(t=>t.key===familyKey).label;
+  const key = `${y}|${familyKey}`;
+  const trayOpen = open.has(key);
+  const full = FULL_REPORT[`${familyKey}:${y}`];
+  const familyTitle = `FY ${y} ${label}`;
+  const searching = state.q !== "";
+
+  if (!searching){
+    // Bare report card. Tray lists the documents (sorted); full-report sits on the row.
+    const docs = [...allDocs].sort(byTitle);
+    // A single-document family (the AFR is only ever one doc) gets NO dashed
+    // "N documents / Browse documents" box — the report row already links the
+    // one document, so the box would only restate it.
+    if (docs.length === 1){
+      return `<article class="grp">${reportRow(y, familyKey, docs)}</article>`;
+    }
+    return `<article class="grp">
+      ${reportRow(y, familyKey, docs)}
+      <div class="ctx">
+        <div class="ctx-row">
+          <span class="badge">${DOCIC} ${docs.length} documents in this report</span>
+          <span class="spacer"></span>
+          <button type="button" class="grp-more${trayOpen?" open":""}" data-tray="${key}" aria-expanded="${trayOpen}">
+            ${trayOpen?"Hide documents":"Browse documents"} ${CHEV}</button>
+          ${full?`<a class="grp-full" href="${full}" target="_blank" rel="noopener noreferrer">${BOOK} Full report</a>`:""}
+        </div>
+        ${trayOpen?`<div class="tray open">${docs.map(docRow).join("")}</div>`:""}
+      </div>
+    </article>`;
+  }
+
+  // Search state: promote the best match; the rest collapse behind "N more".
+  const matches = allDocs.filter(queryHit).sort(byTitle);
+  if (!matches.length) return "";
+  const featured = matches[0];
+  const siblings = matches.slice(1);
+  return `<article class="grp">
+    ${docRow(featured)}
+    <div class="ctx">
+      <div class="ctx-row">
+        <span class="badge">${BOOK} Part of the ${familyTitle}</span>
+        <span class="spacer"></span>
+        ${siblings.length?`<button type="button" class="grp-more${trayOpen?" open":""}" data-tray="${key}" aria-expanded="${trayOpen}">
+          ${siblings.length===1?"1 more match":`${siblings.length} more matches`} ${CHEV}</button>`:""}
+        ${full?`<a class="grp-full" href="${full}" target="_blank" rel="noopener noreferrer">${BOOK} Full report</a>`:""}
+      </div>
+      ${trayOpen && siblings.length?`<div class="tray open">${siblings.map(docRow).join("")}</div>`:""}
+    </div>
+  </article>`;
+}
+
+function renderCards(){
+  const scopedYears = state.years.size ? ALL_YEARS.filter(y=>state.years.has(y)) : ALL_YEARS;
+  const searching = state.q !== "";
+
+  // SEARCH: collapse the year sections into ONE unified Results region. Every
+  // matching family card (across all in-scope years) sits in a single card,
+  // ordered newest year first then by family — the year grouping is gone.
+  if (searching){
+    const tiles = [];
+    for (const y of scopedYears){
+      for (const t of TYPES){
+        const inFamily = DOCS.filter(d=>d.y===y && d.f===t.key && passesFilters(d));
+        if (!inFamily.length || !inFamily.some(queryHit)) continue;
+        tiles.push(familyCard(y, t.key, inFamily));
+      }
+    }
+    const total = DOCS.filter(d=>passesFilters(d) && queryHit(d)).length;
+    const famCount = tiles.length;
+    $("#cards").innerHTML = `<section class="yg">
+      <div class="yg-head">
+        <div class="yg-ttl">
+          <span class="yg-yr">Results</span>
+          <span class="yg-meta">${famCount} report${famCount===1?"":"s"} · ${total} document${total===1?"":"s"} matching “${state.q}”</span>
+        </div>
+      </div>
+      ${tiles.join("") || `<div style="padding:20px 22px;font-size:14px;font-weight:600;color:var(--ink-2);">No documents match “${state.q}” with those filters — try clearing one.</div>`}
+    </section>`;
+    return;
+  }
+
+  // BROWSE (empty box): one year card per in-scope fiscal year. The NEWEST
+  // year starts expanded; every prior year is a collapsed card the user opens.
+  const latest = scopedYears[0]; // scopedYears is newest-first
+  const cards = scopedYears.map(y=>{
+    const famCards = TYPES.map(t=>{
+      const inFamily = DOCS.filter(d=>d.y===y && d.f===t.key && passesFilters(d));
+      if (!inFamily.length) return "";
+      return familyCard(y, t.key, inFamily);
+    }).join("");
+    if (!famCards) return "";
+    const total = DOCS.filter(d=>d.y===y && passesFilters(d)).length;
+    const famCount = TYPES.filter(t=>DOCS.some(d=>d.y===y && d.f===t.key && passesFilters(d))).length;
+    const isOpen = yearToggle.has(y) ? yearToggle.get(y) : y === latest;
+    const headInner = `
+        <div class="yg-ttl">
+          <span class="yg-yr">Fiscal Year ${y}</span>
+          <span class="yg-meta">${famCount} report${famCount===1?"":"s"} · ${total} document${total===1?"":"s"}</span>
+        </div>
+        <svg class="yg-chev${isOpen?" open":""}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="m6 9 6 6 6-6"/></svg>`;
+    // The whole head is the toggle. On the expanded (latest) year it renders as
+    // a button too — collapsing it is allowed; it just starts open.
+    return `<section class="yg${isOpen?" yg-open":" yg-closed"}" data-year-card="${y}">
+      <button type="button" class="yg-head" data-ytoggle="${y}" aria-expanded="${isOpen}" aria-label="Fiscal Year ${y}: ${famCount} reports, ${total} documents">${headInner}</button>
+      ${isOpen?`<div class="yg-body">${famCards}</div>`:""}
+    </section>`;
+  }).join("");
+  $("#cards").innerHTML = cards || `<section class="yg"><div style="padding:20px 22px;font-size:14px;font-weight:600;color:var(--ink-2);">No documents match those filters — try clearing one.</div></section>`;
+}
+
+function renderStatus(){
+  const matched = DOCS.filter(d=>passesFilters(d) && (!state.q || queryHit(d)));
+  const fams = new Set(matched.map(d=>`${d.y}|${d.f}`));
+  const n = matched.length, f = fams.size;
+  const yearScope = state.years.size
+    ? (state.years.size===1 ? `FY ${[...state.years][0]}` : `${state.years.size} fiscal years`)
+    : "all fiscal years";
+  const noun = n===1?"document":"documents";
+  const fnoun = f===1?"report":"reports";
+  $("#status").textContent = state.q
+    ? `${n} ${noun} across ${f} ${fnoun}, in ${yearScope}, matching “${state.q}”.`
+    : `${f} ${fnoun} · ${n} ${noun}, across ${yearScope}.`;
+}
+
+function renderAll(){ renderMenus(); renderCards(); renderStatus();
+  $("#qclear").classList.toggle("show", !!state.q); }
+
+document.addEventListener("click", e=>{
+  const t = e.target;
+  if (t.closest("#type-btn")){ const o=openMenu!=="type"; closeMenus(); if(o){openMenu="type";$("#type-menu").hidden=false;$("#type-btn").setAttribute("aria-expanded","true");} return; }
+  if (t.closest("#year-btn")){ const o=openMenu!=="year"; closeMenus(); if(o){openMenu="year";$("#year-menu").hidden=false;$("#year-btn").setAttribute("aria-expanded","true");} return; }
+  const topt = t.closest("#type-menu .fopt"); if (topt){ const k=topt.dataset.type; state.types.has(k)?state.types.delete(k):state.types.add(k); renderAll(); return; }
+  const yopt = t.closest("#year-menu .fopt"); if (yopt){ const y=+yopt.dataset.year; state.years.has(y)?state.years.delete(y):state.years.add(y); renderAll(); return; }
+  const tray = t.closest("[data-tray]"); if (tray){ const k=tray.dataset.tray; open.has(k)?open.delete(k):open.add(k); renderCards(); return; }
+  const yt = t.closest("[data-ytoggle]"); if (yt){ const y=+yt.dataset.ytoggle;
+    const scoped = state.years.size ? ALL_YEARS.filter(yy=>state.years.has(yy)) : ALL_YEARS;
+    const cur = yearToggle.has(y) ? yearToggle.get(y) : y===scoped[0];
+    yearToggle.set(y, !cur); renderCards(); return; }
+  if (t.closest("#qclear")){ state.q=""; $("#q").value=""; $("#q").focus(); renderAll(); return; }
+  if (!t.closest(".fctl")) closeMenus();
+});
+document.addEventListener("keydown", e=>{ if (e.key==="Escape") closeMenus(); });
+$("#q").addEventListener("input", e=>{ state.q=e.target.value.trim(); renderAll(); });
+
+renderAll();
+</script>
+</body>
+</html>
