@@ -354,10 +354,6 @@ agencies:
   canonical_id: agency:doa-apf
   slug: doa-apf
   names_observed_jlbc:
-    ', p Automation Projects Fund':
-    - approps-fy2016
-    - approps-fy2020
-    - approps-fy2026
     Automation Projects Fund:
     - approps-fy2017
     - approps-fy2019
@@ -367,9 +363,6 @@ agencies:
     - approps-fy2024
     - approps-fy2025
     - baseline-fy2024
-    ministration, Arizona Department of   Automation Projects Fund:
-    - approps-fy2018
-    - baseline-fy2023
     ADOA - Automation Projects Fund:
     - baseline-fy2025
     - baseline-fy2026
@@ -1878,6 +1871,12 @@ agencies:
 - canonical_name: Community Colleges, Arizona
   canonical_id: agency:acc
   slug: acc
+  # Approved by Destin 2026-08-02. Deliberately STOPLISTED to a boost, not a
+  # filter: 'universities and colleges funding' is a real question and a
+  # hard filter would hide the universities. 'community colleges' already
+  # resolves EXACT via the canonical name; 'comm colleges' is curated.
+  aliases:
+  - colleges
   names_observed_jlbc:
     Community Colleges, Arizona:
     - approps-fy2015
@@ -3860,6 +3859,11 @@ agencies:
 - canonical_name: Forestry and Fire Management, Arizona Department of
   canonical_id: agency:for
   slug: for
+  # The department's real acronym. Its JLBC slug `for` is SUPPRESSED in
+  # retrieval/query_agency.py — it is an English preposition and was
+  # hard-filtering 14 of 47 eval queries onto this agency.
+  aliases:
+  - dffm
   names_observed_jlbc:
     Forester, State:
     - approps-fy2015
@@ -3879,8 +3883,6 @@ agencies:
     - baseline-fy2025
     - baseline-fy2026
     - baseline-fy2027
-    ', Forestry and Fire Management, Arizona Department of':
-    - approps-fy2026
   indexes:
     approps-fy2015:
       page: 153

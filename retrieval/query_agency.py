@@ -94,7 +94,18 @@ from retrieval.query_match import Confidence, Match
 # Re-derive with the recipe above whenever the catalog gains aliases.
 AMBIGUOUS_ALIASES: frozenset[str] = frozenset(
     {
-        "doc", "ar", "afr", "des", "pp", "for", "per", "tax", "gov",
+        "doc", "ar", "afr", "des", "pp", "per", "gov",
+        # `colleges` -> Community Colleges, approved by Destin 2026-08-02 and
+        # demoted rather than suppressed: "universities and colleges funding"
+        # is a real question, and a hard filter would answer it with the
+        # community colleges alone. "community colleges" resolves EXACT
+        # through the canonical name, so precision is available to anyone who
+        # wants it.
+        "colleges",
+        # `for`, `tax` and `ban` USED TO BE HERE. They were escalated to
+        # SUPPRESSED_ALIASES — a demotion was not enough, because even a boost
+        # pulls the wrong agency up the page. See that constant.
+        #
         # The remaining JLBC slugs that are also ordinary English words. These
         # sit BELOW the ~190 noise floor of the frequency count above, i.e.
         # they are rare in budget prose — but the count measured DOCUMENT text,
@@ -107,7 +118,6 @@ AMBIGUOUS_ALIASES: frozenset[str] = frozenset(
         # is no English word list in this dependency closure, and the Windows
         # bundle must not grow one for this.
         "art",  # Arts, Arizona Commission on the
-        "ban",  # Financial Institutions, Department of
         "bar",  # Barbers, Board of
         "bat",  # Athletic Training, Board of
         "den",  # Dental Examiners, State Board of
@@ -131,6 +141,48 @@ AMBIGUOUS_ALIASES: frozenset[str] = frozenset(
 # Measured: this alone cost eval query n-003 its ground truth, which is stamped
 # to three other agencies entirely.
 AMBIGUOUS_AGENCIES: frozenset[str] = frozenset({"agency:gov"})
+
+# Slugs that must NEVER become an alias — one step stronger than
+# AMBIGUOUS_ALIASES, which only demotes a match to a boost.
+#
+# Every agency's JLBC slug is turned into an alias automatically, which is
+# right for `adc` and wrong for these three. A demotion is not enough for them:
+# even a boost pulls the wrong agency up the page, which is what "2024 income
+# tax rate" did — it weakly matched the State Board of TAX APPEALS. Rejected
+# by Destin on 2026-08-02, each for a reason the catalog cannot see:
+#
+#   tax  Tax Appeals, State Board of — "tax" is the subject matter of a large
+#        share of budget questions, so it is a word before it is an agency.
+#   for  Forestry and Fire Management — an English PREPOSITION. Replaced by
+#        the real acronym `dffm`.
+#   ban  Financial Institutions, Department of — an ordinary word, AND the
+#        agency is defunct: it and agency:ins (Insurance) both end FY2021 and
+#        were merged into agency:dif (DIFI), which runs FY2021-2027. The
+#        modern handle is `dif`/`difi`.
+#
+# The historical documents stay reachable — suppressing a slug does not touch
+# the agency's NAME, which is a higher and more reliable tier. "financial
+# institutions" still resolves; only the bare three-letter form stops.
+SUPPRESSED_ALIASES: frozenset[str] = frozenset({"tax", "for", "ban"})
+
+# Catalog NAME fragments that are ordinary budget vocabulary before they are an
+# agency. Demoted to a boost, never a hard filter.
+#
+# This is the same defect Destin identified in `tax` ("it might interrupt
+# searches for other things like '2024 income tax rate'"), one tier up.
+# SUPPRESSED_ALIASES cannot reach it: these arrive through the agency's own
+# NAME. "Insurance, Department of" has the head "Insurance", so
+# "health insurance premiums for state employees" and "unemployment insurance
+# trust fund" both hard-filtered onto the insurance REGULATOR — neither
+# question is about it.
+#
+# Only the single-word head is demoted. The full name "insurance, department
+# of" is several words and still resolves EXACT, so precision stays available.
+#
+# Candidates NOT included, because they are judgement calls rather than clear
+# defects, and a wrong entry here quietly costs a filter that was working:
+# `administration`, `housing`, `nursing`, `senate`. Raise them if they misfire.
+AMBIGUOUS_PHRASES: frozenset[str] = frozenset({"insurance"})
 
 # Aliases that DELIBERATELY name more than one catalog entry, because the
 # institution an analyst means is budgeted as several lines.
@@ -159,6 +211,19 @@ CURATED_ALIAS_AGENCIES: dict[str, frozenset[str]] = {
     # matched Main Campus alone — an analyst typing the full name got a weak
     # match on half the university while "ua" got an exact match on all of it.
     "university of arizona": frozenset({"agency:uniumain", "agency:uniuhsc"}),
+    # "comm colleges" is how the agency is abbreviated in conversation and is
+    # not a catalog name, so nothing would have matched it. Unambiguous in a
+    # way the bare word "colleges" is not, so it filters where that only
+    # boosts.
+    "comm colleges": frozenset({"agency:acc"}),
+    # The DIFI lineage. agency:ins (Insurance) and agency:ban (Financial
+    # Institutions) BOTH end FY2021 and were merged into agency:dif (DIFI),
+    # which runs FY2021-2027. Left alone, "financial institutions" resolved to
+    # the defunct agency ALONE — 362 chunks ending in 2021 — and silently
+    # returned nothing from the agency that has done the job ever since.
+    # A merger cannot be detected the way _logical_key detects a rename, since
+    # the names genuinely differ, so it is curated.
+    "financial institutions": frozenset({"agency:ban", "agency:dif"}),
 }
 
 # Shortest catalog phrase the substring scan will trust — the SAME floor
@@ -294,7 +359,12 @@ def parse_query_agencies(
         # and staying EXACT is what makes "revenue, department of" and "child
         # safety" filter again — AND it re-unites chunks the duplicate ids had
         # split, which is the larger of the two wins.
-        exact = _one_logical_agency(index, ids)
+        # A curated phrase was approved by a human for exactly these ids, so
+        # it is EXACT even when they span what the catalog calls two agencies
+        # — which is the whole point for a merger like DIFI.
+        exact = phrase in index.curated_keys or (
+            _one_logical_agency(index, ids) and phrase not in AMBIGUOUS_PHRASES
+        )
         confidence = Confidence.EXACT if exact else Confidence.WEAK
         for canonical_id in _expand_group(index, ids) if exact else ids:
             _add(canonical_id, confidence, phrase)
@@ -357,6 +427,7 @@ class _AgencyIndex:
         "fuzzy_name_to_ids",
         "logical_group",
         "group_members",
+        "curated_keys",
     )
 
     def __init__(self, catalog_path: str | None) -> None:
@@ -365,6 +436,7 @@ class _AgencyIndex:
         fuzzy_name_to_ids: dict[str, set[str]] = {}
         fuzzy_names: list[str] = []
         logical_group: dict[str, tuple[str, ...]] = {}
+        curated_keys: set[str] = set()
         group_members: dict[tuple[str, ...], set[str]] = {}
 
         for entry in load_agency_catalog(catalog_path).values():
@@ -376,7 +448,10 @@ class _AgencyIndex:
 
             for alias in entry.aliases:
                 key = _normalize_for_match(alias)
-                if key:
+                # Suppressed here rather than in chunking/agency_catalog.py so
+                # the catalog keeps saying what JLBC's slug actually is — this
+                # is a retrieval policy, not a fact about the publisher.
+                if key and key not in SUPPRESSED_ALIASES:
                     alias_to_ids.setdefault(key, set()).add(entry.canonical_id)
 
             # The fuzzy tier matches whole printed names only. Heads are left
@@ -397,8 +472,19 @@ class _AgencyIndex:
         # catalog alias of the same spelling widens rather than being replaced.
         for alias, curated_ids in CURATED_ALIAS_AGENCIES.items():
             key = _normalize_for_match(alias)
-            if key:
-                alias_to_ids.setdefault(key, set()).update(curated_ids)
+            if not key:
+                continue
+            alias_to_ids.setdefault(key, set()).update(curated_ids)
+            curated_keys.add(key)
+            # Multi-word curated keys are also registered as PHRASES, because
+            # tiers 1-2 run first and a curated key may already be some
+            # agency's catalog name — "financial institutions" is the defunct
+            # agency:ban's own head, so the name tier claimed it and the
+            # curated widening never got a turn. Single-word keys are left out
+            # of the phrase index deliberately: `ua` is two characters and has
+            # no business being scanned as a name fragment.
+            if " " in key:
+                phrase_to_ids[key] = set(curated_ids)
 
         self.phrase_to_ids = phrase_to_ids
         self.alias_to_ids = alias_to_ids
@@ -406,6 +492,7 @@ class _AgencyIndex:
         self.fuzzy_names = fuzzy_names
         self.logical_group = logical_group
         self.group_members = group_members
+        self.curated_keys = frozenset(curated_keys)
         # Longest-first is what makes overlapping names behave: "juvenile
         # corrections" claims its span before "corrections" can match inside it.
         # Same rationale as `_scan_for_names` in chunking/entity_stamper.py.

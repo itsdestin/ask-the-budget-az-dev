@@ -115,11 +115,17 @@ def _run(req: RetrievalRequest):
 # --------------------------------------------------------------------------
 
 
-def test_an_exact_agency_becomes_a_hard_filter(seam_factory):
+def test_an_exact_agency_becomes_a_PREFERENCE_not_a_filter(seam_factory):
+    """Deviation from spec Q2, measured: a hard agency filter cost 4.8 points
+    of recall at every cutoff and lost two queries outright, because the corpus
+    is stamped incompletely and a CORRECT reading can still exclude the answer.
+    See the reasoning at the inference site in retrieval/pipeline.py."""
     seams = seam_factory([[_chunk("c1")]])
     res = _run(RetrievalRequest(query="corrections baseline", top_k=8))
     assert res.inferred_agencies == ["agency:adc"]
-    assert seams.filters_seen[0].agency_canonical_id == ["agency:adc"]
+    # Reported so the UI can say "preferring Corrections" — but nothing was
+    # removed from the search.
+    assert seams.filters_seen[0].agency_canonical_id is None
 
 
 def test_an_exact_doc_type_becomes_a_hard_filter(seam_factory):
@@ -129,12 +135,13 @@ def test_an_exact_doc_type_becomes_a_hard_filter(seam_factory):
     assert seams.filters_seen[0].doc_type == ["approps-per-agency"]
 
 
-def test_a_stoplisted_alias_does_not_hard_filter(seam_factory):
+def test_no_agency_match_of_any_confidence_reaches_the_filter(seam_factory):
     """'doc' is an ordinary English word as well as the Corrections acronym.
-    It must not empty the page for someone asking about documents."""
+    It must not empty the page for someone asking about documents — and now
+    neither may an EXACT match."""
     seams = seam_factory([[_chunk("c1")]])
     res = _run(RetrievalRequest(query="doc baseline", top_k=8))
-    assert res.inferred_agencies == []
+    assert res.inferred_agencies == ["agency:adc"]
     assert seams.filters_seen[0].agency_canonical_id is None
 
 
@@ -196,10 +203,10 @@ def test_a_hard_filter_that_matches_nothing_retries_unfiltered(seam_factory):
 
     assert seams.rounds == 2, "the pipeline should have searched a second time"
     assert res.chunks != []
-    assert "agency" in res.dropped_filters
-    assert "doc_type" in res.dropped_filters
+    # Only doc_type is ever droppable — agency is a preference and so can
+    # never be the thing that emptied the page.
+    assert res.dropped_filters == ["doc_type"]
     # The retry must not carry the guess that emptied the page.
-    assert seams.filters_seen[1].agency_canonical_id is None
     assert seams.filters_seen[1].doc_type is None
 
 
@@ -209,7 +216,6 @@ def test_a_dropped_filter_is_not_also_reported_as_applied(seam_factory):
     when it was dropped would make the UI lie in the other direction."""
     seam_factory([[], [_chunk("c1")]])
     res = _run(RetrievalRequest(query="ahcccs budget bill", top_k=5))
-    assert res.inferred_agencies == []
     assert res.inferred_doc_types == []
 
 
@@ -228,6 +234,8 @@ def test_only_inferred_filters_are_droppable(seam_factory):
     assert "agency" not in res.dropped_filters
     for seen in seams.filters_seen:
         assert seen.agency_canonical_id == ["agency:axs"]
+    # A caller's explicit filter also suppresses the inference entirely.
+    assert res.inferred_agencies == []
 
 
 def test_no_retry_happens_when_nothing_was_inferred(seam_factory):

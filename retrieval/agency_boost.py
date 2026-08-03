@@ -51,21 +51,26 @@ from retrieval.types import RetrievedChunk
 # one — the derived grid in sweep_recency stepped 0.585 and is how
 # RECENCY_BOOST_PER_YEAR shipped at 2.064 when 0.85 was free).
 #
-# Whole-set recall@5 over the 47-query eval set:
+# RE-SWEPT 2026-08-03 after agency inference became a ranking PREFERENCE
+# rather than a hard filter (see retrieval/pipeline.py). That change makes this
+# weight carry much more of the work — the agency signal now reaches the
+# results ONLY through this penalty — so the earlier sweep no longer described
+# the shipped system.
 #
-#     0.0   0.25   0.5    1.0    2.0    2.5    3.0    3.5
-#   .8095  .8333 .8571  .8571  .8571  .8571  .8571  .8333
-#                 └──────── plateau ────────┘   cliff ┘
+# Whole-set recall@5 over the 47-query eval set, agency-as-preference:
 #
-# WHY 2.0 AND NOT 3.0, the largest weight that costs nothing — because that
-# rule is not the right one here. It was right for recency, where every step
-# up bought measurably better chronological ordering, so the largest safe
-# weight was the best weight. This penalty buys NOTHING past 2.0 on either
-# instrument: recall@5 is identical at 2.0/2.5/3.0, and navigational
-# precision@5 (eval/navigational_check.py) is identical too — agency 0.867 /
-# doc-type 0.867 at both 2.0 and 3.0. Given a tie on every measurement, the
-# smaller weight wins: it intervenes less, and it sits 1.5 from the measured
-# cliff instead of 0.5.
+#      0.0    1.0    2.0    3.0    4.0
+#    .8333  .8810  .8810  .8810  .8571
+#           └──── plateau ────┘  cliff ┘
+#
+# recall@15 and recall@20 are 100% at every weight, so this is purely about
+# how fast the right passage reaches the top five.
+#
+# 2.0 is the CENTRE of the plateau, and the centre is the right choice here
+# because the metric now degrades in BOTH directions — 0.0 costs 4.8 points
+# and 4.0 costs 2.4. That differs from the recency weight, where lower was
+# always safe and "largest that costs nothing" was the sound rule. An edge of
+# a plateau is only safe when one side of it is.
 #
 # REFUSAL_THRESHOLD did NOT move with it, and the reason is worth knowing
 # rather than assuming it never will: `max_top_score` was 8.6779 at EVERY

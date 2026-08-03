@@ -87,8 +87,15 @@ def test_a_slug_that_is_an_ordinary_english_word_cannot_hard_filter():
     Measured on the 47-query eval set before this guard: `for` hard-filtered 13
     of them onto Forestry. This is the plan's Risk #1 -- a confidently wrong
     agency -- reached through a slug rather than through a reviewed alias.
+
+    Asserts the BEHAVIOUR rather than which list holds the slug. `for` began
+    in AMBIGUOUS_ALIASES and was later escalated to SUPPRESSED_ALIASES; the
+    property that matters -- it cannot hard-filter -- never changed, and a test
+    pinned to the mechanism would have failed on an improvement.
     """
-    assert "for" in AMBIGUOUS_ALIASES
+    from retrieval.query_agency import SUPPRESSED_ALIASES
+
+    assert "for" in AMBIGUOUS_ALIASES | SUPPRESSED_ALIASES
     ms = parse_query_agencies("funding for military veterans")
     assert all(m.confidence is Confidence.WEAK for m in ms)
     assert "agency:for" not in [
@@ -291,7 +298,10 @@ def test_no_unreviewed_alias_was_applied():
     confidently to the wrong agency — the reason the gate exists."""
     from chunking.agency_catalog import load_agency_catalog
 
-    approved = {"doc", "dema", "adoa", "difi", "dohs", "asu", "nau", "aph"}
+    approved = {
+        "doc", "dema", "adoa", "difi", "dohs", "asu", "nau", "aph",
+        "dffm", "colleges",  # round 2 of the review, same day
+    }
     for entry in load_agency_catalog().values():
         for alias in entry.aliases:
             # Every agency gets its own slug for free; anything else must be
@@ -299,3 +309,93 @@ def test_no_unreviewed_alias_was_applied():
             assert alias == entry.slug or alias in approved, (
                 f"{entry.canonical_id} carries unreviewed alias {alias!r}"
             )
+
+
+# ---------------------------------------------------------------------------
+# Alias review round 2 (Destin, 2026-08-02): suppressions and corrections
+# ---------------------------------------------------------------------------
+
+
+def test_a_subject_matter_word_does_not_reach_its_namesake_agency():
+    """The reason `tax` was rejected, in Destin's own words: it "might
+    interrupt searches for other things like '2024 income tax rate'". It did —
+    weakly matching the State Board of Tax Appeals, which pulls a regulator
+    into a question about rates."""
+    assert parse_query_agencies("2024 income tax rate") == []
+    assert parse_query_agencies("what is the corporate tax base") == []
+
+
+def test_the_tax_appeals_board_is_still_reachable_by_name():
+    """Suppressing a slug must not cost the agency itself."""
+    assert _ids("tax appeals board") == ["agency:tax"]
+
+
+def test_the_preposition_slug_is_gone_and_the_real_acronym_works():
+    """`for` was Forestry's slug AND an English preposition. `dffm` is what
+    the department is actually called."""
+    from retrieval.query_agency import SUPPRESSED_ALIASES
+
+    assert "for" in SUPPRESSED_ALIASES
+    assert parse_query_agencies("for the department") == []
+    assert _ids("dffm budget") == ["agency:for"]
+    assert _ids("forestry and fire management") == ["agency:for"]
+
+
+def test_the_defunct_financial_institutions_slug_is_gone():
+    """`ban` is an ordinary word AND names an agency that no longer exists:
+    it and agency:ins both end FY2021, merged into DIFI."""
+    assert parse_query_agencies("ban") == []
+    assert _ids("difi rates") == ["agency:dif"]
+
+
+def test_financial_institutions_reaches_the_agency_that_does_the_job_now():
+    """Left alone this resolved to the DEFUNCT agency alone — 362 chunks
+    ending in 2021 — and returned nothing from DIFI, which has done the job
+    since. A merger cannot be detected the way a rename can, so it is
+    curated."""
+    ms = parse_query_agencies("financial institutions")
+    assert {m.value for m in ms} == {"agency:ban", "agency:dif"}
+    assert all(m.confidence is Confidence.EXACT for m in ms)
+
+
+def test_insurance_alone_does_not_hard_filter_onto_the_regulator():
+    """Same defect as `tax`, one tier up: "Insurance, Department of" has the
+    single-word head "Insurance", so questions about employee benefits landed
+    on the insurance REGULATOR. Reached through the NAME, so a suppressed
+    slug could not have fixed it."""
+    for query in (
+        "health insurance premiums for state employees",
+        "unemployment insurance trust fund",
+    ):
+        ms = parse_query_agencies(query)
+        assert all(m.confidence is Confidence.WEAK for m in ms), query
+
+
+def test_the_insurance_department_is_still_reachable_by_full_name():
+    assert _ids("insurance, department of") == ["agency:ins"]
+
+
+def test_community_colleges_resolve_but_bare_colleges_only_boosts():
+    """"colleges" is approved but DEMOTED: "universities and colleges funding"
+    is a real question, and a hard filter would answer it with the community
+    colleges alone."""
+    assert _ids("comm colleges") == ["agency:acc"]
+    assert _ids("community colleges") == ["agency:acc"]
+
+    ms = parse_query_agencies("universities and colleges funding")
+    assert [m.value for m in ms] == ["agency:acc"]
+    assert ms[0].confidence is Confidence.WEAK
+
+
+def test_dcs_and_adc_still_resolve():
+    """Explicitly kept at Destin's request."""
+    assert "agency:dcs" in _ids("dcs caseload")
+    assert _ids("adc baseline") == ["agency:adc"]
+
+
+def test_extraction_debris_no_longer_forms_a_hard_filtering_phrase():
+    """"ministration" is a truncated "Administration" left by a PDF text
+    layer, and it registered as a single-word phrase that HARD-FILTERED."""
+    from retrieval.query_agency import _index
+
+    assert "ministration" not in _index(None).phrase_to_ids

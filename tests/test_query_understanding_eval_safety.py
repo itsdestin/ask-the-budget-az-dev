@@ -35,25 +35,22 @@ from retrieval.query_match import is_filterable
 
 QUERIES_PATH = Path(__file__).resolve().parent.parent / "eval" / "queries.yaml"
 
-# Queries whose ground truth a CORRECT inference still excludes, because the
-# CORPUS is stamped incompletely. Each entry must name the chunk and the gap.
+# WHY THERE IS NO STAMPING-GAP ALLOW-LIST HERE ANY MORE.
 #
-# q-009 asks about "the DOR Unclaimed Property Fund". The parser resolves DOR
-# to agency:dor, which is right. But the AFR chunk that answers it,
-# agao-afr-fy2025-0116, is stamped ONLY agency:sba — `chunking/entity_stamper`
-# did not recognise "DOR" in the document text any better than the query
-# parser could before this work, because 103 of the 157 agencies carry no
-# alias at all. The query side now has aliases; the CORPUS side still does
-# not, and re-stamping means a re-ingest.
+# There was one, holding q-009. Both it and q-022 are queries the parser reads
+# CORRECTLY and whose answers are stamped to a different agency: q-009 names
+# "the DOR Unclaimed Property Fund" and its AFR passage carries only
+# agency:sba; q-022 names the Secretary of State and its answer sits in a House
+# document. `chunking/entity_stamper.py` cannot resolve "DOR" in document text
+# any better than this parser could before the aliases existed — 103 of the 157
+# agencies still carry none on the CORPUS side, and fixing that needs a
+# re-ingest.
 #
-# This query was already failing before query understanding existed (its
-# ground truth sat outside the top 20 — see STATUS.md), so nothing regressed.
-# What changed is that a hard filter makes it unrecoverable rather than
-# merely low-ranked.
-#
-# Deliberately an ALLOW-LIST, not a softened assertion: a new entry here is a
-# claim that the corpus is wrong, and it should be uncomfortable to add.
-KNOWN_STAMPING_GAPS = {"q-009"}
+# A second entry was the signal to stop exempting and start measuring. Agency
+# inference became a ranking preference instead of a filter, and both queries
+# pass. The finding itself is unchanged and still matters: the corpus is
+# stamped incompletely, and any future work that re-introduces agency FILTERING
+# has to reckon with it.
 
 
 def _queries() -> list[dict]:
@@ -70,26 +67,29 @@ def _ground_truth(query: dict, dimension: str) -> set[str]:
     return out
 
 
-@pytest.mark.parametrize("query", _queries(), ids=lambda q: q["id"])
-def test_an_inferred_agency_filter_never_excludes_the_ground_truth(query):
-    """A hard agency filter that discards the answer is worse than no filter:
-    it returns confident results from the wrong agency, and nothing on screen
-    says a filter was guessed."""
-    expected = _ground_truth(query, "agency")
-    if not expected:
-        pytest.skip("no agency ground truth to protect")
-    if query["id"] in KNOWN_STAMPING_GAPS:
-        pytest.skip(f"{query['id']}: corpus stamping gap, see KNOWN_STAMPING_GAPS")
+def test_an_inferred_agency_can_never_exclude_anything():
+    """Agency is a ranking PREFERENCE, not a filter, so it is structurally
+    incapable of discarding a query's ground truth.
 
-    matches = parse_query_agencies(query["query"])
-    if not is_filterable(matches):
-        return  # a weak match only re-ranks; it cannot discard anything
+    This test replaces a per-query guard that checked whether an inferred
+    agency filter would exclude its own answer. That guard fired twice —
+    q-009 and q-022, both CORRECT parses whose answers are stamped to another
+    agency — and firing twice is what prompted measuring the filter against a
+    preference. The preference won by 4.8 points of recall at every cutoff and
+    both queries now pass, so the property is enforced at the source instead:
+    the pipeline never puts an inferred agency into `filters`.
 
-    inferred = {m.value for m in matches}
-    assert inferred & expected, (
-        f"{query['id']} would hard-filter to {sorted(inferred)} but its "
-        f"ground truth is {sorted(expected)} — the answer would be filtered "
-        f"away.\n  query: {query['query']!r}"
+    Asserted against the pipeline SOURCE rather than by running retrieval,
+    because running it needs the corpus and the models.
+    """
+    import inspect
+
+    from retrieval import pipeline
+
+    source = inspect.getsource(pipeline.retrieve)
+    assert "agency_canonical_id=inferred_agencies" not in source, (
+        "an inferred agency reached the filter — see the measurement at the "
+        "inference site before changing this back"
     )
 
 
@@ -119,7 +119,7 @@ def test_every_ordinary_english_word_slug_is_stoplisted():
     one of them as an alias unconditionally — they are live whether or not any
     drafted alias is ever approved.
     """
-    from retrieval.query_agency import AMBIGUOUS_ALIASES
+    from retrieval.query_agency import AMBIGUOUS_ALIASES, SUPPRESSED_ALIASES
 
     ordinary_words = {
         "art",  # Arts, Arizona Commission on the
@@ -136,7 +136,10 @@ def test_every_ordinary_english_word_slug_is_stoplisted():
         "pod",  # Podiatry Examiners, State Board of
         "tax",  # Tax Appeals, State Board of
     }
-    missing = sorted(ordinary_words - {a.lower() for a in AMBIGUOUS_ALIASES})
+    # Either list is acceptable: SUPPRESSED means the slug never resolves
+    # at all, which is strictly stronger than the demotion AMBIGUOUS gives.
+    guarded = {a.lower() for a in AMBIGUOUS_ALIASES | SUPPRESSED_ALIASES}
+    missing = sorted(ordinary_words - guarded)
     assert not missing, (
         f"these slugs are ordinary English words and would hard-filter a "
         f"query that merely uses the word: {missing}"
@@ -155,22 +158,3 @@ def test_a_preposition_cannot_hard_filter():
         "the preposition would be answered out of the Department of Forestry"
     )
 
-
-def test_the_stamping_gap_allowlist_stays_small():
-    """An allow-list is a place bugs go to hide. Every entry is a claim that
-    the CORPUS is wrong rather than the code, which is a strong claim; if this
-    list is growing, hard-filtering on agency is the thing to re-examine, not
-    the list.
-    """
-    assert len(KNOWN_STAMPING_GAPS) <= 2, (
-        f"{len(KNOWN_STAMPING_GAPS)} queries now need a stamping exemption — "
-        "re-examine whether an agency match should hard-filter at all"
-    )
-
-
-def test_every_allowlisted_query_still_exists():
-    """A stale exemption silently disables a real guard."""
-    ids = {q["id"] for q in _queries()}
-    assert KNOWN_STAMPING_GAPS <= ids, (
-        f"exempted queries no longer in the eval set: {KNOWN_STAMPING_GAPS - ids}"
-    )

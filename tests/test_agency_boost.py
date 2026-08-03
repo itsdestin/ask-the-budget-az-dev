@@ -1,9 +1,10 @@
 """Tests for the post-rerank weak-match penalty (spec Q4).
 
-The penalty ships DISABLED (MATCH_PENALTY == 0.0) and stays that way until
-plan Task 9's eval sweep picks a weight. So the load-bearing tests here are
-the no-op one and the shipped-default one: until Task 9 lands, every
-production retrieval runs through this function and must come out unchanged.
+The penalty ships CALIBRATED (MATCH_PENALTY == 2.0). It used to ship at 0.0
+pending a sweep; that sweep ran, and then ran AGAIN once agency inference
+became a ranking preference rather than a hard filter — which routes the whole
+agency signal through this function and makes the weight matter far more than
+it did. At 0.0 the eval now loses 4.8 points of recall@5.
 
 The other half is the property the whole file exists for: the adjustment is a
 PENALTY on non-matching chunks, never a bonus on matching ones. Boosted scores
@@ -101,11 +102,14 @@ def test_both_criteria_must_hold_for_a_chunk_to_escape_the_penalty():
 def test_the_shipped_default_is_the_calibrated_weight():
     """CALIBRATED 2026-08-02 (was 0.0 "pending an eval sweep").
 
-    Chosen from an explicit grid: recall@5 plateaus at .8571 from 0.5 through
-    3.0 and falls to .8333 at 3.5. 2.0 is the SMALLEST weight reaching the
-    plateau, picked over 3.0 because nothing measurable improves past it —
-    navigational precision@5 is identical at both — so the smaller weight
-    intervenes less and sits further from the cliff.
+    Re-swept 2026-08-03 once agency inference became a ranking PREFERENCE
+    rather than a filter, which routes the whole agency signal through this
+    penalty and so changed what the weight is worth.
+
+    recall@5 plateaus at .8810 from 1.0 through 3.0, falling to .8333 at 0.0
+    and .8571 at 4.0. 2.0 is the CENTRE of that plateau — the right pick when
+    the metric degrades in BOTH directions, unlike the recency weight where
+    lower was always safe.
 
     The pairing with REFUSAL_THRESHOLD is pinned in tests/test_recency.py,
     which is where all three penalties feeding `top_score` are asserted

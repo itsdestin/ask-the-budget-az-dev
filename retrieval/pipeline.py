@@ -199,16 +199,27 @@ class RetrievalResult:
     to FY 2019" instead of leaving the analyst wondering where the other
     years went.
 
-    `inferred_agencies` / `inferred_doc_types` (spec Q2) report the same
-    thing for the agency and document-type parsers: what was parsed out of
-    the query AND applied. Each is empty when the caller passed its own
-    filter on that dimension, when the match was too weak to filter on, and
-    when an applied filter had to be dropped — "applied" is the whole
-    meaning, so a dropped filter must not still be listed here.
+    `inferred_agencies` and `inferred_doc_types` report what was parsed out
+    of the query and applied — but they are applied DIFFERENTLY, and a UI
+    must not describe them the same way.
+
+    `inferred_doc_types` is a hard FILTER: those document types are the only
+    ones searched. Empty when the caller passed its own `doc_type`, when the
+    match was too weak to filter on, or when the filter matched nothing and
+    had to be dropped (see `dropped_filters`).
+
+    `inferred_agencies` is only a ranking PREFERENCE — measured to beat a
+    hard filter by ~5 points of recall at every cutoff, because the corpus
+    is stamped incompletely and a correct reading of the question can still
+    exclude the answer. Nothing is removed from the results, so an analyst
+    seeing "preferring Corrections" still gets everything else below it.
+    Empty only when the caller passed its own `agency_canonical_id`. The
+    reasoning and the measurement are at the inference site in `retrieve`.
 
     `dropped_filters` (spec Q3) names the dimensions whose INFERRED filter
     returned nothing and was therefore abandoned for a second, unfiltered
-    search — e.g. `["agency", "doc_type"]`. It exists so the UI can say
+    search. In practice that is only ever `["doc_type"]`, since agency no
+    longer filters and so can never empty the page. It exists so the UI can say
     "showing all documents — no Corrections results matched" rather than
     silently pretending no filter was ever guessed. A filter that is
     invisibly not applied is the kind of thing that makes a tool feel
@@ -301,17 +312,35 @@ def retrieve(
     # EVERY match is exact. Anything weaker is kept aside and handed to the
     # post-rerank penalty below, which competes with reranker scores instead
     # of overriding them.
+    # AGENCY IS A RANKING PREFERENCE, NEVER A HARD FILTER — a deliberate
+    # deviation from spec Q2, which specified a hard filter for an exact match.
+    # Measured on the 47-query eval set, agency-filter ON vs OFF, everything
+    # else identical:
+    #
+    #                       recall@5   recall@15   recall@20   failed lookups
+    #     hard filter         83.33%      95.24%      95.24%     q-009, q-022
+    #     preference only     88.10%     100.00%     100.00%     none
+    #
+    # WHY the filter loses, and it is not a tuning accident: the corpus is
+    # stamped incompletely, so a CORRECT reading of the question can still
+    # exclude the answer. q-009 names "the DOR Unclaimed Property Fund" and the
+    # AFR passage answering it is stamped only agency:sba; q-022 names the
+    # Secretary of State and its answer sits in a House document. In both the
+    # parser is right and the filter still deletes the answer — and it deletes
+    # it SILENTLY, because the agency has other chunks so the empty-result
+    # fallback never fires.
+    #
+    # The cost is one slot on one navigational query (dema ar) out of six.
+    # That is a good trade for 4.8 points of recall at every cutoff.
+    #
+    # Re-open this only with a measurement, and re-run it after any re-ingest
+    # that improves agency stamping — the trade could genuinely reverse once
+    # the corpus side has the aliases the query side now has.
     inferred_agencies: list[str] = []
     weak_agencies: list[str] = []
     if not req.agency_canonical_id:
-        agency_matches = parse_query_agencies(req.query)
-        if is_filterable(agency_matches):
-            inferred_agencies = [m.value for m in agency_matches]
-            filters = dataclass_replace(
-                filters, agency_canonical_id=inferred_agencies
-            )
-        else:
-            weak_agencies = [m.value for m in agency_matches]
+        weak_agencies = [m.value for m in parse_query_agencies(req.query)]
+        inferred_agencies = list(weak_agencies)
 
     inferred_doc_types: list[str] = []
     weak_doc_types: list[str] = []
@@ -371,24 +400,17 @@ def retrieve(
     # different question than the one asked. The inferred YEAR filter is also
     # left alone — that is shipped S21 behaviour and changing it here would
     # alter refusal semantics as a side effect.
+    # Only DOC TYPE can be dropped, because only doc type is ever applied as a
+    # filter — agency is a ranking preference and so can never empty the page.
     dropped_filters: list[str] = []
-    if not fused and (inferred_agencies or inferred_doc_types):
-        if inferred_agencies:
-            dropped_filters.append("agency")
-        if inferred_doc_types:
-            dropped_filters.append("doc_type")
-        filters = dataclass_replace(
-            filters,
-            agency_canonical_id=req.agency_canonical_id,
-            doc_type=req.doc_type,
-        )
-        # The guesses no longer describe what was applied, and
-        # `inferred_*` means "inferred AND applied" — see RetrievalResult.
-        # They become weak signals instead, so the penalty below can still
-        # prefer the right agency inside the unfiltered set.
-        weak_agencies = weak_agencies or inferred_agencies
+    if not fused and inferred_doc_types:
+        dropped_filters.append("doc_type")
+        filters = dataclass_replace(filters, doc_type=req.doc_type)
+        # The guess no longer describes what was applied, and `inferred_*`
+        # means "inferred AND applied" — see RetrievalResult. It becomes a weak
+        # signal instead, so the penalty below can still prefer the right
+        # document type inside the unfiltered set.
         weak_doc_types = weak_doc_types or inferred_doc_types
-        inferred_agencies = []
         inferred_doc_types = []
         bm25_hits, dense_hits, fused = _search(filters)
 
