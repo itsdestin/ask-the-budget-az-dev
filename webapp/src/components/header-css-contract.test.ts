@@ -57,14 +57,27 @@ describe("header CSS contract", () => {
     // The icon's second state and the label's roll-out are the two things
     // Destin asked to SEE happen. Both are pure CSS hung off NavLink's
     // `.active` class, so nothing in the component would notice their loss.
+    // OFF is low and flipped, ON is home and upright — the two poses must
+    // actually differ, and the difference must include the rotation. The spark
+    // is a PLUS (4-fold symmetric), so its two resting poses look identical and
+    // the flip is only ever visible mid-travel; drop the rotate and the
+    // "light switch" throw silently becomes a slide with nothing failing.
     expect(bare).toMatch(
-      /\.nav-item\.nav-ai>a\.active \.nav-ai-spark\{transform:translate\(/,
+      /\.nav-item\.nav-ai>a \.nav-ai-spark\{transform:translate\(0,13px\) rotate\(-180deg\)/,
     );
+    expect(bare).toMatch(
+      /\.nav-item\.nav-ai>a\.active \.nav-ai-spark\{transform:translate\(0,0\) rotate\(0deg\)/,
+    );
+    // Spins about its own centre, not the corner of the viewBox. Browsers have
+    // disagreed on the default transform-box for SVG children, so leaving it
+    // implicit means the throw looks right on one engine and swings wildly on
+    // another.
+    expect(bare).toMatch(/\.nav-ai-spark\{transform-box:view-box;transform-origin:19px 5px/);
     expect(bare).toMatch(/\.nav-item\.nav-ai>a\.active \.nav-ai-text\{[^}]*max-width/);
     // Collapsed at rest — a label that is merely transparent still reserves its
     // width, and the pill would sit wide and empty on every other route.
     expect(bare).toMatch(/\.nav-ai-text\{[^}]*max-width:0/);
-    expect(bare).toMatch(/\.nav-ai-spark\{transition:transform/);
+    expect(bare).toMatch(/\.nav-ai-spark\{[^}]*transition:transform/);
   });
 
   it("reduced motion keeps both states and drops only the travel", () => {

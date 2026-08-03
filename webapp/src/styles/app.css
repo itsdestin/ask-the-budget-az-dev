@@ -97,12 +97,27 @@ nav.primary{position:relative;padding-right:44px;}
 .nav-ai-text{display:inline-block;overflow:hidden;white-space:nowrap;max-width:0;opacity:0;margin-left:0;
   transition:max-width .3s cubic-bezier(.4,0,.2,1),opacity .18s ease,margin-left .3s cubic-bezier(.4,0,.2,1);}
 .nav-item.nav-ai>a.active .nav-ai-text{max-width:7em;opacity:1;margin-left:7px;}
-/* The spark is the icon's second state: up-right when AI Mode is somewhere you
-   could go, down-left when you are in it. In SVG a CSS px IS a user unit, so
-   this is a move within the 24-unit box, not a screen-pixel offset that would
-   drift as the glyph resizes at the two breakpoints below. */
-.nav-ai-spark{transition:transform .34s cubic-bezier(.34,1.3,.5,1);}
-.nav-item.nav-ai>a.active .nav-ai-spark{transform:translate(-14.5px,13px);}
+/* The spark is the icon's second state, and it THROWS like a light switch:
+   down-right when AI Mode is somewhere you could go, up-right when you are in
+   it, travelling the same side of the glyph rather than diagonally across it.
+
+   The 180deg is what makes the travel read as a flip rather than a slide. It
+   also has to be a real rotation and not a shape swap, because the spark is a
+   PLUS — 4-fold symmetric, so its start and end poses are identical and only
+   the sweep between them is visible. That is the point: it passes through 45
+   and 135 degrees, where the plus reads as an x, so the twist is legible while
+   it happens and the resting states stay clean.
+
+   transform-box/origin are set explicitly rather than left to the initial
+   value: browsers have disagreed about the default for SVG children, and the
+   difference here is a spark that spins about its own centre versus one that
+   swings from the corner of the viewBox. In SVG a CSS px IS a user unit, so
+   19px 5px is the spark's centre in the 24-unit box — no screen-pixel offset
+   to drift when the glyph resizes at the two breakpoints below. */
+.nav-ai-spark{transform-box:view-box;transform-origin:19px 5px;
+  transition:transform .38s cubic-bezier(.34,1.42,.5,1);}
+.nav-item.nav-ai>a .nav-ai-spark{transform:translate(0,13px) rotate(-180deg);}
+.nav-item.nav-ai>a.active .nav-ai-spark{transform:translate(0,0) rotate(0deg);}
 @media (prefers-reduced-motion: reduce){
   /* The states still differ — only the travel between them stops. */
   .nav-ai-text,.nav-ai-spark{transition:none;}

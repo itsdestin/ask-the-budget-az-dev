@@ -127,11 +127,12 @@ function AiSparkIcon() {
       aria-hidden="true"
     >
       <path d="M10 3.5Q11.2 10.3 17.5 11.5Q11.2 12.7 10 19.5Q8.8 12.7 2.5 11.5Q8.8 10.3 10 3.5Z" />
-      {/* The small spark is the icon's STATE. It rides up-right when AI Mode is
-          somewhere you could go, and swings down-left when you are in it — two
-          positions far enough apart to read at 19px, with the travel animated
-          so switching tabs shows the change rather than just the result.
-          `.nav-ai-spark` is the hook; the transform lives in app.css. */}
+      {/* The small spark is the icon's STATE, and it throws like a light
+          switch: down-right when AI Mode is somewhere you could go, up-right
+          when you are in it, with a 180deg flip on the way. Drawn here in its
+          ON position (up-right); app.css is what pushes it down for the off
+          state, so the resting artwork stays the shape the icon was designed
+          around. `.nav-ai-spark` is the hook. */}
       <g className="nav-ai-spark">
         <path d="M19 3v4" />
         <path d="M21 5h-4" />
