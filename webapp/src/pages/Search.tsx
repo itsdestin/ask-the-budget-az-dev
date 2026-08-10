@@ -9,6 +9,7 @@ import { SearchIcon } from "../components/SearchIcon";
 import { BookIcon, ChevronIcon, DocIcon, OpenIcon } from "../components/DocIcons";
 import { ReportChooser } from "../components/ReportChooser";
 import { PassageCard } from "../components/PassageCard";
+import { SourcePanel } from "../pdf/SourcePanel";
 import { familyOf, familyTitle, reportFormats } from "../reportFamilies";
 import { groupPassages, toSearchFilters } from "../search/contentSearch";
 
@@ -592,13 +593,25 @@ export function Search() {
   // gets NO styling and paints as an unstyled block. (Hit exactly once, in
   // mockups/report-format-chooser.html.)
   const [chooser, setChooser] = useState<{ year: number; family: string } | null>(null);
-  // The chunk whose source drawer is open, or null. Task 8 renders the
-  // drawer itself; this task only needs somewhere for a passage click to
-  // land so PassageCard's onOpenPassage has a real handler. `void` reads the
-  // value once so `noUnusedLocals` doesn't reject it before Task 8 renders
-  // it for real.
-  const [openPassage, setOpenPassage] = useState<string | null>(null);
-  void openPassage;
+  // The passage whose source is open, or null. Holds the display title
+  // alongside the id because the row that was clicked already knows it —
+  // app/routes/pdf.py's get_chunk deliberately does not return a second,
+  // conflicting title.
+  const [openPassage, setOpenPassage] = useState<{
+    chunkId: string;
+    docTitle: string;
+    fiscalYear: number | null;
+  } | null>(null);
+
+  const openPassageById = (chunkId: string) => {
+    const hit =
+      content.kind === "ready" ? content.results.find((r) => r.chunk_id === chunkId) : undefined;
+    setOpenPassage({
+      chunkId,
+      docTitle: hit?.doc_title ?? "",
+      fiscalYear: hit?.fiscal_year ?? null,
+    });
+  };
 
   // --- URL <-> state, one direction at a time -------------------------------
   // `lastWritten` is what stops the two effects below from fighting: the write
@@ -652,6 +665,11 @@ export function Search() {
   const docs = phase.kind === "ready" ? phase.docs : [];
   const q = query.trim();
   const searching = q !== "";
+
+  // A new query, a new mode or a new filter means a new result set; leaving
+  // the drawer open would keep a passage from the PREVIOUS search on screen
+  // next to results that no longer contain it.
+  useEffect(() => setOpenPassage(null), [q, mode, types, years]);
 
   // The whole corpus grouped into year → family, BEFORE the rail filters (the
   // filter option counts are computed off this so a picked filter doesn't
@@ -1012,7 +1030,7 @@ export function Search() {
                           query={q}
                           trayOpen={openTrays.has(d.doc_id)}
                           onToggleTray={() => toggleTray(d.doc_id)}
-                          onOpenPassage={setOpenPassage}
+                          onOpenPassage={openPassageById}
                         />
                       ))
                     )
@@ -1096,6 +1114,22 @@ export function Search() {
           </div>
         </div>
       </div>
+
+      {/* Source drawer. It overlays the page rather than taking a column, so
+          the results layout above is untouched. Like the chooser, it MUST
+          render inside this <main>: `.pdf-drawer` is position:fixed and every
+          rule for it is page-class scoped. */}
+      {openPassage && (
+        <SourcePanel
+          // Keyed on the chunk so switching passages remounts, rather than
+          // showing the previous page while the next one loads.
+          key={openPassage.chunkId}
+          chunkId={openPassage.chunkId}
+          docTitle={openPassage.docTitle}
+          fiscalYear={openPassage.fiscalYear}
+          onClose={() => setOpenPassage(null)}
+        />
+      )}
 
       {chooser && (
         <ReportChooser
