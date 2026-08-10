@@ -35,6 +35,30 @@ const SINGLE_HIT: api.SearchResult[] = [
     publisher: "agao", agencies: [], doc_url: "https://x/afr26.pdf", doc_meta: null },
 ];
 
+// A promise this test can resolve/reject on its own schedule, unlike
+// `mockResolvedValue`/`mockRejectedValue` (used everywhere else in this
+// file) which settle on the same microtask tick every request was made on —
+// fine for asserting the RESULT of one request, useless for putting two
+// requests genuinely in flight at once to exercise the stale-response guard.
+function deferred<T>() {
+  let resolve!: (value: T) => void;
+  let reject!: (reason: unknown) => void;
+  const promise = new Promise<T>((res, rej) => {
+    resolve = res;
+    reject = rej;
+  });
+  return { promise, resolve, reject };
+}
+
+// Waiting on a bare `await Promise.resolve()` only drains the MICROTASK
+// queue, not React 18's update scheduler (it commits via a MessageChannel
+// macrotask outside of `act()`). Verified with a throwaway repro: an
+// unguarded effect's late `setState` call was still invisible in the DOM
+// after two `await Promise.resolve()`s, which would have made the two tests
+// below pass whether or not the real guard existed. A `setTimeout` tick
+// flushes the macrotask queue and makes the commit observable either way.
+const flush = () => new Promise((resolve) => setTimeout(resolve, 0));
+
 function mount(entry = "/search", hits = HITS) {
   vi.spyOn(api, "corpusDocuments").mockResolvedValue({ documents: DOCS });
   const search = vi.spyOn(api, "search").mockResolvedValue({
@@ -243,4 +267,79 @@ test("More from this document tray closes again on a second click", async () => 
   expect(screen.getByText(/6,218 children/)).toBeInTheDocument();
   fireEvent.click(screen.getByRole("button", { name: /more from this document/i }));
   expect(screen.queryByText(/6,218 children/)).toBeNull();
+});
+
+// The content-fetch effect's `let ignore = false` closure (Search.tsx) exists
+// to stop an older, slower response from painting over a newer one. Every
+// other test in this file resolves `api.search` with `mockResolvedValue` /
+// `mockRejectedValue`, which settle on the SAME microtask tick as the call —
+// two requests are never actually in flight together, so none of them can
+// tell a working guard from a deleted one. These two do.
+test("a stale response from an older request is discarded, not painted over the newer one", async () => {
+  vi.spyOn(api, "corpusDocuments").mockResolvedValue({ documents: DOCS });
+  const older = deferred<api.SearchResponse>();
+  const newer = deferred<api.SearchResponse>();
+  const search = vi
+    .spyOn(api, "search")
+    .mockReturnValueOnce(older.promise)
+    .mockReturnValueOnce(newer.promise);
+
+  render(
+    <MemoryRouter initialEntries={["/search?q=child%20care&in=contents"]}>
+      <Search />
+    </MemoryRouter>,
+  );
+  await waitFor(() => expect(search).toHaveBeenCalledTimes(1));
+
+  // Fire a SECOND content request while the first is still pending, without
+  // touching `mode` or `q` — typing in the filter box always bounces mode
+  // back to "titles" (see its onChange), so a document-type filter toggle
+  // (already exercised the same way by "the rail's filters reach the backend
+  // as doc_type SLUGS" above) is what actually re-runs the content effect
+  // while staying in contents mode.
+  fireEvent.click(screen.getByRole("button", { name: /document type/i }));
+  fireEvent.click(screen.getByRole("button", { name: /^Baseline/ }));
+  await waitFor(() => expect(search).toHaveBeenCalledTimes(2));
+
+  // Resolve the NEWER request first, then the OLDER one arrives late — the
+  // guard must keep the newer result on screen and never flicker back.
+  newer.resolve({ results: SINGLE_HIT, total: SINGLE_HIT.length, provider: "test" });
+  await screen.findByText(/General Fund revenue/i);
+  expect(screen.queryByText(/89,432,700/)).toBeNull();
+
+  older.resolve({ results: HITS, total: HITS.length, provider: "test" });
+  // Let the (ignored) older .then callback run AND commit; a broken guard
+  // would call setContent here and swap the results back to HITS.
+  await flush();
+  expect(screen.getByText(/General Fund revenue/i)).toBeInTheDocument();
+  expect(screen.queryByText(/89,432,700/)).toBeNull();
+});
+
+test("no state update fires after the content-search component unmounts mid-request", async () => {
+  vi.spyOn(api, "corpusDocuments").mockResolvedValue({ documents: DOCS });
+  const pending = deferred<api.SearchResponse>();
+  vi.spyOn(api, "search").mockReturnValue(pending.promise);
+  // React logs unmounted-state-update warnings (and any other renderer
+  // warning) through console.error — asserting it was never called is the
+  // "test output stays clean" check the finding asks for.
+  const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+
+  const view = render(
+    <MemoryRouter initialEntries={["/search?q=child%20care&in=contents"]}>
+      <Search />
+    </MemoryRouter>,
+  );
+  await screen.findByText(/reading inside every ingested pdf/i);
+
+  view.unmount();
+
+  // Resolve AFTER unmount. The effect's cleanup already flipped its `ignore`
+  // closure to true when React tore the component down; if that guard were
+  // missing, this is where a state update — and any warning React logs for
+  // one — would show up.
+  pending.resolve({ results: HITS, total: HITS.length, provider: "test" });
+  await flush();
+
+  expect(errorSpy).not.toHaveBeenCalled();
+  errorSpy.mockRestore();
 });

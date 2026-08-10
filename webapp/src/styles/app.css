@@ -2317,3 +2317,22 @@ fieldset.adm-field{border:0;padding:0;}
   .page-docs .spin{animation:none;}
   .page-docs .dots::after{animation:none;content:"…";}
 }
+
+/* ===== content-search error text, inside the results card (review fix, 2026-08-10) =====
+   WHY: the content-search failure renders as `<span className="err">` inside
+   `.yg > .empty` (Search.tsx, the content.kind === "error" branch). `.err` was
+   reused from three other spots on this page — `.docstatus .err`,
+   `.page-fiscal-notes .fnnote .err`, `.page-upload .err` — but every one of
+   those colour rules requires a `.docstatus`, `.fnnote`, or `.page-upload`
+   ancestor (see the grep below), none of which wraps this span. Without its
+   own rule the error text fell through to `.page-docs .empty`'s plain
+   `color:var(--ink-2)`, the SAME grey as an ordinary "no results" message —
+   a reader could not tell a failed search from an empty one.
+     grep -n "\.err[^-a-z]" webapp/src/styles/app.css
+       .page-fiscal-notes .fnnote .err{color:var(--az-red);}
+       .page-docs .docstatus .err{color:var(--az-red);}
+       .page-upload .err{color:var(--az-red);}
+   Reuses the same `--az-red` token those three already use. Scoped to
+   `.yg .empty .err` (not bare `.page-docs .err`) so it cannot restyle any
+   other `.err` elsewhere on this page. */
+.page-docs .yg .empty .err{color:var(--az-red);}
