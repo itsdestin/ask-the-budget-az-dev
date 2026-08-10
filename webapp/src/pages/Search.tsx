@@ -8,8 +8,9 @@ import { publisherLabel } from "../publishers";
 import { SearchIcon } from "../components/SearchIcon";
 import { BookIcon, ChevronIcon, DocIcon, OpenIcon } from "../components/DocIcons";
 import { ReportChooser } from "../components/ReportChooser";
+import { PassageCard } from "../components/PassageCard";
 import { familyOf, familyTitle, reportFormats } from "../reportFamilies";
-import { toSearchFilters } from "../search/contentSearch";
+import { groupPassages, toSearchFilters } from "../search/contentSearch";
 
 // Budget Documents — a browse-first directory, rebuilt 2026-08-03 from the
 // approved interactive mockup `mockups/budget-documents-browse.html` (port,
@@ -591,6 +592,13 @@ export function Search() {
   // gets NO styling and paints as an unstyled block. (Hit exactly once, in
   // mockups/report-format-chooser.html.)
   const [chooser, setChooser] = useState<{ year: number; family: string } | null>(null);
+  // The chunk whose source drawer is open, or null. Task 8 renders the
+  // drawer itself; this task only needs somewhere for a passage click to
+  // land so PassageCard's onOpenPassage has a real handler. `void` reads the
+  // value once so `noUnusedLocals` doesn't reject it before Task 8 renders
+  // it for real.
+  const [openPassage, setOpenPassage] = useState<string | null>(null);
+  void openPassage;
 
   // --- URL <-> state, one direction at a time -------------------------------
   // `lastWritten` is what stops the two effects below from fighting: the write
@@ -752,6 +760,16 @@ export function Search() {
     };
   }, [mode, q, types, years, searching, contentAttempt]);
 
+  // Content results grouped one entry per document — the unit PassageCard
+  // renders. Task 5 removed the equivalent memo from this file because it
+  // was unused here at the time; recomputed now that content mode actually
+  // renders. `content.results` only exists in the "ready" arm, so every
+  // other ContentPhase kind renders zero documents.
+  const passageDocs = useMemo(
+    () => (content.kind === "ready" ? groupPassages(content.results) : []),
+    [content],
+  );
+
   // Default open year: newest in-scope. A manual toggle overrides it.
   const latestYear = visibleGroups[0]?.year ?? null;
   const isYearOpen = (year: number) =>
@@ -851,9 +869,13 @@ export function Search() {
           {phase.kind === "loading" && "Loading…"}
           {phase.kind === "error" && <span className="err">{phase.message}</span>}
           {phase.kind === "ready" &&
-            (searching
-              ? `${reportCount} report${reportCount === 1 ? "" : "s"} in ${yearScope}, matching “${q}”.`
-              : `${reportCount} report${reportCount === 1 ? "" : "s"}, across ${yearScope}.`)}
+            (mode === "contents" && searching
+              ? content.kind === "ready"
+                ? `${content.results.length} passage${content.results.length === 1 ? "" : "s"} in ${passageDocs.length} document${passageDocs.length === 1 ? "" : "s"}, matching “${q}”.`
+                : ""
+              : searching
+                ? `${reportCount} report${reportCount === 1 ? "" : "s"} in ${yearScope}, matching “${q}”.`
+                : `${reportCount} report${reportCount === 1 ? "" : "s"}, across ${yearScope}.`)}
         </p>
 
         <div className="doclayout">
@@ -914,49 +936,128 @@ export function Search() {
                 </button>
               </div>
             ) : searching ? (
-              <section className="yg">
-                <div className="yg-head-static">
-                  <div className="yg-ttl">
-                    <span className="yg-yr">Results</span>
-                    <span className="yg-meta">
-                      {searchTiles.length} report{searchTiles.length === 1 ? "" : "s"} matching “{q}”
-                    </span>
+              <>
+                <section className="yg">
+                  <div className="yg-head-static">
+                    <div className="yg-ttl">
+                      {/* The header names the MODE. Without it there is no way
+                          to tell which of the two searches produced the list.
+                          Rendered UNCONDITIONALLY, including while a content
+                          request is in flight — the loading block below ALSO
+                          says "Searching document contents" at that moment,
+                          so both are simultaneously present. That's fine: a
+                          sighted reader sees two consistent statements of the
+                          same fact, and this element (unlike the transient
+                          loading block) exists in EVERY content-mode render,
+                          so a test matching on it never races an in-flight
+                          state change the way matching the loading block's
+                          own (here-today-gone-on-ready) text would. */}
+                      <span className="yg-yr">
+                        Results{" "}
+                        <span className="yg-mode">
+                          (searching document {mode === "contents" ? "contents" : "titles"})
+                        </span>
+                      </span>
+                      <span className="yg-meta">
+                        {mode === "contents"
+                          ? `${content.kind === "ready" ? content.results.length : 0} passage${
+                              content.kind === "ready" && content.results.length === 1 ? "" : "s"
+                            } · ${passageDocs.length} document${
+                              passageDocs.length === 1 ? "" : "s"
+                            } matching “${q}”`
+                          : `${searchTiles.length} report${
+                              searchTiles.length === 1 ? "" : "s"
+                            } matching “${q}”`}
+                      </span>
+                    </div>
                   </div>
-                </div>
-                {content.kind === "error" && (
-                  <p className="empty">
-                    <span className="err">{content.message}</span>{" "}
-                    <button type="button" className="grp-more" onClick={() => setContentAttempt((a) => a + 1)}>
-                      Retry
+
+                  {mode === "contents" ? (
+                    content.kind === "loading" ? (
+                      <div className="docload" role="status">
+                        <span className="spin" aria-hidden="true" />
+                        <span>
+                          Searching document contents
+                          <span className="dots" aria-hidden="true" />
+                          <span className="sub">
+                            This may take a moment — reading inside every ingested PDF.
+                          </span>
+                        </span>
+                      </div>
+                    ) : content.kind === "error" ? (
+                      <p className="empty">
+                        <span className="err">{content.message}</span>{" "}
+                        <button
+                          type="button"
+                          className="grp-more"
+                          onClick={() => setContentAttempt((a) => a + 1)}
+                        >
+                          Retry
+                        </button>
+                      </p>
+                    ) : passageDocs.length === 0 ? (
+                      // Names what was searched — the text INSIDE the
+                      // documents — so an empty answer never reads as "the
+                      // corpus says nothing about this" when only titles were
+                      // checked. And no filter advice unless a filter is set.
+                      <p className="empty">
+                        No passages inside the ingested documents mention “{q}”
+                        {hasFilters ? " with those filters. Try clearing a filter." : "."}
+                      </p>
+                    ) : (
+                      passageDocs.map((d) => (
+                        <PassageCard
+                          key={d.doc_id}
+                          doc={d}
+                          query={q}
+                          trayOpen={openTrays.has(d.doc_id)}
+                          onToggleTray={() => toggleTray(d.doc_id)}
+                          onOpenPassage={setOpenPassage}
+                        />
+                      ))
+                    )
+                  ) : searchTiles.length === 0 ? (
+                    <p className="empty">
+                      {hasFilters
+                        ? `No document titles match “${q}” with those filters — try clearing one.`
+                        : `No document titles match “${q}”.`}
+                    </p>
+                  ) : (
+                    searchTiles.map(({ year, family }) => (
+                      <FamilyCard
+                        key={`${year}|${family.family}`}
+                        year={year}
+                        group={family}
+                        query={q}
+                        trayOpen={openTrays.has(`${year}|${family.family}`)}
+                        onToggleTray={() => toggleTray(`${year}|${family.family}`)}
+                        onChoose={() => setChooser({ year, family: family.family })}
+                      />
+                    ))
+                  )}
+                </section>
+
+                {/* The toggle. ALWAYS shown once the box has text — including
+                    on both empty states, so neither is ever a dead end. Hidden
+                    ONLY while a request is in flight: there is nothing to
+                    toggle to while the answer is pending, and offering it
+                    invites a click that cancels work nobody asked to start. */}
+                {!(mode === "contents" && content.kind === "loading") && (
+                  <div className="allbar">
+                    <button
+                      type="button"
+                      className={mode === "contents" ? "allbtn on" : "allbtn"}
+                      aria-pressed={mode === "contents"}
+                      onClick={() => setMode(mode === "contents" ? "titles" : "contents")}
+                    >
+                      <span className="all-off">
+                        <SearchIcon /> Search document contents
+                      </span>
+                      <span className="all-on">↩ Back to title matches</span>
                     </button>
-                  </p>
+                  </div>
                 )}
-                {searchTiles.length === 0 ? (
-                  // "Try clearing a filter" is only TRUE when a filter is set.
-                  // Saying it unconditionally blames the reader for their own
-                  // narrowing when they narrowed nothing. Two facts, two lines.
-                  // Also names what was searched — this box matches titles and
-                  // publishers, not the text inside the PDFs — so an empty
-                  // result doesn't read as "the corpus says nothing about this".
-                  <p className="empty">
-                    {hasFilters
-                      ? `No document titles match “${q}” with those filters — try clearing one.`
-                      : `No document titles match “${q}”.`}
-                  </p>
-                ) : (
-                  searchTiles.map(({ year, family }) => (
-                    <FamilyCard
-                      key={`${year}|${family.family}`}
-                      year={year}
-                      group={family}
-                      query={q}
-                      trayOpen={openTrays.has(`${year}|${family.family}`)}
-                      onToggleTray={() => toggleTray(`${year}|${family.family}`)}
-                      onChoose={() => setChooser({ year, family: family.family })}
-                    />
-                  ))
-                )}
-              </section>
+              </>
             ) : visibleGroups.length === 0 ? (
               <section className="yg">
                 {/* Three different facts, and only one of them is the reader's

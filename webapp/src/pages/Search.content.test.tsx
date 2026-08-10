@@ -24,6 +24,17 @@ const HITS: api.SearchResult[] = [
     publisher: "jlbc", agencies: [], doc_url: "https://x/axs.pdf", doc_meta: null },
 ];
 
+// A single-passage document with no page number — covers two PassageCard
+// branches the shared HITS fixture above can't reach: "More from this
+// document" is absent when there is nothing more, and page:null renders
+// "no page" rather than a bogus "p. null".
+const SINGLE_HIT: api.SearchResult[] = [
+  { chunk_id: "c3", doc_id: "afr26", doc_title: "FY 2026 Annual Financial Report",
+    snippet: "General Fund revenue collections grew year over year.",
+    page: null, score: 0.7, doc_type: "afr", fiscal_year: 2026,
+    publisher: "agao", agencies: [], doc_url: "https://x/afr26.pdf", doc_meta: null },
+];
+
 function mount(entry = "/search", hits = HITS) {
   vi.spyOn(api, "corpusDocuments").mockResolvedValue({ documents: DOCS });
   const search = vi.spyOn(api, "search").mockResolvedValue({
@@ -144,4 +155,92 @@ test("a failed content search surfaces the backend's own detail", async () => {
     </MemoryRouter>,
   );
   expect(await screen.findByText(/search: query is empty/)).toBeInTheDocument();
+});
+
+test("content results render one card per document with the passage quoted", async () => {
+  mount("/search?q=child%20care&in=contents");
+  expect(await screen.findByText(/89,432,700/)).toBeInTheDocument();
+  // Two passages, ONE document, therefore ONE card.
+  expect(document.querySelectorAll(".grp")).toHaveLength(1);
+  expect(screen.getByText("p. 142")).toBeInTheDocument();
+});
+
+test("the query term is marked inside the quote", async () => {
+  mount("/search?q=child%20care&in=contents");
+  await screen.findByText(/89,432,700/);
+  expect(document.querySelector("mark")).toHaveTextContent("child care");
+});
+
+test("the header names which search produced the list", async () => {
+  mount("/search?q=child%20care&in=contents");
+  expect(await screen.findByText(/searching document contents/i)).toBeInTheDocument();
+});
+
+test("More from this document reveals the remaining passages", async () => {
+  mount("/search?q=child%20care&in=contents");
+  await screen.findByText(/89,432,700/);
+  expect(screen.queryByText(/6,218 children/)).toBeNull();
+  fireEvent.click(screen.getByRole("button", { name: /more from this document/i }));
+  expect(screen.getByText(/6,218 children/)).toBeInTheDocument();
+});
+
+test("the toggle switches modes and is present on BOTH sides", async () => {
+  mount("/search?q=child%20care&in=contents");
+  await screen.findByText(/89,432,700/);
+  fireEvent.click(screen.getByRole("button", { name: /back to title matches/i }));
+  expect(await screen.findByText(/searching document titles/i)).toBeInTheDocument();
+  // No title matches for this query — but the way back must still be there.
+  expect(screen.getByRole("button", { name: /search document contents/i })).toBeInTheDocument();
+});
+
+test("content search finding nothing says so, and does not blame filters", async () => {
+  mount("/search?q=zzqx&in=contents", []);
+  expect(await screen.findByText(/no passages inside the ingested documents mention/i))
+    .toBeInTheDocument();
+  expect(screen.queryByText(/clearing/i)).toBeNull();
+});
+
+test("the toggle is hidden while the request is in flight", async () => {
+  vi.spyOn(api, "corpusDocuments").mockResolvedValue({ documents: DOCS });
+  vi.spyOn(api, "search").mockReturnValue(new Promise(() => {})); // never settles
+  render(
+    <MemoryRouter initialEntries={["/search?q=child%20care&in=contents"]}>
+      <Search />
+    </MemoryRouter>,
+  );
+  // The loading block's sub-line ("reading inside every ingested PDF") is the
+  // one piece of copy unique to it — the header's own "(searching document
+  // contents)" qualifier is ALSO on screen at the same moment (by design, see
+  // the WHY at that JSX), so matching the shared phrase here is ambiguous
+  // (`findByText` throws "Found multiple elements").
+  expect(await screen.findByText(/reading inside every ingested pdf/i)).toBeInTheDocument();
+  expect(screen.queryByRole("button", { name: /back to title matches/i })).toBeNull();
+});
+
+test("a document with one matching passage has no tray toggle, and a null page renders 'no page'", async () => {
+  mount("/search?q=revenue&in=contents", SINGLE_HIT);
+  // "collections grew" sits AFTER the highlighted "revenue" — querying it
+  // (rather than text overlapping the <mark> split) avoids the "text is
+  // broken up by multiple elements" trap highlight() runs create.
+  await screen.findByText(/collections grew/i);
+  expect(screen.getByText("no page")).toBeInTheDocument();
+  expect(screen.queryByRole("button", { name: /more from this document/i })).toBeNull();
+});
+
+test("a query with no literal match in the snippet still renders the quote, unmarked", async () => {
+  // "growth" never appears verbatim in "grew year over year" — highlight()
+  // must fall through to a single unhit run rather than throwing or marking
+  // a partial word.
+  mount("/search?q=growth&in=contents", SINGLE_HIT);
+  await screen.findByText(/General Fund revenue/i);
+  expect(document.querySelector("mark")).toBeNull();
+});
+
+test("More from this document tray closes again on a second click", async () => {
+  mount("/search?q=child%20care&in=contents");
+  await screen.findByText(/89,432,700/);
+  fireEvent.click(screen.getByRole("button", { name: /more from this document/i }));
+  expect(screen.getByText(/6,218 children/)).toBeInTheDocument();
+  fireEvent.click(screen.getByRole("button", { name: /more from this document/i }));
+  expect(screen.queryByText(/6,218 children/)).toBeNull();
 });

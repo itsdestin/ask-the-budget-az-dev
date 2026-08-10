@@ -2288,3 +2288,32 @@ fieldset.adm-field{border:0;padding:0;}
    to the <a> rows beside it. Same shape as the fiscal-notes page's own
    "button adaptations" block. */
 .page-docs .doc.rowbtn{width:100%;text-align:left;font-family:inherit;background:transparent;border:0;cursor:pointer;}
+
+/* ===== content-search header, toggle and loading (Task 7) =====
+   Everything below styles the pieces Task 7 adds: the header's mode label,
+   the toggle's two faces, and the escalation loading line. */
+/* The header's mode qualifier — lighter and smaller than the "Results" word
+   it follows, so the heading still reads as one thing. */
+.page-docs .yg-mode{font-size:13px;font-weight:700;color:var(--ink-3);margin-left:7px;}
+/* The toggle's two faces, lifted from `.page-fiscal-notes .all-off`/`.all-on`
+   — the same control this one mirrors. */
+.page-docs .all-off,.page-docs .all-on{display:inline-flex;align-items:center;gap:9px;}
+.page-docs .all-on{display:none;}
+.page-docs .allbtn.on{color:var(--navy);border-color:var(--navy-100);background:var(--navy-100);}
+.page-docs .allbtn.on .all-off{display:none;}
+.page-docs .allbtn.on .all-on{display:inline-flex;}
+.page-docs .allbtn svg{width:16px;height:16px;flex:0 0 auto;}
+/* The escalation line. The spinner is the only genuinely new primitive on this
+   page; the rolling ellipsis is a content animation, so reduced-motion gets a
+   static "…" rather than nothing (an ellipsis that never appears would make a
+   finished search look unfinished). */
+.page-docs .docload{display:flex;align-items:flex-start;gap:12px;padding:20px 22px;font-size:14px;font-weight:700;color:var(--ink-2);}
+.page-docs .spin{flex:0 0 auto;width:17px;height:17px;margin-top:2px;border:2.5px solid var(--az-gold-100);border-top-color:var(--az-gold);border-radius:50%;animation:docspin .7s linear infinite;}
+@keyframes docspin{to{transform:rotate(360deg);}}
+.page-docs .dots::after{content:"";animation:docdots 1.4s steps(4,end) infinite;}
+@keyframes docdots{0%{content:"";}25%{content:".";}50%{content:"..";}75%{content:"...";}}
+.page-docs .docload .sub{display:block;font-size:12.5px;font-weight:600;color:var(--ink-3);margin-top:3px;}
+@media (prefers-reduced-motion:reduce){
+  .page-docs .spin{animation:none;}
+  .page-docs .dots::after{animation:none;content:"…";}
+}
