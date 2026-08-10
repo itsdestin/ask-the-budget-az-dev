@@ -927,7 +927,14 @@ nav.primary{position:relative;padding-right:44px;}
 .page-docs .yg-chev{flex:0 0 auto;width:18px;height:18px;color:var(--ink-3);transition:transform .18s;}
 .page-docs .yg-head:hover .yg-chev{color:var(--az-gold-d);}
 .page-docs .yg-chev.open{transform:rotate(180deg);}
-.page-docs .yg-body{padding:2px 0 0;}
+/* Bottom padding added (NOT in the mockup): .grp carries only a TOP margin
+   (12px 14px 0), so the vertical rhythm is sibling top-margins — which leaves
+   the LAST card in a year card flush against the card's bottom edge (0px)
+   while every card above it gets 12px. The mockup dropped the bottom margin
+   its own source (.page-search .grp is 12px all around) had, so the bug is in
+   the approved mockup, faithfully ported. 12px here restores the last card's
+   gap to match the rest; 2px top keeps the mockup's head-to-first-card gap. */
+.page-docs .yg-body{padding:2px 0 12px;}
 
 /* ===== report-family cards — the search page's .grp recipe ===== */
 .page-docs .grp{margin:12px 14px 0;border:1px solid var(--line);border-radius:var(--r-lg);overflow:hidden;box-shadow:var(--shadow-sm);}
