@@ -56,7 +56,18 @@ export function ReportChooser({
   // the full list, so the button stays reachable and wrap-around still works.
   useEffect(() => {
     restoreTo.current = document.activeElement as HTMLElement | null;
-    sheet.current?.querySelector<HTMLElement>(".mbody a[href]")?.focus();
+    // Fall back to the first FOCUSABLE node (the Close button) when neither
+    // format is present: formats={singleFile: null, linkedToc: null} is a
+    // value the ReportFormats type explicitly allows, and .mbody renders zero
+    // <a> elements in that case. An unguarded ".mbody a[href]" query then
+    // returns null, .focus() silently never runs, and focus is left outside
+    // the dialog — which also disarms the Tab trap below, since its wrap
+    // logic only fires once document.activeElement is already the trap's
+    // first/last node.
+    (
+      sheet.current?.querySelector<HTMLElement>(".mbody a[href]") ??
+      sheet.current?.querySelector<HTMLElement>(FOCUSABLE)
+    )?.focus();
     return () => restoreTo.current?.focus?.();
   }, []);
 

@@ -35,6 +35,17 @@ test("focus moves into the dialog on open", () => {
   expect(screen.getByRole("link", { name: /linked table of contents/i })).toHaveFocus();
 });
 
+test("focus still moves into the dialog when neither format is available", () => {
+  render(
+    <ReportChooser
+      title="FY 2026 Budget Bill"
+      formats={{ singleFile: null, linkedToc: null }}
+      onClose={() => {}}
+    />,
+  );
+  expect(screen.getByRole("button", { name: /close/i })).toHaveFocus();
+});
+
 test("Tab from the last control wraps to the first — focus never escapes", () => {
   render(<ReportChooser title="FY 2027 Baseline" formats={BOTH} onClose={() => {}} />);
   const nodes = screen.getAllByRole("link");
