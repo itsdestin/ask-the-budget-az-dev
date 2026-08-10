@@ -75,7 +75,14 @@ export function PassageCard({
 }) {
   const [best, ...rest] = doc.passages;
   return (
-    <article className="grp">
+    // `grp-passage` scopes the appended app.css rules to this component only.
+    // WHY: the bare `.ctx`/`.tray`/`.doc` selectors this markup reuses are
+    // shared with the browse page's report-family cards (Search.tsx), which
+    // have the identical markup shape — unscoped rules here were winning
+    // page-wide and silently reskinning the browse trays (review finding 1,
+    // 2026-08-10). Verified unique: `grp-passage` has no other match in
+    // Search.tsx.
+    <article className="grp grp-passage">
       <button type="button" className="doc quoterow" onClick={() => onOpenPassage(best.chunk_id)}>
         <span className="doc-pub">{publisherLabel(doc.publisher)}</span>
         <div className="doc-main">

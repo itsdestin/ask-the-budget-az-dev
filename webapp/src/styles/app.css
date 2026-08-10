@@ -599,8 +599,10 @@ nav.primary{position:relative;padding-right:44px;}
  *   - .yg year card head    → .page-fiscal-notes's session-card head, plus a
  *                             toggle (full-width <button> + chevron) the mockup
  *                             adds; the button resets below are UA-only
- *   - .grp/.doc/.doc-main/.doc-title/.doc-pill/.ctx/.tray/.grp-more/.grp-full
+ *   - .grp/.doc/.doc-main/.doc-title/.doc-pill/.ctx/.tray/.grp-more
  *                           → the search page's report-family recipe
+ *                             (.grp-full's CSS was deleted 2026-08-10 along
+ *                             with the JSX that used it — see below)
  *   - .doc-pub (publisher chip)  the ONE new element; the mockup builds it from
  *                             existing tokens (--copper, --r-pill), one color
  *                             for every publisher (Destin 2026-08-03)
@@ -725,9 +727,6 @@ nav.primary{position:relative;padding-right:44px;}
 .page-docs .grp-more svg{width:13px;height:13px;transition:transform .18s;}
 .page-docs .grp-more:hover{border-color:var(--az-gold);color:var(--az-gold-d);}
 .page-docs .grp-more.open svg{transform:rotate(180deg);}
-.page-docs .grp-full{display:inline-flex;align-items:center;gap:6px;font-size:12px;font-weight:800;border-radius:var(--r-pill);padding:6px 13px;cursor:pointer;white-space:nowrap;background:var(--az-gold);border:1px solid var(--az-gold);color:#fff;text-decoration:none;}
-.page-docs .grp-full svg{width:13px;height:13px;transition:transform .18s;}
-.page-docs .grp-full:hover{background:var(--az-gold-d);color:#fff;text-decoration:none;}
 /* The empty-state line inside a .yg card — the search page's .empty recipe. */
 .page-docs .empty{padding:20px 22px;font-size:14px;font-weight:600;color:var(--ink-2);}
 /* The error Retry pill reuses the fiscal notes page's standalone action. */
@@ -807,11 +806,21 @@ nav.primary{position:relative;padding-right:44px;}
    NOTE the `.open` in the selector. The base rule is
    `.page-docs .ctx .tray.open{display:block}` — one class MORE specific than
    `.page-docs .ctx .tray` — so a plain `display:flex` here LOSES, the tray
-   stays block-laid-out, and `gap` is silently ignored. */
-.page-docs .ctx-row{padding-bottom:10px;}
-.page-docs .ctx .tray.open{padding:0 14px 12px;display:flex;flex-direction:column;gap:5px;}
-.page-docs .ctx .tray .doc{background:#fff;border:1px solid var(--line);border-radius:var(--r-sm);padding:10px 14px;box-shadow:var(--shadow-sm);}
-.page-docs .ctx .tray .doc:hover{border-color:var(--az-gold);background:#fff;}
+   stays block-laid-out, and `gap` is silently ignored.
+   Every selector below is scoped under `.grp-passage` (review finding 1,
+   2026-08-10): without it these rules match the browse page's report-family
+   cards too, which reuse the same bare `.ctx`/`.tray`/`.doc` class names, and
+   being later in the file at equal-or-higher specificity they were winning
+   there — flipping the browse trays' layout, padding, and hover style
+   page-wide. `border-top:0` below is new for the same reason: the base rule
+   at `.page-docs .ctx .tray` sets a dashed `border-top` that CSS cascade
+   does not let this more-specific `.tray.open` rule clear by staying silent
+   (review finding 2) — the comment above already claimed "NO border-top" but
+   the code never said so until now. */
+.page-docs .grp-passage .ctx-row{padding-bottom:10px;}
+.page-docs .grp-passage .ctx .tray.open{padding:0 14px 12px;display:flex;flex-direction:column;gap:5px;border-top:0;}
+.page-docs .grp-passage .ctx .tray .doc{background:#fff;border:1px solid var(--line);border-radius:var(--r-sm);padding:10px 14px;box-shadow:var(--shadow-sm);}
+.page-docs .grp-passage .ctx .tray .doc:hover{border-color:var(--az-gold);background:#fff;}
 
 /* ===== Settings stub (replaced by the real Settings surface in Plan 5) =====
    No mockup counterpart exists yet, so this borrows the mockup's `.card` panel above
@@ -2268,10 +2277,11 @@ fieldset.adm-field{border:0;padding:0;}
 .rep-done .rep-fix{margin-top:6px;}
 
 /* ===== report row's own action — Task 3, wiring the chooser into .doc =====
-   Replaces the old .grp-full pill (deleted with this task): the top-level
-   row IS the report, so its own "Full report" pill takes the gold fill the
-   dashed-block button used to carry — a canvas-grey pill here would read as
-   secondary to "Browse sections" below it. */
+   Replaces the old .grp-full pill (its JSX was deleted with this task, and
+   its now-dead CSS rules were removed 2026-08-10): the top-level row IS the
+   report, so its own "Full report" pill takes the gold fill the dashed-block
+   button used to carry — a canvas-grey pill here would read as secondary to
+   "Browse sections" below it. */
 .page-docs .doc-pill.is-full{background:var(--az-gold);border-color:var(--az-gold);color:#fff;}
 .page-docs .doc:hover .doc-pill.is-full{background:var(--az-gold-d);border-color:var(--az-gold-d);color:#fff;}
 /* UA resets ONLY — a <button> row (the both-formats case) must look identical
