@@ -1,0 +1,484 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Search states + the titles/contents toggle (mockup, not shipped code)</title>
+<!--
+
+  MOCKUP ONLY — NOT ported code. Every state the search box can be in, and how
+  the user moves between title search and content search.
+
+  SETTLED (Destin, 2026-08-10):
+    1. The rail's Document Type / Fiscal Year filters CONSTRAIN retrieval too —
+       they are passed to the search backend, not applied to its answer. (If
+       they were applied afterward, retrieval would find its best 20 passages
+       corpus-wide and the filters would throw 18 away, leaving two weak
+       results instead of the best two IN SCOPE.)
+    2. The toggle is ALWAYS shown once the box has text — not only when
+       retrieval hasn't run. Toggling back to titles on a query with no title
+       matches shows the empty state WITH the toggle still there, so it is
+       never a dead end.
+    3. The Results header names which search you are reading:
+       "Results (searching document titles)" / "(searching document contents)".
+    4. Retrieval finding nothing gets its own honest no-results state — never
+       the filter-blaming line the page shows today when no filters are set.
+
+  Retrieval still AUTO-fires ~2s after typing stops when the title filter
+  returns zero; the toggle is the manual path for everything else.
+
+  `.page-docs` CSS is `webapp/src/styles/app.css` (833-996) VERBATIM, plus the
+  settled retrieval-card additions. `.allbar`/`.allbtn` already exist in that
+  block (they style the error Retry pill today) and the `.all-off`/`.all-on`
+  label-swap is lifted from `.page-fiscal-notes`' "Search all legislative
+  sessions" pill, which is the same control this one mirrors.
+
+  Data is illustrative. No number here came from a real document.
+-->
+<style>
+/* ===== Design tokens — verbatim from webapp/src/styles/tokens.css ========== */
+:root {
+  --navy:#2b2f63; --navy-700:#232752; --navy-900:#181b3d; --navy-100:#e7e8f2;
+  --az-red:#2f55c4; --az-red-100:#e1e6fa;
+  --az-gold:#1b6fc4; --az-gold-d:#145aa6; --az-gold-100:#dceaf7;
+  --copper:#3d6a99; --copper-100:#e3ebf3;
+  --ink:#21243f; --ink-2:#4a4e6a; --ink-3:#757895;
+  --line:#e6e6ef; --canvas:#f5f5fa; --card:#fff;
+  --r-lg:22px; --r-md:16px; --r-sm:12px; --r-pill:999px; --gap:22px;
+  --shadow:0 1px 2px rgba(27,27,61,.05),0 10px 26px rgba(27,27,61,.08);
+  --shadow-sm:0 1px 2px rgba(27,27,61,.06),0 3px 10px rgba(27,27,61,.05);
+  --maxw:1140px; --font:"Nunito","Segoe UI",system-ui,-apple-system,sans-serif;
+  --row-bot:10px; --tray-side:14px; --tray-bot:12px;
+  --tile-gap:5px; --tile-pv:10px; --tile-ph:14px;
+}
+*{box-sizing:border-box;}
+body{margin:0;font-family:var(--font);background:var(--canvas);color:var(--ink);-webkit-font-smoothing:antialiased;}
+a{color:inherit;text-decoration:none;}
+button{font-family:inherit;}
+h1,h2,h3{margin:0;}
+.wrap{max-width:var(--maxw);margin:0 auto;}
+
+/* ===== MOCKUP-ONLY chrome ================================================= */
+.mockbar{position:sticky;top:0;z-index:80;background:var(--navy-900);color:#fff;padding:11px 22px;display:flex;align-items:center;gap:9px;flex-wrap:wrap;}
+.mockbar b{font-size:11.5px;font-weight:800;letter-spacing:.08em;text-transform:uppercase;color:#9fc4ee;margin:0 4px 0 0;}
+.mockbar button{font-size:12.5px;font-weight:800;color:#cdd6f5;background:rgba(255,255,255,.08);border:1px solid rgba(255,255,255,.18);border-radius:var(--r-pill);padding:7px 15px;cursor:pointer;transition:.13s;}
+.mockbar button:hover{background:rgba(255,255,255,.16);color:#fff;}
+.mockbar button.on{background:#fff;color:var(--navy-900);border-color:#fff;}
+.mockbar .sep{width:1px;height:22px;background:rgba(255,255,255,.2);margin:0 5px;}
+.vnote{max-width:var(--maxw);margin:0 auto;padding:16px 22px 0;}
+.vn{background:#fff;border:1px solid var(--line);border-left:4px solid var(--az-gold);border-radius:var(--r-md);padding:14px 18px;box-shadow:var(--shadow-sm);}
+.vn h3{font-size:14.5px;font-weight:800;color:var(--navy);margin-bottom:5px;}
+.vn p{margin:0;font-size:13px;font-weight:600;color:var(--ink-2);line-height:1.55;}
+.vn p+p{margin-top:7px;}
+.vn code{background:var(--canvas);border:1px solid var(--line);border-radius:5px;padding:1px 5px;font-size:12px;}
+
+header.site{background:rgba(255,255,255,.96);border-bottom:1px solid var(--line);}
+header.site .bar{max-width:var(--maxw);margin:0 auto;padding:12px 22px;display:flex;align-items:center;gap:18px;}
+.brand .bt b{display:block;font-size:14.5px;font-weight:800;color:var(--navy);letter-spacing:-.2px;}
+.brand .bt span{font-size:11.5px;font-weight:700;color:var(--ink-3);}
+nav.pills{display:flex;gap:4px;margin-left:auto;background:var(--canvas);border:1px solid var(--line);border-radius:var(--r-pill);padding:4px;}
+nav.pills a{font-size:13px;font-weight:800;color:var(--ink-2);padding:8px 16px;border-radius:var(--r-pill);}
+nav.pills a.active{background:var(--navy);color:#fff;}
+
+/* ========================================================================== */
+/* ===== app.css `.page-docs` block, VERBATIM ============================== */
+/* ========================================================================== */
+.page-docs .subhero{position:relative;overflow:hidden;color:#fff;
+  background:linear-gradient(105deg,rgba(18,21,48,.94) 0%,rgba(20,23,52,.86) 60%,rgba(20,23,52,.78) 100%);}
+.page-docs .subhero .wrap{position:relative;z-index:2;padding:32px 22px 34px;}
+.page-docs .subhero h1{font-size:clamp(24px,3.2vw,34px);font-weight:800;letter-spacing:-.4px;}
+.page-docs .subhero .lead{margin:10px 0 0;font-size:clamp(14px,1.5vw,16.5px);color:#d9dcf2;font-weight:600;max-width:66ch;line-height:1.5;}
+.page-docs .subhero .chips{display:flex;flex-wrap:wrap;gap:8px;margin-top:16px;}
+.page-docs .subhero .chip{display:inline-flex;align-items:center;gap:7px;background:rgba(255,255,255,.1);border:1px solid rgba(255,255,255,.2);border-radius:var(--r-pill);padding:6px 13px;font-size:12.5px;font-weight:700;color:#eef0fb;}
+.page-docs .wrap.docwrap{display:block;padding:28px 22px 22px;}
+.page-docs .doclayout{display:grid;grid-template-columns:248px 1fr;gap:var(--gap);align-items:start;}
+.page-docs .docside{background:#fff;border:1px solid var(--line);border-radius:var(--r-lg);box-shadow:var(--shadow-sm);padding:8px;position:sticky;top:16px;}
+.page-docs .docside .fgrp{padding:8px 8px 14px;}
+.page-docs .docside .fgrp+.fgrp{border-top:1px solid var(--line);}
+.page-docs .docside .flbl{font-size:11px;font-weight:800;text-transform:uppercase;letter-spacing:.08em;color:var(--ink-3);padding:6px 8px 8px;display:block;}
+.page-docs .docmain{display:flex;flex-direction:column;gap:var(--gap);min-width:0;}
+.page-docs .yg{background:#fff;border:1px solid var(--line);border-radius:var(--r-lg);box-shadow:var(--shadow-sm);overflow:hidden;}
+.page-docs .fside-search{display:flex;align-items:center;gap:8px;background:var(--canvas);border:1px solid var(--line);border-radius:var(--r-pill);padding:8px 12px;margin:2px 4px 6px;}
+.page-docs .fside-search svg{width:16px;height:16px;color:var(--ink-3);}
+.page-docs .fside-search input{border:0;background:transparent;outline:0;font-family:inherit;font-size:13.5px;flex:1;min-width:0;color:var(--ink);}
+.page-docs .clr-x{flex:0 0 auto;display:inline-flex;align-items:center;justify-content:center;width:24px;height:24px;border-radius:50%;border:1px solid var(--line);background:#fff;color:var(--ink-2);cursor:pointer;padding:0;}
+.page-docs .clr-x svg{width:13px;height:13px;}
+.page-docs .fctl{position:relative;margin:0 4px;}
+.page-docs .fbtn{display:flex;align-items:center;gap:7px;width:100%;cursor:pointer;font-family:inherit;font-size:12.5px;font-weight:800;color:var(--ink-2);background:var(--canvas);border:1.5px solid var(--line);border-radius:var(--r-pill);padding:8px 13px;white-space:nowrap;transition:.14s;}
+.page-docs .fbtn.has{background:var(--az-gold-100);border-color:var(--az-gold);color:var(--az-gold-d);}
+.page-docs .fbtn .fb-label{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;text-align:left;}
+.page-docs .fbtn .chev{flex:0 0 auto;width:10px;height:6px;opacity:.7;}
+.page-docs .yg-head-static{display:flex;align-items:center;gap:12px;padding:15px 18px;border-bottom:1px solid var(--line);}
+.page-docs .yg-ttl{display:flex;flex-direction:column;gap:2px;min-width:0;flex:1;}
+.page-docs .yg-yr{font-size:18px;font-weight:800;color:var(--navy);}
+.page-docs .yg-meta{font-size:12.5px;font-weight:700;color:var(--ink-3);}
+.page-docs .yg-body{padding:2px 0 12px;}
+.page-docs .grp{margin:12px 14px 0;border:1px solid var(--line);border-radius:var(--r-lg);overflow:hidden;box-shadow:var(--shadow-sm);}
+.page-docs .doc{display:flex;align-items:center;gap:15px;padding:14px 22px;border-bottom:1px solid var(--line);transition:background .15s;color:inherit;}
+.page-docs .doc:last-child{border-bottom:0;}
+.page-docs .doc:hover{background:#fafafe;text-decoration:none;}
+.page-docs .grp>.doc{border-bottom:0;}
+.page-docs .doc-main{flex:1;min-width:0;}
+.page-docs .doc-title{display:block;font-size:15.5px;font-weight:700;color:var(--navy);}
+.page-docs .doc:hover .doc-title{color:var(--az-gold-d);}
+.page-docs .doc-pill{flex:0 0 auto;display:inline-flex;align-items:center;gap:7px;font-size:12px;font-weight:800;color:var(--ink-2);background:var(--canvas);border:1px solid var(--line);border-radius:var(--r-pill);padding:6px 13px;white-space:nowrap;}
+.page-docs .doc:hover .doc-pill{border-color:var(--az-gold);color:var(--az-gold-d);}
+.page-docs .doc-pill svg{width:13px;height:13px;}
+.page-docs .doc-pub{flex:0 0 auto;font-size:10.5px;font-weight:800;color:#fff;background:var(--copper);border-radius:var(--r-pill);padding:3px 10px;letter-spacing:.05em;text-transform:uppercase;}
+.page-docs .ctx{margin:0 14px 14px;border:1px dashed #cdd3e6;border-radius:var(--r-md);background:#fafbff;}
+.page-docs .ctx-row{display:flex;align-items:center;gap:10px;padding:11px 14px;flex-wrap:wrap;}
+.page-docs .ctx-row .badge{display:inline-flex;align-items:center;gap:7px;font-size:12.5px;font-weight:800;color:var(--navy);}
+.page-docs .ctx-row .spacer{flex:1;}
+.page-docs .ctx .tray{display:none;}
+.page-docs .ctx .tray.open{display:block;}
+.page-docs .grp-more{display:inline-flex;align-items:center;gap:6px;font-size:12px;font-weight:800;color:var(--ink-2);background:var(--card);border:1px solid var(--line);border-radius:var(--r-pill);padding:6px 13px;cursor:pointer;white-space:nowrap;font-family:inherit;}
+.page-docs .grp-more svg{width:13px;height:13px;transition:transform .18s;}
+.page-docs .grp-more:hover{border-color:var(--az-gold);color:var(--az-gold-d);}
+.page-docs .grp-more.open svg{transform:rotate(180deg);}
+.page-docs .empty{padding:20px 22px;font-size:14px;font-weight:600;color:var(--ink-2);}
+.page-docs .allbar{display:flex;justify-content:center;padding:2px 0;}
+.page-docs .allbtn{display:inline-flex;align-items:center;gap:9px;cursor:pointer;font-size:13.5px;font-weight:800;color:var(--az-gold-d);background:#fff;border:1px solid var(--az-gold-100);border-radius:var(--r-pill);padding:11px 20px;box-shadow:var(--shadow-sm);transition:.14s;font-family:inherit;}
+.page-docs .allbtn:hover{border-color:var(--az-gold);background:var(--az-gold-100);}
+.page-docs .allbtn svg{width:16px;height:16px;flex:0 0 auto;}
+.page-docs .fnnote{font-size:12.5px;font-weight:700;color:var(--ink-3);margin:0;}
+.page-docs .docstatus{padding:0 2px;margin:0 0 12px calc(248px + var(--gap));}
+
+/* ===== SETTLED retrieval-card additions ================================== */
+.page-docs .quoterow{align-items:flex-start;cursor:pointer;}
+.page-docs .quoterow .doc-pub{margin-top:3px;}
+.page-docs .quoterow .doc-pill{margin-top:1px;}
+.page-docs .doc-quote{display:block;font-size:14px;font-weight:600;color:var(--ink);line-height:1.55;}
+.page-docs .doc-quote mark{background:var(--az-gold-100);color:var(--az-gold-d);border-radius:3px;padding:0 3px;font-weight:800;}
+.page-docs .ctx .tray.open{padding:0 var(--tray-side) var(--tray-bot);display:flex;flex-direction:column;gap:var(--tile-gap);}
+.page-docs .ctx .tray .doc{background:#fff;border:1px solid var(--line);border-radius:var(--r-sm);padding:var(--tile-pv) var(--tile-ph);box-shadow:var(--shadow-sm);}
+.page-docs .ctx .tray .doc:hover{border-color:var(--az-gold);background:#fff;}
+.page-docs .tray .doc-quote{font-size:13.5px;}
+.page-docs .ctx-row{padding-bottom:var(--row-bot);}
+/* A1 · the arrow pill (settled) */
+.page-docs .quoterow .doc-pill .go{display:inline-block;transition:transform .14s;}
+.page-docs .quoterow:hover .doc-pill{border-color:var(--az-gold);color:var(--az-gold-d);background:var(--az-gold-100);}
+.page-docs .quoterow:hover .doc-pill .go{transform:translateX(2px);}
+
+/* ========================================================================== */
+/* ===== NEW CSS — the mode label and the toggle's two faces =============== */
+/* ========================================================================== */
+/* The header's mode qualifier. Lighter and smaller than the "Results" word it
+   follows, so the heading still reads as one thing. ~3 lines. */
+.page-docs .yg-mode{font-size:13px;font-weight:700;color:var(--ink-3);margin-left:7px;}
+/* The label swap, lifted from `.page-fiscal-notes .all-off`/`.all-on`. */
+.page-docs .all-off,.page-docs .all-on{display:inline-flex;align-items:center;gap:9px;}
+.page-docs .all-on{display:none;}
+.page-docs .allbtn.on{color:var(--navy);border-color:var(--navy-100);background:var(--navy-100);}
+.page-docs .allbtn.on .all-off{display:none;}
+.page-docs .allbtn.on .all-on{display:inline-flex;}
+/* The escalation loading line — replaces the empty-state text while retrieval
+   runs. ~8 lines, and the spinner is the only new primitive on the page. */
+.page-docs .docload{display:flex;align-items:flex-start;gap:12px;padding:20px 22px;font-size:14px;font-weight:700;color:var(--ink-2);}
+.page-docs .spin{flex:0 0 auto;width:17px;height:17px;margin-top:2px;border:2.5px solid var(--az-gold-100);border-top-color:var(--az-gold);border-radius:50%;animation:docspin .7s linear infinite;}
+@keyframes docspin{to{transform:rotate(360deg);}}
+.page-docs .dots::after{content:"";animation:docdots 1.4s steps(4,end) infinite;}
+@keyframes docdots{0%{content:"";}25%{content:".";}50%{content:"..";}75%{content:"...";}}
+.page-docs .docload .sub{display:block;font-size:12.5px;font-weight:600;color:var(--ink-3);margin-top:3px;}
+@media (prefers-reduced-motion:reduce){.page-docs .spin{animation:none;}}
+
+@media (max-width:860px){
+  .page-docs .doclayout{grid-template-columns:1fr;}
+  .page-docs .docside{position:static;}
+  .page-docs .docstatus{margin-left:0;}
+}
+</style>
+</head>
+<body>
+
+<div class="mockbar">
+  <b>State</b>
+  <button data-s="titles" class="on">Title matches</button>
+  <button data-s="searching">Escalating…</button>
+  <button data-s="contents">Content matches</button>
+  <button data-s="no-titles">No title matches</button>
+  <button data-s="no-contents">No content matches</button>
+  <span class="sep"></span>
+  <button id="filterBtn">Filters: off</button>
+</div>
+
+<header class="site">
+  <div class="bar">
+    <a class="brand" href="#"><span class="bt"><b>Ask the Budget</b><span>Arizona budget documents</span></span></a>
+    <nav class="pills" aria-label="Primary">
+      <a href="#" class="active" aria-current="page">Budget Documents</a>
+      <a href="#">AI Mode</a>
+      <a href="#">Fiscal Notes</a>
+    </nav>
+  </div>
+</header>
+
+<div class="vnote"><div class="vn" id="vnote"></div></div>
+
+<main class="page-docs">
+  <section class="subhero">
+    <div class="wrap">
+      <h1>Budget Documents</h1>
+      <p class="lead">Every Arizona budget document ingested so far — baselines, appropriations
+        reports, annual financial reports, executive budgets, and budget bills.</p>
+      <div class="chips">
+        <span class="chip">JLBC · OSPB · GAO</span>
+        <span class="chip">Every document opens its source PDF</span>
+      </div>
+    </div>
+  </section>
+
+  <div class="wrap docwrap">
+    <p class="fnnote docstatus" id="status" role="status"></p>
+    <div class="doclayout">
+      <aside class="docside">
+        <div class="fgrp">
+          <label class="fside-search">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg>
+            <input type="text" id="qbox" value="" readonly>
+            <button class="clr-x" aria-label="Clear search">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"><path d="M6 6l12 12M18 6 6 18"/></svg>
+            </button>
+          </label>
+        </div>
+        <div class="fgrp">
+          <div class="flbl">Document Type</div>
+          <div class="fctl"><button class="fbtn" id="ftype"><span class="fb-label">Any type</span>
+            <svg class="chev" viewBox="0 0 10 6" fill="none" stroke="currentColor" stroke-width="1.8"><path d="m1 1 4 4 4-4"/></svg></button></div>
+        </div>
+        <div class="fgrp">
+          <div class="flbl">Fiscal Year</div>
+          <div class="fctl"><button class="fbtn" id="fyear"><span class="fb-label">Any year</span>
+            <svg class="chev" viewBox="0 0 10 6" fill="none" stroke="currentColor" stroke-width="1.8"><path d="m1 1 4 4 4-4"/></svg></button></div>
+        </div>
+      </aside>
+      <div class="docmain" id="main"></div>
+    </div>
+  </div>
+</main>
+
+<script>
+/* ==========================================================================
+   Throwaway demo wiring. Illustrative data — no number here is real.
+   ========================================================================== */
+
+const CHEV = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="m6 9 6 6 6-6"/></svg>';
+const FIND = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg>';
+const OPEN = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M5 12h14M13 6l6 6-6 6"/></svg>';
+
+const plural = (n,s) => n + " " + s + (n === 1 ? "" : "s");
+
+/* Title matches for "baseline" — plain document rows. */
+const TITLE_HITS = [
+  { pub:"JLBC", title:"FY 2027 Baseline — AHCCCS" },
+  { pub:"JLBC", title:"FY 2027 Baseline — Health Services, Department of" },
+  { pub:"JLBC", title:"FY 2026 Baseline — Economic Security, Department of" }
+];
+
+/* Content matches for "child care subsidy" — the settled retrieval cards. */
+const DOCS = [
+  { id:"d1", pub:"JLBC", title:"FY 2027 Baseline — AHCCCS", passages:[
+      {page:142, text:"The FY 2027 Baseline includes $89,432,700 from the Child Care and Development Fund for <mark>child care subsidy</mark> assistance, an increase of $4,100,000 above the FY 2026 appropriation."},
+      {page:143, text:"As of October 2026, the <mark>child care</mark> assistance waiting list contained 6,218 children, compared to 3,940 children at the same point in FY 2026."},
+      {page:145, text:"<mark>Subsidy</mark> reimbursement rates were last updated in FY 2024 based on the 2023 market rate survey. A full rate update is estimated to cost $22,600,000 annually."}]},
+  { id:"d2", pub:"JLBC", title:"FY 2026 Appropriations Report — Economic Security, Department of", passages:[
+      {page:88, text:"The Legislature appropriated $85,332,700 for <mark>child care subsidy</mark> in FY 2026, of which $12,000,000 is one-time federal relief funding that does not continue into FY 2027."},
+      {page:91, text:"Footnote 3 requires the department to report quarterly on <mark>child care</mark> waiting list totals to the Joint Legislative Budget Committee."}]},
+  { id:"d3", pub:"OSPB", title:"FY 2027 Executive Budget — Human Services", passages:[
+      {page:54, text:"The Executive recommends $15,000,000 from the General Fund to eliminate the <mark>child care subsidy</mark> waiting list by the end of FY 2027."}]}
+];
+
+/* --- rows and cards ------------------------------------------------------ */
+
+function titleRow(d) {
+  return `<article class="grp"><a class="doc" href="#" onclick="return false">
+    <span class="doc-pub">${d.pub}</span>
+    <div class="doc-main"><span class="doc-title">${d.title}</span></div>
+    <span class="doc-pill">${OPEN} Open</span>
+  </a></article>`;
+}
+
+function pill(p) {
+  return `<span class="doc-pill">p. ${p.page}<span class="go">→</span></span>`;
+}
+function contentCard(doc) {
+  const open = state.open.has(doc.id);
+  const rest = doc.passages.slice(1);
+  return `<article class="grp">
+    <a class="doc quoterow" href="#" onclick="return false">
+      <span class="doc-pub">${doc.pub}</span>
+      <div class="doc-main"><span class="doc-quote">${doc.passages[0].text}</span></div>
+      ${pill(doc.passages[0])}
+    </a>
+    <div class="ctx">
+      <div class="ctx-row">
+        <span class="doc-pub">${doc.pub}</span>
+        <span class="badge">${doc.title}</span>
+        <span class="spacer"></span>
+        ${rest.length ? `<button class="grp-more${open ? " open" : ""}" data-key="${doc.id}">More from this document ${CHEV}</button>` : ""}
+      </div>
+      ${open && rest.length ? `<div class="tray open">${rest.map(p =>
+        `<a class="doc quoterow" href="#" onclick="return false">
+           <div class="doc-main"><span class="doc-quote">${p.text}</span></div>${pill(p)}
+         </a>`).join("")}</div>` : ""}
+    </div>
+  </article>`;
+}
+
+/* The toggle. ALWAYS rendered once the box has text (settled) — including on
+   both empty states, so neither is ever a dead end. `.on` is the contents
+   side, and swaps the label exactly the way Fiscal Notes' pill does. */
+function toggle(inContents) {
+  return `<div class="allbar">
+    <button type="button" class="allbtn${inContents ? " on" : ""}" aria-pressed="${inContents}" id="toggleBtn">
+      <span class="all-off">${FIND} Search document contents</span>
+      <span class="all-on">↩ Back to title matches</span>
+    </button>
+  </div>`;
+}
+
+function panel(mode, metaText, bodyHtml) {
+  return `<section class="yg">
+    <div class="yg-head-static">
+      <div class="yg-ttl">
+        <span class="yg-yr">Results <span class="yg-mode">(searching document ${mode})</span></span>
+        <span class="yg-meta">${metaText}</span>
+      </div>
+    </div>
+    <div class="yg-body">${bodyHtml}</div>
+  </section>`;
+}
+
+/* --- the five states ----------------------------------------------------- */
+
+/* Filter-aware empty copy. "Try clearing a filter" is only honest when a
+   filter is actually set — saying it with no filters blames the user for the
+   corpus, which is the bug on the page today. */
+const scope = () => state.filters ? " with those filters" : "";
+const advice = () => state.filters
+  ? " Try clearing a filter, or search document contents instead."
+  : " Search document contents instead — it reads inside the PDFs.";
+
+const STATES = {
+  titles: () => ({
+    q:"baseline",
+    status:`${plural(TITLE_HITS.length,"document")} whose title matches “baseline”${scope()}.`,
+    note:["Title matches — the instant, local filter",
+      "The box filters document titles and publishers as you type, with no server call. The header names the mode so there is never a question about which search produced the list, and the toggle sits below the results whether or not it has been used."],
+    html: panel("titles", `${plural(TITLE_HITS.length,"document")} matching “baseline”`,
+      TITLE_HITS.map(titleRow).join("")) + toggle(false)
+  }),
+
+  searching: () => ({
+    q:"child care subsidy",
+    status:`Searching document contents for “child care subsidy”…`,
+    note:["Escalating — nothing matched a title, so retrieval fired on its own",
+      "About two seconds after typing stops with zero title matches, retrieval starts automatically and this line replaces the empty state. The ellipsis rolls and resets; the sub-line says why it is slow rather than leaving the wait unexplained.",
+      "The toggle is hidden here on purpose — there is nothing to toggle to while the answer is in flight, and offering it would invite a click that cancels work the user did not ask to start."],
+    html: panel("contents", `0 documents with “child care subsidy” in their title`,
+      `<div class="docload">
+         <span class="spin"></span>
+         <span>Searching document contents<span class="dots"></span>
+           <span class="sub">This may take a moment — reading inside every ingested PDF.</span>
+         </span>
+       </div>`)
+  }),
+
+  contents: () => {
+    const total = DOCS.reduce((n,d) => n + d.passages.length, 0);
+    return {
+      q:"child care subsidy",
+      status:`${plural(total,"passage")} in ${plural(DOCS.length,"document")}${scope()}, matching “child care subsidy”.`,
+      note:["Content matches — the settled retrieval card",
+        "One card per document, best passage quoted as the headline, page pill with the arrow (A1), and “More from this document” opening the white tiles. The toggle now reads “↩ Back to title matches” and carries the navy <code>.on</code> styling Fiscal Notes uses for the same swapped state.",
+        "The rail's filters constrained this search: they were sent to the backend, so these are the best passages <em>within</em> the selected types and years, not the best passages overall with the rest discarded."],
+      html: panel("contents", `${plural(total,"passage")} · ${plural(DOCS.length,"document")} matching “child care subsidy”`,
+        DOCS.map(contentCard).join("")) + toggle(true)
+    };
+  },
+
+  "no-titles": () => ({
+    q:"child care subsidy",
+    status:`No document titles match “child care subsidy”${scope()}.`,
+    note:["No title matches — reached by toggling BACK from content results",
+      "This is the state Destin called out: switch to title matches on a query that has none, and the page must still show the way out. The empty line says what is true — no <em>titles</em> matched — and the toggle stays put, so it is never a dead end.",
+      "Note the copy changes with the filters. With filters off it does not say “try clearing a filter”, because there is no filter to clear and blaming one would be a lie."],
+    html: panel("titles", `0 documents matching “child care subsidy”`,
+      `<p class="empty">No document titles match “child care subsidy”${scope()}.${advice()}</p>`) + toggle(false)
+  }),
+
+  "no-contents": () => ({
+    q:"zzqx budget",
+    status:`No passages match “zzqx budget”${scope()}.`,
+    note:["No content matches — retrieval ran and genuinely found nothing",
+      "Retrieval's own empty state, separate from the title one. It names what was searched (the text inside the documents) so the result does not read as a failure of the tool, and it keeps the toggle so the user can step back to titles.",
+      "Today the page falls through to “No documents match those filters — try clearing one” here, with no filters set. That line is the misleading-error bug this state replaces."],
+    html: panel("contents", `0 passages matching “zzqx budget”`,
+      `<p class="empty">No passages inside the ingested documents mention “zzqx budget”${scope()}.${
+        state.filters ? " Try clearing a filter." : ""}</p>`) + toggle(true)
+  })
+};
+
+/* --- state + render ------------------------------------------------------ */
+
+const state = { s:"titles", filters:false, open:new Set(["d1"]) };
+
+function render() {
+  const v = STATES[state.s]();
+  document.getElementById("qbox").value = v.q;
+  document.getElementById("status").textContent = v.status;
+  document.getElementById("main").innerHTML = v.html;
+  document.getElementById("vnote").innerHTML =
+    `<h3>${v.note[0]}</h3>${v.note.slice(1).map(t => `<p>${t}</p>`).join("")}`;
+
+  // Rail chips tint gold when filters are on, same as the real page.
+  const t = document.getElementById("ftype"), y = document.getElementById("fyear");
+  t.className = state.filters ? "fbtn has" : "fbtn";
+  y.className = state.filters ? "fbtn has" : "fbtn";
+  t.querySelector(".fb-label").textContent = state.filters ? "Baseline" : "Any type";
+  y.querySelector(".fb-label").textContent = state.filters ? "FY 2027" : "Any year";
+}
+
+document.querySelectorAll("[data-s]").forEach(btn => {
+  btn.addEventListener("click", () => {
+    document.querySelectorAll("[data-s]").forEach(b => b.classList.remove("on"));
+    btn.classList.add("on");
+    state.s = btn.dataset.s;
+    render();
+  });
+});
+
+document.getElementById("filterBtn").addEventListener("click", (e) => {
+  state.filters = !state.filters;
+  e.currentTarget.textContent = "Filters: " + (state.filters ? "on" : "off");
+  e.currentTarget.classList.toggle("on", state.filters);
+  render();
+});
+
+document.addEventListener("click", (e) => {
+  if (e.target.closest("#toggleBtn")) {
+    e.preventDefault();
+    // Toggling moves between the title and content sides of whatever the
+    // current query produced.
+    const map = { titles:"contents", contents:"titles",
+                  "no-titles":"contents", "no-contents":"no-titles" };
+    const next = map[state.s];
+    if (!next) return;
+    state.s = next;
+    document.querySelectorAll("[data-s]").forEach(b =>
+      b.classList.toggle("on", b.dataset.s === next));
+    render();
+    return;
+  }
+  const more = e.target.closest("[data-key]");
+  if (more) {
+    e.preventDefault();
+    const k = more.dataset.key;
+    state.open.has(k) ? state.open.delete(k) : state.open.add(k);
+    render();
+  }
+});
+
+render();
+</script>
+</body>
+</html>
