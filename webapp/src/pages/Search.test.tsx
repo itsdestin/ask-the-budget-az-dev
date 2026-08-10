@@ -69,14 +69,14 @@ test("a collapsed year expands on click and the toggle persists", async () => {
 
 // --- idle card state: bare report rows + the dashed tray --------------------
 
-test("idle family cards are bare report rows with a collapsible documents tray", async () => {
+test("idle family cards are bare report rows with a collapsible sections tray", async () => {
   mount();
   await screen.findByRole("button", { name: /Fiscal Year 2027:/i });
   // The FY 2027 Baseline report row is the top level; its 3 documents sit
   // behind the dashed tray, not listed.
   expect(screen.getByText("FY 2027 Baseline")).toBeInTheDocument();
   expect(screen.queryByText(AHCCCS27)).not.toBeInTheDocument();
-  fireEvent.click(screen.getByRole("button", { name: /browse documents/i }));
+  fireEvent.click(screen.getByRole("button", { name: /browse sections/i }));
   // All three FY 2027 baseline agency pages are now listed, title A→Z.
   const titles = screen.getAllByText(/FY 2027 Baseline — /).map((n) => n.textContent);
   expect(titles).toEqual([
@@ -91,7 +91,7 @@ test("single-document families get no dashed tray", async () => {
   const y26 = await screen.findByRole("button", { name: /Fiscal Year 2026:/i });
   fireEvent.click(y26);
   // The AFR is a one-document report: the report row links the document and
-  // there is NO "N documents in this report" box for it.
+  // there is NO "N sections in this report" box for it.
   const afr = screen.getByText("FY 2026 Annual Financial Report");
   expect(afr.closest(".grp")!.querySelector(".ctx")).toBeNull();
 });
@@ -124,7 +124,7 @@ test("every row leads with a copper publisher chip in the folded vocabulary", as
   expect(bill.querySelector(".doc-pub")).toHaveTextContent("JLBC");
   // And jlbc → JLBC inside a tray. Scope to FY 2027's card to click ITS button.
   const y27card = document.querySelector('[data-year-card="2027"]') as HTMLElement;
-  fireEvent.click(within(y27card).getByRole("button", { name: /browse documents/i }));
+  fireEvent.click(within(y27card).getByRole("button", { name: /browse sections/i }));
   expect(screen.getByText(AHCCCS27).closest(".doc")!.querySelector(".doc-pub")).toHaveTextContent("JLBC");
   // Nowhere does the page render the OLD vocabulary.
   expect(document.querySelector(".page-docs")!.textContent).not.toMatch(/AGAO|Governor's Office of|Legislature/);
@@ -205,7 +205,31 @@ test("a query matching nothing shows an honest empty state", async () => {
   fireEvent.change(screen.getByLabelText(/filter documents by agency or keyword/i), {
     target: { value: "zzz-no-such-thing" },
   });
-  expect(screen.getByText(/no documents match/i)).toBeInTheDocument();
+  // Names what was searched (titles), and does NOT tell the reader to clear a
+  // filter they never set.
+  expect(screen.getByText(/no document titles match “zzz-no-such-thing”\./i)).toBeInTheDocument();
+  expect(screen.queryByText(/clearing one/i)).toBeNull();
+});
+
+test("the empty state blames filters only when filters are set", async () => {
+  mount();
+  await screen.findByRole("button", { name: /Fiscal Year 2027:/i });
+  // Narrow to one type, then search for something no title in it contains.
+  fireEvent.click(screen.getByRole("button", { name: /document type/i }));
+  fireEvent.click(screen.getByRole("button", { name: /^Budget Bill/i }));
+  fireEvent.change(screen.getByLabelText(/filter documents by agency or keyword/i), {
+    target: { value: "zzz-no-such-thing" },
+  });
+  expect(screen.getByText(/with those filters — try clearing one/i)).toBeInTheDocument();
+});
+
+test("an empty corpus says so instead of blaming filters", async () => {
+  // The listing route degrades a missing sidecar AND an unreadable chunk table
+  // to the same empty list, so the page must not name a cause — and must not
+  // tell the reader to clear a filter when none is set.
+  mount([]);
+  expect(await screen.findByText(/no budget documents are available\./i)).toBeInTheDocument();
+  expect(screen.queryByText(/clearing one/i)).toBeNull();
 });
 
 test("clearing the box returns to the year browse", async () => {
@@ -231,12 +255,25 @@ test("an arriving ?q= seeds the box and lands in the unified search state", asyn
 
 // --- status line --------------------------------------------------------------
 
-test("the status line reports honest counts", async () => {
+test("the status line counts reports, not the sections inside them", async () => {
+  // A Baseline book is ONE report ingested as many per-agency documents
+  // (Destin, 2026-08-10). The fixture's 8 documents collapse to 5 reports, and
+  // 5 is the only number the page may show — counting the agency pages was
+  // counting something nobody asked for.
   mount();
-  // 5 reports · 8 documents across all fiscal years.
-  await screen.findByText(/5 reports · 8 documents, across all fiscal years\./i);
+  await screen.findByText(/^5 reports, across all fiscal years\.$/i);
+  expect(screen.queryByText(/8 documents/i)).toBeNull();
   fireEvent.change(screen.getByLabelText(/filter documents by agency or keyword/i), {
     target: { value: "ahcccs" },
   });
-  await screen.findByText(/2 documents across 2 reports, in all fiscal years, matching “ahcccs”\./i);
+  await screen.findByText(/^2 reports in all fiscal years, matching “ahcccs”\.$/i);
+});
+
+test("the year card head counts reports only", async () => {
+  mount();
+  const head = await screen.findByRole("button", { name: /Fiscal Year 2027:/i });
+  // The accessible name is what a screen reader announces; it must agree with
+  // the visible meta line, and neither may quote a per-agency document total.
+  expect(head).toHaveAccessibleName(/Fiscal Year 2027: \d+ reports?$/i);
+  expect(head.textContent).not.toMatch(/document/i);
 });

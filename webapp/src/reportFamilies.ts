@@ -10,7 +10,9 @@
 //
 // Slugs verified against data/ingest-plan.yaml's `doc_type:` values (the live
 // vocabulary — NOT db/migrations/0001_initial_schema.sql's enum comment, which
-// is stale; see the note in FilterBar.tsx).
+// was already stale and whose whole `db/` tree was deleted 2026-08-01).
+// (This used to point at a longer note in components/FilterBar.tsx, deleted
+// 2026-08-10 with the chip strip it drew.)
 
 /** doc_type slug → the display name of the report family it belongs to. */
 const FAMILY_OF_DOC_TYPE: Record<string, string> = {
@@ -77,14 +79,9 @@ export function reportFormats(family: string, fiscalYear: number | null): Report
   return REPORT_FORMATS[`${family}:${fiscalYear}`] ?? NO_FORMATS;
 }
 
-/** The curated filter buckets shown as chips on the search page — the mockup's
- *  approach (a FIXED, always-visible set; search.js's BUCKET_ORDER) rather than
- *  chips derived from whatever the last search returned. Each bucket toggles
- *  its whole slug list through the API's doc_type[] filter. */
-export const FILTER_BUCKETS: { label: string; slugs: string[] }[] = [
-  { label: "Baseline Books", slugs: ["baseline-per-agency", "baseline-cross-cut"] },
-  { label: "Appropriations Reports", slugs: ["approps-per-agency", "approps-cross-cut"] },
-  { label: "Annual Financial Reports", slugs: ["afr"] },
-  { label: "Executive Budget", slugs: ["governors-budget"] },
-  { label: "Budget Bills", slugs: ["budget-bill"] },
-];
+// FILTER_BUCKETS was here — the curated chip strip's doc_type buckets, read
+// only by `components/FilterBar.tsx`. Both were deleted 2026-08-10: the browse
+// page's rail builds its Document Type options from FAMILY_OF_DOC_TYPE's own
+// family names (Search.tsx's `typeOptions`), so a second, parallel list of the
+// same slugs was a place for the two to silently disagree. `git log --
+// webapp/src/components/FilterBar.tsx` has both if the chip strip ever returns.

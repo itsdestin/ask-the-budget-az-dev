@@ -4,7 +4,7 @@ import { useSearchParams } from "react-router-dom";
 // intercepts the request with vi.spyOn(api, "corpusDocuments"), which can only see calls
 // made through the module object.
 import * as api from "../api";
-import { publisherLabel } from "../components/FilterBar";
+import { publisherLabel } from "../publishers";
 import { SearchIcon } from "../components/SearchIcon";
 import { familyOf, familyTitle, reportFormats } from "../reportFamilies";
 
@@ -108,11 +108,27 @@ function groupCorpus(docs: api.CorpusDocument[]): { year: number; families: Fami
     .sort((a, b) => b[0] - a[0])
     .map(([year, fams]) => ({
       year,
-      families: FAMILY_ORDER.filter((f) => fams.has(f)).map((f) => ({
+      families: orderFamilies([...fams.keys()]).map((f) => ({
         family: f,
         docs: [...fams.get(f)!].sort(byTitle),
       })),
     }));
+}
+
+/** The five curated families in FAMILY_ORDER, then anything else alphabetically.
+ *
+ *  WHY the trailing group exists: `familyOf` documents that an unknown doc_type
+ *  "still groups, it just isn't prettified" — it returns the raw slug as its own
+ *  family. This used to be `FAMILY_ORDER.filter(f => fams.has(f))`, which SILENTLY
+ *  DROPPED every such family from the page while the status line still counted its
+ *  documents, so the page could claim more documents than it rendered. Appending
+ *  them keeps familyOf's contract true and makes the counts describe what is on
+ *  screen. A new doc_type now appears under its raw slug — ugly, and the fix is to
+ *  name it in FAMILY_OF_DOC_TYPE, not to hide the document. */
+function orderFamilies(found: string[]): string[] {
+  const known = FAMILY_ORDER.filter((f) => found.includes(f));
+  const unknown = found.filter((f) => !FAMILY_ORDER.includes(f)).sort();
+  return [...known, ...unknown];
 }
 
 /** Does this document match the typed query? Ported from the mockup's
@@ -278,7 +294,7 @@ function FamilyCard({
   if (!searching) {
     const docs = group.docs; // already title-sorted by groupCorpus
     // A single-document family (the AFR is only ever one doc) gets NO dashed
-    // "N documents / Browse documents" box — the report row already links the
+    // "N sections / Browse sections" box — the report row already links the
     // one document, so the box would only restate it.
     if (docs.length === 1) {
       return (
@@ -293,7 +309,11 @@ function FamilyCard({
         <div className="ctx">
           <div className="ctx-row">
             <span className="badge">
-              <DocIcon /> {docs.length} documents in this report
+              {/* "sections", not "documents" (Destin, 2026-08-10). The page
+                  counts REPORTS; a Baseline book's per-agency pages are parts
+                  of one report, and calling them documents here contradicted
+                  every count above. Same vocabulary on the tray toggle. */}
+              <DocIcon /> {docs.length} sections in this report
             </span>
             <span className="spacer" />
             <button
@@ -302,7 +322,7 @@ function FamilyCard({
               aria-expanded={trayOpen}
               onClick={onToggleTray}
             >
-              {trayOpen ? "Hide documents" : "Browse documents"} <ChevronIcon />
+              {trayOpen ? "Hide sections" : "Browse sections"} <ChevronIcon />
             </button>
             {singleFile && (
               <a className="grp-full" href={singleFile} target="_blank" rel="noopener noreferrer">
@@ -390,7 +410,6 @@ const YearCard = memo(function YearCard({
   openTrays: ReadonlySet<string>;
   onToggleTray: (key: string) => void;
 }) {
-  const total = families.reduce((n, f) => n + f.docs.length, 0);
   const yearLabel = year === 0 ? "Fiscal year unknown" : `Fiscal Year ${year}`;
   return (
     <section className={`yg${isOpen ? " yg-open" : " yg-closed"}`} data-year-card={year}>
@@ -398,14 +417,15 @@ const YearCard = memo(function YearCard({
         type="button"
         className="yg-head"
         aria-expanded={isOpen}
-        aria-label={`${yearLabel}: ${families.length} report${families.length === 1 ? "" : "s"}, ${total} document${total === 1 ? "" : "s"}`}
+        aria-label={`${yearLabel}: ${families.length} report${families.length === 1 ? "" : "s"}`}
         onClick={() => onToggleYear(year)}
       >
         <div className="yg-ttl">
           <span className="yg-yr">{yearLabel}</span>
+          {/* Reports only — the per-agency document total was dropped here
+              (Destin, 2026-08-10). See the counting note in the page body. */}
           <span className="yg-meta">
-            {families.length} report{families.length === 1 ? "" : "s"} · {total} document
-            {total === 1 ? "" : "s"}
+            {families.length} report{families.length === 1 ? "" : "s"}
           </span>
         </div>
         <span className={`yg-chev${isOpen ? " open" : ""}`}>
@@ -595,15 +615,18 @@ export function Search() {
   );
 
   // Filter option counts (docs per family / per year), from the FULL corpus.
-  const typeOptions = useMemo<MultiSelectOption[]>(
-    () =>
-      FAMILY_ORDER.map((f) => ({
-        key: f,
-        label: f,
-        count: docs.filter((d) => familyOf(d.doc_type) === f).length,
-      })),
-    [docs],
-  );
+  // Built from the families actually PRESENT in the corpus, in the same order
+  // the cards render (curated five, then unknown slugs). Hard-coding
+  // FAMILY_ORDER here offered a filter for families that may not exist and —
+  // worse — offered NO way to filter to a family rendered under a raw slug.
+  const typeOptions = useMemo<MultiSelectOption[]>(() => {
+    const present = orderFamilies([...new Set(docs.map((d) => familyOf(d.doc_type)))]);
+    return present.map((f) => ({
+      key: f,
+      label: f,
+      count: docs.filter((d) => familyOf(d.doc_type) === f).length,
+    }));
+  }, [docs]);
   const yearOptions = useMemo<MultiSelectOption[]>(
     () =>
       allYears.map((y) => ({
@@ -634,8 +657,24 @@ export function Search() {
     yearToggle.has(year) ? yearToggle.get(year)! : year === latestYear;
 
   // --- counts for the status line -------------------------------------------
-  const matched = docs.filter((d) => passesFilters(d, types, years) && (!searching || queryHit(d, q)));
-  const matchedFamilies = new Set(matched.map((d) => `${d.fiscal_year ?? 0}|${familyOf(d.doc_type)}`)).size;
+  //
+  // THE PAGE COUNTS REPORTS, NOT SECTIONS (Destin, 2026-08-10). A Baseline book
+  // is ONE report that happens to be ingested as ~100 per-agency documents; a
+  // year card that announced "5 reports · 419 documents" was counting the
+  // agency pages, which is not a number anyone asked for. Every count on this
+  // page is now the number of top-level reports — one per report family per
+  // fiscal year. The per-agency documents inside a report are still listed and
+  // still counted, but only in the tray badge that describes that report's own
+  // contents ("N sections in this report"), where the number means something.
+  //
+  // Derived from `visibleGroups`, which is what actually renders, rather than
+  // recomputed off the raw doc list — a count computed independently of the
+  // render can disagree with it, and this one did.
+  const reportCount = visibleGroups.reduce(
+    (n, g) => n + g.families.filter((f) => !searching || f.docs.some((d) => queryHit(d, q))).length,
+    0,
+  );
+  const hasFilters = types.size > 0 || years.size > 0;
   const yearScope = years.size
     ? years.size === 1
       ? `FY ${[...years][0]}`
@@ -684,9 +723,6 @@ export function Search() {
           .map((f) => ({ year: g.year, family: f })),
       )
     : [];
-  const searchTotal = searching
-    ? docs.filter((d) => passesFilters(d, types, years) && queryHit(d, q)).length
-    : 0;
 
   return (
     <main className="page-docs" data-testid="search">
@@ -714,8 +750,8 @@ export function Search() {
           {phase.kind === "error" && <span className="err">{phase.message}</span>}
           {phase.kind === "ready" &&
             (searching
-              ? `${matched.length} document${matched.length === 1 ? "" : "s"} across ${matchedFamilies} report${matchedFamilies === 1 ? "" : "s"}, in ${yearScope}, matching “${q}”.`
-              : `${matchedFamilies} report${matchedFamilies === 1 ? "" : "s"} · ${matched.length} document${matched.length === 1 ? "" : "s"}, across ${yearScope}.`)}
+              ? `${reportCount} report${reportCount === 1 ? "" : "s"} in ${yearScope}, matching “${q}”.`
+              : `${reportCount} report${reportCount === 1 ? "" : "s"}, across ${yearScope}.`)}
         </p>
 
         <div className="doclayout">
@@ -774,14 +810,21 @@ export function Search() {
                   <div className="yg-ttl">
                     <span className="yg-yr">Results</span>
                     <span className="yg-meta">
-                      {searchTiles.length} report{searchTiles.length === 1 ? "" : "s"} · {searchTotal}{" "}
-                      document{searchTotal === 1 ? "" : "s"} matching “{q}”
+                      {searchTiles.length} report{searchTiles.length === 1 ? "" : "s"} matching “{q}”
                     </span>
                   </div>
                 </div>
                 {searchTiles.length === 0 ? (
+                  // "Try clearing a filter" is only TRUE when a filter is set.
+                  // Saying it unconditionally blames the reader for their own
+                  // narrowing when they narrowed nothing. Two facts, two lines.
+                  // Also names what was searched — this box matches titles and
+                  // publishers, not the text inside the PDFs — so an empty
+                  // result doesn't read as "the corpus says nothing about this".
                   <p className="empty">
-                    No documents match “{q}” with those filters — try clearing one.
+                    {hasFilters
+                      ? `No document titles match “${q}” with those filters — try clearing one.`
+                      : `No document titles match “${q}”.`}
                   </p>
                 ) : (
                   searchTiles.map(({ year, family }) => (
@@ -798,7 +841,23 @@ export function Search() {
               </section>
             ) : visibleGroups.length === 0 ? (
               <section className="yg">
-                <p className="empty">No documents match those filters — try clearing one.</p>
+                {/* Three different facts, and only one of them is the reader's
+                    doing. An empty LISTING is not a filter problem — the page
+                    used to say "try clearing one" with no filters set, blaming
+                    the user for an empty or unreadable corpus.
+
+                    The no-documents line deliberately names NO cause: the
+                    route degrades a missing sidecar AND an unreadable chunk
+                    table to the same empty list and cannot tell them apart
+                    (see app/routes/corpus.py's `budget_doc_ids`), so any
+                    "nothing has been ingested yet" here would be a guess. */}
+                <p className="empty">
+                  {docs.length === 0
+                    ? "No budget documents are available."
+                    : hasFilters
+                      ? "No documents match those filters — try clearing one."
+                      : "No budget documents are available."}
+                </p>
               </section>
             ) : (
               visibleGroups.map((g) => (
