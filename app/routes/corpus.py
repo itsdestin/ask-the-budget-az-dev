@@ -64,13 +64,57 @@ def corpus_counts() -> dict:
     return {"documents": document_count(), **chunk_counts()}
 
 
+def budget_doc_ids() -> set[str]:
+    """Every doc_id that has chunks in the BUDGET corpus table.
+
+    WHY this exists: `documents.json` is ONE sidecar shared by both corpora.
+    `ingest/lance_writer.py`'s `_merge_document_entry` writes the same file
+    whether `write_doc` was handed `budget_chunks` or `fiscal_note_chunks`
+    (worker.py:697 is the single call site for both), and the record it writes
+    carries no `corpus` field — see its `entry` dict, pinned by an assert
+    against DOCS_FIELDS + INGEST_DOCS_FIELDS, neither of which names one. So
+    listing the sidecar unfiltered hands FISCAL NOTES to the Budget Documents
+    page, which is what this filters out.
+
+    Membership is read from the chunk table rather than guessed from doc_type
+    (e.g. excluding "fiscal-note"): a doc_type denylist is only as good as the
+    list, and `/api/upload` accepts any registered doc_type against either
+    corpus, so a fiscal note filed under another type would slip straight
+    through. A document is in the budget corpus exactly when budget_chunks
+    holds chunks for it — that is the fact, not a proxy for it.
+
+    Cost: a one-column projection scan. `ChunkStore.scan`'s own docstring
+    measures the full budget corpus at ~60ms with SIX columns, and this route
+    is hit once per page load (the browse page fetches on mount and filters
+    client-side), never per keystroke.
+
+    Failure posture: an unopenable or missing table reads as an EMPTY set, the
+    same answer a genuinely empty corpus gives. That ambiguity is deliberate
+    and is this module's existing documented rule — see `chunk_counts` above,
+    which resolves the identical question the same way and points at
+    `app/health.py` as the thing that distinguishes "empty" from "broken".
+    Callers must not phrase an empty result as a claim about ingestion.
+    """
+    try:
+        from store.chunk_store import ChunkStore
+
+        rows = ChunkStore().scan("budget_chunks", ["doc_id"])
+    except Exception:  # noqa: BLE001 — missing table, bad schema, no LanceDB
+        return set()
+    return {r["doc_id"] for r in rows if isinstance(r, dict) and r.get("doc_id")}
+
+
 def document_listing() -> list[dict]:
-    """Every document the sidecar knows about, as the browse page renders it.
+    """Every BUDGET document the sidecar knows about, as the browse page
+    renders it.
 
     One flat row per document: id, display title, publisher, doc_type,
     fiscal_year and the source URL the row links to. The page filters,
     groups and searches this client-side, so there is exactly one request
     on mount and none per keystroke.
+
+    Restricted to the budget corpus via `budget_doc_ids()` — the sidecar
+    itself cannot tell the two corpora apart. See that function for why.
 
     Titles come from `store.documents.title_for` with its DEFAULT gate —
     not the search page's `require_ingested=True`. The gate exists because
@@ -83,6 +127,7 @@ def document_listing() -> list[dict]:
     from store.documents import load_documents, title_for
 
     docs = load_documents()
+    in_budget = budget_doc_ids()
     rows = [
         {
             "doc_id": doc_id,
@@ -97,6 +142,10 @@ def document_listing() -> list[dict]:
         # metadata to list and would raise on .get. Skip it, same posture as
         # store.documents.document_record.
         if isinstance(meta, dict)
+        # Budget corpus only — a sidecar entry with no chunks in budget_chunks
+        # is a fiscal note (or was never ingested), and neither belongs on the
+        # Budget Documents page.
+        and doc_id in in_budget
     ]
     # Deterministic order for a payload the page diffs across reloads:
     # doc_id sorts year and publisher together naturally.
@@ -106,7 +155,11 @@ def document_listing() -> list[dict]:
 
 @router.get("/api/corpus/documents")
 def corpus_documents() -> dict:
-    """The budget corpus as a browsable listing. Missing or corrupt sidecar
-    degrades to an empty list (load_documents' own rule) — the page shows
-    "no documents yet" instead of a 500."""
+    """The budget corpus as a browsable listing.
+
+    A missing or corrupt sidecar degrades to an empty list (load_documents'
+    own rule), as does an unreadable chunk table (see `budget_doc_ids`) —
+    either way the page renders its empty state instead of a 500. That state
+    must NOT name a cause: an empty list here means "nothing to show", and
+    this route cannot tell an un-ingested corpus from a broken one."""
     return {"documents": document_listing()}

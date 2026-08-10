@@ -22,6 +22,46 @@ def client(tmp_path, monkeypatch):
     return TestClient(create_app(ingest_worker=None))
 
 
+@pytest.fixture(autouse=True)
+def budget_corpus(tmp_path, monkeypatch):
+    """Stand in for the `budget_chunks` table's doc_id column.
+
+    The route reads corpus membership from the chunk table rather than from
+    the sidecar, because the sidecar cannot tell the two corpora apart (see
+    `app.routes.corpus.budget_doc_ids`). Tests may not open a real LanceDB —
+    CLAUDE.md's testing conventions — so the scan is stubbed here.
+
+    DEFAULT: every doc_id in the sidecar is a budget document, which is the
+    world every test below assumed before the corpus filter existed. A test
+    that cares about the filter calls the yielded setter with an explicit
+    list; `test_fiscal_note_documents_are_not_listed` is the one that does.
+    """
+    override: list[list[str] | None] = [None]
+
+    def fake_scan(self, name, columns, **_kw):
+        assert name == "budget_chunks", f"unexpected table {name!r}"
+        assert columns == ["doc_id"], "the listing only ever needs doc_id"
+        if override[0] is not None:
+            return [{"doc_id": d} for d in override[0]]
+        # Mirror the sidecar: read it the same way the route's own reader
+        # does, so the default really is "everything is a budget document"
+        # even for the corrupt/absent-file tests (which get []).
+        path = tmp_path / "documents.json"
+        try:
+            return [{"doc_id": d} for d in json.loads(path.read_text(encoding="utf-8"))]
+        except Exception:  # noqa: BLE001 — absent or corrupt, same as the route
+            return []
+
+    monkeypatch.setattr("store.chunk_store.ChunkStore.scan", fake_scan)
+    # __init__ opens the LanceDB root; nothing here needs a real one.
+    monkeypatch.setattr("store.chunk_store.ChunkStore.__init__", lambda self, **_kw: None)
+
+    def set_budget_docs(doc_ids):
+        override[0] = list(doc_ids)
+
+    yield set_budget_docs
+
+
 def _entry(**over):
     base = {
         "title": "FY 2027 Baseline — AHCCCS",
@@ -150,3 +190,65 @@ def test_the_route_is_not_admin_gated(client, monkeypatch):
     monkeypatch.setenv("JLBC_USER", "some-analyst")
 
     assert client.get("/api/corpus/documents").status_code == 200
+
+
+def test_fiscal_note_documents_are_not_listed(client, tmp_path, budget_corpus):
+    """documents.json is ONE sidecar for BOTH corpora.
+
+    `ingest/lance_writer.py::_merge_document_entry` writes the same file for a
+    Baseline book and for a fiscal note (worker.py's single `write_doc` call
+    serves both tables), and the record it writes has no `corpus` field. So the
+    only thing that distinguishes them is which chunk table holds their chunks
+    — which is what the route now reads. Without this filter the Budget
+    Documents page lists fiscal notes.
+    """
+    (tmp_path / "documents.json").write_text(
+        json.dumps(
+            {
+                "jlbc-baseline-fy2027-axs": _entry(),
+                "jlbc-fiscal-note-fy2026-hb2001": _entry(
+                    title="FY 2026 Fiscal Note — HB 2001",
+                    doc_type="fiscal-note",
+                    fiscal_year=2026,
+                ),
+            }
+        ),
+        encoding="utf-8",
+    )
+    # Only the Baseline page has chunks in budget_chunks; the note's chunks
+    # live in fiscal_note_chunks, which this listing never reads.
+    budget_corpus(["jlbc-baseline-fy2027-axs"])
+
+    ids = [d["doc_id"] for d in client.get("/api/corpus/documents").json()["documents"]]
+
+    assert ids == ["jlbc-baseline-fy2027-axs"]
+
+
+def test_an_unreadable_chunk_table_lists_nothing_rather_than_leaking(client, tmp_path):
+    """When corpus membership can't be read, the honest answer is "nothing to
+    show" — the same posture `chunk_counts` documents for the identical
+    question, with `app/health.py` as the thing that says whether the corpus is
+    empty or broken. Listing the raw sidecar instead would put fiscal notes on
+    the budget page precisely when the system is least able to notice.
+    """
+    (tmp_path / "documents.json").write_text(
+        json.dumps({"jlbc-baseline-fy2027-axs": _entry()}), encoding="utf-8"
+    )
+
+    from app.routes import corpus as corpus_route
+
+    def boom(self, name, columns, **_kw):
+        raise RuntimeError("LanceDB unavailable")
+
+    import store.chunk_store
+
+    original = store.chunk_store.ChunkStore.scan
+    store.chunk_store.ChunkStore.scan = boom
+    try:
+        assert corpus_route.budget_doc_ids() == set()
+        response = client.get("/api/corpus/documents")
+    finally:
+        store.chunk_store.ChunkStore.scan = original
+
+    assert response.status_code == 200
+    assert response.json() == {"documents": []}
