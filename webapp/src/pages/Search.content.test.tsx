@@ -60,6 +60,33 @@ test("a query that DOES match a title never escalates on its own", async () => {
   vi.useRealTimers();
 });
 
+test("typing again restarts the escalation pause instead of firing on the stale timer", async () => {
+  // WHY this test exists: the escalation effect's dependency array used to be
+  // [mode, searching, titleHits, phase.kind] — missing `q`. titleHits stays 0
+  // across successive zero-hit keystrokes, so that effect never re-ran after
+  // the FIRST such keystroke, and the 2000ms timer it started kept ticking
+  // regardless of further typing: escalation fired 2s after the first
+  // zero-hit keystroke, not 2s after the box went quiet, contradicting the
+  // effect's own "only after the box goes quiet" comment. This types,
+  // advances the clock partway, types again, and advances partway again —
+  // under the bug the stale timer from keystroke #1 has already fired inside
+  // that window; fixed, the second keystroke restarts the pause.
+  vi.useFakeTimers();
+  const search = mount();
+  await vi.waitFor(() => expect(screen.getByText(/Fiscal Year 2027/)).toBeInTheDocument());
+  fireEvent.change(box(), { target: { value: "child care subsidy" } });
+  await vi.advanceTimersByTimeAsync(1500);
+  fireEvent.change(box(), { target: { value: "child care subsidy x" } });
+  await vi.advanceTimersByTimeAsync(1500);
+  // Only 1500ms have passed since the SECOND keystroke — must not have fired
+  // yet. (Buggy: the first keystroke's timer hits its 2000ms mark at t=2000,
+  // inside this 3000ms cumulative window, and fires early.)
+  expect(search).not.toHaveBeenCalled();
+  await vi.advanceTimersByTimeAsync(500);
+  expect(search).toHaveBeenCalledWith("child care subsidy x", {}, "budget");
+  vi.useRealTimers();
+});
+
 test("the rail's filters reach the backend as doc_type SLUGS", async () => {
   vi.useFakeTimers();
   const search = mount();

@@ -713,7 +713,14 @@ export function Search() {
     if (phase.kind !== "ready") return;
     const timer = setTimeout(() => setMode("contents"), ESCALATE_MS);
     return () => clearTimeout(timer);
-  }, [mode, searching, titleHits, phase.kind]);
+    // `q` is load-bearing here, not just an exhaustive-deps nit: titleHits
+    // stays 0 across successive zero-hit keystrokes, so without `q` this
+    // effect never re-ran after the FIRST such keystroke and the timer it
+    // started kept ticking through every later one — escalation fired 2s
+    // after the first zero-hit keystroke instead of 2s after the box went
+    // quiet (Search.content.test.tsx: "typing again restarts the escalation
+    // pause instead of firing on the stale timer").
+  }, [mode, searching, titleHits, phase.kind, q]);
 
   // The content request itself. `ignore` is the stale-response guard: if the
   // query or the filters change while a request is in flight, React runs this
