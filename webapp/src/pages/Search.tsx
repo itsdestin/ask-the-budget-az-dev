@@ -9,6 +9,7 @@ import { SearchIcon } from "../components/SearchIcon";
 import { BookIcon, ChevronIcon, DocIcon, OpenIcon } from "../components/DocIcons";
 import { ReportChooser } from "../components/ReportChooser";
 import { familyOf, familyTitle, reportFormats } from "../reportFamilies";
+import { toSearchFilters } from "../search/contentSearch";
 
 // Budget Documents — a browse-first directory, rebuilt 2026-08-03 from the
 // approved interactive mockup `mockups/budget-documents-browse.html` (port,
@@ -66,6 +67,22 @@ type Phase =
   | { kind: "loading" }
   | { kind: "ready"; docs: api.CorpusDocument[] }
   | { kind: "error"; message: string };
+
+/** Which half of the search the page is showing. */
+type Mode = "titles" | "contents";
+
+/** The content (retrieval) request's state. One value, so loading / error /
+ *  ready can never be true at the same time. */
+type ContentPhase =
+  | { kind: "idle" }
+  | { kind: "loading" }
+  | { kind: "ready"; results: api.SearchResult[] }
+  | { kind: "error"; message: string };
+
+/** How long the box must be quiet, with ZERO title matches, before content
+ *  search fires on its own. Long enough that it never fires mid-word; short
+ *  enough that it feels like the page answering rather than the user waiting. */
+const ESCALATE_MS = 2000;
 
 /** The five report families, in display order within a year card — the same
  *  order the mockup lists them and `reportFamilies.ts` names them. */
@@ -546,15 +563,20 @@ function RailMultiSelect({
 // ---------------------------------------------------------------------------
 
 export function Search() {
-  const [params] = useSearchParams();
-  // ?q= is the read-only hand-off (Home's hero navigates here with it). It
-  // seeds the box; it does NOT live-sync while the user types (the box is the
-  // ephemeral state).
-  const urlQuery = (params.get("q") ?? "").trim();
+  const [params, setParams] = useSearchParams();
+  const [query, setQuery] = useState(() => (params.get("q") ?? "").trim());
+  const [mode, setMode] = useState<Mode>(() =>
+    params.get("in") === "contents" ? "contents" : "titles",
+  );
+  const [content, setContent] = useState<ContentPhase>({ kind: "idle" });
+  // Bumped to re-run an identical content query. WHY it exists: the fetch
+  // effect keys off (mode, query, filters); pressing Retry after a failure
+  // changes none of them, so without this the button would appear to do
+  // nothing — the exact dead end master's own `attempt` counter existed for.
+  const [contentAttempt, setContentAttempt] = useState(0);
 
   const [phase, setPhase] = useState<Phase>({ kind: "loading" });
   const [attempt, setAttempt] = useState(0);
-  const [query, setQuery] = useState(urlQuery);
   const [types, setTypes] = useState<ReadonlySet<string>>(new Set());
   const [years, setYears] = useState<ReadonlySet<number>>(new Set());
   // Years the user has manually toggled open/closed. Absent = the default:
@@ -570,9 +592,34 @@ export function Search() {
   // mockups/report-format-chooser.html.)
   const [chooser, setChooser] = useState<{ year: number; family: string } | null>(null);
 
-  // One-way sync FROM the URL: a ?q= arriving while the page is mounted (Home
-  // hero, back/forward) replaces the box. Typing does NOT write the URL.
-  useEffect(() => setQuery(urlQuery), [urlQuery]);
+  // --- URL <-> state, one direction at a time -------------------------------
+  // `lastWritten` is what stops the two effects below from fighting: the write
+  // effect records the string it put in the URL, and the read effect ignores
+  // any URL it recognises as its own. Anything else is an OUTSIDE navigation
+  // (Home's hero, a pasted link, Back) and is read into state.
+  //
+  // Every write is `replace: true`. Keystroke-level history entries are noise;
+  // shareable links, correct restore on reload, and killing the identical-query
+  // dead end are all satisfied without them (Destin, 2026-08-10).
+  const lastWritten = useRef<string | null>(null);
+
+  useEffect(() => {
+    const next = new URLSearchParams();
+    if (query) next.set("q", query);
+    if (mode === "contents") next.set("in", "contents");
+    const str = next.toString();
+    if (str === lastWritten.current) return;
+    lastWritten.current = str;
+    setParams(next, { replace: true });
+  }, [query, mode, setParams]);
+
+  useEffect(() => {
+    const str = params.toString();
+    if (str === lastWritten.current) return;
+    lastWritten.current = str;
+    setQuery((params.get("q") ?? "").trim());
+    setMode(params.get("in") === "contents" ? "contents" : "titles");
+  }, [params]);
 
   useEffect(() => {
     let ignore = false;
@@ -648,6 +695,56 @@ export function Search() {
       .filter((g): g is { year: number; families: FamilyGroup[] } => g !== null);
   }, [scopedYears, grouped, types, years]);
 
+  // How many documents the TITLE filter matched. Zero is what arms escalation.
+  const titleHits = useMemo(
+    () => (searching ? docs.filter((d) => passesFilters(d, types, years) && queryHit(d, q)).length : 0),
+    [docs, types, years, q, searching],
+  );
+
+  // Automatic escalation. A natural-language question essentially never
+  // substring-matches a document title, while an agency name almost always
+  // does — so "zero title hits" is an honest proxy for "this was a question
+  // about CONTENT". Only fires from title mode, only with a query, only at
+  // zero hits, and only after the box goes quiet.
+  useEffect(() => {
+    if (mode !== "titles" || !searching || titleHits > 0) return;
+    // Nothing to escalate to until the listing has loaded — a corpus that has
+    // not arrived yet has zero title hits for every query.
+    if (phase.kind !== "ready") return;
+    const timer = setTimeout(() => setMode("contents"), ESCALATE_MS);
+    return () => clearTimeout(timer);
+  }, [mode, searching, titleHits, phase.kind]);
+
+  // The content request itself. `ignore` is the stale-response guard: if the
+  // query or the filters change while a request is in flight, React runs this
+  // cleanup first, so the older (slower) answer returns here and does nothing
+  // instead of painting over the newer one.
+  useEffect(() => {
+    if (mode !== "contents" || !searching) {
+      setContent({ kind: "idle" });
+      return;
+    }
+    let ignore = false;
+    setContent({ kind: "loading" });
+    api.search(q, toSearchFilters(types, years), "budget").then(
+      (res) => {
+        if (!ignore) setContent({ kind: "ready", results: res.results });
+      },
+      (err: unknown) => {
+        // The api client already carries the backend's own `detail`; show it
+        // verbatim rather than guessing at a cause.
+        if (!ignore)
+          setContent({
+            kind: "error",
+            message: err instanceof Error ? err.message : String(err),
+          });
+      },
+    );
+    return () => {
+      ignore = true;
+    };
+  }, [mode, q, types, years, searching, contentAttempt]);
+
   // Default open year: newest in-scope. A manual toggle overrides it.
   const latestYear = visibleGroups[0]?.year ?? null;
   const isYearOpen = (year: number) =>
@@ -707,6 +804,7 @@ export function Search() {
 
   const clearQuery = () => {
     setQuery("");
+    setMode("titles");
     box.current?.focus();
   };
 
@@ -760,7 +858,14 @@ export function Search() {
                   ref={box}
                   type="text"
                   value={query}
-                  onChange={(e) => setQuery(e.target.value)}
+                  onChange={(e) => {
+                    // A new query is a new search, and titles are the cheap
+                    // default — so editing the box always returns to title
+                    // mode and re-arms escalation. Staying in content mode
+                    // would fire a retrieval request on every keystroke.
+                    setQuery(e.target.value);
+                    setMode("titles");
+                  }}
                   placeholder="Agency or keyword…"
                   aria-label="Filter documents by agency or keyword"
                   autoComplete="off"
@@ -811,6 +916,14 @@ export function Search() {
                     </span>
                   </div>
                 </div>
+                {content.kind === "error" && (
+                  <p className="empty">
+                    <span className="err">{content.message}</span>{" "}
+                    <button type="button" className="grp-more" onClick={() => setContentAttempt((a) => a + 1)}>
+                      Retry
+                    </button>
+                  </p>
+                )}
                 {searchTiles.length === 0 ? (
                   // "Try clearing a filter" is only TRUE when a filter is set.
                   // Saying it unconditionally blames the reader for their own
