@@ -6,6 +6,7 @@ import { useSearchParams } from "react-router-dom";
 import * as api from "../api";
 import { publisherLabel } from "../publishers";
 import { SearchIcon } from "../components/SearchIcon";
+import { BookIcon, ChevronIcon, DocIcon, OpenIcon } from "../components/DocIcons";
 import { familyOf, familyTitle, reportFormats } from "../reportFamilies";
 
 // Budget Documents — a browse-first directory, rebuilt 2026-08-03 from the
@@ -156,40 +157,6 @@ function passesFilters(
   return true;
 }
 
-// ---------------------------------------------------------------------------
-// Glyphs — the mockup's inline SVGs, paths verbatim.
-// ---------------------------------------------------------------------------
-
-function DocIcon() {
-  return (
-    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden="true">
-      <path d="M6 2h9l5 5v15H6z" />
-      <path d="M14 2v6h6" />
-    </svg>
-  );
-}
-function BookIcon() {
-  return (
-    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden="true">
-      <path d="M4 4h13a2 2 0 0 1 2 2v14H6a2 2 0 0 1-2-2z" />
-      <path d="M4 18a2 2 0 0 1 2-2h13" />
-    </svg>
-  );
-}
-function ChevronIcon() {
-  return (
-    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden="true">
-      <path d="m6 9 6 6 6-6" />
-    </svg>
-  );
-}
-function OpenIcon() {
-  return (
-    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden="true">
-      <path d="M5 12h14M13 6l6 6-6 6" />
-    </svg>
-  );
-}
 
 // ---------------------------------------------------------------------------
 // Document + report rows
