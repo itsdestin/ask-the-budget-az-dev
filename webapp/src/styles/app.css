@@ -782,6 +782,37 @@ nav.primary{position:relative;padding-right:44px;}
   .page-docs .docstatus{margin-left:0;}
 }
 
+/* ===== content-search result card =====
+   The snippet is the card's HEADLINE, so it needs a multi-line reading style
+   rather than `.doc-title`'s single-line 15.5px/700 navy. `align-items:
+   flex-start` is what stops the publisher chip and the page pill from
+   centring against a three-line quote. */
+.page-docs .quoterow{align-items:flex-start;cursor:pointer;width:100%;text-align:left;font-family:inherit;background:transparent;border:0;}
+.page-docs .quoterow .doc-pub{margin-top:3px;}
+.page-docs .quoterow .doc-pill{margin-top:1px;}
+.page-docs .doc-quote{display:block;font-size:14px;font-weight:600;color:var(--ink);line-height:1.55;}
+.page-docs .doc-quote mark{background:var(--az-gold-100);color:var(--az-gold-d);border-radius:3px;padding:0 3px;font-weight:800;}
+.page-docs .tray .doc-quote{font-size:13.5px;}
+/* The A1 affordance: the page pill grows an arrow and lights gold, the same
+   cue the browse rows' "Open" pill already carries. :focus-visible is listed
+   beside :hover because the row is reachable by keyboard and the cue must not
+   be mouse-only. */
+.page-docs .quoterow .doc-pill .go{display:inline-block;transition:transform .14s;}
+.page-docs .quoterow:hover .doc-pill,.page-docs .quoterow:focus-visible .doc-pill{border-color:var(--az-gold);color:var(--az-gold-d);background:var(--az-gold-100);}
+.page-docs .quoterow:hover .doc-pill .go{transform:translateX(2px);}
+/* Expanded passages: white tiles on the dashed block's tint, and NO border-top
+   on the tray — the identity row and the tiles are one continuous surface
+   (Destin, 2026-08-10). Spacing dialled in on sliders the same day:
+   10 / 5 / 12 / 14 / 10 / 14.
+   NOTE the `.open` in the selector. The base rule is
+   `.page-docs .ctx .tray.open{display:block}` — one class MORE specific than
+   `.page-docs .ctx .tray` — so a plain `display:flex` here LOSES, the tray
+   stays block-laid-out, and `gap` is silently ignored. */
+.page-docs .ctx-row{padding-bottom:10px;}
+.page-docs .ctx .tray.open{padding:0 14px 12px;display:flex;flex-direction:column;gap:5px;}
+.page-docs .ctx .tray .doc{background:#fff;border:1px solid var(--line);border-radius:var(--r-sm);padding:10px 14px;box-shadow:var(--shadow-sm);}
+.page-docs .ctx .tray .doc:hover{border-color:var(--az-gold);background:#fff;}
+
 /* ===== Settings stub (replaced by the real Settings surface in Plan 5) =====
    No mockup counterpart exists yet, so this borrows the mockup's `.card` panel above
    and reuses existing mockup values: the 34px/12px page padding from home's
