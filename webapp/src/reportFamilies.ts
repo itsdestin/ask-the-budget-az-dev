@@ -32,6 +32,22 @@ export function familyOf(docType: string): string {
   return FAMILY_OF_DOC_TYPE[docType] ?? docType;
 }
 
+/** Every doc_type slug that belongs to a family — the inverse of `familyOf`.
+ *
+ *  Derived from FAMILY_OF_DOC_TYPE rather than written out a second time: two
+ *  hand-maintained lists of the same slugs is exactly how a filter silently
+ *  stops matching a doc_type someone added to only one of them.
+ *
+ *  A family with no curated slugs maps to ITSELF, because `familyOf` returns
+ *  the raw slug for an unrecognised doc_type — so for those, the family name
+ *  and the slug are the same string. */
+export function slugsForFamily(family: string): string[] {
+  const slugs = Object.entries(FAMILY_OF_DOC_TYPE)
+    .filter(([, name]) => name === family)
+    .map(([slug]) => slug);
+  return slugs.length ? slugs : [family];
+}
+
 /** "FY 2027 Baseline" — or just the family name when the year is unknown. */
 export function familyTitle(family: string, fiscalYear: number | null): string {
   return fiscalYear === null ? family : `FY ${fiscalYear} ${family}`;
