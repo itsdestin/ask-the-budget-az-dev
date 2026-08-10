@@ -7,6 +7,7 @@ import * as api from "../api";
 import { publisherLabel } from "../publishers";
 import { SearchIcon } from "../components/SearchIcon";
 import { BookIcon, ChevronIcon, DocIcon, OpenIcon } from "../components/DocIcons";
+import { ReportChooser } from "../components/ReportChooser";
 import { familyOf, familyTitle, reportFormats } from "../reportFamilies";
 
 // Budget Documents — a browse-first directory, rebuilt 2026-08-03 from the
@@ -196,29 +197,58 @@ function DocRow({ doc }: { doc: api.CorpusDocument }) {
   );
 }
 
-/** A whole-REPORT top-level row (idle state): "FY Y Family". Clicking opens
- *  the single-file PDF when a hand-verified URL exists, else the family's
- *  first document (which itself may be unlinked). */
-function ReportRow({ year, family, docs }: { year: number; family: string; docs: api.CorpusDocument[] }) {
+/** A whole-REPORT top-level row: "FY Y Family".
+ *
+ *  The row IS the report, so its action is the report — "Full report"
+ *  REPLACES the generic "Open" pill, and the duplicate button is gone from the
+ *  dashed block below (Destin, 2026-08-10).
+ *
+ *  THE RULE, unchanged from master: both formats -> ask which; exactly one ->
+ *  go straight to it (a one-option chooser is pointless); neither -> no pill,
+ *  and the row renders unlinked rather than as a dead href.
+ *
+ *  WHY the both-formats case is a <button> and not an <a>: the click has to
+ *  open a dialog, and an interactive control nested inside a link is invalid
+ *  markup. `.doc.rowbtn` carries UA resets only, so it looks identical to the
+ *  anchors beside it. */
+function ReportRow({
+  year,
+  family,
+  docs,
+  onChoose,
+}: {
+  year: number;
+  family: string;
+  docs: api.CorpusDocument[];
+  onChoose: () => void;
+}) {
   const title = familyTitle(family, year === 0 ? null : year);
   // A report family's documents share one publisher in this corpus, so the
   // chip reads the first document's — same posture as the mockup.
   const publisher = docs[0]?.publisher ?? "";
-  const { singleFile } = reportFormats(family, year === 0 ? null : year);
-  const href = singleFile ?? docs[0]?.doc_url ?? null;
+  const { singleFile, linkedToc } = reportFormats(family, year === 0 ? null : year);
+  const both = Boolean(singleFile && linkedToc);
+  const href = singleFile ?? linkedToc ?? docs[0]?.doc_url ?? null;
   const body = (
     <>
       <PubChip publisher={publisher} />
       <div className="doc-main">
         <span className="doc-title">{title}</span>
       </div>
-      {href && (
-        <span className="doc-pill">
-          <OpenIcon /> Open
+      {(both || href) && (
+        <span className="doc-pill is-full">
+          <BookIcon /> Full report
         </span>
       )}
     </>
   );
+  if (both) {
+    return (
+      <button type="button" className="doc rowbtn" onClick={onChoose}>
+        {body}
+      </button>
+    );
+  }
   return href ? (
     <a className="doc" href={href} target="_blank" rel="noopener noreferrer">
       {body}
@@ -247,15 +277,16 @@ function FamilyCard({
   query,
   trayOpen,
   onToggleTray,
+  onChoose,
 }: {
   year: number;
   group: FamilyGroup;
   query: string;
   trayOpen: boolean;
   onToggleTray: () => void;
+  onChoose: () => void;
 }) {
   const searching = query !== "";
-  const { singleFile } = reportFormats(group.family, year === 0 ? null : year);
   const title = familyTitle(group.family, year === 0 ? null : year);
 
   if (!searching) {
@@ -266,13 +297,13 @@ function FamilyCard({
     if (docs.length === 1) {
       return (
         <article className="grp">
-          <ReportRow year={year} family={group.family} docs={docs} />
+          <ReportRow year={year} family={group.family} docs={docs} onChoose={onChoose} />
         </article>
       );
     }
     return (
       <article className="grp">
-        <ReportRow year={year} family={group.family} docs={docs} />
+        <ReportRow year={year} family={group.family} docs={docs} onChoose={onChoose} />
         <div className="ctx">
           <div className="ctx-row">
             <span className="badge">
@@ -291,11 +322,6 @@ function FamilyCard({
             >
               {trayOpen ? "Hide sections" : "Browse sections"} <ChevronIcon />
             </button>
-            {singleFile && (
-              <a className="grp-full" href={singleFile} target="_blank" rel="noopener noreferrer">
-                <BookIcon /> Full report
-              </a>
-            )}
           </div>
           {trayOpen && (
             <div className="tray open">
@@ -334,11 +360,6 @@ function FamilyCard({
               <ChevronIcon />
             </button>
           )}
-          {singleFile && (
-            <a className="grp-full" href={singleFile} target="_blank" rel="noopener noreferrer">
-              <BookIcon /> Full report
-            </a>
-          )}
         </div>
         {trayOpen && siblings.length > 0 && (
           <div className="tray open">
@@ -368,6 +389,7 @@ const YearCard = memo(function YearCard({
   onToggleYear,
   openTrays,
   onToggleTray,
+  onChoose,
 }: {
   year: number;
   families: FamilyGroup[];
@@ -376,6 +398,7 @@ const YearCard = memo(function YearCard({
   onToggleYear: (year: number) => void;
   openTrays: ReadonlySet<string>;
   onToggleTray: (key: string) => void;
+  onChoose: (year: number, family: string) => void;
 }) {
   const yearLabel = year === 0 ? "Fiscal year unknown" : `Fiscal Year ${year}`;
   return (
@@ -409,6 +432,7 @@ const YearCard = memo(function YearCard({
             query={query}
             trayOpen={openTrays.has(`${year}|${f.family}`)}
             onToggleTray={() => onToggleTray(`${year}|${f.family}`)}
+            onChoose={() => onChoose(year, f.family)}
           />
         ))}
       </div>
@@ -539,6 +563,12 @@ export function Search() {
   // "year|family" keys with an open tray.
   const [openTrays, setOpenTrays] = useState<ReadonlySet<string>>(new Set());
   const box = useRef<HTMLInputElement>(null);
+  // Which report's format chooser is open, or null. WHY it lives on the page
+  // and not inside the card: `.report-modal` is `position:fixed`, and every
+  // rule for it is scoped under `.page-docs` — mounted outside this <main> it
+  // gets NO styling and paints as an unstyled block. (Hit exactly once, in
+  // mockups/report-format-chooser.html.)
+  const [chooser, setChooser] = useState<{ year: number; family: string } | null>(null);
 
   // One-way sync FROM the URL: a ?q= arriving while the page is mounted (Home
   // hero, back/forward) replaces the box. Typing does NOT write the URL.
@@ -802,6 +832,7 @@ export function Search() {
                       query={q}
                       trayOpen={openTrays.has(`${year}|${family.family}`)}
                       onToggleTray={() => toggleTray(`${year}|${family.family}`)}
+                      onChoose={() => setChooser({ year, family: family.family })}
                     />
                   ))
                 )}
@@ -837,12 +868,21 @@ export function Search() {
                   onToggleYear={toggleYearCard}
                   openTrays={openTrays}
                   onToggleTray={toggleTray}
+                  onChoose={(y, family) => setChooser({ year: y, family })}
                 />
               ))
             )}
           </div>
         </div>
       </div>
+
+      {chooser && (
+        <ReportChooser
+          title={familyTitle(chooser.family, chooser.year === 0 ? null : chooser.year)}
+          formats={reportFormats(chooser.family, chooser.year === 0 ? null : chooser.year)}
+          onClose={() => setChooser(null)}
+        />
+      )}
     </main>
   );
 }

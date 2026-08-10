@@ -96,18 +96,48 @@ test("single-document families get no dashed tray", async () => {
   expect(afr.closest(".grp")!.querySelector(".ctx")).toBeNull();
 });
 
-test("full-report links appear only where a hand-verified URL exists", async () => {
+test("full-report actions appear only where a hand-verified URL exists", async () => {
   mount();
   await screen.findByRole("button", { name: /Fiscal Year 2027:/i });
-  // FY 2027 Baseline has a verified single-file URL.
-  expect(screen.getByRole("link", { name: /full report/i })).toHaveAttribute(
-    "href",
-    "https://www.azjlbc.gov/budget/27baselinesinglefile.pdf",
-  );
-  // FY 2026's families have none.
+  // FY 2027 Baseline has BOTH formats — a chooser button, not a link.
+  expect(screen.getByText("FY 2027 Baseline").closest(".doc")!).toHaveTextContent(/full report/i);
+  // FY 2026's Budget Bill has neither format AND no doc_url: no pill at all.
   fireEvent.click(screen.getByRole("button", { name: /Fiscal Year 2026:/i }));
-  const y26card = document.querySelector('[data-year-card="2026"]') as HTMLElement;
-  expect(within(y26card).queryByRole("link", { name: /full report/i })).toBeNull();
+  const bill = screen.getByText("FY 2026 Budget Bill").closest(".doc")!;
+  expect(bill).not.toHaveTextContent(/full report/i);
+  expect(bill).toHaveClass("doc-unlinked");
+});
+
+test("the report row's own action is Full report, not a generic Open", async () => {
+  mount();
+  await screen.findByRole("button", { name: /Fiscal Year 2027:/i });
+  const row = screen.getByText("FY 2027 Baseline").closest(".doc")!;
+  expect(row).toHaveTextContent(/full report/i);
+  expect(row).not.toHaveTextContent(/^Open$/);
+  // …and the dashed block below no longer repeats it.
+  const card = row.closest(".grp")!;
+  expect(card.querySelector(".ctx")!.textContent).not.toMatch(/full report/i);
+});
+
+test("a report with BOTH formats opens the chooser instead of navigating", async () => {
+  mount();
+  await screen.findByRole("button", { name: /Fiscal Year 2027:/i });
+  // FY 2027 Baseline has both a single-file and a linked-TOC URL, so its row
+  // must be a button — an interactive pill nested in an <a> is invalid markup.
+  const row = screen.getByText("FY 2027 Baseline").closest(".doc")!;
+  expect(row.tagName).toBe("BUTTON");
+  fireEvent.click(row);
+  expect(screen.getByRole("dialog", { name: /open the full report/i })).toBeInTheDocument();
+  expect(screen.getByRole("link", { name: /linked table of contents/i })).toBeInTheDocument();
+});
+
+test("a report with ONE format links straight to it — no pointless chooser", async () => {
+  mount();
+  fireEvent.click(await screen.findByRole("button", { name: /Fiscal Year 2026:/i }));
+  const row = screen.getByText("FY 2026 Annual Financial Report").closest(".doc")!;
+  expect(row.tagName).toBe("A");
+  fireEvent.click(row);
+  expect(screen.queryByRole("dialog")).toBeNull();
 });
 
 // --- the publisher chip (folded vocabulary) ---------------------------------
