@@ -99,19 +99,28 @@ function escapeRegExp(s: string): string {
  *
  *  The ONE exclusion is EMPTY tokens — the blank strings `split` leaves at a
  *  leading/trailing delimiter (`"(b)".split(...)` yields `["", "b", ""]`).
- *  It is not a length rule and it is not a stopword rule: a possessive's
- *  trailing "s" is stripped a line above by matching "'s" as one unit, so it
+ *  It is not a length rule and it is not a stopword rule: a possessive’s
+ *  trailing "s" is stripped a line above by matching "’s" as one unit, so it
  *  never reaches the split as a lone letter needing a separate filter — and a
  *  single typed CHARACTER still marks (verified by the "(b)" escaping test
  *  below: the query "(b)" must mark literal "b", so a `length > 1` guard,
  *  which was tried, silently breaks it). Three-character domain terms are
  *  deliberately kept too — there is a test for exactly that.
  *
+ *  COST of accepting single-character tokens: legislation in this corpus is
+ *  routinely written as "H.B. 2001" / "S.B. 1001", which tokenise to
+ *  ["h", "b", "2001"] and ["s", "b", "1001"]. A single-character token now
+ *  matches any standalone h, b, or s in a passage — including enumerated list
+ *  markers like "(a)", "(b)", "(c)". This tradeoff is accepted because the
+ *  alternative — a conditional guard that treats single-character tokens
+ *  differently depending on query structure — adds more special-casing than
+ *  the tests warrant.
+ *
  *  Longest-first because the alternation below is ordered: with "child" and
  *  "childcare" both typed, the shorter one would otherwise win the prefix. */
 export function queryTerms(query: string): string[] {
   const seen = new Set<string>();
-  for (const raw of query.toLowerCase().replace(/[’']s\b/g, "").split(/[^a-z0-9]+/)) {
+  for (const raw of query.toLowerCase().replace(/['’]s\b/g, "").split(/[^a-z0-9]+/)) {
     if (raw.length > 0) seen.add(raw);
   }
   return [...seen].sort((a, b) => b.length - a.length);
@@ -132,7 +141,11 @@ export function highlightTerms(
   text: string,
   terms: string[],
 ): { text: string; hit: boolean }[] {
-  const re = termsPattern(terms);
+  // Filter empty strings to prevent zero-length regex matches. While queryTerms
+  // already filters them, this function is exported for future callers that may
+  // build term arrays directly, so enforce the precondition at the boundary.
+  const nonEmptyTerms = terms.filter((t) => t.length > 0);
+  const re = termsPattern(nonEmptyTerms);
   if (!re) return [{ text, hit: false }];
   const runs: { text: string; hit: boolean }[] = [];
   let i = 0;

@@ -1,5 +1,5 @@
 import type { SearchResult } from "../api";
-import { groupPassages, highlight, queryTerms, toSearchFilters } from "./contentSearch";
+import { groupPassages, highlight, highlightTerms, queryTerms, toSearchFilters } from "./contentSearch";
 import { slugsForFamily } from "../reportFamilies";
 
 function hit(over: Partial<SearchResult>): SearchResult {
@@ -116,4 +116,18 @@ test("regex metacharacters in the query are literal, not patterns", () => {
 test("no match, or an empty query, returns one plain run", () => {
   expect(highlight("nothing here", "zzz")).toEqual([{ text: "nothing here", hit: false }]);
   expect(highlight("nothing here", "   ")).toEqual([{ text: "nothing here", hit: false }]);
+});
+
+test("highlightTerms filters out empty strings to prevent spurious zero-length matches", () => {
+  // A direct call to highlightTerms with an empty string in the terms array
+  // must not produce empty-text runs or spurious hits. This enforces the
+  // precondition at the function boundary for future callers that build term
+  // arrays directly.
+  const runs = highlightTerms("the fund for schools", ["the", "", "fund"]);
+
+  // No run should have empty text
+  expect(runs.every((r) => r.text.length > 0)).toBe(true);
+
+  // Verify that the correct matches still occur (the two non-empty terms)
+  expect(runs.filter((r) => r.hit).map((r) => r.text)).toEqual(["the", "fund"]);
 });
