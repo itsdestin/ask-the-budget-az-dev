@@ -1,6 +1,6 @@
 # AI Mode persistent conversation — design
 
-**Status:** approved in brainstorming 2026-08-11. Not yet planned or built.
+**Status:** approved in brainstorming 2026-08-11. Planned, built, browser-tested and MERGED the same day (`28567f0`). Current state lives in `STATUS.md`, not here.
 
 **Goal.** Two things an analyst asked for after using the shipped chat history:
 

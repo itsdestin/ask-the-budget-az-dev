@@ -38,7 +38,7 @@ source. When something ships, update only this file.
 | Query understanding | ✓ Shipped (2026-08-03) | Agency / doc-type / JLBC-shorthand parsing. recall@5 73.81% → 88.10%, recall@15 and @20 100%. Agency is a PREFERENCE, not a filter — a measured deviation from spec Q2 |
 | Budget Documents highlighting + book sections | ✓ **Shipped (2026-08-11)**, one browser check outstanding | Query highlighting marked NOTHING (measured 0 of 200 cards); now 96.5%. 647 documents rendering under raw slugs (`s-pdf`, `bd-pdf`) fold into the books they are sections of. See the section below |
 | AI Mode chat history | ✓ Shipped (2026-08-03), **reviewed and hardened 2026-08-11** | Per-device transcripts, browse/search/resume past chats, auto-naming, collapsible rail. Local disk only — never the share. A second review found ELEVEN defects, four of them silent data loss; all fixed. See the section below |
-| AI Mode persistent conversation | 🟡 **Code complete, NOT seen in a browser** (2026-08-11) | "+ New chat" shows a row at once; the conversation survives a tab switch and keeps streaming. 741 vitest / `tsc -b` clean. **The four headline behaviours have never been watched working — this machine has no OpenRouter key.** See the section below |
+| AI Mode persistent conversation | ✓ **Shipped, browser-tested, merged `28567f0`** (2026-08-11) | "+ New chat" shows a row at once; the conversation survives a tab switch and keeps streaming. 742 vitest / `tsc -b` clean. Destin tested and accepted; browser testing found a two-rows-look-selected defect, fixed. Four Minors carried, and P5 (close-tab-still-aborts) is still unwatched. See the section below |
 
 ## Corpus — what is ingested and what is NOT (2026-08-01)
 
@@ -206,6 +206,18 @@ boost has the same blind spot.
 
 ## What's next
 
+- **⚠ THIS DEV MACHINE HAS A WORKING OPENROUTER KEY (confirmed 2026-08-11).**
+  Several sections below say a task "needs a machine with an OpenRouter key"
+  or that `ai_available` reports *"no API key configured"* here. **That is
+  stale.** `<data_dir>/settings.json` has carried a live `openrouter` provider
+  key since 2026-08-09 (Standard `z-ai/glm-5.2`, Deep Research
+  `moonshotai/kimi-k3`), and `GET /api/ai/status` returns `available: true`.
+  A session on 2026-08-11 wrote "no key on this machine" into STATUS.md on the
+  strength of one bad probe and nearly deferred a whole browser pass to
+  another machine over it — **check `/api/ai/status`, not a half-remembered
+  note.** What is genuinely still true of the paid work (the 31-query Layer 2
+  baseline, the glm-vs-deepseek head-to-head) is that **it spends Destin's
+  real money**, so it needs his go-ahead — not that it is technically blocked.
 - **Attested citation linking — SHIPPED AND VERIFIED LIVE 2026-08-11**
   (section below). The model tags each figure with the passage it came from
   and the system verifies the tag; document-authority ranking is deleted.
@@ -814,6 +826,12 @@ Suites after all three: **1997 pytest, 459 vitest, `tsc -b` exit 0.**
 
 Plan Task 12 Steps 3–4 could not run here: `ai_available` reports **"no
 API key configured"** on this machine, and both steps spend real money.
+
+> ⚠ **That "no API key" claim is STALE — see the note under "What's next".**
+> A working OpenRouter key has been in `<data_dir>/settings.json` since
+> 2026-08-09 and `/api/ai/status` reports `available: true`. This section is
+> historical anyway (the design it belongs to was superseded), but the same
+> stale belief was repeated in later sections and cost a session real time.
 **Runbook: [`PROMPT-citation-linking-baseline.md`](PROMPT-citation-linking-baseline.md)**
 — it carries the exact commands, the expected metric directions, and the
 browser checks.
@@ -1350,7 +1368,7 @@ revisit now that eviction is no longer data loss.
 
 ---
 
-## AI Mode persistent conversation — code complete, UNWATCHED (2026-08-11)
+## AI Mode persistent conversation — shipped (2026-08-11)
 
 Spec: `docs/superpowers/specs/2026-08-11-ai-mode-persistent-conversation-design.md`
 (P1–P8). Plan: `docs/superpowers/plans/2026-08-11-ai-mode-persistent-conversation.md`.
@@ -1358,7 +1376,7 @@ Two things Destin asked for after using the shipped chat history: a new chat
 should appear in the rail the moment it starts, and the conversation should
 survive clicking Budget Documents. **Webapp-only** — nothing under `app/`,
 `harness/`, `retrieval/`, `ingest/`, `chunking/` or `citation/`, so the eval
-rule does not apply and no eval was run. **741 vitest / 73 files, `tsc -b`
+rule does not apply and no eval was run. **742 vitest / 73 files, `tsc -b`
 exit 0** (baseline 693: +18 here, ~30 from master since branching).
 
 ### As shipped
@@ -1425,28 +1443,54 @@ deleting chat A then clicking chat B mid-flight discarded B); and the shipped
 Both that race and `INERT_CHAT.send`'s synchronous throw are now pinned by
 specs verified failing against the exact broken versions.
 
-### 🟡 OUTSTANDING — nobody has watched any of it work
+### ✅ Browser-tested by Destin and accepted (2026-08-11)
 
-**No OpenRouter key on the dev machine**, so `/ai` renders the gate and no turn
-was ever driven. Headless Chrome on the merged build did confirm: all five
-routes render, `ai-fullpage` stays scoped to `/ai`, the no-key gate is correct,
-and **zero `POST /api/conversations`** across every route — so the hoisted
-`useChat` is genuinely inert and H2 holds. But the four headline behaviours are
-covered by jsdom alone, and jsdom missed six defects on this feature's
-predecessor. **On a keyed machine, confirm:**
+Destin drove the merged build at `:9300` against the real corpus and signed it
+off ("this looks good. safe to merge"). **One defect came out of that session
+and is fixed** — see below. What he did NOT do is walk the seven-item
+checklist item by item, so treat the individual rows below as *unconfirmed
+rather than failed*; they are worth a look next time someone is in there.
 
-1. "+ New chat" → a selected "New chat" row under *Today* at once, no ✎ or ✕.
-2. Ask a question → the row keeps its place and takes a real title; never two
-   rows, never zero.
-3. Deep Research streaming → click Budget Documents, wait, come back: the
-   answer is there and no availability gate appears.
-4. Corpus switch mid-conversation → thread clears, tier back to Standard.
-5. **Close the tab mid-turn** → the server logs the turn ending. This is P5,
-   the only safety property here, and no test on this branch can reach it.
-6. Delete the chat you are looking at, having reached it by ASKING rather than
-   clicking the rail → expect the known cosmetic defect below.
-7. Add an API key to an install that had none, then visit `/ai` → watch for a
-   stale "unavailable" flash.
+Automated, on the merged build: headless Chrome confirmed all five routes
+render, `ai-fullpage` stays scoped to `/ai`, and **zero
+`POST /api/conversations`** across every route — so the hoisted `useChat` is
+genuinely inert on every page and H2's browsing-is-free holds.
+
+Still worth eyes, none of it reachable by jsdom:
+
+1. **Close the tab mid-turn** → the server should log the turn ending rather
+   than streaming on. **This is P5, the only safety property in this change,
+   and no test on this branch can reach it.** The highest-value unchecked item.
+2. Deep Research streaming → leave to Budget Documents, wait, come back: no
+   availability gate over the live answer.
+3. Corpus switch mid-conversation → thread clears, tier back to Standard, and
+   watch what an open source panel does (that is the second Minor below).
+4. Add an API key to an install that had none, then visit `/ai` → watch for a
+   stale "unavailable" flash (third Minor below).
+
+### 🔴 The one defect browser testing found: two rows looked selected
+
+`:hover` and `.is-active` both painted `background:var(--card)` — identical —
+so pointing at any row in the history rail lit **two** rows and the rail
+stopped answering the one question it exists to answer: which chat am I in?
+
+Fixed by suppressing the ACTIVE row's highlight while the pointer is over some
+other row (`.history-rail-list:hover .history-rail-item.is-active:not(:hover)`),
+covering background, shadow AND the gold title colour. Re-tinting hover was
+rejected: a second colour still leaves two lit rows. `:not(:hover)` is what
+keeps the open chat lit when you point at it, the common case. The
+rename/delete actions deliberately keep their opacity — they are an affordance,
+not a selection signal, and hiding them mid-reach would move a click target out
+from under the pointer.
+
+Pinned by a spec in `chat-css-contract.test.ts` that also asserts the
+**precondition** — that hover and active still share a background — so anyone
+who later re-tints hover is told to re-read this rule rather than left with a
+suppression that has silently stopped doing anything.
+
+**This is the fourth time on this feature that something passed every test and
+was wrong on screen**, after the three plan-code defects above. 742 vitest did
+not see it; one minute of pointing at the rail did.
 
 ### Four known Minors, deliberately carried
 
