@@ -819,7 +819,18 @@ nothing."
 
 **Type consistency.** `search_terms(doc_id, doc_type, fiscal_year) -> list[str]` is defined in Task 2 and called with those three arguments in Task 3. `SHORTHAND_DOC_TYPE` is made public in Task 1 and imported in Task 2. `CorpusDocument.terms: string[]` is produced in Task 3 and read in Task 4.
 
-**Ordering.** Task 2 imports `SHORTHAND_DOC_TYPE` from Task 1, so Task 1 must land first. Tasks 3 and 4 are strictly sequential after it. There is no parallel opportunity in this plan — every task consumes the previous one's interface.
+**Ordering.** Task 2 imports `SHORTHAND_DOC_TYPE` from Task 1, and Task 3 imports `search_terms` from Task 2, so 1 → 2 → 3 is a hard chain.
+
+**Task 4 is NOT in that chain.** It consumes only the *contract* `terms: string[]`, which this plan specifies; its tests hand fixtures their terms directly, because the client never computes them. Its files (`webapp/src/**`) are disjoint from Tasks 1–3 (`retrieval/`, `app/`, `tests/`). So Task 4 can run concurrently with Task 1, and the two halves meet at the end:
+
+| Wave | Concurrent |
+|---|---|
+| A | Task 1 ∥ Task 4 |
+| B | Task 2 ∥ review of 1 ∥ review of 4 |
+| C | Task 3 ∥ review of 2 |
+| D | review of 3, then the whole-branch review |
+
+The end-to-end check that the two halves actually agree — real terms from the route reaching the real matcher — is Task 4 Step 6, which runs against the live corpus and must therefore be run **after** Task 3 lands, even though the rest of Task 4 does not wait for it.
 
 **Two assumptions found and resolved during review**, rather than left for the implementer to hit:
 
