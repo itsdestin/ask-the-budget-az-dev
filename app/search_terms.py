@@ -19,11 +19,13 @@ Design: docs/superpowers/specs/2026-08-11-title-filter-shorthand-design.md
 """
 from __future__ import annotations
 
+import sys
 from functools import lru_cache
 
-# Only used to name the two exceptions a bad catalog FILE can raise (see
-# _catalog_by_slug's narrowed try/except, 2026-08-11 review fix). Already in
-# this module's dependency closure via chunking/agency_catalog.py.
+# Only used to name the exceptions a bad catalog FILE can raise (see
+# _catalog_by_slug's narrowed try/except, 2026-08-11 review fix, widened to
+# three exceptions by review finding 4). Already in this module's dependency
+# closure via chunking/agency_catalog.py.
 import yaml
 
 # The lists below were tuned for QUESTIONS, where a stray "for" hard-filtered 13
@@ -80,21 +82,37 @@ def _doc_type_forms() -> dict[str, tuple[str, ...]]:
 
 
 @lru_cache(maxsize=1)
-def _catalog_by_slug() -> dict[str, tuple[str, tuple[str, ...]]]:
+def _catalog_by_slug_cached() -> dict[str, tuple[str, tuple[str, ...]]]:
     """`{slug: (canonical_id, aliases)}` for every agency that has a slug.
 
     ~a dozen catalog entries are Gov-outline-only and carry `slug: None`; they
     are skipped rather than keyed under None.
 
-    Narrowed 2026-08-11 (review fix): only the catalog READ is guarded below
-    — an unreadable or missing YAML file degrades to an empty catalog, same
-    rule as `app.routes.corpus.budget_doc_ids`. The per-entry loop that
-    follows is deliberately OUTSIDE the try: it used to be inside a bare
-    `except Exception`, so a field renamed on `AgencyEntry` (`.slug`,
-    `.aliases`, `.canonical_id`) raised `AttributeError` and was silently
-    absorbed as "catalog unreadable" — shipping a corpus with zero agency
-    terms and nothing logged to say why. A renamed field is a programming
-    bug, not a bad file, and must raise.
+    Narrowed 2026-08-11 (review fix): only the catalog READ, inside
+    `load_agency_catalog()`, is meant to degrade — see `_catalog_by_slug`
+    below, the wrapper that actually catches it. The per-entry loop here is
+    deliberately UNGUARDED: it used to sit inside a bare `except Exception`,
+    so a field renamed on `AgencyEntry` (`.slug`, `.aliases`,
+    `.canonical_id`) raised `AttributeError` and was silently absorbed as
+    "catalog unreadable" — shipping a corpus with zero agency terms and
+    nothing logged to say why. A renamed field is a programming bug, not a
+    bad file, and must raise.
+
+    (2026-08-11 review finding 4, considered and rejected: also catching the
+    valid-YAML-but-wrong-shape case — `raw.get("agencies", ...)` raising
+    `AttributeError` inside `load_agency_catalog` itself. That AttributeError
+    is indistinguishable from the renamed-field bug above, so catching it
+    would silently reopen the exact hole the paragraph above closes.)
+
+    THIS function must let a failed `load_agency_catalog()` call raise
+    rather than catching it and returning `{}` here — `lru_cache` only
+    memoizes a `return`, never a raise. Catching in here (as the
+    pre-2026-08-11-review-finding-1 version of this module did, before the
+    split into this function and `_catalog_by_slug`) let one transient read
+    failure get cached as "the catalog is empty" for the rest of the
+    process. `_catalog_by_slug` is the uncached wrapper that catches the
+    raise, logs why, and lets the NEXT call retry instead of replaying a
+    stale failure forever.
 
     Also caches on top of `load_agency_catalog`'s own `lru_cache`
     (chunking/agency_catalog.py:72) — deliberate, not a missed dedupe: that
@@ -103,10 +121,7 @@ def _catalog_by_slug() -> dict[str, tuple[str, tuple[str, ...]]]:
     """
     from chunking.agency_catalog import load_agency_catalog
 
-    try:
-        catalog = load_agency_catalog()
-    except (OSError, yaml.YAMLError):
-        return {}
+    catalog = load_agency_catalog()
 
     out: dict[str, tuple[str, tuple[str, ...]]] = {}
     for entry in catalog.values():
@@ -115,6 +130,39 @@ def _catalog_by_slug() -> dict[str, tuple[str, tuple[str, ...]]]:
         aliases = tuple(a.lower() for a in (entry.aliases or []))
         out[entry.slug.lower()] = (entry.canonical_id, aliases)
     return out
+
+
+def _catalog_by_slug() -> dict[str, tuple[str, tuple[str, ...]]]:
+    """`_catalog_by_slug_cached()`, with a failed catalog READ degraded to
+    `{}` instead of raising.
+
+    2026-08-11 review finding 1: a failed read must not become a PERMANENT
+    empty catalog. Catching HERE — outside `_catalog_by_slug_cached`'s
+    `lru_cache(maxsize=1)` — means the failure is never memoized: the next
+    call re-invokes `_catalog_by_slug_cached`, which retries
+    `load_agency_catalog` fresh. A transient failure (a file lock, an AV
+    scan, a bad packaging run) self-heals on the next request instead of
+    silently zeroing agency terms for the life of the process. A successful
+    read still only ever parses the ~10k-line YAML once, same as before.
+
+    2026-08-11 review finding 4: `UnicodeDecodeError` is a `ValueError`, not
+    an `OSError` — `Path.read_text` raises it for a mis-encoded catalog
+    file. That is bad DATA, the same posture as a missing file or bad YAML,
+    so it degrades here too.
+    """
+    try:
+        return _catalog_by_slug_cached()
+    except (OSError, yaml.YAMLError, UnicodeDecodeError) as err:
+        # Say why, every time it happens — not just the first time — mirroring
+        # store.documents's "degrades ... and says why on stderr" convention
+        # (store/documents.py's `_load_cached`).
+        print(
+            f"app.search_terms: ignoring the agency catalog ({err}) — agency "
+            'search terms ("dema", "ema") are unavailable this request; '
+            'type shorthand ("26br") still works. Will retry next request.',
+            file=sys.stderr,
+        )
+        return {}
 
 
 def _agency_terms(doc_id: str) -> set[str]:

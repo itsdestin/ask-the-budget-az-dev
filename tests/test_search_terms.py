@@ -9,7 +9,12 @@ from __future__ import annotations
 
 import pytest
 
-from app.search_terms import _catalog_by_slug, search_terms
+from app.search_terms import (
+    _catalog_by_slug,
+    _catalog_by_slug_cached,
+    _doc_type_forms,
+    search_terms,
+)
 
 
 def test_a_per_agency_document_carries_its_slug_and_reviewed_aliases():
@@ -102,13 +107,13 @@ def test_an_unreadable_catalog_degrades_to_no_agency_terms(monkeypatch):
     #
     # Adapted 2026-08-11 (review fix): the guard used to wrap the whole of
     # `_catalog_by_slug`, so patching that function to raise exercised it.
-    # It now wraps only the catalog READ inside `_catalog_by_slug`
-    # (`load_agency_catalog`) — patching `_catalog_by_slug` itself would
-    # bypass the guard entirely and just assert monkeypatch works. Patch the
-    # loader it calls instead.
+    # It now wraps only the catalog READ, which happens inside
+    # `_catalog_by_slug_cached` (`load_agency_catalog`) — patching
+    # `_catalog_by_slug` itself would bypass the guard entirely and just
+    # assert monkeypatch works. Patch the loader it calls instead.
     #
-    # `_catalog_by_slug` is `lru_cache(maxsize=1)` — process-wide, not per
-    # test — so a successful call from an earlier test would otherwise
+    # `_catalog_by_slug_cached` is `lru_cache(maxsize=1)` — process-wide, not
+    # per test — so a successful call from an earlier test would otherwise
     # short-circuit ours (never reaching the patched loader), and a
     # successful call from THIS test would otherwise leave every later test
     # reading an empty catalog. Clear before (force a fresh call through the
@@ -118,11 +123,11 @@ def test_an_unreadable_catalog_degrades_to_no_agency_terms(monkeypatch):
         raise OSError("catalog unreadable")
 
     monkeypatch.setattr("chunking.agency_catalog.load_agency_catalog", boom)
-    _catalog_by_slug.cache_clear()
+    _catalog_by_slug_cached.cache_clear()
     try:
         terms = search_terms("jlbc-approps-fy2026-ema", "approps-per-agency", 2026)
     finally:
-        _catalog_by_slug.cache_clear()
+        _catalog_by_slug_cached.cache_clear()
     assert "ema" not in terms
     assert "26ar" in terms  # the type shorthand needs no catalog
 
@@ -141,9 +146,98 @@ def test_a_renamed_agency_entry_field_raises_instead_of_degrading(monkeypatch):
         return {"whatever": _RenamedEntry()}
 
     monkeypatch.setattr("chunking.agency_catalog.load_agency_catalog", bad_catalog)
-    _catalog_by_slug.cache_clear()  # see the cache note above
+    _catalog_by_slug_cached.cache_clear()  # see the cache note above
     try:
         with pytest.raises(AttributeError):
             search_terms("jlbc-approps-fy2026-ema", "approps-per-agency", 2026)
     finally:
-        _catalog_by_slug.cache_clear()
+        _catalog_by_slug_cached.cache_clear()
+
+
+def test_a_mis_encoded_catalog_file_degrades_same_as_an_unreadable_one(monkeypatch):
+    # 2026-08-11 review finding 4: `Path.read_text` raises `UnicodeDecodeError`
+    # on a mis-encoded file, which is a `ValueError` subclass, NOT an
+    # `OSError` — the pre-fix guard (`except (OSError, yaml.YAMLError)`)
+    # missed this and would have 500'd the whole listing on bad bytes rather
+    # than degrading like every other bad-catalog-FILE case.
+    def boom(*_a, **_kw):
+        raise UnicodeDecodeError("utf-8", b"\xff", 0, 1, "invalid start byte")
+
+    monkeypatch.setattr("chunking.agency_catalog.load_agency_catalog", boom)
+    _catalog_by_slug_cached.cache_clear()
+    try:
+        terms = search_terms("jlbc-approps-fy2026-ema", "approps-per-agency", 2026)
+    finally:
+        _catalog_by_slug_cached.cache_clear()
+    assert "ema" not in terms
+    assert "26ar" in terms  # the type shorthand needs no catalog
+
+
+def test_a_failed_catalog_read_is_retried_not_permanently_cached(monkeypatch, capsys):
+    # 2026-08-11 review finding 1: `_catalog_by_slug_cached` is
+    # `lru_cache(maxsize=1)` and only reaches its `return` on a SUCCESSFUL
+    # read (see that function's docstring) — a failed read raises out of it
+    # instead, so lru_cache never memoizes the failure. Simulate a read that
+    # fails once (a file lock, an AV scan) and then succeeds, and confirm the
+    # SECOND call sees real agency terms again rather than replaying a
+    # cached "catalog unreadable" forever.
+    from chunking.agency_catalog import load_agency_catalog as real_load_agency_catalog
+
+    calls = {"n": 0}
+
+    def flaky(*a, **kw):
+        calls["n"] += 1
+        if calls["n"] == 1:
+            raise OSError("simulated transient lock")
+        return real_load_agency_catalog(*a, **kw)
+
+    monkeypatch.setattr("chunking.agency_catalog.load_agency_catalog", flaky)
+    _catalog_by_slug_cached.cache_clear()
+    try:
+        # RED: the first call hits the simulated failure and degrades —
+        # and says why on stderr, per the module's own convention.
+        terms = search_terms("jlbc-approps-fy2026-ema", "approps-per-agency", 2026)
+        assert "ema" not in terms
+        assert "app.search_terms: ignoring the agency catalog" in capsys.readouterr().err
+
+        # GREEN: the second call is NOT served from a cached failure — it
+        # retries `load_agency_catalog`, which now succeeds, so agency terms
+        # are back to normal.
+        terms = search_terms("jlbc-approps-fy2026-ema", "approps-per-agency", 2026)
+        assert "ema" in terms
+        assert "dema" in terms
+    finally:
+        _catalog_by_slug_cached.cache_clear()
+
+
+def test_every_emitted_term_is_lowercase_nonempty_and_whitespace_free():
+    # 2026-08-11 review finding 5a: this is the ONLY test that runs real
+    # `search_terms` output against the invariant the client actually
+    # depends on. `webapp/src/pages/Search.tsx`'s `queryHit` lowercases the
+    # QUERY but never `d.terms` — it matches by exact token equality — so an
+    # uppercase or space-containing term would be one that can NEVER match,
+    # and nothing before this test would fail when that happens. Iterates
+    # every doc_type form and every real catalog entry, not a hand-picked
+    # sample, per the review finding's own instruction.
+    def _check(term: str) -> None:
+        assert term == term.lower(), f"{term!r} is not already lowercase"
+        assert term, "search_terms must never emit an empty string"
+        assert not any(ch.isspace() for ch in term), f"{term!r} contains whitespace"
+
+    for doc_type in _doc_type_forms():
+        for term in search_terms("some-doc-id", doc_type, 2026):
+            _check(term)
+
+    for slug in _catalog_by_slug():
+        terms = search_terms(f"jlbc-baseline-fy2026-{slug}", "baseline-per-agency", 2026)
+        for term in terms:
+            _check(term)
+
+
+def test_exec_terms_for_a_governors_budget_document():
+    # 2026-08-11 review finding 5b: `exec` is the one new shorthand form
+    # carrying an accepted risk (spec D9, "exec fires on ordinary prose") —
+    # it had no terms-side test at all before this.
+    terms = search_terms("ospb-exec-fy2027", "governors-budget", 2027)
+    assert "exec" in terms
+    assert "27exec" in terms
