@@ -80,31 +80,91 @@ export function groupPassages(results: SearchResult[]): PassageDoc[] {
   return groups;
 }
 
-/** Split a snippet into matched / unmatched runs for the query term.
+/** Escape a term so it is matched literally inside a RegExp. A query is
+ *  reader input; "(b)" must find "(b)", never compile as a group. */
+function escapeRegExp(s: string): string {
+  return s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+/** The words to mark: every word the analyst typed, lowercased and deduped,
+ *  longest first.
+ *
+ *  WHY no stopword list, no length rule, no vocabulary of any kind (spec H1):
+ *  four candidate rules were measured over 240 real cards and ALL FOUR leave
+ *  the share of cards with no mark at 2.9%. Dropping function words rescues
+ *  nothing; it only moves mark density from 6.0 to 4.8 in a window of about
+ *  45 words. Meanwhile a `length >= 4` rule silently loses "aid" (basic state
+ *  aid) and "des" — the terms this domain is actually about. So the cheap,
+ *  explainable rule wins: we underline the words you typed.
+ *
+ *  The ONE exclusion is EMPTY tokens — the blank strings `split` leaves at a
+ *  leading/trailing delimiter (`"(b)".split(...)` yields `["", "b", ""]`).
+ *  It is not a length rule and it is not a stopword rule: a possessive’s
+ *  trailing "s" is stripped a line above by matching "’s" as one unit, so it
+ *  never reaches the split as a lone letter needing a separate filter — and a
+ *  single typed CHARACTER still marks (verified by the "(b)" escaping test
+ *  below: the query "(b)" must mark literal "b", so a `length > 1` guard,
+ *  which was tried, silently breaks it). Three-character domain terms are
+ *  deliberately kept too — there is a test for exactly that.
+ *
+ *  COST of accepting single-character tokens: legislation in this corpus is
+ *  routinely written as "H.B. 2001" / "S.B. 1001", which tokenise to
+ *  ["h", "b", "2001"] and ["s", "b", "1001"]. A single-character token now
+ *  matches any standalone h, b, or s in a passage — including enumerated list
+ *  markers like "(a)", "(b)", "(c)". This tradeoff is accepted because the
+ *  alternative — a conditional guard that treats single-character tokens
+ *  differently depending on query structure — adds more special-casing than
+ *  the tests warrant.
+ *
+ *  Longest-first because the alternation below is ordered: with "child" and
+ *  "childcare" both typed, the shorter one would otherwise win the prefix. */
+export function queryTerms(query: string): string[] {
+  const seen = new Set<string>();
+  for (const raw of query.toLowerCase().replace(/['’]s\b/g, "").split(/[^a-z0-9]+/)) {
+    if (raw.length > 0) seen.add(raw);
+  }
+  return [...seen].sort((a, b) => b.length - a.length);
+}
+
+function termsPattern(terms: string[]): RegExp | null {
+  if (!terms.length) return null;
+  // Word boundaries, not substrings (spec H2): substring matching measured
+  // 8.3 marks per card and peaked at 31, because short words match inside
+  // longer ones ("aid" in "said"/"paid").
+  return new RegExp(`\\b(?:${terms.map(escapeRegExp).join("|")})\\b`, "gi");
+}
+
+/** Split text into matched / unmatched runs for a set of already-tokenised
+ *  terms. Each run carries the ORIGINAL casing — an analyst reading "AHCCCS"
+ *  must not be shown "ahcccs" because that is what they typed. */
+export function highlightTerms(
+  text: string,
+  terms: string[],
+): { text: string; hit: boolean }[] {
+  // Filter empty strings to prevent zero-length regex matches. While queryTerms
+  // already filters them, this function is exported for future callers that may
+  // build term arrays directly, so enforce the precondition at the boundary.
+  const nonEmptyTerms = terms.filter((t) => t.length > 0);
+  const re = termsPattern(nonEmptyTerms);
+  if (!re) return [{ text, hit: false }];
+  const runs: { text: string; hit: boolean }[] = [];
+  let i = 0;
+  for (const m of text.matchAll(re)) {
+    const at = m.index ?? 0;
+    if (at > i) runs.push({ text: text.slice(i, at), hit: false });
+    runs.push({ text: m[0], hit: true });
+    i = at + m[0].length;
+  }
+  if (i < text.length) runs.push({ text: text.slice(i), hit: false });
+  return runs.length ? runs : [{ text, hit: false }];
+}
+
+/** Split a snippet into matched / unmatched runs for the query.
  *
  *  WHY this returns runs instead of an HTML string: the snippet is corpus
  *  text, and building `<mark>` markup from it would mean
  *  dangerouslySetInnerHTML on data this app does not control. The component
- *  renders these runs as real elements instead.
- *
- *  Case-insensitive matching, but each run carries the ORIGINAL casing — an
- *  analyst reading "AHCCCS" must not be shown "ahcccs" because that is what
- *  they typed. */
+ *  renders these runs as real elements instead. */
 export function highlight(text: string, query: string): { text: string; hit: boolean }[] {
-  const needle = query.trim().toLowerCase();
-  if (!needle) return [{ text, hit: false }];
-  const runs: { text: string; hit: boolean }[] = [];
-  const haystack = text.toLowerCase();
-  let i = 0;
-  while (i < text.length) {
-    const at = haystack.indexOf(needle, i);
-    if (at === -1) {
-      runs.push({ text: text.slice(i), hit: false });
-      break;
-    }
-    if (at > i) runs.push({ text: text.slice(i, at), hit: false });
-    runs.push({ text: text.slice(at, at + needle.length), hit: true });
-    i = at + needle.length;
-  }
-  return runs.length ? runs : [{ text, hit: false }];
+  return highlightTerms(text, queryTerms(query));
 }

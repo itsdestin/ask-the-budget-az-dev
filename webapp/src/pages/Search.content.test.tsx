@@ -293,9 +293,14 @@ test("content results render one card per document with the passage quoted", asy
 });
 
 test("the query term is marked inside the quote", async () => {
+  // Highlighting changed from whole-query substring matching (which marked
+  // nothing for any real multi-word question) to per-word, word-boundary
+  // matching. The passage now gets two marks — one per word.
   mount("/search?q=child%20care&in=contents");
   await screen.findByText(/89,432,700/);
-  expect(document.querySelector("mark")).toHaveTextContent("child care");
+  const marks = Array.from(document.querySelectorAll("mark")).map((m) => m.textContent);
+  expect(marks).toContain("child");
+  expect(marks).toContain("care");
 });
 
 test("the header names which search produced the list", async () => {
