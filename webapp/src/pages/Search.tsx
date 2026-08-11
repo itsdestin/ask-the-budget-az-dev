@@ -409,9 +409,53 @@ function FamilyCard({
           </div>
           {trayOpen && (
             <div className="tray open">
-              {docs.map((d) => (
-                <DocRow key={d.doc_id} doc={d} />
-              ))}
+              {/* Task 9 (spec B4): two groups, not one flat list. A book gains
+                  20-24 summary sections (section_of !== null) against the
+                  112-150 agency pages it already carries (section_of ===
+                  null) -- twenty topical sections buried in a hundred and
+                  fifty agency rows are unfindable, and "Capital Outlay" /
+                  "General Fund Revenue" are exactly the cross-cutting pages
+                  an analyst hunts by name. Split on `section_of`, not a
+                  hand-maintained doc_type list, so a newly registered section
+                  type folds in for free. Summary sections lead because
+                  they're the book's printed front matter (BD/BH/S pages). */}
+              {(() => {
+                const sections = docs.filter((d) => d.section_of !== null);
+                const agencies = docs.filter((d) => d.section_of === null);
+                // Fix round 1: headings only appear when BOTH groups exist.
+                // Every AFR, Executive Budget and Budget Bill has zero
+                // summary sections (they have no section_of chunks at all),
+                // so before this fix EVERY one of those trays -- the common
+                // case, not the exception -- printed a lone "Agency pages"
+                // heading over a list with nothing else to distinguish it
+                // from. A heading earns its place by telling two groups
+                // apart; with only one group present there is nothing to
+                // tell apart, so the heading is just noise. The rows
+                // themselves always render -- the split partitions the
+                // tray, it never filters it -- only the labels are
+                // conditional.
+                const showHeadings = sections.length > 0 && agencies.length > 0;
+                return (
+                  <>
+                    {sections.length > 0 && (
+                      <div role="group" aria-label="Summary sections" className="tray-group">
+                        {showHeadings && <h4 className="tray-group-title">Summary sections</h4>}
+                        {sections.map((d) => (
+                          <DocRow key={d.doc_id} doc={d} />
+                        ))}
+                      </div>
+                    )}
+                    {agencies.length > 0 && (
+                      <div role="group" aria-label="Agency pages" className="tray-group">
+                        {showHeadings && <h4 className="tray-group-title">Agency pages</h4>}
+                        {agencies.map((d) => (
+                          <DocRow key={d.doc_id} doc={d} />
+                        ))}
+                      </div>
+                    )}
+                  </>
+                );
+              })()}
             </div>
           )}
         </div>
