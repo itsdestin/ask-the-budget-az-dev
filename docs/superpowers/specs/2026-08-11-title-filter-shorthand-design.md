@@ -121,6 +121,20 @@ The carve-out is an explicit, named, reviewed set — not a policy. Every other 
 
 `afr` and `ar` are on `AMBIGUOUS_ALIASES` precisely *because* they collide with these document types — that is the collision those entries were written about. Suppressing them as agency terms (D6) while activating them as type shorthand is the coherent reading, not a conflict.
 
+**Accepted risk: `exec` fires on ordinary prose. Destin, 2026-08-11.**
+
+`exec` is a prefix of "executive", and the shorthand regex allows an optional space, so these all parse as a FY-and-doc-type pair and **hard-filter the query to `governors-budget`**:
+
+- "page 26 exec summary"
+- "the committee held 26 exec sessions"
+- "26 exec orders issued last year"
+
+The existing `_YEAR_LOOKALIKE_PREFIX` guard cannot help: it blocks citation designators ("chapter", "HB", "section") before the digits, which is a different problem. `br` and `afr` are not exposed — neither is a prefix of an English word.
+
+Found by review after the eval had already passed, because the 44-query eval set contains no such phrasing. The narrowing that was offered and declined was to require no space for `exec` specifically (`26exec` parses, `26 exec` does not), which would have killed every reproduced case while keeping the form.
+
+**The failure mode is a wrong answer, not a missing one** — a question about executive sessions silently answered from the Governor's Executive Budget. That is the harder kind to notice, so it is recorded here rather than left in a review thread. Revisit if anyone reports a question being answered from the wrong document.
+
 ### D10 — Extending the map changes retrieval, and pays the eval gate
 
 `_SHORTHAND_DOC_TYPE` has one other consumer, `retrieval/query_doc_type.py:160`, so extending it teaches the new forms to **questions and AI Mode too**, not only the filter box. That is the desired outcome: one vocabulary, so the box and the assistant cannot disagree about what `26afr` means.
