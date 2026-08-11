@@ -32,9 +32,11 @@ source. When something ships, update only this file.
 | Standalone consolidation — Plan 5 (admin + packaging + deletion) | 🟡 **Tracks 1–4 done, 5–6 open** (2026-08-01) | 20 of 27 tasks. Tracks 1–2 (1–13, Session A): admin identity + gate, settings API, OpenRouter catalog, model fallback, corpus health/restore, Admin + Settings pages, per-machine data dir, health ladder, lockout recovery. Track 3 (14–17, Session B): the Windows bundle. **Track 4 (18–20) shipped 2026-08-01** — `web/`, `mcp-server/`, `db/` and the dead `retrieval/` modules are DELETED (~36,000 lines), one `documents.json` reader, four ingest defects fixed, and all three of Session B's orphaned app-side asks built. **Track 5 (handbook, 21–23) and Track 6 (gates, 24–27) remain.** See the Track 4 section below |
 | Standalone consolidation — Plan 6 (document types) | 🔴 **Not started** | 16 tasks. Unblocks ~85 catalogued documents that cannot be ingested at all (agency budget requests, AFR re-route) and makes doc types extensible by a non-technical office |
 | Standalone consolidation — Plan 7 (batch extraction) | ✓ Shipped (2026-08-02) | Batch MinerU (~4x), the backfill, recency re-calibration. Three defect fixes not in any plan. See the Plan 7 section below |
-| Citation linking | 🟡 **Shipped, then found to OVERCLAIM** (2026-08-02) | On master and running. Two fundamental problems unfixed; the 92.9% figure measures coverage, not correctness. **Read the banner in its section before trusting any number** |
+| Citation linking (post-hoc linker) | ⬛ **Superseded 2026-08-11** by attested linking | Shipped 2026-08-02, then found to overclaim: 34.2% of linked figures matched >1 document and were resolved by document authority. That ranking is now DELETED. Section kept as the historical record of the defect |
+| **Attested citation linking** | 🟡 **Code complete, live baseline OUTSTANDING** (2026-08-11) | The model tags each figure, the system verifies the tag. False-link rate down 13–15×. Needs an OpenRouter key: [`PROMPT-attested-citation-baseline.md`](PROMPT-attested-citation-baseline.md) |
 | AI Mode UI redesign | ✓ Shipped (2026-08-02) | One column, floating chrome, tools menu. Six defects found by review that left the suite green |
 | Query understanding | ✓ Shipped (2026-08-03) | Agency / doc-type / JLBC-shorthand parsing. recall@5 73.81% → 88.10%, recall@15 and @20 100%. Agency is a PREFERENCE, not a filter — a measured deviation from spec Q2 |
+| AI Mode chat history | ✓ Shipped (2026-08-03) | Per-device transcripts, browse/search/resume past chats, auto-naming, collapsible rail. Local disk only — never the share. See the section below |
 
 ## Corpus — what is ingested and what is NOT (2026-08-01)
 
@@ -202,6 +204,14 @@ boost has the same blind spot.
 
 ## What's next
 
+- **Attested citation linking — CODE COMPLETE 2026-08-11, live baseline is
+  the only thing left** (section below). The model tags each figure with the
+  passage it came from and the system verifies the tag; document-authority
+  ranking is deleted. Offline false-link rate is down **13–15×**. The single
+  open risk is **marker compliance**, which cannot be measured without a key:
+  run [`PROMPT-attested-citation-baseline.md`](PROMPT-attested-citation-baseline.md).
+  Do not read the 50.3% offline coverage as a regression — it is the untagged
+  floor, measured on transcripts that predate tagging.
 - **The post-backfill retrieval regression — the free half DONE 2026-08-03**
   (`PROMPT-retrieval-accuracy-regression.md`). The `historical` agent-eval
   queries were RE-AUTHORED against the genuinely old books (see the section
@@ -211,6 +221,15 @@ boost has the same blind spot.
   make the retrieval change (year-inference-as-default-filter is the highest-
   leverage target, but it must be validated with a Layer 2 run — never Layer 1
   numbers alone). **Nothing on the retrieval path was changed here.**
+- **Eval speed + the defend loop SHIPPED 2026-08-03 (no eval numbers changed).**
+  `run_agent_eval --workers N`, `judge_agent_run --workers N`, and a new
+  one-shot `eval.run_full_layer2` (run → score → judge, one pinned run dir)
+  all parallelize the paid OpenRouter calls; `eval.defend_agent_run` replays
+  a weakly-scored transcript through a fresh session so the model can defend
+  or revise its answer against the evaluator's feedback — useful for spotting
+  faulty evals. Thread-based (not process): the paid work is I/O, and the two
+  ONNX models are already shared singletons. Defaults stay serial (1 worker).
+  No Layer 1 or Layer 2 numbers changed.
 - **🔵 RUNNING NOW — S20 backfill on the Z13** (`PROMPT-z13-backfill.md`).
   Phase A (parity gate) and Phase B (recency machinery) are DONE and merged.
   Phase C (the backfill itself) is ~65% through the fiscal notes with the
@@ -325,14 +344,156 @@ re-run should use the new set), then make the retrieval fix.
 
 ---
 
-## Citation linking — SHIPPED, then found to OVERCLAIM (2026-08-02)
+## Attested citation linking — code complete, live baseline OUTSTANDING (2026-08-11)
 
-> ### 🔴 READ THIS BEFORE TRUSTING ANY NUMBER BELOW
+Spec: `docs/superpowers/specs/2026-08-02-attested-citation-linking-design.md`
+(A1–A9). Plan: `docs/superpowers/plans/2026-08-02-attested-citation-linking.md`
+(11 tasks, all implemented). **Supersedes the post-hoc linker documented in
+the next section**, which stays as the record of the defect that motivated
+this.
+
+**The model now attests, and the system verifies.** Each retrieved passage
+carries a stable per-conversation alias (`c1`, `c2`, …) on the retrieve
+JSON. The model appends `[[c3]]` after every figure it takes from a
+passage. At turn end the markers are parsed out of the raw answer — they
+reach the annotator and **nothing else**, not the streaming frames, not
+`finalAnswer`, not transcripts — and each is treated as a **hypothesis**,
+verified against the named chunk only.
+
+**A false link now needs two independent failures**: the model must name
+the wrong chunk AND that chunk must coincidentally hold the value inside
+the figure's written-precision window. Previously one failure sufficed.
+
+### 🔴 `citation/authority.py` is DELETED, not demoted
+
+Document-authority ranking was the mechanism behind the wrong-doc defect
+(34.2% of linked figures matched more than one document; the rule picked
+by document type, which cannot see whether a chunk concerns the right
+agency, fund or topic). **No code path may now pick a source by rank.**
+An untagged figure links only when exactly ONE document in the turn's pool
+contains the value; otherwise it is refused with an `ambiguity_count`.
+Re-introducing any tie-break here re-introduces the defect.
+
+### The gate: false-link rate, not coverage
+
+`eval/false_link_check.py` is the memo §5.2 method as a committed script —
+it links **invented** figures against real retrieve pools, so every link
+is false by construction. 1,080 trials per profile across the 27 baseline
+pools that retrieved anything:
+
+| profile | before | after |
+|---|---|---|
+| 4-sig billions (`$12.49B`) | 3.7% | **0.28%** (13× down) |
+| 4-sig millions (`$376.2M`) | 2.9% | **0.19%** (15× down) |
+| exact grouped (`391,157,700`) | 0.4% | **0.00%** |
+
+Not a seed artefact — `--seed 99` gives 0.19 / 0.19 / 0.00.
+
+**Coverage on the same 435 recorded figures fell 92.9% → 50.3%** (linked
+357→179, derived 47→40, unverified 31→216). **This is the untagged floor,
+not the shipped number.** Recorded transcripts carry no markers, and the
+diagnostic confirms it: every one of the 179 links is
+`unambiguous-fallback`, zero are tag-verified. The shipped figure comes
+from the live run.
+
+### 🔴 The specificity floor dominates the loss, not ambiguity
+
+Of the 42.6 lost points: **144 figures (33.1 pts) fall below the
+4-written-digit floor**, 53 (12.2 pts) are ambiguous, 19 (4.4 pts) are
+genuinely absent. This surprised the measurement. A4 fixed
+`_significant_digits` to count **written** digits where it previously
+counted magnitude (`$12.49 billion` scored 11, truly 4), so rounded
+figures no longer bypass the floor built for them — and a below-floor
+figure returns no hits at all, so it never reaches the ambiguity branch.
+
+**Consequence: marker coverage matters more than the design assumed.** A
+tagged figure verifies at floor 2, so tagging buys back both the
+floor-refusals and the ambiguity-refusals. If the model tags nothing,
+coverage is 50.3%.
+
+### ⏸ The fallback floor is deliberately left at 4, pending the live run
+
+Swept offline against the same 27 pools. It is a **monotonic trade with no
+plateau**, so neither "largest weight that costs nothing" nor "plateau
+centre" picks it:
+
+| floor | coverage | false-link (bil / mil / exact) |
+|---|---|---|
+| 2 | 63.7% | 0.46% / 0.19% / 0.00% |
+| 3 | 60.0% | 0.37% / 0.19% / 0.00% |
+| **4 (shipped)** | **50.3%** | **0.28% / 0.19% / 0.00%** |
+| 5 | 38.4% | 0.00% / 0.00% / 0.00% |
+| 6 | 29.0% | 0.00% / 0.00% / 0.00% |
+
+The right answer depends on how much traffic the fallback actually
+carries, which only `marker_coverage_mean` from a live run can say. The
+tag path keeps floor 2 regardless — there the tag is independent evidence,
+so a round `$1,000,000` may still verify inside the one chunk the model
+named.
+
+### Also shipped
+
+- **Written-precision tolerance (A4/A5).** A figure's written form defines
+  the interval it certifies: `$10.3M` → [10.25M, 10.35M]; `$10,297,300.17`
+  → exactly itself; a grouped integer → ±0.5. One rule replaces the
+  matcher's flat ±0.1% and reconcile's flat 1%, and it satisfies the
+  format-variance requirement structurally. `13.24 + 3.53 = 16.77` no
+  longer "explains" a stated `$16.83B`.
+- **Matching is anchored on the figure's ABSOLUTE value** — one target,
+  always; the scale ladder varies only the *source's* rendering
+  multiplier. The old code anchored on the value as written, turning an
+  unknown-scale figure into four targets and multiplying collisions.
+- **Near-miss (A6).** A failed link reports the nearest source value and
+  its relative distance — "you said $12.49B; c3's nearest value is
+  12,515.4" is the actionable sentence. 152 of the 216 unverified carry
+  one. **An ambiguous figure deliberately carries none**: the value is in
+  the pool exactly, so `nearest_value` returns distance 0.0 and the chip
+  would read "appears in 2 different documents" beside "differs by 0.0%".
+  Ambiguity and not-found are different failures.
+- **`marker_coverage_mean` and `tag_accuracy_mean`** on Layer 2 scoring —
+  the early-warning metrics for the design's one open risk.
+
+### Deviation from spec A1: aliases are per-CONVERSATION monotonic
+
+The spec said per-turn. A per-turn reset would reuse `c3` for a different
+chunk while the old `c3`-labelled chunk is still in the model's history, so
+a model tagging from memory would verify against the WRONG chunk — the
+exact failure this design exists to remove. Monotonic aliases cannot
+collide; a previous-turn alias resolves to a chunk absent from the current
+pool and degrades to the fallback. Strictly stronger, same observable
+behaviour.
+
+### 🔴 OUTSTANDING — needs a machine with an OpenRouter key
+
+**Marker compliance is unmeasured.** It cannot be measured offline: it only
+exists when a real model answers under the new prompt, and Layer 1 never
+reads the system prompt. Runbook:
+**[`PROMPT-attested-citation-baseline.md`](PROMPT-attested-citation-baseline.md)**
+— live browser reproduction, Layer 2 smoke then full, and a decision table
+gating on `marker_coverage_mean ≥ 0.80` and `tag_accuracy_mean ≥ 0.90`.
+
+A low `tag_accuracy_mean` is the serious outcome: it would mean
+attestation is not trustworthy evidence and the floor-2 concession on the
+tag path needs re-thinking. That is a reason to stop, not to tune.
+
+**Also unverified in a real browser:** the near-miss and ambiguity tooltip
+copy, and chip click opening the PDF at the source rendering.
+
+---
+
+## Citation linking (post-hoc linker) — SUPERSEDED 2026-08-11
+
+> ### ⬛ HISTORICAL — this design was REPLACED by attested linking
 >
-> This feature is on `master` and running. **Three browser sessions on
-> 2026-08-02 found eight defects; five were fixed, and two are
-> fundamental and NOT fixed.** Direction is undecided — Destin stopped
-> the session to resume citations separately.
+> Kept as the record of the defect that motivated the replacement. The
+> `citation/authority.py` ranking described below is **deleted**; the
+> 92.9% coverage figure measured how often a link was PRODUCED, never
+> whether it was RIGHT, and that was the wrong gate. See the section
+> above for what replaced it.
+>
+> **Three browser sessions on 2026-08-02 found eight defects; five were
+> fixed, and two were fundamental and NOT fixed.** Those two are what
+> attested linking exists to solve.
 >
 > **Full write-up:
 > [`docs/superpowers/investigations/2026-08-02-citation-linking-review.md`](docs/superpowers/investigations/2026-08-02-citation-linking-review.md)**
@@ -827,6 +988,113 @@ stops existing just leaves its children looking approximately fine.**
   the spark throw and the stop-button spinner are disabled by design and
   snap between states. Worth knowing before anyone reports them as broken.
 - The bundle has not been rebuilt against this webapp.
+
+---
+
+## AI Mode chat history — shipped, then reviewed and tightened (2026-08-03)
+
+Spec: `docs/superpowers/specs/2026-08-02-ai-mode-chat-history-design.md`
+(H1–H6 + A1, with implementation amendments). Implementation handoff:
+`docs/active/handoffs/2026-08-02-chat-history-implementation.md`. Follow-up
+session handoff: `docs/active/handoffs/2026-08-03-ai-mode-chat-history-followups.md`
+(its "uncommitted fixes" were all committed in the branch; the three issues
+it lists are resolved by commits `9d73754`/`9645e9c` (Issue 1), `6f35f7e`
+(Issue 2) and `62197cc` (Issue 3 audit)). Merged via the `chat-history` PR.
+
+Analysts can browse, search and resume their own past AI Mode conversations.
+Transcripts are per-device files at `%LOCALAPPDATA%\JLBC-Insight\conversations\`
+— **never the share** (Invariant 7, pinned by the AST import-allowlist test):
+one analyst's questions are not ~20 colleagues' reading material.
+
+### As shipped (decisions H1–H6)
+
+- **H1 — files, not a database.** One JSON per conversation; the directory IS
+  the index. Atomic tmp+`os.replace` writes (per-call uuid suffix, not
+  per-process, so two writers on the same id can't share a tmp name). Read
+  paths degrade on a corrupt file; the write path raises.
+- **H2 — browsing is free.** Opening a stored chat renders it live with no
+  server session and no API spend; the session is rebuilt from the stored
+  transcript on the FIRST send (`resume_from` on `POST /api/conversations` —
+  no parallel resume endpoint). The stored corpus wins over whatever the
+  client requested, and the picker now follows it (review fix below).
+- **H3 — auto-naming is one cheap LLM call after the first exchange**, ledgered
+  under its own `"title"` tier, falling back to the truncated question on
+  EVERY failure (no key, AI Mode off, over-limit, provider error). Manual
+  renames are never overwritten by auto-naming.
+- **H4 — search** scans titles and prose only; `tool` messages are excluded
+  by ROLE (their content is a JSON payload of retrieved chunks, so an
+  isinstance check would not exclude them).
+- **H5 — a stale citation is marked, never silently dropped.** Click-time
+  chunk fetch distinguishes 404 ("gone") from 200-with-quote-missing
+  ("moved"); a 503 publishes nothing ("we cannot tell" beats a false "your
+  source is dead"). The verified quote still renders.
+- **H6 — keep everything.** No cap, no expiry, explicit delete only.
+- **A1 — collapsible history rail** amends the UI redesign's D1; auto-
+  collapses when the source panel opens; collapsed state persists.
+
+### The 2026-08-03 review found real bugs; this is what was fixed
+
+A commit-by-commit review of the branch (all 20 commits unique to
+`chat-history`) found the code careful overall but with genuine logic gaps.
+Fixed in the branch before the PR:
+
+- **Resuming a chat wiped its transcript on first send.** The resume id never
+  reached `conversationIdRef`, so the first send dispatched
+  `CONVERSATION_STARTED`, whose reducer resets the timeline — emptying the
+  rehydrated turns the analyst was looking at. Fix: the rehydrate effect
+  seeds the ref and the `REHYDRATED` id; `send` detects the resume case and
+  dispatches with a new `keepTurns` flag. Regression-tested.
+- **The annotation persistence fix (Handoff Issue 1) had a hole on the
+  interrupt path.** `_attach_annotation` sits after the interrupt breaks, so a
+  STOPPED turn persisted without its figure annotation — and the amended test
+  asserted a shape that path never produced. **STILL OPEN** (below).
+- **Corpus mismatch on select.** The rail lists both corpora but selecting a
+  chat never moved the picker, so the thread could answer out of one corpus
+  while the UI showed the other. Selecting now reads the stored transcript's
+  corpus and sets both in one remount.
+- **Sticky stale marks.** A chip branded "source no longer available" (e.g.
+  a transient 404 mid-ingest) never cleared. The viewer now publishes a
+  `resolved` verdict on a clean re-check; the chip clears itself.
+- **The mid-turn delete/rename race.** `persist_turn` runs AFTER `end_turn`
+  in a background thread, so the rail could delete or rename a chat while its
+  turn streamed. Two fixes: a turn-end write skips when the file is gone and
+  this is NOT the first turn (a deleted chat stays deleted — the first-turn
+  discriminator is the USER-message count, since a tool-calling first turn has
+  two assistant messages), and `harness/history.py` gained a per-id write lock
+  (`threading.RLock`) wrapping save/delete/rename so the turn-end write and a
+  rail rename can't interleave. The lock-probe test is verified to FAIL when
+  the lock is stripped.
+- Smaller: the `useHistory` empty-query guard now gates on real search state,
+  not a seq counter the mount fetch also bumps; the transcript tmp name is
+  unique per call (`uuid` and `threading` added to the Invariant-7 allowlist
+  — both stdlib, neither can reach the share).
+
+### Open from the review (deliberately not fixed in this work)
+
+1. **Interrupt path drops the figure annotation** (highest value). The fix
+   belongs before the interrupt `break`/`yield done_frame`, keeping the
+   existing "annotation on the last assistant message" shape.
+2. **Resume-reuse doesn't notice disk is ahead.** When the resumed id is
+   already live in the registry and the stored transcript is newer (a second
+   tab continued it), the live session answers from stale in-memory history.
+   Guard: compare `len(session.history)` to stored `message_count`; 409 or
+   rebuild.
+3. **409-on-resume-busy reads as a generic error** — the client can't tell
+   "wait for the answer" from "no such chat".
+4. **No tier on the transcript and no schema version.** A resumed Deep
+   Research chat silently continues at Standard depth; a future schema change
+   reads old files as "absent", not "migrated".
+5. **A turn ending AFTER a rename rewrites the title back** — the app's
+   existing design (a turn records what it knew); the new lock stops
+   mid-write clobbering, not last-writer-wins. Decision needed on whether
+   turn-end writes should preserve `title`/`title_is_manual` for existing
+   transcripts.
+
+Spec follow-ups still open: the Administrator Handbook paragraph (history
+writes questions to disk in plain text; the first exchange goes to the model
+for naming — a confidentiality note that `docs/HANDBOOK.md` must carry, and
+the file does not exist yet), and `MAX_CONVERSATIONS = 40` may want a
+revisit now that eviction is no longer data loss.
 
 ---
 

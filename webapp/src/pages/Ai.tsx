@@ -8,6 +8,7 @@ import {
   AiModePanel,
   type CorpusOption,
 } from "../chat/AiModePanel";
+import * as api from "../api";
 import { useAiStatus } from "../chat/use-ai-status";
 import { useChat, type Corpus } from "../chat/use-chat";
 
@@ -79,12 +80,67 @@ function useFullPageChatShell(): void {
 
 export function Ai() {
   const [corpus, setCorpus] = useState<Corpus>("budget");
+  // The id of the stored chat the analyst selected from the rail, or null
+  // for a new chat. Keying <AiConversation> on `${corpus}:${selectedChatId
+  // ?? "new"}` remounts the hook when either changes — so selecting a
+  // different stored chat rehydrates its transcript, and switching corpus
+  // still starts a fresh conversation (the prefix keeps that property by
+  // construction: any corpus change changes the key).
+  const [selectedChatId, setSelectedChatId] = useState<string | null>(null);
+  // A nonce that ratchets on every "+ New chat". The conversation is keyed on
+  // `${corpus}:${selectedChatId ?? "new"}:${newNonce}`; when the analyst is
+  // ALREADY in a fresh chat (selectedChatId null, key already "...:new") the
+  // only way to force a remount — and therefore a genuinely blank next chat —
+  // is to change the key. The nonce does that where setting selectedChatId to
+  // null again would be a no-op.
+  //
+  // WHY auto-save needs no code here: the server persists every completed
+  // turn to history at turn teardown (conversations.py::persist_turn). So by
+  // the time "+ New chat" is pressed the current conversation is already on
+  // disk; remounting discards nothing. The nonce is purely "give me a blank
+  // chat" — nothing is lost, so no discard warning is warranted (Destin,
+  // 2026-08-03).
+  const [newChatNonce, setNewChatNonce] = useState(0);
   useFullPageChatShell();
   const status = useAiStatus();
   // null = the probe is still in flight. Three states, not two: saying "needs an
   // API key" before anyone has checked would state a cause nobody knows yet.
   const probing = status === null;
   const gated = !probing && !status.available;
+
+  // Selecting a stored chat must ALSO move the corpus picker to that chat's
+  // corpus. The rail lists both corpora, and the server adopts the stored
+  // corpus on resume regardless of what the client asked for — so if the
+  // picker stays on the old corpus, the thread answers out of one corpus
+  // while the UI claims another, which is exactly the "cited and confident,
+  // but on the wrong corpus" failure H2 warns about. The rail row carries
+  // `corpus`, but Ai.tsx fetches the transcript here (rather than trusting
+  // the row) so the corpus and the rehydration body come from the same read —
+  // and so a chat whose fetch fails is never selected at all. The key is
+  // `${corpus}:${selectedChatId}`, so setting both in the same handler
+  // remounts the conversation once, on the right corpus.
+  const handleSelectChat = (id: string) => {
+    void api
+      .getHistoryChat(id)
+      .then((chat) => {
+        setCorpus(chat.corpus);
+        setSelectedChatId(id);
+      })
+      .catch(() => {
+        // A chat we cannot read (corrupt file, raced a delete) must not be
+        // selected — selecting it would mount a conversation that then fails
+        // its own fetch. Leave the current view untouched; the rail already
+        // surfaces the load error via useHistory when it next refreshes.
+      });
+  };
+  const handleNewChat = () => {
+    setSelectedChatId(null);
+    // Ratchet the nonce so "+ New chat" ALWAYS remounts, even from an already
+    // fresh (null-selected, unsent-to or started) chat. Without this, pressing
+    // "+ New chat" twice in a row — or "new chat" right after starting a
+    // conversation — is a no-op key-wise and the analyst's view is stuck.
+    setNewChatNonce((n) => n + 1);
+  };
 
   return (
     <main className="page-ai" data-testid="ai">
@@ -182,11 +238,14 @@ export function Ai() {
           // worst failure this app has. Remounting also resets the tier to
           // Standard, which is what S16 requires of every new conversation.
           <AiConversation
-            key={corpus}
+            key={`${corpus}:${selectedChatId ?? "new"}:${newChatNonce}`}
             corpus={corpus}
             corpusOptions={CORPORA}
             onCorpusChange={setCorpus}
             status={status}
+            selectedChatId={selectedChatId}
+            onSelectChat={handleSelectChat}
+            onNewChat={handleNewChat}
           />
         )}
       </div>
@@ -202,13 +261,19 @@ function AiConversation({
   corpusOptions,
   onCorpusChange,
   status,
+  selectedChatId,
+  onSelectChat,
+  onNewChat,
 }: {
   corpus: Corpus;
   corpusOptions: CorpusOption[];
   onCorpusChange: (corpus: Corpus) => void;
   status: ReturnType<typeof useAiStatus>;
+  selectedChatId: string | null;
+  onSelectChat: (id: string) => void;
+  onNewChat: () => void;
 }) {
-  const chat = useChat(corpus);
+  const chat = useChat(corpus, selectedChatId ?? undefined);
   return (
     <AiModePanel
       chat={chat}
@@ -219,6 +284,9 @@ function AiConversation({
       // unmounts itself along with the conversation it is discarding. That is
       // fine — it is stateless, and React commits the remount synchronously.
       onCorpusChange={onCorpusChange}
+      selectedChatId={selectedChatId}
+      onSelectChat={onSelectChat}
+      onNewChat={onNewChat}
     />
   );
 }

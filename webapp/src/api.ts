@@ -219,11 +219,12 @@ export interface ConversationHandle {
 
 export async function createConversation(
   corpus: "budget" | "fiscal_notes",
+  resumeFrom?: string,
 ): Promise<ConversationHandle> {
   const r = await fetch("/api/conversations", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ corpus }),
+    body: JSON.stringify(resumeFrom ? { corpus, resume_from: resumeFrom } : { corpus }),
   });
   if (!r.ok) await fail(r, "start conversation");
   return r.json();
@@ -747,5 +748,55 @@ export async function setDataDir(
     body: JSON.stringify({ path }),
   });
   if (!r.ok) await fail(r, "set data folder");
+  return r.json();
+}
+
+// ---------------------------------------------------------------------------
+// Chat history (spec 2026-08-02, H1/H4) — per-device, never on the share.
+// ---------------------------------------------------------------------------
+
+export interface HistoryRow {
+  id: string;
+  title: string;
+  corpus: "budget" | "fiscal_notes";
+  created_at: string;
+  updated_at: string;
+  title_is_manual: boolean;
+  message_count: number;
+  /** Present only on search results. */
+  snippet?: string;
+}
+
+export async function listHistory(): Promise<{ conversations: HistoryRow[] }> {
+  const r = await fetch("/api/history");
+  if (!r.ok) await fail(r, "load chat history");
+  return r.json();
+}
+
+export async function searchHistory(q: string): Promise<{ results: HistoryRow[] }> {
+  const r = await fetch(`/api/history/search?q=${encodeURIComponent(q)}`);
+  if (!r.ok) await fail(r, "search chat history");
+  return r.json();
+}
+
+export async function getHistoryChat(id: string): Promise<HistoryRow & { messages: unknown[] }> {
+  const r = await fetch(`/api/history/${encodeURIComponent(id)}`);
+  if (!r.ok) await fail(r, "open chat");
+  return r.json();
+}
+
+export async function renameHistoryChat(id: string, title: string): Promise<HistoryRow> {
+  const r = await fetch(`/api/history/${encodeURIComponent(id)}`, {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ title }),
+  });
+  if (!r.ok) await fail(r, "rename chat");
+  return r.json();
+}
+
+export async function deleteHistoryChat(id: string): Promise<{ deleted: string }> {
+  const r = await fetch(`/api/history/${encodeURIComponent(id)}`, { method: "DELETE" });
+  if (!r.ok) await fail(r, "delete chat");
   return r.json();
 }

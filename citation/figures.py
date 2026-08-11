@@ -62,6 +62,28 @@ class Figure:
         """The figure in plain dollars, scale applied."""
         return self.value * self.scale
 
+    @property
+    def halfwidth(self) -> float:
+        """Absolute half-width of the interval this rendering certifies
+        (spec A4). "$10.3M" certifies [10.25M, 10.35M]; a grouped integer
+        certifies ±0.5. One rule replaces the flat ±0.1% window and
+        reconcile's flat 1% — both of which accepted values the written
+        form does not actually support."""
+        numeral = self.text.replace("$", "").replace(",", "").strip()
+        decimals = len(numeral.split(".")[1]) if "." in numeral else 0
+        return 0.5 * (10 ** -decimals) * self.scale
+
+
+def written_significant_digits(raw: str) -> int:
+    """Distinctiveness of a figure AS WRITTEN — digits with leading and
+    trailing zeros stripped. "$12.49 billion" scores 4, not 11: its
+    magnitude is huge but only four digits fingerprint it, which is why
+    rounded billions false-link ~10x more often than exact integers
+    (review memo §5.2/§5.4)."""
+    digits = re.sub(r"[^0-9]", "", raw)
+    digits = digits.lstrip("0").rstrip("0")
+    return len(digits)
+
 
 def _table_scale(answer: str) -> int:
     """The unit a markdown table header declares, if any. A header states

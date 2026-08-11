@@ -1,6 +1,19 @@
 # Handoff — citation linking: live reproduction + Layer 2 re-baseline
 
-**Status: ACTIVE.** Run this on a machine that has an OpenRouter key
+> ## ⬛ SUPERSEDED 2026-08-11 — do not execute
+>
+> The post-hoc linker this runbook was written for has been **replaced**
+> by attested linking (the model tags each figure, the system verifies the
+> tag). `citation/authority.py` — the document-authority ranking whose
+> output this runbook was meant to measure — is deleted.
+>
+> **Use [`PROMPT-attested-citation-baseline.md`](PROMPT-attested-citation-baseline.md)
+> instead.** It carries the live steps, the new decision table, and the
+> offline numbers the live run is measured against.
+>
+> Kept in place as the record of what was owed against the old design.
+
+**Status: SUPERSEDED (was ACTIVE).** Run this on a machine that has an OpenRouter key
 configured (`<data_dir>/settings.json`). It **spends real money** —
 roughly **$0.50–1.50** for the full run, plus the judge as a separate
 charge on top. Nothing here is safe to run unattended.

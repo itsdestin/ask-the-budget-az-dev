@@ -1,68 +1,85 @@
-"""Scale-aware matching tests.
-
-Two properties carry this module. First, the answer's rendering and the
-source's rendering differ for two thirds of figures, so matching must
-compare VALUES across scale. Second, the returned string must be the
-SOURCE's rendering, because that is what exists in the PDF text layer.
-"""
+"""Interval matching anchored on the figure's absolute value (spec A4)."""
 from __future__ import annotations
 
-from citation.figures import Figure
-from citation.matching import SourceHit, find_in_chunks
+from citation.figures import extract_figures
+from citation.matching import find_in_chunks, nearest_value
 
 
-def fig(text, value, scale=1):
-    return Figure(text=text, start=0, end=len(text), value=value, scale=scale)
+def _fig(text):
+    (fig,) = extract_figures(text)
+    return fig
 
 
-def test_exact_match_returns_source_rendering():
-    chunks = {"c-1": "ADC General Fund 1,391,157,700 in FY 2025"}
-    hits = find_in_chunks(fig("$1,391,157,700", 1391157700.0), chunks)
-    assert len(hits) == 1
-    assert hits[0].chunk_id == "c-1"
-    assert hits[0].source_text == "1,391,157,700"
-    assert chunks["c-1"][hits[0].start:hits[0].end] == "1,391,157,700"
-
-
-def test_scale_shifted_match():
-    # The answer says "$8,287.7" under a "$ Millions" header; the document
-    # prints the absolute figure.
-    chunks = {"c-1": "Department of Education 8,287,700,000 total"}
-    hits = find_in_chunks(fig("$8,287.7", 8287.7, scale=1_000_000), chunks)
-    assert len(hits) == 1
+def test_scale_shifted_match_returns_the_sources_rendering():
+    fig = _fig("| $ Millions |\n| $8,287.7 |")
+    hits = find_in_chunks(fig, {"k1": "General Fund total 8,287,700,000 for"})
     assert hits[0].source_text == "8,287,700,000"
-    assert hits[0].scale_used == 1_000_000
+    assert hits[0].scale_used == 1  # source printed the absolute value
 
 
-def test_rounding_tolerance():
-    # "$1,391.2 million" is a faithful rounding of 1,391,157,700.
-    chunks = {"c-1": "appropriation of 1,391,157,700"}
-    hits = find_in_chunks(fig("$1,391.2", 1391.2, scale=1_000_000), chunks)
-    assert len(hits) == 1
+def test_source_tabulating_in_thousands_matches_via_multiplier():
+    fig = _fig("spent $10,297,300 on it")
+    hits = find_in_chunks(fig, {"k1": "amount 10,297.3 (in thousands)"})
+    assert hits[0].scale_used == 1_000
 
 
-def test_multiple_chunks_all_returned():
-    chunks = {"c-1": "total 2,613,700,000", "c-2": "AHCCCS 2,613,700,000 GF"}
-    hits = find_in_chunks(fig("$2,613,700,000", 2613700000.0), chunks)
-    assert {h.chunk_id for h in hits} == {"c-1", "c-2"}
+def test_written_precision_bounds_the_match():
+    # "$10.3M" certifies [10.25M, 10.35M].
+    # The floor is lowered here because "$10.3" is only THREE written
+    # digits, so the default floor of 4 would refuse it before the
+    # interval was ever consulted — and the interval is what this test
+    # is about. The floor itself is pinned below.
+    fig = _fig("about $10.3M budgeted")
+    assert find_in_chunks(fig, {"k": "total 10,297,300 net"},
+                          min_significant_digits=3)          # inside
+    assert not find_in_chunks(fig, {"k": "total 10,352,000 net"},
+                              min_significant_digits=3)      # outside
 
 
-def test_short_figures_are_refused_by_the_specificity_floor():
-    # "$37" collides incidentally everywhere. Refusing to link is correct;
-    # guessing is not.
-    chunks = {"c-1": "line 37 of the report shows 37 positions"}
-    assert find_in_chunks(fig("$37", 37.0), chunks) == []
+def test_exact_integer_does_not_match_a_nearby_value():
+    # the §5.3 shape: 16,830,000,000 stated, 16,770,000,000 in source
+    fig = _fig("total $16,830,000,000 combined")
+    assert not find_in_chunks(fig, {"k": "sum 16,770,000,000 was"})
+
+
+def test_specificity_floor_uses_written_digits():
+    # "$12.49B" is 4 written digits -> at floor 5 it must be refused even
+    # though its magnitude is 11 digits (the §5.4 bypass).
+    fig = _fig("about $12.49B overall")
+    assert not find_in_chunks(fig, {"k": "12,490,000,000"},
+                              min_significant_digits=5)
+    assert find_in_chunks(fig, {"k": "12,490,000,000"},
+                          min_significant_digits=4)
+
+
+def test_restrict_to_searches_only_the_named_chunks():
+    fig = _fig("was $1,391,157,700 total")
+    chunks = {"a": "x 1,391,157,700 y", "b": "x 1,391,157,700 y"}
+    hits = find_in_chunks(fig, chunks, restrict_to=["b"])
+    assert [h.chunk_id for h in hits] == ["b"]
 
 
 def test_fused_table_numbers_still_locate_correctly():
-    # Extraction fuses adjacent cells: DCS 1,320,598,100 runs straight into
-    # Chiropractic's 643,700. The offsets for the first figure are still
-    # correct, which is what the highlighter needs.
+    # Ported from the pre-attestation suite: extraction fuses adjacent
+    # cells, so DCS's 1,320,598,100 runs straight into Chiropractic's
+    # 643,700. The offsets for the first figure must still be exact —
+    # they are what the PDF highlighter searches with.
+    fig = _fig("Child Safety got $1,320,598,100 total")
     chunks = {"c-1": "Child Safety, Department of\t1,320,598,100643,700\tnext"}
-    hits = find_in_chunks(fig("$1,320,598,100", 1320598100.0), chunks)
+    hits = find_in_chunks(fig, chunks)
     assert len(hits) == 1
     assert chunks["c-1"][hits[0].start:hits[0].end] == "1,320,598,100"
 
 
-def test_no_match_returns_empty():
-    assert find_in_chunks(fig("$999,999,999", 999999999.0), {"c-1": "nothing"}) == []
+def test_nearest_value_reports_the_closest_source_number():
+    # the §5.5 case: $12.49B stated, 12,515.4 (millions) in source
+    fig = _fig("dipped to $12.49B in")
+    nm = nearest_value(fig, {"k": "revenues of 12,515.4 were"})
+    assert nm is not None
+    assert nm.source_text == "12,515.4"
+    assert 0.001 < nm.distance < 0.01  # ~0.2%
+
+
+def test_nearest_value_beyond_five_percent_is_none():
+    fig = _fig("cost $10,000,000.00 total")
+    assert nearest_value(fig, {"k": "value 123,456 only"}) is None

@@ -1739,6 +1739,77 @@ html.ai-fullpage header.site{flex:0 0 auto;}
    is kept DELIBERATELY: it is what clips the thread and source columns to
    the viewport instead of letting them push the composer off-screen. */
 .ai-panel{display:flex;flex-direction:column;flex:1 1 auto;min-height:0;overflow:hidden;}
+/* ----- the history rail -----------------------------------------------------
+   Chat history (Plan 5 Track, 2026-08-02). The rail mounts as a sibling of
+   `.ai-panel-main` inside a NEW wrapper div, `.ai-panel-layout`. That wrapper
+   is NOT decorative: without it there is a row-level gap in the flex chain
+   (panel -> layout -> main) and the chat column stops filling the viewport.
+   WHY the rail is a SIBLING of main rather than a third column inside
+   `.ai-panel-main`: `.ai-panel-main` carries the `.has-source` half/half
+   logic and the sub-860px source drawer — treating the rail as one of its
+   columns would entangle a chrome element with the thread/source split.
+   The wrapper is the flex ROW; the rail and main are both full-height
+   children of it. */
+.ai-panel-layout{flex:1 1 auto;min-height:0;display:flex;flex-direction:row;align-items:stretch;}
+
+/* The rail itself. It is a chrome BAR, not a panel card: it carries the same
+   --canvas-ish neutral ground as `.ai-panel-chat` so it reads as a sidebar of
+   the same surface, with a 1px divider to `.ai-panel-main`. `min-height:0`
+   + `overflow-y:auto` make the chat list the one thing that scrolls, never
+   the rail chrome (the head/search pin to the top; the list scrolls). */
+.history-rail{flex:0 0 260px;min-width:0;min-height:0;display:flex;flex-direction:column;
+  background:var(--canvas);border-right:1px solid var(--line);overflow-y:auto;}
+.history-rail.is-collapsed{flex:0 0 auto;width:44px;align-items:center;padding:10px 0;overflow:visible;}
+.history-rail-toggle{flex:0 0 auto;display:inline-flex;align-items:center;justify-content:center;
+  width:32px;height:32px;border:1px solid var(--line);border-radius:var(--r-pill);
+  background:var(--card);color:var(--ink-2);cursor:pointer;transition:border-color .15s,color .15s;}
+.history-rail-toggle:hover{border-color:var(--az-gold);color:var(--az-gold-d);}
+
+.history-rail-head{display:flex;align-items:center;justify-content:space-between;
+  gap:8px;padding:12px 12px 8px;flex-shrink:0;}
+.history-rail-new{flex:1 1 auto;display:inline-flex;align-items:center;justify-content:center;
+  font-family:inherit;font-weight:800;font-size:12.5px;color:#fff;background:var(--az-gold);
+  border:0;border-radius:var(--r-pill);padding:7px 12px;cursor:pointer;transition:filter .15s;}
+.history-rail-new:hover{filter:brightness(1.05);}
+.history-rail-collapse{flex:0 0 auto;display:inline-flex;align-items:center;justify-content:center;
+  width:30px;height:30px;border:1px solid var(--line);border-radius:var(--r-pill);
+  background:var(--card);color:var(--ink-2);cursor:pointer;transition:border-color .15s,color .15s;}
+.history-rail-collapse:hover{border-color:var(--az-gold);color:var(--az-gold-d);}
+
+.history-rail-search{margin:0 12px 8px;flex-shrink:0;border:1px solid var(--line);
+  border-radius:var(--r-pill);padding:7px 12px;font-family:inherit;font-size:12.5px;
+  color:var(--ink);background:var(--card);outline:0;transition:border-color .15s,box-shadow .15s;}
+.history-rail-search:focus{border-color:var(--navy);box-shadow:0 0 0 3px var(--navy-100);}
+
+.history-rail-error{margin:4px 12px;font-size:11.5px;color:var(--chat-danger);line-height:1.45;}
+.history-rail-empty{padding:10px 14px;font-size:12px;color:var(--ink-3);line-height:1.5;flex-shrink:0;}
+
+.history-rail-list{display:flex;flex-direction:column;padding:0 8px 12px;}
+.history-rail-group{margin-top:10px;}
+.history-rail-group-label{margin:0 4px 4px;font-size:10.5px;font-weight:800;
+  text-transform:uppercase;letter-spacing:.05em;color:var(--ink-3);}
+.history-rail-item{display:flex;align-items:center;gap:2px;border-radius:var(--r-sm);
+  transition:background .13s;}
+.history-rail-item:hover{background:var(--card);}
+.history-rail-item.is-active{background:var(--card);box-shadow:var(--shadow-sm);}
+.history-rail-chat{flex:1 1 auto;min-width:0;display:flex;flex-direction:column;align-items:flex-start;
+  gap:2px;padding:8px 10px;background:none;border:0;border-radius:var(--r-sm);
+  font-family:inherit;text-align:left;cursor:pointer;color:var(--ink);}
+.history-rail-item.is-active .history-rail-chat-title{color:var(--az-gold-d);}
+.history-rail-chat-title{display:block;width:100%;font-size:12.5px;font-weight:800;
+  white-space:nowrap;overflow:hidden;text-overflow:ellipsis;color:var(--ink);}
+.history-rail-chat-snippet{display:block;width:100%;font-size:11px;color:var(--ink-3);
+  white-space:nowrap;overflow:hidden;text-overflow:ellipsis;line-height:1.4;}
+.history-rail-actions{flex:0 0 auto;display:flex;gap:2px;padding-right:4px;opacity:0;
+  transition:opacity .13s;}
+.history-rail-item:hover .history-rail-actions,
+.history-rail-item.is-active .history-rail-actions{opacity:1;}
+.history-rail-action{display:inline-flex;align-items:center;justify-content:center;
+  width:24px;height:24px;border:0;border-radius:var(--r-pill);background:transparent;
+  color:var(--ink-3);cursor:pointer;font-size:12px;transition:background .13s,color .13s;}
+.history-rail-action:hover{background:var(--navy-100);color:var(--navy);}
+.history-rail-rename{width:100%;border:1px solid var(--navy);border-radius:var(--r-sm);
+  padding:7px 10px;font-family:inherit;font-size:12.5px;color:var(--ink);background:var(--card);outline:0;}
 
 /* ----- on its own route the chat IS the window ----------------------------
    Destin, 2026-07-31: "i don't want the weird card, it should take up the full
@@ -1797,6 +1868,11 @@ html.ai-fullpage header.site{flex:0 0 auto;}
 @media (max-width:860px){
   .ai-panel-main.has-source .ai-panel-chat{flex:1 1 0;}
   .ai-panel-source{position:fixed;top:0;right:0;bottom:0;z-index:60;width:min(560px,100vw);background:var(--canvas);border-left:1px solid var(--line);box-shadow:var(--shadow);}
+  /* Same constraint as the source drawer: a fixed 260px rail beside the
+     thread leaves too little reading width on a ~800px window. But unlike
+     the source panel there is no modal to fall back to, so the rail stays
+     in place and merely narrows — a sidebar, not a drawer. */
+  .history-rail{flex-basis:220px;}
 }
 
 /* Close pill for the source column. Same 28px circular affordance as the

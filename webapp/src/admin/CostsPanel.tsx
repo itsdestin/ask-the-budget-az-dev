@@ -24,6 +24,19 @@ const TABS = [
 
 type Tab = (typeof TABS)[number]["key"];
 
+// The raw tier key is a machine string — "standard", "deep_research",
+// "title" — and the "By answer mode" tab renders it verbatim at row.key.
+// An admin seeing "title" next to "standard" has no way to tell what it
+// is, so this maps every known key to a human label. A key NOT in this map
+// (a future tier, or a corrupt row) falls through to the raw string, so
+// the admin still sees SOMETHING rather than a blank cell — the same
+// fail-safe as `row.key || "(not recorded)"` below it.
+const TIER_LABELS: Record<string, string> = {
+  standard: "Standard",
+  deep_research: "Deep Research",
+  title: "Chat naming",
+};
+
 export function CostsPanel({
   usage,
   month,
@@ -125,7 +138,9 @@ export function CostsPanel({
             <tbody>
               {rows.map((row) => (
                 <tr key={row.key || "(unrecorded)"}>
-                  <th scope="row">{row.key || "(not recorded)"}</th>
+                  <th scope="row">
+                    {tab === "by_tier" ? (TIER_LABELS[row.key] ?? row.key ?? "(not recorded)") : (row.key || "(not recorded)")}
+                  </th>
                   <td>{usd(row.cost_usd)}</td>
                   <td>{count(row.rows)}</td>
                 </tr>

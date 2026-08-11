@@ -32,6 +32,8 @@ from pydantic import BaseModel, Field
 from starlette.background import BackgroundTask
 
 from app import identity
+from harness import history
+from harness import titles
 from harness.constants import DEFAULT_TIER
 from harness.ledger import check_limit
 from harness.settings import ai_available, load_settings
@@ -305,6 +307,33 @@ class ConversationRegistry:
         with self._lock:
             return self._items.get(conversation_id)
 
+    def get_or_add(
+        self, conversation_id: str, entry_factory: Callable[[], _Conversation]
+    ) -> tuple[_Conversation, bool]:
+        """Atomically get-or-create a conversation entry.
+
+        The `create_conversation` resume path needs to check-then-add under
+        the lock: a resumed id is not unique like uuid4, so it can already
+        be in the registry (the analyst reopened a chat they already
+        continued this session). Doing that as `get` + `add` would race
+        under concurrency (two tabs resuming the same chat), so this method
+        does both under `_lock` and returns `(entry, created)`. The entry
+        factory is called only when the id is NOT found, so a live session
+        is never replaced and its httpx client is never leaked.
+        """
+        with self._lock:
+            existing = self._items.get(conversation_id)
+            if existing is not None:
+                return existing, False
+            entry = entry_factory()
+            self._items[entry.id] = entry
+            victims = self._overflow_victims()
+            for victim in victims:
+                del self._items[victim.id]
+        for victim in victims:
+            _close_quietly(victim.session)
+        return entry, True
+
 
 def _close_quietly(session: Any) -> None:
     close = getattr(session, "close", None)
@@ -323,7 +352,8 @@ def _close_quietly(session: Any) -> None:
 
 
 def default_session_factory(
-    conversation_id: str, *, corpus: str, tier: str, user: str
+    conversation_id: str, *, corpus: str, tier: str, user: str,
+    history: list[dict] | None = None,
 ) -> Any:
     """Build the real tool loop. Imported lazily so tests that inject a fake
     session never pay for (or depend on) the retrieval stack behind it.
@@ -332,12 +362,17 @@ def default_session_factory(
     the API key mid-session helps the next conversation without a restart. An
     already-open conversation keeps the settings it was built with — the UI
     creates a conversation per thread, so the blast radius is one thread.
+
+    `history` is forwarded ONLY when resuming a stored chat; a fresh
+    conversation passes nothing and gets the default (empty list).
+    HarnessSession.__init__ already accepts it.
     """
     from harness.session import HarnessSession
 
     return HarnessSession(
         conversation_id, corpus=corpus, tier=tier, user=user,
         settings=load_settings(),
+        history=history,
     )
 
 
@@ -349,6 +384,100 @@ def _session_factory(request: Request) -> Callable[..., Any]:
     return request.app.state.session_factory
 
 
+def _is_first_turn(messages: list) -> bool:
+    """True when `messages` holds only a conversation's opening exchange.
+
+    persist_turn uses this to tell "first save of a brand-new conversation"
+    (nothing on disk yet — always create) from "continuation whose file was
+    deleted mid-turn" (the analyst deleted it — do not resurrect).
+
+    The discriminator is the USER-message count, and only that: the first
+    turn contributes exactly one user message, and every later turn appends
+    another, so one user message IS the first persist regardless of how the
+    assistant replied. (A first turn that called tools is [user, assistant-
+    tool_calls, tool, assistant-answer] — TWO assistant messages on the very
+    first turn — so an assistant-message count would misread a tool-using
+    first turn as a deleted continuation and skip writing it. The user count
+    has no such ambiguity.)
+    """
+    users = sum(1 for m in messages if isinstance(m, dict) and m.get("role") == "user")
+    return users <= 1
+
+
+def persist_turn(entry: _Conversation) -> None:
+    """Write this conversation's transcript to the analyst's own disk.
+
+    Called on EVERY turn teardown, including an aborted one — a cancelled
+    turn is still a turn the analyst had.
+
+    Swallows its own errors on purpose. History is a convenience; a full
+    disk or a locked file must never turn a working answer into a failed
+    one. The cost of being wrong here is one missing chat in a list, which
+    is visible and survivable.
+    """
+    try:
+        # getattr, not entry.session.history: the session_factory seam does
+        # not oblige a session to keep a history list, and a fake that
+        # doesn't must be a no-op rather than an exception this function
+        # then has to swallow and print about.
+        messages = getattr(entry.session, "history", None)
+        if messages is None:
+            return
+        existing = history.load(entry.id)
+        # A continuation whose file is GONE from disk was deleted out from
+        # under the live session (the rail lets the analyst delete mid-turn).
+        # Writing now would resurrect it as an untitled ghost — the same
+        # ghost-row bug the client fixed, one layer down. A FIRST persist is
+        # always existing-is-None (nothing on disk yet) and carries exactly
+        # one user message; a continuation always carries at least two. So
+        # "no file on disk" + "more than one user message" = the analyst
+        # deleted it, and the delete should win. (See _is_first_turn for why
+        # the user count, not the assistant count, is the discriminator.)
+        if existing is None and not _is_first_turn(messages):
+            return
+        now = history.now_iso()
+        history.save(
+            history.Transcript(
+                id=entry.id,
+                title=existing.title if existing else "",
+                title_is_manual=existing.title_is_manual if existing else False,
+                corpus=entry.corpus,
+                created_at=existing.created_at if existing else now,
+                updated_at=now,
+                messages=list(messages),
+            )
+        )
+        # Title only once, on the first completed exchange, and never over a
+        # title the analyst set themselves.
+        #
+        # This is a blocking HTTP call of up to _TIMEOUT_S. It is safe HERE and
+        # nowhere earlier: persist_turn's single call site is at the END of
+        # _release_turn, after registry.end_turn has released the conversation,
+        # in a BackgroundTask (a threadpool, not the event loop). Move this call
+        # any earlier in the teardown and the conversation stays `busy` for the
+        # duration, so the analyst's next question gets a 409 from begin_turn.
+        stored = history.load(entry.id)
+        if stored is None:
+            # Deleted between our save and this read — the analyst's delete
+            # wins over our write. Nothing more to do.
+            return
+        # A manual rename can no longer be clobbered by our save above:
+        # history.save serializes against history.rename via the store's
+        # per-id write lock, so whichever landed last is the whole, correct
+        # record. We only act here when there is still NO title — the
+        # auto-naming path, which the manual flag already guards against
+        # overwriting an analyst-set title.
+        if not stored.title and not stored.title_is_manual:
+            first_q = next((m.get("content", "") for m in stored.messages
+                            if m.get("role") == "user"), "")
+            first_a = next((m.get("content", "") for m in stored.messages
+                            if m.get("role") == "assistant" and m.get("content")), "")
+            stored.title = titles.generate_title(first_q, first_a, user=current_user())
+            history.save(stored)
+    except Exception as exc:                      # noqa: BLE001
+        print(f"jlbc-insight: could not save chat history: {exc}", file=sys.stderr, flush=True)
+
+
 # ---------------------------------------------------------------------------
 # Routes
 # ---------------------------------------------------------------------------
@@ -356,6 +485,11 @@ def _session_factory(request: Request) -> Callable[..., Any]:
 
 class CreateConversationBody(BaseModel):
     corpus: str = Field(default="budget", pattern="^(budget|fiscal_notes)$")
+    # Continuing a stored chat reuses THIS route rather than getting its own.
+    # A parallel "resume" endpoint would be a second code path doing the same
+    # job, and the two would drift; reusing create is what makes a rehydrated
+    # conversation indistinguishable from a fresh one downstream.
+    resume_from: str | None = None
 
 
 class MessageBody(BaseModel):
@@ -378,13 +512,65 @@ def create_conversation(body: CreateConversationBody, request: Request) -> dict:
     for a UI that wants to dim one toggle rather than the whole feature.
     """
     ok, reason = ai_available(load_settings(), DEFAULT_TIER)
-    conversation_id = uuid.uuid4().hex
+
+    stored = None
+    if body.resume_from:
+        try:
+            stored = history.load(body.resume_from)
+        except ValueError:
+            raise HTTPException(status_code=400, detail="bad conversation id")
+        if stored is None:
+            raise HTTPException(status_code=404, detail="no such conversation")
+
+        # A resumed id is NOT unique the way uuid4() is, so it can already be
+        # in the registry — the analyst reopened a chat they already
+        # continued this session, or has it open in a second tab.
+        # `ConversationRegistry.add` would overwrite the entry outright and
+        # never close the old session, so /stop and the next message would
+        # address a different object under the same id while the first kept
+        # streaming and billing. Reuse it instead.
+        live = _registry(request).get(stored.id)
+        if live is not None:
+            if live.busy:
+                # Same answer begin_turn gives a double-submit, for the same
+                # reason: this conversation is mid-answer.
+                raise HTTPException(
+                    status_code=409,
+                    detail=(
+                        "This conversation is still answering the previous "
+                        "question. Wait for it to finish before reopening it."
+                    ),
+                )
+            health: dict[str, Any] = {"ok": ok}
+            if reason:
+                health["reason"] = reason
+            return {
+                "conversation_id": live.id,
+                "health": health,
+                "tier_default": DEFAULT_TIER,
+                "resumed": True,
+            }
+
+    # Keep the ORIGINAL id so continuing a chat updates it rather than
+    # forking a second transcript with the same content.
+    conversation_id = stored.id if stored else uuid.uuid4().hex
+    # The stored corpus wins over whatever the client asked for: the
+    # transcript was recorded against one corpus and answering it out of the
+    # other would be wrong, cited and confident.
+    corpus = stored.corpus if stored else body.corpus
+
+    # `history=` is passed ONLY when resuming. Passing it unconditionally
+    # would break every session_factory that does not accept it — which is
+    # all of them today: default_session_factory (:327) and the ~25 call
+    # sites behind tests/test_conversations_route.py's `factory_for` (:119).
+    extra = {"history": list(stored.messages)} if stored else {}
     session = _session_factory(request)(
-        conversation_id, corpus=body.corpus, tier=DEFAULT_TIER,
+        conversation_id, corpus=corpus, tier=DEFAULT_TIER,
         user=current_user(),
+        **extra,
     )
     _registry(request).add(
-        _Conversation(id=conversation_id, session=session, corpus=body.corpus)
+        _Conversation(id=conversation_id, session=session, corpus=corpus)
     )
     health: dict[str, Any] = {"ok": ok}
     if reason:
@@ -393,6 +579,7 @@ def create_conversation(body: CreateConversationBody, request: Request) -> dict:
         "conversation_id": conversation_id,
         "health": health,
         "tier_default": DEFAULT_TIER,
+        "resumed": stored is not None,
     }
 
 
@@ -504,6 +691,13 @@ def _release_turn(
     # conversation would stay busy for the life of the process. Scoped to this
     # turn's token, so by now it is usually a no-op — see end_turn.
     registry.end_turn(entry, token)
+    # Persist the transcript AFTER releasing the conversation: persist_turn
+    # may hang an LLM call off the same function (Task 5), and doing that
+    # before end_turn leaves the conversation `busy`, so the analyst's next
+    # question gets a 409 from begin_turn — a working app that appears to
+    # refuse input for no visible reason. A sync BackgroundTask runs in
+    # Starlette's threadpool, so blocking here does not stall the event loop.
+    persist_turn(entry)
 
 
 @router.post("/api/conversations/{conversation_id}/messages")

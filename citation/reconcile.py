@@ -13,10 +13,6 @@ from itertools import combinations
 
 from citation.figures import Figure
 
-# Restatements round hard ("$1.06 billion" for 1,058,400,000), so this is
-# looser than the matcher's tolerance. A false derivation is cheap: it
-# still tells the analyst the figure is computed, not sourced.
-_REL_TOL = 0.01
 # Beyond three inputs a "sum" stops being an explanation a reader can
 # check at a glance, and the combinatorics stop being free.
 _MAX_INPUTS = 3
@@ -31,34 +27,48 @@ class Derivation:
     # which is exactly what the tests expect.
 
 
-def _close(a: float, b: float) -> bool:
-    if b == 0:
-        return abs(a) < 1e-9
-    return abs(a - b) <= abs(b) * _REL_TOL
+def _close(a: float, goal: float, tol: float) -> bool:
+    # An ABSOLUTE tolerance, not a relative one: the question is whether
+    # the arithmetic lands inside the interval the target's own rendering
+    # certifies, and that interval is fixed by how the target was written.
+    # This also removes the old goal == 0 special case — a zero target
+    # just gets the ±0.5 floor like any other exact integer.
+    return abs(a - goal) <= tol
 
 
 def reconcile(target: Figure, linked: list[Figure]) -> Derivation | None:
     goal = target.absolute
+    # The result's WRITTEN precision is what an arithmetic claim must hit
+    # (spec A5). The old flat 1% accepted 16.77 as "explaining" a stated
+    # 16.83 billion — different numbers (memo §5.3). A rounded
+    # restatement still reconciles, because a rounded target carries a
+    # correspondingly wide interval: "$1.06 billion" certifies ±5M, which
+    # is exactly the slack 1,058,400,000 needs.
+    tol = max(target.halfwidth, 0.5)
     values = [x.absolute for x in linked]
 
     # A restatement of a single figure is a one-input "sum".
     for i, v in enumerate(values):
-        if _close(goal, v):
+        if _close(v, goal, tol):
             return Derivation("sum", [i])
 
     for n in (2, 3):
         if n > _MAX_INPUTS:
             break
         for combo in combinations(range(len(values)), n):
-            if _close(goal, sum(values[i] for i in combo)):
+            if _close(sum(values[i] for i in combo), goal, tol):
                 return Derivation("sum", list(combo))
 
     for a, b in combinations(range(len(values)), 2):
-        if _close(goal, abs(values[a] - values[b])):
+        if _close(abs(values[a] - values[b]), goal, tol):
             return Derivation("difference", [a, b])
-        # percent change in either direction
+        # percent change in either direction, against the same absolute
+        # tolerance. A percent target's own halfwidth is tiny ("12.4%"
+        # certifies ±0.05), so in practice the ±0.5 floor is what applies
+        # — half a percentage point, which is the right slack for a
+        # figure the model rounded.
         for x, y in ((a, b), (b, a)):
-            if values[x] and _close(goal,
-                                    (values[y] - values[x]) / values[x] * 100):
+            if values[x] and _close((values[y] - values[x]) / values[x] * 100,
+                                    goal, tol):
                 return Derivation("percent_change", [x, y])
     return None

@@ -7,7 +7,7 @@ pass arithmetic off as provenance.
 """
 from __future__ import annotations
 
-from citation.figures import Figure
+from citation.figures import Figure, extract_figures
 from citation.reconcile import Derivation, reconcile
 
 
@@ -56,3 +56,18 @@ def test_a_zero_valued_input_does_not_crash_percent_change():
     # A linked figure of 0 is a legal budget line (an unfunded program).
     # Dividing by it must be guarded, not raise into the turn.
     assert reconcile(f(50.0), [f(0.0), f(123.0)]) is None
+
+
+def test_written_precision_rejects_the_sixteen_seventy_seven_case():
+    # memo §5.3: 13.24 + 3.53 = 16.77 must NOT explain a stated $16.83B.
+    # "$16.83" certifies ±0.005B = ±5M; 16.77B is 60M away.
+    figs = extract_figures("was $13.24B and $3.53B so total $16.83B held")
+    a, b, target = figs
+    assert reconcile(target, [a, b]) is None
+
+
+def test_written_precision_accepts_true_arithmetic():
+    figs = extract_figures("was $13.24B and $3.53B so total $16.77B held")
+    a, b, target = figs
+    d = reconcile(target, [a, b])
+    assert d is not None and d.operation == "sum"
