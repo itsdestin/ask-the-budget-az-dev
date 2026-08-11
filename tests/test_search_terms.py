@@ -10,7 +10,7 @@ from __future__ import annotations
 import pytest
 
 from app.search_terms import (
-    _catalog_by_slug,
+    load_agency_catalog_by_slug,
     _catalog_by_slug_cached,
     _doc_type_forms,
     search_terms,
@@ -106,10 +106,10 @@ def test_an_unreadable_catalog_degrades_to_no_agency_terms(monkeypatch):
     # Same failure posture as budget_doc_ids: never take the page down.
     #
     # Adapted 2026-08-11 (review fix): the guard used to wrap the whole of
-    # `_catalog_by_slug`, so patching that function to raise exercised it.
+    # `load_agency_catalog_by_slug`, so patching that function to raise exercised it.
     # It now wraps only the catalog READ, which happens inside
     # `_catalog_by_slug_cached` (`load_agency_catalog`) — patching
-    # `_catalog_by_slug` itself would bypass the guard entirely and just
+    # `load_agency_catalog_by_slug` itself would bypass the guard entirely and just
     # assert monkeypatch works. Patch the loader it calls instead.
     #
     # `_catalog_by_slug_cached` is `lru_cache(maxsize=1)` — process-wide, not
@@ -228,7 +228,45 @@ def test_every_emitted_term_is_lowercase_nonempty_and_whitespace_free():
         for term in search_terms("some-doc-id", doc_type, 2026):
             _check(term)
 
-    for slug in _catalog_by_slug():
+    # 2026-08-11 review finding 3 (second pass): the loop below builds each
+    # doc_id as f"jlbc-baseline-fy2026-{slug}", but `_agency_terms` (same as
+    # production) derives the agency from `doc_id.rsplit("-", 1)[-1]` — so a
+    # HYPHENATED slug like "doa-apf" doesn't round-trip: the loop silently
+    # exercises the wrong tail ("apf") for those. That is NOT a production
+    # gap — `_agency_terms` uses the identical rsplit, so those aliases are
+    # equally unreachable in real doc_ids — but the loop's per-term checks
+    # below pass regardless, because every doc_type ALSO contributes type
+    # shorthand ("26baseline", "26br", ...) independent of the agency
+    # portion, so `terms` is non-empty even when the agency-specific portion
+    # silently resolved nothing (or resolved the WRONG entry). A bare
+    # `assert terms` per slug would therefore never catch a coverage
+    # regression; asserting a known count is what makes the coverage
+    # visible.
+    #
+    # Measured against this catalog (2026-08-11): of 145 slugs, the slug's
+    # OWN string appears among its emitted terms for exactly 128. The other
+    # 17 are the 4 hyphenated non-round-trippers ("doa-apf" and friends)
+    # plus 13 deliberately suppressed/ambiguous slugs ("gov", "bar", "for",
+    # ...) whose own slug is never meant to become a term. Pinning 128 is
+    # what makes a FUTURE regression visible: if a currently-reachable slug
+    # ever gains a hyphen (or the suppression lists grow), this count moves
+    # and this assertion fails, where the un-pinned loop below would keep
+    # silently passing on whatever it happens to reach.
+    all_slugs = list(load_agency_catalog_by_slug())
+    reachable = [
+        slug
+        for slug in all_slugs
+        if slug
+        in search_terms(f"jlbc-baseline-fy2026-{slug}", "baseline-per-agency", 2026)
+    ]
+    assert len(reachable) == 128, (
+        f"{len(reachable)} of {len(all_slugs)} catalog slugs' own strings "
+        "round-tripped through this loop (expected 128) — a slug's "
+        "reachability changed; re-verify against the catalog before "
+        "updating this number."
+    )
+
+    for slug in all_slugs:
         terms = search_terms(f"jlbc-baseline-fy2026-{slug}", "baseline-per-agency", 2026)
         for term in terms:
             _check(term)

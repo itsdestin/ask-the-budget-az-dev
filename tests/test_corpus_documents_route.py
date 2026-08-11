@@ -362,3 +362,54 @@ def test_a_wrong_typed_doc_type_lists_with_no_terms_not_a_500(client, tmp_path):
     rows = {r["doc_id"]: r for r in response.json()["documents"]}
     assert rows["doc-a"]["terms"] == []
     assert rows["doc-b"]["terms"] == ["25afr", "afr"]
+
+
+def test_a_degraded_catalog_logs_once_per_page_load_not_once_per_row(
+    client, tmp_path, monkeypatch, capsys
+):
+    """2026-08-11 review finding 1 (second pass): `document_listing()` calls
+    `search_terms` once per ROW, and (before this fix) `_agency_terms` called
+    `load_agency_catalog_by_slug()` once per row too — so a permanently-unreadable
+    catalog logged its stderr line, and reopened the ~10k-line YAML, once per
+    DOCUMENT. Measured at 5,330 stderr lines / 1.33 MB for one page load
+    against the live corpus. `document_listing` now calls
+    `load_agency_catalog_by_slug()` once and hands the result to every row, so
+    the catalog is read — and the failure logged — exactly once per call. Three
+    documents are used because one document can't distinguish "once" from
+    "once per row"; three can.
+    """
+    _write(
+        tmp_path,
+        {
+            "doc-a": _entry(doc_type="baseline-per-agency", fiscal_year=2027),
+            "doc-b": _entry(doc_type="afr", fiscal_year=2025),
+            "doc-c": _entry(doc_type="approps-per-agency", fiscal_year=2026),
+        },
+    )
+
+    def boom(*_a, **_kw):
+        raise OSError("simulated unreadable catalog")
+
+    from app.search_terms import _catalog_by_slug_cached
+
+    monkeypatch.setattr("chunking.agency_catalog.load_agency_catalog", boom)
+    # `_catalog_by_slug_cached` is `lru_cache(maxsize=1)` and process-wide, so
+    # an earlier test's successful read would short-circuit this one without
+    # clearing it first — same reasoning as tests/test_search_terms.py's
+    # identical clear-before/clear-after around this cache.
+    _catalog_by_slug_cached.cache_clear()
+    try:
+        response = client.get("/api/corpus/documents")
+    finally:
+        _catalog_by_slug_cached.cache_clear()
+
+    assert response.status_code == 200
+    # The listing itself must be unaffected — three rows, each with no agency
+    # terms (type shorthand still applies, verified separately elsewhere).
+    assert len(response.json()["documents"]) == 3
+
+    stderr = capsys.readouterr().err
+    assert stderr.count("app.search_terms: ignoring the agency catalog") == 1, (
+        "expected exactly one degraded-catalog log line for this page load, "
+        f"got:\n{stderr}"
+    )

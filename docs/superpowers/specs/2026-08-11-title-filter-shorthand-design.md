@@ -125,7 +125,7 @@ The carve-out is an explicit, named, reviewed set — not a policy. Every other 
 
 **Mechanism (shared by every form):** the shorthand regex (`_JLBC_SHORTHAND` in `retrieval/query_year.py`) allows an optional space between the two digits and the type word, and ends the type word with a `(?![\w])` lookahead rather than a word boundary — so anything that isn't a following word character closes the match, including a hyphen. `br` and `afr` share this exactly: "table 26 br funding" parses as a FY2026 baseline filter and "line 26 afr adjustments" parses as a FY2026 AFR filter, hard-filtering both queries just as `exec` does below. (Verified against this checkout, 2026-08-11.)
 
-**Aggravating factor (unique to `exec`):** `exec` is also a prefix of the ordinary English word "executive", which `br` and `afr` are not prefixes of anything comparably common. That is what makes `exec` fire so much more *often* than the other two — not what makes it fire at all. These all parse as a FY-and-doc-type pair and **hard-filter the query to `governors-budget`**:
+**Aggravating factor (unique to `exec`):** `exec` is a common standalone abbreviation in ordinary prose ("exec summary", "exec sessions", "exec orders"), where `br` and `afr` are not. That is what makes `exec` fire so much more *often* than the other two — not what makes it fire at all. These all parse as a FY-and-doc-type pair and **hard-filter the query to `governors-budget`**:
 
 - "page 26 exec summary"
 - "the committee held 26 exec sessions"

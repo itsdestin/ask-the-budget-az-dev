@@ -44,6 +44,10 @@ from retrieval.query_agency import (
 )
 from retrieval.query_year import SHORTHAND_DOC_TYPE
 
+# `{slug: (canonical_id, aliases)}`. Named because it appears in three
+# signatures and the tuple-of-tuples spelling is unreadable inline.
+Catalog = dict[str, tuple[str, tuple[str, ...]]]
+
 # Deliberate, reviewed divergence from retrieval (Destin, 2026-08-11).
 #
 # Both suppression lists were measured against document PROSE, where "dot" and
@@ -82,14 +86,14 @@ def _doc_type_forms() -> dict[str, tuple[str, ...]]:
 
 
 @lru_cache(maxsize=1)
-def _catalog_by_slug_cached() -> dict[str, tuple[str, tuple[str, ...]]]:
+def _catalog_by_slug_cached() -> Catalog:
     """`{slug: (canonical_id, aliases)}` for every agency that has a slug.
 
     ~a dozen catalog entries are Gov-outline-only and carry `slug: None`; they
     are skipped rather than keyed under None.
 
     Narrowed 2026-08-11 (review fix): only the catalog READ, inside
-    `load_agency_catalog()`, is meant to degrade — see `_catalog_by_slug`
+    `load_agency_catalog()`, is meant to degrade — see `load_agency_catalog_by_slug`
     below, the wrapper that actually catches it. The per-entry loop here is
     deliberately UNGUARDED: it used to sit inside a bare `except Exception`,
     so a field renamed on `AgencyEntry` (`.slug`, `.aliases`,
@@ -108,9 +112,9 @@ def _catalog_by_slug_cached() -> dict[str, tuple[str, tuple[str, ...]]]:
     rather than catching it and returning `{}` here — `lru_cache` only
     memoizes a `return`, never a raise. Catching in here (as the
     pre-2026-08-11-review-finding-1 version of this module did, before the
-    split into this function and `_catalog_by_slug`) let one transient read
+    split into this function and `load_agency_catalog_by_slug`) let one transient read
     failure get cached as "the catalog is empty" for the rest of the
-    process. `_catalog_by_slug` is the uncached wrapper that catches the
+    process. `load_agency_catalog_by_slug` is the uncached wrapper that catches the
     raise, logs why, and lets the NEXT call retry instead of replaying a
     stale failure forever.
 
@@ -132,7 +136,7 @@ def _catalog_by_slug_cached() -> dict[str, tuple[str, tuple[str, ...]]]:
     return out
 
 
-def _catalog_by_slug() -> dict[str, tuple[str, tuple[str, ...]]]:
+def load_agency_catalog_by_slug() -> Catalog:
     """`_catalog_by_slug_cached()`, with a failed catalog READ degraded to
     `{}` instead of raising.
 
@@ -153,19 +157,26 @@ def _catalog_by_slug() -> dict[str, tuple[str, tuple[str, ...]]]:
     try:
         return _catalog_by_slug_cached()
     except (OSError, yaml.YAMLError, UnicodeDecodeError) as err:
-        # Say why, every time it happens — not just the first time — mirroring
-        # store.documents's "degrades ... and says why on stderr" convention
-        # (store/documents.py's `_load_cached`).
+        # Say why every time the READ fails — not just the first time ever —
+        # mirroring store.documents's "degrades ... and says why on stderr"
+        # convention (store/documents.py's `_load_cached`).
+        #
+        # Callers that need terms for MANY documents must call this once and
+        # pass the result down (see `search_terms`'s `catalog` argument), or
+        # this line fires per document: a degraded catalog logged 5,330 times
+        # and 1.33 MB of stderr for ONE page load against the live corpus
+        # before `document_listing` was fixed to hoist it (2026-08-11 review).
         print(
             f"app.search_terms: ignoring the agency catalog ({err}) — agency "
-            'search terms ("dema", "ema") are unavailable this request; '
-            'type shorthand ("26br") still works. Will retry next request.',
+            'search terms ("dema", "ema") are unavailable for this read; '
+            'type shorthand ("26br") still works. The next call retries the '
+            "catalog read from scratch.",
             file=sys.stderr,
         )
         return {}
 
 
-def _agency_terms(doc_id: str) -> set[str]:
+def _agency_terms(doc_id: str, catalog: Catalog) -> set[str]:
     """The agency vocabulary for `doc_id`, or an empty set.
 
     The agency comes from the TRAILING SEGMENT of the doc_id
@@ -180,15 +191,18 @@ def _agency_terms(doc_id: str) -> set[str]:
     They lose nothing: their titles are the slug uppercased, so typing the slug
     already finds them by TITLE.
 
+    Takes the catalog rather than fetching it, so a caller looping over many
+    documents reads it once — see `search_terms`.
+
     Failure posture: an unreadable catalog yields no agency terms rather than a
     500 — same rule as `app.routes.corpus.budget_doc_ids`. Type shorthand needs
     no catalog and still applies. That posture lives entirely in
-    `_catalog_by_slug`, which guards only the catalog READ; a malformed
+    `load_agency_catalog_by_slug`, which guards only the catalog READ; a malformed
     `AgencyEntry` raises out of this function too (2026-08-11 review fix —
-    see `_catalog_by_slug` for why).
+    see `load_agency_catalog_by_slug` for why).
     """
     slug = doc_id.rsplit("-", 1)[-1].lower()
-    entry = _catalog_by_slug().get(slug)
+    entry = catalog.get(slug)
     if entry is None:
         return set()
     canonical_id, aliases = entry
@@ -219,12 +233,25 @@ def _type_terms(doc_type: str | None, fiscal_year: int | None) -> set[str]:
 
 
 def search_terms(
-    doc_id: str, doc_type: str | None, fiscal_year: int | None
+    doc_id: str,
+    doc_type: str | None,
+    fiscal_year: int | None,
+    catalog: Catalog | None = None,
 ) -> list[str]:
     """Extra strings the filter box matches this document on, sorted and unique.
 
     These are matched by EXACT token equality in the browser, never as
     substrings — "ar" as a substring would match "arizona" in nearly every
     title in the corpus.
+
+    `catalog` exists for callers that need terms for MANY documents. Pass
+    `load_agency_catalog_by_slug()` once and hand it to every call; omit it and
+    each call resolves the catalog itself. That matters in the DEGRADED case,
+    not the happy one — a successful read is cached process-wide, but a FAILED
+    read deliberately is not (so a later request retries), and re-resolving per
+    document meant a degraded catalog logged 5,330 times and 1.33 MB of stderr
+    for one page load against the live corpus (2026-08-11 review).
     """
-    return sorted(_agency_terms(doc_id) | _type_terms(doc_type, fiscal_year))
+    if catalog is None:
+        catalog = load_agency_catalog_by_slug()
+    return sorted(_agency_terms(doc_id, catalog) | _type_terms(doc_type, fiscal_year))

@@ -127,7 +127,15 @@ def document_listing() -> list[dict]:
     """
     from store.documents import load_documents, title_for
 
-    from app.search_terms import search_terms
+    from app.search_terms import load_agency_catalog_by_slug, search_terms
+
+    # Read the agency catalog ONCE for this whole listing, not once per row.
+    # This does NOT cache a FAILURE across requests — a failed read is never
+    # memoized (see load_agency_catalog_by_slug), so the next request retries.
+    # It only stops one request re-reading it 5,330 times, which in the
+    # degraded case also meant 5,330 stderr lines and 1.33 MB for a single
+    # page load against the live corpus (2026-08-11 review).
+    catalog = load_agency_catalog_by_slug()
 
     def _terms_for(doc_id: str, meta: dict) -> list[str]:
         """`search_terms`, skipped (not called) when `doc_type`/`fiscal_year`
@@ -175,7 +183,7 @@ def document_listing() -> list[dict]:
             or (isinstance(fiscal_year, int) and 1000 <= fiscal_year <= 9999)
         ):
             return []
-        return search_terms(doc_id, doc_type, fiscal_year)
+        return search_terms(doc_id, doc_type, fiscal_year, catalog)
 
     docs = load_documents()
     in_budget = budget_doc_ids()
@@ -187,25 +195,26 @@ def document_listing() -> list[dict]:
             "doc_type": meta.get("doc_type"),
             "fiscal_year": meta.get("fiscal_year"),
             "doc_url": meta.get("source_url"),
-            # Extra strings the filter box matches by EXACT token equality —
-            # the agency's JLBC slug and reviewed aliases, plus this report
-            # type's shorthand ("26ar"). Computed here rather than in the
-            # browser so JLBC's convention has exactly one implementation; see
-            # app/search_terms.py for the measurement that motivated it
-            # ("dema" matched 0 of 5,330 documents before this). Uses
-            # `_terms_for`, not `search_terms` directly, so a wrong-typed
+            # Extra strings the filter box matches by EXACT token
+            # equality — the agency's JLBC slug and reviewed aliases,
+            # plus this report type's shorthand ("26ar"). Computed here
+            # rather than in the browser so JLBC's convention has exactly
+            # one implementation; see app/search_terms.py for the
+            # measurement that motivated it ("dema" matched 0 of 5,330
+            # documents before this). Uses `_terms_for`, not
+            # `search_terms` directly, so a wrong-typed
             # doc_type/fiscal_year can't 500 the whole listing — see that
             # helper's docstring for the three reproduced exceptions.
             "terms": _terms_for(doc_id, meta),
         }
         for doc_id, meta in docs.items()
-        # A hand-edited sidecar can hold anything; a non-dict entry has no
-        # metadata to list and would raise on .get. Skip it, same posture as
-        # store.documents.document_record.
+        # A hand-edited sidecar can hold anything; a non-dict entry has
+        # no metadata to list and would raise on .get. Skip it, same
+        # posture as store.documents.document_record.
         if isinstance(meta, dict)
-        # Budget corpus only — a sidecar entry with no chunks in budget_chunks
-        # is a fiscal note (or was never ingested), and neither belongs on the
-        # Budget Documents page.
+        # Budget corpus only — a sidecar entry with no chunks in
+        # budget_chunks is a fiscal note (or was never ingested), and
+        # neither belongs on the Budget Documents page.
         and doc_id in in_budget
     ]
     # Deterministic order for a payload the page diffs across reloads:
