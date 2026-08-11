@@ -8,6 +8,7 @@ as written. Telling it to RUN A SEARCH makes the condition observable with a
 tool it already has, and that is the difference between a rule it can follow
 and one it cannot.
 """
+import re
 from pathlib import Path
 
 import pytest
@@ -39,7 +40,24 @@ def test_the_rule_tells_the_model_to_CHECK_not_to_assume():
     # editions in the corpus, so a query that omits fiscal_year would
     # find one almost every time and wrongly conclude the current year's
     # report exists. Pin the filter, not just the presence of "search".
-    assert "fiscal_year" in window
+    #
+    # WHY this is checked against approps_check_bullet, not the wider
+    # `window`: the Engrossed-supersedes-Introduced bullet a few lines
+    # below independently mentions its OWN `fiscal_year` filter, for an
+    # unrelated search. `assert "fiscal_year" in window` is satisfied by
+    # either bullet's mention, so it stayed green when a reviewer reverted
+    # ONLY this (the Approps-check) bullet back to a doc_type-only filter
+    # -- the exact Critical regression this pin exists to catch. Slicing
+    # up to the Engrossed bullet's own name -- a phrase that carries that
+    # bullet's meaning, not incidental wording -- isolates the
+    # Approps-check bullet specifically. Whitespace is collapsed first so
+    # a harmless line-wrap reflow of the surrounding prose can't shift
+    # where that anchor falls and break this pin for no reason.
+    normalized = re.sub(r"\s+", " ", window)
+    approps_check_bullet = normalized[
+        : normalized.index("engrossed supersedes introduced")
+    ]
+    assert "fiscal_year" in approps_check_bullet
 
 
 def test_engrossed_supersedes_introduced_is_stated():
