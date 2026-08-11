@@ -1,0 +1,74 @@
+"""The [[cN]] marker grammar — the model's inline provenance claims.
+
+A marker is a HYPOTHESIS the system verifies, never a fact (spec A2). It
+must strip out of every consumer-visible string: an analyst seeing [[c3]]
+in an answer is a P1 bug, so stripping is deliberately greedy about
+malformed shapes — anything that starts like a marker is removed even
+when it cannot be parsed into a Tag.
+"""
+from __future__ import annotations
+
+import re
+from dataclasses import dataclass
+
+# Well-formed: [[c3]] or [[c3, c12]]. Only c<digits> aliases — [[A.R.S.
+# 35-142]] is legislative prose, not a marker, and must survive.
+_WELL_FORMED = r"\[\[\s*(?P<aliases>c\d+(?:\s*,\s*c\d+)*)\s*\]\]"
+# Malformed-but-marker-like: starts [[c<digit>, ends in ] or ]] with junk
+# inside, or runs unterminated to end of text.
+_MALFORMED = r"\[\[\s*c\d+[^\]\n]*(?:\]{1,2}|$)"
+_ANY_MARKER = re.compile(f"{_WELL_FORMED}|{_MALFORMED}")
+
+# For the stream: any trailing prefix that COULD still become a marker is
+# held back. The delta frames carry full accumulated text, so held-back
+# characters reappear the moment they resolve into (non-)marker text.
+_TRAILING_PARTIAL = re.compile(r"\[{1,2}\s*(?:c\d*)?$")
+
+# Horizontal space only. A newline is never swallowed — collapsing
+# "[[c3]]\n\n" would merge two paragraphs of the answer.
+_SPACE = " \t"
+
+
+@dataclass(frozen=True)
+class Tag:
+    aliases: tuple[str, ...]
+    at: int  # offset in the STRIPPED text where the marker began
+
+
+def parse_markers(raw: str) -> tuple[str, list[Tag]]:
+    """Strip every marker-like span; return stripped text + parsed tags.
+
+    Tag offsets index the stripped text because that is the string every
+    downstream consumer (figure extractor, UI, transcripts) sees — an
+    offset into the raw text would be off by the width of every earlier
+    marker.
+    """
+    out: list[str] = []
+    tags: list[Tag] = []
+    pos = 0
+    removed = 0
+    for m in _ANY_MARKER.finditer(raw):
+        out.append(raw[pos:m.start()])
+        aliases = m.group("aliases")
+        if aliases:
+            parts = tuple(a.strip() for a in aliases.split(","))
+            tags.append(Tag(aliases=parts, at=m.start() - removed))
+        end = m.end()
+        # The model writes "million [[c3]] this", so removing the marker
+        # alone leaves a double space in the rendered answer. Swallow ONE
+        # trailing space — but only when the marker was itself preceded by
+        # one, or "$8.2M[[c3]]and" would fuse into "$8.2Mand".
+        if (m.start() > 0 and raw[m.start() - 1] in _SPACE
+                and end < len(raw) and raw[end] in _SPACE):
+            end += 1
+        removed += end - m.start()
+        pos = end
+    out.append(raw[pos:])
+    return "".join(out), tags
+
+
+def strip_for_stream(text: str) -> str:
+    """What a streaming frame may show: complete markers removed, a
+    trailing could-be-marker prefix held back."""
+    stripped, _ = parse_markers(text)
+    return _TRAILING_PARTIAL.sub("", stripped)
