@@ -12,22 +12,45 @@
 // "More from this document". No "Open document", no "Full report" — the
 // format chooser belongs to the browse card, not this one.
 
+import { useMemo, useState } from "react";
 import { publisherLabel } from "../publishers";
 import { ChevronIcon } from "./DocIcons";
-import { highlight, type PassageDoc } from "../search/contentSearch";
+import {
+  highlightTerms,
+  previewWindow,
+  queryTerms,
+  type PassageDoc,
+} from "../search/contentSearch";
 import type { SearchResult } from "../api";
 
-/** The quoted passage, with the query term marked.
+/** The quoted passage, with the analyst's words marked.
  *
- *  Runs come from `highlight()` and are rendered as ELEMENTS — the snippet is
+ *  Runs come from `highlightTerms()` and are rendered as ELEMENTS — the text is
  *  corpus text, so building markup from it and setting innerHTML would be
- *  handing untrusted content to the DOM. */
-function Quote({ text, query }: { text: string; query: string }) {
+ *  handing untrusted content to the DOM.
+ *
+ *  `expanded` is owned by the CARD, not by this component: the rows are real
+ *  <button> elements and a nested <button> is invalid HTML, so the control
+ *  lives once in the card's context row (spec H9). */
+function Quote({
+  text,
+  terms,
+  expanded,
+}: {
+  text: string;
+  terms: string[];
+  expanded: boolean;
+}) {
+  const view = expanded
+    ? { text, ellipsisStart: false, ellipsisEnd: false }
+    : previewWindow(text, terms);
   return (
     <span className="doc-quote">
-      {highlight(text, query).map((run, i) =>
+      {view.ellipsisStart && <span aria-hidden="true">… </span>}
+      {highlightTerms(view.text, terms).map((run, i) =>
         run.hit ? <mark key={i}>{run.text}</mark> : <span key={i}>{run.text}</span>,
       )}
+      {view.ellipsisEnd && <span aria-hidden="true"> …</span>}
     </span>
   );
 }
@@ -38,17 +61,19 @@ function Quote({ text, query }: { text: string; query: string }) {
  *  says so (the A1 affordance). */
 function PassageRow({
   passage,
-  query,
+  terms,
+  expanded,
   onOpen,
 }: {
   passage: SearchResult;
-  query: string;
+  terms: string[];
+  expanded: boolean;
   onOpen: (chunkId: string) => void;
 }) {
   return (
     <button type="button" className="doc quoterow" onClick={() => onOpen(passage.chunk_id)}>
       <div className="doc-main">
-        <Quote text={passage.snippet} query={query} />
+        <Quote text={passage.text} terms={terms} expanded={expanded} />
       </div>
       <span className="doc-pill">
         {passage.page === null ? "no page" : `p. ${passage.page}`}
@@ -74,6 +99,13 @@ export function PassageCard({
   onOpenPassage: (chunkId: string) => void;
 }) {
   const [best, ...rest] = doc.passages;
+  const [expanded, setExpanded] = useState(false);
+  const terms = useMemo(() => queryTerms(query), [query]);
+  // Only offer the control when something is actually hidden — an "expand"
+  // that does nothing is worse than none.
+  const canExpand = doc.passages.some(
+    (p) => previewWindow(p.text, terms).text.length < p.text.length,
+  );
   return (
     // `grp-passage` scopes the appended app.css rules to this component only.
     // WHY: the bare `.ctx`/`.tray`/`.doc` selectors this markup reuses are
@@ -86,7 +118,7 @@ export function PassageCard({
       <button type="button" className="doc quoterow" onClick={() => onOpenPassage(best.chunk_id)}>
         <span className="doc-pub">{publisherLabel(doc.publisher)}</span>
         <div className="doc-main">
-          <Quote text={best.snippet} query={query} />
+          <Quote text={best.text} terms={terms} expanded={expanded} />
         </div>
         <span className="doc-pill">
           {best.page === null ? "no page" : `p. ${best.page}`}
@@ -100,6 +132,16 @@ export function PassageCard({
           <span className="doc-pub">{publisherLabel(doc.publisher)}</span>
           <span className="badge">{doc.doc_title}</span>
           <span className="spacer" />
+          {canExpand && (
+            <button
+              type="button"
+              className={expanded ? "grp-more open" : "grp-more"}
+              aria-expanded={expanded}
+              onClick={() => setExpanded((v) => !v)}
+            >
+              {expanded ? "Show less" : "Show full passage"}
+            </button>
+          )}
           {rest.length > 0 && (
             <button
               type="button"
@@ -114,7 +156,13 @@ export function PassageCard({
         {trayOpen && rest.length > 0 && (
           <div className="tray open">
             {rest.map((p) => (
-              <PassageRow key={p.chunk_id} passage={p} query={query} onOpen={onOpenPassage} />
+              <PassageRow
+                key={p.chunk_id}
+                passage={p}
+                terms={terms}
+                expanded={expanded}
+                onOpen={onOpenPassage}
+              />
             ))}
           </div>
         )}
