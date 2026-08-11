@@ -158,6 +158,62 @@ test("clicking back to title matches is not a dead end that yanks the reader bac
   vi.useRealTimers();
 });
 
+// A second useSearchParams() consumer in the SAME router, standing in for an
+// outside navigation — Back/Forward, a pasted link, an in-app nav to a new
+// ?q= while this page stays mounted — the exact class of URL change Search's
+// own `lastWritten` ref (Search.tsx:704) does NOT recognise as its own write,
+// so it goes through the URL read-effect (:716) rather than the search box's
+// onChange. Same trick as UrlProbe below, but writing instead of reading.
+function UrlDriver() {
+  const [, setParams] = useSearchParams();
+  return (
+    <button type="button" onClick={() => setParams({ q: "another zero hit query" })}>
+      simulate external nav
+    </button>
+  );
+}
+
+test("a query arriving via the URL, not the box, still escalates after a prior suppression", async () => {
+  // Finding 2, pre-merge re-review (2026-08-10): suppressEscalationFor used
+  // to be a boolean cleared ONLY by the search box's own onChange. A query
+  // that instead arrives through the URL read-effect never went through
+  // onChange, so under the old code the boolean stayed set from the earlier
+  // "Back to title matches" click and the new query could never auto-escalate
+  // until the reader typed a character. UrlDriver reproduces that arrival
+  // path (setSearchParams from a second consumer, not fireEvent.change on the
+  // box) so this exercises the exact gap the fix closed.
+  vi.useFakeTimers();
+  vi.spyOn(api, "corpusDocuments").mockResolvedValue({ documents: DOCS });
+  const search = vi.spyOn(api, "search").mockResolvedValue({
+    results: HITS, total: HITS.length, provider: "test",
+  });
+  render(
+    <MemoryRouter initialEntries={["/search?q=child%20care%20subsidy"]}>
+      <Search />
+      <UrlDriver />
+    </MemoryRouter>,
+  );
+  await vi.waitFor(() => expect(screen.getByText(/searching document titles/i)).toBeInTheDocument());
+  await vi.advanceTimersByTimeAsync(2000);
+  expect(search).toHaveBeenCalledTimes(1); // the initial ?q= escalated normally
+
+  await vi.waitFor(() =>
+    expect(screen.getByRole("button", { name: /back to title matches/i })).toBeInTheDocument(),
+  );
+  fireEvent.click(screen.getByRole("button", { name: /back to title matches/i }));
+  await vi.waitFor(() => expect(screen.getByText(/searching document titles/i)).toBeInTheDocument());
+  await vi.advanceTimersByTimeAsync(5000);
+  expect(search).toHaveBeenCalledTimes(1); // suppression held for the original query
+
+  // A NEW query arrives via the URL — not the box.
+  fireEvent.click(screen.getByRole("button", { name: /simulate external nav/i }));
+  await vi.waitFor(() => expect(box()).toHaveValue("another zero hit query"));
+  await vi.advanceTimersByTimeAsync(2000);
+  expect(search).toHaveBeenCalledTimes(2); // must still escalate — this is a different query
+  expect(search).toHaveBeenNthCalledWith(2, "another zero hit query", {}, "budget");
+  vi.useRealTimers();
+});
+
 test("the rail's filters reach the backend as doc_type SLUGS", async () => {
   vi.useFakeTimers();
   const search = mount();
