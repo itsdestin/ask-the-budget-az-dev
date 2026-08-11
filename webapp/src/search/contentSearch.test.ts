@@ -41,16 +41,36 @@ test("rail filters become backend filters, expanding families to slugs", () => {
 });
 
 test("section_family is omitted when both book families are selected -- nothing to exclude", () => {
-  expect(
-    toSearchFilters(new Set(["Baseline", "Appropriations Report"]), new Set()),
-  ).toEqual({
+  // sectionSlugs is deliberately NON-EMPTY here (derived through
+  // sectionSlugsFrom, same as production, never hand-typed) so this test
+  // proves two things at once: doc_type folds the section slugs into BOTH
+  // book families, and section_family is genuinely absent -- not just that
+  // an empty sectionSlugs list happened to look the same as the
+  // pre-Task-8 two-argument toSearchFilters, which had no section_family
+  // logic at all and would pass this test unchanged (Finding 1, 2026-08-11).
+  const sectionSlugs = sectionSlugsFrom([
+    { doc_type: "detailed-list-pdf", section_of: "Baseline" },
+    { doc_type: "topic-pdf", section_of: "Appropriations Report" },
+  ]);
+  const filters = toSearchFilters(
+    new Set(["Baseline", "Appropriations Report"]),
+    new Set(),
+    sectionSlugs,
+  );
+  expect(filters).toEqual({
     doc_type: [
       "baseline-per-agency",
       "baseline-cross-cut",
+      "detailed-list-pdf",
+      "topic-pdf",
       "approps-per-agency",
       "approps-cross-cut",
     ],
   });
+  // Each book family would otherwise append the WHOLE sectionSlugs list, so
+  // with two books selected detailed-list-pdf/topic-pdf would appear twice
+  // (Finding 2, 2026-08-11).
+  expect(new Set(filters.doc_type).size).toBe(filters.doc_type!.length);
 });
 
 test("section slugs come from the corpus, never from a hardcoded list", () => {

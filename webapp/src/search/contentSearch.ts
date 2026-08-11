@@ -38,7 +38,12 @@ export function toSearchFilters(
     // slug (an unrecognised family falls back to itself), and this branch
     // only runs when `types.size > 0`, so `slugs` can never be empty — the
     // old `if (slugs.length)` here could never be false (MINOR, 2026-08-10).
-    filters.doc_type = [...types].flatMap((t) => slugsForFamily(t, sectionSlugs));
+    // Deduped: when BOTH book families are selected, slugsForFamily appends
+    // the whole sectionSlugs list to each of them, so a section slug
+    // (detailed-list-pdf, topic-pdf) would otherwise appear twice — harmless
+    // for an IN-style filter, but not what the array should say (MINOR,
+    // 2026-08-11).
+    filters.doc_type = [...new Set([...types].flatMap((t) => slugsForFamily(t, sectionSlugs)))];
     const books = [...types].filter((t) => t === "Baseline" || t === "Appropriations Report");
     if (books.length === 1) filters.section_family = books[0];
   }

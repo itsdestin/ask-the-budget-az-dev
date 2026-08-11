@@ -941,12 +941,13 @@ export function Search() {
     // branch fires, the state update re-renders, the new `docs` reference
     // makes `sectionSlugs` a new array, the effect re-runs, forever, until
     // the corpus fetch happens to resolve. Safe to omit: a rail filter can't
-    // even be SET before the listing is ready (there is no rail without
-    // `docs`), so by the time `types`/`years` can be non-empty, `docs` (and
-    // therefore `sectionSlugs`) is already the stable `phase.docs` array —
-    // this effect still reads the current `sectionSlugs` via closure, it
-    // just doesn't re-fire on a reference change that can't carry new
-    // information yet.
+    // even be SET before the listing is ready — the rail itself renders, but
+    // `typeOptions` (below) is built from `docs` and is `[]` until then, so
+    // there is nothing to pick. So by the time `types`/`years` can be
+    // non-empty, `docs` (and therefore `sectionSlugs`) is already the stable
+    // `phase.docs` array — this effect still reads the current
+    // `sectionSlugs` via closure, it just doesn't re-fire on a reference
+    // change that can't carry new information yet.
   }, [mode, q, types, years, searching, contentAttempt]);
 
   // Content results grouped one entry per document — the unit PassageCard
