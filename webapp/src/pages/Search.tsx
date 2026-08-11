@@ -52,12 +52,20 @@ import { groupPassages, toSearchFilters } from "../search/contentSearch";
 //      `hidden` attribute, so a collapsed year's open trays and — critically —
 //      the keyboard focus on a year-toggle button survive a toggle. (The
 //      mockup re-creates the button on each render; a real port must not.)
-//   2. `?q=` is still honored (Home's hero navigates to /search?q=…): an
-//      arriving ?q= seeds the rail box and lands in the unified-search state,
-//      and the box stays one-way synced FROM the URL so back/forward works.
-//      The old page's retrieval-backed keyword search is GONE — this page
-//      searches document titles/publisher, not chunk text (the listing has no
-//      chunk text). Content search lives in AI Mode now.
+//   2. `?q=` (now joined by `?in=contents`) is TWO-WAY synced with the URL,
+//      not one-way: `lastWritten` (below) records what this page itself just
+//      wrote so the write-effect and the read-effect don't fight each other,
+//      and anything else arriving in `params` — Home's hero, a pasted link,
+//      Back/Forward — is read into state.
+//   3. Content search is BACK on this page (2026-08-10), not exiled to AI
+//      Mode: TITLE mode is still the client-side substring match over
+//      title/publisher this page has always done, but a title query that
+//      matches nothing auto-escalates, after a quiet pause, to a real
+//      retrieval request (`POST /api/search`, this file's `content` state) —
+//      and the reader can cross either direction with the "Search document
+//      contents" / "Back to title matches" toggle. (This comment used to say
+//      the box was one-way synced and content search was gone; neither was
+//      still true after this branch landed — IMPORTANT, 2026-08-10.)
 
 // ---------------------------------------------------------------------------
 // Types + data shaping
