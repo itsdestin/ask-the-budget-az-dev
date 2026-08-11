@@ -284,3 +284,54 @@ def test_every_row_has_a_terms_list_even_when_empty(client, tmp_path):
     _write(tmp_path, {"jlbc-s-fy2027-01": _entry(doc_type="s-pdf", fiscal_year=2027)})
     row = client.get("/api/corpus/documents").json()["documents"][0]
     assert row["terms"] == []
+
+
+def test_a_wrong_typed_fiscal_year_lists_with_no_terms_not_a_500(client, tmp_path):
+    """Reproduced against the pre-fix route: `fiscal_year="2027"` (a string,
+    plausible from a hand-edited sidecar) raises TypeError in
+    `_type_terms`'s `fiscal_year >= _SHORTHAND_MIN_YEAR` — a str/int
+    comparison — and 500s the WHOLE listing, not just this row. The row
+    itself is structurally valid (a dict, matching this fixture's other
+    fields), so the existing `isinstance(meta, dict)` guard never sees it;
+    this is a new, narrower failure mode the dict guard doesn't cover.
+
+    A neighbouring well-formed row (`doc-b`) must still carry its real terms
+    — this is a per-row degrade, not a whole-request one.
+    """
+    _write(
+        tmp_path,
+        {
+            "doc-a": _entry(doc_type="baseline-per-agency", fiscal_year="2027"),
+            "doc-b": _entry(doc_type="afr", fiscal_year=2025),
+        },
+    )
+
+    response = client.get("/api/corpus/documents")
+
+    assert response.status_code == 200
+    rows = {r["doc_id"]: r for r in response.json()["documents"]}
+    assert rows["doc-a"]["terms"] == []
+    assert rows["doc-b"]["terms"] == ["25afr", "afr"]
+
+
+def test_a_wrong_typed_doc_type_lists_with_no_terms_not_a_500(client, tmp_path):
+    """Reproduced against the pre-fix route: `doc_type=["baseline-per-agency"]`
+    (a list) raises TypeError being hashed as a dict key in
+    `_doc_type_forms().get(doc_type or "", ())`, 500ing the whole listing.
+    Same per-row degrade as the fiscal_year case above; `doc-b` still lists
+    its real terms.
+    """
+    _write(
+        tmp_path,
+        {
+            "doc-a": _entry(doc_type=["baseline-per-agency"], fiscal_year=2027),
+            "doc-b": _entry(doc_type="afr", fiscal_year=2025),
+        },
+    )
+
+    response = client.get("/api/corpus/documents")
+
+    assert response.status_code == 200
+    rows = {r["doc_id"]: r for r in response.json()["documents"]}
+    assert rows["doc-a"]["terms"] == []
+    assert rows["doc-b"]["terms"] == ["25afr", "afr"]

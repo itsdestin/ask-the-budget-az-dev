@@ -129,6 +129,41 @@ def document_listing() -> list[dict]:
 
     from app.search_terms import search_terms
 
+    def _terms_for(doc_id: str, meta: dict) -> list[str]:
+        """`search_terms`, skipped (not called) when `doc_type`/`fiscal_year`
+        aren't the types it's typed to accept.
+
+        Reproduced against this branch before this guard existed:
+        `fiscal_year="2027"` (a string) raises TypeError from `>=` against an
+        int in `_type_terms`; `fiscal_year=2027.0` (a float) raises ValueError
+        formatting `:02d`; `doc_type=["baseline-per-agency"]` (a list) raises
+        TypeError being hashed as a dict key. Any one of those 500'd the
+        WHOLE listing, not just its own row.
+
+        Same posture as the `isinstance(meta, dict)` guard two lines below —
+        this module already treats a hand-edited sidecar's wrong shape as
+        data ("can hold anything"), not a bug, and that guard skips the row
+        WHOLESALE rather than salvaging whatever fields happen to parse.
+        Mirrored here: a wrong-typed `doc_type` or `fiscal_year` skips the
+        whole `terms` computation for the row (including the doc_id-derived
+        agency terms `search_terms` would otherwise still find), rather than
+        passing through only the one field that's still well-typed. A
+        document whose sidecar entry is this damaged has nothing in it
+        trustworthy enough to search on.
+
+        `app/search_terms.py`'s contract is typed (`doc_type: str | None,
+        fiscal_year: int | None`) and its own 2026-08-11 fix deliberately
+        narrowed what it swallows internally, so honouring that contract is
+        this caller's job, not something to catch after the fact.
+        """
+        doc_type = meta.get("doc_type")
+        fiscal_year = meta.get("fiscal_year")
+        if not (doc_type is None or isinstance(doc_type, str)):
+            return []
+        if not (fiscal_year is None or isinstance(fiscal_year, int)):
+            return []
+        return search_terms(doc_id, doc_type, fiscal_year)
+
     docs = load_documents()
     in_budget = budget_doc_ids()
     rows = [
@@ -144,10 +179,11 @@ def document_listing() -> list[dict]:
             # type's shorthand ("26ar"). Computed here rather than in the
             # browser so JLBC's convention has exactly one implementation; see
             # app/search_terms.py for the measurement that motivated it
-            # ("dema" matched 0 of 5,330 documents before this).
-            "terms": search_terms(
-                doc_id, meta.get("doc_type"), meta.get("fiscal_year")
-            ),
+            # ("dema" matched 0 of 5,330 documents before this). Uses
+            # `_terms_for`, not `search_terms` directly, so a wrong-typed
+            # doc_type/fiscal_year can't 500 the whole listing — see that
+            # helper's docstring for the three reproduced exceptions.
+            "terms": _terms_for(doc_id, meta),
         }
         for doc_id, meta in docs.items()
         # A hand-edited sidecar can hold anything; a non-dict entry has no
