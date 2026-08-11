@@ -112,6 +112,10 @@ def test_provider_maps_retrieval_result_to_contract(monkeypatch, tmp_path):
             "doc_url": "https://www.azjlbc.gov/27baseline/axs.pdf",
             # The mockup docRow's meta recipe: category · doc_type · FY.
             "doc_meta": "Agency Budget Detail · Baseline Book · FY 2027",
+            # Task 7: which JLBC book this is a SECTION of, or null.
+            # "baseline-per-agency" isn't a section doc_type (it's a real
+            # document type, an agency's own page in the book) — None here.
+            "section_of": None,
         }
     ]
 

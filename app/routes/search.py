@@ -17,6 +17,10 @@ class SearchFilters(BaseModel):
     publisher: list[str] | None = None
     doc_type: list[str] | None = None
     agency: list[str] | None = None
+    # Which BOOK's sections to keep when the doc_type list names a section
+    # slug that belongs to both books (spec B5). Not a retrieval filter -- it
+    # is applied by the provider after ranking, from the documents sidecar.
+    section_family: str | None = None
 
 
 class SearchBody(BaseModel):
