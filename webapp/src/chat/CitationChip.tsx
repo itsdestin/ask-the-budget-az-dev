@@ -221,7 +221,10 @@ export function FigureChip({
     // Only a linked figure has somewhere to go. A derived or unverified
     // chip must not open a viewer — claiming a source it hasn't got is
     // exactly the failure this design exists to remove.
-    if (figure.verdict === "linked" && figure.primary) {
+    // `index != null` is a real guard, not a type appeasement: only
+    // citations are numbered, so an unnumbered figure has nothing to
+    // publish to the viewer even if it somehow carried a primary source.
+    if (figure.verdict === "linked" && figure.primary && figure.index != null) {
       const p = figure.primary;
       const selected: Citation = {
         chunkId: p.chunkId,

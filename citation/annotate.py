@@ -180,4 +180,36 @@ def annotate_answer(
         if nm is not None:
             record["near_miss"] = asdict(nm)
 
+    _number_citations(records)
     return {"figures": records}
+
+
+def _number_citations(records: list[dict[str, Any]]) -> None:
+    """Give a display number to CITATIONS only, in reading order.
+
+    An unverified figure is not a citation — nothing was sourced — so
+    numbering it alongside real ones makes the sequence meaningless to a
+    reader: a table came back numbered 13,14,…,20 struck through with a
+    single live 21. Unverified figures get `index: None` and the UI draws
+    no chip for them.
+
+    Numbering happens LAST because a figure's verdict is not final until
+    the derived pass has run; `derived_from` is remapped through the same
+    table so "computed from [2] and [5]" keeps pointing at the chips the
+    analyst can actually see.
+    """
+    renumber: dict[int, int] = {}
+    nxt = 1
+    for record in records:
+        if record["verdict"] in ("linked", "derived"):
+            renumber[record["index"]] = nxt
+            record["index"] = nxt
+            nxt += 1
+        else:
+            record["index"] = None
+    for record in records:
+        if record["derived_from"]:
+            # Every input is a LINKED figure and therefore numbered, but
+            # drop anything unmapped rather than emit a dangling pointer.
+            record["derived_from"] = [renumber[i] for i in
+                                      record["derived_from"] if i in renumber]

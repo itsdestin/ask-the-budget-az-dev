@@ -42,21 +42,25 @@ describe("annotation rendering", () => {
     }
   });
 
-  it("renders one chip per figure, numbered in reading order", () => {
+  it("renders one chip per CITATION, numbered in reading order", () => {
+    // Unverified figures draw no chip: nothing was sourced, so a numbered
+    // marker would claim provenance the system does not have, and a run of
+    // them buries the real citations. The count is disclosed once per turn
+    // by RefusalBanner instead.
     render(
       <CitedMarkdownContent content={ANSWER} annotation={ANNOTATION} citations={[]} />,
     );
     const chips = screen.getAllByTestId("citation-chip");
-    expect(chips).toHaveLength(4);
-    expect(chips.map((c) => c.textContent)).toEqual(["1", "2", "3", "4"]);
+    expect(chips).toHaveLength(3);
+    expect(chips.map((c) => c.textContent)).toEqual(["1", "2", "3"]);
   });
 
-  it("marks derived and unverified figures distinctly", () => {
+  it("marks a derived figure distinctly and draws nothing for an unverified one", () => {
     render(
       <CitedMarkdownContent content={ANSWER} annotation={ANNOTATION} citations={[]} />,
     );
     expect(screen.getByTestId("citation-chip-derived-3")).toBeTruthy();
-    expect(screen.getByTestId("citation-chip-unverified-4")).toBeTruthy();
+    expect(screen.queryByTestId("citation-chip-unverified-4")).toBeNull();
   });
 
   it("renders nothing extra for a turn with no annotation", () => {

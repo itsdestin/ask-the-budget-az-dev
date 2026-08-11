@@ -43,7 +43,9 @@ export interface AnnotationFigure {
   text: string;
   start: number;
   end: number;
-  index: number;
+  /** Display number, or null when the figure is not a citation at all
+   *  (unverified). Unnumbered figures draw no chip. */
+  index: number | null;
   verdict: FigureVerdict;
   primary: AnnotationSource | null;
   additional: AnnotationSource[];
@@ -123,7 +125,7 @@ export function figuresForRender(annotation: unknown): AnnotationFigure[] {
       text: e.text,
       start: e.start,
       end: typeof e.end === "number" ? e.end : e.start,
-      index: typeof e.index === "number" ? e.index : figures.length + 1,
+      index: typeof e.index === "number" ? e.index : null,
       verdict,
       primary: toSource(e.primary),
       additional: Array.isArray(e.additional)

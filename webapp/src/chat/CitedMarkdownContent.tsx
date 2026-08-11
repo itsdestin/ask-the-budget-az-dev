@@ -68,7 +68,16 @@ export default function CitedMarkdownContent({
   citations,
   annotation,
 }: Props) {
-  const figures = useMemo(() => figuresForRender(annotation), [annotation]);
+  // Only figures the system actually sourced get a chip. An unverified
+  // figure is not a citation — nothing was found — and drawing a numbered
+  // red marker for each one buries the real citations in noise: a nine-row
+  // table rendered as 13,14,…,20 struck through around a single live 21.
+  // The count is not lost; `RefusalBanner` reports it once per turn, which
+  // keeps the disclosure (Invariant 2) without the per-figure clutter.
+  const figures = useMemo(
+    () => figuresForRender(annotation).filter((f) => f.verdict !== "unverified"),
+    [annotation],
+  );
 
   // Build the augmented markdown once per (content, citations) change. Both
   // inputs are stable across re-renders because the parent memoizes

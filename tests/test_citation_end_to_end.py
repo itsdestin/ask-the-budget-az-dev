@@ -274,8 +274,12 @@ def _attested_turn():
 def test_all_five_verdict_paths_in_one_answer():
     r, _ = _attested_turn()
     figures = frames_of(r)[-1]["annotation"]["figures"]
-    assert [f["index"] for f in figures] == [1, 2, 3, 4, 5]
-    by_index = {f["index"]: f for f in figures}
+    # Only CITATIONS are numbered. The two unverified figures draw no chip
+    # and take no number, so the live chips read [1] [2] [3] rather than a
+    # sequence with holes struck through it.
+    assert [f["index"] for f in figures] == [1, 2, 3, None, None]
+    # Keyed by reading position, because two figures now share index None.
+    by_index = dict(enumerate(figures, start=1))
 
     # 1 — TAG VERIFIED. $1,391,157,700 is tagged [[c1]] and c-adc contains
     # it, fused onto the agency name. `link_basis == "tag"` is what proves

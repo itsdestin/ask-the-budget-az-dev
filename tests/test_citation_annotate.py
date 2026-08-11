@@ -141,11 +141,14 @@ def test_derived_carries_its_operation():
 
 
 def test_derived_from_reports_reading_order_indices_not_list_positions():
-    # derived_from must be indices an analyst can find on the page. The
-    # linked figures are the 2nd and 3rd figures stated, so a derivation
-    # over them must say [2, 3] — not [0, 1], their positions in the
-    # internal linked list. Getting this wrong points the chip at the
-    # wrong numbers while looking entirely correct.
+    # derived_from must be numbers an analyst can find on the page — the
+    # DISPLAY indices, not positions in the internal linked list. Getting
+    # this wrong points the chip at the wrong numbers while looking
+    # entirely correct.
+    #
+    # The leading unsourced figure draws no chip and takes no number, so
+    # the two linked figures are chips [1] and [2] even though they are
+    # the 2nd and 3rd figures written.
     answer = ("Unsourced $555,555,555; then $1,391,200 and $2,547,300 "
               "give $3,938,500.")
     chunks = {"k": "parts 1,391,200 and 2,547,300 listed"}
@@ -153,8 +156,10 @@ def test_derived_from_reports_reading_order_indices_not_list_positions():
     figs = annotate_answer(answer, chunks, meta,
                            tags=[], alias_map={})["figures"]
     assert figs[0]["verdict"] == "unverified"
+    assert figs[0]["index"] is None
     assert [f["verdict"] for f in figs[1:3]] == ["linked", "linked"]
-    assert sorted(figs[3]["derived_from"]) == [2, 3]
+    assert [f["index"] for f in figs[1:3]] == [1, 2]
+    assert sorted(figs[3]["derived_from"]) == [1, 2]
 
 
 # --- shape, offsets, degradation --------------------------------------
