@@ -483,6 +483,8 @@ def test_retrieve_response_shape_matches_the_locked_contract(monkeypatch, tmp_pa
     chunk = out["chunks"][0]
     assert set(chunk) == {
         "chunk_id",
+        # The per-conversation handle the model tags figures with (spec A1).
+        "alias",
         "doc_id",
         "doc_title",
         "publisher",
@@ -516,6 +518,65 @@ def test_retrieve_targets_the_executors_corpus(monkeypatch):
     _run(ToolExecutor("c", "budget", "standard"), "retrieve", {"query": "q"})
     _run(ToolExecutor("c", "fiscal_notes", "standard"), "retrieve", {"query": "q"})
     assert [r.corpus for r in seen] == ["budget_chunks", "fiscal_note_chunks"]
+
+
+# ---------------------------------------------------------------------------
+# retrieve — chunk aliases (spec A1)
+# ---------------------------------------------------------------------------
+
+
+def test_retrieve_chunks_carry_stable_aliases(monkeypatch):
+    """The model tags each figure with the alias of the passage it took
+    the number from, so an alias must name exactly one chunk."""
+    _fake_retrieve(monkeypatch, chunks=[_chunk(chunk_id=f"doc-a::{i}") for i in range(3)])
+    ex = ToolExecutor("conv-1", "budget", "deep_research")
+    out = _run(ex, "retrieve", {"query": "adc budget"})
+
+    aliases = [c["alias"] for c in out["chunks"]]
+    assert aliases == [f"c{i}" for i in range(1, len(aliases) + 1)]
+    assert ex.alias_map == {
+        "c1": "doc-a::0",
+        "c2": "doc-a::1",
+        "c3": "doc-a::2",
+    }
+
+
+def test_an_alias_never_means_two_different_chunks(monkeypatch):
+    """THE regression test for the wrong-doc hazard. A chunk retrieved
+    again keeps its alias and new chunks continue the numbering — if
+    numbering restarted per turn, a tag the model wrote from an earlier
+    turn's passage would verify against a DIFFERENT chunk and link the
+    figure to the wrong document."""
+    _fake_retrieve(monkeypatch, chunks=[_chunk(chunk_id=f"doc-a::{i}") for i in range(3)])
+    ex = ToolExecutor("conv-1", "budget", "deep_research")
+    _run(ex, "retrieve", {"query": "adc budget"})
+
+    _fake_retrieve(
+        monkeypatch,
+        chunks=[_chunk(chunk_id="doc-a::1"), _chunk(chunk_id="doc-b::0")],
+    )
+    out2 = _run(ex, "retrieve", {"query": "adc budget again"})
+
+    assert [c["alias"] for c in out2["chunks"]] == ["c2", "c4"]
+    for chunk in out2["chunks"]:
+        assert ex.alias_map[chunk["alias"]] == chunk["chunk_id"]
+    assert len(set(ex.alias_map.values())) == len(ex.alias_map)
+
+
+def test_aliases_do_not_leak_between_conversations(monkeypatch):
+    """Aliases are per-conversation state, like the first-call cap: two
+    analysts' `c1` are different passages and must not share a map."""
+    _fake_retrieve(monkeypatch, chunks=[_chunk(chunk_id="doc-a::0")])
+    a = ToolExecutor("conv-a", "budget", "standard")
+    _run(a, "retrieve", {"query": "q"})
+
+    _fake_retrieve(monkeypatch, chunks=[_chunk(chunk_id="doc-b::0")])
+    b = ToolExecutor("conv-b", "budget", "standard")
+    out_b = _run(b, "retrieve", {"query": "q"})
+
+    assert out_b["chunks"][0]["alias"] == "c1"
+    assert b.alias_map == {"c1": "doc-b::0"}
+    assert a.alias_map == {"c1": "doc-a::0"}
 
 
 def test_retrieve_passes_filters_through(monkeypatch):

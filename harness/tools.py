@@ -902,6 +902,14 @@ class ToolExecutor:
         self._lock = threading.Lock()
         self._first_retrieve_pending = True
 
+        # chunk_id -> alias ("c1", "c2", …), assigned at first sight and
+        # never reused (spec A1). Monotonic per CONVERSATION, not per
+        # turn: reusing c3 for a different chunk while the old c3 is
+        # still in the model's history would let a stale tag verify
+        # against the wrong text — the exact wrong-doc failure this
+        # design exists to remove.
+        self._alias_by_chunk: dict[str, str] = {}
+
     # -- dispatch ---------------------------------------------------------
 
     def execute(self, name: str, args: Any) -> str:
@@ -965,6 +973,17 @@ class ToolExecutor:
 
     # -- retrieve ---------------------------------------------------------
 
+    @property
+    def alias_map(self) -> dict[str, str]:
+        """alias -> chunk_id, for the turn-end annotator.
+
+        Inverted on read rather than kept as a second dict: one mapping
+        cannot drift from the other, and an alias is only ever resolved
+        once per answer.
+        """
+        with self._lock:
+            return {alias: cid for cid, alias in self._alias_by_chunk.items()}
+
     def _retrieve(self, args: dict[str, Any]) -> dict[str, Any]:
         query = _req_str(args, "query")
         filters = _filters(args.get("filters"))
@@ -1005,11 +1024,24 @@ class ToolExecutor:
         # would mean a second copy of the model weights in memory.
         result = retrieve(request)
 
+        # Under the lock because a turn may dispatch several retrieves
+        # concurrently, and two threads minting an alias from the same
+        # length would hand one name to two chunks.
+        with self._lock:
+            for c in result.chunks:
+                if c.chunk_id not in self._alias_by_chunk:
+                    self._alias_by_chunk[c.chunk_id] = f"c{len(self._alias_by_chunk) + 1}"
+
         titles = _doc_titles({c.doc_id for c in result.chunks})
         response: dict[str, Any] = {
             "chunks": [
                 {
                     "chunk_id": c.chunk_id,
+                    # The short handle the model tags figures with
+                    # (`[[c3]]`). Short on purpose: it is written after
+                    # every figure in the answer, and a full chunk_id
+                    # there would cost tokens on every number.
+                    "alias": self._alias_by_chunk[c.chunk_id],
                     "doc_id": c.doc_id,
                     "doc_title": titles.get(c.doc_id, ""),
                     "publisher": c.publisher,
