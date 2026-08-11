@@ -13,6 +13,11 @@ through OpenDataLoader for cell-level fidelity. Untagged JLBC PDFs go
 through MinerU for layout reconstruction + table detection. DOCX bills
 use python-docx with paragraph-id provenance.
 
+The table below is illustrative and was already incomplete before this
+module started reading routing from data anyway -- ``data/document-types.yaml``
+is the source of truth (``EXTRACTOR_REGISTRY`` is a projection of it; see
+``_build_registry``), not this docstring.
+
 | doc_type              | source_format | extractor      |
 |-----------------------|---------------|----------------|
 | afr                   | pdf           | opendataloader |
@@ -47,6 +52,8 @@ import sys
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Protocol, runtime_checkable
+
+from ingest.doc_types import all_types as _all_doc_types
 
 
 # ----------------------------------------------------------------------------
@@ -176,34 +183,55 @@ class PythonDocxExtractor:
 # ----------------------------------------------------------------------------
 
 
-# (doc_type, source_format) -> extractor class
-EXTRACTOR_REGISTRY: dict[tuple[str, str], type] = {
-    # Tagged PDFs.
-    ("afr", "pdf"): OpenDataLoaderExtractor,
-    ("governors-budget", "pdf"): OpenDataLoaderExtractor,
-    # Untagged JLBC singlefiles.
-    ("baseline-book", "pdf"): MinerUExtractor,
-    ("approps-report", "pdf"): MinerUExtractor,
-    # JLBC per-agency.
-    ("baseline-per-agency", "pdf"): MinerUExtractor,
-    ("approps-per-agency", "pdf"): MinerUExtractor,
-    # JLBC cross-cuts (s/bh/bd/topic + page-keyed detailed-list).
-    ("s-pdf", "pdf"): MinerUExtractor,
-    ("bh-pdf", "pdf"): MinerUExtractor,
-    ("bd-pdf", "pdf"): MinerUExtractor,
-    ("topic-pdf", "pdf"): MinerUExtractor,
-    # The "Detailed List of GF/Other Fund Changes" approps PDFs use
-    # page-keyed filenames (`452.pdf`, `459.pdf`) — a separate doc_type
-    # so chunkers can route them differently if needed (these are
-    # pre-computed delta tables, often *the* answer to comparison
-    # queries — see cross-doc-relationships §3a).
-    ("detailed-list-pdf", "pdf"): MinerUExtractor,
-    # Budget bill DOCX.
-    ("budget-bill", "docx"): PythonDocxExtractor,
-    # Fiscal notes (the second corpus, S9/S10). Published as PDFs, untagged,
-    # with the same table-heavy layout as the JLBC per-agency pages.
-    ("fiscal-note", "pdf"): MinerUExtractor,
+_EXTRACTOR_CLASSES = {
+    "mineru": MinerUExtractor,
+    "opendataloader": OpenDataLoaderExtractor,
+    "python-docx": PythonDocxExtractor,
 }
+
+# WHY this is built rather than written out: the table used to live here AND
+# in webapp/src/pages/Upload.tsx, and app/routes/upload.py derived a third
+# copy from it. One source of truth is data/document-types.yaml; this is a
+# projection of it in the shape every existing importer already expects
+# (undotted format keys, extractor CLASSES not names).
+#
+# Types the registry knows but that declare no extractor for a format are
+# simply absent, exactly as they were when this was a literal -- which is what
+# keeps `pick_extractor` raising for (budget-bill, pdf).
+#
+# _NOT_YET_WIRED is a deliberate holdout, not a projection gap: Plan A Task 1
+# already added `agency-submission` and `budget-bill-summary` to
+# data/document-types.yaml WITH extractors declared (its own test asserts
+# this: test_the_registry_adds_exactly_the_two_new_types_and_nothing_else), so
+# a bare projection would route both today -- before harness/tools.py's
+# `_DOC_TYPES` or the system prompt know either name exists. That mismatch is
+# exactly the silent-drift failure harness/tools.py warns about: a filtered
+# search on a doc_type the model has never heard of returns zero chunks with
+# no error. Task 4 removes this set (and the test it exists to satisfy,
+# tests/test_dispatcher_registry.py::
+# test_the_new_types_are_NOT_reachable_through_the_dispatcher_yet) in the same
+# commit that wires both types into harness/tools.py and the system prompt.
+_NOT_YET_WIRED = {"agency-submission", "budget-bill-summary"}
+
+
+def _build_registry() -> dict[tuple[str, str], type]:
+    table: dict[tuple[str, str], type] = {}
+    for row in _all_doc_types():
+        if row.key in _NOT_YET_WIRED:
+            continue
+        for fmt, name in row.extractors.items():
+            cls = _EXTRACTOR_CLASSES.get(name)
+            if cls is None:
+                raise ValueError(
+                    f"document-types.yaml: {row.key} names unknown extractor "
+                    f"{name!r}. Known: {sorted(_EXTRACTOR_CLASSES)}."
+                )
+            table[(row.key, fmt.lstrip("."))] = cls
+    return table
+
+
+# (doc_type, source_format) -> extractor class
+EXTRACTOR_REGISTRY: dict[tuple[str, str], type] = _build_registry()
 
 
 def pick_extractor(doc_type: str, source_format: str) -> Extractor:
