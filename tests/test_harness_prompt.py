@@ -211,6 +211,30 @@ def test_the_domain_primer_is_inlined_not_referenced(corpus):
         assert phrase in prompt
 
 
+def test_expenditure_authority_is_defined_and_not_offered_as_all_funds():
+    """A live answer presented an agency's Expenditure Authority total as
+    if it were an all-funds budget, then proposed to fix it by summing
+    GF + Other Funds + EA — which is ALSO wrong, because it drops Other
+    Non-Appropriated and Federal Funds. Verified against the corpus: for
+    ADE FY 2025, appropriated + EA is $8,505,643,300 while
+    TOTAL - ALL SOURCES is $10,954,802,400, so hand-summing loses $2.4B.
+    The prompt must carry the statutory definition AND the published
+    total line, or the model reconstructs the same error."""
+    # Collapse whitespace: the prompt is hand-wrapped markdown, so a
+    # phrase can straddle a line break. Asserting on the raw string would
+    # pin the WRAPPING, and a reflow would fail as a content regression.
+    prompt = " ".join(build_system_prompt(corpus="budget",
+                                          tier="standard").split())
+    # The statutory definition, so EA is never read as "all funds".
+    assert "continuously appropriated monies" in prompt
+    # The published total, so the model quotes it instead of adding rows.
+    assert "TOTAL - ALL SOURCES" in prompt
+    assert "SUBTOTAL - Appropriated Funds" in prompt
+    # The ranking-basis rule — "biggest by budget" is ambiguous and the
+    # answer differs enormously by basis at federally-funded agencies.
+    assert "Never hand-sum columns to make a total" in prompt
+
+
 # ---------------------------------------------------------------------------
 # Corpus scope
 # ---------------------------------------------------------------------------
