@@ -29,6 +29,8 @@ SHIPPED = {
     ("detailed-list-pdf", "pdf"): MinerUExtractor,
     ("budget-bill", "docx"): PythonDocxExtractor,
     ("fiscal-note", "pdf"): MinerUExtractor,
+    ("agency-submission", "pdf"): MinerUExtractor,
+    ("budget-bill-summary", "pdf"): MinerUExtractor,
 }
 
 
@@ -49,15 +51,3 @@ def test_unknown_pairs_still_raise():
         pick_extractor("budget-bill", "pdf")
     with pytest.raises(ValueError):
         pick_extractor("not-a-type", "pdf")
-
-
-def test_the_new_types_are_NOT_reachable_through_the_dispatcher_yet():
-    """Task 4 wires these. Until then the dispatcher must not know them.
-
-    Pinned so Task 2 cannot quietly pull them in as a side effect of reading
-    the registry -- that would make Task 4's own test vacuous.
-    """
-    import pytest
-    for key in ("agency-submission", "budget-bill-summary"):
-        with pytest.raises(ValueError):
-            pick_extractor(key, "pdf")

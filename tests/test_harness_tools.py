@@ -264,9 +264,16 @@ def test_retrieve_schema_mirrors_the_locked_zod_shape():
     assert props["deep_dive"]["type"] == "boolean"
 
     filters = props["filters"]["properties"]
+    # Updated for Plan A Task 4: agency-submission and budget-bill-summary
+    # are now routable end to end, and baseline-book/approps-report were
+    # added to close the drift test_the_doc_type_enum_matches_the_registry_
+    # exactly (tests/test_new_doc_types.py) caught -- see the WHY comment
+    # above harness.tools._DOC_TYPES for both.
     assert filters["doc_type"]["items"]["enum"] == [
         "baseline-per-agency",
         "approps-per-agency",
+        "baseline-book",
+        "approps-report",
         "s-pdf",
         "bd-pdf",
         "bh-pdf",
@@ -275,6 +282,8 @@ def test_retrieve_schema_mirrors_the_locked_zod_shape():
         "afr",
         "governors-budget",
         "budget-bill",
+        "budget-bill-summary",
+        "agency-submission",
         "fiscal-note",
     ]
     assert filters["publisher"]["items"]["enum"] == [
@@ -282,6 +291,7 @@ def test_retrieve_schema_mirrors_the_locked_zod_shape():
         "legislature",
         "governor",
         "agao",
+        "agency",
     ]
     for key in ("fiscal_year", "agency_canonical_id", "fund_canonical_id"):
         assert filters[key]["type"] == "array"

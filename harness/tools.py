@@ -169,9 +169,28 @@ def _agency_names() -> dict[str, str]:
 # ingest adds a doc_type, extend this list AND the system prompt.
 # `list_filter_values` is the RUNTIME source of truth; this enum only
 # validates input at the tool boundary.
+#
+# tests/test_new_doc_types.py::test_the_doc_type_enum_matches_the_registry_exactly
+# pins this list to ingest.doc_types.all_types() exactly, so it can never
+# drift from data/document-types.yaml again the way it drifted before
+# 2026-05-08. NOTE (Plan A Task 4 self-review, 2026-08-11): that pin pulls in
+# `baseline-book` and `approps-report`, which the registry marks
+# `redirect: add-jlbc-book` -- the "Add a JLBC book" tool always expands them
+# into per-agency (`baseline-per-agency` / `approps-per-agency`) and section
+# (`s-pdf`/`bh-pdf`/`bd-pdf`/`detailed-list-pdf`/`topic-pdf`) documents, so no
+# corpus chunk is ever stamped with the literal `baseline-book` or
+# `approps-report` doc_type (see ingest/book_discovery.py and the "does not
+# actually use" note in retrieval/query_doc_type.py). A model that filters on
+# either value today gets an honest zero-result page, not the historical
+# silent-drift failure this comment describes -- but it is still an empty
+# page for a value this enum now claims is valid. Flagged for review rather
+# than silently omitted, since the registry-parity test above is what a
+# future ingest adding book-level chunks would need anyway.
 _DOC_TYPES = [
     "baseline-per-agency",
     "approps-per-agency",
+    "baseline-book",
+    "approps-report",
     "s-pdf",
     "bd-pdf",
     "bh-pdf",
@@ -180,11 +199,23 @@ _DOC_TYPES = [
     "afr",
     "governors-budget",
     "budget-bill",
+    # JLBC's summary of the budget bills in progress. Precedes the
+    # Appropriations Report and is superseded by it -- see the lifecycle
+    # section of system-prompt.md.
+    "budget-bill-summary",
+    # An agency's own budget request, one per agency per year.
+    "agency-submission",
     # Added for Plan 3's fiscal-note corpus.
     "fiscal-note",
 ]
 
-_PUBLISHERS = ["jlbc", "legislature", "governor", "agao"]
+# WHY "agency": the 2026-06 harvest records the *agency name* as publisher
+# for each of the 78 agency budget requests (78 distinct values) -- adding
+# all 78 here would destroy the publisher filter's usefulness. The agency
+# identity already lives in the entity stamper / agency_canonical_id, so one
+# `agency` publisher is the right granularity (data/document-types.yaml:
+# agency-submission declares publisher: agency).
+_PUBLISHERS = ["jlbc", "legislature", "governor", "agao", "agency"]
 
 _FILTERS_SCHEMA = {
     "type": "object",
