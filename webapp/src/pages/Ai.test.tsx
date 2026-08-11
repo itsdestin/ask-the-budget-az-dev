@@ -21,6 +21,7 @@ import { MemoryRouter } from "react-router-dom";
 import { Ai } from "./Ai";
 import * as api from "../api";
 import { AiSessionProvider } from "../chat/ai-session";
+import { __resetAiStatusCache } from "../chat/use-ai-status";
 import {
   AI_STATUS,
   sseResponse,
@@ -76,6 +77,13 @@ function createdCorpora(calls: { url: string; init?: RequestInit }[]): string[] 
 }
 
 beforeEach(() => stubScrollIntoView());
+// `useAiStatus` remembers the last verdict this tab received, so that returning
+// to /ai mid-conversation does not flash the probing gate over a live answer
+// (see Ai.return-mid-turn.test.tsx). The memory is module-level — one per tab —
+// so specs that need a COLD tab, like the "still checking" one below, have to
+// clear it. Without this, that spec reads the verdict an earlier spec in this
+// file left behind and never sees the probing state at all.
+beforeEach(() => __resetAiStatusCache());
 afterEach(() => vi.unstubAllGlobals());
 
 describe("AI Mode page — the corpus picker", () => {

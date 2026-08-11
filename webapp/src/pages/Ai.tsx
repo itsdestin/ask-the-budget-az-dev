@@ -91,6 +91,31 @@ export function Ai() {
   const probing = status === null;
   const gated = !probing && !status.available;
 
+  // A conversation the analyst can already see. The gate must never be drawn
+  // over one — this is the second half of the fix for the scenario spec P4
+  // exists to serve.
+  //
+  // WHY: the conversation now outlives a trip to Budget Documents (it lives in
+  // AiSessionProvider, above the router), but THIS PAGE still unmounts and
+  // remounts on that trip. Its `useAiStatus()` therefore re-probes, and the
+  // ladder below would render the "Checking whether AI answers are available…"
+  // screen over a live, possibly streaming, answer for a network round trip.
+  // The tail case is worse: a hiccuped probe resolves to a real "unavailable"
+  // verdict, so the analyst reads "AI Mode is currently unavailable" while a
+  // paid Deep Research turn streams invisibly behind it.
+  //
+  // `use-ai-status.ts` now seeds from the last known verdict, which removes the
+  // common flash; this guard is what covers the case that seeding cannot — a
+  // probe that genuinely fails or genuinely reports unavailable while the
+  // analyst has a conversation in hand. A gate is for a page that cannot do its
+  // job. A page holding turns is doing its job.
+  //
+  // Safe to pass a null `status` to the panel: `AiModePanel` types it as
+  // `AiStatus | null` and the only consumer, ToolsMenu, reads it as
+  // `status?.tiers?.deep_research`, which renders its own "still checking"
+  // copy. Verified before relying on it.
+  const hasConversation = chat.state.turns.length > 0;
+
   return (
     <main className="page-ai" data-testid="ai">
       {/* ── the page's accessible name ───────────────────────────────────────
@@ -117,7 +142,7 @@ export function Ai() {
       {/* The growth region: everything above is zero-height, so this is what
           absorbs the viewport and hands it to the panel. */}
       <div className="wrap ai-stage">
-        {probing || gated ? (
+        {(probing || gated) && !hasConversation ? (
           // A WHOLE SCREEN, not a card (Destin, 2026-08-02). The footer used to
           // carry "AI Mode unavailable" in 11px grey next to a red dot, which
           // is the wrong weight for the one condition that stops the page doing

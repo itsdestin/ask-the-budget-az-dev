@@ -43,7 +43,7 @@ import {
   createContext,
   useCallback,
   useContext,
-  useEffect,
+  useLayoutEffect,
   useMemo,
   useState,
   type ReactNode,
@@ -67,20 +67,39 @@ export interface AiSession {
 const SessionContext = createContext<AiSession | null>(null);
 const ChatContext = createContext<UseChatResult | null>(null);
 
-/** A fully-typed, inert stand-in for the instant between `AiSessionProvider`
- *  mounting and `ChatEngine`'s first effect reporting a real `useChat()`
- *  result. Never actually reachable by a click in practice — React (and
- *  React Testing Library's `act()`) flushes that first effect before the
- *  browser paints or a test's assertions run — but it exists so a consumer
- *  rendered in that window gets a harmless no-op chat instead of `null`,
- *  which would otherwise crash `/ai` on a cold load with a hooks-ordering
- *  throw. `AiSessionProvider`'s own `chat` state starts here; the context's
- *  OWN default stays `null`, so using either hook truly outside
- *  `<AiSessionProvider>` still throws below. */
+/** A fully-typed stand-in for the instant between `AiSessionProvider`
+ *  mounting and `ChatEngine` reporting a real `useChat()` result. It exists so
+ *  a consumer rendered in that window gets a typed object instead of `null`,
+ *  which would otherwise crash `/ai` on a cold load. `AiSessionProvider`'s own
+ *  `chat` state starts here; the context's OWN default stays `null`, so using
+ *  either hook truly outside `<AiSessionProvider>` still throws below.
+ *
+ *  WHY `send`/`stop` SHOUT rather than doing nothing: with the
+ *  `useLayoutEffect` mirror below, this placeholder should be genuinely
+ *  unreachable — the mirror commits in the SAME commit as the render that
+ *  mounted `ChatEngine`, before paint and before any test assertion. So this
+ *  is insurance against a FUTURE regression (an early return added to
+ *  `ChatEngine`, a dependency dropped from the mirror, an effect that throws),
+ *  and the failure it must not produce is a silent one. `send: async () => {}`
+ *  resolves successfully having done nothing: no busy state, no error, no
+ *  turn — a composer that quietly eats the analyst's question and looks fine.
+ *  Throwing makes the same regression a visible crash with a name attached.
+ *  An absence must be visible; that is this codebase's standing rule. */
+const NOT_MIRRORED =
+  "AI Mode: the conversation was never mirrored up from ChatEngine — " +
+  "the composer is wired to a placeholder, so nothing was sent. This is a " +
+  "bug in chat/ai-session.tsx (see INERT_CHAT), not a server problem.";
+
 const INERT_CHAT: UseChatResult = {
   state: initialChatState,
-  send: async () => {},
-  stop: () => {},
+  send: async () => {
+    console.error(NOT_MIRRORED);
+    throw new Error(NOT_MIRRORED);
+  },
+  stop: () => {
+    console.error(NOT_MIRRORED);
+    throw new Error(NOT_MIRRORED);
+  },
   clearError: () => {},
   tier: "standard",
   setTier: () => {},
@@ -124,13 +143,20 @@ export function AiSessionProvider({ children }: { children: ReactNode }) {
       });
   }, []);
 
-  const chatDeleted = useCallback((id: string) => {
-    setSelectedChatId((current) => {
-      if (current !== id) return current;
-      setNewChatNonce((n) => n + 1);
-      return null;
-    });
-  }, []);
+  // Read `selectedChatId` from the closure rather than from inside a
+  // `setSelectedChatId` updater. WHY: React requires a state updater to be
+  // PURE, and this used to call `setNewChatNonce` from inside one. StrictMode
+  // is on, so in development React invokes the updater twice and the nonce
+  // ratcheted twice per delete — harmless in effect (the key changes either
+  // way) but a rule violation sitting where the next reader will copy it into
+  // somewhere it does matter. The extra `selectedChatId` dependency costs
+  // nothing: the `session` memo below already re-creates on that value.
+  const chatDeleted = useCallback(
+    (id: string) => {
+      if (id === selectedChatId) newChat();
+    },
+    [selectedChatId, newChat],
+  );
 
   const session = useMemo<AiSession>(
     () => ({ corpus, setCorpus, selectedChatId, selectChat, newChat, chatDeleted }),
@@ -175,21 +201,51 @@ function ChatEngine({
   onChat: (chat: UseChatResult) => void;
 }) {
   const chat = useChat(corpus, resumeFrom);
-  // `useChat` returns a NEW plain object every render, so a no-deps effect
-  // here would fire, call `onChat` (a setState in the parent), cause the
-  // parent to re-render, re-render THIS component with a new-but-equivalent
-  // `chat` object, and fire again — forever. (Caught by running this: the
-  // test run hung rather than failing, which is the tell.) Depending on the
-  // pieces that actually carry new information — `state` (from useChat's
-  // own useReducer, a new reference only on a real dispatch), `tier`,
-  // `busy`, `health` — means the effect is a no-op on a render that changed
-  // nothing observable. `send`/`stop`/`clearError`/`setTier` are already
-  // useCallback-stable inside `useChat` for a fixed `corpus`, so they need
-  // no entry here.
-  useEffect(() => {
+  // useLayoutEffect, NOT useEffect — and this is the wrong-corpus guard, not a
+  // polish detail.
+  //
+  // On `setCorpus`, `AiSessionProvider` re-renders, `ChatEngine` remounts on
+  // its new key, but `<ChatContext.Provider value={chat}>` still carries the
+  // OLD `useChat` result until this effect runs and the parent re-renders.
+  // A passive `useEffect` is scheduled at normal priority and MAY RUN AFTER
+  // PAINT, so a frame can exist in which the picker reads "Fiscal notes" while
+  // `chat.send` is still the budget instance's closure — `use-chat.ts` bakes
+  // the corpus into `send` via `useCallback(..., [corpus, safeDispatch])`. A
+  // keypress in that frame posts into the WRONG CORPUS, cited and confident,
+  // which is the worst failure this app has. It did not exist before this
+  // refactor: the old `key` on the page's `AiConversation` swapped the hook
+  // inside the same commit. `useLayoutEffect` runs synchronously in that same
+  // commit, before the browser paints, which restores that property.
+  //
+  // The dependency list names EVERY FIELD of the result, not just the four
+  // that carry values. The four callbacks are identity-stable per hook
+  // instance (`send`/`stop`/`clearError` are useCallback, `setTier` is a raw
+  // useState setter), so listing them costs nothing today — and it is what
+  // makes the mirror correct tomorrow. The `eslint-disable-next-line
+  // react-hooks/exhaustive-deps` that used to sit here, over a list of only
+  // `state`/`tier`/`busy`/`health`, would have hidden a real regression: make
+  // `send` depend on `tier` and the short list keeps silently serving the
+  // stale closure.
+  //
+  // What the list must NOT contain is the whole `chat` object. `useChat`
+  // returns a NEW plain object every render, so that entry would fire the
+  // effect, call `onChat` (a setState in the parent), re-render this component
+  // with a new-but-equivalent object, and fire again — forever. (Observed: the
+  // test run hung rather than failing, which is the tell.) Listing the fields
+  // instead means the effect is a no-op on a render that changed nothing.
+  useLayoutEffect(() => {
     onChat(chat);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [chat.state, chat.tier, chat.busy, chat.health]);
+  }, [
+    onChat,
+    chat.state,
+    chat.send,
+    chat.stop,
+    chat.clearError,
+    chat.tier,
+    chat.setTier,
+    chat.busy,
+    chat.health,
+  ]);
   return null;
 }
 
