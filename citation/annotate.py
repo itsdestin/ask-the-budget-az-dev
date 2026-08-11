@@ -21,26 +21,22 @@ from citation.markers import Tag
 from citation.matching import find_in_chunks, nearest_value
 from citation.reconcile import reconcile
 
-# A tag binds leftward to the closest preceding figure, across the
-# qualifier that figure carries.
+# A tag binds to the closest PRECEDING figure. That is the whole rule.
 #
-# The first rule here allowed only whitespace, punctuation and a scale
-# word, on the theory that a tag welded to the digits is the safe case.
-# It is — and it is not how a model writes. Observed live: every one of
-# "$12.49B (Mar 2020) [[c18]]", "$16.83B (Jun 2022) [[c3]]" and
-# "$1,574.1 million in FY 2026 [[c22]]" was DISCARDED, because a model
-# tags the end of the noun phrase, not the end of the number. Those
-# figures then fell through to the untagged fallback and mostly went
-# uncited — the model had named its source and the system threw it away.
+# There were two earlier versions, each rejecting a tag whose distance
+# from its figure exceeded some shape: first "only whitespace, a scale
+# word and punctuation", then "anything short of a sentence boundary".
+# Both silently discarded real citations — "$12.49B (Mar 2020) [[c18]]"
+# and "$1,574.1 million in FY 2026 [[c22]]" are how a model actually
+# writes, because it tags the end of the noun phrase, not the digits.
 #
-# What actually protects against binding to the wrong figure is
-# "closest PRECEDING figure", not the narrow charset: a tag after several
-# figures takes the last one, which is the one it follows. So the gap
-# rule only has to stop a bind reaching across a boundary the writer
-# clearly intended — a sentence end, a line break, or a table cell wall.
-_BIND_MAX_GAP = 80
-# Anything that ends the thought the figure was part of.
-_BIND_BOUNDARY_RE = re.compile(r"[.!?](?:\s|$)|[\n\r|]")
+# Deleted rather than widened again, because a distance heuristic was
+# never what made a tag safe. VERIFICATION is: the value must appear in
+# the chunk the tag names, inside the interval the figure's written form
+# certifies. A tag bound to the wrong figure therefore fails and the
+# figure falls back to exactly where an untagged one lands — the rule
+# was only ever able to lose citations, never to prevent a false one.
+# Two independent failures are still required for a wrong source.
 
 
 def _bind_tags(answer: str, figures: list[Figure],
@@ -55,9 +51,7 @@ def _bind_tags(answer: str, figures: list[Figure],
                 best = i
         if best is None:
             continue
-        gap = answer[figures[best].end:tag.at]
-        if len(gap) <= _BIND_MAX_GAP and not _BIND_BOUNDARY_RE.search(gap):
-            bound.setdefault(best, []).extend(tag.aliases)
+        bound.setdefault(best, []).extend(tag.aliases)
     return bound
 
 

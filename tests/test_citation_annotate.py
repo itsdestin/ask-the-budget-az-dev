@@ -269,15 +269,39 @@ def test_a_tag_binds_across_the_qualifier_its_figure_carries():
         assert _bound_aliases(raw), f"tag was dropped: {raw}"
 
 
-def test_a_tag_does_not_bind_across_a_boundary_the_writer_drew():
-    """What stops a wrong bind is "closest PRECEDING figure" plus these
-    boundaries — a sentence end, a table cell wall, a line break. A tag
-    that has crossed one of those is not describing the figure behind it."""
-    assert not _bound_aliases("Revenue hit $16.5B. Spending set a record [[c3]]")
-    assert not _bound_aliases("| $12.49B | a different cell [[c18]] |")
-    assert not _bound_aliases(
+def test_a_tag_binds_however_far_it_sits_from_its_figure():
+    """There is no distance rule, deliberately. Two earlier versions had
+    one — a charset, then a sentence boundary — and both did nothing but
+    discard real citations, because a model tags the end of a phrase and
+    sometimes the end of a clause."""
+    assert _bound_aliases("Revenue hit $16.5B. Spending set a record [[c3]]")
+    assert _bound_aliases("| $12.49B | a different cell [[c18]] |")
+    assert _bound_aliases(
         "$12.49B then a clause that runs on and on and on and on past any "
         "reasonable qualifier length [[c9]]")
+
+
+def test_a_MIS_bound_tag_is_caught_by_verification_not_by_binding():
+    """The property that replaced the distance rule, and the reason
+    deleting it was safe.
+
+    Bind whatever you like: a tag only produces a citation if the figure's
+    value is actually IN the chunk it names. Here the tag says c2, whose
+    text does not contain the value, so the figure does not link to c2 —
+    it falls back to exactly where an untagged figure lands. A binding
+    rule could only ever lose citations; it could not prevent a false one.
+    """
+    chunks = {"budget-a-0001": CHUNKS["budget-a-0001"],
+              "budget-b-0002": "unrelated prose with no figures at all"}
+    stripped, tags = parse_markers(
+        "Total $8,287,700,000 and some later clause [[c2]] here.")
+    (fig,) = annotate_answer(stripped, chunks, META,
+                             tags=tags, alias_map=ALIASES)["figures"]
+    # The tag WAS bound and resolved — the model's claim is recorded...
+    assert fig["attested_chunk_ids"] == ["budget-b-0002"]
+    # ...and then refused, because c2 does not contain the value.
+    assert fig["link_basis"] == "unambiguous-fallback"
+    assert fig["primary"]["chunk_id"] == "budget-a-0001"
 
 
 def test_a_tag_after_several_figures_takes_the_nearest_one():
