@@ -204,3 +204,15 @@ test("an empty term list previews the leading text", () => {
   const text = LEAD + "y".repeat(400);
   expect(previewWindow(text, [], 280).text.startsWith("Florence")).toBe(true);
 });
+
+test("small size with many spaces does not create an empty window", () => {
+  // With size below SNAP_CHARS (40), snapEnd might find a space before start,
+  // which would produce an empty window if not guarded. This test uses a text
+  // with spaces every 2 characters to stress-test the snap logic with small
+  // window sizes.
+  const text = "a ".repeat(50) + "word " + "b ".repeat(50);
+  const p = previewWindow(text, queryTerms("word"), 35);
+
+  expect(p.text.length).toBeGreaterThan(0);
+  expect(p.text).toContain("word");
+});

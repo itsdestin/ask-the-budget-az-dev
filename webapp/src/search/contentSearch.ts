@@ -244,13 +244,19 @@ export function previewWindow(
   }
 
   // Centre on the match, then snap the window's edges BACKWARD toward
-  // whitespace so it never exceeds `size` and never begins mid-word.
+  // whitespace so it never exceeds `size`, and begin at a word start whenever
+  // one is within SNAP_CHARS of the cut.
   let start = Math.max(0, Math.min(first - Math.floor(size / 3), text.length - size));
   if (start > 0) {
     const ws = text.lastIndexOf(" ", start);
     if (ws !== -1 && start - ws <= SNAP_CHARS) start = ws + 1;
   }
-  const end = snapEnd(text, Math.min(text.length, start + size));
+  const rawEnd = Math.min(text.length, start + size);
+  const snapped = snapEnd(text, rawEnd);
+  // A snap that lands at or before `start` would produce an empty window.
+  // Unreachable while `size` (280) exceeds SNAP_CHARS (40), but `size` is a
+  // public parameter, so prefer the unsnapped edge over an empty slice.
+  const end = snapped > start ? snapped : rawEnd;
   return {
     text: text.slice(start, end),
     ellipsisStart: start > 0,
