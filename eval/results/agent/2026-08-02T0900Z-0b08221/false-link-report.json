@@ -20,10 +20,10 @@
     }
   },
   "verdicts": {
-    "linked": 195,
-    "derived": 45,
-    "unverified": 195,
-    "total": 435
+    "linked": 209,
+    "derived": 47,
+    "unverified": 212,
+    "total": 468
   },
-  "coverage": 0.5517241379310345
+  "coverage": 0.5470085470085471
 }
