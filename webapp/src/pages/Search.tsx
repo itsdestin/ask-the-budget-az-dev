@@ -1234,9 +1234,15 @@ export function Search() {
       </div>
 
       {/* Source drawer. It overlays the page rather than taking a column, so
-          the results layout above is untouched. Like the chooser, it MUST
-          render inside this <main>: `.pdf-drawer` is position:fixed and every
-          rule for it is page-class scoped. */}
+          the results layout above is untouched. UNLIKE the chooser,
+          `.pdf-drawer`'s own rules are GLOBAL, unscoped, in app.css (verified:
+          `grep -n "pdf-drawer" src/styles/app.css` — no `.page-docs` prefix
+          anywhere) — it would render fine mounted elsewhere too. It lives
+          here for DOM-locality with the page state that opens it, not because
+          anything would break otherwise. The chooser (`.report-modal`,
+          below) is the one whose rules genuinely ARE `.page-docs`-scoped and
+          which breaks if moved (IMPORTANT, 2026-08-10: this comment used to
+          claim the opposite). */}
       {openPassage && (
         <SourcePanel
           // Keyed on the chunk so switching passages remounts, rather than
