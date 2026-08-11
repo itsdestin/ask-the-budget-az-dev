@@ -27,6 +27,7 @@ from app.routes.conversations import (
     default_session_factory,
     router as conversations_router,
 )
+from app.routes.doc_types import router as doc_types_router
 from app.routes.documents import router as documents_router
 from app.routes.fiscal_notes import router as fiscal_notes_router
 from app.routes.history import router as history_router
@@ -188,6 +189,7 @@ def create_app(
     app.include_router(jobs_router)
     app.include_router(books_router)
     app.include_router(corpus_router)
+    app.include_router(doc_types_router)
     # Identity + admin. Registered here, above the catch-all, for the reason
     # stated in the comment at the top of this block — a router added after
     # `/{path:path}` silently serves index.html to fetch() instead of JSON.

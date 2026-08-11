@@ -136,6 +136,34 @@ def test_write_phase_snapshots_before_touching_the_corpus(job, ctx):
     assert list_snapshots()  # S17: a restore point exists
 
 
+def test_a_jobs_stage_reaches_the_stored_document_title(data_dir, ctx):
+    # This is the wiring correction that made the stage field worth adding:
+    # job.stage must reach documents.json's title, or the AI Mode prompt's
+    # "Engrossed supersedes Introduced" rule has nothing to read from a
+    # retrieved chunk (doc_title is the only stage-carrying field on one).
+    source = data_dir / "uploads" / "cd" / f"{'cd' * 32}.pdf"
+    source.parent.mkdir(parents=True, exist_ok=True)
+    source.write_bytes(b"%PDF-1.4\n")
+    j = new_job(
+        doc_id="jlbc-budget-bill-summary-fy2027-hb2001",
+        title="FY 2027 Budget Bill Summary",
+        corpus="budget",
+        source_path=str(source.relative_to(data_dir)),
+        source_sha256="cd" * 32,
+        publisher="jlbc",
+        doc_type="budget-bill-summary",
+        fiscal_year=2027,
+        stage="engrossed",
+    )
+    save(j)
+
+    run_job(j, ctx)
+
+    docs = json.loads((data_dir / "documents.json").read_text(encoding="utf-8"))
+    assert docs["jlbc-budget-bill-summary-fy2027-hb2001"]["title"] \
+        .endswith("(Engrossed)")
+
+
 # --- bulk-ingest mode (JLBC_INGEST_SNAPSHOT) --------------------------------
 #
 # The whole point of these tests is that the DEFAULT never changes: a future

@@ -188,6 +188,7 @@ def build_title(
     fiscal_year: int,
     user_title: str,
     agency_name: str | None,
+    stage: str | None = None,
 ) -> str:
     """The document's display title, as the search page renders it.
 
@@ -204,18 +205,31 @@ def build_title(
     shape (only AGAO publishes AFRs, only the Governor an Executive Budget),
     and the parameter keeps the signature honest about what identifies a
     document if that stops being true.
+
+    WHY `stage` is appended even over a user-typed title: `doc_title` rides
+    on every retrieved chunk and is the ONLY place a document's stage
+    (Introduced/Engrossed) is visible to AI Mode — there is deliberately no
+    new chunk column for it (Plan A Task 5; a corpus-wide migration was
+    explicitly out of scope). The system prompt's "Engrossed supersedes
+    Introduced" rule can only ever fire by reading this suffix, so it must
+    survive regardless of which branch decided the base title.
     """
     if user_title and user_title.strip():
-        return user_title.strip()
+        base = user_title.strip()
+    else:
+        pattern = _TITLE_PATTERNS.get(doc_type)
+        base = (
+            pattern.format(y=fiscal_year)
+            if pattern
+            else f"FY {fiscal_year} {_humanize_doc_type(doc_type)}"
+        )
+        if agency_name and doc_type in _PER_AGENCY_DOC_TYPES:
+            base = f"{base} — {agency_name}"
 
-    pattern = _TITLE_PATTERNS.get(doc_type)
-    base = (
-        pattern.format(y=fiscal_year)
-        if pattern
-        else f"FY {fiscal_year} {_humanize_doc_type(doc_type)}"
-    )
-    if agency_name and doc_type in _PER_AGENCY_DOC_TYPES:
-        return f"{base} — {agency_name}"
+    if stage and stage.strip():
+        # Capitalized the way a person reads it ("Engrossed"), not the
+        # lowercase wire value the upload route normalizes to.
+        base = f"{base} ({stage.strip().capitalize()})"
     return base
 
 

@@ -23,7 +23,7 @@ from pathlib import Path
 from fastapi import APIRouter, File, Form, HTTPException, Request, UploadFile
 from fastapi.responses import JSONResponse
 
-from ingest.dispatcher import EXTRACTOR_REGISTRY
+from ingest.doc_types import all_types, get as get_doc_type
 from ingest.driver import make_doc_id
 from ingest.jobs import TERMINAL_STATES, load_all, new_job, save
 from store.config import data_dir, documents_path
@@ -40,10 +40,21 @@ PUBLIC_RECORD_NOTICE = (
     "with access to the shared drive."
 )
 
-# Accepted doc_types are exactly the ones an extractor can handle. Accepting a
-# type we can't extract would queue a job guaranteed to fail — better a 422 the
-# uploader can act on than a failed job they can't.
-ACCEPTED_DOC_TYPES = frozenset(dt for dt, _fmt in EXTRACTOR_REGISTRY)
+# WHY derived and not written out: this was already a projection of
+# EXTRACTOR_REGISTRY; it now projects the registry that feeds it directly. A
+# third hand-maintained list is exactly what this change exists to prevent.
+# This deliberately accepts a couple of types the dispatcher can't extract
+# yet (agency-submission, budget-bill-summary are still in dispatcher.py's
+# _NOT_YET_WIRED holdout) — this route's job is the upload GATE, not the
+# extractor wiring, and a job queued for one of them will simply wait at
+# "extracting" until that separate task lands.
+ACCEPTED_DOC_TYPES = frozenset(t.key for t in all_types())
+
+# The bill-summary ladder has exactly two rungs (spec T2). JLBC titles some
+# engrossed versions "Final Budget Bills"; that wording maps to `engrossed`,
+# it is not a third stage. Accepting one would break "Engrossed supersedes
+# Introduced" by introducing a value the rule says nothing about.
+ACCEPTED_STAGES = frozenset({"introduced", "engrossed"})
 ACCEPTED_CORPORA = frozenset({"budget", "fiscal_notes"})
 ACCEPTED_SUFFIXES = frozenset({".pdf", ".docx"})
 
@@ -68,6 +79,7 @@ async def upload(
     title: str = Form(""),
     is_public_record: str = Form(""),
     reprocess: str = Form(""),
+    stage: str = Form(""),
 ):
     # Invariant 8 first — before the file is written anywhere. A rejected
     # upload must leave no trace of the document on the share.
@@ -86,6 +98,19 @@ async def upload(
             status_code=422,
             detail=f"Unknown document type {doc_type!r}. Choose one of: "
                    f"{', '.join(sorted(ACCEPTED_DOC_TYPES))}.",
+        )
+
+    row = get_doc_type(doc_type)
+    stage_value = stage.strip().lower()
+    if stage_value and stage_value not in ACCEPTED_STAGES:
+        raise HTTPException(
+            status_code=422,
+            detail=f"Unknown stage {stage!r}. Choose Introduced or Engrossed.",
+        )
+    if row is not None and row.stage_field and not stage_value:
+        raise HTTPException(
+            status_code=422,
+            detail="Say whether this is the Introduced or the Engrossed version.",
         )
 
     filename = Path(file.filename or "upload").name
@@ -123,6 +148,7 @@ async def upload(
         doc_type=doc_type,
         fiscal_year=year,
         user_title=title.strip(),
+        stage=stage_value or None,
     )
     save(job)
 
