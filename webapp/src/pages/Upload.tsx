@@ -261,6 +261,24 @@ function DocTypeRow({
   const ready =
     file !== null && publicRecord && (!row.stage_field || stage !== "");
 
+  // The ONE place a new file — picked or dropped — enters this row's state.
+  // Finding 1 (task-6 review): drag-and-drop was dropped entirely in the
+  // six-row rewrite, which was scope creep beyond what the brief asked for.
+  // Restoring it as a second, parallel handler that duplicates this logic
+  // would let picking and dropping drift (e.g. one re-derives the fiscal
+  // year, the other forgets to) — so both the <input onChange> and the
+  // row's onDrop call this same function instead of setting state directly.
+  function selectFile(next: File | null) {
+    setFile(next);
+    setDuplicate(null);
+    setError("");
+    // Re-derive the fiscal year every time the file changes, mirroring the
+    // page's old guessMeta() behaviour — a fresh file replaces the guess,
+    // even one the analyst just typed over. (doc_type/publisher no longer
+    // need guessing: the row itself decides both now.)
+    setFy(String(defaultFiscalYear(next?.name)));
+  }
+
   async function submit(reprocess = false) {
     if (!file) return;
     setBusy(true);
@@ -297,7 +315,22 @@ function DocTypeRow({
   }
 
   return (
-    <section className="card up-row" data-doc-type={row.key}>
+    <section
+      className="card up-row"
+      data-doc-type={row.key}
+      // Finding 1: dragging a PDF onto this row is the same as picking it
+      // through the row's own file input below — one row, one drop target,
+      // rather than reinstating the old page's single shared dropzone
+      // (which no longer matches a page with six independent rows).
+      // preventDefault on dragover is required or the browser navigates to
+      // the file instead of handing it to onDrop — the classic way this
+      // silently does nothing.
+      onDragOver={(e) => e.preventDefault()}
+      onDrop={(e) => {
+        e.preventDefault();
+        selectFile(e.dataTransfer.files?.[0] ?? null);
+      }}
+    >
       <h3>{row.label}</h3>
       <p className="up-note">{row.where_published}</p>
       <p>{row.which_file}</p>
@@ -309,18 +342,7 @@ function DocTypeRow({
             ref={fileInputRef}
             type="file"
             accept={row.formats.join(",")}
-            onChange={(e) => {
-              const next = e.target.files?.[0] ?? null;
-              setFile(next);
-              setDuplicate(null);
-              setError("");
-              // Re-derive the fiscal year every time the file changes,
-              // mirroring the page's old guessMeta() behaviour — a fresh
-              // file replaces the guess, even one the analyst just typed
-              // over. (doc_type/publisher no longer need guessing: the row
-              // itself decides both now.)
-              setFy(String(defaultFiscalYear(next?.name)));
-            }}
+            onChange={(e) => selectFile(e.target.files?.[0] ?? null)}
           />
         </label>
         {file && <p className="up-filename">{file.name}</p>}

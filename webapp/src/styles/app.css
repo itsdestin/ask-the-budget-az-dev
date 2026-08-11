@@ -1566,6 +1566,14 @@ nav.primary{position:relative;padding-right:44px;}
 .page-upload .up-title{font-size:19px;color:var(--navy);font-weight:800;margin:0 0 14px;}
 .page-upload .card{margin:0 0 16px;padding:20px 24px;}
 .page-upload h2{font-size:19px;color:var(--navy);font-weight:800;}
+/* Task 6 finding: each of the six upload rows introduced a new <h3> with no
+   rule of its own, which would render at the browser default (bold, larger
+   than surrounding text, wrong color) inside a .card. This page has no
+   existing h3, so rather than invent a size, this follows the two h3-inside-
+   a-card precedents already in this file (.adm-panel h3, .adm-card-title h3)
+   — navy/800 like every other heading here, sized down from the page's own
+   19px h2 the same way those two size down from THEIR page's headings. */
+.page-upload .up-row h3{font-size:14px;color:var(--navy);font-weight:800;margin:0 0 4px;}
 .page-upload p{margin:4px 0 0;font-size:14px;color:var(--ink-2);}
 
 /* The Invariant 8 notice. Always visible, never collapsible: the rule it states is

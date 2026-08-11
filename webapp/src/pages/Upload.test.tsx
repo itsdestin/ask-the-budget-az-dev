@@ -287,6 +287,23 @@ describe("upload rows", () => {
     });
   });
 
+  it("accepts a file dropped on the row, going through the same path as a picked one", async () => {
+    // Finding 1 (task-6 review): drag-and-drop was silently dropped when
+    // the single dropzone was replaced by six rows. Restored per-row rather
+    // than as a single shared dropzone, since there's no longer one form to
+    // drop onto. This also exercises the fiscal-year filename sniff to
+    // prove the dropped file goes through selectFile(), the exact function
+    // the file <input>'s onChange calls — not a second, divergent path.
+    render(<Upload />);
+    const row = (await screen.findByText("Annual Financial Report"))
+      .closest("[data-doc-type]")! as HTMLElement;
+    const file = pdf("FY2026-approps.pdf");
+    fireEvent.drop(row, { dataTransfer: { files: [file] } });
+    expect(await screen.findByText(file.name)).toBeTruthy();
+    expect((within(row).getByLabelText("Fiscal year") as HTMLInputElement).value)
+      .toBe("2026");
+  });
+
   it("requires a fresh stage pick before a second upload through the same row", async () => {
     // Correction 2: "Engrossed supersedes Introduced" is only true if EVERY
     // upload carries a stage, including a second document pushed through a
