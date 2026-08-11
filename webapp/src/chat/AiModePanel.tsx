@@ -80,6 +80,9 @@ interface PanelProps {
   selectedChatId?: string | null;
   onSelectChat?: (id: string) => void;
   onNewChat?: () => void;
+  /** Fired when the rail deletes a chat, so the page can deselect it if it
+   *  is the one currently open. */
+  onDeleteChat?: (id: string) => void;
 }
 
 export function AiModePanel(props: PanelProps) {
@@ -102,9 +105,22 @@ function PanelBody({
   selectedChatId,
   onSelectChat,
   onNewChat,
+  onDeleteChat,
 }: PanelProps) {
   const { state } = chat;
   const mascot = useMascotPose(state, false);
+
+  // A turn just ended: tell the rail to re-read the list. This is the only
+  // moment the stored history changes from inside the app — a new chat's row
+  // appears, and its server-generated title lands a few seconds later. The
+  // rail otherwise fetches on mount only, so neither showed up until
+  // something remounted it.
+  const [railReloadToken, setRailReloadToken] = useState(0);
+  const wasBusyRef = useRef(false);
+  useEffect(() => {
+    if (wasBusyRef.current && !chat.busy) setRailReloadToken((n) => n + 1);
+    wasBusyRef.current = chat.busy;
+  }, [chat.busy]);
 
   // The source column is allocated on chip click and closes on its own close
   // button below (Task 5 — it used to stay open for the rest of the session,
@@ -216,6 +232,8 @@ function PanelBody({
           activeId={selectedChatId ?? null}
           onSelect={onSelectChat ?? (() => {})}
           onNewChat={onNewChat ?? (() => {})}
+          onDeleted={onDeleteChat}
+          reloadToken={railReloadToken}
           collapsed={railCollapsed}
           onToggle={toggleRail}
         />

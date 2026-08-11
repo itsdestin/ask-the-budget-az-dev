@@ -115,10 +115,14 @@ def test_this_module_imports_nothing_that_knows_where_the_share_is():
     """
     # `uuid` and `threading` are stdlib and cannot reach the share: uuid backs
     # the per-call tmp name in save(), threading backs the per-id write locks.
-    # Everything else remains an allowlist refusal.
+    # `contextlib` and `typing` likewise — they back `transaction()`, the
+    # context manager that makes a load→mutate→save atomic (2026-08-11).
+    # Every one of these is admitted for the same reason: stdlib with no
+    # filesystem opinion of its own. Everything else remains an allowlist
+    # refusal — do not add a root here that can resolve a path.
     allowed = {
-        "__future__", "dataclasses", "datetime", "json", "os", "pathlib",
-        "threading", "uuid",
+        "__future__", "contextlib", "dataclasses", "datetime", "json", "os",
+        "pathlib", "threading", "typing", "uuid",
     }
     tree = ast.parse(MODULE_SOURCE_PATH.read_text(encoding="utf-8"))
     roots: set[str] = set()
@@ -128,3 +132,59 @@ def test_this_module_imports_nothing_that_knows_where_the_share_is():
         elif isinstance(node, ast.ImportFrom) and node.module and node.level == 0:
             roots.add(node.module.split(".")[0])
     assert roots <= allowed, f"unexpected imports: {sorted(roots - allowed)}"
+
+
+def test_a_saved_transcript_is_stamped_with_todays_schema_version(tmp_path, monkeypatch):
+    """Written now so a future schema change has something to branch on.
+
+    Nothing reads `version` today. That is deliberate: a stamp added at
+    migration time is useless, because every file already on disk predates it.
+    """
+    monkeypatch.setenv(history.HISTORY_DIR_ENV, str(tmp_path))
+    history.save(history.Transcript(
+        id="v1", title="t", corpus="budget",
+        created_at=history.now_iso(), updated_at=history.now_iso(),
+    ))
+    assert history.load("v1").version == history.SCHEMA_VERSION
+
+
+def test_a_file_written_before_versioning_reads_as_version_zero(tmp_path, monkeypatch):
+    """`0`, not the current version — "unstamped" and "current" must not look
+    the same, or the stamp buys nothing."""
+    monkeypatch.setenv(history.HISTORY_DIR_ENV, str(tmp_path))
+    (tmp_path / "old.json").write_text(json.dumps({
+        "id": "old", "title": "t", "corpus": "budget",
+        "created_at": "", "updated_at": "", "messages": [],
+    }), encoding="utf-8")
+    assert history.load("old").version == 0
+
+
+def test_re_saving_an_old_transcript_stamps_it_forward(tmp_path, monkeypatch):
+    monkeypatch.setenv(history.HISTORY_DIR_ENV, str(tmp_path))
+    (tmp_path / "old.json").write_text(json.dumps({
+        "id": "old", "title": "", "corpus": "budget",
+        "created_at": "", "updated_at": "", "messages": [],
+    }), encoding="utf-8")
+    history.save(history.load("old"))
+    assert history.load("old").version == history.SCHEMA_VERSION
+
+
+@pytest.mark.parametrize("body", ["null", "5", '"a string"', "[1, 2]", "[]"])
+def test_valid_json_that_is_not_an_object_costs_one_chat_not_the_whole_rail(
+    tmp_path, monkeypatch, body
+):
+    """`_read` caught OSError/ValueError/KeyError, but `raw.get` on a list or
+    a scalar raises AttributeError, which escaped and 500'd GET /api/history —
+    the opposite of the degradation this module promises."""
+    monkeypatch.setenv(history.HISTORY_DIR_ENV, str(tmp_path))
+    good = history.Transcript(
+        id="good", title="fine", corpus="budget",
+        created_at=history.now_iso(), updated_at=history.now_iso(),
+        messages=[{"role": "user", "content": "hello"}],
+    )
+    history.save(good)
+    (tmp_path / "broken.json").write_text(body, encoding="utf-8")
+
+    assert [t.id for t in history.list_all()] == ["good"]
+    assert history.load("broken") is None
+    assert [t.id for t, _ in history.search("hello")] == ["good"]

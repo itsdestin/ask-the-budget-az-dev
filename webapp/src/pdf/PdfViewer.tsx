@@ -24,7 +24,7 @@ import { useRef, useState } from "react";
 
 import type { Citation } from "../chat/citation-extract";
 import { formatCopyCitation, normalizeForMatch } from "../chat/citation-extract";
-import { useCitationBus, useCitationSelected } from "../chat/citation-context";
+import { spanKeyOf, useCitationBus, useCitationSelected } from "../chat/citation-context";
 import Mascot from "../chat/mascot/Mascot";
 import { SourceView } from "./SourceView";
 
@@ -122,7 +122,9 @@ export default function PdfViewer({ onClose, corpus = "budget" }: PdfViewerProps
               // The chunk exists but the cited passage is no longer in it.
               setStaleCitation({ citation, reason: "moved" });
               setSelected(null);
-              bus.markUnresolvable(citation.chunkId, "moved");
+              // Span-scoped: only THIS quote is missing from the re-ingested
+              // chunk. A sibling citation into the same chunk may be fine.
+              bus.markUnresolvable(citation.chunkId, "moved", spanKeyOf(citation));
               return;
             }
           }
@@ -133,7 +135,10 @@ export default function PdfViewer({ onClose, corpus = "budget" }: PdfViewerProps
         // "gone" earlier, and a false "your source is dead" that never clears
         // is its own kind of lie. The existing Loaded path is otherwise
         // unchanged.
-        bus.markUnresolvable(citation.chunkId, "resolved");
+        // Span-scoped for the same reason `moved` is: this clears the mark on
+        // the citation we actually re-checked, and NOT on a sibling into the
+        // same chunk whose own quote really is gone.
+        bus.markUnresolvable(citation.chunkId, "resolved", spanKeyOf(citation));
       } catch {
         if (seq !== checkSeqRef.current) return;
         // Network error — NOT a stale citation. Same posture as a 503:

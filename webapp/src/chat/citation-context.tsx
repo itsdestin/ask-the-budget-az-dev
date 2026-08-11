@@ -29,7 +29,29 @@ export type CitationHandler = (citation: Citation) => void;
  *  nothing — it neither marks nor clears. */
 export type UnresolvableReason = "gone" | "moved" | "resolved";
 
-export type UnresolvableHandler = (chunkId: string, reason: UnresolvableReason) => void;
+/** Identifies WHICH citation a `moved`/`resolved` verdict is about.
+ *
+ *  A chunk id alone is not enough, and the difference is an Invariant 2
+ *  problem rather than a cosmetic one. `gone` is a property of the CHUNK —
+ *  it 404s, so every citation into it is dead. `moved` and `resolved` are
+ *  properties of one QUOTE inside a chunk that still exists. Two citations
+ *  can share a chunk and disagree: A's span is no longer in the re-ingested
+ *  text, B's still is. Broadcasting B's `resolved` on the chunk id alone
+ *  cleared A's stale mark, so a citation whose source really had moved went
+ *  back to reading as verified. */
+export type CitationSpanKey = string;
+
+export function spanKeyOf(citation: Pick<Citation, "spanStart" | "spanEnd">): CitationSpanKey {
+  return `${citation.spanStart}:${citation.spanEnd}`;
+}
+
+export type UnresolvableHandler = (
+  chunkId: string,
+  reason: UnresolvableReason,
+  /** Absent on `gone` (chunk-wide). Present on `moved`/`resolved`, where only
+   *  the citation with this span is being spoken about. */
+  spanKey?: CitationSpanKey,
+) => void;
 
 export interface CitationBus {
   /** Notify all subscribers of a click on a specific citation. */
@@ -37,9 +59,14 @@ export interface CitationBus {
   /** Subscribe to selections; returns an unsubscribe function. */
   subscribe(handler: CitationHandler): () => void;
   /** Publish the outcome of a click-time source check. `gone`/`moved` mark
-   *  the matching chip stale; `resolved` clears a stale mark. The chip with
-   *  the matching chunkId updates itself. */
-  markUnresolvable(chunkId: string, reason: UnresolvableReason): void;
+   *  the matching chip stale; `resolved` clears a stale mark. `gone` applies
+   *  to every chip on the chunk; `moved` and `resolved` apply only to the
+   *  citation whose `spanKey` is given — see `CitationSpanKey`. */
+  markUnresolvable(
+    chunkId: string,
+    reason: UnresolvableReason,
+    spanKey?: CitationSpanKey,
+  ): void;
   /** Subscribe to unresolvable verdicts; returns an unsubscribe function. */
   subscribeUnresolvable(handler: UnresolvableHandler): () => void;
 }
@@ -94,15 +121,18 @@ export function CitationBusProvider({ children }: { children: ReactNode }) {
     };
   }, []);
 
-  const markUnresolvable = useCallback((chunkId: string, reason: UnresolvableReason) => {
-    for (const h of unresolvableHandlersRef.current) {
-      try {
-        h(chunkId, reason);
-      } catch (err) {
-        console.error("[citation-bus] unresolvable subscriber threw:", err);
+  const markUnresolvable = useCallback(
+    (chunkId: string, reason: UnresolvableReason, spanKey?: CitationSpanKey) => {
+      for (const h of unresolvableHandlersRef.current) {
+        try {
+          h(chunkId, reason, spanKey);
+        } catch (err) {
+          console.error("[citation-bus] unresolvable subscriber threw:", err);
+        }
       }
-    }
-  }, []);
+    },
+    [],
+  );
 
   const subscribeUnresolvable = useCallback((handler: UnresolvableHandler) => {
     unresolvableHandlersRef.current.add(handler);
@@ -157,6 +187,8 @@ export function useUnresolvable(handler: UnresolvableHandler): void {
   const handlerRef = useRef(handler);
   handlerRef.current = handler;
   useEffect(() => {
-    return bus.subscribeUnresolvable((id, reason) => handlerRef.current(id, reason));
+    return bus.subscribeUnresolvable((id, reason, spanKey) =>
+      handlerRef.current(id, reason, spanKey),
+    );
   }, [bus]);
 }

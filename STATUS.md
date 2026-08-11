@@ -36,7 +36,7 @@ source. When something ships, update only this file.
 | **Attested citation linking** | ✅ **Shipped and VERIFIED LIVE** (2026-08-11) | The model tags each figure, the system verifies the tag. False-link rate down 13–15×; 100% coverage on a captured live turn, 44 figures linked by tag. Six defects found by browser testing — see the section below. The 31-query Layer 2 baseline still has not been run |
 | AI Mode UI redesign | ✓ Shipped (2026-08-02) | One column, floating chrome, tools menu. Six defects found by review that left the suite green |
 | Query understanding | ✓ Shipped (2026-08-03) | Agency / doc-type / JLBC-shorthand parsing. recall@5 73.81% → 88.10%, recall@15 and @20 100%. Agency is a PREFERENCE, not a filter — a measured deviation from spec Q2 |
-| AI Mode chat history | ✓ Shipped (2026-08-03) | Per-device transcripts, browse/search/resume past chats, auto-naming, collapsible rail. Local disk only — never the share. See the section below |
+| AI Mode chat history | ✓ Shipped (2026-08-03), **reviewed and hardened 2026-08-11** | Per-device transcripts, browse/search/resume past chats, auto-naming, collapsible rail. Local disk only — never the share. A second review found ELEVEN defects, four of them silent data loss; all fixed. See the section below |
 
 ## Corpus — what is ingested and what is NOT (2026-08-01)
 
@@ -1116,26 +1116,124 @@ Fixed in the branch before the PR:
   unique per call (`uuid` and `threading` added to the Invariant-7 allowlist
   — both stdlib, neither can reach the share).
 
-### Open from the review (deliberately not fixed in this work)
+### ✅ The 2026-08-11 second review — eleven defects, all fixed
 
-1. **Interrupt path drops the figure annotation** (highest value). The fix
-   belongs before the interrupt `break`/`yield done_frame`, keeping the
-   existing "annotation on the last assistant message" shape.
-2. **Resume-reuse doesn't notice disk is ahead.** When the resumed id is
-   already live in the registry and the stored transcript is newer (a second
-   tab continued it), the live session answers from stale in-memory history.
-   Guard: compare `len(session.history)` to stored `message_count`; 409 or
-   rebuild.
-3. **409-on-resume-busy reads as a generic error** — the client can't tell
-   "wait for the answer" from "no such chat".
-4. **No tier on the transcript and no schema version.** A resumed Deep
-   Research chat silently continues at Standard depth; a future schema change
-   reads old files as "absent", not "migrated".
-5. **A turn ending AFTER a rename rewrites the title back** — the app's
-   existing design (a turn records what it knew); the new lock stops
-   mid-write clobbering, not last-writer-wins. Decision needed on whether
-   turn-end writes should preserve `title`/`title_is_manual` for existing
-   transcripts.
+A second review of the merged branch (this session plus a parallel
+`/code-review high` over `7b4059d..47cc551`) found eleven defects. **Four
+were reproduced by execution before any fix was written, and every guard
+below was verified FAILING against the unfixed code** — three of them only
+after the test itself was rebuilt, because the first versions passed against
+master and proved nothing. Suites **2343 → 2368 pytest** (5 skips unchanged)
+and **678 → 693 vitest**, `tsc -b` and `npm run build` clean.
+
+**No eval was run, and the CLAUDE.md rule does not ask for one**: nothing
+under `retrieval/`, `ingest/`, `chunking/`, `citation/` or
+`harness/system-prompt.md` was touched. The changes are `harness/session.py`,
+`harness/history.py`, `app/routes/conversations.py` and the webapp.
+
+#### 🔴 The four that silently destroyed data
+
+1. **A silent turn wiped the PREVIOUS answer's citation chips.**
+   `_attach_annotation` searched backwards through the whole history, and
+   `_Accumulator.annotation()` returns `{"figures": []}` — a **truthy** dict —
+   so `if not annotation` never fired. A turn that appended no assistant
+   message (the model returned neither text nor tool calls; a stop landed
+   before step 1) walked into the previous turn and overwrote a correctly
+   linked answer's annotation with an empty one. Reproduced: turn 1's figure
+   count fell 1 → 0. **Fixed by bounding the SEARCH** (`since=turn_start`,
+   captured right after the user message), not by filtering the payload —
+   filtering would have broken the deliberate pin in
+   `test_interrupt_on_a_text_only_turn_is_a_plain_interrupt`.
+2. **The auto-title path erased a later turn.** `persist_turn` loaded the
+   transcript, made a blocking HTTP call of up to 20 s, then saved the *stale*
+   object. Reproduced: 4 messages → 2. It also **resurrected a chat deleted**
+   during that window and **reverted a rename** made during it, clearing
+   `title_is_manual` so auto-naming re-armed against a title the analyst
+   chose.
+3. **Stop lost the answer as well as the annotation.** `use-chat`'s `stop()`
+   aborts the fetch first, so GeneratorExit reaches `stream_turn` and the
+   end-of-turn code never runs. Reproduced: history after a stop was
+   `[user, assistant(tool_calls), tool]` — the partial answer the analyst was
+   watching stream in was never recorded. New `_abandon_turn()` records it and
+   attaches the annotation before `_repair_history()` runs.
+4. **Deleting the open chat's row made it permanently uncontinuable.**
+   `create_conversation` raised 404 on `resume_from` *before* consulting the
+   registry, and `Ai.tsx` never cleared `selectedChatId` on delete. Reproduced
+   through the real route: every later message 404'd against a live in-memory
+   session, with no escape but "+ New chat".
+
+#### The mechanism, named once
+
+Defects 2 and the rename clobber are one shape, and the fix is one idea:
+**a lock was added where a transaction was needed.** `history.save` took the
+id's lock, which makes each WRITE atomic and does nothing for the
+read-modify-write around it. `harness/history.py` now exposes
+`transaction(id)` (hold the lock across the whole load→mutate→save) and
+`set_title_if_absent(id, title)` (re-read under the lock, write ONE field).
+The title call stays **outside** the lock — holding it across 20 s of HTTP
+would freeze the rail's rename and delete, and there is a guard asserting it
+does not.
+
+#### The rest
+
+5. **A "resolved" verdict cleared stale marks it had no business clearing.**
+   `moved` is decided per-QUOTE and was published per-CHUNK, so clicking a
+   still-good citation cleared the stale mark on a sibling into the same chunk
+   whose source really had moved — a moved source reading as verified, i.e.
+   Invariant 2. `markUnresolvable` now carries a span key; `gone` stays
+   chunk-wide (the chunk 404s, so every citation into it is dead).
+6. **`ConversationRegistry.get_or_add` was written to make resume atomic and
+   was never called** — the route still did `get` then `add`, so two tabs
+   resuming one chat each built a session and the second replaced the first
+   without closing it. Now wired.
+7. **Resume never stopped being a resume.** `isResume` compared the id to
+   `resumeFrom`, and the server returns the same id, so every message
+   re-POSTed `/api/conversations`. A one-time latch; a failed handover still
+   retries.
+8. **`_read` degraded on malformed JSON but not on non-object JSON.** `null`,
+   `[]`, `5` parse fine and then raise `AttributeError` on `raw.get`, which
+   escaped and 500'd `GET /api/history` — blanking the entire rail, the exact
+   opposite of "one corrupt file costs one chat".
+9. **`CostsPanel` used `??` where every other tab used `||`**, so an
+   unrecorded key (the empty string) painted a blank cell instead of
+   "(not recorded)" — contradicting the comment directly above it.
+10. **`useHistory`'s debounce cleanup hung off one branch**, so clearing the
+    search box scheduled an uncancellable fetch; the rail unmounts on every
+    chat switch, well inside the 200 ms window.
+11. **`reload` was returned by `useHistory` and called by nobody**, so a new
+    chat's row and the title generated for it seconds later never appeared
+    until something remounted the rail. The panel now bumps a token when a
+    turn ends.
+
+**Also: delete now takes two clicks.** The ✕ sat beside the ✎ and destroyed a
+transcript outright, under a spec (H6) with no expiry and no undo anywhere.
+The armed state is a labelled word, not the same glyph — a confirmation you
+can hit by reflex is not a confirmation.
+
+**Transcripts are now stamped `version: 1`.** Nothing reads it; that is the
+point. A file with no stamp reads back as **0**, so "written before
+versioning" and "written today" are distinguishable — which is the only thing
+that makes a future migration possible, and it cannot be added retroactively.
+
+### Still open after that review
+
+- **No tier on the transcript.** A resumed Deep Research chat silently
+  continues at Standard. Deliberately NOT fixed here: `_Conversation` does not
+  carry the tier (it is per-message), and restoring it on resume is a product
+  decision about whether reopening a chat should silently re-arm Deep
+  Research's ~44× cost. The schema half of this item is done (above).
+- **409-on-resume-busy reads as a generic error** in the composer, though the
+  server's sentence does reach the client — `api.ts` surfaces FastAPI's
+  `detail`, so the analyst sees "This conversation is still answering the
+  previous question", just wearing a generic prefix.
+- **`harness/history.py`'s `_write_locks` dict is never pruned.** Left alone
+  on purpose: it is bounded by distinct conversation ids touched in one
+  process (hundreds, a few hundred bytes), and removing a lock another thread
+  may be holding trades a real correctness risk for a trivial saving.
+- **None of the UI changes has been seen in a browser.** jsdom applies no
+  stylesheet, so the armed-delete styling, the rail's reload-on-turn-end, and
+  the span-scoped chip marking are pinned by specs and unwitnessed — the same
+  gap that produced this branch's original defect list.
 
 Spec follow-ups still open: the Administrator Handbook paragraph (history
 writes questions to disk in plain text; the first exchange goes to the model

@@ -1808,6 +1808,13 @@ html.ai-fullpage header.site{flex:0 0 auto;}
   width:24px;height:24px;border:0;border-radius:var(--r-pill);background:transparent;
   color:var(--ink-3);cursor:pointer;font-size:12px;transition:background .13s,color .13s;}
 .history-rail-action:hover{background:var(--navy-100);color:var(--navy);}
+/* The armed delete. It stops being a 24px glyph and becomes a labelled word,
+   because the whole point is that it no longer looks like the thing you just
+   clicked — a confirmation you can hit by reflex is not a confirmation. The
+   row is permanent (H6 gives history no undo), so this is the last stop. */
+.history-rail-action.is-confirming{width:auto;padding:0 8px;font-size:11px;
+  font-weight:700;letter-spacing:.01em;background:var(--navy);color:#fff;}
+.history-rail-action.is-confirming:hover{background:var(--navy);color:#fff;}
 .history-rail-rename{width:100%;border:1px solid var(--navy);border-radius:var(--r-sm);
   padding:7px 10px;font-family:inherit;font-size:12.5px;color:var(--ink);background:var(--card);outline:0;}
 

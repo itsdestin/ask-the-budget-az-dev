@@ -83,6 +83,13 @@ export function useChat(corpus: Corpus, resumeFrom?: string): UseChatResult {
   // rebuild it on every render of the panel.
   const resumeFromRef = useRef(resumeFrom);
   resumeFromRef.current = resumeFrom;
+  // Whether the stored chat has already been handed to the server for this
+  // hook's lifetime. Resume is a ONE-TIME handover: after the first send the
+  // server holds a live session under that same id, so every later message is
+  // an ordinary continuation. Without this latch `isResume` below stayed true
+  // forever (the server returns the same id it was given), and every single
+  // message re-POSTed /api/conversations.
+  const resumeHandedOverRef = useRef(false);
 
   useEffect(() => {
     mountedRef.current = true;
@@ -162,10 +169,16 @@ export function useChat(corpus: Corpus, resumeFrom?: string): UseChatResult {
         // on the first send the ref and the server's registry disagree — the
         // ref says "old1", the server has never heard of it. Detectable: a
         // resumed chat's id equals resumeFrom. A fresh chat's ref starts null.
-        const isResume = conversationId !== null && conversationId === resumeFromRef.current;
+        const isResume =
+          !resumeHandedOverRef.current &&
+          conversationId !== null &&
+          conversationId === resumeFromRef.current;
         if (!conversationId || isResume) {
           try {
             const handle = await api.createConversation(corpus, resumeFromRef.current);
+            // Latch BEFORE anything else can throw: the handover happened, and
+            // repeating it on the next message is the bug this closes.
+            resumeHandedOverRef.current = true;
             conversationId = handle.conversation_id;
             conversationIdRef.current = conversationId;
             if (mountedRef.current) setHealth(handle.health ?? { ok: true });

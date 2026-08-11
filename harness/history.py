@@ -15,13 +15,23 @@ from __future__ import annotations
 import json
 import os
 import threading
+from contextlib import contextmanager
 from dataclasses import asdict, dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
+from typing import Iterator
 from uuid import uuid4
 
 HISTORY_DIR_ENV = "JLBC_HISTORY_DIR"
 _APP_FOLDER = "JLBC-Insight"
+
+
+# Bump when the stored shape changes in a way a reader must act on. Files
+# written before this existed read back as version 0, which is what makes a
+# future migration possible at all: without a stamp, "old schema" and "field
+# absent" are the same observation and there is nothing to branch on. Nothing
+# reads it today — that is the point of writing it now rather than later.
+SCHEMA_VERSION = 1
 
 
 @dataclass
@@ -31,6 +41,7 @@ class Transcript:
     corpus: str
     created_at: str
     updated_at: str
+    version: int = SCHEMA_VERSION
     title_is_manual: bool = False
     messages: list[dict] = field(default_factory=list)
     # Kept separately so `list_all()` can strip the bodies and STILL report a
@@ -101,6 +112,31 @@ def _write_lock(conversation_id: str) -> threading.RLock:
         return lock
 
 
+@contextmanager
+def transaction(conversation_id: str) -> Iterator[None]:
+    """Hold one chat's write lock across a whole load→mutate→save.
+
+    THE DISTINCTION THIS EXISTS TO DRAW, because getting it wrong is what
+    caused three separate defects found on 2026-08-11: `save()` taking the
+    lock makes each WRITE atomic. It does NOT make a read-modify-write
+    atomic, and every caller here does a read-modify-write. A rename landing
+    between another writer's `load` and its `save` is silently reverted —
+    the lock was never in a position to prevent it, because the reader had
+    already let go of nothing.
+
+    Wrap the load and the save together and the sequence becomes a real
+    transaction. The lock is re-entrant, so the nested `save()` re-acquires
+    it harmlessly.
+
+    DO NOT hold this across a network call. `persist_turn` used to bracket a
+    20-second title request in its read-modify-write; holding the lock there
+    would block the rail's rename and delete for the same 20 seconds. Take
+    it, write, release; take it again afterwards for the second write.
+    """
+    with _write_lock(conversation_id):
+        yield
+
+
 def now_iso() -> str:
     return datetime.now(timezone.utc).isoformat()
 
@@ -117,6 +153,10 @@ def save(transcript: Transcript) -> None:
     # Derived on read, never written: a persisted count could disagree with
     # the messages beside it, and then the rail would lie.
     payload.pop("message_count", None)
+    # Stamped from the constant, never from the object: a Transcript loaded
+    # from a pre-versioning file carries version 0, and re-saving it writes
+    # TODAY'S shape — so the file must say so.
+    payload["version"] = SCHEMA_VERSION
     # APPEND to the filename rather than `with_suffix`: with_suffix replaces
     # the last dotted segment, so an id that ever contains a dot would have
     # part of itself eaten and the replace would land on the wrong file.
@@ -147,10 +187,23 @@ def _read(path: Path) -> Transcript | None:
     """
     try:
         raw = json.loads(path.read_text(encoding="utf-8"))
+        # A file whose JSON is VALID but is not an object — `null`, `[]`, `5`,
+        # `"x"` — parses fine and then raises AttributeError on `.get`, which
+        # is not in the except list below. That escaped `list_all()` and
+        # `search()`, so one such file turned GET /api/history into a 500 and
+        # blanked the entire rail: the exact opposite of the degradation this
+        # function promises. Checked rather than added to the except clause,
+        # so the failure is named at the point it happens.
+        if not isinstance(raw, dict):
+            return None
         messages = list(raw.get("messages") or [])
         return Transcript(
             id=raw["id"], title=raw.get("title", ""), corpus=raw.get("corpus", "budget"),
             created_at=raw.get("created_at", ""), updated_at=raw.get("updated_at", ""),
+            # 0, not SCHEMA_VERSION: a file with no stamp predates versioning
+            # and must be distinguishable from one written today, or the stamp
+            # buys nothing.
+            version=int(raw.get("version", 0) or 0),
             title_is_manual=bool(raw.get("title_is_manual", False)),
             messages=messages, message_count=len(messages),
         )
@@ -226,6 +279,35 @@ def rename(conversation_id: str, title: str) -> bool:
         # it" — a rename is bookkeeping. Bumping it would float a retitled
         # March chat above this morning's.
         save(t)
+        return True
+
+
+def set_title_if_absent(conversation_id: str, title: str) -> bool:
+    """Give a chat an auto-generated title, but only if it still wants one.
+
+    The whole point is that this re-reads UNDER THE LOCK, immediately before
+    writing, and touches exactly one field. Auto-naming happens after a model
+    call that can take twenty seconds, and three things can happen in that
+    window — all three observed or reproduced on 2026-08-11:
+
+      - the analyst renames the chat. Writing a whole stale Transcript back
+        reverted the rename AND cleared `title_is_manual`, re-arming
+        auto-naming against a title the analyst had chosen.
+      - the analyst deletes the chat. Writing recreated it as a ghost row.
+      - the NEXT turn finishes and saves. Writing reverted the transcript to
+        the older message list, silently destroying that turn.
+
+    Returns False when the chat is gone or already titled — both are ordinary
+    outcomes, not errors.
+    """
+    with transaction(conversation_id):
+        stored = load(conversation_id)
+        if stored is None:              # deleted while we were naming it
+            return False
+        if stored.title or stored.title_is_manual:
+            return False                # renamed, or already named
+        stored.title = title
+        save(stored)
         return True
 
 

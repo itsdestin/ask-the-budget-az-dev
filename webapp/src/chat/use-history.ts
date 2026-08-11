@@ -85,10 +85,15 @@ export function useHistory() {
         searchedRef.current = false;
         debounceRef.current = setTimeout(() => fetchList(), DEBOUNCE_MS);
       }
-      return;
+    } else {
+      searchedRef.current = true;
+      debounceRef.current = setTimeout(() => fetchSearch(trimmed), DEBOUNCE_MS);
     }
-    searchedRef.current = true;
-    debounceRef.current = setTimeout(() => fetchSearch(trimmed), DEBOUNCE_MS);
+    // ONE cleanup covering BOTH branches. It used to hang off the search
+    // branch only, so clearing the search box scheduled a fetch with no way
+    // to cancel it — and the rail unmounts on every chat switch (Ai.tsx keys
+    // AiConversation), well inside the 200 ms window. The timer then fired an
+    // unnecessary request and called setState on a dead hook.
     return () => {
       if (debounceRef.current) clearTimeout(debounceRef.current);
     };
@@ -107,7 +112,10 @@ export function useHistory() {
     }
   }, []);
 
-  const remove = useCallback(async (id: string) => {
+  // Returns whether the chat is really gone. The caller needs to know:
+  // deleting the OPEN chat has to deselect it, and doing that after a FAILED
+  // delete would throw away the analyst's view of a chat that still exists.
+  const remove = useCallback(async (id: string): Promise<boolean> => {
     // Optimistic: remove locally first, put back if the DELETE fails.
     let removed: api.HistoryRow | undefined;
     setChats((prev) => {
@@ -116,6 +124,7 @@ export function useHistory() {
     });
     try {
       await api.deleteHistoryChat(id);
+      return true;
     } catch (err) {
       // Put the row back — a chat that vanishes and is still on disk is
       // worse than an error.
@@ -128,6 +137,7 @@ export function useHistory() {
         });
       }
       setError(err instanceof Error ? err.message : "Could not delete chat");
+      return false;
     }
   }, []);
 

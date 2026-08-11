@@ -423,57 +423,66 @@ def persist_turn(entry: _Conversation) -> None:
         messages = getattr(entry.session, "history", None)
         if messages is None:
             return
-        existing = history.load(entry.id)
-        # A continuation whose file is GONE from disk was deleted out from
-        # under the live session (the rail lets the analyst delete mid-turn).
-        # Writing now would resurrect it as an untitled ghost — the same
-        # ghost-row bug the client fixed, one layer down. A FIRST persist is
-        # always existing-is-None (nothing on disk yet) and carries exactly
-        # one user message; a continuation always carries at least two. So
-        # "no file on disk" + "more than one user message" = the analyst
-        # deleted it, and the delete should win. (See _is_first_turn for why
-        # the user count, not the assistant count, is the discriminator.)
-        if existing is None and not _is_first_turn(messages):
-            return
-        now = history.now_iso()
-        history.save(
-            history.Transcript(
-                id=entry.id,
-                title=existing.title if existing else "",
-                title_is_manual=existing.title_is_manual if existing else False,
-                corpus=entry.corpus,
-                created_at=existing.created_at if existing else now,
-                updated_at=now,
-                messages=list(messages),
+        # ONE TRANSACTION, not a load and a save that merely happen to be
+        # adjacent. `history.save` takes the id's lock, which makes the WRITE
+        # atomic and does nothing at all for the read-modify-write around it:
+        # a rename landing between the load and the save was reverted, and
+        # its `title_is_manual` flag cleared with it. Held only for the two
+        # file operations — never across the title call below.
+        with history.transaction(entry.id):
+            existing = history.load(entry.id)
+            # A continuation whose file is GONE from disk was deleted out from
+            # under the live session (the rail lets the analyst delete mid-turn).
+            # Writing now would resurrect it as an untitled ghost — the same
+            # ghost-row bug the client fixed, one layer down. A FIRST persist is
+            # always existing-is-None (nothing on disk yet) and carries exactly
+            # one user message; a continuation always carries at least two. So
+            # "no file on disk" + "more than one user message" = the analyst
+            # deleted it, and the delete should win. (See _is_first_turn for why
+            # the user count, not the assistant count, is the discriminator.)
+            if existing is None and not _is_first_turn(messages):
+                return
+            already_titled = bool(existing and (existing.title or existing.title_is_manual))
+            now = history.now_iso()
+            history.save(
+                history.Transcript(
+                    id=entry.id,
+                    title=existing.title if existing else "",
+                    title_is_manual=existing.title_is_manual if existing else False,
+                    corpus=entry.corpus,
+                    created_at=existing.created_at if existing else now,
+                    updated_at=now,
+                    messages=list(messages),
+                )
             )
-        )
+            first_q = next((m.get("content", "") for m in messages
+                            if m.get("role") == "user"), "")
+            first_a = next((m.get("content", "") for m in messages
+                            if m.get("role") == "assistant" and m.get("content")), "")
+
+        if already_titled:
+            return
         # Title only once, on the first completed exchange, and never over a
         # title the analyst set themselves.
         #
-        # This is a blocking HTTP call of up to _TIMEOUT_S. It is safe HERE and
-        # nowhere earlier: persist_turn's single call site is at the END of
-        # _release_turn, after registry.end_turn has released the conversation,
-        # in a BackgroundTask (a threadpool, not the event loop). Move this call
-        # any earlier in the teardown and the conversation stays `busy` for the
-        # duration, so the analyst's next question gets a 409 from begin_turn.
-        stored = history.load(entry.id)
-        if stored is None:
-            # Deleted between our save and this read — the analyst's delete
-            # wins over our write. Nothing more to do.
-            return
-        # A manual rename can no longer be clobbered by our save above:
-        # history.save serializes against history.rename via the store's
-        # per-id write lock, so whichever landed last is the whole, correct
-        # record. We only act here when there is still NO title — the
-        # auto-naming path, which the manual flag already guards against
-        # overwriting an analyst-set title.
-        if not stored.title and not stored.title_is_manual:
-            first_q = next((m.get("content", "") for m in stored.messages
-                            if m.get("role") == "user"), "")
-            first_a = next((m.get("content", "") for m in stored.messages
-                            if m.get("role") == "assistant" and m.get("content")), "")
-            stored.title = titles.generate_title(first_q, first_a, user=current_user())
-            history.save(stored)
+        # OUTSIDE the transaction, and it must stay outside: this is a
+        # blocking HTTP call of up to _TIMEOUT_S, and holding the chat's write
+        # lock across it would stall a rail rename or delete for the same
+        # twenty seconds.
+        #
+        # It is safe HERE and nowhere earlier in the teardown: persist_turn's
+        # single call site is at the END of _release_turn, after
+        # registry.end_turn has released the conversation, in a BackgroundTask
+        # (a threadpool, not the event loop). Move it earlier and the
+        # conversation stays `busy` for the duration, so the analyst's next
+        # question gets a 409 from begin_turn.
+        title = titles.generate_title(first_q, first_a, user=current_user())
+        # `set_title_if_absent` re-reads under the lock and writes ONE field.
+        # The old code wrote the whole Transcript object it had loaded BEFORE
+        # the call above, which — reproduced 2026-08-11 — erased a turn that
+        # completed during the call, resurrected a chat deleted during it, and
+        # reverted a rename made during it.
+        history.set_title_if_absent(entry.id, title)
     except Exception as exc:                      # noqa: BLE001
         print(f"jlbc-insight: could not save chat history: {exc}", file=sys.stderr, flush=True)
 
@@ -519,17 +528,22 @@ def create_conversation(body: CreateConversationBody, request: Request) -> dict:
             stored = history.load(body.resume_from)
         except ValueError:
             raise HTTPException(status_code=400, detail="bad conversation id")
-        if stored is None:
-            raise HTTPException(status_code=404, detail="no such conversation")
 
         # A resumed id is NOT unique the way uuid4() is, so it can already be
         # in the registry — the analyst reopened a chat they already
         # continued this session, or has it open in a second tab.
-        # `ConversationRegistry.add` would overwrite the entry outright and
-        # never close the old session, so /stop and the next message would
-        # address a different object under the same id while the first kept
-        # streaming and billing. Reuse it instead.
-        live = _registry(request).get(stored.id)
+        #
+        # THE REGISTRY IS CONSULTED BEFORE THE 404, deliberately. Raising on
+        # "no transcript on disk" first meant that deleting a chat's row from
+        # the rail killed the LIVE conversation the analyst still had open:
+        # every subsequent message answered 404 "no such conversation" for a
+        # session sitting healthy in memory, with no way back except starting
+        # over. Reproduced 2026-08-11. A live session outranks its own
+        # bookkeeping; only "no session AND no transcript" is a real 404.
+        live = _registry(request).get(body.resume_from)
+        if stored is None and live is None:
+            raise HTTPException(status_code=404, detail="no such conversation")
+
         if live is not None:
             if live.busy:
                 # Same answer begin_turn gives a double-submit, for the same
@@ -541,6 +555,15 @@ def create_conversation(body: CreateConversationBody, request: Request) -> dict:
                         "question. Wait for it to finish before reopening it."
                     ),
                 )
+            # The durable record wins over memory when they disagree. One
+            # process serves one machine, so this should not happen — but
+            # if it ever does, answering from a shorter in-memory history
+            # silently drops turns the analyst can see on their own screen,
+            # and re-seeding an IDLE session's list costs one comparison.
+            if stored is not None:
+                in_memory = getattr(live.session, "history", None)
+                if in_memory is not None and len(stored.messages) > len(in_memory):
+                    in_memory[:] = list(stored.messages)
             health: dict[str, Any] = {"ok": ok}
             if reason:
                 health["reason"] = reason
@@ -564,14 +587,25 @@ def create_conversation(body: CreateConversationBody, request: Request) -> dict:
     # all of them today: default_session_factory (:327) and the ~25 call
     # sites behind tests/test_conversations_route.py's `factory_for` (:119).
     extra = {"history": list(stored.messages)} if stored else {}
-    session = _session_factory(request)(
-        conversation_id, corpus=corpus, tier=DEFAULT_TIER,
-        user=current_user(),
-        **extra,
-    )
-    _registry(request).add(
-        _Conversation(id=conversation_id, session=session, corpus=corpus)
-    )
+
+    def _build() -> _Conversation:
+        session = _session_factory(request)(
+            conversation_id, corpus=corpus, tier=DEFAULT_TIER,
+            user=current_user(),
+            **extra,
+        )
+        return _Conversation(id=conversation_id, session=session, corpus=corpus)
+
+    # `get_or_add`, not `add`. The `get` above and an `add` here are two trips
+    # to the registry with a gap between them, and a resumed id is guessable
+    # and shared: two tabs reopening the same chat both saw `live is None`,
+    # both built a session, and the second `add` replaced the first outright —
+    # never closing its httpx client, and leaving /stop and the next message
+    # addressing a different object than the one still streaming and billing.
+    # `get_or_add` does the check and the insert under the registry's own
+    # lock. It was written for exactly this and was never wired up.
+    entry, _created = _registry(request).get_or_add(conversation_id, _build)
+    conversation_id = entry.id
     health: dict[str, Any] = {"ok": ok}
     if reason:
         health["reason"] = reason
