@@ -1216,11 +1216,21 @@ export function Search() {
                     say "try clearing one" with no filters set, blaming the
                     user for an empty or unreadable corpus. (A third branch —
                     docs present, no filters, still empty — used to sit here
-                    too, but it is unreachable: with any filter empty,
-                    `passesFilters` accepts every doc, so a non-empty `docs`
-                    always yields a non-empty `visibleGroups`. MINOR,
-                    2026-08-10: collapsed rather than left as dead code that
-                    looks load-bearing.)
+                    too, but it is unreachable on TWO independent grounds, not
+                    just one: with any filter empty, `passesFilters` accepts
+                    every doc, so a non-empty `docs` always yields a non-empty
+                    `visibleGroups` — AND groupCorpus/orderFamilies no longer
+                    drop a doc whose doc_type has no curated family (it gets
+                    its own trailing family instead, see orderFamilies' own
+                    WHY comment), which is what made this branch reachable in
+                    the first place: an all-unregistered-doc_type corpus used
+                    to collapse to zero families with `docs` still non-empty.
+                    If that grouping coupling ever regresses, the failure mode
+                    is this same user-blaming "try clearing one" copy on a
+                    corpus with no filters set at all — which is exactly what
+                    this branch was collapsed to prevent. MINOR, 2026-08-10:
+                    collapsed rather than left as dead code that looks
+                    load-bearing.)
 
                     The no-documents line deliberately names NO cause: the
                     route degrades a missing sidecar AND an unreadable chunk
