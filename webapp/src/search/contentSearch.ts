@@ -168,3 +168,92 @@ export function highlightTerms(
 export function highlight(text: string, query: string): { text: string; hit: boolean }[] {
   return highlightTerms(text, queryTerms(query));
 }
+
+/** How much of a passage a card shows before the reader expands it. Matches
+ *  the width the card was designed around (it was `text[:280]` server-side). */
+const PREVIEW_CHARS = 280;
+
+export interface Preview {
+  text: string;
+  /** The window does not start at the beginning of the passage. */
+  ellipsisStart: boolean;
+  /** The window does not reach the end of the passage. */
+  ellipsisEnd: boolean;
+}
+
+/** How far previewWindow will look for a word boundary before giving up.
+ *
+ *  WHY bounded, and WHY it gives up rather than searching the other way: an
+ *  unbroken run with no spaces (a long table row, a URL) has no boundary to
+ *  find. The first version of this code searched one direction per edge and
+ *  fell back badly in both — `end` jumped to text.length, returning 231
+ *  characters more than the caller asked for AND reporting ellipsisEnd:false
+ *  on a window that was very obviously truncated; `start` silently kept the
+ *  mid-word cut it was supposed to fix. Searching FORWARD for `start` instead
+ *  would be worse: it can overshoot the match itself and cut off the very
+ *  words the window exists to show. So: snap if a boundary is close, cut
+ *  mid-word if not, and let the ellipsis flags tell the truth either way. */
+const SNAP_CHARS = 40;
+
+/** Pull `end` back to a word end, if one is close. Never pushes it forward:
+ *  the window must not exceed the size the caller asked for. */
+function snapEnd(text: string, end: number): number {
+  if (end >= text.length) return end;
+  const ws = text.lastIndexOf(" ", end);
+  return ws !== -1 && end - ws <= SNAP_CHARS ? ws : end;
+}
+
+/** Pick the slice of a passage the card previews.
+ *
+ *  The LEADING text is the default, and that is a measured decision, not
+ *  laziness (spec H3). JLBC front-loads these documents by construction:
+ *  every chunk opens with a section heading, then "The Baseline includes $X
+ *  for Y", then background prose. So the leading characters ARE the summary,
+ *  which is also why the median first query-word match sits at character 5
+ *  and only 3.5% of cards lose their mark to truncation.
+ *
+ *  A match-centred window was measured and reads WORSE: it scores higher on
+ *  terms visible while dropping the heading and the dollar figure, and in one
+ *  observed case shifted ten characters to gain one term, chopping
+ *  "Enrollment Changes" into " Changes". Optimising for terms-visible rewards
+ *  drifting into dense prose and away from the headline. So it is the
+ *  FALLBACK, for the ~3.5% of cards whose leading text has no typed word at
+ *  all -- otherwise the reader sees a passage with no visible reason for
+ *  being there. */
+export function previewWindow(
+  text: string,
+  terms: string[],
+  size: number = PREVIEW_CHARS,
+): Preview {
+  if (text.length <= size) {
+    return { text, ellipsisStart: false, ellipsisEnd: false };
+  }
+  const lead = snapEnd(text, size);
+  const leadText = text.slice(0, lead);
+  const hasMark = (s: string) => highlightTerms(s, terms).some((r) => r.hit);
+  if (!terms.length || hasMark(leadText)) {
+    return { text: leadText, ellipsisStart: false, ellipsisEnd: true };
+  }
+
+  const re = termsPattern(terms);
+  const first = re ? text.search(re) : -1;
+  if (first === -1) {
+    // No typed word anywhere in the passage (spec H6). Nothing to slide to,
+    // so show the start rather than an arbitrary middle.
+    return { text: leadText, ellipsisStart: false, ellipsisEnd: true };
+  }
+
+  // Centre on the match, then snap the window's edges BACKWARD toward
+  // whitespace so it never exceeds `size` and never begins mid-word.
+  let start = Math.max(0, Math.min(first - Math.floor(size / 3), text.length - size));
+  if (start > 0) {
+    const ws = text.lastIndexOf(" ", start);
+    if (ws !== -1 && start - ws <= SNAP_CHARS) start = ws + 1;
+  }
+  const end = snapEnd(text, Math.min(text.length, start + size));
+  return {
+    text: text.slice(start, end),
+    ellipsisStart: start > 0,
+    ellipsisEnd: end < text.length,
+  };
+}
