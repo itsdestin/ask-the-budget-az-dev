@@ -1801,6 +1801,20 @@ html.ai-fullpage header.site{flex:0 0 auto;}
   transition:background .13s;}
 .history-rail-item:hover{background:var(--card);}
 .history-rail-item.is-active{background:var(--card);box-shadow:var(--shadow-sm);}
+/* Only ONE row may look selected at a time (Destin, 2026-08-11, found in a
+   browser). Hover and .is-active paint the SAME background, so pointing at any
+   row lit two of them and the rail stopped answering "which chat am I in?".
+   While the pointer is over the list, the active row yields its highlight —
+   unless it IS the row under the pointer, which is what :not(:hover) protects
+   and is the common case. Suppressing active rather than re-tinting hover:
+   giving hover its own colour would still leave two lit rows, just in two
+   colours. The actions (rename/delete) deliberately keep their opacity — they
+   are an affordance, not a selection signal, and hiding them mid-reach would
+   move a click target out from under the pointer. */
+.history-rail-list:hover .history-rail-item.is-active:not(:hover){
+  background:transparent;box-shadow:none;}
+.history-rail-list:hover .history-rail-item.is-active:not(:hover) .history-rail-chat-title{
+  color:var(--ink);}
 .history-rail-chat{flex:1 1 auto;min-width:0;display:flex;flex-direction:column;align-items:flex-start;
   gap:2px;padding:8px 10px;background:none;border:0;border-radius:var(--r-sm);
   font-family:inherit;text-align:left;cursor:pointer;color:var(--ink);}
