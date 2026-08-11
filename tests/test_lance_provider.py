@@ -2,7 +2,7 @@
 contract. retrieve() itself is faked — Plan 1's own tests own the pipeline;
 the MAPPING (field names, snippet truncation, title humanization, filter
 pass-through) is what this file owns, and faking keeps it model-free."""
-from retrieval import RetrievalResult
+from retrieval import FUSED_TOP_K, RetrievalResult
 from retrieval.types import RetrievedChunk
 
 from app.search_provider import LanceSearchProvider
@@ -146,6 +146,63 @@ def test_missing_sidecar_degrades_to_unlinked_rows(monkeypatch, tmp_path):
     monkeypatch.setattr("store.config.documents_path", lambda: tmp_path / "absent.json")
     out = LanceSearchProvider().search("q", top_k=5, corpus="budget", filters={})
     assert out[0]["doc_url"] is None
+
+
+# --- Task 7: family filtering asks retrieve() for the pipeline's ceiling ----
+# tests/test_search_route.py owns the filtering BEHAVIOUR (which rows survive
+# a section_family filter); this file owns the REQUEST this provider makes to
+# retrieve() to get there, same split as the rest of this file.
+
+
+def test_family_filter_requests_the_pipeline_ceiling(monkeypatch, tmp_path):
+    """A family filter is applied AFTER ranking, so retrieve() must be asked
+    for the pipeline's own ceiling (FUSED_TOP_K) rather than the caller's
+    top_k -- see the WHY comment on LanceSearchProvider.search for the
+    real-corpus measurement that ruled out a smaller ceil(top_k/yield)
+    over-fetch (worst-case yield was 0/20, which divides by zero)."""
+    captured = {}
+
+    def fake_retrieve(req, **kw):
+        captured["req"] = req
+        return _fake_result([_chunk(doc_id="base-1", doc_type="detailed-list-pdf")])
+
+    monkeypatch.setattr("app.search_provider.retrieve", fake_retrieve)
+    _sidecar(tmp_path, monkeypatch, {
+        "base-1": {"source_url": "https://www.azjlbc.gov/22baseline/473.pdf"},
+    })
+
+    LanceSearchProvider().search(
+        "q", top_k=3, corpus="budget",
+        filters={"doc_type": ["detailed-list-pdf"], "section_family": "Baseline"},
+    )
+
+    assert captured["req"].top_k == FUSED_TOP_K
+
+
+def test_family_filter_reslices_to_the_caller_s_top_k(monkeypatch, tmp_path):
+    """retrieve() can hand back up to FUSED_TOP_K rows once over-fetched for
+    a family filter; the provider must not return more than the caller
+    actually asked for."""
+    monkeypatch.setattr(
+        "app.search_provider.retrieve",
+        lambda req, **kw: _fake_result([
+            _chunk(chunk_id="a", doc_id="base-1", doc_type="detailed-list-pdf"),
+            _chunk(chunk_id="b", doc_id="base-2", doc_type="detailed-list-pdf"),
+            _chunk(chunk_id="c", doc_id="base-3", doc_type="detailed-list-pdf"),
+        ]),
+    )
+    _sidecar(tmp_path, monkeypatch, {
+        "base-1": {"source_url": "https://www.azjlbc.gov/22baseline/473.pdf"},
+        "base-2": {"source_url": "https://www.azjlbc.gov/22baseline/474.pdf"},
+        "base-3": {"source_url": "https://www.azjlbc.gov/22baseline/475.pdf"},
+    })
+
+    out = LanceSearchProvider().search(
+        "q", top_k=1, corpus="budget",
+        filters={"doc_type": ["detailed-list-pdf"], "section_family": "Baseline"},
+    )
+
+    assert len(out) == 1
 
 
 def test_fiscal_notes_corpus_maps_to_its_table(monkeypatch, tmp_path):
