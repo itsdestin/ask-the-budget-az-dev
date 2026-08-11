@@ -10,7 +10,7 @@ import { BookIcon, ChevronIcon, DocIcon, OpenIcon } from "../components/DocIcons
 import { ReportChooser } from "../components/ReportChooser";
 import { PassageCard } from "../components/PassageCard";
 import { SourcePanel } from "../pdf/SourcePanel";
-import { familyOf, familyTitle, reportFormats } from "../reportFamilies";
+import { familyOf, familyTitle, reportFormats, sectionSlugsFrom } from "../reportFamilies";
 import { groupPassages, toSearchFilters } from "../search/contentSearch";
 
 // Budget Documents — a browse-first directory, rebuilt 2026-08-03 from the
@@ -127,7 +127,7 @@ function groupCorpus(docs: api.CorpusDocument[]): { year: number; families: Fami
     // bucketed as 0 ("Fiscal year unknown") rather than dropped silently —
     // it still renders, honestly labeled, at the bottom.
     const year = d.fiscal_year ?? 0;
-    const family = familyOf(d.doc_type);
+    const family = familyOf(d.doc_type, d.section_of);
     if (!byYear.has(year)) byYear.set(year, new Map());
     const fams = byYear.get(year)!;
     if (!fams.has(family)) fams.set(family, []);
@@ -197,7 +197,7 @@ function passesFilters(
   types: ReadonlySet<string>,
   years: ReadonlySet<number>,
 ): boolean {
-  if (types.size && !types.has(familyOf(d.doc_type))) return false;
+  if (types.size && !types.has(familyOf(d.doc_type, d.section_of))) return false;
   if (years.size && !years.has(d.fiscal_year ?? 0)) return false;
   return true;
 }
@@ -795,6 +795,12 @@ export function Search() {
   // erase its own siblings' counts).
   const grouped = useMemo(() => groupCorpus(docs), [docs]);
 
+  // The doc_type slugs that are book sections, read off the loaded listing
+  // itself (Task 8) — never a hand-maintained copy of the vocabulary
+  // ingest/section_types.py already owns. Feeds toSearchFilters below so a
+  // content-mode Baseline/Approps filter reaches its sections too.
+  const sectionSlugs = useMemo(() => sectionSlugsFrom(docs), [docs]);
+
   const allYears = useMemo(() => grouped.map((g) => g.year), [grouped]);
 
   // In-scope years: the picked ones, else every year. Newest-first already.
@@ -809,11 +815,11 @@ export function Search() {
   // FAMILY_ORDER here offered a filter for families that may not exist and —
   // worse — offered NO way to filter to a family rendered under a raw slug.
   const typeOptions = useMemo<MultiSelectOption[]>(() => {
-    const present = orderFamilies([...new Set(docs.map((d) => familyOf(d.doc_type)))]);
+    const present = orderFamilies([...new Set(docs.map((d) => familyOf(d.doc_type, d.section_of)))]);
     return present.map((f) => ({
       key: f,
       label: f,
-      count: docs.filter((d) => familyOf(d.doc_type) === f).length,
+      count: docs.filter((d) => familyOf(d.doc_type, d.section_of) === f).length,
     }));
   }, [docs]);
   const yearOptions = useMemo<MultiSelectOption[]>(
@@ -908,7 +914,7 @@ export function Search() {
     }
     let ignore = false;
     setContent({ kind: "loading" });
-    api.search(q, toSearchFilters(types, years), "budget").then(
+    api.search(q, toSearchFilters(types, years, sectionSlugs), "budget").then(
       (res) => {
         if (!ignore) setContent({ kind: "ready", results: res.results });
       },
@@ -925,6 +931,23 @@ export function Search() {
     return () => {
       ignore = true;
     };
+    // `sectionSlugs` is deliberately NOT a dependency here, matching `docs`
+    // (which never was one either): while the corpus listing is still
+    // loading, `docs` is a fresh `[]` literal every render (see its
+    // definition above), so `sectionSlugs`'s memo would get a new reference
+    // EVERY render during that phase — putting it in this array reproduced
+    // exactly that as a live render loop (CRITICAL, found running this
+    // file's own tests, 2026-08-11): the effect's `setContent({kind:"idle"})`
+    // branch fires, the state update re-renders, the new `docs` reference
+    // makes `sectionSlugs` a new array, the effect re-runs, forever, until
+    // the corpus fetch happens to resolve. Safe to omit: a rail filter can't
+    // even be SET before the listing is ready — the rail itself renders, but
+    // `typeOptions` (below) is built from `docs` and is `[]` until then, so
+    // there is nothing to pick. So by the time `types`/`years` can be
+    // non-empty, `docs` (and therefore `sectionSlugs`) is already the stable
+    // `phase.docs` array — this effect still reads the current
+    // `sectionSlugs` via closure, it just doesn't re-fire on a reference
+    // change that can't carry new information yet.
   }, [mode, q, types, years, searching, contentAttempt]);
 
   // Content results grouped one entry per document — the unit PassageCard

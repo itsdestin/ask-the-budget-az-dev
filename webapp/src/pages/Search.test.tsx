@@ -624,3 +624,88 @@ test("insurance still finds its agency by title alone — the change is purely a
   });
   expect(screen.getByText(/Insurance, Department of/i)).toBeInTheDocument();
 });
+
+// --- Task 8: fold book sections into their parent book (spec B5-B8) --------
+
+test("no raw machine slug appears as a report family", async () => {
+  // 647 documents used to render as "FY 2027 s-pdf" beside "FY 2027 Baseline".
+  // bd/bh/s are JLBC's printed page-number prefixes, not document types.
+  mount([
+    {
+      doc_id: "jlbc-baseline-fy2027-s1",
+      title: "Statement of General Fund Revenues — FY 2027 Baseline",
+      publisher: "jlbc",
+      doc_type: "s-pdf",
+      fiscal_year: 2027,
+      doc_url: "https://x/s1.pdf",
+      section_of: "Baseline",
+      terms: [],
+    },
+    {
+      doc_id: "jlbc-baseline-fy2027-ahcccs",
+      title: "FY 2027 Baseline — AHCCCS",
+      publisher: "jlbc",
+      doc_type: "baseline-per-agency",
+      fiscal_year: 2027,
+      doc_url: "https://x/axs.pdf",
+      section_of: null,
+      terms: [],
+    },
+  ]);
+  expect(await screen.findByText("FY 2027 Baseline")).toBeInTheDocument();
+  expect(screen.queryByText(/s-pdf/)).not.toBeInTheDocument();
+});
+
+test("a section is COUNTED under its parent book, not dropped", async () => {
+  // The counts describe what renders (spec B7). Folding must move a document,
+  // never delete one -- documents were once counted but never displayed.
+  mount([
+    {
+      doc_id: "a",
+      title: "A section",
+      publisher: "jlbc",
+      doc_type: "s-pdf",
+      fiscal_year: 2027,
+      doc_url: null,
+      section_of: "Baseline",
+      terms: [],
+    },
+    {
+      doc_id: "b",
+      title: "B agency page",
+      publisher: "jlbc",
+      doc_type: "baseline-per-agency",
+      fiscal_year: 2027,
+      doc_url: null,
+      section_of: null,
+      terms: [],
+    },
+  ]);
+  await screen.findByRole("button", { name: /Fiscal Year 2027:/i });
+  // The rail's "group" of options only exists in the DOM once the dropdown is
+  // open (RailMultiSelect mounts `.fmenu` conditionally) — every other test in
+  // this file that reads option rows opens the trigger first (see
+  // railTrigger's own call sites above).
+  fireEvent.click(railTrigger(/document type/i));
+  const rail = screen.getByRole("group", { name: /document type/i });
+  expect(within(rail).getByText(/Baseline/)).toBeInTheDocument();
+  expect(within(rail).getByText("2")).toBeInTheDocument();
+});
+
+test("a doc_type nobody has named still renders under its own slug", async () => {
+  // familyOf's contract survives (spec B8). This behaviour was itself a bug
+  // fix -- such documents used to be counted and never shown.
+  mount([
+    {
+      doc_id: "z",
+      title: "Some Special Program Review",
+      publisher: "jlbc",
+      doc_type: "brand-new-type",
+      fiscal_year: 2027,
+      doc_url: null,
+      section_of: null,
+      terms: [],
+    },
+  ]);
+  expect(await screen.findByText(/brand-new-type/)).toBeInTheDocument();
+});

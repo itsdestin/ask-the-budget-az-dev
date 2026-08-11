@@ -12,19 +12,25 @@ import { slugsForFamily } from "../reportFamilies";
 
 /** Translate the rail's two multi-selects into the API's filter object.
  *
- *  Two translations, each load-bearing:
+ *  Three translations, each load-bearing:
  *
  *  1. The rail holds FAMILY names ("Baseline"); the API wants doc_type SLUGS
  *     ("baseline-per-agency", "baseline-cross-cut"). One family is many slugs.
  *  2. Year 0 is this page's bucket for documents whose fiscal_year is null. It
  *     is not a fiscal year the backend has ever heard of, so it is dropped —
  *     sending it would filter every result out.
+ *  3. `detailed-list-pdf` and `topic-pdf` (Task 8's `sectionSlugs`) belong to
+ *     BOTH book families, so the slug list alone cannot say which book a
+ *     result's section belongs to. Send `section_family` when exactly one
+ *     book is selected, so the server's post-rank filter (Task 7) can be
+ *     exact; with two selected there is nothing to exclude anyway.
  *
  *  An emptied dimension is OMITTED, never sent as `[]`: the backend reads an
  *  explicit empty list as "match nothing", while an absent key means "any". */
 export function toSearchFilters(
   types: ReadonlySet<string>,
   years: ReadonlySet<number>,
+  sectionSlugs: readonly string[] = [],
 ): SearchFilters {
   const filters: SearchFilters = {};
   if (types.size) {
@@ -32,7 +38,14 @@ export function toSearchFilters(
     // slug (an unrecognised family falls back to itself), and this branch
     // only runs when `types.size > 0`, so `slugs` can never be empty — the
     // old `if (slugs.length)` here could never be false (MINOR, 2026-08-10).
-    filters.doc_type = [...types].flatMap(slugsForFamily);
+    // Deduped: when BOTH book families are selected, slugsForFamily appends
+    // the whole sectionSlugs list to each of them, so a section slug
+    // (detailed-list-pdf, topic-pdf) would otherwise appear twice — harmless
+    // for an IN-style filter, but not what the array should say (MINOR,
+    // 2026-08-11).
+    filters.doc_type = [...new Set([...types].flatMap((t) => slugsForFamily(t, sectionSlugs)))];
+    const books = [...types].filter((t) => t === "Baseline" || t === "Appropriations Report");
+    if (books.length === 1) filters.section_family = books[0];
   }
   if (years.size) {
     const real = [...years].filter((y) => y !== 0);

@@ -235,7 +235,10 @@ test("the rail's filters reach the backend as doc_type SLUGS", async () => {
   await vi.advanceTimersByTimeAsync(2000);
   expect(search).toHaveBeenCalledWith(
     "child care subsidy",
-    { doc_type: ["baseline-per-agency", "baseline-cross-cut"] },
+    // Task 8: a single book family selected also sends `section_family`, so
+    // the server's post-rank filter can tell a Baseline section from an
+    // Appropriations Report section sharing the same doc_type.
+    { doc_type: ["baseline-per-agency", "baseline-cross-cut"], section_family: "Baseline" },
     "budget",
   );
   vi.useRealTimers();
