@@ -33,7 +33,12 @@ from citation.figures import Figure, written_significant_digits
 # Bare INTEGERS stay out: unlike a decimal, "2026" or a page number or a
 # rank carries no signal that it is an amount, and admitting them multiplies
 # candidate density for no coverage this corpus needs.
-_CANDIDATE_RE = re.compile(r"\d{1,3}(?:,\d{3})+(?:\.\d+)?|\d+\.\d+")
+# A leading "(" is accounting notation for a negative, on the source
+# side exactly as in an answer, so a stated -$3.59B can match a table
+# printing "(3,590.0)". Sign is part of the value: a negative figure
+# must NOT match the positive of the same magnitude.
+_CANDIDATE_RE = re.compile(
+    r"\(?\d{1,3}(?:,\d{3})+(?:\.\d+)?\)?|\(?\d+\.\d+\)?")
 # Which multiplier the source's own rendering uses.
 _SCALES = (1, 1_000, 1_000_000, 1_000_000_000)
 # A near-miss farther than 5% is not "nearly the same number" to an
@@ -59,6 +64,12 @@ class NearMiss:
     source_text: str
     value: float      # the candidate, at the scale that got closest
     distance: float   # relative distance to the figure's absolute value
+
+
+def _signed(token: str) -> float:
+    """Numeric value of a source token, honouring accounting parentheses."""
+    value = float(re.sub(r"[^0-9.]", "", token))
+    return -value if token.startswith("(") else value
 
 
 def _chunk_ids(chunks: dict[str, str],
@@ -89,7 +100,7 @@ def find_in_chunks(
     for chunk_id in _chunk_ids(chunks, restrict_to):
         text = chunks.get(chunk_id) or ""
         for m in _CANDIDATE_RE.finditer(text):
-            candidate = float(m.group(0).replace(",", ""))
+            candidate = _signed(m.group(0))
             for scale in _SCALES:
                 if abs(candidate * scale - target) <= halfwidth:
                     hits.append(SourceHit(chunk_id, m.group(0),
@@ -118,7 +129,7 @@ def nearest_value(
     for chunk_id in _chunk_ids(chunks, restrict_to):
         text = chunks.get(chunk_id) or ""
         for m in _CANDIDATE_RE.finditer(text):
-            candidate = float(m.group(0).replace(",", ""))
+            candidate = _signed(m.group(0))
             for scale in _SCALES:
                 dist = abs(candidate * scale - target) / target
                 if best is None or dist < best.distance:

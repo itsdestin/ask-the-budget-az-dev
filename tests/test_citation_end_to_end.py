@@ -336,7 +336,10 @@ def test_all_five_verdict_paths_in_one_answer():
     # so the refusal is precision, never specificity — which is the
     # neighbouring path that would also read `unverified` + no source.
     near = by_index[5]
-    assert near["text"] == "$987.6"
+    # The scale word is PART of the figure's span: a chip is rendered at
+    # `end`, and stopping at the digits put it inside the amount
+    # ("$13.98[1]B" in a live answer).
+    assert near["text"] == "$987.6 million"
     assert near["verdict"] == "unverified"
     assert near["ambiguity_count"] is None
     # Scoped to the chunk the model NAMED: "you said c4, and c4's nearest

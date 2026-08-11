@@ -15,8 +15,17 @@ from dataclasses import dataclass
 # A figure is a grouped integer (1,234,567) or a decimal with a currency
 # marker ($8,287.7). A bare ungrouped integer is NOT a figure — it is far
 # more often a count, a year, or a page number than a budget amount.
+#
+# The parenthesised alternatives are accounting notation for a NEGATIVE:
+# a variance column writes "$(0.07)B", not "-$0.07B". Without them such a
+# cell yields no figure at all — not an uncited figure, an invisible one —
+# so a whole "actual vs forecast" column could be neither cited nor
+# derived. Seen live 2026-08-11.
 _FIGURE_RE = re.compile(
-    r"\$\s?\d{1,3}(?:,\d{3})+(?:\.\d+)?"     # $1,391,157,700 / $8,287.7
+    r"\$\s?\(\d{1,3}(?:,\d{3})+(?:\.\d+)?\)"  # $(1,234.5)
+    r"|\$\s?\(\d+\.\d+\)"                     # $(0.07)
+    r"|\(\d{1,3}(?:,\d{3})+(?:\.\d+)?\)"      # (1,234)
+    r"|\$\s?\d{1,3}(?:,\d{3})+(?:\.\d+)?"     # $1,391,157,700 / $8,287.7
     r"|\$\s?\d+\.\d+"                         # $1.06
     r"|\d{1,3}(?:,\d{3})+(?:\.\d+)?"          # 101,602
 )
@@ -69,7 +78,12 @@ class Figure:
         certifies ±0.5. One rule replaces the flat ±0.1% window and
         reconcile's flat 1% — both of which accepted values the written
         form does not actually support."""
-        numeral = self.text.replace("$", "").replace(",", "").strip()
+        # Strip everything that is not a digit or a decimal point: the text
+        # may carry a currency marker, accounting parentheses, and now its
+        # scale suffix ("$13.98B", "$(0.07)B"). Splitting the raw string on
+        # "." would count "98B" as three decimal places and certify an
+        # interval a thousand times too narrow.
+        numeral = re.sub(r"[^0-9.]", "", self.text)
         decimals = len(numeral.split(".")[1]) if "." in numeral else 0
         return 0.5 * (10 ** -decimals) * self.scale
 
@@ -105,12 +119,23 @@ def extract_figures(answer: str) -> list[Figure]:
         # A percentage is virtually always computed, not quoted.
         if answer[m.end():m.end() + 1] == "%":
             continue
-        value = float(raw.replace("$", "").replace(",", "").strip())
+        negative = "(" in raw
+        value = float(re.sub(r"[^0-9.]", "", raw))
+        if negative:
+            value = -value
         scale = 1
+        suffix_len = 0
         tail = answer[m.end():m.end() + 12]
         for pattern, mult in _SUFFIX:
-            if pattern.match(tail):
+            hit = pattern.match(tail)
+            if hit:
                 scale = mult
+                # The suffix is PART OF THE FIGURE. Ending the span at the
+                # digits put the citation chip inside the amount — the
+                # analyst read "$13.98[1]B" — because the chip is rendered
+                # at `end`. It also makes the tag gap start with a stray
+                # "B" for no reason.
+                suffix_len = hit.end()
                 break
         else:
             # No explicit suffix: inherit the table's declared unit, but
@@ -118,5 +143,7 @@ def extract_figures(answer: str) -> list[Figure]:
             # 1,391,157,700 is already absolute.
             if table_scale != 1 and "." in raw:
                 scale = table_scale
-        figures.append(Figure(raw, m.start(), m.end(), value, scale))
+        end = m.end() + suffix_len
+        figures.append(Figure(answer[m.start():end], m.start(), end,
+                              value, scale))
     return figures
