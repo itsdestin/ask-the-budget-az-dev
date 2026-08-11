@@ -12,7 +12,8 @@ mechanism behind the wrong-doc defect (memo §5.1).
 """
 from __future__ import annotations
 
-from citation.annotate import annotate_answer
+from citation.annotate import _bind_tags, annotate_answer
+from citation.figures import extract_figures
 from citation.markers import Tag, parse_markers
 
 # One value, two documents — the shape the old authority rule resolved by
@@ -115,14 +116,21 @@ def test_a_tag_binds_across_a_scale_word():
     assert fig["link_basis"] == "tag"
 
 
-def test_a_tag_a_clause_away_does_not_bind():
-    # Better an untagged figure — which still gets the fallback — than a
-    # tag bound to a number it was never written for.
+def test_a_tag_later_in_the_same_sentence_still_binds():
+    """Deliberately relaxed from "must be welded to the digits".
+
+    That rule discarded the way models actually write — "$12.49B (Mar
+    2020) [[c18]]" — and cost real citations in a live answer. Binding
+    within the sentence is safe because a mis-bound tag still has to
+    VERIFY: the value must appear in the chunk the tag names, so a tag
+    meant for a neighbouring claim simply fails and falls back. A wrong
+    source still needs two independent failures, which is the property
+    the whole design rests on.
+    """
     ann = _annotate(
         "Spending was $8,287,700,000 and that is a lot of money [[c1]] here.")
     (fig,) = ann["figures"]
-    assert fig["attested_chunk_ids"] == []
-    assert fig["link_basis"] != "tag"
+    assert fig["attested_chunk_ids"] == ["budget-a-0001"]
 
 
 # --- derivation -------------------------------------------------------
@@ -236,3 +244,42 @@ def test_missing_locator_metadata_degrades_to_nulls_not_a_crash():
     assert primary["doc_id"] is None
     assert primary["page_start"] is None
     assert primary["bbox"] is None
+
+
+# --- tag binding: the gap between a figure and its marker ---------------
+
+def _bound_aliases(raw):
+    """Parse markers out of `raw` and return {figure text: [aliases]}."""
+    stripped, tags = parse_markers(raw)
+    figs = extract_figures(stripped)
+    bound = _bind_tags(stripped, figs, tags)
+    return {figs[i].text: a for i, a in bound.items()}
+
+
+def test_a_tag_binds_across_the_qualifier_its_figure_carries():
+    """Observed live: the model tags the end of the NOUN PHRASE, not the
+    end of the number. The first rule allowed only whitespace, punctuation
+    and a scale word, so "$12.49B (Mar 2020) [[c18]]" was discarded — the
+    model had named its source and the system threw it away, leaving the
+    figure to the untagged fallback and usually uncited."""
+    for raw in ("forecast $12.49B (Mar 2020) [[c18]] adopted",
+                "| $12.49B (Mar 2020) [[c18]] |",
+                "was $1,574.1 million in FY 2026 [[c22]]",
+                "total $16.83B (Jun 2022) [[c3]]"):
+        assert _bound_aliases(raw), f"tag was dropped: {raw}"
+
+
+def test_a_tag_does_not_bind_across_a_boundary_the_writer_drew():
+    """What stops a wrong bind is "closest PRECEDING figure" plus these
+    boundaries — a sentence end, a table cell wall, a line break. A tag
+    that has crossed one of those is not describing the figure behind it."""
+    assert not _bound_aliases("Revenue hit $16.5B. Spending set a record [[c3]]")
+    assert not _bound_aliases("| $12.49B | a different cell [[c18]] |")
+    assert not _bound_aliases(
+        "$12.49B then a clause that runs on and on and on and on past any "
+        "reasonable qualifier length [[c9]]")
+
+
+def test_a_tag_after_several_figures_takes_the_nearest_one():
+    bound = _bound_aliases("first $1,391,200 then $2,547,300 [[c1]] listed")
+    assert bound == {"$2,547,300": ["c1"]}

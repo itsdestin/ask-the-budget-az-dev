@@ -21,14 +21,26 @@ from citation.markers import Tag
 from citation.matching import find_in_chunks, nearest_value
 from citation.reconcile import reconcile
 
-# A tag binds leftward across at most a scale word and punctuation:
-# "$8,287.7 million [[c3]]" binds; a tag a clause away does not — better
-# an untagged figure (which still gets the fallback) than a tag bound to
-# the wrong number.
-_BIND_MAX_GAP = 24
-_BIND_GAP_RE = re.compile(
-    r"^\s*(?:million|billion|thousand|[MBK])?[\s.,;:)%*_—-]*$",
-    re.IGNORECASE)
+# A tag binds leftward to the closest preceding figure, across the
+# qualifier that figure carries.
+#
+# The first rule here allowed only whitespace, punctuation and a scale
+# word, on the theory that a tag welded to the digits is the safe case.
+# It is — and it is not how a model writes. Observed live: every one of
+# "$12.49B (Mar 2020) [[c18]]", "$16.83B (Jun 2022) [[c3]]" and
+# "$1,574.1 million in FY 2026 [[c22]]" was DISCARDED, because a model
+# tags the end of the noun phrase, not the end of the number. Those
+# figures then fell through to the untagged fallback and mostly went
+# uncited — the model had named its source and the system threw it away.
+#
+# What actually protects against binding to the wrong figure is
+# "closest PRECEDING figure", not the narrow charset: a tag after several
+# figures takes the last one, which is the one it follows. So the gap
+# rule only has to stop a bind reaching across a boundary the writer
+# clearly intended — a sentence end, a line break, or a table cell wall.
+_BIND_MAX_GAP = 80
+# Anything that ends the thought the figure was part of.
+_BIND_BOUNDARY_RE = re.compile(r"[.!?](?:\s|$)|[\n\r|]")
 
 
 def _bind_tags(answer: str, figures: list[Figure],
@@ -44,7 +56,7 @@ def _bind_tags(answer: str, figures: list[Figure],
         if best is None:
             continue
         gap = answer[figures[best].end:tag.at]
-        if len(gap) <= _BIND_MAX_GAP and _BIND_GAP_RE.match(gap):
+        if len(gap) <= _BIND_MAX_GAP and not _BIND_BOUNDARY_RE.search(gap):
             bound.setdefault(best, []).extend(tag.aliases)
     return bound
 
