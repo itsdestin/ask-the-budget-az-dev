@@ -505,7 +505,11 @@ test("shorthand finds a document whose title contains none of it", async () => {
     target: { value: "26ar dema" },
   });
   expect(screen.getByText(/Emergency and Military Affairs/i)).toBeInTheDocument();
-  expect(screen.queryByText(/Corrections, Department of/i)).toBeNull();
+  // 2026-08-11 review finding 2: the fixture's title is "Corrections, STATE
+  // Department of" — the old regex ("Corrections, Department of", missing
+  // "State") could never match that row whether or not it rendered, so this
+  // half of the test passed even with the matcher completely broken.
+  expect(screen.queryByText(/Corrections, State Department of/i)).toBeNull();
 });
 
 test("every word must match — one unmatchable word returns nothing", async () => {
@@ -588,4 +592,30 @@ test("matching is case-insensitive on both sides", async () => {
     target: { value: "26AR DEMA" },
   });
   expect(screen.getByText(/Emergency and Military Affairs/i)).toBeInTheDocument();
+});
+
+test("insurance still finds its agency by title alone — the change is purely additive", async () => {
+  // 2026-08-11 review finding 5c: spec decision D6 requires that typing
+  // "insurance" still find "Insurance, Department of" by TITLE — the
+  // concrete proof that AMBIGUOUS_PHRASES = {insurance} (which governs NAME
+  // matching in retrieval) was never consulted here, and that this whole
+  // feature only ADDS matching rather than removing any. `terms: []` is
+  // deliberate: it proves the row is found through the pre-existing title
+  // substring match, not because search_terms emitted anything for it.
+  mount([
+    {
+      doc_id: "jlbc-baseline-fy2026-ins",
+      title: "Insurance, Department of — FY 2026 Baseline",
+      publisher: "jlbc",
+      doc_type: "baseline-per-agency",
+      fiscal_year: 2026,
+      doc_url: "https://x/ins.pdf",
+      terms: [],
+    },
+  ]);
+  await screen.findByRole("button", { name: /Fiscal Year 2026:/i });
+  fireEvent.change(screen.getByLabelText(/filter documents by agency or keyword/i), {
+    target: { value: "insurance" },
+  });
+  expect(screen.getByText(/Insurance, Department of/i)).toBeInTheDocument();
 });
