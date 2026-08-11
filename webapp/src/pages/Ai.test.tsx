@@ -20,6 +20,7 @@ import { MemoryRouter } from "react-router-dom";
 
 import { Ai } from "./Ai";
 import * as api from "../api";
+import { AiSessionProvider } from "../chat/ai-session";
 import {
   AI_STATUS,
   sseResponse,
@@ -31,7 +32,9 @@ function mountAi(status = AI_STATUS) {
   vi.spyOn(api, "aiStatus").mockResolvedValue(status);
   return render(
     <MemoryRouter>
-      <Ai />
+      <AiSessionProvider>
+        <Ai />
+      </AiSessionProvider>
     </MemoryRouter>,
   );
 }
@@ -73,6 +76,10 @@ function createdCorpora(calls: { url: string; init?: RequestInit }[]): string[] 
 }
 
 beforeEach(() => stubScrollIntoView());
+// `useAiStatus`'s verdict-cache reset moved to a global `beforeEach` in
+// `test-setup.ts` — see that file for why. Specs here still rely on the
+// reset (e.g. the "still checking" one below needs a genuinely cold tab), it
+// just no longer needs to be requested per file.
 afterEach(() => vi.unstubAllGlobals());
 
 describe("AI Mode page — the corpus picker", () => {
@@ -274,7 +281,9 @@ describe("AI Mode page — the gate", () => {
     vi.spyOn(api, "aiStatus").mockReturnValue(new Promise<api.AiStatus>(() => {}));
     render(
       <MemoryRouter>
-        <Ai />
+        <AiSessionProvider>
+          <Ai />
+        </AiSessionProvider>
       </MemoryRouter>,
     );
     const gate = await screen.findByTestId("ai-gate");
