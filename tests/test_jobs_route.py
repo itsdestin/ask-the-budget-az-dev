@@ -61,9 +61,12 @@ def test_jobs_lists_newest_first(client):
 def test_job_view_carries_exactly_the_contract_fields(client):
     _job()
     job = client.get("/api/jobs").json()["jobs"][0]
+    # "stage" joined the contract with Plan A Task 5: the queue page needs to
+    # show which rung of a doc_type's ladder (e.g. Introduced/Engrossed) an
+    # upload is on, the same way it already shows doc_type and fiscal_year.
     assert set(job) == {
         "job_id", "doc_id", "title", "corpus", "state", "pct", "stage_detail",
-        "error", "machine", "user", "created_at", "updated_at",
+        "error", "machine", "user", "created_at", "updated_at", "stage",
     }
 
 

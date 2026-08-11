@@ -711,6 +711,7 @@ def _write(
                 fiscal_year=job.fiscal_year,
                 user_title=job.user_title,
                 agency_name=_primary_agency_name(chunks, ctx),
+                stage=job.stage,
             ),
             source_sha256=job.source_sha256,
             source_blob_path=blob_path,
