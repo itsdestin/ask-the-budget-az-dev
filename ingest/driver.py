@@ -48,16 +48,7 @@ from ingest.discovery import (
     DiscoveryCache,
     discover,
 )
-
-
-# section_kind from cross-cut TOC walkers → leaf doc_type for the dispatcher.
-_SECTION_KIND_TO_DOC_TYPE: dict[str, str] = {
-    "summary-section": "s-pdf",
-    "budget-highlights": "bh-pdf",
-    "budget-detail": "bd-pdf",
-    "detailed-list": "detailed-list-pdf",
-    "topic": "topic-pdf",
-}
+from ingest.section_types import SECTION_KIND_TO_DOC_TYPE
 
 
 # Plan doc_types that drive discovery (vs. local-path or singleton targets).
@@ -248,11 +239,11 @@ def _entry_to_item(
         leaf_doc_type = target.doc_type           # baseline-per-agency / approps-per-agency
         filename = f"{entry.slug}.pdf"
     else:  # cross-cut entry
-        leaf_doc_type = _SECTION_KIND_TO_DOC_TYPE.get(entry.section_kind)
+        leaf_doc_type = SECTION_KIND_TO_DOC_TYPE.get(entry.section_kind)
         if leaf_doc_type is None:
             raise ValueError(
                 f"unknown section_kind {entry.section_kind!r} on entry {entry!r} "
-                "— update _SECTION_KIND_TO_DOC_TYPE"
+                "— update ingest.section_types.SECTION_KIND_TO_DOC_TYPE"
             )
         filename = entry.filename
 
