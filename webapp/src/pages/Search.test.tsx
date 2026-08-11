@@ -709,3 +709,71 @@ test("a doc_type nobody has named still renders under its own slug", async () =>
   ]);
   expect(await screen.findByText(/brand-new-type/)).toBeInTheDocument();
 });
+
+// --- Task 9: two groups in a book's tray -----------------------------------
+// The brief's snippet used helper functions (`corpusDoc`, `renderSearchWith`)
+// and `userEvent` that don't exist in this file -- adapted to the file's own
+// conventions (literal doc objects + the existing `mount()`/`fireEvent`
+// helpers), matching the brief's own instruction to reuse whatever the file
+// already uses rather than introduce a second pattern. Assertions and doc
+// shapes are otherwise verbatim from the brief.
+
+test("a book's tray separates summary sections from agency pages", async () => {
+  mount([
+    {
+      doc_id: "s1",
+      title: "General Fund Revenue",
+      publisher: "jlbc",
+      doc_type: "s-pdf",
+      fiscal_year: 2027,
+      doc_url: "https://x/s1.pdf",
+      section_of: "Baseline",
+      terms: [],
+    },
+    {
+      doc_id: "ahcccs",
+      title: "FY 2027 Baseline — AHCCCS",
+      publisher: "jlbc",
+      doc_type: "baseline-per-agency",
+      fiscal_year: 2027,
+      doc_url: "https://x/axs.pdf",
+      section_of: null,
+      terms: [],
+    },
+  ]);
+  fireEvent.click(await screen.findByRole("button", { name: /browse sections/i }));
+
+  const summary = screen.getByRole("group", { name: /summary sections/i });
+  expect(within(summary).getByText("General Fund Revenue")).toBeInTheDocument();
+
+  const agencies = screen.getByRole("group", { name: /agency pages/i });
+  expect(within(agencies).getByText(/AHCCCS/)).toBeInTheDocument();
+});
+
+test("a book with no summary sections shows no empty group", async () => {
+  // An empty state must name only conditions that are true.
+  mount([
+    {
+      doc_id: "ahcccs",
+      title: "FY 2027 Baseline — AHCCCS",
+      publisher: "jlbc",
+      doc_type: "baseline-per-agency",
+      fiscal_year: 2027,
+      doc_url: "https://x/axs.pdf",
+      section_of: null,
+      terms: [],
+    },
+    {
+      doc_id: "edu",
+      title: "FY 2027 Baseline — Department of Education",
+      publisher: "jlbc",
+      doc_type: "baseline-per-agency",
+      fiscal_year: 2027,
+      doc_url: "https://x/edu.pdf",
+      section_of: null,
+      terms: [],
+    },
+  ]);
+  fireEvent.click(await screen.findByRole("button", { name: /browse sections/i }));
+  expect(screen.queryByRole("group", { name: /summary sections/i })).not.toBeInTheDocument();
+});

@@ -727,6 +727,15 @@ nav.primary{position:relative;padding-right:44px;}
 .page-docs .ctx .tray.open{display:block;}
 .page-docs .ctx .tray .doc{padding:11px 14px;}
 .page-docs .ctx .tray .doc:not(:last-child){border-bottom:1px dashed #e3e7f1;}
+/* Task 9 (spec B4): the two labelled sub-groups inside a book's tray --
+   Summary sections above Agency pages. A plain heading, not a card: the
+   `.doc` rows below it already carry the dashed-tray visual language, so the
+   group only needs a small label to separate the two runs of rows. No
+   `contain`/`container`/`content-visibility`/`mask-image` here -- that class
+   of rule already silently clipped a `position: fixed` tooltip on this page
+   once (see the citation-tooltip regression note elsewhere in this file). */
+.page-docs .tray-group:not(:last-child){border-bottom:1px dashed #cdd3e6;}
+.page-docs .tray-group-title{margin:0;padding:9px 14px 3px;font-size:11px;font-weight:800;color:var(--ink-3);text-transform:uppercase;letter-spacing:.06em;}
 .page-docs .grp-more{display:inline-flex;align-items:center;gap:6px;font-size:12px;font-weight:800;color:var(--ink-2);background:var(--card);border:1px solid var(--line);border-radius:var(--r-pill);padding:6px 13px;cursor:pointer;white-space:nowrap;font-family:inherit;}
 .page-docs .grp-more svg{width:13px;height:13px;transition:transform .18s;}
 /* text-decoration:none: .grp-more renders as an <a> in the search branch's
