@@ -1196,10 +1196,16 @@ export function Search() {
               </>
             ) : visibleGroups.length === 0 ? (
               <section className="yg">
-                {/* Three different facts, and only one of them is the reader's
-                    doing. An empty LISTING is not a filter problem — the page
-                    used to say "try clearing one" with no filters set, blaming
-                    the user for an empty or unreadable corpus.
+                {/* Two facts, and only one of them is the reader's doing. An
+                    empty LISTING is not a filter problem — the page used to
+                    say "try clearing one" with no filters set, blaming the
+                    user for an empty or unreadable corpus. (A third branch —
+                    docs present, no filters, still empty — used to sit here
+                    too, but it is unreachable: with any filter empty,
+                    `passesFilters` accepts every doc, so a non-empty `docs`
+                    always yields a non-empty `visibleGroups`. MINOR,
+                    2026-08-10: collapsed rather than left as dead code that
+                    looks load-bearing.)
 
                     The no-documents line deliberately names NO cause: the
                     route degrades a missing sidecar AND an unreadable chunk
@@ -1209,9 +1215,7 @@ export function Search() {
                 <p className="empty">
                   {docs.length === 0
                     ? "No budget documents are available."
-                    : hasFilters
-                      ? "No documents match those filters — try clearing one."
-                      : "No budget documents are available."}
+                    : "No documents match those filters — try clearing one."}
                 </p>
               </section>
             ) : (
