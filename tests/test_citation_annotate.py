@@ -52,6 +52,17 @@ def test_an_untagged_ambiguous_value_is_refused_not_ranked():
     assert fig["link_basis"] is None
 
 
+def test_an_ambiguous_figure_reports_no_near_miss():
+    # The value is in the pool EXACTLY, twice over, so nearest_value would
+    # return the figure itself at distance 0.0 and the chip would claim the
+    # source "differs by 0.0%". Ambiguity and not-found are different
+    # failures; only one sentence is true at a time.
+    ann = _annotate("The total was $8,287,700,000 that year.")
+    (fig,) = ann["figures"]
+    assert fig["ambiguity_count"] == 2
+    assert fig["near_miss"] is None
+
+
 def test_an_untagged_unambiguous_value_still_links():
     chunks = {"budget-a-0001": CHUNKS["budget-a-0001"]}
     ann = annotate_answer("It was $8,287,700,000 net.", chunks, META,

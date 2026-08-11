@@ -142,6 +142,14 @@ def annotate_answer(
             record["derived_from"] = [linked_indices[j]
                                       for j in derivation.inputs]
             continue
+        # An AMBIGUOUS figure has no near miss: the value is sitting in the
+        # pool exactly, in more than one document, so nearest_value returns
+        # the figure itself at distance 0.0 and the chip would read "appears
+        # in 2 different documents" beside "nearest source value ... differs
+        # by 0.0%". Those are two different failures — not-found versus
+        # too-many-found — and only the ambiguity sentence is true here.
+        if record["ambiguity_count"]:
+            continue
         # Near-miss (spec A6): scoped to the chunk the model NAMED when
         # there was a tag — "you said c3; c3's nearest value is X" is the
         # actionable sentence.
