@@ -218,6 +218,76 @@ test("searching collapses the years into one Results card with promoted matches"
   expect(screen.getByText(/FY 2026 Appropriations Report — AHCCCS/)).toBeInTheDocument();
 });
 
+// --- search: full-report control (parity with the browse view) -------------
+//
+// Task 9: the browse branch's ReportRow has always offered "Full report",
+// but the search branch (this file's other FamilyCard rendering path) had
+// no equivalent control at all — a typed query left a reader with no way to
+// open the whole report. These pin the same three-way rule ReportRow already
+// follows (both formats -> chooser; one -> plain link; neither -> unlinked,
+// never a dead href), now reachable from a search too.
+
+test("a search match with BOTH formats offers Full report as a chooser button", async () => {
+  mount();
+  await screen.findByRole("button", { name: /Fiscal Year 2027:/i });
+  // "department" uniquely picks out the two FY 2027 Baseline agency docs
+  // (Education, Child Safety) — a family with BOTH curated formats — so this
+  // also proves the control sits correctly alongside "N more matches".
+  fireEvent.change(screen.getByLabelText(/filter documents by agency or keyword/i), {
+    target: { value: "department" },
+  });
+  const ctxRow = screen.getByText(/Part of the FY 2027 Baseline/).closest(".ctx-row")! as HTMLElement;
+  const fullReportBtn = within(ctxRow).getByRole("button", { name: /full report/i });
+  // A dialog-opening control must be a <button>, not an <a> — an interactive
+  // element nested in a link is invalid markup (same reasoning as ReportRow).
+  expect(fullReportBtn.tagName).toBe("BUTTON");
+  fireEvent.click(fullReportBtn);
+  expect(screen.getByRole("dialog", { name: /open the full report/i })).toBeInTheDocument();
+  expect(screen.getByRole("link", { name: /linked table of contents/i })).toBeInTheDocument();
+});
+
+test("Full report sits before the N more matches toggle in the row", async () => {
+  mount();
+  await screen.findByRole("button", { name: /Fiscal Year 2027:/i });
+  fireEvent.change(screen.getByLabelText(/filter documents by agency or keyword/i), {
+    target: { value: "department" },
+  });
+  const ctxRow = screen.getByText(/Part of the FY 2027 Baseline/).closest(".ctx-row")! as HTMLElement;
+  const buttons = within(ctxRow).getAllByRole("button");
+  expect(buttons[0]).toHaveTextContent(/full report/i);
+  expect(buttons[1]).toHaveTextContent(/more match/i);
+});
+
+test("a search match with ONE format links straight to it — no chooser", async () => {
+  mount();
+  await screen.findByRole("button", { name: /Fiscal Year 2027:/i });
+  // The AFR has no curated REPORT_FORMATS entry, so ReportRow's own fallback
+  // (docs[0]?.doc_url) is what supplies its one link — same rule here.
+  fireEvent.change(screen.getByLabelText(/filter documents by agency or keyword/i), {
+    target: { value: "annual" },
+  });
+  const ctxRow = screen.getByText(/Part of the FY 2026 Annual Financial Report/).closest(".ctx-row")! as HTMLElement;
+  const link = within(ctxRow).getByRole("link", { name: /full report/i });
+  expect(link).toHaveAttribute("href", "https://x/afr26.pdf");
+  fireEvent.click(link);
+  expect(screen.queryByRole("dialog")).toBeNull();
+});
+
+test("a search match with NEITHER format renders no Full report control at all", async () => {
+  mount();
+  await screen.findByRole("button", { name: /Fiscal Year 2027:/i });
+  // The Budget Bill has no curated format AND no doc_url on its one document
+  // — neither format is available, so the row must render unlinked, not as
+  // a dead href.
+  fireEvent.change(screen.getByLabelText(/filter documents by agency or keyword/i), {
+    target: { value: "General Appropriations Act" },
+  });
+  const ctxRow = screen.getByText(/Part of the FY 2026 Budget Bill/).closest(".ctx-row")! as HTMLElement;
+  expect(within(ctxRow).queryByText(/full report/i)).toBeNull();
+  expect(ctxRow.querySelector("a")).toBeNull();
+  expect(ctxRow.querySelector("button")).toBeNull();
+});
+
 test("a query in the title matches; non-matching documents are removed", async () => {
   mount();
   await screen.findByRole("button", { name: /Fiscal Year 2027:/i });

@@ -216,6 +216,40 @@ function DocRow({ doc }: { doc: api.CorpusDocument }) {
   );
 }
 
+/** The three-way "how does the whole report open" decision, shared by
+ *  ReportRow (the browse view's own row) and FamilyCard's search branch
+ *  (Task 9, 2026-08-10: a typed query had NO way to open the whole report —
+ *  only the browse branch ever called the `onChoose` prop FamilyCard already
+ *  received). BOTH curated formats -> open the chooser modal; exactly one —
+ *  or, for a family with no curated formats, its lone document's own
+ *  `doc_url` (the AFR's case) — link straight to it (a one-option chooser is
+ *  pointless); NEITHER -> no control, never a dead href.
+ *
+ *  WHY a function and not one shared JSX block: the two call sites render
+ *  structurally different markup — ReportRow wraps its ENTIRE row in the
+ *  resulting button/link, while the search branch adds one small pill beside
+ *  "N more matches" — so there is no single element tree to share. But the
+ *  THREE-WAY RULE itself has to stay byte-identical, and two hand-copies of a
+ *  three-way rule is exactly how one silently stops matching a case added
+ *  only to the other. This is the one place that rule is written down; each
+ *  call site supplies only its own JSX for whichever state comes back. */
+type FullReportAction =
+  | { kind: "choose"; onClick: () => void }
+  | { kind: "link"; href: string }
+  | { kind: "none" };
+
+function resolveFullReportAction(
+  family: string,
+  year: number,
+  docs: api.CorpusDocument[],
+  onChoose: () => void,
+): FullReportAction {
+  const { singleFile, linkedToc } = reportFormats(family, year === 0 ? null : year);
+  if (singleFile && linkedToc) return { kind: "choose", onClick: onChoose };
+  const href = singleFile ?? linkedToc ?? docs[0]?.doc_url ?? null;
+  return href ? { kind: "link", href } : { kind: "none" };
+}
+
 /** A whole-REPORT top-level row: "FY Y Family".
  *
  *  The row IS the report, so its action is the report — "Full report"
@@ -245,31 +279,29 @@ function ReportRow({
   // A report family's documents share one publisher in this corpus, so the
   // chip reads the first document's — same posture as the mockup.
   const publisher = docs[0]?.publisher ?? "";
-  const { singleFile, linkedToc } = reportFormats(family, year === 0 ? null : year);
-  const both = Boolean(singleFile && linkedToc);
-  const href = singleFile ?? linkedToc ?? docs[0]?.doc_url ?? null;
+  const action = resolveFullReportAction(family, year, docs, onChoose);
   const body = (
     <>
       <PubChip publisher={publisher} />
       <div className="doc-main">
         <span className="doc-title">{title}</span>
       </div>
-      {(both || href) && (
+      {action.kind !== "none" && (
         <span className="doc-pill is-full">
           <BookIcon /> Full report
         </span>
       )}
     </>
   );
-  if (both) {
+  if (action.kind === "choose") {
     return (
-      <button type="button" className="doc rowbtn" onClick={onChoose}>
+      <button type="button" className="doc rowbtn" onClick={action.onClick}>
         {body}
       </button>
     );
   }
-  return href ? (
-    <a className="doc" href={href} target="_blank" rel="noopener noreferrer">
+  return action.kind === "link" ? (
+    <a className="doc" href={action.href} target="_blank" rel="noopener noreferrer">
       {body}
     </a>
   ) : (
@@ -359,6 +391,12 @@ function FamilyCard({
   const matches = group.docs.filter((d) => queryHit(d, query));
   if (!matches.length) return null;
   const [featured, ...siblings] = matches;
+  // Task 9: the SAME three-way rule ReportRow follows, off `group.docs` (the
+  // family's full, rail-filtered doc list — not just the matched subset) so
+  // the AFR-style single-document fallback agrees with what the browse view
+  // would show for this exact family/year, not with whichever doc happened
+  // to match the query.
+  const fullReport = resolveFullReportAction(group.family, year, group.docs, onChoose);
   return (
     <article className="grp">
       <DocRow doc={featured} />
@@ -368,6 +406,21 @@ function FamilyCard({
             <BookIcon /> Part of the {title}
           </span>
           <span className="spacer" />
+          {/* Full report BEFORE "N more matches": the idle card's ctx-row
+              (above) always ends in the tray-toggle button, and keeping "N
+              more matches" last here too means that button stays in the
+              same reading position in both card states, instead of moving
+              depending on whether a full-report control also rendered. */}
+          {fullReport.kind === "choose" && (
+            <button type="button" className="grp-more" onClick={fullReport.onClick}>
+              <BookIcon /> Full report
+            </button>
+          )}
+          {fullReport.kind === "link" && (
+            <a className="grp-more" href={fullReport.href} target="_blank" rel="noopener noreferrer">
+              <BookIcon /> Full report
+            </a>
+          )}
           {siblings.length > 0 && (
             <button
               type="button"
