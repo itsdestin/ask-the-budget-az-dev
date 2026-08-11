@@ -95,3 +95,15 @@ it("the placeholder never asks the server to create anything", async () => {
   expect(del).not.toHaveBeenCalled();
   expect(ren).not.toHaveBeenCalled();
 });
+
+it("a brand-new install with zero stored chats still shows the New chat row, not the empty-state message", async () => {
+  // Every other test in this file relies on the beforeEach's one seeded
+  // chat, so none of them exercise chats.length === 0. That's exactly the
+  // case a genuinely fresh install starts in: no history file has ever been
+  // written, listHistory resolves empty, and the only thing on screen should
+  // be the analyst's new chat — not "No saved chats yet".
+  vi.spyOn(api, "listHistory").mockResolvedValue({ conversations: [] });
+  mount({ draftId: DRAFT_CHAT_ID, activeId: DRAFT_CHAT_ID });
+  expect(await screen.findByText("New chat")).toBeInTheDocument();
+  expect(screen.queryByText(/No saved chats yet/)).toBeNull();
+});

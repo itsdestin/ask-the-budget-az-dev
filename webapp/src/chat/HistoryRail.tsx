@@ -211,6 +211,12 @@ export function HistoryRail({
         <p className="history-rail-error" role="alert">{error}</p>
       )}
 
+      {/* !showPlaceholder guards both branches below: on a genuinely fresh
+          install chats.length is 0 while showPlaceholder is true (the new
+          chat has no stored row yet), and without this gate the "Loading…" /
+          "No saved chats yet" message would win over the placeholder — the
+          one case this whole feature exists for would render as if it never
+          fired. */}
       {loading && !showPlaceholder && chats.length === 0 ? (
         <p className="history-rail-empty">Loading…</p>
       ) : !showPlaceholder && chats.length === 0 ? (
