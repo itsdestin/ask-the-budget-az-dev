@@ -301,12 +301,22 @@ function FigureTooltip({
           <span className="chat-cite-tooltip-title">Computed figure</span>
         </div>
         <div className="chat-cite-claim">
-          {inputs ? `Computed from ${inputs}` : "Computed from other figures"}
+          {inputs
+            ? `Computed (${figure.operation ?? "arithmetic"}) from ${inputs}`
+            : "Computed from other figures"}
         </div>
       </div>
     );
   }
   if (figure.verdict === "unverified") {
+    // Report, never accuse. Two of these three sentences exist because a
+    // bare "not found" misleads: a value sitting in several documents was
+    // found and deliberately not attributed, and a value that missed by
+    // 0.2% is exactly the case where the analyst needs to read the source
+    // number for themselves.
+    const pct = figure.nearMiss
+      ? `${(figure.nearMiss.distance * 100).toFixed(1)}%`
+      : null;
     return (
       <div role="tooltip" className="chat-cite-tooltip" style={style}>
         <div className="chat-cite-tooltip-head">
@@ -314,7 +324,20 @@ function FigureTooltip({
           <span className="chat-cite-tooltip-title">No source found</span>
         </div>
         <div className="chat-cite-fail">
-          <div>This figure was not found in the retrieved sources.</div>
+          {figure.ambiguityCount != null && figure.ambiguityCount > 1 ? (
+            <div>
+              This value appears in {figure.ambiguityCount} different
+              documents, so no single source is claimed.
+            </div>
+          ) : (
+            <div>This figure was not found in the retrieved sources.</div>
+          )}
+          {figure.nearMiss && (
+            <div>
+              Nearest source value: {figure.nearMiss.sourceText} (differs by{" "}
+              {pct}).
+            </div>
+          )}
         </div>
       </div>
     );
