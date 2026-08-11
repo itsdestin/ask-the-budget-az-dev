@@ -102,11 +102,33 @@ _TWO_DIGIT = re.compile(r"(?<![\w$])(?:fy[\s-]?|['‘’])(\d{2})(?![\w])", re.I
 # JLBC's own URL convention: azjlbc.gov/26AR/508.pdf, /21baseline/adc.pdf.
 # The type suffix is REQUIRED — it is what makes the two digits a fiscal
 # year rather than an ordinary number.
+#
+# `ar` and `baseline` are JLBC's, read off the website's directory names.
+# `br`, `afr` and `exec` are OURS (Destin, 2026-08-11): the published
+# convention covers only two of the corpus's report types, so an analyst who
+# learned the pattern hit a wall on Annual Financial Reports and Executive
+# Budgets. The budget bill deliberately gets none — there is one per year and
+# shorthand earns nothing.
+#
+# Alternation is ordered LONGEST FIRST. The trailing `(?![\w])` already
+# prevents "26afr" from being read as "26ar" + stray "f", but relying on a
+# lookahead to undo a wrong alternative is a subtlety the next reader
+# shouldn't have to re-derive.
 _JLBC_SHORTHAND = re.compile(
-    r"(?<![\w$])(\d{2})\s?(ar|baseline)(?![\w])", re.IGNORECASE
+    r"(?<![\w$])(\d{2})\s?(baseline|exec|afr|br|ar)(?![\w])", re.IGNORECASE
 )
 
-_SHORTHAND_DOC_TYPE = {"ar": "approps-per-agency", "baseline": "baseline-per-agency"}
+# PUBLIC (2026-08-11): `app/search_terms.py` inverts this to label documents
+# with their own shorthand, so the filter box and the query parser cannot
+# disagree about what "26afr" means. It was private while retrieval was its
+# only consumer.
+SHORTHAND_DOC_TYPE = {
+    "ar": "approps-per-agency",
+    "baseline": "baseline-per-agency",
+    "br": "baseline-per-agency",
+    "afr": "afr",
+    "exec": "governors-budget",
+}
 
 # The shorthand is a 20xx-only convention, so this form never expands into
 # the 1900s even though `_expand_two_digit` would happily read "99" as 1999.
@@ -156,7 +178,7 @@ def iter_jlbc_shorthand(query: str) -> list[tuple[int, str, str]]:
         # match, mirroring parse_query_years.
         if _YEAR_LOOKALIKE_PREFIX.search(query[: match.start(1)]):
             continue
-        out.append((year, _SHORTHAND_DOC_TYPE[match.group(2).lower()], match.group(0)))
+        out.append((year, SHORTHAND_DOC_TYPE[match.group(2).lower()], match.group(0)))
     return out
 
 

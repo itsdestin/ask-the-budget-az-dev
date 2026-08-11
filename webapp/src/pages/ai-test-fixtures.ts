@@ -102,6 +102,12 @@ export function stubConversationFetch(turn?: unknown) {
         }),
       };
     }
+    if (url === "/api/history") {
+      return { ok: true, status: 200, json: async () => ({ conversations: [] }) };
+    }
+    if (url.startsWith("/api/history/search")) {
+      return { ok: true, status: 200, json: async () => ({ results: [] }) };
+    }
     if (url.endsWith("/stop")) {
       return { ok: true, status: 200, json: async () => ({ stopped: true }) };
     }

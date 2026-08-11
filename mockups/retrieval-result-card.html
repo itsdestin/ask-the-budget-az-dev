@@ -1,0 +1,471 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Retrieval result card — converging design (mockup, not shipped code)</title>
+<!--
+
+  MOCKUP ONLY — NOT ported code. This is the CONVERGING design for a retrieval
+  result card on the Budget Documents page, replacing the two exploratory
+  mockups beside it (retrieval-results-variants.html chose passage-first;
+  retrieval-passage-first-stylings.html chose S1's quote + S2's identity row;
+  retrieval-expanded-passage-stylings.html chose T1 cards).
+
+  SETTLED (Destin, 2026-08-10):
+    - ONE card per DOCUMENT. Two documents from the same report in the same
+      fiscal year are two cards; one document never gets two cards.
+    - Headline row = the best matching passage, quoted, gold-wash highlight on
+      the query term, page number as a right-hand `.doc-pill`, publisher chip
+      on the left.
+    - Identity row = publisher chip, document title, then "More from this
+      document" on the right. No book glyph. No "Open document". No
+      "Full report".
+    - Expanded passages = white tiles inside the dashed block.
+    - NO dividing line between the identity row and the tiles.
+
+    - Spacing, dialled in on the sliders and approved 2026-08-10:
+      above 1st tile 10px · between tiles 5px · below last 12px ·
+      side inset 14px · tile padding 10px/14px.
+
+  The sliders in the top bar remain live (they default to the settled values)
+  so the numbers can be re-dialled without editing the file; the black panel
+  prints the resulting CSS ready to paste into `app.css`.
+
+  The `.page-docs` CSS is `webapp/src/styles/app.css` (lines 833-996) VERBATIM.
+  Everything this card adds is in the "NEW CSS" section.
+
+  Data is illustrative. No number here came from a real document.
+-->
+<style>
+/* ===== Design tokens — verbatim from webapp/src/styles/tokens.css ========== */
+:root {
+  --navy:#2b2f63; --navy-700:#232752; --navy-900:#181b3d; --navy-100:#e7e8f2;
+  --az-red:#2f55c4; --az-red-100:#e1e6fa;
+  --az-gold:#1b6fc4; --az-gold-d:#145aa6; --az-gold-100:#dceaf7;
+  --copper:#3d6a99; --copper-100:#e3ebf3;
+  --teal:#1782b3; --teal-100:#dbeef8;
+  --ink:#21243f; --ink-2:#4a4e6a; --ink-3:#757895;
+  --line:#e6e6ef; --canvas:#f5f5fa; --card:#fff;
+  --r-lg:22px; --r-md:16px; --r-sm:12px; --r-pill:999px; --gap:22px;
+  --shadow:0 1px 2px rgba(27,27,61,.05),0 10px 26px rgba(27,27,61,.08);
+  --shadow-sm:0 1px 2px rgba(27,27,61,.06),0 3px 10px rgba(27,27,61,.05);
+  --maxw:1140px; --font:"Nunito","Segoe UI",system-ui,-apple-system,sans-serif;
+
+  /* --- the spacing knobs the sliders drive.
+     DEFAULTS ARE THE SETTLED VALUES (Destin, 2026-08-10) — dialled in on the
+     sliders and approved. The sliders remain so they can be re-dialled, but
+     these six numbers are what ships. */
+  --row-bot: 10px;    /* identity row's bottom padding = gap above first tile */
+  --tray-side: 14px;  /* tile inset — matches .ctx-row's own 14px */
+  --tray-bot: 12px;   /* gap below the last tile */
+  --tile-gap: 5px;    /* gap between tiles */
+  --tile-pv: 10px;    /* tile inner padding, vertical */
+  --tile-ph: 14px;    /* tile inner padding, horizontal */
+}
+*{box-sizing:border-box;}
+body{margin:0;font-family:var(--font);background:var(--canvas);color:var(--ink);-webkit-font-smoothing:antialiased;}
+a{color:inherit;text-decoration:none;}
+button{font-family:inherit;}
+h1,h2,h3{margin:0;}
+.wrap{max-width:var(--maxw);margin:0 auto;}
+
+/* ===== MOCKUP-ONLY chrome (not part of the proposal) ====================== */
+.mockbar{position:sticky;top:0;z-index:80;background:var(--navy-900);color:#fff;padding:12px 22px;}
+.mockbar .row1{display:flex;align-items:center;gap:10px;flex-wrap:wrap;}
+.mockbar b{font-size:12px;font-weight:800;letter-spacing:.08em;text-transform:uppercase;color:#9fc4ee;margin-right:6px;}
+.mockbar button{font-size:12.5px;font-weight:800;color:#cdd6f5;background:rgba(255,255,255,.08);border:1px solid rgba(255,255,255,.18);border-radius:var(--r-pill);padding:7px 15px;cursor:pointer;transition:.13s;}
+.mockbar button:hover{background:rgba(255,255,255,.16);color:#fff;}
+.mockbar button.on{background:#fff;color:var(--navy-900);border-color:#fff;}
+.knobs{display:grid;grid-template-columns:repeat(auto-fit,minmax(196px,1fr));gap:9px 20px;margin-top:11px;padding-top:11px;border-top:1px solid rgba(255,255,255,.14);}
+.knob{display:flex;align-items:center;gap:9px;}
+.knob label{flex:0 0 92px;font-size:11px;font-weight:800;color:#9fc4ee;text-transform:uppercase;letter-spacing:.05em;}
+.knob input{flex:1;min-width:0;accent-color:#9fc4ee;}
+.knob output{flex:0 0 40px;font-size:12px;font-weight:800;color:#fff;text-align:right;font-variant-numeric:tabular-nums;}
+.cssout{margin-top:11px;background:rgba(0,0,0,.32);border:1px solid rgba(255,255,255,.14);border-radius:10px;padding:11px 13px;font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:11.5px;line-height:1.65;color:#cfe0f7;white-space:pre;overflow-x:auto;}
+
+/* ===== minimal site header =============================================== */
+header.site{background:rgba(255,255,255,.96);border-bottom:1px solid var(--line);}
+header.site .bar{max-width:var(--maxw);margin:0 auto;padding:12px 22px;display:flex;align-items:center;gap:18px;}
+.brand .bt b{display:block;font-size:14.5px;font-weight:800;color:var(--navy);letter-spacing:-.2px;}
+.brand .bt span{font-size:11.5px;font-weight:700;color:var(--ink-3);}
+nav.pills{display:flex;gap:4px;margin-left:auto;background:var(--canvas);border:1px solid var(--line);border-radius:var(--r-pill);padding:4px;}
+nav.pills a{font-size:13px;font-weight:800;color:var(--ink-2);padding:8px 16px;border-radius:var(--r-pill);}
+nav.pills a.active{background:var(--navy);color:#fff;}
+
+/* ========================================================================== */
+/* ===== app.css `.page-docs` block, VERBATIM (lines 833-996) =============== */
+/* ========================================================================== */
+.page-docs .subhero{position:relative;overflow:hidden;color:#fff;
+  background:linear-gradient(105deg,rgba(18,21,48,.94) 0%,rgba(20,23,52,.86) 60%,rgba(20,23,52,.78) 100%);}
+.page-docs .subhero .wrap{position:relative;z-index:2;padding:32px 22px 34px;}
+.page-docs .subhero h1{font-size:clamp(24px,3.2vw,34px);font-weight:800;letter-spacing:-.4px;}
+.page-docs .subhero .lead{margin:10px 0 0;font-size:clamp(14px,1.5vw,16.5px);color:#d9dcf2;font-weight:600;max-width:66ch;line-height:1.5;}
+.page-docs .subhero .chips{display:flex;flex-wrap:wrap;gap:8px;margin-top:16px;}
+.page-docs .subhero .chip{display:inline-flex;align-items:center;gap:7px;background:rgba(255,255,255,.1);border:1px solid rgba(255,255,255,.2);border-radius:var(--r-pill);padding:6px 13px;font-size:12.5px;font-weight:700;color:#eef0fb;}
+
+.page-docs .wrap.docwrap{display:block;padding:28px 22px 22px;}
+.page-docs .doclayout{display:grid;grid-template-columns:248px 1fr;gap:var(--gap);align-items:start;}
+.page-docs .docside{background:#fff;border:1px solid var(--line);border-radius:var(--r-lg);box-shadow:var(--shadow-sm);padding:8px;position:sticky;top:16px;}
+.page-docs .docside .fgrp{padding:8px 8px 14px;}
+.page-docs .docside .fgrp+.fgrp{border-top:1px solid var(--line);}
+.page-docs .docside .flbl{font-size:11px;font-weight:800;text-transform:uppercase;letter-spacing:.08em;color:var(--ink-3);padding:6px 8px 8px;display:block;}
+.page-docs .docmain{display:flex;flex-direction:column;gap:var(--gap);min-width:0;}
+.page-docs .yg{background:#fff;border:1px solid var(--line);border-radius:var(--r-lg);box-shadow:var(--shadow-sm);overflow:hidden;}
+
+.page-docs .fside-search{display:flex;align-items:center;gap:8px;background:var(--canvas);border:1px solid var(--line);border-radius:var(--r-pill);padding:8px 12px;margin:2px 4px 6px;}
+.page-docs .fside-search svg{width:16px;height:16px;color:var(--ink-3);}
+.page-docs .fside-search input{border:0;background:transparent;outline:0;font-family:inherit;font-size:13.5px;flex:1;min-width:0;color:var(--ink);}
+.page-docs .clr-x{flex:0 0 auto;display:inline-flex;align-items:center;justify-content:center;width:24px;height:24px;border-radius:50%;border:1px solid var(--line);background:#fff;color:var(--ink-2);cursor:pointer;padding:0;}
+.page-docs .clr-x svg{width:13px;height:13px;}
+.page-docs .fctl{position:relative;margin:0 4px;}
+.page-docs .fbtn{display:flex;align-items:center;gap:7px;width:100%;cursor:pointer;font-family:inherit;font-size:12.5px;font-weight:800;color:var(--ink-2);background:var(--canvas);border:1.5px solid var(--line);border-radius:var(--r-pill);padding:8px 13px;white-space:nowrap;transition:.14s;}
+.page-docs .fbtn .fb-label{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;text-align:left;}
+.page-docs .fbtn .chev{flex:0 0 auto;width:10px;height:6px;opacity:.7;}
+
+.page-docs .yg-head-static{display:flex;align-items:center;gap:12px;padding:15px 18px;border-bottom:1px solid var(--line);}
+.page-docs .yg-ttl{display:flex;flex-direction:column;gap:2px;min-width:0;flex:1;}
+.page-docs .yg-yr{font-size:18px;font-weight:800;color:var(--navy);}
+.page-docs .yg-meta{font-size:12.5px;font-weight:700;color:var(--ink-3);}
+.page-docs .yg-body{padding:2px 0 12px;}
+
+.page-docs .grp{margin:12px 14px 0;border:1px solid var(--line);border-radius:var(--r-lg);overflow:hidden;box-shadow:var(--shadow-sm);}
+.page-docs .doc{display:flex;align-items:center;gap:15px;padding:14px 22px;border-bottom:1px solid var(--line);transition:background .15s;color:inherit;}
+.page-docs .doc:last-child{border-bottom:0;}
+.page-docs .doc:hover{background:#fafafe;text-decoration:none;}
+.page-docs .grp>.doc{border-bottom:0;}
+.page-docs .doc-main{flex:1;min-width:0;}
+.page-docs .doc-pill{flex:0 0 auto;display:inline-flex;align-items:center;gap:7px;font-size:12px;font-weight:800;color:var(--ink-2);background:var(--canvas);border:1px solid var(--line);border-radius:var(--r-pill);padding:6px 13px;white-space:nowrap;}
+.page-docs .doc:hover .doc-pill{border-color:var(--az-gold);color:var(--az-gold-d);}
+.page-docs .doc-pub{flex:0 0 auto;font-size:10.5px;font-weight:800;color:#fff;background:var(--copper);border-radius:var(--r-pill);padding:3px 10px;letter-spacing:.05em;text-transform:uppercase;}
+
+.page-docs .ctx{margin:0 14px 14px;border:1px dashed #cdd3e6;border-radius:var(--r-md);background:#fafbff;}
+.page-docs .ctx-row{display:flex;align-items:center;gap:10px;padding:11px 14px;flex-wrap:wrap;}
+.page-docs .ctx-row .badge{display:inline-flex;align-items:center;gap:7px;font-size:12.5px;font-weight:800;color:var(--navy);}
+.page-docs .ctx-row .spacer{flex:1;}
+.page-docs .ctx .tray{display:none;}
+.page-docs .ctx .tray.open{display:block;}
+.page-docs .grp-more{display:inline-flex;align-items:center;gap:6px;font-size:12px;font-weight:800;color:var(--ink-2);background:var(--card);border:1px solid var(--line);border-radius:var(--r-pill);padding:6px 13px;cursor:pointer;white-space:nowrap;font-family:inherit;}
+.page-docs .grp-more svg{width:13px;height:13px;transition:transform .18s;}
+.page-docs .grp-more:hover{border-color:var(--az-gold);color:var(--az-gold-d);}
+.page-docs .grp-more.open svg{transform:rotate(180deg);}
+.page-docs .fnnote{font-size:12.5px;font-weight:700;color:var(--ink-3);margin:0;}
+.page-docs .docstatus{padding:0 2px;margin:0 0 12px calc(248px + var(--gap));}
+
+/* ========================================================================== */
+/* ===== NEW CSS — the retrieval result card ================================ */
+/* ========================================================================== */
+
+/* --- The quote row. The snippet is the card's headline, so it needs a
+       multi-line reading style rather than `.doc-title`'s single-line
+       15.5px/700 navy. `align-items:flex-start` is what stops the publisher
+       chip and the page pill from centering against a three-line quote. */
+.page-docs .quoterow{align-items:flex-start;}
+.page-docs .quoterow .doc-pub{margin-top:3px;}
+.page-docs .quoterow .doc-pill{margin-top:1px;}
+.page-docs .doc-quote{display:block;font-size:14px;font-weight:600;color:var(--ink);line-height:1.55;}
+.page-docs .doc-quote mark{background:var(--az-gold-100);color:var(--az-gold-d);border-radius:3px;padding:0 3px;font-weight:800;}
+
+/* --- The expanded passages: white tiles on the dashed block's tint.
+       NO `border-top` on the tray — the identity row and the tiles are one
+       continuous surface (Destin, 2026-08-10). The tile inset matches
+       `.ctx-row`'s own 14px so a tile's left edge lines up with the publisher
+       chip above it. */
+/* NOTE the `.open` on this selector. The base rule is
+   `.page-docs .ctx .tray.open{display:block}` — one class MORE specific than
+   `.page-docs .ctx .tray`, so a plain `display:flex` here loses and the tray
+   stays block-laid-out, which silently ignores `gap` and stacks the tiles
+   flush. Matching the `.open` is what makes the gap real. */
+.page-docs .ctx .tray.open{padding:0 var(--tray-side) var(--tray-bot);display:flex;flex-direction:column;gap:var(--tile-gap);}
+/* `border` alone — the base tray rule's `border-bottom` on non-last rows is
+   dropped here, because a tile already carries a border on all four sides and
+   the two together doubled the bottom edge. */
+.page-docs .ctx .tray .doc{background:#fff;border:1px solid var(--line);border-radius:var(--r-sm);padding:var(--tile-pv) var(--tile-ph);box-shadow:var(--shadow-sm);}
+.page-docs .ctx .tray .doc:hover{border-color:var(--az-gold);background:#fff;}
+.page-docs .tray .doc-quote{font-size:13.5px;}
+/* The gap ABOVE the first tile is the identity row's own bottom padding, so
+   there is one number for it rather than two that have to agree. */
+.page-docs .ctx-row{padding-bottom:var(--row-bot);}
+
+@media (max-width:860px){
+  .page-docs .doclayout{grid-template-columns:1fr;}
+  .page-docs .docside{position:static;}
+  .page-docs .docstatus{margin-left:0;}
+}
+</style>
+</head>
+<body>
+
+<div class="mockbar">
+  <div class="row1">
+    <b>Spacing</b>
+    <button data-preset="settled" class="on">Settled ✓</button>
+    <button data-preset="tight">Tight</button>
+    <button data-preset="airy">Airy</button>
+    <button data-preset="aligned">Aligned to row</button>
+    <button id="toggleAll" style="margin-left:auto">Collapse all trays</button>
+  </div>
+  <div class="knobs" id="knobs"></div>
+  <div class="cssout" id="cssout"></div>
+</div>
+
+<header class="site">
+  <div class="bar">
+    <a class="brand" href="#"><span class="bt"><b>Ask the Budget</b><span>Arizona budget documents</span></span></a>
+    <nav class="pills" aria-label="Primary">
+      <a href="#" class="active" aria-current="page">Budget Documents</a>
+      <a href="#">AI Mode</a>
+      <a href="#">Fiscal Notes</a>
+    </nav>
+  </div>
+</header>
+
+<main class="page-docs">
+  <section class="subhero">
+    <div class="wrap">
+      <h1>Budget Documents</h1>
+      <p class="lead">Every Arizona budget document ingested so far — baselines, appropriations
+        reports, annual financial reports, executive budgets, and budget bills.</p>
+      <div class="chips">
+        <span class="chip">JLBC · OSPB · GAO</span>
+        <span class="chip">Every document opens its source PDF</span>
+      </div>
+    </div>
+  </section>
+
+  <div class="wrap docwrap">
+    <p class="fnnote docstatus" id="status"></p>
+    <div class="doclayout">
+      <aside class="docside">
+        <div class="fgrp">
+          <label class="fside-search">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg>
+            <input type="text" value="child care subsidy" readonly>
+            <button class="clr-x" aria-label="Clear search">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"><path d="M6 6l12 12M18 6 6 18"/></svg>
+            </button>
+          </label>
+        </div>
+        <div class="fgrp">
+          <div class="flbl">Document Type</div>
+          <div class="fctl"><button class="fbtn"><span class="fb-label">Any type</span>
+            <svg class="chev" viewBox="0 0 10 6" fill="none" stroke="currentColor" stroke-width="1.8"><path d="m1 1 4 4 4-4"/></svg></button></div>
+        </div>
+        <div class="fgrp">
+          <div class="flbl">Fiscal Year</div>
+          <div class="fctl"><button class="fbtn"><span class="fb-label">Any year</span>
+            <svg class="chev" viewBox="0 0 10 6" fill="none" stroke="currentColor" stroke-width="1.8"><path d="m1 1 4 4 4-4"/></svg></button></div>
+        </div>
+      </aside>
+      <div class="docmain" id="main"></div>
+    </div>
+  </div>
+</main>
+
+<script>
+/* ==========================================================================
+   Throwaway demo wiring. Illustrative data — no number here is real.
+   ========================================================================== */
+
+const QUERY = "child care subsidy";
+const CHEV = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="m6 9 6 6 6-6"/></svg>';
+
+/* ONE ENTRY PER DOCUMENT. d1 and d2 are the same report family AND the same
+   fiscal year but different documents — two cards, which is correct. */
+const DOCS = [
+  {
+    id:"d1", pub:"JLBC", title:"FY 2027 Baseline — AHCCCS",
+    passages:[
+      {page:142, text:"The FY 2027 Baseline includes $89,432,700 from the Child Care and Development Fund for <mark>child care subsidy</mark> assistance, an increase of $4,100,000 above the FY 2026 appropriation."},
+      {page:143, text:"As of October 2026, the <mark>child care</mark> assistance waiting list contained 6,218 children, compared to 3,940 children at the same point in FY 2026."},
+      {page:145, text:"<mark>Subsidy</mark> reimbursement rates were last updated in FY 2024 based on the 2023 market rate survey. A full rate update is estimated to cost $22,600,000 annually."},
+      {page:147, text:"The Baseline continues the $3,200,000 General Fund appropriation for <mark>child care</mark> provider background checks, unchanged since FY 2023."},
+      {page:151, text:"Federal maintenance-of-effort requirements obligate the state to spend at least $18,400,000 annually in state monies on <mark>child care</mark> assistance."}
+    ]
+  },
+  {
+    id:"d2", pub:"JLBC", title:"FY 2027 Baseline — Health Services, Department of",
+    passages:[
+      {page:311, text:"Home visiting and <mark>child care</mark> health consultation programs are funded at $6,740,300, unchanged from FY 2026."},
+      {page:314, text:"The department licenses 2,190 <mark>child care</mark> facilities; inspection staffing is funded at 41.5 FTE positions in the FY 2027 Baseline."}
+    ]
+  },
+  {
+    id:"d3", pub:"JLBC", title:"FY 2026 Appropriations Report — Economic Security, Department of",
+    passages:[
+      {page:88, text:"The Legislature appropriated $85,332,700 for <mark>child care subsidy</mark> in FY 2026, of which $12,000,000 is one-time federal relief funding that does not continue into FY 2027."},
+      {page:91, text:"Footnote 3 requires the department to report quarterly on <mark>child care</mark> waiting list totals to the Joint Legislative Budget Committee."},
+      {page:94, text:"The FY 2026 <mark>child care subsidy</mark> caseload averaged 27,410 children per month, 8% above the level assumed in the enacted budget."},
+      {page:96, text:"Any unexpended <mark>child care subsidy</mark> monies do not revert to the General Fund and remain available for expenditure in the following fiscal year."}
+    ]
+  },
+  {
+    id:"d4", pub:"OSPB", title:"FY 2027 Executive Budget — Human Services",
+    passages:[
+      {page:54, text:"The Executive recommends $15,000,000 from the General Fund to eliminate the <mark>child care subsidy</mark> waiting list by the end of FY 2027."}
+    ]
+  }
+];
+
+const TOTAL = DOCS.reduce((n,d) => n + d.passages.length, 0);
+const plural = (n,s) => n + " " + s + (n === 1 ? "" : "s");
+
+/* --- the spacing knobs --------------------------------------------------- */
+
+const KNOBS = [
+  { v:"--row-bot",   label:"Above 1st", min:0,  max:24, hint:"identity row's bottom padding" },
+  { v:"--tile-gap",  label:"Between",   min:0,  max:24, hint:"gap between tiles" },
+  { v:"--tray-bot",  label:"Below last",min:0,  max:24, hint:"tray's bottom padding" },
+  { v:"--tray-side", label:"Side inset",min:0,  max:24, hint:"tile inset from the dashed edge" },
+  { v:"--tile-pv",   label:"Tile ↕",    min:6,  max:24, hint:"tile inner padding, vertical" },
+  { v:"--tile-ph",   label:"Tile ↔",    min:6,  max:24, hint:"tile inner padding, horizontal" }
+];
+
+const PRESETS = {
+  /* SETTLED — Destin, 2026-08-10. These are the shipping numbers. */
+  settled:  { "--row-bot":10, "--tile-gap":5,  "--tray-bot":12, "--tray-side":14, "--tile-pv":10, "--tile-ph":14 },
+  tight:    { "--row-bot":8,  "--tile-gap":3,  "--tray-bot":10, "--tray-side":12, "--tile-pv":9,  "--tile-ph":13 },
+  airy:     { "--row-bot":14, "--tile-gap":10, "--tray-bot":16, "--tray-side":16, "--tile-pv":14, "--tile-ph":16 },
+  /* Every gap equal, and the tile inset equal to `.ctx-row`'s own 14px — kept
+     for reference; it lost to `settled`, whose tighter 5px tile gap reads the
+     tiles as one group rather than four separate objects. */
+  aligned:  { "--row-bot":12, "--tile-gap":12, "--tray-bot":12, "--tray-side":14, "--tile-pv":12, "--tile-ph":14 }
+};
+
+function applyPreset(name) {
+  const p = PRESETS[name];
+  for (const k in p) document.documentElement.style.setProperty(k, p[k] + "px");
+  syncKnobs();
+  writeCss();
+}
+
+function currentVal(v) {
+  const s = getComputedStyle(document.documentElement).getPropertyValue(v).trim();
+  return parseInt(s, 10) || 0;
+}
+
+function buildKnobs() {
+  document.getElementById("knobs").innerHTML = KNOBS.map(k =>
+    `<div class="knob" title="${k.hint}">
+       <label for="k${k.v}">${k.label}</label>
+       <input id="k${k.v}" type="range" min="${k.min}" max="${k.max}" step="1" data-var="${k.v}">
+       <output id="o${k.v}"></output>
+     </div>`).join("");
+  document.querySelectorAll(".knob input").forEach(inp => {
+    inp.addEventListener("input", () => {
+      document.documentElement.style.setProperty(inp.dataset.var, inp.value + "px");
+      document.getElementById("o" + inp.dataset.var).textContent = inp.value + "px";
+      document.querySelectorAll("[data-preset]").forEach(b => b.classList.remove("on"));
+      writeCss();
+    });
+  });
+}
+
+function syncKnobs() {
+  KNOBS.forEach(k => {
+    const val = currentVal(k.v);
+    document.getElementById("k" + k.v).value = val;
+    document.getElementById("o" + k.v).textContent = val + "px";
+  });
+}
+
+/* Print the CSS the current slider positions produce, ready to paste into
+   app.css. Values are inlined rather than left as custom properties — the
+   shipped rule should not carry six knobs nobody will turn again. */
+function writeCss() {
+  const g = v => currentVal(v) + "px";
+  document.getElementById("cssout").textContent =
+`/* .page-docs — retrieval result card, expanded passages */
+.page-docs .ctx-row{padding-bottom:${g("--row-bot")};}
+/* .open is load-bearing: the base .tray.open{display:block} outranks a plain
+   .tray selector, and block layout ignores gap. */
+.page-docs .ctx .tray.open{padding:0 ${g("--tray-side")} ${g("--tray-bot")};
+  display:flex;flex-direction:column;gap:${g("--tile-gap")};}
+.page-docs .ctx .tray .doc{background:#fff;border:1px solid var(--line);border-radius:var(--r-sm);
+  padding:${g("--tile-pv")} ${g("--tile-ph")};box-shadow:var(--shadow-sm);}
+.page-docs .ctx .tray .doc:hover{border-color:var(--az-gold);background:#fff;}`;
+}
+
+/* --- the card ------------------------------------------------------------ */
+
+function headlineRow(doc, p) {
+  return `<a class="doc quoterow" href="#" onclick="return false">
+    <span class="doc-pub">${doc.pub}</span>
+    <div class="doc-main"><span class="doc-quote">${p.text}</span></div>
+    <span class="doc-pill">p. ${p.page}</span>
+  </a>`;
+}
+
+function tileRow(p) {
+  return `<a class="doc quoterow" href="#" onclick="return false">
+    <div class="doc-main"><span class="doc-quote">${p.text}</span></div>
+    <span class="doc-pill">p. ${p.page}</span>
+  </a>`;
+}
+
+function card(doc) {
+  const [best, ...rest] = doc.passages;
+  const open = state.open.has(doc.id);
+  return `<article class="grp">
+    ${headlineRow(doc, best)}
+    <div class="ctx">
+      <div class="ctx-row">
+        <span class="doc-pub">${doc.pub}</span>
+        <span class="badge">${doc.title}</span>
+        <span class="spacer"></span>
+        ${rest.length ? `<button class="grp-more${open ? " open" : ""}" data-key="${doc.id}">More from this document ${CHEV}</button>` : ""}
+      </div>
+      ${open && rest.length ? `<div class="tray open">${rest.map(tileRow).join("")}</div>` : ""}
+    </div>
+  </article>`;
+}
+
+function render() {
+  document.getElementById("status").textContent =
+    TOTAL + " passages in " + plural(DOCS.length, "document") +
+    ", across all fiscal years, matching “" + QUERY + "”.";
+  document.getElementById("main").innerHTML =
+    `<section class="yg">
+      <div class="yg-head-static">
+        <div class="yg-ttl"><span class="yg-yr">Results</span>
+          <span class="yg-meta">${plural(TOTAL, "passage")} · ${plural(DOCS.length, "document")} matching “${QUERY}”</span></div>
+      </div>
+      <div class="yg-body">${DOCS.map(card).join("")}</div>
+    </section>`;
+}
+
+/* --- state + events ------------------------------------------------------ */
+
+const state = { open: new Set(DOCS.filter(d => d.passages.length > 1).map(d => d.id)) };
+
+document.querySelectorAll("[data-preset]").forEach(btn => {
+  btn.addEventListener("click", () => {
+    document.querySelectorAll("[data-preset]").forEach(b => b.classList.remove("on"));
+    btn.classList.add("on");
+    applyPreset(btn.dataset.preset);
+  });
+});
+
+document.getElementById("toggleAll").addEventListener("click", (e) => {
+  const anyOpen = state.open.size > 0;
+  state.open = anyOpen ? new Set() : new Set(DOCS.filter(d => d.passages.length > 1).map(d => d.id));
+  e.currentTarget.textContent = anyOpen ? "Expand all trays" : "Collapse all trays";
+  render();
+});
+
+document.addEventListener("click", (e) => {
+  const t = e.target.closest("[data-key]");
+  if (!t) return;
+  e.preventDefault();
+  const k = t.dataset.key;
+  state.open.has(k) ? state.open.delete(k) : state.open.add(k);
+  render();
+});
+
+buildKnobs();
+syncKnobs();
+writeCss();
+render();
+</script>
+</body>
+</html>

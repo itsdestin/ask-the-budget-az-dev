@@ -643,7 +643,9 @@ class HarnessSession:
             # wire shape: when the prompt is wrapped in content parts for
             # a cache breakpoint, `len(content)` is 1 and the history
             # window would silently grow by the whole prompt's budget.
-            messages = [system] + self._context_window(self.history, reserved=len(prompt_text))
+            messages = [system] + _strip_wire_annotation(
+                self._context_window(self.history, reserved=len(prompt_text))
+            )
             result = _StepResult(uuid=_new_uuid())
 
             yield _event("assistant_thinking", uuid=result.uuid)
@@ -763,7 +765,24 @@ class HarnessSession:
 
         usage = usage_totals.as_turn_usage()
         yield _event("turn_complete", stopReason=stop_reason, model=model, usage=usage)
-        yield accumulator.done_frame(stop_reason, usage, usage_totals.cost, incomplete_note)
+        # Compute the figure annotation ONCE and ride it in two directions:
+        #   - onto the `_done` frame (the live wire, unchanged);
+        #   - onto the final assistant message of THIS turn in self.history,
+        #     so persist_turn (which saves self.history verbatim) writes the
+        #     figure→chunk linkage to the transcript. A rehydrated chat then
+        #     has the annotation to restore citation chips (Handoff Issue 1,
+        #     2026-08-03). Without this the annotation was carried only on
+        #     the ephemeral `_done` frame and vanished with it.
+        #
+        # WHY attach, not add to the Transcript schema: the annotation is
+        # figure-anchored data that belongs to one assistant answer, so it
+        # rides on that answer's message. It is never sent to the provider —
+        # `_context_window` strips the key before building a request.
+        annotation = accumulator.annotation()
+        self._attach_annotation(annotation)
+        yield accumulator.done_frame(
+            stop_reason, usage, usage_totals.cost, incomplete_note, annotation
+        )
 
     # -- S13 model fallback -----------------------------------------------
 
@@ -1105,6 +1124,30 @@ class HarnessSession:
                 "content": output,
             }
         )
+
+    def _attach_annotation(self, annotation: dict | None) -> None:
+        """Attach this turn's figure annotation to its final assistant message.
+
+        The annotation belongs to the assistant answer that just ended, so it
+        rides on that answer's history entry — which is what `persist_turn`
+        saves. A chat opened later can then restore the citation chips (Handoff
+        Issue 1, 2026-08-03).
+
+        It is attached to the LAST assistant message of the turn. `_assistant_message`
+        writes the answer as one message; tool-call narration is a separate
+        message BEFORE it, so the last one is the answer proper. If no assistant
+        message exists (a turn that errored before saying anything) there is
+        nothing to attach to and nothing to persist — matching how the annotation
+        itself degrades to empty.
+
+        The key never reaches the provider: `_context_window` strips it.
+        """
+        if not annotation:
+            return
+        for message in reversed(self.history):
+            if message.get("role") == "assistant":
+                message["annotation"] = annotation
+                return
 
     def _repair_history(self) -> int:
         """Back-fill a cancelled reply for every unanswered tool call.
@@ -1533,6 +1576,25 @@ def _merge_tool_call_fragment(
         call.arguments += function["arguments"]
 
 
+def _strip_wire_annotation(messages: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Remove the persisted `annotation` key from messages bound for the provider.
+
+    The annotation is attached to assistant messages for the TRANSCRIPT (so a
+    reopened chat can restore citation chips — Handoff Issue 1). It is metadata
+    about the answer, not part of the conversation the model should see echoed
+    back, and a foreign key on an assistant message is the kind of thing an
+    OpenAI-compatible endpoint could reject or mis-handle. The window returns
+    references into `self.history`, so this copies only the messages that carry
+    the key rather than rebuilding the whole list — the common case (no key)
+    is a passthrough.
+    """
+    return [
+        {k: v for k, v in message.items() if k != "annotation"}
+        if "annotation" in message else message
+        for message in messages
+    ]
+
+
 def _assistant_message(result: _StepResult) -> dict[str, Any]:
     """The assistant turn as the provider wants it echoed back."""
     message: dict[str, Any] = {"role": "assistant", "content": result.text or None}
@@ -1903,6 +1965,7 @@ class _Accumulator:
         usage: dict[str, int],
         cost: float | None,
         incomplete_note: str | None = None,
+        annotation: dict | None = None,
     ) -> dict[str, Any]:
         """The terminal summary.
 
@@ -1912,6 +1975,10 @@ class _Accumulator:
         is part of the pinned `ProviderEvent` union in
         `web/lib/types.ts`, while `_done` is this transport's own frame
         and free to carry extra fields.
+
+        `annotation` is passed IN (computing it twice would run the linker
+        twice) so the caller can share one hand-built annotation between
+        this frame and the transcript.
         """
         return {
             "type": "_done",
@@ -1921,7 +1988,7 @@ class _Accumulator:
             "citations": self.citations,
             "retrievedChunkIds": self.retrieved_chunk_ids,
             "toolCalls": self.tool_calls,
-            "annotation": self.annotation(),
+            "annotation": annotation if annotation is not None else self.annotation(),
             "usage": {**usage, "cost": cost},
         }
 

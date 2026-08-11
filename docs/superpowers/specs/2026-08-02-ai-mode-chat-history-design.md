@@ -148,6 +148,14 @@ discussed mid-conversation would be unfindable. Semantic search over history
 (free, via the local ONNX embedder) was rejected as less predictable than
 keywords for finding a conversation you half-remember.
 
+**Amended 2026-08-02 (implementation):** Search scans `user` and `assistant`
+prose only — NOT `tool` messages. A `tool` result's `content` is a JSON string
+carrying full retrieved-chunk passage text, so an `isinstance(content, str)`
+filter does not exclude it. Without the role-based filter, "Florence" would
+match every chat where a retrieved passage happened to mention Florence (even
+though nobody discussed it), and the snippet would be a slice of a JSON
+payload.
+
 ### H5 — A stale citation is marked, never silently dropped
 
 A stored citation whose `chunk_id` no longer resolves — the document was
@@ -166,10 +174,57 @@ claim about the present corpus.
 **This will happen.** Chunk ids move on re-ingest; the Layer 1 eval already
 lost 41% of its ground-truth ids to exactly this, and nothing re-binds them.
 
+**Amended 2026-08-02 (implementation):** The detection is a click-time chunk
+fetch in `PdfViewer`, and it treats TWO shapes as unresolvable, not one:
+
+1. **404** — the chunk is gone (document deleted or corpus re-ingested with
+   different chunking).
+2. **200 but the stored quote is no longer in the returned text** — the
+   document was re-ingested and the passage moved or changed. This is the
+   COMMON case: on a rehydrated chat, `citation.resolved` comes from the
+   STORED retrieve output, so a chip into a re-ingested document still
+   carries a docId and page and renders as an ordinary working citation —
+   it opens a page that may no longer contain the quote, and the existing
+   strict-bbox search reports "couldn't pinpoint", which reads as a highlight
+   miss rather than a stale source. That is the silent-acceptance shape
+   Invariant 2 exists to prevent.
+
+The check lives in the VIEWER, not the chip, because `CitationChip` performs
+no network I/O and AI Mode resolves sources entirely client-side from
+`citation.resolved`. The verdict is published on the citation bus so the
+chip can mark itself. A 503 (share offline) is NOT reported as stale — "we
+cannot tell" is better than a false "your source is dead."
+
+Normalization uses the same `normalizeForMatch` the citation extractor
+already uses (S23): a quote that is faithful but differs by a smart quote or
+a collapsed line break is not a stale citation.
+
 ### H6 — Retention: keep everything, delete manually
 
 Transcripts are kilobytes. An analyst losing a chat they wanted is a worse
 outcome than disk use. Delete is per-chat and explicit. No cap, no expiry.
+
+**Amended 2026-08-02 (implementation):** "Transcripts are kilobytes" was
+written before anyone looked at what is in `history`. A standard turn's
+`retrieve()` result carries ~15 chunks of full passage text and a Deep
+Research turn carries ~41. Every one of those is stored. MEASURED:
+
+- Standard lookup (15 chunks, 1 retrieve): **7.2 KB**
+- Deep Research (41 chunks, 3 retrieves): **26.4 KB**
+- `list_all()` over 200 Deep Research transcripts: **9.7 ms**
+
+H6's claim was off by ~3-4x for Deep Research (tens of KB, not single-digit
+KB), but `list_all()`'s linear scan is still well under the 300 ms threshold
+at 200 files, so the no-index design holds. If the office accumulates hundreds
+of Deep Research chats and `list_all` becomes perceptible, the bounded-header
+read (write header fields a second time into the first 512 bytes, give
+`list_all` a bounded read) is the documented fallback.
+
+**History may never be pruned to reduce size** — except by trimming whole
+`tool_calls`/reply pairs or not at all. An assistant `tool_calls` message
+without its matching `{"role": "tool"}` reply is a malformed request that the
+provider 400s, and the analyst experiences that as "the conversation is broken
+now" (`harness/session.py:_repair_history` documents why).
 
 ---
 

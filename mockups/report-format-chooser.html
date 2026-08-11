@@ -1,0 +1,423 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Full report — format chooser (mockup, not shipped code)</title>
+<!--
+
+  MOCKUP ONLY — NOT ported code.
+
+  THE PROBLEM. JLBC publishes an annual report two ways: a "Linked Table of
+  Contents" index page whose every agency/section opens its own smaller PDF,
+  and the complete "Single File PDF". Master's search page offered both behind
+  the gold "Full report" button. The browse-first rewrite kept the button but
+  wired it straight to `singleFile`, so the linked-TOC URL became unreachable
+  data — the regression Destin spotted first.
+
+  SCOPE (Destin, 2026-08-10): the chooser belongs on the BROWSE / title-search
+  cards only. The retrieval result card traded "Open document" and "Full
+  report" for a single "More from this document" and stays that way for now.
+
+  THE RULE, unchanged from master:
+    both URLs  -> the button offers a choice
+    exactly one -> link straight to it (a one-option chooser is pointless)
+    neither     -> no button at all
+
+  HOW THIN THE DATA IS. Only THREE families have a verified linkedToc today —
+  FY27 Baseline, FY26 Baseline, FY25 Appropriations Report (reportFamilies.ts,
+  hand-verified, no fuzzy matching). Every other family is single-file-only or
+  has nothing. The fixture below mirrors that ratio ON PURPOSE: two cards offer
+  a choice, two link straight through, one has no button. The one-option path
+  is the common case, so judge each option on how well it handles NOT firing.
+
+  M1 · Modal — master's `#reportModal`, markup and declarations recovered
+       verbatim from `git show HEAD:webapp/src/components/ResultCard.tsx` and
+       `HEAD:webapp/src/styles/app.css` (lines 578-609). Only the scope changed:
+       `.page-search` -> `.page-docs`, which it needs regardless since the
+       `.page-search` block was deleted 2026-08-10.
+  M2 · Inline — no modal. The dashed block grows a second row with the two
+       formats as sibling links.
+
+  Data is illustrative. The URLs are the real hand-verified ones.
+-->
+<style>
+/* ===== Design tokens — verbatim from webapp/src/styles/tokens.css ========== */
+:root {
+  --navy:#2b2f63; --navy-700:#232752; --navy-900:#181b3d; --navy-100:#e7e8f2;
+  --az-red:#2f55c4; --az-red-100:#e1e6fa;
+  --az-gold:#1b6fc4; --az-gold-d:#145aa6; --az-gold-100:#dceaf7;
+  --copper:#3d6a99; --copper-100:#e3ebf3;
+  --ink:#21243f; --ink-2:#4a4e6a; --ink-3:#757895;
+  --line:#e6e6ef; --canvas:#f5f5fa; --card:#fff;
+  --r-lg:22px; --r-md:16px; --r-sm:12px; --r-pill:999px; --gap:22px;
+  --shadow:0 1px 2px rgba(27,27,61,.05),0 10px 26px rgba(27,27,61,.08);
+  --shadow-sm:0 1px 2px rgba(27,27,61,.06),0 3px 10px rgba(27,27,61,.05);
+  --maxw:1140px; --font:"Nunito","Segoe UI",system-ui,-apple-system,sans-serif;
+}
+*{box-sizing:border-box;}
+body{margin:0;font-family:var(--font);background:var(--canvas);color:var(--ink);-webkit-font-smoothing:antialiased;}
+a{color:inherit;text-decoration:none;}
+button{font-family:inherit;}
+h1,h2,h3{margin:0;}
+.wrap{max-width:var(--maxw);margin:0 auto;}
+
+/* ===== MOCKUP-ONLY chrome ================================================= */
+.mockbar{position:sticky;top:0;z-index:1200;background:var(--navy-900);color:#fff;padding:11px 22px;display:flex;align-items:center;gap:9px;flex-wrap:wrap;}
+.mockbar b{font-size:11.5px;font-weight:800;letter-spacing:.08em;text-transform:uppercase;color:#9fc4ee;margin:0 4px 0 0;}
+.mockbar button{font-size:12.5px;font-weight:800;color:#cdd6f5;background:rgba(255,255,255,.08);border:1px solid rgba(255,255,255,.18);border-radius:var(--r-pill);padding:7px 15px;cursor:pointer;transition:.13s;}
+.mockbar button:hover{background:rgba(255,255,255,.16);color:#fff;}
+.mockbar button.on{background:#fff;color:var(--navy-900);border-color:#fff;}
+.vnote{max-width:var(--maxw);margin:0 auto;padding:16px 22px 0;}
+.vn{background:#fff;border:1px solid var(--line);border-left:4px solid var(--az-gold);border-radius:var(--r-md);padding:14px 18px;box-shadow:var(--shadow-sm);}
+.vn h3{font-size:14.5px;font-weight:800;color:var(--navy);margin-bottom:5px;}
+.vn p{margin:0;font-size:13px;font-weight:600;color:var(--ink-2);line-height:1.55;}
+.vn p+p{margin-top:7px;}
+.vn code{background:var(--canvas);border:1px solid var(--line);border-radius:5px;padding:1px 5px;font-size:12px;}
+header.site{background:rgba(255,255,255,.96);border-bottom:1px solid var(--line);}
+header.site .bar{max-width:var(--maxw);margin:0 auto;padding:12px 22px;display:flex;align-items:center;gap:18px;}
+.brand .bt b{display:block;font-size:14.5px;font-weight:800;color:var(--navy);letter-spacing:-.2px;}
+.brand .bt span{font-size:11.5px;font-weight:700;color:var(--ink-3);}
+nav.pills{display:flex;gap:4px;margin-left:auto;background:var(--canvas);border:1px solid var(--line);border-radius:var(--r-pill);padding:4px;}
+nav.pills a{font-size:13px;font-weight:800;color:var(--ink-2);padding:8px 16px;border-radius:var(--r-pill);}
+nav.pills a.active{background:var(--navy);color:#fff;}
+
+/* ========================================================================== */
+/* ===== app.css `.page-docs` block, VERBATIM ============================== */
+/* ========================================================================== */
+.page-docs .wrap.docwrap{display:block;padding:28px 22px 22px;}
+.page-docs .docmain{display:flex;flex-direction:column;gap:var(--gap);min-width:0;}
+.page-docs .yg{background:#fff;border:1px solid var(--line);border-radius:var(--r-lg);box-shadow:var(--shadow-sm);overflow:hidden;}
+.page-docs .yg-head-static{display:flex;align-items:center;gap:12px;padding:15px 18px;border-bottom:1px solid var(--line);}
+.page-docs .yg-ttl{display:flex;flex-direction:column;gap:2px;min-width:0;flex:1;}
+.page-docs .yg-yr{font-size:18px;font-weight:800;color:var(--navy);}
+.page-docs .yg-meta{font-size:12.5px;font-weight:700;color:var(--ink-3);}
+.page-docs .yg-body{padding:2px 0 12px;}
+.page-docs .grp{margin:12px 14px 0;border:1px solid var(--line);border-radius:var(--r-lg);overflow:hidden;box-shadow:var(--shadow-sm);}
+.page-docs .doc{display:flex;align-items:center;gap:15px;padding:14px 22px;border-bottom:1px solid var(--line);transition:background .15s;color:inherit;}
+.page-docs .doc:last-child{border-bottom:0;}
+.page-docs .doc:hover{background:#fafafe;text-decoration:none;}
+.page-docs .grp>.doc{border-bottom:0;}
+.page-docs .doc-main{flex:1;min-width:0;}
+.page-docs .doc-title{display:block;font-size:15.5px;font-weight:700;color:var(--navy);}
+.page-docs .doc:hover .doc-title{color:var(--az-gold-d);}
+.page-docs .doc-pill{flex:0 0 auto;display:inline-flex;align-items:center;gap:7px;font-size:12px;font-weight:800;color:var(--ink-2);background:var(--canvas);border:1px solid var(--line);border-radius:var(--r-pill);padding:6px 13px;white-space:nowrap;}
+.page-docs .doc:hover .doc-pill{border-color:var(--az-gold);color:var(--az-gold-d);}
+.page-docs .doc-pill svg{width:13px;height:13px;}
+.page-docs .doc-pub{flex:0 0 auto;font-size:10.5px;font-weight:800;color:#fff;background:var(--copper);border-radius:var(--r-pill);padding:3px 10px;letter-spacing:.05em;text-transform:uppercase;}
+.page-docs .ctx{margin:0 14px 14px;border:1px dashed #cdd3e6;border-radius:var(--r-md);background:#fafbff;}
+.page-docs .ctx-row{display:flex;align-items:center;gap:10px;padding:11px 14px;flex-wrap:wrap;}
+.page-docs .ctx-row .badge{display:inline-flex;align-items:center;gap:7px;font-size:12.5px;font-weight:800;color:var(--navy);}
+.page-docs .ctx-row .badge svg{width:15px;height:15px;color:var(--az-gold-d);flex:0 0 auto;}
+.page-docs .ctx-row .spacer{flex:1;}
+.page-docs .ctx .tray{display:none;}
+.page-docs .ctx .tray.open{display:block;padding:0 14px 12px;display:flex;flex-direction:column;gap:5px;}
+.page-docs .ctx .tray .doc{background:#fff;border:1px solid var(--line);border-radius:var(--r-sm);padding:10px 14px;box-shadow:var(--shadow-sm);}
+.page-docs .grp-more{display:inline-flex;align-items:center;gap:6px;font-size:12px;font-weight:800;color:var(--ink-2);background:var(--card);border:1px solid var(--line);border-radius:var(--r-pill);padding:6px 13px;cursor:pointer;white-space:nowrap;font-family:inherit;}
+.page-docs .grp-more svg{width:13px;height:13px;transition:transform .18s;}
+.page-docs .grp-more:hover{border-color:var(--az-gold);color:var(--az-gold-d);}
+.page-docs .grp-more.open svg{transform:rotate(180deg);}
+.page-docs .grp-full{display:inline-flex;align-items:center;gap:6px;font-size:12px;font-weight:800;border-radius:var(--r-pill);padding:6px 13px;cursor:pointer;white-space:nowrap;background:var(--az-gold);border:1px solid var(--az-gold);color:#fff;text-decoration:none;font-family:inherit;}
+.page-docs .grp-full svg{width:13px;height:13px;}
+.page-docs .grp-full:hover{background:var(--az-gold-d);color:#fff;text-decoration:none;}
+.page-docs .ctx-row .badge svg{width:15px;height:15px;}
+
+/* ===== NEW: the top-line row's "Full report" pill ========================= */
+/* It REPLACES the generic "Open" pill on a report row, so it takes the gold
+   fill `.grp-full` already carries — the row's action is the report, and a
+   canvas-grey pill would read as secondary to the "Browse sections" control
+   below it. ~4 lines. */
+.page-docs .doc-pill.is-full{background:var(--az-gold);border-color:var(--az-gold);color:#fff;}
+.page-docs .doc:hover .doc-pill.is-full{background:var(--az-gold-d);border-color:var(--az-gold-d);color:#fff;}
+/* UA resets only — a <button> row (the M1-with-both case) must look identical
+   to the <a> rows beside it. Same shape as the fiscal-notes page's own
+   "button adaptations" block. */
+.page-docs .doc.rowbtn{width:100%;text-align:left;font-family:inherit;background:transparent;border:0;cursor:pointer;}
+
+/* ========================================================================== */
+/* ===== M1 — the chooser modal, RECOVERED from git ========================= */
+/* Declarations verbatim from HEAD:app.css lines 578-609; only the page scope */
+/* changed (.page-search -> .page-docs), which it needed anyway.              */
+/* ========================================================================== */
+.page-docs .report-modal{position:fixed;inset:0;background:rgba(24,27,61,.42);display:none;align-items:center;justify-content:center;padding:20px;z-index:1000;}
+.page-docs .report-modal.open{display:flex;}
+.page-docs .report-modal .modal{width:100%;max-width:440px;background:var(--card);border-radius:var(--r-lg);box-shadow:0 18px 50px rgba(27,27,61,.28);overflow:hidden;animation:rmpop .16s ease;}
+@keyframes rmpop{from{opacity:0;transform:translateY(8px) scale(.98);}to{opacity:1;transform:none;}}
+.page-docs .report-modal .mhead{padding:18px 20px 14px;border-bottom:1px solid var(--line);display:flex;align-items:flex-start;gap:12px;}
+.page-docs .report-modal .mic{flex:0 0 38px;width:38px;height:38px;border-radius:11px;background:var(--navy);color:#fff;display:grid;place-items:center;}
+.page-docs .report-modal .mic svg{width:18px;height:18px;}
+.page-docs .report-modal .mt{flex:1;min-width:0;}
+.page-docs .report-modal .mt b{display:block;font-size:16px;color:var(--navy);font-weight:900;}
+.page-docs .report-modal .mt span{display:block;font-size:13px;color:var(--ink-3);font-weight:600;margin-top:1px;}
+.page-docs .report-modal .mx{flex:0 0 auto;width:30px;height:30px;border-radius:50%;border:0;background:var(--canvas);color:var(--ink-3);cursor:pointer;display:grid;place-items:center;}
+.page-docs .report-modal .mx:hover{background:#eceef6;color:var(--ink);}
+.page-docs .report-modal .mx svg{width:15px;height:15px;}
+.page-docs .report-modal .mbody{padding:14px;display:flex;flex-direction:column;gap:12px;}
+.page-docs .report-modal .choice{display:flex;gap:13px;padding:15px;border:1.5px solid var(--line);border-radius:var(--r-md);text-decoration:none;color:inherit;transition:border-color .15s,background .15s,box-shadow .15s;}
+.page-docs .report-modal .choice:hover{border-color:var(--az-gold);background:#f7fbff;box-shadow:var(--shadow-sm);text-decoration:none;}
+.page-docs .report-modal .choice .cic{flex:0 0 40px;width:40px;height:40px;border-radius:11px;display:grid;place-items:center;}
+.page-docs .report-modal .choice.linked .cic{background:var(--az-gold-100);color:var(--az-gold-d);}
+.page-docs .report-modal .choice.single .cic{background:#fbe9e7;color:#c0392b;}
+.page-docs .report-modal .choice .cic svg{width:20px;height:20px;}
+.page-docs .report-modal .choice .cc{flex:1;min-width:0;}
+.page-docs .report-modal .choice .cc b{display:block;font-size:15px;color:var(--navy);font-weight:800;}
+.page-docs .report-modal .choice .cc p{margin:5px 0 0;font-size:13px;color:var(--ink-2);font-weight:600;line-height:1.5;}
+.page-docs .report-modal .choice .cc .best{display:block;margin-top:6px;font-size:12px;color:var(--ink-3);font-weight:700;}
+.page-docs .report-modal .choice .carr{flex:0 0 auto;align-self:center;color:var(--ink-3);}
+.page-docs .report-modal .choice:hover .carr{color:var(--az-gold-d);}
+.page-docs .report-modal .choice .carr svg{width:18px;height:18px;}
+
+/* ========================================================================== */
+/* ===== M2 — inline formats row (NEW; no modal) ============================ */
+/* A second row inside the same dashed block, separated by the tray's own     */
+/* dashed hairline. ~12 lines.                                               */
+/* ========================================================================== */
+.page-docs .fmt-row{display:flex;align-items:center;gap:9px;padding:11px 14px;border-top:1px dashed #cdd3e6;flex-wrap:wrap;}
+.page-docs .fmt-lbl{font-size:11px;font-weight:800;text-transform:uppercase;letter-spacing:.07em;color:var(--ink-3);margin-right:2px;}
+.page-docs .fmt{display:inline-flex;align-items:center;gap:7px;font-size:12px;font-weight:800;border-radius:var(--r-pill);padding:6px 13px;white-space:nowrap;border:1px solid var(--line);background:#fff;color:var(--ink-2);transition:.14s;}
+.page-docs .fmt:hover{border-color:var(--az-gold);color:var(--az-gold-d);background:var(--az-gold-100);text-decoration:none;}
+.page-docs .fmt svg{width:13px;height:13px;flex:0 0 auto;}
+/* The single-file option keeps the gold fill the one-format button already
+   has, so the common case looks identical whether or not a TOC exists. */
+.page-docs .fmt.is-primary{background:var(--az-gold);border-color:var(--az-gold);color:#fff;}
+.page-docs .fmt.is-primary:hover{background:var(--az-gold-d);color:#fff;}
+.page-docs .fmt-note{font-size:11.5px;font-weight:700;color:var(--ink-3);flex-basis:100%;margin-top:-2px;}
+</style>
+</head>
+<body>
+
+<div class="mockbar">
+  <b>Chooser</b>
+  <button data-m="1" class="on">M1 · Modal (master's)</button>
+  <button data-m="2">M2 · Inline row</button>
+</div>
+
+<header class="site">
+  <div class="bar">
+    <a class="brand" href="#"><span class="bt"><b>Ask the Budget</b><span>Arizona budget documents</span></span></a>
+    <nav class="pills" aria-label="Primary">
+      <a href="#" class="active" aria-current="page">Budget Documents</a>
+      <a href="#">AI Mode</a>
+      <a href="#">Fiscal Notes</a>
+    </nav>
+  </div>
+</header>
+
+<div class="vnote"><div class="vn" id="vnote"></div></div>
+
+<main class="page-docs">
+  <div class="wrap docwrap">
+    <div class="docmain" id="main"></div>
+  </div>
+  <!-- The modal host MUST live inside `.page-docs`. Every `.report-modal` rule
+       is scoped under the page class (that is the stylesheet's convention —
+       see app.css's header), so a `position:fixed` overlay mounted outside
+       this <main> gets NO styling at all and paints as an unstyled block.
+       That is exactly what happened the first time this mockup was built, and
+       it is the same trap the real Search.tsx would hit: the old page rendered
+       its SourcePanel INSIDE <main className="page-docs"> for this reason. -->
+  <div id="modalHost"></div>
+</main>
+
+<script>
+/* ==========================================================================
+   Throwaway demo wiring. The linkedToc / singleFile URLs are the REAL
+   hand-verified ones from webapp/src/reportFamilies.ts.
+   ========================================================================== */
+
+const ICON = {
+  book:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 4h13a2 2 0 0 1 2 2v14H6a2 2 0 0 1-2-2z"/><path d="M4 18a2 2 0 0 1 2-2h13"/></svg>',
+  doc:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M6 2h9l5 5v15H6z"/><path d="M14 2v6h6"/></svg>',
+  chev:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="m6 9 6 6 6-6"/></svg>',
+  open:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M5 12h14M13 6l6 6-6 6"/></svg>',
+  link:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M10 13a5 5 0 0 0 7 0l2-2a5 5 0 0 0-7-7l-1 1"/><path d="M14 11a5 5 0 0 0-7 0l-2 2a5 5 0 0 0 7 7l1-1"/></svg>',
+  x:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4"><path d="M6 6l12 12M18 6 6 18"/></svg>'
+};
+
+/* The fixture mirrors the real ratio: 2 of 5 families have BOTH formats. */
+const FAMILIES = [
+  { key:"b27", title:"FY 2027 Baseline", pub:"JLBC", docs:104,
+    singleFile:"https://www.azjlbc.gov/budget/27baselinesinglefile.pdf",
+    linkedToc:"https://www.azjlbc.gov/budget/27baselinelinks.pdf" },
+  { key:"eb27", title:"FY 2027 Executive Budget", pub:"OSPB", docs:1,
+    singleFile:"https://example.gov/eb27.pdf", linkedToc:null },
+  { key:"ar25", title:"FY 2025 Appropriations Report", pub:"JLBC", docs:96,
+    singleFile:"https://www.azjlbc.gov/25ar/apprpt.pdf",
+    linkedToc:"https://www.azjlbc.gov/25ar/apprpttoc.pdf" },
+  { key:"afr25", title:"FY 2025 Annual Financial Report", pub:"GAO", docs:1,
+    singleFile:"https://example.gov/afr25.pdf", linkedToc:null },
+  { key:"bb26", title:"FY 2026 Budget Bill", pub:"JLBC", docs:3,
+    singleFile:null, linkedToc:null }
+];
+
+const NOTES = {
+  "1":{h:"M1 · Modal — master's chooser, recovered verbatim",
+    p:["Clicking the report row (or its gold “Full report” pill) on a both-formats card opens a centered dialog explaining what each format IS and what it is best for, with a link-chain glyph for the TOC and a document glyph for the single file. Escape, the backdrop, the X, or either choice closes it. Markup and every declaration came back out of git; only the page scope changed.",
+       "The copy is the real value here — most people do not know what a “Linked Table of Contents” PDF is, and the modal has room to say “best for jumping straight to one agency without downloading the whole report”. That explanation has nowhere to live in a pill.",
+       "Costs: ~31 lines of recovered CSS, a focus trap and Escape handling to do properly, and it is the only modal on the page — every other control here is inline. It also puts a full-screen interruption in front of a browse action."]},
+  "2":{h:"M2 · Inline row — no modal at all",
+    p:["The top-line “Full report” goes STRAIGHT to the single-file PDF, and the dashed block grows a small “Also available” row offering the Linked Table of Contents with one line explaining what it is. Nobody is interrupted to make a choice they mostly don't need to make.",
+       "A card with only one format looks EXACTLY as it does today — the common case is untouched, which matters when only 3 families in the corpus have a TOC. No dialog, no focus trap, no Escape handling, and the row stays a plain link.",
+       "Costs: ~12 lines of new CSS, the explanation shrinks to one small line, and it makes the dashed block taller on precisely the cards that are already tallest. It also quietly picks a default — single-file wins the top-line click — where M1 refuses to."]}
+};
+
+/* --- the card ------------------------------------------------------------ */
+
+function card(f) {
+  const both = Boolean(f.singleFile && f.linkedToc);
+  const one = f.singleFile || f.linkedToc;
+  const open = state.open.has(f.key);
+
+  /* THE TOP-LINE ROW IS THE REPORT, so its action is "Full report" — it
+     REPLACES the generic "Open" pill (Destin, 2026-08-10). The duplicate
+     Full report button is gone from the dashed block, which now carries only
+     "Browse sections".
+
+     THE RULE (master's, unchanged): both formats -> offer a choice; exactly
+     one -> go straight to it; neither -> no pill, and the row is unlinked
+     rather than a dead href.
+
+     M1-with-both is the one case the row cannot be an <a>: the click has to
+     open a dialog, and an interactive pill nested inside a link is invalid.
+     The whole row becomes a <button> there — same look, and clicking the
+     report to be asked how to open it is the same gesture either way. */
+  const wantsModal = state.m === "1" && both;
+  const href = both ? (state.m === "2" ? f.singleFile : null) : one;
+  const pill = (both || one)
+    ? `<span class="doc-pill is-full">${ICON.book} Full report</span>`
+    : "";
+
+  const rowInner = `
+      <span class="doc-pub">${f.pub}</span>
+      <div class="doc-main"><span class="doc-title">${f.title}</span></div>
+      ${pill}`;
+  const topRow = wantsModal
+    ? `<button class="doc rowbtn" type="button" data-modal="${f.key}">${rowInner}</button>`
+    : href
+      ? `<a class="doc" href="${href}" target="_blank" rel="noopener noreferrer">${rowInner}</a>`
+      : `<div class="doc doc-unlinked">${rowInner}</div>`;
+
+  const fmtRow = (state.m === "2" && both) ? `
+    <div class="fmt-row">
+      <span class="fmt-lbl">Also available</span>
+      <a class="fmt" href="${f.linkedToc}" target="_blank" rel="noopener noreferrer">${ICON.link} Linked Table of Contents</a>
+      <span class="fmt-note">An index page — each agency and section opens its own smaller PDF, instead of the whole book.</span>
+    </div>` : "";
+
+  const tray = open && f.docs > 1 ? `<div class="tray open">${
+    Array.from({length: Math.min(3, f.docs)}, (_, i) =>
+      `<a class="doc" href="#" onclick="return false">
+         <span class="doc-pub">${f.pub}</span>
+         <div class="doc-main"><span class="doc-title">${f.title} — ${["AHCCCS","Health Services, Department of","Economic Security, Department of"][i]}</span></div>
+         <span class="doc-pill">${ICON.open} Open</span>
+       </a>`).join("")
+  }</div>` : "";
+
+  const needsCtx = f.docs > 1 || fmtRow;
+  return `<article class="grp">
+    ${topRow}
+    ${needsCtx ? `<div class="ctx">
+      ${f.docs > 1 ? `<div class="ctx-row">
+        <span class="badge">${ICON.doc} ${f.docs} sections in this report</span>
+        <span class="spacer"></span>
+        <button class="grp-more${open ? " open" : ""}" data-key="${f.key}">${open ? "Hide sections" : "Browse sections"} ${ICON.chev}</button>
+      </div>` : ""}
+      ${tray}${fmtRow}
+    </div>` : ""}
+  </article>`;
+}
+
+/* --- M1's modal, markup recovered from git ------------------------------- */
+
+function modalHtml(f) {
+  return `<div class="report-modal open" role="dialog" aria-modal="true" aria-label="Open the full report" id="rm">
+    <div class="modal">
+      <div class="mhead">
+        <span class="mic">${ICON.book}</span>
+        <span class="mt"><b>${f.title}</b><span>Choose how you'd like to open it</span></span>
+        <button class="mx" type="button" aria-label="Close" data-close>${ICON.x}</button>
+      </div>
+      <div class="mbody">
+        <a class="choice linked" href="${f.linkedToc}" target="_blank" rel="noopener noreferrer" data-close>
+          <span class="cic">${ICON.link}</span>
+          <span class="cc">
+            <b>Linked Table of Contents</b>
+            <p>An index page where each agency and section is a link that opens its own smaller PDF.</p>
+            <span class="best">Best for jumping straight to one agency or section without downloading the whole report.</span>
+          </span>
+          <span class="carr">${ICON.open}</span>
+        </a>
+        <a class="choice single" href="${f.singleFile}" target="_blank" rel="noopener noreferrer" data-close>
+          <span class="cic">${ICON.doc}</span>
+          <span class="cc">
+            <b>Single File PDF</b>
+            <p>The complete report as one document — every agency and summary in a single PDF.</p>
+            <span class="best">Best for reading start to finish, searching the whole report, or printing. Largest download.</span>
+          </span>
+          <span class="carr">${ICON.open}</span>
+        </a>
+      </div>
+    </div>
+  </div>`;
+}
+
+/* --- state + render ------------------------------------------------------ */
+
+const state = { m:"1", open:new Set(["b27"]) };
+
+function render() {
+  const n = NOTES[state.m];
+  document.getElementById("vnote").innerHTML =
+    `<h3>${n.h}</h3>${n.p.map(t => `<p>${t}</p>`).join("")}
+     <p><b>Both cards below with a choice</b> are the only two families that really have one
+     (plus FY26 Baseline, not shown). The other three show the one-format and no-format paths —
+     judge each option on those too, since they are the common case.</p>`;
+  document.getElementById("main").innerHTML =
+    `<section class="yg">
+      <div class="yg-head-static">
+        <div class="yg-ttl"><span class="yg-yr">Reports</span>
+          <span class="yg-meta">${FAMILIES.length} reports</span></div>
+      </div>
+      <div class="yg-body">${FAMILIES.map(card).join("")}</div>
+    </section>`;
+}
+
+document.querySelectorAll("[data-m]").forEach(btn => {
+  btn.addEventListener("click", () => {
+    document.querySelectorAll("[data-m]").forEach(b => b.classList.remove("on"));
+    btn.classList.add("on");
+    state.m = btn.dataset.m;
+    document.getElementById("modalHost").innerHTML = "";
+    render();
+  });
+});
+
+document.addEventListener("click", (e) => {
+  const openBtn = e.target.closest("[data-modal]");
+  if (openBtn) {
+    e.preventDefault();
+    const f = FAMILIES.find(x => x.key === openBtn.dataset.modal);
+    document.getElementById("modalHost").innerHTML = modalHtml(f);
+    return;
+  }
+  if (e.target.closest("[data-close]") || e.target.id === "rm") {
+    document.getElementById("modalHost").innerHTML = "";
+    return;
+  }
+  const more = e.target.closest("[data-key]");
+  if (more) {
+    e.preventDefault();
+    const k = more.dataset.key;
+    state.open.has(k) ? state.open.delete(k) : state.open.add(k);
+    render();
+  }
+});
+
+document.addEventListener("keydown", (e) => {
+  if (e.key === "Escape") document.getElementById("modalHost").innerHTML = "";
+});
+
+render();
+</script>
+</body>
+</html>

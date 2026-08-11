@@ -29,6 +29,7 @@ import * as api from "../api.js";
 import { chatActionFromProviderEvent, chatReducer } from "./chat-reducer.js";
 import type { ChatAction, ChatState } from "./chat-types.js";
 import { initialChatState } from "./chat-types.js";
+import { rehydrateTurns } from "./history-rehydrate.js";
 import type { ProviderEvent } from "./provider-events.js";
 
 export type Tier = "standard" | "deep_research";
@@ -53,7 +54,7 @@ export interface UseChatResult {
 
 type Dispatch = React.Dispatch<ChatAction>;
 
-export function useChat(corpus: Corpus): UseChatResult {
+export function useChat(corpus: Corpus, resumeFrom?: string): UseChatResult {
   const [state, dispatch] = useReducer(chatReducer, initialChatState);
   // S16: Standard is the default for every new conversation. A conversation
   // lives exactly as long as this hook instance, so initializing here IS the
@@ -77,6 +78,11 @@ export function useChat(corpus: Corpus): UseChatResult {
   // depend on it (a changing identity would re-render every consumer).
   const tierRef = useRef<Tier>(tier);
   tierRef.current = tier;
+  // Held in a ref rather than closing over the prop: `send` is a useCallback
+  // keyed on [corpus, safeDispatch], and adding `resumeFrom` there would
+  // rebuild it on every render of the panel.
+  const resumeFromRef = useRef(resumeFrom);
+  resumeFromRef.current = resumeFrom;
 
   useEffect(() => {
     mountedRef.current = true;
@@ -86,6 +92,45 @@ export function useChat(corpus: Corpus): UseChatResult {
       // client disconnect, so the server tears the turn down on its own.
       abortRef.current?.abort();
     };
+  }, []);
+
+  // H2: on mount, when resuming, fetch the stored transcript and rehydrate it
+  // into the timeline. Do NOT create a conversation — browsing is free. The
+  // session is rebuilt on the first send (resumeFrom passed to
+  // createConversation), which is the analyst's own choice.
+  useEffect(() => {
+    const id = resumeFromRef.current;
+    if (!id) return;
+    let cancelled = false;
+    (async () => {
+      try {
+        const chat = await api.getHistoryChat(id);
+        if (cancelled || !mountedRef.current) return;
+        const turns = rehydrateTurns(chat.messages, chat.created_at);
+        // Seed the id in BOTH places. conversationIdRef is what send() reads
+        // to decide "create vs. continue" — without it the first send thinks
+        // there is no conversation yet and takes the create+reset path, which
+        // is exactly the "resumed chat wiped on send" bug. The action's id
+        // keeps state.conversationId truthful for any UI that reads it. This
+        // does NOT create a server session — browsing is still free (H2); the
+        // id here is the stored chat's identity, nothing more.
+        conversationIdRef.current = id;
+        safeDispatch({ type: "REHYDRATED", conversationId: id, turns });
+      } catch (err) {
+        if (cancelled || !mountedRef.current) return;
+        // A failed fetch must not leave a blank panel that looks like an
+        // empty chat — surface the server's message.
+        safeDispatch({
+          type: "TURN_ERROR",
+          message:
+            err instanceof Error
+              ? err.message
+              : "Could not open this chat.",
+        });
+      }
+    })();
+    return () => { cancelled = true; };
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   const safeDispatch = useCallback((action: ChatAction) => {
@@ -103,18 +148,38 @@ export function useChat(corpus: Corpus): UseChatResult {
       stoppedRef.current = false;
       setBusy(true);
       try {
+        // Three cases, and the create/reset decision differs across them:
+        //   (a) genuinely new chat — no id anywhere: create, then RESET the
+        //       timeline (nothing on it but this question's own prompt).
+        //   (b) resumed chat — the rehydrate effect seeded the ref with the
+        //       stored id: create WITH resume_from, then KEEP the timeline
+        //       (the rehydrated turns are the analyst's view of the
+        //       transcript; wiping them is the bug this branch fixes).
+        //   (c) mid-session — ref already holds a live id: no create at all.
         let conversationId = conversationIdRef.current;
-        if (!conversationId) {
+        // (b) only: the ref holds the STORED id but no server session exists
+        // yet. The rehydrate effect sets it without a network round-trip, so
+        // on the first send the ref and the server's registry disagree — the
+        // ref says "old1", the server has never heard of it. Detectable: a
+        // resumed chat's id equals resumeFrom. A fresh chat's ref starts null.
+        const isResume = conversationId !== null && conversationId === resumeFromRef.current;
+        if (!conversationId || isResume) {
           try {
-            const handle = await api.createConversation(corpus);
+            const handle = await api.createConversation(corpus, resumeFromRef.current);
             conversationId = handle.conversation_id;
             conversationIdRef.current = conversationId;
             if (mountedRef.current) setHealth(handle.health ?? { ok: true });
-            // Resets the timeline — safe here because nothing has been added
-            // to it yet for this question (the USER_PROMPT below is the first
-            // dispatch of the turn). Doing it the other way round would wipe
-            // the question the analyst just typed.
-            safeDispatch({ type: "CONVERSATION_STARTED", conversationId });
+            // Resets the timeline on a NEW chat — safe there because nothing
+            // has been added to it yet for this question (the USER_PROMPT
+            // below is the first dispatch of the turn). On a RESUMED chat the
+            // rehydrated turns are already the analyst's view of the
+            // transcript, so keepTurns preserves them; resetting would empty
+            // the thread the moment they continued the stored chat.
+            safeDispatch({
+              type: "CONVERSATION_STARTED",
+              conversationId,
+              keepTurns: isResume,
+            });
           } catch (err) {
             // Show the question anyway: MessageInput has already cleared its
             // box, so dropping it here loses the analyst's words outright.

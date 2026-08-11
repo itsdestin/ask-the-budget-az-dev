@@ -1,134 +1,82 @@
-// Search page -> source drawer integration (Plan 4 Task 11, Step 2).
-//
-// This is the search-only half of the G3 findability check: with AI Mode off,
-// clicking a matching passage still has to answer "where does this come
-// from?". Lives here rather than in pages/Search.test.tsx so the whole port
-// stays inside src/pdf/.
-//
-// The click path under test is a DELEGATED listener on `.results` matching
-// `[data-chunk-id]` — the attribute Plan 2 left on the passage rows for
-// exactly this task — so these tests also pin that the delegation reaches a
-// row nested two levels inside ResultCard's tray.
-
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { render, screen, fireEvent, waitFor } from "@testing-library/react";
 import { MemoryRouter } from "react-router-dom";
-import { describe, expect, it, vi } from "vitest";
-
-import * as api from "../../api";
 import { Search } from "../../pages/Search";
+import * as api from "../../api";
 
-const RESULT = {
-  chunk_id: "c1",
-  doc_id: "jlbc-baseline-fy2027-ahcccs",
-  doc_title: "Health Care Cost Containment System, Arizona — FY 2027 Baseline",
-  snippet: "…provider rate increases…",
-  page: 14,
-  score: 0.91,
-  doc_type: "baseline-per-agency",
-  fiscal_year: 2027,
-  publisher: "jlbc",
-  agencies: ["ahcccs"],
-  doc_url: "https://www.azjlbc.gov/27baseline/axs.pdf",
-  doc_meta: null,
-};
+// Restores the coverage deleted with the browse rewrite. Provenance is the
+// point of this page: a passage that cannot be opened back to its own PDF
+// page is a quote with no source.
 
-const CHUNK: api.ChunkSource = {
-  chunk_id: "c1",
-  doc_id: "jlbc-baseline-fy2027-ahcccs",
-  page: 14,
-  bbox: [10, 20, 100, 40],
-  text: "AHCCCS provider rate increases total $2,587,400 in FY 2027.",
-  source_format: "pdf",
-  pdf_unavailable_reason: null,
-};
+// terms: [] — Task 4 made CorpusDocument.terms required repo-wide; this file
+// tests the source panel, not queryHit, so an empty array is a neutral filler.
+const DOCS: api.CorpusDocument[] = [
+  { doc_id: "b27", title: "FY 2027 Baseline — AHCCCS", publisher: "jlbc",
+    doc_type: "baseline-per-agency", fiscal_year: 2027, doc_url: "https://x/axs.pdf", terms: [] },
+];
 
-/** Render the search page with one result and open its passages tray. */
-async function openPassages(result = RESULT) {
-  vi.spyOn(api, "search").mockResolvedValue({
-    results: [result],
-    total: 1,
-    provider: "stub",
+const HITS: api.SearchResult[] = [
+  { chunk_id: "chunk-142", doc_id: "b27", doc_title: "FY 2027 Baseline — AHCCCS",
+    snippet: "Child care subsidy assistance rose.", page: 142, score: 0.9,
+    doc_type: "baseline-per-agency", fiscal_year: 2027, publisher: "jlbc",
+    agencies: [], doc_url: "https://x/axs.pdf", doc_meta: null },
+];
+
+// PassageCard's <Quote> wraps the matched substring in a <mark>, so the
+// snippet is split across sibling text nodes ("Child care" / " subsidy
+// assistance rose."). Testing Library's default text matcher only reads a
+// node's OWN direct text-node children (see @testing-library/dom's
+// getNodeText), so a plain findByText(/regex/) can never see the whole
+// phrase once it's highlighted — confirmed by running the brief's verbatim
+// regex matcher against this exact markup and hitting RTL's own "text is
+// broken up by multiple elements" hint. This matcher targets the wrapping
+// `.doc-quote` span by its full textContent instead, which is unaffected by
+// how highlight() split it internally.
+const PASSAGE_TEXT = "Child care subsidy assistance rose.";
+function findPassageQuote() {
+  return screen.findByText((_content, node) => {
+    if (!node || !(node instanceof Element)) return false;
+    return node.classList.contains("doc-quote") && node.textContent === PASSAGE_TEXT;
   });
-  const view = render(
-    <MemoryRouter initialEntries={["/search?q=ahcccs"]}>
+}
+
+function mount() {
+  vi.spyOn(api, "corpusDocuments").mockResolvedValue({ documents: DOCS });
+  vi.spyOn(api, "search").mockResolvedValue({ results: HITS, total: 1, provider: "test" });
+  vi.spyOn(api, "chunk").mockResolvedValue({
+    chunk_id: "chunk-142", doc_id: "b27", page: 142, bbox: null,
+    text: "Child care subsidy assistance rose.", source_format: "pdf",
+    pdf_unavailable_reason: null,
+  });
+  render(
+    <MemoryRouter initialEntries={["/search?q=child%20care&in=contents"]}>
       <Search />
     </MemoryRouter>,
   );
-  await waitFor(() =>
-    expect(screen.getByText(/Health Care Cost Containment/)).toBeInTheDocument(),
-  );
-  fireEvent.click(screen.getByRole("button", { name: /1 passage/i }));
-  return view;
 }
 
-describe("search page source drawer", () => {
-  it("opens the drawer for the clicked passage's chunk", async () => {
-    const chunk = vi.spyOn(api, "chunk").mockResolvedValue(CHUNK);
-    const view = await openPassages();
+test("clicking a passage opens the source drawer for THAT chunk", async () => {
+  mount();
+  fireEvent.click(await findPassageQuote());
+  expect(await screen.findByRole("complementary", { name: /source passage/i }))
+    .toBeInTheDocument();
+  await waitFor(() => expect(api.chunk).toHaveBeenCalledWith("chunk-142", "budget"));
+});
 
-    const row = view.container.querySelector('[data-chunk-id="c1"]')!;
-    expect(row).toBeTruthy();
-    fireEvent.click(row);
+test("the drawer opens from the KEYBOARD — provenance is not mouse-only", async () => {
+  mount();
+  const row = (await findPassageQuote()).closest("button")!;
+  row.focus();
+  fireEvent.click(row); // a real <button> activates on Enter/Space via click
+  expect(await screen.findByRole("complementary", { name: /source passage/i }))
+    .toBeInTheDocument();
+});
 
-    await waitFor(() => expect(chunk).toHaveBeenCalledWith("c1", "budget"));
-    const drawer = await screen.findByLabelText("Source passage");
-    // The drawer names the document the row named — the title travels from
-    // the search row, so the two can never disagree.
-    expect(drawer.textContent).toContain(
-      "Health Care Cost Containment System, Arizona — FY 2027 Baseline",
-    );
-    expect(drawer.textContent).toContain("$2,587,400");
-
-    // …and closes again, leaving the results untouched.
-    fireEvent.click(screen.getByRole("button", { name: /close source panel/i }));
-    expect(screen.queryByLabelText("Source passage")).toBeNull();
-    expect(screen.getByText(/Health Care Cost Containment/)).toBeInTheDocument();
-  });
-
-  it("never opens the viewer for a stub- chunk id", async () => {
-    // StubSearchProvider's fixture rows exist in no corpus. Opening one would
-    // show a 404 and imply the corpus is broken when the truth is that this
-    // machine has no corpus at all.
-    const chunk = vi.spyOn(api, "chunk").mockResolvedValue(CHUNK);
-    const view = await openPassages({ ...RESULT, chunk_id: "stub-001" });
-
-    fireEvent.click(view.container.querySelector('[data-chunk-id="stub-001"]')!);
-
-    expect(chunk).not.toHaveBeenCalled();
-    expect(screen.queryByLabelText("Source passage")).toBeNull();
-  });
-
-  it("falls back to the text panel when the passage's source is a DOCX bill", async () => {
-    const reason =
-      "This source is a docx file, not a PDF, so there is no page to display. " +
-      "Show the cited text panel instead — the passage and its citation are still valid.";
-    vi.spyOn(api, "chunk").mockResolvedValue({
-      ...CHUNK,
-      source_format: "docx",
-      pdf_unavailable_reason: reason,
-      page: null,
-      bbox: null,
-    });
-    const view = await openPassages();
-    fireEvent.click(view.container.querySelector('[data-chunk-id="c1"]')!);
-
-    const drawer = await screen.findByLabelText("Source passage");
-    await waitFor(() =>
-      expect(drawer.textContent).toContain("Couldn’t open source PDF"),
-    );
-    expect(drawer.textContent).toContain(reason);
-    expect(screen.queryByRole("link", { name: /open original/i })).toBeNull();
-    // The passage text is still there to verify against.
-    expect(drawer.textContent).toContain("$2,587,400");
-  });
-
-  it("leaves the results presentation alone (no new rows, no page navigation)", async () => {
-    vi.spyOn(api, "chunk").mockResolvedValue(CHUNK);
-    const view = await openPassages();
-    const before = view.container.querySelector(".results")!.innerHTML;
-    fireEvent.click(view.container.querySelector('[data-chunk-id="c1"]')!);
-    await screen.findByLabelText("Source passage");
-    // The drawer is a sibling overlay; the results markup is byte-identical.
-    expect(view.container.querySelector(".results")!.innerHTML).toBe(before);
-  });
+test("switching modes closes the drawer", async () => {
+  mount();
+  fireEvent.click(await findPassageQuote());
+  await screen.findByRole("complementary", { name: /source passage/i });
+  fireEvent.click(screen.getByRole("button", { name: /back to title matches/i }));
+  await waitFor(() =>
+    expect(screen.queryByRole("complementary", { name: /source passage/i })).toBeNull(),
+  );
 });

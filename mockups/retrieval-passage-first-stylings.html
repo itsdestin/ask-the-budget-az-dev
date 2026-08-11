@@ -1,0 +1,508 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Retrieval results — passage-first stylings (mockup, not shipped code)</title>
+<!--
+
+  MOCKUP ONLY — four stylings of ONE agreed structure. NOT ported code.
+
+  The structure (Destin, 2026-08-10), fixed across all four:
+    - ONE card per DOCUMENT. Two documents from the same report in the same
+      year (AHCCCS FY 2027 Baseline and Health Services FY 2027 Baseline) are
+      two cards; one document never gets two cards.
+    - The card's headline row is the best matching PASSAGE, quoted, with the
+      query term highlighted and its page number shown.
+    - The dashed block below carries the document's identity and ONE action:
+      "More from this document", which expands it to the remaining passages.
+      The old "Open document" and "Full report" buttons are gone.
+
+  What VARIES between the four is only the styling of the changed elements:
+  the quote row, the highlight, where the page number sits, the document
+  identity line, the expand control, and the expanded passage rows.
+
+  The `.page-docs` CSS below is `webapp/src/styles/app.css` (lines 833-996)
+  VERBATIM. Everything each styling adds is in the "NEW CSS" section, scoped
+  under `.st-1` … `.st-4`, so the cost of each is legible.
+
+  Data is illustrative. No number here came from a real document.
+
+  Top bar: pick a styling, or "Compare all" to stack them.
+-->
+<style>
+/* ===== Design tokens — verbatim from webapp/src/styles/tokens.css ========== */
+:root {
+  --navy:#2b2f63; --navy-700:#232752; --navy-900:#181b3d; --navy-100:#e7e8f2;
+  --az-red:#2f55c4; --az-red-100:#e1e6fa;
+  --az-gold:#1b6fc4; --az-gold-d:#145aa6; --az-gold-100:#dceaf7;
+  --copper:#3d6a99; --copper-100:#e3ebf3;
+  --teal:#1782b3; --teal-100:#dbeef8;
+  --ink:#21243f; --ink-2:#4a4e6a; --ink-3:#757895;
+  --line:#e6e6ef; --canvas:#f5f5fa; --card:#fff;
+  --r-lg:22px; --r-md:16px; --r-sm:12px; --r-pill:999px; --gap:22px;
+  --shadow:0 1px 2px rgba(27,27,61,.05),0 10px 26px rgba(27,27,61,.08);
+  --shadow-sm:0 1px 2px rgba(27,27,61,.06),0 3px 10px rgba(27,27,61,.05);
+  --maxw:1140px; --font:"Nunito","Segoe UI",system-ui,-apple-system,sans-serif;
+}
+*{box-sizing:border-box;}
+body{margin:0;font-family:var(--font);background:var(--canvas);color:var(--ink);-webkit-font-smoothing:antialiased;}
+a{color:inherit;text-decoration:none;}
+button{font-family:inherit;}
+h1,h2,h3{margin:0;}
+.wrap{max-width:var(--maxw);margin:0 auto;}
+
+/* ===== MOCKUP-ONLY chrome (not part of the proposal) ====================== */
+.mockbar{position:sticky;top:0;z-index:80;background:var(--navy-900);color:#fff;padding:10px 22px;display:flex;align-items:center;gap:10px;flex-wrap:wrap;}
+.mockbar b{font-size:12px;font-weight:800;letter-spacing:.08em;text-transform:uppercase;color:#9fc4ee;margin-right:6px;}
+.mockbar button{font-size:12.5px;font-weight:800;color:#cdd6f5;background:rgba(255,255,255,.08);border:1px solid rgba(255,255,255,.18);border-radius:var(--r-pill);padding:7px 15px;cursor:pointer;transition:.13s;}
+.mockbar button:hover{background:rgba(255,255,255,.16);color:#fff;}
+.mockbar button.on{background:#fff;color:var(--navy-900);border-color:#fff;}
+.mockbar .sep{width:1px;height:22px;background:rgba(255,255,255,.2);margin:0 6px;}
+.vnote{max-width:var(--maxw);margin:0 auto;padding:16px 22px 0;}
+.vn{background:#fff;border:1px solid var(--line);border-left:4px solid var(--az-gold);border-radius:var(--r-md);padding:14px 18px;box-shadow:var(--shadow-sm);}
+.vn h3{font-size:14.5px;font-weight:800;color:var(--navy);margin-bottom:5px;}
+.vn p{margin:0;font-size:13px;font-weight:600;color:var(--ink-2);line-height:1.55;}
+.vn p+p{margin-top:7px;}
+.vn code{background:var(--canvas);border:1px solid var(--line);border-radius:5px;padding:1px 5px;font-size:12px;}
+.vn .cost{display:inline-block;margin-top:9px;font-size:11.5px;font-weight:800;text-transform:uppercase;letter-spacing:.06em;color:var(--az-gold-d);background:var(--az-gold-100);border-radius:var(--r-pill);padding:4px 11px;}
+/* Compare-all separator */
+.cmp-label{max-width:var(--maxw);margin:26px auto 0;padding:0 22px;}
+.cmp-label span{display:inline-block;font-size:11.5px;font-weight:800;text-transform:uppercase;letter-spacing:.09em;color:#fff;background:var(--navy);border-radius:var(--r-pill);padding:6px 15px;}
+
+/* ===== minimal site header =============================================== */
+header.site{background:rgba(255,255,255,.96);border-bottom:1px solid var(--line);}
+header.site .bar{max-width:var(--maxw);margin:0 auto;padding:12px 22px;display:flex;align-items:center;gap:18px;}
+.brand .bt b{display:block;font-size:14.5px;font-weight:800;color:var(--navy);letter-spacing:-.2px;}
+.brand .bt span{font-size:11.5px;font-weight:700;color:var(--ink-3);}
+nav.pills{display:flex;gap:4px;margin-left:auto;background:var(--canvas);border:1px solid var(--line);border-radius:var(--r-pill);padding:4px;}
+nav.pills a{font-size:13px;font-weight:800;color:var(--ink-2);padding:8px 16px;border-radius:var(--r-pill);}
+nav.pills a.active{background:var(--navy);color:#fff;}
+
+/* ========================================================================== */
+/* ===== app.css `.page-docs` block, VERBATIM (lines 833-996) =============== */
+/* ========================================================================== */
+.page-docs .subhero{position:relative;overflow:hidden;color:#fff;
+  background:linear-gradient(105deg,rgba(18,21,48,.94) 0%,rgba(20,23,52,.86) 60%,rgba(20,23,52,.78) 100%);}
+.page-docs .subhero .wrap{position:relative;z-index:2;padding:32px 22px 34px;}
+.page-docs .subhero h1{font-size:clamp(24px,3.2vw,34px);font-weight:800;letter-spacing:-.4px;}
+.page-docs .subhero .lead{margin:10px 0 0;font-size:clamp(14px,1.5vw,16.5px);color:#d9dcf2;font-weight:600;max-width:66ch;line-height:1.5;}
+.page-docs .subhero .chips{display:flex;flex-wrap:wrap;gap:8px;margin-top:16px;}
+.page-docs .subhero .chip{display:inline-flex;align-items:center;gap:7px;background:rgba(255,255,255,.1);border:1px solid rgba(255,255,255,.2);border-radius:var(--r-pill);padding:6px 13px;font-size:12.5px;font-weight:700;color:#eef0fb;}
+.page-docs .subhero .chip svg{width:14px;height:14px;color:#9fc4ee;flex:0 0 auto;}
+
+.page-docs .wrap.docwrap{display:block;padding:28px 22px 22px;}
+.page-docs .doclayout{display:grid;grid-template-columns:248px 1fr;gap:var(--gap);align-items:start;}
+.page-docs .docside{background:#fff;border:1px solid var(--line);border-radius:var(--r-lg);box-shadow:var(--shadow-sm);padding:8px;position:sticky;top:16px;}
+.page-docs .docside .fgrp{padding:8px 8px 14px;}
+.page-docs .docside .fgrp+.fgrp{border-top:1px solid var(--line);}
+.page-docs .docside .flbl{font-size:11px;font-weight:800;text-transform:uppercase;letter-spacing:.08em;color:var(--ink-3);padding:6px 8px 8px;display:block;}
+.page-docs .docmain{display:flex;flex-direction:column;gap:var(--gap);min-width:0;}
+.page-docs .yg{background:#fff;border:1px solid var(--line);border-radius:var(--r-lg);box-shadow:var(--shadow-sm);overflow:hidden;}
+
+.page-docs .fside-search{display:flex;align-items:center;gap:8px;background:var(--canvas);border:1px solid var(--line);border-radius:var(--r-pill);padding:8px 12px;margin:2px 4px 6px;}
+.page-docs .fside-search svg{width:16px;height:16px;color:var(--ink-3);}
+.page-docs .fside-search input{border:0;background:transparent;outline:0;font-family:inherit;font-size:13.5px;flex:1;min-width:0;color:var(--ink);}
+.page-docs .clr-x{flex:0 0 auto;display:inline-flex;align-items:center;justify-content:center;width:24px;height:24px;border-radius:50%;border:1px solid var(--line);background:#fff;color:var(--ink-2);cursor:pointer;padding:0;}
+.page-docs .clr-x svg{width:13px;height:13px;}
+.page-docs .fctl{position:relative;margin:0 4px;}
+.page-docs .fbtn{display:flex;align-items:center;gap:7px;width:100%;cursor:pointer;font-family:inherit;font-size:12.5px;font-weight:800;color:var(--ink-2);background:var(--canvas);border:1.5px solid var(--line);border-radius:var(--r-pill);padding:8px 13px;white-space:nowrap;transition:.14s;}
+.page-docs .fbtn .fb-label{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;text-align:left;}
+.page-docs .fbtn .chev{flex:0 0 auto;width:10px;height:6px;opacity:.7;}
+
+.page-docs .yg-head-static{display:flex;align-items:center;gap:12px;padding:15px 18px;border-bottom:1px solid var(--line);}
+.page-docs .yg-ttl{display:flex;flex-direction:column;gap:2px;min-width:0;flex:1;}
+.page-docs .yg-yr{font-size:18px;font-weight:800;color:var(--navy);}
+.page-docs .yg-meta{font-size:12.5px;font-weight:700;color:var(--ink-3);}
+.page-docs .yg-body{padding:2px 0 12px;}
+
+.page-docs .grp{margin:12px 14px 0;border:1px solid var(--line);border-radius:var(--r-lg);overflow:hidden;box-shadow:var(--shadow-sm);}
+.page-docs .doc{display:flex;align-items:center;gap:15px;padding:14px 22px;border-bottom:1px solid var(--line);transition:background .15s;color:inherit;}
+.page-docs .doc:last-child{border-bottom:0;}
+.page-docs .doc:hover{background:#fafafe;text-decoration:none;}
+.page-docs .grp>.doc{border-bottom:0;}
+.page-docs .doc-main{flex:1;min-width:0;}
+.page-docs .doc-title{display:block;font-size:15.5px;font-weight:700;color:var(--navy);}
+.page-docs .doc:hover .doc-title{color:var(--az-gold-d);}
+.page-docs .doc-sub{display:block;font-size:13px;color:var(--ink-3);font-weight:600;margin-top:2px;}
+.page-docs .doc-pill{flex:0 0 auto;display:inline-flex;align-items:center;gap:7px;font-size:12px;font-weight:800;color:var(--ink-2);background:var(--canvas);border:1px solid var(--line);border-radius:var(--r-pill);padding:6px 13px;white-space:nowrap;}
+.page-docs .doc:hover .doc-pill{border-color:var(--az-gold);color:var(--az-gold-d);}
+.page-docs .doc-pill svg{width:13px;height:13px;}
+.page-docs .doc-pub{flex:0 0 auto;font-size:10.5px;font-weight:800;color:#fff;background:var(--copper);border-radius:var(--r-pill);padding:3px 10px;letter-spacing:.05em;text-transform:uppercase;}
+
+.page-docs .ctx{margin:0 14px 14px;border:1px dashed #cdd3e6;border-radius:var(--r-md);background:#fafbff;}
+.page-docs .ctx-row{display:flex;align-items:center;gap:10px;padding:11px 14px;flex-wrap:wrap;}
+.page-docs .ctx-row .badge{display:inline-flex;align-items:center;gap:7px;font-size:12.5px;font-weight:800;color:var(--navy);}
+.page-docs .ctx-row .badge svg{width:15px;height:15px;color:var(--az-gold-d);flex:0 0 auto;}
+.page-docs .ctx-row .spacer{flex:1;}
+.page-docs .ctx .tray{display:none;border-top:1px dashed #cdd3e6;}
+.page-docs .ctx .tray.open{display:block;}
+.page-docs .ctx .tray .doc{padding:11px 14px;}
+.page-docs .ctx .tray .doc:not(:last-child){border-bottom:1px dashed #e3e7f1;}
+.page-docs .grp-more{display:inline-flex;align-items:center;gap:6px;font-size:12px;font-weight:800;color:var(--ink-2);background:var(--card);border:1px solid var(--line);border-radius:var(--r-pill);padding:6px 13px;cursor:pointer;white-space:nowrap;font-family:inherit;}
+.page-docs .grp-more svg{width:13px;height:13px;transition:transform .18s;}
+.page-docs .grp-more:hover{border-color:var(--az-gold);color:var(--az-gold-d);}
+.page-docs .grp-more.open svg{transform:rotate(180deg);}
+.page-docs .fnnote{font-size:12.5px;font-weight:700;color:var(--ink-3);margin:0;}
+.page-docs .docstatus{padding:0 2px;margin:0 0 12px calc(248px + var(--gap));}
+
+/* ========================================================================== */
+/* ===== NEW CSS — what the passage-first card adds, per styling ============ */
+/* ========================================================================== */
+
+/* --- SHARED by all four: the quote row. The snippet becomes the row's
+       headline, so it needs a multi-line reading style rather than
+       `.doc-title`'s single-line 15.5px/700 navy. ~5 lines. */
+.page-docs .quoterow{align-items:flex-start;}
+.page-docs .quoterow .doc-pub{margin-top:3px;}
+.page-docs .quoterow .doc-pill{margin-top:1px;}
+.page-docs .doc-quote{display:block;font-size:14px;font-weight:600;color:var(--ink);line-height:1.55;}
+.page-docs .doc-quote mark{background:transparent;color:inherit;font-weight:800;}
+
+/* --- S1 · House. Gold wash highlight, page as a right-hand `.doc-pill`,
+       document identity as a `.badge`, expand as a `.grp-more` pill.
+       Adds nothing beyond the shared block. */
+.st-1 .doc-quote mark{background:var(--az-gold-100);color:var(--az-gold-d);border-radius:3px;padding:0 3px;}
+
+/* --- S2 · Pull-quote. A copper rule down the left of the quote, the page
+       number moved inline to the end of the sentence, and the publisher chip
+       demoted into the identity row so the quote row is pure text. ~8 lines. */
+.st-2 .quoterow{padding-left:22px;}
+.st-2 .quoterow .doc-main{border-left:3px solid var(--copper);padding-left:14px;}
+.st-2 .doc-quote{font-size:14.5px;line-height:1.6;}
+.st-2 .doc-quote mark{background:linear-gradient(transparent 62%,var(--az-gold-100) 62%);color:inherit;}
+.st-2 .qpage{font-size:12px;font-weight:800;color:var(--ink-3);white-space:nowrap;margin-left:6px;}
+.st-2 .ctx-row .doc-pub{flex:0 0 auto;}
+
+/* --- S3 · Eyebrow. The document title moves ABOVE the quote as a small
+       uppercase label, so you know the source before you read the sentence;
+       the identity row then drops the title and carries only the count and
+       the control. ~7 lines. */
+.st-3 .qeyebrow{display:block;font-size:10.5px;font-weight:800;text-transform:uppercase;letter-spacing:.07em;color:var(--ink-3);margin-bottom:5px;}
+.st-3 .qeyebrow em{font-style:normal;color:var(--copper);}
+.st-3 .doc-quote{font-size:14.5px;}
+.st-3 .doc-quote mark{background:var(--az-gold-100);color:var(--az-gold-d);border-radius:3px;padding:0 3px;}
+.st-3 .ctx-row{justify-content:space-between;}
+
+/* --- S4 · Footer strip. The control stops being a right-aligned pill and
+       becomes a full-width bar across the bottom of the dashed block — a
+       bigger target that reads as "there is more below". Expanded passages
+       are numbered so their order is legible. ~14 lines. */
+.st-4 .doc-quote mark{background:var(--az-gold-100);color:var(--az-gold-d);border-radius:3px;padding:0 3px;}
+.st-4 .morestrip{display:flex;align-items:center;justify-content:center;gap:8px;width:100%;padding:11px 14px;background:transparent;border:0;border-top:1px dashed #cdd3e6;font-size:12.5px;font-weight:800;color:var(--az-gold-d);cursor:pointer;border-radius:0 0 var(--r-md) var(--r-md);transition:background .14s;}
+.st-4 .morestrip:hover{background:var(--az-gold-100);}
+.st-4 .morestrip svg{width:14px;height:14px;transition:transform .18s;}
+.st-4 .morestrip.open svg{transform:rotate(180deg);}
+.st-4 .pnum{flex:0 0 auto;display:grid;place-items:center;width:21px;height:21px;margin-top:1px;border-radius:50%;background:var(--navy-100);color:var(--navy);font-size:11px;font-weight:800;}
+
+/* --- Expanded passage rows (all four): a quote at reading size with its page
+       pill. Shares `.tray .doc`; only the type size differs. ~2 lines. */
+.page-docs .tray .doc-quote{font-size:13.5px;}
+
+@media (max-width:860px){
+  .page-docs .doclayout{grid-template-columns:1fr;}
+  .page-docs .docside{position:static;}
+  .page-docs .docstatus{margin-left:0;}
+}
+</style>
+</head>
+<body>
+
+<div class="mockbar">
+  <b>Styling</b>
+  <button data-st="1" class="on">S1 · House</button>
+  <button data-st="2">S2 · Pull-quote</button>
+  <button data-st="3">S3 · Eyebrow</button>
+  <button data-st="4">S4 · Footer strip</button>
+  <span class="sep"></span>
+  <button data-st="all">Compare all</button>
+  <span class="sep"></span>
+  <button id="expandBtn">Expand every card</button>
+</div>
+
+<header class="site">
+  <div class="bar">
+    <a class="brand" href="#"><span class="bt"><b>Ask the Budget</b><span>Arizona budget documents</span></span></a>
+    <nav class="pills" aria-label="Primary">
+      <a href="#" class="active" aria-current="page">Budget Documents</a>
+      <a href="#">AI Mode</a>
+      <a href="#">Fiscal Notes</a>
+    </nav>
+  </div>
+</header>
+
+<div class="vnote"><div class="vn" id="vnote"></div></div>
+
+<main class="page-docs">
+  <section class="subhero">
+    <div class="wrap">
+      <h1>Budget Documents</h1>
+      <p class="lead">Every Arizona budget document ingested so far — baselines, appropriations
+        reports, annual financial reports, executive budgets, and budget bills.</p>
+      <div class="chips">
+        <span class="chip">JLBC · OSPB · GAO</span>
+        <span class="chip">Every document opens its source PDF</span>
+      </div>
+    </div>
+  </section>
+
+  <div class="wrap docwrap">
+    <p class="fnnote docstatus" id="status"></p>
+    <div class="doclayout">
+      <aside class="docside">
+        <div class="fgrp">
+          <label class="fside-search">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg>
+            <input type="text" value="child care subsidy" readonly>
+            <button class="clr-x" aria-label="Clear search">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"><path d="M6 6l12 12M18 6 6 18"/></svg>
+            </button>
+          </label>
+        </div>
+        <div class="fgrp">
+          <div class="flbl">Document Type</div>
+          <div class="fctl"><button class="fbtn"><span class="fb-label">Any type</span>
+            <svg class="chev" viewBox="0 0 10 6" fill="none" stroke="currentColor" stroke-width="1.8"><path d="m1 1 4 4 4-4"/></svg></button></div>
+        </div>
+        <div class="fgrp">
+          <div class="flbl">Fiscal Year</div>
+          <div class="fctl"><button class="fbtn"><span class="fb-label">Any year</span>
+            <svg class="chev" viewBox="0 0 10 6" fill="none" stroke="currentColor" stroke-width="1.8"><path d="m1 1 4 4 4-4"/></svg></button></div>
+        </div>
+      </aside>
+      <div class="docmain" id="main"></div>
+    </div>
+  </div>
+</main>
+
+<script>
+/* ==========================================================================
+   Throwaway demo wiring. Illustrative data — no number here is real.
+   ========================================================================== */
+
+const QUERY = "child care subsidy";
+
+const ICON = {
+  doc:  '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M6 2h9l5 5v15H6z"/><path d="M14 2v6h6"/></svg>',
+  book: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 4h13a2 2 0 0 1 2 2v14H6a2 2 0 0 1-2-2z"/><path d="M4 18a2 2 0 0 1 2-2h13"/></svg>',
+  chev: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="m6 9 6 6 6-6"/></svg>'
+};
+
+/* ONE ENTRY PER DOCUMENT — never two cards for the same document.
+   d1 and d2 are deliberately the same family AND the same year (FY 2027
+   Baseline): different documents, so two cards, which is the case Destin
+   called out as correct. */
+const DOCS = [
+  {
+    id:"d1", pub:"JLBC", year:2027, family:"Baseline",
+    title:"FY 2027 Baseline — AHCCCS",
+    passages:[
+      {id:"p1", page:142, text:"The FY 2027 Baseline includes $89,432,700 from the Child Care and Development Fund for <mark>child care subsidy</mark> assistance, an increase of $4,100,000 above the FY 2026 appropriation."},
+      {id:"p2", page:143, text:"As of October 2026, the <mark>child care</mark> assistance waiting list contained 6,218 children, compared to 3,940 children at the same point in FY 2026."},
+      {id:"p3", page:145, text:"<mark>Subsidy</mark> reimbursement rates were last updated in FY 2024 based on the 2023 market rate survey. A full rate update is estimated to cost $22,600,000 annually."}
+    ]
+  },
+  {
+    id:"d2", pub:"JLBC", year:2027, family:"Baseline",
+    title:"FY 2027 Baseline — Health Services, Department of",
+    passages:[
+      {id:"p4", page:311, text:"Home visiting and <mark>child care</mark> health consultation programs are funded at $6,740,300, unchanged from FY 2026."},
+      {id:"p5", page:314, text:"The department licenses 2,190 <mark>child care</mark> facilities; inspection staffing is funded at 41.5 FTE positions in the FY 2027 Baseline."}
+    ]
+  },
+  {
+    id:"d3", pub:"JLBC", year:2026, family:"Appropriations Report",
+    title:"FY 2026 Appropriations Report — Economic Security, Department of",
+    passages:[
+      {id:"p6", page:88, text:"The Legislature appropriated $85,332,700 for <mark>child care subsidy</mark> in FY 2026, of which $12,000,000 is one-time federal relief funding that does not continue into FY 2027."},
+      {id:"p7", page:91, text:"Footnote 3 requires the department to report quarterly on <mark>child care</mark> waiting list totals to the Joint Legislative Budget Committee."}
+    ]
+  },
+  {
+    id:"d4", pub:"OSPB", year:2027, family:"Executive Budget",
+    title:"FY 2027 Executive Budget — Human Services",
+    passages:[
+      {id:"p8", page:54, text:"The Executive recommends $15,000,000 from the General Fund to eliminate the <mark>child care subsidy</mark> waiting list by the end of FY 2027."}
+    ]
+  }
+];
+
+const TOTAL = DOCS.reduce((n,d) => n + d.passages.length, 0);
+const plural = (n,s) => n + " " + s + (n === 1 ? "" : "s");
+
+const NOTES = {
+  "1": {
+    h:"S1 · House — the card built entirely from vocabulary the page already ships",
+    p:["The quote uses the gold wash highlight the app already uses for emphasis, the page number is a right-hand <code>.doc-pill</code> exactly like the browse rows' “Open” pill, the document identity is a <code>.badge</code> with the book glyph, and the control is the same <code>.grp-more</code> pill that opens every other tray on this page.",
+       "Nothing here is new except the quote's own type style. The risk is that it looks a little flat: a quote and a document title rendered at similar weights, with the most important thing on the card competing with the metadata below it."],
+    cost:"~5 lines of new CSS (shared quote style only)"
+  },
+  "2": {
+    h:"S2 · Pull-quote — the passage is typographically the subject of the card",
+    p:["A copper rule runs down the left of the quote, the type goes up half a point with looser leading, and the highlight becomes an underline wash rather than a filled block so a long quote doesn't turn stripey. The page number leaves the right rail and sits inline at the end of the sentence; the publisher chip drops into the identity row so the quote row is nothing but text.",
+       "The strongest read of “this sentence is the answer”. The trade-off is that the page number stops being scannable in a fixed column — with four cards open you can no longer run your eye down the right edge to compare pages."],
+    cost:"~8 lines of new CSS"
+  },
+  "3": {
+    h:"S3 · Eyebrow — source first, then the sentence",
+    p:["The document title moves above the quote as a small uppercase label, so you know which report you're reading before you read it. The identity row below then has no title to repeat and carries only the passage count and the control.",
+       "This fixes the one real weakness of passage-first — that a quote arrives with no context — without spending a click. The cost is a third type size in the row and a card that is visually busier at the top, plus the eyebrow will truncate awkwardly on long agency names."],
+    cost:"~7 lines of new CSS"
+  },
+  "4": {
+    h:"S4 · Footer strip — the control becomes a full-width bar",
+    p:["Identical quote treatment to S1, but “More from this document” stops being a right-aligned pill and becomes a bar across the bottom of the dashed block. Expanded passages get numbered circles so their order in the document is legible.",
+       "A much larger target and a clearer “there is more below” signal than a small pill floating at the right edge. The cost is that it makes every card taller and adds a control shape the rest of the page doesn't use — the browse cards would still be opening their trays with pills."],
+    cost:"~14 lines of new CSS"
+  }
+};
+
+/* --- the card, one structure, four stylings ------------------------------ */
+
+function quoteRow(doc, p, st) {
+  if (st === "2") {
+    return `<a class="doc quoterow" href="#" onclick="return false">
+      <div class="doc-main"><span class="doc-quote">${p.text}<span class="qpage">· p.&nbsp;${p.page}</span></span></div>
+    </a>`;
+  }
+  if (st === "3") {
+    return `<a class="doc quoterow" href="#" onclick="return false">
+      <span class="doc-pub">${doc.pub}</span>
+      <div class="doc-main">
+        <span class="qeyebrow">${doc.title}</span>
+        <span class="doc-quote">${p.text}</span>
+      </div>
+      <span class="doc-pill">p. ${p.page}</span>
+    </a>`;
+  }
+  return `<a class="doc quoterow" href="#" onclick="return false">
+    <span class="doc-pub">${doc.pub}</span>
+    <div class="doc-main"><span class="doc-quote">${p.text}</span></div>
+    <span class="doc-pill">p. ${p.page}</span>
+  </a>`;
+}
+
+function trayRow(p, st, i) {
+  const num = st === "4" ? `<span class="pnum">${i + 2}</span>` : "";
+  const page = st === "2"
+    ? ""
+    : `<span class="doc-pill">p. ${p.page}</span>`;
+  const inline = st === "2" ? `<span class="qpage">· p.&nbsp;${p.page}</span>` : "";
+  return `<a class="doc quoterow" href="#" onclick="return false">
+    ${num}
+    <div class="doc-main"><span class="doc-quote">${p.text}${inline}</span></div>
+    ${page}
+  </a>`;
+}
+
+function card(doc, st) {
+  const [best, ...rest] = doc.passages;
+  const key = st + ":" + doc.id;
+  const open = state.open.has(key);
+  const label = rest.length ? plural(rest.length, "more passage") : "";
+
+  /* The dashed block. In every styling it carries the document's identity and
+     exactly ONE action: More from this document. No Open / Full report. */
+  let ctx;
+  if (st === "4") {
+    ctx = `<div class="ctx">
+      <div class="ctx-row"><span class="badge">${ICON.book} ${doc.title}</span></div>
+      ${open && rest.length ? `<div class="tray open">${rest.map((p,i) => trayRow(p, st, i)).join("")}</div>` : ""}
+      ${rest.length ? `<button class="morestrip${open ? " open" : ""}" data-key="${key}">
+        More from this document <span style="color:var(--ink-3)">(${label})</span> ${ICON.chev}</button>` : ""}
+    </div>`;
+  } else if (st === "3") {
+    ctx = `<div class="ctx">
+      <div class="ctx-row">
+        <span class="badge">${ICON.doc} ${plural(doc.passages.length, "passage")} in this document</span>
+        ${rest.length ? `<button class="grp-more${open ? " open" : ""}" data-key="${key}">More from this document ${ICON.chev}</button>` : ""}
+      </div>
+      ${open && rest.length ? `<div class="tray open">${rest.map((p,i) => trayRow(p, st, i)).join("")}</div>` : ""}
+    </div>`;
+  } else {
+    ctx = `<div class="ctx">
+      <div class="ctx-row">
+        ${st === "2" ? `<span class="doc-pub">${doc.pub}</span>` : ""}
+        <span class="badge">${ICON.book} ${doc.title}</span>
+        <span class="spacer"></span>
+        ${rest.length ? `<button class="grp-more${open ? " open" : ""}" data-key="${key}">More from this document ${ICON.chev}</button>` : ""}
+      </div>
+      ${open && rest.length ? `<div class="tray open">${rest.map((p,i) => trayRow(p, st, i)).join("")}</div>` : ""}
+    </div>`;
+  }
+
+  return `<article class="grp st-${st}">${quoteRow(doc, best, st)}${ctx}</article>`;
+}
+
+function resultsCard(st) {
+  const meta = plural(TOTAL, "passage") + " · " + plural(DOCS.length, "document") +
+               " matching “" + QUERY + "”";
+  return `<section class="yg">
+    <div class="yg-head-static">
+      <div class="yg-ttl"><span class="yg-yr">Results</span><span class="yg-meta">${meta}</span></div>
+    </div>
+    <div class="yg-body">${DOCS.map(d => card(d, st)).join("")}</div>
+  </section>`;
+}
+
+/* --- state + render ------------------------------------------------------ */
+
+const state = { st: "1", open: new Set() };
+
+function render() {
+  const main = document.getElementById("main");
+  const vnote = document.getElementById("vnote");
+  document.getElementById("status").textContent =
+    TOTAL + " passages in " + plural(DOCS.length, "document") +
+    ", across all fiscal years, matching “" + QUERY + "”.";
+
+  if (state.st === "all") {
+    vnote.innerHTML = `<h3>All four, same data, same structure</h3>
+      <p>Only the styling of the changed elements differs: the quote row, the highlight,
+      where the page number sits, how the document is identified, and the expand control.
+      Use “Expand every card” to compare the open state too.</p>`;
+    main.innerHTML = ["1","2","3","4"].map(st =>
+      `<div class="cmp-label" style="padding:0"><span>S${st} · ${["","House","Pull-quote","Eyebrow","Footer strip"][+st]}</span></div>
+       ${resultsCard(st)}`).join("");
+    return;
+  }
+
+  const n = NOTES[state.st];
+  vnote.innerHTML = `<h3>${n.h}</h3>${n.p.map(t => `<p>${t}</p>`).join("")}<span class="cost">${n.cost}</span>`;
+  main.innerHTML = resultsCard(state.st);
+}
+
+document.querySelectorAll(".mockbar [data-st]").forEach(btn => {
+  btn.addEventListener("click", () => {
+    document.querySelectorAll(".mockbar [data-st]").forEach(b => b.classList.remove("on"));
+    btn.classList.add("on");
+    state.st = btn.dataset.st;
+    render();
+  });
+});
+
+document.getElementById("expandBtn").addEventListener("click", (e) => {
+  const anyOpen = state.open.size > 0;
+  state.open.clear();
+  if (!anyOpen) {
+    ["1","2","3","4"].forEach(st => DOCS.forEach(d => {
+      if (d.passages.length > 1) state.open.add(st + ":" + d.id);
+    }));
+  }
+  e.currentTarget.classList.toggle("on", !anyOpen);
+  render();
+});
+
+document.addEventListener("click", (e) => {
+  const t = e.target.closest("[data-key]");
+  if (!t) return;
+  e.preventDefault();
+  const k = t.dataset.key;
+  state.open.has(k) ? state.open.delete(k) : state.open.add(k);
+  render();
+});
+
+render();
+</script>
+</body>
+</html>

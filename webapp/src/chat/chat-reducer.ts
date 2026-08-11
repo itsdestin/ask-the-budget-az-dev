@@ -28,9 +28,33 @@ import { initialChatState } from "./chat-types.js";
 export function chatReducer(state: ChatState, action: ChatAction): ChatState {
   switch (action.type) {
     case "CONVERSATION_STARTED":
+      // keepTurns: the resumed-chat first send. The rehydrated turns are the
+      // analyst's view of the transcript — resetting to initialChatState here
+      // emptied the thread the moment they continued a stored chat (the bug
+      // where "resumed" behaved like "new"). A genuinely new chat omits the
+      // flag and still gets the clean slate.
+      if (action.keepTurns) {
+        return { ...state, conversationId: action.conversationId, error: null };
+      }
       return {
         ...initialChatState,
         conversationId: action.conversationId,
+      };
+
+    case "REHYDRATED":
+      // Opening a stored chat replaces the timeline wholesale — it never
+      // merges into an existing one. Shaped like CONVERSATION_STARTED
+      // (which resets to initialChatState) but carries turns. It ALSO carries
+      // the stored chat's id in conversationId: the id is "who this thread
+      // is", not "a live session exists" (the server session is still only
+      // built on the first send — H2: browsing is free). Recording the id is
+      // what lets send() recognize the continuation as a resume rather than a
+      // brand-new conversation, and what stops it wiping the turns it just
+      // showed the analyst.
+      return {
+        ...initialChatState,
+        conversationId: action.conversationId,
+        turns: action.turns,
       };
 
     case "USER_PROMPT": {

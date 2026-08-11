@@ -185,3 +185,36 @@ def test_the_real_url_convention_still_resolves_after_the_guard():
     """The guard must not cost the shape it exists to serve."""
     assert parse_jlbc_shorthand("ahcccs 27ar") == [(2027, "approps-per-agency")]
     assert parse_jlbc_shorthand("adc 21baseline") == [(2021, "baseline-per-agency")]
+
+
+def test_the_new_forms_parse_like_jlbcs_own_two():
+    # br/afr/exec are OUR additions (Destin, 2026-08-11), not JLBC directory
+    # names — analysts asked for them because the published convention only
+    # covers two of the corpus's report types.
+    assert parse_jlbc_shorthand("dema 26br") == [(2026, "baseline-per-agency")]
+    assert parse_jlbc_shorthand("26afr") == [(2026, "afr")]
+    assert parse_jlbc_shorthand("27exec") == [(2027, "governors-budget")]
+
+
+def test_br_and_baseline_are_the_same_report_type():
+    assert parse_jlbc_shorthand("26br") == parse_jlbc_shorthand("26baseline")
+
+
+def test_the_budget_bill_has_no_shorthand():
+    # Deliberate (Destin, 2026-08-11): JLBC never published one, and the
+    # corpus holds a single budget bill per year — shorthand earns nothing.
+    assert parse_jlbc_shorthand("26bill") == []
+
+
+def test_the_new_forms_keep_the_designator_guard():
+    # The guard that stops "chapter 21 baseline" must cover the new forms too,
+    # since the regex's optional space applies to all of them equally.
+    assert parse_jlbc_shorthand("chapter 26 afr") == []
+    assert parse_jlbc_shorthand("laws 2025, chapter 26 br") == []
+
+
+def test_a_longer_form_is_not_shadowed_by_a_shorter_one():
+    # "afr" must not be read as "ar" plus a stray letter, in either
+    # alternation order.
+    assert parse_jlbc_shorthand("26afr") == [(2026, "afr")]
+    assert parse_jlbc_shorthand("26arf") == []

@@ -14,7 +14,7 @@
 import { useEffect, useRef, useState } from "react";
 
 import { formatCopyCitation, type Citation } from "./citation-extract.js";
-import { useCitationBus } from "./citation-context.js";
+import { useCitationBus, useUnresolvable } from "./citation-context.js";
 import type { AnnotationFigure } from "./citation-annotation.js";
 
 interface Props {
@@ -103,14 +103,35 @@ export default function CitationChip({
   const [firing, setFiring] = useState(false);
   const bus = useCitationBus();
 
+  // H5: the viewer publishes a source-check verdict for this citation. A
+  // "gone"/"moved" verdict marks the chip stale; a "resolved" verdict clears
+  // the mark, because a stale brand from a transient failure (an ingest
+  // mid-rewrite returning a momentary 404) must not stick to a citation that
+  // actually still resolves. Invariant 2 cuts both ways: never silently drop,
+  // but never falsely brand either.
+  const [unresolvable, setUnresolvable] = useState<"gone" | "moved" | null>(null);
+  useUnresolvable((chunkId, reason) => {
+    if (chunkId !== citation.chunkId) return;
+    setUnresolvable(reason === "resolved" ? null : reason);
+  });
+
   const verbatim = citation.confidence === "verbatim";
   const failed = citation.failureReason !== undefined;
   // Three visual states: failed (red ✗ — the server rejected the cite, so the
   // claim is UNCITED), verbatim (blue ✓ — strict source match), paraphrase
   // (neutral ≈ — supported but reworded). Failed wins over the confidence
   // variant; "this claim has no valid citation" outranks everything else.
-  const tone = failed ? "is-failed" : verbatim ? "is-verbatim" : "is-paraphrase";
-  const glyph = failed ? "✗" : verbatim ? "✓" : "≈";
+  // H5: an unresolvable citation (source gone or moved) renders with the
+  // SAME failed treatment — Invariant 2 says it must be VISIBLE, never
+  // silently dropped.
+  const tone = (failed || unresolvable) ? "is-failed" : verbatim ? "is-verbatim" : "is-paraphrase";
+  const glyph = (failed || unresolvable) ? "✗" : verbatim ? "✓" : "≈";
+
+  // The accessible name says the source is no longer available when the
+  // viewer has reported it as unresolvable.
+  const staleNote = unresolvable
+    ? " (source no longer available)"
+    : "";
 
   const handleChipClick = () => {
     bus.select(citation);
@@ -138,7 +159,7 @@ export default function CitationChip({
           onFocus={openTip}
           onBlur={closeTip}
           className={`cite-chip${fireClass} chat-cite-inline ${tone}`}
-          aria-label={`Citation ${shown} (${citation.confidence}): ${inlineText}`}
+          aria-label={`Citation ${shown} (${citation.confidence}): ${inlineText}${staleNote}`}
         >
           {inlineText}
           <sup className={`chat-cite-sup ${tone}`} aria-hidden>
@@ -164,7 +185,7 @@ export default function CitationChip({
         onFocus={openTip}
         onBlur={closeTip}
         className={`cite-chip${fireClass} chat-cite-pill ${tone}`}
-        aria-label={`Citation ${shown} (${citation.confidence})`}
+        aria-label={`Citation ${shown} (${citation.confidence})${staleNote}`}
       >
         <span aria-hidden>{glyph}</span>
         <span data-testid="prose-chip">{shown}</span>

@@ -1,0 +1,676 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Retrieval results — display variants (mockup, not shipped code)</title>
+<!--
+
+  MOCKUP ONLY — four ways to display retrieval (document-contents) results and
+  their cited passages on the Budget Documents page. NOT ported code.
+
+  Context: the browse page's search box filters document TITLES client-side.
+  When that returns nothing, retrieval fires automatically after a typing
+  pause; when it returns something thin, a "Search document contents" pill
+  offers retrieval manually. Either way the Results card is REPLACED by
+  retrieval results. This file mocks up what those results look like.
+
+  The CSS below is `webapp/src/styles/app.css`'s `.page-docs` block VERBATIM
+  (lines 833-996), so every card here renders exactly as the shipped page
+  renders its own cards. Anything a variant would need BEYOND that block is
+  isolated in the "NEW CSS" section and labelled with which variant needs it —
+  that section is the real cost estimate for each option.
+
+  Data is illustrative. The passages are written to read like JLBC prose but
+  no number here was taken from a real document.
+
+  Use the bar at the top to switch variants and to preview the loading state.
+-->
+<style>
+/* ===== Design tokens — verbatim from webapp/src/styles/tokens.css ========== */
+:root {
+  --navy:#2b2f63; --navy-700:#232752; --navy-900:#181b3d; --navy-100:#e7e8f2;
+  --az-red:#2f55c4; --az-red-100:#e1e6fa;
+  --az-gold:#1b6fc4; --az-gold-d:#145aa6; --az-gold-100:#dceaf7;
+  --copper:#3d6a99; --copper-100:#e3ebf3;
+  --teal:#1782b3; --teal-100:#dbeef8;
+  --ink:#21243f; --ink-2:#4a4e6a; --ink-3:#757895;
+  --line:#e6e6ef; --canvas:#f5f5fa; --card:#fff;
+  --r-lg:22px; --r-md:16px; --r-sm:12px; --r-pill:999px; --gap:22px;
+  --shadow:0 1px 2px rgba(27,27,61,.05),0 10px 26px rgba(27,27,61,.08);
+  --shadow-sm:0 1px 2px rgba(27,27,61,.06),0 3px 10px rgba(27,27,61,.05);
+  --maxw:1140px; --font:"Nunito","Segoe UI",system-ui,-apple-system,sans-serif;
+}
+*{box-sizing:border-box;}
+body{margin:0;font-family:var(--font);background:var(--canvas);color:var(--ink);-webkit-font-smoothing:antialiased;}
+a{color:inherit;text-decoration:none;}
+button{font-family:inherit;}
+h1,h2,h3{margin:0;}
+.wrap{max-width:var(--maxw);margin:0 auto;}
+
+/* ===== MOCKUP-ONLY chrome (not part of any proposal) ====================== */
+.mockbar{position:sticky;top:0;z-index:80;background:var(--navy-900);color:#fff;padding:10px 22px;display:flex;align-items:center;gap:10px;flex-wrap:wrap;}
+.mockbar b{font-size:12px;font-weight:800;letter-spacing:.08em;text-transform:uppercase;color:#9fc4ee;margin-right:6px;}
+.mockbar button{font-size:12.5px;font-weight:800;color:#cdd6f5;background:rgba(255,255,255,.08);border:1px solid rgba(255,255,255,.18);border-radius:var(--r-pill);padding:7px 15px;cursor:pointer;transition:.13s;}
+.mockbar button:hover{background:rgba(255,255,255,.16);color:#fff;}
+.mockbar button.on{background:#fff;color:var(--navy-900);border-color:#fff;}
+.mockbar .sep{width:1px;height:22px;background:rgba(255,255,255,.2);margin:0 6px;}
+.vnote{max-width:var(--maxw);margin:0 auto;padding:16px 22px 0;}
+.vnote .vn{background:#fff;border:1px solid var(--line);border-left:4px solid var(--az-gold);border-radius:var(--r-md);padding:14px 18px;box-shadow:var(--shadow-sm);}
+.vnote h3{font-size:14.5px;font-weight:800;color:var(--navy);margin-bottom:5px;}
+.vnote p{margin:0;font-size:13px;font-weight:600;color:var(--ink-2);line-height:1.55;}
+.vnote p+p{margin-top:7px;}
+.vnote .cost{display:inline-block;margin-top:9px;font-size:11.5px;font-weight:800;text-transform:uppercase;letter-spacing:.06em;color:var(--az-gold-d);background:var(--az-gold-100);border-radius:var(--r-pill);padding:4px 11px;}
+
+/* ===== minimal site header (simplified components/Header.tsx) ============= */
+header.site{background:rgba(255,255,255,.96);border-bottom:1px solid var(--line);}
+header.site .bar{max-width:var(--maxw);margin:0 auto;padding:12px 22px;display:flex;align-items:center;gap:18px;}
+.brand .bt{line-height:1.1;}
+.brand .bt b{display:block;font-size:14.5px;font-weight:800;color:var(--navy);letter-spacing:-.2px;}
+.brand .bt span{font-size:11.5px;font-weight:700;color:var(--ink-3);}
+nav.pills{display:flex;gap:4px;margin-left:auto;background:var(--canvas);border:1px solid var(--line);border-radius:var(--r-pill);padding:4px;}
+nav.pills a{font-size:13px;font-weight:800;color:var(--ink-2);padding:8px 16px;border-radius:var(--r-pill);}
+nav.pills a.active{background:var(--navy);color:#fff;}
+
+/* ========================================================================== */
+/* ===== app.css `.page-docs` block, VERBATIM (lines 833-996) =============== */
+/* ========================================================================== */
+.page-docs .subhero{position:relative;overflow:hidden;color:#fff;
+  background:linear-gradient(105deg,rgba(18,21,48,.94) 0%,rgba(20,23,52,.86) 60%,rgba(20,23,52,.78) 100%);}
+.page-docs .subhero .wrap{position:relative;z-index:2;padding:32px 22px 34px;}
+.page-docs .subhero h1{font-size:clamp(24px,3.2vw,34px);font-weight:800;letter-spacing:-.4px;}
+.page-docs .subhero .lead{margin:10px 0 0;font-size:clamp(14px,1.5vw,16.5px);color:#d9dcf2;font-weight:600;max-width:66ch;line-height:1.5;}
+.page-docs .subhero .chips{display:flex;flex-wrap:wrap;gap:8px;margin-top:16px;}
+.page-docs .subhero .chip{display:inline-flex;align-items:center;gap:7px;background:rgba(255,255,255,.1);border:1px solid rgba(255,255,255,.2);border-radius:var(--r-pill);padding:6px 13px;font-size:12.5px;font-weight:700;color:#eef0fb;}
+.page-docs .subhero .chip svg{width:14px;height:14px;color:#9fc4ee;flex:0 0 auto;}
+
+.page-docs .wrap.docwrap{display:block;padding:28px 22px 22px;}
+.page-docs .doclayout{display:grid;grid-template-columns:248px 1fr;gap:var(--gap);align-items:start;}
+.page-docs .docside{background:#fff;border:1px solid var(--line);border-radius:var(--r-lg);box-shadow:var(--shadow-sm);padding:8px;position:sticky;top:100px;}
+.page-docs .docside .fgrp{padding:8px 8px 14px;}
+.page-docs .docside .fgrp+.fgrp{border-top:1px solid var(--line);}
+.page-docs .docside .flbl{font-size:11px;font-weight:800;text-transform:uppercase;letter-spacing:.08em;color:var(--ink-3);padding:6px 8px 8px;display:block;}
+.page-docs .docmain{display:flex;flex-direction:column;gap:var(--gap);min-width:0;}
+.page-docs .yg{background:#fff;border:1px solid var(--line);border-radius:var(--r-lg);box-shadow:var(--shadow-sm);overflow:hidden;}
+
+.page-docs .fside-search{display:flex;align-items:center;gap:8px;background:var(--canvas);border:1px solid var(--line);border-radius:var(--r-pill);padding:8px 12px;margin:2px 4px 6px;}
+.page-docs .fside-search:focus-within{border-color:var(--navy);background:#fff;box-shadow:0 0 0 3px var(--navy-100);}
+.page-docs .fside-search svg{width:16px;height:16px;color:var(--ink-3);}
+.page-docs .fside-search input{border:0;background:transparent;outline:0;font-family:inherit;font-size:13.5px;flex:1;min-width:0;color:var(--ink);}
+.page-docs .clr-x{flex:0 0 auto;display:inline-flex;align-items:center;justify-content:center;width:24px;height:24px;border-radius:50%;border:1px solid var(--line);background:#fff;color:var(--ink-2);cursor:pointer;padding:0;}
+.page-docs .clr-x svg{width:13px;height:13px;}
+
+.page-docs .fctl{position:relative;margin:0 4px;}
+.page-docs .fbtn{display:flex;align-items:center;gap:7px;width:100%;cursor:pointer;font-family:inherit;font-size:12.5px;font-weight:800;color:var(--ink-2);background:var(--canvas);border:1.5px solid var(--line);border-radius:var(--r-pill);padding:8px 13px;white-space:nowrap;transition:.14s;}
+.page-docs .fbtn:hover{border-color:var(--az-gold);color:var(--az-gold-d);}
+.page-docs .fbtn .fb-label{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;text-align:left;}
+.page-docs .fbtn .chev{flex:0 0 auto;width:10px;height:6px;opacity:.7;}
+
+.page-docs .yg-head-static{display:flex;align-items:center;gap:12px;padding:15px 18px;border-bottom:1px solid var(--line);}
+.page-docs .yg-ttl{display:flex;flex-direction:column;gap:2px;min-width:0;flex:1;}
+.page-docs .yg-yr{font-size:18px;font-weight:800;color:var(--navy);}
+.page-docs .yg-meta{font-size:12.5px;font-weight:700;color:var(--ink-3);}
+.page-docs .yg-body{padding:2px 0 12px;}
+
+.page-docs .grp{margin:12px 14px 0;border:1px solid var(--line);border-radius:var(--r-lg);overflow:hidden;box-shadow:var(--shadow-sm);}
+.page-docs .doc{display:flex;align-items:center;gap:15px;padding:14px 22px;border-bottom:1px solid var(--line);transition:background .15s;color:inherit;}
+.page-docs .doc:last-child{border-bottom:0;}
+.page-docs .doc:hover{background:#fafafe;text-decoration:none;}
+.page-docs .grp>.doc{border-bottom:0;}
+.page-docs .doc-main{flex:1;min-width:0;}
+.page-docs .doc-title{display:block;font-size:15.5px;font-weight:700;color:var(--navy);}
+.page-docs .doc:hover .doc-title{color:var(--az-gold-d);}
+.page-docs .doc-sub{display:block;font-size:13px;color:var(--ink-3);font-weight:600;margin-top:2px;}
+.page-docs .doc-pill{flex:0 0 auto;display:inline-flex;align-items:center;gap:7px;font-size:12px;font-weight:800;color:var(--ink-2);background:var(--canvas);border:1px solid var(--line);border-radius:var(--r-pill);padding:6px 13px;white-space:nowrap;}
+.page-docs .doc:hover .doc-pill{border-color:var(--az-gold);color:var(--az-gold-d);}
+.page-docs .doc-pill svg{width:13px;height:13px;}
+.page-docs .doc-pub{flex:0 0 auto;font-size:10.5px;font-weight:800;color:#fff;background:var(--copper);border-radius:var(--r-pill);padding:3px 10px;letter-spacing:.05em;text-transform:uppercase;}
+
+.page-docs .ctx{margin:0 14px 14px;border:1px dashed #cdd3e6;border-radius:var(--r-md);background:#fafbff;}
+.page-docs .ctx-row{display:flex;align-items:center;gap:10px;padding:11px 14px;flex-wrap:wrap;}
+.page-docs .ctx-row .badge{display:inline-flex;align-items:center;gap:7px;font-size:12.5px;font-weight:800;color:var(--navy);}
+.page-docs .ctx-row .badge svg{width:15px;height:15px;color:var(--az-gold-d);flex:0 0 auto;}
+.page-docs .ctx-row .spacer{flex:1;}
+.page-docs .ctx .tray{display:none;border-top:1px dashed #cdd3e6;}
+.page-docs .ctx .tray.open{display:block;}
+.page-docs .ctx .tray .doc{padding:11px 14px;}
+.page-docs .ctx .tray .doc:not(:last-child){border-bottom:1px dashed #e3e7f1;}
+.page-docs .grp-more{display:inline-flex;align-items:center;gap:6px;font-size:12px;font-weight:800;color:var(--ink-2);background:var(--card);border:1px solid var(--line);border-radius:var(--r-pill);padding:6px 13px;cursor:pointer;white-space:nowrap;font-family:inherit;}
+.page-docs .grp-more svg{width:13px;height:13px;transition:transform .18s;}
+.page-docs .grp-more:hover{border-color:var(--az-gold);color:var(--az-gold-d);}
+.page-docs .grp-more.open svg{transform:rotate(180deg);}
+.page-docs .grp-full{display:inline-flex;align-items:center;gap:6px;font-size:12px;font-weight:800;border-radius:var(--r-pill);padding:6px 13px;cursor:pointer;white-space:nowrap;background:var(--az-gold);border:1px solid var(--az-gold);color:#fff;text-decoration:none;}
+.page-docs .grp-full svg{width:13px;height:13px;}
+.page-docs .grp-full:hover{background:var(--az-gold-d);color:#fff;}
+.page-docs .empty{padding:20px 22px;font-size:14px;font-weight:600;color:var(--ink-2);}
+.page-docs .allbar{display:flex;justify-content:center;padding:2px 0;}
+.page-docs .allbtn{display:inline-flex;align-items:center;gap:9px;cursor:pointer;font-size:13.5px;font-weight:800;color:var(--az-gold-d);background:#fff;border:1px solid var(--az-gold-100);border-radius:var(--r-pill);padding:11px 20px;box-shadow:var(--shadow-sm);transition:.14s;font-family:inherit;}
+.page-docs .allbtn:hover{border-color:var(--az-gold);background:var(--az-gold-100);}
+.page-docs .fnnote{font-size:12.5px;font-weight:700;color:var(--ink-3);margin:0;}
+.page-docs .docstatus{padding:0 2px;margin:0 0 12px calc(248px + var(--gap));}
+
+/* ========================================================================== */
+/* ===== NEW CSS — what each variant would ADD to app.css =================== */
+/* ========================================================================== */
+
+/* --- Loading state (needed by ALL variants; it is the shared escalation UI).
+       ~10 lines. The spinner is the only genuinely new primitive on the page. */
+.page-docs .docload{display:flex;align-items:center;gap:12px;padding:20px 22px;font-size:14px;font-weight:700;color:var(--ink-2);}
+.page-docs .spin{flex:0 0 auto;width:17px;height:17px;border:2.5px solid var(--az-gold-100);border-top-color:var(--az-gold);border-radius:50%;animation:docspin .7s linear infinite;}
+@keyframes docspin{to{transform:rotate(360deg);}}
+.page-docs .dots::after{content:"";animation:docdots 1.4s steps(4,end) infinite;}
+@keyframes docdots{0%{content:"";}25%{content:".";}50%{content:"..";}75%{content:"...";}}
+.page-docs .docload .sub{display:block;font-size:12.5px;font-weight:600;color:var(--ink-3);margin-top:2px;}
+
+/* --- Variant C only: the snippet becomes the row's headline, so it needs a
+       readable multi-line quote style rather than `.doc-title`'s single-line
+       15.5px/700 navy. ~6 lines. */
+.page-docs .doc-quote{display:block;font-size:14px;font-weight:600;color:var(--ink);line-height:1.55;}
+.page-docs .doc-quote mark{background:var(--az-gold-100);color:var(--az-gold-d);border-radius:3px;padding:0 2px;font-weight:800;}
+.page-docs .quoterow{align-items:flex-start;}
+.page-docs .quoterow .doc-pub{margin-top:3px;}
+.page-docs .quoterow .doc-pill{margin-top:1px;}
+
+/* --- Variant D only: the split reader. The results column narrows and a
+       sticky source panel occupies the right half. ~24 lines, plus the panel
+       is really `pdf/SourceView.tsx` — which already exists and already
+       renders a highlighted PDF page in AI Mode. */
+.page-docs .readerlayout{display:grid;grid-template-columns:1fr 1fr;gap:var(--gap);align-items:start;}
+.page-docs .reader{background:#fff;border:1px solid var(--line);border-radius:var(--r-lg);box-shadow:var(--shadow-sm);position:sticky;top:100px;overflow:hidden;}
+.page-docs .reader-head{display:flex;align-items:center;gap:10px;padding:13px 16px;border-bottom:1px solid var(--line);}
+.page-docs .reader-head .rt{flex:1;min-width:0;}
+.page-docs .reader-head .rt b{display:block;font-size:13.5px;font-weight:800;color:var(--navy);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+.page-docs .reader-head .rt span{font-size:11.5px;font-weight:700;color:var(--ink-3);}
+.page-docs .reader-page{background:var(--canvas);padding:16px;min-height:420px;}
+.page-docs .pdfpage{background:#fff;border:1px solid var(--line);border-radius:6px;box-shadow:var(--shadow-sm);padding:24px 22px;font-size:10px;line-height:1.9;color:#b9bdd2;}
+.page-docs .pdfpage .hl{background:#ffe9a8;color:var(--ink);font-size:11px;font-weight:600;line-height:1.6;display:block;padding:6px 8px;border-radius:4px;margin:10px 0;}
+.page-docs .reader-empty{display:grid;place-items:center;min-height:420px;padding:30px;text-align:center;font-size:13.5px;font-weight:700;color:var(--ink-3);}
+.page-docs .doc.is-active{background:var(--az-gold-100);}
+.page-docs .doc.is-active .doc-quote,.page-docs .doc.is-active .doc-sub{color:var(--az-gold-d);}
+
+/* --- Variant B only: nothing. `.doc-sub` already exists and already styles a
+       sub-line under a `.doc-title`; B just puts the best passage there. */
+
+@media (max-width:980px){
+  .page-docs .readerlayout{grid-template-columns:1fr;}
+  .page-docs .reader{position:static;}
+}
+@media (max-width:860px){
+  .page-docs .doclayout{grid-template-columns:1fr;}
+  .page-docs .docside{position:static;}
+  .page-docs .docstatus{margin-left:0;}
+}
+
+/* --- Source drawer (variants A/B/C): this is `pdf/SourcePanel.tsx`, which is
+       ALREADY IN THE TREE and already styled — it was only unwired from this
+       page. Mocked here as a flat placeholder purely so the click has somewhere
+       to go; it is NOT a design proposal. */
+.drawer{position:fixed;inset:0;z-index:90;display:none;}
+.drawer.open{display:block;}
+.drawer .scrim{position:absolute;inset:0;background:rgba(24,27,61,.42);}
+.drawer .sheet{position:absolute;top:0;right:0;bottom:0;width:min(560px,92vw);background:#fff;box-shadow:-14px 0 40px rgba(27,27,61,.18);display:flex;flex-direction:column;}
+.drawer .dhead{display:flex;align-items:center;gap:10px;padding:15px 18px;border-bottom:1px solid var(--line);}
+.drawer .dhead .dt{flex:1;min-width:0;}
+.drawer .dhead .dt b{display:block;font-size:14px;font-weight:800;color:var(--navy);}
+.drawer .dhead .dt span{font-size:12px;font-weight:700;color:var(--ink-3);}
+.drawer .dclose{width:30px;height:30px;border-radius:50%;border:1px solid var(--line);background:#fff;color:var(--ink-2);cursor:pointer;font-size:16px;line-height:1;}
+.drawer .dbody{flex:1;overflow:auto;padding:16px;background:var(--canvas);}
+</style>
+</head>
+<body>
+
+<!-- MOCKUP-ONLY control bar ------------------------------------------------->
+<div class="mockbar">
+  <b>Mockup</b>
+  <button data-variant="A" class="on">A · Nested tray</button>
+  <button data-variant="B">B · Best passage inline</button>
+  <button data-variant="C">C · Passage-first</button>
+  <button data-variant="D">D · Split reader</button>
+  <span class="sep"></span>
+  <button id="loadBtn">Preview loading state</button>
+</div>
+
+<header class="site">
+  <div class="bar">
+    <a class="brand" href="#"><span class="bt"><b>Ask the Budget</b><span>Arizona budget documents</span></span></a>
+    <nav class="pills" aria-label="Primary">
+      <a href="#" class="active" aria-current="page">Budget Documents</a>
+      <a href="#">AI Mode</a>
+      <a href="#">Fiscal Notes</a>
+    </nav>
+  </div>
+</header>
+
+<div class="vnote"><div class="vn" id="vnote"></div></div>
+
+<main class="page-docs">
+  <section class="subhero">
+    <div class="wrap">
+      <h1>Budget Documents</h1>
+      <p class="lead">Every Arizona budget document ingested so far — baselines, appropriations
+        reports, annual financial reports, executive budgets, and budget bills.</p>
+      <div class="chips">
+        <span class="chip">JLBC · OSPB · GAO</span>
+        <span class="chip">Every document opens its source PDF</span>
+      </div>
+    </div>
+  </section>
+
+  <div class="wrap docwrap">
+    <p class="fnnote docstatus" id="status"></p>
+    <div class="doclayout">
+      <!-- The rail is static here: this mockup is about the results column. -->
+      <aside class="docside">
+        <div class="fgrp">
+          <label class="fside-search">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg>
+            <input type="text" value="child care subsidy" readonly>
+            <button class="clr-x" aria-label="Clear search">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"><path d="M6 6l12 12M18 6 6 18"/></svg>
+            </button>
+          </label>
+        </div>
+        <div class="fgrp">
+          <div class="flbl">Document Type</div>
+          <div class="fctl"><button class="fbtn"><span class="fb-label">Any type</span>
+            <svg class="chev" viewBox="0 0 10 6" fill="none" stroke="currentColor" stroke-width="1.8"><path d="m1 1 4 4 4-4"/></svg></button></div>
+        </div>
+        <div class="fgrp">
+          <div class="flbl">Fiscal Year</div>
+          <div class="fctl"><button class="fbtn"><span class="fb-label">Any year</span>
+            <svg class="chev" viewBox="0 0 10 6" fill="none" stroke="currentColor" stroke-width="1.8"><path d="m1 1 4 4 4-4"/></svg></button></div>
+        </div>
+      </aside>
+
+      <div id="main"></div>
+    </div>
+  </div>
+</main>
+
+<!-- Source drawer placeholder (variants A/B/C) ---------------------------- -->
+<div class="drawer" id="drawer">
+  <div class="scrim" data-close></div>
+  <div class="sheet">
+    <div class="dhead">
+      <div class="dt"><b id="dTitle"></b><span id="dSub"></span></div>
+      <button class="dclose" data-close aria-label="Close">✕</button>
+    </div>
+    <div class="dbody">
+      <div class="pdfpage" id="dPage"></div>
+    </div>
+  </div>
+</div>
+
+<script>
+/* ==========================================================================
+   Throwaway demo wiring. Illustrative data — no number here is real.
+   ========================================================================== */
+
+const QUERY = "child care subsidy";
+
+const ICON = {
+  doc:  '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M6 2h9l5 5v15H6z"/><path d="M14 2v6h6"/></svg>',
+  book: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 4h13a2 2 0 0 1 2 2v14H6a2 2 0 0 1-2-2z"/><path d="M4 18a2 2 0 0 1 2-2h13"/></svg>',
+  chev: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="m6 9 6 6 6-6"/></svg>',
+  open: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M5 12h14M13 6l6 6-6 6"/></svg>',
+  find: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg>'
+};
+
+/* Three documents, six passages, ordered by relevance (best first) — the
+   order a retrieval provider returns. Family grouping is preserved so these
+   cards sit alongside the browse page's own family cards. */
+const RESULTS = [
+  {
+    id: "d1", pub: "JLBC", year: 2027, family: "Baseline",
+    title: "FY 2027 Baseline — Economic Security, Department of",
+    fullReport: "#",
+    passages: [
+      { id:"p1", page:142, text:"The FY 2027 Baseline includes $89,432,700 from the Child Care and Development Fund for <mark>child care subsidy</mark> assistance, an increase of $4,100,000 above the FY 2026 appropriation." },
+      { id:"p2", page:143, text:"As of October 2026, the <mark>child care</mark> assistance waiting list contained 6,218 children, compared to 3,940 children at the same point in FY 2026." },
+      { id:"p3", page:145, text:"<mark>Subsidy</mark> reimbursement rates were last updated in FY 2024 based on the 2023 market rate survey. The department estimates a full rate update would cost $22,600,000 annually." }
+    ],
+    siblings: [
+      { pub:"JLBC", title:"FY 2027 Baseline — Child Safety, Department of" },
+      { pub:"JLBC", title:"FY 2027 Baseline — Health Services, Department of" }
+    ]
+  },
+  {
+    id: "d2", pub: "JLBC", year: 2026, family: "Appropriations Report",
+    title: "FY 2026 Appropriations Report — Economic Security, Department of",
+    fullReport: "#",
+    passages: [
+      { id:"p4", page:88, text:"The Legislature appropriated $85,332,700 for <mark>child care subsidy</mark> in FY 2026, of which $12,000,000 is one-time federal relief funding that does not continue into FY 2027." },
+      { id:"p5", page:91, text:"Footnote 3 requires the department to report quarterly on <mark>child care</mark> waiting list totals to the Joint Legislative Budget Committee." }
+    ],
+    siblings: [
+      { pub:"JLBC", title:"FY 2026 Appropriations Report — Child Safety, Department of" }
+    ]
+  },
+  {
+    id: "d3", pub: "OSPB", year: 2027, family: "Executive Budget",
+    title: "FY 2027 Executive Budget — Human Services",
+    fullReport: null,
+    passages: [
+      { id:"p6", page:54, text:"The Executive recommends $15,000,000 from the General Fund to eliminate the <mark>child care subsidy</mark> waiting list by the end of FY 2027." }
+    ],
+    siblings: []
+  }
+];
+
+const TOTAL_PASSAGES = RESULTS.reduce((n, d) => n + d.passages.length, 0);
+const plural = (n, s) => n + " " + s + (n === 1 ? "" : "s");
+const stripMarks = (s) => s.replace(/<\/?mark>/g, "");
+
+/* --- variant copy shown in the note card above the page ------------------ */
+const NOTES = {
+  A: {
+    h: "A · Nested tray — the document is the result, passages are evidence behind it",
+    p: [
+      "Exactly the card master's <code>ResultCard.tsx</code> rendered, re-skinned to lead with the copper publisher chip. The headline row is the DOCUMENT; a dashed block reports “4 passages” and stays collapsed until opened; the existing “Part of the FY … ” block sits below it unchanged.",
+      "Reads consistently with the browse cards you already have — the unit on screen is always a document. But the thing you searched for is hidden one click deep, so a scan of the page shows you which documents matched without showing you why."
+    ],
+    cost: "Zero new CSS — every class already ships"
+  },
+  B: {
+    h: "B · Best passage inline — the answer is visible, the rest is one click away",
+    p: [
+      "Same card as A, except the single highest-scoring passage renders as a sub-line under the document title (with its page pill), and the tray holds only the remaining passages as “2 more passages”.",
+      "You can read the page without clicking anything, and the card still reads as a document row rather than a wall of quotes. The cost is vertical space and a slight asymmetry: the featured passage sits in the header while its siblings sit in a dashed box, so two passages of equal standing are drawn differently."
+    ],
+    cost: "Zero new CSS — <code>.doc-sub</code> already styles exactly this"
+  },
+  C: {
+    h: "C · Passage-first — one card per passage, ranked purely by relevance",
+    p: [
+      "Drops document grouping entirely. Each card's headline IS the quoted passage with the query term highlighted; the document it came from moves into the context block below, alongside “Open document” and “Full report”.",
+      "This is the most honest rendering of what retrieval actually returned, and the fastest to skim for an answer. But it breaks the page's one consistent promise — that a row is a document — and the same report can now appear five times in a row, which the family grouping exists to prevent."
+    ],
+    cost: "~6 lines of new CSS (<code>.doc-quote</code> + highlight)"
+  },
+  D: {
+    h: "D · Split reader — results left, the actual PDF page right",
+    p: [
+      "The results column narrows to half width and a sticky panel on the right renders the source page with the passage highlighted. Clicking any passage swaps the panel instead of opening a modal, so you can walk down the list and read each source in place.",
+      "This is the strongest provenance story and it is less new work than it looks: <code>pdf/SourceView.tsx</code> already renders a highlighted PDF page and is live in AI Mode today. The risk is that half the width goes to a panel that is empty until you click, and the layout has to collapse to single-column below ~980px."
+    ],
+    cost: "~24 lines of layout CSS; the panel itself already exists"
+  }
+};
+
+/* --- row builders -------------------------------------------------------- */
+
+function docRow(d, extraSub) {
+  return `<a class="doc" href="#" onclick="return false">
+    <span class="doc-pub">${d.pub}</span>
+    <div class="doc-main">
+      <span class="doc-title">${d.title}</span>
+      ${extraSub || ""}
+    </div>
+    <span class="doc-pill">${ICON.open} Open</span>
+  </a>`;
+}
+
+function passageRow(doc, p, variant) {
+  const active = variant === "D" && state.active === p.id ? " is-active" : "";
+  return `<a class="doc${active}" href="#" data-passage="${p.id}" data-doc="${doc.id}">
+    <div class="doc-main"><span class="doc-sub">${p.text}</span></div>
+    <span class="doc-pill">p. ${p.page}</span>
+  </a>`;
+}
+
+function siblingRow(s) {
+  return `<a class="doc" href="#" onclick="return false">
+    <span class="doc-pub">${s.pub}</span>
+    <div class="doc-main"><span class="doc-title">${s.title}</span></div>
+    <span class="doc-pill">${ICON.open} Open</span>
+  </a>`;
+}
+
+/* The "Part of the FY … " block — identical in every variant, and identical to
+   what the page renders today. */
+function partOfBlock(d) {
+  if (!d.siblings.length && !d.fullReport) return "";
+  const key = d.id + "-sib";
+  const open = state.trays.has(key);
+  return `<div class="ctx">
+    <div class="ctx-row">
+      <span class="badge">${ICON.book} Part of the FY ${d.year} ${d.family}</span>
+      <span class="spacer"></span>
+      ${d.siblings.length ? `<button class="grp-more${open ? " open" : ""}" data-tray="${key}">${plural(d.siblings.length, "more document")} ${ICON.chev}</button>` : ""}
+      ${d.fullReport ? `<a class="grp-full" href="#" onclick="return false">${ICON.book} Full report</a>` : ""}
+    </div>
+    ${open && d.siblings.length ? `<div class="tray open">${d.siblings.map(siblingRow).join("")}</div>` : ""}
+  </div>`;
+}
+
+/* --- the four variants --------------------------------------------------- */
+
+function cardA(d) {
+  const key = d.id + "-psg";
+  const open = state.trays.has(key);
+  return `<article class="grp">
+    ${docRow(d)}
+    <div class="ctx">
+      <div class="ctx-row">
+        <span class="badge">${ICON.doc} Matching passages</span>
+        <span class="spacer"></span>
+        <button class="grp-more${open ? " open" : ""}" data-tray="${key}">${plural(d.passages.length, "passage")} ${ICON.chev}</button>
+      </div>
+      ${open ? `<div class="tray open">${d.passages.map(p => passageRow(d, p, "A")).join("")}</div>` : ""}
+    </div>
+    ${partOfBlock(d)}
+  </article>`;
+}
+
+function cardB(d) {
+  const [best, ...rest] = d.passages;
+  const key = d.id + "-psg";
+  const open = state.trays.has(key);
+  const sub = `<span class="doc-sub">${best.text} <b style="color:var(--ink-2)">p.&nbsp;${best.page}</b></span>`;
+  return `<article class="grp">
+    ${docRow(d, sub)}
+    ${rest.length ? `<div class="ctx">
+      <div class="ctx-row">
+        <span class="badge">${ICON.doc} More in this document</span>
+        <span class="spacer"></span>
+        <button class="grp-more${open ? " open" : ""}" data-tray="${key}">${plural(rest.length, "more passage")} ${ICON.chev}</button>
+      </div>
+      ${open ? `<div class="tray open">${rest.map(p => passageRow(d, p, "B")).join("")}</div>` : ""}
+    </div>` : ""}
+    ${partOfBlock(d)}
+  </article>`;
+}
+
+function cardC(doc, p) {
+  return `<article class="grp">
+    <a class="doc quoterow" href="#" data-passage="${p.id}" data-doc="${doc.id}">
+      <span class="doc-pub">${doc.pub}</span>
+      <div class="doc-main"><span class="doc-quote">${p.text}</span></div>
+      <span class="doc-pill">p. ${p.page}</span>
+    </a>
+    <div class="ctx">
+      <div class="ctx-row">
+        <span class="badge">${ICON.book} ${doc.title}</span>
+        <span class="spacer"></span>
+        <a class="grp-more" href="#" onclick="return false">${ICON.open} Open document</a>
+        ${doc.fullReport ? `<a class="grp-full" href="#" onclick="return false">${ICON.book} Full report</a>` : ""}
+      </div>
+    </div>
+  </article>`;
+}
+
+function cardD(d) {
+  return `<article class="grp">
+    ${docRow(d)}
+    <div class="ctx">
+      <div class="ctx-row"><span class="badge">${ICON.doc} ${plural(d.passages.length, "matching passage")}</span></div>
+      <div class="tray open">${d.passages.map(p => passageRow(d, p, "D")).join("")}</div>
+    </div>
+  </article>`;
+}
+
+/* --- the results panel --------------------------------------------------- */
+
+function resultsCard(bodyHtml, metaText) {
+  return `<section class="yg">
+    <div class="yg-head-static">
+      <div class="yg-ttl">
+        <span class="yg-yr">Results</span>
+        <span class="yg-meta">${metaText}</span>
+      </div>
+    </div>
+    <div class="yg-body">${bodyHtml}</div>
+  </section>`;
+}
+
+/* The loading state you described: it replaces the "No documents match…" line
+   the moment the title filter hits zero. Same Results card, same header. */
+function loadingCard() {
+  return `<section class="yg">
+    <div class="yg-head-static">
+      <div class="yg-ttl">
+        <span class="yg-yr">Results</span>
+        <span class="yg-meta">0 documents with “${QUERY}” in their title</span>
+      </div>
+    </div>
+    <div class="docload">
+      <span class="spin"></span>
+      <span>Searching document contents<span class="dots"></span>
+        <span class="sub">This may take a moment — reading inside every ingested PDF.</span>
+      </span>
+    </div>
+  </section>`;
+}
+
+/* The manual escalation pill — shown when the title filter DID return
+   something, so retrieval never ran. Matches Fiscal Notes' "Search all
+   legislative sessions" pill (`.allbar`/`.allbtn`, already in app.css). */
+function escalatePill() {
+  return `<div class="allbar"><button class="allbtn">${ICON.find} Search document contents</button></div>`;
+}
+
+/* --- state + render ------------------------------------------------------ */
+
+const state = { variant: "A", loading: false, trays: new Set(), active: null };
+
+function render() {
+  const note = NOTES[state.variant];
+  document.getElementById("vnote").innerHTML =
+    `<h3>${note.h}</h3>${note.p.map(t => `<p>${t}</p>`).join("")}<span class="cost">${note.cost}</span>`;
+
+  const main = document.getElementById("main");
+  const status = document.getElementById("status");
+
+  if (state.loading) {
+    status.textContent = "Searching document contents for “" + QUERY + "”…";
+    main.className = "docmain";
+    main.innerHTML = loadingCard();
+    return;
+  }
+
+  status.textContent =
+    TOTAL_PASSAGES + " passages in " + plural(RESULTS.length, "document") +
+    ", across all fiscal years, matching “" + QUERY + "”.";
+
+  const meta = plural(TOTAL_PASSAGES, "passage") + " · " + plural(RESULTS.length, "document") +
+               " matching “" + QUERY + "”";
+
+  if (state.variant === "C") {
+    const flat = RESULTS.flatMap(d => d.passages.map(p => cardC(d, p))).join("");
+    main.className = "docmain";
+    main.innerHTML = resultsCard(flat, meta) + escalatePill();
+    return;
+  }
+
+  if (state.variant === "D") {
+    const list = resultsCard(RESULTS.map(cardD).join(""), meta);
+    main.className = "";
+    main.innerHTML = `<div class="readerlayout">
+      <div class="docmain">${list}</div>
+      <aside class="reader">${readerPanel()}</aside>
+    </div>`;
+    return;
+  }
+
+  const build = state.variant === "A" ? cardA : cardB;
+  main.className = "docmain";
+  main.innerHTML = resultsCard(RESULTS.map(build).join(""), meta) + escalatePill();
+}
+
+/* Variant D's right-hand panel. The grey lines are a stand-in for a rendered
+   PDF page; the yellow block is the highlighted passage. */
+function readerPanel() {
+  if (!state.active) {
+    return `<div class="reader-empty">Select a passage to read it on its source page.</div>`;
+  }
+  const doc = RESULTS.find(d => d.passages.some(p => p.id === state.active));
+  const p = doc.passages.find(x => x.id === state.active);
+  return `<div class="reader-head">
+      <div class="rt"><b>${doc.title}</b><span>Page ${p.page} · ${doc.pub}</span></div>
+      <a class="grp-full" href="#" onclick="return false">${ICON.open} Open PDF</a>
+    </div>
+    <div class="reader-page">${fakePage(p)}</div>`;
+}
+
+function fakePage(p) {
+  const filler = n => Array.from({length:n}, () =>
+    "▬▬▬▬▬ ▬▬▬ ▬▬▬▬▬▬▬ ▬▬▬▬ ▬▬▬▬▬▬ ▬▬▬ ▬▬▬▬▬▬▬▬ ▬▬▬▬ ▬▬▬▬▬▬ ▬▬▬").join("<br>");
+  return `<div class="pdfpage">${filler(6)}<span class="hl">${stripMarks(p.text)}</span>${filler(8)}</div>`;
+}
+
+/* --- events -------------------------------------------------------------- */
+
+document.querySelectorAll(".mockbar [data-variant]").forEach(btn => {
+  btn.addEventListener("click", () => {
+    document.querySelectorAll(".mockbar [data-variant]").forEach(b => b.classList.remove("on"));
+    btn.classList.add("on");
+    state.variant = btn.dataset.variant;
+    state.loading = false;
+    state.trays.clear();
+    state.active = null;
+    document.getElementById("loadBtn").classList.remove("on");
+    render();
+  });
+});
+
+document.getElementById("loadBtn").addEventListener("click", (e) => {
+  state.loading = !state.loading;
+  e.currentTarget.classList.toggle("on", state.loading);
+  render();
+});
+
+document.addEventListener("click", (e) => {
+  const tray = e.target.closest("[data-tray]");
+  if (tray) {
+    e.preventDefault();
+    const k = tray.dataset.tray;
+    state.trays.has(k) ? state.trays.delete(k) : state.trays.add(k);
+    render();
+    return;
+  }
+  const psg = e.target.closest("[data-passage]");
+  if (psg) {
+    e.preventDefault();
+    const doc = RESULTS.find(d => d.id === psg.dataset.doc);
+    const p = doc.passages.find(x => x.id === psg.dataset.passage);
+    if (state.variant === "D") { state.active = p.id; render(); return; }
+    // A/B/C: the source drawer (pdf/SourcePanel.tsx, already in the tree).
+    document.getElementById("dTitle").textContent = doc.title;
+    document.getElementById("dSub").textContent = "Page " + p.page + " · " + doc.pub;
+    document.getElementById("dPage").outerHTML = fakePage(p).replace('class="pdfpage"', 'class="pdfpage" id="dPage"');
+    document.getElementById("drawer").classList.add("open");
+    return;
+  }
+  if (e.target.closest("[data-close]")) {
+    document.getElementById("drawer").classList.remove("open");
+  }
+});
+
+document.addEventListener("keydown", (e) => {
+  if (e.key === "Escape") document.getElementById("drawer").classList.remove("open");
+});
+
+render();
+</script>
+</body>
+</html>
