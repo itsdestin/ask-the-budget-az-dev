@@ -1,7 +1,26 @@
 # AI Mode Chat History — Follow-up Session Handoff
 
+> **RESOLVED — 2026-08-03 (later session).** Everything this handoff listed as
+> outstanding is now committed and merged:
+> - The two uncommitted defensive fixes (rail CSS, empty-title fallback) are
+>   commits `0363d27` and `55037b4`.
+> - **Issue 1** (citations unlink after switching sessions) — `9d73754`
+>   (server: annotation rides the assistant message) and `9645e9c` (client:
+>   `rehydrateTurns` restores it). *One hole remains from the commit review:
+>   the INTERRUPT path skips `_attach_annotation` — tracked in the
+>   "AI Mode chat history" section of STATUS.md.*
+> - **Issue 2** ("+ New chat" no-op) — `6f35f7e` (the nonce).
+> - **Issue 3** (design audit) — committed as
+>   `docs/superpowers/investigations/2026-08-03-ai-mode-design-audit.md`.
+> - A NEW bug reported by Destin (a resumed chat's transcript vanished on the
+>   first send — `conversationIdRef` was never seeded, so
+>   `CONVERSATION_STARTED` reset the timeline) was fixed in `fec29ed`, and
+>   four further review fixes landed in `d97ebd5` and `4600282`.
+> - Current status lives in STATUS.md → "AI Mode chat history". This file is
+>   now a historical record of what that session was asked to do.
+
 **Date:** 2026-08-03 (session reviewing the 2026-08-02 chat-history implementation)
-**Branch:** `chat-history` (local only, NOT pushed to GitHub)
+**Branch:** `chat-history`
 **Worktree:** `/home/destin/ask-the-budget-az-worktrees/chat-history`
 **Prior handoff:** [`docs/active/handoffs/2026-08-02-chat-history-implementation.md`](2026-08-02-chat-history-implementation.md) — read this first; it details the 10 commits, the architecture, and the design decisions that are load-bearing here.
 

@@ -1,5 +1,15 @@
 # Chat History Implementation — Session Handoff
 
+> **SUPERSEDED — 2026-08-03.** This handoff was written while the branch was
+> still local and unfinished. Since then: the branch was pushed and merged via
+> PR to master; the rail CSS was written (`0363d27`); the empty-title fallback
+> was committed (`55037b4`); and a review session fixed several real bugs
+> (transcript wiped on resume, corpus mismatch on select, sticky stale marks,
+> the mid-turn delete/rename race) — see STATUS.md → "AI Mode chat history"
+> for the current state. The file below remains accurate about what the 10
+> commits BUILT and the design decisions; treat its "NOT done" list as
+> historical.
+
 **Date:** 2026-08-02 (session ran into 2026-08-03)
 **Branch:** `chat-history` (local only, NOT pushed to GitHub)
 **Worktree:** `/home/destin/ask-the-budget-az-worktrees/chat-history`

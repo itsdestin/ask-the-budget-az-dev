@@ -35,6 +35,7 @@ source. When something ships, update only this file.
 | Citation linking | 🟡 **Shipped, then found to OVERCLAIM** (2026-08-02) | On master and running. Two fundamental problems unfixed; the 92.9% figure measures coverage, not correctness. **Read the banner in its section before trusting any number** |
 | AI Mode UI redesign | ✓ Shipped (2026-08-02) | One column, floating chrome, tools menu. Six defects found by review that left the suite green |
 | Query understanding | ✓ Shipped (2026-08-03) | Agency / doc-type / JLBC-shorthand parsing. recall@5 73.81% → 88.10%, recall@15 and @20 100%. Agency is a PREFERENCE, not a filter — a measured deviation from spec Q2 |
+| AI Mode chat history | ✓ Shipped (2026-08-03) | Per-device transcripts, browse/search/resume past chats, auto-naming, collapsible rail. Local disk only — never the share. See the section below |
 
 ## Corpus — what is ingested and what is NOT (2026-08-01)
 
@@ -765,6 +766,113 @@ stops existing just leaves its children looking approximately fine.**
   the spark throw and the stop-button spinner are disabled by design and
   snap between states. Worth knowing before anyone reports them as broken.
 - The bundle has not been rebuilt against this webapp.
+
+---
+
+## AI Mode chat history — shipped, then reviewed and tightened (2026-08-03)
+
+Spec: `docs/superpowers/specs/2026-08-02-ai-mode-chat-history-design.md`
+(H1–H6 + A1, with implementation amendments). Implementation handoff:
+`docs/active/handoffs/2026-08-02-chat-history-implementation.md`. Follow-up
+session handoff: `docs/active/handoffs/2026-08-03-ai-mode-chat-history-followups.md`
+(its "uncommitted fixes" were all committed in the branch; the three issues
+it lists are resolved by commits `9d73754`/`9645e9c` (Issue 1), `6f35f7e`
+(Issue 2) and `62197cc` (Issue 3 audit)). Merged via the `chat-history` PR.
+
+Analysts can browse, search and resume their own past AI Mode conversations.
+Transcripts are per-device files at `%LOCALAPPDATA%\JLBC-Insight\conversations\`
+— **never the share** (Invariant 7, pinned by the AST import-allowlist test):
+one analyst's questions are not ~20 colleagues' reading material.
+
+### As shipped (decisions H1–H6)
+
+- **H1 — files, not a database.** One JSON per conversation; the directory IS
+  the index. Atomic tmp+`os.replace` writes (per-call uuid suffix, not
+  per-process, so two writers on the same id can't share a tmp name). Read
+  paths degrade on a corrupt file; the write path raises.
+- **H2 — browsing is free.** Opening a stored chat renders it live with no
+  server session and no API spend; the session is rebuilt from the stored
+  transcript on the FIRST send (`resume_from` on `POST /api/conversations` —
+  no parallel resume endpoint). The stored corpus wins over whatever the
+  client requested, and the picker now follows it (review fix below).
+- **H3 — auto-naming is one cheap LLM call after the first exchange**, ledgered
+  under its own `"title"` tier, falling back to the truncated question on
+  EVERY failure (no key, AI Mode off, over-limit, provider error). Manual
+  renames are never overwritten by auto-naming.
+- **H4 — search** scans titles and prose only; `tool` messages are excluded
+  by ROLE (their content is a JSON payload of retrieved chunks, so an
+  isinstance check would not exclude them).
+- **H5 — a stale citation is marked, never silently dropped.** Click-time
+  chunk fetch distinguishes 404 ("gone") from 200-with-quote-missing
+  ("moved"); a 503 publishes nothing ("we cannot tell" beats a false "your
+  source is dead"). The verified quote still renders.
+- **H6 — keep everything.** No cap, no expiry, explicit delete only.
+- **A1 — collapsible history rail** amends the UI redesign's D1; auto-
+  collapses when the source panel opens; collapsed state persists.
+
+### The 2026-08-03 review found real bugs; this is what was fixed
+
+A commit-by-commit review of the branch (all 20 commits unique to
+`chat-history`) found the code careful overall but with genuine logic gaps.
+Fixed in the branch before the PR:
+
+- **Resuming a chat wiped its transcript on first send.** The resume id never
+  reached `conversationIdRef`, so the first send dispatched
+  `CONVERSATION_STARTED`, whose reducer resets the timeline — emptying the
+  rehydrated turns the analyst was looking at. Fix: the rehydrate effect
+  seeds the ref and the `REHYDRATED` id; `send` detects the resume case and
+  dispatches with a new `keepTurns` flag. Regression-tested.
+- **The annotation persistence fix (Handoff Issue 1) had a hole on the
+  interrupt path.** `_attach_annotation` sits after the interrupt breaks, so a
+  STOPPED turn persisted without its figure annotation — and the amended test
+  asserted a shape that path never produced. **STILL OPEN** (below).
+- **Corpus mismatch on select.** The rail lists both corpora but selecting a
+  chat never moved the picker, so the thread could answer out of one corpus
+  while the UI showed the other. Selecting now reads the stored transcript's
+  corpus and sets both in one remount.
+- **Sticky stale marks.** A chip branded "source no longer available" (e.g.
+  a transient 404 mid-ingest) never cleared. The viewer now publishes a
+  `resolved` verdict on a clean re-check; the chip clears itself.
+- **The mid-turn delete/rename race.** `persist_turn` runs AFTER `end_turn`
+  in a background thread, so the rail could delete or rename a chat while its
+  turn streamed. Two fixes: a turn-end write skips when the file is gone and
+  this is NOT the first turn (a deleted chat stays deleted — the first-turn
+  discriminator is the USER-message count, since a tool-calling first turn has
+  two assistant messages), and `harness/history.py` gained a per-id write lock
+  (`threading.RLock`) wrapping save/delete/rename so the turn-end write and a
+  rail rename can't interleave. The lock-probe test is verified to FAIL when
+  the lock is stripped.
+- Smaller: the `useHistory` empty-query guard now gates on real search state,
+  not a seq counter the mount fetch also bumps; the transcript tmp name is
+  unique per call (`uuid` and `threading` added to the Invariant-7 allowlist
+  — both stdlib, neither can reach the share).
+
+### Open from the review (deliberately not fixed in this work)
+
+1. **Interrupt path drops the figure annotation** (highest value). The fix
+   belongs before the interrupt `break`/`yield done_frame`, keeping the
+   existing "annotation on the last assistant message" shape.
+2. **Resume-reuse doesn't notice disk is ahead.** When the resumed id is
+   already live in the registry and the stored transcript is newer (a second
+   tab continued it), the live session answers from stale in-memory history.
+   Guard: compare `len(session.history)` to stored `message_count`; 409 or
+   rebuild.
+3. **409-on-resume-busy reads as a generic error** — the client can't tell
+   "wait for the answer" from "no such chat".
+4. **No tier on the transcript and no schema version.** A resumed Deep
+   Research chat silently continues at Standard depth; a future schema change
+   reads old files as "absent", not "migrated".
+5. **A turn ending AFTER a rename rewrites the title back** — the app's
+   existing design (a turn records what it knew); the new lock stops
+   mid-write clobbering, not last-writer-wins. Decision needed on whether
+   turn-end writes should preserve `title`/`title_is_manual` for existing
+   transcripts.
+
+Spec follow-ups still open: the Administrator Handbook paragraph (history
+writes questions to disk in plain text; the first exchange goes to the model
+for naming — a confidentiality note that `docs/HANDBOOK.md` must carry, and
+the file does not exist yet), and `MAX_CONVERSATIONS = 40` may want a
+revisit now that eviction is no longer data loss.
 
 ---
 
