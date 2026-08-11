@@ -48,13 +48,17 @@ test("focus still moves into the dialog when neither format is available", () =>
 
 test("Tab from the last control wraps to the first — focus never escapes", () => {
   render(<ReportChooser title="FY 2027 Baseline" formats={BOTH} onClose={() => {}} />);
-  const nodes = screen.getAllByRole("link");
+  // DOM order is deterministic — the close button sits in `.mhead`, before
+  // `.mbody`'s links — so `first`/`last` don't need to be derived from
+  // compareDocumentPosition; the previous version of this test only checked
+  // "focus moved somewhere", which passed for a wrap to the WRONG node too
+  // (MINOR, 2026-08-10).
   const close = screen.getByRole("button", { name: /close/i });
-  const last = close.compareDocumentPosition(nodes[nodes.length - 1]) & Node.DOCUMENT_POSITION_FOLLOWING
-    ? nodes[nodes.length - 1] : close;
+  const links = screen.getAllByRole("link");
+  const last = links[links.length - 1];
   last.focus();
   fireEvent.keyDown(document, { key: "Tab" });
-  expect(document.activeElement).not.toBe(last);
+  expect(document.activeElement).toBe(close);
 });
 
 test("a missing format is not offered at all", () => {
