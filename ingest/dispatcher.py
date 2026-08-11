@@ -13,6 +13,11 @@ through OpenDataLoader for cell-level fidelity. Untagged JLBC PDFs go
 through MinerU for layout reconstruction + table detection. DOCX bills
 use python-docx with paragraph-id provenance.
 
+The table below is illustrative and was already incomplete before this
+module started reading routing from data anyway -- ``data/document-types.yaml``
+is the source of truth (``EXTRACTOR_REGISTRY`` is a projection of it; see
+``_build_registry``), not this docstring.
+
 | doc_type              | source_format | extractor      |
 |-----------------------|---------------|----------------|
 | afr                   | pdf           | opendataloader |
