@@ -314,6 +314,33 @@ def test_a_wrong_typed_fiscal_year_lists_with_no_terms_not_a_500(client, tmp_pat
     assert rows["doc-b"]["terms"] == ["25afr", "afr"]
 
 
+def test_a_bool_or_out_of_range_fiscal_year_lists_with_no_terms(client, tmp_path):
+    """2026-08-11 review finding 6: `isinstance(fiscal_year, int)` alone
+    admits `bool` (an int subclass) and any out-of-range int, e.g. a
+    five-digit typo. Both are syntactically valid ints, so before this fix
+    they reached `search_terms` and, for the typo, silently produced a
+    nonsense term ("60br" from `20260 % 100`) with no symptom. Both now skip
+    `terms` for their own row, same posture as the other wrong-typed cases in
+    this file; `doc-c` proves it's a per-row degrade, not a whole-request one.
+    """
+    _write(
+        tmp_path,
+        {
+            "doc-a": _entry(doc_type="baseline-per-agency", fiscal_year=True),
+            "doc-b": _entry(doc_type="baseline-per-agency", fiscal_year=20260),
+            "doc-c": _entry(doc_type="afr", fiscal_year=2025),
+        },
+    )
+
+    response = client.get("/api/corpus/documents")
+
+    assert response.status_code == 200
+    rows = {r["doc_id"]: r for r in response.json()["documents"]}
+    assert rows["doc-a"]["terms"] == []
+    assert rows["doc-b"]["terms"] == []
+    assert rows["doc-c"]["terms"] == ["25afr", "afr"]
+
+
 def test_a_wrong_typed_doc_type_lists_with_no_terms_not_a_500(client, tmp_path):
     """Reproduced against the pre-fix route: `doc_type=["baseline-per-agency"]`
     (a list) raises TypeError being hashed as a dict key in

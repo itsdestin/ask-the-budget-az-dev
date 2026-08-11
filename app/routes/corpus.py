@@ -160,7 +160,20 @@ def document_listing() -> list[dict]:
         fiscal_year = meta.get("fiscal_year")
         if not (doc_type is None or isinstance(doc_type, str)):
             return []
-        if not (fiscal_year is None or isinstance(fiscal_year, int)):
+        # `isinstance(x, int)` alone admits two nonsense inputs a hand-edited
+        # sidecar can hold (2026-08-11 review finding 6): `bool` is an int
+        # subclass, so `fiscal_year: true` passes as `1`; and a five-digit
+        # typo like `20260` passes too, then silently becomes the term
+        # "60br" via `_type_terms`'s `fiscal_year % 100`. Bounding to a
+        # plausible four-digit year rejects both in the same check that was
+        # already here — no user-visible harm today (no fixture has ever
+        # carried either shape), so this stays a bound wide enough to need
+        # no import from retrieval's MIN/MAX_PLAUSIBLE_YEAR, not a coupling
+        # to that exact window.
+        if not (
+            fiscal_year is None
+            or (isinstance(fiscal_year, int) and 1000 <= fiscal_year <= 9999)
+        ):
             return []
         return search_terms(doc_id, doc_type, fiscal_year)
 
