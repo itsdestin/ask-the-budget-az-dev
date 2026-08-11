@@ -68,7 +68,19 @@ export default function CitedMarkdownContent({
   citations,
   annotation,
 }: Props) {
-  const figures = useMemo(() => figuresForRender(annotation), [annotation]);
+  // Only figures the system actually sourced get a chip. An unverified
+  // figure is not a citation — nothing was found — and drawing a numbered
+  // red marker for each one buries the real citations in noise: a nine-row
+  // table rendered as 13,14,…,20 struck through around a single live 21.
+  //
+  // Nothing announces the omission, deliberately. A number with no chip is
+  // visibly uncited, so a second statement saying so is redundant. The
+  // all-unverified case still gets `RefusalBanner`, which is a different
+  // claim: not "this figure lacks a source" but "this ANSWER has none".
+  const figures = useMemo(
+    () => figuresForRender(annotation).filter((f) => f.verdict !== "unverified"),
+    [annotation],
+  );
 
   // Build the augmented markdown once per (content, citations) change. Both
   // inputs are stable across re-renders because the parent memoizes

@@ -216,3 +216,57 @@ def test_an_executor_without_aliases_still_links_by_value():
     assert frame["finalAnswer"] == "ADC spent $1,391,157,700 that year."
     assert fig["verdict"] == "linked"
     assert fig["link_basis"] == "unambiguous-fallback"
+
+
+# -- cross-turn scope. The linking pool spans the CONVERSATION so a model
+# can cite a passage it read two questions ago; the UNTAGGED fallback
+# stays scoped to this turn, because with only the value as evidence every
+# extra document in scope is another chance to coincide. Measured over the
+# 31-query baseline: merging 8 turns' pools took the untagged false-link
+# rate on rounded billions from 0.28% to 2.50%, near the 3.7% of the
+# authority-ranking design this replaced.
+
+def _two_turn(second_answer, executor=None):
+    """Turn 1 retrieves; turn 2 answers from context with NO tool call."""
+    provider = Provider(
+        lambda: sse(tool_chunk(0, call_id="c1", name="retrieve",
+                               arguments='{"query": "ADC"}'),
+                    finish_chunk("tool_calls"), usage_chunk()),
+        lambda: sse(text_chunk("Found the ADC figure."),
+                    finish_chunk("stop"), usage_chunk()),
+        lambda: sse(text_chunk(second_answer),
+                    finish_chunk("stop"), usage_chunk()),
+    )
+    s = _session(provider, executor=executor)
+    s.send_turn("How much for ADC?")
+    frame = s.send_turn("Repeat that figure.")
+    s.close()
+    return frame
+
+
+def test_a_tagged_figure_from_an_earlier_turn_still_links():
+    """Observed live 2026-08-11: a follow-up produced a nine-row table
+    whose values all sat in a chunk retrieved by an EARLIER turn, and
+    every chip rendered red. A model answering from context does not
+    retrieve again, and a turn-scoped pool punishes it for not wasting a
+    search."""
+    frame = _two_turn("As noted, ADC received $1,391,157,700 [[c1]].",
+                      executor=AliasingExecutor())
+    (fig,) = frame["annotation"]["figures"]
+    assert fig["verdict"] == "linked"
+    assert fig["link_basis"] == "tag"
+    assert fig["primary"]["chunk_id"] == "c-1"
+    # Locator metadata has to survive the hop, or the chip opens on
+    # "Couldn't open source PDF".
+    assert fig["primary"]["page_start"] == 3
+
+
+def test_an_untagged_figure_from_an_earlier_turn_does_not_link():
+    """The deliberate other half. Widening the untagged pool across a
+    whole conversation is what re-creates the wrong-document rate this
+    design exists to remove, so an untagged figure whose source was
+    retrieved in an earlier turn is refused, not guessed."""
+    frame = _two_turn("As noted, ADC received $1,391,157,700.")
+    (fig,) = frame["annotation"]["figures"]
+    assert fig["verdict"] == "unverified"
+    assert fig["link_basis"] is None

@@ -139,7 +139,12 @@ export function CostsPanel({
               {rows.map((row) => (
                 <tr key={row.key || "(unrecorded)"}>
                   <th scope="row">
-                    {tab === "by_tier" ? (TIER_LABELS[row.key] ?? row.key ?? "(not recorded)") : (row.key || "(not recorded)")}
+                    {/* `||`, not `??`, on the inner fallback: an unrecorded key
+                        arrives as the EMPTY STRING, which `??` passes straight
+                        through and paints a blank cell. The other tabs always
+                        used `||`; this one drifted and silently lost the
+                        fail-safe the comment above claims. */}
+                    {tab === "by_tier" ? (TIER_LABELS[row.key] || row.key || "(not recorded)") : (row.key || "(not recorded)")}
                   </th>
                   <td>{usd(row.cost_usd)}</td>
                   <td>{count(row.rows)}</td>

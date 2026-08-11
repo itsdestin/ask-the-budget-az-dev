@@ -136,3 +136,29 @@ def test_written_significant_digits_ignores_trailing_zeros():
     assert written_significant_digits("1,320,598,100") == 8
     assert written_significant_digits("10.30") == 3
     assert written_significant_digits("0.05") == 1
+
+
+def test_the_scale_word_is_part_of_the_figures_span():
+    """A chip renders at `end`. Stopping at the digits put the chip INSIDE
+    the amount — an analyst read "$13.98[1]B" on every billions figure in a
+    live answer."""
+    answer = "grew to $13.98B this year"
+    (fig,) = extract_figures(answer)
+    assert fig.text == "$13.98B"
+    assert answer[fig.start:fig.end] == fig.text
+    (spelled,) = extract_figures("grew to $8,287.7 million this year")
+    assert spelled.text == "$8,287.7 million"
+    # ...and the interval the form certifies is unchanged by carrying the
+    # suffix: splitting "13.98B" on "." would read three decimal places.
+    assert fig.halfwidth == 0.005 * 1_000_000_000
+
+
+def test_accounting_parentheses_are_a_negative_figure():
+    """A variance column writes "$(0.07)B", not "-$0.07B". Without this the
+    cell yielded NO figure at all — not an uncited one, an invisible one —
+    so a whole actual-vs-forecast column could be neither cited nor
+    derived."""
+    (fig,) = extract_figures("variance of $(0.07)B against forecast")
+    assert fig.text == "$(0.07)B"
+    assert fig.value == -0.07
+    assert fig.absolute == -70_000_000

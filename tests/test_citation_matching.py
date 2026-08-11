@@ -83,3 +83,23 @@ def test_nearest_value_reports_the_closest_source_number():
 def test_nearest_value_beyond_five_percent_is_none():
     fig = _fig("cost $10,000,000.00 total")
     assert nearest_value(fig, {"k": "value 123,456 only"}) is None
+
+
+def test_a_source_value_under_a_thousand_is_not_invisible():
+    """A table printed "in millions" writes every agency under $1B with no
+    comma — "Universities 974.6". Requiring a comma group made those source
+    values unmatchable while the answer side extracted "$974.6" happily, so
+    the system refused to cite a figure whose source was in a retrieved
+    chunk. On a nine-row General Fund table that is most of the rows."""
+    fig = _fig("| $ Millions |\n| $974.6 |")
+    hits = find_in_chunks(fig, {"k": "Universities 974.6 Child Safety 488.8"})
+    assert [h.source_text for h in hits] == ["974.6"]
+
+
+def test_a_bare_integer_in_a_source_is_still_not_a_candidate():
+    """The other half of the same decision. A decimal signals an amount; a
+    bare integer is as likely to be a year, a page number or a rank, and
+    admitting those multiplies candidate density for no coverage this
+    corpus needs."""
+    fig = _fig("about $2,026.0 thousand")
+    assert not find_in_chunks(fig, {"k": "see FY 2026 on page 14"})

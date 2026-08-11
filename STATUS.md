@@ -33,10 +33,10 @@ source. When something ships, update only this file.
 | Standalone consolidation — Plan 6 (document types) | 🔴 **Not started** | 16 tasks. Unblocks ~85 catalogued documents that cannot be ingested at all (agency budget requests, AFR re-route) and makes doc types extensible by a non-technical office |
 | Standalone consolidation — Plan 7 (batch extraction) | ✓ Shipped (2026-08-02) | Batch MinerU (~4x), the backfill, recency re-calibration. Three defect fixes not in any plan. See the Plan 7 section below |
 | Citation linking (post-hoc linker) | ⬛ **Superseded 2026-08-11** by attested linking | Shipped 2026-08-02, then found to overclaim: 34.2% of linked figures matched >1 document and were resolved by document authority. That ranking is now DELETED. Section kept as the historical record of the defect |
-| **Attested citation linking** | 🟡 **Code complete, live baseline OUTSTANDING** (2026-08-11) | The model tags each figure, the system verifies the tag. False-link rate down 13–15×. Needs an OpenRouter key: [`PROMPT-attested-citation-baseline.md`](PROMPT-attested-citation-baseline.md) |
+| **Attested citation linking** | ✅ **Shipped and VERIFIED LIVE** (2026-08-11) | The model tags each figure, the system verifies the tag. False-link rate down 13–15×; 100% coverage on a captured live turn, 44 figures linked by tag. Six defects found by browser testing — see the section below. The 31-query Layer 2 baseline still has not been run |
 | AI Mode UI redesign | ✓ Shipped (2026-08-02) | One column, floating chrome, tools menu. Six defects found by review that left the suite green |
 | Query understanding | ✓ Shipped (2026-08-03) | Agency / doc-type / JLBC-shorthand parsing. recall@5 73.81% → 88.10%, recall@15 and @20 100%. Agency is a PREFERENCE, not a filter — a measured deviation from spec Q2 |
-| AI Mode chat history | ✓ Shipped (2026-08-03) | Per-device transcripts, browse/search/resume past chats, auto-naming, collapsible rail. Local disk only — never the share. See the section below |
+| AI Mode chat history | ✓ Shipped (2026-08-03), **reviewed and hardened 2026-08-11** | Per-device transcripts, browse/search/resume past chats, auto-naming, collapsible rail. Local disk only — never the share. A second review found ELEVEN defects, four of them silent data loss; all fixed. See the section below |
 
 ## Corpus — what is ingested and what is NOT (2026-08-01)
 
@@ -204,14 +204,19 @@ boost has the same blind spot.
 
 ## What's next
 
-- **Attested citation linking — CODE COMPLETE 2026-08-11, live baseline is
-  the only thing left** (section below). The model tags each figure with the
-  passage it came from and the system verifies the tag; document-authority
-  ranking is deleted. Offline false-link rate is down **13–15×**. The single
-  open risk is **marker compliance**, which cannot be measured without a key:
-  run [`PROMPT-attested-citation-baseline.md`](PROMPT-attested-citation-baseline.md).
-  Do not read the 50.3% offline coverage as a regression — it is the untagged
-  floor, measured on transcripts that predate tagging.
+- **Attested citation linking — SHIPPED AND VERIFIED LIVE 2026-08-11**
+  (section below). The model tags each figure with the passage it came from
+  and the system verifies the tag; document-authority ranking is deleted.
+  False-link rate down **13–15×**, and a captured live turn reached **100%
+  coverage with 44 figures linked by tag** — marker compliance, the design's
+  one open risk, is closed. Browser testing found **six defects that all the
+  offline measurement missed**; every one is fixed and pinned. Do not read
+  the ~55% offline coverage as a regression — it is the UNTAGGED floor,
+  measured on transcripts that predate tagging.
+  **Still to do:** the 31-query Layer 2 baseline + judge
+  ([`PROMPT-attested-citation-baseline.md`](PROMPT-attested-citation-baseline.md)),
+  and two non-citation findings — a mislabelled source chunk
+  (`jlbc-approps-fy2026-bh26-0003`) and the model narrating tool mechanics.
 - **The post-backfill retrieval regression — the free half DONE 2026-08-03**
   (`PROMPT-retrieval-accuracy-regression.md`). The `historical` agent-eval
   queries were RE-AUTHORED against the genuinely old books (see the section
@@ -389,12 +394,17 @@ pools that retrieved anything:
 
 Not a seed artefact — `--seed 99` gives 0.19 / 0.19 / 0.00.
 
-**Coverage on the same 435 recorded figures fell 92.9% → 50.3%** (linked
-357→179, derived 47→40, unverified 31→216). **This is the untagged floor,
-not the shipped number.** Recorded transcripts carry no markers, and the
-diagnostic confirms it: every one of the 179 links is
-`unambiguous-fallback`, zero are tag-verified. The shipped figure comes
-from the live run.
+**Coverage on the recorded figures fell 92.9% → 54.7%.** **This is the
+untagged floor, not the shipped number.** Recorded transcripts carry no
+markers, and the diagnostic confirms it: every link is
+`unambiguous-fallback`, zero are tag-verified.
+
+**On a LIVE turn with tagging, coverage is 100%** — see the live-session
+section below.
+
+The figure count rose 435 → 468 during the live fixes, because accounting
+negatives stopped being invisible, so the percentages below that predate
+that change are on the smaller denominator. False-link rate never moved.
 
 ### 🔴 The specificity floor dominates the loss, not ambiguity
 
@@ -463,11 +473,48 @@ collide; a previous-turn alias resolves to a chunk absent from the current
 pool and degrades to the fallback. Strictly stronger, same observable
 behaviour.
 
-### 🔴 OUTSTANDING — needs a machine with an OpenRouter key
+### ✅ VERIFIED LIVE, and six defects it found (2026-08-11)
 
-**Marker compliance is unmeasured.** It cannot be measured offline: it only
-exists when a real model answers under the new prompt, and Layer 1 never
-reads the system prompt. Runbook:
+**A live browser session on a keyed machine closed the design's one open
+risk: the model tags reliably.** A captured turn emitted 19 markers, all
+19 parsed; a second, 70 markers across 60 figures. **Marker compliance was
+never the problem — the system discarding good markers was.**
+
+Final state on a captured live transcript (60 figures, 51 chunks):
+**100% coverage, 44 figures linked by TAG, zero unverified.**
+
+| # | defect | why it mattered |
+|---|---|---|
+| 1 | Linking pool scoped to the TURN | A follow-up answered from context had nothing to verify against — a 9-row table came back all red. The pool is now the conversation, read off the tool messages still in history; the **untagged** fallback stays turn-scoped, because widening it to 8 turns took false-links 0.28% → 2.50% |
+| 2 | Source values under $1,000 invisible | The answer side accepted `$974.6`; the source side required a comma group. A table "in millions" writes every agency under $1B without one, so most rows of a General Fund table were unmatchable. Coverage 50.3% → 55.2%, false-link unchanged |
+| 3 | The tag-binding distance rule | Discarded `$12.49B (Mar 2020) [[c18]]` and `$1,574.1 million in FY 2026 [[c22]]` — a model tags the end of the NOUN PHRASE. Widened once, then **deleted**: a distance heuristic could only lose citations, never prevent a false one, because VERIFICATION is the guard |
+| 4 | Accounting negatives yielded no figure | `$(0.07)B` — a whole variance column was unseen, so neither citable nor derivable. Needed three parts: extractor, source scanner, and `reconcile` comparing difference MAGNITUDES |
+| 5 | Chip rendered inside the amount | `$13.98[1]B`. The scale word is part of the figure's span now |
+| 6 | Unverified figures were numbered | A table read 13,14,…,20 struck through around a live 21. Only citations are numbered; unverified figures draw no chip and **no count is shown — an uncited number is already visibly uncited** (Destin's call) |
+
+**Two findings that are NOT citation defects:**
+
+- **`jlbc-approps-fy2026-bh26-0003` is mislabelled at the source.** It
+  carries the heading of the chart above it (*"FY 2026 General Fund
+  Appropriations — Where It Goes"*) while its numbers are total spending
+  (AHCCCS $23,010.1M), and its labels are fused
+  (`AHCCCSK-12 Education (ADE)`). A correct citation there points at a
+  chart whose header contradicts its own figures. **Ingest defect.**
+- **The model narrates tool mechanics** ("tagged to c22", "no cite() call
+  was made") when asked how it cited something. Output hygiene bans
+  exposing corpus mechanics; the prompt needs a pass.
+
+**Process note worth keeping:** several rounds of testing measured a stale
+build. `uvicorn` runs without `--reload`, so **Python changes need a server
+restart** — only the SPA picks up a rebuild.
+
+### 🟡 STILL OUTSTANDING — the full Layer 2 baseline
+
+The live session verified behaviour on captured single turns. What has NOT
+run is the **31-query Layer 2 baseline with the judge**, which is what
+produces `marker_coverage_mean` / `tag_accuracy_mean` across the whole
+query set and a `compare_agent_runs.py` delta against
+`eval/results/agent/2026-08-02T0900Z-0b08221`. Runbook:
 **[`PROMPT-attested-citation-baseline.md`](PROMPT-attested-citation-baseline.md)**
 — live browser reproduction, Layer 2 smoke then full, and a decision table
 gating on `marker_coverage_mean ≥ 0.80` and `tag_accuracy_mean ≥ 0.90`.
@@ -1069,26 +1116,124 @@ Fixed in the branch before the PR:
   unique per call (`uuid` and `threading` added to the Invariant-7 allowlist
   — both stdlib, neither can reach the share).
 
-### Open from the review (deliberately not fixed in this work)
+### ✅ The 2026-08-11 second review — eleven defects, all fixed
 
-1. **Interrupt path drops the figure annotation** (highest value). The fix
-   belongs before the interrupt `break`/`yield done_frame`, keeping the
-   existing "annotation on the last assistant message" shape.
-2. **Resume-reuse doesn't notice disk is ahead.** When the resumed id is
-   already live in the registry and the stored transcript is newer (a second
-   tab continued it), the live session answers from stale in-memory history.
-   Guard: compare `len(session.history)` to stored `message_count`; 409 or
-   rebuild.
-3. **409-on-resume-busy reads as a generic error** — the client can't tell
-   "wait for the answer" from "no such chat".
-4. **No tier on the transcript and no schema version.** A resumed Deep
-   Research chat silently continues at Standard depth; a future schema change
-   reads old files as "absent", not "migrated".
-5. **A turn ending AFTER a rename rewrites the title back** — the app's
-   existing design (a turn records what it knew); the new lock stops
-   mid-write clobbering, not last-writer-wins. Decision needed on whether
-   turn-end writes should preserve `title`/`title_is_manual` for existing
-   transcripts.
+A second review of the merged branch (this session plus a parallel
+`/code-review high` over `7b4059d..47cc551`) found eleven defects. **Four
+were reproduced by execution before any fix was written, and every guard
+below was verified FAILING against the unfixed code** — three of them only
+after the test itself was rebuilt, because the first versions passed against
+master and proved nothing. Suites **2343 → 2368 pytest** (5 skips unchanged)
+and **678 → 693 vitest**, `tsc -b` and `npm run build` clean.
+
+**No eval was run, and the CLAUDE.md rule does not ask for one**: nothing
+under `retrieval/`, `ingest/`, `chunking/`, `citation/` or
+`harness/system-prompt.md` was touched. The changes are `harness/session.py`,
+`harness/history.py`, `app/routes/conversations.py` and the webapp.
+
+#### 🔴 The four that silently destroyed data
+
+1. **A silent turn wiped the PREVIOUS answer's citation chips.**
+   `_attach_annotation` searched backwards through the whole history, and
+   `_Accumulator.annotation()` returns `{"figures": []}` — a **truthy** dict —
+   so `if not annotation` never fired. A turn that appended no assistant
+   message (the model returned neither text nor tool calls; a stop landed
+   before step 1) walked into the previous turn and overwrote a correctly
+   linked answer's annotation with an empty one. Reproduced: turn 1's figure
+   count fell 1 → 0. **Fixed by bounding the SEARCH** (`since=turn_start`,
+   captured right after the user message), not by filtering the payload —
+   filtering would have broken the deliberate pin in
+   `test_interrupt_on_a_text_only_turn_is_a_plain_interrupt`.
+2. **The auto-title path erased a later turn.** `persist_turn` loaded the
+   transcript, made a blocking HTTP call of up to 20 s, then saved the *stale*
+   object. Reproduced: 4 messages → 2. It also **resurrected a chat deleted**
+   during that window and **reverted a rename** made during it, clearing
+   `title_is_manual` so auto-naming re-armed against a title the analyst
+   chose.
+3. **Stop lost the answer as well as the annotation.** `use-chat`'s `stop()`
+   aborts the fetch first, so GeneratorExit reaches `stream_turn` and the
+   end-of-turn code never runs. Reproduced: history after a stop was
+   `[user, assistant(tool_calls), tool]` — the partial answer the analyst was
+   watching stream in was never recorded. New `_abandon_turn()` records it and
+   attaches the annotation before `_repair_history()` runs.
+4. **Deleting the open chat's row made it permanently uncontinuable.**
+   `create_conversation` raised 404 on `resume_from` *before* consulting the
+   registry, and `Ai.tsx` never cleared `selectedChatId` on delete. Reproduced
+   through the real route: every later message 404'd against a live in-memory
+   session, with no escape but "+ New chat".
+
+#### The mechanism, named once
+
+Defects 2 and the rename clobber are one shape, and the fix is one idea:
+**a lock was added where a transaction was needed.** `history.save` took the
+id's lock, which makes each WRITE atomic and does nothing for the
+read-modify-write around it. `harness/history.py` now exposes
+`transaction(id)` (hold the lock across the whole load→mutate→save) and
+`set_title_if_absent(id, title)` (re-read under the lock, write ONE field).
+The title call stays **outside** the lock — holding it across 20 s of HTTP
+would freeze the rail's rename and delete, and there is a guard asserting it
+does not.
+
+#### The rest
+
+5. **A "resolved" verdict cleared stale marks it had no business clearing.**
+   `moved` is decided per-QUOTE and was published per-CHUNK, so clicking a
+   still-good citation cleared the stale mark on a sibling into the same chunk
+   whose source really had moved — a moved source reading as verified, i.e.
+   Invariant 2. `markUnresolvable` now carries a span key; `gone` stays
+   chunk-wide (the chunk 404s, so every citation into it is dead).
+6. **`ConversationRegistry.get_or_add` was written to make resume atomic and
+   was never called** — the route still did `get` then `add`, so two tabs
+   resuming one chat each built a session and the second replaced the first
+   without closing it. Now wired.
+7. **Resume never stopped being a resume.** `isResume` compared the id to
+   `resumeFrom`, and the server returns the same id, so every message
+   re-POSTed `/api/conversations`. A one-time latch; a failed handover still
+   retries.
+8. **`_read` degraded on malformed JSON but not on non-object JSON.** `null`,
+   `[]`, `5` parse fine and then raise `AttributeError` on `raw.get`, which
+   escaped and 500'd `GET /api/history` — blanking the entire rail, the exact
+   opposite of "one corrupt file costs one chat".
+9. **`CostsPanel` used `??` where every other tab used `||`**, so an
+   unrecorded key (the empty string) painted a blank cell instead of
+   "(not recorded)" — contradicting the comment directly above it.
+10. **`useHistory`'s debounce cleanup hung off one branch**, so clearing the
+    search box scheduled an uncancellable fetch; the rail unmounts on every
+    chat switch, well inside the 200 ms window.
+11. **`reload` was returned by `useHistory` and called by nobody**, so a new
+    chat's row and the title generated for it seconds later never appeared
+    until something remounted the rail. The panel now bumps a token when a
+    turn ends.
+
+**Also: delete now takes two clicks.** The ✕ sat beside the ✎ and destroyed a
+transcript outright, under a spec (H6) with no expiry and no undo anywhere.
+The armed state is a labelled word, not the same glyph — a confirmation you
+can hit by reflex is not a confirmation.
+
+**Transcripts are now stamped `version: 1`.** Nothing reads it; that is the
+point. A file with no stamp reads back as **0**, so "written before
+versioning" and "written today" are distinguishable — which is the only thing
+that makes a future migration possible, and it cannot be added retroactively.
+
+### Still open after that review
+
+- **No tier on the transcript.** A resumed Deep Research chat silently
+  continues at Standard. Deliberately NOT fixed here: `_Conversation` does not
+  carry the tier (it is per-message), and restoring it on resume is a product
+  decision about whether reopening a chat should silently re-arm Deep
+  Research's ~44× cost. The schema half of this item is done (above).
+- **409-on-resume-busy reads as a generic error** in the composer, though the
+  server's sentence does reach the client — `api.ts` surfaces FastAPI's
+  `detail`, so the analyst sees "This conversation is still answering the
+  previous question", just wearing a generic prefix.
+- **`harness/history.py`'s `_write_locks` dict is never pruned.** Left alone
+  on purpose: it is bounded by distinct conversation ids touched in one
+  process (hundreds, a few hundred bytes), and removing a lock another thread
+  may be holding trades a real correctness risk for a trivial saving.
+- **None of the UI changes has been seen in a browser.** jsdom applies no
+  stylesheet, so the armed-delete styling, the rail's reload-on-turn-end, and
+  the span-scoped chip marking are pinned by specs and unwitnessed — the same
+  gap that produced this branch's original defect list.
 
 Spec follow-ups still open: the Administrator Handbook paragraph (history
 writes questions to disk in plain text; the first exchange goes to the model

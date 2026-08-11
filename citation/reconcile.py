@@ -60,7 +60,11 @@ def reconcile(target: Figure, linked: list[Figure]) -> Derivation | None:
                 return Derivation("sum", list(combo))
 
     for a, b in combinations(range(len(values)), 2):
-        if _close(abs(values[a] - values[b]), goal, tol):
+        # Magnitude on BOTH sides: an answer may write the same gap as
+        # "$3.59B" or as accounting-negative "$(3.59)B" depending on
+        # which way its column subtracts. Comparing a positive
+        # difference against a signed goal never matched the latter.
+        if _close(abs(values[a] - values[b]), abs(goal), tol):
             return Derivation("difference", [a, b])
         # percent change in either direction, against the same absolute
         # tolerance. A percent target's own halfwidth is tiny ("12.4%"

@@ -5,7 +5,7 @@
 // callbacks are props, so the page (Ai.tsx) stays the single source of truth
 // for which chat is open.
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useHistory } from "./use-history.js";
 
 interface HistoryRailProps {
@@ -14,6 +14,16 @@ interface HistoryRailProps {
   onNewChat: () => void;
   collapsed: boolean;
   onToggle: () => void;
+  /** Called after a chat is deleted. The page owns `selectedChatId`, and a
+   *  chat deleted while it is the OPEN one has to be deselected — otherwise
+   *  the thread keeps rendering a transcript that no longer exists and
+   *  `useChat` keeps trying to resume it. */
+  onDeleted?: (id: string) => void;
+  /** Bumped by the panel when a turn ends. `useHistory` only fetches on
+   *  mount, so a brand-new chat and the title the server generates for it a
+   *  few seconds later never appeared in the rail until something remounted
+   *  it. Any change to this value re-reads the list. */
+  reloadToken?: number;
 }
 
 // Group chats by day: Today / Yesterday / Earlier.
@@ -66,11 +76,24 @@ export function HistoryRail({
   onNewChat,
   collapsed,
   onToggle,
+  onDeleted,
+  reloadToken = 0,
 }: HistoryRailProps) {
-  const { chats, loading, error, query, setQuery, rename, remove } = useHistory();
+  const { chats, loading, error, query, setQuery, reload, rename, remove } = useHistory();
   // Track which chat's title is being edited inline.
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editValue, setEditValue] = useState("");
+  // Which chat's delete button is armed. Deletion is permanent — H6 gives
+  // history no expiry and no undo — and the ✕ sits directly beside the ✎, so
+  // a single mis-click used to destroy a transcript outright. Two clicks, no
+  // modal: the second click is the confirmation.
+  const [confirmingId, setConfirmingId] = useState<string | null>(null);
+
+  // Re-read the list whenever the panel says a turn ended. Skips the initial
+  // value so this never duplicates useHistory's own mount fetch.
+  useEffect(() => {
+    if (reloadToken > 0) reload();
+  }, [reloadToken, reload]);
 
   // Collapse is a prop, owned by AiModePanel — but the collapsed preference
   // persists per device in localStorage, and AiModePanel reads it on mount.
@@ -204,6 +227,7 @@ export function HistoryRail({
                         aria-label="Rename chat"
                         title="Rename"
                         onClick={() => {
+                          setConfirmingId(null);
                           setEditingId(chat.id);
                           // Use the display fallback so the rename box opens
                           // with a visible default to edit, not a blank input
@@ -213,15 +237,36 @@ export function HistoryRail({
                       >
                         ✎
                       </button>
-                      <button
-                        type="button"
-                        className="history-rail-action"
-                        aria-label="Delete chat"
-                        title="Delete"
-                        onClick={() => void remove(chat.id)}
-                      >
-                        ✕
-                      </button>
+                      {confirmingId === chat.id ? (
+                        <button
+                          type="button"
+                          className="history-rail-action is-confirming"
+                          aria-label="Confirm delete chat"
+                          title="This cannot be undone — click to delete"
+                          onBlur={() => setConfirmingId(null)}
+                          onClick={() => {
+                            setConfirmingId(null);
+                            // Only on a real delete — a failed DELETE restores
+                            // the row, and deselecting then would discard the
+                            // analyst's view of a chat that still exists.
+                            void remove(chat.id).then((gone) => {
+                              if (gone) onDeleted?.(chat.id);
+                            });
+                          }}
+                        >
+                          Delete?
+                        </button>
+                      ) : (
+                        <button
+                          type="button"
+                          className="history-rail-action"
+                          aria-label="Delete chat"
+                          title="Delete"
+                          onClick={() => setConfirmingId(chat.id)}
+                        >
+                          ✕
+                        </button>
+                      )}
                     </div>
                   )}
                 </div>

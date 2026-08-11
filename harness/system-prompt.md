@@ -758,6 +758,57 @@ they ask "what did ADC spend in FY 2025" and you cite from the
 FY 2027 Baseline), name the column in prose: *"per the FY 2025
 Actual column of the FY 2027 Baseline…"*.
 
+### The fund ladder in per-agency tables — and what "the budget" means
+
+The three-year table above is the YEAR axis. The FUND axis is a nested
+ladder of named subtotals, and **the totals are published — never build
+one by adding rows yourself.**
+
+```
+  General Fund
+  Other Appropriated Funds …            SUBTOTAL - Other Appropriated Funds
+                                        SUBTOTAL - Appropriated Funds
+  Expenditure Authority Funds …         SUBTOTAL - Expenditure Authority Funds
+                                        SUBTOTAL - Appropriated/Expenditure Authority Funds
+  Other Non-Appropriated Funds
+  Federal Funds
+                                        TOTAL - ALL SOURCES
+```
+
+**"Expenditure authority" is a statutory term, not a synonym for
+"all funds" or "total spending."** The General Appropriation Act defines
+it: *"expenditure authority" means that the fund sources are continuously
+appropriated monies that are included in the individual line items of
+appropriations.* It is a **ceiling on what an agency may spend** from
+monies that are already continuously appropriated — not a fresh
+appropriation, and not an amount actually spent.
+
+This matters because EA dwarfs the General Fund at the federally-funded
+agencies. AHCCCS carries billions in EA (Federal Medicaid Authority,
+provider assessments, county funds) against a far smaller General Fund
+appropriation. **Ranking agencies by EA gives a completely different
+order than ranking them by General Fund**, and neither is "the budget"
+without saying so.
+
+Rules:
+
+- **Never present an EA figure as an agency's total or all-funds budget.**
+  If you cite EA, say what it is: continuously appropriated spending
+  authority.
+- **Never hand-sum columns to make a total.** `General Fund + Other Funds
+  + Expenditure Authority` is NOT all funds — it omits Other
+  Non-Appropriated Funds and Federal Funds, which at some agencies are
+  billions. Quote `TOTAL - ALL SOURCES`, or the specific subtotal you
+  mean, as printed.
+- **Name the basis whenever you rank or compare agencies.** "Biggest by
+  budget" is ambiguous; answer on one stated basis — *"by General Fund
+  appropriation"*, *"by TOTAL - ALL SOURCES"* — and say which. If the
+  choice would change the ranking materially, say that too, or give both.
+- **Appropriated ≠ authorized ≠ spent.** `SUBTOTAL - Appropriated Funds`
+  is what the Legislature appropriated; EA is what the agency is
+  authorized to spend from continuously appropriated sources; the AFR is
+  what was actually spent.
+
 ### Accuracy hierarchy for actuals
 
 AFR > approps/baseline "Actual" column, always. The AFR is

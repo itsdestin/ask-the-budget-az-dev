@@ -12,7 +12,8 @@ mechanism behind the wrong-doc defect (memo §5.1).
 """
 from __future__ import annotations
 
-from citation.annotate import annotate_answer
+from citation.annotate import _bind_tags, annotate_answer
+from citation.figures import extract_figures
 from citation.markers import Tag, parse_markers
 
 # One value, two documents — the shape the old authority rule resolved by
@@ -115,14 +116,21 @@ def test_a_tag_binds_across_a_scale_word():
     assert fig["link_basis"] == "tag"
 
 
-def test_a_tag_a_clause_away_does_not_bind():
-    # Better an untagged figure — which still gets the fallback — than a
-    # tag bound to a number it was never written for.
+def test_a_tag_later_in_the_same_sentence_still_binds():
+    """Deliberately relaxed from "must be welded to the digits".
+
+    That rule discarded the way models actually write — "$12.49B (Mar
+    2020) [[c18]]" — and cost real citations in a live answer. Binding
+    within the sentence is safe because a mis-bound tag still has to
+    VERIFY: the value must appear in the chunk the tag names, so a tag
+    meant for a neighbouring claim simply fails and falls back. A wrong
+    source still needs two independent failures, which is the property
+    the whole design rests on.
+    """
     ann = _annotate(
         "Spending was $8,287,700,000 and that is a lot of money [[c1]] here.")
     (fig,) = ann["figures"]
-    assert fig["attested_chunk_ids"] == []
-    assert fig["link_basis"] != "tag"
+    assert fig["attested_chunk_ids"] == ["budget-a-0001"]
 
 
 # --- derivation -------------------------------------------------------
@@ -141,11 +149,14 @@ def test_derived_carries_its_operation():
 
 
 def test_derived_from_reports_reading_order_indices_not_list_positions():
-    # derived_from must be indices an analyst can find on the page. The
-    # linked figures are the 2nd and 3rd figures stated, so a derivation
-    # over them must say [2, 3] — not [0, 1], their positions in the
-    # internal linked list. Getting this wrong points the chip at the
-    # wrong numbers while looking entirely correct.
+    # derived_from must be numbers an analyst can find on the page — the
+    # DISPLAY indices, not positions in the internal linked list. Getting
+    # this wrong points the chip at the wrong numbers while looking
+    # entirely correct.
+    #
+    # The leading unsourced figure draws no chip and takes no number, so
+    # the two linked figures are chips [1] and [2] even though they are
+    # the 2nd and 3rd figures written.
     answer = ("Unsourced $555,555,555; then $1,391,200 and $2,547,300 "
               "give $3,938,500.")
     chunks = {"k": "parts 1,391,200 and 2,547,300 listed"}
@@ -153,8 +164,10 @@ def test_derived_from_reports_reading_order_indices_not_list_positions():
     figs = annotate_answer(answer, chunks, meta,
                            tags=[], alias_map={})["figures"]
     assert figs[0]["verdict"] == "unverified"
+    assert figs[0]["index"] is None
     assert [f["verdict"] for f in figs[1:3]] == ["linked", "linked"]
-    assert sorted(figs[3]["derived_from"]) == [2, 3]
+    assert [f["index"] for f in figs[1:3]] == [1, 2]
+    assert sorted(figs[3]["derived_from"]) == [1, 2]
 
 
 # --- shape, offsets, degradation --------------------------------------
@@ -231,3 +244,66 @@ def test_missing_locator_metadata_degrades_to_nulls_not_a_crash():
     assert primary["doc_id"] is None
     assert primary["page_start"] is None
     assert primary["bbox"] is None
+
+
+# --- tag binding: the gap between a figure and its marker ---------------
+
+def _bound_aliases(raw):
+    """Parse markers out of `raw` and return {figure text: [aliases]}."""
+    stripped, tags = parse_markers(raw)
+    figs = extract_figures(stripped)
+    bound = _bind_tags(stripped, figs, tags)
+    return {figs[i].text: a for i, a in bound.items()}
+
+
+def test_a_tag_binds_across_the_qualifier_its_figure_carries():
+    """Observed live: the model tags the end of the NOUN PHRASE, not the
+    end of the number. The first rule allowed only whitespace, punctuation
+    and a scale word, so "$12.49B (Mar 2020) [[c18]]" was discarded — the
+    model had named its source and the system threw it away, leaving the
+    figure to the untagged fallback and usually uncited."""
+    for raw in ("forecast $12.49B (Mar 2020) [[c18]] adopted",
+                "| $12.49B (Mar 2020) [[c18]] |",
+                "was $1,574.1 million in FY 2026 [[c22]]",
+                "total $16.83B (Jun 2022) [[c3]]"):
+        assert _bound_aliases(raw), f"tag was dropped: {raw}"
+
+
+def test_a_tag_binds_however_far_it_sits_from_its_figure():
+    """There is no distance rule, deliberately. Two earlier versions had
+    one — a charset, then a sentence boundary — and both did nothing but
+    discard real citations, because a model tags the end of a phrase and
+    sometimes the end of a clause."""
+    assert _bound_aliases("Revenue hit $16.5B. Spending set a record [[c3]]")
+    assert _bound_aliases("| $12.49B | a different cell [[c18]] |")
+    assert _bound_aliases(
+        "$12.49B then a clause that runs on and on and on and on past any "
+        "reasonable qualifier length [[c9]]")
+
+
+def test_a_MIS_bound_tag_is_caught_by_verification_not_by_binding():
+    """The property that replaced the distance rule, and the reason
+    deleting it was safe.
+
+    Bind whatever you like: a tag only produces a citation if the figure's
+    value is actually IN the chunk it names. Here the tag says c2, whose
+    text does not contain the value, so the figure does not link to c2 —
+    it falls back to exactly where an untagged figure lands. A binding
+    rule could only ever lose citations; it could not prevent a false one.
+    """
+    chunks = {"budget-a-0001": CHUNKS["budget-a-0001"],
+              "budget-b-0002": "unrelated prose with no figures at all"}
+    stripped, tags = parse_markers(
+        "Total $8,287,700,000 and some later clause [[c2]] here.")
+    (fig,) = annotate_answer(stripped, chunks, META,
+                             tags=tags, alias_map=ALIASES)["figures"]
+    # The tag WAS bound and resolved — the model's claim is recorded...
+    assert fig["attested_chunk_ids"] == ["budget-b-0002"]
+    # ...and then refused, because c2 does not contain the value.
+    assert fig["link_basis"] == "unambiguous-fallback"
+    assert fig["primary"]["chunk_id"] == "budget-a-0001"
+
+
+def test_a_tag_after_several_figures_takes_the_nearest_one():
+    bound = _bound_aliases("first $1,391,200 then $2,547,300 [[c1]] listed")
+    assert bound == {"$2,547,300": ["c1"]}

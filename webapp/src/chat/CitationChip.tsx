@@ -14,7 +14,7 @@
 import { useEffect, useRef, useState } from "react";
 
 import { formatCopyCitation, type Citation } from "./citation-extract.js";
-import { useCitationBus, useUnresolvable } from "./citation-context.js";
+import { spanKeyOf, useCitationBus, useUnresolvable } from "./citation-context.js";
 import type { AnnotationFigure } from "./citation-annotation.js";
 
 interface Props {
@@ -110,8 +110,15 @@ export default function CitationChip({
   // actually still resolves. Invariant 2 cuts both ways: never silently drop,
   // but never falsely brand either.
   const [unresolvable, setUnresolvable] = useState<"gone" | "moved" | null>(null);
-  useUnresolvable((chunkId, reason) => {
+  useUnresolvable((chunkId, reason, spanKey) => {
     if (chunkId !== citation.chunkId) return;
+    // `gone` carries no spanKey and applies to the whole chunk — it 404s, so
+    // every citation into it is dead. `moved` and `resolved` are about ONE
+    // quote: two citations can share a chunk and disagree about whether their
+    // own span survived a re-ingest. Matching those on the chunk id alone let
+    // a still-good citation clear a genuinely stale sibling's mark, which
+    // renders a moved source as verified (Invariant 2).
+    if (spanKey !== undefined && spanKey !== spanKeyOf(citation)) return;
     setUnresolvable(reason === "resolved" ? null : reason);
   });
 
@@ -242,7 +249,10 @@ export function FigureChip({
     // Only a linked figure has somewhere to go. A derived or unverified
     // chip must not open a viewer — claiming a source it hasn't got is
     // exactly the failure this design exists to remove.
-    if (figure.verdict === "linked" && figure.primary) {
+    // `index != null` is a real guard, not a type appeasement: only
+    // citations are numbered, so an unnumbered figure has nothing to
+    // publish to the viewer even if it somehow carried a primary source.
+    if (figure.verdict === "linked" && figure.primary && figure.index != null) {
       const p = figure.primary;
       const selected: Citation = {
         chunkId: p.chunkId,

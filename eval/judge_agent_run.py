@@ -78,9 +78,16 @@ def _find_first_json_object(text: str) -> Any:
 
 
 def render_annotated_answer(answer: str, annotation: dict[str, Any]) -> str:
-    """The answer as the analyst sees it, with each figure's citation state
-    inline. The webapp draws chips from this same annotation, so the judge
-    grades the artifact the user actually reads."""
+    """The answer with each figure's citation state inline, drawn from the
+    same annotation the webapp renders as chips.
+
+    ONE deliberate divergence: the analyst's view draws no chip for an
+    unverified figure (a numbered red marker per unsourced number buried
+    the real citations), while the judge still marks it `[UNCITED]`. The
+    judge's job is to catch a number the answer states without support —
+    hiding that from an evaluator would remove the signal instead of the
+    clutter. `unverified_rate` carries the same fact numerically.
+    """
     figures = sorted(annotation.get("figures") or [],
                      key=lambda f: f.get("start", 0), reverse=True)
     out = answer

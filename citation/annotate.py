@@ -21,14 +21,22 @@ from citation.markers import Tag
 from citation.matching import find_in_chunks, nearest_value
 from citation.reconcile import reconcile
 
-# A tag binds leftward across at most a scale word and punctuation:
-# "$8,287.7 million [[c3]]" binds; a tag a clause away does not — better
-# an untagged figure (which still gets the fallback) than a tag bound to
-# the wrong number.
-_BIND_MAX_GAP = 24
-_BIND_GAP_RE = re.compile(
-    r"^\s*(?:million|billion|thousand|[MBK])?[\s.,;:)%*_—-]*$",
-    re.IGNORECASE)
+# A tag binds to the closest PRECEDING figure. That is the whole rule.
+#
+# There were two earlier versions, each rejecting a tag whose distance
+# from its figure exceeded some shape: first "only whitespace, a scale
+# word and punctuation", then "anything short of a sentence boundary".
+# Both silently discarded real citations — "$12.49B (Mar 2020) [[c18]]"
+# and "$1,574.1 million in FY 2026 [[c22]]" are how a model actually
+# writes, because it tags the end of the noun phrase, not the digits.
+#
+# Deleted rather than widened again, because a distance heuristic was
+# never what made a tag safe. VERIFICATION is: the value must appear in
+# the chunk the tag names, inside the interval the figure's written form
+# certifies. A tag bound to the wrong figure therefore fails and the
+# figure falls back to exactly where an untagged one lands — the rule
+# was only ever able to lose citations, never to prevent a false one.
+# Two independent failures are still required for a wrong source.
 
 
 def _bind_tags(answer: str, figures: list[Figure],
@@ -43,9 +51,7 @@ def _bind_tags(answer: str, figures: list[Figure],
                 best = i
         if best is None:
             continue
-        gap = answer[figures[best].end:tag.at]
-        if len(gap) <= _BIND_MAX_GAP and _BIND_GAP_RE.match(gap):
-            bound.setdefault(best, []).extend(tag.aliases)
+        bound.setdefault(best, []).extend(tag.aliases)
     return bound
 
 
@@ -71,20 +77,39 @@ def annotate_answer(
     *,
     tags: list[Tag] | None = None,
     alias_map: dict[str, str] | None = None,
+    fallback_chunk_ids: list[str] | None = None,
 ) -> dict[str, Any]:
+    """`chunks` may span the whole conversation; `fallback_chunk_ids`
+    narrows the UNTAGGED search to a subset of it (in practice, this
+    turn's retrieves).
+
+    The two pools differ because the two paths carry different evidence.
+    A tag names ONE chunk, so pool size cannot affect its verdict — a
+    conversation-wide pool costs nothing and is what lets a model cite a
+    passage it read two questions ago. The fallback has only the value
+    itself, so every extra document is another chance to coincide.
+    Measured over the 31-query baseline: merging 8 turns' pools took the
+    untagged false-link rate on rounded billions from 0.28% to 2.50%,
+    approaching the 3.7% of the authority-ranking design this replaced.
+    """
     figures = extract_figures(answer)
     bound = _bind_tags(answer, figures, tags or [])
     aliases = alias_map or {}
+    # None means "the whole pool" — the single-turn case, and every
+    # caller that has no turn/conversation distinction to make.
+    fallback_ids = (None if fallback_chunk_ids is None
+                    else [c for c in fallback_chunk_ids if c in chunks])
 
     records: list[dict[str, Any]] = []
     linked_figs: list[Figure] = []
     linked_indices: list[int] = []
 
     for i, fig in enumerate(figures):
-        # Resolve the model's claim to in-turn chunks. An alias that is
-        # unknown or points at a chunk not retrieved THIS turn is dropped
-        # — never redirected — so a stale tag degrades to the fallback
-        # instead of verifying against the wrong text (spec §5).
+        # Resolve the model's claim against the chunks it has been sent.
+        # An alias that is unknown, or points at a chunk that has fallen
+        # out of context, is dropped — never redirected — so a stale tag
+        # degrades to the fallback rather than verifying against the wrong
+        # text (spec §5).
         attested = [aliases[a] for a in bound.get(i, [])
                     if a in aliases and aliases[a] in chunks]
         record: dict[str, Any] = {
@@ -109,7 +134,9 @@ def annotate_answer(
         else:
             # Fallback — also runs when a tag failed to verify, because
             # the value may genuinely live in one other document (R2).
-            pool_hits = find_in_chunks(fig, chunks)
+            # Narrowed to `fallback_ids`: with only the value as evidence,
+            # every extra document in scope is another chance to coincide.
+            pool_hits = find_in_chunks(fig, chunks, restrict_to=fallback_ids)
             docs = {(meta.get(h.chunk_id) or {}).get("doc_id")
                     for h in pool_hits}
             if pool_hits and len(docs) == 1:
@@ -154,8 +181,41 @@ def annotate_answer(
         # there was a tag — "you said c3; c3's nearest value is X" is the
         # actionable sentence.
         nm = nearest_value(fig, chunks,
-                           restrict_to=record["attested_chunk_ids"] or None)
+                           restrict_to=record["attested_chunk_ids"]
+                           or fallback_ids)
         if nm is not None:
             record["near_miss"] = asdict(nm)
 
+    _number_citations(records)
     return {"figures": records}
+
+
+def _number_citations(records: list[dict[str, Any]]) -> None:
+    """Give a display number to CITATIONS only, in reading order.
+
+    An unverified figure is not a citation — nothing was sourced — so
+    numbering it alongside real ones makes the sequence meaningless to a
+    reader: a table came back numbered 13,14,…,20 struck through with a
+    single live 21. Unverified figures get `index: None` and the UI draws
+    no chip for them.
+
+    Numbering happens LAST because a figure's verdict is not final until
+    the derived pass has run; `derived_from` is remapped through the same
+    table so "computed from [2] and [5]" keeps pointing at the chips the
+    analyst can actually see.
+    """
+    renumber: dict[int, int] = {}
+    nxt = 1
+    for record in records:
+        if record["verdict"] in ("linked", "derived"):
+            renumber[record["index"]] = nxt
+            record["index"] = nxt
+            nxt += 1
+        else:
+            record["index"] = None
+    for record in records:
+        if record["derived_from"]:
+            # Every input is a LINKED figure and therefore numbered, but
+            # drop anything unmapped rather than emit a dangling pointer.
+            record["derived_from"] = [renumber[i] for i in
+                                      record["derived_from"] if i in renumber]

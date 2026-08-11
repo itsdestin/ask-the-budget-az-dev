@@ -301,8 +301,12 @@ def _attested_turn():
 def test_all_five_verdict_paths_in_one_answer():
     r, _ = _attested_turn()
     figures = frames_of(r)[-1]["annotation"]["figures"]
-    assert [f["index"] for f in figures] == [1, 2, 3, 4, 5]
-    by_index = {f["index"]: f for f in figures}
+    # Only CITATIONS are numbered. The two unverified figures draw no chip
+    # and take no number, so the live chips read [1] [2] [3] rather than a
+    # sequence with holes struck through it.
+    assert [f["index"] for f in figures] == [1, 2, 3, None, None]
+    # Keyed by reading position, because two figures now share index None.
+    by_index = dict(enumerate(figures, start=1))
 
     # 1 — TAG VERIFIED. $1,391,157,700 is tagged [[c1]] and c-adc contains
     # it, fused onto the agency name. `link_basis == "tag"` is what proves
@@ -359,7 +363,10 @@ def test_all_five_verdict_paths_in_one_answer():
     # so the refusal is precision, never specificity — which is the
     # neighbouring path that would also read `unverified` + no source.
     near = by_index[5]
-    assert near["text"] == "$987.6"
+    # The scale word is PART of the figure's span: a chip is rendered at
+    # `end`, and stopping at the digits put it inside the amount
+    # ("$13.98[1]B" in a live answer).
+    assert near["text"] == "$987.6 million"
     assert near["verdict"] == "unverified"
     assert near["ambiguity_count"] is None
     # Scoped to the chunk the model NAMED: "you said c4, and c4's nearest
