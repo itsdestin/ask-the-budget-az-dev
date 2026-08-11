@@ -1,0 +1,481 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Retrieval results — expanded passage stylings (mockup, not shipped code)</title>
+<!--
+
+  MOCKUP ONLY — NOT ported code.
+
+  SETTLED (Destin, 2026-08-10) and identical in every treatment below:
+    - ONE card per DOCUMENT. Two documents from the same report in the same
+      year are two cards; one document never gets two cards.
+    - Headline row = the best matching passage, quoted, gold-wash highlight on
+      the query term, page number as a right-hand `.doc-pill`.   (from S1)
+    - Identity row = the publisher chip inline, then the document title, then
+      "More from this document" on the right.                     (from S2)
+    - NO book glyph between the chip and the title.               (dropped)
+    - No "Open document", no "Full report".
+
+  STILL OPEN, and the only thing that varies below: how the ADDITIONAL
+  passages inside the expanded block are drawn. In the previous mockup they
+  were a flat list of near-identical rows, which made it hard to tell where
+  one quote ended and the next began. Five treatments, T1-T5.
+
+  The `.page-docs` CSS is `webapp/src/styles/app.css` (lines 833-996) VERBATIM.
+  Everything added is in the "NEW CSS" section: the SETTLED block (shared by
+  all five) and then one small block per treatment, so the cost of each is
+  legible.
+
+  Data is illustrative. No number here came from a real document. Two
+  documents carry 4-5 passages on purpose — the problem only shows up with
+  more than two quotes in a tray.
+
+  Trays start OPEN so the treatments are visible immediately.
+-->
+<style>
+/* ===== Design tokens — verbatim from webapp/src/styles/tokens.css ========== */
+:root {
+  --navy:#2b2f63; --navy-700:#232752; --navy-900:#181b3d; --navy-100:#e7e8f2;
+  --az-red:#2f55c4; --az-red-100:#e1e6fa;
+  --az-gold:#1b6fc4; --az-gold-d:#145aa6; --az-gold-100:#dceaf7;
+  --copper:#3d6a99; --copper-100:#e3ebf3;
+  --teal:#1782b3; --teal-100:#dbeef8;
+  --ink:#21243f; --ink-2:#4a4e6a; --ink-3:#757895;
+  --line:#e6e6ef; --canvas:#f5f5fa; --card:#fff;
+  --r-lg:22px; --r-md:16px; --r-sm:12px; --r-pill:999px; --gap:22px;
+  --shadow:0 1px 2px rgba(27,27,61,.05),0 10px 26px rgba(27,27,61,.08);
+  --shadow-sm:0 1px 2px rgba(27,27,61,.06),0 3px 10px rgba(27,27,61,.05);
+  --maxw:1140px; --font:"Nunito","Segoe UI",system-ui,-apple-system,sans-serif;
+}
+*{box-sizing:border-box;}
+body{margin:0;font-family:var(--font);background:var(--canvas);color:var(--ink);-webkit-font-smoothing:antialiased;}
+a{color:inherit;text-decoration:none;}
+button{font-family:inherit;}
+h1,h2,h3{margin:0;}
+.wrap{max-width:var(--maxw);margin:0 auto;}
+
+/* ===== MOCKUP-ONLY chrome (not part of the proposal) ====================== */
+.mockbar{position:sticky;top:0;z-index:80;background:var(--navy-900);color:#fff;padding:10px 22px;display:flex;align-items:center;gap:10px;flex-wrap:wrap;}
+.mockbar b{font-size:12px;font-weight:800;letter-spacing:.08em;text-transform:uppercase;color:#9fc4ee;margin-right:6px;}
+.mockbar button{font-size:12.5px;font-weight:800;color:#cdd6f5;background:rgba(255,255,255,.08);border:1px solid rgba(255,255,255,.18);border-radius:var(--r-pill);padding:7px 15px;cursor:pointer;transition:.13s;}
+.mockbar button:hover{background:rgba(255,255,255,.16);color:#fff;}
+.mockbar button.on{background:#fff;color:var(--navy-900);border-color:#fff;}
+.mockbar .sep{width:1px;height:22px;background:rgba(255,255,255,.2);margin:0 6px;}
+.vnote{max-width:var(--maxw);margin:0 auto;padding:16px 22px 0;}
+.vn{background:#fff;border:1px solid var(--line);border-left:4px solid var(--az-gold);border-radius:var(--r-md);padding:14px 18px;box-shadow:var(--shadow-sm);}
+.vn h3{font-size:14.5px;font-weight:800;color:var(--navy);margin-bottom:5px;}
+.vn p{margin:0;font-size:13px;font-weight:600;color:var(--ink-2);line-height:1.55;}
+.vn p+p{margin-top:7px;}
+.vn code{background:var(--canvas);border:1px solid var(--line);border-radius:5px;padding:1px 5px;font-size:12px;}
+.vn .cost{display:inline-block;margin-top:9px;font-size:11.5px;font-weight:800;text-transform:uppercase;letter-spacing:.06em;color:var(--az-gold-d);background:var(--az-gold-100);border-radius:var(--r-pill);padding:4px 11px;}
+.cmp-label{padding:0 0 0 0;}
+.cmp-label span{display:inline-block;margin:22px 0 0;font-size:11.5px;font-weight:800;text-transform:uppercase;letter-spacing:.09em;color:#fff;background:var(--navy);border-radius:var(--r-pill);padding:6px 15px;}
+
+/* ===== minimal site header =============================================== */
+header.site{background:rgba(255,255,255,.96);border-bottom:1px solid var(--line);}
+header.site .bar{max-width:var(--maxw);margin:0 auto;padding:12px 22px;display:flex;align-items:center;gap:18px;}
+.brand .bt b{display:block;font-size:14.5px;font-weight:800;color:var(--navy);letter-spacing:-.2px;}
+.brand .bt span{font-size:11.5px;font-weight:700;color:var(--ink-3);}
+nav.pills{display:flex;gap:4px;margin-left:auto;background:var(--canvas);border:1px solid var(--line);border-radius:var(--r-pill);padding:4px;}
+nav.pills a{font-size:13px;font-weight:800;color:var(--ink-2);padding:8px 16px;border-radius:var(--r-pill);}
+nav.pills a.active{background:var(--navy);color:#fff;}
+
+/* ========================================================================== */
+/* ===== app.css `.page-docs` block, VERBATIM (lines 833-996) =============== */
+/* ========================================================================== */
+.page-docs .subhero{position:relative;overflow:hidden;color:#fff;
+  background:linear-gradient(105deg,rgba(18,21,48,.94) 0%,rgba(20,23,52,.86) 60%,rgba(20,23,52,.78) 100%);}
+.page-docs .subhero .wrap{position:relative;z-index:2;padding:32px 22px 34px;}
+.page-docs .subhero h1{font-size:clamp(24px,3.2vw,34px);font-weight:800;letter-spacing:-.4px;}
+.page-docs .subhero .lead{margin:10px 0 0;font-size:clamp(14px,1.5vw,16.5px);color:#d9dcf2;font-weight:600;max-width:66ch;line-height:1.5;}
+.page-docs .subhero .chips{display:flex;flex-wrap:wrap;gap:8px;margin-top:16px;}
+.page-docs .subhero .chip{display:inline-flex;align-items:center;gap:7px;background:rgba(255,255,255,.1);border:1px solid rgba(255,255,255,.2);border-radius:var(--r-pill);padding:6px 13px;font-size:12.5px;font-weight:700;color:#eef0fb;}
+
+.page-docs .wrap.docwrap{display:block;padding:28px 22px 22px;}
+.page-docs .doclayout{display:grid;grid-template-columns:248px 1fr;gap:var(--gap);align-items:start;}
+.page-docs .docside{background:#fff;border:1px solid var(--line);border-radius:var(--r-lg);box-shadow:var(--shadow-sm);padding:8px;position:sticky;top:16px;}
+.page-docs .docside .fgrp{padding:8px 8px 14px;}
+.page-docs .docside .fgrp+.fgrp{border-top:1px solid var(--line);}
+.page-docs .docside .flbl{font-size:11px;font-weight:800;text-transform:uppercase;letter-spacing:.08em;color:var(--ink-3);padding:6px 8px 8px;display:block;}
+.page-docs .docmain{display:flex;flex-direction:column;gap:var(--gap);min-width:0;}
+.page-docs .yg{background:#fff;border:1px solid var(--line);border-radius:var(--r-lg);box-shadow:var(--shadow-sm);overflow:hidden;}
+
+.page-docs .fside-search{display:flex;align-items:center;gap:8px;background:var(--canvas);border:1px solid var(--line);border-radius:var(--r-pill);padding:8px 12px;margin:2px 4px 6px;}
+.page-docs .fside-search svg{width:16px;height:16px;color:var(--ink-3);}
+.page-docs .fside-search input{border:0;background:transparent;outline:0;font-family:inherit;font-size:13.5px;flex:1;min-width:0;color:var(--ink);}
+.page-docs .clr-x{flex:0 0 auto;display:inline-flex;align-items:center;justify-content:center;width:24px;height:24px;border-radius:50%;border:1px solid var(--line);background:#fff;color:var(--ink-2);cursor:pointer;padding:0;}
+.page-docs .clr-x svg{width:13px;height:13px;}
+.page-docs .fctl{position:relative;margin:0 4px;}
+.page-docs .fbtn{display:flex;align-items:center;gap:7px;width:100%;cursor:pointer;font-family:inherit;font-size:12.5px;font-weight:800;color:var(--ink-2);background:var(--canvas);border:1.5px solid var(--line);border-radius:var(--r-pill);padding:8px 13px;white-space:nowrap;transition:.14s;}
+.page-docs .fbtn .fb-label{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;text-align:left;}
+.page-docs .fbtn .chev{flex:0 0 auto;width:10px;height:6px;opacity:.7;}
+
+.page-docs .yg-head-static{display:flex;align-items:center;gap:12px;padding:15px 18px;border-bottom:1px solid var(--line);}
+.page-docs .yg-ttl{display:flex;flex-direction:column;gap:2px;min-width:0;flex:1;}
+.page-docs .yg-yr{font-size:18px;font-weight:800;color:var(--navy);}
+.page-docs .yg-meta{font-size:12.5px;font-weight:700;color:var(--ink-3);}
+.page-docs .yg-body{padding:2px 0 12px;}
+
+.page-docs .grp{margin:12px 14px 0;border:1px solid var(--line);border-radius:var(--r-lg);overflow:hidden;box-shadow:var(--shadow-sm);}
+.page-docs .doc{display:flex;align-items:center;gap:15px;padding:14px 22px;border-bottom:1px solid var(--line);transition:background .15s;color:inherit;}
+.page-docs .doc:last-child{border-bottom:0;}
+.page-docs .doc:hover{background:#fafafe;text-decoration:none;}
+.page-docs .grp>.doc{border-bottom:0;}
+.page-docs .doc-main{flex:1;min-width:0;}
+.page-docs .doc-title{display:block;font-size:15.5px;font-weight:700;color:var(--navy);}
+.page-docs .doc-sub{display:block;font-size:13px;color:var(--ink-3);font-weight:600;margin-top:2px;}
+.page-docs .doc-pill{flex:0 0 auto;display:inline-flex;align-items:center;gap:7px;font-size:12px;font-weight:800;color:var(--ink-2);background:var(--canvas);border:1px solid var(--line);border-radius:var(--r-pill);padding:6px 13px;white-space:nowrap;}
+.page-docs .doc:hover .doc-pill{border-color:var(--az-gold);color:var(--az-gold-d);}
+.page-docs .doc-pub{flex:0 0 auto;font-size:10.5px;font-weight:800;color:#fff;background:var(--copper);border-radius:var(--r-pill);padding:3px 10px;letter-spacing:.05em;text-transform:uppercase;}
+
+.page-docs .ctx{margin:0 14px 14px;border:1px dashed #cdd3e6;border-radius:var(--r-md);background:#fafbff;}
+.page-docs .ctx-row{display:flex;align-items:center;gap:10px;padding:11px 14px;flex-wrap:wrap;}
+.page-docs .ctx-row .badge{display:inline-flex;align-items:center;gap:7px;font-size:12.5px;font-weight:800;color:var(--navy);}
+.page-docs .ctx-row .spacer{flex:1;}
+.page-docs .ctx .tray{display:none;border-top:1px dashed #cdd3e6;}
+.page-docs .ctx .tray.open{display:block;}
+.page-docs .ctx .tray .doc{padding:11px 14px;}
+.page-docs .ctx .tray .doc:not(:last-child){border-bottom:1px dashed #e3e7f1;}
+.page-docs .grp-more{display:inline-flex;align-items:center;gap:6px;font-size:12px;font-weight:800;color:var(--ink-2);background:var(--card);border:1px solid var(--line);border-radius:var(--r-pill);padding:6px 13px;cursor:pointer;white-space:nowrap;font-family:inherit;}
+.page-docs .grp-more svg{width:13px;height:13px;transition:transform .18s;}
+.page-docs .grp-more:hover{border-color:var(--az-gold);color:var(--az-gold-d);}
+.page-docs .grp-more.open svg{transform:rotate(180deg);}
+.page-docs .fnnote{font-size:12.5px;font-weight:700;color:var(--ink-3);margin:0;}
+.page-docs .docstatus{padding:0 2px;margin:0 0 12px calc(248px + var(--gap));}
+
+/* ========================================================================== */
+/* ===== NEW CSS — SETTLED (shared by every treatment) ====================== */
+/* ========================================================================== */
+/* The quote row: the snippet is the card's headline, so it needs a multi-line
+   reading style rather than `.doc-title`'s single-line 15.5px/700 navy.
+   `align-items:flex-start` is what stops the publisher chip and page pill from
+   centering against a three-line quote. ~6 lines. */
+.page-docs .quoterow{align-items:flex-start;}
+.page-docs .quoterow .doc-pub{margin-top:3px;}
+.page-docs .quoterow .doc-pill{margin-top:1px;}
+.page-docs .doc-quote{display:block;font-size:14px;font-weight:600;color:var(--ink);line-height:1.55;}
+.page-docs .doc-quote mark{background:var(--az-gold-100);color:var(--az-gold-d);border-radius:3px;padding:0 3px;font-weight:800;}
+/* Expanded quotes read half a point down from the headline quote. */
+.page-docs .tray .doc-quote{font-size:13.5px;}
+
+/* ========================================================================== */
+/* ===== NEW CSS — the five treatments (only one applies at a time) ========= */
+/* ========================================================================== */
+
+/* --- T1 · Cards. Each quote becomes its own white tile floating on the
+       dashed block's tint. Discrete objects, not a list. ~5 lines. */
+.tr-1 .ctx .tray{padding:10px;display:flex;flex-direction:column;gap:9px;}
+.tr-1 .ctx .tray .doc{background:#fff;border:1px solid var(--line);border-radius:var(--r-sm);padding:12px 14px;box-shadow:var(--shadow-sm);}
+.tr-1 .ctx .tray .doc:not(:last-child){border-bottom:1px solid var(--line);}
+.tr-1 .ctx .tray .doc:hover{border-color:var(--az-gold);background:#fff;}
+
+/* --- T2 · Numbered. A circled ordinal leads each quote, so its position in
+       the document is legible and the eye has a fixed left anchor. ~5 lines. */
+.tr-2 .ctx .tray .doc{padding:14px;gap:13px;}
+.tr-2 .ctx .tray .doc:not(:last-child){border-bottom:1px solid var(--line);}
+.tr-2 .pnum{flex:0 0 auto;display:grid;place-items:center;width:23px;height:23px;margin-top:1px;border-radius:50%;background:var(--navy-100);color:var(--navy);font-size:11px;font-weight:800;}
+
+/* --- T3 · Page-headed. The page number stops being a right-hand pill and
+       becomes a label ABOVE each quote, so the separator IS the citation.
+       ~6 lines. */
+.tr-3 .ctx .tray .doc{flex-direction:column;align-items:flex-start;gap:7px;padding:14px;}
+.tr-3 .ctx .tray .doc:not(:last-child){border-bottom:1px solid var(--line);}
+.tr-3 .pglabel{flex:0 0 auto;font-size:10.5px;font-weight:800;text-transform:uppercase;letter-spacing:.07em;color:var(--az-gold-d);background:var(--az-gold-100);border-radius:var(--r-pill);padding:3px 10px;}
+.tr-3 .ctx .tray .doc .doc-main{width:100%;}
+
+/* --- T4 · Banded. Alternating rows sit on white instead of the block's tint.
+       The cheapest possible distinction — no new shapes at all. ~3 lines. */
+.tr-4 .ctx .tray .doc{padding:13px 14px;}
+.tr-4 .ctx .tray .doc:nth-child(odd){background:#fff;}
+.tr-4 .ctx .tray .doc:not(:last-child){border-bottom:0;}
+
+/* --- T5 · Ruled. A copper rule down the left edge of every quote — the same
+       device S2 used on the headline, applied to the tray. ~5 lines. */
+.tr-5 .ctx .tray{padding:9px 10px;display:flex;flex-direction:column;gap:8px;}
+.tr-5 .ctx .tray .doc{background:#fff;border-left:3px solid var(--copper);border-bottom:0;border-radius:0 var(--r-sm) var(--r-sm) 0;padding:11px 14px;}
+.tr-5 .ctx .tray .doc:not(:last-child){border-bottom:0;}
+.tr-5 .ctx .tray .doc:hover{border-left-color:var(--az-gold);}
+
+@media (max-width:860px){
+  .page-docs .doclayout{grid-template-columns:1fr;}
+  .page-docs .docside{position:static;}
+  .page-docs .docstatus{margin-left:0;}
+}
+</style>
+</head>
+<body>
+
+<div class="mockbar">
+  <b>Expanded quotes</b>
+  <button data-tr="1" class="on">T1 · Cards</button>
+  <button data-tr="2">T2 · Numbered</button>
+  <button data-tr="3">T3 · Page-headed</button>
+  <button data-tr="4">T4 · Banded</button>
+  <button data-tr="5">T5 · Ruled</button>
+  <span class="sep"></span>
+  <button data-tr="all">Compare all</button>
+</div>
+
+<header class="site">
+  <div class="bar">
+    <a class="brand" href="#"><span class="bt"><b>Ask the Budget</b><span>Arizona budget documents</span></span></a>
+    <nav class="pills" aria-label="Primary">
+      <a href="#" class="active" aria-current="page">Budget Documents</a>
+      <a href="#">AI Mode</a>
+      <a href="#">Fiscal Notes</a>
+    </nav>
+  </div>
+</header>
+
+<div class="vnote"><div class="vn" id="vnote"></div></div>
+
+<main class="page-docs">
+  <section class="subhero">
+    <div class="wrap">
+      <h1>Budget Documents</h1>
+      <p class="lead">Every Arizona budget document ingested so far — baselines, appropriations
+        reports, annual financial reports, executive budgets, and budget bills.</p>
+      <div class="chips">
+        <span class="chip">JLBC · OSPB · GAO</span>
+        <span class="chip">Every document opens its source PDF</span>
+      </div>
+    </div>
+  </section>
+
+  <div class="wrap docwrap">
+    <p class="fnnote docstatus" id="status"></p>
+    <div class="doclayout">
+      <aside class="docside">
+        <div class="fgrp">
+          <label class="fside-search">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg>
+            <input type="text" value="child care subsidy" readonly>
+            <button class="clr-x" aria-label="Clear search">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"><path d="M6 6l12 12M18 6 6 18"/></svg>
+            </button>
+          </label>
+        </div>
+        <div class="fgrp">
+          <div class="flbl">Document Type</div>
+          <div class="fctl"><button class="fbtn"><span class="fb-label">Any type</span>
+            <svg class="chev" viewBox="0 0 10 6" fill="none" stroke="currentColor" stroke-width="1.8"><path d="m1 1 4 4 4-4"/></svg></button></div>
+        </div>
+        <div class="fgrp">
+          <div class="flbl">Fiscal Year</div>
+          <div class="fctl"><button class="fbtn"><span class="fb-label">Any year</span>
+            <svg class="chev" viewBox="0 0 10 6" fill="none" stroke="currentColor" stroke-width="1.8"><path d="m1 1 4 4 4-4"/></svg></button></div>
+        </div>
+      </aside>
+      <div class="docmain" id="main"></div>
+    </div>
+  </div>
+</main>
+
+<script>
+/* ==========================================================================
+   Throwaway demo wiring. Illustrative data — no number here is real.
+   ========================================================================== */
+
+const QUERY = "child care subsidy";
+const CHEV = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="m6 9 6 6 6-6"/></svg>';
+
+/* ONE ENTRY PER DOCUMENT. d1 and d2 are the same family AND year (FY 2027
+   Baseline) but different documents — two cards, which is correct.
+   d1 and d3 carry 4-5 passages so the tray treatments have something to
+   distinguish; a two-passage tray never showed the problem. */
+const DOCS = [
+  {
+    id:"d1", pub:"JLBC", title:"FY 2027 Baseline — AHCCCS",
+    passages:[
+      {page:142, text:"The FY 2027 Baseline includes $89,432,700 from the Child Care and Development Fund for <mark>child care subsidy</mark> assistance, an increase of $4,100,000 above the FY 2026 appropriation."},
+      {page:143, text:"As of October 2026, the <mark>child care</mark> assistance waiting list contained 6,218 children, compared to 3,940 children at the same point in FY 2026."},
+      {page:145, text:"<mark>Subsidy</mark> reimbursement rates were last updated in FY 2024 based on the 2023 market rate survey. A full rate update is estimated to cost $22,600,000 annually."},
+      {page:147, text:"The Baseline continues the $3,200,000 General Fund appropriation for <mark>child care</mark> provider background checks, unchanged since FY 2023."},
+      {page:151, text:"Federal maintenance-of-effort requirements obligate the state to spend at least $18,400,000 annually in state monies on <mark>child care</mark> assistance."}
+    ]
+  },
+  {
+    id:"d2", pub:"JLBC", title:"FY 2027 Baseline — Health Services, Department of",
+    passages:[
+      {page:311, text:"Home visiting and <mark>child care</mark> health consultation programs are funded at $6,740,300, unchanged from FY 2026."},
+      {page:314, text:"The department licenses 2,190 <mark>child care</mark> facilities; inspection staffing is funded at 41.5 FTE positions in the FY 2027 Baseline."}
+    ]
+  },
+  {
+    id:"d3", pub:"JLBC", title:"FY 2026 Appropriations Report — Economic Security, Department of",
+    passages:[
+      {page:88, text:"The Legislature appropriated $85,332,700 for <mark>child care subsidy</mark> in FY 2026, of which $12,000,000 is one-time federal relief funding that does not continue into FY 2027."},
+      {page:91, text:"Footnote 3 requires the department to report quarterly on <mark>child care</mark> waiting list totals to the Joint Legislative Budget Committee."},
+      {page:94, text:"The FY 2026 <mark>child care subsidy</mark> caseload averaged 27,410 children per month, 8% above the level assumed in the enacted budget."},
+      {page:96, text:"Any unexpended <mark>child care subsidy</mark> monies do not revert to the General Fund and remain available for expenditure in the following fiscal year."}
+    ]
+  },
+  {
+    id:"d4", pub:"OSPB", title:"FY 2027 Executive Budget — Human Services",
+    passages:[
+      {page:54, text:"The Executive recommends $15,000,000 from the General Fund to eliminate the <mark>child care subsidy</mark> waiting list by the end of FY 2027."}
+    ]
+  }
+];
+
+const TOTAL = DOCS.reduce((n,d) => n + d.passages.length, 0);
+const plural = (n,s) => n + " " + s + (n === 1 ? "" : "s");
+
+const NAMES = {"1":"Cards","2":"Numbered","3":"Page-headed","4":"Banded","5":"Ruled"};
+
+const NOTES = {
+  "1": {
+    h:"T1 · Cards — each quote is its own tile",
+    p:["Every additional passage becomes a white tile with a hairline border and the app's small shadow, floating on the dashed block's tint with a 9px gap between them. There is no ambiguity about where one quote ends: they are separate objects, not rows.",
+       "The strongest separation of the five, and it makes each quote feel individually clickable — useful given the quote row is the only path to the source PDF. The cost is nesting: a card inside a dashed block inside a card, three levels of container on one screen."],
+    cost:"~5 lines"
+  },
+  "2": {
+    h:"T2 · Numbered — a circled ordinal anchors each quote",
+    p:["Each quote leads with a numbered circle (2, 3, 4 …) continuing from the headline passage, and the dashed hairline between rows becomes a solid one. The number gives the eye a fixed left anchor to jump between, and it makes the passages' order in the document legible.",
+       "Lighter than T1 and it adds real information rather than just separation. The risk is that the numbers imply a ranking that isn't quite what they mean — they are document order, not relevance order, and the headline passage is #1 by score rather than by page."],
+    cost:"~5 lines"
+  },
+  "3": {
+    h:"T3 · Page-headed — the citation becomes the separator",
+    p:["The page number leaves the right rail and becomes a small gold label above each quote, with the quote stacked beneath it at full width. Each passage reads as a captioned block, and the label does double duty as the visual break between them.",
+       "The most readable of the five for long quotes, since nothing competes for horizontal space. The cost is that the page numbers stop lining up in a right-hand column, so you can no longer scan pages down a fixed edge — and it makes the tray noticeably taller."],
+    cost:"~6 lines"
+  },
+  "4": {
+    h:"T4 · Banded — alternating rows sit on white",
+    p:["Odd rows take a white background against the dashed block's <code>#fafbff</code> tint, and the dividing hairlines come out entirely. No new shapes, no new elements — just a tint alternation.",
+       "By far the cheapest, and it survives any quote length without layout work. But it is also the weakest signal: the two backgrounds differ by about 1% luminance, so on a bright screen the banding may be nearly invisible, and it carries no information beyond “this is a different row”."],
+    cost:"~3 lines"
+  },
+  "5": {
+    h:"T5 · Ruled — a copper rule down the left of every quote",
+    p:["Each quote sits on white with a 3px copper bar down its left edge, gapped like T1 but without a full border — the same pull-quote device from S2, applied inside the tray. The bar turns gold on hover, which pre-announces that the row is interactive.",
+       "Nearly as strong a separation as T1 at less visual weight, and the copper ties the tray back to the publisher chip's color. The cost is that the rule reads as an accent with no meaning — it looks like it should encode something (publisher? relevance?) and doesn't."],
+    cost:"~5 lines"
+  }
+};
+
+/* --- the settled card ---------------------------------------------------- */
+
+function quoteRow(p) {
+  return `<a class="doc quoterow" href="#" onclick="return false">
+    <div class="doc-main"><span class="doc-quote">${p.text}</span></div>
+    <span class="doc-pill">p. ${p.page}</span>
+  </a>`;
+}
+
+/* The headline quote keeps the publisher chip on the left (S1). */
+function headlineRow(doc, p) {
+  return `<a class="doc quoterow" href="#" onclick="return false">
+    <span class="doc-pub">${doc.pub}</span>
+    <div class="doc-main"><span class="doc-quote">${p.text}</span></div>
+    <span class="doc-pill">p. ${p.page}</span>
+  </a>`;
+}
+
+/* One additional passage inside the tray — the ONLY thing that varies. */
+function trayRow(p, tr, i) {
+  if (tr === "2") {
+    return `<a class="doc quoterow" href="#" onclick="return false">
+      <span class="pnum">${i + 2}</span>
+      <div class="doc-main"><span class="doc-quote">${p.text}</span></div>
+    </a>`;
+  }
+  if (tr === "3") {
+    return `<a class="doc quoterow" href="#" onclick="return false">
+      <span class="pglabel">Page ${p.page}</span>
+      <div class="doc-main"><span class="doc-quote">${p.text}</span></div>
+    </a>`;
+  }
+  return quoteRow(p);
+}
+
+function card(doc, tr) {
+  const [best, ...rest] = doc.passages;
+  const key = tr + ":" + doc.id;
+  const open = state.open.has(key);
+  return `<article class="grp tr-${tr}">
+    ${headlineRow(doc, best)}
+    <div class="ctx">
+      <div class="ctx-row">
+        <span class="doc-pub">${doc.pub}</span>
+        <span class="badge">${doc.title}</span>
+        <span class="spacer"></span>
+        ${rest.length ? `<button class="grp-more${open ? " open" : ""}" data-key="${key}">More from this document ${CHEV}</button>` : ""}
+      </div>
+      ${open && rest.length ? `<div class="tray open">${rest.map((p,i) => trayRow(p, tr, i)).join("")}</div>` : ""}
+    </div>
+  </article>`;
+}
+
+function resultsCard(tr) {
+  const meta = plural(TOTAL, "passage") + " · " + plural(DOCS.length, "document") +
+               " matching “" + QUERY + "”";
+  return `<section class="yg">
+    <div class="yg-head-static">
+      <div class="yg-ttl"><span class="yg-yr">Results</span><span class="yg-meta">${meta}</span></div>
+    </div>
+    <div class="yg-body">${DOCS.map(d => card(d, tr)).join("")}</div>
+  </section>`;
+}
+
+/* --- state + render ------------------------------------------------------ */
+
+/* Trays start OPEN — the treatments are invisible otherwise. */
+const state = { tr: "1", open: new Set() };
+function openAll() {
+  state.open.clear();
+  ["1","2","3","4","5"].forEach(tr => DOCS.forEach(d => {
+    if (d.passages.length > 1) state.open.add(tr + ":" + d.id);
+  }));
+}
+openAll();
+
+function render() {
+  document.getElementById("status").textContent =
+    TOTAL + " passages in " + plural(DOCS.length, "document") +
+    ", across all fiscal years, matching “" + QUERY + "”.";
+
+  const main = document.getElementById("main");
+  const vnote = document.getElementById("vnote");
+
+  if (state.tr === "all") {
+    vnote.innerHTML = `<h3>All five, same data, same card</h3>
+      <p>The headline quote, the page pill, the identity row and the
+      “More from this document” control are identical in every one. Only the
+      expanded passages differ.</p>`;
+    main.innerHTML = ["1","2","3","4","5"].map(tr =>
+      `<div class="cmp-label"><span>T${tr} · ${NAMES[tr]}</span></div>${resultsCard(tr)}`).join("");
+    return;
+  }
+
+  const n = NOTES[state.tr];
+  vnote.innerHTML = `<h3>${n.h}</h3>${n.p.map(t => `<p>${t}</p>`).join("")}<span class="cost">${n.cost} of new CSS</span>`;
+  main.innerHTML = resultsCard(state.tr);
+}
+
+document.querySelectorAll(".mockbar [data-tr]").forEach(btn => {
+  btn.addEventListener("click", () => {
+    document.querySelectorAll(".mockbar [data-tr]").forEach(b => b.classList.remove("on"));
+    btn.classList.add("on");
+    state.tr = btn.dataset.tr;
+    render();
+  });
+});
+
+document.addEventListener("click", (e) => {
+  const t = e.target.closest("[data-key]");
+  if (!t) return;
+  e.preventDefault();
+  const k = t.dataset.key;
+  state.open.has(k) ? state.open.delete(k) : state.open.add(k);
+  render();
+});
+
+render();
+</script>
+</body>
+</html>

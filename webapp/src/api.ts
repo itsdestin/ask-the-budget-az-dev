@@ -139,6 +139,36 @@ export async function corpusCounts(): Promise<CorpusCounts> {
   return r.json();
 }
 
+/** One document in the browse listing — everything the Budget Documents page
+ *  needs to render a row, and nothing else (see app/routes/corpus.py). */
+export interface CorpusDocument {
+  doc_id: string;
+  /** Display title — the sidecar's own, else the humanized doc_id. */
+  title: string;
+  publisher: string;
+  doc_type: string;
+  fiscal_year: number | null;
+  /** The document's own source PDF/DOCX URL; null when the sidecar doesn't
+   *  know it — the row then renders unlinked rather than guessing. */
+  doc_url: string | null;
+  /** Extra strings the filter box matches by EXACT token equality — the
+   *  agency's JLBC URL slug and reviewed aliases, plus this report type's
+   *  shorthand ("26ar"). Computed server-side in app/search_terms.py so
+   *  JLBC's convention has one implementation, not two. Always present;
+   *  empty for a document with neither a known agency nor a shorthand type. */
+  terms: string[];
+}
+
+/** The whole budget corpus as one flat listing, for the browse-first Budget
+ *  Documents page. Fetched once on mount; the page filters, groups and
+ *  searches it client-side, so there is no request per keystroke. Not
+ *  admin-gated — it's the same corpus catalog the counts endpoint sizes. */
+export async function corpusDocuments(): Promise<{ documents: CorpusDocument[] }> {
+  const r = await fetch("/api/corpus/documents");
+  if (!r.ok) await fail(r, "corpus documents");
+  return r.json();
+}
+
 // ---- AI Mode (Plan 4) ------------------------------------------------------
 
 /** One answer tier as `GET /api/ai/status` reports it.
