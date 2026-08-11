@@ -123,13 +123,16 @@ The carve-out is an explicit, named, reviewed set — not a policy. Every other 
 
 **Accepted risk: `exec` fires on ordinary prose. Destin, 2026-08-11.**
 
-`exec` is a prefix of "executive", and the shorthand regex allows an optional space, so these all parse as a FY-and-doc-type pair and **hard-filter the query to `governors-budget`**:
+**Mechanism (shared by every form):** the shorthand regex (`_JLBC_SHORTHAND` in `retrieval/query_year.py`) allows an optional space between the two digits and the type word, and ends the type word with a `(?![\w])` lookahead rather than a word boundary — so anything that isn't a following word character closes the match, including a hyphen. `br` and `afr` share this exactly: "table 26 br funding" parses as a FY2026 baseline filter and "line 26 afr adjustments" parses as a FY2026 AFR filter, hard-filtering both queries just as `exec` does below. (Verified against this checkout, 2026-08-11.)
+
+**Aggravating factor (unique to `exec`):** `exec` is also a prefix of the ordinary English word "executive", which `br` and `afr` are not prefixes of anything comparably common. That is what makes `exec` fire so much more *often* than the other two — not what makes it fire at all. These all parse as a FY-and-doc-type pair and **hard-filter the query to `governors-budget`**:
 
 - "page 26 exec summary"
 - "the committee held 26 exec sessions"
 - "26 exec orders issued last year"
+- "in 26 exec-level positions" — the trailing hyphen satisfies `(?![\w])` the same way a space or end-of-string would; no English-prefix collision needed here, just the shared mechanism above
 
-The existing `_YEAR_LOOKALIKE_PREFIX` guard cannot help: it blocks citation designators ("chapter", "HB", "section") before the digits, which is a different problem. `br` and `afr` are not exposed — neither is a prefix of an English word.
+The existing `_YEAR_LOOKALIKE_PREFIX` guard cannot help: it blocks citation designators ("chapter", "HB", "section") before the digits, which is a different problem — confirmed "chapter 26 exec" correctly does not parse. Neither does "26 executive summary": the lookahead fails inside "executive" because "u" (the next character after "exec") is a word character, so the regex only ever matches the standalone token, not an embedded prefix. (Both verified against this checkout, 2026-08-11.)
 
 Found by review after the eval had already passed, because the 44-query eval set contains no such phrasing. The narrowing that was offered and declined was to require no space for `exec` specifically (`26exec` parses, `26 exec` does not), which would have killed every reproduced case while keeping the form.
 
