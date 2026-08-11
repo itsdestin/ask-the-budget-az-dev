@@ -109,9 +109,10 @@ def document_listing() -> list[dict]:
     renders it.
 
     One flat row per document: id, display title, publisher, doc_type,
-    fiscal_year and the source URL the row links to. The page filters,
-    groups and searches this client-side, so there is exactly one request
-    on mount and none per keystroke.
+    fiscal_year, the source URL the row links to, and the search `terms` the
+    filter box matches on. The page filters, groups and searches this
+    client-side, so there is exactly one request on mount and none per
+    keystroke.
 
     Restricted to the budget corpus via `budget_doc_ids()` — the sidecar
     itself cannot tell the two corpora apart. See that function for why.
@@ -126,6 +127,8 @@ def document_listing() -> list[dict]:
     """
     from store.documents import load_documents, title_for
 
+    from app.search_terms import search_terms
+
     docs = load_documents()
     in_budget = budget_doc_ids()
     rows = [
@@ -136,6 +139,15 @@ def document_listing() -> list[dict]:
             "doc_type": meta.get("doc_type"),
             "fiscal_year": meta.get("fiscal_year"),
             "doc_url": meta.get("source_url"),
+            # Extra strings the filter box matches by EXACT token equality —
+            # the agency's JLBC slug and reviewed aliases, plus this report
+            # type's shorthand ("26ar"). Computed here rather than in the
+            # browser so JLBC's convention has exactly one implementation; see
+            # app/search_terms.py for the measurement that motivated it
+            # ("dema" matched 0 of 5,330 documents before this).
+            "terms": search_terms(
+                doc_id, meta.get("doc_type"), meta.get("fiscal_year")
+            ),
         }
         for doc_id, meta in docs.items()
         # A hand-edited sidecar can hold anything; a non-dict entry has no

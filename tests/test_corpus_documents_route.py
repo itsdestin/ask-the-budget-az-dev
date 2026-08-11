@@ -74,6 +74,13 @@ def _entry(**over):
     return base
 
 
+def _write(tmp_path, docs):
+    """Write `docs` as the sidecar. Small helper so the terms tests below
+    match the brief's shape; every other test here writes documents.json
+    inline instead."""
+    (tmp_path / "documents.json").write_text(json.dumps(docs), encoding="utf-8")
+
+
 def test_an_empty_sidecar_lists_no_documents(client):
     """Fresh install: zero rows, not a 500 — the page shows its empty state."""
     body = client.get("/api/corpus/documents").json()
@@ -100,6 +107,10 @@ def test_every_document_is_listed_with_the_fields_the_page_needs(client, tmp_pat
 
     body = client.get("/api/corpus/documents").json()
 
+    # `terms` values below are real: "afr" and "axs" are live catalog/shorthand
+    # entries (app/search_terms.py), not fixture-only strings — computed with
+    # `app.search_terms.search_terms(doc_id, doc_type, fiscal_year)` against
+    # this checkout and pasted here, same as every other field in this table.
     assert body["documents"] == [
         {
             "doc_id": "agao-afr-fy2025",
@@ -108,6 +119,7 @@ def test_every_document_is_listed_with_the_fields_the_page_needs(client, tmp_pat
             "doc_type": "afr",
             "fiscal_year": 2025,
             "doc_url": "https://example.gov/afr25.pdf",
+            "terms": ["25afr", "afr"],
         },
         {
             "doc_id": "jlbc-baseline-fy2027-axs",
@@ -116,6 +128,7 @@ def test_every_document_is_listed_with_the_fields_the_page_needs(client, tmp_pat
             "doc_type": "baseline-per-agency",
             "fiscal_year": 2027,
             "doc_url": "https://www.azjlbc.gov/27baseline/axs.pdf",
+            "terms": ["27baseline", "27br", "axs", "baseline", "br"],
         },
     ]
 
@@ -252,3 +265,22 @@ def test_an_unreadable_chunk_table_lists_nothing_rather_than_leaking(client, tmp
 
     assert response.status_code == 200
     assert response.json() == {"documents": []}
+
+
+def test_the_listing_carries_each_documents_search_terms(client, tmp_path):
+    _write(tmp_path, {"jlbc-approps-fy2026-ema": _entry(doc_type="approps-per-agency",
+                                                        fiscal_year=2026)})
+    row = client.get("/api/corpus/documents").json()["documents"][0]
+    # The filter box matches these by exact token equality; see
+    # app/search_terms.py for where each comes from.
+    assert "ema" in row["terms"]    # JLBC URL slug
+    assert "dema" in row["terms"]   # reviewed alias
+    assert "26ar" in row["terms"]   # JLBC shorthand
+
+
+def test_every_row_has_a_terms_list_even_when_empty(client, tmp_path):
+    # The client types `terms` as required, so the key must always be present —
+    # a raw-slug doc type with an unknown agency has nothing to contribute.
+    _write(tmp_path, {"jlbc-s-fy2027-01": _entry(doc_type="s-pdf", fiscal_year=2027)})
+    row = client.get("/api/corpus/documents").json()["documents"][0]
+    assert row["terms"] == []
