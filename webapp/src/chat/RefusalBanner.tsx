@@ -83,11 +83,7 @@ export interface RefusalChunkPreview {
 export type RefusalReason =
   | { kind: "no_retrieval"; corpusSummary?: string }
   | { kind: "synthesis"; chunks: RefusalChunkPreview[] }
-  | { kind: "out_of_scope" }
-  // Some figures sourced, some not. Not a refusal — the answer is largely
-  // cited — but Invariant 2 says an unsourced number is disclosed, not
-  // quietly dropped. One line per turn replaced a red chip per figure.
-  | { kind: "some_unverified"; count: number };
+  | { kind: "out_of_scope" };
 
 /** Same set citation-extract recognizes; duplicated (three strings) rather
  *  than exported from there, because that file is owned by Task 9's port. */
@@ -144,15 +140,8 @@ export function detectRefusal(turn: AssistantTurn): RefusalReason | null {
   // `linked` only. `derived` is arithmetic and `unverified` is the honest
   // failure this banner exists to report; neither can stand in for a source.
   // An answer whose figures are ALL unverified still fires, correctly.
-  const figures = figuresForRender(turn.annotation);
-  if (figures.some((f) => f.verdict === "linked")) {
-    // The answer IS sourced, so this is not a refusal. But unverified
-    // figures no longer draw their own chip, so if any remain they are
-    // disclosed here — otherwise an unsourced number is indistinguishable
-    // from a sourced one, which is the failure the whole feature exists to
-    // prevent.
-    const unverified = figures.filter((f) => f.verdict === "unverified").length;
-    return unverified > 0 ? { kind: "some_unverified", count: unverified } : null;
+  if (figuresForRender(turn.annotation).some((f) => f.verdict === "linked")) {
+    return null;
   }
 
   // Prose is the thing being flagged. A turn that is nothing but tool calls
@@ -239,10 +228,6 @@ const COPY: Record<RefusalReason["kind"], { title: string; body: string }> = {
       "citation that passed validation against them. Read them directly and " +
       "judge for yourself.",
   },
-  some_unverified: {
-    title: "",
-    body: "",
-  },
   out_of_scope: {
     title: "This question is outside the tool's scope.",
     body:
@@ -257,20 +242,6 @@ interface Props {
 }
 
 export default function RefusalBanner({ refusal }: Props) {
-  // Not a warning: the answer is cited. A quieter note, phrased as a count
-  // so the reader knows how much of the answer to check by hand.
-  if (refusal.kind === "some_unverified") {
-    const n = refusal.count;
-    return (
-      <div className="chat-notice chat-refusal is-quiet" role="status">
-        {n === 1
-          ? "1 figure in this answer could not be matched to a retrieved source."
-          : `${n} figures in this answer could not be matched to a retrieved source.`}{" "}
-        Everything with a numbered chip is sourced; anything without one is not.
-      </div>
-    );
-  }
-
   const copy = COPY[refusal.kind];
   return (
     // `chat-notice`, the SYSTEM voice: bordered, tinted, no speech bubble, no

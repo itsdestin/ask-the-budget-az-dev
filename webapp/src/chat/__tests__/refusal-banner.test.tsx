@@ -446,24 +446,6 @@ describe("detectRefusal — system-linked figures", () => {
     ).toBeNull();
   });
 
-  it("discloses the count when SOME figures are unverified", () => {
-    // Unverified figures no longer draw their own chip, so this line is the
-    // only thing standing between an unsourced number and a reader who
-    // assumes everything is cited (Invariant 2 — disclosed, not dropped).
-    const reason = detectRefusal(
-      turn({
-        blocks: [retrieveBlock(), textBlock("$12,300,000 and two more.")],
-        annotation: annotationWith("linked", "unverified", "unverified"),
-      }),
-    );
-    expect(reason).toEqual({ kind: "some_unverified", count: 2 });
-
-    render(<RefusalBanner refusal={reason!} />);
-    expect(
-      screen.getByText(/2 figures in this answer could not be matched/),
-    ).toBeTruthy();
-  });
-
   it("still fires when every figure came back unverified", () => {
     // Nothing was located, so nothing is verified — the banner is telling the
     // truth here and must keep firing.

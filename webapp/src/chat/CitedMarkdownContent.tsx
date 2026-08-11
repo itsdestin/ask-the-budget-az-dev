@@ -72,8 +72,11 @@ export default function CitedMarkdownContent({
   // figure is not a citation — nothing was found — and drawing a numbered
   // red marker for each one buries the real citations in noise: a nine-row
   // table rendered as 13,14,…,20 struck through around a single live 21.
-  // The count is not lost; `RefusalBanner` reports it once per turn, which
-  // keeps the disclosure (Invariant 2) without the per-figure clutter.
+  //
+  // Nothing announces the omission, deliberately. A number with no chip is
+  // visibly uncited, so a second statement saying so is redundant. The
+  // all-unverified case still gets `RefusalBanner`, which is a different
+  // claim: not "this figure lacks a source" but "this ANSWER has none".
   const figures = useMemo(
     () => figuresForRender(annotation).filter((f) => f.verdict !== "unverified"),
     [annotation],

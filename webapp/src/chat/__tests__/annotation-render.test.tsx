@@ -45,8 +45,8 @@ describe("annotation rendering", () => {
   it("renders one chip per CITATION, numbered in reading order", () => {
     // Unverified figures draw no chip: nothing was sourced, so a numbered
     // marker would claim provenance the system does not have, and a run of
-    // them buries the real citations. The count is disclosed once per turn
-    // by RefusalBanner instead.
+    // them buries the real citations. No count is shown either — a number
+    // with no chip is already visibly uncited.
     render(
       <CitedMarkdownContent content={ANSWER} annotation={ANNOTATION} citations={[]} />,
     );
