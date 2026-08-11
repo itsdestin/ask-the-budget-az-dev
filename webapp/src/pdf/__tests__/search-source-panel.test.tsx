@@ -11,7 +11,8 @@ import * as api from "../../api";
 // tests the source panel, not queryHit, so an empty array is a neutral filler.
 const DOCS: api.CorpusDocument[] = [
   { doc_id: "b27", title: "FY 2027 Baseline — AHCCCS", publisher: "jlbc",
-    doc_type: "baseline-per-agency", fiscal_year: 2027, doc_url: "https://x/axs.pdf", terms: [] },
+    doc_type: "baseline-per-agency", fiscal_year: 2027, doc_url: "https://x/axs.pdf",
+    section_of: null, terms: [] },
 ];
 
 const HITS: api.SearchResult[] = [

@@ -19,22 +19,22 @@ import * as api from "../api";
 // this task, since an empty terms array can never satisfy an exact-equality
 // check.
 const DOCS: api.CorpusDocument[] = [
-  { doc_id: "b27-ahcccs", title: "FY 2027 Baseline — AHCCCS", publisher: "jlbc", doc_type: "baseline-per-agency", fiscal_year: 2027, doc_url: "https://x/axs.pdf", terms: [] },
-  { doc_id: "b27-edu", title: "FY 2027 Baseline — Department of Education", publisher: "jlbc", doc_type: "baseline-per-agency", fiscal_year: 2027, doc_url: "https://x/edu.pdf", terms: [] },
-  { doc_id: "b27-dcs", title: "FY 2027 Baseline — Department of Child Safety", publisher: "jlbc", doc_type: "baseline-per-agency", fiscal_year: 2027, doc_url: "https://x/dcs.pdf", terms: [] },
-  { doc_id: "eb27", title: "FY 2027 Executive Budget — Governor's Office", publisher: "governor", doc_type: "governors-budget", fiscal_year: 2027, doc_url: "https://x/eb27.pdf", terms: [] },
-  { doc_id: "ar26-ahcccs", title: "FY 2026 Appropriations Report — AHCCCS", publisher: "jlbc", doc_type: "approps-per-agency", fiscal_year: 2026, doc_url: "https://x/ar-axs.pdf", terms: [] },
-  { doc_id: "ar26-edu", title: "FY 2026 Appropriations Report — Department of Education", publisher: "jlbc", doc_type: "approps-per-agency", fiscal_year: 2026, doc_url: "https://x/ar-edu.pdf", terms: [] },
-  { doc_id: "afr26", title: "FY 2026 Annual Financial Report", publisher: "agao", doc_type: "afr", fiscal_year: 2026, doc_url: "https://x/afr26.pdf", terms: [] },
+  { doc_id: "b27-ahcccs", title: "FY 2027 Baseline — AHCCCS", publisher: "jlbc", doc_type: "baseline-per-agency", fiscal_year: 2027, doc_url: "https://x/axs.pdf", section_of: null, terms: [] },
+  { doc_id: "b27-edu", title: "FY 2027 Baseline — Department of Education", publisher: "jlbc", doc_type: "baseline-per-agency", fiscal_year: 2027, doc_url: "https://x/edu.pdf", section_of: null, terms: [] },
+  { doc_id: "b27-dcs", title: "FY 2027 Baseline — Department of Child Safety", publisher: "jlbc", doc_type: "baseline-per-agency", fiscal_year: 2027, doc_url: "https://x/dcs.pdf", section_of: null, terms: [] },
+  { doc_id: "eb27", title: "FY 2027 Executive Budget — Governor's Office", publisher: "governor", doc_type: "governors-budget", fiscal_year: 2027, doc_url: "https://x/eb27.pdf", section_of: null, terms: [] },
+  { doc_id: "ar26-ahcccs", title: "FY 2026 Appropriations Report — AHCCCS", publisher: "jlbc", doc_type: "approps-per-agency", fiscal_year: 2026, doc_url: "https://x/ar-axs.pdf", section_of: null, terms: [] },
+  { doc_id: "ar26-edu", title: "FY 2026 Appropriations Report — Department of Education", publisher: "jlbc", doc_type: "approps-per-agency", fiscal_year: 2026, doc_url: "https://x/ar-edu.pdf", section_of: null, terms: [] },
+  { doc_id: "afr26", title: "FY 2026 Annual Financial Report", publisher: "agao", doc_type: "afr", fiscal_year: 2026, doc_url: "https://x/afr26.pdf", section_of: null, terms: [] },
   // The folded "legislature" code displays as JLBC; this one has no URL.
-  { doc_id: "bb26", title: "FY 2026 General Appropriations Act (SB 1735)", publisher: "legislature", doc_type: "budget-bill", fiscal_year: 2026, doc_url: null, terms: [] },
+  { doc_id: "bb26", title: "FY 2026 General Appropriations Act (SB 1735)", publisher: "legislature", doc_type: "budget-bill", fiscal_year: 2026, doc_url: null, section_of: null, terms: [] },
   // An unregistered doc_type (IMPORTANT 5, 2026-08-10): reportFamilies.ts's
   // FAMILY_OF_DOC_TYPE has no entry for it, so it must still render — under
   // its own raw slug as its own family, per familyOf's documented contract
   // (orderFamilies' WHY comment in Search.tsx) — rather than being silently
   // dropped. No prior fixture in this file exercised that path. Shifts the
   // report count from 5 to 6; see "the status line counts reports" below.
-  { doc_id: "misc26", title: "FY 2026 Special Program Review", publisher: "jlbc", doc_type: "program-review", fiscal_year: 2026, doc_url: "https://x/pr26.pdf", terms: [] },
+  { doc_id: "misc26", title: "FY 2026 Special Program Review", publisher: "jlbc", doc_type: "program-review", fiscal_year: 2026, doc_url: "https://x/pr26.pdf", section_of: null, terms: [] },
 ];
 
 function mount(docs = DOCS, entry = "/search") {
@@ -483,6 +483,7 @@ const SHORTHAND_DOCS: api.CorpusDocument[] = [
     doc_type: "approps-per-agency",
     fiscal_year: 2026,
     doc_url: "https://x/ar-ema.pdf",
+    section_of: null,
     terms: ["26ar", "ar", "dema", "ema"],
   },
   {
@@ -492,6 +493,7 @@ const SHORTHAND_DOCS: api.CorpusDocument[] = [
     doc_type: "approps-per-agency",
     fiscal_year: 2026,
     doc_url: "https://x/ar-adc.pdf",
+    section_of: null,
     terms: ["26ar", "adc", "ar", "doc"],
   },
 ];
@@ -535,6 +537,7 @@ test("terms match whole tokens only, never as substrings", async () => {
       doc_type: "s-pdf",
       fiscal_year: 2027,
       doc_url: null,
+      section_of: null,
       terms: ["26ar"],
     },
   ]);
@@ -570,6 +573,7 @@ test("a stored publisher code matches, not just its display label", async () => 
       doc_type: "governors-budget",
       fiscal_year: 2027,
       doc_url: "https://x/eb27.pdf",
+      section_of: null,
       terms: ["27exec", "exec"],
     },
   ]);
@@ -610,6 +614,7 @@ test("insurance still finds its agency by title alone — the change is purely a
       doc_type: "baseline-per-agency",
       fiscal_year: 2026,
       doc_url: "https://x/ins.pdf",
+      section_of: null,
       terms: [],
     },
   ]);

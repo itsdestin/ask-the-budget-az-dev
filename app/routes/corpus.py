@@ -17,6 +17,8 @@ from __future__ import annotations
 
 from fastapi import APIRouter
 
+from app.book_sections import section_of
+
 router = APIRouter()
 
 CORPUS_TABLES = ("budget_chunks", "fiscal_note_chunks")
@@ -185,6 +187,28 @@ def document_listing() -> list[dict]:
             return []
         return search_terms(doc_id, doc_type, fiscal_year, catalog)
 
+    def _section_of_for(meta: dict) -> str | None:
+        """`section_of`, skipped (returns None) when `doc_type`/`source_url`
+        aren't the types it's typed to accept.
+
+        Same posture as `_terms_for` immediately above, for the same reason:
+        `section_of` is typed `(str | None, str | None) -> str | None`, and
+        reproduced against this branch, a wrong-typed `doc_type` (e.g. the
+        list shape `test_a_wrong_typed_doc_type_lists_with_no_terms_not_a_500`
+        already exercises) raises `TypeError: unhashable type: 'list'` from
+        `book_sections.py`'s own `doc_type not in SECTION_DOC_TYPES` set
+        check — the whole listing 500s, not just this row. A row whose
+        doc_type can't even be tested for section membership isn't placeable
+        in a book anyway, so None is both the safe answer and the honest one.
+        """
+        doc_type = meta.get("doc_type")
+        source_url = meta.get("source_url")
+        if not (doc_type is None or isinstance(doc_type, str)):
+            return None
+        if not (source_url is None or isinstance(source_url, str)):
+            return None
+        return section_of(doc_type, source_url)
+
     docs = load_documents()
     in_budget = budget_doc_ids()
     rows = [
@@ -195,6 +219,14 @@ def document_listing() -> list[dict]:
             "doc_type": meta.get("doc_type"),
             "fiscal_year": meta.get("fiscal_year"),
             "doc_url": meta.get("source_url"),
+            # Which JLBC book this document is a SECTION of, or null when it
+            # is a document type in its own right. 647 documents used to
+            # render under raw slugs ("FY 2027 s-pdf") because their doc_type
+            # is a page-number prefix, not a type. Derived HERE, not in the
+            # browser, because app/search_provider.py needs the same answer
+            # for content-mode filtering and two implementations of one
+            # convention drift -- the same reason `terms` is computed here.
+            "section_of": _section_of_for(meta),
             # Extra strings the filter box matches by EXACT token
             # equality — the agency's JLBC slug and reviewed aliases,
             # plus this report type's shorthand ("26ar"). Computed here
