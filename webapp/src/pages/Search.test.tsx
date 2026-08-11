@@ -777,3 +777,44 @@ test("a book with no summary sections shows no empty group", async () => {
   fireEvent.click(await screen.findByRole("button", { name: /browse sections/i }));
   expect(screen.queryByRole("group", { name: /summary sections/i })).not.toBeInTheDocument();
 });
+
+test("a book with only agency pages renders no group heading at all", async () => {
+  // Fix round 1: every AFR, Executive Budget and Budget Bill has ZERO
+  // summary sections -- this single-group shape is the common case, not
+  // an edge case. A heading over the only group in the tray restates what
+  // the reader can already see, so no heading should print here even
+  // though the rows still must.
+  mount([
+    {
+      doc_id: "ahcccs",
+      title: "FY 2027 Baseline — AHCCCS",
+      publisher: "jlbc",
+      doc_type: "baseline-per-agency",
+      fiscal_year: 2027,
+      doc_url: "https://x/axs.pdf",
+      section_of: null,
+      terms: [],
+    },
+    {
+      doc_id: "edu",
+      title: "FY 2027 Baseline — Department of Education",
+      publisher: "jlbc",
+      doc_type: "baseline-per-agency",
+      fiscal_year: 2027,
+      doc_url: "https://x/edu.pdf",
+      section_of: null,
+      terms: [],
+    },
+  ]);
+  fireEvent.click(await screen.findByRole("button", { name: /browse sections/i }));
+
+  // The rows are still there -- the group split partitions the tray, it
+  // never filters it.
+  expect(screen.getByText(/AHCCCS/)).toBeInTheDocument();
+  expect(screen.getByText(/Department of Education/)).toBeInTheDocument();
+
+  // But with only one group present, no heading of either name should
+  // print -- there is nothing for a label to distinguish.
+  expect(screen.queryByRole("heading", { name: /agency pages/i })).not.toBeInTheDocument();
+  expect(screen.queryByRole("heading", { name: /summary sections/i })).not.toBeInTheDocument();
+});
