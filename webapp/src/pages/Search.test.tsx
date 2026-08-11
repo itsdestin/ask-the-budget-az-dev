@@ -403,6 +403,27 @@ test("an unregistered doc_type still renders, under its raw slug, after the cura
   fireEvent.click(await screen.findByRole("button", { name: /Fiscal Year 2026:/i }));
   // Renders under its raw slug, as its own family, after the curated five.
   expect(screen.getByText("FY 2026 program-review")).toBeInTheDocument();
+  // Ordering, not just presence (re-review finding, 2026-08-10): the name of
+  // this test claims "after the curated families" but until now nothing read
+  // DOM order, so a regression that sorted unknown families FIRST would still
+  // pass. Every FY 2026 family here renders exactly one ".doc-title" (each
+  // family has either 1 doc, or 2+ with the tray collapsed by default), so
+  // reading them in DOM order is reading family order. Expected sequence
+  // hand-verified against FAMILY_ORDER and orderFamilies in Search.tsx: this
+  // fixture's FY 2026 families are Appropriations Report, Annual Financial
+  // Report, Budget Bill (the FY 2026-present subset of FAMILY_ORDER, in
+  // FAMILY_ORDER's order), then program-review (orderFamilies' alphabetical,
+  // unrecognized-last tail).
+  const y26card = document.querySelector('[data-year-card="2026"]') as HTMLElement;
+  const familyTitles = within(y26card)
+    .getAllByText(/^FY 2026 /)
+    .map((el) => el.textContent);
+  expect(familyTitles).toEqual([
+    "FY 2026 Appropriations Report",
+    "FY 2026 Annual Financial Report",
+    "FY 2026 Budget Bill",
+    "FY 2026 program-review",
+  ]);
   // Appears in the Document Type filter menu.
   fireEvent.click(railTrigger(/document type/i));
   expect(screen.getByRole("button", { name: /^program-review/i })).toBeInTheDocument();
