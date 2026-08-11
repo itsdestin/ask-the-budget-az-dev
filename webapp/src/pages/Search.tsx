@@ -678,8 +678,17 @@ export function Search() {
   // replaces `query` without going through onChange. Comparing against the
   // suppressed query instead of a boolean makes the flag self-invalidating on
   // ANY query change, whatever the source — nothing has to remember to clear
-  // it. A ref, not state: nothing here should trigger a re-render.
-  const suppressEscalationFor = useRef<string | null>(null);
+  // it.
+  //
+  // State, not a ref (Destin, 2026-08-11). It was a ref while its only job was
+  // to be READ by an effect. It is now also read during render (see
+  // `escalatingToContents`), and the toggle can be clicked while the page is
+  // still in title mode with escalation merely armed — where the handler's
+  // `setMode("titles")` is a no-op React bails out of, so a ref write would
+  // change no rendered output and the click would appear to do nothing. Setting
+  // state is what makes cancelling a pending escalation visible. No loop: the
+  // effect only reads this to return early.
+  const [suppressedQuery, setSuppressedQuery] = useState<string | null>(null);
   // Which report's format chooser is open, or null. WHY it lives on the page
   // and not inside the card: `.report-modal` is `position:fixed`, and every
   // rule for it is scoped under `.page-docs` — mounted outside this <main> it
@@ -829,11 +838,11 @@ export function Search() {
     if (mode !== "titles" || !searching || titleHits > 0) return;
     // The reader just clicked their way back to titles for THIS query — do
     // not re-escalate them out of the state they deliberately chose
-    // (CRITICAL, 2026-08-10; see suppressEscalationFor's own comment above).
+    // (CRITICAL, 2026-08-10; see suppressedQuery's own comment above).
     // A different query (typed OR arriving via the URL read-effect) fails
     // this comparison and escalates normally — the whole point of keying on
     // the query instead of a boolean.
-    if (suppressEscalationFor.current === q) return;
+    if (suppressedQuery === q) return;
     // Nothing to escalate to until the listing has loaded — a corpus that has
     // not arrived yet has zero title hits for every query.
     if (phase.kind !== "ready") return;
@@ -846,7 +855,30 @@ export function Search() {
     // after the first zero-hit keystroke instead of 2s after the box went
     // quiet (Search.content.test.tsx: "typing again restarts the escalation
     // pause instead of firing on the stale timer").
-  }, [mode, searching, titleHits, phase.kind, q]);
+  }, [mode, searching, titleHits, phase.kind, q, suppressedQuery]);
+
+  // Is the escalation timer armed right now? Mirrors the guard above, term for
+  // term — if you change one, change both.
+  //
+  // WHY this exists (Destin, 2026-08-11): without it the page sat on "No
+  // document titles match “X”" for the full 2s pause and THEN swapped to the
+  // spinner, which read as a hiccup — the page appeared to fail, then change
+  // its mind. The pause is a deliberate debounce, not a result, so it must not
+  // be presented as one. The moment escalation is armed the page has COMMITTED
+  // to searching contents, so it says so and keeps saying so straight through
+  // the request; `escalatingToContents` and `mode === "contents" && loading`
+  // render identically, so the handoff between them is invisible.
+  //
+  const escalatingToContents =
+    mode === "titles" &&
+    searching &&
+    titleHits === 0 &&
+    phase.kind === "ready" &&
+    suppressedQuery !== q;
+  // Presenting as content search: the armed pause and the in-flight request.
+  const showingContents = mode === "contents" || escalatingToContents;
+  // Nothing to show yet — no count is claimed and the toggle is withheld.
+  const contentsBusy = escalatingToContents || (mode === "contents" && content.kind === "loading");
 
   // The content request itself. `ignore` is the stale-response guard: if the
   // query or the filters change while a request is in flight, React runs this
@@ -987,7 +1019,7 @@ export function Search() {
           {phase.kind === "loading" && "Loading…"}
           {phase.kind === "error" && <span className="err">{phase.message}</span>}
           {phase.kind === "ready" &&
-            (mode === "contents" && searching
+            (showingContents && searching
               ? content.kind === "ready"
                 ? // "Top N", not "N": app/routes/search.py defaults top_k=20
                   // and the frontend never overrides it, so `results.length`
@@ -1016,12 +1048,12 @@ export function Search() {
                     // mode and re-arms escalation. Staying in content mode
                     // would fire a retrieval request on every keystroke.
                     // No explicit suppression clear needed here (pre-merge
-                    // re-review finding, 2026-08-10): suppressEscalationFor
-                    // holds the specific query it applies to, so typing a
-                    // fresh query already makes the escalation effect's
-                    // `suppressEscalationFor.current === q` comparison false
-                    // on its own — self-invalidating, same as any other
-                    // source of a new `query`.
+                    // re-review finding, 2026-08-10): suppressedQuery holds
+                    // the specific query it applies to, so typing a fresh
+                    // query already makes the escalation effect's
+                    // `suppressedQuery === q` comparison false on its own —
+                    // self-invalidating, same as any other source of a new
+                    // `query`.
                     setQuery(e.target.value);
                     setMode("titles");
                   }}
@@ -1085,11 +1117,11 @@ export function Search() {
                       <span className="yg-yr">
                         Results{" "}
                         <span className="yg-mode">
-                          (searching document {mode === "contents" ? "contents" : "titles"})
+                          (searching document {showingContents ? "contents" : "titles"})
                         </span>
                       </span>
                       <span className="yg-meta">
-                        {mode === "contents"
+                        {showingContents
                           ? // Only claim a count once the request is actually
                             // "ready" — the `.docstatus` line above already
                             // follows this rule (renders "" for
@@ -1115,8 +1147,8 @@ export function Search() {
                     </div>
                   </div>
 
-                  {mode === "contents" ? (
-                    content.kind === "loading" ? (
+                  {showingContents ? (
+                    contentsBusy ? (
                       <div className="docload" role="status">
                         <span className="spin" aria-hidden="true" />
                         <span>
@@ -1181,25 +1213,39 @@ export function Search() {
                 </section>
 
                 {/* The toggle. ALWAYS shown once the box has text — including
-                    on both empty states, so neither is ever a dead end. Hidden
-                    ONLY while a request is in flight: there is nothing to
-                    toggle to while the answer is pending, and offering it
-                    invites a click that cancels work nobody asked to start. */}
+                    on both empty states, so neither is ever a dead end.
+
+                    Hidden ONLY while a request is actually in flight: there is
+                    nothing to toggle to while the answer is pending, and
+                    offering it invites a click that cancels work nobody asked
+                    to start.
+
+                    It stays VISIBLE through the armed escalation pause, and
+                    reads "↩ Back to title matches" there (Destin, 2026-08-11).
+                    The pause now renders as the contents spinner, so the "off"
+                    label would offer a search the page has already committed
+                    to; and the reader needs a way out that does not require
+                    sitting through a retrieval request first. Keying the label
+                    off `showingContents` rather than `mode` makes the click
+                    cancel the pending escalation — which is exactly what
+                    arming the suppression does. */}
                 {!(mode === "contents" && content.kind === "loading") && (
                   <div className="allbar">
                     <button
                       type="button"
-                      className={mode === "contents" ? "allbtn on" : "allbtn"}
-                      aria-pressed={mode === "contents"}
+                      className={showingContents ? "allbtn on" : "allbtn"}
+                      aria-pressed={showingContents}
                       onClick={() => {
-                        if (mode === "contents") {
+                        if (showingContents) {
                           // A deliberate return to titles — arm the
                           // suppression, for THIS query specifically, so the
                           // escalation effect (which re-runs because `mode`
                           // is one of its deps) doesn't immediately re-arm a
                           // timer that yanks the reader right back
-                          // (CRITICAL, 2026-08-10).
-                          suppressEscalationFor.current = q;
+                          // (CRITICAL, 2026-08-10). This is also what cancels
+                          // a merely-armed escalation: the effect's cleanup
+                          // clears the pending timer when it re-runs.
+                          setSuppressedQuery(q);
                           setMode("titles");
                         } else {
                           setMode("contents");

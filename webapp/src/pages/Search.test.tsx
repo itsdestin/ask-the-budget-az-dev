@@ -315,12 +315,38 @@ test("a query in the title matches; non-matching documents are removed", async (
   expect(screen.queryByText(/Department of Education/)).toBeNull();
 });
 
-test("a query matching nothing shows an honest empty state", async () => {
+test("zero title hits shows the contents spinner immediately, never a no-results flash", async () => {
+  // Destin, 2026-08-11: the page used to sit on "No document titles match “X”"
+  // for the full 2s escalation pause and THEN swap to the spinner, which read
+  // as a hiccup — as if the search had failed and then changed its mind. The
+  // pause is a debounce, not a result, so the moment escalation is armed the
+  // page presents as content search and keeps doing so through the request.
   mount();
   await screen.findByRole("button", { name: /Fiscal Year 2027:/i });
   fireEvent.change(screen.getByLabelText(/filter documents by agency or keyword/i), {
     target: { value: "zzz-no-such-thing" },
   });
+  // The loading block's sub-line, not "searching document contents" — that
+  // phrase is deliberately in BOTH the header and the block, so matching it
+  // finds two elements.
+  expect(screen.getByText(/reading inside every ingested pdf/i)).toBeInTheDocument();
+  expect(screen.queryByText(/no document titles match/i)).toBeNull();
+  // The header agrees with the body — one statement of what is happening.
+  expect(screen.getByText(/\(searching document contents\)/i)).toBeInTheDocument();
+  // And no count is claimed for an answer that does not exist yet.
+  expect(screen.queryByText(/passages? ·/i)).toBeNull();
+});
+
+test("a query matching nothing shows an honest empty state once the reader opts back out", async () => {
+  mount();
+  await screen.findByRole("button", { name: /Fiscal Year 2027:/i });
+  fireEvent.change(screen.getByLabelText(/filter documents by agency or keyword/i), {
+    target: { value: "zzz-no-such-thing" },
+  });
+  // The title empty state is now reached by declining the escalation, which
+  // the toggle offers throughout the pause — a reader must never have to sit
+  // through a retrieval request to get back to titles.
+  fireEvent.click(screen.getByRole("button", { name: /back to title matches/i }));
   // Names what was searched (titles), and does NOT tell the reader to clear a
   // filter they never set.
   expect(screen.getByText(/no document titles match “zzz-no-such-thing”\./i)).toBeInTheDocument();
@@ -336,6 +362,7 @@ test("the empty state blames filters only when filters are set", async () => {
   fireEvent.change(screen.getByLabelText(/filter documents by agency or keyword/i), {
     target: { value: "zzz-no-such-thing" },
   });
+  fireEvent.click(screen.getByRole("button", { name: /back to title matches/i }));
   expect(screen.getByText(/with those filters — try clearing one/i)).toBeInTheDocument();
 });
 
