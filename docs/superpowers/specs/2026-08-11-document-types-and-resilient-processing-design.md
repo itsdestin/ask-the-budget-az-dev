@@ -239,6 +239,19 @@ derived from the registry and is repointed, not duplicated.
 **Adding a seventh row must be a change to this YAML file, not to code.**
 That is the acceptance test for T4.
 
+**The registry must not become a fourth copy of the section-kind mapping.**
+`ingest/section_types.py` landed on master on 2026-08-11 for exactly this
+reason — `SECTION_KIND_TO_DOC_TYPE` had been hand-maintained in three places
+(`book_discovery.py`, `driver.py`, `app/book_sections.py`) and was
+consolidated into one module. The registry describes *document types*; that
+module describes *which cross-cut section filename becomes which doc_type*.
+They are different vocabularies at different levels. The registry **imports**
+it where it needs it and restates nothing.
+
+Note also that the two importers deliberately disagree on the miss case —
+`book_discovery.py` defaults an unknown kind to `topic-pdf`, `driver.py`
+raises — and that difference is documented in that module. Do not "unify" it.
+
 ### T5 — Detect, try, check, fall back
 
 ```
