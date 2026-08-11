@@ -27,6 +27,18 @@ export interface AnnotationSource {
   bbox: number[] | null;
 }
 
+/** The closest number the system found to a figure it could NOT link.
+ *
+ *  A bare refusal is the least useful thing to report: an analyst who has
+ *  spotted a suspect number needs to know what the source actually says.
+ *  `distance` is relative to the figure's own value (0.002 = 0.2% off). */
+export interface AnnotationNearMiss {
+  chunkId: string;
+  sourceText: string;
+  value: number;
+  distance: number;
+}
+
 export interface AnnotationFigure {
   text: string;
   start: number;
@@ -36,6 +48,37 @@ export interface AnnotationFigure {
   primary: AnnotationSource | null;
   additional: AnnotationSource[];
   derivedFrom: number[];
+  /** How the link was earned: `"tag"` = the model named this passage and
+   *  the value verified inside it; `"unambiguous-fallback"` = untagged, but
+   *  exactly one document in the turn held the value. Never a ranking —
+   *  picking a source by document authority is the wrong-doc defect this
+   *  annotation replaced. Null on anything not linked, and on annotations
+   *  recorded before the field existed. */
+  linkBasis: "tag" | "unambiguous-fallback" | null;
+  /** Distinct documents holding this value, set only when more than one
+   *  blocked a link. */
+  ambiguityCount: number | null;
+  /** On a derived figure, the arithmetic that explains it ("sum", …). */
+  operation: string | null;
+  nearMiss: AnnotationNearMiss | null;
+}
+
+/** Every field is load-bearing to the sentence the tooltip renders, so a
+ *  partial near-miss is dropped whole rather than rendered as "differs by
+ *  NaN%". Same defensive contract as `toSource`. */
+function toNearMiss(raw: unknown): AnnotationNearMiss | null {
+  if (!raw || typeof raw !== "object") return null;
+  const r = raw as Record<string, unknown>;
+  if (typeof r.chunk_id !== "string") return null;
+  if (typeof r.source_text !== "string") return null;
+  if (typeof r.value !== "number") return null;
+  if (typeof r.distance !== "number") return null;
+  return {
+    chunkId: r.chunk_id,
+    sourceText: r.source_text,
+    value: r.value,
+    distance: r.distance,
+  };
 }
 
 function toSource(raw: unknown): AnnotationSource | null {
@@ -89,6 +132,15 @@ export function figuresForRender(annotation: unknown): AnnotationFigure[] {
       derivedFrom: Array.isArray(e.derived_from)
         ? e.derived_from.filter((n): n is number => typeof n === "number")
         : [],
+      // All four are additive: an annotation recorded before attested
+      // linking carries none of these keys and must still render.
+      linkBasis:
+        e.link_basis === "tag" || e.link_basis === "unambiguous-fallback"
+          ? e.link_basis
+          : null,
+      ambiguityCount: typeof e.ambiguity_count === "number" ? e.ambiguity_count : null,
+      operation: typeof e.operation === "string" ? e.operation : null,
+      nearMiss: toNearMiss(e.near_miss),
     });
   }
   // Reading order — chip numbering follows the answer, not emission.
