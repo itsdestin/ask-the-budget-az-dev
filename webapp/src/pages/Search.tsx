@@ -246,7 +246,15 @@ function resolveFullReportAction(
 ): FullReportAction {
   const { singleFile, linkedToc } = reportFormats(family, year === 0 ? null : year);
   if (singleFile && linkedToc) return { kind: "choose", onClick: onChoose };
-  const href = singleFile ?? linkedToc ?? docs[0]?.doc_url ?? null;
+  // The lone-document fallback (this function's own comment above, and spec
+  // D9) only applies when the family genuinely has exactly one document.
+  // Unconditional `docs[0]?.doc_url` (pre-fix) linked whichever document
+  // happened to sort first for EVERY uncurated family, including
+  // multi-document ones — a gold "Full report" pill pointing at one agency's
+  // section PDF (CRITICAL, 2026-08-10; demonstrated on FY 2026 Appropriations
+  // Report: ar26-ahcccs + ar26-edu, no REPORT_FORMATS entry, docs[0] happened
+  // to be the AHCCCS section).
+  const href = singleFile ?? linkedToc ?? (docs.length === 1 ? (docs[0]?.doc_url ?? null) : null);
   return href ? { kind: "link", href } : { kind: "none" };
 }
 

@@ -101,11 +101,20 @@ test("full-report actions appear only where a hand-verified URL exists", async (
   await screen.findByRole("button", { name: /Fiscal Year 2027:/i });
   // FY 2027 Baseline has BOTH formats — a chooser button, not a link.
   expect(screen.getByText("FY 2027 Baseline").closest(".doc")!).toHaveTextContent(/full report/i);
-  // FY 2026's Budget Bill has neither format AND no doc_url: no pill at all.
   fireEvent.click(screen.getByRole("button", { name: /Fiscal Year 2026:/i }));
+  // FY 2026's Budget Bill has neither format AND no doc_url: no pill at all.
   const bill = screen.getByText("FY 2026 Budget Bill").closest(".doc")!;
   expect(bill).not.toHaveTextContent(/full report/i);
   expect(bill).toHaveClass("doc-unlinked");
+  // CRITICAL, 2026-08-10: FY 2026 Appropriations Report has no curated
+  // REPORT_FORMATS entry (only 2025 is hand-verified) AND more than one
+  // document (ar26-ahcccs, ar26-edu) — the docs[0]?.doc_url fallback must NOT
+  // apply here, or the pill silently links to whichever agency section
+  // happens to sort first (demonstrated pre-fix: the AHCCCS section PDF,
+  // labeled "Full report").
+  const ar = screen.getByText("FY 2026 Appropriations Report").closest(".doc")!;
+  expect(ar).not.toHaveTextContent(/full report/i);
+  expect(ar).toHaveClass("doc-unlinked");
 });
 
 test("the report row's own action is Full report, not a generic Open", async () => {
