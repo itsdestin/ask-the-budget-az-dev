@@ -28,8 +28,11 @@ export function toSearchFilters(
 ): SearchFilters {
   const filters: SearchFilters = {};
   if (types.size) {
-    const slugs = [...types].flatMap(slugsForFamily);
-    if (slugs.length) filters.doc_type = slugs;
+    // No length guard needed: slugsForFamily always returns at least one
+    // slug (an unrecognised family falls back to itself), and this branch
+    // only runs when `types.size > 0`, so `slugs` can never be empty — the
+    // old `if (slugs.length)` here could never be false (MINOR, 2026-08-10).
+    filters.doc_type = [...types].flatMap(slugsForFamily);
   }
   if (years.size) {
     const real = [...years].filter((y) => y !== 0);
@@ -45,8 +48,6 @@ export interface PassageDoc {
   doc_id: string;
   doc_title: string;
   publisher: string;
-  /** The document's own source PDF, or null when unknown. */
-  doc_url: string | null;
   /** Best passage first. */
   passages: SearchResult[];
 }
@@ -67,7 +68,6 @@ export function groupPassages(results: SearchResult[]): PassageDoc[] {
         doc_id: r.doc_id,
         doc_title: r.doc_title,
         publisher: r.publisher,
-        doc_url: r.doc_url,
         passages: [],
       };
       byDoc.set(r.doc_id, group);
