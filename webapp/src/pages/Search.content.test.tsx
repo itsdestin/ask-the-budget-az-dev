@@ -236,6 +236,18 @@ test("the header names which search produced the list", async () => {
   expect(await screen.findByText(/searching document contents/i)).toBeInTheDocument();
 });
 
+test("the passage count is phrased as a top-k cap, not a total", async () => {
+  // IMPORTANT, 2026-08-10: app/routes/search.py defaults top_k=20 and the
+  // frontend never overrides it, so `results.length` is a truncation count,
+  // not a corpus-wide total — for any common term the number reads the same
+  // every time. Both places that print it (`.docstatus` and the results
+  // header's `.yg-meta`) must say "Top N", not bare "N".
+  mount("/search?q=child%20care&in=contents");
+  await screen.findByText(/89,432,700/);
+  expect(screen.getByText(/^top 2 passages, in 1 document, matching/i)).toBeInTheDocument();
+  expect(screen.getByText(/top 2 passages · 1 document matching/i)).toBeInTheDocument();
+});
+
 test("More from this document reveals the remaining passages", async () => {
   mount("/search?q=child%20care&in=contents");
   await screen.findByText(/89,432,700/);
@@ -258,6 +270,26 @@ test("content search finding nothing says so, and does not blame filters", async
   expect(await screen.findByText(/no passages inside the ingested documents mention/i))
     .toBeInTheDocument();
   expect(screen.queryByText(/clearing/i)).toBeNull();
+});
+
+test("no count is claimed while the content request is still loading", async () => {
+  // IMPORTANT, 2026-08-10: the header's count used to fall back to 0 for
+  // BOTH "loading" and "error" ContentPhase kinds, so it read "0 passages ·
+  // 0 documents matching …" at the exact moment the block below says
+  // "Searching document contents…" — a finished, empty answer claimed while
+  // the search was still running. `.docstatus` already got this right
+  // (renders "" unless ready); the header's own count must follow the same
+  // rule.
+  vi.spyOn(api, "corpusDocuments").mockResolvedValue({ documents: DOCS });
+  vi.spyOn(api, "search").mockReturnValue(new Promise(() => {})); // never settles
+  render(
+    <MemoryRouter initialEntries={["/search?q=child%20care&in=contents"]}>
+      <Search />
+    </MemoryRouter>,
+  );
+  await screen.findByText(/reading inside every ingested pdf/i);
+  expect(screen.queryByText(/passage/i)).toBeNull();
+  expect(screen.queryByText(/0 documents/i)).toBeNull();
 });
 
 test("the toggle is hidden while the request is in flight", async () => {

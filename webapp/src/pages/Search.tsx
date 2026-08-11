@@ -964,7 +964,12 @@ export function Search() {
           {phase.kind === "ready" &&
             (mode === "contents" && searching
               ? content.kind === "ready"
-                ? `${content.results.length} passage${content.results.length === 1 ? "" : "s"} in ${passageDocs.length} document${passageDocs.length === 1 ? "" : "s"}, matching “${q}”.`
+                ? // "Top N", not "N": app/routes/search.py defaults top_k=20
+                  // and the frontend never overrides it, so `results.length`
+                  // is a truncation cap, not a corpus-wide match count — for
+                  // any common term this reads exactly 20 every time
+                  // (IMPORTANT, 2026-08-10). Wording must say so.
+                  `Top ${content.results.length} passage${content.results.length === 1 ? "" : "s"}, in ${passageDocs.length} document${passageDocs.length === 1 ? "" : "s"}, matching “${q}”.`
                 : ""
               : searching
                 ? `${reportCount} report${reportCount === 1 ? "" : "s"} in ${yearScope}, matching “${q}”.`
@@ -1058,11 +1063,24 @@ export function Search() {
                       </span>
                       <span className="yg-meta">
                         {mode === "contents"
-                          ? `${content.kind === "ready" ? content.results.length : 0} passage${
-                              content.kind === "ready" && content.results.length === 1 ? "" : "s"
-                            } · ${passageDocs.length} document${
-                              passageDocs.length === 1 ? "" : "s"
-                            } matching “${q}”`
+                          ? // Only claim a count once the request is actually
+                            // "ready" — the `.docstatus` line above already
+                            // follows this rule (renders "" for
+                            // loading/error); this span used to fall back to
+                            // 0 for BOTH of those, so it read "0 passages · 0
+                            // documents matching …" at the exact moment the
+                            // block below says "Searching document
+                            // contents…" (IMPORTANT, 2026-08-10). "Top N",
+                            // not "N": see the docstatus line's own comment —
+                            // `results.length` is a top_k truncation cap, not
+                            // a total.
+                            content.kind === "ready"
+                            ? `Top ${content.results.length} passage${
+                                content.results.length === 1 ? "" : "s"
+                              } · ${passageDocs.length} document${
+                                passageDocs.length === 1 ? "" : "s"
+                              } matching “${q}”`
+                            : ""
                           : `${searchTiles.length} report${
                               searchTiles.length === 1 ? "" : "s"
                             } matching “${q}”`}
