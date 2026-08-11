@@ -15,8 +15,9 @@ from typing import Any, Protocol
 # Plan 1's public retrieval API. Importing it does NOT load the ONNX models —
 # that happens lazily inside retrieve() — so the app stays importable and the
 # stub path stays instant on machines without model weights.
-from retrieval import RetrievalRequest, retrieve
+from retrieval import FUSED_TOP_K, RetrievalRequest, retrieve
 
+from app.book_sections import section_of
 from app.fixtures.search_fixtures import FIXTURE_ROWS
 from store.documents import (
     humanize_doc_id,
@@ -192,9 +193,29 @@ class LanceSearchProvider:
     _CORPUS_TABLE = {"budget": "budget_chunks", "fiscal_notes": "fiscal_note_chunks"}
 
     def search(self, query, *, top_k, corpus, filters):
+        wanted = filters.get("section_family")
+        # The family filter runs AFTER ranking (below), so a family-filtered
+        # search can starve below the caller's requested top_k unless it asks
+        # retrieve() for a bigger pool to filter from. Measured 2026-08-11
+        # against the real corpus (5 queries x doc_type=[detailed-list-pdf,
+        # topic-pdf], top_k=20 each):
+        #   Baseline:              (20,4) (20,10) (20,0) (20,5) (20,10)
+        #   Appropriations Report: (20,16) (20,10) (20,20) (20,15) (20,10)
+        # Worst case is 0/20 (Baseline, "detailed list of changes" -- every
+        # top-20 hit for that query was an Approps section), so a
+        # ceil(top_k / worst_case_yield) formula divides by zero. There is no
+        # need to compute one: `retrieval/pipeline.py`'s reranker always
+        # scores the WHOLE fused pool regardless of the requested top_k
+        # (`rerank(req.query, fused, top_k=len(fused))`) -- `top_k` only
+        # slices the already-computed output. So asking for FUSED_TOP_K (the
+        # pipeline's own ceiling, 20) instead of the caller's top_k costs
+        # nothing extra, is automatically "capped at the pipeline's own
+        # limits" by construction, and gives the family filter the largest
+        # pool retrieve() can ever produce. Re-sliced to the caller's top_k
+        # after filtering, below.
         req = RetrievalRequest(
             query=query,
-            top_k=top_k,
+            top_k=FUSED_TOP_K if wanted else top_k,
             corpus=self._CORPUS_TABLE[corpus],
             fiscal_year=filters.get("fiscal_year"),
             publisher=filters.get("publisher"),
@@ -202,7 +223,7 @@ class LanceSearchProvider:
             agency_canonical_id=filters.get("agency"),
         )
         result = retrieve(req)
-        return [
+        rows = [
             {
                 "chunk_id": c.chunk_id,
                 "doc_id": c.doc_id,
@@ -239,6 +260,25 @@ class LanceSearchProvider:
                 # ("Agency Budget Detail · Appropriations Report · FY 2025").
                 # None when the doc isn't in the mockup index.
                 "doc_meta": info["meta"],
+                # Which JLBC book this passage's document is a section of, or
+                # null. Same derivation the browse listing uses.
+                "section_of": section_of(c.doc_type, info["url"]),
             }
             for c in result.chunks
         ]
+
+        if wanted:
+            # `detailed-list-pdf` belongs to BOTH books (255 approps / 45
+            # baseline), so a doc_type filter alone cannot express "Baseline
+            # sections" and would leak up to 269 documents. Dropping here
+            # removes only what the reader explicitly filtered out -- that is
+            # honouring a filter, not losing a match. Applied ONLY when the
+            # filter is present, so an unfiltered search never loses a row.
+            rows = [r for r in rows if r["section_of"] in (None, wanted)]
+            # The retrieve() call above asked for FUSED_TOP_K, not the
+            # caller's top_k, so it can return MORE rows than promised once
+            # filtered back down. Re-slice to what was asked for. A no-op
+            # when unfiltered: req.top_k was already the caller's top_k, so
+            # result.chunks (and therefore rows) can never exceed it.
+            rows = rows[:top_k]
+        return rows

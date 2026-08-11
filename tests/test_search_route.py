@@ -23,6 +23,13 @@ def client():
 # retrieve() instead, through the real /api/search route.
 
 def _chunk(**overrides):
+    # `source_url` isn't a RetrievedChunk field (retrieval/types.py) -- it
+    # lives in documents.json, joined by doc_id, not on the chunk. Pop it
+    # here and stash it as a plain attribute (bypassing the frozen
+    # dataclass's __setattr__ via object.__setattr__) so
+    # _client_with_chunks can read it back to build the fake sidecar below,
+    # without touching retrieval/types.py.
+    source_url = overrides.pop("source_url", None)
     base = dict(
         chunk_id="c1",
         doc_id="jlbc-baseline-fy2027-ahcccs",
@@ -43,7 +50,9 @@ def _chunk(**overrides):
         publisher="jlbc",
     )
     base.update(overrides)
-    return RetrievedChunk(**base)
+    chunk = RetrievedChunk(**base)
+    object.__setattr__(chunk, "source_url", source_url)
+    return chunk
 
 
 def _client_with_chunks(monkeypatch, chunks):
@@ -55,9 +64,17 @@ def _client_with_chunks(monkeypatch, chunks):
         fused_count=len(chunks),
     )
     monkeypatch.setattr("app.search_provider.retrieve", lambda req, **kw: result)
-    # No documents.json on this path — degrades to unlinked rows (same idiom
-    # as test_lance_provider.py's test_missing_sidecar_degrades_to_unlinked_rows),
-    # which is irrelevant to what this test checks (text/snippet).
+    # A fake documents.json sidecar keyed by each chunk's doc_id, carrying
+    # whatever source_url the test attached via _chunk(source_url=...) — this
+    # is the only evidence Task 5's section_of() has to tell the two JLBC
+    # books apart (doc_id prefixes are wrong for 21 of 647 real sections, per
+    # app/book_sections.py's docstring). Monkeypatching load_documents
+    # directly (rather than writing a tmp documents.json) keeps these tests
+    # from needing a tmp_path fixture.
+    sidecar = {c.doc_id: {"source_url": getattr(c, "source_url", None)} for c in chunks}
+    monkeypatch.setattr("app.search_provider.load_documents", lambda: sidecar)
+    # No real documents.json path is read (load_documents is faked above) —
+    # this just keeps sidecar_stamp() from finding a real file on disk.
     monkeypatch.setattr("store.config.documents_path", lambda: Path("/nonexistent/documents.json"))
     return TestClient(create_app(provider=LanceSearchProvider()))
 
@@ -119,3 +136,45 @@ def test_search_results_carry_the_full_chunk_text(monkeypatch):
     row = body["results"][0]
     assert row["text"] == long_text
     assert row["snippet"] == long_text[:280]
+
+
+def test_results_carry_the_section_parent(monkeypatch):
+    client = _client_with_chunks(monkeypatch, [_chunk(doc_type="s-pdf")])
+    row = client.post("/api/search", json={"query": "x"}).json()["results"][0]
+    assert "section_of" in row
+
+
+def test_a_family_filter_does_not_leak_the_other_book_s_sections(monkeypatch):
+    """`detailed-list-pdf` belongs to BOTH books, so a doc_type filter alone
+    cannot express "Baseline sections". The provider filters exactly."""
+    client = _client_with_chunks(
+        monkeypatch,
+        [
+            _chunk(chunk_id="a", doc_id="base-1", doc_type="detailed-list-pdf",
+                   source_url="https://www.azjlbc.gov/22baseline/473.pdf"),
+            _chunk(chunk_id="b", doc_id="appr-1", doc_type="detailed-list-pdf",
+                   source_url="https://www.azjlbc.gov/05app/302.pdf"),
+        ],
+    )
+    body = client.post(
+        "/api/search",
+        json={"query": "x", "filters": {"doc_type": ["baseline-per-agency", "detailed-list-pdf"],
+                                        "section_family": "Baseline"}},
+    ).json()
+    assert [r["chunk_id"] for r in body["results"]] == ["a"]
+
+
+def test_no_family_filter_means_no_dropping(monkeypatch):
+    """Over-inclusion is a visible wrong; removing a match the reader did not
+    exclude is the forbidden one (spec B6)."""
+    client = _client_with_chunks(
+        monkeypatch,
+        [
+            _chunk(chunk_id="a", doc_id="base-1", doc_type="detailed-list-pdf",
+                   source_url="https://www.azjlbc.gov/22baseline/473.pdf"),
+            _chunk(chunk_id="b", doc_id="appr-1", doc_type="detailed-list-pdf",
+                   source_url="https://www.azjlbc.gov/05app/302.pdf"),
+        ],
+    )
+    body = client.post("/api/search", json={"query": "x"}).json()
+    assert {r["chunk_id"] for r in body["results"]} == {"a", "b"}
