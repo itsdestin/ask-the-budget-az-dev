@@ -97,6 +97,10 @@ def test_provider_maps_retrieval_result_to_contract(monkeypatch, tmp_path):
             "doc_id": "jlbc-baseline-fy2027-ahcccs",
             "doc_title": "Health Care Cost Containment System, Arizona — FY 2027 Baseline",
             "snippet": "provider rate increases of $58.1 million from the General Fund",
+            # Task 1: the frozen contract gained `text` (full, untruncated
+            # passage) alongside `snippet` (the leading-280-char preview) —
+            # here they're equal because the fixture chunk is short.
+            "text": "provider rate increases of $58.1 million from the General Fund",
             "page": 14,
             "score": 4.2,
             "doc_type": "baseline-per-agency",

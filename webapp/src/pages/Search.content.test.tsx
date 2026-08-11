@@ -15,13 +15,19 @@ const DOCS: api.CorpusDocument[] = [
     doc_type: "afr", fiscal_year: 2026, doc_url: "https://x/afr26.pdf", terms: [] },
 ];
 
+// text: same as snippet — Task 1 made `text` required alongside `snippet`;
+// these fixtures' snippets are already the whole sentence (well under 280
+// chars), so text/snippet coincide and this file (which predates the
+// highlighting work) doesn't need a longer passage to exercise anything.
 const HITS: api.SearchResult[] = [
   { chunk_id: "c1", doc_id: "b27-ahcccs", doc_title: "FY 2027 Baseline — AHCCCS",
     snippet: "The FY 2027 Baseline includes $89,432,700 for child care subsidy assistance.",
+    text: "The FY 2027 Baseline includes $89,432,700 for child care subsidy assistance.",
     page: 142, score: 0.9, doc_type: "baseline-per-agency", fiscal_year: 2027,
     publisher: "jlbc", agencies: [], doc_url: "https://x/axs.pdf", doc_meta: null },
   { chunk_id: "c2", doc_id: "b27-ahcccs", doc_title: "FY 2027 Baseline — AHCCCS",
     snippet: "The child care waiting list contained 6,218 children.",
+    text: "The child care waiting list contained 6,218 children.",
     page: 143, score: 0.5, doc_type: "baseline-per-agency", fiscal_year: 2027,
     publisher: "jlbc", agencies: [], doc_url: "https://x/axs.pdf", doc_meta: null },
 ];
@@ -33,6 +39,7 @@ const HITS: api.SearchResult[] = [
 const SINGLE_HIT: api.SearchResult[] = [
   { chunk_id: "c3", doc_id: "afr26", doc_title: "FY 2026 Annual Financial Report",
     snippet: "General Fund revenue collections grew year over year.",
+    text: "General Fund revenue collections grew year over year.",
     page: null, score: 0.7, doc_type: "afr", fiscal_year: 2026,
     publisher: "agao", agencies: [], doc_url: "https://x/afr26.pdf", doc_meta: null },
 ];

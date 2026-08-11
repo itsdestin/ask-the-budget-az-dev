@@ -22,8 +22,13 @@ FIXTURE_ROWS = [
     # Titles + meta lines mimic the WEBSITE MOCKUP INDEX's own formats
     # ("Agency, Department of — FY 2027 Baseline" / "category · doc_type ·
     # FY") so the stub renders true-to-life next to joined real rows.
+    #
+    # text field: stub satisfies the same contract as LanceSearchProvider
+    # (which emits the full passage text) because StubSearchProvider is the
+    # fallback on any fresh clone or CI run without a migrated corpus. A
+    # browser reading .text will get undefined at runtime if the stub lacks it.
     dict(chunk_id=f"stub-{i:03d}", doc_id=doc_id, doc_title=title,
-         snippet=snippet, page=page, score=round(6.5 - i * 1.6, 1),
+         snippet=snippet, text=snippet, page=page, score=round(6.5 - i * 1.6, 1),
          doc_type=doc_type, fiscal_year=fy, publisher=publisher,
          agencies=agencies, doc_url=None, doc_meta=meta)
     for i, (doc_id, title, meta, snippet, page, doc_type, fy, publisher, agencies) in enumerate([

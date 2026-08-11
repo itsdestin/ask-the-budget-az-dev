@@ -7,6 +7,10 @@ export interface SearchResult {
   doc_id: string;
   doc_title: string;
   snippet: string;
+  /** The passage's FULL text (additive, 2026-08-11). The browser picks the
+   *  preview window and marks query terms in it — see search/contentSearch.ts.
+   *  `snippet` remains the leading 280 chars for the Fiscal Notes page. */
+  text: string;
   page: number | null;
   score: number;
   doc_type: string;
