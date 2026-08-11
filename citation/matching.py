@@ -20,7 +20,20 @@ from citation.figures import Figure, written_significant_digits
 # Every grouped number in a chunk. Chunk text is machine-extracted and
 # frequently fuses adjacent table cells, so this deliberately matches a
 # greedy grouped run and lets the value comparison decide.
-_CANDIDATE_RE = re.compile(r"\d{1,3}(?:,\d{3})+(?:\.\d+)?")
+# Comma-grouped (1,574.1 / 27,362,036.72) OR a bare decimal (974.6).
+#
+# The bare-decimal branch is not optional. A budget table printed "in
+# millions" writes every agency under $1B WITHOUT a comma — "Universities
+# 974.6", "School Facilities Division 353.0" — and requiring a comma group
+# made those source values invisible while the answer side (`_FIGURE_RE`)
+# happily extracted "$974.6" from the prose. The result was a figure the
+# system refused to cite while its source sat in a retrieved chunk, which
+# on a nine-row General Fund table is most of the rows.
+#
+# Bare INTEGERS stay out: unlike a decimal, "2026" or a page number or a
+# rank carries no signal that it is an amount, and admitting them multiplies
+# candidate density for no coverage this corpus needs.
+_CANDIDATE_RE = re.compile(r"\d{1,3}(?:,\d{3})+(?:\.\d+)?|\d+\.\d+")
 # Which multiplier the source's own rendering uses.
 _SCALES = (1, 1_000, 1_000_000, 1_000_000_000)
 # A near-miss farther than 5% is not "nearly the same number" to an

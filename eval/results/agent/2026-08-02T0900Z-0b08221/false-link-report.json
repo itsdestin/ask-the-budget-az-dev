@@ -1,0 +1,29 @@
+{
+  "run_dir": "eval/results/agent/2026-08-02T0900Z-0b08221",
+  "seed": 7,
+  "pools": 27,
+  "profiles": {
+    "4sig-billions": {
+      "trials": 1080,
+      "false_links": 3,
+      "rate": 0.002777777777777778
+    },
+    "4sig-millions": {
+      "trials": 1080,
+      "false_links": 2,
+      "rate": 0.001851851851851852
+    },
+    "exact-grouped": {
+      "trials": 1080,
+      "false_links": 0,
+      "rate": 0.0
+    }
+  },
+  "verdicts": {
+    "linked": 195,
+    "derived": 45,
+    "unverified": 195,
+    "total": 435
+  },
+  "coverage": 0.5517241379310345
+}
