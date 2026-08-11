@@ -56,6 +56,7 @@ from typing import Any, Callable, Iterator, Sequence
 import httpx
 
 from citation.annotate import annotate_answer
+from citation.markers import parse_markers, strip_for_stream
 from harness.constants import DEFAULT_TIER, TIER_BUDGETS
 from harness.ledger import check_limit as _ledger_check_limit
 from harness.ledger import record_usage as _ledger_record_usage
@@ -744,6 +745,15 @@ class HarnessSession:
                 "This answer is incomplete."
             )
 
+        # The annotator resolves [[cN]] through the aliases this
+        # conversation's retrieves actually assigned. `getattr` because the
+        # executor is an injectable seam (every test here passes a fake, and
+        # so may any future one): an executor that assigns no aliases must
+        # cost the turn its TAGS, degrading to unambiguous-value linking,
+        # never the whole answer.
+        if self._executor is not None:
+            accumulator.alias_map = getattr(self._executor, "alias_map", None) or {}
+
         usage = usage_totals.as_turn_usage()
         yield _event("turn_complete", stopReason=stop_reason, model=model, usage=usage)
         yield accumulator.done_frame(stop_reason, usage, usage_totals.cost, incomplete_note)
@@ -896,10 +906,21 @@ class HarnessSession:
                         # the reducer replaces the block, it does not
                         # append. See this module's docstring.
                         accumulator.record_text(result.uuid, result.text)
+                        # RAW into the accumulator, STRIPPED onto the wire.
+                        # The accumulator's copy is the annotator's audit
+                        # input — the [[cN]] markers ARE the model's
+                        # provenance claims — while this frame is drawn on
+                        # an analyst's screen, where a marker is a P1
+                        # render bug. `strip_for_stream` also withholds a
+                        # trailing partial ("...700 [[c"), which would
+                        # otherwise flash on screen for one token and then
+                        # vanish; the frame carries the full accumulated
+                        # text, so held-back characters reappear the
+                        # moment they resolve.
                         yield _event(
                             "assistant_text_delta",
                             uuid=result.uuid,
-                            text=result.text,
+                            text=strip_for_stream(result.text),
                             model=result.model or model,
                         )
                     for fragment in delta.get("tool_calls") or []:
@@ -1663,6 +1684,11 @@ class _Accumulator:
         self.tool_calls: list[dict[str, Any]] = []
         self.retrieved_chunk_ids: list[str] = []
         self.citations: list[dict[str, Any]] = []
+        # alias -> chunk_id, as this conversation's retrieves handed them
+        # to the model. Set by `_run_turn` from the executor; empty means
+        # every [[cN]] the model wrote resolves to nothing and its figures
+        # fall back to unambiguous-value linking.
+        self.alias_map: dict[str, str] = {}
 
     def record_text(self, uuid: str, text: str) -> None:
         """Latest text wins per uuid; first-seen order is preserved."""
@@ -1748,7 +1774,18 @@ class _Accumulator:
 
         System-authored text is never in here — see the max_steps branch
         of `_run_turn`. `record_text` has exactly one caller for that
-        reason."""
+        reason.
+
+        Markers (`[[cN]]`) are the model's provenance CLAIMS, consumed by
+        `annotation()`; they are stripped here so no consumer — UI,
+        transcript, judge — ever sees one."""
+        stripped, _ = parse_markers(self._raw_answer())
+        return stripped
+
+    def _raw_answer(self) -> str:
+        """`final_answer()` before markers are stripped — the annotator's
+        audit input, and the ONLY place raw text is legitimate. Everything
+        else reads `final_answer()`."""
         return "\n\n".join(self._text_by_uuid[u] for u in self._text_order)
 
     def _retrieved_chunk_map(self) -> tuple[dict[str, str], dict[str, dict]]:
@@ -1771,10 +1808,13 @@ class _Accumulator:
                 if not cid:
                     continue
                 chunks[cid] = c.get("text") or ""
-                # doc_type/fiscal_year drive authority ranking; the rest is
-                # what the PDF viewer needs to actually OPEN the source. A
-                # chunk_id alone leaves every figure chip on "Couldn't open
-                # source PDF", which is what shipped on 2026-08-02.
+                # None of this picks a source — that is decided by the
+                # model's tag or by the value being unambiguous. Every
+                # field here is PDF-locator metadata copied onto the
+                # source record so a chip can open the document at the
+                # right page. A chunk_id alone leaves every figure chip on
+                # "Couldn't open source PDF", which is what shipped on
+                # 2026-08-02.
                 meta[cid] = {"doc_type": c.get("doc_type"),
                              "fiscal_year": c.get("fiscal_year"),
                              "doc_id": c.get("doc_id"),
@@ -1790,8 +1830,14 @@ class _Accumulator:
         citation bug must not cost the user an answer they already paid
         for."""
         try:
+            # Parsed from the RAW text: the markers are the model's
+            # attestations, and they are gone from `final_answer()` by
+            # design. Tag offsets index the stripped string, which is what
+            # the figure extractor and the UI both see.
+            stripped, tags = parse_markers(self._raw_answer())
             chunks, meta = self._retrieved_chunk_map()
-            return annotate_answer(self.final_answer(), chunks, meta)
+            return annotate_answer(stripped, chunks, meta,
+                                   tags=tags, alias_map=self.alias_map)
         except Exception as exc:  # noqa: BLE001 - deliberate, see docstring
             print(f"citation linking failed: {type(exc).__name__}: {exc}",
                   file=sys.stderr)

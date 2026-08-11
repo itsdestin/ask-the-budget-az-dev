@@ -106,3 +106,78 @@ def test_a_malformed_retrieve_output_does_not_break_the_annotation():
     frame = s.send_turn("How much for ADC?")
     s.close()
     assert frame["annotation"]["figures"][0]["verdict"] == "unverified"
+
+
+# -- markers (spec A1): the model's [[cN]] claims reach the annotator and
+# nothing else. A marker rendered to an analyst is a P1 render bug.
+
+class AliasingExecutor(CitingExecutor):
+    """Like the real `ToolExecutor`, it publishes the aliases its retrieve
+    results advertised. The plain FakeExecutor deliberately does not — that
+    is the shape the session must tolerate."""
+
+    @property
+    def alias_map(self):
+        return {"c1": "c-1"}
+
+
+def _turn(answer_text, executor=None):
+    """Drive one turn; return (delta frames, terminal frame)."""
+    s = _session(_provider(answer_text), executor=executor)
+    events: list[dict] = []
+    frame = s.send_turn("How much for ADC?", events.append)
+    s.close()
+    deltas = [e for e in events if e["type"] == "assistant_text_delta"]
+    return deltas, frame
+
+
+def test_markers_never_reach_final_answer_or_delta_frames():
+    deltas, frame = _turn("ADC spent $1,391,157,700 [[c1]] that year.",
+                          executor=AliasingExecutor())
+
+    assert deltas, "the turn produced no text frames to check"
+    assert all("[[" not in e["text"] for e in deltas)
+    assert frame["finalAnswer"] == "ADC spent $1,391,157,700 that year."
+
+    fig = frame["annotation"]["figures"][0]
+    assert fig["link_basis"] == "tag"
+    assert fig["attested_chunk_ids"] == ["c-1"]
+    # The offsets must index the marker-free answer the UI renders.
+    assert frame["finalAnswer"][fig["start"]:fig["end"]] == "$1,391,157,700"
+
+
+def test_a_delta_ending_mid_marker_holds_the_partial_back():
+    # The split lands inside the marker, which is the ordinary case: a
+    # provider emits tokens, not tags. Flashing "[[c" on screen and then
+    # retracting it is the visible half of the P1 bug.
+    provider = Provider(
+        lambda: sse(tool_chunk(0, call_id="c1", name="retrieve",
+                               arguments='{"query": "ADC"}'),
+                    finish_chunk("tool_calls"), usage_chunk()),
+        lambda: sse(text_chunk("ADC spent $1,391,157,700 [[c"),
+                    text_chunk("1]] that year."),
+                    finish_chunk("stop"), usage_chunk()),
+    )
+    s = _session(provider, executor=AliasingExecutor())
+    events: list[dict] = []
+    frame = s.send_turn("How much for ADC?", events.append)
+    s.close()
+
+    deltas = [e["text"] for e in events if e["type"] == "assistant_text_delta"]
+    assert len(deltas) == 2
+    assert deltas[0] == "ADC spent $1,391,157,700 "
+    # Delta frames carry the FULL accumulated text, so the held-back
+    # characters reappear as ordinary prose the moment they resolve.
+    assert deltas[1] == "ADC spent $1,391,157,700 that year."
+    assert frame["finalAnswer"] == "ADC spent $1,391,157,700 that year."
+
+
+def test_an_executor_without_aliases_still_links_by_value():
+    # Any injected executor (and every FakeExecutor in this suite) may not
+    # publish an alias map. That degrades a figure to the unambiguous-value
+    # fallback; it must never cost the turn.
+    _, frame = _turn("ADC spent $1,391,157,700 [[c1]] that year.")
+    fig = frame["annotation"]["figures"][0]
+    assert frame["finalAnswer"] == "ADC spent $1,391,157,700 that year."
+    assert fig["verdict"] == "linked"
+    assert fig["link_basis"] == "unambiguous-fallback"
