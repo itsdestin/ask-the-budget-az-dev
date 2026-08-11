@@ -710,6 +710,62 @@ test("a doc_type nobody has named still renders under its own slug", async () =>
   expect(await screen.findByText(/brand-new-type/)).toBeInTheDocument();
 });
 
+test("every section slug stays findable by the title filter box after folding", async () => {
+  // The design spec's Testing section asks for this directly: folding a
+  // section into its parent book (spec B5) must never make the section
+  // ITSELF unfindable -- nothing may stop being findable is the branch's
+  // hardest constraint. queryHit (line 182 above) runs per-document title
+  // substring match against group.docs, which groupCorpus (line 122) already
+  // includes section docs in (grouped by familyOf, not filtered out) -- so a
+  // search-mode query should surface a section doc directly via its own
+  // DocRow, with no tray click needed. One doc per slug, distinct titles so
+  // each assertion can only be satisfied by its own row. The five slugs are
+  // passed as literals here (a test, not production code) rather than a
+  // second hand-maintained copy of ingest/section_types.py's vocabulary.
+  const sectionDocs: api.CorpusDocument[] = [
+    { doc_id: "dl1", title: "Detailed List of Changes — FY 2027 Baseline", publisher: "jlbc",
+      doc_type: "detailed-list-pdf", fiscal_year: 2027, doc_url: "https://x/dl1.pdf",
+      section_of: "Baseline", terms: [] },
+    { doc_id: "s1", title: "Statement of General Fund Revenues — FY 2027 Baseline", publisher: "jlbc",
+      doc_type: "s-pdf", fiscal_year: 2027, doc_url: "https://x/s1.pdf",
+      section_of: "Baseline", terms: [] },
+    { doc_id: "bd1", title: "Budget Detail Summary of Spending — FY 2027 Appropriations Report",
+      publisher: "jlbc", doc_type: "bd-pdf", fiscal_year: 2027, doc_url: "https://x/bd1.pdf",
+      section_of: "Appropriations Report", terms: [] },
+    { doc_id: "bh1", title: "Budget History Comparison — FY 2027 Appropriations Report",
+      publisher: "jlbc", doc_type: "bh-pdf", fiscal_year: 2027, doc_url: "https://x/bh1.pdf",
+      section_of: "Appropriations Report", terms: [] },
+    { doc_id: "topic1", title: "Topical Highlight on Water Policy — FY 2027 Appropriations Report",
+      publisher: "jlbc", doc_type: "topic-pdf", fiscal_year: 2027, doc_url: "https://x/topic1.pdf",
+      section_of: "Appropriations Report", terms: [] },
+    // One agency page per family so each family has more than a lone
+    // section -- otherwise the AFR-style single-document fallback would
+    // make every one of these its own "featured" report by default, and the
+    // search-mode DocRow path wouldn't be the thing under test.
+    { doc_id: "b27-ahcccs", title: "FY 2027 Baseline — AHCCCS", publisher: "jlbc",
+      doc_type: "baseline-per-agency", fiscal_year: 2027, doc_url: "https://x/axs.pdf",
+      section_of: null, terms: [] },
+    { doc_id: "ar27-ahcccs", title: "FY 2027 Appropriations Report — AHCCCS", publisher: "jlbc",
+      doc_type: "approps-per-agency", fiscal_year: 2027, doc_url: "https://x/ar-axs.pdf",
+      section_of: null, terms: [] },
+  ];
+  mount(sectionDocs);
+  await screen.findByRole("button", { name: /Fiscal Year 2027:/i });
+  const box = screen.getByLabelText(/filter documents by agency or keyword/i);
+
+  for (const { title, needle } of [
+    { title: "Detailed List of Changes — FY 2027 Baseline", needle: "Detailed List" },
+    { title: "Statement of General Fund Revenues — FY 2027 Baseline", needle: "Statement of General Fund" },
+    { title: "Budget Detail Summary of Spending — FY 2027 Appropriations Report", needle: "Budget Detail Summary" },
+    { title: "Budget History Comparison — FY 2027 Appropriations Report", needle: "Budget History Comparison" },
+    { title: "Topical Highlight on Water Policy — FY 2027 Appropriations Report", needle: "Topical Highlight" },
+  ]) {
+    fireEvent.change(box, { target: { value: needle } });
+    expect(await screen.findByText(title)).toBeInTheDocument();
+    fireEvent.change(box, { target: { value: "" } });
+  }
+});
+
 // --- Task 9: two groups in a book's tray -----------------------------------
 // The brief's snippet used helper functions (`corpusDoc`, `renderSearchWith`)
 // and `userEvent` that don't exist in this file -- adapted to the file's own

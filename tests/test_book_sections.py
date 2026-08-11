@@ -36,10 +36,14 @@ def test_an_unreadable_url_folds_nothing_rather_than_guessing():
     assert section_of("s-pdf", "https://example.org/whatever.pdf") is None
 
 
-# The 21 documents whose doc_id says approps and whose source_url says
-# baseline -- the make_doc_id family collisions STATUS.md records. A
-# doc_id-based implementation passes every other test in this file and fails
-# these, which is exactly why they are named individually (spec B2).
+# Eight of the 21 documents whose doc_id says approps and whose source_url
+# says baseline -- the make_doc_id family collisions STATUS.md records, one
+# per affected fiscal year (FY2022-FY2027). A doc_id-based implementation
+# passes every other test in this file and fails these, which is exactly why
+# they are named individually (spec B2). Not all 21 are pinned here -- eight
+# spanning the fiscal years is adequate coverage of the failure shape, and
+# the full 21 is derivable from the live corpus (see app/book_sections.py's
+# docstring) rather than duplicated as a second hand-maintained list.
 COLLISIONS = [
     ("jlbc-approps-fy2022-473", "https://www.azjlbc.gov/22baseline/473.pdf"),
     ("jlbc-approps-fy2022-497", "https://www.azjlbc.gov/22baseline/497.pdf"),

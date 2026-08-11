@@ -4,6 +4,8 @@
 // fireEvent.click() here, which is synchronous rather than promise-based —
 // the only source change, same assertions, same interaction (a plain button
 // with no event listeners that care about pointer/focus sequencing).
+import { readFileSync } from "node:fs";
+import { resolve } from "node:path";
 import { fireEvent, render, screen } from "@testing-library/react";
 import { PassageCard } from "./PassageCard";
 import type { SearchResult } from "../api";
@@ -17,7 +19,7 @@ function passage(over: Partial<SearchResult> = {}): SearchResult {
     chunk_id: "c1", doc_id: "d1", doc_title: "FY 2023 Appropriations Report — ADC",
     snippet: LONG.slice(0, 280), text: LONG, page: 12, score: 1,
     doc_type: "approps-per-agency", fiscal_year: 2023, publisher: "jlbc",
-    agencies: [], doc_url: null, doc_meta: null, ...over,
+    agencies: [], doc_url: null, doc_meta: null, section_of: null, ...over,
   };
 }
 
@@ -99,4 +101,29 @@ test("a passage with none of the reader's words renders with no marks", () => {
 test("no expand control when the whole passage already fits", () => {
   renderCard("beds", [passage({ text: "Short passage about beds." })]);
   expect(screen.queryByRole("button", { name: /full passage/i })).not.toBeInTheDocument();
+});
+
+// The design spec's Testing section names this directly, belt-and-braces
+// over the runtime tests above: highlightTerms() returns plain
+// `{text,hit}[]` data (search/contentSearch.ts) and Quote (this file) maps
+// runs to <mark>/<span> ELEMENTS, so the property already holds structurally
+// -- corpus text never becomes markup. A source scan pins it so the property
+// can't quietly regress the day someone "simplifies" Quote into a join+HTML
+// string, the same convention header-css-contract.test.ts uses for CSS rules
+// jsdom can't observe at runtime.
+test("the highlighting path never uses dangerouslySetInnerHTML", () => {
+  // process.cwd(), not __dirname: this codebase's other source-scan test
+  // (header-css-contract.test.ts) resolves the same way, and vitest runs
+  // from webapp/ for every suite.
+  //
+  // Checks for the JSX-attribute form (`dangerouslySetInnerHTML=`), not the
+  // bare word: contentSearch.ts's own WHY comment on highlight() explains
+  // that runs are returned as data specifically so the CALLER never needs
+  // dangerouslySetInnerHTML, so the bare word appears in that prose today. A
+  // substring check on the word alone would fail against the very comment
+  // that documents the property this test exists to pin.
+  for (const path of ["src/components/PassageCard.tsx", "src/search/contentSearch.ts"]) {
+    const src = readFileSync(resolve(process.cwd(), path), "utf-8");
+    expect(src).not.toContain("dangerouslySetInnerHTML=");
+  }
 });

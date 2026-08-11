@@ -45,6 +45,11 @@ from ingest.section_types import SECTION_DOC_TYPES
 # spelling), `25ar` and `05app` (both Appropriations Report).
 _BOOK_DIR = re.compile(r"azjlbc\.gov/\d{2}(baseline|book\d*|ar|app)\b", re.I)
 
+# These two strings ("Baseline", "Appropriations Report") are displayed
+# VERBATIM by webapp/src/reportFamilies.ts::familyOf and must match
+# FAMILY_OF_DOC_TYPE's values there exactly -- a mismatch grows a duplicate
+# family card on the browse page and breaks the `section_family` filter,
+# since the two sides would then disagree on what a "Baseline" is.
 _FAMILY = {
     "baseline": "Baseline",
     "book": "Baseline",

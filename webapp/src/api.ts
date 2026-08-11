@@ -24,6 +24,14 @@ export interface SearchResult {
    *  Detail · Appropriations Report · FY 2025"); additive, null when the doc
    *  isn't in the mockup index. */
   doc_meta: string | null;
+  /** The JLBC book this document is a SECTION of ("Baseline",
+   *  "Appropriations Report"), or null when it is a document type in its own
+   *  right. Derived server-side from source_url — see app/book_sections.py
+   *  for why the doc_id is not usable. WHY here too, not just on
+   *  CorpusDocument: app/search_provider.py emits this field on every search
+   *  row (see search_provider.py:265), so the type was out of date about a
+   *  field the backend already sends. */
+  section_of: string | null;
 }
 
 export interface SearchResponse {

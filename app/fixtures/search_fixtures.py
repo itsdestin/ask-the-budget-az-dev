@@ -27,10 +27,18 @@ FIXTURE_ROWS = [
     # (which emits the full passage text) because StubSearchProvider is the
     # fallback on any fresh clone or CI run without a migrated corpus. A
     # browser reading .text will get undefined at runtime if the stub lacks it.
+    # section_of=None on every fixture: LanceSearchProvider derives it from
+    # each row's source_url (app/book_sections.py), and every fixture row
+    # above already carries doc_url=None -- there is no URL to derive a
+    # parent book from, so None is the only value consistent with the rest
+    # of this file. Added 2026-08-11 because the field existed on the real
+    # provider's rows but not on the stub's, so a fresh clone (which serves
+    # the stub) returned a different response SHAPE than a machine with a
+    # migrated corpus -- caught by tests/test_search_route.py's contract test.
     dict(chunk_id=f"stub-{i:03d}", doc_id=doc_id, doc_title=title,
          snippet=snippet, text=snippet, page=page, score=round(6.5 - i * 1.6, 1),
          doc_type=doc_type, fiscal_year=fy, publisher=publisher,
-         agencies=agencies, doc_url=None, doc_meta=meta)
+         agencies=agencies, doc_url=None, doc_meta=meta, section_of=None)
     for i, (doc_id, title, meta, snippet, page, doc_type, fy, publisher, agencies) in enumerate([
         ("stub-jlbc-baseline-fy2027-ahcccs",
          "Health Care Cost Containment System, Arizona — FY 2027 Baseline",

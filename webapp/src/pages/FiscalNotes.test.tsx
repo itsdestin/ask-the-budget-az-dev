@@ -464,6 +464,7 @@ describe("the rail's semantic search", () => {
           agencies: [],
           doc_url: "https://example.gov/sb1010.pdf",
           doc_meta: null,
+          section_of: null,
         },
       ],
     });

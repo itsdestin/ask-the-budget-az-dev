@@ -209,10 +209,14 @@ class LanceSearchProvider:
         # (`rerank(req.query, fused, top_k=len(fused))`) -- `top_k` only
         # slices the already-computed output. So asking for FUSED_TOP_K (the
         # pipeline's own ceiling, 20) instead of the caller's top_k costs
-        # nothing extra, is automatically "capped at the pipeline's own
-        # limits" by construction, and gives the family filter the largest
-        # pool retrieve() can ever produce. Re-sliced to the caller's top_k
-        # after filtering, below.
+        # nothing extra IN THE RETRIEVAL PIPELINE -- it is automatically
+        # "capped at the pipeline's own limits" by construction, and gives the
+        # family filter the largest pool retrieve() can ever produce. (It is
+        # NOT free below: row-building runs self._info() + section_of() over
+        # up to FUSED_TOP_K rows instead of the caller's top_k -- a small,
+        # bounded cost, not the "nothing extra" claim above, which is scoped
+        # to the pipeline only.) Re-sliced to the caller's top_k after
+        # filtering, below.
         req = RetrievalRequest(
             query=query,
             top_k=FUSED_TOP_K if wanted else top_k,
@@ -277,8 +281,9 @@ class LanceSearchProvider:
             rows = [r for r in rows if r["section_of"] in (None, wanted)]
             # The retrieve() call above asked for FUSED_TOP_K, not the
             # caller's top_k, so it can return MORE rows than promised once
-            # filtered back down. Re-slice to what was asked for. A no-op
-            # when unfiltered: req.top_k was already the caller's top_k, so
-            # result.chunks (and therefore rows) can never exceed it.
+            # filtered back down. Re-slice to what was asked for. This
+            # statement only runs inside `if wanted:` -- when unfiltered,
+            # req.top_k was already the caller's top_k and this line never
+            # executes at all, so there is no "no-op" case to describe here.
             rows = rows[:top_k]
         return rows

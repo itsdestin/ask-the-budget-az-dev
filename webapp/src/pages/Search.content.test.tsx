@@ -26,12 +26,14 @@ const HITS: api.SearchResult[] = [
     snippet: "The FY 2027 Baseline includes $89,432,700 for child care subsidy assistance.",
     text: "The FY 2027 Baseline includes $89,432,700 for child care subsidy assistance.",
     page: 142, score: 0.9, doc_type: "baseline-per-agency", fiscal_year: 2027,
-    publisher: "jlbc", agencies: [], doc_url: "https://x/axs.pdf", doc_meta: null },
+    publisher: "jlbc", agencies: [], doc_url: "https://x/axs.pdf", doc_meta: null,
+    section_of: null },
   { chunk_id: "c2", doc_id: "b27-ahcccs", doc_title: "FY 2027 Baseline — AHCCCS",
     snippet: "The child care waiting list contained 6,218 children.",
     text: "The child care waiting list contained 6,218 children.",
     page: 143, score: 0.5, doc_type: "baseline-per-agency", fiscal_year: 2027,
-    publisher: "jlbc", agencies: [], doc_url: "https://x/axs.pdf", doc_meta: null },
+    publisher: "jlbc", agencies: [], doc_url: "https://x/axs.pdf", doc_meta: null,
+    section_of: null },
 ];
 
 // A single-passage document with no page number — covers two PassageCard
@@ -43,7 +45,8 @@ const SINGLE_HIT: api.SearchResult[] = [
     snippet: "General Fund revenue collections grew year over year.",
     text: "General Fund revenue collections grew year over year.",
     page: null, score: 0.7, doc_type: "afr", fiscal_year: 2026,
-    publisher: "agao", agencies: [], doc_url: "https://x/afr26.pdf", doc_meta: null },
+    publisher: "agao", agencies: [], doc_url: "https://x/afr26.pdf", doc_meta: null,
+    section_of: null },
 ];
 
 // A promise this test can resolve/reject on its own schedule, unlike

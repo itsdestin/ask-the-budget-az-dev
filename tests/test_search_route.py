@@ -87,7 +87,8 @@ def test_search_returns_contract_shape():
     assert body["total"] == len(body["results"]) > 0
     first = body["results"][0]
     for key in ("chunk_id", "doc_id", "doc_title", "snippet", "text", "page",
-                "score", "doc_type", "fiscal_year", "publisher", "agencies"):
+                "score", "doc_type", "fiscal_year", "publisher", "agencies",
+                "section_of"):
         assert key in first
 
 
@@ -139,9 +140,20 @@ def test_search_results_carry_the_full_chunk_text(monkeypatch):
 
 
 def test_results_carry_the_section_parent(monkeypatch):
-    client = _client_with_chunks(monkeypatch, [_chunk(doc_type="s-pdf")])
+    # WHY a real source_url and a value assertion, not just key presence: the
+    # original version of this test built a chunk with no source_url, so
+    # section_of() always returns None (see book_sections.py) and
+    # `assert "section_of" in row` passed against a HARDCODED `None` just as
+    # readily as against a real derivation -- it never exercised the parsing
+    # this field exists for. Verified the new assertion actually discriminates
+    # by temporarily forcing section_of() to return None unconditionally and
+    # watching this test fail before restoring it.
+    client = _client_with_chunks(
+        monkeypatch,
+        [_chunk(doc_type="s-pdf", source_url="https://www.azjlbc.gov/22baseline/473.pdf")],
+    )
     row = client.post("/api/search", json={"query": "x"}).json()["results"][0]
-    assert "section_of" in row
+    assert row["section_of"] == "Baseline"
 
 
 def test_a_family_filter_does_not_leak_the_other_book_s_sections(monkeypatch):

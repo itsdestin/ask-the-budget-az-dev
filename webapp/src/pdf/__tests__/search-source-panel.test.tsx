@@ -22,7 +22,7 @@ const HITS: api.SearchResult[] = [
     // source panel, not full-text highlighting, so it matches `snippet`.
     text: "Child care subsidy assistance rose.", page: 142, score: 0.9,
     doc_type: "baseline-per-agency", fiscal_year: 2027, publisher: "jlbc",
-    agencies: [], doc_url: "https://x/axs.pdf", doc_meta: null },
+    agencies: [], doc_url: "https://x/axs.pdf", doc_meta: null, section_of: null },
 ];
 
 // PassageCard's <Quote> wraps the matched substring in a <mark>, so the
