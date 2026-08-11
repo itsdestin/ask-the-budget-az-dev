@@ -119,6 +119,7 @@ def test_every_document_is_listed_with_the_fields_the_page_needs(client, tmp_pat
             "doc_type": "afr",
             "fiscal_year": 2025,
             "doc_url": "https://example.gov/afr25.pdf",
+            "section_of": None,
             "terms": ["25afr", "afr"],
         },
         {
@@ -128,6 +129,7 @@ def test_every_document_is_listed_with_the_fields_the_page_needs(client, tmp_pat
             "doc_type": "baseline-per-agency",
             "fiscal_year": 2027,
             "doc_url": "https://www.azjlbc.gov/27baseline/axs.pdf",
+            "section_of": None,
             "terms": ["27baseline", "27br", "axs", "baseline", "br"],
         },
     ]
@@ -362,6 +364,37 @@ def test_a_wrong_typed_doc_type_lists_with_no_terms_not_a_500(client, tmp_path):
     rows = {r["doc_id"]: r for r in response.json()["documents"]}
     assert rows["doc-a"]["terms"] == []
     assert rows["doc-b"]["terms"] == ["25afr", "afr"]
+
+
+def test_listing_rows_say_which_book_a_section_belongs_to(client, tmp_path):
+    """Folding happens in the browser, but the DERIVATION is server-side so it
+    has exactly one implementation -- the provider needs the same answer for
+    content-mode filtering (spec B3/B5)."""
+    _write(
+        tmp_path,
+        {
+            "jlbc-approps-fy2022-497": _entry(
+                doc_type="detailed-list-pdf",
+                fiscal_year=2022,
+                source_url="https://www.azjlbc.gov/22baseline/497.pdf",
+                title="General Fund Revenue — FY 2022 Baseline",
+            ),
+            "jlbc-approps-fy2025-adc": _entry(
+                doc_type="approps-per-agency",
+                fiscal_year=2025,
+                source_url="https://www.azjlbc.gov/25ar/adc.pdf",
+                title="FY 2025 Appropriations Report — ADC",
+            ),
+        },
+    )
+
+    rows = client.get("/api/corpus/documents").json()["documents"]
+
+    by_id = {r["doc_id"]: r for r in rows}
+    # The mis-minted doc_id says approps; the URL says baseline and wins.
+    assert by_id["jlbc-approps-fy2022-497"]["section_of"] == "Baseline"
+    # A real document type is never folded.
+    assert by_id["jlbc-approps-fy2025-adc"]["section_of"] is None
 
 
 def test_a_degraded_catalog_logs_once_per_page_load_not_once_per_row(

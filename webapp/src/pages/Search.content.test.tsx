@@ -10,9 +10,11 @@ import * as api from "../api";
 // (retrieval) mode doesn't use queryHit, so an empty array is a neutral filler.
 const DOCS: api.CorpusDocument[] = [
   { doc_id: "b27-ahcccs", title: "FY 2027 Baseline — AHCCCS", publisher: "jlbc",
-    doc_type: "baseline-per-agency", fiscal_year: 2027, doc_url: "https://x/axs.pdf", terms: [] },
+    doc_type: "baseline-per-agency", fiscal_year: 2027, doc_url: "https://x/axs.pdf",
+    section_of: null, terms: [] },
   { doc_id: "afr26", title: "FY 2026 Annual Financial Report", publisher: "agao",
-    doc_type: "afr", fiscal_year: 2026, doc_url: "https://x/afr26.pdf", terms: [] },
+    doc_type: "afr", fiscal_year: 2026, doc_url: "https://x/afr26.pdf",
+    section_of: null, terms: [] },
 ];
 
 // text: same as snippet — Task 1 made `text` required alongside `snippet`;

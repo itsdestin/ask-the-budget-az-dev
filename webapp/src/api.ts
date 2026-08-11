@@ -155,6 +155,11 @@ export interface CorpusDocument {
   /** The document's own source PDF/DOCX URL; null when the sidecar doesn't
    *  know it — the row then renders unlinked rather than guessing. */
   doc_url: string | null;
+  /** The JLBC book this document is a SECTION of ("Baseline",
+   *  "Appropriations Report"), or null when it is a document type in its own
+   *  right. Derived server-side from source_url — see app/book_sections.py
+   *  for why the doc_id is not usable. */
+  section_of: string | null;
   /** Extra strings the filter box matches by EXACT token equality — the
    *  agency's JLBC URL slug and reviewed aliases, plus this report type's
    *  shorthand ("26ar"). Computed server-side in app/search_terms.py so
