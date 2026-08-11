@@ -23,6 +23,13 @@ const DOCS: api.CorpusDocument[] = [
   { doc_id: "afr26", title: "FY 2026 Annual Financial Report", publisher: "agao", doc_type: "afr", fiscal_year: 2026, doc_url: "https://x/afr26.pdf" },
   // The folded "legislature" code displays as JLBC; this one has no URL.
   { doc_id: "bb26", title: "FY 2026 General Appropriations Act (SB 1735)", publisher: "legislature", doc_type: "budget-bill", fiscal_year: 2026, doc_url: null },
+  // An unregistered doc_type (IMPORTANT 5, 2026-08-10): reportFamilies.ts's
+  // FAMILY_OF_DOC_TYPE has no entry for it, so it must still render — under
+  // its own raw slug as its own family, per familyOf's documented contract
+  // (orderFamilies' WHY comment in Search.tsx) — rather than being silently
+  // dropped. No prior fixture in this file exercised that path. Shifts the
+  // report count from 5 to 6; see "the status line counts reports" below.
+  { doc_id: "misc26", title: "FY 2026 Special Program Review", publisher: "jlbc", doc_type: "program-review", fiscal_year: 2026, doc_url: "https://x/pr26.pdf" },
 ];
 
 function mount(docs = DOCS, entry = "/search") {
@@ -366,16 +373,39 @@ test("an arriving ?q= seeds the box and lands in the unified search state", asyn
 
 test("the status line counts reports, not the sections inside them", async () => {
   // A Baseline book is ONE report ingested as many per-agency documents
-  // (Destin, 2026-08-10). The fixture's 8 documents collapse to 5 reports, and
-  // 5 is the only number the page may show — counting the agency pages was
+  // (Destin, 2026-08-10). The fixture's 9 documents (8 curated + the
+  // unregistered-doc_type addition, IMPORTANT 5) collapse to 6 reports, and 6
+  // is the only number the page may show — counting the agency pages was
   // counting something nobody asked for.
+  //
+  // This count moved from 5 to 6 when the "program-review" document was added
+  // to the shared DOCS fixture for the IMPORTANT 5 regression test below —
+  // its doc_type has no curated family, so it becomes its own report.
   mount();
-  await screen.findByText(/^5 reports, across all fiscal years\.$/i);
-  expect(screen.queryByText(/8 documents/i)).toBeNull();
+  await screen.findByText(/^6 reports, across all fiscal years\.$/i);
+  expect(screen.queryByText(/9 documents/i)).toBeNull();
   fireEvent.change(screen.getByLabelText(/filter documents by agency or keyword/i), {
     target: { value: "ahcccs" },
   });
+  // Unaffected by the fixture addition: "program-review" doesn't match "ahcccs".
   await screen.findByText(/^2 reports in all fiscal years, matching “ahcccs”\.$/i);
+});
+
+test("an unregistered doc_type still renders, under its raw slug, after the curated families, and is counted", async () => {
+  // Regression coverage for orderFamilies' own WHY comment (Search.tsx): an
+  // unknown doc_type used to be SILENTLY DROPPED from the page while the
+  // status line still counted its document, so the page could claim more
+  // documents than it rendered. No prior fixture in this file held an
+  // unregistered doc_type, so nothing exercised the fix (IMPORTANT 5,
+  // 2026-08-10). The "program-review" doc lives in the shared DOCS fixture —
+  // see its own comment there for what that shifted.
+  mount();
+  fireEvent.click(await screen.findByRole("button", { name: /Fiscal Year 2026:/i }));
+  // Renders under its raw slug, as its own family, after the curated five.
+  expect(screen.getByText("FY 2026 program-review")).toBeInTheDocument();
+  // Appears in the Document Type filter menu.
+  fireEvent.click(railTrigger(/document type/i));
+  expect(screen.getByRole("button", { name: /^program-review/i })).toBeInTheDocument();
 });
 
 test("the year card head counts reports only", async () => {
