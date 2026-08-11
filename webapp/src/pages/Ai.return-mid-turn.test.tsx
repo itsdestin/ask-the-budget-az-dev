@@ -9,7 +9,17 @@
 // resolves to a real "unavailable" verdict and they read "AI Mode is currently
 // unavailable" while a paid Deep Research turn streams invisibly behind it.
 //
-// Two independent fixes, one spec each below:
+// Two fixes below, but NOT one spec each — read this before trusting the
+// shape. `Ai.tsx` refuses to draw the gate over a conversation that already
+// has turns (`hasConversation`), and that guard alone is enough to pass BOTH
+// specs below, cache or no cache: a return trip with an answer already on
+// screen never reaches the `probing || gated` branch in the first place. So
+// neither spec here actually arms `use-ai-status.ts`'s verdict cache —
+// `chat/__tests__/use-ai-status.test.ts` is what pins the cache directly
+// (renderHook, resolve once, unmount, remount against a probe that never
+// settles, assert the second mount is non-null on its FIRST render). Kept
+// here anyway because these two specs are the end-to-end proof the two
+// mechanisms combine correctly on the real page:
 //   (a) `use-ai-status.ts` seeds from the last verdict this tab received, so a
 //       return trip renders the previous answer immediately and re-probes
 //       silently. The re-probe is deliberately kept — it is how the client
@@ -20,17 +30,22 @@
 
 import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { MemoryRouter, Route, Routes, useNavigate } from "react-router-dom";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { Ai } from "./Ai";
 import * as api from "../api";
 import { AiSessionProvider } from "../chat/ai-session";
-import { __resetAiStatusCache } from "../chat/use-ai-status";
 import { AI_STATUS, stubConversationFetch, stubScrollIntoView } from "./ai-test-fixtures";
 
-// The verdict cache is module-level (one per tab), so a spec that wants a cold
-// tab has to say so.
-beforeEach(() => __resetAiStatusCache());
+// The verdict cache reset moved to a global `beforeEach` in `test-setup.ts` —
+// see that file for why (every spec file needing a cold tab used to have to
+// remember this itself, and one file didn't).
+
+// `stubConversationFetch` (below) uses `vi.stubGlobal`, which `restoreMocks:
+// true` does NOT undo (that setting only resets `vi.fn`/`vi.spyOn` targets,
+// not globals replaced wholesale). `Ai.test.tsx` already carries this same
+// teardown; this file diverging from it is what let the gap sit unnoticed.
+afterEach(() => vi.unstubAllGlobals());
 
 function Nav() {
   const navigate = useNavigate();

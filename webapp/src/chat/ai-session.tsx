@@ -45,6 +45,7 @@ import {
   useContext,
   useLayoutEffect,
   useMemo,
+  useRef,
   useState,
   type ReactNode,
 } from "react";
@@ -84,7 +85,24 @@ const ChatContext = createContext<UseChatResult | null>(null);
  *  resolves successfully having done nothing: no busy state, no error, no
  *  turn — a composer that quietly eats the analyst's question and looks fine.
  *  Throwing makes the same regression a visible crash with a name attached.
- *  An absence must be visible; that is this codebase's standing rule. */
+ *  An absence must be visible; that is this codebase's standing rule.
+ *
+ *  WHY `send` THROWS SYNCHRONOUSLY rather than being an `async` function that
+ *  throws: `MessageInput.handleSubmit` calls `onSubmit(text)` bare — not
+ *  awaited — then unconditionally runs `setValue("")`. An `async` function's
+ *  throw becomes a promise rejection with nothing in the call stack to catch
+ *  it, so `handleSubmit` sails on to `setValue("")` regardless: the box
+ *  clears, no turn appears, no banner renders, and the only trace is an
+ *  unhandled-rejection console line. That is the exact silent
+ *  eaten-the-analyst's-question failure this placeholder exists to make
+ *  loud, and an `async` throw does not actually make it loud — it was
+ *  verified to still pass that failure through before this fix. A plain
+ *  (non-`async`) function that throws before returning propagates
+ *  SYNCHRONOUSLY out of `onSubmit(text)`, ahead of `setValue("")`, so the
+ *  text stays in the box and the throw is visible. Typed `never` rather than
+ *  `Promise<void>` and left uncast — `never` is a subtype of `Promise<void>`,
+ *  so it satisfies `UseChatResult["send"]` without lying about what it
+ *  returns. */
 const NOT_MIRRORED =
   "AI Mode: the conversation was never mirrored up from ChatEngine — " +
   "the composer is wired to a placeholder, so nothing was sent. This is a " +
@@ -92,7 +110,7 @@ const NOT_MIRRORED =
 
 const INERT_CHAT: UseChatResult = {
   state: initialChatState,
-  send: async () => {
+  send: (): never => {
     console.error(NOT_MIRRORED);
     throw new Error(NOT_MIRRORED);
   },
@@ -143,19 +161,37 @@ export function AiSessionProvider({ children }: { children: ReactNode }) {
       });
   }, []);
 
-  // Read `selectedChatId` from the closure rather than from inside a
-  // `setSelectedChatId` updater. WHY: React requires a state updater to be
-  // PURE, and this used to call `setNewChatNonce` from inside one. StrictMode
-  // is on, so in development React invokes the updater twice and the nonce
-  // ratcheted twice per delete — harmless in effect (the key changes either
-  // way) but a rule violation sitting where the next reader will copy it into
-  // somewhere it does matter. The extra `selectedChatId` dependency costs
-  // nothing: the `session` memo below already re-creates on that value.
+  // `chatDeleted` reads `selectedIdRef.current`, NOT `selectedChatId` from the
+  // render closure. WHY: a plain closure read was tried first (it fixes the
+  // impure-updater problem below) and it opens a DIFFERENT, worse race.
+  // `HistoryRail.tsx` captures `chatDeleted` at click time and calls it AFTER
+  // an await: `remove(chat.id).then((gone) => { if (gone) onDeleted?.(id); })`.
+  // Sequence: viewing chat A, confirm-delete A, then click chat B in the rail
+  // while A's DELETE is still in flight. The resolved callback is the CLOSURE
+  // captured when the delete button was clicked — it still sees
+  // `selectedChatId === "A"` even though the analyst has since selected B — so
+  // it matches and calls `newChat()`, discarding the chat B view they just
+  // opened in favor of a blank chat. This codebase has already shipped and
+  // fixed a mid-flight-delete-then-reselect race once before (see the
+  // chat-history review in STATUS.md), so this exact shape recurring here is
+  // not a coincidence — any callback invoked after an await needs to read
+  // CURRENT state, not captured state. The ref is updated every render (not
+  // inside an effect), so `.current` is always this render's value by the
+  // time the awaited `.then()` runs.
+  //
+  // The original comment here justified the closure read as "purity" (React
+  // requires a state updater to be pure, and this used to call
+  // `setNewChatNonce` from inside a `setSelectedChatId` updater — StrictMode
+  // double-invokes updaters in dev, so the nonce ratcheted twice per delete).
+  // That analysis was about memo churn, which is free, and missed the
+  // late-resolving-callback cost above, which is not.
+  const selectedIdRef = useRef(selectedChatId);
+  selectedIdRef.current = selectedChatId;
   const chatDeleted = useCallback(
     (id: string) => {
-      if (id === selectedChatId) newChat();
+      if (id === selectedIdRef.current) newChat();
     },
-    [selectedChatId, newChat],
+    [newChat],
   );
 
   const session = useMemo<AiSession>(

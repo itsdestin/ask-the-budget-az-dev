@@ -40,7 +40,20 @@ const PROBE_FAILED: AiStatus = {
  *  below still runs on every mount, because a re-probe is how this client
  *  notices an administrator adding an API key without anyone reloading the
  *  page. The first ever load in a tab has no verdict yet, so it starts `null`
- *  and shows the honest probing state, exactly as before. */
+ *  and shows the honest probing state, exactly as before.
+ *
+ *  Tradeoff worth naming: the seed is only REPLACED when a new probe SETTLES.
+ *  A probe that hangs (the server down but not actively refusing the
+ *  connection, so the request never resolves or rejects) leaves the STALE
+ *  "available" verdict on screen indefinitely — a composer that looks live
+ *  when the server may not be — where the un-cached hook showed the honest
+ *  probing screen for exactly as long. Symmetrically, one transient failure
+ *  caches `PROBE_FAILED` until a later probe succeeds, so a momentary hiccup
+ *  can read as "unavailable" longer than the hiccup itself lasted. Both cases
+ *  self-correct the moment a later probe actually resolves, and neither can
+ *  misstate a conversation that is already streaming — `Ai.tsx`'s
+ *  `hasConversation` guard covers that independently of this cache. Accepted
+ *  as-is; not a bug to chase. */
 let lastVerdict: AiStatus | null = null;
 
 /** Test-only: forget the cached verdict, so a spec starts from a cold tab. */
