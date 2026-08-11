@@ -1,5 +1,5 @@
 import type { SearchResult } from "../api";
-import { groupPassages, highlight, toSearchFilters } from "./contentSearch";
+import { groupPassages, highlight, queryTerms, toSearchFilters } from "./contentSearch";
 import { slugsForFamily } from "../reportFamilies";
 
 function hit(over: Partial<SearchResult>): SearchResult {
@@ -63,22 +63,57 @@ test("one document never yields two cards", () => {
   expect(groups[0].passages).toHaveLength(3);
 });
 
-test("highlight splits a snippet into matched and unmatched runs", () => {
-  expect(highlight("The child care subsidy rose", "child care")).toEqual([
-    { text: "The ", hit: false },
-    { text: "child care", hit: true },
-    { text: " subsidy rose", hit: false },
-  ]);
+test("every typed word marks independently, not the whole query as one string", () => {
+  // The shipped behaviour searched for the entire query as one literal
+  // substring. Measured: 0 of 200 real cards produced a single mark.
+  const runs = highlight("Child care subsidy waiting list rose", "child care waiting");
+  expect(runs.filter((r) => r.hit).map((r) => r.text)).toEqual(["Child", "care", "waiting"]);
 });
 
-test("highlight is case-insensitive but preserves the ORIGINAL casing", () => {
+test("marks are case-insensitive but keep the ORIGINAL casing", () => {
   expect(highlight("AHCCCS funding", "ahcccs")).toEqual([
     { text: "AHCCCS", hit: true },
     { text: " funding", hit: false },
   ]);
 });
 
-test("highlight with no match, or an empty query, returns one plain run", () => {
+test("matching is on WORD BOUNDARIES, not substrings", () => {
+  // Substring matching measured 8.3 marks per card peaking at 31, because
+  // short words match inside longer ones. Boundaries: 6.0, capped at 14.
+  expect(highlight("He said the aid was paid", "aid").filter((r) => r.hit))
+    .toEqual([{ text: "aid", hit: true }]);
+});
+
+test("three-letter domain terms are NOT dropped", () => {
+  // A length>=4 rule was measured and rejected: it silently loses "aid"
+  // (basic state aid) and "des", the terms this domain is about (spec H1).
+  expect(highlight("DES basic state aid", "des aid").filter((r) => r.hit).length).toBe(2);
+});
+
+test("no stopword list — function words mark like any other word", () => {
+  // Four rules were measured and all four leave the blank rate at 2.9%, so
+  // dropping function words is cosmetic. "We underline the words you typed."
+  expect(highlight("the fund for schools", "the for").filter((r) => r.hit).map((r) => r.text))
+    .toEqual(["the", "for"]);
+});
+
+test("a possessive contributes its stem, not a stray one-letter term", () => {
+  expect(queryTerms("the state's share")).toEqual(
+    expect.arrayContaining(["state", "share", "the"]),
+  );
+  expect(queryTerms("the state's share")).not.toContain("s");
+});
+
+test("longer terms win over shorter ones that start inside them", () => {
+  const runs = highlight("childcare and child care", "child childcare");
+  expect(runs.filter((r) => r.hit).map((r) => r.text)).toEqual(["childcare", "child"]);
+});
+
+test("regex metacharacters in the query are literal, not patterns", () => {
+  expect(highlight("a (b) c", "(b)").filter((r) => r.hit).map((r) => r.text)).toEqual(["b"]);
+});
+
+test("no match, or an empty query, returns one plain run", () => {
   expect(highlight("nothing here", "zzz")).toEqual([{ text: "nothing here", hit: false }]);
   expect(highlight("nothing here", "   ")).toEqual([{ text: "nothing here", hit: false }]);
 });
