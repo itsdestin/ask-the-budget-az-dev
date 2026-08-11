@@ -305,6 +305,40 @@ export interface UploadMeta {
   /** Ingest anyway when the content hash is already known (spec's explicit
    *  re-process option). */
   reprocess?: boolean;
+  /** Which reading of a Budget Bill Summary this is. Required server-side
+   *  (422 without it) whenever the row's `stage_field` is true — see
+   *  DocTypeCard.stage_field below. */
+  stage?: "introduced" | "engrossed";
+}
+
+/** One row of `GET /api/document-types` — the upload page's own copy of the
+ *  type list is gone (Task 6); every row's copy comes off the wire from
+ *  `data/document-types.yaml` via `ingest.doc_types.upload_rows()`, so the
+ *  two lists can no longer drift. Field names mirror the registry's own
+ *  `DocType` attributes 1:1 (see ingest/doc_types.py). */
+export interface DocTypeCard {
+  key: string;
+  label: string;
+  group: string;
+  formats: string[];
+  where_published: string;
+  which_file: string;
+  /** Present only for the two JLBC-book rows, which are never uploaded —
+   *  see `app/book_sections.py`'s reasoning for why a book is added by the
+   *  book tool (one document per agency) rather than as a single PDF.
+   *  `which_file` is "" on a redirect row; every other row has `null` here. */
+  redirect: { action: string; label: string; detail: string } | null;
+  /** True only for budget-bill-summary today — gates whether the row shows
+   *  the Introduced/Engrossed picker, and whether the upload route requires
+   *  one (422 without it on a staged type). */
+  stage_field: boolean;
+  order: number;
+}
+
+export async function documentTypes(): Promise<DocTypeCard[]> {
+  const r = await fetch("/api/document-types");
+  if (!r.ok) await fail(r, "document types");
+  return (await r.json()).types;
 }
 
 export interface DuplicateDocument {
@@ -334,6 +368,7 @@ export async function uploadDocument(
   form.append("doc_type", meta.doc_type);
   form.append("fiscal_year", String(meta.fiscal_year));
   form.append("title", meta.title);
+  if (meta.stage) form.append("stage", meta.stage);
   // Invariant 8: the server rejects the upload without this. The page only
   // sends it once the user has actually ticked the box.
   form.append("is_public_record", "true");
