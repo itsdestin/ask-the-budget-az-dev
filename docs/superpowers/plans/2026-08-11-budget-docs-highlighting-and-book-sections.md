@@ -612,15 +612,19 @@ test("a passage longer than the preview is truncated until expanded", async () =
   expect(screen.getByText(/final prison words/)).toBeInTheDocument();
 });
 
-test("expanding needs no second fetch — the text was already on the result", async () => {
-  // This is what shipping the full chunk text buys (spec H8/H9). If a future
-  // change reintroduces a fetch here, this test still passes but the comment
-  // is the record: the component receives `text` and must not call the API.
-  const spy = vi.spyOn(globalThis, "fetch");
+test("the expanded passage is marked too, not just the preview", () => {
+  // Guards the real risk in expansion: rendering the full text through a
+  // different path that forgets the marks. "No second fetch" is NOT tested —
+  // the component receives `text` as a prop and has no code path that could
+  // fetch, so such an assertion would pass trivially and would keep passing
+  // if expansion broke entirely.
   renderCard("prison beds");
-  await userEvent.click(screen.getByRole("button", { name: /full passage/i }));
-  expect(spy).not.toHaveBeenCalled();
-  spy.mockRestore();
+  return userEvent
+    .click(screen.getByRole("button", { name: /full passage/i }))
+    .then(() => {
+      expect(screen.getByText(/final prison words/)).toBeInTheDocument();
+      expect(screen.getAllByText(/prison/i, { selector: "mark" }).length).toBeGreaterThan(1);
+    });
 });
 
 test("a passage with none of the reader's words renders with no marks", () => {
@@ -1441,23 +1445,81 @@ export function toSearchFilters(
 
 Add `section_family?: string` to `SearchFilters` in `webapp/src/api.ts`, and
 extend `slugsForFamily` so the two book families include their section slugs —
-otherwise a Baseline filter never reaches the sections at all:
+otherwise a Baseline filter never reaches the sections at all.
+
+**The section slugs must NOT be hardcoded here.** `app/book_sections.py`
+already holds that list as `SECTION_DOC_TYPES`, and a second copy in
+TypeScript is precisely the two-lists-that-drift bug this project's Global
+Constraints forbid. Derive them from the listing the browser already loaded —
+every section document carries a non-null `section_of`, so its `doc_type` is a
+section slug by definition. Add to `webapp/src/reportFamilies.ts`:
 
 ```ts
-/** Section doc_types belong to a BOOK, not to a type of their own. Both books
- *  list all five: `detailed-list-pdf` and `topic-pdf` genuinely occur under
- *  both, and `section_family` (server-side) is what makes the result exact. */
-const SECTION_SLUGS = ["detailed-list-pdf", "s-pdf", "bd-pdf", "bh-pdf", "topic-pdf"];
+/** The doc_type slugs that are book SECTIONS, derived from the corpus itself.
+ *
+ *  WHY derived and not written down: `app/book_sections.py` already owns that
+ *  vocabulary (`SECTION_DOC_TYPES`), and a second hand-maintained copy here
+ *  would silently stop matching the day a sixth section type is ingested. A
+ *  document the server marked with `section_of` HAS a section doc_type, by
+ *  definition — so the listing already answers the question. */
+export function sectionSlugsFrom(
+  docs: readonly { doc_type: string; section_of: string | null }[],
+): string[] {
+  return [...new Set(docs.filter((d) => d.section_of).map((d) => d.doc_type))];
+}
 
-export function slugsForFamily(family: string): string[] {
+/** Every doc_type slug that belongs to a family — the inverse of `familyOf`.
+ *
+ *  `sectionSlugs` (from `sectionSlugsFrom`) joins the two BOOK families:
+ *  `detailed-list-pdf` and `topic-pdf` genuinely occur under both, and the
+ *  server's `section_family` filter is what makes the result exact. */
+export function slugsForFamily(family: string, sectionSlugs: readonly string[] = []): string[] {
   const slugs = Object.entries(FAMILY_OF_DOC_TYPE)
     .filter(([, name]) => name === family)
     .map(([slug]) => slug);
   if (family === "Baseline" || family === "Appropriations Report") {
-    return [...slugs, ...SECTION_SLUGS];
+    return [...slugs, ...sectionSlugs];
   }
   return slugs.length ? slugs : [family];
 }
+```
+
+`toSearchFilters` gains the same trailing parameter and passes it through:
+
+```ts
+export function toSearchFilters(
+  types: ReadonlySet<string>,
+  years: ReadonlySet<number>,
+  sectionSlugs: readonly string[] = [],
+): SearchFilters {
+  const filters: SearchFilters = {};
+  if (types.size) {
+    filters.doc_type = [...types].flatMap((t) => slugsForFamily(t, sectionSlugs));
+    const books = [...types].filter((t) => t === "Baseline" || t === "Appropriations Report");
+    if (books.length === 1) filters.section_family = books[0];
+  }
+  if (years.size) {
+    const real = [...years].filter((y) => y !== 0);
+    if (real.length) filters.fiscal_year = real;
+  }
+  return filters;
+}
+```
+
+Its caller in `webapp/src/pages/Search.tsx` computes the set once from the
+loaded listing — `useMemo(() => sectionSlugsFrom(docs), [docs])` — and passes
+it. Add a test pinning that the derivation comes from the data:
+
+```ts
+test("section slugs come from the corpus, never from a hardcoded list", () => {
+  const docs = [
+    { doc_type: "s-pdf", section_of: "Baseline" },
+    { doc_type: "brand-new-section-pdf", section_of: "Baseline" },
+    { doc_type: "baseline-per-agency", section_of: null },
+  ];
+  // A section type nobody has written down anywhere still reaches the filter.
+  expect(sectionSlugsFrom(docs).sort()).toEqual(["brand-new-section-pdf", "s-pdf"]);
+});
 ```
 
 Update the two `slugsForFamily` / `toSearchFilters` tests in
