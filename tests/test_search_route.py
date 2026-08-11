@@ -1,3 +1,5 @@
+from pathlib import Path
+
 from fastapi.testclient import TestClient
 
 from app.main import create_app
@@ -56,7 +58,7 @@ def _client_with_chunks(monkeypatch, chunks):
     # No documents.json on this path — degrades to unlinked rows (same idiom
     # as test_lance_provider.py's test_missing_sidecar_degrades_to_unlinked_rows),
     # which is irrelevant to what this test checks (text/snippet).
-    monkeypatch.setattr("store.config.documents_path", lambda: __import__("pathlib").Path("/nonexistent/documents.json"))
+    monkeypatch.setattr("store.config.documents_path", lambda: Path("/nonexistent/documents.json"))
     return TestClient(create_app(provider=LanceSearchProvider()))
 
 
