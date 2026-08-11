@@ -42,6 +42,21 @@ def test_prompt_bans_announcing_that_citations_were_registered():
     assert "status" in lowered or "recap" in lowered
 
 
+def test_prompt_teaches_the_marker_and_the_alias():
+    # A concrete example, not just prose: the model reproduces the shape
+    # it was shown, and `[[c3]]` is the shape the marker parser accepts.
+    assert "[[c3]]" in PROMPT
+    assert "alias" in PROMPT.lower()
+    # The model must know tags are invisible and verified — otherwise it
+    # narrates them, and output-hygiene bans that.
+    lowered = PROMPT.lower()
+    assert "never mention" in lowered or "invisible" in lowered
+
+
+def test_prompt_still_bans_citing_figures_via_cite():
+    assert "Do not cite dollar figures" in PROMPT
+
+
 def test_prompt_tells_the_model_not_to_announce_the_automatic_linking():
     # A model told "figures are linked automatically" may helpfully report
     # that it happened. It is UI behaviour; the analyst can see it.

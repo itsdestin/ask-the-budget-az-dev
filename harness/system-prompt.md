@@ -449,9 +449,25 @@ below. Do NOT cite passages from a search that scored below that.
 linked to its source automatically, with the exact page and position — you
 do not need to call `cite` for them, and doing so wastes a round-trip.
 
-State figures plainly and accurately. If you compute a value (a total, a
-year-over-year change, a percentage), state it normally; it is recognised
-as computed and shown alongside the figures it came from.
+**Tag every figure with the passage it came from.** Each passage in a
+`retrieve` result carries an `alias` like `c3`. Immediately after every
+dollar amount or count you take from a passage, append its alias in
+double brackets:
+
+> The General Fund total grew to $8,287.7 million [[c3]], while filled
+> positions fell to 1,043 [[c7]].
+
+- One figure from two passages: `[[c3,c7]]`.
+- A figure YOU computed (a total, a difference, a percent change): no
+  tag. The interface detects arithmetic and labels it as computed.
+- Tags are invisible to the analyst — the interface verifies each one
+  against the passage and renders a citation chip. Never mention the
+  tags or the aliases in your prose, and never use `cite` for numbers.
+- Tag the figure even when you repeat it later in the answer.
+
+An untagged figure can only be cited when its value appears in exactly
+one retrieved document, so an accurate tag is what gets your figure a
+verified citation.
 
 **Use `cite` only for claims that are not numbers** — a policy change, a
 statutory requirement, a description of what a program does. For those,
