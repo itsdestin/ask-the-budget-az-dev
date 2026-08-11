@@ -379,6 +379,29 @@ class _StepResult:
     usage: dict[str, Any] | None = None
     model: str | None = None
     interrupted: bool = False
+    # Whether this step's assistant message reached `self.history` yet.
+    # Read by the hang-up path, which must append it if the ordinary
+    # end-of-step append never ran — and must NOT append it twice if it did.
+    recorded: bool = False
+
+
+@dataclass
+class _LiveTurn:
+    """The in-flight turn's state, reachable from `stream_turn`'s handlers.
+
+    Turn-local data parked on the instance rather than passed down, because
+    `_run_turn` is a GENERATOR: when the consumer hangs up, GeneratorExit is
+    raised at whatever `yield` is live and `_run_turn`'s locals unwind with
+    it. `stream_turn` is the only frame left that can still act, and it needs
+    what the turn had accumulated in order to save it. Exactly one turn runs
+    per session at a time (`_turn_lock`), so one slot is enough.
+    """
+
+    accumulator: Any
+    # Where this turn's messages start in `self.history` — the boundary
+    # `_attach_annotation` must not search past.
+    start_index: int
+    result: Any = None
 
 
 # ---------------------------------------------------------------------------
@@ -453,6 +476,9 @@ class HarnessSession:
         # Non-reentrant guard: two turns interleaving on one history
         # would produce a message list neither of them intended.
         self._turn_lock = threading.Lock()
+        # The turn currently running, or None. Guarded by `_turn_lock`, so
+        # one slot suffices; see `_LiveTurn` for why this is not a local.
+        self._live_turn: _LiveTurn | None = None
         # Retry backoff waits on the interrupt flag rather than
         # time.sleep: `Event.wait(n)` returns the instant the flag is
         # set, so pressing stop during a `Retry-After: 30` wait ends the
@@ -553,9 +579,13 @@ class HarnessSession:
             # life, so EVERY later turn would 400. Someone closes a tab
             # and the conversation is dead.
             #
-            # Repair, then re-raise. Never yield while unwinding a
-            # GeneratorExit: Python turns that into a RuntimeError and
-            # the repair is what actually matters here.
+            # Save what the turn produced, THEN repair, then re-raise.
+            # `_abandon_turn` first because it may append the partial
+            # assistant message whose tool calls `_repair_history` then
+            # back-fills. Never yield while unwinding a GeneratorExit:
+            # Python turns that into a RuntimeError, and the recording and
+            # the repair are what actually matter here.
+            self._abandon_turn()
             self._repair_history()
             raise
         except Exception as err:  # noqa: BLE001 — see below
@@ -571,6 +601,11 @@ class HarnessSession:
             #
             # NOT BaseException: KeyboardInterrupt/SystemExit must still
             # take the process down.
+            #
+            # Same recording as the hang-up path: the analyst watched this
+            # partial answer stream in, and a transcript that drops it says
+            # the model never spoke.
+            self._abandon_turn()
             self._repair_history()
             # The traceback is the admin's only breadcrumb — the analyst
             # gets one sentence, and nothing else records what happened.
@@ -587,6 +622,9 @@ class HarnessSession:
                 "your admin to check the AI settings."
             )
         finally:
+            # Cleared before the lock is released, so the next turn can
+            # never see the last one's accumulator or history boundary.
+            self._live_turn = None
             self._turn_lock.release()
 
     # -- the loop ---------------------------------------------------------
@@ -618,6 +656,21 @@ class HarnessSession:
 
         yield _event("user_message", text=text)
         self.history.append({"role": "user", "content": text})
+        # THIS TURN'S BOUNDARY IN HISTORY, captured before any assistant
+        # message exists. `_attach_annotation` searches backwards for the
+        # answer to annotate and MUST NOT cross this line: a turn that
+        # appends no assistant message at all (the model returned neither
+        # text nor tool calls; a stop landed before step 1) would otherwise
+        # find the PREVIOUS turn's answer and overwrite its annotation with
+        # this turn's empty one — silently stripping every citation chip
+        # from an answer that was correctly linked. Reproduced 2026-08-11:
+        # turn 1's annotation went from 1 figure to 0 when turn 2 said
+        # nothing. Guarding on `if not annotation` cannot catch this,
+        # because `_Accumulator.annotation()` returns `{"figures": []}`,
+        # and a dict holding an empty list is truthy.
+        turn_start = len(self.history)
+        live = _LiveTurn(accumulator=accumulator, start_index=turn_start)
+        self._live_turn = live
 
         stop_reason = "end_turn"
         usage_totals = _UsageTotals()
@@ -647,6 +700,7 @@ class HarnessSession:
                 self._context_window(self.history, reserved=len(prompt_text))
             )
             result = _StepResult(uuid=_new_uuid())
+            live.result = result
 
             yield _event("assistant_thinking", uuid=result.uuid)
             try:
@@ -697,6 +751,7 @@ class HarnessSession:
             # next request — don't record one.
             if result.text or result.tool_calls:
                 self.history.append(_assistant_message(result))
+                result.recorded = True
 
             if not result.tool_calls:
                 if result.finish_reason == "tool_calls":
@@ -747,22 +802,6 @@ class HarnessSession:
                 "This answer is incomplete."
             )
 
-        # The annotator resolves [[cN]] through the aliases this
-        # conversation's retrieves actually assigned. `getattr` because the
-        # executor is an injectable seam (every test here passes a fake, and
-        # so may any future one): an executor that assigns no aliases must
-        # cost the turn its TAGS, degrading to unambiguous-value linking,
-        # never the whole answer.
-        if self._executor is not None:
-            accumulator.alias_map = getattr(self._executor, "alias_map", None) or {}
-        # Earlier turns' retrieve results, read off the history the model
-        # is still being sent. A follow-up question answered from context
-        # has no retrieve of its own, and without this every figure in it
-        # is unverifiable.
-        accumulator._conversation_chunks = [
-            (m.get("name") or "", m.get("content") or "")
-            for m in self.history if m.get("role") == "tool"]
-
         usage = usage_totals.as_turn_usage()
         yield _event("turn_complete", stopReason=stop_reason, model=model, usage=usage)
         # Compute the figure annotation ONCE and ride it in two directions:
@@ -778,10 +817,68 @@ class HarnessSession:
         # figure-anchored data that belongs to one assistant answer, so it
         # rides on that answer's message. It is never sent to the provider —
         # `_context_window` strips the key before building a request.
-        annotation = accumulator.annotation()
-        self._attach_annotation(annotation)
+        annotation = self._finalize_annotation(accumulator)
+        self._attach_annotation(annotation, since=turn_start)
         yield accumulator.done_frame(
             stop_reason, usage, usage_totals.cost, incomplete_note, annotation
+        )
+
+    def _finalize_annotation(self, accumulator: Any) -> dict:
+        """Give the accumulator its conversation-wide context, then link.
+
+        Split out of `_run_turn` so the hang-up path (`_abandon_turn`) runs
+        the IDENTICAL preparation. When these were one inline block, a
+        stopped turn was annotated by nothing at all, and the two could
+        have drifted the day either was edited.
+        """
+        # The annotator resolves [[cN]] through the aliases this
+        # conversation's retrieves actually assigned. `getattr` because the
+        # executor is an injectable seam (every test here passes a fake, and
+        # so may any future one): an executor that assigns no aliases must
+        # cost the turn its TAGS, degrading to unambiguous-value linking,
+        # never the whole answer.
+        if self._executor is not None:
+            accumulator.alias_map = getattr(self._executor, "alias_map", None) or {}
+        # Earlier turns' retrieve results, read off the history the model
+        # is still being sent. A follow-up question answered from context
+        # has no retrieve of its own, and without this every figure in it
+        # is unverifiable.
+        accumulator._conversation_chunks = [
+            (m.get("name") or "", m.get("content") or "")
+            for m in self.history if m.get("role") == "tool"]
+        return accumulator.annotation()
+
+    def _abandon_turn(self) -> None:
+        """Record what a hung-up turn produced, before history is repaired.
+
+        The Stop button aborts the fetch FIRST (webapp `use-chat.ts`), and a
+        closed tab does the same, so GeneratorExit reaches `stream_turn`
+        and the end-of-turn code in `_run_turn` never runs. Two things were
+        lost with it, both reproduced 2026-08-11:
+
+          - the partial answer the analyst was watching. It lives in the
+            step's `_StepResult` and is only appended to history after the
+            stream completes, so a stopped turn persisted as question +
+            tool cards + NO answer, contradicting what was on screen.
+          - the figure annotation, so a stopped turn's citation chips could
+            never be restored when the chat was reopened.
+
+        Runs BEFORE `_repair_history` so the assistant message appended here
+        gets its cancelled tool replies back-filled in the same unwind.
+        """
+        live = self._live_turn
+        if live is None:
+            return
+        result = live.result
+        # `recorded` rather than re-deriving from history: GeneratorExit can
+        # arrive either side of the ordinary append (mid-stream, or while
+        # yielding a tool_use), and appending the same message twice is a
+        # malformed request the provider 400s.
+        if result is not None and not result.recorded and (result.text or result.tool_calls):
+            self.history.append(_assistant_message(result))
+            result.recorded = True
+        self._attach_annotation(
+            self._finalize_annotation(live.accumulator), since=live.start_index
         )
 
     # -- S13 model fallback -----------------------------------------------
@@ -1125,7 +1222,7 @@ class HarnessSession:
             }
         )
 
-    def _attach_annotation(self, annotation: dict | None) -> None:
+    def _attach_annotation(self, annotation: dict | None, *, since: int) -> None:
         """Attach this turn's figure annotation to its final assistant message.
 
         The annotation belongs to the assistant answer that just ended, so it
@@ -1140,11 +1237,29 @@ class HarnessSession:
         nothing to attach to and nothing to persist — matching how the annotation
         itself degrades to empty.
 
+        `since` IS THE WHOLE CORRECTNESS ARGUMENT and is not optional. The
+        search runs backwards, so without a floor at this turn's first message
+        a turn that appended NO assistant message walks into the previous
+        turn and overwrites a correctly-linked answer's annotation with this
+        turn's empty one — every citation chip on that earlier answer
+        silently disappears when the chat is reopened. Reproduced 2026-08-11
+        by a second turn in which the model returned neither text nor tool
+        calls.
+
+        Note what does NOT work as a guard, so it is not re-tried: refusing to
+        attach an annotation with no figures. `_Accumulator.annotation()`
+        returns `{"figures": []}`, and a dict holding an empty list is TRUTHY,
+        so `if not annotation` never fired. Tightening it to check the list
+        would also have broken the deliberate pin in
+        `test_interrupt_on_a_text_only_turn_is_a_plain_interrupt`, which wants
+        an interrupted turn to carry the same shape a completed one does.
+        Bounding the SEARCH is the fix; filtering the payload is not.
+
         The key never reaches the provider: `_context_window` strips it.
         """
         if not annotation:
             return
-        for message in reversed(self.history):
+        for message in reversed(self.history[since:]):
             if message.get("role") == "assistant":
                 message["annotation"] = annotation
                 return
@@ -1205,6 +1320,7 @@ class HarnessSession:
         """
         if result.text or result.tool_calls:
             self.history.append(_assistant_message(result))
+            result.recorded = True
         self._repair_history()
         kind = "tool-use" if result.tool_calls else "plain"
         yield _event("user_interrupt", kind=kind)

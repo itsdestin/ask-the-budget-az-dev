@@ -112,3 +112,28 @@ describe("CostsPanel tier labels", () => {
     expect(screen.getByText("title")).toBeInTheDocument();
   });
 });
+
+describe("an unrecorded tier key", () => {
+  // Review, 2026-08-11: this tab used `??` where every other tab used `||`.
+  // An unrecorded key arrives as the EMPTY STRING, which `??` passes through
+  // untouched, so the row rendered as a blank cell — silently dropping the
+  // fail-safe the comment beside it claimed to preserve.
+  it("falls back to '(not recorded)' rather than painting a blank cell", () => {
+    render(
+      <CostsPanel
+        usage={usage({
+          by_tier: [
+            { key: "", cost_usd: 0.02, tokens_in: 10, tokens_out: 4, cached_tokens: 0, rows: 1, rows_with_unknown_cost: 0 },
+          ],
+        })}
+        month="2026-08"
+        onMonthChange={() => {}}
+        tab="by_tier"
+        onTabChange={() => {}}
+        isCustomEndpoint={false}
+      />,
+    );
+    fireEvent.click(screen.getByText("Show"));
+    expect(screen.getByText("(not recorded)")).toBeInTheDocument();
+  });
+});

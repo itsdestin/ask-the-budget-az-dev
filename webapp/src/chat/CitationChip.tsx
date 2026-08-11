@@ -14,7 +14,7 @@
 import { useEffect, useRef, useState } from "react";
 
 import { formatCopyCitation, type Citation } from "./citation-extract.js";
-import { useCitationBus, useUnresolvable } from "./citation-context.js";
+import { spanKeyOf, useCitationBus, useUnresolvable } from "./citation-context.js";
 import type { AnnotationFigure } from "./citation-annotation.js";
 
 interface Props {
@@ -110,8 +110,15 @@ export default function CitationChip({
   // actually still resolves. Invariant 2 cuts both ways: never silently drop,
   // but never falsely brand either.
   const [unresolvable, setUnresolvable] = useState<"gone" | "moved" | null>(null);
-  useUnresolvable((chunkId, reason) => {
+  useUnresolvable((chunkId, reason, spanKey) => {
     if (chunkId !== citation.chunkId) return;
+    // `gone` carries no spanKey and applies to the whole chunk — it 404s, so
+    // every citation into it is dead. `moved` and `resolved` are about ONE
+    // quote: two citations can share a chunk and disagree about whether their
+    // own span survived a re-ingest. Matching those on the chunk id alone let
+    // a still-good citation clear a genuinely stale sibling's mark, which
+    // renders a moved source as verified (Invariant 2).
+    if (spanKey !== undefined && spanKey !== spanKeyOf(citation)) return;
     setUnresolvable(reason === "resolved" ? null : reason);
   });
 

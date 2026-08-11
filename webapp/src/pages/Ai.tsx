@@ -141,6 +141,15 @@ export function Ai() {
     // conversation — is a no-op key-wise and the analyst's view is stuck.
     setNewChatNonce((n) => n + 1);
   };
+  // Deleting the chat you are LOOKING AT has to close it. Without this the
+  // thread kept rendering a transcript that no longer exists and `useChat`
+  // kept `resumeFrom` pointed at it, so the next question failed permanently
+  // ("no such conversation") with no way out but "+ New chat". The server
+  // side of that failure is fixed too — a live session now outranks its own
+  // bookkeeping — but a deleted chat should not stay on screen either.
+  const handleChatDeleted = (id: string) => {
+    if (id === selectedChatId) handleNewChat();
+  };
 
   return (
     <main className="page-ai" data-testid="ai">
@@ -246,6 +255,7 @@ export function Ai() {
             selectedChatId={selectedChatId}
             onSelectChat={handleSelectChat}
             onNewChat={handleNewChat}
+            onDeleteChat={handleChatDeleted}
           />
         )}
       </div>
@@ -264,6 +274,7 @@ function AiConversation({
   selectedChatId,
   onSelectChat,
   onNewChat,
+  onDeleteChat,
 }: {
   corpus: Corpus;
   corpusOptions: CorpusOption[];
@@ -272,6 +283,7 @@ function AiConversation({
   selectedChatId: string | null;
   onSelectChat: (id: string) => void;
   onNewChat: () => void;
+  onDeleteChat: (id: string) => void;
 }) {
   const chat = useChat(corpus, selectedChatId ?? undefined);
   return (
@@ -287,6 +299,7 @@ function AiConversation({
       selectedChatId={selectedChatId}
       onSelectChat={onSelectChat}
       onNewChat={onNewChat}
+      onDeleteChat={onDeleteChat}
     />
   );
 }
