@@ -69,7 +69,7 @@ def test_search_returns_contract_shape():
     assert body["provider"] == "stub"
     assert body["total"] == len(body["results"]) > 0
     first = body["results"][0]
-    for key in ("chunk_id", "doc_id", "doc_title", "snippet", "page",
+    for key in ("chunk_id", "doc_id", "doc_title", "snippet", "text", "page",
                 "score", "doc_type", "fiscal_year", "publisher", "agencies"):
         assert key in first
 
