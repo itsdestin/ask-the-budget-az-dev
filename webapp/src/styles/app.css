@@ -1809,6 +1809,9 @@ html.ai-fullpage header.site{flex:0 0 auto;}
   white-space:nowrap;overflow:hidden;text-overflow:ellipsis;color:var(--ink);}
 .history-rail-chat-snippet{display:block;width:100%;font-size:11px;color:var(--ink-3);
   white-space:nowrap;overflow:hidden;text-overflow:ellipsis;line-height:1.4;}
+/* The draft row. Same box as a real chat so the rail does not jump when the
+   real row replaces it, but not a button — there is nothing behind it yet. */
+.history-rail-chat-static{cursor:default;}
 .history-rail-actions{flex:0 0 auto;display:flex;gap:2px;padding-right:4px;opacity:0;
   transition:opacity .13s;}
 .history-rail-item:hover .history-rail-actions,

@@ -16,7 +16,7 @@ import { useEffect, useRef, useState } from "react";
 import type { AiStatus } from "../api.js";
 import ChatThread from "./ChatThread.js";
 import Footer from "./Footer.js";
-import { HistoryRail } from "./HistoryRail.js";
+import { DRAFT_CHAT_ID, HistoryRail } from "./HistoryRail.js";
 import MessageInput from "./MessageInput.js";
 import { detectRefusal } from "./RefusalBanner.js";
 import SuggestionRow from "./SuggestionRow.js";
@@ -221,6 +221,18 @@ function PanelBody({
     return () => obs.disconnect();
   }, []);
 
+  // P3: the live id drives the rail's HIGHLIGHT and the placeholder's
+  // identity, and is deliberately NOT written back into `selectedChatId` —
+  // that value is part of the conversation's React key, so assigning it
+  // mid-answer would remount the conversation and wipe the thread the analyst
+  // is reading. Same class of bug as the "resumed chat wiped on send" defect
+  // fixed 2026-08-03.
+  const liveId = chat.state.conversationId;
+  // A chat opened from the rail is never a draft: its row is already on disk
+  // (or on its way), so treating it as one would flash a placeholder over it.
+  const draftId = selectedChatId == null ? liveId ?? DRAFT_CHAT_ID : null;
+  const activeId = selectedChatId ?? liveId ?? DRAFT_CHAT_ID;
+
   return (
     <section className="ai-panel" data-testid="ai-panel" aria-label="AI Mode">
       {chat.health && !chat.health.ok && (
@@ -229,7 +241,8 @@ function PanelBody({
 
       <div className="ai-panel-layout">
         <HistoryRail
-          activeId={selectedChatId ?? null}
+          activeId={activeId}
+          draftId={draftId}
           onSelect={onSelectChat ?? (() => {})}
           onNewChat={onNewChat ?? (() => {})}
           onDeleted={onDeleteChat}
