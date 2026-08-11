@@ -29,6 +29,7 @@ from app.routes.conversations import (
 )
 from app.routes.documents import router as documents_router
 from app.routes.fiscal_notes import router as fiscal_notes_router
+from app.routes.history import router as history_router
 from app.routes.jobs import router as jobs_router
 from app.routes.pdf import router as pdf_router
 from app.routes.search import router as search_router
@@ -181,6 +182,7 @@ def create_app(
     app.include_router(fiscal_notes_router)
     app.include_router(documents_router)
     app.include_router(conversations_router)
+    app.include_router(history_router)
     app.include_router(pdf_router)
     app.include_router(upload_router)
     app.include_router(jobs_router)

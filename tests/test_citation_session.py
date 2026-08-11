@@ -62,6 +62,41 @@ def test_done_frame_carries_the_annotation():
     assert figs[0]["primary"]["source_text"] == "1,391,157,700"
 
 
+def test_the_annotation_is_attached_to_history_for_the_transcript():
+    """Handoff Issue 1: the figure annotation must persist, not just ride the
+    ephemeral `_done` frame. It is attached to the final assistant message of
+    the turn, which is what persist_turn saves to disk. Without this a reopened
+    chat could not restore citation chips."""
+    s = _session(_provider("ADC received $1,391,157,700 this year."))
+    s.send_turn("How much for ADC?")
+    s.close()
+    last_assistant = next(
+        m for m in reversed(s.history) if m.get("role") == "assistant"
+    )
+    figs = last_assistant["annotation"]["figures"]
+    assert len(figs) == 1
+    assert figs[0]["verdict"] == "linked"
+    assert figs[0]["primary"]["chunk_id"] == "c-1"
+
+
+def test_the_annotation_never_leaks_into_the_provider_request():
+    """The annotation is transcript metadata, not conversation. Sending it back
+    on an assistant message could confuse or break an OpenAI-compatible
+    endpoint, so the request built for the NEXT turn must not carry it."""
+    provider = _provider("ADC received $1,391,157,700 this year.")
+    s = _session(provider)
+    s.send_turn("How much for ADC?")
+    # Ask again: the second request walks history including the annotated
+    # first answer. Capture what the provider actually received.
+    bodies_before = len(provider.bodies)
+    s.send_turn("And the FDJP?")
+    s.close()
+    assert len(provider.bodies) > bodies_before, "expected a second provider request"
+    wire = provider.bodies[-1]
+    for message in wire.get("messages", []):
+        assert "annotation" not in message
+
+
 def test_annotation_offsets_index_the_final_answer():
     s = _session(_provider("ADC received $1,391,157,700 this year."))
     frame = s.send_turn("How much for ADC?")

@@ -16,6 +16,7 @@ import { useEffect, useRef, useState } from "react";
 import type { AiStatus } from "../api.js";
 import ChatThread from "./ChatThread.js";
 import Footer from "./Footer.js";
+import { HistoryRail } from "./HistoryRail.js";
 import MessageInput from "./MessageInput.js";
 import { detectRefusal } from "./RefusalBanner.js";
 import SuggestionRow from "./SuggestionRow.js";
@@ -74,6 +75,11 @@ interface PanelProps {
    *  every corpus-agnostic test harness wants. */
   corpusOptions?: CorpusOption[];
   onCorpusChange?: (corpus: Corpus) => void;
+  /** The id of the selected stored chat, or null for a new chat. Owned by
+   *  Ai.tsx; the rail reads it to highlight the active chat. */
+  selectedChatId?: string | null;
+  onSelectChat?: (id: string) => void;
+  onNewChat?: () => void;
 }
 
 export function AiModePanel(props: PanelProps) {
@@ -93,6 +99,9 @@ function PanelBody({
   corpus,
   corpusOptions,
   onCorpusChange,
+  selectedChatId,
+  onSelectChat,
+  onNewChat,
 }: PanelProps) {
   const { state } = chat;
   const mascot = useMascotPose(state, false);
@@ -106,6 +115,36 @@ function PanelBody({
   // beats a click that silently does nothing.
   const [viewerOpen, setViewerOpen] = useState(false);
   useCitationSelected(() => setViewerOpen(true));
+
+  // The rail's collapsed state persists per device in localStorage. Guard
+  // the read: a localStorage that throws (private mode, a locked-down
+  // profile) must default to expanded rather than break the panel.
+  const [railCollapsed, setRailCollapsed] = useState(() => {
+    try {
+      return localStorage.getItem("jlbc-history-rail-collapsed") === "true";
+    } catch {
+      return false;
+    }
+  });
+  const toggleRail = () => {
+    setRailCollapsed((prev) => {
+      const next = !prev;
+      try { localStorage.setItem("jlbc-history-rail-collapsed", String(next)); } catch { /* ignore */ }
+      return next;
+    });
+  };
+
+  // The rail auto-collapses when the source panel opens. D1 gives the chat
+  // region ONE content measure (~768px); a rail plus that column plus a PDF
+  // panel would crush the thread, which is the exact problem D1 exists to
+  // prevent. The rail yields, the thread does not.
+  // Auto-collapse must not become a trap: closing the source panel leaves
+  // the rail collapsed (it does not spring back), and the toggle stays
+  // reachable, so an analyst who re-expands it while a source is open is not
+  // fought by the effect on the next citation click.
+  useEffect(() => {
+    if (viewerOpen) setRailCollapsed(true);
+  }, [viewerOpen]);
 
   // Flag only the LATEST assistant turn, and only while it is still the LAST
   // turn in the thread. Older turns keep their own history; re-warning about
@@ -171,6 +210,15 @@ function PanelBody({
       {chat.health && !chat.health.ok && (
         <SystemHealthBanner reason={chat.health.reason} />
       )}
+
+      <div className="ai-panel-layout">
+        <HistoryRail
+          activeId={selectedChatId ?? null}
+          onSelect={onSelectChat ?? (() => {})}
+          onNewChat={onNewChat ?? (() => {})}
+          collapsed={railCollapsed}
+          onToggle={toggleRail}
+        />
 
       <div className={viewerOpen ? "ai-panel-main has-source" : "ai-panel-main"}>
         <div className="ai-panel-chat" ref={chatColRef}>
@@ -269,9 +317,10 @@ function PanelBody({
                 instead of this one plus a second one buried in SourceView.
                 The aside stays `position:relative` (app.css) for those
                 floating variants' positioning context. */}
-            <PdfViewer onClose={() => setViewerOpen(false)} />
+            <PdfViewer onClose={() => setViewerOpen(false)} corpus={corpus} />
           </aside>
         )}
+      </div>
       </div>
     </section>
   );

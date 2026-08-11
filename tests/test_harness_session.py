@@ -874,8 +874,13 @@ def test_interrupt_on_a_text_only_turn_is_a_plain_interrupt():
 
     assert of_type(events, "user_interrupt")[0]["kind"] == "plain"
     assert done["stopReason"] == "user_interrupt"
-    # Partial text is kept — it is what the analyst already read.
-    assert session.history[-1] == {"role": "assistant", "content": "The Department "}
+    # Partial text is kept — it is what the analyst already read. The turn's
+    # figure annotation is attached to the final assistant message even on an
+    # interrupt (nothing was retrieved, so it is empty) so the transcript
+    # carries the same shape a completed turn does.
+    assert session.history[-1]["role"] == "assistant"
+    assert session.history[-1]["content"] == "The Department "
+    assert session.history[-1]["annotation"] == {"figures": []}
 
 
 def test_a_new_turn_clears_a_previous_interrupt():

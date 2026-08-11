@@ -20,11 +20,28 @@ import type { Citation } from "./citation-extract";
 
 export type CitationHandler = (citation: Citation) => void;
 
+/** A verdict the viewer publishes when it checks whether a citation's source
+ *  still resolves. The chip subscribes and marks itself accordingly.
+ *  `gone` = chunk 404; `moved` = chunk exists but the cited span is no longer
+ *  in it (document was re-ingested); `resolved` = a re-check succeeded, so a
+ *  chip that was marked stale (e.g. by a transient 404 during an ingest
+ *  rewrite) clears itself. "We cannot tell" (503, network error) publishes
+ *  nothing — it neither marks nor clears. */
+export type UnresolvableReason = "gone" | "moved" | "resolved";
+
+export type UnresolvableHandler = (chunkId: string, reason: UnresolvableReason) => void;
+
 export interface CitationBus {
   /** Notify all subscribers of a click on a specific citation. */
   select(citation: Citation): void;
   /** Subscribe to selections; returns an unsubscribe function. */
   subscribe(handler: CitationHandler): () => void;
+  /** Publish the outcome of a click-time source check. `gone`/`moved` mark
+   *  the matching chip stale; `resolved` clears a stale mark. The chip with
+   *  the matching chunkId updates itself. */
+  markUnresolvable(chunkId: string, reason: UnresolvableReason): void;
+  /** Subscribe to unresolvable verdicts; returns an unsubscribe function. */
+  subscribeUnresolvable(handler: UnresolvableHandler): () => void;
 }
 
 const CitationBusContext = createContext<CitationBus | null>(null);
@@ -34,6 +51,8 @@ export function CitationBusProvider({ children }: { children: ReactNode }) {
   // automatically (React StrictMode mounts effects twice in dev —
   // that's the most common source of accidental double-subscribe).
   const handlersRef = useRef<Set<CitationHandler>>(new Set());
+  // H5: subscribers for unresolvable verdicts (the chip marks itself).
+  const unresolvableHandlersRef = useRef<Set<UnresolvableHandler>>(new Set());
   // The most recent selection, kept so a viewer that mounts BECAUSE of a
   // click still receives that click. Without this the first chip click
   // opened an empty source panel and the analyst had to click twice —
@@ -75,9 +94,26 @@ export function CitationBusProvider({ children }: { children: ReactNode }) {
     };
   }, []);
 
+  const markUnresolvable = useCallback((chunkId: string, reason: UnresolvableReason) => {
+    for (const h of unresolvableHandlersRef.current) {
+      try {
+        h(chunkId, reason);
+      } catch (err) {
+        console.error("[citation-bus] unresolvable subscriber threw:", err);
+      }
+    }
+  }, []);
+
+  const subscribeUnresolvable = useCallback((handler: UnresolvableHandler) => {
+    unresolvableHandlersRef.current.add(handler);
+    return () => {
+      unresolvableHandlersRef.current.delete(handler);
+    };
+  }, []);
+
   const bus = useMemo<CitationBus>(
-    () => ({ select, subscribe }),
-    [select, subscribe],
+    () => ({ select, subscribe, markUnresolvable, subscribeUnresolvable }),
+    [select, subscribe, markUnresolvable, subscribeUnresolvable],
   );
 
   return (
@@ -98,6 +134,8 @@ export function useCitationBus(): CitationBus {
 const NOOP_BUS: CitationBus = {
   select: () => {},
   subscribe: () => () => {},
+  markUnresolvable: () => {},
+  subscribeUnresolvable: () => () => {},
 };
 
 /** Subscribe to citation selections from inside a component. The
@@ -109,5 +147,16 @@ export function useCitationSelected(handler: CitationHandler): void {
   handlerRef.current = handler;
   useEffect(() => {
     return bus.subscribe((c) => handlerRef.current(c));
+  }, [bus]);
+}
+
+/** Subscribe to unresolvable-citation verdicts from the viewer. The chip
+ *  uses this to mark itself when its source no longer resolves (H5). */
+export function useUnresolvable(handler: UnresolvableHandler): void {
+  const bus = useCitationBus();
+  const handlerRef = useRef(handler);
+  handlerRef.current = handler;
+  useEffect(() => {
+    return bus.subscribeUnresolvable((id, reason) => handlerRef.current(id, reason));
   }, [bus]);
 }
