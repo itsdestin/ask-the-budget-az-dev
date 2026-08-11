@@ -1,7 +1,7 @@
 # Budget Documents — content search, the format chooser, and the browse-page regression fixes
 
 **Date:** 2026-08-10
-**Status:** Approved 2026-08-10 — no open decisions. Regression fixes R1–R4 are BUILT and passing on branch `budget-docs-browse-page`; F1 and F2 are designed and mocked, not built.
+**Status:** SHIPPED 2026-08-11 on branch `budget-docs-browse-page`. All of it — regression fixes R1–R4, F1 (content search + the passage drawer) and F2 (the format chooser) — is built, reviewed and passing. Amended the same day by `2026-08-11-title-filter-shorthand-design.md`, which changes what TITLE mode matches; content mode, escalation and the drawer are as specified here.
 **Branch:** `budget-docs-browse-page`
 **Amends:** `2026-07-29-standalone-consolidation-design.md` decision **S12**, whose 2026-07-30 amendment froze the search RESULTS presentation. This spec supersedes that amendment for the Budget Documents page only; Fiscal Notes and AI Mode are untouched.
 

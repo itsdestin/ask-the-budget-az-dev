@@ -47,7 +47,7 @@ The four regression fixes (R1–R4) and the six mockups are already written and 
 
 **Files:** everything currently modified in the worktree.
 
-- [ ] **Step 1: Verify the tree is green before committing anything**
+- [x] **Step 1: Verify the tree is green before committing anything**
 
 ```bash
 cd webapp && npx tsc -b --noEmit && npx vitest run && cd ..
@@ -55,7 +55,7 @@ cd webapp && npx tsc -b --noEmit && npx vitest run && cd ..
 ```
 Expected: `tsc` silent, `570 passed`, `2167 passed, 5 skipped`.
 
-- [ ] **Step 2: Commit the backend fix**
+- [x] **Step 2: Commit the backend fix**
 
 ```bash
 git add app/routes/corpus.py tests/test_corpus_documents_route.py
@@ -68,7 +68,7 @@ from doc_type: /api/upload accepts any registered doc_type against
 either corpus, so a denylist would leak."
 ```
 
-- [ ] **Step 3: Commit the frontend fixes**
+- [x] **Step 3: Commit the frontend fixes**
 
 ```bash
 git add webapp/src/pages/Search.tsx webapp/src/pages/Search.test.tsx \
@@ -90,7 +90,7 @@ git commit -m "fix(docs-page): honest empty states, report-level counts, dead co
   .page-search CSS — all orphaned by the browse rewrite."
 ```
 
-- [ ] **Step 4: Commit the spec, plan and mockups**
+- [x] **Step 4: Commit the spec, plan and mockups**
 
 ```bash
 git add docs/superpowers/specs/2026-08-10-budget-documents-content-search-design.md \
@@ -112,7 +112,7 @@ git commit -m "docs: content-search + format-chooser spec, plan and mockups"
 **Interfaces:**
 - Produces: `DocIcon()`, `BookIcon()`, `ChevronIcon()`, `OpenIcon()` — all `(): JSX.Element`, no props.
 
-- [ ] **Step 1: Create the module**
+- [x] **Step 1: Create the module**
 
 ```tsx
 // webapp/src/components/DocIcons.tsx
@@ -159,7 +159,7 @@ export function OpenIcon() {
 }
 ```
 
-- [ ] **Step 2: Delete the four local definitions from `Search.tsx`**
+- [x] **Step 2: Delete the four local definitions from `Search.tsx`**
 
 Remove the whole block from the `// ----- Glyphs -----` banner comment through the end of `OpenIcon` (currently lines 158–196), and add to the import block at the top:
 
@@ -167,14 +167,14 @@ Remove the whole block from the `// ----- Glyphs -----` banner comment through t
 import { BookIcon, ChevronIcon, DocIcon, OpenIcon } from "../components/DocIcons";
 ```
 
-- [ ] **Step 3: Verify nothing rendered differently**
+- [x] **Step 3: Verify nothing rendered differently**
 
 ```bash
 cd webapp && npx tsc -b --noEmit && npx vitest run
 ```
 Expected: `tsc` silent, `570 passed`. A pure move must not change a single assertion.
 
-- [ ] **Step 4: Commit**
+- [x] **Step 4: Commit**
 
 ```bash
 git add webapp/src/components/DocIcons.tsx webapp/src/pages/Search.tsx
@@ -194,7 +194,7 @@ git commit -m "refactor(docs-page): extract the row glyphs into components/DocIc
 - Consumes: `BookIcon`, `DocIcon`, `OpenIcon` from Task 1; `ReportFormats` from `../reportFamilies` (`{ singleFile: string | null; linkedToc: string | null }`).
 - Produces: `<ReportChooser title={string} formats={ReportFormats} onClose={() => void} />`.
 
-- [ ] **Step 1: Write the failing tests**
+- [x] **Step 1: Write the failing tests**
 
 ```tsx
 // webapp/src/components/ReportChooser.test.tsx
@@ -259,14 +259,14 @@ test("a missing format is not offered at all", () => {
 });
 ```
 
-- [ ] **Step 2: Run to verify they fail**
+- [x] **Step 2: Run to verify they fail**
 
 ```bash
 cd webapp && npx vitest run src/components/ReportChooser.test.tsx
 ```
 Expected: FAIL — `Failed to resolve import "./ReportChooser"`.
 
-- [ ] **Step 3: Implement the component**
+- [x] **Step 3: Implement the component**
 
 ```tsx
 // webapp/src/components/ReportChooser.tsx
@@ -427,7 +427,7 @@ export function ReportChooser({
 }
 ```
 
-- [ ] **Step 4: Append the recovered CSS to `app.css`**
+- [x] **Step 4: Append the recovered CSS to `app.css`**
 
 Append at the end of the `.page-docs` block (immediately before the `@media (max-width:860px)` rule that closes it):
 
@@ -469,14 +469,14 @@ Append at the end of the `.page-docs` block (immediately before the `@media (max
 .page-docs .report-modal .choice .carr svg{width:18px;height:18px;}
 ```
 
-- [ ] **Step 5: Run to verify they pass**
+- [x] **Step 5: Run to verify they pass**
 
 ```bash
 cd webapp && npx vitest run src/components/ReportChooser.test.tsx
 ```
 Expected: `6 passed`.
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```bash
 git add webapp/src/components/ReportChooser.tsx webapp/src/components/ReportChooser.test.tsx \
@@ -503,7 +503,7 @@ handling the original never had — it is the only modal on this page."
 - Consumes: `<ReportChooser>` from Task 2; `reportFormats(family, year)` from `../reportFamilies`.
 - Produces: nothing new for later tasks.
 
-- [ ] **Step 1: Write the failing tests**
+- [x] **Step 1: Write the failing tests**
 
 Add to `webapp/src/pages/Search.test.tsx`:
 
@@ -543,14 +543,14 @@ test("a report with ONE format links straight to it — no pointless chooser", a
 
 **Fixture note:** `DOCS` in `Search.test.tsx` gives `afr26` a `doc_url`, and `reportFormats("Annual Financial Report", 2026)` returns no URLs, so that row falls back to `docs[0].doc_url` — one format, straight link. `FY 2027 Baseline` has both in `REPORT_FORMATS`. No fixture change needed.
 
-- [ ] **Step 2: Run to verify they fail**
+- [x] **Step 2: Run to verify they fail**
 
 ```bash
 cd webapp && npx vitest run src/pages/Search.test.tsx -t "Full report"
 ```
 Expected: FAIL — the row still renders "Open".
 
-- [ ] **Step 3: Replace `ReportRow`**
+- [x] **Step 3: Replace `ReportRow`**
 
 ```tsx
 /** A whole-REPORT top-level row: "FY Y Family".
@@ -616,7 +616,7 @@ function ReportRow({
 }
 ```
 
-- [ ] **Step 4: Delete both `.grp-full` anchors from `FamilyCard`**
+- [x] **Step 4: Delete both `.grp-full` anchors from `FamilyCard`**
 
 Remove these two blocks (the idle branch and the searching branch) entirely:
 
@@ -630,7 +630,7 @@ Remove these two blocks (the idle branch and the searching branch) entirely:
 
 Then delete the now-unused `const { singleFile } = reportFormats(...)` line at the top of `FamilyCard`, and thread `onChoose` down: `FamilyCard` gains an `onChoose: () => void` prop and passes it to `<ReportRow>`; `YearCard` gains the same prop and passes `() => onChoose(year, f.family)` per family.
 
-- [ ] **Step 5: Mount the modal in the page body**
+- [x] **Step 5: Mount the modal in the page body**
 
 In `Search()`, add the state and render the modal as the LAST child of `<main className="page-docs">`:
 
@@ -653,7 +653,7 @@ In `Search()`, add the state and render the modal as the LAST child of `<main cl
       )}
 ```
 
-- [ ] **Step 6: Add the two new CSS rules**
+- [x] **Step 6: Add the two new CSS rules**
 
 Append inside the `.page-docs` block:
 
@@ -670,7 +670,7 @@ Append inside the `.page-docs` block:
 .page-docs .doc.rowbtn{width:100%;text-align:left;font-family:inherit;background:transparent;border:0;cursor:pointer;}
 ```
 
-- [ ] **Step 7: Fix the one pre-existing test this changes**
+- [x] **Step 7: Fix the one pre-existing test this changes**
 
 `test("full-report links appear only where a hand-verified URL exists")` asserts a `link` named `/full report/i` with the single-file href. FY 2027 Baseline now has BOTH formats, so it is a button. Replace that test's body with:
 
@@ -688,14 +688,14 @@ test("full-report actions appear only where a hand-verified URL exists", async (
 });
 ```
 
-- [ ] **Step 8: Run the full suite**
+- [x] **Step 8: Run the full suite**
 
 ```bash
 cd webapp && npx tsc -b --noEmit && npx vitest run
 ```
 Expected: `tsc` silent, all tests pass.
 
-- [ ] **Step 9: Commit**
+- [x] **Step 9: Commit**
 
 ```bash
 git add webapp/src/pages/Search.tsx webapp/src/pages/Search.test.tsx webapp/src/styles/app.css
@@ -726,7 +726,7 @@ No React. Everything here is a function with an input and an output, so it is ch
   - `groupPassages(results: SearchResult[]): PassageDoc[]`
   - `highlight(text: string, query: string): { text: string; hit: boolean }[]`
 
-- [ ] **Step 1: Write the failing tests**
+- [x] **Step 1: Write the failing tests**
 
 ```ts
 // webapp/src/search/contentSearch.test.ts
@@ -816,14 +816,14 @@ test("highlight with no match, or an empty query, returns one plain run", () => 
 });
 ```
 
-- [ ] **Step 2: Run to verify they fail**
+- [x] **Step 2: Run to verify they fail**
 
 ```bash
 cd webapp && npx vitest run src/search/contentSearch.test.ts
 ```
 Expected: FAIL — `Failed to resolve import "./contentSearch"`.
 
-- [ ] **Step 3: Add `slugsForFamily` to `reportFamilies.ts`**
+- [x] **Step 3: Add `slugsForFamily` to `reportFamilies.ts`**
 
 Immediately after `familyOf`:
 
@@ -845,7 +845,7 @@ export function slugsForFamily(family: string): string[] {
 }
 ```
 
-- [ ] **Step 4: Create `contentSearch.ts`**
+- [x] **Step 4: Create `contentSearch.ts`**
 
 ```ts
 // webapp/src/search/contentSearch.ts
@@ -961,14 +961,14 @@ export function highlight(text: string, query: string): { text: string; hit: boo
 }
 ```
 
-- [ ] **Step 5: Run to verify they pass**
+- [x] **Step 5: Run to verify they pass**
 
 ```bash
 cd webapp && npx vitest run src/search/contentSearch.test.ts
 ```
 Expected: `10 passed`.
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```bash
 git add webapp/src/search/contentSearch.ts webapp/src/search/contentSearch.test.ts \
@@ -998,7 +998,7 @@ No new UI in this task — the page still renders title results only. This wires
 - **All URL writes use `replace: true`.** Keystroke-level history entries are noise; the goals that matter (shareable links, correct restore on reload, no identical-query dead end) are all met by replace. Walking individual searches with Back was a nice-to-have and is deliberately not built.
 - **Editing the query resets to title mode.** A new query is a new search, and title mode is the cheap default; escalation re-arms and fires again if titles return nothing.
 
-- [ ] **Step 1: Write the failing tests**
+- [x] **Step 1: Write the failing tests**
 
 ```tsx
 // webapp/src/pages/Search.content.test.tsx
@@ -1104,14 +1104,14 @@ test("a failed content search surfaces the backend's own detail", async () => {
 });
 ```
 
-- [ ] **Step 2: Run to verify they fail**
+- [x] **Step 2: Run to verify they fail**
 
 ```bash
 cd webapp && npx vitest run src/pages/Search.content.test.tsx
 ```
 Expected: FAIL — `api.search` is never called.
 
-- [ ] **Step 3: Add the mode + content state to `Search()`**
+- [x] **Step 3: Add the mode + content state to `Search()`**
 
 Replace the existing `const [params] = useSearchParams();` / `urlQuery` / `useEffect(() => setQuery(urlQuery), [urlQuery]);` block with:
 
@@ -1180,7 +1180,7 @@ Inside `Search()`:
 
 Delete the old one-way `useEffect(() => setQuery(urlQuery), [urlQuery]);` and every remaining reference to `urlQuery`.
 
-- [ ] **Step 4: Add the escalation and fetch effects**
+- [x] **Step 4: Add the escalation and fetch effects**
 
 Place these directly after `const searching = q !== "";` and its neighbours, and after `visibleGroups` is computed (the escalation needs the title-hit count):
 
@@ -1241,7 +1241,7 @@ Place these directly after `const searching = q !== "";` and its neighbours, and
   );
 ```
 
-- [ ] **Step 5: Reset to title mode when the query changes**
+- [x] **Step 5: Reset to title mode when the query changes**
 
 Change the rail input's `onChange` and the clear button:
 
@@ -1264,13 +1264,13 @@ Change the rail input's `onChange` and the clear button:
   };
 ```
 
-- [ ] **Step 6: Add the imports**
+- [x] **Step 6: Add the imports**
 
 ```tsx
 import { groupPassages, toSearchFilters } from "../search/contentSearch";
 ```
 
-- [ ] **Step 7: Render the error so its test can see it**
+- [x] **Step 7: Render the error so its test can see it**
 
 Inside the `searching ?` branch's `<section className="yg">`, before the tiles, add:
 
@@ -1285,14 +1285,14 @@ Inside the `searching ?` branch's `<section className="yg">`, before the tiles, 
                 )}
 ```
 
-- [ ] **Step 8: Run the tests**
+- [x] **Step 8: Run the tests**
 
 ```bash
 cd webapp && npx tsc -b --noEmit && npx vitest run
 ```
 Expected: `tsc` silent; `Search.content.test.tsx` `6 passed`; every other suite still passing.
 
-- [ ] **Step 9: Commit**
+- [x] **Step 9: Commit**
 
 ```bash
 git add webapp/src/pages/Search.tsx webapp/src/pages/Search.content.test.tsx
@@ -1316,7 +1316,7 @@ rewrite reintroduced when it dropped master's attempt counter."
 - Consumes: `PassageDoc`, `highlight` from Task 4; `DocIcon`/`ChevronIcon` from Task 1; `publisherLabel` from `../publishers`.
 - Produces: `<PassageCard doc={PassageDoc} query={string} trayOpen={boolean} onToggleTray={() => void} onOpenPassage={(chunkId: string) => void} />`
 
-- [ ] **Step 1: Create the component**
+- [x] **Step 1: Create the component**
 
 ```tsx
 // webapp/src/components/PassageCard.tsx
@@ -1442,7 +1442,7 @@ Note the import list: **no `DocIcon`**. The identity row deliberately carries
 no glyph before the document title (Destin, 2026-08-10), so importing one
 would be an unused import and `npm run build` would fail on it.
 
-- [ ] **Step 2: Add the card CSS**
+- [x] **Step 2: Add the card CSS**
 
 Append inside the `.page-docs` block:
 
@@ -1479,14 +1479,14 @@ Append inside the `.page-docs` block:
 .page-docs .ctx .tray .doc:hover{border-color:var(--az-gold);background:#fff;}
 ```
 
-- [ ] **Step 3: Verify it compiles (no test yet — Task 7 mounts it)**
+- [x] **Step 3: Verify it compiles (no test yet — Task 7 mounts it)**
 
 ```bash
 cd webapp && npx tsc -b --noEmit && npx vitest run
 ```
 Expected: `tsc` silent, existing tests unchanged.
 
-- [ ] **Step 4: Commit**
+- [x] **Step 4: Commit**
 
 ```bash
 git add webapp/src/components/PassageCard.tsx webapp/src/styles/app.css
@@ -1509,7 +1509,7 @@ corpus text."
 **Interfaces:**
 - Consumes: `<PassageCard>` (Task 6), `mode`/`content`/`passageDocs`/`setMode` (Task 5).
 
-- [ ] **Step 1: Write the failing tests**
+- [x] **Step 1: Write the failing tests**
 
 Append to `webapp/src/pages/Search.content.test.tsx`:
 
@@ -1570,14 +1570,14 @@ test("the toggle is hidden while the request is in flight", async () => {
 });
 ```
 
-- [ ] **Step 2: Run to verify they fail**
+- [x] **Step 2: Run to verify they fail**
 
 ```bash
 cd webapp && npx vitest run src/pages/Search.content.test.tsx
 ```
 Expected: FAIL — no passage cards render.
 
-- [ ] **Step 3: Replace the `searching ?` branch of the results column**
+- [x] **Step 3: Replace the `searching ?` branch of the results column**
 
 ```tsx
             ) : searching ? (
@@ -1696,7 +1696,7 @@ Expected: FAIL — no passage cards render.
             ) : visibleGroups.length === 0 ? (
 ```
 
-- [ ] **Step 4: Add the passage-drawer state and the import**
+- [x] **Step 4: Add the passage-drawer state and the import**
 
 ```tsx
 import { PassageCard } from "../components/PassageCard";
@@ -1708,7 +1708,7 @@ import { PassageCard } from "../components/PassageCard";
   const [openPassage, setOpenPassage] = useState<string | null>(null);
 ```
 
-- [ ] **Step 5: Add the mode-label, toggle-face and loading CSS**
+- [x] **Step 5: Add the mode-label, toggle-face and loading CSS**
 
 Append inside the `.page-docs` block:
 
@@ -1740,7 +1740,7 @@ Append inside the `.page-docs` block:
 }
 ```
 
-- [ ] **Step 6: Update the status line for content mode**
+- [x] **Step 6: Update the status line for content mode**
 
 Replace the `phase.kind === "ready" &&` expression in `.docstatus`:
 
@@ -1755,14 +1755,14 @@ Replace the `phase.kind === "ready" &&` expression in `.docstatus`:
                 : `${reportCount} report${reportCount === 1 ? "" : "s"}, across ${yearScope}.`)}
 ```
 
-- [ ] **Step 7: Run the tests**
+- [x] **Step 7: Run the tests**
 
 ```bash
 cd webapp && npx tsc -b --noEmit && npx vitest run
 ```
 Expected: `tsc` silent, all suites pass.
 
-- [ ] **Step 8: Commit**
+- [x] **Step 8: Commit**
 
 ```bash
 git add webapp/src/pages/Search.tsx webapp/src/pages/Search.content.test.tsx webapp/src/styles/app.css
@@ -1787,7 +1787,7 @@ The last deleted piece. `SourcePanel` still exists and still works — the rewri
 - Consumes: `openPassage` (Task 7), `passageDocs` (Task 5).
 - `SourcePanel` props: `{ chunkId: string; corpus?: string; docTitle: string; fiscalYear?: number | null; onClose(): void }`.
 
-- [ ] **Step 1: Write the failing tests**
+- [x] **Step 1: Write the failing tests**
 
 ```tsx
 // webapp/src/pdf/__tests__/search-source-panel.test.tsx
@@ -1855,14 +1855,14 @@ test("switching modes closes the drawer", async () => {
 });
 ```
 
-- [ ] **Step 2: Run to verify they fail**
+- [x] **Step 2: Run to verify they fail**
 
 ```bash
 cd webapp && npx vitest run src/pdf/__tests__/search-source-panel.test.tsx
 ```
 Expected: FAIL — no `complementary` region.
 
-- [ ] **Step 3: Render the drawer**
+- [x] **Step 3: Render the drawer**
 
 Add the import:
 
@@ -1890,7 +1890,7 @@ Add, immediately before the `{chooser && ...}` block at the end of `<main classN
       )}
 ```
 
-- [ ] **Step 4: Widen the drawer state to carry the title**
+- [x] **Step 4: Widen the drawer state to carry the title**
 
 `SourcePanel` needs the display title, and the route deliberately does not return a second one (see `app/routes/pdf.py`'s `get_chunk`). Replace Task 7's `openPassage` state and change `onOpenPassage` to resolve it from the results:
 
@@ -1918,7 +1918,7 @@ Add, immediately before the `{chooser && ...}` block at the end of `<main classN
 
 and pass `onOpenPassage={openPassageById}` to `<PassageCard>`.
 
-- [ ] **Step 5: Close the drawer whenever the result set changes**
+- [x] **Step 5: Close the drawer whenever the result set changes**
 
 ```tsx
   // A new query, a new mode or a new filter means a new result set; leaving
@@ -1927,14 +1927,14 @@ and pass `onOpenPassage={openPassageById}` to `<PassageCard>`.
   useEffect(() => setOpenPassage(null), [q, mode, types, years]);
 ```
 
-- [ ] **Step 6: Run the tests**
+- [x] **Step 6: Run the tests**
 
 ```bash
 cd webapp && npx tsc -b --noEmit && npx vitest run
 ```
 Expected: `tsc` silent, all suites pass including the three new ones.
 
-- [ ] **Step 7: Full verification**
+- [x] **Step 7: Full verification**
 
 ```bash
 cd webapp && npm run build && cd ..
@@ -1942,7 +1942,7 @@ cd webapp && npm run build && cd ..
 ```
 Expected: `built in …`, `2167 passed, 5 skipped`.
 
-- [ ] **Step 8: Commit**
+- [x] **Step 8: Commit**
 
 ```bash
 git add webapp/src/pages/Search.tsx webapp/src/pdf/__tests__/search-source-panel.test.tsx

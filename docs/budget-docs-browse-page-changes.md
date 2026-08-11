@@ -1,81 +1,101 @@
-# Budget Documents browse page — what this branch changes
+# Budget Documents page — what this branch changes
 
-Branch `budget-docs-browse-page` (3 commits) vs. master.
+Branch `budget-docs-browse-page` vs. master. Three pieces of work, in order:
+the browse-first rewrite, then an audit of what it broke, then putting back
+the two things it dropped.
 
-## The old Budget Documents tab (what it used to be)
+Specs: `docs/superpowers/specs/2026-08-10-budget-documents-content-search-design.md`
+and `2026-08-11-title-filter-shorthand-design.md`.
+
+## Where it started
 
 A retrieval-backed **results page**: a large centered search bar, Publisher /
-Type / Fiscal Year filter chips, and a "type something to see anything"
-blank state. Every keystroke + submit fired a `POST /api/search` query;
-results came back as matched *passages* grouped into report-family cards,
-with a "Part of the FY …" badge, expandable passage trays, and a click-through
-to the PDF source panel.
+Type / Fiscal Year filter chips, and a "type something to see anything" blank
+state. You had to know what to type before the page showed you anything.
 
-## The new Budget Documents tab (what this branch ships)
+## What it is now
 
-A **browse-first directory** mirroring the Fiscal Notes layout. Same URL
-(`/search`), same nav pill.
+A **browse-first directory** that also searches, on the same URL (`/search`)
+and the same nav pill.
 
-- **Auto-loads.** Opening the tab immediately shows every document in the
-  corpus, grouped by fiscal year (newest first). No search required.
-- **Sticky left rail** replaces the old centered search bar: a search box +
-  two multi-select dropdowns (**Document Type**, **Fiscal Year**), each
-  with honest counts and gold tinting when active.
-- **Publisher filter removed.** Publisher survives as a copper chip on each
-  row, in one color for everyone.
-- **Collapsible year cards.** Newest year starts open; prior years start
-  collapsed. Toggle state persists across search/filter round-trips.
-- **One card per report family per year** (Baseline, Appropriations Report,
-  AFR, Executive Budget, Budget Bill), each with two states:
-  - *Idle:* the report IS the row ("FY 2027 Baseline"), with a dashed
-    "Browse documents" tray for its contents and a "Full report" button
-    where a hand-verified single-file URL exists.
-  - *Searching:* the matched agency page is promoted to the top with
-    "Part of the FY … " framing; other matches behind "N more matches".
-- **Search collapses the year cards** into one unified "Results" card,
-  newest year first. Clearing the box returns to the browse view.
-- **Search is title/publisher matching, not retrieval.** The page loads one
-  flat listing and filters it client-side — no server call per keystroke.
-  Full-text passage search still lives in AI Mode. `?q=` from Home's hero
-  still works and lands in the search state.
-- **No passages, no source panel.** Rows link straight to the source PDF
-  (or render unlinked when the URL is unknown — never a dead link).
+- **Auto-loads.** Opening the tab shows every budget document, grouped by
+  fiscal year, newest expanded. No dead end.
+- **Sticky left rail** — a search box plus Document Type and Fiscal Year
+  multi-selects. No Publisher filter; publisher is a chip on each row
+  (JLBC · OSPB · GAO).
+- **One card per report family per year.** The top-level row IS the report;
+  its agency sections sit behind a "Browse sections" tray. Single-document
+  families (the AFR) get no tray.
+- **"Full report"** on each report row. Where Arizona published both shapes,
+  it opens a chooser — one single-file PDF, or the linked table of contents.
+  Where only one exists it goes straight there. Where neither does, the row
+  renders unlinked, never a dead link.
 
-## Publisher display migration
+### One search box, two modes
 
-| Stored code (unchanged) | Old label | New label |
-|---|---|---|
-| `jlbc` | JLBC | JLBC |
-| `governor` | Governor | **OSPB** |
-| `agao` | AGAO | **GAO** |
-| `legislature` | Legislature | **JLBC** (folded in) |
+- **Title mode** filters the loaded listing client-side — no server call per
+  keystroke.
+- **Content mode** calls the existing `POST /api/search`. It escalates on its
+  own two seconds after the box goes quiet with zero title hits, and the
+  moment it arms, the page says so — spinner and all — rather than showing a
+  no-results message it is about to replace.
+- A toggle is always visible, both directions, and declining an escalation
+  does not re-fire it.
+- Content results are **one card per document**, headed by the best-matching
+  passage quoted rather than the document's title. Clicking a passage opens
+  the PDF drawer at that page.
 
-Display-layer only — `publisherLabel()` in `FilterBar.tsx`. Ingest, stored
-sidecar codes, and `data/ingest-plan.yaml` are untouched.
+### The filter box understands analyst shorthand
+
+`dema` matched **0** of 5,330 documents before this; it now matches 38.
+`26ar dema` finds exactly the FY 2026 DEMA Appropriations Report.
+
+Every whitespace-separated word must match — the title by substring (so
+`ahccc` still works), the publisher by substring or stored code (so
+`governor` works, not just `OSPB`), or one of the document's search terms
+exactly. Terms are the agency's JLBC slug and reviewed aliases plus the
+report type's shorthand, computed server-side from `samples/entity-catalog.yaml`
+so JLBC's convention has one implementation rather than two.
+
+Shorthand forms: `ar`, `baseline` (JLBC's own, from `azjlbc.gov/26AR/`), plus
+`br`, `afr`, `exec` (ours). No budget-bill form. Bare and year-prefixed both
+work (`br`, `26br`).
+
+## Four regressions the audit found and fixed
+
+1. **Fiscal notes leaked in.** One sidecar serves both corpora and records no
+   corpus, so the listing handed fiscal notes to the budget page. Membership
+   now reads from `budget_chunks` — the fact, not a doc_type guess.
+2. **Empty states blamed filters that weren't set.** "Try clearing one" now
+   appears only when a filter is set; an empty listing names no cause,
+   because the route cannot tell an un-ingested corpus from an unreadable one.
+3. **Counts disagreed with the screen.** They counted agency sections as
+   documents and were computed independently of what rendered. They now count
+   top-level **reports**, derived from the render.
+4. **Unknown doc_types vanished** — counted but never displayed. They now
+   render under their raw slug after the curated families.
 
 ## Backend
 
-One new un-gated endpoint: `GET /api/corpus/documents` — every document's
-`doc_id, title, publisher, doc_type, fiscal_year, doc_url`, sourced from
-`store/documents.load_documents()`, titles via `title_for()`. Degrades to an
-empty list on a missing/corrupt sidecar, never a 500. (Lives in the existing
-`corpus.py` router alongside `/api/corpus/counts`.)
+- `GET /api/corpus/documents` — the listing. Now carries `terms` per row and
+  is restricted to the budget corpus.
+- `app/search_terms.py` — new. Computes a document's search terms; owns the
+  suppression maths reused from `retrieval/query_agency.py`.
+- `retrieval/query_year.py` — `SHORTHAND_DOC_TYPE` gained `br`/`afr`/`exec`
+  and became public. **This is the only eval-gated change**; the eval was run
+  and recall held (recall@5 0.88095, unchanged; @15 and @20 at 1.0).
 
-## Files touched
+Nothing else moved: `/search`, the nav, Fiscal Notes, AI Mode, Upload,
+ingest, chunking and citation are untouched.
 
-| File | Change |
-|---|---|
-| `app/routes/corpus.py` | + the listing endpoint |
-| `tests/test_corpus_documents_route.py` | + 9 new tests |
-| `webapp/src/api.ts` | + `corpusDocuments()` client |
-| `webapp/src/pages/Search.tsx` | rewritten as the browse page |
-| `webapp/src/pages/Search.test.tsx` | rewritten (15 tests) |
-| `webapp/src/pages/Search.ai-mode.test.tsx` | updated |
-| `webapp/src/styles/app.css` | + `.page-docs` block (+ spacing fix) |
-| `webapp/src/components/FilterBar.tsx` | publisher labels only |
-| `webapp/src/pdf/__tests__/search-source-panel.test.tsx` | deleted (old page's chunk drawer no longer exists) |
+## Known, accepted
 
-## Deliberately unchanged
+`26 exec` parses as the FY 2026 Executive Budget and hard-filters the query —
+including in prose like "page 26 exec summary". Accepted knowingly
+(Destin, 2026-08-11); the reasoning and the declined narrowing are recorded
+under D9 of the shorthand spec.
 
-The route `/search`, the nav pill, Fiscal Notes, AI Mode, Upload, ingest,
-retrieval, eval — nothing outside the page itself.
+647 documents render under raw doc_type slugs (`s-pdf`, `bd-pdf`,
+`detailed-list-pdf`, `topic-pdf`, `bh-pdf`) because nobody has given those
+types display names. Visible rather than silently dropped, which is the
+improvement — but "FY 2027 s-pdf" is not a phrase to show a student.

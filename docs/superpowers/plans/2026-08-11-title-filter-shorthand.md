@@ -51,7 +51,7 @@ The map currently holds exactly two forms. Three are added, `budget-bill` delibe
 **Interfaces:**
 - Produces: `retrieval.query_year.SHORTHAND_DOC_TYPE: dict[str, str]` — form → doc_type, e.g. `{"ar": "approps-per-agency", "baseline": "baseline-per-agency", "br": "baseline-per-agency", "afr": "afr", "exec": "governors-budget"}`. Task 2 inverts this.
 
-- [ ] **Step 1: Write the failing tests**
+- [x] **Step 1: Write the failing tests**
 
 Add to `tests/test_query_year.py`, in the `parse_jlbc_shorthand` section:
 
@@ -89,12 +89,12 @@ def test_a_longer_form_is_not_shadowed_by_a_shorter_one():
     assert parse_jlbc_shorthand("26arf") == []
 ```
 
-- [ ] **Step 2: Run them and confirm they fail**
+- [x] **Step 2: Run them and confirm they fail**
 
 Run: `.venv/bin/python -m pytest tests/test_query_year.py -q -k "new_forms or br_and_baseline or budget_bill or shadowed"`
 Expected: FAIL — `parse_jlbc_shorthand("26br")` returns `[]` because the regex alternation is `(ar|baseline)`.
 
-- [ ] **Step 3: Extend the regex and the map**
+- [x] **Step 3: Extend the regex and the map**
 
 In `retrieval/query_year.py`, replace lines 102–109:
 
@@ -137,22 +137,22 @@ Then update its one use at what was line 159:
         out.append((year, SHORTHAND_DOC_TYPE[match.group(2).lower()], match.group(0)))
 ```
 
-- [ ] **Step 4: Run the new tests, then the whole parser suite**
+- [x] **Step 4: Run the new tests, then the whole parser suite**
 
 Run: `.venv/bin/python -m pytest tests/test_query_year.py tests/test_query_doc_type.py tests/test_query_understanding_eval_safety.py -q`
 Expected: PASS. `test_query_doc_type.py` matters because `query_doc_type.py:160` is the map's other consumer; `test_query_understanding_eval_safety.py` checks the parsers against the eval set's own ground truth in under a second and is the cheap guard before spending an eval run.
 
-- [ ] **Step 5: Run the full backend suite**
+- [x] **Step 5: Run the full backend suite**
 
 Run: `.venv/bin/python -m pytest tests/ -q`
 Expected: `2167 passed, 5 skipped` or better. Any new failure here is this change reaching further than intended — stop and report rather than adjusting the failing test.
 
-- [ ] **Step 6: Run the eval and read the result**
+- [x] **Step 6: Run the eval and read the result**
 
 Run: `JLBC_DATA_DIR=<the migrated data dir> uv run python -m eval.run_eval`
 Expected: ~60s. Compare recall@5 / recall@20 against the previous committed run in `eval/results/`. A widened regex can only add parses, so recall should hold or improve; **a drop means a new form is firing on ordinary budget prose** — report the number rather than proceeding.
 
-- [ ] **Step 7: Commit, with the eval results in the same commit**
+- [x] **Step 7: Commit, with the eval results in the same commit**
 
 ```bash
 git add retrieval/query_year.py tests/test_query_year.py eval/results
@@ -181,7 +181,7 @@ One document's metadata in, its search terms out. All of the spec's judgement �
 - Consumes: `retrieval.query_year.SHORTHAND_DOC_TYPE` (Task 1); `chunking.agency_catalog.load_agency_catalog() -> dict[str, AgencyEntry]` where `AgencyEntry` has `.canonical_id`, `.canonical_name`, `.slug: str | None`, `.aliases: list[str]`; `retrieval.query_agency.{SUPPRESSED_ALIASES, AMBIGUOUS_ALIASES, AMBIGUOUS_AGENCIES}`.
 - Produces: `app.search_terms.search_terms(doc_id: str, doc_type: str | None, fiscal_year: int | None) -> list[str]` — sorted, lowercase, deduplicated. Task 3 calls exactly this.
 
-- [ ] **Step 1: Write the failing tests**
+- [x] **Step 1: Write the failing tests**
 
 Create `tests/test_search_terms.py`:
 
@@ -294,12 +294,12 @@ def test_an_unreadable_catalog_degrades_to_no_agency_terms(monkeypatch):
     assert "26ar" in terms  # the type shorthand needs no catalog
 ```
 
-- [ ] **Step 2: Run them and confirm they fail**
+- [x] **Step 2: Run them and confirm they fail**
 
 Run: `.venv/bin/python -m pytest tests/test_search_terms.py -q`
 Expected: FAIL — `ModuleNotFoundError: No module named 'app.search_terms'`.
 
-- [ ] **Step 3: Write the module**
+- [x] **Step 3: Write the module**
 
 Create `app/search_terms.py`:
 
@@ -458,14 +458,14 @@ def search_terms(
     return sorted(_agency_terms(doc_id) | _type_terms(doc_type, fiscal_year))
 ```
 
-- [ ] **Step 4: Run the tests**
+- [x] **Step 4: Run the tests**
 
 Run: `.venv/bin/python -m pytest tests/test_search_terms.py -q`
 Expected: PASS, 12 tests.
 
 Verified against the catalog while writing this plan (2026-08-11), so these are facts, not guesses: `dot` is Transportation's **slug**; `doc` is a reviewed **alias** on Corrections, whose slug is `adc`; `for` is Forestry's slug and `dffm` its alias; `gov` is the Office of the Governor's slug and `agency:gov` is on `AMBIGUOUS_AGENCIES`; `ema` is Emergency and Military Affairs' slug with alias `dema`. The catalog holds exactly **10** reviewed aliases across 157 agencies.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add app/search_terms.py tests/test_search_terms.py
@@ -495,7 +495,7 @@ keyword'."
 - Consumes: `app.search_terms.search_terms(doc_id, doc_type, fiscal_year) -> list[str]` (Task 2).
 - Produces: each row of `GET /api/corpus/documents` gains `"terms": list[str]`. Task 4 reads it.
 
-- [ ] **Step 1: Write the failing tests**
+- [x] **Step 1: Write the failing tests**
 
 Add to `tests/test_corpus_documents_route.py`:
 
@@ -519,12 +519,12 @@ def test_every_row_has_a_terms_list_even_when_empty(client, tmp_path):
     assert row["terms"] == []
 ```
 
-- [ ] **Step 2: Run them and confirm they fail**
+- [x] **Step 2: Run them and confirm they fail**
 
 Run: `.venv/bin/python -m pytest tests/test_corpus_documents_route.py -q -k "search_terms or terms_list"`
 Expected: FAIL — `KeyError: 'terms'`.
 
-- [ ] **Step 3: Attach the terms**
+- [x] **Step 3: Attach the terms**
 
 In `app/routes/corpus.py`, add the import inside `document_listing()` alongside the existing one, and one row key:
 
@@ -565,12 +565,12 @@ Also extend `document_listing`'s docstring — it currently enumerates the row's
     keystroke.
 ```
 
-- [ ] **Step 4: Run the route suite**
+- [x] **Step 4: Run the route suite**
 
 Run: `.venv/bin/python -m pytest tests/test_corpus_documents_route.py -q`
 Expected: PASS — the 10 pre-existing tests plus the 2 new ones. The degradation tests (corrupt sidecar, unreadable chunk table) must still pass untouched; if one needed editing, the failure posture changed and that is a defect, not a test to fix.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add app/routes/corpus.py tests/test_corpus_documents_route.py
@@ -591,7 +591,7 @@ The behaviour change. `queryHit` today is one case-insensitive substring test ov
 **Interfaces:**
 - Consumes: `CorpusDocument.terms: string[]` from Task 3.
 
-- [ ] **Step 1: Write the failing tests**
+- [x] **Step 1: Write the failing tests**
 
 Add to `webapp/src/pages/Search.test.tsx`.
 
@@ -711,12 +711,12 @@ test("matching is case-insensitive on both sides", async () => {
 
 The last test reuses `SHORTHAND_DOCS`, so it asserts only the EMA row and must not assert the absence of Corrections — a single-fixture test would be a weaker version of the first one.
 
-- [ ] **Step 2: Run them and confirm they fail**
+- [x] **Step 2: Run them and confirm they fail**
 
 Run: `cd webapp && npx vitest run src/pages/Search.test.tsx -t "shorthand finds"`
 Expected: FAIL — `26ar dema` matches nothing, because the whole string is tested as one substring.
 
-- [ ] **Step 3: Add `terms` to the client type**
+- [x] **Step 3: Add `terms` to the client type**
 
 In `webapp/src/api.ts`, inside `CorpusDocument`:
 
@@ -729,7 +729,7 @@ In `webapp/src/api.ts`, inside `CorpusDocument`:
   terms: string[];
 ```
 
-- [ ] **Step 4: Rewrite `queryHit`**
+- [x] **Step 4: Rewrite `queryHit`**
 
 In `webapp/src/pages/Search.tsx`, replace the function and its comment at `:163-175`:
 
@@ -765,7 +765,7 @@ function queryHit(d: api.CorpusDocument, q: string): boolean {
 }
 ```
 
-- [ ] **Step 5: Run the webapp suite**
+- [x] **Step 5: Run the webapp suite**
 
 Run: `cd webapp && npx tsc -b --noEmit && npx vitest run`
 Expected: PASS. The suite was at **622** before this task; the 6 new tests bring it to 628.
@@ -774,7 +774,7 @@ Expected: PASS. The suite was at **622** before this task; the 6 new tests bring
 
 If a pre-existing matching test fails, read it before touching it. A test asserting that a two-word query matches a phrase is asserting the behaviour this task deliberately replaces — update it and name it in your report. A test asserting partial-title matching is a real regression — stop.
 
-- [ ] **Step 6: Verify against the real corpus**
+- [x] **Step 6: Verify against the real corpus**
 
 With the dev server running on the branch:
 
@@ -792,7 +792,7 @@ print('rows with no terms:', sum(1 for x in d if not x['terms']))
 ```
 Expected: the EMA rows carry `dema`, `ema` and their type shorthand; the no-terms count is a few hundred (the raw-slug types and unmatched sub-unit pages), not thousands. A count in the thousands means `_agency_terms` is failing to resolve slugs — report the number.
 
-- [ ] **Step 7: Commit**
+- [x] **Step 7: Commit**
 
 ```bash
 git add webapp/src/api.ts webapp/src/pages/Search.tsx webapp/src/pages/Search.test.tsx

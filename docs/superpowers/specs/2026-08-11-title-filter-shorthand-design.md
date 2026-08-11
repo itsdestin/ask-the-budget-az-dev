@@ -1,7 +1,7 @@
 # Budget Documents — analyst shorthand in the title filter
 
 **Date:** 2026-08-11
-**Status:** Approved 2026-08-11 — one flagged assumption, see O1.
+**Status:** SHIPPED 2026-08-11 on branch `budget-docs-browse-page`. Built, reviewed and passing. Two things a later reader needs: the **accepted risk** under D9 (`exec` fires on ordinary prose), and O1, the one decision inferred rather than stated.
 **Branch:** `budget-docs-browse-page` (follow-on work; the content-search feature on that branch is complete and reviewed)
 **Amends:** `2026-08-10-budget-documents-content-search-design.md` — that spec defined the two-mode search box; this one changes what title mode matches. Content mode, escalation timing and the source drawer are untouched.
 
