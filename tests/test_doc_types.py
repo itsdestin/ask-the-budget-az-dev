@@ -31,13 +31,20 @@ def test_registry_reproduces_every_shipped_extractor_route():
         assert row.extractors[f".{fmt}"] == names[cls.__name__]
 
 
-def test_the_registry_adds_exactly_the_two_new_types_and_nothing_else():
+def test_the_registry_and_the_dispatcher_are_in_full_parity():
+    # WHY changed (Plan A Task 4): this test pinned the Task-1-era
+    # intermediate state, where the registry knew agency-submission and
+    # budget-bill-summary but ingest/dispatcher.py's _NOT_YET_WIRED holdout
+    # kept them out of EXTRACTOR_REGISTRY -- so `registered - shipped` was
+    # exactly those two keys. Task 4 deletes that holdout and wires both
+    # types through, which makes the two sets equal. Asserting full parity
+    # here is the same anti-drift property this file always cared about,
+    # now that there is no longer a deliberately-unwired keys.
     from ingest.dispatcher import EXTRACTOR_REGISTRY
 
     shipped = {dt for dt, _fmt in EXTRACTOR_REGISTRY}
     registered = {t.key for t in doc_types.all_types()}
-    assert registered - shipped == {"agency-submission", "budget-bill-summary"}
-    assert shipped - registered == set()
+    assert registered == shipped
 
 
 def test_exactly_six_upload_rows_in_a_stable_order():

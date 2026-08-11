@@ -198,27 +198,11 @@ _EXTRACTOR_CLASSES = {
 # Types the registry knows but that declare no extractor for a format are
 # simply absent, exactly as they were when this was a literal -- which is what
 # keeps `pick_extractor` raising for (budget-bill, pdf).
-#
-# _NOT_YET_WIRED is a deliberate holdout, not a projection gap: Plan A Task 1
-# already added `agency-submission` and `budget-bill-summary` to
-# data/document-types.yaml WITH extractors declared (its own test asserts
-# this: test_the_registry_adds_exactly_the_two_new_types_and_nothing_else), so
-# a bare projection would route both today -- before harness/tools.py's
-# `_DOC_TYPES` or the system prompt know either name exists. That mismatch is
-# exactly the silent-drift failure harness/tools.py warns about: a filtered
-# search on a doc_type the model has never heard of returns zero chunks with
-# no error. Task 4 removes this set (and the test it exists to satisfy,
-# tests/test_dispatcher_registry.py::
-# test_the_new_types_are_NOT_reachable_through_the_dispatcher_yet) in the same
-# commit that wires both types into harness/tools.py and the system prompt.
-_NOT_YET_WIRED = {"agency-submission", "budget-bill-summary"}
 
 
 def _build_registry() -> dict[tuple[str, str], type]:
     table: dict[tuple[str, str], type] = {}
     for row in _all_doc_types():
-        if row.key in _NOT_YET_WIRED:
-            continue
         for fmt, name in row.extractors.items():
             cls = _EXTRACTOR_CLASSES.get(name)
             if cls is None:

@@ -351,6 +351,8 @@ value not on this list is a silent zero-result filter):
 | `afr` | AGAO Annual Financial Report (FY25) | agao | **Fund balances, cash position, ending balances — anything beyond appropriations** |
 | `governors-budget` | Governor's Executive Budget (FY27) | governor | Governor's recommendation (vs JLBC's baseline) |
 | `budget-bill` | Legislature passed budget bill (FY26) | legislature | Statutory appropriation language, session-law text. **CAUTION: the bill's per-agency line-item totals exclude statewide adjustments, so they understate total final appropriations — prefer `approps-per-agency` for "what did the agency get in total."** |
+| `budget-bill-summary` | JLBC's summary of the budget bills in progress (FY26, FY27) | jlbc | Provisional — see "The lifecycle of a budget number" below before relying on one. |
+| `agency-submission` | An agency's own budget request (FY27) | agency | What the agency ASKED for, distinct from what JLBC recommended (`baseline-per-agency`) or what was enacted (`approps-per-agency`) — agencies routinely request more than they receive. |
 
 **Choosing the right doc_type:**
 
