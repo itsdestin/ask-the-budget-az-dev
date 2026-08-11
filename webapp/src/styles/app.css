@@ -686,9 +686,13 @@ nav.primary{position:relative;padding-right:44px;}
    (12px 14px 0), so the vertical rhythm is sibling top-margins — which leaves
    the LAST card in a year card flush against the card's bottom edge (0px)
    while every card above it gets 12px. The mockup dropped the bottom margin
-   its own source (.page-search .grp is 12px all around) had, so the bug is in
-   the approved mockup, faithfully ported. 12px here restores the last card's
-   gap to match the rest; 2px top keeps the mockup's head-to-first-card gap. */
+   its own source (.page-search .grp was 12px all around) had, so the bug is
+   in the approved mockup, faithfully ported. 12px here restores the last
+   card's gap to match the rest; 2px top keeps the mockup's head-to-first-card
+   gap. (`.page-search .grp` no longer exists — it was deleted with the rest
+   of the `.page-search` block above; `git log -- webapp/src/styles/app.css`
+   has it. MINOR, 2026-08-10: this comment pointed at the rule with no note
+   that it was gone.) */
 .page-docs .yg-body{padding:2px 0 12px;}
 
 /* ===== report-family cards — the search page's .grp recipe ===== */
@@ -725,7 +729,12 @@ nav.primary{position:relative;padding-right:44px;}
 .page-docs .ctx .tray .doc:not(:last-child){border-bottom:1px dashed #e3e7f1;}
 .page-docs .grp-more{display:inline-flex;align-items:center;gap:6px;font-size:12px;font-weight:800;color:var(--ink-2);background:var(--card);border:1px solid var(--line);border-radius:var(--r-pill);padding:6px 13px;cursor:pointer;white-space:nowrap;font-family:inherit;}
 .page-docs .grp-more svg{width:13px;height:13px;transition:transform .18s;}
-.page-docs .grp-more:hover{border-color:var(--az-gold);color:var(--az-gold-d);}
+/* text-decoration:none: .grp-more renders as an <a> in the search branch's
+   Full report link (Search.tsx), which sits beside a visually identical
+   <button> that never underlines — without this reset, the page-global
+   `a:hover{text-decoration:underline}` (line 49) applies to only one of the
+   two, same reasoning as `.doc:hover` above (MINOR, 2026-08-10). */
+.page-docs .grp-more:hover{border-color:var(--az-gold);color:var(--az-gold-d);text-decoration:none;}
 .page-docs .grp-more.open svg{transform:rotate(180deg);}
 /* The empty-state line inside a .yg card — the search page's .empty recipe. */
 .page-docs .empty{padding:20px 22px;font-size:14px;font-weight:600;color:var(--ink-2);}
