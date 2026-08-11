@@ -8,7 +8,7 @@ the 2026-08-01 baseline. Without scale the match fails.
 """
 from __future__ import annotations
 
-from citation.figures import Figure, extract_figures
+from citation.figures import Figure, extract_figures, written_significant_digits
 
 
 def test_finds_plain_currency_with_offsets():
@@ -111,3 +111,28 @@ def test_no_year_can_reach_the_extractor_in_the_first_place():
     # available to it and could only ever cost real figures.
     for text in ("FY 2026", "in 2026", "fiscal year 2025", "2026", "FY2026"):
         assert extract_figures(text) == [], text
+
+
+def test_halfwidth_is_half_the_last_written_decimal_place():
+    # "$10.3M" certifies [10.25M, 10.35M] — half-width 0.05 * 1e6.
+    (fig,) = extract_figures("total $10.3M this year")
+    assert fig.scale == 1_000_000
+    assert fig.halfwidth == 0.05 * 1_000_000
+
+
+def test_halfwidth_of_a_grouped_integer_is_half_a_dollar():
+    (fig,) = extract_figures("total 10,297,300 exactly")
+    assert fig.halfwidth == 0.5
+
+
+def test_halfwidth_of_cents_is_half_a_cent():
+    (fig,) = extract_figures("took in $27,362,036.72 that month")
+    assert fig.halfwidth == 0.005
+
+
+def test_written_significant_digits_ignores_trailing_zeros():
+    assert written_significant_digits("$12.49") == 4      # the §5.4 case
+    assert written_significant_digits("37") == 2
+    assert written_significant_digits("1,320,598,100") == 8
+    assert written_significant_digits("10.30") == 3
+    assert written_significant_digits("0.05") == 1
