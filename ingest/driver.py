@@ -48,7 +48,22 @@ from ingest.discovery import (
     DiscoveryCache,
     discover,
 )
+from ingest.doc_types import is_one_per_year
 from ingest.section_types import SECTION_KIND_TO_DOC_TYPE
+
+
+def slugify_stem(stem: str) -> str:
+    """Filename stem -> a doc_id-safe slug.
+
+    Agency submissions arrive with human filenames full of spaces and
+    percent-encoding ('BHA FY27 Executive Budget Submission.pdf'), unlike the
+    JLBC books' terse '508.pdf'. A doc_id ends up in URLs and citation
+    payloads, so it is lowercased and reduced to [a-z0-9-].
+    """
+    out = "".join(c if c.isalnum() else "-" for c in stem.lower())
+    while "--" in out:
+        out = out.replace("--", "-")
+    return out.strip("-")
 
 
 # Plan doc_types that drive discovery (vs. local-path or singleton targets).
@@ -205,9 +220,28 @@ def make_doc_id(
         stem = Path(filename).stem
         return f"{publisher}-{class_}-{fy_str}-{stem}"
 
-    # Singleton (one-doc-per-publisher-per-FY): just publisher + doc_type + fy.
+    # Non-JLBC publishers.
+    #
+    # WHY the registry decides instead of the publisher: this branch used to
+    # assume one document per publisher per fiscal year and DROP `filename`
+    # entirely. That is true for the AFR and the Executive Budget and false
+    # for agency submissions (78 in FY2027) and bill summaries (3 in FY2027).
+    # Measured 2026-08-11: every agency submission minted
+    # 'governor-agency-submission-fy2027', and because a write is an upsert
+    # they would have collapsed into one document with nothing erroring.
+    #
+    # Existing ids are unchanged because afr and governors-budget are declared
+    # `one_per_year: true` -- pinned by test_one_per_year_types_keep_their_
+    # EXACT_existing_ids, which asserts the literal strings the live corpus
+    # carries.
     base = f"{publisher}-{doc_type}-{fy_str}"
-    return f"{base}-{bill_id}" if bill_id else base
+    if bill_id:
+        return f"{base}-{bill_id}"
+    if is_one_per_year(doc_type):
+        return base
+    if filename is None:
+        return base
+    return f"{base}-{slugify_stem(Path(filename).stem)}"
 
 
 # ----------------------------------------------------------------------------
