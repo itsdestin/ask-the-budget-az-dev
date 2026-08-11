@@ -1583,10 +1583,10 @@ nav.primary{position:relative;padding-right:44px;}
 .page-upload .up-notice{border-left:4px solid var(--navy-900);}
 .page-upload .up-notice p+p{margin-top:8px;}
 
-.page-upload .up-drop{border:2px dashed var(--line);border-radius:var(--r-md);padding:22px;text-align:center;}
-.page-upload .up-choose{display:block;font-size:14px;font-weight:700;color:var(--navy);margin-bottom:8px;}
-.page-upload .up-drop input[type=file]{font-size:13px;}
-.page-upload .up-hint{font-size:12.5px;font-weight:700;color:var(--ink-3);}
+/* .up-drop / .up-choose / .up-hint removed (review finding 2, task-6 review,
+   second pass): they styled the single shared dropzone Task 6 replaced with
+   six per-row file inputs. grep-confirmed zero references left in webapp/src/
+   before deleting — none of the three names appear in any .tsx file. */
 
 .page-upload .up-meta{margin-top:16px;display:grid;gap:10px;}
 .page-upload .up-filename{font-weight:700;color:var(--ink);}

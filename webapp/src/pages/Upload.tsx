@@ -229,6 +229,7 @@ function DocTypeRow({
   const [publicRecord, setPublicRecord] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
+  const [status, setStatus] = useState("");
   const [duplicate, setDuplicate] = useState<api.DuplicateDocument | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
@@ -272,6 +273,12 @@ function DocTypeRow({
     setFile(next);
     setDuplicate(null);
     setError("");
+    // Finding 1 (task-6 review, second pass): a fresh file pick starts a new
+    // attempt in this row, so any success message left over from the LAST
+    // upload through this same row must go — otherwise a stale "added to
+    // the queue" line would sit above a brand-new (possibly failing) attempt
+    // and read as if the new one had already succeeded.
+    setStatus("");
     // Re-derive the fiscal year every time the file changes, mirroring the
     // page's old guessMeta() behaviour — a fresh file replaces the guess,
     // even one the analyst just typed over. (doc_type/publisher no longer
@@ -281,8 +288,17 @@ function DocTypeRow({
 
   async function submit(reprocess = false) {
     if (!file) return;
+    // Captured before the success branch nulls `file` out — the confirmation
+    // needs to name the document that was just submitted, not whatever the
+    // row's file state happens to hold by the time React re-renders.
+    const submittedName = file.name;
     setBusy(true);
     setError("");
+    // Review finding 1 (second pass): clear any leftover confirmation from a
+    // PRIOR successful submission through this row before this attempt is
+    // decided — a duplicate/error result must never render underneath an
+    // old "added to the queue" line from a previous, unrelated upload.
+    setStatus("");
     try {
       await api.uploadDocument(file, {
         corpus: "budget",
@@ -298,6 +314,12 @@ function DocTypeRow({
       setStage("");
       setTitle("");
       setDuplicate(null);
+      // Review finding 1: the pre-Task-6 page's only success signal was this
+      // per-row line — with six rows on the page now, a page-level message
+      // couldn't say WHICH row succeeded, so it stays scoped to this row's
+      // own `.up-status` (the same element/role AddBookPanel already uses
+      // for its own queued-confirmation message below).
+      setStatus(`${submittedName} added to the queue.`);
       // Clearing React state doesn't clear the browser's own file input
       // display — without this the widget would keep showing the just-
       // submitted filename after a successful upload.
@@ -418,6 +440,17 @@ function DocTypeRow({
         >
           {busy ? "Adding…" : "Add document"}
         </button>
+
+        {/* Review finding 1: restores the per-row success confirmation the
+            single-form page had. Rendered unconditionally (empty text when
+            there's nothing to say), matching how AddBookPanel's own
+            `.up-status` below reports "Queued N documents" — a role="status"
+            live region announces most reliably when it's already present in
+            the DOM and only its TEXT changes, rather than appearing and
+            disappearing. Never coexists with `error`/`duplicate`: both are
+            cleared the instant a fresh attempt starts (selectFile, submit),
+            so a stale success line can't sit above a new failure. */}
+        <p className="up-status" role="status">{status}</p>
       </div>
     </section>
   );

@@ -169,6 +169,58 @@ describe("submitting", () => {
     expect(meta).toMatchObject({
       corpus: "budget", publisher: "agao", doc_type: "afr",
     });
+    // Review finding 1: this title always promised "reports success" but
+    // nothing here checked it — the single confirmation line was the only
+    // thing the pre-Task-6 page showed after a submit, and it went missing
+    // in the six-row rewrite with no test catching the loss.
+    const confirmation = await screen.findByText(/AFR25 COMBINED\.pdf added to the queue\./i);
+    expect(confirmation.getAttribute("role")).toBe("status");
+  });
+
+  it("scopes the success confirmation to the row that was submitted, not the whole page", async () => {
+    // Six rows now share one page. A page-level "it worked" message can't
+    // say WHICH of the six succeeded, so this pins the confirmation to the
+    // submitting row's own element and asserts an unrelated row stays silent.
+    vi.spyOn(api, "documentTypes").mockResolvedValue(ROWS);
+    vi.spyOn(api, "uploadDocument").mockResolvedValue({ job_id: "j", doc_id: "d" });
+    render(<Upload />);
+    const afrRow = (await screen.findByText("Annual Financial Report"))
+      .closest("[data-doc-type]")! as HTMLElement;
+    const summaryRow = screen.getByText("Budget Bill Summary")
+      .closest("[data-doc-type]")! as HTMLElement;
+
+    fireEvent.change(afrRow.querySelector('input[type="file"]')!, {
+      target: { files: [pdf("agao-afr-fy2025.pdf")] },
+    });
+    fireEvent.click(afrRow.querySelector('input[type="checkbox"]')!);
+    fireEvent.click(within(afrRow).getByRole("button", { name: /add document/i }));
+
+    await waitFor(() =>
+      expect(within(afrRow).getByText(/added to the queue/i)).toBeTruthy());
+    expect(within(summaryRow).queryByText(/added to the queue/i)).toBeNull();
+  });
+
+  it("clears a stale success message once a fresh attempt starts in the same row", async () => {
+    // A success line left over from an EARLIER upload through this row must
+    // not sit above a NEW attempt's result — otherwise a failing second
+    // upload would read as if it, too, had succeeded.
+    vi.spyOn(api, "uploadDocument")
+      .mockResolvedValueOnce({ job_id: "j1", doc_id: "d1" })
+      .mockRejectedValueOnce(new Error("upload: notes.txt is not a PDF or DOCX."));
+    render(<Upload />);
+
+    await pickFile(pdf("first.pdf"));
+    fireEvent.click(screen.getByRole("checkbox", { name: /public record/i }));
+    fireEvent.click(screen.getByRole("button", { name: /add document/i }));
+    await screen.findByText(/first\.pdf added to the queue\./i);
+
+    await pickFile(pdf("second.pdf"));
+    expect(screen.queryByText(/added to the queue/i)).toBeNull();
+
+    fireEvent.click(screen.getByRole("checkbox", { name: /public record/i }));
+    fireEvent.click(screen.getByRole("button", { name: /add document/i }));
+    expect(await screen.findByText(/is not a PDF or DOCX/i)).toBeTruthy();
+    expect(screen.queryByText(/added to the queue/i)).toBeNull();
   });
 
   // NOT TESTED: resetting the native file input's displayed filename after
