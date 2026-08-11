@@ -88,6 +88,75 @@ def test_figureless_answers_do_not_drag_the_aggregate_to_zero():
     assert summary["figure_coverage_mean"] == pytest.approx(1.0)
 
 
+def attested_fig(verdict, index=1, *, attested=(), link_basis=None):
+    """A figure carrying the attested-linking fields (spec A2/A3)."""
+    return {"text": "$1,391,157,700", "start": 0, "end": 14, "index": index,
+            "verdict": verdict, "primary": None, "additional": [],
+            "derived_from": [], "attested_chunk_ids": list(attested),
+            "link_basis": link_basis, "ambiguity_count": None,
+            "near_miss": None, "operation": None}
+
+
+def test_marker_metrics_count_attested_and_tag_linked():
+    # Three figures: the model tagged two of them (one verified against the
+    # named chunk, one whose tag did not verify), and one carries no tag.
+    row = score_transcript(QUERY, transcript([
+        attested_fig("linked", 1, attested=["k1"], link_basis="tag"),
+        attested_fig("linked", 2, link_basis="unambiguous-fallback"),
+        attested_fig("unverified", 3, attested=["k2"]),
+    ]))
+    assert row["figures_attested"] == 2
+    assert row["figures_tag_linked"] == 1
+
+
+def test_marker_metrics_survive_an_annotation_without_the_new_fields():
+    # An old transcript predates the attested fields entirely. It must read
+    # as "the model tagged nothing", not crash.
+    row = score_transcript(QUERY, transcript([fig("linked", 1)]))
+    assert row["figures_attested"] == 0
+    assert row["figures_tag_linked"] == 0
+
+
+def test_aggregate_reports_marker_coverage_and_tag_accuracy():
+    # Row A: 2 figures, both attested, both tag-linked.
+    # Row B: 2 figures, one attested and NOT tag-linked (the tag was wrong).
+    rows = [
+        score_transcript(QUERY, transcript([
+            attested_fig("linked", 1, attested=["k1"], link_basis="tag"),
+            attested_fig("linked", 2, attested=["k2"], link_basis="tag")])),
+        score_transcript(QUERY, transcript([
+            attested_fig("unverified", 1, attested=["k1"]),
+            attested_fig("linked", 2, link_basis="unambiguous-fallback")])),
+    ]
+    summary = aggregate(rows)
+    # marker coverage = attested/total over figure-bearing rows: 1.0 and 0.5
+    assert summary["marker_coverage_mean"] == pytest.approx(0.75)
+    # tag accuracy = tag_linked/attested over rows that HAVE attestations:
+    # 2/2 and 0/1.
+    assert summary["tag_accuracy_mean"] == pytest.approx(0.5)
+
+
+def test_tag_accuracy_skips_rows_the_model_never_tagged():
+    # A row with zero attestations has no tag accuracy to report. Scoring it
+    # as 0.0 would blame the verifier for the model's silence — and would
+    # make marker coverage and tag accuracy report the same failure twice.
+    rows = [score_transcript(QUERY, transcript([
+                attested_fig("linked", 1, attested=["k1"], link_basis="tag")])),
+            score_transcript(QUERY, transcript([attested_fig("unverified", 1)]))]
+    summary = aggregate(rows)
+    assert summary["tag_accuracy_mean"] == pytest.approx(1.0)
+    assert summary["marker_coverage_mean"] == pytest.approx(0.5)
+
+
+def test_figureless_rows_do_not_drag_marker_coverage_to_zero():
+    # Same rule the neighbouring figure means already follow: a refusal
+    # states no figures and is not a marker-coverage failure.
+    rows = [score_transcript(QUERY, transcript([
+                attested_fig("linked", 1, attested=["k1"], link_basis="tag")])),
+            score_transcript(QUERY, transcript([]))]
+    assert aggregate(rows)["marker_coverage_mean"] == pytest.approx(1.0)
+
+
 def test_citation_bookkeeping_narration_is_detected():
     # The exact sentence a real answer closed with on 2026-08-02. The eval
     # could not see it before, so any prompt fix for it was unmeasurable.

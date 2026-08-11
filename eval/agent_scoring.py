@@ -410,6 +410,20 @@ def score_transcript(query: AgentQuery, t: Transcript) -> dict[str, Any]:
     row["figure_coverage"] = (
         (counts["linked"] + counts["derived"]) / len(ann_figures)
         if ann_figures else None)
+    # Marker metrics (spec A8). These separate the two halves of attested
+    # linking, which fail for different reasons and need different fixes:
+    # `figures_attested` is how often the MODEL tagged a figure at all (a
+    # prompt-wording problem when it is low), `figures_tag_linked` is how
+    # often the tag then VERIFIED against the chunk it named (a model
+    # accuracy problem when it is low). Collapsed into one number, a
+    # well-behaved model that tags nothing would be indistinguishable from
+    # one that tags everything wrongly. `.get` throughout: an annotation
+    # recorded before A2 carries none of these fields and must read as
+    # "tagged nothing", not crash the whole run's scoring.
+    row["figures_attested"] = sum(
+        1 for e in ann_figures if e.get("attested_chunk_ids"))
+    row["figures_tag_linked"] = sum(
+        1 for e in ann_figures if e.get("link_basis") == "tag")
     return row
 
 
@@ -481,6 +495,19 @@ def aggregate(rows: list[dict[str, Any]]) -> dict[str, Any]:
         "unverified_rate": _mean(
             [r["figures_unverified"] / r["figures_total"]
              for r in ok_rows if r["figures_total"]]),
+        # Marker coverage skips figureless rows for the same reason
+        # figure_coverage_mean does — a correct refusal states no figures.
+        "marker_coverage_mean": _mean(
+            [r["figures_attested"] / r["figures_total"]
+             for r in ok_rows if r["figures_total"]]),
+        # Tag accuracy is conditioned on there BEING a tag: a row the model
+        # never tagged has no tag accuracy to report, and scoring it 0.0
+        # would blame the verifier for the model's silence — which
+        # marker_coverage_mean already measures. Reporting the same failure
+        # twice would make the design's one open risk look twice as bad.
+        "tag_accuracy_mean": _mean(
+            [r["figures_tag_linked"] / r["figures_attested"]
+             for r in ok_rows if r["figures_attested"]]),
         "retrieval_efficiency_mean": _mean([r["retrieval_efficiency"] for r in ok_rows]),
         "retrieves_after_sufficient_mean": _mean(
             [r["retrieves_after_sufficient"] for r in ras_rows]),
