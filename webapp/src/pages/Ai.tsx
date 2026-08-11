@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect } from "react";
 import { Link } from "react-router-dom";
 
 import {
@@ -8,9 +8,8 @@ import {
   AiModePanel,
   type CorpusOption,
 } from "../chat/AiModePanel";
-import * as api from "../api";
+import { useAiChat, useAiSession } from "../chat/ai-session";
 import { useAiStatus } from "../chat/use-ai-status";
-import { useChat, type Corpus } from "../chat/use-chat";
 
 // AI Mode — its own destination (Destin, 2026-07-31).
 //
@@ -79,77 +78,18 @@ function useFullPageChatShell(): void {
 }
 
 export function Ai() {
-  const [corpus, setCorpus] = useState<Corpus>("budget");
-  // The id of the stored chat the analyst selected from the rail, or null
-  // for a new chat. Keying <AiConversation> on `${corpus}:${selectedChatId
-  // ?? "new"}` remounts the hook when either changes — so selecting a
-  // different stored chat rehydrates its transcript, and switching corpus
-  // still starts a fresh conversation (the prefix keeps that property by
-  // construction: any corpus change changes the key).
-  const [selectedChatId, setSelectedChatId] = useState<string | null>(null);
-  // A nonce that ratchets on every "+ New chat". The conversation is keyed on
-  // `${corpus}:${selectedChatId ?? "new"}:${newNonce}`; when the analyst is
-  // ALREADY in a fresh chat (selectedChatId null, key already "...:new") the
-  // only way to force a remount — and therefore a genuinely blank next chat —
-  // is to change the key. The nonce does that where setting selectedChatId to
-  // null again would be a no-op.
-  //
-  // WHY auto-save needs no code here: the server persists every completed
-  // turn to history at turn teardown (conversations.py::persist_turn). So by
-  // the time "+ New chat" is pressed the current conversation is already on
-  // disk; remounting discards nothing. The nonce is purely "give me a blank
-  // chat" — nothing is lost, so no discard warning is warranted (Destin,
-  // 2026-08-03).
-  const [newChatNonce, setNewChatNonce] = useState(0);
+  // Owned by AiSessionProvider, above the router — see chat/ai-session.tsx.
+  // This page renders the conversation; it no longer holds it, which is what
+  // lets the conversation outlive a trip to Budget Documents.
+  const { corpus, setCorpus, selectedChatId, selectChat, newChat, chatDeleted } =
+    useAiSession();
+  const chat = useAiChat();
   useFullPageChatShell();
   const status = useAiStatus();
   // null = the probe is still in flight. Three states, not two: saying "needs an
   // API key" before anyone has checked would state a cause nobody knows yet.
   const probing = status === null;
   const gated = !probing && !status.available;
-
-  // Selecting a stored chat must ALSO move the corpus picker to that chat's
-  // corpus. The rail lists both corpora, and the server adopts the stored
-  // corpus on resume regardless of what the client asked for — so if the
-  // picker stays on the old corpus, the thread answers out of one corpus
-  // while the UI claims another, which is exactly the "cited and confident,
-  // but on the wrong corpus" failure H2 warns about. The rail row carries
-  // `corpus`, but Ai.tsx fetches the transcript here (rather than trusting
-  // the row) so the corpus and the rehydration body come from the same read —
-  // and so a chat whose fetch fails is never selected at all. The key is
-  // `${corpus}:${selectedChatId}`, so setting both in the same handler
-  // remounts the conversation once, on the right corpus.
-  const handleSelectChat = (id: string) => {
-    void api
-      .getHistoryChat(id)
-      .then((chat) => {
-        setCorpus(chat.corpus);
-        setSelectedChatId(id);
-      })
-      .catch(() => {
-        // A chat we cannot read (corrupt file, raced a delete) must not be
-        // selected — selecting it would mount a conversation that then fails
-        // its own fetch. Leave the current view untouched; the rail already
-        // surfaces the load error via useHistory when it next refreshes.
-      });
-  };
-  const handleNewChat = () => {
-    setSelectedChatId(null);
-    // Ratchet the nonce so "+ New chat" ALWAYS remounts, even from an already
-    // fresh (null-selected, unsent-to or started) chat. Without this, pressing
-    // "+ New chat" twice in a row — or "new chat" right after starting a
-    // conversation — is a no-op key-wise and the analyst's view is stuck.
-    setNewChatNonce((n) => n + 1);
-  };
-  // Deleting the chat you are LOOKING AT has to close it. Without this the
-  // thread kept rendering a transcript that no longer exists and `useChat`
-  // kept `resumeFrom` pointed at it, so the next question failed permanently
-  // ("no such conversation") with no way out but "+ New chat". The server
-  // side of that failure is fixed too — a live session now outranks its own
-  // bookkeeping — but a deleted chat should not stay on screen either.
-  const handleChatDeleted = (id: string) => {
-    if (id === selectedChatId) handleNewChat();
-  };
 
   return (
     <main className="page-ai" data-testid="ai">
@@ -236,70 +176,22 @@ export function Ai() {
             </div>
           </section>
         ) : (
-          // key={corpus} REMOUNTS the conversation on every corpus switch, and
-          // that is load-bearing, not a re-render hint. `useChat` creates a
-          // conversation lazily on the first send and then holds that
-          // conversation_id for the life of the hook; the corpus is only read
-          // when the conversation is created. Without this remount, an analyst
-          // who asks a budget question and then switches to Fiscal notes would
-          // keep sending into the BUDGET conversation — the answer would come
-          // back cited, confident, and drawn from the wrong corpus, which is the
-          // worst failure this app has. Remounting also resets the tier to
-          // Standard, which is what S16 requires of every new conversation.
-          <AiConversation
-            key={`${corpus}:${selectedChatId ?? "new"}:${newChatNonce}`}
+          // The conversation itself — and the key that remounts it on a
+          // corpus or chat switch — now lives in AiSessionProvider, above the
+          // router (see chat/ai-session.tsx). This page just renders it.
+          <AiModePanel
+            chat={chat}
+            status={status}
             corpus={corpus}
             corpusOptions={CORPORA}
             onCorpusChange={setCorpus}
-            status={status}
             selectedChatId={selectedChatId}
-            onSelectChat={handleSelectChat}
-            onNewChat={handleNewChat}
-            onDeleteChat={handleChatDeleted}
+            onSelectChat={selectChat}
+            onNewChat={newChat}
+            onDeleteChat={chatDeleted}
           />
         )}
       </div>
     </main>
-  );
-}
-
-/** Owns the chat hook so that `key` on THIS component is what starts a fresh
- *  conversation. Splitting it out is the whole mechanism: a `key` on
- *  `AiModePanel` would not help, because the hook lives in the parent. */
-function AiConversation({
-  corpus,
-  corpusOptions,
-  onCorpusChange,
-  status,
-  selectedChatId,
-  onSelectChat,
-  onNewChat,
-  onDeleteChat,
-}: {
-  corpus: Corpus;
-  corpusOptions: CorpusOption[];
-  onCorpusChange: (corpus: Corpus) => void;
-  status: ReturnType<typeof useAiStatus>;
-  selectedChatId: string | null;
-  onSelectChat: (id: string) => void;
-  onNewChat: () => void;
-  onDeleteChat: (id: string) => void;
-}) {
-  const chat = useChat(corpus, selectedChatId ?? undefined);
-  return (
-    <AiModePanel
-      chat={chat}
-      status={status}
-      corpus={corpus}
-      corpusOptions={corpusOptions}
-      // Calling this re-keys THIS component from the parent, so the picker
-      // unmounts itself along with the conversation it is discarding. That is
-      // fine — it is stateless, and React commits the remount synchronously.
-      onCorpusChange={onCorpusChange}
-      selectedChatId={selectedChatId}
-      onSelectChat={onSelectChat}
-      onNewChat={onNewChat}
-      onDeleteChat={onDeleteChat}
-    />
   );
 }

@@ -20,6 +20,7 @@ import { MemoryRouter } from "react-router-dom";
 
 import { Ai } from "./Ai";
 import * as api from "../api";
+import { AiSessionProvider } from "../chat/ai-session";
 import {
   AI_STATUS,
   sseResponse,
@@ -31,7 +32,9 @@ function mountAi(status = AI_STATUS) {
   vi.spyOn(api, "aiStatus").mockResolvedValue(status);
   return render(
     <MemoryRouter>
-      <Ai />
+      <AiSessionProvider>
+        <Ai />
+      </AiSessionProvider>
     </MemoryRouter>,
   );
 }
@@ -274,7 +277,9 @@ describe("AI Mode page — the gate", () => {
     vi.spyOn(api, "aiStatus").mockReturnValue(new Promise<api.AiStatus>(() => {}));
     render(
       <MemoryRouter>
-        <Ai />
+        <AiSessionProvider>
+          <Ai />
+        </AiSessionProvider>
       </MemoryRouter>,
     );
     const gate = await screen.findByTestId("ai-gate");
