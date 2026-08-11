@@ -33,7 +33,7 @@ source. When something ships, update only this file.
 | Standalone consolidation — Plan 6 (document types) | 🔴 **Not started** | 16 tasks. Unblocks ~85 catalogued documents that cannot be ingested at all (agency budget requests, AFR re-route) and makes doc types extensible by a non-technical office |
 | Standalone consolidation — Plan 7 (batch extraction) | ✓ Shipped (2026-08-02) | Batch MinerU (~4x), the backfill, recency re-calibration. Three defect fixes not in any plan. See the Plan 7 section below |
 | Citation linking (post-hoc linker) | ⬛ **Superseded 2026-08-11** by attested linking | Shipped 2026-08-02, then found to overclaim: 34.2% of linked figures matched >1 document and were resolved by document authority. That ranking is now DELETED. Section kept as the historical record of the defect |
-| **Attested citation linking** | 🟡 **Code complete, live baseline OUTSTANDING** (2026-08-11) | The model tags each figure, the system verifies the tag. False-link rate down 13–15×. Needs an OpenRouter key: [`PROMPT-attested-citation-baseline.md`](PROMPT-attested-citation-baseline.md) |
+| **Attested citation linking** | ✅ **Shipped and VERIFIED LIVE** (2026-08-11) | The model tags each figure, the system verifies the tag. False-link rate down 13–15×; 100% coverage on a captured live turn, 44 figures linked by tag. Six defects found by browser testing — see the section below. The 31-query Layer 2 baseline still has not been run |
 | AI Mode UI redesign | ✓ Shipped (2026-08-02) | One column, floating chrome, tools menu. Six defects found by review that left the suite green |
 | Query understanding | ✓ Shipped (2026-08-03) | Agency / doc-type / JLBC-shorthand parsing. recall@5 73.81% → 88.10%, recall@15 and @20 100%. Agency is a PREFERENCE, not a filter — a measured deviation from spec Q2 |
 
@@ -203,14 +203,19 @@ boost has the same blind spot.
 
 ## What's next
 
-- **Attested citation linking — CODE COMPLETE 2026-08-11, live baseline is
-  the only thing left** (section below). The model tags each figure with the
-  passage it came from and the system verifies the tag; document-authority
-  ranking is deleted. Offline false-link rate is down **13–15×**. The single
-  open risk is **marker compliance**, which cannot be measured without a key:
-  run [`PROMPT-attested-citation-baseline.md`](PROMPT-attested-citation-baseline.md).
-  Do not read the 50.3% offline coverage as a regression — it is the untagged
-  floor, measured on transcripts that predate tagging.
+- **Attested citation linking — SHIPPED AND VERIFIED LIVE 2026-08-11**
+  (section below). The model tags each figure with the passage it came from
+  and the system verifies the tag; document-authority ranking is deleted.
+  False-link rate down **13–15×**, and a captured live turn reached **100%
+  coverage with 44 figures linked by tag** — marker compliance, the design's
+  one open risk, is closed. Browser testing found **six defects that all the
+  offline measurement missed**; every one is fixed and pinned. Do not read
+  the ~55% offline coverage as a regression — it is the UNTAGGED floor,
+  measured on transcripts that predate tagging.
+  **Still to do:** the 31-query Layer 2 baseline + judge
+  ([`PROMPT-attested-citation-baseline.md`](PROMPT-attested-citation-baseline.md)),
+  and two non-citation findings — a mislabelled source chunk
+  (`jlbc-approps-fy2026-bh26-0003`) and the model narrating tool mechanics.
 - **The post-backfill retrieval regression — the free half DONE 2026-08-03**
   (`PROMPT-retrieval-accuracy-regression.md`). The `historical` agent-eval
   queries were RE-AUTHORED against the genuinely old books (see the section
@@ -388,12 +393,17 @@ pools that retrieved anything:
 
 Not a seed artefact — `--seed 99` gives 0.19 / 0.19 / 0.00.
 
-**Coverage on the same 435 recorded figures fell 92.9% → 50.3%** (linked
-357→179, derived 47→40, unverified 31→216). **This is the untagged floor,
-not the shipped number.** Recorded transcripts carry no markers, and the
-diagnostic confirms it: every one of the 179 links is
-`unambiguous-fallback`, zero are tag-verified. The shipped figure comes
-from the live run.
+**Coverage on the recorded figures fell 92.9% → 54.7%.** **This is the
+untagged floor, not the shipped number.** Recorded transcripts carry no
+markers, and the diagnostic confirms it: every link is
+`unambiguous-fallback`, zero are tag-verified.
+
+**On a LIVE turn with tagging, coverage is 100%** — see the live-session
+section below.
+
+The figure count rose 435 → 468 during the live fixes, because accounting
+negatives stopped being invisible, so the percentages below that predate
+that change are on the smaller denominator. False-link rate never moved.
 
 ### 🔴 The specificity floor dominates the loss, not ambiguity
 
@@ -462,11 +472,48 @@ collide; a previous-turn alias resolves to a chunk absent from the current
 pool and degrades to the fallback. Strictly stronger, same observable
 behaviour.
 
-### 🔴 OUTSTANDING — needs a machine with an OpenRouter key
+### ✅ VERIFIED LIVE, and six defects it found (2026-08-11)
 
-**Marker compliance is unmeasured.** It cannot be measured offline: it only
-exists when a real model answers under the new prompt, and Layer 1 never
-reads the system prompt. Runbook:
+**A live browser session on a keyed machine closed the design's one open
+risk: the model tags reliably.** A captured turn emitted 19 markers, all
+19 parsed; a second, 70 markers across 60 figures. **Marker compliance was
+never the problem — the system discarding good markers was.**
+
+Final state on a captured live transcript (60 figures, 51 chunks):
+**100% coverage, 44 figures linked by TAG, zero unverified.**
+
+| # | defect | why it mattered |
+|---|---|---|
+| 1 | Linking pool scoped to the TURN | A follow-up answered from context had nothing to verify against — a 9-row table came back all red. The pool is now the conversation, read off the tool messages still in history; the **untagged** fallback stays turn-scoped, because widening it to 8 turns took false-links 0.28% → 2.50% |
+| 2 | Source values under $1,000 invisible | The answer side accepted `$974.6`; the source side required a comma group. A table "in millions" writes every agency under $1B without one, so most rows of a General Fund table were unmatchable. Coverage 50.3% → 55.2%, false-link unchanged |
+| 3 | The tag-binding distance rule | Discarded `$12.49B (Mar 2020) [[c18]]` and `$1,574.1 million in FY 2026 [[c22]]` — a model tags the end of the NOUN PHRASE. Widened once, then **deleted**: a distance heuristic could only lose citations, never prevent a false one, because VERIFICATION is the guard |
+| 4 | Accounting negatives yielded no figure | `$(0.07)B` — a whole variance column was unseen, so neither citable nor derivable. Needed three parts: extractor, source scanner, and `reconcile` comparing difference MAGNITUDES |
+| 5 | Chip rendered inside the amount | `$13.98[1]B`. The scale word is part of the figure's span now |
+| 6 | Unverified figures were numbered | A table read 13,14,…,20 struck through around a live 21. Only citations are numbered; unverified figures draw no chip and **no count is shown — an uncited number is already visibly uncited** (Destin's call) |
+
+**Two findings that are NOT citation defects:**
+
+- **`jlbc-approps-fy2026-bh26-0003` is mislabelled at the source.** It
+  carries the heading of the chart above it (*"FY 2026 General Fund
+  Appropriations — Where It Goes"*) while its numbers are total spending
+  (AHCCCS $23,010.1M), and its labels are fused
+  (`AHCCCSK-12 Education (ADE)`). A correct citation there points at a
+  chart whose header contradicts its own figures. **Ingest defect.**
+- **The model narrates tool mechanics** ("tagged to c22", "no cite() call
+  was made") when asked how it cited something. Output hygiene bans
+  exposing corpus mechanics; the prompt needs a pass.
+
+**Process note worth keeping:** several rounds of testing measured a stale
+build. `uvicorn` runs without `--reload`, so **Python changes need a server
+restart** — only the SPA picks up a rebuild.
+
+### 🟡 STILL OUTSTANDING — the full Layer 2 baseline
+
+The live session verified behaviour on captured single turns. What has NOT
+run is the **31-query Layer 2 baseline with the judge**, which is what
+produces `marker_coverage_mean` / `tag_accuracy_mean` across the whole
+query set and a `compare_agent_runs.py` delta against
+`eval/results/agent/2026-08-02T0900Z-0b08221`. Runbook:
 **[`PROMPT-attested-citation-baseline.md`](PROMPT-attested-citation-baseline.md)**
 — live browser reproduction, Layer 2 smoke then full, and a decision table
 gating on `marker_coverage_mean ≥ 0.80` and `tag_accuracy_mean ≥ 0.90`.
