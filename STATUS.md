@@ -36,6 +36,7 @@ source. When something ships, update only this file.
 | **Attested citation linking** | ✅ **Shipped and VERIFIED LIVE** (2026-08-11) | The model tags each figure, the system verifies the tag. False-link rate down 13–15×; 100% coverage on a captured live turn, 44 figures linked by tag. Six defects found by browser testing — see the section below. The 31-query Layer 2 baseline still has not been run |
 | AI Mode UI redesign | ✓ Shipped (2026-08-02) | One column, floating chrome, tools menu. Six defects found by review that left the suite green |
 | Query understanding | ✓ Shipped (2026-08-03) | Agency / doc-type / JLBC-shorthand parsing. recall@5 73.81% → 88.10%, recall@15 and @20 100%. Agency is a PREFERENCE, not a filter — a measured deviation from spec Q2 |
+| Budget Documents highlighting + book sections | ✓ **Shipped (2026-08-11)**, one browser check outstanding | Query highlighting marked NOTHING (measured 0 of 200 cards); now 96.5%. 647 documents rendering under raw slugs (`s-pdf`, `bd-pdf`) fold into the books they are sections of. See the section below |
 | AI Mode chat history | ✓ Shipped (2026-08-03), **reviewed and hardened 2026-08-11** | Per-device transcripts, browse/search/resume past chats, auto-naming, collapsible rail. Local disk only — never the share. A second review found ELEVEN defects, four of them silent data loss; all fixed. See the section below |
 
 ## Corpus — what is ingested and what is NOT (2026-08-01)
@@ -293,6 +294,111 @@ boost has the same blind spot.
   been run — do that before trusting a `compare_agent_runs.py` delta on
   anything outside the smoke set. What the first baseline says, and the four
   improvement targets it hands us, are in the section below.
+
+---
+
+## Budget Documents — highlighting + book sections — SHIPPED (2026-08-11)
+
+Spec: `docs/superpowers/specs/2026-08-11-budget-docs-highlighting-and-book-sections-design.md`
+(H1–H11, B1–B8). Plan:
+`docs/superpowers/plans/2026-08-11-budget-docs-highlighting-and-book-sections.md`
+(10 tasks). Merged `e6e0e14`. Resolves both issues in
+`docs/superpowers/handoffs/2026-08-11-highlighting-and-raw-doc-types.md`.
+
+**Two defects, both found by opening the running app after 2,999 tests passed.**
+
+| | before | after |
+|---|---|---|
+| cards showing any mark | **0 / 200 (0.0%)** | **193 / 200 (96.5%)** |
+| documents under raw machine slugs | 647 | **0** |
+| mis-minted doc_ids resolved correctly | — | **21 / 21** |
+| family-filter leakage | up to 269 docs | **0** |
+
+Gates on the merged tree: pytest 2392 / 5 skipped, vitest 723, `tsc -b` 0,
+eval recall@5 88.10% · @15 100% · @20 100% · refusal 60% · p95 752 ms —
+identical to baseline, G1 passes.
+
+### Highlighting: the matcher was the whole story, and the obvious snippet fix was WRONG
+
+`highlight()` searched the snippet for the **entire query as one literal
+substring**, so a mark appeared only when every word of the question appeared
+consecutively and in order. Measured against the live corpus: **0 of 200
+cards produced a single `<mark>`.** Now: every typed word marks on word
+boundaries, **no vocabulary list of any kind**.
+
+Four candidate rules were measured over 240 cards and **all four leave the
+blank rate at 2.9%** — dropping function words is cosmetic, and a `length >= 4`
+rule silently loses `aid` (basic state aid) and `des`. Word boundaries are what
+actually matters: substring matching runs 8.3 marks per card peaking at 31.
+
+**🔴 The match-centred preview window was measured and REJECTED.** It scores
+higher on terms-visible and reads worse: JLBC front-loads these documents
+(heading, then "The Baseline includes $X for Y", then background), so the
+median first query-word match sits at **character 5** and the leading text IS
+the summary. One observed case shifted ten characters to gain one term and
+chopped "Enrollment Changes" into " Changes". It ships as a **fallback** for
+the 3.5% of cards whose leading text holds no typed word. **Do not re-tune this
+into the default** — the 32%-of-cards figure that argues for it counts marks,
+not usefulness.
+
+**Also dead, and instructively:** "only mark terms that are rare across the
+results" collapses to 0.4 marks and 70% blank, because it drops `ahcccs`,
+`child`, `subsidy` — the words that made the passages rank. Retrieval has
+already filtered to passages sharing the topic, so within a result set the most
+relevant terms are the most common. **Any "let the data decide which words
+matter" scheme fails for this reason**, including deriving matched terms from
+BM25.
+
+### Book sections: the parent comes from `source_url`, never the doc_id
+
+`bd`, `bh` and `s` are **JLBC's own printed page-number prefixes** (BD-10,
+BH-11, S-1), not document types — every one of the 647 is a chapter of a book
+already on the page. `ingest/lance_writer.py` already said so in a comment.
+
+**🔴 The doc_id parses for all 647 and is WRONG for 21** — Baseline sections
+minted with an approps doc_id, the `make_doc_id` collision class recorded
+elsewhere in this file. `source_url` is the only independent evidence: 647/647
+parse, **zero** disagree with the document's own title. Split: Appropriations
+Report 389 / Baseline 258. **The 21 doc_ids are read around, not repaired** —
+re-minting re-points chunk_ids and eval ground truth.
+
+`detailed-list-pdf` and `topic-pdf` occur under **both** books, so a `doc_type`
+filter cannot express "Baseline sections" and would leak up to 269 documents.
+`app/search_provider.py` filters exactly, in `app/` — no eval gate, no ranking
+change. Measured post-filter yield is **0 of 20 in the worst case**, so a
+family filter can legitimately return a short or empty page; the page's
+existing "with those filters" copy names the cause.
+
+A book's tray shows **two groups, summary sections above agency pages** — but
+only when both exist. Most families (AFR, Executive Budget, Budget Bill) have
+no sections at all, and a lone "Agency pages" label restates what the reader
+can already see.
+
+### 🔴 The suites were necessary and nowhere near sufficient
+
+**17 defects surfaced during execution. None was caught by any test suite** —
+including **five tests that passed whether or not the feature worked**: an
+assertion whose `getByText` regex could never match across a `<mark>` boundary
+(so it passed on broken truncation), a regression test that passed identically
+with and without the guard it existed to pin, and one that would have stayed
+green if its feature were deleted outright. Each was caught only by tracing
+what the test would do against the **pre-change** code.
+
+The pattern is worth keeping: the plan's **prose reasoning** held up under
+measurement, while its **example code** — written out in full and never run —
+produced a formula that divides by zero, a `frozenset` membership test that
+raises on a list, snapping arithmetic wrong in both directions, a dependency
+this repo does not have, and an unsatisfiable assertion.
+
+### ⏸ OUTSTANDING — nobody has looked at the page
+
+Every check above is data and logic. **The rendering is unverified**, and both
+original defects shipped green under 2,999 passing tests. Task 10 Steps 4–5 of
+the plan carry the specific checks: search `how much did child care subsidy
+cost` (marking, expand-in-place, no marks on a nonsense query), then open a
+Baseline year card (two tray groups), tick the Baseline type filter and confirm
+no Appropriations Report section appears, and confirm `capital outlay` still
+finds its sections in the filter box.
 
 ---
 

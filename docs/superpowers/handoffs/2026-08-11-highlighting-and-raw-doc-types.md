@@ -1,8 +1,43 @@
 # Handoff — two open issues on the Budget Documents page
 
 **Date:** 2026-08-11
-**Status:** open, undecided. Nothing here has been designed yet.
+**Status:** ⬛ **RESOLVED 2026-08-11 — both issues shipped. Do not execute.**
 **Landed as:** `f6f98bf` on master (branch `budget-docs-browse-page`, since deleted)
+
+> ## ⬛ RESOLVED — kept as the record of the two defects
+>
+> Both issues were designed, built and merged on 2026-08-11 in `e6e0e14`.
+>
+> - **Spec:** `docs/superpowers/specs/2026-08-11-budget-docs-highlighting-and-book-sections-design.md` (H1–H11, B1–B8)
+> - **Plan:** `docs/superpowers/plans/2026-08-11-budget-docs-highlighting-and-book-sections.md`
+> - **Status entry:** STATUS.md → "Budget Documents — highlighting + book sections — SHIPPED (2026-08-11)"
+>
+> **Issue 1** — highlighting marked **0 of 200** cards, now **96.5%**. The fix
+> is the matcher (every typed word, word boundaries, no vocabulary list), not
+> the snippet. This document's suggestion to weigh a match-centred window was
+> **measured and rejected**: it scores higher on terms-visible and reads worse,
+> because JLBC front-loads these documents and the median first match sits at
+> character 5. It ships as a fallback only.
+>
+> Its other two suggestions also died on measurement. A stopword list buys
+> nothing — four candidate rules all leave the blank rate at 2.9%. And "ask the
+> backend which terms matched" is worse than it sounds: ranking is BM25 + dense
+> + RRF + rerank, and any scheme that infers importance from the result set
+> drops the very words that made the passages rank (measured: 0.4 marks per
+> card, 70% blank).
+>
+> **Issue 2** — the reframe in this document was right. `bd`, `bh` and `s` are
+> JLBC's own printed page-number prefixes; all 647 documents are sections of
+> books already on the page, and all 38 parent book+year pairs already existed.
+> They now fold in, with the parent derived from **`source_url`** — the doc_id
+> parses for all 647 and is **wrong for 21 of them**. The question this
+> document raised ("what do `bd`, `bh`, `s` stand for?") was answerable from
+> the corpus, not from JLBC's site.
+>
+> **One thing remains, and it is the thing this document was right about:**
+> nobody has looked at the page. Both defects shipped green under 2,999 passing
+> tests, and 17 further defects surfaced during execution that no suite caught.
+> The browser checks are Task 10 Steps 4–5 of the plan.
 
 ---
 
