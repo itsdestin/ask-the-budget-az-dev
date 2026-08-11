@@ -205,13 +205,26 @@ test("an empty term list previews the leading text", () => {
   expect(previewWindow(text, [], 280).text.startsWith("Florence")).toBe(true);
 });
 
-test("small size with many spaces does not create an empty window", () => {
-  // With size below SNAP_CHARS (40), snapEnd might find a space before start,
-  // which would produce an empty window if not guarded. This test uses a text
-  // with spaces every 2 characters to stress-test the snap logic with small
-  // window sizes.
-  const text = "a ".repeat(50) + "word " + "b ".repeat(50);
-  const p = previewWindow(text, queryTerms("word"), 35);
+test("a snap that would land before start falls back to the unsnapped edge, not an empty window", () => {
+  // A prior fixture for this guard ("a ".repeat(50) + "word " + ... at
+  // size=35) does NOT discriminate: with a space every two characters,
+  // snapEnd's backward search from rawEnd never has to walk past `start`, so
+  // the guarded line never runs and old and new code return the identical
+  // 34-character slice. It passed before this guard existed and after, which
+  // means it was pinning nothing.
+  //
+  // This text instead builds one long, genuinely unbroken run: 60 "z"s, ONE
+  // space, 5 more "z"s, then "-word-" (the hyphens give the regex a match
+  // boundary without adding another space), then 200 more "z"s. With
+  // size=10, the match is found far enough past the lone space that `start`
+  // snaps forward to just after it -- but the backward search for `end`
+  // finds no OTHER space before rawEnd, so it walks back to that same lone
+  // space too, landing at start-1. Verified against the pre-guard code
+  // (temporarily reverting `snapped > start ? snapped : rawEnd` to plain
+  // `snapEnd(text, rawEnd)`): that reproduces the exact reported defect, an
+  // empty window even though "word" is right there in the text.
+  const text = "z".repeat(60) + " " + "z".repeat(5) + "-word-" + "z".repeat(200);
+  const p = previewWindow(text, queryTerms("word"), 10);
 
   expect(p.text.length).toBeGreaterThan(0);
   expect(p.text).toContain("word");
