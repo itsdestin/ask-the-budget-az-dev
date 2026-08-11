@@ -171,15 +171,14 @@ describe("submitting", () => {
     });
   });
 
-  it("clears the native file input once the upload is queued", async () => {
-    vi.spyOn(api, "uploadDocument").mockResolvedValue({ job_id: "j1", doc_id: "d1" });
-    render(<Upload />);
-    await pickFile();
-    fireEvent.click(screen.getByRole("checkbox", { name: /public record/i }));
-    fireEvent.click(screen.getByRole("button", { name: /add document/i }));
-    await waitFor(() =>
-      expect((screen.getByLabelText(/choose a pdf/i) as HTMLInputElement).value).toBe(""));
-  });
+  // NOT TESTED: resetting the native file input's displayed filename after
+  // a successful submit (Upload.tsx's fileInputRef.current.value = "").
+  // jsdom never lets a scripted `.files` assignment change `input.value` in
+  // the first place (real browsers only set it from actual user selection),
+  // so an assertion here would pass identically whether or not the reset
+  // code exists — verified by deleting the reset line and re-running: the
+  // assertion still passed. A test that can't fail is worse than no test;
+  // this needs a real browser (see task-6-report.md's "could not verify").
 
   it("shows the server's reason when the upload is rejected", async () => {
     vi.spyOn(api, "uploadDocument").mockRejectedValue(
