@@ -22,19 +22,58 @@ const PROBE_FAILED: AiStatus = {
   user_usage: { month_usd: null, limit_usd: null, warned: false },
 };
 
-/** `null` while the answer is in flight; never null afterwards. */
+/** The last verdict this tab received, from any mount of this hook.
+ *
+ *  WHY a module-level value rather than per-hook state: the hook had no memory
+ *  at all, so every remount went back to `null` — i.e. back to "probing" — for
+ *  a network round trip. That was invisible while AI Mode's conversation lived
+ *  inside the page and died with it. Now that the conversation survives a trip
+ *  to Budget Documents (spec P4), the analyst who does exactly what P4 was
+ *  built for — start a Deep Research turn, go read something else, come back —
+ *  was shown "Checking whether AI answers are available…" on top of their live
+ *  answer. Worse in the tail: a hiccuped probe resolves to a REAL
+ *  `PROBE_FAILED` verdict, so they would read "AI Mode is currently
+ *  unavailable" while a paid turn streamed invisibly behind it.
+ *
+ *  Seeding from here renders the previous answer immediately and refreshes
+ *  silently. It is deliberately NOT a replacement for the probe — the effect
+ *  below still runs on every mount, because a re-probe is how this client
+ *  notices an administrator adding an API key without anyone reloading the
+ *  page. The first ever load in a tab has no verdict yet, so it starts `null`
+ *  and shows the honest probing state, exactly as before.
+ *
+ *  Tradeoff worth naming: the seed is only REPLACED when a new probe SETTLES.
+ *  A probe that hangs (the server down but not actively refusing the
+ *  connection, so the request never resolves or rejects) leaves the STALE
+ *  "available" verdict on screen indefinitely — a composer that looks live
+ *  when the server may not be — where the un-cached hook showed the honest
+ *  probing screen for exactly as long. Symmetrically, one transient failure
+ *  caches `PROBE_FAILED` until a later probe succeeds, so a momentary hiccup
+ *  can read as "unavailable" longer than the hiccup itself lasted. Both cases
+ *  self-correct the moment a later probe actually resolves, and neither can
+ *  misstate a conversation that is already streaming — `Ai.tsx`'s
+ *  `hasConversation` guard covers that independently of this cache. Accepted
+ *  as-is; not a bug to chase. */
+let lastVerdict: AiStatus | null = null;
+
+/** Test-only: forget the cached verdict, so a spec starts from a cold tab. */
+export function __resetAiStatusCache(): void {
+  lastVerdict = null;
+}
+
+/** `null` only until this tab has ever had an answer; never null afterwards. */
 export function useAiStatus(): AiStatus | null {
-  const [status, setStatus] = useState<AiStatus | null>(null);
+  const [status, setStatus] = useState<AiStatus | null>(lastVerdict);
   useEffect(() => {
     let ignore = false;
-    api.aiStatus().then(
-      (s) => {
-        if (!ignore) setStatus(s);
-      },
-      () => {
-        if (!ignore) setStatus(PROBE_FAILED);
-      },
-    );
+    const settle = (s: AiStatus) => {
+      // The cache is written even when this mount has been superseded: the
+      // verdict is a fact about the SERVER, not about this component, and
+      // throwing it away would make the next mount probe from cold again.
+      lastVerdict = s;
+      if (!ignore) setStatus(s);
+    };
+    api.aiStatus().then(settle, () => settle(PROBE_FAILED));
     return () => {
       ignore = true;
     };
