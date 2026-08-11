@@ -71,20 +71,39 @@ def annotate_answer(
     *,
     tags: list[Tag] | None = None,
     alias_map: dict[str, str] | None = None,
+    fallback_chunk_ids: list[str] | None = None,
 ) -> dict[str, Any]:
+    """`chunks` may span the whole conversation; `fallback_chunk_ids`
+    narrows the UNTAGGED search to a subset of it (in practice, this
+    turn's retrieves).
+
+    The two pools differ because the two paths carry different evidence.
+    A tag names ONE chunk, so pool size cannot affect its verdict — a
+    conversation-wide pool costs nothing and is what lets a model cite a
+    passage it read two questions ago. The fallback has only the value
+    itself, so every extra document is another chance to coincide.
+    Measured over the 31-query baseline: merging 8 turns' pools took the
+    untagged false-link rate on rounded billions from 0.28% to 2.50%,
+    approaching the 3.7% of the authority-ranking design this replaced.
+    """
     figures = extract_figures(answer)
     bound = _bind_tags(answer, figures, tags or [])
     aliases = alias_map or {}
+    # None means "the whole pool" — the single-turn case, and every
+    # caller that has no turn/conversation distinction to make.
+    fallback_ids = (None if fallback_chunk_ids is None
+                    else [c for c in fallback_chunk_ids if c in chunks])
 
     records: list[dict[str, Any]] = []
     linked_figs: list[Figure] = []
     linked_indices: list[int] = []
 
     for i, fig in enumerate(figures):
-        # Resolve the model's claim to in-turn chunks. An alias that is
-        # unknown or points at a chunk not retrieved THIS turn is dropped
-        # — never redirected — so a stale tag degrades to the fallback
-        # instead of verifying against the wrong text (spec §5).
+        # Resolve the model's claim against the chunks it has been sent.
+        # An alias that is unknown, or points at a chunk that has fallen
+        # out of context, is dropped — never redirected — so a stale tag
+        # degrades to the fallback rather than verifying against the wrong
+        # text (spec §5).
         attested = [aliases[a] for a in bound.get(i, [])
                     if a in aliases and aliases[a] in chunks]
         record: dict[str, Any] = {
@@ -109,7 +128,9 @@ def annotate_answer(
         else:
             # Fallback — also runs when a tag failed to verify, because
             # the value may genuinely live in one other document (R2).
-            pool_hits = find_in_chunks(fig, chunks)
+            # Narrowed to `fallback_ids`: with only the value as evidence,
+            # every extra document in scope is another chance to coincide.
+            pool_hits = find_in_chunks(fig, chunks, restrict_to=fallback_ids)
             docs = {(meta.get(h.chunk_id) or {}).get("doc_id")
                     for h in pool_hits}
             if pool_hits and len(docs) == 1:
@@ -154,7 +175,8 @@ def annotate_answer(
         # there was a tag — "you said c3; c3's nearest value is X" is the
         # actionable sentence.
         nm = nearest_value(fig, chunks,
-                           restrict_to=record["attested_chunk_ids"] or None)
+                           restrict_to=record["attested_chunk_ids"]
+                           or fallback_ids)
         if nm is not None:
             record["near_miss"] = asdict(nm)
 

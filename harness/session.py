@@ -753,6 +753,13 @@ class HarnessSession:
         # never the whole answer.
         if self._executor is not None:
             accumulator.alias_map = getattr(self._executor, "alias_map", None) or {}
+        # Earlier turns' retrieve results, read off the history the model
+        # is still being sent. A follow-up question answered from context
+        # has no retrieve of its own, and without this every figure in it
+        # is unverifiable.
+        accumulator._conversation_chunks = [
+            (m.get("name") or "", m.get("content") or "")
+            for m in self.history if m.get("role") == "tool"]
 
         usage = usage_totals.as_turn_usage()
         yield _event("turn_complete", stopReason=stop_reason, model=model, usage=usage)
@@ -1689,6 +1696,10 @@ class _Accumulator:
         # every [[cN]] the model wrote resolves to nothing and its figures
         # fall back to unambiguous-value linking.
         self.alias_map: dict[str, str] = {}
+        # (tool_name, raw output) for every EARLIER turn's tool message
+        # still in history. Set by `_run_turn`; see _retrieved_chunk_map
+        # for why the linking pool is conversation-scoped.
+        self._conversation_chunks: list[tuple[str, str]] = []
 
     def record_text(self, uuid: str, text: str) -> None:
         """Latest text wins per uuid; first-seen order is preserved."""
@@ -1789,16 +1800,36 @@ class _Accumulator:
         return "\n\n".join(self._text_by_uuid[u] for u in self._text_order)
 
     def _retrieved_chunk_map(self) -> tuple[dict[str, str], dict[str, dict]]:
-        """chunk_id -> text, and chunk_id -> {doc_type, fiscal_year}, taken
-        from this turn's retrieve results. The linker needs the text it was
-        already sent; it must never go back to the store."""
+        """chunk_id -> text, and chunk_id -> {doc_type, fiscal_year}, for
+        every chunk this CONVERSATION has retrieved. The linker needs the
+        text it was already sent; it must never go back to the store.
+
+        Scoped to the conversation, not the turn, because the model
+        legitimately re-uses a number it read two questions ago: asked a
+        follow-up, it answers from context without retrieving again, and a
+        turn-scoped pool then has nothing to verify against. Observed
+        live 2026-08-11 — a nine-row ranking table came back with eight
+        red chips whose values were all present in a chunk retrieved by an
+        EARLIER turn.
+
+        `_conversation_chunks` comes from the tool messages still in
+        `history`, so this can only ever see text the model itself can
+        still see: when context-window truncation drops a retrieve result,
+        the chunk leaves both at once and a figure sourced from it
+        correctly stops verifying.
+        """
         chunks: dict[str, str] = {}
         meta: dict[str, dict] = {}
-        for call in self.tool_calls:
-            if call.get("toolName") != "retrieve":
+        # This turn's calls are applied last so a re-retrieved chunk wins
+        # with its freshest text.
+        sources = list(self._conversation_chunks) + [
+            (call.get("toolName"), call.get("output"))
+            for call in self.tool_calls]
+        for name, output in sources:
+            if name != "retrieve":
                 continue
             try:
-                parsed = json.loads(call.get("output") or "")
+                parsed = json.loads(output or "")
             except (TypeError, ValueError):
                 continue
             if not isinstance(parsed, dict):
@@ -1825,6 +1856,23 @@ class _Accumulator:
                              "bbox": c.get("bbox")}
         return chunks, meta
 
+    def _this_turn_chunk_ids(self) -> list[str]:
+        """Chunk ids THIS turn retrieved — the untagged fallback's scope."""
+        ids: list[str] = []
+        for call in self.tool_calls:
+            if call.get("toolName") != "retrieve":
+                continue
+            try:
+                parsed = json.loads(call.get("output") or "")
+            except (TypeError, ValueError):
+                continue
+            if not isinstance(parsed, dict):
+                continue
+            for c in (parsed.get("chunks") or []):
+                if c.get("chunk_id"):
+                    ids.append(c["chunk_id"])
+        return ids
+
     def annotation(self) -> dict:
         """Link every figure in the answer to a source. Never raises: a
         citation bug must not cost the user an answer they already paid
@@ -1836,8 +1884,14 @@ class _Accumulator:
             # the figure extractor and the UI both see.
             stripped, tags = parse_markers(self._raw_answer())
             chunks, meta = self._retrieved_chunk_map()
+            # A tag may name any chunk still in context; an UNTAGGED
+            # figure is matched only against what this turn retrieved.
+            # Measured: widening the untagged pool to 8 turns took the
+            # false-link rate on rounded billions 0.28% -> 2.50%, while a
+            # tag names one chunk and is indifferent to pool size.
             return annotate_answer(stripped, chunks, meta,
-                                   tags=tags, alias_map=self.alias_map)
+                                   tags=tags, alias_map=self.alias_map,
+                                   fallback_chunk_ids=self._this_turn_chunk_ids())
         except Exception as exc:  # noqa: BLE001 - deliberate, see docstring
             print(f"citation linking failed: {type(exc).__name__}: {exc}",
                   file=sys.stderr)
