@@ -658,4 +658,47 @@ describe("chat CSS containment contract", () => {
       /border-color:\s*var\(--card\)/,
     );
   });
+
+  // Reported by Destin 2026-08-11, testing in a real browser: pointing at any
+  // row in the history rail lit up TWO rows. `:hover` and `.is-active` both
+  // painted `background:var(--card)` — identical — so the hovered row became
+  // indistinguishable from the open conversation, and the rail stopped
+  // answering the one question it exists to answer: which chat am I in?
+  //
+  // The fix suppresses the ACTIVE row's highlight while the pointer is over
+  // some OTHER row, rather than restyling hover. Two reasons that direction is
+  // right: hover already reads correctly on its own, and the alternative
+  // (giving hover its own tint) leaves two lit rows and just makes them
+  // different colours, which is the same defect with extra steps.
+  //
+  // Pinned in CSS rather than in jsdom because jsdom applies no stylesheet and
+  // cannot hover — the whole class of defect this file exists for.
+  it("only one history-rail row is highlighted at a time", () => {
+    // The precondition that made the defect possible. If these two ever stop
+    // matching, re-read the fix below before assuming it is still needed.
+    expect(bareRule(".history-rail-item:hover")).toMatch(
+      /background:\s*var\(--card\)/,
+    );
+    expect(bareRule(".history-rail-item.is-active")).toMatch(
+      /background:\s*var\(--card\)/,
+    );
+
+    // Hovering the list de-highlights the active row UNLESS it is the row
+    // under the pointer — `:not(:hover)` is what keeps the open chat lit when
+    // you point at it, which is the common case.
+    const yielded = bareRule(
+      ".history-rail-list:hover .history-rail-item.is-active:not(:hover)",
+    );
+    expect(yielded).toMatch(/background:\s*transparent/);
+    // The shadow is half of what reads as "selected"; leaving it would keep a
+    // lifted, shadowed row beside the hovered one.
+    expect(yielded).toMatch(/box-shadow:\s*none/);
+
+    // The title's gold is the other half, and it is the louder half.
+    expect(
+      bareRule(
+        ".history-rail-list:hover .history-rail-item.is-active:not(:hover) .history-rail-chat-title",
+      ),
+    ).toMatch(/color:\s*var\(--ink\)/);
+  });
 });

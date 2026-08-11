@@ -1,4 +1,5 @@
 import { BrowserRouter, Route, Routes } from "react-router-dom";
+import { AiSessionProvider } from "./chat/ai-session";
 import { Header } from "./components/Header";
 import { HealthGate } from "./HealthGate";
 import { Admin } from "./pages/Admin";
@@ -13,7 +14,11 @@ import { Upload } from "./pages/Upload";
 // initial URL (e.g. "/search?q=roads") — BrowserRouter can't be given one.
 export function AppRoutes() {
   return (
-    <>
+    // The AI Mode conversation is mounted HERE, above <Routes>, so navigating
+    // to another page does not unmount it and does not abort a turn in
+    // flight (spec P4/P5). It is inert until the first question — see the
+    // WHY comment at the top of chat/ai-session.tsx.
+    <AiSessionProvider>
       <Header />
       <Routes>
         <Route path="/" element={<Home />} />
@@ -29,7 +34,7 @@ export function AppRoutes() {
             a broken app rather than a permission the reader doesn't have. */}
         <Route path="/admin" element={<Admin />} />
       </Routes>
-    </>
+    </AiSessionProvider>
   );
 }
 

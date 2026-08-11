@@ -28,6 +28,7 @@ import { MemoryRouter } from "react-router-dom";
 import { AppRoutes } from "../App";
 import { Ai } from "./Ai";
 import * as api from "../api";
+import { AiSessionProvider } from "../chat/ai-session";
 import { AI_STATUS, stubConversationFetch, stubScrollIntoView } from "./ai-test-fixtures";
 
 /** The class Ai.tsx puts on <html>. Duplicated from the page on purpose: if
@@ -91,7 +92,9 @@ describe("AI Mode pins the viewport — and only AI Mode", () => {
     vi.spyOn(api, "aiStatus").mockResolvedValue(AI_STATUS);
     const view = render(
       <MemoryRouter>
-        <Ai />
+        <AiSessionProvider>
+          <Ai />
+        </AiSessionProvider>
       </MemoryRouter>,
     );
     await screen.findByTestId("ai-panel");
