@@ -2285,14 +2285,30 @@ fieldset.adm-field{border:0;padding:0;}
 .rep-done p{margin:0;font-size:13.5px;color:var(--ink);line-height:1.55;}
 .rep-done .rep-fix{margin-top:6px;}
 
-/* ===== report row's own action — Task 3, wiring the chooser into .doc =====
-   Replaces the old .grp-full pill (its JSX was deleted with this task, and
-   its now-dead CSS rules were removed 2026-08-10): the top-level row IS the
-   report, so its own "Full report" pill takes the gold fill the dashed-block
-   button used to carry — a canvas-grey pill here would read as secondary to
-   "Browse sections" below it. */
-.page-docs .doc-pill.is-full{background:var(--az-gold);border-color:var(--az-gold);color:#fff;}
-.page-docs .doc:hover .doc-pill.is-full{background:var(--az-gold-d);border-color:var(--az-gold-d);color:#fff;}
+/* ===== the "Full report" fill, in BOTH card states =====
+   Replaces the old .grp-full pill (its JSX was deleted wiring the chooser into
+   .doc, and its now-dead CSS rules were removed 2026-08-10). The top-level row
+   IS the report, so its own "Full report" pill takes the same solid fill the
+   dashed-block button used to carry — a canvas-grey pill would read as
+   secondary to "Browse sections" below it.
+
+   ONE rule for both call sites (Destin, 2026-08-11): the browse card's pill is
+   a `.doc-pill` inside a `.doc` row, the search card's is a `.grp-more` in the
+   dashed block, but they are the SAME control and must not drift apart. The
+   search one shipped canvas-grey because it reused `.grp-more` unmodified,
+   which made one feature look like two things depending on which view you were
+   in.
+
+   NOTE the token name lies: `--az-gold` is #1b6fc4, a BLUE, and `--az-gold-d`
+   #145aa6 is its darker hover. The palette was repainted blue without renaming
+   the variables, so "gold" here means the blue master's `.grp-full` wore. Do
+   not "fix" this by reaching for a literal gold. */
+.page-docs .doc-pill.is-full,
+.page-docs .grp-more.is-full{background:var(--az-gold);border-color:var(--az-gold);color:#fff;}
+/* The browse pill lights on the ROW's hover (the whole row is the link); the
+   search pill is its own standalone control, so it lights on its own. */
+.page-docs .doc:hover .doc-pill.is-full,
+.page-docs .grp-more.is-full:hover{background:var(--az-gold-d);border-color:var(--az-gold-d);color:#fff;}
 /* UA resets ONLY — a <button> row (the both-formats case) must look identical
    to the <a> rows beside it. Same shape as the fiscal-notes page's own
    "button adaptations" block. */

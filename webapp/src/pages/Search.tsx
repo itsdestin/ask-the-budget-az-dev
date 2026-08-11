@@ -428,12 +428,17 @@ function FamilyCard({
               same reading position in both card states, instead of moving
               depending on whether a full-report control also rendered. */}
           {fullReport.kind === "choose" && (
-            <button type="button" className="grp-more" onClick={fullReport.onClick}>
+            <button type="button" className="grp-more is-full" onClick={fullReport.onClick}>
               <BookIcon /> Full report
             </button>
           )}
           {fullReport.kind === "link" && (
-            <a className="grp-more" href={fullReport.href} target="_blank" rel="noopener noreferrer">
+            <a
+              className="grp-more is-full"
+              href={fullReport.href}
+              target="_blank"
+              rel="noopener noreferrer"
+            >
               <BookIcon /> Full report
             </a>
           )}
