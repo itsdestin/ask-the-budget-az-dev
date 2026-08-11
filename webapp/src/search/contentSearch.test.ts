@@ -1,5 +1,5 @@
 import type { SearchResult } from "../api";
-import { groupPassages, highlight, highlightTerms, queryTerms, toSearchFilters } from "./contentSearch";
+import { groupPassages, highlight, highlightTerms, previewWindow, queryTerms, toSearchFilters } from "./contentSearch";
 import { slugsForFamily } from "../reportFamilies";
 
 function hit(over: Partial<SearchResult>): SearchResult {
@@ -130,4 +130,102 @@ test("highlightTerms filters out empty strings to prevent spurious zero-length m
 
   // Verify that the correct matches still occur (the two non-empty terms)
   expect(runs.filter((r) => r.hit).map((r) => r.text)).toEqual(["the", "fund"]);
+});
+
+const LEAD = "Florence Replacement Beds. The Baseline includes an increase of $22,500,000 ";
+
+test("short passages are shown whole, with no ellipsis", () => {
+  expect(previewWindow("A short passage about beds.", queryTerms("beds"))).toEqual({
+    text: "A short passage about beds.",
+    ellipsisStart: false,
+    ellipsisEnd: false,
+  });
+});
+
+test("the LEADING text is the default preview, even when a later window holds more terms", () => {
+  // Measured and deliberate (spec H3): JLBC front-loads these documents --
+  // heading, then "The Baseline includes $X for Y", then background. A
+  // match-centred window scores higher on terms visible and reads worse,
+  // dropping the heading AND the dollar figure. Median first match: char 5.
+  const text = LEAD + "x".repeat(400) + " beds beds beds beds";
+  const p = previewWindow(text, queryTerms("beds"), 280);
+  expect(p.text.startsWith("Florence Replacement Beds.")).toBe(true);
+  expect(p.ellipsisStart).toBe(false);
+  expect(p.ellipsisEnd).toBe(true);
+});
+
+test("it slides to the first match ONLY when the leading text has no typed word", () => {
+  // The 3.5% case (spec H4). Falling back is explainable in one sentence;
+  // defaulting to it is not.
+  const text = "z".repeat(400) + " the waiting list grew " + "z".repeat(400);
+  const p = previewWindow(text, queryTerms("waiting"), 280);
+  expect(p.text).toContain("waiting");
+  expect(p.ellipsisStart).toBe(true);
+  expect(p.ellipsisEnd).toBe(true);
+});
+
+test("a slid window snaps to word boundaries and never cuts mid-word", () => {
+  const pad = "filler words repeated to push the match far down the passage ";
+  const text = pad.repeat(8) + "extraordinary waiting list " + pad.repeat(8);
+  const p = previewWindow(text, queryTerms("waiting"), 120);
+
+  expect(p.text).toContain("waiting");
+  const at = text.indexOf(p.text);
+  expect(at).toBeGreaterThan(0);
+  // The characters on either side of the window are spaces, so the window
+  // begins at a word start and ends at a word end.
+  expect(text[at - 1]).toBe(" ");
+  expect(text[at + p.text.length]).toBe(" ");
+});
+
+test("an unbroken run with no nearby spaces is cut without overshooting", () => {
+  // The original snapping jumped `end` to text.length here — 231 characters
+  // past the requested window — and then reported ellipsisEnd:false on it.
+  const text = "z".repeat(400) + " the waiting list grew " + "z".repeat(400);
+  const p = previewWindow(text, queryTerms("waiting"), 280);
+
+  expect(p.text).toContain("waiting");
+  expect(p.text.length).toBeLessThanOrEqual(280);
+  expect(p.ellipsisStart).toBe(true);
+  expect(p.ellipsisEnd).toBe(true);
+});
+
+test("a passage with no typed word anywhere still previews its leading text", () => {
+  // ~3% of cards ranked on the dense leg alone and contain none of the
+  // reader's words. They render with no marks -- an honest absence beats a
+  // guess (spec H6) -- but they still show the start of the passage.
+  const text = LEAD + "y".repeat(400);
+  const p = previewWindow(text, queryTerms("nothingmatcheshere"), 280);
+  expect(p.text.startsWith("Florence Replacement Beds.")).toBe(true);
+  expect(p.ellipsisStart).toBe(false);
+});
+
+test("an empty term list previews the leading text", () => {
+  const text = LEAD + "y".repeat(400);
+  expect(previewWindow(text, [], 280).text.startsWith("Florence")).toBe(true);
+});
+
+test("a snap that would land before start falls back to the unsnapped edge, not an empty window", () => {
+  // A prior fixture for this guard ("a ".repeat(50) + "word " + ... at
+  // size=35) does NOT discriminate: with a space every two characters,
+  // snapEnd's backward search from rawEnd never has to walk past `start`, so
+  // the guarded line never runs and old and new code return the identical
+  // 34-character slice. It passed before this guard existed and after, which
+  // means it was pinning nothing.
+  //
+  // This text instead builds one long, genuinely unbroken run: 60 "z"s, ONE
+  // space, 5 more "z"s, then "-word-" (the hyphens give the regex a match
+  // boundary without adding another space), then 200 more "z"s. With
+  // size=10, the match is found far enough past the lone space that `start`
+  // snaps forward to just after it -- but the backward search for `end`
+  // finds no OTHER space before rawEnd, so it walks back to that same lone
+  // space too, landing at start-1. Verified against the pre-guard code
+  // (temporarily reverting `snapped > start ? snapped : rawEnd` to plain
+  // `snapEnd(text, rawEnd)`): that reproduces the exact reported defect, an
+  // empty window even though "word" is right there in the text.
+  const text = "z".repeat(60) + " " + "z".repeat(5) + "-word-" + "z".repeat(200);
+  const p = previewWindow(text, queryTerms("word"), 10);
+
+  expect(p.text.length).toBeGreaterThan(0);
+  expect(p.text).toContain("word");
 });
