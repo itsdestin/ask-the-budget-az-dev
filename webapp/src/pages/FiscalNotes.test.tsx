@@ -452,6 +452,10 @@ describe("the rail's semantic search", () => {
           doc_id: "legislature-fiscal-note-fy2026-sb1010-0",
           doc_title: "Fiscal Note — SB 1010 (2026)",
           snippet: "community college expenditure limit …",
+          // Task 1: `text` is now required on SearchResult; Fiscal Notes
+          // doesn't read it (only `snippet`, unchanged), so any value satisfies
+          // the type here.
+          text: "community college expenditure limit …",
           page: 2,
           score: 4.1,
           doc_type: "fiscal-note",

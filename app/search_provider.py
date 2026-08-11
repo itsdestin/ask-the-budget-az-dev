@@ -211,6 +211,16 @@ class LanceSearchProvider:
                 "doc_title": (info := self._info(c.doc_id))["title"]
                 or _title_from_doc_id(c.doc_id),
                 "snippet": c.text[:280],
+                # The FULL passage. The browser chooses the preview window and
+                # marks the query's words in one place, in one language (spec
+                # H8) — a server-chosen window plus browser-chosen marks can
+                # disagree, and its failure is silent: a window obviously
+                # picked BECAUSE of the match, with nothing marked in it.
+                # Measured cost ~18KB per search (chunk text median 789 chars,
+                # max 2,117, twenty results). Safe to ship as text: 0 of 4,000
+                # sampled chunk `text` values contain markup — table markup
+                # lives in the separate `table_html` column, not shipped here.
+                "text": c.text,
                 "page": c.page,
                 # Raw cross-encoder logit (roughly -10..10, negatives normal) —
                 # NOT 0..1. The contract types this as float and makes no scale

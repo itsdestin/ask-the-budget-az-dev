@@ -16,7 +16,10 @@ const DOCS: api.CorpusDocument[] = [
 
 const HITS: api.SearchResult[] = [
   { chunk_id: "chunk-142", doc_id: "b27", doc_title: "FY 2027 Baseline — AHCCCS",
-    snippet: "Child care subsidy assistance rose.", page: 142, score: 0.9,
+    snippet: "Child care subsidy assistance rose.",
+    // Task 1: `text` is now required on SearchResult; this file tests the
+    // source panel, not full-text highlighting, so it matches `snippet`.
+    text: "Child care subsidy assistance rose.", page: 142, score: 0.9,
     doc_type: "baseline-per-agency", fiscal_year: 2027, publisher: "jlbc",
     agencies: [], doc_url: "https://x/axs.pdf", doc_meta: null },
 ];

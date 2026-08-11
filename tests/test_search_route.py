@@ -1,7 +1,9 @@
 from fastapi.testclient import TestClient
 
 from app.main import create_app
-from app.search_provider import StubSearchProvider
+from app.search_provider import LanceSearchProvider, StubSearchProvider
+from retrieval import RetrievalResult
+from retrieval.types import RetrievedChunk
 
 
 def client():
@@ -9,6 +11,53 @@ def client():
     # Task 12 a bare create_app() serves real retrieval on machines that have
     # a migrated corpus.
     return TestClient(create_app(provider=StubSearchProvider()))
+
+
+# --- fixtures for the full-text field test ----------------------------------
+# StubSearchProvider ignores `query` and always returns the same canned
+# FIXTURE_ROWS (see app/fixtures/search_fixtures.py), so it cannot exercise a
+# chunk with caller-chosen `text`. These mirror tests/test_lance_provider.py's
+# `_chunk`/`_fake_result` helpers to drive LanceSearchProvider with a fake
+# retrieve() instead, through the real /api/search route.
+
+def _chunk(**overrides):
+    base = dict(
+        chunk_id="c1",
+        doc_id="jlbc-baseline-fy2027-ahcccs",
+        text="provider rate increases of $58.1 million from the General Fund",
+        score=4.2,
+        section_path=["AHCCCS"],
+        page=14,
+        bbox=None,
+        source_anchor=None,
+        agency_canonical_ids=["ahcccs"],
+        fund_canonical_id=None,
+        fund_mentions=[],
+        fiscal_year=2027,
+        doc_type="baseline-per-agency",
+        is_table=False,
+        table_html=None,
+        token_count=8,
+        publisher="jlbc",
+    )
+    base.update(overrides)
+    return RetrievedChunk(**base)
+
+
+def _client_with_chunks(monkeypatch, chunks):
+    result = RetrievalResult(
+        chunks=chunks,
+        top_score=chunks[0].score if chunks else -1e9,
+        bm25_count=len(chunks),
+        dense_count=len(chunks),
+        fused_count=len(chunks),
+    )
+    monkeypatch.setattr("app.search_provider.retrieve", lambda req, **kw: result)
+    # No documents.json on this path — degrades to unlinked rows (same idiom
+    # as test_lance_provider.py's test_missing_sidecar_degrades_to_unlinked_rows),
+    # which is irrelevant to what this test checks (text/snippet).
+    monkeypatch.setattr("store.config.documents_path", lambda: __import__("pathlib").Path("/nonexistent/documents.json"))
+    return TestClient(create_app(provider=LanceSearchProvider()))
 
 
 def test_search_returns_contract_shape():
@@ -53,3 +102,18 @@ def test_field_constraints_reject_bad_input():
     assert c.post("/api/search", json={"query": "budget", "top_k": 101}).status_code == 422
     assert c.post("/api/search",
                   json={"query": "budget", "corpus": "bogus"}).status_code == 422
+
+
+def test_search_results_carry_the_full_chunk_text(monkeypatch):
+    """The browser picks the preview window and paints the marks (H8), so it
+    needs the whole passage, not a 280-char prefix. `snippet` stays for the
+    Fiscal Notes page, which does no highlighting (H11)."""
+    long_text = "Florence Replacement Beds. " + ("filler word " * 60) + "prison beds funded."
+    assert len(long_text) > 280
+
+    client = _client_with_chunks(monkeypatch, [_chunk(text=long_text)])
+    body = client.post("/api/search", json={"query": "prison beds"}).json()
+
+    row = body["results"][0]
+    assert row["text"] == long_text
+    assert row["snippet"] == long_text[:280]
