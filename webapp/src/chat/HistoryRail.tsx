@@ -5,8 +5,14 @@
 // callbacks are props, so the page (Ai.tsx) stays the single source of truth
 // for which chat is open.
 
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useHistory } from "./use-history.js";
+
+/** The current conversation's stand-in id, before the server has minted a
+ *  real one. A brand-new chat has NO id until the first send — `useChat`
+ *  creates the conversation lazily — so the rail needs something to key the
+ *  placeholder on. Never sent to the server, never compared to a stored id. */
+export const DRAFT_CHAT_ID = "draft";
 
 interface HistoryRailProps {
   activeId: string | null;
@@ -24,6 +30,12 @@ interface HistoryRailProps {
    *  few seconds later never appeared in the rail until something remounted
    *  it. Any change to this value re-reads the list. */
   reloadToken?: number;
+  /** The current conversation, when it has NOT been persisted yet — either
+   *  the DRAFT_CHAT_ID sentinel or a live server id whose transcript has not
+   *  been written. Non-null only for a NEW chat: a chat opened from the rail
+   *  already has a row on the way, and treating it as a draft would flash a
+   *  "New chat" placeholder over it while the list loads. */
+  draftId?: string | null;
 }
 
 // Group chats by day: Today / Yesterday / Earlier.
@@ -78,6 +90,7 @@ export function HistoryRail({
   onToggle,
   onDeleted,
   reloadToken = 0,
+  draftId = null,
 }: HistoryRailProps) {
   const { chats, loading, error, query, setQuery, reload, rename, remove } = useHistory();
   // Track which chat's title is being edited inline.
@@ -94,6 +107,46 @@ export function HistoryRail({
   useEffect(() => {
     if (reloadToken > 0) reload();
   }, [reloadToken, reload]);
+
+  const searching = query.trim().length > 0;
+  // The placeholder shows while the current NEW conversation has no row of
+  // its own — either it has no server id yet, or it has one and the turn that
+  // would write its transcript has not finished. Matching on IDENTITY rather
+  // than on "a turn completed" means there is never a moment with two rows or
+  // with none: when the real row arrives carrying the same id, this predicate
+  // simply goes false. Hidden while searching — a search filters what is
+  // stored, and the draft is not.
+  const showPlaceholder =
+    !searching && draftId != null && !chats.some((c) => c.id === draftId);
+
+  // Computed unconditionally, ABOVE the `collapsed` early return below: a
+  // hook called only on some renders (collapsed toggles at runtime, driven by
+  // AiModePanel's own state) violates the Rules of Hooks and previously threw
+  // "Rendered fewer hooks than expected" the moment collapse state changed —
+  // caught by the existing ai-mode-panel-source suite, not by this file's own
+  // tests, none of which toggle `collapsed`.
+  const groups = useMemo(() => {
+    const base = groupChats(chats);
+    if (!showPlaceholder || draftId == null) return base;
+    const placeholder = {
+      id: draftId,
+      title: "New chat",
+      // Unused by this component's rendering; present to satisfy HistoryRow.
+      corpus: "budget",
+      created_at: "",
+      updated_at: "",
+      title_is_manual: false,
+      message_count: 0,
+    } as ReturnType<typeof useHistory>["chats"][number];
+    // Inserted AFTER grouping rather than given a fake timestamp and grouped:
+    // a synthetic `updated_at` of "now" would be recomputed on every render
+    // and is a lie in the data rather than a decision in the view.
+    const today = base.find((g) => g.label === "Today");
+    if (!today) return [{ label: "Today", chats: [placeholder] }, ...base];
+    return base.map((g) =>
+      g === today ? { ...g, chats: [placeholder, ...g.chats] } : g,
+    );
+  }, [chats, showPlaceholder, draftId]);
 
   // Collapse is a prop, owned by AiModePanel — but the collapsed preference
   // persists per device in localStorage, and AiModePanel reads it on mount.
@@ -119,9 +172,6 @@ export function HistoryRail({
       </nav>
     );
   }
-
-  const groups = groupChats(chats);
-  const searching = query.trim().length > 0;
 
   return (
     <nav className="history-rail" aria-label="Chat history">
@@ -161,9 +211,9 @@ export function HistoryRail({
         <p className="history-rail-error" role="alert">{error}</p>
       )}
 
-      {loading && chats.length === 0 ? (
+      {loading && !showPlaceholder && chats.length === 0 ? (
         <p className="history-rail-empty">Loading…</p>
-      ) : chats.length === 0 ? (
+      ) : !showPlaceholder && chats.length === 0 ? (
         <p className="history-rail-empty">
           {searching
             ? "No chats match your search."
@@ -182,92 +232,109 @@ export function HistoryRail({
                     (chat.id === activeId ? " is-active" : "")
                   }
                 >
-                  {editingId === chat.id ? (
-                    <input
-                      className="history-rail-rename"
-                      type="text"
-                      value={editValue}
-                      autoFocus
-                      onChange={(e) => setEditValue(e.target.value)}
-                      onBlur={() => {
-                        const trimmed = editValue.trim();
-                        if (trimmed && trimmed !== chat.title) {
-                          void rename(chat.id, trimmed);
-                        }
-                        setEditingId(null);
-                      }}
-                      onKeyDown={(e) => {
-                        if (e.key === "Enter") {
-                          (e.target as HTMLInputElement).blur();
-                        } else if (e.key === "Escape") {
-                          setEditingId(null);
-                        }
-                      }}
-                    />
+                  {showPlaceholder && chat.id === draftId ? (
+                    // showPlaceholder, not just an id match: once the REAL row
+                    // lands it carries this same id (that is the P2 identity
+                    // rule), and by then showPlaceholder is false — so this
+                    // branch must not also catch the real row and render it
+                    // as "New chat" with no rename/delete.
+                    //
+                    // No button: there is nothing to select (it is already the
+                    // current chat) and nothing to open. No rename or delete
+                    // either — both address a file that does not exist.
+                    <span className="history-rail-chat history-rail-chat-static">
+                      <span className="history-rail-chat-title">New chat</span>
+                    </span>
                   ) : (
-                    <button
-                      type="button"
-                      className="history-rail-chat"
-                      onClick={() => onSelect(chat.id)}
-                      title={chat.title}
-                    >
-                      <span className="history-rail-chat-title">{displayTitle(chat.title)}</span>
-                      {chat.snippet && (
-                        <span className="history-rail-chat-snippet">
-                          {chat.snippet}
-                        </span>
-                      )}
-                    </button>
-                  )}
-                  {editingId !== chat.id && (
-                    <div className="history-rail-actions">
-                      <button
-                        type="button"
-                        className="history-rail-action"
-                        aria-label="Rename chat"
-                        title="Rename"
-                        onClick={() => {
-                          setConfirmingId(null);
-                          setEditingId(chat.id);
-                          // Use the display fallback so the rename box opens
-                          // with a visible default to edit, not a blank input
-                          // that looks broken (and would save empty on blur).
-                          setEditValue(displayTitle(chat.title));
-                        }}
-                      >
-                        ✎
-                      </button>
-                      {confirmingId === chat.id ? (
-                        <button
-                          type="button"
-                          className="history-rail-action is-confirming"
-                          aria-label="Confirm delete chat"
-                          title="This cannot be undone — click to delete"
-                          onBlur={() => setConfirmingId(null)}
-                          onClick={() => {
-                            setConfirmingId(null);
-                            // Only on a real delete — a failed DELETE restores
-                            // the row, and deselecting then would discard the
-                            // analyst's view of a chat that still exists.
-                            void remove(chat.id).then((gone) => {
-                              if (gone) onDeleted?.(chat.id);
-                            });
+                    <>
+                      {editingId === chat.id ? (
+                        <input
+                          className="history-rail-rename"
+                          type="text"
+                          value={editValue}
+                          autoFocus
+                          onChange={(e) => setEditValue(e.target.value)}
+                          onBlur={() => {
+                            const trimmed = editValue.trim();
+                            if (trimmed && trimmed !== chat.title) {
+                              void rename(chat.id, trimmed);
+                            }
+                            setEditingId(null);
                           }}
-                        >
-                          Delete?
-                        </button>
+                          onKeyDown={(e) => {
+                            if (e.key === "Enter") {
+                              (e.target as HTMLInputElement).blur();
+                            } else if (e.key === "Escape") {
+                              setEditingId(null);
+                            }
+                          }}
+                        />
                       ) : (
                         <button
                           type="button"
-                          className="history-rail-action"
-                          aria-label="Delete chat"
-                          title="Delete"
-                          onClick={() => setConfirmingId(chat.id)}
+                          className="history-rail-chat"
+                          onClick={() => onSelect(chat.id)}
+                          title={chat.title}
                         >
-                          ✕
+                          <span className="history-rail-chat-title">{displayTitle(chat.title)}</span>
+                          {chat.snippet && (
+                            <span className="history-rail-chat-snippet">
+                              {chat.snippet}
+                            </span>
+                          )}
                         </button>
                       )}
-                    </div>
+                      {editingId !== chat.id && (
+                        <div className="history-rail-actions">
+                          <button
+                            type="button"
+                            className="history-rail-action"
+                            aria-label="Rename chat"
+                            title="Rename"
+                            onClick={() => {
+                              setConfirmingId(null);
+                              setEditingId(chat.id);
+                              // Use the display fallback so the rename box opens
+                              // with a visible default to edit, not a blank input
+                              // that looks broken (and would save empty on blur).
+                              setEditValue(displayTitle(chat.title));
+                            }}
+                          >
+                            ✎
+                          </button>
+                          {confirmingId === chat.id ? (
+                            <button
+                              type="button"
+                              className="history-rail-action is-confirming"
+                              aria-label="Confirm delete chat"
+                              title="This cannot be undone — click to delete"
+                              onBlur={() => setConfirmingId(null)}
+                              onClick={() => {
+                                setConfirmingId(null);
+                                // Only on a real delete — a failed DELETE restores
+                                // the row, and deselecting then would discard the
+                                // analyst's view of a chat that still exists.
+                                void remove(chat.id).then((gone) => {
+                                  if (gone) onDeleted?.(chat.id);
+                                });
+                              }}
+                            >
+                              Delete?
+                            </button>
+                          ) : (
+                            <button
+                              type="button"
+                              className="history-rail-action"
+                              aria-label="Delete chat"
+                              title="Delete"
+                              onClick={() => setConfirmingId(chat.id)}
+                            >
+                              ✕
+                            </button>
+                          )}
+                        </div>
+                      )}
+                    </>
                   )}
                 </div>
               ))}
