@@ -31,11 +31,14 @@ from __future__ import annotations
 
 import re
 
+from ingest.section_types import SECTION_DOC_TYPES
+
 # The five doc_types that are book SECTIONS rather than document types. Any
 # other doc_type is left entirely alone -- this module only ever folds these.
-SECTION_DOC_TYPES: frozenset[str] = frozenset(
-    {"detailed-list-pdf", "s-pdf", "bd-pdf", "bh-pdf", "topic-pdf"}
-)
+# Sourced from ingest/section_types.py rather than re-declared here -- this
+# exact vocabulary previously drifted across three hand-maintained copies
+# (see that module's docstring); re-listing it a fourth time here would be
+# the same mistake again.
 
 # JLBC's own directory naming on azjlbc.gov, verified against all 647 section
 # URLs in the live corpus: `22baseline`, `12book1` (the older Baseline

@@ -40,23 +40,12 @@ from ingest.discovery import (
     walk_approps_toc,
     walk_baseline_links,
 )
+from ingest.section_types import SECTION_KIND_TO_DOC_TYPE
 from scripts.build_book_catalog import edition_key, normalize_url
 
 CATALOG_PATH = Path(__file__).resolve().parent.parent / "data" / "jlbc-book-catalog.json"
 
 FAMILIES = ("approps", "baseline")
-
-# Section-filename → corpus doc_type. Mirrors the doc_types already in the
-# corpus (see documents.json), so discovered documents route to the same
-# extractors and chunkers as the ones ingested by hand.
-_SECTION_DOC_TYPES = {
-    "summary-section": "s-pdf",
-    "budget-highlights": "bh-pdf",
-    "budget-detail": "bd-pdf",
-    "detailed-list": "detailed-list-pdf",
-    "topic": "topic-pdf",
-    "other": "topic-pdf",
-}
 
 
 class Prober(Protocol):
@@ -293,7 +282,7 @@ def walk_edition(
         for entry in walker(plan.linked_toc_url, cache=cache):
             plan.documents.append(DiscoveredDoc(
                 url=normalize_url(entry.url), title=entry.title or entry.filename,
-                doc_type=_SECTION_DOC_TYPES.get(entry.section_kind, "topic-pdf"),
+                doc_type=SECTION_KIND_TO_DOC_TYPE.get(entry.section_kind, "topic-pdf"),
                 fiscal_year=plan.fiscal_year, code=Path(entry.filename).stem,
             ))
 
