@@ -7,7 +7,9 @@ docs/superpowers/specs/2026-08-11-title-filter-shorthand-design.md.
 """
 from __future__ import annotations
 
-from app.search_terms import search_terms
+import pytest
+
+from app.search_terms import _catalog_by_slug, search_terms
 
 
 def test_a_per_agency_document_carries_its_slug_and_reviewed_aliases():
@@ -97,10 +99,51 @@ def test_terms_are_lowercase_sorted_and_unique():
 
 def test_an_unreadable_catalog_degrades_to_no_agency_terms(monkeypatch):
     # Same failure posture as budget_doc_ids: never take the page down.
+    #
+    # Adapted 2026-08-11 (review fix): the guard used to wrap the whole of
+    # `_catalog_by_slug`, so patching that function to raise exercised it.
+    # It now wraps only the catalog READ inside `_catalog_by_slug`
+    # (`load_agency_catalog`) — patching `_catalog_by_slug` itself would
+    # bypass the guard entirely and just assert monkeypatch works. Patch the
+    # loader it calls instead.
+    #
+    # `_catalog_by_slug` is `lru_cache(maxsize=1)` — process-wide, not per
+    # test — so a successful call from an earlier test would otherwise
+    # short-circuit ours (never reaching the patched loader), and a
+    # successful call from THIS test would otherwise leave every later test
+    # reading an empty catalog. Clear before (force a fresh call through the
+    # patch) and after (don't leak that to whatever runs next), in a
+    # finally so a failed assertion still cleans up.
     def boom(*_a, **_kw):
         raise OSError("catalog unreadable")
 
-    monkeypatch.setattr("app.search_terms._catalog_by_slug", boom)
-    terms = search_terms("jlbc-approps-fy2026-ema", "approps-per-agency", 2026)
+    monkeypatch.setattr("chunking.agency_catalog.load_agency_catalog", boom)
+    _catalog_by_slug.cache_clear()
+    try:
+        terms = search_terms("jlbc-approps-fy2026-ema", "approps-per-agency", 2026)
+    finally:
+        _catalog_by_slug.cache_clear()
     assert "ema" not in terms
     assert "26ar" in terms  # the type shorthand needs no catalog
+
+
+def test_a_renamed_agency_entry_field_raises_instead_of_degrading(monkeypatch):
+    # The whole point of the narrowed guard (app/search_terms.py, 2026-08-11
+    # review fix): a field renamed on `AgencyEntry` is a programming bug, not
+    # an unreadable catalog, and must raise loudly rather than silently
+    # degrade to "no agency terms" for the entire corpus. Simulate the rename
+    # with an object that has no `.slug` — same failure `entry.slug` would
+    # hit if the real dataclass lost that field.
+    class _RenamedEntry:
+        pass
+
+    def bad_catalog(*_a, **_kw):
+        return {"whatever": _RenamedEntry()}
+
+    monkeypatch.setattr("chunking.agency_catalog.load_agency_catalog", bad_catalog)
+    _catalog_by_slug.cache_clear()  # see the cache note above
+    try:
+        with pytest.raises(AttributeError):
+            search_terms("jlbc-approps-fy2026-ema", "approps-per-agency", 2026)
+    finally:
+        _catalog_by_slug.cache_clear()

@@ -21,6 +21,11 @@ from __future__ import annotations
 
 from functools import lru_cache
 
+# Only used to name the two exceptions a bad catalog FILE can raise (see
+# _catalog_by_slug's narrowed try/except, 2026-08-11 review fix). Already in
+# this module's dependency closure via chunking/agency_catalog.py.
+import yaml
+
 # The lists below were tuned for QUESTIONS, where a stray "for" hard-filtered 13
 # of 47 eval queries onto Forestry. A filter box has no ranking — a term matches
 # or it does not — so retrieval's "demote to a boost" has no analogue here and
@@ -80,11 +85,31 @@ def _catalog_by_slug() -> dict[str, tuple[str, tuple[str, ...]]]:
 
     ~a dozen catalog entries are Gov-outline-only and carry `slug: None`; they
     are skipped rather than keyed under None.
+
+    Narrowed 2026-08-11 (review fix): only the catalog READ is guarded below
+    — an unreadable or missing YAML file degrades to an empty catalog, same
+    rule as `app.routes.corpus.budget_doc_ids`. The per-entry loop that
+    follows is deliberately OUTSIDE the try: it used to be inside a bare
+    `except Exception`, so a field renamed on `AgencyEntry` (`.slug`,
+    `.aliases`, `.canonical_id`) raised `AttributeError` and was silently
+    absorbed as "catalog unreadable" — shipping a corpus with zero agency
+    terms and nothing logged to say why. A renamed field is a programming
+    bug, not a bad file, and must raise.
+
+    Also caches on top of `load_agency_catalog`'s own `lru_cache`
+    (chunking/agency_catalog.py:72) — deliberate, not a missed dedupe: that
+    cache holds `{canonical_id: entry}`, and re-keying it by slug on every
+    request would rebuild this dict per call for no reason.
     """
     from chunking.agency_catalog import load_agency_catalog
 
+    try:
+        catalog = load_agency_catalog()
+    except (OSError, yaml.YAMLError):
+        return {}
+
     out: dict[str, tuple[str, tuple[str, ...]]] = {}
-    for entry in load_agency_catalog().values():
+    for entry in catalog.values():
         if not entry.slug:
             continue
         aliases = tuple(a.lower() for a in (entry.aliases or []))
@@ -109,13 +134,13 @@ def _agency_terms(doc_id: str) -> set[str]:
 
     Failure posture: an unreadable catalog yields no agency terms rather than a
     500 — same rule as `app.routes.corpus.budget_doc_ids`. Type shorthand needs
-    no catalog and still applies.
+    no catalog and still applies. That posture lives entirely in
+    `_catalog_by_slug`, which guards only the catalog READ; a malformed
+    `AgencyEntry` raises out of this function too (2026-08-11 review fix —
+    see `_catalog_by_slug` for why).
     """
     slug = doc_id.rsplit("-", 1)[-1].lower()
-    try:
-        entry = _catalog_by_slug().get(slug)
-    except Exception:  # noqa: BLE001 — absent or corrupt catalog
-        return set()
+    entry = _catalog_by_slug().get(slug)
     if entry is None:
         return set()
     canonical_id, aliases = entry
@@ -123,7 +148,12 @@ def _agency_terms(doc_id: str) -> set[str]:
     # it was named — agency:gov is the case that forced this list.
     if canonical_id in AMBIGUOUS_AGENCIES:
         return set()
-    return ({slug} | set(aliases)) - _blocked()
+    # `aliases` already contains `slug` unconditionally — chunking/
+    # agency_catalog.py's `_aliases()` appends the slug first, before any
+    # reviewed alias, whenever the entry has one (verified 2026-08-11). The
+    # `{slug} |` union here was a no-op; dropped rather than kept as
+    # ineffective belt-and-braces.
+    return set(aliases) - _blocked()
 
 
 def _type_terms(doc_type: str | None, fiscal_year: int | None) -> set[str]:
