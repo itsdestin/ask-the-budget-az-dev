@@ -38,6 +38,7 @@ source. When something ships, update only this file.
 | Query understanding | ✓ Shipped (2026-08-03) | Agency / doc-type / JLBC-shorthand parsing. recall@5 73.81% → 88.10%, recall@15 and @20 100%. Agency is a PREFERENCE, not a filter — a measured deviation from spec Q2 |
 | Budget Documents highlighting + book sections | ✓ **Shipped (2026-08-11)**, one browser check outstanding | Query highlighting marked NOTHING (measured 0 of 200 cards); now 96.5%. 647 documents rendering under raw slugs (`s-pdf`, `bd-pdf`) fold into the books they are sections of. See the section below |
 | AI Mode chat history | ✓ Shipped (2026-08-03), **reviewed and hardened 2026-08-11** | Per-device transcripts, browse/search/resume past chats, auto-naming, collapsible rail. Local disk only — never the share. A second review found ELEVEN defects, four of them silent data loss; all fixed. See the section below |
+| AI Mode persistent conversation | 🟡 **Code complete, NOT seen in a browser** (2026-08-11) | "+ New chat" shows a row at once; the conversation survives a tab switch and keeps streaming. 741 vitest / `tsc -b` clean. **The four headline behaviours have never been watched working — this machine has no OpenRouter key.** See the section below |
 
 ## Corpus — what is ingested and what is NOT (2026-08-01)
 
@@ -1346,6 +1347,125 @@ writes questions to disk in plain text; the first exchange goes to the model
 for naming — a confidentiality note that `docs/HANDBOOK.md` must carry, and
 the file does not exist yet), and `MAX_CONVERSATIONS = 40` may want a
 revisit now that eviction is no longer data loss.
+
+---
+
+## AI Mode persistent conversation — code complete, UNWATCHED (2026-08-11)
+
+Spec: `docs/superpowers/specs/2026-08-11-ai-mode-persistent-conversation-design.md`
+(P1–P8). Plan: `docs/superpowers/plans/2026-08-11-ai-mode-persistent-conversation.md`.
+Two things Destin asked for after using the shipped chat history: a new chat
+should appear in the rail the moment it starts, and the conversation should
+survive clicking Budget Documents. **Webapp-only** — nothing under `app/`,
+`harness/`, `retrieval/`, `ingest/`, `chunking/` or `citation/`, so the eval
+rule does not apply and no eval was run. **741 vitest / 73 files, `tsc -b`
+exit 0** (baseline 693: +18 here, ~30 from master since branching).
+
+### As shipped
+
+- **The new-chat row is a CLIENT-SIDE placeholder, never a file (P1).** It is
+  replaced by IDENTITY, not timing — the synthetic row renders while the
+  current conversation's id is absent from `/api/history`'s list, so there is
+  never a moment with two rows or with none. Writing an empty transcript was
+  rejected: it re-creates the zero-message rows deleted as debris hours
+  earlier, and contradicts H2's browsing-is-free.
+- **The conversation moved above the router (P4).** `AiSessionProvider` owns
+  corpus / selected chat / nonce; a headless `ChatEngine` owns `useChat`.
+  A route change is no longer an unmount, so nothing aborts. **Closing the tab
+  still aborts (P5)** — the page unloads and the socket drops, which is the
+  whole safety argument, since abort-on-close exists because a closed tab once
+  left a model streaming and billing into a dead socket.
+- **The key `${corpus}:${selectedChatId ?? "new"}:${nonce}` survives unchanged**
+  and still remounts on a corpus switch. `Ai.test.tsx`'s wire assertions
+  (`createdCorpora` → `["budget","fiscal_notes"]`) pass **unedited** through
+  the hoist — they are the wrong-corpus guard and were not allowed to move.
+
+### 🔴 The plan's own code was wrong in three places, each found by RUNNING it
+
+Worth keeping as the record of what a plan's finished-looking code block is
+actually worth:
+
+1. **A hook after an early return.** The new `useMemo` was placed below
+   `HistoryRail`'s `if (collapsed) return`, a conditional hook. Caught by a
+   PRE-EXISTING suite that toggles the rail — the plan's own new tests passed.
+2. **`chat.id === draftId` was not a sufficient render guard.** Once the real
+   row lands with that same id the predicate is still true, so the real titled
+   row would have rendered as a dead "New chat" span with no rename or delete.
+3. **The whole architecture diagram.** A keyed host wrapping `Header` +
+   `<Routes>` remounts the CURRENT ROUTE on a corpus switch, resetting
+   `Ai.tsx`'s unrelated `useAiStatus` probe and flashing the availability gate
+   over the composer. The remount boundary had to narrow to `ChatEngine`.
+
+### 🔴 P4's own scenario did NOT work when this first went green
+
+697 specs passed and the feature's headline behaviour was broken. `Ai.tsx`
+still unmounts on navigation and `useAiStatus()` had no cache, so returning to
+`/ai` re-probed from `null` and rendered the availability gate **over the live,
+surviving answer** — and a hiccuped probe rendered "AI Mode is currently
+unavailable" while a paid turn streamed invisibly behind it. Every spec mocks
+`aiStatus` with an already-resolving promise and then awaits the panel, so
+nothing could see it. Fixed both ways: the probe seeds from a module-level last
+verdict, and the gate yields to a conversation that already has turns.
+
+### The mirror is `useLayoutEffect`, and that is load-bearing
+
+`ChatEngine` reports its `useChat` result up to a stable provider. With a
+passive `useEffect` a rendered frame can exist where the picker reads "Fiscal
+notes" while `chat.send` is still the budget instance's closure — `send` bakes
+the corpus in at hook level. `useLayoutEffect` commits it in the same commit,
+before paint. The dep list names all eight members of `UseChatResult`
+individually; passing the whole object re-creates an infinite loop.
+
+### `chatDeleted` has been written three ways and two were wrong
+
+A functional updater (correct, but impure — StrictMode double-invokes it); a
+plain closure read (pure, but its only caller runs it AFTER an await, so
+deleting chat A then clicking chat B mid-flight discarded B); and the shipped
+`selectedIdRef`. **A fix for a style nitpick cost a real data-visible race.**
+Both that race and `INERT_CHAT.send`'s synchronous throw are now pinned by
+specs verified failing against the exact broken versions.
+
+### 🟡 OUTSTANDING — nobody has watched any of it work
+
+**No OpenRouter key on the dev machine**, so `/ai` renders the gate and no turn
+was ever driven. Headless Chrome on the merged build did confirm: all five
+routes render, `ai-fullpage` stays scoped to `/ai`, the no-key gate is correct,
+and **zero `POST /api/conversations`** across every route — so the hoisted
+`useChat` is genuinely inert and H2 holds. But the four headline behaviours are
+covered by jsdom alone, and jsdom missed six defects on this feature's
+predecessor. **On a keyed machine, confirm:**
+
+1. "+ New chat" → a selected "New chat" row under *Today* at once, no ✎ or ✕.
+2. Ask a question → the row keeps its place and takes a real title; never two
+   rows, never zero.
+3. Deep Research streaming → click Budget Documents, wait, come back: the
+   answer is there and no availability gate appears.
+4. Corpus switch mid-conversation → thread clears, tier back to Standard.
+5. **Close the tab mid-turn** → the server logs the turn ending. This is P5,
+   the only safety property here, and no test on this branch can reach it.
+6. Delete the chat you are looking at, having reached it by ASKING rather than
+   clicking the rail → expect the known cosmetic defect below.
+7. Add an API key to an install that had none, then visit `/ai` → watch for a
+   stale "unavailable" flash.
+
+### Four known Minors, deliberately carried
+
+- **A seam defect the parallel split created.** Deleting the row for a chat you
+  reached by asking (so `selectedChatId` is null) leaves the "New chat"
+  placeholder over a full thread: `chatDeleted` correctly does nothing, but the
+  id vanishes from `chats` so the placeholder re-renders. Not data loss — the
+  next send still works. The clean fix touches the P3 boundary, so it is
+  written down rather than fixed blind.
+- **`AiModePanel`'s own state now survives a corpus switch** (open PDF panel,
+  composer draft, rail collapse), because only `ChatEngine` is keyed now. P6/P7
+  read slightly false as a result. No wrong-corpus fetch is possible — the old
+  chips are gone from the thread.
+- **The verdict cache can show a stale definitive "unavailable"** where the old
+  code showed "Checking…" — the admin-just-added-a-key case. Self-corrects on
+  the round trip.
+- **A turn completing while the analyst is away never bumps the rail's reload
+  token**, so an auto-title can land unseen. This is defect 11 of the
+  2026-08-11 chat-history review re-opening through a new door.
 
 ---
 
