@@ -25,11 +25,34 @@ const FAMILY_OF_DOC_TYPE: Record<string, string> = {
   "budget-bill": "Budget Bill",
 };
 
-/** The family name for a doc_type. Unknown slugs become their own family under
- *  the raw slug — honest (nothing invented) and future-proof (a new doc_type
- *  still groups, it just isn't prettified until someone names it here). */
-export function familyOf(docType: string): string {
-  return FAMILY_OF_DOC_TYPE[docType] ?? docType;
+/** The family name for a document.
+ *
+ *  `sectionOf` wins when present: five doc_types (`s-pdf`, `bd-pdf`,
+ *  `bh-pdf`, `detailed-list-pdf`, `topic-pdf`) are not document types at all
+ *  but JLBC's own printed page-number prefixes, so which book they belong to
+ *  cannot be read off the doc_type — `detailed-list-pdf` splits 255
+ *  Appropriations Report / 45 Baseline. The server derives it from the
+ *  document's source URL (app/book_sections.py) so there is one
+ *  implementation, not one per language.
+ *
+ *  Otherwise unknown slugs become their own family under the raw slug —
+ *  honest (nothing invented) and future-proof (a new doc_type still groups,
+ *  it just isn't prettified until someone names it here). */
+export function familyOf(docType: string, sectionOf?: string | null): string {
+  return sectionOf ?? FAMILY_OF_DOC_TYPE[docType] ?? docType;
+}
+
+/** The doc_type slugs that are book SECTIONS, derived from the corpus itself.
+ *
+ *  WHY derived and not written down: `app/book_sections.py` already owns that
+ *  vocabulary (`SECTION_DOC_TYPES`), and a second hand-maintained copy here
+ *  would silently stop matching the day a sixth section type is ingested. A
+ *  document the server marked with `section_of` HAS a section doc_type, by
+ *  definition — so the listing already answers the question. */
+export function sectionSlugsFrom(
+  docs: readonly { doc_type: string; section_of: string | null }[],
+): string[] {
+  return [...new Set(docs.filter((d) => d.section_of).map((d) => d.doc_type))];
 }
 
 /** Every doc_type slug that belongs to a family — the inverse of `familyOf`.
@@ -40,11 +63,18 @@ export function familyOf(docType: string): string {
  *
  *  A family with no curated slugs maps to ITSELF, because `familyOf` returns
  *  the raw slug for an unrecognised doc_type — so for those, the family name
- *  and the slug are the same string. */
-export function slugsForFamily(family: string): string[] {
+ *  and the slug are the same string.
+ *
+ *  `sectionSlugs` (from `sectionSlugsFrom`) joins the two BOOK families:
+ *  `detailed-list-pdf` and `topic-pdf` genuinely occur under both, and the
+ *  server's `section_family` filter is what makes the result exact. */
+export function slugsForFamily(family: string, sectionSlugs: readonly string[] = []): string[] {
   const slugs = Object.entries(FAMILY_OF_DOC_TYPE)
     .filter(([, name]) => name === family)
     .map(([slug]) => slug);
+  if (family === "Baseline" || family === "Appropriations Report") {
+    return [...slugs, ...sectionSlugs];
+  }
   return slugs.length ? slugs : [family];
 }
 

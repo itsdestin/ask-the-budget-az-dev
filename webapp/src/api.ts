@@ -37,6 +37,11 @@ export interface SearchFilters {
   publisher?: string[];
   doc_type?: string[];
   agency?: string[];
+  /** Which BOOK's sections to keep when `doc_type` names a section slug that
+   *  belongs to both books ("Baseline" | "Appropriations Report") — sent only
+   *  when exactly one book family is selected (see contentSearch.ts's
+   *  `toSearchFilters`). Mirrors app/routes/search.py's `SearchFilters`. */
+  section_family?: string;
 }
 
 // Surface FastAPI's `detail` field in thrown errors — the backend goes out of

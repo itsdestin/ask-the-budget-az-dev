@@ -1,6 +1,6 @@
 import type { SearchResult } from "../api";
 import { groupPassages, highlight, highlightTerms, queryTerms, toSearchFilters } from "./contentSearch";
-import { slugsForFamily } from "../reportFamilies";
+import { sectionSlugsFrom, slugsForFamily } from "../reportFamilies";
 
 function hit(over: Partial<SearchResult>): SearchResult {
   return {
@@ -11,10 +11,15 @@ function hit(over: Partial<SearchResult>): SearchResult {
   };
 }
 
-test("a family maps to every doc_type slug that belongs to it", () => {
-  expect(slugsForFamily("Baseline").sort())
-    .toEqual(["baseline-cross-cut", "baseline-per-agency"]);
-  expect(slugsForFamily("Annual Financial Report")).toEqual(["afr"]);
+test("a family maps to every doc_type slug that belongs to it, plus section slugs for a BOOK family", () => {
+  // Baseline and Appropriations Report also fold in whatever section slugs
+  // are passed (Task 8) -- the corpus-derived list, never a second
+  // hand-maintained copy of ingest/section_types.py's SECTION_DOC_TYPES.
+  expect(slugsForFamily("Baseline", ["s-pdf", "detailed-list-pdf"]).sort())
+    .toEqual(["baseline-cross-cut", "baseline-per-agency", "detailed-list-pdf", "s-pdf"]);
+  // A non-book family ignores sectionSlugs even when some are passed -- only
+  // Baseline/Appropriations Report have sections at all.
+  expect(slugsForFamily("Annual Financial Report", ["s-pdf"])).toEqual(["afr"]);
 });
 
 test("an unknown family maps to itself — familyOf's own contract", () => {
@@ -24,10 +29,38 @@ test("an unknown family maps to itself — familyOf's own contract", () => {
 });
 
 test("rail filters become backend filters, expanding families to slugs", () => {
+  // A single book family selected also sends `section_family` (Task 8), so
+  // Task 7's exact post-rank filter can tell a Baseline section from an
+  // Appropriations Report section sharing the same doc_type (detailed-list-pdf,
+  // topic-pdf occur under both).
   expect(toSearchFilters(new Set(["Baseline"]), new Set([2027]))).toEqual({
     doc_type: ["baseline-per-agency", "baseline-cross-cut"],
     fiscal_year: [2027],
+    section_family: "Baseline",
   });
+});
+
+test("section_family is omitted when both book families are selected -- nothing to exclude", () => {
+  expect(
+    toSearchFilters(new Set(["Baseline", "Appropriations Report"]), new Set()),
+  ).toEqual({
+    doc_type: [
+      "baseline-per-agency",
+      "baseline-cross-cut",
+      "approps-per-agency",
+      "approps-cross-cut",
+    ],
+  });
+});
+
+test("section slugs come from the corpus, never from a hardcoded list", () => {
+  const docs = [
+    { doc_type: "s-pdf", section_of: "Baseline" },
+    { doc_type: "brand-new-section-pdf", section_of: "Baseline" },
+    { doc_type: "baseline-per-agency", section_of: null },
+  ];
+  // A section type nobody has written down anywhere still reaches the filter.
+  expect(sectionSlugsFrom(docs).sort()).toEqual(["brand-new-section-pdf", "s-pdf"]);
 });
 
 test("no filters means an empty object, never empty arrays", () => {
