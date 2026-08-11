@@ -7,9 +7,11 @@ import * as api from "../../api";
 // point of this page: a passage that cannot be opened back to its own PDF
 // page is a quote with no source.
 
+// terms: [] — Task 4 made CorpusDocument.terms required repo-wide; this file
+// tests the source panel, not queryHit, so an empty array is a neutral filler.
 const DOCS: api.CorpusDocument[] = [
   { doc_id: "b27", title: "FY 2027 Baseline — AHCCCS", publisher: "jlbc",
-    doc_type: "baseline-per-agency", fiscal_year: 2027, doc_url: "https://x/axs.pdf" },
+    doc_type: "baseline-per-agency", fiscal_year: 2027, doc_url: "https://x/axs.pdf", terms: [] },
 ];
 
 const HITS: api.SearchResult[] = [

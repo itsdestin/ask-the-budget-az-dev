@@ -13,23 +13,28 @@ import * as api from "../api";
 
 /** A small hand-built corpus: two years, several families, one single-doc
  *  family (AFR), one folded-publisher doc (legislature), one with no URL. */
+// Task 4: CorpusDocument.terms is now required (route always sends it; the
+// client never computes it — see api.ts). `terms: []` on every literal below
+// keeps these 9 pre-existing fixtures' matching behaviour identical to before
+// this task, since an empty terms array can never satisfy an exact-equality
+// check.
 const DOCS: api.CorpusDocument[] = [
-  { doc_id: "b27-ahcccs", title: "FY 2027 Baseline — AHCCCS", publisher: "jlbc", doc_type: "baseline-per-agency", fiscal_year: 2027, doc_url: "https://x/axs.pdf" },
-  { doc_id: "b27-edu", title: "FY 2027 Baseline — Department of Education", publisher: "jlbc", doc_type: "baseline-per-agency", fiscal_year: 2027, doc_url: "https://x/edu.pdf" },
-  { doc_id: "b27-dcs", title: "FY 2027 Baseline — Department of Child Safety", publisher: "jlbc", doc_type: "baseline-per-agency", fiscal_year: 2027, doc_url: "https://x/dcs.pdf" },
-  { doc_id: "eb27", title: "FY 2027 Executive Budget — Governor's Office", publisher: "governor", doc_type: "governors-budget", fiscal_year: 2027, doc_url: "https://x/eb27.pdf" },
-  { doc_id: "ar26-ahcccs", title: "FY 2026 Appropriations Report — AHCCCS", publisher: "jlbc", doc_type: "approps-per-agency", fiscal_year: 2026, doc_url: "https://x/ar-axs.pdf" },
-  { doc_id: "ar26-edu", title: "FY 2026 Appropriations Report — Department of Education", publisher: "jlbc", doc_type: "approps-per-agency", fiscal_year: 2026, doc_url: "https://x/ar-edu.pdf" },
-  { doc_id: "afr26", title: "FY 2026 Annual Financial Report", publisher: "agao", doc_type: "afr", fiscal_year: 2026, doc_url: "https://x/afr26.pdf" },
+  { doc_id: "b27-ahcccs", title: "FY 2027 Baseline — AHCCCS", publisher: "jlbc", doc_type: "baseline-per-agency", fiscal_year: 2027, doc_url: "https://x/axs.pdf", terms: [] },
+  { doc_id: "b27-edu", title: "FY 2027 Baseline — Department of Education", publisher: "jlbc", doc_type: "baseline-per-agency", fiscal_year: 2027, doc_url: "https://x/edu.pdf", terms: [] },
+  { doc_id: "b27-dcs", title: "FY 2027 Baseline — Department of Child Safety", publisher: "jlbc", doc_type: "baseline-per-agency", fiscal_year: 2027, doc_url: "https://x/dcs.pdf", terms: [] },
+  { doc_id: "eb27", title: "FY 2027 Executive Budget — Governor's Office", publisher: "governor", doc_type: "governors-budget", fiscal_year: 2027, doc_url: "https://x/eb27.pdf", terms: [] },
+  { doc_id: "ar26-ahcccs", title: "FY 2026 Appropriations Report — AHCCCS", publisher: "jlbc", doc_type: "approps-per-agency", fiscal_year: 2026, doc_url: "https://x/ar-axs.pdf", terms: [] },
+  { doc_id: "ar26-edu", title: "FY 2026 Appropriations Report — Department of Education", publisher: "jlbc", doc_type: "approps-per-agency", fiscal_year: 2026, doc_url: "https://x/ar-edu.pdf", terms: [] },
+  { doc_id: "afr26", title: "FY 2026 Annual Financial Report", publisher: "agao", doc_type: "afr", fiscal_year: 2026, doc_url: "https://x/afr26.pdf", terms: [] },
   // The folded "legislature" code displays as JLBC; this one has no URL.
-  { doc_id: "bb26", title: "FY 2026 General Appropriations Act (SB 1735)", publisher: "legislature", doc_type: "budget-bill", fiscal_year: 2026, doc_url: null },
+  { doc_id: "bb26", title: "FY 2026 General Appropriations Act (SB 1735)", publisher: "legislature", doc_type: "budget-bill", fiscal_year: 2026, doc_url: null, terms: [] },
   // An unregistered doc_type (IMPORTANT 5, 2026-08-10): reportFamilies.ts's
   // FAMILY_OF_DOC_TYPE has no entry for it, so it must still render — under
   // its own raw slug as its own family, per familyOf's documented contract
   // (orderFamilies' WHY comment in Search.tsx) — rather than being silently
   // dropped. No prior fixture in this file exercised that path. Shifts the
   // report count from 5 to 6; see "the status line counts reports" below.
-  { doc_id: "misc26", title: "FY 2026 Special Program Review", publisher: "jlbc", doc_type: "program-review", fiscal_year: 2026, doc_url: "https://x/pr26.pdf" },
+  { doc_id: "misc26", title: "FY 2026 Special Program Review", publisher: "jlbc", doc_type: "program-review", fiscal_year: 2026, doc_url: "https://x/pr26.pdf", terms: [] },
 ];
 
 function mount(docs = DOCS, entry = "/search") {
@@ -463,4 +468,124 @@ test("the year card head counts reports only", async () => {
   // the visible meta line, and neither may quote a per-agency document total.
   expect(head).toHaveAccessibleName(/Fiscal Year 2027: \d+ reports?$/i);
   expect(head.textContent).not.toMatch(/document/i);
+});
+
+// --- Task 4: all-words matching + terms (analyst shorthand) -----------------
+
+// Two real-shaped rows for the shorthand tests. Terms are supplied
+// explicitly: the client never computes them, it only matches what the
+// route handed it (app/search_terms.py).
+const SHORTHAND_DOCS: api.CorpusDocument[] = [
+  {
+    doc_id: "jlbc-approps-fy2026-ema",
+    title: "Emergency and Military Affairs, Department of — FY 2026 Appropriations Report",
+    publisher: "jlbc",
+    doc_type: "approps-per-agency",
+    fiscal_year: 2026,
+    doc_url: "https://x/ar-ema.pdf",
+    terms: ["26ar", "ar", "dema", "ema"],
+  },
+  {
+    doc_id: "jlbc-approps-fy2026-adc",
+    title: "Corrections, State Department of — FY 2026 Appropriations Report",
+    publisher: "jlbc",
+    doc_type: "approps-per-agency",
+    fiscal_year: 2026,
+    doc_url: "https://x/ar-adc.pdf",
+    terms: ["26ar", "adc", "ar", "doc"],
+  },
+];
+
+test("shorthand finds a document whose title contains none of it", async () => {
+  // "dema" matched 0 of 5,330 titles before this — it is the agency's spoken
+  // acronym, not any word in "Emergency and Military Affairs, Department of".
+  mount(SHORTHAND_DOCS);
+  await screen.findByRole("button", { name: /Fiscal Year 2026:/i });
+  fireEvent.change(screen.getByLabelText(/filter documents by agency or keyword/i), {
+    target: { value: "26ar dema" },
+  });
+  expect(screen.getByText(/Emergency and Military Affairs/i)).toBeInTheDocument();
+  expect(screen.queryByText(/Corrections, Department of/i)).toBeNull();
+});
+
+test("every word must match — one unmatchable word returns nothing", async () => {
+  mount();
+  await screen.findByRole("button", { name: /Fiscal Year 2027:/i });
+  fireEvent.change(screen.getByLabelText(/filter documents by agency or keyword/i), {
+    target: { value: "ahcccs zzz-no-such-thing" },
+  });
+  expect(screen.queryByText(/AHCCCS/i)).toBeNull();
+});
+
+test("terms match whole tokens only, never as substrings", async () => {
+  // "ar" must not match a document merely because its terms contain "26ar" —
+  // exact equality is what stops short slugs matching half the corpus.
+  // NOTE the title deliberately contains no "ar": title matching stays
+  // substring, so a title with "Arizona" in it would match "ar" honestly and
+  // prove nothing about terms.
+  mount([
+    {
+      doc_id: "jlbc-s-fy2027-01",
+      title: "Something Else Entirely",
+      publisher: "jlbc",
+      doc_type: "s-pdf",
+      fiscal_year: 2027,
+      doc_url: null,
+      terms: ["26ar"],
+    },
+  ]);
+  await screen.findByRole("button", { name: /Fiscal Year 2027:/i });
+  fireEvent.change(screen.getByLabelText(/filter documents by agency or keyword/i), {
+    target: { value: "ar" },
+  });
+  expect(screen.queryByText(/Something Else Entirely/i)).toBeNull();
+});
+
+test("partial title typing still works", async () => {
+  // Title matching stays SUBSTRING. This change may only ever add.
+  mount();
+  await screen.findByRole("button", { name: /Fiscal Year 2027:/i });
+  fireEvent.change(screen.getByLabelText(/filter documents by agency or keyword/i), {
+    target: { value: "ahccc" },
+  });
+  // AHCCCS27, not a bare /AHCCCS/i: DOCS has TWO titles containing "AHCCCS"
+  // (the FY 2027 Baseline row and the FY 2026 Appropriations Report row), so
+  // the loose regex throws "found multiple elements" — a selector defect, not
+  // a matching regression (both rows correctly match "ahccc" by substring).
+  expect(screen.getByText(AHCCCS27)).toBeInTheDocument();
+});
+
+test("a stored publisher code matches, not just its display label", async () => {
+  // publisherLabel maps "governor" -> "OSPB", and only the label was searched,
+  // so typing the code a reader sees in the corpus matched nothing.
+  mount([
+    {
+      doc_id: "ospb-exec-fy2027",
+      title: "Executive Budget — FY 2027",
+      publisher: "governor",
+      doc_type: "governors-budget",
+      fiscal_year: 2027,
+      doc_url: "https://x/eb27.pdf",
+      terms: ["27exec", "exec"],
+    },
+  ]);
+  await screen.findByRole("button", { name: /Fiscal Year 2027:/i });
+  fireEvent.change(screen.getByLabelText(/filter documents by agency or keyword/i), {
+    target: { value: "governor" },
+  });
+  // Exact title string, not /Executive Budget/i: the page's always-on intro
+  // paragraph ("...executive budgets, and budget bills.") also matches that
+  // regex, so the loose form throws "found multiple elements" — a selector
+  // defect, not a matching regression.
+  expect(screen.getByText("Executive Budget — FY 2027")).toBeInTheDocument();
+});
+
+test("matching is case-insensitive on both sides", async () => {
+  // JLBC's own URLs spell it /26AR/.
+  mount(SHORTHAND_DOCS);
+  await screen.findByRole("button", { name: /Fiscal Year 2026:/i });
+  fireEvent.change(screen.getByLabelText(/filter documents by agency or keyword/i), {
+    target: { value: "26AR DEMA" },
+  });
+  expect(screen.getByText(/Emergency and Military Affairs/i)).toBeInTheDocument();
 });

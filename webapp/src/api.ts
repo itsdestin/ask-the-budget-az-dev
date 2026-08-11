@@ -151,6 +151,12 @@ export interface CorpusDocument {
   /** The document's own source PDF/DOCX URL; null when the sidecar doesn't
    *  know it — the row then renders unlinked rather than guessing. */
   doc_url: string | null;
+  /** Extra strings the filter box matches by EXACT token equality — the
+   *  agency's JLBC URL slug and reviewed aliases, plus this report type's
+   *  shorthand ("26ar"). Computed server-side in app/search_terms.py so
+   *  JLBC's convention has one implementation, not two. Always present;
+   *  empty for a document with neither a known agency nor a shorthand type. */
+  terms: string[];
 }
 
 /** The whole budget corpus as one flat listing, for the browse-first Budget

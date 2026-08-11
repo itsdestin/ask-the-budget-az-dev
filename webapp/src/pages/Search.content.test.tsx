@@ -6,11 +6,13 @@ import * as api from "../api";
 // Content (retrieval) mode. The browse/title half lives in Search.test.tsx;
 // splitting them keeps either file readable.
 
+// terms: [] — Task 4 made CorpusDocument.terms required repo-wide; content
+// (retrieval) mode doesn't use queryHit, so an empty array is a neutral filler.
 const DOCS: api.CorpusDocument[] = [
   { doc_id: "b27-ahcccs", title: "FY 2027 Baseline — AHCCCS", publisher: "jlbc",
-    doc_type: "baseline-per-agency", fiscal_year: 2027, doc_url: "https://x/axs.pdf" },
+    doc_type: "baseline-per-agency", fiscal_year: 2027, doc_url: "https://x/axs.pdf", terms: [] },
   { doc_id: "afr26", title: "FY 2026 Annual Financial Report", publisher: "agao",
-    doc_type: "afr", fiscal_year: 2026, doc_url: "https://x/afr26.pdf" },
+    doc_type: "afr", fiscal_year: 2026, doc_url: "https://x/afr26.pdf", terms: [] },
 ];
 
 const HITS: api.SearchResult[] = [

@@ -160,16 +160,33 @@ function orderFamilies(found: string[]): string[] {
   return [...known, ...unknown];
 }
 
-/** Does this document match the typed query? Ported from the mockup's
- *  queryHit: a case-insensitive substring of the title OR of the publisher's
- *  DISPLAY label (so "osb" finds OSPB docs). NOT multi-term AND — the mockup
- *  matches a single substring, and splitting would redesign the filter. */
+/** Does this document match the typed query?
+ *
+ *  EVERY whitespace-separated word must match something. This replaced a
+ *  single whole-query substring test (2026-08-11), which was not a
+ *  preference: "26ar dema" cannot match under it at any vocabulary, because
+ *  it is not a substring of anything. The old comment here said splitting
+ *  "would redesign the filter" — it does, and that is the change.
+ *
+ *  Title and publisher stay SUBSTRING so partial typing keeps working
+ *  ("ahccc" finds AHCCCS). `terms` are matched by EXACT equality instead:
+ *  they are 2-6 character slugs, and "ar" as a substring would match
+ *  "arizona" in nearly every title in the corpus.
+ *
+ *  Publisher matches on the stored CODE as well as the display label,
+ *  because publisherLabel maps "governor" to "OSPB" and typing the code
+ *  matched nothing at all.
+ *
+ *  `terms.includes` is a linear scan of at most ~6 short strings; a Set per
+ *  document would cost more to build than it saves. */
 function queryHit(d: api.CorpusDocument, q: string): boolean {
-  if (!q) return false;
-  const needle = q.toLowerCase();
-  return (
-    d.title.toLowerCase().includes(needle) ||
-    publisherLabel(d.publisher).toLowerCase().includes(needle)
+  const tokens = q.toLowerCase().split(/\s+/).filter(Boolean);
+  if (!tokens.length) return false;
+  const title = d.title.toLowerCase();
+  const label = publisherLabel(d.publisher).toLowerCase();
+  const code = d.publisher.toLowerCase();
+  return tokens.every(
+    (t) => title.includes(t) || label.includes(t) || code.includes(t) || d.terms.includes(t),
   );
 }
 

@@ -20,9 +20,11 @@ import * as api from "./ai-test-fixtures";
 import * as realApi from "../api";
 import { AI_STATUS, stubScrollIntoView } from "./ai-test-fixtures";
 
+// terms: [] — Task 4 made CorpusDocument.terms required repo-wide; this file's
+// fixtures don't exercise matching, so an empty array is a neutral filler.
 const DOCS: realApi.CorpusDocument[] = [
-  { doc_id: "b27-ahcccs", title: "FY 2027 Baseline — AHCCCS", publisher: "jlbc", doc_type: "baseline-per-agency", fiscal_year: 2027, doc_url: "https://x/axs.pdf" },
-  { doc_id: "b27-edu", title: "FY 2027 Baseline — Department of Education", publisher: "jlbc", doc_type: "baseline-per-agency", fiscal_year: 2027, doc_url: "https://x/edu.pdf" },
+  { doc_id: "b27-ahcccs", title: "FY 2027 Baseline — AHCCCS", publisher: "jlbc", doc_type: "baseline-per-agency", fiscal_year: 2027, doc_url: "https://x/axs.pdf", terms: [] },
+  { doc_id: "b27-edu", title: "FY 2027 Baseline — Department of Education", publisher: "jlbc", doc_type: "baseline-per-agency", fiscal_year: 2027, doc_url: "https://x/edu.pdf", terms: [] },
 ];
 
 function mount() {
