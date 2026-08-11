@@ -640,6 +640,16 @@ export function Search() {
   // "year|family" keys with an open tray.
   const [openTrays, setOpenTrays] = useState<ReadonlySet<string>>(new Set());
   const box = useRef<HTMLInputElement>(null);
+  // True only right after the reader clicks "Back to title matches" — set by
+  // that click and nothing else, cleared the moment they edit the query. WHY
+  // it exists (CRITICAL, 2026-08-10): escalation only ever happens at zero
+  // title hits, so the reader who uses this toggle is, by construction, the
+  // exact population that stays at zero hits after returning — `mode` is a
+  // dependency of the escalation effect below, so without this flag that
+  // effect re-armed a fresh 2000ms timer on the very re-render the click
+  // caused, and yanked the reader back into content mode 2s after they asked
+  // to leave. A ref, not state: nothing here should trigger a re-render.
+  const suppressEscalation = useRef(false);
   // Which report's format chooser is open, or null. WHY it lives on the page
   // and not inside the card: `.report-modal` is `position:fixed`, and every
   // rule for it is scoped under `.page-docs` — mounted outside this <main> it
@@ -787,6 +797,10 @@ export function Search() {
   // zero hits, and only after the box goes quiet.
   useEffect(() => {
     if (mode !== "titles" || !searching || titleHits > 0) return;
+    // The reader just clicked their way back to titles — do not re-escalate
+    // them out of the state they deliberately chose (CRITICAL, 2026-08-10;
+    // see suppressEscalation's own comment above).
+    if (suppressEscalation.current) return;
     // Nothing to escalate to until the listing has loaded — a corpus that has
     // not arrived yet has zero title hits for every query.
     if (phase.kind !== "ready") return;
@@ -965,6 +979,11 @@ export function Search() {
                     // would fire a retrieval request on every keystroke.
                     setQuery(e.target.value);
                     setMode("titles");
+                    // A new query means the escalation suppression from a
+                    // previous "Back to title matches" click no longer
+                    // applies — without this, typing a fresh query could
+                    // never auto-escalate again (CRITICAL, 2026-08-10).
+                    suppressEscalation.current = false;
                   }}
                   placeholder="Agency or keyword…"
                   aria-label="Filter documents by agency or keyword"
@@ -1119,7 +1138,19 @@ export function Search() {
                       type="button"
                       className={mode === "contents" ? "allbtn on" : "allbtn"}
                       aria-pressed={mode === "contents"}
-                      onClick={() => setMode(mode === "contents" ? "titles" : "contents")}
+                      onClick={() => {
+                        if (mode === "contents") {
+                          // A deliberate return to titles — arm the
+                          // suppression so the escalation effect (which
+                          // re-runs because `mode` is one of its deps)
+                          // doesn't immediately re-arm a timer that yanks
+                          // the reader right back (CRITICAL, 2026-08-10).
+                          suppressEscalation.current = true;
+                          setMode("titles");
+                        } else {
+                          setMode("contents");
+                        }
+                      }}
                     >
                       <span className="all-off">
                         <SearchIcon /> Search document contents

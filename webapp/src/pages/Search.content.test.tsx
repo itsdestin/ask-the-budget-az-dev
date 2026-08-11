@@ -122,6 +122,42 @@ test("typing again restarts the escalation pause instead of firing on the stale 
   vi.useRealTimers();
 });
 
+test("clicking back to title matches is not a dead end that yanks the reader back into content mode", async () => {
+  // CRITICAL, 2026-08-10: escalation only ever happens at zero title hits, so
+  // the reader who clicks "Back to title matches" is, by construction, still
+  // at zero hits after returning. `mode` is one of the escalation effect's
+  // own deps, so without suppression that effect re-ran on the very re-render
+  // the click caused and armed a FRESH 2000ms timer — 2s after the reader
+  // asked to leave content mode, they were yanked straight back into it and a
+  // retrieval request re-fired. This types a zero-hit query, lets it
+  // auto-escalate, clicks back, and asserts nothing re-fires — then types a
+  // genuinely NEW query and asserts THAT one still escalates normally (a
+  // suppression flag that never clears would pass the first half of this
+  // test with the same bug still present for every query after the first).
+  vi.useFakeTimers();
+  const search = mount();
+  await vi.waitFor(() => expect(screen.getByText(/Fiscal Year 2027/)).toBeInTheDocument());
+  fireEvent.change(box(), { target: { value: "child care subsidy" } });
+  await vi.advanceTimersByTimeAsync(2000);
+  expect(search).toHaveBeenCalledTimes(1);
+  await vi.waitFor(() =>
+    expect(screen.getByRole("button", { name: /back to title matches/i })).toBeInTheDocument(),
+  );
+  fireEvent.click(screen.getByRole("button", { name: /back to title matches/i }));
+  await vi.waitFor(() => expect(screen.getByText(/searching document titles/i)).toBeInTheDocument());
+
+  await vi.advanceTimersByTimeAsync(5000);
+  expect(search).toHaveBeenCalledTimes(1); // still 1 — no re-escalation
+  expect(screen.getByText(/searching document titles/i)).toBeInTheDocument();
+
+  // A genuinely new query must still escalate on its own.
+  fireEvent.change(box(), { target: { value: "another zero hit query" } });
+  await vi.advanceTimersByTimeAsync(2000);
+  expect(search).toHaveBeenCalledTimes(2);
+  expect(search).toHaveBeenNthCalledWith(2, "another zero hit query", {}, "budget");
+  vi.useRealTimers();
+});
+
 test("the rail's filters reach the backend as doc_type SLUGS", async () => {
   vi.useFakeTimers();
   const search = mount();
