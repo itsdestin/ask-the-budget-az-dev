@@ -195,6 +195,42 @@ agency-scoped search work.
 edition is ~110 per-agency documents; uploading the single-file PDF would add
 a 400-page book as ONE document and degrade agency search for that year.
 
+#### 🔴 The registry must also decide doc_id identity
+
+Found while planning, by executing `make_doc_id` rather than reading it:
+
+```
+make_doc_id(publisher='governor', doc_type='agency-submission',
+            fiscal_year=2027, filename='BHA-FY27.pdf')
+  -> 'governor-agency-submission-fy2027'
+make_doc_id(publisher='governor', doc_type='agency-submission',
+            fiscal_year=2027, filename='DXA-FY27.pdf')
+  -> 'governor-agency-submission-fy2027'          # IDENTICAL
+```
+
+**The non-JLBC branch drops `filename` entirely**, because it assumes one
+document per publisher per fiscal year. That holds for the AFR and the
+Executive Budget. It is false for agency submissions (78 in FY2027) and bill
+summaries (3 in FY2027). A write is an upsert, so ingesting the 78 would have
+left **one document**, with nothing erroring anywhere — the same shape as the
+JLBC book collision fixed in `f85b20a`, arriving by a different route.
+
+So the registry carries **`one_per_year`** per type, and `make_doc_id`
+consults it. `afr` and `governors-budget` are declared one-per-year and keep
+their exact existing ids; the two new types are not, and take the filename
+into their identity.
+
+**This is why identity belongs in the registry rather than being inferred
+from the publisher.** The publisher was never the thing that determined it —
+it was a proxy that happened to hold for the three types that existed.
+
+Bill summaries would not have collided, because their publisher is `jlbc` and
+that branch does use the filename. Agency submissions need a publisher value
+that does not exist yet; the harvest records the **agency name** (78 distinct
+values), so a new publisher `agency` is added rather than 78 — the agency
+identity already lives in the entity stamper and `agency_canonical_id`, and 78
+publishers would destroy the publisher filter's usefulness.
+
 ### T2 — `budget-bill-summary` is a new type with a stage
 
 The JLBC-published *"House and Senate Budget Bills"* PDF at
