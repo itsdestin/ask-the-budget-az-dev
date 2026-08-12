@@ -1,4 +1,4 @@
-# Corpus Navigation — corpus map, spread retrieval, coverage metadata, expand
+# Corpus Navigation — corpus map, spread retrieval, coverage + inferred-filter metadata
 
 **Date:** 2026-08-12 (amended same day after external review — see the
 review-fixes note at the bottom)
