@@ -1324,6 +1324,16 @@ class ToolExecutor:
             "dense_count": result.dense_count,
             "fused_count": result.fused_count,
         }
+        if result.year_coverage:
+            # Spec N7: what the pool cap hid — the candidate distribution by
+            # fiscal year WITHIN the filters that were in force, which the
+            # N11 fields below name. Approximate (pre-rerank), and the prompt
+            # says so; it exists so the model can tell "all FY2026 because
+            # that is all there is" from "the cap hid the other years".
+            # String keys because this is JSON.
+            response["year_coverage"] = {
+                str(year): count for year, count in sorted(result.year_coverage.items())
+            }
         if spread is not None:
             # One entry per REQUESTED group, in request order, including the
             # ones that matched nothing (count 0, top_score null). The model

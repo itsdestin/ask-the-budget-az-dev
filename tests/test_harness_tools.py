@@ -1355,3 +1355,41 @@ def test_a_failed_spread_call_still_consumes_nothing_the_model_needs(monkeypatch
     out = _run(ex, "retrieve", {"query": "q"})
     assert out["first_call_capped"] is True
     assert plain[0].top_k == FIRST_CALL_TOP_K_CAP
+
+
+# ---------------------------------------------------------------------------
+# year_coverage on the tool response (spec N7)
+# ---------------------------------------------------------------------------
+
+
+def _fake_retrieve_result(monkeypatch, **result_kwargs):
+    """Monkeypatch harness.tools.retrieve to return one exact RetrievalResult."""
+    rows = result_kwargs.pop("chunks", None)
+    rows = [_chunk()] if rows is None else rows
+
+    def fake(req, **kwargs):
+        return RetrievalResult(
+            chunks=rows,
+            top_score=rows[0].score if rows else -1e9,
+            reranker_scores=[c.score for c in rows],
+            **result_kwargs,
+        )
+
+    monkeypatch.setattr("harness.tools.retrieve", fake)
+
+
+def test_year_coverage_reaches_the_response_with_string_keys(monkeypatch):
+    """JSON object keys are strings; emitting ints would let json.dumps
+    coerce them silently and the model would see a shape nothing declared."""
+    _fake_retrieve_result(monkeypatch, year_coverage={2024: 12, 2005: 41})
+    ex = ToolExecutor("conv-1", "budget", "standard")
+    out = _run(ex, "retrieve", {"query": "q"})
+    assert out["year_coverage"] == {"2005": 41, "2024": 12}
+    # Sorted, so the model reads a chronology rather than a dict ordering.
+    assert list(out["year_coverage"]) == ["2005", "2024"]
+
+
+def test_year_coverage_absent_when_empty(monkeypatch):
+    _fake_retrieve_result(monkeypatch, year_coverage={})
+    ex = ToolExecutor("conv-1", "budget", "standard")
+    assert "year_coverage" not in _run(ex, "retrieve", {"query": "q"})

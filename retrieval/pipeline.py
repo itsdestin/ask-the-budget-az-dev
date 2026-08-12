@@ -237,6 +237,22 @@ class RetrievalResult:
     inferred_agencies: list[str] = field(default_factory=list)
     inferred_doc_types: list[str] = field(default_factory=list)
     dropped_filters: list[str] = field(default_factory=list)
+    # Spec N7: how many CANDIDATE chunks each fiscal year contributed, counted
+    # over the union (by chunk_id) of the BM25 and dense legs — BEFORE fusion
+    # trims to 20 and before top_k slices further. Counting the returned
+    # chunks instead would report only what the caller can already see; the
+    # histogram's entire job is to report what the pool cap HID, so the model
+    # can tell "these results are all FY2026 because that is all there is"
+    # from "the cap hid the other years".
+    #
+    # POST-FILTER, and the caller must say so: the legs carry the caller's
+    # filters plus any inferred year / doc-type filter, so on a year-named
+    # query this structurally cannot show other years. That is fine (the
+    # target failure is no-year queries) but it must not be over-trusted —
+    # which is why N11 echoes the inferred filters alongside it.
+    #
+    # Default path only. `retrieve_spread` already reports per-group structure.
+    year_coverage: dict[int, int] = field(default_factory=dict)
     # Spec N5, `retrieve_spread` only — empty on the default path. One entry
     # per REQUESTED group, in request order:
     # `{"value": <year|doc_id>, "top_score": float|None, "count": int}`.
@@ -422,6 +438,18 @@ def retrieve(
         inferred_doc_types = []
         bm25_hits, dense_hits, fused = _search(filters)
 
+    # Spec N7. Counted from the SURVIVING legs, so after a dropped filter it
+    # describes the search that actually produced the results rather than the
+    # abandoned first attempt. Dedup by chunk_id because a chunk found by both
+    # legs is one candidate, not two.
+    seen_years: dict[str, int | None] = {}
+    for hit in [*bm25_hits, *dense_hits]:
+        seen_years.setdefault(hit.chunk_id, hit.fiscal_year)
+    year_coverage: dict[int, int] = {}
+    for fy in seen_years.values():
+        if isinstance(fy, int) and not isinstance(fy, bool):
+            year_coverage[fy] = year_coverage.get(fy, 0) + 1
+
     if not fused:
         # Return before touching the reranker: it is the expensive stage,
         # and there is nothing for it to score. top_score is left at the
@@ -434,6 +462,7 @@ def retrieve(
             inferred_agencies=inferred_agencies,
             inferred_doc_types=inferred_doc_types,
             dropped_filters=dropped_filters,
+            year_coverage=year_coverage,
         )
 
     if reranker is None:
@@ -490,6 +519,7 @@ def retrieve(
         inferred_agencies=inferred_agencies,
         inferred_doc_types=inferred_doc_types,
         dropped_filters=dropped_filters,
+        year_coverage=year_coverage,
     )
 
 
