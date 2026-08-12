@@ -19,7 +19,8 @@ import * as api from "../api";
 // way to know which of a dozen raw internal doc_type slugs their PDF should
 // become. Each row instead names a
 // real document an analyst has in hand, says where it comes from, and
-// determines its own doc_type and publisher — nothing to guess. The rows
+// determines its own doc_type, from which the SERVER derives publisher —
+// nothing to guess, and nothing for the client to infer either. The rows
 // come from GET /api/document-types, a straight projection of
 // data/document-types.yaml (see api.ts's DocTypeCard), so this file holds no
 // copy of the type list at all; that list drifting from the server's is
@@ -302,7 +303,6 @@ function DocTypeRow({
     try {
       await api.uploadDocument(file, {
         corpus: "budget",
-        publisher: inferPublisher(row.key),
         doc_type: row.key,
         fiscal_year: Number(fy),
         title: title.trim(),
@@ -358,16 +358,26 @@ function DocTypeRow({
       <p>{row.which_file}</p>
 
       <div className="up-meta">
-        <label>
-          {`Choose a ${formatsLabel(row.formats)} document`}
-          <input
-            ref={fileInputRef}
-            type="file"
-            accept={row.formats.join(",")}
-            onChange={(e) => selectFile(e.target.files?.[0] ?? null)}
-          />
-        </label>
-        {file && <p className="up-filename">{file.name}</p>}
+        {/* Finding 3 (final review): the row's whole <section> has always
+            accepted a dropped file (onDrop above), but nothing on screen
+            said so — the dashed box that used to be the page's ONLY visual
+            cue for that was deleted with the old single dropzone (see the
+            app.css comment at ".up-drop / .up-choose / .up-hint removed").
+            Re-adds the same dashed-box language, scoped to this row's own
+            file picker instead of one shared zone. */}
+        <div className="up-drop">
+          <label>
+            {`Choose a ${formatsLabel(row.formats)} document`}
+            <input
+              ref={fileInputRef}
+              type="file"
+              accept={row.formats.join(",")}
+              onChange={(e) => selectFile(e.target.files?.[0] ?? null)}
+            />
+          </label>
+          <p className="up-drop-hint">or drag and drop it here</p>
+          {file && <p className="up-filename">{file.name}</p>}
+        </div>
 
         {row.stage_field && (
           <label>
@@ -456,7 +466,7 @@ function DocTypeRow({
   );
 }
 
-// --- filename + publisher heuristics -----------------------------------------
+// --- filename heuristics ------------------------------------------------------
 
 /** Best-effort fiscal year from a filename, falling back to the year most
  *  likely being worked on when there's no signal in the name at all. Every
@@ -487,26 +497,15 @@ export function defaultFiscalYear(filename?: string): number {
   return now.getMonth() >= 6 ? now.getFullYear() + 1 : now.getFullYear();
 }
 
-/** The publisher each row's documents belong to.
- *
- *  WHY a map here and not read off the row: `DocTypeCard` (the wire shape)
- *  doesn't carry `publisher` today even though the registry's own `DocType`
- *  does (ingest/doc_types.py) — app/routes/doc_types.py just doesn't project
- *  it yet. This is accepted as a small hand-maintained map ONLY because it's
- *  exactly the four upload_row entries that have a publisher other than
- *  "jlbc", and an unknown value can't silently corrupt anything: the upload
- *  route stores whatever string it's given, and every row here is reviewed
- *  by hand against the registry. If a fifth publisher is ever needed, add
- *  `publisher` to the DocTypeCard payload and delete this map. */
-const ROW_PUBLISHERS: Record<string, string> = {
-  afr: "agao",
-  "governors-budget": "governor",
-  "agency-submission": "agency",
-  "budget-bill-summary": "jlbc",
-};
-function inferPublisher(key: string): string {
-  return ROW_PUBLISHERS[key] ?? "jlbc";
-}
+// ROW_PUBLISHERS / inferPublisher removed (final-review Finding 1): it was a
+// second, hand-maintained copy of the registry's own `publisher` field,
+// keyed on only the four doc_types someone remembered to add — the exact
+// drift the registry (Task 6) exists to prevent. A seventh upload_row with a
+// non-jlbc publisher would have rendered correctly and silently posted the
+// `?? "jlbc"` fallback, minting the document under the wrong identity with
+// no error anywhere. The server now derives `publisher` from the doc_type's
+// registry row (see the sibling Python change), so `publisher` is no longer
+// sent from here at all — there is nothing left to infer.
 
 function formatDate(iso: string): string {
   const d = new Date(iso);

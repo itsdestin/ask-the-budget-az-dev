@@ -1,3 +1,5 @@
+import { readFileSync } from "node:fs";
+import { resolve } from "node:path";
 import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import * as api from "../api";
@@ -167,8 +169,19 @@ describe("submitting", () => {
     const [file, meta] = upload.mock.calls[0];
     expect(file.name).toBe("AFR25 COMBINED.pdf");
     expect(meta).toMatchObject({
-      corpus: "budget", publisher: "agao", doc_type: "afr",
+      corpus: "budget", doc_type: "afr",
     });
+    // Final-review Finding 1: the client used to post a hand-maintained
+    // `publisher` guess (ROW_PUBLISHERS's `?? "jlbc"` fallback) that a
+    // seventh registry row could silently get wrong. The server now derives
+    // publisher from the doc_type's registry row instead, so the client must
+    // send NOTHING for it — sending even a correct-looking value here would
+    // be the same hand-maintained-copy shape the fix removes.
+    // NOTE: this assertion needs the sibling Python branch's server-side
+    // change (publisher becomes an optional upload field, derived from the
+    // doc_type registry) to be true end-to-end — the two halves merge
+    // together.
+    expect(meta).not.toHaveProperty("publisher");
     // Review finding 1: this title always promised "reports success" but
     // nothing here checked it — the single confirmation line was the only
     // thing the pre-Task-6 page showed after a submit, and it went missing
@@ -356,6 +369,24 @@ describe("upload rows", () => {
       .toBe("2026");
   });
 
+  it("gives every file-accepting row a visible drop affordance", async () => {
+    // Final-review Finding 3: the row accepts a drop (test above), but
+    // nothing on screen used to say so — jsdom applies no stylesheet, so
+    // this can only pin the MARKUP (the .up-drop box + its hint text), not
+    // that the dashed border actually renders. See the report for the
+    // human-in-a-browser follow-up that verifies the paint.
+    vi.spyOn(api, "documentTypes").mockResolvedValue(ROWS);
+    render(<Upload />);
+    const row = (await screen.findByText("Annual Financial Report"))
+      .closest("[data-doc-type]")! as HTMLElement;
+    expect(row.querySelector(".up-drop")).toBeTruthy();
+    expect(within(row).getByText(/drag and drop it here/i)).toBeTruthy();
+    // A redirect row (no onDrop, Finding 3's affordance would be a lie there)
+    // must not grow one.
+    const bookRow = screen.getByText("Baseline Book").closest("[data-doc-type]")! as HTMLElement;
+    expect(bookRow.querySelector(".up-drop")).toBeNull();
+  });
+
   it("requires a fresh stage pick before a second upload through the same row", async () => {
     // Correction 2: "Engrossed supersedes Introduced" is only true if EVERY
     // upload carries a stage, including a second document pushed through a
@@ -381,11 +412,38 @@ describe("upload rows", () => {
   });
 
   it("holds no hardcoded doc_type strings of its own", async () => {
-    // The point is to make drift impossible, not to fix today's alignment.
-    const src = await import("./Upload.tsx?raw");
-    for (const slug of ["baseline-per-agency", "approps-per-agency", "s-pdf",
-                        "bh-pdf", "bd-pdf", "detailed-list-pdf", "topic-pdf"]) {
-      expect(src.default).not.toContain(`"${slug}"`);
+    // Broadened (final-review): the original version only checked seven
+    // hand-picked BOOK-SECTION slugs, so ROW_PUBLISHERS — a second,
+    // hardcoded four-doc_type-slug map twelve lines below the code it
+    // guarded — sailed through clean (Finding 1's exact defect). This now
+    // reads every key the registry itself defines and checks BOTH literal
+    // shapes a slug could reappear in: a quoted string (any of "x"/'x'/`x`,
+    // which ROW_PUBLISHERS used for three of its four entries) and a bare
+    // object-key (`afr:`, which ROW_PUBLISHERS used for its fourth) — so a
+    // repeat of that exact shape fails here, not just today's known slugs.
+    const src = (await import("./Upload.tsx?raw")).default;
+    const registry = readFileSync(
+      resolve(process.cwd(), "../data/document-types.yaml"),
+      "utf-8",
+    );
+    const slugs = [...registry.matchAll(/-\s*key:\s*(\S+)/g)].map((m) => m[1]);
+    // Sanity check on the extraction itself: a regex that silently matched
+    // nothing would make every assertion below vacuously true.
+    expect(slugs.length).toBeGreaterThanOrEqual(15);
+    expect(slugs).toContain("agency-submission");
+
+    for (const slug of slugs) {
+      expect(src, `quoted literal for "${slug}"`).not.toMatch(
+        new RegExp(`["'\`]${slug}["'\`]`),
+      );
+      // Bare object-key form only applies to slugs that are valid JS
+      // identifiers on their own (every hyphenated slug can only be spelled
+      // quoted, already covered above) — "afr" is the sole such slug today.
+      if (/^[A-Za-z_$][\w$]*$/.test(slug)) {
+        expect(src, `bare object key "${slug}:"`).not.toMatch(
+          new RegExp(`(?:^|[^\\w$])${slug}\\s*:`, "m"),
+        );
+      }
     }
   });
 });

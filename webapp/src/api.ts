@@ -298,7 +298,6 @@ export interface Job {
 
 export interface UploadMeta {
   corpus: string;
-  publisher: string;
   doc_type: string;
   fiscal_year: number;
   title: string;
@@ -364,7 +363,15 @@ export async function uploadDocument(
   const form = new FormData();
   form.append("file", file);
   form.append("corpus", meta.corpus);
-  form.append("publisher", meta.publisher);
+  // WHY no `publisher` field: it used to be sent from a hand-maintained
+  // client-side map (ROW_PUBLISHERS in Upload.tsx) that could only ever cover
+  // the doc_types someone remembered to add to it — the spec's own T4
+  // acceptance test ("a seventh row must be a change to the YAML file, not to
+  // code") failed silently the moment a new row's publisher wasn't jlbc. The
+  // server now derives publisher from the doc_type's registry row, so the
+  // form field is gone rather than fixed — there is nothing left for the
+  // client to infer. `publisher` is optional server-side for exactly this
+  // reason (see the sibling Python change).
   form.append("doc_type", meta.doc_type);
   form.append("fiscal_year", String(meta.fiscal_year));
   form.append("title", meta.title);
