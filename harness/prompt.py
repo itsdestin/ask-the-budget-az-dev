@@ -41,6 +41,10 @@ from harness.constants import (
     FISCAL_YEAR_MIN,
     INTENT_TOP_K,
     REFUSAL_THRESHOLD,
+    SPREAD_DEFAULT_PER_GROUP,
+    SPREAD_MAX_GROUPS,
+    SPREAD_MAX_PER_GROUP,
+    SPREAD_MAX_TOTAL,
     TIER_BUDGETS,
 )
 
@@ -299,5 +303,12 @@ def build_system_prompt(
             "MAX_STEPS": str(TIER_BUDGETS[resolved_tier]["max_steps"]),
             "FISCAL_YEAR_MIN": str(FISCAL_YEAR_MIN),
             "FISCAL_YEAR_MAX": str(FISCAL_YEAR_MAX),
+            # Injected for the same reason as the threshold above: the tool
+            # schema and the coercion's error messages state these caps too,
+            # and a number typed into the prose drifts silently.
+            "SPREAD_MAX_GROUPS": str(SPREAD_MAX_GROUPS),
+            "SPREAD_MAX_PER_GROUP": str(SPREAD_MAX_PER_GROUP),
+            "SPREAD_DEFAULT_PER_GROUP": str(SPREAD_DEFAULT_PER_GROUP),
+            "SPREAD_MAX_TOTAL": str(SPREAD_MAX_TOTAL),
         },
     )
