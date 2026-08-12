@@ -1,0 +1,27 @@
+{
+  "extractor": "mineru-3.1.6",
+  "source_pdf": "samples/raw-pdfs/jlbc-baseline-fy2022-test.pdf",
+  "page": 87,
+  "blocks": [
+    {
+      "type": "text",
+      "text": "Department of Testing",
+      "text_level": 1,
+      "bbox": [72.0, 700.0, 540.0, 720.0],
+      "page_idx": 86
+    },
+    {
+      "type": "text",
+      "text": "Mission Statement",
+      "text_level": 2,
+      "bbox": [72.0, 670.0, 540.0, 690.0],
+      "page_idx": 86
+    },
+    {
+      "type": "text",
+      "text": "The Department of Testing exists to validate that heading-anchored narrative continues to chunk normally alongside preamble recovery.",
+      "bbox": [72.0, 600.0, 540.0, 660.0],
+      "page_idx": 86
+    }
+  ]
+}

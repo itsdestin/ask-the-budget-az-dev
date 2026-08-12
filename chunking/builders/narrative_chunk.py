@@ -14,6 +14,14 @@ Algorithm:
   3. Each emitted chunk's text begins with the section path (section >
      subsection > ...) so the embedding signal carries the surrounding
      heading context.
+  4. Any paragraph not reachable from the outline tree (typically: it
+     precedes the FIRST heading anywhere in the document — the mineru/odl
+     readers' `_build_outline` never attaches such a block to any
+     `OutlineNode`, since its parse stack starts empty) is recovered from
+     the raw page blocks and emitted as trailing chunks with an empty
+     `section_path`, appended AFTER every outline-derived chunk and flushed
+     at page boundaries (never token limits alone — see the WHY comment at
+     the call site). See `_orphaned_paragraphs`.
 
 Section path is the breadcrumb of outline-node texts from root to current
 node, identical to what `ExtractedDocument.outline_path` would return for
@@ -27,6 +35,7 @@ from chunking.builders._tokens import count_tokens
 from chunking.builders.table_chunk import DocMeta
 from chunking.readers.types import (
     ExtractedDocument,
+    Heading,
     OutlineNode,
     Paragraph,
 )
@@ -105,7 +114,110 @@ def build_narrative_chunks(
     for root in doc.outline:
         visit(root, [])
 
+    # WHY: measured on 300 random per-agency PDFs, 5.1% of extracted prose
+    # characters (56.7% of documents) are dropped here, silently — a
+    # paragraph before the FIRST heading in the document is never attached
+    # to any OutlineNode (see the readers' `_build_outline`), so the walk
+    # above never sees it. On a JLBC agency page that's the AGENCY
+    # DESCRIPTION paragraph; for a page with no heading at all (real corpus
+    # example: jlbc-baseline-fy2022-hla) it is 100% of the page's narrative.
+    # Recovered from doc.pages (the readers never remove blocks from Page
+    # objects — only the outline tree omits them) and appended AFTER every
+    # outline-derived chunk above, using the same running `next_index`, so
+    # every chunk_id that existed before this fix keeps its exact index and
+    # text — eval ground truth (eval/queries.yaml and friends) pins
+    # chunk_ids, and the tool that used to re-bind stale ones was deleted
+    # with nothing to replace it (CLAUDE.md "measurement discipline").
+    orphans = _orphaned_paragraphs(doc)
+    if orphans:
+        _flush_section_into_chunks(
+            paragraphs=orphans,
+            # WHY empty, not ["preamble"]: there genuinely is no section —
+            # the orphan bucket exists BECAUSE no heading claimed these
+            # paragraphs. A synthetic "preamble" label is analyst-visible
+            # (RetrieveView.tsx renders section_path as a breadcrumb) and is
+            # fed into entity/fund resolution as a name candidate
+            # (entity_stamper._resolve / _resolve_funds scan section_path).
+            # For a document whose entire body is recovered this way (a
+            # no-heading AFR), every chunk's breadcrumb would read
+            # "preamble" — actively wrong, not just uninformative. `[]` is
+            # the honest representation; both consumers already handle it
+            # (RetrieveView checks `section_path.length > 0` before
+            # rendering, table_chunk._build_text checks `if section_path:`
+            # for the identical no-section case on the table side).
+            section_path=[],
+            emit=emit,
+            # No "preamble" header line in the chunk TEXT either — mirrors
+            # the DOCX precedent (_build_docx_chunks / _docx_section_text),
+            # which never prefixes a heading line for its synthetic
+            # no-heading section either. Doubly right here: the JLBC prose
+            # already opens with its own explicit label ("AGENCY
+            # DESCRIPTION — ..."), so a second synthetic one would just be
+            # noise ahead of it in the embedding text.
+            include_header=False,
+            # WHY: an orphan bucket is unbounded by construction — for a
+            # document whose reader finds NO heading at all (a real AFR
+            # shape), it is the entire document, and the token targets
+            # alone don't bound how many PAGES a chunk spans. Measured on
+            # the live corpus: agao-afr-fy2023-0019 held 70 paragraphs
+            # drawn from pages 2-175 in one chunk, stamped
+            # provenance.page=2 (the first paragraph's page, per `emit`).
+            # Invariant 1 requires every citation to resolve to an exact
+            # PDF page + bbox; a citation into text physically on page 175
+            # would send the viewer to page 2, the strict-bbox search would
+            # find nothing there, and the analyst sees "couldn't pinpoint"
+            # on a claim that is actually well-sourced. This does NOT apply
+            # to the ordinary outline walk above — an outline section can
+            # legitimately span pages (its heading is the true anchor for
+            # the whole section) and that is unchanged here; only the
+            # orphan bucket has no such anchor to justify spanning pages.
+            flush_on_page_change=True,
+        )
+
     return chunks
+
+
+def _orphaned_paragraphs(doc: ExtractedDocument) -> list[Paragraph]:
+    """Body paragraphs that are not reachable from any OutlineNode.
+
+    Computed as a SET DIFFERENCE — every `Paragraph` across `doc.pages`,
+    minus every `Paragraph` reachable via `body_blocks` from the outline
+    tree, by object identity — rather than by re-deriving the readers'
+    "before the first heading" stack invariant. An earlier version of this
+    function re-derived that invariant (walk blocks in document order,
+    collect Paragraphs until the first Heading) and was correct today, but
+    it would DRIFT SILENTLY if a future reader ever seeded its outline
+    stack differently (e.g. with a synthetic root node) — the orphan set
+    would quietly go empty with no test failing, because nothing here would
+    observe the tree actually built; it would only observe how this
+    function assumes the tree gets built. A set difference cannot drift
+    that way: it always answers "what's on the page that the actual
+    outline doesn't claim", regardless of how the tree was constructed.
+    Measured equivalent to the prior form on 306 real documents (every AFR
+    and Governor budget included) before choosing this. `doc.pages` still
+    holds every block regardless of outline membership (the readers only
+    omit blocks from the tree, they never mutate `Page.blocks`), so nothing
+    here needs either reader to change.
+    """
+    reachable_ids = {
+        id(block)
+        for node in _iter_outline_nodes(doc.outline)
+        for block in node.body_blocks
+        if isinstance(block, Paragraph)
+    }
+    return [
+        block
+        for page in doc.pages
+        for block in page.blocks
+        if isinstance(block, Paragraph) and id(block) not in reachable_ids
+    ]
+
+
+def _iter_outline_nodes(nodes: list[OutlineNode]):
+    """Depth-first walk of every OutlineNode in the tree, root and child alike."""
+    for node in nodes:
+        yield node
+        yield from _iter_outline_nodes(node.children)
 
 
 def _flush_section_into_chunks(
@@ -113,15 +225,32 @@ def _flush_section_into_chunks(
     paragraphs: list[Paragraph],
     section_path: list[str],
     emit,
+    include_header: bool = True,
+    flush_on_page_change: bool = False,
 ) -> None:
-    """Greedy paragraph-merge until target/max thresholds are crossed."""
-    section_header = " > ".join(section_path)
+    """Greedy paragraph-merge until target/max thresholds are crossed.
+
+    `include_header=False` suppresses the " > ".join(section_path) line
+    that otherwise opens every chunk's text — `section_path` itself is
+    still passed through to `emit` untouched, so the Chunk's structural
+    metadata is unaffected. Used for the synthetic preamble bucket only.
+
+    `flush_on_page_change=True` adds a PAGE boundary as a third flush
+    trigger, alongside (not instead of) the token target/max — see the WHY
+    at the orphan call site in `build_narrative_chunks` for the measured
+    corpus evidence. Used for the orphan bucket only; an ordinary
+    heading-anchored section may legitimately span pages under its
+    heading's anchor and is unaffected (this function's other caller never
+    sets it).
+    """
+    section_header = " > ".join(section_path) if include_header else ""
     buffer_paragraphs: list[Paragraph] = []
     buffer_text_parts: list[str] = []
     buffer_tokens = count_tokens(section_header) if section_header else 0
+    buffer_page: int | None = None
 
     def flush() -> None:
-        nonlocal buffer_paragraphs, buffer_text_parts, buffer_tokens
+        nonlocal buffer_paragraphs, buffer_text_parts, buffer_tokens, buffer_page
         if not buffer_paragraphs:
             return
         text = section_header + "\n\n" + "\n\n".join(buffer_text_parts) if section_header else "\n\n".join(buffer_text_parts)
@@ -129,6 +258,7 @@ def _flush_section_into_chunks(
         buffer_paragraphs = []
         buffer_text_parts = []
         buffer_tokens = count_tokens(section_header) if section_header else 0
+        buffer_page = None
 
     for para in paragraphs:
         para_tokens = count_tokens(para.text)
@@ -144,11 +274,21 @@ def _flush_section_into_chunks(
             )
             continue
 
+        # Page-boundary flush BEFORE the token check: a chunk that crossed
+        # a page must never absorb one more paragraph from a later page
+        # just because there's still room under the token target. Checked
+        # first so it wins outright — the token check below is then a
+        # no-op on an already-empty buffer.
+        if flush_on_page_change and buffer_paragraphs and para.page != buffer_page:
+            flush()
+
         # If adding this paragraph would push the buffer past the target AND
         # the buffer already contains content, flush first.
         if buffer_paragraphs and buffer_tokens + para_tokens > NARRATIVE_TARGET_TOKENS:
             flush()
 
+        if not buffer_paragraphs:
+            buffer_page = para.page
         buffer_paragraphs.append(para)
         buffer_text_parts.append(para.text)
         buffer_tokens += para_tokens

@@ -1,0 +1,25 @@
+{
+  "extractor": "mineru-3.1.6",
+  "source_pdf": "samples/raw-pdfs/jlbc-baseline-fy2022-test-noheading.pdf",
+  "page": 263,
+  "blocks": [
+    {
+      "type": "table",
+      "table_body": "<table><tr><td></td><td>FY 2020 ACTUAL</td><td>FY 2021 ESTIMATE</td></tr><tr><td>Federal Funds</td><td>1,000</td><td>1,100</td></tr></table>",
+      "bbox": [80, 85, 916, 193],
+      "page_idx": 262
+    },
+    {
+      "type": "text",
+      "text": "AGENCY DESCRIPTION — This synthetic agency page carries no MinerU heading block at all, mirroring the real corpus document jlbc-baseline-fy2022-hla, whose entire narrative is prose that precedes a heading which never appears.",
+      "bbox": [80, 202, 915, 265],
+      "page_idx": 262
+    },
+    {
+      "type": "text",
+      "text": "Source of Revenue: Grants received from a synthetic federal program for fixture purposes only.",
+      "bbox": [81, 334, 598, 349],
+      "page_idx": 262
+    }
+  ]
+}
