@@ -1,6 +1,7 @@
 # Corpus Navigation — corpus map, spread retrieval, coverage metadata, expand
 
-**Date:** 2026-08-12
+**Date:** 2026-08-12 (amended same day after external review — see the
+review-fixes note at the bottom)
 **Status:** Approved design, pre-implementation
 **Decisions:** N1–N10
 **Goal:** answer ACCURACY. The Layer 2 post-backfill regression measured
@@ -47,8 +48,24 @@ A compact markdown table, one row per (publisher, document family):
 years covered (ranges, with gaps named), document count. Built from
 `store.documents.load_documents()` — the sidecar carries `doc_type`,
 `fiscal_year`, `publisher` per document, so no LanceDB scan is needed.
-Each corpus gets its own map (budget books/AFRs/etc.; fiscal notes get
-session coverage and note count).
+
+**Family comes from `source_url`, never from doc_id or doc_type.**
+`doc_type` cannot express family (`detailed-list-pdf` / `topic-pdf`
+occur under both JLBC books) and 21 doc_ids are known to encode the
+WRONG family — the `make_doc_id` collision class that
+`app/book_sections.py` exists to read around. The map builder reuses
+that source_url rule; since `harness/` should not import `app/`, the
+parser is hoisted to a shared module under `store/` and
+`app/book_sections.py` re-imports it. A map built from doc_id would
+claim editions that do not exist, and the map's own guidance line ("if
+the map shows no edition, say so") makes a false edition claim the
+harmful direction.
+
+**Fiscal-note coverage is by fiscal year, not legislative session.**
+Verified: 0 of 2,104 note sidecar entries carry a session field; all
+2,104 carry an integer `fiscal_year`. Coverage by FY keeps the map on
+one data source with one failure mode (the sidecar), rather than adding
+a `fiscal-notes-directory.json` read with its own fallback story.
 
 One guidance line accompanies it: *if the map shows no edition for a
 year, say so — do not search repeatedly for material that does not
@@ -115,13 +132,37 @@ default path structurally untouched):
 3. **One** cross-encoder rerank batch over all groups' candidates —
    pool capped at ≈48 (~5 s worst case on the office CPU; cheaper than
    the 3–4 sequential retrieves it replaces).
-4. Take the top `per_group` per group.
-5. Apply the existing post-rerank penalties unchanged. Within a
-   fiscal-year group recency is constant, so it cannot reorder; the
-   agency penalty still applies. **Nothing here touches the three
-   coupled constants** (`RECENCY_BOOST_PER_YEAR`, `MATCH_PENALTY`,
-   `REFUSAL_THRESHOLD`), and spread introduces no bonus — the
-   penalty-only invariant on `top_score` holds.
+4. Apply the agency match penalty over each group's FULL candidate set,
+   **before** the per-group trim. Order is load-bearing: the default
+   path's own WHY comment (`pipeline.py`, at the rerank call) records
+   that a post-rerank adjustment can only reorder chunks it can see —
+   penalising after the trim would mean a matching chunk at position
+   per_group+1 can never be promoted into the group's results.
+5. Take the top `per_group` per group.
+
+**Recency is never applied on the spread path, on either axis.** This
+is the existing skip rule extended, not a new idea: the default path
+already skips recency whenever a year filter is active ("inside a set
+the analyst already narrowed, preferring newer is fighting the
+instruction"), and every `by=fiscal_year` group IS a year filter. A
+`by=doc_id` group names an explicit document, where the same reasoning
+holds. Two consequences, stated so nobody rediscovers them:
+
+- Per-group `top_score`s in the summary are rerank + agency-penalty
+  scores only, comparable ACROSS groups. Letting recency in would let
+  an anchor-relative penalty (~0.85/yr × 16 yr ≈ 13.6 logits — larger
+  than the whole ±10 logit range) tell the model "FY2010 has nothing"
+  when FY2010 holds a perfect hit.
+- Refusal interaction: recency is a penalty, so skipping it can only
+  RAISE `top_score` — spread refuses no more than the default path and
+  possibly less. This mirrors what an explicit year-filtered retrieve
+  already does against the same `REFUSAL_THRESHOLD`, so it is not a new
+  exposure class, but it is a deliberate one.
+
+**Nothing here touches the three coupled constants**
+(`RECENCY_BOOST_PER_YEAR`, `MATCH_PENALTY`, `REFUSAL_THRESHOLD`), and
+spread introduces no bonus — the penalty-only invariant on `top_score`
+holds.
 
 Response shape: the flat `chunks` array exactly as today (alias, doc
 metadata, text — citable as normal; each chunk additionally carries its
@@ -147,21 +188,56 @@ candidate legs** (BM25 top-200 ∪ dense top-100, already in memory — zero
 extra queries), NOT over the final pool: its entire job is to report
 what the pool cap hid. Emitted as
 `"year_coverage": {"2005": 41, "2024": 12, …}`; omitted when empty or
-when every candidate lacks a fiscal year. The prompt describes it in one
-line: approximate relevance signal; use it to decide whether to filter
-or spread. This makes failure 4 self-correcting: the model *sees* "my
-results are all FY2026 but matches exist back to FY2005".
+when every candidate lacks a fiscal year.
+
+**The histogram is post-filter, and both the prompt and the response
+must say which filters were in force.** The legs already carry the
+caller's filters, the S21 inferred-year filter, and any inferred
+doc-type filter — so on a year-named query the histogram structurally
+cannot show other years, and that is fine (the target failure is
+no-year queries) but must not be over-trusted. Two requirements:
+
+- The prompt's one-line description reads "distribution of candidate
+  years WITHIN the current filters — approximate; use it to decide
+  whether to filter or spread."
+- The tool response surfaces the inference fields the pipeline already
+  computes but `harness/tools.py` currently drops: `inferred_doc_types`
+  and `dropped_filters` join `inferred_fiscal_years` in the response
+  (present only when non-empty, matching the existing style), and
+  `inferred_agencies` is surfaced with wording that marks it a ranking
+  PREFERENCE, not a filter — the `RetrievalResult` docstring's own
+  distinction. Without these the model cannot interpret the histogram,
+  and today it cannot even tell an inferred doc-type filter fired.
+
+This makes failure 4 self-correcting: the model *sees* "my results are
+all FY2026 but matches exist back to FY2005".
 
 ### N8 — `expand(chunk_id, before, after)` — the cut line
 
 A sixth tool: fetch up to 3 adjacent chunks each way in the same
 document, ordered by (page, chunk sequence). Results carry aliases and
-the full retrieve chunk shape, so they are citable and enter the
-attested-linking pool exactly like retrieve results (the linking pool
-reads tool messages in history; expand results must be
-shape-indistinguishable from retrieve chunks there). Targets the
-"table continues on the next page" / cut-boundary failure — real, but
-not where the 74%-never-retrieved misses live.
+the full retrieve chunk shape so they are citable. Targets the "table
+continues on the next page" / cut-boundary failure — real, but not
+where the 74%-never-retrieved misses live.
+
+**Shape-compatibility is NOT the integration mechanism — tool NAME is.**
+The chunk-pool consumers dispatch on the literal string `"retrieve"`,
+not on payload shape: `session.py` `_record_tool_call` (~line 1900),
+`_retrieved_chunk_map` (~2007), and `_this_turn_chunk_ids` (~2041),
+plus any webapp consumer that builds chip→PDF metadata from tool
+messages by name. A perfectly shaped expand payload is invisible to all
+of them, and a figure taken from an expanded chunk would be
+unverifiable — red chips on a correct answer, the same defect class the
+2026-08-11 live session found (linking pool scoped too narrowly).
+Shipping N8 therefore requires:
+
+1. An enumerated checklist, built by grepping BOTH sides
+   (`harness/`, `app/`, `webapp/src/`) for name-keyed dispatch on
+   `"retrieve"`, with each site either taught to recognize `expand` or
+   explicitly recorded as correctly retrieve-only.
+2. An end-to-end acceptance test: a figure whose only source is an
+   expanded chunk gets a verified tag and a working citation
+   (alias-tagged, annotator-verified, chip metadata resolvable).
 
 **This is the explicit cut line: N1–N7 ship without N8 if a smaller
 change is wanted.** If dogfooding shows the model wanting whole-document
@@ -217,15 +293,25 @@ numbers stay comparable.
 ## Testing & validation
 
 **pytest (mechanism — no real LanceDB, no ONNX weights, per convention):**
-map builder (ranges, gaps, empty corpus, both corpora), `{{CORPUS_MAP}}`
-wiring + fallback, S22 test amended to stamp-conditioned identity (and
-its no-date guard kept), spread argument coercion and every cap,
-per-group grouping correctness against fake search legs, per-group
-overfetch and single-rerank-batch behavior, alias minting for
-spread/expand chunks, first-call-cap exemption and slot consumption,
-`year_coverage` counting from the legs, expand ordering and boundary
-behavior, and a guard that spread cannot inflate `top_score` beyond the
-best single-group score (penalty-only invariant).
+map builder (ranges, gaps, empty corpus, both corpora, and the
+source_url family rule — including at least one of the 21 wrong-doc_id
+sections resolving to its true family), `{{CORPUS_MAP}}` wiring +
+fallback, S22 test amended to stamp-conditioned identity (and its
+no-date guard kept), spread argument coercion and every cap, per-group
+grouping correctness against fake search legs, per-group overfetch and
+single-rerank-batch behavior, **agency penalty applied before the
+per-group trim** (a matching chunk at position per_group+1 must be able
+to enter the results — the test fails if the order is swapped),
+**recency never applied on the spread path** (both axes; a
+by=doc_id spread over old documents must show undepressed group
+top_scores), alias minting for spread/expand chunks, first-call-cap
+exemption and slot consumption, `year_coverage` counting from the legs,
+the surfaced inference fields (`inferred_doc_types`, `dropped_filters`,
+`inferred_agencies`) reaching the tool response, expand ordering and
+boundary behavior, the N8 name-keyed-consumer checklist as executable
+assertions where possible, and a guard that spread cannot inflate
+`top_score` beyond the best single-group score (penalty-only
+invariant).
 
 **Layer 1 eval** (required — `retrieval/` is touched): expect numbers
 identical to the current baseline, because spread is opt-in and
@@ -251,3 +337,30 @@ merge, compare report committed.
 - **G-N3:** the S22 caching property holds in the amended form
   (byte-identical within a conversation; identical across conversations
   at a fixed sidecar stamp; no date in the prefix).
+- **G-N4 (only if N8 ships):** the end-to-end expand-citation test
+  passes — a figure sourced solely from an expanded chunk is
+  tag-verified and its chip resolves.
+
+## Review fixes (2026-08-12)
+
+An external review of the first draft found six defects; all six were
+verified against the code and accepted. The material changes:
+
+1. N8 claimed shape-compatibility was the linking-pool mechanism; the
+   real mechanism is tool-NAME dispatch at three `session.py` sites
+   (plus webapp consumers). N8 now carries the consumer checklist and
+   gate G-N4.
+2. N5 ordered penalties AFTER the per-group trim — inverting the
+   default path's own recorded lesson. Reordered: penalty before trim.
+3. Recency across groups would have corrupted the `groups` summary by
+   up to ~13.6 logits. Spread now never applies recency, with the
+   refusal interaction stated.
+4. "Document family" is not a sidecar field and doc_id is wrong for 21
+   documents; the map builder now mandates the `book_sections`
+   source_url rule, hoisted to `store/`.
+5. Fiscal-note "session coverage" does not exist in the sidecar
+   (verified: 0 of 2,104); note coverage is by fiscal year.
+6. The `year_coverage` histogram is post-filter; the description now
+   says so, and the response must surface `inferred_doc_types`,
+   `dropped_filters`, and `inferred_agencies` (preference-worded),
+   which the tool layer currently computes and drops.
