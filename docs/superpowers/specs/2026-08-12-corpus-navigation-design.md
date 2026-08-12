@@ -3,7 +3,7 @@
 **Date:** 2026-08-12 (amended same day after external review — see the
 review-fixes note at the bottom)
 **Status:** Approved design, pre-implementation
-**Decisions:** N1–N10
+**Decisions:** N1–N11 (N8 removed — expand deferred)
 **Goal:** answer ACCURACY. The Layer 2 post-backfill regression measured
 `key_fact_rate` 0.66 with **74% of missed facts never retrieved in any
 round**. More rounds of the same search would not have found them; the
@@ -200,58 +200,72 @@ no-year queries) but must not be over-trusted. Two requirements:
 - The prompt's one-line description reads "distribution of candidate
   years WITHIN the current filters — approximate; use it to decide
   whether to filter or spread."
-- The tool response surfaces the inference fields the pipeline already
-  computes but `harness/tools.py` currently drops: `inferred_doc_types`
-  and `dropped_filters` join `inferred_fiscal_years` in the response
-  (present only when non-empty, matching the existing style), and
-  `inferred_agencies` is surfaced with wording that marks it a ranking
-  PREFERENCE, not a filter — the `RetrievalResult` docstring's own
-  distinction. Without these the model cannot interpret the histogram,
-  and today it cannot even tell an inferred doc-type filter fired.
+- The response says which filters were in force: N11 echoes the
+  inferred-filter fields alongside this histogram. Without them the
+  model cannot interpret the numbers — it cannot even tell an inferred
+  doc-type filter fired.
 
 This makes failure 4 self-correcting: the model *sees* "my results are
 all FY2026 but matches exist back to FY2005".
 
-### N8 — `expand(chunk_id, before, after)` — the cut line
+### N8 — REMOVED: `expand` is deferred to observed demand
 
-A sixth tool: fetch up to 3 adjacent chunks each way in the same
-document, ordered by (page, chunk sequence). Results carry aliases and
-the full retrieve chunk shape so they are citable. Targets the "table
-continues on the next page" / cut-boundary failure — real, but not
-where the 74%-never-retrieved misses live.
+The first draft included an `expand(chunk_id, before, after)` tool
+(adjacent same-doc chunks, the "table continues on the next page"
+failure) marked as the cut line. It is now cut, before implementation,
+for the reason the review's finding #1 exposed: its true integration
+cost is materially larger than drafted. The chunk-pool consumers
+dispatch on the literal tool name `"retrieve"` — `session.py`
+`_record_tool_call` (~1900), `_retrieved_chunk_map` (~2007),
+`_this_turn_chunk_ids` (~2041), plus webapp chip-metadata consumers —
+so shipping expand means teaching every name-keyed site about a second
+source tool and proving it end-to-end, or a figure from an expanded
+chunk renders as an unverifiable red chip on a correct answer (the
+2026-08-11 defect class). That cost buys a failure mode that is
+explicitly NOT where the 74%-never-retrieved misses live.
 
-**Shape-compatibility is NOT the integration mechanism — tool NAME is.**
-The chunk-pool consumers dispatch on the literal string `"retrieve"`,
-not on payload shape: `session.py` `_record_tool_call` (~line 1900),
-`_retrieved_chunk_map` (~2007), and `_this_turn_chunk_ids` (~2041),
-plus any webapp consumer that builds chip→PDF metadata from tool
-messages by name. A perfectly shaped expand payload is invisible to all
-of them, and a figure taken from an expanded chunk would be
-unverifiable — red chips on a correct answer, the same defect class the
-2026-08-11 live session found (linking pool scoped too narrowly).
-Shipping N8 therefore requires:
+Ship N1–N7, run the Layer 2 comparison, and let dogfooding demand
+expand — the same logic that already deferred `browse_document`,
+applied one item earlier. The consumer-checklist and end-to-end
+acceptance requirements recorded above are the entry fee for whoever
+picks it up.
 
-1. An enumerated checklist, built by grepping BOTH sides
-   (`harness/`, `app/`, `webapp/src/`) for name-keyed dispatch on
-   `"retrieve"`, with each site either taught to recognize `expand` or
-   explicitly recorded as correctly retrieve-only.
-2. An end-to-end acceptance test: a figure whose only source is an
-   expanded chunk gets a verified tag and a working citation
-   (alias-tagged, annotator-verified, chip metadata resolvable).
+### N11 — Inferred filters are echoed in every retrieve response
 
-**This is the explicit cut line: N1–N7 ship without N8 if a smaller
-change is wanted.** If dogfooding shows the model wanting whole-document
-navigation, a `browse_document` outline tool is the follow-on — not
-built now.
+`RetrievalResult` already computes `inferred_doc_types`,
+`inferred_agencies`, and `dropped_filters`; `harness/tools.py` echoes
+only `inferred_fiscal_years` and drops the rest. The response now
+carries all of them, present only when non-empty, matching the existing
+style:
+
+- `inferred_doc_types` — a HARD filter that was guessed from the query
+  text. Today a doc-type guess that narrows the whole search is
+  invisible to the model — the "haunted tool" failure the pipeline's
+  own comments name (`RetrievalResult` docstring: "a filter that is
+  invisibly not applied is the kind of thing that makes a tool feel
+  haunted" — and an invisibly APPLIED one is worse).
+- `dropped_filters` — the guessed filter that matched nothing and was
+  abandoned for an unfiltered second search (spec Q3). Without it the
+  model cannot distinguish "unfiltered because nothing was guessed"
+  from "unfiltered because the guess found nothing".
+- `inferred_agencies` — surfaced with wording that marks it a ranking
+  PREFERENCE, never a filter (the docstring's own distinction; a UI or
+  model describing it as a filter would be wrong).
+
+This rides the same tool-response edit as N7's `year_coverage` and
+completes the instrument N7 starts: a coverage histogram is
+half-readable if the model does not know which filters produced it. It
+is also the model-facing half of the follow-up STATUS.md already
+tracks for the UI ("the UI does not yet show what was inferred").
 
 ### N9 — System prompt guidance
 
 New/edited sections, with `{{#when corpus=…}}` variants where the
 corpora differ: the corpus map block (`{{CORPUS_MAP}}`), when to use
 spread (multi-year comparisons, "across years" questions,
-"newest edition of X" questions), how to read `year_coverage`, and (if
-N8 ships) when to expand instead of re-searching. Guidance is additive;
-the progressive-retrieval and refusal sections are unchanged.
+"newest edition of X" questions), and how to read `year_coverage` plus
+the N11 inferred-filter fields. Guidance is additive; the
+progressive-retrieval and refusal sections are unchanged.
 
 ### N10 — Additive by design; no default-behavior change
 
@@ -269,8 +283,11 @@ numbers stay comparable.
   puts nothing in the pool that sequential retrieves could not. Spread
   covers the dominant multi-query case (same question, different years).
   Revisit if latency becomes the goal.
-- **`browse_document` outline tool.** Deferred until observed demand
-  (N8).
+- **`expand` (adjacent-chunk tool).** Cut before implementation — see
+  N8 for the full record (name-keyed pool integration cost vs. a
+  benefit outside the measured miss class).
+- **`browse_document` outline tool.** Deferred until observed demand,
+  same logic as expand.
 - **`find_figure` (search by dollar value).** Creative, machinery exists
   in `citation/`, but no measured miss class demands it yet.
 - **Raising the RRF pool cap or re-tuning recency for edition
@@ -287,8 +304,6 @@ numbers stay comparable.
   invisibly is not applied is the haunted-tool failure).
 - A missing/corrupt sidecar degrades the corpus map to the fallback
   sentence; conversations proceed.
-- `expand` on an unknown chunk_id or a document boundary returns what
-  exists with an explanatory field, not an error loop.
 
 ## Testing & validation
 
@@ -304,12 +319,11 @@ per-group trim** (a matching chunk at position per_group+1 must be able
 to enter the results — the test fails if the order is swapped),
 **recency never applied on the spread path** (both axes; a
 by=doc_id spread over old documents must show undepressed group
-top_scores), alias minting for spread/expand chunks, first-call-cap
+top_scores), alias minting for spread chunks, first-call-cap
 exemption and slot consumption, `year_coverage` counting from the legs,
-the surfaced inference fields (`inferred_doc_types`, `dropped_filters`,
-`inferred_agencies`) reaching the tool response, expand ordering and
-boundary behavior, the N8 name-keyed-consumer checklist as executable
-assertions where possible, and a guard that spread cannot inflate
+the N11 inference fields (`inferred_doc_types`, `dropped_filters`,
+`inferred_agencies`) reaching the tool response — present when
+non-empty, absent otherwise — and a guard that spread cannot inflate
 `top_score` beyond the best single-group score (penalty-only
 invariant).
 
@@ -324,9 +338,9 @@ baseline (`eval/results/agent/2026-08-02T0900Z-0b08221`), same model.
 Expected directions: `key_fact_rate` ↑ (the gate), retrieves/answer ↓ on
 comparison shapes; watched for harm: `input_tokens_mean` and
 `retrieval_efficiency` (the token-blowup failure mode of N6), plus
-`marker_coverage_mean` / `tag_accuracy_mean` (spread and expand chunks
-must tag and verify like any other). Full 31-query run + judge before
-merge, compare report committed.
+`marker_coverage_mean` / `tag_accuracy_mean` (spread chunks must tag
+and verify like any other). Full 31-query run + judge before merge,
+compare report committed.
 
 ## Gates
 
@@ -337,9 +351,6 @@ merge, compare report committed.
 - **G-N3:** the S22 caching property holds in the amended form
   (byte-identical within a conversation; identical across conversations
   at a fixed sidecar stamp; no date in the prefix).
-- **G-N4 (only if N8 ships):** the end-to-end expand-citation test
-  passes — a figure sourced solely from an expanded chunk is
-  tag-verified and its chip resolves.
 
 ## Review fixes (2026-08-12)
 
@@ -364,3 +375,20 @@ verified against the code and accepted. The material changes:
    says so, and the response must surface `inferred_doc_types`,
    `dropped_filters`, and `inferred_agencies` (preference-worded),
    which the tool layer currently computes and drops.
+
+## Second amendment (2026-08-12, same day)
+
+Two scope changes on Destin's direction, after the review fixes:
+
+- **The inferred-filter echo is promoted from an N7 sub-bullet to its
+  own decision, N11.** It stands alone: it completes the instrument N7
+  starts, rides the same tool-response edit, and is the model-facing
+  half of the UI follow-up STATUS.md already tracks.
+- **N8 (`expand`) is REMOVED, not just cut-lined.** Finding #1 raised
+  its real integration cost (every name-keyed consumer of retrieve
+  payloads, both sides of the wire) while its benefit sits outside the
+  measured miss class. Ship N1–N7 + N11, run the Layer 2 comparison,
+  and let dogfooding demand it. This supersedes review-fix note #1's
+  "N8 now carries the consumer checklist and gate G-N4" — G-N4 is gone
+  with it; the checklist survives inside N8's record as the entry fee
+  for whoever revives it.
