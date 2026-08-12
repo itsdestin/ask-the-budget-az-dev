@@ -84,6 +84,22 @@ def make_usage_recorder(run_dir: Path) -> Callable[..., None]:
 
 
 def make_session_factory(settings: Settings, run_dir: Path):
+    # Per corpus, built once per RUN rather than once per query: the map is
+    # a pure function of the sidecar, the run does not ingest, and rebuilding
+    # it 31 times would only add noise to the wall-clock numbers.
+    maps: dict[str, str | None] = {}
+
+    def corpus_map(corpus: str) -> str | None:
+        if corpus not in maps:
+            try:
+                from harness.corpus_map import build_corpus_map
+
+                maps[corpus] = build_corpus_map(corpus)
+            except Exception as err:  # noqa: BLE001 — mirrors the route's degrade
+                print(f"eval: corpus map unavailable — {err}", file=sys.stderr)
+                maps[corpus] = None
+        return maps[corpus]
+
     def factory(query: AgentQuery, conv_id: str):
         # Import here so the module stays importable (and testable)
         # without the ONNX/LanceDB stack loaded.
@@ -94,6 +110,9 @@ def make_session_factory(settings: Settings, run_dir: Path):
             settings=settings,
             check_limit=_allow_all,
             record_usage=make_usage_recorder(run_dir),
+            # Spec N1/N3. The Layer 2 run MUST exercise the map, or gate
+            # G-N2 measures a prompt the office will never see.
+            corpus_map=corpus_map(query.corpus),
         )
     return factory
 

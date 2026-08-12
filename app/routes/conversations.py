@@ -373,7 +373,28 @@ def default_session_factory(
         conversation_id, corpus=corpus, tier=tier, user=user,
         settings=load_settings(),
         history=history,
+        corpus_map=_corpus_map_snapshot(corpus),
     )
+
+
+def _corpus_map_snapshot(corpus: str) -> str | None:
+    """The inventory table for this conversation's prompt (spec N1/N3).
+
+    Read ONCE here, at conversation-create time, and held for the
+    conversation's life — see HarnessSession's `_corpus_map` comment.
+
+    Degrades to None (the prompt renders its fallback sentence) on ANY
+    failure, because a map is an aid and a conversation is the product: a
+    corrupt or missing sidecar must not be able to stop the office asking
+    questions. That is the map's own design — spec N1's error handling.
+    """
+    try:
+        from harness.corpus_map import build_corpus_map
+
+        return build_corpus_map(corpus)
+    except Exception as err:  # noqa: BLE001 — see the docstring
+        print(f"conversations: corpus map unavailable — {err}", file=sys.stderr)
+        return None
 
 
 def _registry(request: Request) -> ConversationRegistry:
