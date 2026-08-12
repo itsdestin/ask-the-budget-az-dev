@@ -32,10 +32,10 @@ function pdf(name = "27baseline-axs.pdf"): File {
 // The rows GET /api/document-types returns, per task-5-report.md's captured
 // live shape. Real registry (data/document-types.yaml) has exactly two
 // redirect rows (baseline-book, approps-report) and four file-accepting rows
-// (afr, governors-budget, agency-submission, budget-bill-summary) — "six
-// guided rows". This fixture carries three of the six; that's enough to
-// exercise every branch (redirect / plain / staged) without the whole file
-// re-deriving all six every time a row's copy changes upstream.
+// (afr, governors-budget, agency-submission, budget-bill-summary). This
+// fixture carries three of the six; that's enough to exercise every branch
+// (redirect / plain / staged) without the whole file re-deriving all six
+// every time a row's copy changes upstream.
 const ROWS: api.DocTypeCard[] = [
   { key: "baseline-book", label: "Baseline Book", group: "JLBC", formats: [".pdf"],
     where_published: "JLBC, each January.", which_file: "",
@@ -51,16 +51,28 @@ const ROWS: api.DocTypeCard[] = [
     redirect: null, stage_field: true, order: 60 },
 ];
 
-// The single row every OTHER describe block in this file renders (the old
-// single-dropzone tests below assume exactly one thing to interact with —
-// see pickFile()). It's ROWS' own "afr" entry, not a fresh fixture, so the
-// two can't quietly drift apart.
+// The single row every OTHER describe block in this file selects and fills
+// in (the old single-dropzone-era tests below assume exactly one type is
+// ever relevant — see pickFile()). It's ROWS' own "afr" entry, not a fresh
+// fixture, so the two can't quietly drift apart.
 const DEFAULT_ROW = ROWS[1];
 
+/** Picks a type from the "What are you uploading?" list by its label —
+ *  radio inputs, so a click on the label toggles them. Every describe block
+ *  below needs this first: the rework's whole point is that no form exists
+ *  until a type is selected. */
+async function selectType(label: string | RegExp = /annual financial report/i) {
+  const radio = (await screen.findByRole("radio", { name: label })) as HTMLInputElement;
+  fireEvent.click(radio);
+  return radio;
+}
+
 async function pickFile(file = pdf()) {
-  // findByLabelText, not getByLabelText: the row itself now arrives via an
-  // async GET /api/document-types fetch (Task 6), so it isn't necessarily
-  // in the DOM on the synchronous render this used to run against.
+  await selectType();
+  // findByLabelText, not getByLabelText: the type list itself arrives via an
+  // async GET /api/document-types fetch, so the form isn't necessarily in
+  // the DOM on the synchronous render this used to run against, and it
+  // never exists at all before selectType() above runs.
   const input = (await screen.findByLabelText(/choose a pdf/i)) as HTMLInputElement;
   fireEvent.change(input, { target: { files: [file] } });
   await screen.findByText(file.name);
@@ -71,7 +83,8 @@ beforeEach(() => {
   // Default: exactly one plain (non-redirect, non-staged) row, so every test
   // written against the old single-form assumptions (one file input, one
   // "Fiscal year" field, one submit button) still resolves unambiguously.
-  // The "upload rows" describe below overrides this with the full fixture.
+  // The "the type picker and form" describe below overrides this with the
+  // full fixture.
   vi.spyOn(api, "documentTypes").mockResolvedValue([DEFAULT_ROW]);
 });
 
@@ -120,20 +133,65 @@ describe("the public-record notice", () => {
   });
 });
 
-// --- metadata form ----------------------------------------------------------
+// --- the type picker itself --------------------------------------------------
 
-describe("the metadata form", () => {
-  // Superseded, not just renamed: the old single dropzone gated its whole
-  // meta form behind a chosen file. A DocTypeRow shows its fields
-  // immediately — the analyst needs to see "does this row want a stage?"
-  // before hunting for a file, and the brief's own row-shape tests
-  // ("only the bill summary asks for a stage") depend on that being true
-  // with no file chosen at all.
-  it("shows metadata fields without requiring a file first", async () => {
+describe("the type picker", () => {
+  it("shows no form at all before a type is picked", async () => {
     render(<Upload />);
+    await screen.findByRole("radio", { name: /annual financial report/i });
+    expect(screen.queryByLabelText("Fiscal year")).toBeNull();
+    expect(screen.queryByLabelText(/choose a pdf/i)).toBeNull();
+    expect(screen.queryByRole("button", { name: /add document/i })).toBeNull();
+  });
+
+  it("shows the form for the picked type as soon as it's picked, before any file", async () => {
+    // Superseded, not just renamed: the old six-cards-per-type design showed
+    // every row's fields immediately, with no selection step at all. This
+    // rework adds the selection step but keeps the property those old tests
+    // protected — the analyst needs to see "does this type want a stage?"
+    // before hunting for a file, not after choosing one.
+    render(<Upload />);
+    await selectType();
     expect(await screen.findByLabelText("Fiscal year")).toBeTruthy();
   });
 
+  it("marks the picked row as selected and leaves the others visible", async () => {
+    vi.spyOn(api, "documentTypes").mockResolvedValue(ROWS);
+    render(<Upload />);
+    await selectType(/annual financial report/i);
+    // { selector: "label" }, not a bare getByText: once a type is picked its
+    // form shows an <h3> with the SAME label text, so "Budget Bill Summary"
+    // would otherwise match twice as soon as it's the one selected.
+    const afrRow = screen.getByText("Annual Financial Report", { selector: "label" })
+      .closest("[data-doc-type]")!;
+    const summaryRow = screen.getByText("Budget Bill Summary", { selector: "label" })
+      .closest("[data-doc-type]")!;
+    expect(afrRow.className).toMatch(/is-selected/);
+    expect(summaryRow.className).not.toMatch(/is-selected/);
+    // "The rows stay visible after selection" — nothing about picking one
+    // type removes the others from the list.
+    expect(screen.getByText("Baseline Book", { selector: "label" })).toBeInTheDocument();
+  });
+
+  it("switching the pick moves the selection instead of adding a second one", async () => {
+    vi.spyOn(api, "documentTypes").mockResolvedValue(ROWS);
+    render(<Upload />);
+    await selectType(/annual financial report/i);
+    await selectType(/budget bill summary/i);
+    const afrRow = screen.getByText("Annual Financial Report", { selector: "label" })
+      .closest("[data-doc-type]")!;
+    const summaryRow = screen.getByText("Budget Bill Summary", { selector: "label" })
+      .closest("[data-doc-type]")!;
+    expect(afrRow.className).not.toMatch(/is-selected/);
+    expect(summaryRow.className).toMatch(/is-selected/);
+    // Only one form on the page, for the CURRENT pick.
+    expect(screen.getAllByRole("button", { name: /add document/i })).toHaveLength(1);
+  });
+});
+
+// --- metadata form ----------------------------------------------------------
+
+describe("the metadata form", () => {
   it("pre-fills from filename heuristics", async () => {
     render(<Upload />);
     await pickFile(pdf("FY2026-approps.pdf"));
@@ -171,52 +229,42 @@ describe("submitting", () => {
     expect(meta).toMatchObject({
       corpus: "budget", doc_type: "afr",
     });
-    // Final-review Finding 1: the client used to post a hand-maintained
-    // `publisher` guess (ROW_PUBLISHERS's `?? "jlbc"` fallback) that a
-    // seventh registry row could silently get wrong. The server now derives
-    // publisher from the doc_type's registry row instead, so the client must
-    // send NOTHING for it — sending even a correct-looking value here would
-    // be the same hand-maintained-copy shape the fix removes.
-    // NOTE: this assertion needs the sibling Python branch's server-side
-    // change (publisher becomes an optional upload field, derived from the
-    // doc_type registry) to be true end-to-end — the two halves merge
-    // together.
+    // The client used to post a hand-maintained `publisher` guess
+    // (ROW_PUBLISHERS's `?? "jlbc"` fallback) that a seventh registry row
+    // could silently get wrong. The server derives publisher from the
+    // doc_type's registry row instead, so the client must send NOTHING for
+    // it — sending even a correct-looking value here would be the same
+    // hand-maintained-copy shape the fix removed.
     expect(meta).not.toHaveProperty("publisher");
-    // Review finding 1: this title always promised "reports success" but
-    // nothing here checked it — the single confirmation line was the only
-    // thing the pre-Task-6 page showed after a submit, and it went missing
-    // in the six-row rewrite with no test catching the loss.
     const confirmation = await screen.findByText(/AFR25 COMBINED\.pdf added to the queue\./i);
     expect(confirmation.getAttribute("role")).toBe("status");
   });
 
-  it("scopes the success confirmation to the row that was submitted, not the whole page", async () => {
-    // Six rows now share one page. A page-level "it worked" message can't
-    // say WHICH of the six succeeded, so this pins the confirmation to the
-    // submitting row's own element and asserts an unrelated row stays silent.
-    vi.spyOn(api, "documentTypes").mockResolvedValue(ROWS);
+  it("shows the success confirmation inside the one form on the page", async () => {
+    // With six independent cards this used to need to prove the message was
+    // scoped to the submitting ROW, since a page-level message couldn't say
+    // which of six had succeeded. There's only one form now, so that
+    // specific hazard is gone by construction — this instead pins the
+    // confirmation to the form region (not floating somewhere else on the
+    // page), and the "switching the selected type" spec below covers the
+    // hazard the rework actually introduces: the message surviving a switch
+    // to a DIFFERENT type.
     vi.spyOn(api, "uploadDocument").mockResolvedValue({ job_id: "j", doc_id: "d" });
     render(<Upload />);
-    const afrRow = (await screen.findByText("Annual Financial Report"))
-      .closest("[data-doc-type]")! as HTMLElement;
-    const summaryRow = screen.getByText("Budget Bill Summary")
-      .closest("[data-doc-type]")! as HTMLElement;
+    await pickFile(pdf("agao-afr-fy2025.pdf"));
+    fireEvent.click(screen.getByRole("checkbox", { name: /public record/i }));
+    fireEvent.click(screen.getByRole("button", { name: /add document/i }));
 
-    fireEvent.change(afrRow.querySelector('input[type="file"]')!, {
-      target: { files: [pdf("agao-afr-fy2025.pdf")] },
-    });
-    fireEvent.click(afrRow.querySelector('input[type="checkbox"]')!);
-    fireEvent.click(within(afrRow).getByRole("button", { name: /add document/i }));
-
-    await waitFor(() =>
-      expect(within(afrRow).getByText(/added to the queue/i)).toBeTruthy());
-    expect(within(summaryRow).queryByText(/added to the queue/i)).toBeNull();
+    const form = await screen.findByTestId("upload-form");
+    expect(within(form).getByText(/added to the queue/i)).toBeTruthy();
   });
 
-  it("clears a stale success message once a fresh attempt starts in the same row", async () => {
-    // A success line left over from an EARLIER upload through this row must
-    // not sit above a NEW attempt's result — otherwise a failing second
-    // upload would read as if it, too, had succeeded.
+  it("clears a stale success message once a fresh attempt starts for the same type", async () => {
+    // A success line left over from an EARLIER upload of this type must not
+    // sit above a NEW attempt's result — otherwise a failing second upload
+    // would read as if it, too, had succeeded. This is the "same type twice
+    // in a row" case; a switch to a DIFFERENT type is covered separately
+    // below, by a different mechanism (remount, not this reset).
     vi.spyOn(api, "uploadDocument")
       .mockResolvedValueOnce({ job_id: "j1", doc_id: "d1" })
       .mockRejectedValueOnce(new Error("upload: notes.txt is not a PDF or DOCX."));
@@ -227,7 +275,9 @@ describe("submitting", () => {
     fireEvent.click(screen.getByRole("button", { name: /add document/i }));
     await screen.findByText(/first\.pdf added to the queue\./i);
 
-    await pickFile(pdf("second.pdf"));
+    const input = screen.getByLabelText(/choose a pdf/i) as HTMLInputElement;
+    fireEvent.change(input, { target: { files: [pdf("second.pdf")] } });
+    await screen.findByText("second.pdf");
     expect(screen.queryByText(/added to the queue/i)).toBeNull();
 
     fireEvent.click(screen.getByRole("checkbox", { name: /public record/i }));
@@ -243,7 +293,7 @@ describe("submitting", () => {
   // so an assertion here would pass identically whether or not the reset
   // code exists — verified by deleting the reset line and re-running: the
   // assertion still passed. A test that can't fail is worse than no test;
-  // this needs a real browser (see task-6-report.md's "could not verify").
+  // this needs a real browser.
 
   it("shows the server's reason when the upload is rejected", async () => {
     vi.spyOn(api, "uploadDocument").mockRejectedValue(
@@ -281,6 +331,117 @@ describe("submitting", () => {
   });
 });
 
+// --- switching the selected type (the hazard this rework introduces) -------
+
+describe("switching the selected type", () => {
+  // Six independent cards used to make this a non-issue — each type had its
+  // own React state, so nothing COULD leak between them. One form serving
+  // six types can, unless every one of these is deliberately cleared on a
+  // switch: a file, a customized fiscal year, a stage, an error, a
+  // duplicate notice, and a success message. Each is asserted separately so
+  // a partial fix (e.g. clearing the file but not the error) still fails.
+  beforeEach(() => {
+    vi.spyOn(api, "documentTypes").mockResolvedValue(ROWS);
+  });
+
+  it("does not carry a picked file or a customized fiscal year to the next type", async () => {
+    render(<Upload />);
+    await selectType(/annual financial report/i);
+    const input = (await screen.findByLabelText(/choose a pdf/i)) as HTMLInputElement;
+    fireEvent.change(input, { target: { files: [pdf("agao-afr-fy2025.pdf")] } });
+    await screen.findByText("agao-afr-fy2025.pdf");
+    fireEvent.change(screen.getByLabelText("Fiscal year"), { target: { value: "1999" } });
+
+    await selectType(/budget bill summary/i);
+
+    expect(screen.queryByText("agao-afr-fy2025.pdf")).toBeNull();
+    expect((screen.getByLabelText("Fiscal year") as HTMLInputElement).value)
+      .not.toBe("1999");
+  });
+
+  it("does not carry a public-record tick to the next type", async () => {
+    render(<Upload />);
+    await selectType(/annual financial report/i);
+    fireEvent.click(screen.getByRole("checkbox", { name: /public record/i }));
+    expect(screen.getByRole("checkbox", { name: /public record/i })).toBeChecked();
+
+    await selectType(/budget bill summary/i);
+
+    expect(screen.getByRole("checkbox", { name: /public record/i })).not.toBeChecked();
+  });
+
+  it("does not carry a picked stage to a different staged type's form", async () => {
+    // Both budget-bill-summary swaps here are the SAME type, so this can't
+    // be checked directly against a second staged row in the tiny fixture —
+    // instead it goes staged -> unstaged -> staged and confirms the second
+    // arrival is fresh, not the first arrival's leftover "engrossed".
+    render(<Upload />);
+    await selectType(/budget bill summary/i);
+    fireEvent.change(screen.getByLabelText("Version"), { target: { value: "engrossed" } });
+    expect((screen.getByLabelText("Version") as HTMLSelectElement).value).toBe("engrossed");
+
+    await selectType(/annual financial report/i);
+    await selectType(/budget bill summary/i);
+
+    expect((screen.getByLabelText("Version") as HTMLSelectElement).value).toBe("");
+  });
+
+  it("does not carry an error message to the next type", async () => {
+    vi.spyOn(api, "uploadDocument").mockRejectedValue(
+      new Error("upload: notes.txt is not a PDF or DOCX."),
+    );
+    render(<Upload />);
+    await selectType(/annual financial report/i);
+    fireEvent.change(await screen.findByLabelText(/choose a pdf/i), {
+      target: { files: [pdf()] },
+    });
+    fireEvent.click(screen.getByRole("checkbox", { name: /public record/i }));
+    fireEvent.click(screen.getByRole("button", { name: /add document/i }));
+    await screen.findByText(/is not a PDF or DOCX/i);
+
+    await selectType(/budget bill summary/i);
+
+    expect(screen.queryByText(/is not a PDF or DOCX/i)).toBeNull();
+  });
+
+  it("does not carry a duplicate notice to the next type", async () => {
+    vi.spyOn(api, "uploadDocument").mockRejectedValue(
+      new api.DuplicateDocumentError({
+        detail: "already in corpus", existing_doc_id: "x",
+        added_at: null, added_by: null,
+      }),
+    );
+    render(<Upload />);
+    await selectType(/annual financial report/i);
+    fireEvent.change(await screen.findByLabelText(/choose a pdf/i), {
+      target: { files: [pdf()] },
+    });
+    fireEvent.click(screen.getByRole("checkbox", { name: /public record/i }));
+    fireEvent.click(screen.getByRole("button", { name: /add document/i }));
+    await screen.findByTestId("duplicate");
+
+    await selectType(/budget bill summary/i);
+
+    expect(screen.queryByTestId("duplicate")).toBeNull();
+  });
+
+  it("does not carry a success message to the next type", async () => {
+    vi.spyOn(api, "uploadDocument").mockResolvedValue({ job_id: "j", doc_id: "d" });
+    render(<Upload />);
+    await selectType(/annual financial report/i);
+    fireEvent.change(await screen.findByLabelText(/choose a pdf/i), {
+      target: { files: [pdf()] },
+    });
+    fireEvent.click(screen.getByRole("checkbox", { name: /public record/i }));
+    fireEvent.click(screen.getByRole("button", { name: /add document/i }));
+    await screen.findByText(/added to the queue/i);
+
+    await selectType(/budget bill summary/i);
+
+    expect(screen.queryByText(/added to the queue/i)).toBeNull();
+  });
+});
+
 // --- the document-types fetch itself ----------------------------------------
 
 describe("when the document-type registry can't be reached", () => {
@@ -292,135 +453,142 @@ describe("when the document-type registry can't be reached", () => {
   });
 });
 
-// --- the six guided rows (Task 6) -------------------------------------------
+// --- the type picker and form, per document type ----------------------------
 
-describe("upload rows", () => {
+describe("the type picker and form", () => {
   beforeEach(() => {
     vi.spyOn(api, "documentTypes").mockResolvedValue(ROWS);
   });
 
-  it("renders one row per document type from the API", async () => {
+  it("lists one radio per document type from the API, in order", async () => {
     render(<Upload />);
     expect(await screen.findByText("Annual Financial Report")).toBeInTheDocument();
     expect(screen.getByText("Budget Bill Summary")).toBeInTheDocument();
+    expect(screen.getAllByRole("radio")).toHaveLength(ROWS.length);
   });
 
-  it("shows where to get the file and which file to get", async () => {
+  it("shows where to get the file and which file to get, in the list itself", async () => {
+    // No selection needed — this guidance is what lets an analyst recognise
+    // their document well enough to pick the right radio in the first
+    // place, so it has to be visible BEFORE a pick, not after.
     render(<Upload />);
     expect(await screen.findByText(/The combined PDF\./)).toBeInTheDocument();
     expect(screen.getByText(/gao\.az\.gov/)).toBeInTheDocument();
   });
 
-  it("a redirect row offers no file input", async () => {
+  it("a redirect type shows its own detail and button instead of a form", async () => {
     render(<Upload />);
-    const row = (await screen.findByText("Baseline Book")).closest("[data-doc-type]")!;
-    expect(row.querySelector('input[type="file"]')).toBeNull();
-    expect(row.textContent).toMatch(/Add a JLBC book/);
+    await selectType(/baseline book/i);
+    expect(screen.queryByRole("radio", { name: /baseline book/i })).toBeTruthy();
+    // No form at all for a redirect type — not a disabled one.
+    expect(screen.queryByTestId("upload-form")).toBeNull();
+    expect(screen.queryByLabelText(/choose a pdf/i)).toBeNull();
+    const redirect = await screen.findByTestId("upload-redirect");
+    expect(redirect.textContent).toMatch(/Stored as one document per agency/);
+    expect(within(redirect).getByRole("button", { name: /Add a JLBC book/i })).toBeTruthy();
   });
 
   it("only the bill summary asks for a stage", async () => {
     render(<Upload />);
-    await screen.findByText("Budget Bill Summary");
-    const summary = screen.getByText("Budget Bill Summary").closest("[data-doc-type]")!;
-    const afr = screen.getByText("Annual Financial Report").closest("[data-doc-type]")!;
-    expect(summary.querySelector('select[name="stage"]')).not.toBeNull();
-    expect(afr.querySelector('select[name="stage"]')).toBeNull();
+    await selectType(/annual financial report/i);
+    expect(screen.queryByLabelText("Version")).toBeNull();
+
+    await selectType(/budget bill summary/i);
+    expect(screen.getByLabelText("Version")).toBeTruthy();
   });
 
   it("sends the stage with the upload", async () => {
     // fireEvent, not userEvent — this webapp has no @testing-library/user-event
-    // (see other test files in this repo for the same note). The brief's own
-    // sketch imported userEvent; that dependency does not exist here and
-    // "no new dependency" is a hard constraint, so every interaction below
-    // is fireEvent instead.
+    // (see other test files in this repo for the same note), and "no new
+    // dependency" is a hard constraint.
     const up = vi.spyOn(api, "uploadDocument").mockResolvedValue(
       { job_id: "j", doc_id: "d" });
     render(<Upload />);
-    await screen.findByText("Budget Bill Summary");
-    const row = screen.getByText("Budget Bill Summary").closest("[data-doc-type]")! as HTMLElement;
-    fireEvent.change(row.querySelector("select[name=stage]")!, {
-      target: { value: "engrossed" },
-    });
-    fireEvent.change(row.querySelector('input[type="file"]')!, {
+    await selectType(/budget bill summary/i);
+    fireEvent.change(screen.getByLabelText("Version"), { target: { value: "engrossed" } });
+    fireEvent.change(screen.getByLabelText(/choose a pdf/i), {
       target: { files: [new File(["x"], "bills.pdf", { type: "application/pdf" })] },
     });
-    fireEvent.click(row.querySelector('input[type="checkbox"]')!);
-    fireEvent.click(within(row).getByRole("button", { name: /add document/i }));
+    fireEvent.click(screen.getByRole("checkbox", { name: /public record/i }));
+    fireEvent.click(screen.getByRole("button", { name: /add document/i }));
     await waitFor(() => expect(up).toHaveBeenCalled());
     expect(up.mock.calls[0][1]).toMatchObject({
       doc_type: "budget-bill-summary", stage: "engrossed",
     });
   });
 
-  it("accepts a file dropped on the row, going through the same path as a picked one", async () => {
-    // Finding 1 (task-6 review): drag-and-drop was silently dropped when
-    // the single dropzone was replaced by six rows. Restored per-row rather
-    // than as a single shared dropzone, since there's no longer one form to
-    // drop onto. This also exercises the fiscal-year filename sniff to
-    // prove the dropped file goes through selectFile(), the exact function
-    // the file <input>'s onChange calls — not a second, divergent path.
+  it("cannot be submitted without a stage on a staged type", async () => {
+    // The gate that makes "Engrossed supersedes Introduced" true: a staged
+    // type must be unsubmittable with no stage picked, same as it's
+    // unsubmittable with no file and no public-record tick.
     render(<Upload />);
-    const row = (await screen.findByText("Annual Financial Report"))
-      .closest("[data-doc-type]")! as HTMLElement;
+    await selectType(/budget bill summary/i);
+    fireEvent.change(screen.getByLabelText(/choose a pdf/i), {
+      target: { files: [new File(["x"], "bills.pdf", { type: "application/pdf" })] },
+    });
+    fireEvent.click(screen.getByRole("checkbox", { name: /public record/i }));
+    expect(screen.getByRole("button", { name: /add document/i })).toBeDisabled();
+
+    fireEvent.change(screen.getByLabelText("Version"), { target: { value: "introduced" } });
+    expect(screen.getByRole("button", { name: /add document/i })).toBeEnabled();
+  });
+
+  it("accepts a file dropped on the form, going through the same path as a picked one", async () => {
+    // Drag-and-drop exercises the fiscal-year filename sniff too, to prove
+    // the dropped file goes through selectFile(), the exact function the
+    // file <input>'s onChange calls — not a second, divergent path.
+    render(<Upload />);
+    await selectType(/annual financial report/i);
+    const form = await screen.findByTestId("upload-form");
     const file = pdf("FY2026-approps.pdf");
-    fireEvent.drop(row, { dataTransfer: { files: [file] } });
+    fireEvent.drop(form, { dataTransfer: { files: [file] } });
     expect(await screen.findByText(file.name)).toBeTruthy();
-    expect((within(row).getByLabelText("Fiscal year") as HTMLInputElement).value)
+    expect((screen.getByLabelText("Fiscal year") as HTMLInputElement).value)
       .toBe("2026");
   });
 
-  it("gives every file-accepting row a visible drop affordance", async () => {
-    // Final-review Finding 3: the row accepts a drop (test above), but
-    // nothing on screen used to say so — jsdom applies no stylesheet, so
-    // this can only pin the MARKUP (the .up-drop box + its hint text), not
-    // that the dashed border actually renders. See the report for the
-    // human-in-a-browser follow-up that verifies the paint.
-    vi.spyOn(api, "documentTypes").mockResolvedValue(ROWS);
+  it("gives the file-accepting form a visible drop affordance, and gives a redirect type none", async () => {
+    // jsdom applies no stylesheet, so this can only pin the MARKUP (the
+    // .up-drop box + its hint text), not that the dashed border actually
+    // renders — see the report for the human-in-a-browser follow-up.
     render(<Upload />);
-    const row = (await screen.findByText("Annual Financial Report"))
-      .closest("[data-doc-type]")! as HTMLElement;
-    expect(row.querySelector(".up-drop")).toBeTruthy();
-    expect(within(row).getByText(/drag and drop it here/i)).toBeTruthy();
-    // A redirect row (no onDrop, Finding 3's affordance would be a lie there)
-    // must not grow one.
-    const bookRow = screen.getByText("Baseline Book").closest("[data-doc-type]")! as HTMLElement;
-    expect(bookRow.querySelector(".up-drop")).toBeNull();
+    await selectType(/annual financial report/i);
+    const form = await screen.findByTestId("upload-form");
+    expect(form.querySelector(".up-drop")).toBeTruthy();
+    expect(within(form).getByText(/drag and drop it here/i)).toBeTruthy();
+
+    await selectType(/baseline book/i);
+    expect(screen.queryByTestId("upload-form")).toBeNull();
   });
 
-  it("requires a fresh stage pick before a second upload through the same row", async () => {
-    // Correction 2: "Engrossed supersedes Introduced" is only true if EVERY
-    // upload carries a stage, including a second document pushed through a
-    // row that already succeeded once (e.g. Introduced today, Engrossed
-    // next week). If the picker remembered the last value, a re-upload
-    // could silently reuse a stale stage instead of forcing a fresh choice.
+  it("requires a fresh stage pick before a second upload of the same type", async () => {
+    // "Engrossed supersedes Introduced" is only true if EVERY upload
+    // carries a stage, including a second document pushed through the same
+    // type after it already succeeded once (e.g. Introduced today,
+    // Engrossed next week). If the picker remembered the last value, a
+    // re-upload could silently reuse a stale stage instead of forcing a
+    // fresh choice.
     vi.spyOn(api, "uploadDocument").mockResolvedValue({ job_id: "j", doc_id: "d" });
     render(<Upload />);
-    await screen.findByText("Budget Bill Summary");
-    const row = screen.getByText("Budget Bill Summary").closest("[data-doc-type]")! as HTMLElement;
-    fireEvent.change(row.querySelector("select[name=stage]")!, {
-      target: { value: "introduced" },
-    });
-    fireEvent.change(row.querySelector('input[type="file"]')!, {
+    await selectType(/budget bill summary/i);
+    fireEvent.change(screen.getByLabelText("Version"), { target: { value: "introduced" } });
+    fireEvent.change(screen.getByLabelText(/choose a pdf/i), {
       target: { files: [new File(["x"], "bills.pdf", { type: "application/pdf" })] },
     });
-    fireEvent.click(row.querySelector('input[type="checkbox"]')!);
-    fireEvent.click(within(row).getByRole("button", { name: /add document/i }));
+    fireEvent.click(screen.getByRole("checkbox", { name: /public record/i }));
+    fireEvent.click(screen.getByRole("button", { name: /add document/i }));
 
     await waitFor(() =>
-      expect(within(row).getByRole("button", { name: /add document/i })).toBeDisabled());
-    expect((row.querySelector('select[name=stage]') as HTMLSelectElement).value).toBe("");
+      expect(screen.getByRole("button", { name: /add document/i })).toBeDisabled());
+    expect((screen.getByLabelText("Version") as HTMLSelectElement).value).toBe("");
   });
 
   it("holds no hardcoded doc_type strings of its own", async () => {
-    // Broadened (final-review): the original version only checked seven
-    // hand-picked BOOK-SECTION slugs, so ROW_PUBLISHERS — a second,
-    // hardcoded four-doc_type-slug map twelve lines below the code it
-    // guarded — sailed through clean (Finding 1's exact defect). This now
-    // reads every key the registry itself defines and checks BOTH literal
-    // shapes a slug could reappear in: a quoted string (any of "x"/'x'/`x`,
-    // which ROW_PUBLISHERS used for three of its four entries) and a bare
-    // object-key (`afr:`, which ROW_PUBLISHERS used for its fourth) — so a
-    // repeat of that exact shape fails here, not just today's known slugs.
+    // Broadened (carried over from Task 6's final review): reads every key
+    // the registry itself defines and checks BOTH literal shapes a slug
+    // could reappear in — a quoted string (any of "x"/'x'/`x`) and a bare
+    // object-key (`afr:`) — so a repeat of the old ROW_PUBLISHERS-shaped
+    // defect fails here, not just today's known slugs.
     const src = (await import("./Upload.tsx?raw")).default;
     const registry = readFileSync(
       resolve(process.cwd(), "../data/document-types.yaml"),
