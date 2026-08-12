@@ -14,6 +14,12 @@ Algorithm:
   3. Each emitted chunk's text begins with the section path (section >
      subsection > ...) so the embedding signal carries the surrounding
      heading context.
+  4. Any paragraph that precedes the FIRST heading anywhere in the document
+     (the mineru/odl readers' `_build_outline` never attaches it to any
+     `OutlineNode` — its parse stack starts empty, so a block seen before
+     the first heading has no node to hang off) is recovered from the raw
+     page blocks and emitted as trailing "preamble" chunks, appended AFTER
+     every outline-derived chunk. See `_orphaned_paragraphs`.
 
 Section path is the breadcrumb of outline-node texts from root to current
 node, identical to what `ExtractedDocument.outline_path` would return for
@@ -27,6 +33,7 @@ from chunking.builders._tokens import count_tokens
 from chunking.builders.table_chunk import DocMeta
 from chunking.readers.types import (
     ExtractedDocument,
+    Heading,
     OutlineNode,
     Paragraph,
 )
@@ -105,7 +112,66 @@ def build_narrative_chunks(
     for root in doc.outline:
         visit(root, [])
 
+    # WHY: measured on 300 random per-agency PDFs, 5.1% of extracted prose
+    # characters (56.7% of documents) are dropped here, silently — a
+    # paragraph before the FIRST heading in the document is never attached
+    # to any OutlineNode (see the readers' `_build_outline`), so the walk
+    # above never sees it. On a JLBC agency page that's the AGENCY
+    # DESCRIPTION paragraph; for a page with no heading at all (real corpus
+    # example: jlbc-baseline-fy2022-hla) it is 100% of the page's narrative.
+    # Recovered from doc.pages (the readers never remove blocks from Page
+    # objects — only the outline tree omits them) and appended AFTER every
+    # outline-derived chunk above, using the same running `next_index`, so
+    # every chunk_id that existed before this fix keeps its exact index and
+    # text — eval ground truth (eval/queries.yaml and friends) pins
+    # chunk_ids, and the tool that used to re-bind stale ones was deleted
+    # with nothing to replace it (CLAUDE.md "measurement discipline").
+    orphans = _orphaned_paragraphs(doc)
+    if orphans:
+        _flush_section_into_chunks(
+            paragraphs=orphans,
+            section_path=["preamble"],
+            emit=emit,
+            # No "preamble" header line in the chunk TEXT (only in
+            # section_path, for structural bookkeeping) — mirrors the DOCX
+            # precedent (_build_docx_chunks / _docx_section_text), which
+            # never prefixes a heading line for its synthetic no-heading
+            # section either. Doubly right here: the JLBC prose already
+            # opens with its own explicit label ("AGENCY DESCRIPTION —
+            # ..."), so a second synthetic one would just be noise ahead of
+            # it in the embedding text.
+            include_header=False,
+        )
+
     return chunks
+
+
+def _orphaned_paragraphs(doc: ExtractedDocument) -> list[Paragraph]:
+    """Body paragraphs that precede the first Heading anywhere in the doc.
+
+    Mirrors — does not reimplement — the condition inside
+    `mineru_reader.MinerUReader._build_outline` /
+    `odl_reader.ODLReader._build_outline`: both walk blocks in document
+    order over a parse stack that starts empty and only ever gains an entry
+    once the first Heading is seen; a non-heading block is attached to
+    `stack[-1].body_blocks` when the stack is non-empty and is otherwise
+    dropped from the outline entirely. Because every heading push leaves at
+    least one node on the stack (it always appends itself, whether as a
+    root or a child), the stack can never become empty again once any
+    heading has been seen — so "orphaned" is exactly and only the prefix of
+    Paragraph blocks before the first Heading in reading order across pages.
+    `doc.pages` still holds these blocks (the outline builders only omit
+    them from the tree, they never mutate `Page.blocks`), so they're
+    recoverable here without touching either reader.
+    """
+    orphans: list[Paragraph] = []
+    for page in doc.pages:
+        for block in page.blocks:
+            if isinstance(block, Heading):
+                return orphans
+            if isinstance(block, Paragraph):
+                orphans.append(block)
+    return orphans
 
 
 def _flush_section_into_chunks(
@@ -113,9 +179,16 @@ def _flush_section_into_chunks(
     paragraphs: list[Paragraph],
     section_path: list[str],
     emit,
+    include_header: bool = True,
 ) -> None:
-    """Greedy paragraph-merge until target/max thresholds are crossed."""
-    section_header = " > ".join(section_path)
+    """Greedy paragraph-merge until target/max thresholds are crossed.
+
+    `include_header=False` suppresses the " > ".join(section_path) line
+    that otherwise opens every chunk's text — `section_path` itself is
+    still passed through to `emit` untouched, so the Chunk's structural
+    metadata is unaffected. Used for the synthetic "preamble" bucket only.
+    """
+    section_header = " > ".join(section_path) if include_header else ""
     buffer_paragraphs: list[Paragraph] = []
     buffer_text_parts: list[str] = []
     buffer_tokens = count_tokens(section_header) if section_header else 0
