@@ -372,6 +372,7 @@ class ChunkStore:
     def filter_expr(
         *, fiscal_year: list[int] | None = None,
         doc_type: list[str] | None = None,
+        doc_id: list[str] | None = None,
         publisher: list[str] | None = None,
         agency_canonical_id: list[str] | None = None,
         fund_canonical_id: list[str] | None = None,
@@ -409,6 +410,9 @@ class ChunkStore:
         for col, vals, builder in (
             ("fiscal_year", fiscal_year, _in),
             ("doc_type", doc_type, _in),
+            # Scalar string column like doc_type, so ANY-of, not overlap
+            # (spec N4 — the by=doc_id spread axis).
+            ("doc_id", doc_id, _in),
             ("publisher", publisher, _in),
             ("agency_canonical_ids", agency_canonical_id, _overlap),
             ("fund_canonical_id", fund_canonical_id, _in),

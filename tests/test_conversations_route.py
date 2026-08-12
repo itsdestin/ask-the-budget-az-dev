@@ -705,3 +705,60 @@ def test_ai_status_usage_is_null_when_limits_cannot_apply():
     assert body["user_usage"] == {
         "month_usd": None, "limit_usd": None, "warned": False,
     }
+
+
+# ---------------------------------------------------------------------------
+# The corpus-map snapshot (spec N1/N3)
+# ---------------------------------------------------------------------------
+
+
+def test_corpus_map_snapshot_degrades_to_none_when_the_builder_raises(capsys):
+    """Spec N1 error handling: a missing or corrupt sidecar costs the model
+    its inventory table, never the analyst their conversation."""
+    import harness.corpus_map as corpus_map_module
+    from app.routes.conversations import _corpus_map_snapshot
+
+    def boom(corpus, **kw):
+        raise OSError("sidecar is gone")
+
+    original = corpus_map_module.build_corpus_map
+    corpus_map_module.build_corpus_map = boom
+    try:
+        assert _corpus_map_snapshot("budget") is None
+    finally:
+        corpus_map_module.build_corpus_map = original
+    # The operator hears about it even though the analyst does not.
+    assert "corpus map unavailable" in capsys.readouterr().err
+
+
+def test_default_session_factory_still_builds_a_session_without_a_map(monkeypatch):
+    """The degrade path end to end: the builder explodes and a real
+    HarnessSession is still constructed, carrying no map."""
+    import harness.corpus_map as corpus_map_module
+
+    def boom(corpus, **kw):
+        raise RuntimeError("no")
+
+    monkeypatch.setattr(corpus_map_module, "build_corpus_map", boom)
+    from app.routes.conversations import default_session_factory
+
+    session = default_session_factory(
+        "conv-degraded", corpus="budget", tier="standard", user="analyst"
+    )
+    assert session._corpus_map is None
+
+
+def test_default_session_factory_hands_the_map_to_the_session(monkeypatch):
+    """The happy path — without this the degrade test above would pass on a
+    factory that never asked for a map at all."""
+    import harness.corpus_map as corpus_map_module
+
+    monkeypatch.setattr(
+        corpus_map_module, "build_corpus_map", lambda corpus, **kw: f"MAP-{corpus}"
+    )
+    from app.routes.conversations import default_session_factory
+
+    session = default_session_factory(
+        "conv-mapped", corpus="fiscal_notes", tier="standard", user="analyst"
+    )
+    assert session._corpus_map == "MAP-fiscal_notes"

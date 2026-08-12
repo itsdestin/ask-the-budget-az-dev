@@ -25,6 +25,11 @@ class RetrievalFilters:
 
     fiscal_year: list[int] | None = None
     doc_type: list[str] | None = None
+    # Spec N4: the `by=doc_id` spread axis. Deliberately NOT exposed on
+    # RetrievalRequest or the retrieve tool's filter schema — `retrieve_spread`
+    # is its only caller, and widening the model-facing surface is a separate
+    # decision with its own error-message and eval cost.
+    doc_id: list[str] | None = None
     publisher: list[str] | None = None  # JOIN to documents
     agency_canonical_id: list[str] | None = None
     fund_canonical_id: list[str] | None = None
@@ -36,6 +41,7 @@ class RetrievalFilters:
         return (
             not self.fiscal_year
             and not self.doc_type
+            and not self.doc_id
             and not self.publisher
             and not self.agency_canonical_id
             and not self.fund_canonical_id

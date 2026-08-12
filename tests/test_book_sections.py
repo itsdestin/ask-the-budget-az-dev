@@ -1,7 +1,13 @@
 """The parent-book derivation for JLBC book sections (spec B1-B2)."""
 import pytest
 
-from app.book_sections import SECTION_DOC_TYPES, section_of
+from app.book_sections import section_of
+
+# From its real home rather than through the shim: `app.book_sections` only
+# ever re-exported this incidentally, and spec N1 narrowed that module to the
+# one name it owes its callers (`section_of`). `ingest/section_types.py`'s own
+# docstring is emphatic that this vocabulary has exactly one home.
+from ingest.section_types import SECTION_DOC_TYPES
 
 
 def test_the_five_section_types_are_exactly_these():

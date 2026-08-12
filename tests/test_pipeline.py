@@ -937,3 +937,89 @@ def test_the_final_list_is_still_trimmed_to_top_k(monkeypatch):
 
     assert len(result.chunks) == 4
     assert len(result.reranker_scores) == 4
+
+
+# ---------------------------------------------------------------------------
+# year_coverage — what the pool cap hid (spec N7)
+# ---------------------------------------------------------------------------
+
+
+def test_year_coverage_counts_the_legs_not_the_final_pool(monkeypatch):
+    """Spec N7's whole point: the histogram reports the CANDIDATE
+    distribution, including years the fused-20 cap and the top_k slice
+    removed. Counting the returned chunks instead would report only what
+    the model can already see."""
+    bm25 = [
+        replace(_chunk(f"c{i}"), fiscal_year=2005 + (i % 22))
+        for i in range(30)
+    ]
+    dense = bm25[:5] + [replace(_chunk("d-new"), fiscal_year=1999)]
+    s = Seams(bm25, dense)
+    monkeypatch.setattr("retrieval.pipeline.bm25_query_lance", s.bm25)
+    monkeypatch.setattr("retrieval.pipeline.dense_query_lance", s.dense)
+
+    result = retrieve(
+        RetrievalRequest(query="q", top_k=3),
+        store=object(), embedder=FakeEmbedder(), reranker=FakeReranker(),
+    )
+    assert len(result.chunks) == 3
+    # Years that never reached the answer are still reported.
+    assert set(result.year_coverage) > {c.fiscal_year for c in result.chunks}
+    # The union of the legs, deduped by chunk_id: 30 bm25 + 1 dense-only.
+    assert sum(result.year_coverage.values()) == 31
+    assert result.year_coverage[1999] == 1
+
+
+def test_year_coverage_skips_yearless_chunks(monkeypatch):
+    s = Seams([replace(_chunk("a"), fiscal_year=None),
+               replace(_chunk("b"), fiscal_year=2026)], [])
+    monkeypatch.setattr("retrieval.pipeline.bm25_query_lance", s.bm25)
+    monkeypatch.setattr("retrieval.pipeline.dense_query_lance", s.dense)
+    result = retrieve(
+        RetrievalRequest(query="q"),
+        store=object(), embedder=FakeEmbedder(), reranker=FakeReranker(),
+    )
+    assert result.year_coverage == {2026: 1}
+
+
+def test_year_coverage_is_empty_when_nothing_matched(monkeypatch):
+    s = Seams([], [])
+    monkeypatch.setattr("retrieval.pipeline.bm25_query_lance", s.bm25)
+    monkeypatch.setattr("retrieval.pipeline.dense_query_lance", s.dense)
+    result = retrieve(
+        RetrievalRequest(query="q"), store=object(), embedder=FakeEmbedder()
+    )
+    assert result.year_coverage == {}
+
+
+def test_year_coverage_reflects_the_SECOND_search_after_a_filter_is_dropped(
+    monkeypatch,
+):
+    """Spec Q3 drops an inferred doc-type filter and searches again. The
+    histogram must describe the search that actually produced the results —
+    reporting the abandoned first attempt's candidates would misdescribe
+    the very filters N7 exists to make legible."""
+    from retrieval import pipeline
+
+    calls = {"n": 0}
+
+    def bm25(query, *, store, corpus, top_k, filters):
+        calls["n"] += 1
+        if calls["n"] == 1:
+            return []  # the inferred filter matched nothing
+        return [replace(_chunk("late"), fiscal_year=2013)]
+
+    monkeypatch.setattr(pipeline, "bm25_query_lance", bm25)
+    monkeypatch.setattr(pipeline, "dense_query_lance", lambda *a, **kw: [])
+    monkeypatch.setattr(
+        pipeline, "parse_query_doc_types",
+        lambda q: [type("M", (), {"value": "afr"})()],
+    )
+    monkeypatch.setattr(pipeline, "is_filterable", lambda matches: True)
+
+    result = retrieve(
+        RetrievalRequest(query="afr"),
+        store=object(), embedder=FakeEmbedder(), reranker=FakeReranker(),
+    )
+    assert result.dropped_filters == ["doc_type"]
+    assert result.year_coverage == {2013: 1}

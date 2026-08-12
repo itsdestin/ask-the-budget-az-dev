@@ -62,6 +62,10 @@ def _session(
     provider: str = "openrouter",
     conversation_id: str = "conv-1",
     user: str = "analyst1",
+    # Named rather than left to `**over`, because a duplicate keyword is a
+    # TypeError, not an override — the corpus-map tests need `None` here so
+    # the session actually calls its prompt BUILDER.
+    system_prompt: str | None = SYSTEM_PROMPT,
     **over,
 ) -> HarnessSession:
     return HarnessSession(
@@ -70,7 +74,7 @@ def _session(
         settings=_settings(model, provider),
         executor=FakeExecutor(),
         transport=provider_stub.transport(),
-        system_prompt=SYSTEM_PROMPT,
+        system_prompt=system_prompt,
         tools=[{"type": "function", "function": {"name": "retrieve", "parameters": {}}}],
         check_limit=FakeLedger().check_limit,
         record_usage=FakeLedger().record_usage,
@@ -350,3 +354,101 @@ def test_missing_cache_details_record_zero_not_none():
     ).send_turn("q")
 
     assert ledger.recorded[0]["cached_tokens"] == 0
+
+
+# ---------------------------------------------------------------------------
+# The corpus map is per-conversation state (spec N3)
+# ---------------------------------------------------------------------------
+
+
+def test_corpus_map_is_snapshotted_and_prefix_stays_identical_across_turns():
+    """Spec N3: the map is per-conversation state. Even if the sidecar
+    changes mid-conversation, THIS session's prefix must not move — that is
+    where the ~10x cache saving lives."""
+    provider = Provider(
+        lambda: sse(text_chunk("ok"), finish_chunk("stop"), usage_chunk()),
+        lambda: sse(text_chunk("ok"), finish_chunk("stop"), usage_chunk()),
+    )
+    calls = []
+
+    def builder(*, corpus, tier, corpus_map=None):
+        calls.append(corpus_map)
+        return f"PROMPT[{corpus_map}]"
+
+    session = _session(
+        provider, system_prompt=None, prompt_builder=builder, corpus_map="MAP-V1"
+    )
+    list(session.send_turn("q1"))
+    list(session.send_turn("q2"))
+
+    assert calls and all(c == "MAP-V1" for c in calls)
+    assert _prefix(provider.bodies[0]) == _prefix(provider.bodies[1])
+
+
+def test_sessions_without_a_map_call_the_builder_without_the_kwarg():
+    """Existing fake builders take (corpus, tier) only; a session built with
+    no map must not pass a kwarg they don't accept."""
+    provider = Provider(lambda: sse(text_chunk("ok"), finish_chunk("stop"), usage_chunk()))
+    seen = {}
+
+    def old_style_builder(*, corpus, tier):
+        seen["called"] = True
+        return "OLD"
+
+    session = _session(provider, system_prompt=None, prompt_builder=old_style_builder)
+    list(session.send_turn("q"))
+    assert seen.get("called")
+
+
+def test_two_sessions_with_the_same_map_share_a_prefix():
+    """Spec N3 amended property: identical across conversations WHILE the
+    sidecar stamp (here: the injected map string) is unchanged."""
+    provider = Provider(
+        lambda: sse(text_chunk("ok"), finish_chunk("stop"), usage_chunk()),
+        lambda: sse(text_chunk("ok"), finish_chunk("stop"), usage_chunk()),
+    )
+
+    def builder(*, corpus, tier, corpus_map=None):
+        return f"PROMPT[{corpus_map}]"
+
+    list(
+        _session(
+            provider, conversation_id="a", system_prompt=None,
+            prompt_builder=builder, corpus_map="MAP-V1",
+        ).send_turn("q1")
+    )
+    list(
+        _session(
+            provider, conversation_id="b", system_prompt=None,
+            prompt_builder=builder, corpus_map="MAP-V1",
+        ).send_turn("q2")
+    )
+    assert _prefix(provider.bodies[0]) == _prefix(provider.bodies[1])
+
+
+def test_a_different_map_is_a_different_prefix():
+    """The other half of the amended property, and the reason it had to be
+    amended at all: an ingest that changes the corpus SHOULD invalidate the
+    prefix. A map that never reached the prompt would pass every identity
+    test above while telling the model nothing."""
+    provider = Provider(
+        lambda: sse(text_chunk("ok"), finish_chunk("stop"), usage_chunk()),
+        lambda: sse(text_chunk("ok"), finish_chunk("stop"), usage_chunk()),
+    )
+
+    def builder(*, corpus, tier, corpus_map=None):
+        return f"PROMPT[{corpus_map}]"
+
+    list(
+        _session(
+            provider, conversation_id="a", system_prompt=None,
+            prompt_builder=builder, corpus_map="MAP-V1",
+        ).send_turn("q1")
+    )
+    list(
+        _session(
+            provider, conversation_id="b", system_prompt=None,
+            prompt_builder=builder, corpus_map="MAP-V2",
+        ).send_turn("q2")
+    )
+    assert _prefix(provider.bodies[0]) != _prefix(provider.bodies[1])

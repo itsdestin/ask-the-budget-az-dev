@@ -34,6 +34,7 @@ from __future__ import annotations
 
 import threading
 from dataclasses import dataclass, field, replace as dataclass_replace
+from typing import Any
 
 from retrieval.agency_boost import apply_match_penalty
 from retrieval.local_embedder import LocalEmbedder
@@ -236,6 +237,29 @@ class RetrievalResult:
     inferred_agencies: list[str] = field(default_factory=list)
     inferred_doc_types: list[str] = field(default_factory=list)
     dropped_filters: list[str] = field(default_factory=list)
+    # Spec N7: how many CANDIDATE chunks each fiscal year contributed, counted
+    # over the union (by chunk_id) of the BM25 and dense legs — BEFORE fusion
+    # trims to 20 and before top_k slices further. Counting the returned
+    # chunks instead would report only what the caller can already see; the
+    # histogram's entire job is to report what the pool cap HID, so the model
+    # can tell "these results are all FY2026 because that is all there is"
+    # from "the cap hid the other years".
+    #
+    # POST-FILTER, and the caller must say so: the legs carry the caller's
+    # filters plus any inferred year / doc-type filter, so on a year-named
+    # query this structurally cannot show other years. That is fine (the
+    # target failure is no-year queries) but it must not be over-trusted —
+    # which is why N11 echoes the inferred filters alongside it.
+    #
+    # Default path only. `retrieve_spread` already reports per-group structure.
+    year_coverage: dict[int, int] = field(default_factory=dict)
+    # Spec N5, `retrieve_spread` only — empty on the default path. One entry
+    # per REQUESTED group, in request order:
+    # `{"value": <year|doc_id>, "top_score": float|None, "count": int}`.
+    # A group that matched nothing appears with count 0 rather than being
+    # dropped: "FY2020 holds nothing" and "FY2020 was never searched" are
+    # different answers, and only one of them is honest.
+    spread_groups: list[dict[str, Any]] = field(default_factory=list)
 
 
 def retrieve(
@@ -414,6 +438,18 @@ def retrieve(
         inferred_doc_types = []
         bm25_hits, dense_hits, fused = _search(filters)
 
+    # Spec N7. Counted from the SURVIVING legs, so after a dropped filter it
+    # describes the search that actually produced the results rather than the
+    # abandoned first attempt. Dedup by chunk_id because a chunk found by both
+    # legs is one candidate, not two.
+    seen_years: dict[str, int | None] = {}
+    for hit in [*bm25_hits, *dense_hits]:
+        seen_years.setdefault(hit.chunk_id, hit.fiscal_year)
+    year_coverage: dict[int, int] = {}
+    for fy in seen_years.values():
+        if isinstance(fy, int) and not isinstance(fy, bool):
+            year_coverage[fy] = year_coverage.get(fy, 0) + 1
+
     if not fused:
         # Return before touching the reranker: it is the expensive stage,
         # and there is nothing for it to score. top_score is left at the
@@ -426,6 +462,7 @@ def retrieve(
             inferred_agencies=inferred_agencies,
             inferred_doc_types=inferred_doc_types,
             dropped_filters=dropped_filters,
+            year_coverage=year_coverage,
         )
 
     if reranker is None:
@@ -482,4 +519,176 @@ def retrieve(
         inferred_agencies=inferred_agencies,
         inferred_doc_types=inferred_doc_types,
         dropped_filters=dropped_filters,
+        year_coverage=year_coverage,
+    )
+
+
+@dataclass(frozen=True)
+class SpreadSpec:
+    """One structured multi-group search (spec N4).
+
+    `by` names the axis, `groups` the values in the order the caller wants
+    them back, `per_group` how many passages each group keeps. The tool
+    boundary (`harness/tools.py`) enforces the caps — this dataclass is the
+    already-validated shape, so the pipeline never has to guess what a
+    model meant.
+    """
+
+    by: str                      # "fiscal_year" | "doc_id"
+    groups: tuple = ()           # tuple[int, ...] | tuple[str, ...]
+    per_group: int = 3
+
+
+def retrieve_spread(
+    req: RetrievalRequest,
+    spread: SpreadSpec,
+    *,
+    store: ChunkStore | None = None,
+    embedder: LocalEmbedder | None = None,
+    reranker: LocalReranker | None = None,
+    bm25_top_k: int = BM25_TOP_K,
+    dense_top_k: int = DENSE_TOP_K,
+    rrf_k: int = 60,
+    bm25_weight: float = 1.0,
+    dense_weight: float = 1.0,
+) -> RetrievalResult:
+    """One query, searched once per group, reranked as ONE batch (spec N5).
+
+    The structural fix for edition monoculture: "ahcccs appropriations report"
+    can never surface FY2026 on the default path, because ~2,000 near-identical
+    AHCCCS chunks span FY2005-2026 and the fused pool is capped at 20 — one
+    edition's near-duplicates fill it before rerank starts. Measured: raising
+    RECENCY_BOOST_PER_YEAR to 4.0 does not help, because the right edition is
+    not in the pool to be boosted. No ranking constant can fix a pool
+    COMPOSITION problem. FY2026 cannot be crowded out of the pool when FY2026
+    IS its own pool.
+
+    Three deliberate differences from `retrieve()`, each load-bearing:
+
+    * **No query-understanding inference.** The groups ARE the instruction, so
+      neither the S21 year filter nor the Q2 doc-type filter runs — inferring
+      a year here would fight the caller's own grouping, and an inferred
+      doc-type filter would silently shrink a group the model asked for. Weak
+      agency / doc-type parsing still runs, but only to feed the penalty.
+    * **No recency, on either axis.** This is the existing skip rule extended,
+      not a new idea: the default path already skips recency whenever a year
+      filter is active, and every `by=fiscal_year` group IS a year filter.
+      More important, per-group `top_score`s are compared ACROSS groups by the
+      model, and an anchor-relative recency pass (~0.85/yr x 16 yr = ~13.6
+      logits, larger than the whole +/-10 logit range) would report "FY2010
+      has nothing" where FY2010 holds a perfect hit. Refusal interaction,
+      stated so nobody rediscovers it: recency is a PENALTY, so skipping it
+      can only RAISE `top_score` — spread refuses no more than the default
+      path and possibly less, exactly as an explicit year-filtered retrieve
+      already does.
+    * **The agency penalty runs over the FULL candidate set BEFORE the
+      per-group trim.** Same lesson as the rerank-then-trim comment in
+      `retrieve()`: an adjustment can only reorder chunks it can see, so
+      penalising after the trim would mean a matching chunk at position
+      per_group+1 could never be promoted into its group's results.
+
+    Nothing here adds a score BONUS, so the penalty-only invariant on
+    `top_score` holds and the three coupled ranking constants are untouched.
+    """
+    if not req.query.strip() or not spread.groups:
+        return RetrievalResult()
+
+    if store is None:
+        store = _get_store()
+    if embedder is None:
+        embedder = _get_embedder()
+
+    base = req.to_filters()
+    # Once, for every group: the embedding does not depend on the filters, and
+    # it is the second-most expensive stage after rerank.
+    qvec = embedder.embed_one(req.query, input_type="query")
+    # Small overfetch per group so the penalty has something to reorder — the
+    # trim happens after it, not here. Floor of 6 so a per_group of 1 still
+    # gives the penalty and the reranker a real choice.
+    overfetch = max(2 * spread.per_group, 6)
+
+    candidates_by_group: dict[Any, list[RetrievedChunk]] = {}
+    for value in spread.groups:
+        if spread.by == "fiscal_year":
+            # EXACT, deliberately not the default path's +/-1 adjacent-year
+            # window: the model named this group, and widening it would blur
+            # the cross-group comparison the whole feature exists to make.
+            active = dataclass_replace(base, fiscal_year=[int(value)])
+        else:
+            active = dataclass_replace(base, doc_id=[str(value)])
+        bm25_hits = bm25_query_lance(
+            req.query, store=store, corpus=req.corpus,
+            top_k=bm25_top_k, filters=active,
+        )
+        dense_hits = dense_query_lance(
+            qvec, store=store, corpus=req.corpus,
+            top_k=dense_top_k, filters=active,
+        )
+        candidates_by_group[value] = rrf_fuse(
+            [
+                RankedList(chunks=bm25_hits, weight=bm25_weight),
+                RankedList(chunks=dense_hits, weight=dense_weight),
+            ],
+            k=rrf_k,
+            top_k=overfetch,
+        )
+
+    # No cross-group dedup is needed and none is done: a chunk has exactly one
+    # fiscal_year and exactly one doc_id, so on either axis the groups are
+    # disjoint by construction. If a third axis is ever added, that assumption
+    # must be re-checked before this line is copied.
+    all_candidates = [c for group in candidates_by_group.values() for c in group]
+    empty_summary = [
+        {"value": v, "top_score": None, "count": 0} for v in spread.groups
+    ]
+    if not all_candidates:
+        return RetrievalResult(spread_groups=empty_summary)
+
+    if reranker is None:
+        reranker = _get_reranker()
+    # ONE batch over every group's candidates, and `top_k` covers the whole
+    # list so the penalty below can still see everything (see the docstring).
+    reranked = reranker.rerank(req.query, all_candidates, top_k=len(all_candidates))
+
+    # Spec Q4's low-confidence half, same seam and same penalty shape as the
+    # default path. Only weak matches reach it: anything the caller passed
+    # explicitly is already a filter, and nothing here is ever promoted to one.
+    weak_agencies = (
+        [m.value for m in parse_query_agencies(req.query)]
+        if not req.agency_canonical_id else []
+    )
+    weak_doc_types = (
+        [m.value for m in parse_query_doc_types(req.query)]
+        if not req.doc_type else []
+    )
+    if weak_agencies or weak_doc_types:
+        reranked = apply_match_penalty(
+            reranked, agency_ids=weak_agencies, doc_types=weak_doc_types
+        )
+
+    # Partition the RERANKED (and penalised) chunks by the axis attribute, so
+    # the trim below sorts on the final score rather than the leg's.
+    by_value: dict[Any, list[RetrievedChunk]] = {v: [] for v in spread.groups}
+    for chunk in reranked:
+        key = chunk.fiscal_year if spread.by == "fiscal_year" else chunk.doc_id
+        if key in by_value:
+            by_value[key].append(chunk)
+
+    chunks: list[RetrievedChunk] = []
+    groups_summary: list[dict[str, Any]] = []
+    for value in spread.groups:
+        kept = sorted(by_value[value], key=lambda c: -c.score)[: spread.per_group]
+        chunks.extend(kept)
+        groups_summary.append({
+            "value": value,
+            "top_score": kept[0].score if kept else None,
+            "count": len(kept),
+        })
+
+    return RetrievalResult(
+        chunks=chunks,
+        top_score=max((c.score for c in chunks), default=NO_RESULTS_TOP_SCORE),
+        reranker_scores=[c.score for c in chunks],
+        fused_count=len(all_candidates),
+        spread_groups=groups_summary,
     )

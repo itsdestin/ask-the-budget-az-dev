@@ -436,6 +436,7 @@ class HarnessSession:
         *,
         system_prompt: str | None = None,
         prompt_builder: Callable[..., str] | None = None,
+        corpus_map: str | None = None,
         tools: Sequence[dict[str, Any]] | None = None,
         history: list[dict[str, Any]] | None = None,
         context_chars: int = DEFAULT_CONTEXT_CHARS,
@@ -459,6 +460,14 @@ class HarnessSession:
         self._transport = transport
         self._system_prompt = system_prompt
         self._prompt_builder = prompt_builder
+        # Spec N3: the corpus map is SNAPSHOTTED per conversation. The caller
+        # (route / eval runner) computes it once at creation; nothing here
+        # ever re-reads the sidecar mid-conversation, because the system
+        # prompt is the S22 cacheable prefix and a mid-conversation change
+        # would be a silent ~10x cache miss with no symptom but the bill.
+        # Across conversations the map may legitimately change — an ingest
+        # invalidating the office's shared prefix is a real and rare miss.
+        self._corpus_map = corpus_map
         # Keyed by tier: the tier toggle is per-message (S16) and
         # build_system_prompt() takes `tier`, so caching on nothing
         # meant turn 2 ran the Deep Research model under Standard's
@@ -1373,7 +1382,16 @@ class HarnessSession:
                 from harness.prompt import build_system_prompt
 
                 builder = build_system_prompt
-            prompt = builder(corpus=self.corpus, tier=self.tier)
+            if self._corpus_map is not None:
+                prompt = builder(
+                    corpus=self.corpus, tier=self.tier, corpus_map=self._corpus_map
+                )
+            else:
+                # No kwarg at all, rather than `corpus_map=None`: the fake
+                # builders injected by tests accept only (corpus, tier), and
+                # the real builder falls back on its own when the map is
+                # absent — so this seam stays usable by both.
+                prompt = builder(corpus=self.corpus, tier=self.tier)
             self._prompt_by_tier[self.tier] = prompt
         return prompt
 

@@ -41,6 +41,10 @@ from harness.constants import (
     FISCAL_YEAR_MIN,
     INTENT_TOP_K,
     REFUSAL_THRESHOLD,
+    SPREAD_DEFAULT_PER_GROUP,
+    SPREAD_MAX_GROUPS,
+    SPREAD_MAX_PER_GROUP,
+    SPREAD_MAX_TOTAL,
     TIER_BUDGETS,
 )
 
@@ -94,6 +98,17 @@ _WHEN_CLOSE = re.compile(r"^\{\{/when\}\}\s*$")
 # line, dozens of lines above.
 _WHEN_CLOSE_LOOSE = re.compile(r"^\s*\{\{\s*/\s*when\b.*\}\}\s*$")
 _PLACEHOLDER = re.compile(r"\{\{([A-Z_]+)\}\}")
+
+# What `{{CORPUS_MAP}}` renders as when the caller supplies nothing (spec
+# N2). A missing sidecar must degrade to a sentence, never to a crashed
+# conversation and never to an EMPTY section — a heading that says "what
+# this corpus contains" followed by nothing reads to the model as "it
+# contains nothing", which the map's own guidance line would then have it
+# repeat to an analyst.
+CORPUS_MAP_FALLBACK = (
+    "(The corpus inventory is unavailable right now. Use list_filter_values "
+    "to check what exists before concluding the corpus lacks something.)"
+)
 
 # What a block marker may switch on. Derived from the same two sources
 # the renderer resolves against, so adding a tier to constants.py or a
@@ -247,8 +262,14 @@ def _substitute(text: str, values: dict[str, str]) -> str:
     return _PLACEHOLDER.sub(replace, text)
 
 
-def build_system_prompt(*, corpus: str, tier: str) -> str:
+def build_system_prompt(
+    *, corpus: str, tier: str, corpus_map: str | None = None
+) -> str:
     """The full instructions for one conversation's corpus and tier.
+
+    `corpus_map` is the inventory table built by `harness.corpus_map` and
+    passed in by the caller (spec N2) — this module must not learn to read
+    the corpus itself. Omitted or empty renders CORPUS_MAP_FALLBACK.
 
     `corpus` accepts the wire name (`budget` / `fiscal_notes`) or the
     LanceDB table name. An unrecognized corpus RAISES — that is a wiring
@@ -273,6 +294,7 @@ def build_system_prompt(*, corpus: str, tier: str) -> str:
     return _substitute(
         selected,
         {
+            "CORPUS_MAP": corpus_map or CORPUS_MAP_FALLBACK,
             "REFUSAL_THRESHOLD": str(REFUSAL_THRESHOLD),
             "FIRST_CALL_TOP_K_CAP": str(FIRST_CALL_TOP_K_CAP),
             "LOOKUP_TOP_K": str(INTENT_TOP_K["lookup"]),
@@ -281,5 +303,12 @@ def build_system_prompt(*, corpus: str, tier: str) -> str:
             "MAX_STEPS": str(TIER_BUDGETS[resolved_tier]["max_steps"]),
             "FISCAL_YEAR_MIN": str(FISCAL_YEAR_MIN),
             "FISCAL_YEAR_MAX": str(FISCAL_YEAR_MAX),
+            # Injected for the same reason as the threshold above: the tool
+            # schema and the coercion's error messages state these caps too,
+            # and a number typed into the prose drifts silently.
+            "SPREAD_MAX_GROUPS": str(SPREAD_MAX_GROUPS),
+            "SPREAD_MAX_PER_GROUP": str(SPREAD_MAX_PER_GROUP),
+            "SPREAD_DEFAULT_PER_GROUP": str(SPREAD_DEFAULT_PER_GROUP),
+            "SPREAD_MAX_TOTAL": str(SPREAD_MAX_TOTAL),
         },
     )

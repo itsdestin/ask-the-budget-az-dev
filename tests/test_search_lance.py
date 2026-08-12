@@ -146,3 +146,10 @@ def test_malformed_source_anchor_names_the_chunk():
     )
     with pytest.raises(ValueError, match=r"chunk 'c9' has a malformed source_anchor"):
         row_to_chunk(row, 1.0)
+
+
+def test_doc_id_filter_reaches_the_where_clause(store):
+    """Spec N4. `_where` hand-lists every dimension, so a field added to
+    RetrievalFilters and not to `_where` is dropped in silence."""
+    assert _where(store, RetrievalFilters(doc_id=["doc-1", "doc-2"])) == \
+        "doc_id IN ('doc-1', 'doc-2')"

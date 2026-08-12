@@ -637,7 +637,133 @@ def test_the_model_is_warned_that_bill_numbers_can_look_like_years(corpus):
     assert "`inferred_fiscal_years` you did not intend" in flat
 
 
+# The one-search-per-year steer this file used to pin was SUPERSEDED by
+# spread (spec N9) — see test_multi_year_questions_are_steered_to_spread
+# below, which asserts the new advice AND that the old wording is gone.
+
+
+# ---------------------------------------------------------------------------
+# The corpus map (spec N1/N2)
+# ---------------------------------------------------------------------------
+
+
+def test_corpus_map_renders_when_supplied():
+    out = build_system_prompt(
+        corpus="budget", tier="standard", corpus_map="| MAPMARKER | FY2005–FY2026 | 9 |"
+    )
+    assert "MAPMARKER" in out
+    assert "{{CORPUS_MAP}}" not in out
+
+
+def test_corpus_map_falls_back_when_absent():
+    from harness.prompt import CORPUS_MAP_FALLBACK
+
+    out = build_system_prompt(corpus="budget", tier="standard")
+    assert CORPUS_MAP_FALLBACK in out
+    assert "{{CORPUS_MAP}}" not in out
+
+
+def test_an_empty_map_string_also_falls_back():
+    """`build_corpus_map` returns None, but a caller that stringifies a
+    degraded read would hand over "" — and an empty section under the
+    "what this corpus contains" heading reads as "it contains nothing"."""
+    from harness.prompt import CORPUS_MAP_FALLBACK
+
+    out = build_system_prompt(corpus="budget", tier="standard", corpus_map="")
+    assert CORPUS_MAP_FALLBACK in out
+
+
 @pytest.mark.parametrize("corpus", CORPORA)
-def test_multi_year_questions_are_steered_to_one_search_per_year(corpus):
+def test_both_corpora_carry_the_map_section(corpus):
+    out = build_system_prompt(corpus=corpus, tier="standard", corpus_map="NOTEMAP")
+    assert "NOTEMAP" in out
+
+
+def test_prompt_py_does_not_import_the_map_builder_or_the_store():
+    """Spec N2: the CALLER builds the map. `harness/prompt.py` must stay
+    cheap to import — pulling `store` in would drag LanceDB and the ONNX
+    models into any process that only wanted a string."""
+    import ast
+    from pathlib import Path
+
+    source = Path(__file__).resolve().parent.parent / "harness" / "prompt.py"
+    tree = ast.parse(source.read_text(encoding="utf-8"))
+    imported: list[str] = []
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Import):
+            imported += [a.name for a in node.names]
+        elif isinstance(node, ast.ImportFrom) and node.module:
+            imported.append(node.module)
+    for module in imported:
+        root = module.split(".")[0]
+        assert root not in {"store", "retrieval", "ingest", "lancedb"}, module
+        assert module != "harness.corpus_map"
+
+
+# ---------------------------------------------------------------------------
+# Navigation guidance (spec N9)
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize("corpus", CORPORA)
+def test_spread_is_documented_for_both_corpora(corpus):
+    """Both corpora get it: `spread` is a retrieve parameter, not a
+    budget-only recipe, and a fiscal-note question can span years too."""
     prompt = build_system_prompt(corpus=corpus, tier="standard")
-    assert "one search per year" in " ".join(prompt.split())
+    flat = " ".join(prompt.split())
+    assert "`spread`" in prompt
+    assert "by: \"fiscal_year\"" in prompt or '"by": "fiscal_year"' in prompt
+    # The three occasions from spec N9.
+    assert "across years" in flat
+    assert "newest" in flat
+
+
+@pytest.mark.parametrize("corpus", CORPORA)
+def test_multi_year_questions_are_steered_to_spread(corpus):
+    """This REPLACES the old one-search-per-year steer. That advice cost a
+    retrieve per side (measured: 4 retrieves / 41 chunks / 295 s for a
+    3-year comparison) and is exactly what spread exists to collapse."""
+    flat = " ".join(build_system_prompt(corpus=corpus, tier="standard").split())
+    assert "one `spread` call" in flat
+    assert "one search per year" not in flat
+
+
+@pytest.mark.parametrize("corpus", CORPORA)
+def test_year_coverage_is_explained_with_its_limits(corpus):
+    """Spec N7: it is post-filter and approximate, and the prompt must say
+    so — a histogram read as corpus-wide truth is worse than no histogram."""
+    flat = " ".join(build_system_prompt(corpus=corpus, tier="standard").split())
+    assert "`year_coverage`" in flat
+    assert "within the current filters" in flat.lower()
+    assert "approximate" in flat.lower()
+
+
+@pytest.mark.parametrize("corpus", CORPORA)
+def test_the_inferred_filter_fields_are_explained(corpus):
+    """Spec N11. The doc-type one is a FILTER and the agency one is only a
+    preference; describing them the same way would be wrong."""
+    prompt = build_system_prompt(corpus=corpus, tier="standard")
+    flat = " ".join(prompt.split())
+    assert "`inferred_doc_types`" in flat
+    assert "`dropped_filters`" in flat
+    assert "`preferred_agencies`" in flat
+    # The distinction, in the direction that matters: nothing was removed.
+    assert "nothing was filtered out" in flat
+
+
+@pytest.mark.parametrize("corpus", CORPORA)
+def test_the_map_is_tied_to_spread(corpus):
+    flat = " ".join(build_system_prompt(corpus=corpus, tier="standard").split())
+    assert "wastes one of your groups" in flat
+
+
+@pytest.mark.parametrize("corpus", CORPORA)
+def test_the_spread_caps_stated_to_the_model_come_from_constants(corpus):
+    """The same lesson as REFUSAL_THRESHOLD: a cap typed into the prose
+    drifts from the one the coercion enforces, and the model is then told
+    two different numbers."""
+    from harness.constants import SPREAD_MAX_GROUPS, SPREAD_MAX_TOTAL
+
+    flat = " ".join(build_system_prompt(corpus=corpus, tier="standard").split())
+    assert f"{SPREAD_MAX_GROUPS} groups" in flat
+    assert str(SPREAD_MAX_TOTAL) in flat

@@ -75,6 +75,7 @@ def _where(store: ChunkStore, filters: RetrievalFilters) -> str | None:
     return store.filter_expr(
         fiscal_year=filters.fiscal_year,
         doc_type=filters.doc_type,
+        doc_id=filters.doc_id,
         publisher=filters.publisher,
         agency_canonical_id=filters.agency_canonical_id,
         fund_canonical_id=filters.fund_canonical_id,

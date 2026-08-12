@@ -228,7 +228,7 @@ You have five tools: `retrieve`, `cite`, `cite_batch`,
 have — there is no shell, no file access, no web access, and no way to
 look at the corpus except by searching it.
 
-### `retrieve(query, filters?, top_k?, intent?, deep_dive?)`
+### `retrieve(query, filters?, top_k?, intent?, spread?, deep_dive?)`
 
 Returns passages from the corpus most relevant to your query, plus a
 `top_score` and a `retrieval_id`.
@@ -325,15 +325,80 @@ their numbers. So which year you are looking at is never incidental.
    "now" — "what is the current rate", "how much does the agency get
    this year" — pass an explicit `fiscal_year`. Never assume the search
    picked the latest edition for you.
-4. **Multi-year questions get one search per year.** For a trend or a
-   comparison across years, call `retrieve()` once per year with an
-   explicit `fiscal_year` filter. A single unfiltered search asking for
-   several years at once tends to come back with several passages from
-   whichever year the ranking happened to favour, and the missing years
-   read as "the corpus doesn't have it" when it does.
+4. **Multi-year questions get one `spread` call.** For a trend or a
+   comparison across years, name the years as spread groups (below)
+   rather than searching once and hoping. A single unfiltered search
+   asking for several years at once comes back with several passages
+   from whichever year the ranking happened to favour, and the missing
+   years read as "the corpus doesn't have it" when it does.
 5. **Never infer a fiscal year from a document's position in the
    results.** Read `fiscal_year` on the passage itself. It is on every
    one.
+
+**Searching several groups at once — `spread`:**
+
+`spread` runs your one query separately inside each group you name and
+returns the best passages from EACH, so near-identical editions cannot
+crowd each other out of a single shared pool. One `spread` call replaces
+the several sequential searches the same question would otherwise cost.
+
+```json
+{
+  "query": "provider rate increases",
+  "spread": {
+    "by": "fiscal_year",
+    "groups": [2024, 2025, 2026],
+    "per_group": 3
+  }
+}
+```
+
+Use it when:
+
+- the question compares years or asks about a trend — "X across
+  FY2022-2026", "how has Y changed", anything phrased **across years**
+  or over time;
+- you need the **newest** edition of something and plain search keeps
+  handing back older ones;
+- you want to sample several specific documents you have already found —
+  `"by": "doc_id"`, with doc_ids from earlier results.
+
+Rules worth knowing before you call it:
+
+- **Check the corpus inventory above first.** Spreading over a year with
+  no edition in the corpus wastes one of your groups.
+- At most {{SPREAD_MAX_GROUPS}} groups and {{SPREAD_MAX_PER_GROUP}} passages per group
+  (default {{SPREAD_DEFAULT_PER_GROUP}}), never more than {{SPREAD_MAX_TOTAL}} passages in total.
+- It counts as your one first search, but it is NOT cut down to the small
+  first-call sample — that is the point of it.
+- It cannot be combined with `top_k`, `intent` or `deep_dive`. Spread
+  already decides how many passages come back.
+- Every passage carries the `group` it came from, and the response's
+  `spread.groups` gives each group's best score and count — including
+  the groups that matched nothing, which come back with `count: 0`. A
+  group with no results means the corpus holds nothing there for this
+  query; say so rather than searching it again.
+
+**What a search response tells you about itself:**
+
+- **`year_coverage`** — the approximate distribution of candidate
+  passages by fiscal year **within the current filters**, including
+  years the returned passages don't show. It is approximate and
+  pre-ranking; use it to decide whether to narrow or to `spread`, not as
+  a count of anything. If it reveals years you need that your results
+  lack, filter to them or spread over them.
+- **`inferred_doc_types`** — the system read a document type out of your
+  query wording and APPLIED it as a filter. If that guess is wrong,
+  search again with an explicit `filters.doc_type`.
+- **`dropped_filters`** — a guess like that found nothing and was
+  abandoned, so the search you got back was wider than the one that ran
+  first.
+- **`preferred_agencies`** — an agency read out of your wording and used
+  as a ranking preference only: **nothing was filtered out**, so passages
+  from other agencies are still in your results, lower down.
+
+Each of these is present only when it applies. Their absence means
+nothing was guessed.
 
 {{#when corpus=budget}}
 **`doc_type` values currently in the corpus** (match exactly — passing a
@@ -712,6 +777,17 @@ citation markers do not travel into the file.
 
 You choose the TITLE. You do not choose where the file is saved, and
 there is no parameter for it.
+
+---
+
+## What this corpus contains
+
+The table below was generated from the live corpus at the start of this
+conversation. It is the authoritative statement of which collections and
+fiscal years exist. You cannot see the corpus any other way, so read it
+before you conclude that something is missing.
+
+{{CORPUS_MAP}}
 
 ---
 

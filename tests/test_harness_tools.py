@@ -40,8 +40,10 @@ from harness.constants import (
     FIRST_CALL_TOP_K_CAP,
     INTENT_TOP_K,
     REFUSAL_THRESHOLD,
+    SPREAD_DEFAULT_PER_GROUP,
     TIER_BUDGETS,
 )
+from retrieval.pipeline import DEFAULT_PIPELINE_TOP_K
 from harness.tools import TOOLS, ToolExecutor
 from retrieval import RetrievalResult
 from retrieval.types import RetrievedChunk
@@ -1171,3 +1173,287 @@ def test_executing_every_tool_writes_nothing_under_the_data_dir(
     _run(ex, "create_document", {"title": "T", "body_markdown": "b"})
 
     assert {p: p.stat().st_mtime_ns for p in root.rglob("*")} == before
+
+
+# ---------------------------------------------------------------------------
+# `spread` — structured multi-group search (spec N4/N6)
+# ---------------------------------------------------------------------------
+
+
+def _fake_spread(monkeypatch, groups_by_value=None):
+    """Monkeypatch harness.tools.retrieve_spread; return (requests, specs)."""
+    seen: list = []
+
+    def fake(req, spec, **kwargs):
+        seen.append((req, spec))
+        rows, summary = [], []
+        source = groups_by_value or {v: 1 for v in spec.groups}
+        by_year = spec.by == "fiscal_year"
+        for value in spec.groups:
+            made = [
+                _chunk(
+                    chunk_id=f"chunk-{value}-{i}",
+                    score=2.0 - i,
+                    fiscal_year=value if by_year else 2027,
+                    doc_id=str(value) if not by_year else "jlbc-baseline-fy2027-axs",
+                )
+                for i in range(source.get(value, 0))
+            ]
+            rows.extend(made)
+            summary.append({
+                "value": value,
+                "top_score": made[0].score if made else None,
+                "count": len(made),
+            })
+        return RetrievalResult(
+            chunks=rows,
+            top_score=max((c.score for c in rows), default=-1e9),
+            reranker_scores=[c.score for c in rows],
+            fused_count=len(rows),
+            spread_groups=summary,
+        )
+
+    monkeypatch.setattr("harness.tools.retrieve_spread", fake)
+    return seen
+
+
+def test_spread_response_carries_groups_and_per_chunk_group(monkeypatch):
+    seen = _fake_spread(monkeypatch, {2025: 2, 2026: 1})
+    ex = ToolExecutor("conv-1", "budget", "standard")
+    out = _run(ex, "retrieve", {
+        "query": "ahcccs funding",
+        "spread": {"by": "fiscal_year", "groups": [2025, 2026]},
+    })
+    assert out["spread"]["by"] == "fiscal_year"
+    assert [g["value"] for g in out["spread"]["groups"]] == [2025, 2026]
+    assert [g["count"] for g in out["spread"]["groups"]] == [2, 1]
+    # Every chunk says which group it came from, so the model can build a
+    # per-year answer without re-deriving it from fiscal_year.
+    assert [c["group"] for c in out["chunks"]] == [2025, 2025, 2026]
+    assert seen[0][1].by == "fiscal_year"
+
+
+def test_an_empty_group_is_reported_not_dropped(monkeypatch):
+    _fake_spread(monkeypatch, {2025: 1, 2020: 0})
+    ex = ToolExecutor("conv-1", "budget", "standard")
+    out = _run(ex, "retrieve", {
+        "query": "q", "spread": {"by": "fiscal_year", "groups": [2025, 2020]},
+    })
+    empty = out["spread"]["groups"][1]
+    assert empty == {"value": 2020, "top_score": None, "count": 0}
+
+
+def test_spread_is_exempt_from_the_first_call_cap_but_consumes_it(monkeypatch):
+    """Spec N6. Truncating a structured per-group request to a 5-chunk flat
+    sample would break its contract and force the extra round the feature
+    exists to remove — but it is still a real first search."""
+    _fake_spread(monkeypatch, {2022: 3, 2023: 3, 2024: 3})
+    plain = _fake_retrieve(monkeypatch)
+    ex = ToolExecutor("conv-1", "budget", "standard")
+    first = _run(ex, "retrieve", {
+        "query": "q",
+        "spread": {"by": "fiscal_year", "groups": [2022, 2023, 2024], "per_group": 3},
+    })
+    assert "first_call_capped" not in first
+    assert len(first["chunks"]) == 9
+
+    second = _run(ex, "retrieve", {"query": "q"})
+    assert "first_call_capped" not in second
+    assert plain[0].top_k == DEFAULT_PIPELINE_TOP_K
+
+
+def test_spread_group_year_strings_are_coerced(monkeypatch):
+    """The string-"2027" trap, same as filters.fiscal_year: the column is an
+    integer, so a quoted year builds a predicate matching no rows and the
+    model reads the empty group as "the corpus has nothing for FY2027"."""
+    seen = _fake_spread(monkeypatch)
+    ex = ToolExecutor("conv-1", "budget", "standard")
+    _run(ex, "retrieve", {
+        "query": "q", "spread": {"by": "fiscal_year", "groups": ["2025", "2026"]},
+    })
+    assert seen[0][1].groups == (2025, 2026)
+
+
+def test_spread_default_per_group(monkeypatch):
+    seen = _fake_spread(monkeypatch)
+    ex = ToolExecutor("conv-1", "budget", "standard")
+    _run(ex, "retrieve", {"query": "q", "spread": {"by": "fiscal_year", "groups": [2025]}})
+    assert seen[0][1].per_group == SPREAD_DEFAULT_PER_GROUP
+
+
+@pytest.mark.parametrize(
+    "spread,expected",
+    [
+        ({"by": "fiscal_year", "groups": list(range(2018, 2027))}, "8"),
+        ({"by": "fiscal_year", "groups": [2025], "per_group": 6}, "5"),
+        ({"by": "fiscal_year", "groups": list(range(2019, 2027)), "per_group": 4}, "24"),
+        ({"by": "fiscal_year", "groups": [2025, 2025]}, "twice"),
+        ({"by": "publisher", "groups": ["jlbc"]}, "fiscal_year"),
+        ({"groups": [2025]}, "by"),
+        ({"by": "fiscal_year"}, "groups"),
+        ({"by": "fiscal_year", "groups": []}, "groups"),
+        ({"by": "doc_id", "groups": [""]}, "doc_id"),
+    ],
+)
+def test_spread_caps_are_enforced_with_actionable_errors(monkeypatch, spread, expected):
+    _fake_spread(monkeypatch)
+    ex = ToolExecutor("conv-1", "budget", "standard")
+    out = _run(ex, "retrieve", {"query": "q", "spread": spread})
+    assert out["ok"] is False
+    assert expected in out["error"], out["error"]
+
+
+def test_spread_conflicts_with_top_k_intent_and_deep_dive(monkeypatch):
+    """One breadth mechanism per call. Silently ignoring the other would be
+    the haunted-tool failure — the model asks for 18 chunks, gets 9, and
+    nothing says why."""
+    _fake_spread(monkeypatch)
+    ex = ToolExecutor("conv-1", "budget", "deep_research")
+    for conflicting in ({"top_k": 18}, {"intent": "analyze"}, {"deep_dive": True}):
+        out = _run(ex, "retrieve", {
+            "query": "q",
+            "spread": {"by": "fiscal_year", "groups": [2025]},
+            **conflicting,
+        })
+        assert out["ok"] is False
+        assert "spread" in out["error"]
+        assert next(iter(conflicting)) in out["error"]
+
+
+def test_spread_chunks_mint_aliases_like_any_retrieve(monkeypatch):
+    """Attested citation linking tags figures by alias; a spread chunk that
+    never got one could be cited but never verified."""
+    _fake_spread(monkeypatch, {2025: 2})
+    ex = ToolExecutor("conv-1", "budget", "standard")
+    out = _run(ex, "retrieve", {
+        "query": "q", "spread": {"by": "fiscal_year", "groups": [2025]},
+    })
+    assert [c["alias"] for c in out["chunks"]] == ["c1", "c2"]
+    assert set(ex.alias_map.values()) == {c["chunk_id"] for c in out["chunks"]}
+
+
+def test_spread_by_doc_id_passes_string_groups(monkeypatch):
+    seen = _fake_spread(monkeypatch, {"jlbc-approps-fy2026-adc": 1})
+    ex = ToolExecutor("conv-1", "budget", "standard")
+    out = _run(ex, "retrieve", {
+        "query": "q",
+        "spread": {"by": "doc_id", "groups": ["jlbc-approps-fy2026-adc"]},
+    })
+    assert seen[0][1].groups == ("jlbc-approps-fy2026-adc",)
+    assert out["chunks"][0]["group"] == "jlbc-approps-fy2026-adc"
+
+
+def test_a_failed_spread_call_still_consumes_nothing_the_model_needs(monkeypatch):
+    """An argument error must not burn the first-call slot: the model has to
+    be able to fix its arguments and try again without silently losing the
+    sampling discipline."""
+    _fake_spread(monkeypatch)
+    plain = _fake_retrieve(monkeypatch)
+    ex = ToolExecutor("conv-1", "budget", "standard")
+    bad = _run(ex, "retrieve", {"query": "q", "spread": {"by": "nope", "groups": [1]}})
+    assert bad["ok"] is False
+    out = _run(ex, "retrieve", {"query": "q"})
+    assert out["first_call_capped"] is True
+    assert plain[0].top_k == FIRST_CALL_TOP_K_CAP
+
+
+# ---------------------------------------------------------------------------
+# year_coverage on the tool response (spec N7)
+# ---------------------------------------------------------------------------
+
+
+def _fake_retrieve_result(monkeypatch, **result_kwargs):
+    """Monkeypatch harness.tools.retrieve to return one exact RetrievalResult."""
+    rows = result_kwargs.pop("chunks", None)
+    rows = [_chunk()] if rows is None else rows
+
+    def fake(req, **kwargs):
+        return RetrievalResult(
+            chunks=rows,
+            top_score=rows[0].score if rows else -1e9,
+            reranker_scores=[c.score for c in rows],
+            **result_kwargs,
+        )
+
+    monkeypatch.setattr("harness.tools.retrieve", fake)
+
+
+def test_year_coverage_reaches_the_response_with_string_keys(monkeypatch):
+    """JSON object keys are strings; emitting ints would let json.dumps
+    coerce them silently and the model would see a shape nothing declared."""
+    _fake_retrieve_result(monkeypatch, year_coverage={2024: 12, 2005: 41})
+    ex = ToolExecutor("conv-1", "budget", "standard")
+    out = _run(ex, "retrieve", {"query": "q"})
+    assert out["year_coverage"] == {"2005": 41, "2024": 12}
+    # Sorted, so the model reads a chronology rather than a dict ordering.
+    assert list(out["year_coverage"]) == ["2005", "2024"]
+
+
+def test_year_coverage_absent_when_empty(monkeypatch):
+    _fake_retrieve_result(monkeypatch, year_coverage={})
+    ex = ToolExecutor("conv-1", "budget", "standard")
+    assert "year_coverage" not in _run(ex, "retrieve", {"query": "q"})
+
+
+# ---------------------------------------------------------------------------
+# The inferred-filter echo (spec N11)
+# ---------------------------------------------------------------------------
+
+
+def test_inferred_doc_type_filter_is_visible_in_the_response(monkeypatch):
+    """A hard filter guessed from the query text and applied is invisible
+    today — the "haunted tool" failure the pipeline's own docstring names,
+    in its worse direction: a filter invisibly APPLIED, not skipped."""
+    _fake_retrieve_result(monkeypatch, inferred_doc_types=["afr"])
+    ex = ToolExecutor("conv-1", "budget", "standard")
+    out = _run(ex, "retrieve", {"query": "afr fund balance"})
+    assert out["inferred_doc_types"] == ["afr"]
+
+
+def test_dropped_filters_are_visible(monkeypatch):
+    """Without this the model cannot tell "unfiltered because nothing was
+    guessed" from "unfiltered because the guess found nothing"."""
+    _fake_retrieve_result(monkeypatch, dropped_filters=["doc_type"])
+    ex = ToolExecutor("conv-1", "budget", "standard")
+    assert _run(ex, "retrieve", {"query": "q"})["dropped_filters"] == ["doc_type"]
+
+
+def test_agency_preference_uses_the_preference_name(monkeypatch):
+    """Spec N11 requires wording that marks agency a PREFERENCE, never a
+    filter. A self-describing field name is that wording, structurally: a
+    future consumer cannot read `preferred_agencies` as a filter."""
+    _fake_retrieve_result(monkeypatch, inferred_agencies=["agency:adc"])
+    ex = ToolExecutor("conv-1", "budget", "standard")
+    out = _run(ex, "retrieve", {"query": "corrections"})
+    assert out["preferred_agencies"] == ["agency:adc"]
+    assert "inferred_agencies" not in out
+
+
+def test_inference_fields_absent_when_empty(monkeypatch):
+    """Same style as inferred_fiscal_years: present only when non-empty, so
+    the model reads absence as "nothing was guessed"."""
+    _fake_retrieve_result(monkeypatch)
+    ex = ToolExecutor("conv-1", "budget", "standard")
+    out = _run(ex, "retrieve", {"query": "q"})
+    for key in ("inferred_doc_types", "dropped_filters", "preferred_agencies"):
+        assert key not in out
+
+
+def test_all_three_can_appear_together(monkeypatch):
+    """The realistic shape N7 depends on: a histogram is half-readable if
+    the model cannot see which filters produced it."""
+    _fake_retrieve_result(
+        monkeypatch,
+        inferred_fiscal_years=[2019],
+        inferred_doc_types=["afr"],
+        inferred_agencies=["agency:adc"],
+        dropped_filters=["doc_type"],
+        year_coverage={2019: 7},
+    )
+    ex = ToolExecutor("conv-1", "budget", "standard")
+    out = _run(ex, "retrieve", {"query": "q"})
+    assert out["inferred_fiscal_years"] == [2019]
+    assert out["inferred_doc_types"] == ["afr"]
+    assert out["preferred_agencies"] == ["agency:adc"]
+    assert out["dropped_filters"] == ["doc_type"]
+    assert out["year_coverage"] == {"2019": 7}
