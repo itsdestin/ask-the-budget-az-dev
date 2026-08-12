@@ -48,7 +48,22 @@ from ingest.discovery import (
     DiscoveryCache,
     discover,
 )
+from ingest.doc_types import has_stage_field, is_one_per_year
 from ingest.section_types import SECTION_KIND_TO_DOC_TYPE
+
+
+def slugify_stem(stem: str) -> str:
+    """Filename stem -> a doc_id-safe slug.
+
+    Agency submissions arrive with human filenames full of spaces and
+    percent-encoding ('BHA FY27 Executive Budget Submission.pdf'), unlike the
+    JLBC books' terse '508.pdf'. A doc_id ends up in URLs and citation
+    payloads, so it is lowercased and reduced to [a-z0-9-].
+    """
+    out = "".join(c if c.isalnum() else "-" for c in stem.lower())
+    while "--" in out:
+        out = out.replace("--", "-")
+    return out.strip("-")
 
 
 # Plan doc_types that drive discovery (vs. local-path or singleton targets).
@@ -157,6 +172,7 @@ def make_doc_id(
     filename: str | None = None,
     bill_id: str | None = None,
     family: str | None = None,
+    stage: str | None = None,
 ) -> str:
     """Construct the stable doc_id for one ingest item.
 
@@ -177,6 +193,17 @@ def make_doc_id(
     depend on. Callers that genuinely do not know the family (a person
     uploading a file by hand, singleton publishers) omit it and get the legacy
     id unchanged.
+
+    `stage` ("introduced" | "engrossed") is folded into the id ONLY for a
+    doc_type that declares `stage_field: true` in the registry (one today:
+    budget-bill-summary). WHY: JLBC often reuses the identical filename for
+    both stages of one session ("budgetbills.pdf"), and stage is the ONLY
+    thing distinguishing those two documents. Without this, two such uploads
+    mint the same doc_id and the second — an upsert — silently replaces the
+    first with neither request erroring (review finding, 2026-08-11; same
+    shape as the family collision above). Every other doc_type ignores
+    `stage` entirely, so no existing id changes: `has_stage_field` defaults
+    unknown/undeclared types to False, the safe direction.
     """
     fy_str = f"fy{fiscal_year:04d}"
 
@@ -186,6 +213,10 @@ def make_doc_id(
         raise ValueError(
             f"family must be one of {sorted(_JLBC_FAMILIES)} or None, got {family!r}"
         )
+
+    stage_suffix = ""
+    if stage is not None and stage.strip() and has_stage_field(doc_type):
+        stage_suffix = f"-{stage.strip().lower()}"
 
     if publisher == "jlbc":
         if doc_type in _JLBC_BASELINE_DOC_TYPES:
@@ -201,13 +232,32 @@ def make_doc_id(
         if family is not None and class_ in _JLBC_FAMILIES:
             class_ = family
         if filename is None:
-            return f"{publisher}-{class_}-{fy_str}"
+            return f"{publisher}-{class_}-{fy_str}{stage_suffix}"
         stem = Path(filename).stem
-        return f"{publisher}-{class_}-{fy_str}-{stem}"
+        return f"{publisher}-{class_}-{fy_str}-{stem}{stage_suffix}"
 
-    # Singleton (one-doc-per-publisher-per-FY): just publisher + doc_type + fy.
+    # Non-JLBC publishers.
+    #
+    # WHY the registry decides instead of the publisher: this branch used to
+    # assume one document per publisher per fiscal year and DROP `filename`
+    # entirely. That is true for the AFR and the Executive Budget and false
+    # for agency submissions (78 in FY2027). Measured 2026-08-11: every
+    # agency submission minted 'governor-agency-submission-fy2027', and
+    # because a write is an upsert they would have collapsed into one
+    # document with nothing erroring.
+    #
+    # Existing ids are unchanged because afr and governors-budget are declared
+    # `one_per_year: true` -- pinned by test_one_per_year_types_keep_their_
+    # EXACT_existing_ids, which asserts the literal strings the live corpus
+    # carries.
     base = f"{publisher}-{doc_type}-{fy_str}"
-    return f"{base}-{bill_id}" if bill_id else base
+    if bill_id:
+        return f"{base}-{bill_id}{stage_suffix}"
+    if is_one_per_year(doc_type):
+        return f"{base}{stage_suffix}"
+    if filename is None:
+        return f"{base}{stage_suffix}"
+    return f"{base}-{slugify_stem(Path(filename).stem)}{stage_suffix}"
 
 
 # ----------------------------------------------------------------------------

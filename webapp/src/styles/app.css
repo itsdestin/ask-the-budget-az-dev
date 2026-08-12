@@ -1566,6 +1566,14 @@ nav.primary{position:relative;padding-right:44px;}
 .page-upload .up-title{font-size:19px;color:var(--navy);font-weight:800;margin:0 0 14px;}
 .page-upload .card{margin:0 0 16px;padding:20px 24px;}
 .page-upload h2{font-size:19px;color:var(--navy);font-weight:800;}
+/* Task 6 finding: each of the six upload rows introduced a new <h3> with no
+   rule of its own, which would render at the browser default (bold, larger
+   than surrounding text, wrong color) inside a .card. This page has no
+   existing h3, so rather than invent a size, this follows the two h3-inside-
+   a-card precedents already in this file (.adm-panel h3, .adm-card-title h3)
+   — navy/800 like every other heading here, sized down from the page's own
+   19px h2 the same way those two size down from THEIR page's headings. */
+.page-upload .up-row h3{font-size:14px;color:var(--navy);font-weight:800;margin:0 0 4px;}
 .page-upload p{margin:4px 0 0;font-size:14px;color:var(--ink-2);}
 
 /* The Invariant 8 notice. Always visible, never collapsible: the rule it states is
@@ -1575,10 +1583,20 @@ nav.primary{position:relative;padding-right:44px;}
 .page-upload .up-notice{border-left:4px solid var(--navy-900);}
 .page-upload .up-notice p+p{margin-top:8px;}
 
-.page-upload .up-drop{border:2px dashed var(--line);border-radius:var(--r-md);padding:22px;text-align:center;}
-.page-upload .up-choose{display:block;font-size:14px;font-weight:700;color:var(--navy);margin-bottom:8px;}
-.page-upload .up-drop input[type=file]{font-size:13px;}
-.page-upload .up-hint{font-size:12.5px;font-weight:700;color:var(--ink-3);}
+/* .up-drop / .up-choose / .up-hint removed (review finding 2, task-6 review,
+   second pass): they styled the single shared dropzone Task 6 replaced with
+   six per-row file inputs. grep-confirmed zero references left in webapp/src/
+   before deleting — none of the three names appear in any .tsx file. */
+
+/* .up-drop reintroduced (final-review Finding 3): each row's own <section>
+   has always accepted a dropped file (Upload.tsx's onDrop), but with no
+   on-screen cue that it does, so the feature was invisible. This is the same
+   dashed-box language the paragraph above records as removed, now scoped to
+   one row's file picker instead of a page-wide zone — border colour borrowed
+   from the existing dashed-box precedent at `.page-docs .ctx` (1px dashed
+   #cdd3e6), not invented, per this file's own convention. */
+.page-upload .up-drop{border:1px dashed #cdd3e6;border-radius:var(--r-md);padding:10px 12px;background:#fafbff;}
+.page-upload .up-drop-hint{margin:4px 0 0;font-size:12px;font-weight:700;color:var(--ink-3);}
 
 .page-upload .up-meta{margin-top:16px;display:grid;gap:10px;}
 .page-upload .up-filename{font-weight:700;color:var(--ink);}

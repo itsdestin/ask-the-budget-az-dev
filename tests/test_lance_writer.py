@@ -211,3 +211,33 @@ def test_build_title_trims_user_titles_and_ignores_blank_ones():
     assert build_title(publisher="jlbc", doc_type="afr", fiscal_year=2025,
                        user_title="   ", agency_name=None) \
         == "FY 2025 Annual Financial Report"
+
+
+def test_build_title_appends_the_stage_when_the_pattern_decides_the_title():
+    # doc_title is the ONLY place AI Mode can see a document's stage (no
+    # chunk column for it) -- the "Engrossed supersedes Introduced" prompt
+    # rule can only ever fire by reading this suffix.
+    assert build_title(publisher="jlbc", doc_type="budget-bill-summary",
+                       fiscal_year=2027, user_title="", agency_name=None,
+                       stage="engrossed") \
+        == "FY 2027 Budget Bill Summary (Engrossed)"
+    assert build_title(publisher="jlbc", doc_type="budget-bill-summary",
+                       fiscal_year=2027, user_title="", agency_name=None,
+                       stage="introduced") \
+        == "FY 2027 Budget Bill Summary (Introduced)"
+
+
+def test_build_title_appends_the_stage_even_over_a_user_typed_title():
+    # A custom title must not silently swallow the stage -- an uploader who
+    # typed their own title still needs the ladder rule to see it.
+    assert build_title(publisher="jlbc", doc_type="budget-bill-summary",
+                       fiscal_year=2027, user_title="HB2001 Feed Bill",
+                       agency_name=None, stage="engrossed") \
+        == "HB2001 Feed Bill (Engrossed)"
+
+
+def test_build_title_omits_the_stage_suffix_when_none_is_given():
+    assert build_title(publisher="jlbc", doc_type="budget-bill-summary",
+                       fiscal_year=2027, user_title="", agency_name=None,
+                       stage=None) \
+        == "FY 2027 Budget Bill Summary"

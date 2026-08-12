@@ -64,7 +64,7 @@ def test_only_real_doc_type_values_are_ever_emitted():
     """A value the corpus does not use would hard-filter to zero results."""
     real = {"approps-per-agency", "baseline-per-agency", "detailed-list-pdf",
             "governors-budget", "s-pdf", "afr", "bd-pdf", "topic-pdf",
-            "bh-pdf", "budget-bill"}
+            "bh-pdf", "budget-bill", "budget-bill-summary"}
     for q in ["baseline", "appropriations report", "afr", "executive budget",
               "budget bill", "detailed list", "annual financial report"]:
         for m in parse_query_doc_types(q):
@@ -98,3 +98,22 @@ def test_an_explicit_bill_request_still_resolves():
     """The guard above must not cost the case the type genuinely serves."""
     assert "budget-bill" in _vals("fy2026 budget bill")
     assert "budget-bill" in _vals("the appropriations bill")
+
+
+def test_budget_bill_summary_resolves_to_its_own_type_not_the_docx_bill():
+    """Review Finding 2: 'budget bill summary' used to hard-filter onto
+    `budget-bill` (the 136-chunk DOCX feed bill) because 'budget bill' is an
+    EXACT phrase and `budget-bill-summary` had no phrase of its own — so the
+    longest-phrase rule couldn't rescue it. That silently returned zero rows
+    for the summary type (Invariant 3: the pipeline's empty-result fallback
+    never fires because the DOCX bill chunks are non-empty)."""
+    assert _vals("what did the budget bill summary say about AHCCCS") == [
+        "budget-bill-summary"
+    ]
+    assert _vals("FY2027 budget bill summary") == ["budget-bill-summary"]
+
+
+def test_plain_budget_bill_still_resolves_to_the_docx_bill():
+    """The new, longer phrase must not shadow the existing shorter one for a
+    query that genuinely means the enacted bill."""
+    assert _vals("fy2026 budget bill") == ["budget-bill"]

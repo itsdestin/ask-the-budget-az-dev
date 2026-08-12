@@ -30,7 +30,9 @@ source. When something ships, update only this file.
 | Standalone consolidation — Plan 3 (ingest) | ✓ Shipped (2026-07-31) | GUI upload → background queue → LanceDB; fiscal-note refresh; Add-a-JLBC-book. Postgres/Docker now needed for NOTHING. See the section below |
 | Standalone consolidation — Plan 4 (AI Mode) | ✓ Shipped (2026-07-31) | In-process OpenRouter tool loop; MCP and YouCoded dropped. Cited chat + PDF viewer on both corpora, Standard/Deep-Research tiers, per-user spend ledger. See the section below |
 | Standalone consolidation — Plan 5 (admin + packaging + deletion) | 🟡 **Tracks 1–4 done, 5–6 open** (2026-08-01) | 20 of 27 tasks. Tracks 1–2 (1–13, Session A): admin identity + gate, settings API, OpenRouter catalog, model fallback, corpus health/restore, Admin + Settings pages, per-machine data dir, health ladder, lockout recovery. Track 3 (14–17, Session B): the Windows bundle. **Track 4 (18–20) shipped 2026-08-01** — `web/`, `mcp-server/`, `db/` and the dead `retrieval/` modules are DELETED (~36,000 lines), one `documents.json` reader, four ingest defects fixed, and all three of Session B's orphaned app-side asks built. **Track 5 (handbook, 21–23) and Track 6 (gates, 24–27) remain.** See the Track 4 section below |
-| Standalone consolidation — Plan 6 (document types) | 🔴 **Not started** | 16 tasks. Unblocks ~85 catalogued documents that cannot be ingested at all (agency budget requests, AFR re-route) and makes doc types extensible by a non-technical office |
+| Standalone consolidation — Plan 6 (document types) | ⬛ **Superseded 2026-08-11** by the document-types re-scope | Plan 6's scope was replaced by a new spec (T1–T14) split into Plans A/B/C. **Plan A shipped 2026-08-11** — see the section below. Plans B and C are not written |
+| Document types — **Plan A** (registry + upload rows) | ✓ **Shipped (2026-08-11)** | T1/T2/T3/T4/T9. One YAML registry is now the single source of truth for extraction, doc_id identity, the upload API, the model's filter enum and the upload UI. Two new types; six guided upload rows replace a dropdown of raw slugs. Found a collision that would have left 1 document of 78. See the section below |
+| Document types — Plans **B** and **C** | 🔴 **Not written** | B = resilient processing (T5–T8, T12): detection, the extractor fallback ladder, the coverage quality gate, terminal-failure handling, health-aware re-ingest. C = upload-page surfaces (T10 book panel, T13 queue bounding) |
 | Standalone consolidation — Plan 7 (batch extraction) | ✓ Shipped (2026-08-02) | Batch MinerU (~4x), the backfill, recency re-calibration. Three defect fixes not in any plan. See the Plan 7 section below |
 | Citation linking (post-hoc linker) | ⬛ **Superseded 2026-08-11** by attested linking | Shipped 2026-08-02, then found to overclaim: 34.2% of linked figures matched >1 document and were resolved by document authority. That ranking is now DELETED. Section kept as the historical record of the defect |
 | **Attested citation linking** | ✅ **Shipped and VERIFIED LIVE** (2026-08-11) | The model tags each figure, the system verifies the tag. False-link rate down 13–15×; 100% coverage on a captured live turn, 44 figures linked by tag. Six defects found by browser testing — see the section below. The 31-query Layer 2 baseline still has not been run |
@@ -203,6 +205,138 @@ This is a prerequisite for trusting any ranking-policy change — S30's section
 boost has the same blind spot.
 
 </details>
+
+## Document types — Plan A shipped (2026-08-11)
+
+Spec: `docs/superpowers/specs/2026-08-11-document-types-and-resilient-processing-design.md`
+(T1–T14; **this plan implements T1, T2, T3, T4 and T9 only**). Plan:
+`docs/superpowers/plans/2026-08-11-plan-a-document-types-and-upload-rows.md`
+(7 tasks). **Supersedes the old Plan 6's scope**, which is now three plans:
+A (this), B (resilient processing, T5–T8/T12), C (upload surfaces, T10/T13).
+
+**Document types are described in exactly one place now.** `data/document-types.yaml`
+plus `ingest/doc_types.py` feed the extractor dispatcher, doc_id identity, the
+upload allowlist, `GET /api/document-types`, the model's tool-boundary filter
+enum, and the upload page. Two new types are registered end to end
+(`agency-submission`, `budget-bill-summary`), and the upload page's dropdown of
+raw internal slugs (`s-pdf`, `bh-pdf`, `detailed-list-pdf` — unusable by an
+analyst) is now six guided rows that each name a real document, say where it is
+published and which file to use.
+
+Gates on the merged tree: **pytest 2443 / 5 skipped** (base control 2392),
+**vitest 756**, `tsc -b` 0, build clean, and **eval identical to a same-machine
+control** — recall@5 88.10% · @15 100% · @20 100% · refusal 60%. Gate G1 passes.
+
+### 🔴 The defect that would have left 1 document out of 78
+
+`make_doc_id`'s non-JLBC branch **dropped the filename entirely**, assuming one
+document per publisher per fiscal year. True for the AFR and the Executive
+Budget; false for the 78 agency budget submissions the backfill is meant to add.
+Verified by execution before the fix: `BHA-FY27.pdf` and `DXA-FY27.pdf` both
+minted `governor-agency-submission-fy2027`. **A corpus write is an upsert**, so
+ingesting 78 documents would have left **one**, with nothing erroring anywhere —
+the same collision class already fixed once for JLBC books, arriving by a
+different route. The fix is registry-driven and **structurally cannot move an
+existing id**: `make_doc_id` returns from inside `if publisher == "jlbc":`
+before any changed line, which is a stronger guarantee than the corpus sweep
+that was originally proposed.
+
+A third instance of the same class was caught in review: two Budget Bill
+Summaries for one year differing only by stage collided, because `stage` was
+required and distinguishing but absent from the id. Also fixed.
+
+### The registry is now the single source of truth — and two hidden second copies were removed
+
+- **`harness/tools.py`'s `_DOC_TYPES` had drifted to 11 entries against 15**, and
+  a filter on a missing value is rejected at the tool boundary with **no error**,
+  so the model concludes the corpus lacks the material. It is now pinned equal to
+  the registry, so it cannot drift again.
+- **`Upload.tsx` hand-maintained a doc_type→publisher map with a `?? "jlbc"`
+  fallback.** That defeated T4's own acceptance test ("adding a seventh row must
+  be a change to the YAML, not to code"): a row declaring `publisher: agency`
+  would have posted `jlbc`, minted the wrong id, and been unfindable by a
+  publisher filter — silently. **The server now derives publisher from the
+  registry and the client no longer sends it.**
+
+### 🔴 "budget bill summary" hard-filtered onto the wrong document type
+
+Found by the final review, verified by execution: `"what did the budget bill
+summary say about AHCCCS"` resolved to `doc_type: budget-bill` — the 136-chunk
+FY2026 DOCX feed bill — returning **zero** summary chunks. `"budget bill"` is an
+EXACT phrase (a hard filter) and the new type had no phrase of its own.
+
+Worse, it lands in the silent shape `retrieval/query_doc_type.py`'s own
+docstring warns about: those budget-bill chunks are non-empty, so the
+empty-result fallback never fires and `dropped_filters` stays empty — **the
+analyst is never told a filter was inferred.** Invariant 3. Fixed with an
+ordered phrase entry; eval unchanged.
+
+### T9 — the model is told how bill summaries relate to Appropriations Reports
+
+A Budget Bill Summary precedes that year's Appropriations Report, may answer
+current-year questions, must be **ignored entirely** once the Appropriations
+Report is published, and — since several exist per year for drafts that later
+changed — only the most recent is trustworthy.
+
+**The model cannot observe corpus state**, so every condition is written as a
+check it can run. Two defects here were caught only by review:
+
+1. The Approps-Report check's example filter **omitted `fiscal_year`**. Since
+   approps chunks exist for many prior years, that search almost always returns
+   material, so the model would conclude the current year's report was published
+   when it was not — and cite a stale prior-year enacted figure. A silent
+   wrong-year citation.
+2. **`stage` reached the job record and stopped there** — never `documents.json`,
+   never `doc_title`. The retrieved chunk payload carries no stage, so
+   "Engrossed supersedes Introduced" was an instruction whose condition the model
+   could never evaluate. It would have shipped green, because a prompt test can
+   only assert the text is present. Fixed by putting the stage in the document
+   title, traced end to end from `build_title` through `documents.json` and
+   `titles_for()` to the `doc_title` the model actually sees.
+
+### 🔴 Two tests passed whether or not their feature worked
+
+Both caught, and the pattern is the point. One asserted a jsdom-unobservable
+native file-input reset. The other pinned the fiscal-year fix above over a
+1,500-character window spanning three bullets, two of which mention
+`fiscal_year` — so reverting the fix left the suite **green**. Its own RED
+evidence had reverted the whole commit, stripping both bullets at once: **a wide
+revert cannot prove a narrow pin.** Found by a reviewer re-running the mutation
+narrowly rather than reading the assertion.
+
+### The plan's PROSE held; its example CODE was wrong five times
+
+A function named that does not exist (`inferMetaFromFilename` for `guessMeta`),
+a call against a signature that never gains the parameter (`new_job(stage=)`,
+which would have `TypeError`d every upload), a filter missing the field its own
+prose demanded, a test asserting a substring of the wrong string, and a holdout
+the plan did not anticipate. Every one was caught before merge. **Treat plan code
+blocks as sketches to run and correct, not text to transcribe.**
+
+### ⏸ OUTSTANDING — nobody has opened the page, and nothing has been ingested
+
+- **The rebuilt Upload page is unverified in a browser.** jsdom applies no
+  stylesheet. Check: the six rows' rhythm and the new row heading; drag a PDF
+  onto a row (the affordance was added blind); the per-row success confirmation
+  visible without scrolling; the two redirect rows scrolling to the Add-a-book
+  panel; the stage picker on Budget Bill Summary.
+- **No document of either new type has ever been extracted.** MinerU routing is
+  asserted, never executed on a real Agency Submission or a real "House and
+  Senate Budget Bills" PDF — chunk quality and agency stamping for these two
+  types are unknown. This is the S27-gate shape the FY2024 AFR recorded.
+- **The T9 rule has never run against a live model.** Needs a keyed machine and
+  two real summaries in the corpus.
+- **Deliberately not fixed:** the JLBC branch does not slugify, so a bill-summary
+  doc_id can carry spaces and `#`. Every consumer was traced (the webapp
+  `encodeURIComponent`s, `sql_str` escapes the predicate) and **no functional
+  break exists** — changing id minting has real blast radius against pinned eval
+  chunk_ids, so it stays cosmetic.
+- **Follow-up worth doing in Plan B:** narrow the `_DOC_TYPES` anti-drift
+  assertion to a *materializable* subset of the registry (excluding
+  `redirect`-marked rows). `baseline-book` and `approps-report` can never carry
+  chunks — book ingest always stamps a book's children with per-section types —
+  so the enum and the registry are answering two different questions that
+  coincidentally share a key set today.
 
 ## What's next
 

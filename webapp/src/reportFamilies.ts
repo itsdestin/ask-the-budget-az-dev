@@ -23,6 +23,15 @@ const FAMILY_OF_DOC_TYPE: Record<string, string> = {
   afr: "Annual Financial Report",
   "governors-budget": "Executive Budget",
   "budget-bill": "Budget Bill",
+  // Final-review Finding 2: these two doc_types were added to
+  // data/document-types.yaml (Task 6) but never given a family here, so the
+  // first Agency Submission or Budget Bill Summary ingested would have grown
+  // a family heading and a filter chip reading literally "agency-submission"
+  // — the exact "documents under raw machine slugs" defect this project
+  // already fixed once (STATUS.md, 647 → 0). Labels match the registry's own
+  // `label` field for each row (data/document-types.yaml).
+  "agency-submission": "Agency Submission",
+  "budget-bill-summary": "Budget Bill Summary",
 };
 
 /** The family name for a document.

@@ -87,6 +87,11 @@ class JobRecord:
     doc_type: str
     fiscal_year: int
     user_title: str
+    # Which rung of a doc_type's ladder this upload is (e.g. "introduced" /
+    # "engrossed" for budget-bill-summary). Optional with a None default:
+    # thousands of job files already on disk predate this field, and
+    # `from_json` must not raise reading them.
+    stage: str | None = None
     source_url: str | None = None
     # "document" (the normal ingest) or "refresh" (scrape azjlbc.gov for new
     # fiscal notes). Decides which state pipeline applies.
@@ -132,6 +137,7 @@ class JobRecord:
             "user": self.user,
             "created_at": self.created_at,
             "updated_at": self.updated_at,
+            "stage": self.stage,
         }
 
 
@@ -158,6 +164,7 @@ def new_job(
     doc_type: str,
     fiscal_year: int,
     user_title: str = "",
+    stage: str | None = None,
     user: str | None = None,
     source_url: str | None = None,
     kind: str = "document",
@@ -184,6 +191,7 @@ def new_job(
         doc_type=doc_type,
         fiscal_year=fiscal_year,
         user_title=user_title,
+        stage=stage,
         source_url=source_url,
         kind=kind,
         batch_id=batch_id,

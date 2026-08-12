@@ -351,6 +351,8 @@ value not on this list is a silent zero-result filter):
 | `afr` | AGAO Annual Financial Report (FY25) | agao | **Fund balances, cash position, ending balances — anything beyond appropriations** |
 | `governors-budget` | Governor's Executive Budget (FY27) | governor | Governor's recommendation (vs JLBC's baseline) |
 | `budget-bill` | Legislature passed budget bill (FY26) | legislature | Statutory appropriation language, session-law text. **CAUTION: the bill's per-agency line-item totals exclude statewide adjustments, so they understate total final appropriations — prefer `approps-per-agency` for "what did the agency get in total."** |
+| `budget-bill-summary` | JLBC's summary of the budget bills in progress (FY26, FY27) | jlbc | Provisional — see "The lifecycle of a budget number" below before relying on one. |
+| `agency-submission` | An agency's own budget request (FY27) | agency | What the agency ASKED for, distinct from what JLBC recommended (`baseline-per-agency`) or what was enacted (`approps-per-agency`) — agencies routinely request more than they receive. |
 
 **Choosing the right doc_type:**
 
@@ -724,19 +726,40 @@ cited numbers visibly disagree.
 
 ### The lifecycle of a budget number
 
-A given dollar figure passes through up to four document types
-(not every FY will have all four ingested at a given moment):
+A given dollar figure passes through up to five document types
+(not every FY will have all five ingested at a given moment — a Budget
+Bill Summary in particular is expected to disappear from relevance
+once its year's Appropriations Report lands):
 
 | Stage | Document | Publisher | What it represents |
 |---|---|---|---|
 | 1. Proposal | `governors-budget` | governor | Executive recommendation, pre-session |
 | 2. Recommendation | `baseline-per-agency` | jlbc | JLBC's baseline — bare-minimum funding after statutory formulas, caseloads, and removing prior-year one-times. **NOT yet enacted.** |
-| 3. Enactment | `approps-per-agency` / `budget-bill` | jlbc / legislature | What the Legislature actually appropriated for the FY (the "Approved" column in the Approps Report; the statutory bill text in the budget bill) |
-| 4. Actual | `afr` | agao | What was actually spent, year-end |
+| 3. In progress | `budget-bill-summary` | jlbc | JLBC's summary of the budget bills as they move through the Legislature. **NOT enacted**, and replaced by the Appropriations Report |
+| 4. Enactment | `approps-per-agency` / `budget-bill` | jlbc / legislature | What the Legislature actually appropriated for the FY (the "Approved" column in the Approps Report; the statutory bill text in the budget bill) |
+| 5. Actual | `afr` | agao | What was actually spent, year-end |
 
 Baseline ≠ Approved ≠ Spent. Never substitute one for another in
 your answer; always cite the document type that matches what the
 user asked.
+
+**A Budget Bill Summary is provisional, and there is often more than one.**
+
+- Use one for a current-year question **only when no Appropriations Report
+  exists yet for that fiscal year.** Before relying on a summary, run one
+  search filtered to that fiscal year: `filters: { doc_type:
+  ["approps-per-agency"], fiscal_year: [N] }`. If it returns material,
+  answer from that and ignore the summary.
+- **Engrossed supersedes Introduced.** A `budget-bill-summary` chunk's
+  `doc_title` names its stage (e.g. ending "(Engrossed)" or
+  "(Introduced)"). Before answering "what is the budget for X" from a
+  summary, check the `doc_title` of every `budget-bill-summary` chunk your
+  retrieve returned for that fiscal year and prefer the Engrossed one. If
+  your retrieve surfaced only an Introduced summary, run one more search —
+  `filters: { doc_type: ["budget-bill-summary"], fiscal_year: [N] }` — to
+  confirm no Engrossed version exists before answering from it.
+- When you do answer from a summary, say so in the answer — it describes a
+  bill in progress, not an enacted appropriation.
 
 ### The 3-year structure of per-agency tables
 

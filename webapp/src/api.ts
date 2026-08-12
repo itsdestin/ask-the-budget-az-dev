@@ -298,13 +298,46 @@ export interface Job {
 
 export interface UploadMeta {
   corpus: string;
-  publisher: string;
   doc_type: string;
   fiscal_year: number;
   title: string;
   /** Ingest anyway when the content hash is already known (spec's explicit
    *  re-process option). */
   reprocess?: boolean;
+  /** Which reading of a Budget Bill Summary this is. Required server-side
+   *  (422 without it) whenever the row's `stage_field` is true — see
+   *  DocTypeCard.stage_field below. */
+  stage?: "introduced" | "engrossed";
+}
+
+/** One row of `GET /api/document-types` — the upload page's own copy of the
+ *  type list is gone (Task 6); every row's copy comes off the wire from
+ *  `data/document-types.yaml` via `ingest.doc_types.upload_rows()`, so the
+ *  two lists can no longer drift. Field names mirror the registry's own
+ *  `DocType` attributes 1:1 (see ingest/doc_types.py). */
+export interface DocTypeCard {
+  key: string;
+  label: string;
+  group: string;
+  formats: string[];
+  where_published: string;
+  which_file: string;
+  /** Present only for the two JLBC-book rows, which are never uploaded —
+   *  see `app/book_sections.py`'s reasoning for why a book is added by the
+   *  book tool (one document per agency) rather than as a single PDF.
+   *  `which_file` is "" on a redirect row; every other row has `null` here. */
+  redirect: { action: string; label: string; detail: string } | null;
+  /** True only for budget-bill-summary today — gates whether the row shows
+   *  the Introduced/Engrossed picker, and whether the upload route requires
+   *  one (422 without it on a staged type). */
+  stage_field: boolean;
+  order: number;
+}
+
+export async function documentTypes(): Promise<DocTypeCard[]> {
+  const r = await fetch("/api/document-types");
+  if (!r.ok) await fail(r, "document types");
+  return (await r.json()).types;
 }
 
 export interface DuplicateDocument {
@@ -330,10 +363,19 @@ export async function uploadDocument(
   const form = new FormData();
   form.append("file", file);
   form.append("corpus", meta.corpus);
-  form.append("publisher", meta.publisher);
+  // WHY no `publisher` field: it used to be sent from a hand-maintained
+  // client-side map (ROW_PUBLISHERS in Upload.tsx) that could only ever cover
+  // the doc_types someone remembered to add to it — the spec's own T4
+  // acceptance test ("a seventh row must be a change to the YAML file, not to
+  // code") failed silently the moment a new row's publisher wasn't jlbc. The
+  // server now derives publisher from the doc_type's registry row, so the
+  // form field is gone rather than fixed — there is nothing left for the
+  // client to infer. `publisher` is optional server-side for exactly this
+  // reason (see the sibling Python change).
   form.append("doc_type", meta.doc_type);
   form.append("fiscal_year", String(meta.fiscal_year));
   form.append("title", meta.title);
+  if (meta.stage) form.append("stage", meta.stage);
   // Invariant 8: the server rejects the upload without this. The page only
   // sends it once the user has actually ticked the box.
   form.append("is_public_record", "true");

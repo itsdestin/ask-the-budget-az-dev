@@ -23,7 +23,7 @@ from pathlib import Path
 from fastapi import APIRouter, File, Form, HTTPException, Request, UploadFile
 from fastapi.responses import JSONResponse
 
-from ingest.dispatcher import EXTRACTOR_REGISTRY
+from ingest.doc_types import DocType, all_types, get as get_doc_type
 from ingest.driver import make_doc_id
 from ingest.jobs import TERMINAL_STATES, load_all, new_job, save
 from store.config import data_dir, documents_path
@@ -40,10 +40,24 @@ PUBLIC_RECORD_NOTICE = (
     "with access to the shared drive."
 )
 
-# Accepted doc_types are exactly the ones an extractor can handle. Accepting a
-# type we can't extract would queue a job guaranteed to fail — better a 422 the
-# uploader can act on than a failed job they can't.
-ACCEPTED_DOC_TYPES = frozenset(dt for dt, _fmt in EXTRACTOR_REGISTRY)
+# WHY derived and not written out: this was already a projection of
+# EXTRACTOR_REGISTRY; it now projects the registry that feeds it directly. A
+# third hand-maintained list is exactly what this change exists to prevent.
+# Every key here IS wired through to an extractor -- ingest/dispatcher.py's
+# EXTRACTOR_REGISTRY is itself a projection of this same registry, and
+# `test_the_registry_and_the_dispatcher_are_in_full_parity` (test_doc_types.py)
+# pins the two sets equal. (Finding 5, 2026-08-11: this comment used to say
+# agency-submission and budget-bill-summary sat in a dispatcher.py
+# `_NOT_YET_WIRED` holdout and would "simply wait at extracting" -- that
+# scaffolding was deleted in Task 4 and grep confirms zero remaining
+# references; both types route to MinerU like any other PDF type.)
+ACCEPTED_DOC_TYPES = frozenset(t.key for t in all_types())
+
+# The bill-summary ladder has exactly two rungs (spec T2). JLBC titles some
+# engrossed versions "Final Budget Bills"; that wording maps to `engrossed`,
+# it is not a third stage. Accepting one would break "Engrossed supersedes
+# Introduced" by introducing a value the rule says nothing about.
+ACCEPTED_STAGES = frozenset({"introduced", "engrossed"})
 ACCEPTED_CORPORA = frozenset({"budget", "fiscal_notes"})
 ACCEPTED_SUFFIXES = frozenset({".pdf", ".docx"})
 
@@ -62,12 +76,17 @@ async def upload(
     request: Request,
     file: UploadFile = File(...),
     corpus: str = Form(...),
-    publisher: str = Form(...),
+    # WHY optional (was Form(...) -- required): Finding 1. The registry is
+    # now authoritative for any doc_type that declares a `publisher`, so the
+    # webapp is dropping its hand-maintained doc_type -> publisher map and
+    # will stop sending this field. See `_resolve_publisher` below.
+    publisher: str = Form(""),
     doc_type: str = Form(...),
     fiscal_year: str = Form(...),
     title: str = Form(""),
     is_public_record: str = Form(""),
     reprocess: str = Form(""),
+    stage: str = Form(""),
 ):
     # Invariant 8 first — before the file is written anywhere. A rejected
     # upload must leave no trace of the document on the share.
@@ -86,6 +105,37 @@ async def upload(
             status_code=422,
             detail=f"Unknown document type {doc_type!r}. Choose one of: "
                    f"{', '.join(sorted(ACCEPTED_DOC_TYPES))}.",
+        )
+
+    row = get_doc_type(doc_type)
+    # Finding 1: the registry decides `publisher`, never the client, for any
+    # row that declares one -- see `_resolve_publisher`'s docstring for the
+    # silent-corruption shape this replaces.
+    publisher = _resolve_publisher(row, publisher)
+    stage_value = stage.strip().lower()
+    if stage_value and stage_value not in ACCEPTED_STAGES:
+        raise HTTPException(
+            status_code=422,
+            detail=f"Unknown stage {stage!r}. Choose Introduced or Engrossed.",
+        )
+    if row is not None and row.stage_field and not stage_value:
+        raise HTTPException(
+            status_code=422,
+            detail="Say whether this is the Introduced or the Engrossed version.",
+        )
+    # Review finding: a stage supplied for a type that declares no
+    # `stage_field` used to be accepted silently and ridden straight into
+    # `build_title`, which appends "(Introduced)"/"(Engrossed)"
+    # unconditionally. That suffix is the ONLY signal the system prompt's
+    # "Engrossed supersedes Introduced" rule can read (doc_title rides on
+    # every retrieved chunk) — a false suffix on, say, a final AFR would
+    # teach the model the document is provisional and safe to supersede.
+    # The two existing guards above bracket "unknown stage" and "missing
+    # stage on a staged type"; this is the gap between them.
+    if row is not None and not row.stage_field and stage_value:
+        raise HTTPException(
+            status_code=422,
+            detail=f"{row.label} documents do not have a stage — leave that field blank.",
         )
 
     filename = Path(file.filename or "upload").name
@@ -111,7 +161,8 @@ async def upload(
             return JSONResponse(status_code=409, content=existing)
 
     doc_id = make_doc_id(
-        publisher=publisher, doc_type=doc_type, fiscal_year=year, filename=filename
+        publisher=publisher, doc_type=doc_type, fiscal_year=year, filename=filename,
+        stage=stage_value or None,
     )
     job = new_job(
         doc_id=doc_id,
@@ -123,6 +174,7 @@ async def upload(
         doc_type=doc_type,
         fiscal_year=year,
         user_title=title.strip(),
+        stage=stage_value or None,
     )
     save(job)
 
@@ -138,6 +190,40 @@ async def upload(
 
 
 # --- helpers ----------------------------------------------------------------
+
+
+def _resolve_publisher(row: DocType | None, submitted: str) -> str:
+    """Decide the `publisher` a document is stamped with.
+
+    WHY the registry wins whenever the row declares one: `publisher` used to
+    be pure client input, and `GET /api/document-types` never projected the
+    registry's own `publisher` field -- so the webapp hand-maintained a
+    SECOND doc_type -> publisher map and posted whatever it guessed. A row
+    the webapp's map didn't know about (or drifted on) posted the wrong
+    value with nothing erroring: `make_doc_id`'s JLBC branch is keyed on the
+    literal string "jlbc", so a wrong publisher silently mints the wrong
+    doc_id CLASS, and every chunk of that document carries the wrong
+    publisher facet for search filtering. Deriving it here makes the
+    registry the only place that fact can live (spec T4's acceptance test:
+    adding a row must be a YAML edit, not a code change).
+
+    A row that declares no `publisher` (none exist in the committed registry
+    today, but the field is optional on `DocType`) falls back to whatever the
+    client sent -- validated against the registry's own set of known
+    publisher values rather than accepted as-is, so a typo still 422s
+    instead of silently seeding a new value nothing else recognizes.
+    """
+    if row is not None and row.publisher:
+        return row.publisher
+    value = submitted.strip()
+    known = {t.publisher for t in all_types() if t.publisher}
+    if value not in known:
+        raise HTTPException(
+            status_code=422,
+            detail=f"Unknown publisher {value!r}. Choose one of: "
+                   f"{', '.join(sorted(known))}.",
+        )
+    return value
 
 
 def _is_true(value: str) -> bool:

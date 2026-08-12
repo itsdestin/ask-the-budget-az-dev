@@ -5,8 +5,8 @@ is why this module is a hand-written phrase table rather than anything
 fuzzy. `doc_type` is a plain equality filter: a value the corpus does not
 actually use ("appropriations-report", "baseline-book") matches nothing at
 all and returns an empty page with no error anywhere. So the table maps ONTO
-the ten values the corpus really carries, and `test_query_doc_type.py` pins
-that nothing else is ever emitted:
+the eleven values the corpus really carries, and `test_query_doc_type.py`
+pins that nothing else is ever emitted:
 
     approps-per-agency   JLBC Appropriations Report per-agency entry
     baseline-per-agency  JLBC Baseline Book per-agency chapter
@@ -18,6 +18,7 @@ that nothing else is ever emitted:
     topic-pdf            JLBC one-off topical reports
     bh-pdf               JLBC Budget Highlights
     budget-bill          The Legislature's enacted budget bill
+    budget-bill-summary  JLBC's summary of the budget bills in progress
 
 Two rules do the safety work:
 
@@ -93,6 +94,18 @@ _PHRASES: dict[str, tuple[str, Confidence]] = {
     "appropriation bill": ("budget-bill", Confidence.EXACT),
     "budget bill": ("budget-bill", Confidence.EXACT),
     "feed bill": ("budget-bill", Confidence.EXACT),
+    # -- JLBC's own summary of the budget bills (a different document type
+    # from the enacted DOCX bill above) -----------------------------------
+    # WHY this has to be its own phrase and not left to fall out of
+    # "budget bill" plus context: `_PHRASE_RE` matches non-overlapping, so
+    # without an entry here "budget bill summary" matched "budget bill" and
+    # hard-filtered onto the single 136-chunk DOCX feed bill -- which
+    # SUCCEEDS (it has chunks), so the empty-result fallback never rescues
+    # it and the analyst silently gets zero summary chunks (review finding
+    # 2026-08-11). Longer-phrase-wins ordering (`_PHRASE_RE` sorts by length
+    # descending) makes this win over the shorter "budget bill" whenever
+    # "summary" follows it.
+    "budget bill summary": ("budget-bill-summary", Confidence.EXACT),
     # -- JLBC cross-cut section families ------------------------------------
     "detailed list of appropriations": ("detailed-list-pdf", Confidence.EXACT),
     "detailed list": ("detailed-list-pdf", Confidence.EXACT),

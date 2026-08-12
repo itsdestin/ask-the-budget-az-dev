@@ -1,0 +1,238 @@
+# The one description of every document type the corpus holds.
+#
+# WHY this is data and not Python: the office has no maintainer. Adding a
+# seventh upload row must be an edit to this file, not a code change and a
+# rebuild. Consumed by ingest/dispatcher.py, ingest/driver.py,
+# app/routes/upload.py, app/routes/doc_types.py and the webapp.
+#
+# WHY `extractors` values are names, not classes: this file must stay
+# readable by a non-developer. ingest/dispatcher.py maps name -> class.
+#
+# `one_per_year: false` means SEVERAL documents of this type can exist in one
+# fiscal year, so the filename has to be part of the doc_id. Getting this
+# wrong makes every document of that type in a year overwrite the last --
+# see ingest/driver.py::make_doc_id and tests/test_doc_id_identity.py.
+types:
+  # --- JLBC books: redirect, never uploaded (T1 / spec S25) ---------------
+  - key: baseline-book
+    label: Baseline Book
+    group: JLBC
+    order: 10
+    formats: ['.pdf']
+    extractors: {'.pdf': mineru}
+    publisher: jlbc
+    one_per_year: true
+    upload_row: true
+    where_published: "Published by JLBC each January at azjlbc.gov."
+    which_file: ""
+    redirect:
+      action: add-jlbc-book
+      label: "Use “Add a JLBC book” instead"
+      detail: >-
+        A Baseline Book is stored as one document per agency, which is what
+        makes “show me Corrections’ budget” work. The book tool fetches
+        every agency page for the year. Uploading the single-file PDF would
+        add a 400-page book as ONE document and make agency search worse.
+
+  - key: approps-report
+    label: Appropriations Report
+    group: JLBC
+    order: 11
+    formats: ['.pdf']
+    extractors: {'.pdf': mineru}
+    publisher: jlbc
+    one_per_year: true
+    upload_row: true
+    where_published: "Published by JLBC after the session at azjlbc.gov."
+    which_file: ""
+    redirect:
+      action: add-jlbc-book
+      label: "Use “Add a JLBC book” instead"
+      detail: >-
+        An Appropriations Report is stored as one document per agency, the
+        same way the Baseline Book is. Use the book tool so every agency page
+        is added.
+
+  # --- The six rows that accept a file -----------------------------------
+  - key: afr
+    label: Annual Financial Report
+    group: Auditor General
+    order: 30
+    formats: ['.pdf']
+    extractors: {'.pdf': opendataloader}
+    publisher: agao
+    one_per_year: true
+    upload_row: true
+    where_published: >-
+      Published each autumn by the Arizona Auditor General at gao.az.gov.
+      That site blocks automated downloads, so it must be saved from a
+      browser and uploaded here.
+    which_file: >-
+      The combined PDF — its name usually contains “AFR” and
+      “COMBINED”. Not the individual statements.
+
+  - key: governors-budget
+    label: Executive Budget
+    group: Governor
+    order: 40
+    formats: ['.pdf']
+    extractors: {'.pdf': opendataloader}
+    publisher: governor
+    one_per_year: true
+    upload_row: true
+    where_published: >-
+      Published each January by the Governor’s Office of Strategic
+      Planning and Budgeting at ospb.az.gov.
+    which_file: "The State Agency Detail volume."
+
+  - key: agency-submission
+    label: Agency Submission
+    group: Agencies
+    order: 50
+    formats: ['.pdf']
+    extractors: {'.pdf': mineru}
+    publisher: agency
+    one_per_year: false
+    upload_row: true
+    where_published: >-
+      Each agency publishes its own budget request each autumn, on its own
+      website. Some are also collected at ospb.az.gov.
+    which_file: >-
+      That agency’s budget request for the fiscal year. One upload per
+      agency — there are dozens each year.
+
+  - key: budget-bill-summary
+    label: Budget Bill Summary
+    group: JLBC
+    order: 60
+    formats: ['.pdf']
+    extractors: {'.pdf': mineru}
+    publisher: jlbc
+    one_per_year: false
+    stage_field: true
+    upload_row: true
+    where_published: >-
+      Published by JLBC at azjlbc.gov/budget/ while the budget bills move
+      through the Legislature.
+    which_file: >-
+      The “House and Senate Budget Bills” PDF. Say whether it is the
+      Introduced or the Engrossed version — Engrossed replaces Introduced,
+      and there is often more than one in a year.
+
+  # --- Registered, routed, but not offered as an upload row --------------
+  # These exist because documents of these types are already in the corpus and
+  # the dispatcher is a projection of this file. Adding an upload row for any
+  # of them is a change to `upload_row`, nothing more.
+  - key: baseline-per-agency
+    label: Baseline — agency page
+    group: JLBC
+    order: 100
+    formats: ['.pdf']
+    extractors: {'.pdf': mineru}
+    publisher: jlbc
+    one_per_year: false
+    upload_row: false
+    where_published: "A page of the Baseline Book; added by the book tool."
+    which_file: ""
+
+  - key: approps-per-agency
+    label: Appropriations Report — agency page
+    group: JLBC
+    order: 101
+    formats: ['.pdf']
+    extractors: {'.pdf': mineru}
+    publisher: jlbc
+    one_per_year: false
+    upload_row: false
+    where_published: "A page of the Appropriations Report; added by the book tool."
+    which_file: ""
+
+  - key: s-pdf
+    label: Baseline — summary section
+    group: JLBC
+    order: 102
+    formats: ['.pdf']
+    extractors: {'.pdf': mineru}
+    publisher: jlbc
+    one_per_year: false
+    upload_row: false
+    where_published: "A cross-cutting section of a JLBC book; added by the book tool."
+    which_file: ""
+
+  - key: bh-pdf
+    label: Baseline — budget history section
+    group: JLBC
+    order: 103
+    formats: ['.pdf']
+    extractors: {'.pdf': mineru}
+    publisher: jlbc
+    one_per_year: false
+    upload_row: false
+    where_published: "A cross-cutting section of a JLBC book; added by the book tool."
+    which_file: ""
+
+  - key: bd-pdf
+    label: Baseline — budget detail section
+    group: JLBC
+    order: 104
+    formats: ['.pdf']
+    extractors: {'.pdf': mineru}
+    publisher: jlbc
+    one_per_year: false
+    upload_row: false
+    where_published: "A cross-cutting section of a JLBC book; added by the book tool."
+    which_file: ""
+
+  - key: detailed-list-pdf
+    label: Detailed list of fund changes
+    group: JLBC
+    order: 105
+    formats: ['.pdf']
+    extractors: {'.pdf': mineru}
+    publisher: jlbc
+    one_per_year: false
+    upload_row: false
+    where_published: "A cross-cutting section of a JLBC book; added by the book tool."
+    which_file: ""
+
+  - key: topic-pdf
+    label: Cross-cutting topic report
+    group: JLBC
+    order: 106
+    formats: ['.pdf']
+    extractors: {'.pdf': mineru}
+    publisher: jlbc
+    one_per_year: false
+    upload_row: false
+    where_published: "A cross-cutting section of a JLBC book; added by the book tool."
+    which_file: ""
+
+  # WHY this is registered but not offered (spec T3): the Word feed bill
+  # carries the section and paragraph structure that lets the app cite an
+  # exact provision, which the summary PDF does not. Different document,
+  # different use. DOCX-only is deliberate -- the PDF loses that structure.
+  - key: budget-bill
+    label: Feed Bill (General Appropriations Act)
+    group: Legislature
+    order: 107
+    formats: ['.docx']
+    extractors: {'.docx': python-docx}
+    publisher: legislature
+    one_per_year: false
+    upload_row: false
+    where_published: "Passed by the Legislature; JLBC circulates the Word version."
+    which_file: "The Word (.docx) version, never the PDF."
+
+  # Belongs to the separate fiscal-note corpus and is added by its own
+  # refresh flow (POST /api/fiscal-notes/refresh), not by upload.
+  - key: fiscal-note
+    label: Fiscal note
+    group: Legislature
+    order: 108
+    formats: ['.pdf']
+    extractors: {'.pdf': mineru}
+    publisher: legislature
+    one_per_year: false
+    upload_row: false
+    where_published: "Scraped from azjlbc.gov/fiscal-notes by the refresh button."
+    which_file: ""
