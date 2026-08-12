@@ -1351,6 +1351,32 @@ class ToolExecutor:
             # the model passed its own filters.fiscal_year — that one it
             # already knows about.
             response["inferred_fiscal_years"] = list(result.inferred_fiscal_years)
+        # Spec N11 — the rest of what the pipeline inferred, which it has
+        # always computed and this layer always dropped. Same style as the
+        # years above: present only when non-empty, so absence means "nothing
+        # was guessed".
+        if result.inferred_doc_types:
+            # A HARD filter guessed from the query text. Today that narrowing
+            # is invisible to the model — the "haunted tool" failure named in
+            # RetrievalResult's own docstring, in its worse direction: a
+            # filter invisibly NOT applied is bad, one invisibly APPLIED is
+            # worse, because the model reads a narrowed corpus as the corpus.
+            response["inferred_doc_types"] = list(result.inferred_doc_types)
+        if result.dropped_filters:
+            # Spec Q3's abandoned guess. Without it the model cannot tell
+            # "unfiltered because nothing was guessed" from "unfiltered
+            # because the guess matched nothing".
+            response["dropped_filters"] = list(result.dropped_filters)
+        if result.inferred_agencies:
+            # NAMED `preferred_agencies` on the wire deliberately. Agency is a
+            # ranking PREFERENCE, never a filter (measured: a hard filter
+            # costs ~5 points of recall at every cutoff, because the corpus is
+            # stamped incompletely and a correct reading of the question can
+            # still exclude the answer). Nothing is removed from the results.
+            # The field NAME carries that distinction structurally — a future
+            # consumer cannot read `preferred_agencies` as a filter, where it
+            # could easily misread `inferred_agencies` as one.
+            response["preferred_agencies"] = list(result.inferred_agencies)
         if capped:
             # Present ONLY when the cap fired — its absence is how the
             # model knows it got everything it asked for.

@@ -1393,3 +1393,67 @@ def test_year_coverage_absent_when_empty(monkeypatch):
     _fake_retrieve_result(monkeypatch, year_coverage={})
     ex = ToolExecutor("conv-1", "budget", "standard")
     assert "year_coverage" not in _run(ex, "retrieve", {"query": "q"})
+
+
+# ---------------------------------------------------------------------------
+# The inferred-filter echo (spec N11)
+# ---------------------------------------------------------------------------
+
+
+def test_inferred_doc_type_filter_is_visible_in_the_response(monkeypatch):
+    """A hard filter guessed from the query text and applied is invisible
+    today — the "haunted tool" failure the pipeline's own docstring names,
+    in its worse direction: a filter invisibly APPLIED, not skipped."""
+    _fake_retrieve_result(monkeypatch, inferred_doc_types=["afr"])
+    ex = ToolExecutor("conv-1", "budget", "standard")
+    out = _run(ex, "retrieve", {"query": "afr fund balance"})
+    assert out["inferred_doc_types"] == ["afr"]
+
+
+def test_dropped_filters_are_visible(monkeypatch):
+    """Without this the model cannot tell "unfiltered because nothing was
+    guessed" from "unfiltered because the guess found nothing"."""
+    _fake_retrieve_result(monkeypatch, dropped_filters=["doc_type"])
+    ex = ToolExecutor("conv-1", "budget", "standard")
+    assert _run(ex, "retrieve", {"query": "q"})["dropped_filters"] == ["doc_type"]
+
+
+def test_agency_preference_uses_the_preference_name(monkeypatch):
+    """Spec N11 requires wording that marks agency a PREFERENCE, never a
+    filter. A self-describing field name is that wording, structurally: a
+    future consumer cannot read `preferred_agencies` as a filter."""
+    _fake_retrieve_result(monkeypatch, inferred_agencies=["agency:adc"])
+    ex = ToolExecutor("conv-1", "budget", "standard")
+    out = _run(ex, "retrieve", {"query": "corrections"})
+    assert out["preferred_agencies"] == ["agency:adc"]
+    assert "inferred_agencies" not in out
+
+
+def test_inference_fields_absent_when_empty(monkeypatch):
+    """Same style as inferred_fiscal_years: present only when non-empty, so
+    the model reads absence as "nothing was guessed"."""
+    _fake_retrieve_result(monkeypatch)
+    ex = ToolExecutor("conv-1", "budget", "standard")
+    out = _run(ex, "retrieve", {"query": "q"})
+    for key in ("inferred_doc_types", "dropped_filters", "preferred_agencies"):
+        assert key not in out
+
+
+def test_all_three_can_appear_together(monkeypatch):
+    """The realistic shape N7 depends on: a histogram is half-readable if
+    the model cannot see which filters produced it."""
+    _fake_retrieve_result(
+        monkeypatch,
+        inferred_fiscal_years=[2019],
+        inferred_doc_types=["afr"],
+        inferred_agencies=["agency:adc"],
+        dropped_filters=["doc_type"],
+        year_coverage={2019: 7},
+    )
+    ex = ToolExecutor("conv-1", "budget", "standard")
+    out = _run(ex, "retrieve", {"query": "q"})
+    assert out["inferred_fiscal_years"] == [2019]
+    assert out["inferred_doc_types"] == ["afr"]
+    assert out["preferred_agencies"] == ["agency:adc"]
+    assert out["dropped_filters"] == ["doc_type"]
+    assert out["year_coverage"] == {"2019": 7}
