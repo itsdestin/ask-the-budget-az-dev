@@ -382,6 +382,89 @@ blocks as sketches to run and correct, not text to transcribe.**
   so the enum and the registry are answering two different questions that
   coincidentally share a key set today.
 
+## 🔴 Prose before the first heading is DROPPED on the PDF path (2026-08-12)
+
+Found while calibrating Plan B's coverage floor (spec T6). **Not yet fixed.**
+
+`build_narrative_chunks` walks the document's **outline tree** and collects the
+`Paragraph` blocks hanging off each node. A paragraph that appears **before the
+first heading** belongs to no node, so nothing ever visits it and it is never
+chunked. `builder.py` has a synthetic `preamble` section for the DOCX path;
+**the PDF path has no equivalent.**
+
+On a JLBC agency page the block sitting before the first heading is the
+`AGENCY DESCRIPTION` paragraph — the text that answers *"what does this agency
+do"*. Confirmed end to end on `jlbc-baseline-fy2022-hla`: present in the source
+PDF, present and well-formed in MinerU's own output, absent from the chunks.
+The reader parses 7 outline nodes for `jlbc-approps-fy2024-ind` and the
+description paragraph is attached to none of them.
+
+**Measured over 300 random per-agency documents** (MinerU paragraph blocks
+parsed vs paragraph text reaching the outline):
+
+| | |
+|---|---|
+| prose characters extracted | 1,988,434 |
+| reaching the outline | 1,886,602 |
+| **orphaned, never chunked** | **101,832 (5.1%)** |
+| documents losing any prose | 170 of 300 (56.7%) |
+
+For most documents this is one boilerplate paragraph among many sections and
+costs little. **The subset where it matters is the short one-page agency entry
+whose ONLY prose is that description** — it loses 100% of its narrative and
+survives as a bare table. Those are exactly the documents that scored 12–20% on
+the coverage measure.
+
+### 🔴 This BLOCKS Plan B's floor calibration — do not set the floor first
+
+T6 requires a corpus-wide coverage measurement before the floor is chosen. That
+run is done (below) but it measured a corpus carrying this bug, so the low tail
+is contaminated:
+
+| corpus | min | p1 | median | max |
+|---|---|---|---|---|
+| budget (5,330 docs) | 1.03% | 23.01% | 78.02% | 286.31% |
+| fiscal notes (2,103) | 52.63% | 80.59% | 98.10% | 103.38% |
+
+A floor fitted to this distribution lands near **5%**, which would ratify the
+bug as normal. **Fix the orphan bug, re-chunk, then re-measure.** Estimated
+effect: `jlbc-baseline-fy2022-hla` moves from ~17% to ~72%, clearing the low
+band entirely — after which the spec's original 15–25% expectation may well be
+correct. **The repair does not need re-extraction**: `extractor-output/` is
+retained (3.3 GB), so it is a re-chunk + re-embed. That still re-mints every
+`chunk_id`, and `eval/refresh_chunk_ids.py` is deleted with nothing replacing
+it — re-point eval ground truth as part of the work.
+
+### Two genuinely broken documents, isolated by the same run
+
+- **`agao-afr-fy2024`** — 1.97%, already recorded elsewhere in this file.
+- **`jlbc-baseline-fy2013-s1`** — **1.03%, NEW.** 150 characters recovered from
+  a 14,634-character source; all 8 chunks are corrupted heading fragments
+  (`" Overview"`, `"Debt Rating"`, `" Federal 59 uirements"`). Same shape as the
+  FY2024 AFR and previously unknown.
+
+Controls behaved: the four sibling AGAO AFRs scored 278–286% against FY2024's
+1.97%. **A ratio above 100% is normal and not a bug** — chunk text carries
+table markup and repeated headers, so this is a proxy for extraction health,
+never "fraction of text captured". The measure also catches only CATASTROPHIC
+loss; a book whose extraction died halfway would score ~50% and pass any floor
+in this range. State that as a non-goal rather than discovering it later.
+
+### ⚠ Three wrong claims were made during this investigation — do not inherit them
+
+Recorded because they are the kind of thing that gets copied forward:
+
+1. **"The chunker throws away paragraphs."** False. 71.5% of the corpus is
+   narrative chunks (55,464 vs 22,110 table); per-agency documents average 10.3
+   narrative chunks, median 5. Narrative chunking works.
+2. **"87% of agency pages are missing their prose."** False as stated. That
+   probe tested for ONE paragraph and the result was generalised. Only **7.7%**
+   of per-agency documents have zero narrative chunks.
+3. **The first calibration run silently scored 378 of 7,434 documents** because
+   `source_blob_path` is sharded (`pdfs/4d/4d2a….pdf`) and the resolver rebuilt
+   it from the basename. It looked like a clean result. Always print the
+   population a measurement actually covered.
+
 ## What's next
 
 - **⚠ THIS DEV MACHINE HAS A WORKING OPENROUTER KEY (confirmed 2026-08-11).**
