@@ -53,9 +53,21 @@ from harness.constants import (
     FISCAL_YEAR_MIN,
     INTENT_TOP_K,
     REFUSAL_THRESHOLD,
+    SPREAD_DEFAULT_PER_GROUP,
+    SPREAD_MAX_GROUPS,
+    SPREAD_MAX_PER_GROUP,
+    SPREAD_MAX_TOTAL,
+    SPREAD_MIN_PER_GROUP,
     TIER_BUDGETS,
 )
-from retrieval import DEFAULT_PIPELINE_TOP_K, RetrievalRequest, pipeline, retrieve
+from retrieval import (
+    DEFAULT_PIPELINE_TOP_K,
+    RetrievalRequest,
+    SpreadSpec,
+    pipeline,
+    retrieve,
+    retrieve_spread,
+)
 from retrieval.citations import CiteValidateBody, validate_cite, validate_cites
 from store.chunk_store import CORPUS_TABLES
 from store.documents import (
@@ -290,6 +302,63 @@ _RETRIEVE_DESCRIPTION = (
     "happened."
 )
 
+# Spec N4. The model already knows retrieve(), so this is a PARAMETER rather
+# than a sixth tool: every retrieve affordance — filters, aliases, citations,
+# the refusal comparison — applies to spread results for free, and a new tool
+# schema would be more surface to misuse.
+_SPREAD_SCHEMA = {
+    "type": "object",
+    "additionalProperties": False,
+    "required": ["by", "groups"],
+    "description": (
+        "Structured multi-group search: run this ONE query separately inside "
+        "each named group and return the best passages from EACH, so "
+        "near-identical editions cannot crowd each other out of the results. "
+        "Use it for multi-year comparisons ('X across FY2022-2026'), for "
+        "'which years mention X', and whenever plain search keeps returning "
+        "the same edition. Bounded: at most "
+        f"{SPREAD_MAX_GROUPS} groups x {SPREAD_MAX_PER_GROUP} passages per "
+        f"group, {SPREAD_MAX_TOTAL} passages in total. It counts as your one "
+        "first search but is NOT cut down to the small first-call sample. "
+        "Cannot be combined with top_k, intent or deep_dive."
+    ),
+    "properties": {
+        "by": {
+            "type": "string",
+            "enum": ["fiscal_year", "doc_id"],
+            "description": (
+                "Which axis the groups name: 'fiscal_year' for years, "
+                "'doc_id' for specific documents you have already seen."
+            ),
+        },
+        "groups": {
+            "type": "array",
+            "minItems": 1,
+            "maxItems": SPREAD_MAX_GROUPS,
+            "description": (
+                "The group values, in the order you want them back: "
+                "four-digit fiscal years for by=fiscal_year, doc_ids from "
+                "earlier results for by=doc_id. Check the corpus inventory "
+                "in your instructions first — a group with no edition in the "
+                "corpus comes back empty and wastes one of your groups."
+            ),
+            # Deliberately untyped: `by` decides whether these are integers
+            # or strings, and a JSON Schema union here reads to a model as
+            # "either is fine on either axis". The coercion below enforces
+            # the real rule with an error that names the axis.
+            "items": {},
+        },
+        "per_group": {
+            "type": "integer",
+            "minimum": SPREAD_MIN_PER_GROUP,
+            "maximum": SPREAD_MAX_PER_GROUP,
+            "description": (
+                f"Passages to keep per group (default {SPREAD_DEFAULT_PER_GROUP})."
+            ),
+        },
+    },
+}
+
 _RETRIEVE_SCHEMA = {
     "type": "function",
     "function": {
@@ -336,6 +405,7 @@ _RETRIEVE_SCHEMA = {
                         "large search."
                     ),
                 },
+                "spread": _SPREAD_SCHEMA,
                 "deep_dive": {
                     "type": "boolean",
                     "description": (
@@ -739,6 +809,115 @@ def _filters(raw: Any) -> dict[str, Any]:
     }
 
 
+_SPREAD_KEYS = tuple(_SPREAD_SCHEMA["properties"])
+_SPREAD_AXES = tuple(_SPREAD_SCHEMA["properties"]["by"]["enum"])
+
+
+def _spread(raw: Any) -> SpreadSpec | None:
+    """Validate the spread object into a SpreadSpec, or None when absent.
+
+    Every rejection names the number it violated and what to do instead: a
+    model that gets "invalid spread" spends a step guessing, and a step is
+    the cost this feature exists to save.
+    """
+    if raw is None:
+        return None
+    if not isinstance(raw, Mapping):
+        raise _ArgumentError(
+            "spread must be an object, e.g. "
+            '{"by": "fiscal_year", "groups": [2025, 2026]}.'
+        )
+    unknown = [k for k in raw if k not in _SPREAD_KEYS]
+    if unknown:
+        raise _ArgumentError(
+            f"spread has unknown key(s) {unknown}. Valid keys: "
+            f"{', '.join(_SPREAD_KEYS)}."
+        )
+
+    by = raw.get("by")
+    if by not in _SPREAD_AXES:
+        raise _ArgumentError(
+            f"spread.by must be one of: {', '.join(_SPREAD_AXES)}."
+        )
+
+    raw_groups = raw.get("groups")
+    if not isinstance(raw_groups, list) or not raw_groups:
+        raise _ArgumentError(
+            "spread.groups must be a non-empty array naming the groups to "
+            'search, e.g. {"by": "fiscal_year", "groups": [2025, 2026]}.'
+        )
+    if len(raw_groups) > SPREAD_MAX_GROUPS:
+        raise _ArgumentError(
+            f"spread.groups has {len(raw_groups)} entries; at most "
+            f"{SPREAD_MAX_GROUPS} are allowed. Narrow the range, or run a "
+            "second spread for the rest."
+        )
+
+    groups: list = []
+    if by == "fiscal_year":
+        # The string-"2027" trap, identical to filters.fiscal_year: the
+        # column is an integer, so a quoted year matches no rows and the
+        # empty group reads to the model as "the corpus has no FY2027".
+        for value in raw_groups:
+            if isinstance(value, bool):
+                raise _ArgumentError(
+                    "spread.groups must contain fiscal years, e.g. 2026."
+                )
+            try:
+                groups.append(int(str(value).strip()))
+            except (ValueError, AttributeError, TypeError) as err:
+                raise _ArgumentError(
+                    f"spread.groups has a non-numeric entry {value!r} — with "
+                    "by=fiscal_year, use four-digit years, e.g. 2026."
+                ) from err
+    else:
+        for value in raw_groups:
+            if not isinstance(value, str) or not value.strip():
+                raise _ArgumentError(
+                    f"spread.groups has an invalid entry {value!r} — with "
+                    "by=doc_id, each entry must be a doc_id string from an "
+                    "earlier search result."
+                )
+            groups.append(value.strip())
+
+    # Duplicates are rejected rather than silently collapsed: the response
+    # reports one entry per requested group, so a repeated group would
+    # either double a row or quietly return fewer groups than were asked for.
+    seen = {g for g in groups}
+    if len(seen) != len(groups):
+        repeated = sorted({str(g) for g in groups if groups.count(g) > 1})
+        raise _ArgumentError(
+            f"spread.groups names {', '.join(repeated)} twice. Each group "
+            "must appear once — a group is searched separately, so repeating "
+            "one buys nothing."
+        )
+
+    per_group = raw.get("per_group")
+    if per_group is None:
+        per_group = SPREAD_DEFAULT_PER_GROUP
+    elif isinstance(per_group, bool) or not isinstance(per_group, int):
+        raise _ArgumentError(
+            f"spread.per_group must be a whole number between "
+            f"{SPREAD_MIN_PER_GROUP} and {SPREAD_MAX_PER_GROUP}."
+        )
+    elif not SPREAD_MIN_PER_GROUP <= per_group <= SPREAD_MAX_PER_GROUP:
+        raise _ArgumentError(
+            f"spread.per_group is {per_group}; it must be between "
+            f"{SPREAD_MIN_PER_GROUP} and {SPREAD_MAX_PER_GROUP}."
+        )
+
+    total = len(groups) * per_group
+    if total > SPREAD_MAX_TOTAL:
+        # The arithmetic is in the message on purpose — "too large" leaves
+        # the model to work out which of the two numbers to lower.
+        raise _ArgumentError(
+            f"spread would return {len(groups)} groups x {per_group} = "
+            f"{total} passages; the limit is {SPREAD_MAX_TOTAL}. Lower "
+            "per_group or search fewer groups."
+        )
+    return SpreadSpec(by=by, groups=tuple(groups), per_group=per_group)
+
+
 def _cite_body(raw: Any, where: str) -> CiteValidateBody:
     """One citation argument object -> the validator's request model."""
     item = _as_object(raw)
@@ -1021,6 +1200,24 @@ class ToolExecutor:
         top_k = _opt_int(args, "top_k", 1, 50)
         intent = _opt_enum(args, "intent", INTENT_TOP_K)
         deep_dive = _opt_bool(args, "deep_dive")
+        spread = _spread(args.get("spread"))
+
+        # One breadth mechanism per call. Rejected rather than ignored: a
+        # model that asks for `intent: analyze` and gets 9 grouped passages
+        # with nothing saying why is the haunted-tool failure this module's
+        # other coercions exist to avoid.
+        if spread is not None:
+            conflicting = [
+                name for name, value in
+                (("top_k", top_k), ("intent", intent), ("deep_dive", deep_dive or None))
+                if value is not None
+            ]
+            if conflicting:
+                raise _ArgumentError(
+                    f"spread cannot be combined with {', '.join(conflicting)} "
+                    "— spread already decides how many passages come back "
+                    "(groups x per_group). Drop the other argument."
+                )
 
         # S16: Standard tier cannot opt out of the sample. Ignoring the
         # flag silently would leave the model re-asking for a deep dive
@@ -1034,7 +1231,13 @@ class ToolExecutor:
         with self._lock:
             is_first = self._first_retrieve_pending
             self._first_retrieve_pending = False
-        capped = is_first and not effective_deep_dive
+        # Spec N6: a spread call is already self-limiting (groups x per_group
+        # <= SPREAD_MAX_TOTAL) and structured, so truncating it to the 5-chunk
+        # sample would break its contract and force the extra round the
+        # feature exists to remove. It still CONSUMES the slot — it is a real
+        # first search. Layer 2 watches `input_tokens_mean` for abuse of this
+        # exemption; revert it if the number shows up there.
+        capped = is_first and not effective_deep_dive and spread is None
 
         # Resolution order: the cap overrides everything, then an
         # explicit top_k, then the intent's default, then the pipeline's.
@@ -1053,7 +1256,13 @@ class ToolExecutor:
         # No collaborators injected: the pipeline's process-wide
         # singletons own the store and both ONNX models, and a second set
         # would mean a second copy of the model weights in memory.
-        result = retrieve(request)
+        if spread is not None:
+            # `top_k` is meaningless here — per_group decides the volume —
+            # and the conflict check above has already refused a caller who
+            # passed one.
+            result = retrieve_spread(request, spread)
+        else:
+            result = retrieve(request)
 
         # Under the lock because a turn may dispatch several retrieves
         # concurrently, and two threads minting an alias from the same
@@ -1064,6 +1273,19 @@ class ToolExecutor:
                     self._alias_by_chunk[c.chunk_id] = f"c{len(self._alias_by_chunk) + 1}"
 
         titles = _doc_titles({c.doc_id for c in result.chunks})
+
+        def _group_of(chunk) -> Any:
+            """Which spread group this chunk came back in.
+
+            Read off the chunk's own axis value rather than tracked through
+            the pipeline: `retrieve_spread` partitions on exactly these two
+            attributes, so they cannot disagree with the grouping — and a
+            second bookkeeping path could.
+            """
+            if spread is None:
+                return None
+            return chunk.fiscal_year if spread.by == "fiscal_year" else chunk.doc_id
+
         response: dict[str, Any] = {
             "chunks": [
                 {
@@ -1089,6 +1311,7 @@ class ToolExecutor:
                     # explicit offsets instead of a quote.
                     "text_length": len(c.text or ""),
                     "score": c.score,
+                    **({"group": _group_of(c)} if spread is not None else {}),
                 }
                 for c in result.chunks
             ],
@@ -1101,6 +1324,15 @@ class ToolExecutor:
             "dense_count": result.dense_count,
             "fused_count": result.fused_count,
         }
+        if spread is not None:
+            # One entry per REQUESTED group, in request order, including the
+            # ones that matched nothing (count 0, top_score null). The model
+            # has to be able to tell "FY2020 holds nothing" from "FY2020 was
+            # never searched" — see spec N5's error handling.
+            response["spread"] = {
+                "by": spread.by,
+                "groups": list(result.spread_groups),
+            }
         if result.inferred_fiscal_years:
             # S21 layer 1. Present ONLY when the pipeline read a fiscal
             # year out of the query text and filtered on it, so the model

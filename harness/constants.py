@@ -99,6 +99,26 @@ FIRST_CALL_TOP_K_CAP = 5
 # property and the eval harness reads it too.
 INTENT_TOP_K = MappingProxyType({"lookup": 5, "compare": 12, "analyze": 18})
 
+# Spec N4 — bounds on a `spread` search (one query, run separately inside
+# each named group). Here rather than in tools.py because the tool schema,
+# the coercion's error messages, and the system prompt all state them to the
+# model, and three copies of "at most 8" is how the model ends up told two
+# different numbers — the exact failure this module exists to prevent.
+#
+# SPREAD_MAX_TOTAL is the binding one: groups x per_group is the chunk volume
+# a spread call puts in the context window, and input tokens are already the
+# dominant cost (83-138k per answer, retrieval efficiency 0.34-0.44 — two
+# thirds of retrieved chunks go unused). 24 is today's envelope for ONE large
+# retrieve, so a spread call can never cost more than the single search it
+# replaces several of. The group and per-group caps are shape limits under it:
+# 8 groups covers "FY2019 through FY2026", and 5 per group is past the point
+# where an extra near-duplicate edition page adds anything.
+SPREAD_MAX_GROUPS = 8
+SPREAD_MIN_PER_GROUP = 1
+SPREAD_MAX_PER_GROUP = 5
+SPREAD_DEFAULT_PER_GROUP = 3
+SPREAD_MAX_TOTAL = 24
+
 # S16 tiers: how much effort each analyst-facing tier is allowed to
 # spend. NOT admin-configurable (harness/settings.py owns the "which
 # model" knob and explains why): an admin who accidentally set
