@@ -31,7 +31,7 @@ source. When something ships, update only this file.
 | Standalone consolidation — Plan 4 (AI Mode) | ✓ Shipped (2026-07-31) | In-process OpenRouter tool loop; MCP and YouCoded dropped. Cited chat + PDF viewer on both corpora, Standard/Deep-Research tiers, per-user spend ledger. See the section below |
 | Standalone consolidation — Plan 5 (admin + packaging + deletion) | 🟡 **Tracks 1–4 done, 5–6 open** (2026-08-01) | 20 of 27 tasks. Tracks 1–2 (1–13, Session A): admin identity + gate, settings API, OpenRouter catalog, model fallback, corpus health/restore, Admin + Settings pages, per-machine data dir, health ladder, lockout recovery. Track 3 (14–17, Session B): the Windows bundle. **Track 4 (18–20) shipped 2026-08-01** — `web/`, `mcp-server/`, `db/` and the dead `retrieval/` modules are DELETED (~36,000 lines), one `documents.json` reader, four ingest defects fixed, and all three of Session B's orphaned app-side asks built. **Track 5 (handbook, 21–23) and Track 6 (gates, 24–27) remain.** See the Track 4 section below |
 | Standalone consolidation — Plan 6 (document types) | ⬛ **Superseded 2026-08-11** by the document-types re-scope | Plan 6's scope was replaced by a new spec (T1–T14) split into Plans A/B/C. **Plan A shipped 2026-08-11** — see the section below. Plans B and C are not written |
-| Document types — **Plan A** (registry + upload rows) | ✓ **Shipped (2026-08-11)** | T1/T2/T3/T4/T9. One YAML registry is now the single source of truth for extraction, doc_id identity, the upload API, the model's filter enum and the upload UI. Two new types; six guided upload rows replace a dropdown of raw slugs. Found a collision that would have left 1 document of 78. See the section below |
+| Document types — **Plan A** (registry + upload rows) | ✓ Backend shipped (2026-08-11); 🔴 **its UI is REJECTED and awaiting redesign** | T1/T2/T3/T4/T9. One YAML registry is now the single source of truth for extraction, doc_id identity, the upload API, the model's filter enum and the upload UI. Two new types; found a collision that would have left 1 document of 78. **The Upload page's shape is NOT accepted — see "The Upload UI is unfinished" below.** Do not treat it as done |
 | Document types — Plans **B** and **C** | 🔴 **Not written** | B = resilient processing (T5–T8, T12): detection, the extractor fallback ladder, the coverage quality gate, terminal-failure handling, health-aware re-ingest. C = upload-page surfaces (T10 book panel, T13 queue bounding) |
 | Standalone consolidation — Plan 7 (batch extraction) | ✓ Shipped (2026-08-02) | Batch MinerU (~4x), the backfill, recency re-calibration. Three defect fixes not in any plan. See the Plan 7 section below |
 | Citation linking (post-hoc linker) | ⬛ **Superseded 2026-08-11** by attested linking | Shipped 2026-08-02, then found to overclaim: 34.2% of linked figures matched >1 document and were resolved by document authority. That ranking is now DELETED. Section kept as the historical record of the defect |
@@ -205,6 +205,50 @@ This is a prerequisite for trusting any ranking-policy change — S30's section
 boost has the same blind spot.
 
 </details>
+
+## 🔴 The Upload UI is unfinished — Destin is redesigning it after Plans B and C
+
+**Do not treat the Upload page as delivered, and do not polish it in the
+meantime.** Plan A's backend is done and reviewed; its UI is not accepted.
+
+What happened, recorded so the redesign starts from the right place and the
+mistake is not repeated:
+
+1. Destin asked for the six document types to "each have a selectable UI row in
+   the upload tab". **That was misread when the spec was written**: it became
+   six independent upload cards, each with its own file input, fiscal-year
+   field, public-record checkbox and Submit button, stacked down the page. He
+   rejected it on sight — *"why are there 6 entirely different upload cards"*.
+   **The word doing the work was "selectable"**: he meant a selector made of
+   rows feeding ONE form, not six parallel forms.
+2. Rebuilt as one card — a selectable list of the six types, one form below it,
+   redirect types showing their explanation where the form would be. **Also
+   judged unsatisfactory** ("this still sucks"), and he stopped there rather
+   than iterate mid-stream. The specifics of what is wrong were deliberately
+   not gathered at that moment; **ask before assuming at redesign time.**
+
+The one-card version is on master because master otherwise carried the shape he
+rejected outright and Plans B/C build on top of it. It is an interim.
+
+**The failure was upstream of every gate.** The spec said "six guided rows", the
+plan implemented it, and every reviewer checked the rows against the spec and
+passed them — correctly. No test, review or eval can catch a UI shape that
+faithfully implements a misread requirement. **When the deliverable is a
+layout, agree the shape with Destin before building it** — the brainstorming
+skill's visual companion exists for exactly this.
+
+**Behaviour underneath is reviewed and should survive any redesign** (all of it
+is pinned by specs): registry-driven types with no hardcoded list in the page,
+`publisher` derived server-side and never sent by the client, stage required
+for a type that declares one, the Invariant 8 public-record gate,
+drag-and-drop sharing one code path with the file picker, the filename
+fiscal-year sniff, 409-duplicate handling, and a `role="status"` success
+confirmation visible without scrolling to the queue.
+
+Open judgement calls the redesign should settle, from the one-card build:
+switching type currently clears the form (deliberate — carrying a file across a
+type change is how an AFR gets uploaded as an Executive Budget); no type is
+pre-selected, so the form appears only after a choice.
 
 ## Document types — Plan A shipped (2026-08-11)
 
