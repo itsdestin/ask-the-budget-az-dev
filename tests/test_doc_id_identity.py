@@ -27,6 +27,34 @@ def test_bill_summaries_in_one_year_get_distinct_ids():
     assert intro != eng
 
 
+def test_bill_summaries_with_the_SAME_filename_still_get_distinct_ids_by_stage():
+    """Review Finding 4: JLBC often reuses one filename ('budgetbills.pdf')
+    across the Introduced and Engrossed uploads of the same session. Without
+    stage in the id, two such uploads mint the identical doc_id and the
+    second (an upsert) silently deletes the first with both requests
+    reporting success. `stage` is required for this type and is the only
+    thing distinguishing the two documents."""
+    intro = make_doc_id(publisher="jlbc", doc_type="budget-bill-summary",
+                        fiscal_year=2027, filename="budgetbills.pdf",
+                        stage="introduced")
+    eng = make_doc_id(publisher="jlbc", doc_type="budget-bill-summary",
+                      fiscal_year=2027, filename="budgetbills.pdf",
+                      stage="engrossed")
+    assert intro != eng
+
+
+def test_stage_is_ignored_for_types_that_do_not_declare_stage_field():
+    """A stray `stage` on a non-staged type must not perturb its id -- the
+    route already rejects this case (Finding 3), but `make_doc_id` itself
+    must not depend on the route having done so, and must not change any
+    EXISTING document's id (afr is `one_per_year: true`, no `stage_field`)."""
+    assert make_doc_id(
+        publisher="agao", doc_type="afr", fiscal_year=2024,
+        filename="AFR24 COMBINED with Transmittal Letter.pdf",
+        stage="introduced",
+    ) == "agao-afr-fy2024"
+
+
 def test_one_per_year_types_keep_their_EXACT_existing_ids():
     """The corpus and eval/queries.yaml depend on these strings.
 

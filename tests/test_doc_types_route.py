@@ -40,6 +40,23 @@ def test_only_the_bill_summary_asks_for_a_stage(tmp_path, monkeypatch):
     assert staged == {"budget-bill-summary"}
 
 
+def test_publisher_is_projected_so_the_webapp_never_hand_maintains_its_own_map(tmp_path, monkeypatch):
+    """Review Finding 1: `publisher` used to be absent from this wire shape,
+    so the webapp hand-typed its own doc_type -> publisher map that could
+    (and did) drift from the registry. It must now be readable straight off
+    this endpoint."""
+    types = _client(tmp_path, monkeypatch).get("/api/document-types").json()["types"]
+    by_key = {t["key"]: t["publisher"] for t in types}
+    assert by_key == {
+        "baseline-book": "jlbc",
+        "approps-report": "jlbc",
+        "afr": "agao",
+        "governors-budget": "governor",
+        "agency-submission": "agency",
+        "budget-bill-summary": "jlbc",
+    }
+
+
 def test_upload_accepts_a_new_type(tmp_path, monkeypatch):
     c = _client(tmp_path, monkeypatch)
     r = c.post(
@@ -84,6 +101,57 @@ def test_an_unknown_stage_is_rejected(tmp_path, monkeypatch):
     # "Final" is the wording JLBC uses on some titles, but the ladder has two
     # rungs. Accepting a third silently would break the supersession rule.
     assert r.status_code == 422
+
+
+def test_a_stage_on_an_unstaged_type_is_rejected(tmp_path, monkeypatch):
+    """Review Finding 3: `afr` declares no `stage_field`, but the route
+    accepted a `stage` anyway and `build_title` appended it unconditionally
+    -- "FY 2025 Annual Financial Report (Introduced)". That is not cosmetic:
+    the system prompt teaches the model "(Introduced)" means provisional and
+    supersedable, so a stray stage on a final AFR instructs the model to
+    down-rank a real, enacted document. The route already rejects an unknown
+    stage and a missing stage on a staged type; accepting a stage on an
+    UNSTAGED type was the arbitrary gap between those two guards."""
+    c = _client(tmp_path, monkeypatch)
+    r = c.post(
+        "/api/upload",
+        files={"file": ("afr.pdf", b"%PDF-1.4 stub", "application/pdf")},
+        data={
+            "corpus": "budget", "publisher": "agao",
+            "doc_type": "afr", "fiscal_year": "2025",
+            "title": "", "is_public_record": "true", "stage": "introduced",
+        },
+    )
+    assert r.status_code == 422
+    assert "stage" in r.json()["detail"].lower()
+
+
+def test_same_filename_different_stage_mints_two_distinct_documents(tmp_path, monkeypatch):
+    """Review Finding 4, reproduced end-to-end through the real route: JLBC
+    reuses the same filename for the Introduced and Engrossed uploads of one
+    session. The two uploads here carry different bytes (real Introduced vs.
+    Engrossed files always do) so the sha256 dedup does not mask the id
+    collision this test exists to catch."""
+    c = _client(tmp_path, monkeypatch)
+    base = {
+        "corpus": "budget", "publisher": "jlbc",
+        "doc_type": "budget-bill-summary", "fiscal_year": "2027",
+        "title": "", "is_public_record": "true",
+    }
+    intro = c.post(
+        "/api/upload",
+        files={"file": ("budgetbills.pdf", b"%PDF-1.4 introduced version", "application/pdf")},
+        data={**base, "stage": "introduced"},
+    )
+    eng = c.post(
+        "/api/upload",
+        files={"file": ("budgetbills.pdf", b"%PDF-1.4 engrossed version", "application/pdf")},
+        data={**base, "stage": "engrossed"},
+    )
+    assert intro.status_code == 202, intro.text
+    assert eng.status_code == 202, eng.text
+    assert intro.json()["doc_id"] != eng.json()["doc_id"]
+    assert len(c.get("/api/jobs").json()["jobs"]) == 2
 
 
 def test_a_missing_stage_on_a_staged_type_is_rejected(tmp_path, monkeypatch):

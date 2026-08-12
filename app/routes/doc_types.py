@@ -27,6 +27,12 @@ def document_types():
                 # jsonable_encoder would silently turn it into one anyway —
                 # doing it here keeps the shape explicit rather than incidental.
                 "formats": list(row.formats),
+                # Finding 1: projected so the page has a read-only source of
+                # truth for publisher that cannot drift from the registry the
+                # way a hand-typed webapp-side map did. The upload POST no
+                # longer trusts this value even if the client echoes it back
+                # -- see app/routes/upload.py::_resolve_publisher.
+                "publisher": row.publisher,
                 "where_published": row.where_published,
                 "which_file": row.which_file,
                 "redirect": row.redirect,
