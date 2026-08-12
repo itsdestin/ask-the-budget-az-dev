@@ -1566,14 +1566,17 @@ nav.primary{position:relative;padding-right:44px;}
 .page-upload .up-title{font-size:19px;color:var(--navy);font-weight:800;margin:0 0 14px;}
 .page-upload .card{margin:0 0 16px;padding:20px 24px;}
 .page-upload h2{font-size:19px;color:var(--navy);font-weight:800;}
-/* Task 6 finding: each of the six upload rows introduced a new <h3> with no
-   rule of its own, which would render at the browser default (bold, larger
-   than surrounding text, wrong color) inside a .card. This page has no
-   existing h3, so rather than invent a size, this follows the two h3-inside-
-   a-card precedents already in this file (.adm-panel h3, .adm-card-title h3)
-   — navy/800 like every other heading here, sized down from the page's own
-   19px h2 the same way those two size down from THEIR page's headings. */
-.page-upload .up-row h3{font-size:14px;color:var(--navy);font-weight:800;margin:0 0 4px;}
+/* Task 6 finding, selector renamed for the single-card rework (`.up-row` ->
+   `.up-form`, the one form that now appears below the type picker — grep-
+   confirmed `.up-row` is gone from Upload.tsx): each upload row/form
+   introduced a new <h3> with no rule of its own, which would render at the
+   browser default (bold, larger than surrounding text, wrong color) inside
+   a .card. This page has no other h3, so rather than invent a size, this
+   follows the two h3-inside-a-card precedents already in this file
+   (.adm-panel h3, .adm-card-title h3) — navy/800 like every other heading
+   here, sized down from the page's own 19px h2 the same way those two size
+   down from THEIR page's headings. */
+.page-upload .up-form h3{font-size:14px;color:var(--navy);font-weight:800;margin:0 0 4px;}
 .page-upload p{margin:4px 0 0;font-size:14px;color:var(--ink-2);}
 
 /* The Invariant 8 notice. Always visible, never collapsible: the rule it states is
@@ -1582,6 +1585,29 @@ nav.primary{position:relative;padding-right:44px;}
    decoration and reuses the header's navy. */
 .page-upload .up-notice{border-left:4px solid var(--navy-900);}
 .page-upload .up-notice p+p{margin-top:8px;}
+
+/* Single-card rework: "What are you uploading?" is now a radio-group list
+   feeding one form below it, replacing six independent cards. Shape borrowed
+   from the admin page's own fieldset/legend/radio pattern
+   (`fieldset.adm-field{border:0;padding:0}`, `.adm-radio`) rather than
+   inventing new fieldset chrome; `.up-type-guidance` reuses `.up-note`'s
+   12.5px/700/--ink-3 line. */
+.page-upload fieldset.up-types{border:0;padding:0;margin:0;}
+.page-upload .up-types legend{font-size:13.5px;font-weight:800;color:var(--ink);margin-bottom:8px;padding:0;}
+.page-upload .up-type-row{display:flex;gap:10px;align-items:flex-start;padding:10px 12px;border:1px solid var(--line);border-radius:var(--r-md);margin-bottom:6px;}
+.page-upload .up-type-row input[type=radio]{margin-top:3px;flex:none;}
+.page-upload .up-type-copy{display:grid;gap:2px;}
+.page-upload .up-type-row label{font-size:14px;font-weight:800;color:var(--ink);cursor:pointer;}
+.page-upload .up-type-guidance{font-size:12.5px;font-weight:700;color:var(--ink-3);margin:0;}
+/* The selected row is the one the form below belongs to — a border/background
+   change is the only cue, since the radio dot alone is easy to miss at a
+   glance across a list of six. */
+.page-upload .up-type-row.is-selected{border-color:var(--navy-100);background:#fafbff;}
+
+/* The form (or the redirect panel) for whichever type is picked above —
+   a rule, not another nested .card, separates it from the type list it
+   belongs to. */
+.page-upload .up-form,.page-upload .up-redirect{margin-top:18px;padding-top:18px;border-top:1px solid var(--line);}
 
 /* .up-drop / .up-choose / .up-hint removed (review finding 2, task-6 review,
    second pass): they styled the single shared dropzone Task 6 replaced with
