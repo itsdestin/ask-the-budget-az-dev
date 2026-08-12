@@ -382,9 +382,76 @@ blocks as sketches to run and correct, not text to transcribe.**
   so the enum and the registry are answering two different questions that
   coincidentally share a key set today.
 
+## ✅ Prose before the first heading — FIXED and the corpus REPAIRED (2026-08-12)
+
+Merge `c1b43f9`. The corpus write is done: **3,434 documents updated,
+`budget_chunks` 77,574 → 80,486 (+2,912), `fiscal_note_chunks` 13,278 → 14,161
+(+883).** Snapshot taken before the write:
+`data/insight-data/backups/lancedb-20260812T230906Z.zip`.
+
+**Recovered chunks are APPENDED, so no existing `chunk_id` moved** — that is
+what made this an INSERT of 3,795 rows rather than a rewrite of 77,574, and it
+is why eval ground truth survived untouched. Verified against the live corpus
+before the write (69,846 of 77,574 chunk_ids re-derived across 4,952 documents,
+0 mismatches on id, text, section_path or provenance) and again per document
+during it: **every document had to reproduce its existing chunk_ids
+byte-identically before any new row was inserted for it. 0 documents failed
+that gate, 0 were skipped.**
+
+**Eval after the write is IDENTICAL to the same-machine control taken before
+it** — recall@5 88.10%, @15 100%, @20 100%, refusal precision 60%
+(`eval/results/2026-08-12T2318Z-24369d9.json`). 3,795 new chunks entered the
+ranking pool and displaced nothing. Gate G1 passes.
+
+`jlbc-baseline-fy2022-hla` now carries its agency description alongside its two
+tables. Spot-checked directly rather than inferred.
+
+**378 documents could not be repaired** — no retained `extractor-output/` on
+this machine. They are the migration-era entries (the ones lacking
+`ingested_at`). Re-running the same operation wherever their extractor output
+lives would finish the job.
+
+### 🔴 `agao-afr-fy2024` was DELIBERATELY EXCLUDED — this is a decision, not an oversight
+
+The fix would have taken it from 20 chunks to 388, which reads like a repair of
+the document recorded elsewhere in this file as "effectively EMPTY". **Reading
+the recovered content shows it is not.** GAO tagged that edition's financial
+statements as loose paragraphs rather than tables, so what gets recovered is
+table rows stripped of their column headers — sometimes usable
+(`FANTASY SPORTS CONTEST FUND … APPROPRIATED ACTIVITY ‐ 150,100.00`), sometimes
+figures with nothing saying what they are (`‐ (2,600) 8,021,000 7,981,822`).
+
+That is worse than empty. Empty is honest; unlabelled figures are **citable**,
+and the citation linker matches a figure to a chunk — so a number could be
+cited into meaningless context (Invariant 1). Destin's call: it stays at 20
+chunks and waits for **Plan B's T7 fallback ladder to re-route it to MinerU**,
+which reconstructs tables visually and is the designed fix for exactly this
+shape.
+
+**A numeric-density heuristic did NOT detect this** — those chunks are full of
+agency and fund names, so they score "clean" at 1.6% junk while being flattened
+table rows throughout. Reading eight random chunks did detect it. Do not build
+a content-quality gate on character-class ratios.
+
+### ✅ Plan B's floor calibration is UNBLOCKED
+
+The distribution that produced a ~5% floor was contaminated by this bug. The
+low band was one-page agency entries whose only prose was the dropped
+description — `jlbc-baseline-fy2022-hla` measured 16.6% before and 74.2% after,
+`jlbc-approps-fy2026-ico` 13.0% → 77.8%. **Re-run the corpus-wide coverage
+measurement now and set T6's floor from the repaired distribution**; the spec's
+original 15–25% expectation may well be right against clean data.
+
+`jlbc-baseline-fy2013-s1` (1.03%, 150 characters from a 14,634-character
+source, all 8 chunks corrupted heading fragments) is a genuine second
+FY2024-AFR-shape failure and is **unaffected by this fix** — it needs the same
+extractor re-route.
+
+<details><summary>The original finding, kept as the record of what was wrong</summary>
+
 ## 🔴 Prose before the first heading is DROPPED on the PDF path (2026-08-12)
 
-Found while calibrating Plan B's coverage floor (spec T6). **Not yet fixed.**
+Found while calibrating Plan B's coverage floor (spec T6).
 
 `build_narrative_chunks` walks the document's **outline tree** and collects the
 `Paragraph` blocks hanging off each node. A paragraph that appears **before the
@@ -464,6 +531,8 @@ Recorded because they are the kind of thing that gets copied forward:
    `source_blob_path` is sharded (`pdfs/4d/4d2a….pdf`) and the resolver rebuilt
    it from the basename. It looked like a clean result. Always print the
    population a measurement actually covered.
+
+</details>
 
 ## What's next
 
