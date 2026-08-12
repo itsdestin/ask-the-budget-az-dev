@@ -331,3 +331,21 @@ def test_optimize_is_callable_after_bulk_load(store):
     store.optimize("budget_chunks")
     assert store.count("budget_chunks") == before
     assert store.get_by_ids("budget_chunks", ["b4"])[0]["text"] == "batch row 4"
+
+
+def test_filter_expr_doc_id(store):
+    """Spec N4: the by=doc_id spread axis. A scalar string column, so it
+    renders as ANY-of exactly like doc_type — array_has_any would raise."""
+    where = store.filter_expr(doc_id=["doc-1"])
+    assert where == "doc_id IN ('doc-1')"
+    hits = store.vector_search("budget_chunks", [1, 0, 0, 0, 0, 0, 0, 0],
+                               top_k=5, where=where)
+    assert hits and {h["doc_id"] for h in hits} == {"doc-1"}
+
+
+def test_filter_expr_doc_id_quotes_apostrophes(store):
+    """doc_ids are minted from source URLs and titles, so an apostrophe is
+    reachable; an unescaped one would be a broken SQL expression, not an
+    empty result."""
+    assert store.filter_expr(doc_id=["o'brien-doc"]) == \
+        "doc_id IN ('o''brien-doc')"

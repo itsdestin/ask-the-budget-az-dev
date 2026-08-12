@@ -119,3 +119,11 @@ def test_from_row_table_chunk_carries_table_html():
     )
     assert chunk.is_table is True
     assert chunk.table_html == "<table><tr><td>X</td></tr></table>"
+
+
+def test_filters_is_empty_sees_doc_id():
+    """Spec N4: doc_id is the axis a `by=doc_id` spread filters on. Missing
+    it from is_empty() would make a doc_id-only filter build no WHERE clause
+    at all — the search would silently span the whole corpus."""
+    assert not RetrievalFilters(doc_id=["d1"]).is_empty()
+    assert RetrievalFilters().is_empty()
