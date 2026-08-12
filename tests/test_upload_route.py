@@ -7,6 +7,8 @@ import pytest
 from fastapi.testclient import TestClient
 
 from app.main import create_app
+from app.routes.upload import _resolve_publisher
+from ingest.doc_types import DocType
 from ingest.jobs import load_all
 from store.config import documents_path
 
@@ -198,3 +200,68 @@ def test_a_finished_job_does_not_block_a_reupload(client):
 def _sha(blob: bytes) -> str:
     import hashlib
     return hashlib.sha256(blob).hexdigest()
+
+
+# --- Review Finding 1: the registry, not the client, decides `publisher` ----
+#
+# `GET /api/document-types` doesn't project `publisher`, so the webapp used to
+# hand-maintain its own doc_type -> publisher map and post whatever it
+# decided. An admin adding a new registry row with `upload_row: true` got a
+# working row whose every upload posted the WRONG publisher (the webapp's
+# fallback) -- silently minting the wrong doc_id class and stamping the wrong
+# publisher facet, with nothing erroring. Spec T4's acceptance test ("adding a
+# row must be a YAML edit, not a code change") failed as a result.
+
+
+def test_publisher_form_field_is_optional_when_the_registry_declares_one(client):
+    """The webapp agent working webapp/ in parallel is deleting its
+    doc_type -> publisher map and will stop sending the field entirely. If
+    `publisher` stays a required Form field, every upload 422s the moment
+    both changes merge -- this is the other half of that contract."""
+    r = client.post(
+        "/api/upload",
+        data={k: v for k, v in _form(doc_type="afr").items() if k != "publisher"},
+        files={"file": ("afr.pdf", b"%PDF-1.4 hello", "application/pdf")},
+    )
+    assert r.status_code == 202, r.text
+    assert r.json()["doc_id"].startswith("agao-")
+
+
+def test_a_client_supplied_publisher_is_overridden_by_the_registry(client):
+    """`afr` declares `publisher: agao`. A wrong client value must not reach
+    `make_doc_id` -- it would mint the wrong doc_id class (the non-JLBC
+    branch is keyed on the literal publisher string) and stamp the wrong
+    publisher facet on every chunk of the document."""
+    r = client.post(
+        "/api/upload",
+        data=_form(doc_type="afr", publisher="totally-wrong"),
+        files={"file": ("afr.pdf", b"%PDF-1.4 hello", "application/pdf")},
+    )
+    assert r.status_code == 202, r.text
+    assert r.json()["doc_id"] == "agao-afr-fy2027"
+    assert load_all()[0].publisher == "agao"
+
+
+def test_resolve_publisher_prefers_the_registry_over_the_client():
+    row = DocType(key="afr", label="AFR", group="Auditor General", order=30,
+                  formats=(".pdf",), extractors={}, publisher="agao",
+                  one_per_year=True, where_published="", which_file="")
+    assert _resolve_publisher(row, "some-other-value") == "agao"
+    assert _resolve_publisher(row, "") == "agao"
+
+
+def test_resolve_publisher_falls_back_and_validates_when_the_row_declares_none():
+    """Only reachable for a hypothetical future row -- every row in the
+    committed registry declares a publisher today -- but the fallback must
+    validate rather than accept anything, per the finding."""
+    row = DocType(key="x", label="X", group="X", order=1, formats=(".pdf",),
+                  extractors={}, publisher=None, one_per_year=False,
+                  where_published="", which_file="")
+    assert _resolve_publisher(row, "agency") == "agency"
+    with pytest.raises(Exception):
+        _resolve_publisher(row, "not-a-real-publisher")
+
+
+def test_resolve_publisher_with_no_row_still_validates():
+    with pytest.raises(Exception):
+        _resolve_publisher(None, "not-a-real-publisher")

@@ -120,3 +120,15 @@ def is_one_per_year(key: str, path: Path | None = None) -> bool:
     """
     row = get(key, path)
     return bool(row and row.one_per_year)
+
+
+def has_stage_field(key: str, path: Path | None = None) -> bool:
+    """Unknown types default to False, mirroring `is_one_per_year` above.
+
+    Used by `ingest.driver.make_doc_id` to decide whether `stage` is part of
+    a document's identity -- see that function's docstring for why (review
+    finding 2026-08-11: two uploads of the same filename at different stages
+    minted the same doc_id and the second silently overwrote the first).
+    """
+    row = get(key, path)
+    return bool(row and row.stage_field)
