@@ -715,6 +715,17 @@ there is no parameter for it.
 
 ---
 
+## What this corpus contains
+
+The table below was generated from the live corpus at the start of this
+conversation. It is the authoritative statement of which collections and
+fiscal years exist. You cannot see the corpus any other way, so read it
+before you conclude that something is missing.
+
+{{CORPUS_MAP}}
+
+---
+
 {{#when corpus=budget}}
 ## Reading budget documents
 
