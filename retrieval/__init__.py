@@ -24,8 +24,10 @@ from retrieval.pipeline import (
     NO_RESULTS_TOP_SCORE,
     RetrievalRequest,
     RetrievalResult,
+    SpreadSpec,
     reset_default_collaborators,
     retrieve,
+    retrieve_spread,
 )
 from retrieval.rrf import DEFAULT_K, RankedList, rrf_fuse
 from retrieval.search_lance import bm25_query_lance, dense_query_lance
@@ -39,6 +41,9 @@ __all__ = [
     "RetrievedChunk",
     # Top-level pipeline
     "retrieve",
+    # Spec N4/N5 — structured multi-group search, opt-in alongside retrieve()
+    "retrieve_spread",
+    "SpreadSpec",
     "reset_default_collaborators",
     # Stage helpers (callable directly when you want one stage only)
     "bm25_query_lance",
