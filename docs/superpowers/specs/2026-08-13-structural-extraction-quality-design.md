@@ -226,12 +226,24 @@ page-10 chunks carry `section_path=[]` and make no such claim.
    rate" was measured on pages; at chunk level it zeroes it. But "the document
    ends up better, not correct" is now *more* true, not less, and for a
    different reason.
-3. **There is a chunker defect on master today**, independent of this spec, and
-   it affects every MinerU-extracted document in the corpus: section headings
-   propagate across pages that have none, including intentionally blank ones
-   and across statement boundaries. **That needs its own investigation, and
-   this spec should not ship without a decision on it** — X4 deliberately routes
-   more documents onto the MinerU path, which is the path that carries it.
+3. **There is a chunker defect on master today**, independent of this spec:
+   section headings propagate onto pages that carry none, including an
+   intentionally blank one and across a statement boundary.
+
+   **Scope, stated precisely, because the mechanism and the harm are not the
+   same size.** The *mechanism* is live for **12 of the 14 PDF document types**
+   — every one that defaults to MinerU, which is JLBC books, fiscal notes and
+   almost everything else; only `afr` and `governors-budget` default to
+   OpenDataLoader. The *harm* has been observed on **exactly one document**.
+   Documents with a heading on most pages would inherit over a short distance
+   and probably correctly; this AFR's financial statements run for pages with
+   no heading block at all, which is what let a page-5 heading reach page 10.
+   **How far this generalises is UNVERIFIED and must not be assumed in either
+   direction.**
+
+   **That needs its own investigation, and this spec should not ship without a
+   decision on it** — X4 deliberately routes more documents onto the MinerU
+   path, which is the path that carries the mechanism.
 
 ---
 
