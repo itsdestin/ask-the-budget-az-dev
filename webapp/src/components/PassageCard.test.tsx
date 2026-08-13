@@ -17,7 +17,7 @@ const LONG = "Florence Replacement Beds. The Baseline includes an increase of $2
 function passage(over: Partial<SearchResult> = {}): SearchResult {
   return {
     chunk_id: "c1", doc_id: "d1", doc_title: "FY 2023 Appropriations Report — ADC",
-    snippet: LONG.slice(0, 280), text: LONG, page: 12, score: 1,
+    snippet: LONG.slice(0, 280), text: LONG, section_path: [], page: 12, score: 1,
     doc_type: "approps-per-agency", fiscal_year: 2023, publisher: "jlbc",
     agencies: [], doc_url: null, doc_meta: null, section_of: null, ...over,
   };

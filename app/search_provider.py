@@ -8,6 +8,7 @@ _default_provider picks at startup by probing whether a corpus exists.
 from __future__ import annotations
 
 import json
+from dataclasses import dataclass, field
 from functools import partial
 from pathlib import Path
 from typing import Any, Protocol
@@ -18,7 +19,7 @@ from typing import Any, Protocol
 from retrieval import FUSED_TOP_K, RetrievalRequest, retrieve
 
 from app.book_sections import section_of
-from app.fixtures.search_fixtures import FIXTURE_ROWS
+from app.fixtures.search_fixtures import FISCAL_NOTE_FIXTURE_ROWS, FIXTURE_ROWS
 from store.documents import (
     humanize_doc_id,
     load_documents,
@@ -27,11 +28,41 @@ from store.documents import (
 )
 
 
+@dataclass(frozen=True)
+class SearchOutcome:
+    """What one search produced: the rows, plus what the pipeline INFERRED
+    from the analyst's words before it ran (spec F15).
+
+    WHY this type exists at all, rather than `search()` returning rows:
+    `retrieve()` has always reported its guesses, and this seam has always
+    thrown them away — a list of rows has nowhere to put a fact about the
+    QUERY. The live consequence is silent and one-directional: a question
+    naming a year is hard-filtered by session (verified: "FY 2027 revenue
+    impact of a sales tax exemption" applies `inferred_fiscal_years=[2027]`,
+    widened a year either side) while the page's own control still reads "Any
+    session". The page said one thing; the search did another.
+
+    The year guess is worth more care than the doc-type guess because it has
+    no safety net: when a doc-type guess empties the result set the pipeline
+    drops it and reports `dropped_filters`, but the year guess is never
+    dropped, so a wrong or merely narrow one just returns less, confidently,
+    forever.
+
+    Empty lists mean "inferred nothing", never "did not look" — a provider
+    that does no query parsing says so explicitly (see StubSearchProvider).
+    """
+
+    rows: list[dict[str, Any]]
+    inferred_fiscal_years: list[int] = field(default_factory=list)
+    inferred_doc_types: list[str] = field(default_factory=list)
+    dropped_filters: list[str] = field(default_factory=list)
+
+
 class SearchProvider(Protocol):
     name: str
 
     def search(self, query: str, *, top_k: int, corpus: str,
-               filters: dict[str, Any]) -> list[dict[str, Any]]: ...
+               filters: dict[str, Any]) -> SearchOutcome: ...
 
 
 class StubSearchProvider:
@@ -41,13 +72,24 @@ class StubSearchProvider:
     name = "stub"
 
     def search(self, query, *, top_k, corpus, filters):
-        # Deliberately ignores `query` and `corpus`: there is no ranking or
-        # text matching here, so every search returns the same fixture rows.
+        # Deliberately ignores `query`: there is no ranking or text matching
+        # here, so every search returns the same fixture rows in the same order.
+        #
+        # It does NOT ignore `corpus` (fixed 2026-08-13). It used to, and the
+        # consequence was visible on a FRESH INSTALL — the probe in
+        # `_default_provider` falls back to this stub when `budget_chunks` is
+        # empty, so a brand-new user searching note text on the Fiscal Notes
+        # page was answered with five BUDGET documents dressed as note matches.
+        # Nothing caught it while fiscal-note search was a small box in the
+        # rail; the browse rebuild made it the page's headline feature.
+        rows_for_corpus = (
+            FISCAL_NOTE_FIXTURE_ROWS if corpus == "fiscal_notes" else FIXTURE_ROWS
+        )
         # Filters (and top_k) are the only inputs that change the output —
         # they are what the Plan 2 filter UI needs to exercise. Real relevance
         # arrives with LanceSearchProvider in Task 12.
         out = []
-        for row in FIXTURE_ROWS:
+        for row in rows_for_corpus:
             if filters.get("publisher") and row["publisher"] not in filters["publisher"]:
                 continue
             if filters.get("fiscal_year") and row["fiscal_year"] not in filters["fiscal_year"]:
@@ -59,8 +101,21 @@ class StubSearchProvider:
             # Copy the row AND its `agencies` list: a plain dict(row) shares the
             # same list object, so a caller mutating result["agencies"] would
             # corrupt FIXTURE_ROWS for the whole process.
-            out.append({**row, "agencies": list(row["agencies"])})
-        return out[:top_k]
+            #
+            # `corpus` is popped: it is this file's routing marker, not a field
+            # of the /api/search row contract, and shipping it would make the
+            # stub's response shape differ from the real provider's — the exact
+            # class of drift tests/test_search_route.py's contract test exists
+            # to catch.
+            out.append({k: v for k, v in row.items() if k != "corpus"}
+                       | {"agencies": list(row["agencies"])})
+        # Empty inference lists, stated rather than omitted (spec F15). This
+        # provider does no query parsing at all — it ignores `query` entirely
+        # — so "inferred nothing" is the honest answer, and it is a DIFFERENT
+        # shape from "the key is missing". The filter UI is tested against
+        # this provider, so a stub that silently omitted the keys would make
+        # F15 untestable in the suite most likely to catch a regression.
+        return SearchOutcome(rows=out[:top_k])
 
 
 # Title precedence on this page is: mockup index → the sidecar's own title
@@ -246,6 +301,14 @@ class LanceSearchProvider:
                 # sampled chunk `text` values contain markup — table markup
                 # lives in the separate `table_html` column, not shipped here.
                 "text": c.text,
+                # The heading trail this passage sits under, innermost last
+                # ("JLBC Fiscal Note" > "Estimated Impact"). Additive
+                # 2026-08-13: the fiscal-note result card prints the innermost
+                # heading as the excerpt's legend, and until now the only
+                # section-ish field on a row was `doc_meta` — the mockup
+                # index's CATEGORY line, which on this corpus reads
+                # "Fiscal Notes · Fiscal Notes · FY 2026".
+                "section_path": list(c.section_path),
                 "page": c.page,
                 # Raw cross-encoder logit (roughly -10..10, negatives normal) —
                 # NOT 0..1. The contract types this as float and makes no scale
@@ -286,4 +349,14 @@ class LanceSearchProvider:
             # req.top_k was already the caller's top_k and this line never
             # executes at all, so there is no "no-op" case to describe here.
             rows = rows[:top_k]
-        return rows
+        # Pass the pipeline's own guesses through untouched (spec F15). These
+        # describe the QUERY, not the rows, which is why they ride alongside
+        # `rows` rather than being stamped onto each one — every row in a
+        # response shares them, and duplicating them 20 times would invite a
+        # reader to think a row could disagree with its siblings.
+        return SearchOutcome(
+            rows=rows,
+            inferred_fiscal_years=list(result.inferred_fiscal_years),
+            inferred_doc_types=list(result.inferred_doc_types),
+            dropped_filters=list(result.dropped_filters),
+        )

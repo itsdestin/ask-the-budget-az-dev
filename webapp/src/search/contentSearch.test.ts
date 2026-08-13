@@ -7,7 +7,7 @@ function hit(over: Partial<SearchResult>): SearchResult {
     chunk_id: "c1", doc_id: "d1", doc_title: "FY 2027 Baseline — AHCCCS",
     snippet: "text", page: 1, score: 1, doc_type: "baseline-per-agency",
     fiscal_year: 2027, publisher: "jlbc", agencies: [], doc_url: null,
-    doc_meta: null, text: "text", section_of: null, ...over,
+    doc_meta: null, text: "text", section_path: [], section_of: null, ...over,
   };
 }
 

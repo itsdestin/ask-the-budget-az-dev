@@ -16,7 +16,7 @@ import * as api from "../api";
 //   - The mock session names ("2026 Legislative Session") differ from the real snapshot's
 //     ("57th Legislature, 2nd Reg. Session (2026)"). That is fine; they are mocks.
 
-const BOX = /bill # or keyword/i;
+const BOX = /bill # or a question/i;
 
 const DATA = {
   sessions: [
@@ -84,6 +84,28 @@ function rows(container: HTMLElement): string[] {
   return [...container.querySelectorAll(".fbill-no")].map((el) => el.textContent ?? "");
 }
 
+/** Open the rail's Legislative Session multi-select and tick a year (spec F1).
+ *  The 28-row scrolling radio list is gone; this is Budget Documents' control. */
+function pickSession(year: number) {
+  fireEvent.click(screen.getByRole("button", { name: /any session|selected|^\d{4}$/i }));
+  // Scope to the open menu: the option and the session CARD's collapse header now share a
+  // visible name ("2025 (2025 Legislative Session)"), so a page-wide query finds both.
+  const menu = screen.getByRole("group", { name: /legislative session options/i });
+  const opt = [...menu.querySelectorAll("button")].find((b) =>
+    (b.getAttribute("aria-label") ?? "").startsWith(String(year)),
+  );
+  if (!opt) throw new Error(`no session option for ${year}`);
+  fireEvent.click(opt);
+}
+
+/** Open the rail's Sort dropdown and choose an order (spec F5 — it left the card
+ *  headers, where it forced one element to be both a collapse toggle and a menu). */
+function pickSort(label: RegExp) {
+  fireEvent.click(screen.getByRole("button", { name: /bill (number|title) \(/i }));
+  fireEvent.click(screen.getByRole("button", { name: label }));
+}
+
+
 beforeEach(() => vi.spyOn(api, "fiscalNotes").mockResolvedValue(DATA));
 
 // ---------------------------------------------------------------------------
@@ -97,7 +119,12 @@ test("renders sessions with bill cards", async () => {
   // names the session ("2 fiscal notes in 2026 Legislative Session."), so the loose regex
   // matches two elements. This asserts the card's own `.yg-yr` heading, which is the thing
   // the plan meant.
-  expect(screen.getByText("2026 Legislative Session")).toBeInTheDocument();
+  expect(screen.getByText("2026 (2026 Legislative Session)")).toBeInTheDocument();
+  // Every in-scope session gets a card now (spec F1) — the page browses the corpus by
+  // year instead of showing one session. Priors are COLLAPSED, so 2025's card is present
+  // while its rows are not.
+  expect(screen.getByText("2025 (2025 Legislative Session)")).toBeInTheDocument();
+  expect(screen.queryByText("HB2500")).not.toBeInTheDocument();
 });
 
 test("chamber switcher filters", async () => {
@@ -182,87 +209,72 @@ test("a keyword query is a single substring, not AND-ed terms", async () => {
 // Island parity — scope, selection, sort
 // ---------------------------------------------------------------------------
 
-test("selecting a session in the rail swaps which card is shown", async () => {
+test("the session control is a FILTER, and ticking one narrows the cards", async () => {
+  // Spec F1: this replaced a 28-row radio list where exactly one session could be seen.
+  // Nothing ticked = every session in scope, which is the whole point of the change.
   mount();
   await waitFor(() => screen.getByText("HB2001"));
-  // Default scope is the newest session only, exactly as the generated page ships it.
-  expect(screen.queryByText("HB2500")).not.toBeInTheDocument();
+  expect(screen.getByText("2025 (2025 Legislative Session)")).toBeInTheDocument();
 
-  fireEvent.click(screen.getByRole("button", { name: /2025 legislative session/i }));
-  expect(screen.getByText("HB2500")).toBeInTheDocument();
-  expect(screen.queryByText("HB2001")).not.toBeInTheDocument();
-
-  // And back to the newest row — the one whose selection is the page's default.
-  fireEvent.click(screen.getByRole("button", { name: /2026 legislative session/i }));
-  expect(screen.getByText("HB2001")).toBeInTheDocument();
-  expect(screen.queryByText("HB2500")).not.toBeInTheDocument();
+  pickSession(2025);
+  expect(screen.queryByText("2026 (2026 Legislative Session)")).not.toBeInTheDocument();
+  expect(screen.getByText("2025 (2025 Legislative Session)")).toBeInTheDocument();
 });
 
-test("'search all sessions' widens the scope, and is inert with an empty box", async () => {
-  mount();
-  await waitFor(() => screen.getByText("HB2001"));
-  const pill = screen.getByRole("button", { name: /search all legislative sessions/i });
-  // build.py:174 force-unchecks the toggle whenever the box is empty, so it can do nothing
-  // there; the port says so with a real disabled attribute.
-  expect(pill).toBeDisabled();
-
-  fireEvent.change(screen.getByPlaceholderText(BOX), { target: { value: "school" } });
-  // Nothing in the selected session matches…
-  expect(screen.queryByText("HB2500")).not.toBeInTheDocument();
-  expect(pill).toBeEnabled();
-
-  // …until the scope widens to every session.
-  fireEvent.click(pill);
-  expect(screen.getByText("HB2500")).toBeInTheDocument();
-  expect(screen.getAllByText(/2025 legislative session/i).length).toBeGreaterThan(0);
-});
-
-test("clearing the box drops the widened scope, as the island does", async () => {
+test("search always spans everything in scope, with no widening pill (spec F7)", async () => {
+  // The retired control's REPLACEMENT behaviour: a title query reaches every in-scope
+  // session by default, which is what made "Search all legislative sessions" redundant.
   mount();
   await waitFor(() => screen.getByText("HB2001"));
   fireEvent.change(screen.getByPlaceholderText(BOX), { target: { value: "school" } });
-  fireEvent.click(screen.getByRole("button", { name: /search all legislative sessions/i }));
-  expect(screen.getByText("HB2500")).toBeInTheDocument();
+  expect(screen.getByText("HB2500")).toBeInTheDocument();          // 2025, un-widened
+  expect(screen.queryByRole("button", { name: /search all legislative sessions/i }))
+    .not.toBeInTheDocument();
+});
 
+test("clearing the box returns to browsing", async () => {
+  mount();
+  await waitFor(() => screen.getByText("HB2001"));
+  fireEvent.change(screen.getByPlaceholderText(BOX), { target: { value: "school" } });
   fireEvent.click(screen.getByRole("button", { name: /clear search/i }));
   expect(screen.getByPlaceholderText(BOX)).toHaveValue("");
-  // Back to the selected session only, and the toggle is inert again.
-  expect(screen.queryByText("HB2500")).not.toBeInTheDocument();
   expect(screen.getByText("HB2001")).toBeInTheDocument();
-  expect(screen.getByRole("button", { name: /search all legislative sessions/i })).toBeDisabled();
 });
 
-test("picking a session also drops the widened scope", async () => {
-  mount();
+test("a ticked session narrows a title search too", async () => {
+  const { container } = mount();
   await waitFor(() => screen.getByText("HB2001"));
-  fireEvent.change(screen.getByPlaceholderText(BOX), { target: { value: "school" } });
-  fireEvent.click(screen.getByRole("button", { name: /search all legislative sessions/i }));
+  // "o" hits all three bills ("rollover", "provider", "school"), which keeps the page in
+  // TITLE mode — a query with zero title hits would arm escalation and the assertion below
+  // would be about the content spinner instead of about narrowing.
+  fireEvent.change(screen.getByPlaceholderText(BOX), { target: { value: "o" } });
   expect(screen.getByText("HB2500")).toBeInTheDocument();
 
-  // Selecting a session narrows back to it (build.py:199 unchecks #fnAll on a year change).
-  fireEvent.click(screen.getByRole("button", { name: /2026 legislative session/i }));
-  expect(screen.queryByText("HB2500")).not.toBeInTheDocument();
-  expect(screen.getByRole("status")).toHaveTextContent(
-    /matching "school" in 2026 Legislative Session/i,
-  );
+  pickSession(2025);
+  expect(screen.queryByText("HB2001")).not.toBeInTheDocument();
+  expect(screen.getByText("HB2500")).toBeInTheDocument();
+  // The page's own status line, not `getByRole("status")`: content mode's spinner is also
+  // a live region, so the role query is ambiguous the moment escalation arms.
+  expect(container.querySelector(".fnstatus")).toHaveTextContent(/the 2025 session/i);
 });
 
 // The mockup offers four orders (build.py:62-73); the default is bill number ascending,
 // which is also the order it emits into the DOM.
-test("the sort menu reorders the list", async () => {
+test("the rail's sort reorders bills inside each card", async () => {
+  // Spec F5: the 4-way menu left the card headers, where it forced the header to be both a
+  // collapse toggle and a menu. Sessions stay newest-first; this reorders bills INSIDE a
+  // card and never flattens them into one list.
   const { container } = mount();
   await waitFor(() => screen.getByText("HB2001"));
-  // Default: by number, low to high — 1101 before 2001.
   expect(rows(container)).toEqual(["SB1101", "HB2001"]);
 
-  fireEvent.click(screen.getByRole("button", { name: /bill number — high to low/i }));
+  pickSort(/bill number — high to low/i);
   expect(rows(container)).toEqual(["HB2001", "SB1101"]);
 
-  // "AHCCCS; provider rates" vs "appropriations; K-12 rollover": A→Z puts AHCCCS first.
-  fireEvent.click(screen.getByRole("button", { name: /bill title — a to z/i }));
+  pickSort(/bill title — a to z/i);
   expect(rows(container)).toEqual(["SB1101", "HB2001"]);
 
-  fireEvent.click(screen.getByRole("button", { name: /bill title — z to a/i }));
+  pickSort(/bill title — z to a/i);
   expect(rows(container)).toEqual(["HB2001", "SB1101"]);
 });
 
@@ -273,16 +285,26 @@ test("the sort menu reorders the list", async () => {
 // The rail's `.frow-n` is a session INVENTORY, so it follows the chamber lens but must ignore
 // the typed query — "matches" is what the status line reports. Pinned because "make the
 // counts consistent" is exactly the refactor that would silently break it.
-test("the rail's session counts narrow by chamber but not by the typed query", async () => {
+test("the session dropdown's counts narrow by chamber but not by the typed query", async () => {
+  // A session's INVENTORY is a different quantity from "matches", which the status line
+  // states outright. Pinned because "make the counts consistent" is exactly the refactor
+  // that would silently break it. The counts moved from the retired radio rows to the
+  // dropdown's options (spec F1); the semantics did not move.
   const { container } = mount();
   await waitFor(() => screen.getByText("HB2001"));
-  const counts = () => [...container.querySelectorAll(".frow-n")].map((el) => el.textContent);
-  // 2026 has one House + one Senate bill; 2025 has one House bill.
+  fireEvent.click(screen.getByRole("button", { name: /any session/i }));
+  const counts = () => [...container.querySelectorAll(".fopt-n")].map((el) => el.textContent);
   expect(counts()).toEqual(["2", "1"]);
 
+  // Typing does not touch them.
   fireEvent.change(screen.getByPlaceholderText(BOX), { target: { value: "ahcccs" } });
   expect(counts()).toEqual(["2", "1"]);
 
+  // The chamber lens does. Cleared first, deliberately: with "ahcccs" typed there are zero
+  // House title hits, which ARMS escalation, which correctly greys out the chamber
+  // segments (spec F9) — so clicking one there would be a no-op and the test would be
+  // asserting against a control the design has stood down on purpose.
+  fireEvent.change(screen.getByPlaceholderText(BOX), { target: { value: "" } });
   fireEvent.click(screen.getByRole("button", { name: /^house$/i }));
   expect(counts()).toEqual(["1", "1"]);
   fireEvent.click(screen.getByRole("button", { name: /^senate$/i }));
@@ -294,10 +316,10 @@ test("the rail's session counts narrow by chamber but not by the typed query", a
 test("with no query, a chamber-emptied session still shows its card", async () => {
   const { container } = mount();
   await waitFor(() => screen.getByText("HB2001"));
-  fireEvent.click(screen.getByRole("button", { name: /2025 legislative session/i }));
+  pickSession(2025);
   fireEvent.click(screen.getByRole("button", { name: /^senate$/i }));
 
-  expect(screen.getByText("2025 Legislative Session")).toBeInTheDocument();
+  expect(screen.getByText("2025 (2025 Legislative Session)")).toBeInTheDocument();
   // `.yg-meta` counts what is rendered, not the pre-filter total the artifact bakes in.
   expect(screen.getByText("0 Senate Notes")).toBeInTheDocument();
   expect(container.querySelectorAll(".fbill")).toHaveLength(0);
@@ -380,20 +402,15 @@ test("the status line is a live region and counts exactly what is on screen", as
   mount();
   await waitFor(() => screen.getByText("HB2001"));
   const line = screen.getByRole("status");
-  expect(line).toHaveTextContent("2 fiscal notes in 2026 Legislative Session.");
+  // Scope is now "all N sessions" by default, because the session control is a filter and
+  // an empty filter is the WIDEST scope, not the narrowest (spec F1).
+  expect(line).toHaveTextContent("3 fiscal notes across all 2 sessions.");
 
   fireEvent.change(screen.getByPlaceholderText(BOX), { target: { value: "ahcccs" } });
-  expect(line).toHaveTextContent(
-    '1 of 2 fiscal notes matching "ahcccs" in 2026 Legislative Session.',
-  );
+  expect(line).toHaveTextContent('1 fiscal note matching “ahcccs”');
 
   fireEvent.click(screen.getByRole("button", { name: /^senate$/i }));
-  expect(line).toHaveTextContent(
-    '1 of 1 Senate note matching "ahcccs" in 2026 Legislative Session.',
-  );
-
-  fireEvent.change(screen.getByPlaceholderText(BOX), { target: { value: "zzz" } });
-  expect(line).toHaveTextContent(/^No Senate notes matching "zzz" in 2026 Legislative Session/);
+  expect(line).toHaveTextContent('1 Senate note matching “ahcccs”');
 });
 
 test("bills link to their fiscal note PDF", async () => {
@@ -405,135 +422,21 @@ test("bills link to their fiscal note PDF", async () => {
   expect(link).toHaveAttribute("rel", expect.stringContaining("noopener"));
 });
 
-test("the semantic-search box is honestly disabled until the corpus is ingested", async () => {
+// ---------------------------------------------------------------------------
+// The rail's SECOND search box is gone (spec F6)
+// ---------------------------------------------------------------------------
+//
+// `SemanticRailSearch` — "Search note text" — is deleted, and with it the six tests that
+// pinned its disabled state, its corpus argument, its empty result and its error surface.
+// Nothing was lost: the one remaining box does title filtering AND escalates to the same
+// `api.search(..., "fiscal_notes")` call, and FiscalNotes.content.test.tsx pins all of it
+// on the surviving control. Two boxes side by side asked the reader to know, before
+// typing, which kind of question they had — which is the thing this design removed.
+
+test("the rail has exactly ONE search box", async () => {
   mount();
   await waitFor(() => screen.getByText("HB2001"));
-  const box = screen.getByPlaceholderText(/semantic search across all notes/i);
-  expect(box).toBeDisabled();
-  expect(screen.getByText(/unlocks when the fiscal-note corpus is ingested/i)).toBeInTheDocument();
-});
-
-test("a failed load shows the backend's own detail and can be retried", async () => {
-  const spy = vi
-    .spyOn(api, "fiscalNotes")
-    .mockRejectedValueOnce(new Error("fiscal-notes: snapshot missing"));
-  mount();
-  await waitFor(() => expect(screen.getByText(/snapshot missing/)).toBeInTheDocument());
-
-  spy.mockResolvedValue(DATA);
-  fireEvent.click(screen.getByRole("button", { name: /retry/i }));
-  await waitFor(() => expect(screen.getByText("HB2001")).toBeInTheDocument());
-});
-
-// --- rail semantic search (Plan 3) ------------------------------------------
-
-describe("the rail's semantic search", () => {
-  it("stays disabled while the fiscal-note corpus is empty", async () => {
-    vi.spyOn(api, "fiscalNotesStatus").mockResolvedValue({ chunks: 0 });
-    render(
-      <MemoryRouter>
-        <FiscalNotes />
-      </MemoryRouter>,
-    );
-    const box = await screen.findByLabelText(/semantic search/i);
-    await waitFor(() => expect(box).toBeDisabled());
-    expect(screen.getByText(/unlocks when the fiscal-note corpus is ingested/i))
-      .toBeTruthy();
-  });
-
-  it("searches the fiscal_notes corpus once passages exist", async () => {
-    vi.spyOn(api, "fiscalNotesStatus").mockResolvedValue({ chunks: 412 });
-    const search = vi.spyOn(api, "search").mockResolvedValue({
-      total: 1,
-      provider: "lance",
-      results: [
-        {
-          chunk_id: "c1",
-          doc_id: "legislature-fiscal-note-fy2026-sb1010-0",
-          doc_title: "Fiscal Note — SB 1010 (2026)",
-          snippet: "community college expenditure limit …",
-          // Task 1: `text` is now required on SearchResult; Fiscal Notes
-          // doesn't read it (only `snippet`, unchanged), so any value satisfies
-          // the type here.
-          text: "community college expenditure limit …",
-          page: 2,
-          score: 4.1,
-          doc_type: "fiscal-note",
-          fiscal_year: 2026,
-          publisher: "legislature",
-          agencies: [],
-          doc_url: "https://example.gov/sb1010.pdf",
-          doc_meta: null,
-          section_of: null,
-        },
-      ],
-    });
-
-    render(
-      <MemoryRouter>
-        <FiscalNotes />
-      </MemoryRouter>,
-    );
-    const box = await screen.findByLabelText(/semantic search/i);
-    await waitFor(() => expect(box).toBeEnabled());
-
-    fireEvent.change(box, { target: { value: "community college limits" } });
-    fireEvent.submit(box.closest("form")!);
-
-    await waitFor(() =>
-      expect(search).toHaveBeenCalledWith(
-        "community college limits", {}, "fiscal_notes",
-      ),
-    );
-    const hit = await screen.findByTestId("fn-semantic-hit");
-    expect(hit.textContent).toMatch(/SB 1010/);
-    expect(hit.textContent).toMatch(/community college expenditure limit/);
-    expect(hit.querySelector("[data-chunk-id]")?.getAttribute("data-chunk-id")
-      ?? hit.querySelector("a")?.getAttribute("data-chunk-id")).toBe("c1");
-  });
-
-  it("says so when nothing matches", async () => {
-    vi.spyOn(api, "fiscalNotesStatus").mockResolvedValue({ chunks: 412 });
-    vi.spyOn(api, "search").mockResolvedValue({
-      total: 0, provider: "lance", results: [],
-    });
-    render(
-      <MemoryRouter>
-        <FiscalNotes />
-      </MemoryRouter>,
-    );
-    const box = await screen.findByLabelText(/semantic search/i);
-    await waitFor(() => expect(box).toBeEnabled());
-    fireEvent.change(box, { target: { value: "nothing like this" } });
-    fireEvent.submit(box.closest("form")!);
-    expect(await screen.findByText(/no matching passages/i)).toBeTruthy();
-  });
-
-  it("surfaces the backend's reason when the search fails", async () => {
-    vi.spyOn(api, "fiscalNotesStatus").mockResolvedValue({ chunks: 412 });
-    vi.spyOn(api, "search").mockRejectedValue(
-      new Error("search: Search backend failed: OSError: share offline"),
-    );
-    render(
-      <MemoryRouter>
-        <FiscalNotes />
-      </MemoryRouter>,
-    );
-    const box = await screen.findByLabelText(/semantic search/i);
-    await waitFor(() => expect(box).toBeEnabled());
-    fireEvent.change(box, { target: { value: "anything" } });
-    fireEvent.submit(box.closest("form")!);
-    expect(await screen.findByText(/share offline/i)).toBeTruthy();
-  });
-
-  it("treats an unreachable status probe as not-ready", async () => {
-    vi.spyOn(api, "fiscalNotesStatus").mockRejectedValue(new Error("offline"));
-    render(
-      <MemoryRouter>
-        <FiscalNotes />
-      </MemoryRouter>,
-    );
-    const box = await screen.findByLabelText(/semantic search/i);
-    await waitFor(() => expect(box).toBeDisabled());
-  });
+  expect(screen.queryByPlaceholderText(/semantic search across all notes/i)).not.toBeInTheDocument();
+  expect(screen.queryByTestId("fn-semantic")).not.toBeInTheDocument();
+  expect(screen.getAllByPlaceholderText(BOX)).toHaveLength(1);
 });

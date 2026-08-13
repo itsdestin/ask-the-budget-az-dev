@@ -20,7 +20,7 @@ const HITS: api.SearchResult[] = [
     snippet: "Child care subsidy assistance rose.",
     // Task 1: `text` is now required on SearchResult; this file tests the
     // source panel, not full-text highlighting, so it matches `snippet`.
-    text: "Child care subsidy assistance rose.", page: 142, score: 0.9,
+    text: "Child care subsidy assistance rose.", section_path: [], page: 142, score: 0.9,
     doc_type: "baseline-per-agency", fiscal_year: 2027, publisher: "jlbc",
     agencies: [], doc_url: "https://x/axs.pdf", doc_meta: null, section_of: null },
 ];
