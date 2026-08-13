@@ -52,9 +52,15 @@ def source_text_chars(path: Path) -> int:
         import docx  # python-docx
 
         document = docx.Document(str(path))
-        # Table cells are not in `paragraphs` and a budget bill is mostly
-        # tables, so counting paragraphs alone would make every DOCX look
-        # like a failed extraction.
+        # Table cells are not in `paragraphs`, so both are summed. NOTE the
+        # obvious justification for this is FALSE and was measured: the one
+        # real budget bill in the repo (samples/raw-docx/
+        # budget-bill-sb1735-2025.docx) is 279,819 paragraph characters
+        # against 176 table characters -- a single cover-page block, not an
+        # appropriations table. Bills are legal prose in numbered paragraphs.
+        # The reason to sum both anyway is that the denominator must not
+        # silently omit a category of text: a table-shaped DOCX counted by
+        # paragraphs alone scores 0 and reads as a total extraction failure.
         body = sum(len(p.text) for p in document.paragraphs)
         cells = sum(
             len(cell.text)
