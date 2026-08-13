@@ -667,7 +667,6 @@ def _extract(
             method=getattr(chosen, "mineru_method", "auto"),
         )
         return
-    extractor = chosen
 
     # DOCX and OpenDataLoader run as one blocking call — both are minutes,
     # not hours, so there's nothing to stream progress against.
@@ -677,7 +676,7 @@ def _extract(
         doc_type=job.doc_type,
         source_format=source_format,
         output_dir=out,
-        extractor=extractor,
+        extractor=chosen,
     )
     _progress(job, "extracting", pct=100, detail="")
 
