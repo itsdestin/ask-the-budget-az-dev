@@ -299,3 +299,62 @@ def test_unrecognized_markup_survives_verbatim():
     texts = [p.text for p in _body_paragraphs(doc)]
     assert "> quoted line" in texts
     assert "1. numbered" in texts
+
+
+def test_memo_package_imports_are_allowlisted():
+    """The transitive half of Invariant 7 (spec M1). `harness/documents.py`
+    is allowed to import `memo`; that concession is only safe while `memo`
+    itself cannot reach the shared drive. Adding an entry here has to be a
+    conscious edit, exactly like the allowlist it backs."""
+    import ast
+
+    allowed = {"__future__", "dataclasses", "datetime", "re", "typing", "docx", "memo"}
+    package = Path(memo.__file__).parent
+    roots: set[str] = set()
+    for source in package.glob("*.py"):
+        tree = ast.parse(source.read_text(encoding="utf-8"))
+        for node in ast.walk(tree):
+            if isinstance(node, ast.Import):
+                roots.update(a.name.split(".")[0] for a in node.names)
+            elif isinstance(node, ast.ImportFrom) and node.module and node.level == 0:
+                roots.add(node.module.split(".")[0])
+    assert roots <= allowed, f"unexpected imports: {sorted(roots - allowed)}"
+
+
+def test_materialize_renders_a_memo_and_keeps_the_title_in_properties(
+    tmp_path, monkeypatch
+):
+    from harness import documents
+
+    monkeypatch.setenv(documents.DOCUMENTS_DIR_ENV, str(tmp_path))
+    documents.reset_registry()
+    _token, path = documents.materialize(
+        "FY 2027 Summary",
+        "## Policy Issues\n\nText.",
+        "docx",
+        user="djarrett",
+        sender="Destin Jarrett",
+        recipient="Director Smith",
+    )
+    doc = Document(str(path))
+    assert doc.core_properties.title == "FY 2027 Summary"
+    assert doc.paragraphs[0].text == "Joint Legislative Budget Committee"
+    assert doc.tables[0].rows[6].cells[1].text == "FY 2027 Summary"
+    assert doc.tables[0].rows[2].cells[1].text == "Director Smith"
+    assert (
+        doc.tables[0].rows[4].cells[1].text
+        == "Destin Jarrett, via JLBC Agentic Search"
+    )
+
+
+def test_the_markdown_format_path_is_untouched(tmp_path, monkeypatch):
+    """`format="md"` stays byte-faithful to what the model wrote (spec
+    M12). It is the escape hatch for an analyst who wants the text without
+    the formatting, and round-tripping it could lose a construct."""
+    from harness import documents
+
+    monkeypatch.setenv(documents.DOCUMENTS_DIR_ENV, str(tmp_path))
+    documents.reset_registry()
+    body = "> quoted\n\n1. numbered\n"
+    _token, path = documents.materialize("T", body, "md")
+    assert path.read_text(encoding="utf-8") == body
