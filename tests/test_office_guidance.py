@@ -23,6 +23,26 @@ def test_missing_file_renders_nothing():
     assert og.office_guidance_block() == ""
 
 
+def test_a_normal_missing_file_stays_silent(capsys):
+    # The fixture's tmp_path (the ROOT) exists; only office-guidance.md is
+    # missing — most offices never write one, and that must not log.
+    assert og.office_guidance_block() == ""
+    assert capsys.readouterr().err == ""
+
+
+def test_a_vanished_share_still_renders_empty_but_logs_why(monkeypatch, tmp_path, capsys):
+    # IMPORTANT 2 (review): a gone share used to remove the office's
+    # guidance from every prompt with no trace in this module at all — the
+    # ROOT ("gone-share") itself was never created, unlike the fixture
+    # above where only the guidance file is missing. This module must
+    # NEVER raise (its own module docstring), so the prompt still renders
+    # with no guidance either way; only the stderr trail differs.
+    monkeypatch.setattr(og, "guidance_path", lambda: tmp_path / "gone-share" / "office-guidance.md")
+    og.reset_guidance_cache()
+    assert og.office_guidance_block() == ""
+    assert "cannot read" in capsys.readouterr().err
+
+
 def test_block_carries_the_conflicts_lose_preamble():
     og.save_office_guidance("Prefer the AFR for fund balances.", "destin")
     block = og.office_guidance_block()

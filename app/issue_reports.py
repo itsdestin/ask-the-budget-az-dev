@@ -106,7 +106,29 @@ def list_reports() -> list[dict]:
         # call that actually reports the failure.
         names = os.listdir(directory)
     except FileNotFoundError:
-        # No folder yet is the normal case: nobody has filed a report.
+        # Fix (IMPORTANT 2, review): FileNotFoundError alone doesn't tell
+        # "nobody has filed a report yet" apart from "the share vanished" —
+        # store/config.py's `data_dir()` deliberately swallows a failed
+        # mkdir on an unreachable share and returns the path anyway, so
+        # os.listdir on THIS directory raises the exact same exception in
+        # both cases. Same discrimination app/health.py's `_check_share`
+        # makes: the ROOT data dir missing means unreachable; the root
+        # present with just `issue-reports/` absent means genuinely empty.
+        # `directory.parent` IS that root — reports_dir() is always
+        # `data_dir() / REPORTS_DIR` — so checking it here stays in step
+        # with whatever `reports_dir()` actually points at (tests
+        # monkeypatch it directly) instead of re-resolving the root through
+        # a second, independent path.
+        if not directory.parent.is_dir():
+            print(
+                f"app.issue_reports: cannot read {directory} — its parent "
+                "folder is missing, which means the shared data folder "
+                "itself is unreachable (not just empty of reports).",
+                file=sys.stderr,
+            )
+            raise ReportsUnavailable(f"shared data folder is unreachable: {directory.parent}")
+        # The root is there; issue-reports/ itself just hasn't been created
+        # yet — nobody has filed a report.
         return []
     except OSError as err:
         print(

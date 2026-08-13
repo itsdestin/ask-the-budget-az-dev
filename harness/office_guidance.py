@@ -75,8 +75,30 @@ def load_office_guidance() -> str:
         stat = path.stat()
         stamp = (str(path), stat.st_mtime_ns, stat.st_size)
     except FileNotFoundError:
-        # No guidance file is the normal, silent case — most offices never
-        # write one.
+        # Fix (IMPORTANT 2, review): same discrimination as
+        # app/issue_reports.py's list_reports(). store/config.py's
+        # `data_dir()` swallows a failed mkdir on an unreachable share and
+        # returns the path anyway, so `path.stat()` raises the SAME
+        # FileNotFoundError whether nobody ever wrote a guidance file (the
+        # normal case) or the share vanished out from under an office that
+        # DID write one — which would otherwise drop the guidance block
+        # from every prompt, office-wide, with nothing but store.config's
+        # own stderr line to explain why. `path.parent` is the root data
+        # dir (guidance_path() is always `data_dir() / GUIDANCE_FILE`), so
+        # checking it here stays in step with whatever `guidance_path()`
+        # actually points at (tests monkeypatch it directly).
+        #
+        # This function must NEVER raise (module docstring) — both cases
+        # still degrade to "", the only difference is whether this module
+        # logs its own reason before doing so.
+        if not path.parent.is_dir():
+            print(
+                f"harness.office_guidance: cannot read {path} — its parent "
+                "folder is missing, which means the shared data folder "
+                "itself is unreachable — the office guidance is missing "
+                "from prompts for this read.",
+                file=sys.stderr,
+            )
         return ""
     except OSError as err:
         # Anything else (the share is offline, permissions changed) removes

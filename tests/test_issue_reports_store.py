@@ -47,8 +47,26 @@ def test_corrupt_file_is_a_visible_row_not_a_blank_list():
 
 def test_missing_directory_is_genuinely_empty():
     # Nobody has filed anything yet: an empty list is the TRUE answer here,
-    # and it must not be confused with the unreachable case below.
+    # and it must not be confused with the unreachable case below. The
+    # `_reports_dir` fixture points reports_dir() at `tmp_path /
+    # "issue-reports"` — tmp_path (the ROOT) exists, only the
+    # issue-reports/ subfolder is missing, which is exactly the "genuinely
+    # empty" half of the IMPORTANT 2 discrimination.
     assert ir.list_reports() == []
+
+
+def test_a_vanished_share_is_reported_unreachable_not_empty(monkeypatch, tmp_path, capsys):
+    # IMPORTANT 2 (review): store/config.py's `data_dir()` swallows a
+    # failed mkdir on an unreachable share and returns the path anyway, so
+    # os.listdir(<gone share>/issue-reports) raises the SAME
+    # FileNotFoundError as "nobody has filed a report yet" — both screens
+    # then confidently said "no reports". Simulate the vanished share: the
+    # ROOT ("gone-share") itself was never created, unlike the fixture
+    # above where only issue-reports/ is missing.
+    monkeypatch.setattr(ir, "reports_dir", lambda: tmp_path / "gone-share" / "issue-reports")
+    with pytest.raises(ir.ReportsUnavailable):
+        ir.list_reports()
+    assert "cannot read" in capsys.readouterr().err
 
 
 def test_an_unreadable_directory_raises_instead_of_looking_empty(capsys):
