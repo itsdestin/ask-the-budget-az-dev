@@ -47,6 +47,7 @@ from harness.constants import (
     SPREAD_MAX_TOTAL,
     TIER_BUDGETS,
 )
+from harness.office_guidance import office_guidance_block
 
 # Module-level (not a constant inside the function) so tests can repoint
 # it. `__file__`-relative is safe for this app's shipping shape: S7
@@ -97,7 +98,24 @@ _WHEN_CLOSE = re.compile(r"^\{\{/when\}\}\s*$")
 # prose and the failure would be reported against the (correct) opening
 # line, dozens of lines above.
 _WHEN_CLOSE_LOOSE = re.compile(r"^\s*\{\{\s*/\s*when\b.*\}\}\s*$")
-_PLACEHOLDER = re.compile(r"\{\{([A-Z_]+)\}\}")
+# `{{OFFICE_GUIDANCE}}` (spec E2) is excluded here and handled by its own
+# whole-line substitution in `_insert_office_guidance`, run AFTER this
+# generic pass — not through the values dict like every other placeholder.
+# Two reasons: (1) the admin's guidance is free-form markdown a
+# non-developer typed, and if it were spliced in BEFORE this regex runs, a
+# stray literal "{{" in the admin's own prose would be re-scanned as a
+# template placeholder and raise PromptTemplateError, taking down prompt
+# building office-wide over admin content, not a template bug; (2) an
+# empty block must delete the marker's WHOLE LINE (so a guidance-less
+# office renders byte-identical to today), and a plain token substitution
+# like every other placeholder gets would only blank the token, leaving a
+# permanent stray blank line forever.
+_PLACEHOLDER = re.compile(r"\{\{(?!OFFICE_GUIDANCE\}\})([A-Z_]+)\}\}")
+# The marker's own line, including its trailing newline, so replacing it
+# can remove the line entirely (empty guidance) or splice the block in
+# with no extra bytes on either side (non-empty guidance) — see
+# `_insert_office_guidance`.
+_OFFICE_GUIDANCE_LINE = re.compile(r"^\{\{OFFICE_GUIDANCE\}\}\n", re.MULTILINE)
 
 # What `{{CORPUS_MAP}}` renders as when the caller supplies nothing (spec
 # N2). A missing sidecar must degrade to a sentence, never to a crashed
@@ -262,6 +280,22 @@ def _substitute(text: str, values: dict[str, str]) -> str:
     return _PLACEHOLDER.sub(replace, text)
 
 
+def _insert_office_guidance(text: str, block: str) -> str:
+    """Splice the admin's block (spec E2) into its slot.
+
+    Runs LAST — after `_substitute` has already validated every real
+    template placeholder — so the admin's own free-form text is never fed
+    back through `_PLACEHOLDER`. `block` replaces the marker's entire line
+    (including its trailing newline) verbatim: empty removes the line so a
+    guidance-less office renders byte-identical to a template with the
+    slot removed outright; non-empty splices in exactly `block`'s bytes,
+    no more, so `prompt.replace(office_guidance_block(), "")` recovers the
+    empty rendering exactly (pinned by
+    `tests/test_office_guidance.py::test_prompt_is_byte_identical_when_guidance_absent`).
+    """
+    return _OFFICE_GUIDANCE_LINE.sub(lambda _match: block, text, count=1)
+
+
 def build_system_prompt(
     *, corpus: str, tier: str, corpus_map: str | None = None
 ) -> str:
@@ -291,7 +325,7 @@ def build_system_prompt(
     selected = _select_blocks(
         _load_template(), {"corpus": resolved_corpus, "tier": resolved_tier}
     )
-    return _substitute(
+    substituted = _substitute(
         selected,
         {
             "CORPUS_MAP": corpus_map or CORPUS_MAP_FALLBACK,
@@ -312,3 +346,10 @@ def build_system_prompt(
             "SPREAD_MAX_TOTAL": str(SPREAD_MAX_TOTAL),
         },
     )
+    # The admin's block (spec E2), spliced in last — see
+    # `_insert_office_guidance` for why it cannot go through the generic
+    # `_substitute` values dict above. Dynamic content in a "pure" prompt
+    # is safe here because session.py memoizes per conversation — a
+    # mid-conversation edit never changes a live cache prefix; new
+    # conversations pick it up (and the admin UI says exactly that).
+    return _insert_office_guidance(substituted, office_guidance_block())

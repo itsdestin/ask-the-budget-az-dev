@@ -1,0 +1,94 @@
+"""Office guidance file + its prompt slot (spec E2).
+
+THE PROPERTY THAT MATTERS MOST: with no guidance file, the rendered
+prompt is byte-identical to the template with the slot removed — this
+feature invisible is this feature safe.
+"""
+import pytest
+
+import harness.office_guidance as og
+from harness.prompt import build_system_prompt, reset_template_cache
+
+
+@pytest.fixture(autouse=True)
+def _guidance_dir(monkeypatch, tmp_path):
+    monkeypatch.setattr(og, "guidance_path", lambda: tmp_path / "office-guidance.md")
+    monkeypatch.setattr(og, "meta_path", lambda: tmp_path / "office-guidance.meta.json")
+    og.reset_guidance_cache()
+    yield
+    og.reset_guidance_cache()
+
+
+def test_missing_file_renders_nothing():
+    assert og.office_guidance_block() == ""
+
+
+def test_block_carries_the_conflicts_lose_preamble():
+    og.save_office_guidance("Prefer the AFR for fund balances.", "destin")
+    block = og.office_guidance_block()
+    assert "Prefer the AFR for fund balances." in block
+    assert "those rules win" in block  # the fixed preamble
+
+
+def test_cap_is_enforced_at_save():
+    with pytest.raises(ValueError):
+        og.save_office_guidance("x" * (og.MAX_GUIDANCE_BYTES + 1), "destin")
+
+
+def test_save_keeps_a_bak_of_the_previous_version():
+    og.save_office_guidance("first", "destin")
+    og.save_office_guidance("second", "destin")
+    assert og.guidance_path().with_suffix(".md.bak").read_text(encoding="utf-8") == "first"
+
+
+def test_meta_records_who_and_when():
+    og.save_office_guidance("text", "destin")
+    meta = og.load_guidance_meta()
+    assert meta["edited_by"] == "destin" and meta["edited_at"]
+
+
+def test_prompt_is_byte_identical_when_guidance_absent():
+    # Render with no file, then with an EMPTY file — both must equal each
+    # other; and rendering with real text must differ only by the block.
+    reset_template_cache()
+    empty = build_system_prompt(corpus="budget", tier="standard")
+    og.save_office_guidance("", "destin")
+    og.reset_guidance_cache()
+    assert build_system_prompt(corpus="budget", tier="standard") == empty
+    og.save_office_guidance("OFFICE-MARKER-XYZ", "destin")
+    og.reset_guidance_cache()
+    with_text = build_system_prompt(corpus="budget", tier="standard")
+    assert "OFFICE-MARKER-XYZ" in with_text
+    assert with_text.replace(og.office_guidance_block(), "") == empty
+
+
+def test_both_corpora_receive_the_block():
+    og.save_office_guidance("OFFICE-MARKER-XYZ", "destin")
+    og.reset_guidance_cache()
+    for corpus in ("budget", "fiscal_notes"):
+        assert "OFFICE-MARKER-XYZ" in build_system_prompt(corpus=corpus, tier="standard")
+
+
+def test_building_a_prompt_never_loads_lancedb():
+    """Global constraint (spec E2 plan): harness/prompt.py -> office_guidance
+    -> store.config must stay stdlib + store.config only. store/__init__.py
+    used to import store.chunk_store eagerly, which imports lancedb — that
+    would make every prompt build (including the hot per-step path) pull
+    LanceDB into the process. Guard it directly rather than trust the AST
+    import-allowlist test, which only inspects harness/prompt.py's own
+    import statements and cannot see this transitive path."""
+    import subprocess
+    import sys
+
+    result = subprocess.run(
+        [
+            sys.executable,
+            "-c",
+            "import sys; import harness.prompt; "
+            "print('lancedb' in sys.modules or any(m.startswith('lancedb.') for m in sys.modules))",
+        ],
+        capture_output=True,
+        text=True,
+        check=True,
+    )
+    assert result.stdout.strip() == "False", result.stdout + result.stderr
