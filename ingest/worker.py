@@ -340,7 +340,7 @@ def run_job(job: JobRecord, ctx: WorkerContext) -> JobRecord:
     if job.state == "embedding":
         advance(job, "writing")
 
-    _write(job, ctx, chunks, vectors)
+    _write(job, ctx, chunks, vectors, outcome)
     advance(job, "live")
     # Warnings share the stage_detail line rather than getting their own field:
     # the queue page has one place per job for "what should I know about this",
@@ -987,13 +987,48 @@ def _embed(
     return vectors
 
 
+def _extraction_record(outcome: ExtractionOutcome) -> dict[str, Any]:
+    """The documents.json shape for Plan B Task 5.
+
+    `method` is taken from the OUTCOME, not `DocMeta.extractor` — checked,
+    not assumed: chunk rows carry no extractor column at all
+    (`store/schema.py`), so this sidecar entry is the only place the method
+    is recorded and there is nothing else it could disagree with. Taking it
+    from the outcome is still the right call after a fallback, since that is
+    the rung that is true of what was actually written.
+
+    `attempts` counts `outcome.attempts` (every rung this run tried, winner
+    included) rather than reading `job.extraction_attempts` — the job's list
+    also carries crashed rungs from a PRIOR run of this same job (see
+    `_extract_and_chunk`'s `prior` handling), which would inflate the count
+    for a resumed job with a number that has nothing to do with what this
+    write actually cost.
+
+    This is a record of what was measured, never a verdict: see
+    `ingest/coverage.py`'s module docstring for why a passing document is
+    not a "verified" or "healthy" one, only one that produced enough text.
+    """
+    return {
+        "method": outcome.extractor,
+        "coverage": outcome.coverage,
+        "attempts": len(outcome.attempts),
+        "fell_back": outcome.fell_back,
+    }
+
+
 def _write(
     job: JobRecord,
     ctx: WorkerContext,
     chunks: Sequence[Chunk],
     vectors: Sequence[Sequence[float]],
+    outcome: ExtractionOutcome,
 ) -> None:
-    """The only stage that mutates shared state. Lock → snapshot → write."""
+    """The only stage that mutates shared state. Lock → snapshot → write.
+
+    `outcome` is the SAME `ExtractionOutcome` `run_job` already measured
+    coverage from — passed through rather than re-derived so `write_doc`
+    records the value that was actually true after any rung fallback.
+    """
     _progress(job, "writing", pct=0, detail="waiting for the corpus lock")
     # WHY the conditional wait: at one worker, a held lock means ANOTHER
     # MACHINE is writing, and failing fast (today's behaviour) is the honest
@@ -1055,6 +1090,7 @@ def _write(
             source_format=_source_format(job),
             uploaded_by=job.user,
             agency_ids_by_chunk=agency_ids,
+            extraction=_extraction_record(outcome),
         )
         # Advisory, inside the lock so the scan sees exactly what we wrote.
         # Findings never fail the job — a partly-stamped document is degraded,

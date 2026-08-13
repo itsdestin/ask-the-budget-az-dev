@@ -131,6 +131,29 @@ def test_run_job_reaches_live_and_is_searchable(job, ctx, data_dir):
     assert docs["jlbc-baseline-fy2027-axs"]["title"] == "FY 2027 Baseline — AHCCCS"
 
 
+def test_documents_json_records_the_extraction_method_and_coverage(job, ctx, data_dir):
+    """Plan B Task 5, wired end to end through the REAL `_write` -> `write_doc`
+    call (not the ladder suite's stubbed `_write`, which never reaches
+    documents.json at all).
+
+    `coverage` is `None` here, not a measured number -- this fixture's source
+    is a 9-byte placeholder (`b"%PDF-1.4\\n"`), which PyMuPDF cannot open as a
+    real PDF, so the denominator in `ingest/coverage.py::source_text_chars`
+    is unreadable. That is the correct, unmeasurable-but-accepted outcome
+    (see `ExtractionOutcome.passed`), not a bug in this test -- confirmed by
+    running this exact fixture shape and reading back what it actually wrote
+    before pinning the value here.
+    """
+    run_job(job, ctx)
+    docs = json.loads((data_dir / "documents.json").read_text(encoding="utf-8"))
+    assert docs["jlbc-baseline-fy2027-axs"]["extraction"] == {
+        "method": "mineru",
+        "coverage": None,
+        "attempts": 1,
+        "fell_back": False,
+    }
+
+
 def test_write_phase_snapshots_before_touching_the_corpus(job, ctx):
     run_job(job, ctx)
     assert list_snapshots()  # S17: a restore point exists
