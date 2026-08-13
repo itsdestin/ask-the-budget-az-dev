@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import * as api from "../api";
 import { CollapsibleCard } from "./Card";
 import { count, when } from "./format";
+import { SystemGuidanceModal } from "./SystemGuidance";
 
 // The office's own guidance for AI answers (spec E2).
 //
@@ -32,6 +33,10 @@ export function GuidancePanel() {
   const [error, setError] = useState<string | null>(null);
   const [ok, setOk] = useState(false);
   const [busy, setBusy] = useState(false);
+  // The read-only window onto the shipped instructions. Mounted only while
+  // open, which is also what keeps the app from fetching tens of thousands
+  // of characters nobody asked to see.
+  const [showSystem, setShowSystem] = useState(false);
 
   useEffect(() => {
     let cancelled = false;
@@ -179,6 +184,32 @@ export function GuidancePanel() {
       ) : error ? null : (
         <p className="adm-empty">Loading…</p>
       )}
+
+      {/* Outside the `saved` branch on purpose: this reads its own data, so
+          a failed guidance read must not also take away the admin's only
+          way to see what the assistant is already told. */}
+      <p className="adm-actions">
+        <button
+          type="button"
+          className="adm-btn adm-btn-quiet"
+          data-testid="admin-see-system"
+          onClick={() => setShowSystem(true)}
+        >
+          See System Guidance
+        </button>
+      </p>
+      <p className="adm-hint">
+        Worth a look before writing: the assistant already has a long set of
+        instructions, and repeating or contradicting them here makes answers
+        worse, not better.
+      </p>
+
+      {showSystem ? (
+        <SystemGuidanceModal
+          maxBytes={saved?.max_bytes ?? null}
+          onClose={() => setShowSystem(false)}
+        />
+      ) : null}
     </section>
   );
 }

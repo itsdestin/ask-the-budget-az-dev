@@ -1,0 +1,266 @@
+import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import { afterEach, describe, expect, it, vi } from "vitest";
+import * as api from "../api";
+import { GuidancePanel } from "./GuidancePanel";
+
+// "See System Guidance" — the read-only window onto everything the
+// assistant is already told (Destin, 2026-08-12).
+//
+// The problem it solves: the office guidance box above it is written
+// blind. An admin who cannot see the ~1,170 lines of instructions already
+// in place duplicates them, contradicts them, or spends the whole
+// 8,192-byte allowance restating something already said at length.
+//
+// What these specs protect, in order of how badly they fail when broken:
+//
+//  1. The window shows EVERYTHING, grouped. If a group silently stops
+//     rendering, the admin is back to writing blind but now believes they
+//     have checked.
+//  2. Their own guidance is marked where it lands. Without it the admin
+//     cannot tell "what I wrote" from "what shipped".
+//  3. The size line. It is the only thing that makes 8,192 bytes read as a
+//     small addition rather than as the whole budget.
+//  4. Read-only. There is no way to edit any of this from here, ever.
+//  5. Plain words in the app's OWN copy — the quoted instructions are the
+//     assistant's own text and are shown verbatim, on purpose.
+
+function section(
+  heading: string,
+  over: Partial<api.PromptSection> = {},
+): api.PromptSection {
+  return {
+    heading,
+    text: `The words under ${heading}.`,
+    chars: 400,
+    is_office_guidance: false,
+    subsections: [],
+    ...over,
+  };
+}
+
+function prompt(over: Partial<api.AdminPrompt> = {}): api.AdminPrompt {
+  return {
+    corpus: "budget",
+    groups: [
+      {
+        label: "What the assistant is, and how it decides",
+        sections: [section("Your role")],
+      },
+      {
+        label: "Arizona budget background",
+        sections: [
+          section("Reading budget documents", {
+            subsections: [
+              {
+                heading: "Accuracy hierarchy for actuals",
+                text: "The AFR wins for actual spending.",
+                chars: 33,
+              },
+            ],
+          }),
+        ],
+      },
+    ],
+    total_chars: 58032,
+    total_lines: 1169,
+    total_bytes: 58900,
+    office_guidance_present: false,
+    ...over,
+  };
+}
+
+function guidance(): api.AdminGuidance {
+  return {
+    text: "Prefer the AFR for actual spending.",
+    max_bytes: 8192,
+    edited_by: "Destin",
+    edited_at: "2026-08-01T17:00:00Z",
+  };
+}
+
+afterEach(() => vi.restoreAllMocks());
+
+/** Render the panel with both reads stubbed, and return the spy on the
+ *  instructions read so a spec can assert it was NOT called yet. */
+async function renderPanel(over: Partial<api.AdminPrompt> = {}) {
+  vi.spyOn(api, "adminGuidance").mockResolvedValue(guidance());
+  const spy = vi.spyOn(api, "adminPrompt").mockResolvedValue(prompt(over));
+  render(<GuidancePanel />);
+  await screen.findByTestId("admin-guidance");
+  return spy;
+}
+
+async function openWindow(over: Partial<api.AdminPrompt> = {}) {
+  const spy = await renderPanel(over);
+  // Focused before the click because jsdom does not focus a button on click
+  // the way a browser does, and the dialog's focus RESTORE is measured
+  // against wherever focus actually was when it opened.
+  const trigger = screen.getByTestId("admin-see-system");
+  trigger.focus();
+  fireEvent.click(trigger);
+  await screen.findByRole("dialog");
+  return spy;
+}
+
+describe("the See System Guidance button", () => {
+  it("is the only thing about the shipped instructions on the panel", async () => {
+    const spy = await renderPanel();
+    // Destin's call: everything is behind one button, so the panel stays a
+    // place to WRITE guidance rather than a wall of somebody else's.
+    expect(screen.getByTestId("admin-see-system")).toHaveTextContent(
+      "See System Guidance",
+    );
+    expect(screen.queryByRole("dialog")).toBeNull();
+    // And nothing is fetched until asked for — this read is the whole
+    // prompt, tens of thousands of characters nobody asked to see.
+    expect(spy).not.toHaveBeenCalled();
+  });
+
+  it("opens a window even when the office's own guidance failed to load", async () => {
+    // The two reads are independent. A share hiccup on one must not take
+    // away the admin's ability to read the other.
+    vi.spyOn(api, "adminGuidance").mockRejectedValue(new Error("load office guidance failed: 500"));
+    vi.spyOn(api, "adminPrompt").mockResolvedValue(prompt());
+    render(<GuidancePanel />);
+    fireEvent.click(await screen.findByTestId("admin-see-system"));
+    expect(await screen.findByRole("dialog")).toBeInTheDocument();
+  });
+});
+
+describe("the System guidance window", () => {
+  it("groups the instructions under plain labels", async () => {
+    await openWindow();
+    const labels = screen.getAllByTestId("sysg-group-label").map((h) => h.textContent);
+    expect(labels).toEqual([
+      "What the assistant is, and how it decides",
+      "Arizona budget background",
+    ]);
+  });
+
+  it("keeps each section shut until it is asked for, then shows its words", async () => {
+    await openWindow();
+    const card = screen.getByRole("button", { name: /Your role/ });
+    expect(screen.queryByText(/The words under Your role\./)).toBeNull();
+
+    fireEvent.click(card);
+    expect(screen.getByText(/The words under Your role\./)).toBeInTheDocument();
+  });
+
+  it("shows the parts within a section, where the detail actually lives", async () => {
+    await openWindow();
+    fireEvent.click(screen.getByRole("button", { name: /Reading budget documents/ }));
+    fireEvent.click(screen.getByRole("button", { name: /Accuracy hierarchy for actuals/ }));
+    expect(screen.getByText(/The AFR wins for actual spending\./)).toBeInTheDocument();
+  });
+
+  it("switches between the two sets of documents", async () => {
+    const spy = await openWindow();
+    expect(spy).toHaveBeenCalledWith("budget");
+
+    spy.mockResolvedValue(
+      prompt({
+        corpus: "fiscal_notes",
+        groups: [
+          {
+            label: "Arizona budget background",
+            sections: [section("Reading fiscal notes")],
+          },
+        ],
+      }),
+    );
+    fireEvent.click(screen.getByRole("button", { name: "Fiscal notes" }));
+
+    await waitFor(() => expect(spy).toHaveBeenCalledWith("fiscal_notes"));
+    expect(
+      await screen.findByRole("button", { name: /Reading fiscal notes/ }),
+    ).toBeInTheDocument();
+  });
+
+  it("marks where the office's own guidance lands", async () => {
+    await openWindow({
+      office_guidance_present: true,
+      groups: [
+        {
+          label: "Your office's own guidance",
+          sections: [
+            section("Office guidance from the administrator", {
+              is_office_guidance: true,
+            }),
+          ],
+        },
+      ],
+    });
+    expect(screen.getByTestId("sysg-mine")).toHaveTextContent(
+      /Office guidance from the administrator/,
+    );
+    expect(screen.getByTestId("sysg-mine")).toHaveTextContent(/written by your office/i);
+  });
+
+  it("says so when the office has written nothing yet", async () => {
+    await openWindow();
+    // Otherwise an admin hunts the list for their own words and concludes
+    // the save never landed.
+    expect(screen.getByTestId("sysg-size")).toHaveTextContent(
+      /Your office has not written any guidance yet/i,
+    );
+  });
+
+  it("sizes the whole thing against what the office may add", async () => {
+    await openWindow();
+    const size = screen.getByTestId("sysg-size");
+    expect(size).toHaveTextContent("1,169 lines");
+    // Bytes on both halves of the comparison — the guidance cap is a byte
+    // cap, and this text is full of em dashes at 3 bytes each.
+    expect(size).toHaveTextContent("58 KB");
+    expect(size).toHaveTextContent("up to 8.0 KB");
+  });
+
+  it("offers nothing that could change any of it", async () => {
+    await openWindow();
+    const dialog = screen.getByRole("dialog");
+    expect(within(dialog).queryByRole("textbox")).toBeNull();
+    expect(within(dialog).queryByRole("button", { name: /save/i })).toBeNull();
+    expect(dialog).toHaveTextContent(/You can read this, but not change it/i);
+  });
+
+  it("closes on Escape and puts focus back on the button that opened it", async () => {
+    await openWindow();
+    fireEvent.keyDown(document, { key: "Escape" });
+    await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
+    expect(screen.getByTestId("admin-see-system")).toHaveFocus();
+  });
+
+  it("says so in a plain sentence when the instructions cannot be read", async () => {
+    vi.spyOn(api, "adminGuidance").mockResolvedValue(guidance());
+    vi.spyOn(api, "adminPrompt").mockRejectedValue(
+      new Error("load the assistant's instructions failed: 500"),
+    );
+    render(<GuidancePanel />);
+    fireEvent.click(await screen.findByTestId("admin-see-system"));
+
+    expect(await screen.findByRole("alert")).toHaveTextContent(
+      /load the assistant's instructions/i,
+    );
+  });
+
+  it("keeps developer vocabulary out of the app's own words", async () => {
+    // The same guard as pages/Admin.test.tsx's "keeps developer vocabulary
+    // off the page", applied with the window OPEN — that one runs with
+    // every card collapsed, so it would never see any of this.
+    //
+    // The QUOTED instructions are exempt and are marked `data-quoted` in
+    // the markup: they are the assistant's own text, shown verbatim
+    // because the entire point of the window is to show exactly what it
+    // reads. One shipped heading really is "What this corpus contains",
+    // and relabelling it here would make the page lie about the thing it
+    // exists to reveal.
+    await openWindow();
+    const dialog = screen.getByRole("dialog").cloneNode(true) as HTMLElement;
+    dialog.querySelectorAll("[data-quoted]").forEach((n) => n.remove());
+    const text = dialog.textContent?.toLowerCase() ?? "";
+
+    for (const jargon of ["endpoint", "corpus", "chunk", "prompt", "catalog", "tier"]) {
+      expect(text).not.toContain(jargon);
+    }
+  });
+});

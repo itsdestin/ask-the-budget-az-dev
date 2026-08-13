@@ -942,6 +942,52 @@ export async function saveAdminGuidance(text: string): Promise<AdminGuidance> {
 }
 
 // ---------------------------------------------------------------------------
+// The assistant's shipped instructions, read-only (GET /api/admin/prompt,
+// app/routes/tuning.py). What the "See System Guidance" window reads so the
+// office guidance above is not written blind. There is no writer here on
+// purpose — the shipped instructions cannot be edited from the app.
+// ---------------------------------------------------------------------------
+
+export interface PromptSubsection {
+  heading: string;
+  text: string;
+  chars: number;
+}
+
+export interface PromptSection {
+  heading: string;
+  /** The prose directly under the heading, before the first subsection. */
+  text: string;
+  /** The whole section, subsections included. */
+  chars: number;
+  /** True for the one section the office's own guidance renders as. */
+  is_office_guidance: boolean;
+  subsections: PromptSubsection[];
+}
+
+export interface PromptGroup {
+  label: string;
+  sections: PromptSection[];
+}
+
+export interface AdminPrompt {
+  corpus: string;
+  groups: PromptGroup[];
+  total_chars: number;
+  total_lines: number;
+  /** Bytes, not characters — the office guidance cap is a byte cap, and the
+   *  two numbers are shown side by side. */
+  total_bytes: number;
+  office_guidance_present: boolean;
+}
+
+export async function adminPrompt(corpus: string): Promise<AdminPrompt> {
+  const r = await fetch(`/api/admin/prompt?corpus=${encodeURIComponent(corpus)}`);
+  if (!r.ok) await fail(r, "load the assistant's instructions");
+  return r.json();
+}
+
+// ---------------------------------------------------------------------------
 // Analyst issue reports (spec E3, app/routes/issues.py).
 // ---------------------------------------------------------------------------
 

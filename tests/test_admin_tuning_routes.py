@@ -587,3 +587,21 @@ def test_split_ignores_headings_inside_a_code_fence():
     text = "## Real\nbody\n```\n## Not a heading\n```\nmore\n## Second\ntail\n"
     assert [h for h, _ in _split_by_level(text, 2)] == ["Real", "Second"]
     assert "## Not a heading" in dict(_split_by_level(text, 2))["Real"]
+
+
+def test_a_fenced_example_never_cuts_a_section_short():
+    # The bug this guards, found in self-review: taking the section's own
+    # prose as `body[: body.index("### ")]` cuts at the first "### "
+    # ANYWHERE, including inside a fenced example. The lines after it
+    # belong to no part and no lead, so they vanish from a page whose
+    # entire job is showing the whole of what the assistant reads.
+    from app.routes.tuning import _section_payload
+
+    body = (
+        "Lead line.\n```\n### not a real part\n```\nStill lead.\n"
+        "### Real part\ntail\n"
+    )
+    got = _section_payload("X", body)
+    assert [s["heading"] for s in got["subsections"]] == ["Real part"]
+    assert "Still lead." in got["text"]
+    assert "### not a real part" in got["text"]

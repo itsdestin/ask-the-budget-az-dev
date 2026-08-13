@@ -496,18 +496,24 @@ _VIEW_TIER = "standard"
 _VIEW_CORPORA = ("budget", "fiscal_notes")
 
 
-def _split_by_level(text: str, level: int) -> list[tuple[str, str]]:
-    """Markdown split into (heading, body) at one `#` depth.
+def _scan(text: str, level: int) -> tuple[str, list[tuple[str, str]]]:
+    """Fence-aware markdown split: (text before the first heading, parts).
 
     Fence-aware for the same reason harness/prompt.py's `_select_blocks`
     is: the template documents its own syntax in fenced examples, and a
     fenced "## like this" is TEXT. Treating it as a heading would invent a
     section on this page that the assistant never reads as one.
 
-    Deeper headings stay inside the body — `###` splitting is a second
+    The leading text is returned rather than discarded because a section's
+    own prose sits above its first subsection, and finding that boundary
+    any other way (a `body.index("### ")`) would cut the section short at
+    the first fenced example that happens to contain those characters.
+
+    Deeper headings stay inside a part's body — the next level is a second
     call on that body, not a nested parse here.
     """
     marker = "#" * level + " "
+    lead: list[str] = []
     out: list[tuple[str, str]] = []
     heading: str | None = None
     body: list[str] = []
@@ -520,11 +526,15 @@ def _split_by_level(text: str, level: int) -> list[tuple[str, str]]:
                 out.append((heading, "\n".join(body).strip()))
             heading, body = line[len(marker):].strip(), []
             continue
-        if heading is not None:
-            body.append(line)
+        (body if heading is not None else lead).append(line)
     if heading is not None:
         out.append((heading, "\n".join(body).strip()))
-    return out
+    return "\n".join(lead).strip(), out
+
+
+def _split_by_level(text: str, level: int) -> list[tuple[str, str]]:
+    """`_scan`'s parts, for callers that have no use for the lead text."""
+    return _scan(text, level)[1]
 
 
 def _corpus_map_for_view(corpus: str) -> str | None:
@@ -555,8 +565,7 @@ def _section_payload(heading: str, body: str) -> dict:
     `chars` counts the WHOLE section including subsections, so a size shown
     beside a heading is the size of everything under it.
     """
-    subsections = _split_by_level(body, 3)
-    intro = body if not subsections else body[: body.index("### ")].strip()
+    intro, subsections = _scan(body, 3)
     return {
         "heading": heading,
         "text": intro,
@@ -577,19 +586,18 @@ def _grouped(sections: list[tuple[str, str]]) -> list[dict]:
     block sits where the assistant actually reads it. Empty groups are
     omitted — "Reading fiscal notes" does not exist in a budget render.
     """
-    by_heading = {heading: body for heading, body in sections}
     placed: set[str] = set()
     out: list[dict] = []
     for label, headings in _GROUPS:
-        rows = [
-            _section_payload(h, by_heading[h]) for h in headings if h in by_heading
-        ]
-        placed.update(h for h in headings if h in by_heading)
+        # Filtered from `sections`, not looked up by heading: a lookup
+        # table would silently drop the second of two sections that ever
+        # shared a heading, and dropping instructions from a page whose
+        # whole job is showing them is the failure to design against.
+        rows = [_section_payload(h, b) for h, b in sections if h in headings]
+        placed.update(h for h, _ in sections if h in headings)
         if rows:
             out.append({"label": label, "sections": rows})
-    leftover = [
-        _section_payload(h, b) for h, b in sections if h not in placed
-    ]
+    leftover = [_section_payload(h, b) for h, b in sections if h not in placed]
     if leftover:
         out.append({"label": OTHER_GROUP, "sections": leftover})
     return out
