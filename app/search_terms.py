@@ -41,6 +41,8 @@ from retrieval.query_agency import (
     AMBIGUOUS_AGENCIES,
     AMBIGUOUS_ALIASES,
     SUPPRESSED_ALIASES,
+    _expand_group,
+    _index,
 )
 from retrieval.query_year import SHORTHAND_DOC_TYPE
 # The admin's alias overlay (spec E1) — the filter box is its third
@@ -229,19 +231,50 @@ def _agency_terms(doc_id: str, catalog: Catalog, overlay: OfficeAliases) -> set[
     # cannot resurrect a blocked word ("for") — this module may only ever
     # ADD reviewed vocabulary, never bypass what was already excluded.
     added, disabled = _overlay_tables(overlay)
-    return (set(aliases) | set(added.get(canonical_id, ()))) - disabled - _blocked()
+    # Fix (IMPORTANT 1, review): union the overlay lookup over the
+    # resolver's logical group, exactly as retrieval/query_agency.py's
+    # overlay tier already does. The catalog records some agencies twice
+    # (`agency:dor` / `agency:rev` are both "Revenue, Department of"), each
+    # with its OWN doc_id slug, and the admin's alias picker collapses that
+    # split to a single dropdown row (app/routes/tuning.py's
+    # `_picker_agencies`) — offering only ONE member's id. Looking up
+    # `added` by `canonical_id` alone meant an overlay entry saved against
+    # the offered id never reached documents whose doc_id carries the OTHER
+    # member's slug (measured on this repo's eval results: 0 of the -cs-/
+    # -wif- documents would ever see an alias saved on -dcs-/-wifa-).
+    # `_index(None)` is `lru_cache`d process-wide, so this is a dict lookup
+    # after the first call, not a rebuild per document.
+    group_ids = _expand_group(_index(None), {canonical_id})
+    overlay_aliases: set[str] = set()
+    for group_id in group_ids:
+        overlay_aliases |= set(added.get(group_id, ()))
+    return (set(aliases) | overlay_aliases) - disabled - _blocked()
 
 
 @lru_cache(maxsize=4)
 def _overlay_tables(
     overlay: OfficeAliases,
 ) -> tuple[dict[str, tuple[str, ...]], frozenset[str]]:
-    """`(added-by-agency, lowercased disabled)` derived ONCE per overlay.
+    """`(added-by-agency, lowercased disabled)`, cached per distinct overlay
+    value.
 
     Both tables used to be rebuilt inside `_agency_terms`, i.e. once per
     DOCUMENT — in the one loop (app/routes/corpus.py's `document_listing`)
     that hoists `load_office_aliases()` out specifically to avoid per-row
     work, and which runs 5,330 times for one page load of the live corpus.
+
+    NOT free per call even on a cache hit (review fix — "derived ONCE per
+    overlay" overstated this): `lru_cache` hashes its argument to find the
+    entry on every call, and `OfficeAliases` is a frozen dataclass whose
+    hash walks its `added` tuple — O(len(added)) per call, not O(1), and
+    this is called once per document, ~5,330 times for one page load. Still
+    a large net win over rebuilding both dicts from scratch that many
+    times; it just isn't the flat, one-time cost the old docstring implied.
+    `added` is a handful of admin-typed aliases, so the repeated hash is
+    cheap in absolute terms — noted here rather than hoisted further,
+    because threading a third cached value through `search_terms`'s
+    signature for a per-call cost this small isn't worth the extra
+    parameter on every caller.
 
     Cached here rather than threaded through `search_terms`'s signature so
     every caller gets it, not just the hoisting one. `OfficeAliases` is a

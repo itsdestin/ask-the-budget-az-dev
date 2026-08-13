@@ -162,11 +162,17 @@ def _picker_agencies() -> list[dict]:
 
     WHICH member is offered: the first one in catalog file order. That is the
     id `EntityStamper`'s first-wins name index writes onto a chunk printed
-    with that name, so it is also the id the browse page's filter box keys
-    the office's own shorthand on (app/search_terms.py). For query
-    resolution the choice is not load-bearing at all — an overlay alias now
-    resolves to every id in the group (retrieval/query_agency.py's overlay
-    tier), so either half finds the whole agency.
+    with that name. For query resolution AND for the browse page's filter
+    box, the choice is not load-bearing at all — an overlay alias now
+    resolves to every id in the group, both in retrieval/query_agency.py's
+    overlay tier and in app/search_terms.py's `_agency_terms`, so either
+    half finds the whole agency and covers every one of its documents.
+    (Review fix: this docstring previously claimed the offered id was also
+    the one app/search_terms.py keyed the office's shorthand on — false.
+    search_terms resolves an alias per-DOCUMENT by that document's own
+    doc_id slug, not by the picker's chosen id, so before the group-expansion
+    fix an overlay entry saved against the offered id silently missed every
+    document under the other member's slug.)
     """
     index = _index(None)
     by_group: dict[object, dict] = {}

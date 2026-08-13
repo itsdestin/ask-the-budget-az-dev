@@ -309,6 +309,25 @@ def test_overlay_disabled_alias_is_removed_from_terms():
     assert "dor" not in terms and "rev" in terms
 
 
+def test_overlay_alias_on_one_split_id_reaches_a_document_under_the_other():
+    # IMPORTANT 1 (review): agency:dor and agency:rev are a real, grep-
+    # verified split family — both "Revenue, Department of"
+    # (samples/entity-catalog.yaml:8325 and :8345) — with distinct doc_id
+    # slugs. The picker offers only agency:dor (app/routes/tuning.py's
+    # _picker_agencies), so an admin saving "dor" as a shorthand is really
+    # saving it against agency:dor. Before the group-expansion fix, a
+    # document whose doc_id carries the OTHER member's slug ("-rev") never
+    # picked that alias up at all — `added.get(canonical_id)` looked up
+    # exactly the id on the overlay entry, with no group widening. This
+    # uses the REAL catalog (no `catalog=` override) so the group lookup
+    # exercises the genuine agency:dor/agency:rev split, not a hand-built one.
+    overlay = OfficeAliases(added=(OfficeAlias("dor", "agency:dor", "", ""),))
+    terms = search_terms(
+        "jlbc-approps-fy2026-rev", "approps-per-agency", 2026, overlay=overlay
+    )
+    assert "dor" in terms
+
+
 def test_overlay_cannot_resurrect_a_blocked_word():
     # The suppress/ambiguous lists still win: an admin alias spelled "for"
     # must not become a filter-box term even if the save-side validation is
