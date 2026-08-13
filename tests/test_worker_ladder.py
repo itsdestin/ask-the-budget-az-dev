@@ -234,6 +234,40 @@ def test_a_terminal_failure_never_reaches_live_and_writes_no_chunks(monkeypatch,
     assert job.held_out is True
 
 
+def test_run_job_records_which_rung_was_kept_on_success(monkeypatch, ladder_job):
+    """Catches deleting `job.kept_extractor = outcome.extractor` from
+    `run_job` (ingest/worker.py). Without that line a document whose
+    extractor changed -- every passage id re-minted, every chunk's text
+    replaced -- would leave no trace of which rung actually wrote it, and
+    the admin page (and the ranking behaviour built on this field) would
+    have nothing to read."""
+    _capture_writes(monkeypatch)
+    scripted = _ScriptedLadder({"opendataloader": 0.02, "mineru": 0.93})
+
+    job = worker.run_job(ladder_job, _ctx(monkeypatch, scripted))
+
+    assert job.state == "live"
+    assert job.kept_extractor == "mineru"
+
+
+def test_a_document_held_out_of_search_records_no_kept_extractor(
+    monkeypatch, ladder_job
+):
+    """Nothing was written for a held-out document, so nothing should be
+    named as having written it -- `kept_extractor` describes what's on
+    disk, and for this job that's still nothing."""
+    written = _capture_writes(monkeypatch)
+    scripted = _ScriptedLadder(
+        {"opendataloader": 0.02, "mineru": 0.02, "mineru-ocr": 0.01}
+    )
+
+    job = worker.run_job(ladder_job, _ctx(monkeypatch, scripted))
+
+    assert job.state == "failed"
+    assert written == []
+    assert job.kept_extractor is None
+
+
 def test_no_text_layer_routes_straight_to_ocr(monkeypatch, ladder_job):
     scripted = _ScriptedLadder({"mineru-ocr": 0.88})
     outcome = worker._extract_and_chunk(

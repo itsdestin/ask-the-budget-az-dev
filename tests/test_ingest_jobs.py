@@ -206,6 +206,23 @@ def test_retry_clears_the_extraction_attempts_so_the_ladder_runs_again(data_dir)
     assert load_job(job.job_id).held_out is False
 
 
+def test_retry_clears_kept_extractor_so_a_stale_rung_name_does_not_survive(data_dir):
+    """Catches deleting `job.kept_extractor = None` from the retry branch of
+    `advance()`. `kept_extractor` records which rung's output was actually
+    written; if it survived a retry, a document whose new ladder run kept a
+    DIFFERENT rung would still report the old one — telling the admin page
+    the wrong extractor wrote the live passages."""
+    job = _job()
+    advance(job, "extracting")
+    job.kept_extractor = "mineru"
+    advance(job, "failed", error="boom")
+
+    advance(job, "queued")
+
+    assert job.kept_extractor is None
+    assert load_job(job.job_id).kept_extractor is None
+
+
 def test_retry_KEEPS_completed_ranges_so_a_finished_extraction_does_not_redo(data_dir):
     """Blocking 2 on this plan's final review. `completed_ranges` used to be
     cleared alongside `extraction_attempts`, on the theory that a range
