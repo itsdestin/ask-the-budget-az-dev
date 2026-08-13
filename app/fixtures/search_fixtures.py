@@ -36,9 +36,13 @@ FIXTURE_ROWS = [
     # the stub) returned a different response SHAPE than a machine with a
     # migrated corpus -- caught by tests/test_search_route.py's contract test.
     dict(chunk_id=f"stub-{i:03d}", doc_id=doc_id, doc_title=title,
-         snippet=snippet, text=snippet, page=page, score=round(6.5 - i * 1.6, 1),
+         snippet=snippet, text=snippet, section_path=[], page=page, score=round(6.5 - i * 1.6, 1),
          doc_type=doc_type, fiscal_year=fy, publisher=publisher,
-         agencies=agencies, doc_url=None, doc_meta=meta, section_of=None)
+         agencies=agencies, doc_url=None, doc_meta=meta, section_of=None,
+         # Which corpus this row belongs to. NOT part of the /api/search row
+         # contract -- StubSearchProvider pops it before returning (see there
+         # for why it exists at all).
+         corpus="budget")
     for i, (doc_id, title, meta, snippet, page, doc_type, fy, publisher, agencies) in enumerate([
         ("stub-jlbc-baseline-fy2027-ahcccs",
          "Health Care Cost Containment System, Arizona — FY 2027 Baseline",
@@ -65,5 +69,56 @@ FIXTURE_ROWS = [
          "Budget Bill · FY 2026",
          "…appropriates $19,800,000 to the department for fiscal year 2025-2026…",
          3, "budget-bill", 2026, "legislature", ["adoa"]),
+    ])
+]
+
+# Fiscal-note rows, so a machine with no ingested corpus does not answer a FISCAL NOTES
+# search with BUDGET documents (Destin, 2026-08-13, looking at the running page).
+#
+# WHY this was a real defect and not just a dev-mode oddity: `_default_provider` probes
+# `budget_chunks` and falls back to this stub when it is empty — which is exactly what a
+# FRESH INSTALL looks like before anyone has ingested anything. So the first thing a new
+# user saw when searching note text on the Fiscal Notes page was five budget documents,
+# presented as note matches. The stub had always ignored its `corpus` argument; nothing
+# noticed while the fiscal-note search was a small box in the rail, and the browse rebuild
+# promoted it to the page's headline feature.
+#
+# These carry the ingest-built title shape the REAL fiscal-note corpus uses —
+# "Fiscal Note - <NUMBER>: <title>" — so the stub exercises the card's own title parsing
+# (spec F16) rather than accidentally rendering a pre-split title the real corpus never
+# produces. Same `stub-` id namespacing as above: nothing here can resolve to a real note.
+FISCAL_NOTE_FIXTURE_ROWS = [
+    dict(chunk_id=f"stub-fn-{i:03d}", doc_id=doc_id, doc_title=title,
+         snippet=snippet, text=snippet, section_path=["JLBC Fiscal Note", section], page=page,
+         score=round(6.2 - i * 1.5, 1),
+         doc_type="fiscal-note", fiscal_year=fy, publisher="azleg",
+         agencies=agencies, doc_url=None, doc_meta=None, section_of=None,
+         corpus="fiscal_notes")
+    for i, (doc_id, title, section, snippet, page, fy, agencies) in enumerate([
+        ("stub-fn-2026-sb1035",
+         "Fiscal Note - SB 1035: state department of corrections; appropriation",
+         "Estimated Impact",
+         "…would appropriate $28,700,000 from the General Fund to the State Department of "
+         "Corrections in FY 2027 for inmate health care contracts…",
+         1, 2026, ["adc"]),
+        ("stub-fn-2026-hb2407",
+         "Fiscal Note - HB 2407: victim notification; automated system",
+         "Estimated Impact",
+         "…one-time cost of $1,400,000 and ongoing costs of $310,000 annually beginning in "
+         "FY 2027…",
+         2, 2026, []),
+        ("stub-fn-2025-hb2082",
+         "Fiscal Note - HB 2082: TPT; exemption; wastewater; pipes",
+         "Estimated Impact",
+         "…would reduce General Fund revenues by an estimated $2,300,000 in FY 2026, "
+         "growing to $2,900,000 by FY 2029…",
+         1, 2025, ["ador"]),
+        ("stub-fn-2024-hb2186",
+         "Fiscal Note - HB 2186: <strike>remedial groundwater incentive</strike> "
+         "(NOW: brackish groundwater; incentive)",
+         "Fiscal Analysis",
+         "…the Department of Water Resources estimates administrative costs of $185,000 in "
+         "the first year…",
+         3, 2024, ["adwr"]),
     ])
 ]

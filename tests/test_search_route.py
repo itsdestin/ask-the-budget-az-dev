@@ -190,3 +190,64 @@ def test_no_family_filter_means_no_dropping(monkeypatch):
     )
     body = client.post("/api/search", json={"query": "x"}).json()
     assert {r["chunk_id"] for r in body["results"]} == {"a", "b"}
+
+
+# --- spec F15: the page must be able to say what the search inferred ---------
+# The pipeline reads the analyst's words and applies filters it guessed from
+# them BEFORE searching. On the fiscal-notes corpus that has one live and
+# entirely silent consequence: a question naming a year hard-filters by
+# session while the rail still reads "Any session". retrieve() has always
+# reported the guess; nothing carried it to the browser, because the provider
+# seam returned rows and rows alone.
+
+def _client_with_inference(monkeypatch, **inference):
+    """A LanceSearchProvider whose fake retrieve() reports an inferred filter."""
+    result = RetrievalResult(
+        chunks=[_chunk()],
+        top_score=4.2,
+        bm25_count=1,
+        dense_count=1,
+        fused_count=1,
+        **inference,
+    )
+    monkeypatch.setattr("app.search_provider.retrieve", lambda req, **kw: result)
+    monkeypatch.setattr("app.search_provider.load_documents", lambda: {})
+    monkeypatch.setattr("store.config.documents_path", lambda: Path("/nonexistent/documents.json"))
+    return TestClient(create_app(provider=LanceSearchProvider()))
+
+
+def test_search_echoes_what_the_pipeline_inferred(monkeypatch):
+    """Additive only: the three original keys are asserted alongside, because
+    the contract is frozen in the sense that nothing existing may move."""
+    c = _client_with_inference(monkeypatch, inferred_fiscal_years=[2027])
+    body = c.post("/api/search", json={
+        "query": "FY 2027 revenue impact of a sales tax exemption",
+        "corpus": "fiscal_notes",
+    }).json()
+
+    assert {"results", "total", "provider"} <= body.keys()      # nothing lost
+    assert body["total"] == len(body["results"])                # still consistent
+    assert body["inferred_fiscal_years"] == [2027]
+    assert body["inferred_doc_types"] == []
+    assert body["dropped_filters"] == []
+
+
+def test_search_echoes_a_dropped_doc_type_guess(monkeypatch):
+    """`dropped_filters` is the pipeline's safety net: when a guessed doc_type
+    empties the page it searches again without it and says so. The YEAR guess
+    has no such net (see retrieval/pipeline.py), which is exactly why F15 makes
+    the page state it."""
+    c = _client_with_inference(monkeypatch, dropped_filters=["doc_type"])
+    body = c.post("/api/search", json={"query": "corrections report"}).json()
+    assert body["dropped_filters"] == ["doc_type"]
+
+
+def test_the_stub_provider_reports_no_inference(monkeypatch):
+    """The stub does no query parsing, so it must say so rather than omit the
+    keys — the browser reads three lists, and a missing key is a different
+    shape from an empty one. This is the provider the filter UI is tested
+    against; leaving it behind would make F15 untestable where it matters."""
+    body = client().post("/api/search", json={"query": "budget"}).json()
+    assert body["inferred_fiscal_years"] == []
+    assert body["inferred_doc_types"] == []
+    assert body["dropped_filters"] == []

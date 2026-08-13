@@ -36,7 +36,7 @@ def search(body: SearchBody, request: Request):
         raise HTTPException(status_code=400, detail="query is empty")
     provider = request.app.state.provider
     try:
-        results = provider.search(
+        outcome = provider.search(
             body.query, top_k=body.top_k, corpus=body.corpus,
             # exclude_none so providers can test `filters.get(k)` for "not set"
             # instead of having to distinguish None from an empty list.
@@ -54,4 +54,20 @@ def search(body: SearchBody, request: Request):
         ) from e
     # Frozen-contract note: `total` is the count of rows actually returned,
     # AFTER top_k truncation — it is not a corpus-wide count of matches.
-    return {"results": results, "total": len(results), "provider": provider.name}
+    #
+    # The three `inferred_*` / `dropped_filters` keys are ADDITIVE (spec F15,
+    # 2026-08-13): nothing above is renamed or removed, so every existing
+    # caller keeps working and the contract stays frozen in the sense that
+    # matters. They exist because the pipeline guesses filters from the
+    # analyst's words — most consequentially a YEAR, which it applies as a
+    # hard filter and never drops — and until now nothing carried that fact to
+    # the browser, so the page could show "Any session" while the search had
+    # quietly narrowed to three.
+    return {
+        "results": outcome.rows,
+        "total": len(outcome.rows),
+        "provider": provider.name,
+        "inferred_fiscal_years": outcome.inferred_fiscal_years,
+        "inferred_doc_types": outcome.inferred_doc_types,
+        "dropped_filters": outcome.dropped_filters,
+    }
