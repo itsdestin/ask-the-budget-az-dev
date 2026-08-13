@@ -438,14 +438,44 @@ a content-quality gate on character-class ratios.
 The distribution that produced a ~5% floor was contaminated by this bug. The
 low band was one-page agency entries whose only prose was the dropped
 description — `jlbc-baseline-fy2022-hla` measured 16.6% before and 74.2% after,
-`jlbc-approps-fy2026-ico` 13.0% → 77.8%. **Re-run the corpus-wide coverage
-measurement now and set T6's floor from the repaired distribution**; the spec's
-original 15–25% expectation may well be right against clean data.
+`jlbc-approps-fy2026-ico` 13.0% → 77.8%.
 
-`jlbc-baseline-fy2013-s1` (1.03%, 150 characters from a 14,634-character
-source, all 8 chunks corrupted heading fragments) is a genuine second
-FY2024-AFR-shape failure and is **unaffected by this fix** — it needs the same
-extractor re-route.
+### ✅ The floor is now CALIBRATED against the repaired corpus (2026-08-12)
+
+Full write-up:
+[`docs/superpowers/investigations/2026-08-12-coverage-floor-calibration.md`](docs/superpowers/investigations/2026-08-12-coverage-floor-calibration.md).
+All 7,434 documents scored, 0 unresolved. **The floor is 10%**, and the spec's
+15–25% expectation was **too high** — T6 and Risks 1–2 are amended.
+
+Median coverage 87.9%. Every floor from just above 2.0% to just below 17.1%
+catches an identical set of **two** documents, so 10% is the plateau centre —
+correct here because the metric degrades on both sides. **2 of 7,434 documents
+(0.03%) would ever pay for a fallback**, which closes spec Risk 2.
+
+Two findings that outlive the number:
+
+- **The corpus has two chunk tables.** The first pass summed `budget_chunks`
+  only, scored all 2,104 fiscal notes at 0.0%, and made **28.3% of the corpus
+  read as broken**. Caught by reading the low scorers, not counting them.
+- **🔴 The ratio detects catastrophic loss, not corruption.** It cannot see a
+  document that produced the right *amount* of the *wrong* text. Passing the
+  floor is not a certificate of health, and no analyst-facing copy may say it
+  is.
+
+### `jlbc-baseline-fy2013-s1` is FIXED — it is NOT a second re-route candidate
+
+The claim below (that it is a genuine second FY2024-AFR-shape failure unaffected
+by this fix) was **wrong**. The orphan repair fixed it: 8 → 16 chunks, coverage
+**1.03% → 97.6%**, and chunks 0008–0015 carry ~14,140 characters of real
+substantive prose. Its first 8 chunks are still garbled heading fragments
+(`Federal 59 uirements`, `FY 20l3`) — a minor heading-extraction issue, not
+data loss.
+
+**`agao-afr-fy2024` is the only document Plan B's ladder must recover.** The
+only other document below the floor is
+`legislature-fiscal-note-fy2016-hb2003-27`, where **azleg.gov published a
+literal test file** (`THIS IS A TEST`, 323 characters). No re-extraction will
+improve it — it is the worked example for why T8 needs a human dismissal path.
 
 <details><summary>The original finding, kept as the record of what was wrong</summary>
 

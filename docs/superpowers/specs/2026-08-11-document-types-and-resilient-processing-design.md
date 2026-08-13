@@ -319,11 +319,33 @@ Checking after chunking means the measurement is taken on exactly what was
 measured in this document's evidence section, and a failing document is
 caught before the embedding and write phases are paid for.
 
-**Floor: to be calibrated before shipping, expected 15–25%.** The sample
-behind that range is 16 documents. **The implementation must first run the
-coverage measure across the whole corpus and record the distribution**, then
-pick a floor from it. A floor chosen from 16 documents and shipped without
-that step is a guess wearing a number.
+**Floor: 10% — CALIBRATED 2026-08-12 across all 7,434 documents.**
+Measurement: `docs/superpowers/investigations/2026-08-12-coverage-floor-calibration.md`.
+
+The original expectation here was 15–25% from a 16-document sample. The
+corpus-wide run says that is **too high**. Median coverage is 87.9%; every
+floor from just above 2.0% to just below 17.1% catches an identical set of
+**two** documents, and 10% is that plateau's centre — the right pick because
+the metric degrades on both sides (below 2.0% the known-broken AFR escapes;
+above 17.1% healthy short documents start being caught). **Risk 2 is closed:**
+2 documents of 7,434 (0.03%) would ever pay for a fallback.
+
+Two implementation constraints the measurement produced, both load-bearing:
+
+- **The corpus has two chunk tables.** Summing `budget_chunks` alone scored
+  all 2,104 fiscal notes at 0.0% and made 28.3% of the corpus read as broken.
+  Resolve the document's own table before dividing.
+- **🔴 The ratio detects catastrophic loss, not corruption.** It cannot see a
+  document that produced the right *amount* of the *wrong* text — the FY2024
+  AFR's own recovered rows are label-stripped table fragments that a
+  numeric-density check scored 1.6% "junk". A document that passes the floor
+  is **not** thereby certified good, and no copy may imply it is. This is why
+  T8's human surface is not optional.
+
+Ratios routinely exceed 100% (the healthy AFRs score 278–286%) because chunk
+text carries table markup the source text layer does not. **Do not cap or
+normalize the ratio** — it is a proxy for extraction health, not a "fraction
+captured".
 
 Two cases the ratio does not cover, handled separately:
 
@@ -604,13 +626,16 @@ not noise.
 
 ## Risks
 
-1. **The floor is the whole design.** Too high and healthy documents get held
-   back; too low and the FY2024 shape slips through. It must be calibrated
-   against the full corpus, not the 16 documents here (T6).
-2. **A fallback doubles extraction time.** Fine if rare. If the corpus-wide
-   measurement shows many documents near the floor, this design has a cost
-   problem that the 16-document sample hides — which is another reason the
-   calibration run comes first.
+1. ~~**The floor is the whole design.**~~ **RESOLVED 2026-08-12** — calibrated
+   corpus-wide at **10%** (T6). The separation is not marginal: two orders of
+   magnitude between the broken control and its healthy siblings, and a
+   15-point band around the floor containing no documents at all.
+   **The residual risk is different from the one stated here:** the floor is
+   safe, but the *signal* is blind to corruption that preserves volume. See
+   T6's second constraint.
+2. ~~**A fallback doubles extraction time.**~~ **RESOLVED 2026-08-12** — at the
+   calibrated floor, **2 documents of 7,434 (0.03%)** are below it. The
+   per-document cost is real; the aggregate cost is not.
 3. **Re-processing the FY2024 AFR replaces its chunks**, and therefore its
    `chunk_id`s. Nothing in `eval/queries.yaml` currently references that
    document — **verify before re-processing**, not after.
