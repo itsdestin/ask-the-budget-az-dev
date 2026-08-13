@@ -186,16 +186,22 @@ def write_range_pages(
         )
 
 
-def run_mineru(pdf: Path, out: Path, pages: list[int]) -> None:
+def run_mineru(pdf: Path, out: Path, pages: list[int], *, method: str = "auto") -> None:
     """Real path. Shells out to `mineru` CLI per contiguous page range.
 
     For each range, runs `mineru -p <pdf> -o <tmp> -s <start-1> -e <end-1>
-    -b pipeline`, then reads the produced content list + markdown and
-    splits them into per-page-N output files.
+    -b pipeline -m <method>`, then reads the produced content list +
+    markdown and splits them into per-page-N output files.
 
     The `pipeline` backend is chosen because it works on CPU only; the
     default `hybrid-auto-engine` may want a GPU. See the Phase 0 README
     at samples/extractor-output/mineru/README.md for backend rationale.
+
+    `method` is MinerU's `-m` flag. "auto" is today's behaviour and the
+    default, so every existing caller is unchanged. "ocr" is the ladder's
+    last rung (spec T7, ingest/ladder.py) and reads pages as images --
+    the only path that can read a scan, at the cost of being the slowest
+    thing this app does.
     """
     out.mkdir(parents=True, exist_ok=True)
     pdf_stem = pdf.stem
@@ -210,6 +216,7 @@ def run_mineru(pdf: Path, out: Path, pages: list[int]) -> None:
                 "-s", str(start - 1),  # CLI is 0-indexed, inclusive
                 "-e", str(end - 1),
                 "-b", "pipeline",
+                "-m", method,
             ]
             result = subprocess.run(cmd, capture_output=True, text=True)
             if result.returncode != 0:
