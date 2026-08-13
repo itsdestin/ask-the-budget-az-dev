@@ -1,6 +1,6 @@
 # Project Status
 
-**Last updated:** 2026-08-03
+**Last updated:** 2026-08-12
 
 This file is the single source of truth for what's shipped, what's
 open, and what's blocked. The phase plans under `docs/superpowers/`
@@ -41,6 +41,7 @@ source. When something ships, update only this file.
 | Budget Documents highlighting + book sections | ✓ **Shipped (2026-08-11)**, one browser check outstanding | Query highlighting marked NOTHING (measured 0 of 200 cards); now 96.5%. 647 documents rendering under raw slugs (`s-pdf`, `bd-pdf`) fold into the books they are sections of. See the section below |
 | AI Mode chat history | ✓ Shipped (2026-08-03), **reviewed and hardened 2026-08-11** | Per-device transcripts, browse/search/resume past chats, auto-naming, collapsible rail. Local disk only — never the share. A second review found ELEVEN defects, four of them silent data loss; all fixed. See the section below |
 | AI Mode persistent conversation | ✓ **Shipped, browser-tested, merged `28567f0`** (2026-08-11) | "+ New chat" shows a row at once; the conversation survives a tab switch and keeps streaming. 742 vitest / `tsc -b` clean. Destin tested and accepted; browser testing found a two-rows-look-selected defect, fixed. Four Minors carried, and P5 (close-tab-still-aborts) is still unwatched. See the section below |
+| **Corpus navigation** (map, spread, coverage, echo) | ✓ **Shipped, both gates passed, merged `2dc295f`** (2026-08-12) | N1–N7 + N11. A corpus inventory in the prompt, `spread` retrieval, `year_coverage`, inferred-filter echo. **G-N1: Layer 1 identical to a same-hour control. G-N2: `key_fact_rate` 0.463 → 0.685 against a real control**, every citation metric up, input tokens down 41%. Full 31-query run not yet run. See the section below |
 
 ## Corpus — what is ingested and what is NOT (2026-08-01)
 
@@ -578,6 +579,15 @@ Recorded because they are the kind of thing that gets copied forward:
   note.** What is genuinely still true of the paid work (the 31-query Layer 2
   baseline, the glm-vs-deepseek head-to-head) is that **it spends Destin's
   real money**, so it needs his go-ahead — not that it is technically blocked.
+- **Corpus navigation — SHIPPED 2026-08-12, BOTH GATES PASSED** (section
+  below). Corpus map in the prompt, `spread` retrieval, `year_coverage`, the
+  inferred-filter echo. `key_fact_rate` **0.463 → 0.685** against a real
+  same-machine control, every citation metric up, input tokens down 41%.
+  **What is left: the full 31-query run + judge (~$1.50–3), which no
+  committed run currently provides for the CURRENT query set** — the set
+  changed in `0e32df3` after every existing baseline, so any older
+  comparison measures the question edits. Also unwatched in a browser, and
+  the `by: "doc_id"` spread axis has never been exercised live.
 - **Attested citation linking — SHIPPED AND VERIFIED LIVE 2026-08-11**
   (section below). The model tags each figure with the passage it came from
   and the system verifies the tag; document-authority ranking is deleted.
@@ -669,6 +679,131 @@ Recorded because they are the kind of thing that gets copied forward:
   improvement targets it hands us, are in the section below.
 
 ---
+
+## Corpus navigation — SHIPPED, both gates passed (2026-08-12)
+
+Spec: `docs/superpowers/specs/2026-08-12-corpus-navigation-design.md`
+(N1–N7, N11; N8/`expand` removed before implementation). Plan:
+`docs/superpowers/plans/2026-08-12-corpus-navigation.md` (11 tasks, all
+done). Merged `2dc295f`.
+
+**The model can now see the corpus's shape and search it by group.** Three
+things shipped, all additive — the default `retrieve()` path is structurally
+untouched:
+
+1. **A corpus inventory table in the system prompt (N1–N3).**
+   `harness/corpus_map.py` builds it from the `documents.json` sidecar and
+   `session.py` snapshots it ONCE per conversation. Family comes from
+   `source_url` via the rule hoisted to `store/book_family.py`, never from
+   doc_id — 21 doc_ids encode the wrong family, and a map built from them
+   would claim editions that do not exist while the guidance line told the
+   model to assert it.
+2. **`spread` on retrieve() (N4–N6).** One query, searched separately inside
+   each named fiscal year or document, ONE rerank batch, agency penalty
+   before the per-group trim, recency never applied. The structural fix for
+   edition monoculture: FY2026 cannot be crowded out of the pool when FY2026
+   IS its own pool.
+3. **`year_coverage` + the inferred-filter echo (N7, N11).** The candidate
+   distribution by fiscal year counted over the legs (what the pool cap hid),
+   plus `inferred_doc_types`, `dropped_filters` and `preferred_agencies` —
+   which the tool layer has always computed and always dropped.
+
+### G-N1 — Layer 1 unchanged, proven against a same-hour control
+
+Not a remembered baseline: master's own run landed at **23:18Z** and this
+branch's at **23:22Z**, same machine, same corpus, four minutes apart.
+
+| | control (23:18Z, 24369d9) | shipped (23:22Z, 4f991fa) |
+|---|---|---|
+| recall@5 / @15 / @20 | 88% / 100% / 100% | **88% / 100% / 100%** |
+| refusal precision | 60% | **60%** |
+| fallback rate | 31% | **31%** |
+| latency p95 | 857 ms | **856 ms** |
+
+Identical on every metric, p95 within one millisecond.
+
+### G-N2 — `key_fact_rate` 0.463 → 0.685 against a real control
+
+**The 2026-08-01/02/03 runs are NOT comparable and `compare_agent_runs.py`
+correctly refuses them**: `eval/agent_queries.yaml` changed in `0e32df3`,
+after every committed run, so no baseline shares the current query set. A
+control was run instead on the merge's first parent (`52e74d9`), same 11
+smoke queries (`queries_sha256` verified identical BEFORE spending), same
+machine, same models.
+
+| metric | control | shipped | |
+|---|---|---|---|
+| **`key_fact_rate_mean`** | 0.463 | **0.685** | **+48% relative** |
+| `cite_pass_rate` | 0.898 | **1.00** | ▲ |
+| `first_try_cite_rate` | 0.915 | **1.00** | ▲ |
+| `retries_per_citation` | 0.043 | **0.00** | ▲ |
+| `tag_accuracy_mean` | 0.901 | **0.944** | ▲ |
+| `input_tokens_mean` | 149k | **88k** | −41% |
+| `steps_mean` | 5.27 | **3.18** | ▲ |
+| `retrieve_calls_mean` | 3.45 | **2.64** | ▲ |
+| `cost_mean_usd` | $0.071 | **$0.032** | ▲ |
+| `wall_p95_ms` | 220s | **147s** | ▲ |
+| `false_refusals` | 2 | **1** | ▲ |
+
+All three G-N2 clauses pass: key_fact_rate not worse (much better), no
+citation-metric regression (all four improved), input tokens well inside the
+±15% allowance in the good direction.
+
+**The per-query attribution is unusually clean.** `spread` was called on 2 of
+11 queries with ZERO argument errors, and **both went 0.0 → 0.667**
+(`an-ahcccs-gf-drivers`, `cm-des-gf-growth`). `hs-arra-k12-stabilization-2010`
+— the FY2010 question the map exists for — went **0.0 → 1.0**. Neither of the
+two regressions (`cm-basic-aid-3yr` 0.667→0.333, `lk-dps-operating-fy2026`
+0.5→0) used spread at all.
+
+### 🟡 Watch, not dismissed
+
+- **`figure_coverage_mean` 0.953 → 0.864 and `unverified_rate` 0.047 →
+  0.136.** More figures unlinked. Both moved the wrong way and neither is
+  explained yet.
+- **`narration_hit_queries` 1 → 2** — one more query leaked tool mechanics,
+  the known prompt-hygiene gap.
+- **`cached_tokens_mean` 119k → 64k** is arithmetic, not a cache defect: the
+  cache RATE fell 80% → 72% because the turn is three steps instead of five,
+  so the always-uncached first step is a larger share of a smaller total.
+- **n=11, single runs.** `compare_agent_runs.py` prints the stochasticity
+  warning itself. These are flags for the full run, not conclusions.
+
+### Still outstanding
+
+- **The full 31-query Layer 2 run + judge** (`eval.run_full_layer2 --subset
+  full`, ~$1.50–3). It would establish the canonical baseline for the current
+  query set — which, per the `0e32df3` finding above, **no committed run
+  holds today**, for this work or any other.
+- **Nobody has watched a spread answer render in a browser.** The chunks mint
+  aliases and tag normally (pinned by test, and `tag_accuracy` rose), but the
+  per-chunk `group` field has never been seen on screen.
+- **The doc_id spread axis is untested live.** Every spread call the model
+  made was `by: "fiscal_year"`.
+
+### What the plan's own code sketches got wrong
+
+Recorded because the plan is explicit that its code blocks are sketches to
+run and correct, and this run is more evidence for that rule:
+
+- `_session(system_prompt=None, **over)` was said to override — in Python a
+  duplicate keyword is a `TypeError`, not an override. The helper needed a
+  named parameter.
+- `FakeEmbedder.calls` is a LIST, so the sketched `embedder.calls == 1` could
+  never pass.
+- `_chunk()` in `tests/test_pipeline.py` takes no `fiscal_year`; the sketch's
+  `type(c)(**c.__dict__)` construction is `dataclasses.replace`.
+- A JSON example in the prompt ending `}}` tripped the template guard that
+  forbids a surviving `}}` — the guard was right and the example was
+  reformatted.
+- The spread tests' first draft used `"ahcccs"` as the neutral query and every
+  score came back 2.0 lower: `MATCH_PENALTY` firing on a real agency acronym,
+  working exactly as designed.
+
+Also: `git mv`-ing `app/book_sections.py` broke
+`test_every_first_party_import_resolves`, because `source_files()` is
+`git ls-files` and the new shim was untracked. The guard is doing its job —
+stage the file.
 
 ## Budget Documents — highlighting + book sections — SHIPPED (2026-08-11)
 
