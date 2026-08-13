@@ -99,7 +99,7 @@ def _fake_chunks(job, count: int, total_chars: int) -> list[Chunk]:
     ]
 
 
-def _ctx(monkeypatch, scripted, *, has_text_layer=True, chunks=3):
+def _ctx(monkeypatch, scripted, *, has_text_layer=True, chunks=12):
     """A context whose extraction is scripted per rung.
 
     `_extract` records which rung ran and asks the script for its ratio;
@@ -460,3 +460,29 @@ def test_the_attempts_are_journalled_as_they_happen(monkeypatch, ladder_job):
 
     # Rung 2 chunks only after rung 1's attempt is already on disk.
     assert seen_on_disk == [[], ["opendataloader"]]
+
+
+def test_every_rung_that_runs_records_its_unlabelled_fraction(
+    monkeypatch, ladder_job
+):
+    """Spec X11. Recorded for a rung that PASSES too, not only a loser --
+    the near-miss band is the only path out of "calibrated against one
+    example", and a threshold that never records its inputs can only be
+    re-argued, never re-tuned."""
+    scripted = _ScriptedLadder({"opendataloader": 0.94})
+    outcome = worker._extract_and_chunk(ladder_job, _ctx(monkeypatch, scripted))
+
+    assert outcome.unlabelled == 0.0
+    assert outcome.attempts[0]["unlabelled"] == 0.0
+
+
+def test_a_rung_with_too_few_judged_chunks_records_None_not_zero(
+    monkeypatch, ladder_job
+):
+    """None means "not measured". Zero would claim a perfect reading."""
+    scripted = _ScriptedLadder({"opendataloader": 0.94})
+    ctx = _ctx(monkeypatch, scripted, chunks=3)
+    outcome = worker._extract_and_chunk(ladder_job, ctx)
+
+    assert outcome.unlabelled is None
+    assert outcome.attempts[0]["unlabelled"] is None

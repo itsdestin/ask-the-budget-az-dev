@@ -111,6 +111,7 @@ from ingest.claim import JobClaim
 from ingest.coverage import COVERAGE_FLOOR, coverage_ratio
 from ingest.inspection import inspect_source
 from ingest.ladder import ladder_for
+from ingest.structure import MAX_UNLABELLED, choose_best, unlabelled_fraction
 from ingest.jobs import (
     TERMINAL_STATES,
     JobRecord,
@@ -341,6 +342,12 @@ def run_job(job: JobRecord, ctx: WorkerContext) -> JobRecord:
         advance(job, "failed", error=_held_out_message(outcome))
         return job
 
+    # `outcome` is the rung whose chunks are about to be embedded and
+    # written, now that the `not outcome.passed` branch above has
+    # returned. Recorded here, not inside `_extract_and_chunk`, because
+    # that function's job is choosing an outcome, not persisting one.
+    job.kept_extractor = outcome.extractor
+
     chunks = outcome.chunks
     if job.state == "extracting":
         advance(job, "chunking")
@@ -371,6 +378,9 @@ class ExtractionOutcome:
     chunks: list[Chunk]
     attempts: list[dict]
     coverage: float | None
+    # None means NOT MEASURED (fewer than MIN_JUDGED_CHUNKS judgeable
+    # passages), never "measured and clean" -- same contract as `coverage`.
+    unlabelled: float | None
     extractor: str
     fell_back: bool
 
@@ -469,8 +479,18 @@ def _extract_and_chunk(job: JobRecord, ctx: WorkerContext) -> ExtractionOutcome:
             # MinerU output with the OpenDataLoader reader on every fallback.
             chunks = _chunk(job, ctx, extractor=name)
             coverage, coverage_error = _measure_coverage(chunks, source)
+            # Recorded for EVERY rung, whether or not it trips the ceiling
+            # and whether or not it changes anything (spec X11). It is
+            # free -- the number is already computed -- and it is the only
+            # mechanism that can ever produce a second positive example:
+            # documents in the near-miss band are otherwise ignored and
+            # nothing writes down that they were close.
+            unlabelled = unlabelled_fraction(c.text for c in chunks)
             attempt: dict = {
-                "extractor": name, "coverage": coverage, "chunks": len(chunks),
+                "extractor": name,
+                "coverage": coverage,
+                "unlabelled": unlabelled,
+                "chunks": len(chunks),
             }
             if coverage_error is not None:
                 attempt["coverage_error"] = coverage_error
@@ -482,10 +502,11 @@ def _extract_and_chunk(job: JobRecord, ctx: WorkerContext) -> ExtractionOutcome:
             # likeliest real trigger for the whole ladder, and letting the
             # exception out would bypass the entire mechanism.
             attempt = {
-                "extractor": name, "coverage": None, "chunks": 0,
+                "extractor": name, "coverage": None, "unlabelled": None,
+                "chunks": 0,
                 "error": f"{type(exc).__name__}: {exc}",
             }
-            chunks, coverage = [], None
+            chunks, coverage, unlabelled = [], None, None
 
         attempts.append(attempt)
         # Journalled per rung, not at the end: a machine that dies during
@@ -497,6 +518,7 @@ def _extract_and_chunk(job: JobRecord, ctx: WorkerContext) -> ExtractionOutcome:
             chunks=chunks,
             attempts=list(attempts),
             coverage=coverage,
+            unlabelled=unlabelled,
             extractor=name,
             fell_back=index > 0,
         )
@@ -515,7 +537,7 @@ def _extract_and_chunk(job: JobRecord, ctx: WorkerContext) -> ExtractionOutcome:
         # Only reachable when every rung was a crash recorded by an earlier
         # run, so nothing ran here at all.
         best = ExtractionOutcome(
-            chunks=[], attempts=[], coverage=None,
+            chunks=[], attempts=[], coverage=None, unlabelled=None,
             extractor=rungs[-1], fell_back=len(rungs) > 1,
         )
     # The full attempt list, not the slice that existed when `best` was

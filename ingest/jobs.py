@@ -145,6 +145,14 @@ class JobRecord:
     # "not held out", which is correct -- none of them could have been,
     # since the field didn't exist yet to say so.
     held_out: bool = False
+    # Which rung's output was actually written, set once in
+    # `ingest/worker.py::run_job` after the ladder returns. Recorded
+    # because a document whose extractor CHANGED has had its chunk_ids
+    # re-minted and its text replaced, and a change that size leaving no
+    # trace is how a corpus becomes unexplainable a year later (spec X7).
+    # None for every job file written before this field existed, and for a
+    # job that never got past extraction.
+    kept_extractor: str | None = None
 
     def to_json(self) -> dict[str, Any]:
         return asdict(self)
@@ -369,6 +377,7 @@ def advance(job: JobRecord, new_state: str, *, error: str | None = None) -> JobR
         # failed) was never affected either way.
         job.extraction_attempts = []
         job.held_out = False
+        job.kept_extractor = None
         return _commit(job, "queued")
 
     # T8's held-back documents (every extraction rung scored below the
