@@ -105,7 +105,6 @@ describe("NeedsAttention", () => {
     // own cell, not on whether the phrase appears anywhere in the document.
     const cells = within(row).getAllByText(/^(not measured|\d+%)$/);
     expect(cells[0]).toHaveTextContent("not measured");
-    expect(cells[0]).not.toHaveTextContent("0%");
   });
 
   it("renders a measured bare-figure fraction as its own percentage", () => {

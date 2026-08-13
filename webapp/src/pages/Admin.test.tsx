@@ -703,6 +703,69 @@ describe("extraction method changed", () => {
     // "Extraction method changed" heading on the page every ordinary day.
     expect(screen.queryByText("Extraction method changed")).toBeNull();
   });
+
+  it("refreshes the swapped list after a retry, not just on initial load", async () => {
+    // `setSwapped(a.swapped ?? [])` is called from TWO places in Admin.tsx:
+    // the initial-load effect and `attentionAction`'s post-retry refetch.
+    // The existing "retrying calls the real retry endpoint..." spec above
+    // never gives its second `adminAttention()` mock a `swapped` field, so
+    // it cannot tell the two call sites apart -- deleting the second one
+    // leaves that test green. This one uses two DIFFERENT non-empty
+    // `swapped` lists so a before/after content change is the only way to
+    // pass.
+    const heldBack: api.AttentionDocument = {
+      job_id: "job-afr24",
+      title: "AGAO Annual Financial Report FY2024",
+      message: "Held out of search — only 2% of this document's text "
+        + "produced any content, after 3 extraction methods were tried.",
+      best_coverage: 0.02,
+      attempts: [{ extractor: "opendataloader", coverage: 0.02 }],
+    };
+    mockAll({ attention: [heldBack] });
+    vi.spyOn(api, "retryJob").mockResolvedValue({
+      job: {
+        job_id: "job-afr24", doc_id: "d", title: "t", corpus: "budget",
+        state: "queued", pct: 0, stage_detail: "", error: null,
+        machine: "m", user: "u", created_at: "", updated_at: "",
+      },
+    });
+    const attentionSpy = vi.spyOn(api, "adminAttention");
+    attentionSpy.mockResolvedValueOnce({
+      documents: [heldBack],
+      swapped: [swap()],
+    });
+    await renderAdmin();
+
+    expect(screen.getByTestId("adm-swaps")).toHaveTextContent(
+      "JLBC Baseline FY2026 — AHCCCS",
+    );
+    expect(screen.getByTestId("adm-swap-kept")).toHaveTextContent("MinerU (OCR)");
+
+    attentionSpy.mockResolvedValueOnce({
+      documents: [],
+      swapped: [swap({
+        job_id: "job-swap-2",
+        title: "JLBC Approps FY2025 — DES",
+        kept: "opendataloader",
+        attempts: [{ extractor: "opendataloader", coverage: 0.99 }],
+      })],
+    });
+
+    fireEvent.click(within(screen.getByTestId("admin-attention")).getByRole(
+      "button", { name: "Try again" },
+    ));
+
+    await waitFor(() =>
+      expect(screen.getByTestId("adm-swaps")).toHaveTextContent(
+        "JLBC Approps FY2025 — DES",
+      ),
+    );
+    expect(screen.getByTestId("adm-swap-kept")).toHaveTextContent("OpenDataLoader");
+    // The first response's document must be GONE, not merely joined by the
+    // second -- a stale union would still pass a "contains the new title"
+    // assertion.
+    expect(screen.queryByText("JLBC Baseline FY2026 — AHCCCS")).toBeNull();
+  });
 });
 
 describe("which computer processes uploads", () => {
