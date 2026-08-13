@@ -28,14 +28,16 @@ from pathlib import Path
 from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
+from app import machine_config
 from app.machine_config import ingest_enabled, set_ingest_enabled
 from app.identity import (
     admin_claimable,
     admin_reset_pending,
     claim_admin,
     current_user,
+    display_name,
     is_admin,
 )
 from harness.catalog import fetch_catalog
@@ -169,7 +171,30 @@ def me() -> dict:
         # claiming will use it up" — nobody should burn a reset by accident
         # and then wonder where it went.
         "admin_reset_pending": admin_reset_pending(),
+        # The name printed on documents this analyst generates. Resolved
+        # server-side (override > Windows > username) so the Settings field
+        # shows the SAME string the memo will carry, rather than a client-side
+        # guess that could disagree with it.
+        "display_name": display_name(user),
     }
+
+
+class DisplayNameBody(BaseModel):
+    display_name: str = Field(default="", max_length=machine_config.MAX_DISPLAY_NAME)
+
+
+@router.put("/api/me/display-name")
+def set_my_display_name(body: DisplayNameBody) -> dict:
+    """The analyst's own name, as it appears on documents they generate.
+
+    DELIBERATELY UNGATED, like `GET /api/me`. There is no authentication
+    anywhere in this app (S11), so a gate here would be theater; and the
+    only thing behind it is the name printed on that person's own memos,
+    stored on their own machine.
+    """
+    user = current_user()
+    machine_config.set_display_name(user, body.display_name)
+    return {"display_name": display_name(user)}
 
 
 # ---------------------------------------------------------------------------
