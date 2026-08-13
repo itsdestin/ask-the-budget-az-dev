@@ -998,11 +998,17 @@ def _extraction_record(outcome: ExtractionOutcome) -> dict[str, Any]:
     the rung that is true of what was actually written.
 
     `attempts` counts `outcome.attempts` (every rung this run tried, winner
-    included) rather than reading `job.extraction_attempts` — the job's list
-    also carries crashed rungs from a PRIOR run of this same job (see
-    `_extract_and_chunk`'s `prior` handling), which would inflate the count
-    for a resumed job with a number that has nothing to do with what this
-    write actually cost.
+    included). NOTE the obvious justification for preferring it over
+    `job.extraction_attempts` is FALSE and was traced: the two cannot
+    disagree. `_extract_and_chunk` carries a prior run's crashed rungs
+    FORWARD into `attempts` and then assigns `job.extraction_attempts =
+    list(attempts)` in the same call, and retry zeroes the job's list — so
+    on every path, including resume, they hold the same contents.
+
+    The real reason to read the outcome is consistency of reporting:
+    `_held_out_message` counts the same way for a FAILED document, so an
+    analyst sees attempts tallied on one basis whether the document made it
+    into the corpus or not.
 
     This is a record of what was measured, never a verdict: see
     `ingest/coverage.py`'s module docstring for why a passing document is
