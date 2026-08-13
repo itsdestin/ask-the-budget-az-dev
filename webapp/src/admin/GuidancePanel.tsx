@@ -115,6 +115,17 @@ export function GuidancePanel() {
             already open.
           </p>
 
+          {/* Inside the card, not under the button (review, 2026-08-12):
+              "before writing" only makes sense with the writing box on
+              screen, and this used to render even with the card shut or
+              the guidance read failed — advice about a box that wasn't
+              there. */}
+          <p className="adm-hint" data-testid="admin-guidance-read-first">
+            Worth a look before writing: the assistant already has a long set of
+            instructions, and repeating or contradicting them here makes answers
+            worse, not better. The See System Guidance button below opens them.
+          </p>
+
           <label className="adm-field" htmlFor="adm-guidance-text">
             <span>Office guidance</span>
             <textarea
@@ -197,11 +208,6 @@ export function GuidancePanel() {
         >
           See System Guidance
         </button>
-      </p>
-      <p className="adm-hint">
-        Worth a look before writing: the assistant already has a long set of
-        instructions, and repeating or contradicting them here makes answers
-        worse, not better.
       </p>
 
       {showSystem ? (
