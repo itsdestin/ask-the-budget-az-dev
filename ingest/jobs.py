@@ -29,6 +29,13 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
+from ingest.archive import (
+    ARCHIVE_DIRNAME,
+    ARCHIVED_STATES,
+    dir_for_state,
+    unlink_with_retry,
+)
+from ingest.archive import sweep as _sweep
 from store.config import data_dir
 
 JOBS_DIRNAME = "jobs"
@@ -184,6 +191,19 @@ def jobs_dir() -> Path:
     return path
 
 
+def archive_dir() -> Path:
+    """Where finished jobs live. Inside `jobs/`, so one folder holds the whole
+    audit trail and a person looking for "the queue" finds both halves.
+
+    Nested rather than a sibling because `jobs_dir().glob("*.json")` does not
+    descend -- the main-folder listing is naturally unaffected by however many
+    files pile up in here, with no exclusion rule to remember.
+    """
+    path = jobs_dir() / ARCHIVE_DIRNAME
+    path.mkdir(parents=True, exist_ok=True)
+    return path
+
+
 # --- creation ---------------------------------------------------------------
 
 
@@ -242,7 +262,14 @@ def save(job: JobRecord) -> Path:
     rename a reader can catch a half-written file, and on a share that's not
     a rare race but a routine one.
     """
-    path = jobs_dir() / f"{job.job_id}.json"
+    # WHERE, per spec T13: a job in a terminal SUCCESS state belongs in
+    # `jobs/done/`, everything else -- including every `failed` job, forever --
+    # belongs in the main folder, so that folder IS what the queue shows.
+    main = jobs_dir()
+    target = dir_for_state(main, job.state)
+    if target != main:
+        target.mkdir(parents=True, exist_ok=True)
+    path = target / f"{job.job_id}.json"
     # WHY the thread id as well as the pid: with parallel ingest several worker
     # THREADS share one process, so a pid-only temp name is the SAME path for
     # all of them. Two threads writing the same job then race — one renames
@@ -253,6 +280,14 @@ def save(job: JobRecord) -> Path:
     tmp = path.with_suffix(f".{os.getpid()}.{threading.get_ident()}.json.tmp")
     tmp.write_text(json.dumps(job.to_json(), indent=2), encoding="utf-8")
     _replace_with_retry(tmp, path)
+    # A job only ever moves ONE way -- into `done/` -- because every
+    # transition into an archived state comes from the main folder and
+    # nothing ever leaves `live` or `cancelled` (see `advance`). So this is
+    # the only twin that can exist, and it is removed only AFTER the new copy
+    # landed: a crash here costs a duplicate that `load_all` dedupes, where
+    # the other order would cost the file itself.
+    if target != main:
+        unlink_with_retry(main / f"{job.job_id}.json")
     return path
 
 
@@ -278,17 +313,109 @@ def _replace_with_retry(tmp: Path, path: Path, *, attempts: int = 20) -> None:
 
 
 def load_job(job_id: str) -> JobRecord | None:
-    path = jobs_dir() / f"{_validated_job_id(job_id)}.json"
-    return _read(path)
+    """Outstanding work first, then the archive.
+
+    A job id arriving from an HTTP route (`/api/jobs/{id}/retry`) may name
+    either -- a page open since before a job finished still holds its id.
+    """
+    name = f"{_validated_job_id(job_id)}.json"
+    return _read(jobs_dir() / name) or _read(archive_dir() / name)
+
+
+def load_active() -> list[JobRecord]:
+    """Outstanding work and every failure, newest first -- what the queue shows.
+
+    The main folder holds exactly {non-terminal} union {failed}, by
+    construction (see ingest/archive.py), so this needs no state filter of its
+    own and cannot drift out of step with one. That is the whole reason spec
+    T13 was implemented as a location rather than as a filter.
+    """
+    return _sorted(_read_dir(jobs_dir()))
 
 
 def load_all() -> list[JobRecord]:
-    """Every machine's jobs, newest first.
+    """Every job ever, newest first -- outstanding work plus the archive.
+
+    Deliberately unchanged in MEANING. Callers that want only outstanding work
+    ask for `load_active()`; this stays the honest "everything", which is what
+    the audit trail and the queue's "view all" need.
 
     Unreadable files are skipped rather than raised: one corrupt job must
     not blank the queue page for everyone.
     """
-    jobs = [j for j in (_read(p) for p in jobs_dir().glob("*.json")) if j is not None]
+    by_id = {j.job_id: j for j in _read_dir(jobs_dir())}
+    # The archive wins a tie: a job present in both folders crashed between
+    # the write and the unlink in `save`, so the archived copy is the later
+    # write and the more accurate one.
+    by_id.update({j.job_id: j for j in _read_dir(archive_dir())})
+    return _sorted(by_id.values())
+
+
+def archived_count() -> int:
+    """How many jobs have finished. A directory listing -- opens no files.
+
+    Rendering this number by reading 7,100 job files is precisely what spec
+    T13 exists to stop, so it must stay a listing. `tests/test_job_archive.py`
+    asserts the mechanism, not just the number.
+    """
+    try:
+        return sum(1 for _ in archive_dir().glob("*.json"))
+    except OSError:
+        return 0
+
+
+# How many archived files to open looking for the newest successful ingest.
+# The archive's newest entry by mtime is almost always a `live` job, so the
+# common case opens exactly one file; the cap is what stops a pathological
+# archive (a long run of dismissed failures) turning one admin panel into a
+# full scan of 7,000 files.
+_NEWEST_LIVE_SCAN_CAP = 50
+
+
+def newest_archived_live() -> JobRecord | None:
+    """The most recently finished successful ingest, or None.
+
+    Feeds `last_ingest_at` on the admin health panel. Sorted by file mtime
+    rather than by `updated_at` because mtime comes from the directory entry,
+    so this reads one file where sorting on `updated_at` would read all of
+    them. `cancelled` jobs are skipped -- a dismissed failure is not an
+    ingest, and reporting one as the last successful ingest would be a
+    quietly false reassurance.
+    """
+    try:
+        entries = sorted(
+            archive_dir().glob("*.json"),
+            key=lambda p: p.stat().st_mtime,
+            reverse=True,
+        )
+    except OSError:
+        return None
+    for path in entries[:_NEWEST_LIVE_SCAN_CAP]:
+        job = _read(path)
+        if job is not None and job.state == "live":
+            return job
+    return None
+
+
+def sweep_archive(*, limit: int | None = None) -> int:
+    """Move already-finished job files into `done/`. Returns how many moved.
+
+    Called once per process from the app's lifespan handler. The first run
+    against the office share has ~7,100 files to move; afterwards the main
+    folder holds only outstanding work and failures, so it is a listing of
+    tens of files.
+    """
+    return _sweep(jobs_dir(), read=_read, limit=limit)
+
+
+def _read_dir(path: Path) -> list[JobRecord]:
+    try:
+        return [j for j in (_read(p) for p in path.glob("*.json")) if j is not None]
+    except OSError:
+        return []
+
+
+def _sorted(jobs) -> list[JobRecord]:
     return sorted(jobs, key=lambda j: (j.created_at, j.job_id), reverse=True)
 
 
@@ -301,8 +428,11 @@ def resumable() -> list[JobRecord]:
     completed page ranges) that only this machine can pick back up.
     """
     me = socket.gethostname()
+    # load_active(), not load_all(): every archived job is terminal, so the
+    # `state not in TERMINAL_STATES` filter below already excluded all of them
+    # -- the same set, without reading the 7,100-file archive at every startup.
     live = [
-        j for j in load_all()
+        j for j in load_active()
         if j.machine == me and j.state not in TERMINAL_STATES and j.state != "queued"
     ]
     return list(reversed(live))
