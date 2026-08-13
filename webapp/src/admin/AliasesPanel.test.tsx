@@ -12,9 +12,9 @@ import { AliasesPanel } from "./AliasesPanel";
 //  2. A refusal shows the server's own sentence. Those sentences carry the
 //     reason ("that word is too easy to confuse"), which is the only thing
 //     that tells an admin what to type instead.
-//  3. The honest limitation is on the page, in the spec's words: this
-//     improves typed searches, and does nothing for documents already
-//     filed.
+//  3. The honest limitation is on the page, in office English (Task 10 fix
+//     pass 2 rewrite of the spec's original wording): this improves typed
+//     searches, and does nothing for documents already filed.
 
 function aliases(over: Partial<api.AdminAliases> = {}): api.AdminAliases {
   return {
@@ -77,13 +77,14 @@ describe("the office's own shorthand", () => {
     await renderPanel();
     openCard(/your office's shorthand/i);
 
-    // Verbatim from the design spec. The gap it names is real (documents
-    // already filed were not stamped with this word), and an admin who
-    // isn't told will read the feature as broken.
+    // Destin's office-English rewrite (Task 10 fix pass 2) of the spec's
+    // verbatim sentence. The gap it names is real (documents already filed
+    // were not stamped with this word), and an admin who isn't told will
+    // read the feature as broken.
     expect(screen.getByTestId("admin-aliases")).toHaveTextContent(
-      "Aliases apply to searches immediately. Documents already in the corpus " +
-        "were catalogued without them, so a new alias improves typed searches, " +
-        "not older documents' own labels.",
+      "Short names work in searches straight away. Documents already filed " +
+        "were labelled without them, so a new short name improves what you " +
+        "can type, not the labels on older documents.",
     );
   });
 

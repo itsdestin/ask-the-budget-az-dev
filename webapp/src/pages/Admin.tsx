@@ -32,11 +32,17 @@ import { describeChanges } from "../admin/changes";
 
 /** A labelled band of panels. The heading is the group's whole job: it names
  *  the question its panels answer, so an admin scanning the page can skip
- *  four sections without opening any of them. */
-function Group({ title, children }: { title: string; children: ReactNode }) {
+ *  four sections without opening any of them.
+ *
+ *  Fix (Task 10 fix pass 2, Destin's call): `title` is optional. A group
+ *  holding exactly one panel would repeat that panel's own heading right
+ *  above it — "Spending" over a card titled "Spending" — which reads as the
+ *  page talking to itself. Omit `title` on single-panel groups; the grouping
+ *  (and its layout spacing) stays, only the redundant label goes. */
+function Group({ title, children }: { title?: string; children: ReactNode }) {
   return (
     <div className="adm-group">
-      <h2 className="adm-group-title">{title}</h2>
+      {title ? <h2 className="adm-group-title">{title}</h2> : null}
       {children}
     </div>
   );
@@ -361,7 +367,9 @@ export function Admin() {
           <AliasesPanel />
         </Group>
 
-        <Group title="Spending">
+        {/* No title: this group holds only CostsPanel, whose own heading is
+            "Spending" (Task 10 fix pass 2, Destin's call). */}
+        <Group>
           <CostsPanel
             usage={usage}
             month={month}
@@ -372,7 +380,9 @@ export function Admin() {
           />
         </Group>
 
-        <Group title="Access & files">
+        {/* No title: this group holds only AdvancedPanel, whose own heading
+            is "Access and files" (Task 10 fix pass 2, Destin's call). */}
+        <Group>
           <AdvancedPanel
             settings={settings ?? draft}
             me={me}

@@ -137,13 +137,16 @@ export function AliasesPanel() {
         }
         testId="admin-aliases-card"
       >
-        {/* Verbatim from the design spec. The limitation is real and it is
-            not obvious: documents already filed were labelled without this
-            word, and no edit here goes back and re-labels them. */}
+        {/* Destin's rewrite of the spec's verbatim sentence (Task 10 fix
+            pass 2): office English, and "short name" throughout instead of
+            "alias" as a reader-facing noun. The limitation itself is
+            unchanged and still real: documents already filed were labelled
+            without this word, and no edit here goes back and re-labels
+            them. */}
         <p className="adm-hint">
-          Aliases apply to searches immediately. Documents already in the corpus
-          were catalogued without them, so a new alias improves typed searches,
-          not older documents' own labels.
+          Short names work in searches straight away. Documents already filed
+          were labelled without them, so a new short name improves what you
+          can type, not the labels on older documents.
         </p>
 
         {data.added.length === 0 ? (

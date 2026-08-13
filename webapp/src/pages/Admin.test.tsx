@@ -710,7 +710,7 @@ describe("the page's shape", () => {
     expect(headings[1]).toHaveTextContent(/needs a look/i);
   });
 
-  it("labels every group, in the order an admin needs them", async () => {
+  it("labels multi-panel groups, in the order an admin needs them, and drops the label from single-panel groups", async () => {
     mockAll();
     const { container } = render(<Admin />);
     await screen.findByTestId("admin-costs");
@@ -718,16 +718,17 @@ describe("the page's shape", () => {
     // Read off the rendered page by the group label's own class, not by
     // matching text: two panels carry a heading identical to the group they
     // sit in ("AI Mode", "Spending"), so a text filter would count those too.
+    //
+    // Task 10 fix pass 2 (Destin's call): "Spending" and "Access & files"
+    // each hold exactly one panel, and that panel already carries the same
+    // heading — so those two groups render with NO `.adm-group-title` at
+    // all now. This assertion is exact-array, not "contains": it fails if
+    // the order changes, if a surviving label goes missing, or if either
+    // single-panel group's label comes back.
     const groups = [...container.querySelectorAll(".adm-group-title")].map(
       (h) => h.textContent,
     );
-    expect(groups).toEqual([
-      "Needs attention",
-      "AI Mode",
-      "Search & documents",
-      "Spending",
-      "Access & files",
-    ]);
+    expect(groups).toEqual(["Needs attention", "AI Mode", "Search & documents"]);
   });
 
   it("keeps developer vocabulary off the page", async () => {
