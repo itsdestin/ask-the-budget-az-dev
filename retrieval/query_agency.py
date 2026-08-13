@@ -33,6 +33,10 @@ stamper uses.
      agency. See `_name_phrases` for why the head rather than single words.
   3. An alias — the JLBC URL slug, or a reviewed acronym from the catalog.
      EXACT when it identifies exactly one agency and is not stoplisted.
+  3b. An alias the office ADMIN added (`store/office_aliases.py`, spec E1).
+     ALWAYS WEAK — see the overlay block in `parse_query_agencies`. The admin
+     can also switch a shipped tier-3 alias off; that never touches tiers 1-2,
+     so disabling a shorthand cannot hide an agency's real name.
   4. rapidfuzz `token_set_ratio` >= 85 against catalog names. Always WEAK.
 """
 from __future__ import annotations
@@ -57,6 +61,12 @@ from chunking.entity_stamper import (
     _normalize_for_match,
 )
 from retrieval.query_match import Confidence, Match
+
+# The admin's alias overlay (spec E1). `store/` is already a dependency of
+# `retrieval/` (pipeline.py, search_lance.py, citations.py all import it), so
+# this adds no new layering — and `store.office_aliases` itself only reaches
+# `store.config`, so nothing heavy comes along.
+from store.office_aliases import OfficeAliases, load_office_aliases
 
 # Aliases that are also ordinary English words, or another agency's everyday
 # shorthand. They still MATCH — "doc baseline" must find Corrections — but they
@@ -306,7 +316,10 @@ _FUNCTION_WORDS = frozenset({"of", "the", "and", "for", "in", "on", "to", "a", "
 
 
 def parse_query_agencies(
-    query: str, *, catalog_path: Path | str | None = None
+    query: str,
+    *,
+    catalog_path: Path | str | None = None,
+    office_aliases: OfficeAliases | None = None,
 ) -> list[Match]:
     """Agencies named in `query`, most confident first.
 
@@ -316,6 +329,10 @@ def parse_query_agencies(
 
     `catalog_path` exists for tests that want a fixture catalog; production
     callers pass nothing and get the workspace catalog.
+
+    `office_aliases` is the admin's overlay (spec E1). `None` means "read it
+    from the shared data dir" — the production path. Tests pass an explicit
+    overlay so they never depend on what is on the machine's data dir.
     """
     if not query or not query.strip():
         return []
@@ -324,6 +341,16 @@ def parse_query_agencies(
     normalized = _normalize_for_match(query)
     if not normalized:
         return []
+
+    # Loaded per call, NOT baked into `_AgencyIndex`: that index is lru-cached
+    # for the process lifetime, while this file can change under a running
+    # server the moment an admin saves. The store's own (path, mtime, size)
+    # stamp makes the repeat call cheap — one `stat` on the hot path.
+    overlay = office_aliases if office_aliases is not None else load_office_aliases()
+    # Normalized the same way the query is, or an admin who types "DIFI" or
+    # "Comm Colleges" would disable a string this module never produces.
+    disabled = {_normalize_for_match(d) for d in overlay.disabled}
+    disabled.discard("")
 
     matches: list[Match] = []
     seen: set[str] = set()
@@ -371,6 +398,11 @@ def parse_query_agencies(
 
     # --- Tier 3: slugs and reviewed acronyms --------------------------------
     for alias in _scan_phrases(normalized, index.aliases_longest_first):
+        # An admin-disabled shipped alias never resolves through this tier.
+        # Only the SHORTHAND dies — the agency's NAME is a higher tier and is
+        # untouched, so the escape hatch cannot hide an agency outright.
+        if alias in disabled:
+            continue
         ids = index.alias_to_ids[alias]
         # A SPECIFIC name beats a curated umbrella. "university of arizona" is
         # curated to both UA lines, but it is also a prefix of each line's own
@@ -391,6 +423,31 @@ def parse_query_agencies(
         confidence = Confidence.EXACT if exact else Confidence.WEAK
         for canonical_id in _expand_group(index, ids) if exact else ids:
             _add(canonical_id, confidence, alias)
+
+    # --- Overlay tier: the admin's added aliases (spec E1) ------------------
+    # ALWAYS WEAK. The confidence is a hardcoded literal here — never computed
+    # from uniqueness or length the way tier 3 computes it — because these
+    # strings never went through the eval-gated review that earns the right to
+    # hard-filter. A bad overlay alias may cost ranking; it may never delete
+    # the right answer from the page.
+    #
+    # Placed AFTER tier 3 so `_add`'s "first tier owns it" rule does the rest:
+    # an agency a catalog tier already claimed EXACT keeps that confidence, so
+    # the overlay can only ever ADD an agency, never downgrade one.
+    if overlay.added:
+        overlay_to_ids: dict[str, set[str]] = {}
+        for entry in overlay.added:
+            key = _normalize_for_match(entry.alias)
+            # `disabled` applies to the admin's own additions too: switching a
+            # string off must mean off, whichever list it came from.
+            if key and key not in disabled:
+                overlay_to_ids.setdefault(key, set()).add(entry.canonical_id)
+        overlay_longest_first = sorted(overlay_to_ids, key=len, reverse=True)
+        for alias in _scan_phrases(normalized, overlay_longest_first):
+            # Sorted so two agencies sharing one overlay alias resolve in a
+            # stable order rather than on set-iteration order.
+            for canonical_id in sorted(overlay_to_ids[alias]):
+                _add(canonical_id, Confidence.WEAK, alias)
 
     # --- Tier 4: fuzzy fallback ---------------------------------------------
     # Only when nothing else matched. A fuzzy hit ALONGSIDE a confident one is
