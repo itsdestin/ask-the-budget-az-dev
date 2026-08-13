@@ -55,6 +55,40 @@ def test_non_object_json_degrades_not_raises(tmp_path):
         assert load_office_aliases(path=path) == OfficeAliases()
 
 
+def test_non_dict_added_rows_skip_not_raise(tmp_path):
+    # A torn row costs itself, not the file — but "torn" also covers rows
+    # that aren't objects at all (null, a bare string, a number), not just
+    # objects missing keys. Mixed in with one good row, the good row must
+    # still load.
+    path = tmp_path / "office-aliases.json"
+    path.write_text(
+        json.dumps(
+            {
+                "added": [
+                    None,
+                    "not-a-row",
+                    5,
+                    {"alias": "dor", "canonical_id": "agency:rev"},
+                ],
+                "disabled": [],
+            }
+        ),
+        encoding="utf-8",
+    )
+    reset_office_aliases_cache()
+    loaded = load_office_aliases(path=path)
+    assert loaded == OfficeAliases(
+        added=(OfficeAlias("dor", "agency:rev", "", ""),)
+    )
+
+
+def test_wholly_bad_added_list_degrades_not_raises(tmp_path):
+    path = tmp_path / "office-aliases.json"
+    path.write_text(json.dumps({"added": [None, "x", 5], "disabled": []}), encoding="utf-8")
+    reset_office_aliases_cache()
+    assert load_office_aliases(path=path) == OfficeAliases()
+
+
 def test_rewrite_on_disk_is_picked_up_without_reset(tmp_path):
     path = tmp_path / "office-aliases.json"
     save_office_aliases(OfficeAliases(), path=path)

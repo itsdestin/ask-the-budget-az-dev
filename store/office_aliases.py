@@ -71,7 +71,20 @@ def load_office_aliases(path: Path | None = None) -> OfficeAliases:
     try:
         stat = resolved.stat()
         stamp = (str(resolved), stat.st_mtime_ns, stat.st_size)
-    except OSError:
+    except FileNotFoundError:
+        # No overlay yet is the normal, silent case — most offices never
+        # create one.
+        return OfficeAliases()
+    except OSError as err:
+        # Anything other than "doesn't exist" (permission denied, a stale
+        # handle on the shared drive, ...) is worth a line on stderr, same
+        # as the corrupt-file path below — the admin should see why their
+        # aliases stopped applying instead of it silently going empty.
+        print(
+            f"store.office_aliases: ignoring {resolved} ({err}) — the "
+            "admin's alias overlay is unavailable for this read.",
+            file=sys.stderr,
+        )
         return OfficeAliases()
     with _lock:
         if _cache is not None and _cache[0] == stamp:
@@ -99,6 +112,12 @@ def load_office_aliases(path: Path | None = None) -> OfficeAliases:
 def _from_dict(raw: dict) -> OfficeAliases:
     added = []
     for row in raw.get("added", []) or []:
+        # A non-dict element (null, a bare string, a number, a nested list)
+        # is torn data, same as a dict missing keys — it costs itself, not
+        # the file. Without this check `row.get(...)` raises AttributeError,
+        # which isn't in the caught tuple below, and the whole load blows up.
+        if not isinstance(row, dict):
+            continue
         alias = str(row.get("alias") or "").strip().lower()
         canonical_id = str(row.get("canonical_id") or "").strip()
         if not alias or not canonical_id:
