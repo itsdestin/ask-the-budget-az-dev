@@ -272,6 +272,25 @@ def test_ocr_extractor_calls_run_mineru_with_the_ocr_method(
     assert calls == [((source, out, [1, 2]), {"method": "ocr"})]
 
 
+def test_pick_named_reaches_a_rung_the_registry_cannot() -> None:
+    """`mineru-ocr` is deliberately absent from data/document-types.yaml, so
+    `pick_extractor` can never return it. The ladder still has to be able to
+    ask for it by name, and that is the whole reason `pick_named` exists."""
+    from ingest.dispatcher import pick_named
+
+    assert isinstance(pick_named("mineru-ocr"), MinerUOcrExtractor)
+    assert pick_named("opendataloader").name == "opendataloader"
+
+
+def test_pick_named_refuses_an_unknown_name() -> None:
+    """A typo'd rung must not resolve to None and then be run as "no
+    extractor" — the worker would report success having extracted nothing."""
+    from ingest.dispatcher import pick_named
+
+    with pytest.raises(ValueError, match="unknown extractor"):
+        pick_named("minerU")
+
+
 def test_ocr_extractor_has_its_own_rung_name() -> None:
     """MinerUOcrExtractor subclasses MinerUExtractor rather than duplicating
     it -- `get_version()` is inherited unchanged (comparing it against the

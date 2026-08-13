@@ -51,7 +51,7 @@ import json
 import sys
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Protocol, runtime_checkable
+from typing import ClassVar, Protocol, runtime_checkable
 
 from ingest.doc_types import all_types as _all_doc_types
 
@@ -107,6 +107,19 @@ def _import_phase0_module(module_name: str):
 class MinerUExtractor:
     name: str = "mineru"
 
+    # MinerU's `-m` flag for this rung. A ClassVar, not a dataclass field, so
+    # the constructor signature is unchanged for every existing caller.
+    #
+    # WHY it exists at all rather than living only inside `extract()`: the
+    # ingest worker does NOT go through `extract()` for MinerU. A book runs
+    # for hours, so `ingest/worker.py::_extract_with_mineru` drives
+    # `MineruRunner` directly to get streamed progress, cancellation and
+    # per-range resume -- and `MineruRunner` takes its method at
+    # construction. Without a value it can read off the extractor, the OCR
+    # rung would build a runner in `auto` mode and run byte-identical work to
+    # the rung that already failed.
+    mineru_method: ClassVar[str] = "auto"
+
     def get_version(self) -> str:
         # Lazy: MinerU imports torch + transformers, which is heavy
         # enough that a "what version?" call shouldn't trigger it
@@ -146,6 +159,7 @@ class MinerUOcrExtractor(MinerUExtractor):
     """
 
     name: str = "mineru-ocr"
+    mineru_method: ClassVar[str] = "ocr"
 
     def extract(
         self,
@@ -157,7 +171,11 @@ class MinerUOcrExtractor(MinerUExtractor):
         run_mineru_mod = _import_phase0_module("run_mineru")
         if pages is None:
             pages = list(range(1, _pdf_page_count(source_path) + 1))
-        run_mineru_mod.run_mineru(source_path, output_dir, pages, method="ocr")
+        # Reads the ClassVar rather than repeating "ocr": the worker's
+        # streamed MinerU path reads the same attribute, and two independent
+        # literals would let one of the two paths silently run in auto mode.
+        run_mineru_mod.run_mineru(source_path, output_dir, pages,
+                                  method=self.mineru_method)
 
 
 @dataclass
@@ -276,6 +294,29 @@ def pick_extractor(doc_type: str, source_format: str) -> Extractor:
             f"(doc_type={doc_type!r}, source_format={source_format!r}). "
             f"Known doc_types: {valid_types}. "
             f"Known source_formats: {valid_formats}."
+        )
+    return cls()
+
+
+def pick_named(name: str) -> Extractor:
+    """Resolve one extractor by NAME, for a caller that already knows it.
+
+    `pick_extractor` answers "what should this document type use?".  This
+    answers "give me that specific tool", which is what a ladder rung is:
+    `ingest/ladder.py` has already decided the order, and rungs below the
+    first are deliberately absent from `data/document-types.yaml` (see
+    `_EXTRACTOR_CLASSES`), so they cannot be reached by (doc_type, format)
+    at all.
+
+    Lives here rather than in the worker so `_EXTRACTOR_CLASSES` stays this
+    module's private business -- a caller reaching into that dict is a
+    caller that can be handed a class the registry never validated.
+    """
+    cls = _EXTRACTOR_CLASSES.get(name)
+    if cls is None:
+        raise ValueError(
+            f"pick_named: unknown extractor {name!r}. "
+            f"Known: {sorted(_EXTRACTOR_CLASSES)}."
         )
     return cls()
 
