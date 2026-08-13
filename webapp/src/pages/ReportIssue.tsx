@@ -147,8 +147,7 @@ export function ReportIssue() {
                 analyst without their seeing it said. */}
             <p className="adm-hint" data-testid="report-context">
               This report will be filed as <strong>{me?.user ?? "you"}</strong>
-              , timestamped the moment you send it. Nothing else about you is
-              collected.
+              , timestamped the moment you send it.
             </p>
 
             {submitError ? (

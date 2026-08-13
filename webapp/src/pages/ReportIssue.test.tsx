@@ -99,7 +99,7 @@ describe("filing a report", () => {
     expect(await screen.findByText("Search came back empty for HB123")).toBeInTheDocument();
   });
 
-  it("never sends conversation_id when no conversation was chosen", async () => {
+  it("never sends conversation_id or expected when left blank", async () => {
     mockEmpty();
     const submitSpy = vi.spyOn(api, "submitIssue").mockResolvedValue({ report: report() });
     render(<ReportIssue />);
@@ -112,6 +112,7 @@ describe("filing a report", () => {
 
     await waitFor(() => expect(submitSpy).toHaveBeenCalled());
     expect(submitSpy.mock.calls[0][0]).not.toHaveProperty("conversation_id");
+    expect(submitSpy.mock.calls[0][0]).not.toHaveProperty("expected");
   });
 
   it("disables submit while the description is empty or just whitespace", async () => {
@@ -238,12 +239,28 @@ describe("Your reports", () => {
     expect(rows[1]).toHaveClass("is-resolved");
   });
 
-  it("states the context the server records, so nothing is collected invisibly", async () => {
+  it("states the context the server records, with wording that stays true whether or not a conversation is attached", async () => {
     vi.spyOn(api, "me").mockResolvedValue(me({ user: "jsmith" }));
-    vi.spyOn(api, "listHistory").mockResolvedValue({ conversations: [] });
+    vi.spyOn(api, "listHistory").mockResolvedValue({ conversations: [chat()] });
     vi.spyOn(api, "issues").mockResolvedValue({ reports: [], unresolved: 0, is_admin: false });
 
     render(<ReportIssue />);
-    expect(await screen.findByTestId("report-context")).toHaveTextContent("jsmith");
+    const context = await screen.findByTestId("report-context");
+    // No attachment yet — the sentence must not claim more than it can back
+    // up, and must leave the "anything else" question to the consent line.
+    expect(context).toHaveTextContent(
+      "This report will be filed as jsmith, timestamped the moment you send it.",
+    );
+
+    const picker = await screen.findByLabelText(/attach one of your conversations/i);
+    fireEvent.change(picker, { target: { value: "c1" } });
+
+    // Once a conversation is attached, this sentence must read identically —
+    // if it still claimed "nothing else is collected" here it would be
+    // false, since the attached conversation is exactly the extra thing
+    // going along with the report.
+    expect(screen.getByTestId("report-context")).toHaveTextContent(
+      "This report will be filed as jsmith, timestamped the moment you send it.",
+    );
   });
 });
