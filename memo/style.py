@@ -32,7 +32,14 @@ ADDRESS_LINES = (
     ("Phoenix, Arizona 85007", "azjlbc.gov"),
 )
 FOOTER_NOTE = "Generated with JLBC Agentic Search"
-SENDER_SUFFIX = ", via JLBC Agentic Search"
+# The tool's name is stated ONCE and the suffix is derived from it, because
+# the FROM row needs the bare name when there is no analyst to attribute.
+# Deriving beats trimming the suffix at the use site: `lstrip` takes a SET
+# of characters, so `SENDER_SUFFIX.lstrip(", ")` reads as "drop the comma
+# and space" and actually yields "via JLBC Agentic Search" — a FROM row
+# beginning "via". Measured in the interpreter, not assumed.
+TOOL_NAME = "JLBC Agentic Search"
+SENDER_SUFFIX = f", via {TOOL_NAME}"
 # A visible placeholder, not an empty cell: an empty cell beside a label
 # reads as a rendering bug (spec M4).
 NO_RECIPIENT = "[Recipient(s)]"
@@ -177,3 +184,70 @@ def add_rule(doc: DocumentT) -> None:
     bottom.set(qn("w:color"), "000000")
     borders.append(bottom)
     pPr.append(borders)
+
+
+MEMO_LABELS = ("DATE:", "TO:", "FROM:", "SUBJECT:")
+
+
+def add_memo_block(
+    doc: DocumentT,
+    *,
+    date: str,
+    recipient: str,
+    sender: str,
+    subject: str,
+) -> None:
+    """The DATE / TO / FROM / SUBJECT block.
+
+    A borderless two-column table with a blank spacer row between each
+    pair, exactly as the reference builds it. It is invisible to
+    `Document.paragraphs`, which is why a first pass at measuring this
+    document missed it entirely.
+    """
+    # No sender degrades to the tool's name alone, never a dangling comma:
+    # an unnameable analyst should lose attribution, not receive a
+    # malformed memo.
+    sender_line = f"{sender}{SENDER_SUFFIX}" if sender else TOOL_NAME
+    values = (date, recipient or NO_RECIPIENT, sender_line, subject)
+
+    table = doc.add_table(rows=0, cols=2)
+    table.autofit = False
+    # `autofit = False` alone does not hold the widths, and the reference
+    # carries an explicit fixed layout, so this does too. It is what tells
+    # WORD to honour the widths at render time — a thing no python-docx
+    # getter can observe, so no test here can pin it.
+    #
+    # MEASURED on python-docx 1.2.0, correcting the plan: the 2743200-EMU
+    # failure it attributes to a missing `tblLayout` does not come from
+    # that. Omitting this element changes neither `columns[].width` nor
+    # `cells[].width` on a save/reload. 2743200 is a CELL width, and what
+    # produces it is creating the rows UP FRONT (`add_table(rows=7, …)`)
+    # and then setting only the columns: the cells keep Word's even split,
+    # the labels wrap, and the column widths still read correctly, so the
+    # obvious assertion misses it. Hence `rows=0` below, with each row
+    # added afterwards — that alone is what sizes the cells.
+    layout = OxmlElement("w:tblLayout")
+    layout.set(qn("w:type"), "fixed")
+    table._tbl.tblPr.append(layout)
+    table.columns[0].width = LABEL_COL_TWIPS
+    table.columns[1].width = VALUE_COL_TWIPS
+
+    # The per-cell widths below are redundant on this construction — the
+    # cells inherit the gridCol widths already, verified by deleting these
+    # lines and watching every test stay green. They are kept because they
+    # state the intent at the point a future edit is most likely to change
+    # how the rows are built, which is the change that does break it.
+    for index, (label, value) in enumerate(zip(MEMO_LABELS, values)):
+        if index:
+            spacer = table.add_row()
+            spacer.cells[0].width = LABEL_COL_TWIPS
+            spacer.cells[1].width = VALUE_COL_TWIPS
+        row = table.add_row()
+        row.cells[0].width = LABEL_COL_TWIPS
+        row.cells[1].width = VALUE_COL_TWIPS
+        # `Header` style on the label cell, matching the reference. Bold
+        # is deliberately NOT applied — see the test that pins this.
+        label_paragraph = row.cells[0].paragraphs[0]
+        label_paragraph.style = doc.styles["Header"]
+        label_paragraph.add_run(label)
+        row.cells[1].paragraphs[0].add_run(value)

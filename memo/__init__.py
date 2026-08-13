@@ -31,4 +31,11 @@ def render(
     doc = style.new_document()
     style.add_masthead(doc)
     style.add_rule(doc)
+    style.add_memo_block(
+        doc,
+        date=date or style.today_long(),
+        recipient=recipient,
+        sender=sender,
+        subject=subject,
+    )
     return doc

@@ -121,3 +121,98 @@ def test_body_text_is_calibri_105pt_on_the_normal_style(rendered):
     normal = rendered.styles["Normal"]
     assert normal.font.name == "Calibri"
     assert normal.font.size == Pt(10.5)
+
+
+def test_the_memo_block_is_a_borderless_7x2_table(rendered, reference):
+    table = rendered.tables[0]
+    theirs = reference.tables[0]
+    assert len(table.rows) == len(theirs.rows) == 7
+    assert len(table.columns) == 2
+    assert [c.width for c in table.columns] == [c.width for c in theirs.columns]
+    assert "tblBorders" not in table.style.element.xml
+
+
+def test_every_memo_block_CELL_carries_its_own_width(rendered, reference):
+    """Column widths alone do not protect the thing that actually wraps.
+
+    Measured on python-docx 1.2.0, and it corrects the plan's account of
+    this trap. Build the table with its rows already present
+    (`add_table(rows=7, cols=2)`) and set only the columns, and every
+    CELL round-trips at 2743200 EMU — Word's even split — while
+    `columns[].width` still reads the intended 925830 / 4914900. The
+    labels wrap and `test_the_memo_block_is_a_borderless_7x2_table`
+    stays green throughout. This test is what goes red.
+
+    It asserts the rendered property, not the mechanism: with the shipped
+    `rows=0` + `add_row()` construction the cells inherit the gridCol
+    widths on their own, so deleting the explicit `cells[…].width` lines
+    in `add_memo_block` does NOT fail this — verified by deleting them.
+    What fails it is a refactor to rows-up-front.
+    """
+    ours = rendered.tables[0]
+    theirs = reference.tables[0]
+    expected = [c.width for c in theirs.rows[0].cells]
+    assert expected == [style.LABEL_COL_TWIPS, style.VALUE_COL_TWIPS]
+    for index, row in enumerate(ours.rows):
+        assert [c.width for c in row.cells] == expected, f"row {index} unsized"
+
+
+def test_the_memo_block_labels_are_in_order_and_not_bold(rendered):
+    """The labels share the `Header` paragraph style with section
+    headings, and in the reference they are NOT bold — only the headings
+    are, via direct run formatting. A future edit that puts bold on the
+    style instead of the run bolds these as a side effect (spec M8)."""
+    table = rendered.tables[0]
+    labels = [table.rows[i].cells[0].text for i in (0, 2, 4, 6)]
+    assert labels == ["DATE:", "TO:", "FROM:", "SUBJECT:"]
+    for row in (0, 2, 4, 6):
+        paragraph = table.rows[row].cells[0].paragraphs[0]
+        assert paragraph.style.name == "Header"
+        assert paragraph.runs[0].bold is not True
+
+
+def test_the_subject_row_carries_the_documents_title(rendered):
+    assert (
+        rendered.tables[0].rows[6].cells[1].text
+        == "FY 2027 AHCCCS Appropriations Summary"
+    )
+
+
+def test_there_is_no_separate_title_line_in_the_body(rendered):
+    """The reference has none, and Word's `Title` style is already spent
+    on the masthead. The subject IS the title (spec M4)."""
+    body_texts = [p.text for p in rendered.paragraphs]
+    assert body_texts.count("FY 2027 AHCCCS Appropriations Summary") == 0
+
+
+def test_an_absent_recipient_renders_a_visible_placeholder(rendered):
+    assert rendered.tables[0].rows[2].cells[1].text == "[Recipient(s)]"
+
+
+def test_a_supplied_recipient_is_used_verbatim():
+    doc = memo.render(
+        "Body.", subject="S", sender="A. Analyst", recipient="Director Smith"
+    )
+    assert doc.tables[0].rows[2].cells[1].text == "Director Smith"
+
+
+def test_the_sender_row_names_the_analyst_and_the_tool(rendered):
+    assert (
+        rendered.tables[0].rows[4].cells[1].text
+        == "Destin Jarrett, via JLBC Agentic Search"
+    )
+
+
+def test_an_unknown_analyst_leaves_the_tool_alone_on_the_from_line():
+    """Degrades to the tool's name rather than a dangling comma. An
+    unnameable user should lose attribution, not get a malformed memo —
+    the same posture `app.identity.current_user` already takes."""
+    doc = memo.render("Body.", subject="S", sender="")
+    assert doc.tables[0].rows[4].cells[1].text == "JLBC Agentic Search"
+
+
+def test_the_date_defaults_to_today_in_long_form():
+    from memo.style import today_long
+
+    doc = memo.render("Body.", subject="S", sender="A")
+    assert doc.tables[0].rows[0].cells[1].text == today_long()
