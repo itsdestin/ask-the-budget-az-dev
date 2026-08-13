@@ -33,6 +33,8 @@ from pathlib import Path
 ap = argparse.ArgumentParser()
 ap.add_argument("-p"); ap.add_argument("-o"); ap.add_argument("-s", type=int)
 ap.add_argument("-e", type=int); ap.add_argument("-b")
+ap.add_argument("-m", default="auto")
+ap.add_argument("--api-url")
 ap.add_argument("--sleep", type=float, default=0.0)
 ap.add_argument("--fail", action="store_true")
 a = ap.parse_args()
@@ -248,6 +250,76 @@ def test_command_includes_api_url_only_when_set(monkeypatch, tmp_path):
             timeout_s=10, on_page=None,
         )
     assert seen[-1][-2:] == ["--api-url", "http://127.0.0.1:47900"]
+
+
+# --- OCR rung (JLBC_MINERU method / -m flag, spec T7) -----------------------
+
+
+def test_default_method_is_auto_on_the_wire(monkeypatch, tmp_path):
+    """Without an explicit method, every existing caller's command line
+    must be unchanged -- 'auto' is today's implicit behaviour made
+    explicit, not a new default."""
+    seen: list[list[str]] = []
+
+    def fake_stream(self, cmd, *, timeout_s, on_page):
+        seen.append(list(cmd))
+        raise _StopForTest()
+
+    monkeypatch.setattr(MineruRunner, "_stream", fake_stream, raising=False)
+    pdf = tmp_path / "d.pdf"
+    pdf.write_bytes(b"%PDF-1.4\n")
+    runner = MineruRunner(exe=["mineru"])
+
+    with contextlib.suppress(_StopForTest):
+        runner._run_range(
+            pdf=pdf, out=tmp_path / "o", pages=[1], start=1, end=1,
+            timeout_s=10, on_page=None,
+        )
+    assert "-m" in seen[-1]
+    assert seen[-1][seen[-1].index("-m") + 1] == "auto"
+
+
+def test_run_range_command_carries_the_requested_method(monkeypatch, tmp_path):
+    """The seam Task 4 will drive: a runner built for the OCR rung must ask
+    MinerU for OCR on the actual command line, not just remember the word
+    'ocr' somewhere in Python."""
+    seen: list[list[str]] = []
+
+    def fake_stream(self, cmd, *, timeout_s, on_page):
+        seen.append(list(cmd))
+        raise _StopForTest()
+
+    monkeypatch.setattr(MineruRunner, "_stream", fake_stream, raising=False)
+    pdf = tmp_path / "scan.pdf"
+    pdf.write_bytes(b"%PDF-1.4\n")
+    runner = MineruRunner(exe=["mineru"], method="ocr")
+
+    with contextlib.suppress(_StopForTest):
+        runner._run_range(
+            pdf=pdf, out=tmp_path / "o", pages=[1], start=1, end=1,
+            timeout_s=10, on_page=None,
+        )
+    assert seen[-1][seen[-1].index("-m") + 1] == "ocr"
+
+
+def test_run_batch_command_also_carries_the_requested_method(monkeypatch, tmp_path):
+    """run_batch builds its OWN command line, separate from _run_range's --
+    a method threaded through one and not the other would look correct in
+    the single-document path and silently do nothing for a batch."""
+    seen: list[list[str]] = []
+
+    def fake_stream(self, cmd, *, timeout_s, on_page):
+        seen.append(list(cmd))
+        raise _StopForTest()
+
+    monkeypatch.setattr(MineruRunner, "_stream", fake_stream, raising=False)
+    pdf = tmp_path / "scan.pdf"
+    pdf.write_bytes(b"%PDF-1.4\n")
+    runner = MineruRunner(exe=["mineru"], method="ocr")
+
+    with contextlib.suppress(_StopForTest):
+        runner.run_batch([("doc-1", pdf, tmp_path / "o")])
+    assert seen[-1][seen[-1].index("-m") + 1] == "ocr"
 
 
 class _StopForTest(Exception):

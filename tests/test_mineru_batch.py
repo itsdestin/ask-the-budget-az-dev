@@ -45,6 +45,7 @@ from pathlib import Path
 
 ap = argparse.ArgumentParser()
 ap.add_argument("-p"); ap.add_argument("-o"); ap.add_argument("-b")
+ap.add_argument("-m", default="auto")
 ap.add_argument("--api-url")
 ap.add_argument("--sleep", type=float, default=0.0)
 ap.add_argument("--skip", default="")      # stems to produce NO output for
