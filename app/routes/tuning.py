@@ -339,11 +339,11 @@ def put_guidance(
     body: GuidanceBody, _settings: Settings = Depends(require_admin)
 ) -> dict:
     try:
-        save_office_guidance(body.text, current_user() or "")
+        save_office_guidance(body.text, current_user())
     except ValueError as err:
         # The save's own sentence (harness/office_guidance.py) — written for
         # this reader already, so it is surfaced as-is rather than rewrapped.
-        raise HTTPException(status_code=400, detail=str(err)) from err
+        raise _bad_request(str(err)) from err
     # Belt-and-suspenders: save_office_guidance() already resets the cache
     # itself, but calling it again here costs nothing and keeps this route
     # correct even if that internal detail ever changes. _guidance_payload()
