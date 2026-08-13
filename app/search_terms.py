@@ -228,9 +228,31 @@ def _agency_terms(doc_id: str, catalog: Catalog, overlay: OfficeAliases) -> set[
     # and the stoplists apply LAST so a hand-edited overlay on the share
     # cannot resurrect a blocked word ("for") — this module may only ever
     # ADD reviewed vocabulary, never bypass what was already excluded.
-    added = set(overlay.added_by_agency().get(canonical_id, ()))
-    disabled = {d.lower() for d in overlay.disabled}
-    return (set(aliases) | added) - disabled - _blocked()
+    added, disabled = _overlay_tables(overlay)
+    return (set(aliases) | set(added.get(canonical_id, ()))) - disabled - _blocked()
+
+
+@lru_cache(maxsize=4)
+def _overlay_tables(
+    overlay: OfficeAliases,
+) -> tuple[dict[str, tuple[str, ...]], frozenset[str]]:
+    """`(added-by-agency, lowercased disabled)` derived ONCE per overlay.
+
+    Both tables used to be rebuilt inside `_agency_terms`, i.e. once per
+    DOCUMENT — in the one loop (app/routes/corpus.py's `document_listing`)
+    that hoists `load_office_aliases()` out specifically to avoid per-row
+    work, and which runs 5,330 times for one page load of the live corpus.
+
+    Cached here rather than threaded through `search_terms`'s signature so
+    every caller gets it, not just the hoisting one. `OfficeAliases` is a
+    frozen dataclass of tuples and a frozenset, so it is hashable and its
+    equality is its content — a saved overlay is a NEW value and misses the
+    cache, which is what makes an admin's save visible on the next request.
+    maxsize is small on purpose: there is one live overlay.
+
+    Treat the returned dict as read-only; it is shared with every caller.
+    """
+    return overlay.added_by_agency(), frozenset(d.lower() for d in overlay.disabled)
 
 
 def _type_terms(doc_type: str | None, fiscal_year: int | None) -> set[str]:

@@ -63,6 +63,16 @@ def reset_office_aliases_cache() -> None:
         _cache = None
 
 
+def _say_unavailable(resolved: Path, err: Exception) -> None:
+    """The one sentence both degraded reads print. Written once so the two
+    paths cannot drift into saying different things about the same outcome."""
+    print(
+        f"store.office_aliases: ignoring {resolved} ({err}) — the "
+        "admin's alias overlay is unavailable for this read.",
+        file=sys.stderr,
+    )
+
+
 def load_office_aliases(path: Path | None = None) -> OfficeAliases:
     """The overlay, or empty. NEVER raises — a bad file must not take down
     retrieval, whose hot path calls this on every query."""
@@ -80,11 +90,7 @@ def load_office_aliases(path: Path | None = None) -> OfficeAliases:
         # handle on the shared drive, ...) is worth a line on stderr, same
         # as the corrupt-file path below — the admin should see why their
         # aliases stopped applying instead of it silently going empty.
-        print(
-            f"store.office_aliases: ignoring {resolved} ({err}) — the "
-            "admin's alias overlay is unavailable for this read.",
-            file=sys.stderr,
-        )
+        _say_unavailable(resolved, err)
         return OfficeAliases()
     with _lock:
         if _cache is not None and _cache[0] == stamp:
@@ -98,11 +104,7 @@ def load_office_aliases(path: Path | None = None) -> OfficeAliases:
         # ValueError covers json.JSONDecodeError AND UnicodeDecodeError —
         # the trap harness/ledger.py documents. Say why every time; callers
         # on the hot path get an empty overlay, not a 500.
-        print(
-            f"store.office_aliases: ignoring {resolved} ({err}) — the "
-            "admin's alias overlay is unavailable for this read.",
-            file=sys.stderr,
-        )
+        _say_unavailable(resolved, err)
         return OfficeAliases()
     with _lock:
         _cache = (stamp, parsed)

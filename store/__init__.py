@@ -13,10 +13,12 @@ from typing import Any
 from store.config import data_dir  # noqa: F401
 
 # WHY this exists despite the lazy __getattr__ below: `__all__` is what
-# `from store import *` and `dir(store)` read, and PEP 562 `__getattr__`
-# doesn't populate either of those on its own — without this list,
-# ChunkStore/DEFAULT_DIM would work when named directly but be invisible
-# to tooling and star-imports.
+# `from store import *` reads, and PEP 562 `__getattr__` doesn't populate it —
+# without this list, `import *` would miss ChunkStore/DEFAULT_DIM even though
+# naming them directly works. (It does NOT change `dir(store)`, which reads
+# the module's real attributes: `'ChunkStore' in dir(store)` is False with
+# this list in place. Only a module-level `__dir__` would change that, and
+# nothing here needs one.)
 __all__ = ["ChunkStore", "DEFAULT_DIM", "data_dir"]
 
 
