@@ -27,7 +27,9 @@ from fastapi.testclient import TestClient
 from app.main import create_app
 from app.search_provider import StubSearchProvider
 from harness.settings import Settings, reset_settings_cache, save_settings
-from retrieval.query_agency import CURATED_ALIAS_AGENCIES, parse_query_agencies
+from chunking.agency_catalog import load_agency_catalog
+from chunking.entity_stamper import _normalize_for_match
+from retrieval.query_agency import CURATED_ALIAS_AGENCIES, _index, parse_query_agencies
 from store.office_aliases import OfficeAliases, reset_office_aliases_cache
 
 ADMIN = "Destin"
@@ -152,6 +154,27 @@ def test_collision_with_another_agencys_vocabulary_is_rejected(admin_client):
     assert "Corrections" in r.json()["detail"]
 
 
+def test_collision_with_a_catalog_name_phrase_is_rejected(admin_client):
+    # "corrections" is agency:adc's own catalog name-head — it lives in
+    # phrase_to_ids, NOT alias_to_ids, so the alias-only collision check
+    # missed it entirely and let Revenue silently claim Corrections'
+    # vocabulary. Verified live against samples/entity-catalog.yaml:
+    # phrase_to_ids['corrections'] == {'agency:adc'}.
+    r = _put(admin_client, [{"alias": "corrections", "canonical_id": REV}])
+    assert r.status_code == 400
+    assert "Corrections" in r.json()["detail"]
+    assert admin_client.get("/api/admin/aliases").json()["added"] == []
+
+
+def test_a_name_phrase_pointed_at_its_own_agency_is_allowed(admin_client):
+    # "revenue" is a catalog name phrase too — phrase_to_ids['revenue'] ==
+    # {'agency:dor', 'agency:rev'}, both "Revenue, Department of" recorded
+    # twice (same logical_group). The phrase-collision fix must not turn
+    # into a blanket rejection of an agency's own name phrase.
+    r = _put(admin_client, [{"alias": "revenue", "canonical_id": REV}])
+    assert r.status_code == 200, r.text
+
+
 def test_the_same_agency_recorded_twice_is_not_a_collision(admin_client):
     # "dor" is agency:dor's slug, and agency:dor and agency:rev are ONE
     # agency the catalog recorded twice (both "Revenue, Department of").
@@ -205,6 +228,19 @@ def test_shipped_omits_aliases_that_a_disable_cannot_reach(admin_client):
     # from a list.
     victim = "financial institutions"
     assert victim in CURATED_ALIAS_AGENCIES  # it really is shipped vocabulary
+    # PIN THE CANDIDATE SET: this is the exact table _shipped_aliases()
+    # excludes FROM. If a future edit narrows _shipped_aliases() back to
+    # catalog-aliases-only, `victim` stops being an alias_to_ids member (or
+    # starts looking like a derived slug) and this test must fail loudly —
+    # not pass vacuously because the exclusion it's guarding became dead code.
+    index = _index(None)
+    assert victim in index.alias_to_ids
+    slugs = {
+        _normalize_for_match(entry.slug)
+        for entry in load_agency_catalog().values()
+        if entry.slug
+    }
+    assert victim not in slugs  # excluded for being a name phrase, not a slug
     still_resolves = parse_query_agencies(
         f"{victim} budget",
         office_aliases=OfficeAliases(disabled=frozenset({victim})),

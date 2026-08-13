@@ -214,11 +214,29 @@ def put_aliases(
                 f"There's no agency with the id '{row.canonical_id}'. Pick an "
                 "agency from the list."
             )
-        owners = index.alias_to_ids.get(alias) or set()
+        # Union BOTH tables the resolver actually scans for this word: an
+        # alias tier-3 hit AND a catalog name/name-head tier-1/2 hit. Reading
+        # alias_to_ids alone (the pre-fix bug) misses names and name-heads
+        # like `corrections` — phrase_to_ids-only vocabulary — and lets an
+        # admin silently repoint another agency's own name at a different
+        # canonical_id. See _shipped_aliases' docstring for the same table.
+        owners = (index.alias_to_ids.get(alias) or set()) | (
+            index.phrase_to_ids.get(alias) or set()
+        )
         if owners and not _same_agency(index, owners, row.canonical_id):
+            # Name an owner whose logical group actually DIFFERS from the
+            # requested id — `owners` can legitimately contain the same real
+            # agency recorded twice (the `dor`/agency:rev case), and printing
+            # one of those would tell the admin their own request collides
+            # with itself.
+            wanted = index.logical_group.get(row.canonical_id)
+            conflicting = next(
+                (o for o in sorted(owners) if index.logical_group.get(o) != wanted),
+                sorted(owners)[0],
+            )
             raise _bad_request(
                 f"'{alias}' already means "
-                f"{names.get(sorted(owners)[0], sorted(owners)[0])}. One word "
+                f"{names.get(conflicting, conflicting)}. One word "
                 "can't point at two agencies, so pick a different shorthand."
             )
         if len(alias) <= _SHORT_ALIAS_LEN:
@@ -268,7 +286,7 @@ def put_aliases(
     return _payload(load_office_aliases(), warnings)
 
 
-def _same_agency(index, owners: set[str], canonical_id: str) -> bool:
+def _same_agency(index: "_AgencyIndex", owners: set[str], canonical_id: str) -> bool:
     """Is `canonical_id` the same REAL agency as everything in `owners`?
 
     Not string equality, because the catalog records some agencies twice:
