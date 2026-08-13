@@ -24,7 +24,12 @@ from pathlib import Path
 
 from fastapi import APIRouter, Request
 
-from ingest.book_discovery import DiscoveryError, list_editions, plan_edition
+from ingest.book_discovery import (
+    DiscoveryError,
+    _is_rolling,
+    list_editions,
+    plan_edition,
+)
 from store.config import data_dir
 from store.documents import load_documents
 
@@ -96,6 +101,21 @@ def corpus_editions() -> dict[str, set[int]]:
         yy, token = match.group(1), match.group(2).lower()
         found[_FAMILY_OF[token]].add(2000 + int(yy))
     return found
+
+
+def _has_year_specific_url(plan) -> bool:
+    """Did the probe find this edition at a URL that names its own year?
+
+    JLBC publishes each book under a year-stamped directory (`/27ar/`) and
+    ALSO keeps a rolling `/budget/` directory that it repoints every cycle.
+    A hit under the rolling directory says only "some book is published
+    there", which is true all year round and says nothing about the year
+    being asked for.
+    """
+    return any(
+        url and not _is_rolling(url)
+        for url in (plan.agency_index_url, plan.linked_toc_url, plan.single_file_url)
+    )
 
 
 def _cache_path() -> Path:
@@ -191,6 +211,28 @@ def check_missing(prober, *, refresh: bool = False) -> dict:
                 continue
             try:
                 plan = plan_edition(family, year, prober=prober)
+                if not _has_year_specific_url(plan):
+                    # 🔴 FOUND BY RUNNING IT, not by any test. The probe
+                    # ladders include JLBC's ROLLING `/budget/` directory,
+                    # which is reused every publishing cycle -- so a HEAD
+                    # against it succeeds for a year that does not exist yet
+                    # and whose contents are actually a different edition.
+                    # Live on 2026-08-13 the check offered "FY 2028
+                    # Appropriations Report" on the strength of
+                    # /budget/apprpttoc.pdf alone, which at that moment held
+                    # the FY2027 book. FY2027 itself was found properly, on
+                    # three year-specific /27ar/ URLs.
+                    #
+                    # `walk_edition` already checks a rolling directory's
+                    # CONTENTS against the requested year before queuing
+                    # anything, so ingest was never at risk -- but this panel
+                    # offers editions rather than queuing them, and offering
+                    # one that does not exist is exactly the noise T10 removes.
+                    #
+                    # A rolling hit is therefore not evidence an edition
+                    # EXISTS. It stays usable for a year the analyst names by
+                    # hand, where the contents check does the work.
+                    continue
             except DiscoveryError:
                 # Not published yet. A normal answer, not an error -- most
                 # checks end here, which is what "everything is already
@@ -247,8 +289,21 @@ def check_missing(prober, *, refresh: bool = False) -> dict:
     return payload
 
 
+# HEAD timeout for this check specifically. The books ROUTE uses 30s, which
+# is right when downloading a book -- but here a slow candidate blocks a page
+# the analyst is waiting on, and every ladder rung that does not exist has to
+# time out before the next is tried. Measured live on 2026-08-13: the first
+# uncached check took **31 seconds** at 30s, almost all of it spent waiting on
+# rungs for an edition JLBC has not published. A HEAD against a working server
+# answers in well under a second, so 6s is generous and bounds the whole check.
+MISSING_CHECK_TIMEOUT_S = 6
+
+
 @router.get("/api/books/missing")
 def missing(request: Request, refresh: bool = False):
-    from app.routes.books import _prober
+    from app.routes.books import HttpProber, _prober
 
-    return check_missing(_prober(request), refresh=refresh)
+    prober = _prober(request)
+    if isinstance(prober, HttpProber):
+        prober = HttpProber(timeout_s=MISSING_CHECK_TIMEOUT_S)
+    return check_missing(prober, refresh=refresh)

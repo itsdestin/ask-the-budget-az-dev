@@ -157,7 +157,15 @@ def test_an_edition_published_since_the_catalog_snapshot_is_found_by_probing(
 
     def _plan(family, fiscal_year, *, prober):
         if (family, fiscal_year) == ("approps", 2027):
-            return object()
+            # A realistic plan, not a bare object(): an edition is only
+            # offered when the probe found it at a YEAR-SPECIFIC url, and a
+            # stub with no urls at all cannot exercise that. `_Plan` is
+            # defined at the foot of this file, which is fine -- the name
+            # resolves when the test runs, not when it is defined.
+            return _Plan(
+                agency_index="https://www.azjlbc.gov/27ar/agencyindex.pdf",
+                linked_toc="https://www.azjlbc.gov/27ar/apprpttoc.pdf",
+            )
         raise DiscoveryError("not published")
 
     monkeypatch.setattr(BM, "plan_edition", _plan)
@@ -255,3 +263,59 @@ def test_a_corrupt_cache_costs_a_round_trip_not_the_page(data_dir, monkeypatch):
 
     out = BM.check_missing(_NeverPublished())
     assert out["online"] is True
+
+
+# --- the rolling directory (found by running it, 2026-08-13) ---------------
+
+
+class _Plan:
+    def __init__(self, agency_index=None, linked_toc=None, single_file=None):
+        self.agency_index_url = agency_index
+        self.linked_toc_url = linked_toc
+        self.single_file_url = single_file
+
+
+def test_an_edition_found_ONLY_in_the_rolling_folder_is_not_offered(
+    data_dir, monkeypatch
+):
+    """🔴 Live defect, not a hypothetical.
+
+    JLBC keeps a rolling `/budget/` directory that it repoints every cycle, and
+    the probe ladders include it. On 2026-08-13 the live check offered "FY 2028
+    Appropriations Report" on the strength of `/budget/apprpttoc.pdf` alone --
+    a URL that at that moment held the FY 2027 book. FY2027 itself was found
+    properly, on three year-specific /27ar/ URLs.
+
+    Offering an edition that does not exist is exactly the noise T10 removes.
+    """
+    _documents(monkeypatch, ["https://www.azjlbc.gov/26ar/508.pdf"])
+    monkeypatch.setattr(BM, "list_editions", lambda: [])
+    monkeypatch.setattr(
+        BM,
+        "plan_edition",
+        lambda family, fiscal_year, *, prober: _Plan(
+            linked_toc="https://www.azjlbc.gov/budget/apprpttoc.pdf"
+        ),
+    )
+    out = BM.check_missing(_NeverPublished())
+    assert out["missing"] == []
+
+
+def test_an_edition_with_a_year_specific_url_IS_offered(data_dir, monkeypatch):
+    """The FY2027 Appropriations Report, as actually found live: three
+    /27ar/ URLs, none of them rolling."""
+    _documents(monkeypatch, ["https://www.azjlbc.gov/26ar/508.pdf"])
+    monkeypatch.setattr(BM, "list_editions", lambda: [])
+
+    def _plan(family, fiscal_year, *, prober):
+        if (family, fiscal_year) != ("approps", 2027):
+            raise DiscoveryError("not published")
+        return _Plan(
+            agency_index="https://www.azjlbc.gov/27ar/agencyindex.pdf",
+            linked_toc="https://www.azjlbc.gov/27ar/apprpttoc.pdf",
+            single_file="https://www.azjlbc.gov/27ar/fy2027approprpt.pdf",
+        )
+
+    monkeypatch.setattr(BM, "plan_edition", _plan)
+    out = BM.check_missing(_NeverPublished())
+    assert [(m["family"], m["fiscal_year"]) for m in out["missing"]] == [("approps", 2027)]
