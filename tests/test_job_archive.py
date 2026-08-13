@@ -173,3 +173,59 @@ def test_newest_archived_live_skips_cancelled(data_dir):
 
     newest = J.newest_archived_live()
     assert newest is not None and newest.doc_id == "old"
+
+
+# --- the one-time sweep (Task 2) -------------------------------------------
+#
+# The 7,104 files already sitting in the main folder when this ships. Without
+# the sweep every one of them stays there forever and the change accomplishes
+# nothing on the only machine that matters.
+
+
+def _write_old_layout(job, state):
+    """A job file as it existed before this change: everything in `jobs/`."""
+    job.state = state
+    path = J.jobs_dir() / f"{job.job_id}.json"
+    path.write_text(json.dumps(job.to_json()), encoding="utf-8")
+    return path
+
+
+def test_sweep_moves_finished_files_and_leaves_work_and_failures(data_dir):
+    finished = _write_old_layout(_job(doc_id="a"), "live")
+    failed = _write_old_layout(_job(doc_id="b"), "failed")
+    waiting = _write_old_layout(_job(doc_id="c"), "queued")
+
+    assert J.sweep_archive() == 1
+    assert not finished.exists()
+    assert (J.archive_dir() / finished.name).exists()
+    assert failed.exists(), "a failure must never be swept out of sight"
+    assert waiting.exists()
+
+
+def test_sweep_is_idempotent(data_dir):
+    _write_old_layout(_job(), "live")
+    assert J.sweep_archive() == 1
+    assert J.sweep_archive() == 0
+    assert len(J.load_all()) == 1
+
+
+def test_sweep_survives_a_corrupt_file(data_dir):
+    """One unreadable job must not stop the other 7,103 from being swept.
+
+    The corrupt file stays put rather than being moved: hiding a file we
+    could not parse in the archive puts it where nobody looks for a problem.
+    """
+    (J.jobs_dir() / "20260101T000000Z-deadbeef.json").write_text(
+        "{ not json", encoding="utf-8"
+    )
+    _write_old_layout(_job(), "live")
+
+    assert J.sweep_archive() == 1
+    assert (J.jobs_dir() / "20260101T000000Z-deadbeef.json").exists()
+
+
+def test_sweep_respects_a_limit(data_dir):
+    for i in range(4):
+        _write_old_layout(_job(doc_id=f"d{i}"), "live")
+    assert J.sweep_archive(limit=2) == 2
+    assert J.archived_count() == 2

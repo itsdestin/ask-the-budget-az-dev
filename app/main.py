@@ -11,6 +11,7 @@ unmatched /api/ paths get a JSON 404 instead.
 from __future__ import annotations
 
 import sys
+import threading
 from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import Callable
@@ -71,6 +72,44 @@ def _default_provider() -> SearchProvider:
     return StubSearchProvider()
 
 
+def _start_archive_sweep() -> None:
+    """Kick off the spec-T13 job-file tidy in the background. Never raises.
+
+    A failure means the queue shows some finished rows it need not -- untidy,
+    not broken -- so it is reported on stderr and swallowed rather than taking
+    down a server whose search, fiscal notes and AI Mode are all fine.
+
+    Two machines sweeping the same share at once is safe and expected; see
+    `ingest.archive.sweep`.
+    """
+    def _run() -> None:
+        try:
+            from ingest.jobs import sweep_archive
+
+            moved = sweep_archive()
+            if moved:
+                print(
+                    f"jlbc-insight: moved {moved} finished job files into "
+                    "jobs/done/ so the queue shows outstanding work.",
+                    file=sys.stderr,
+                    flush=True,
+                )
+        except Exception as e:  # noqa: BLE001
+            print(
+                f"jlbc-insight: could not tidy the job queue "
+                f"({type(e).__name__}: {e}). The queue still works; it will "
+                "just list finished documents too.",
+                file=sys.stderr,
+                flush=True,
+            )
+
+    try:
+        threading.Thread(target=_run, name="jlbc-archive-sweep", daemon=True).start()
+    except Exception as e:  # noqa: BLE001
+        print(f"jlbc-insight: could not start the queue tidy ({e}).",
+              file=sys.stderr, flush=True)
+
+
 @asynccontextmanager
 async def _lifespan(app: FastAPI):
     """Start the ingest queue when the server starts; stop it when it stops.
@@ -89,6 +128,24 @@ async def _lifespan(app: FastAPI):
     """
     from app.machine_config import ingest_enabled
     from ingest.worker import ensure_started
+
+    # Spec T13's one-time tidy: move already-finished job files into
+    # `jobs/done/` so the queue reads outstanding work instead of 7,104 rows
+    # of history. Measured on the live data dir 2026-08-13: 7,118 files, of
+    # which 14 needed anybody's attention.
+    #
+    # WHY before the two early returns below: this is about the queue FOLDER,
+    # not about processing uploads. A machine with ingest switched off still
+    # DISPLAYS the queue, and is still reading every one of those files to do
+    # it. Sweeping only on the ingest machine would leave the page slow on the
+    # other ~19, and slow for everyone in the entirely normal window where no
+    # machine has ingest switched on.
+    #
+    # WHY a thread: the first sweep on the office share moves ~7,104 files and
+    # the launcher opens a browser tab the moment the port answers, so seconds
+    # of blocked startup read as "the app is broken". Later runs see only
+    # outstanding work and failures -- tens of files.
+    _start_archive_sweep()
 
     # `create_app(ingest_worker=None)` is the explicit opt-out: this process
     # serves but must not run ingest. It has to be checked here because
