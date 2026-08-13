@@ -608,8 +608,22 @@ def _one_logical_agency(index: "_AgencyIndex", ids: "set[str]") -> bool:
 def _expand_group(index: "_AgencyIndex", ids: "set[str]") -> "set[str]":
     """Every catalog id naming the same real agency as `ids`.
 
-    Applied ONLY when the match is already EXACT, so it widens a filter across
-    a catalog defect and never across genuine ambiguity.
+    Two callers, two different trust levels in `ids` (review fix — this
+    docstring used to describe only the first):
+
+    * Tiers 2-3 call it only once a match is already EXACT (a catalog
+      name/alias hit), so it widens a filter across a catalog defect and
+      never across genuine ambiguity.
+    * The overlay tier (below) calls it on the admin's OWN alias entries —
+      ids picked from a dropdown, always WEAK confidence, never
+      eval-gated — and app/search_terms.py's `_agency_terms` calls it on a
+      DOCUMENT's own resolved id for the same reason. Neither caller can
+      guarantee `ids` names a group at all: an id with no duplicate simply
+      widens to `{that id}` (`index.logical_group.get` returns None), which
+      this function must treat as the ordinary case, not an error.
+
+    In both shapes the function only ever ADDS ids to an already-identified
+    agency; it is never what decides whether a match happened.
 
     WHY widening matters as much as the confidence fix: the duplicate ids also
     SPLIT the stamped chunks. `asu` resolves to agency:uniasu, which JLBC used
@@ -644,9 +658,16 @@ def _logical_key(name: str) -> tuple[str, ...]:
     A sorted token multiset rather than string equality, because the catalog
     writes the same agency both ways round: "Child Safety, Department of" and
     "Department of Child Safety" are five entries for one agency and only
-    match after inversion. Measured on the 2026-08-02 catalog this produces 5
-    groups covering 12 ids, and every one was hand-checked to be a genuine
-    duplicate — no two DIFFERENT agencies collide under it.
+    match after inversion. Re-measured 2026-08-12 (review fix — the prior
+    "5 groups covering 12 ids" was stale): the committed catalog produces 6
+    groups covering 15 ids — ASU x2, Child Safety x5, Constable Ethics x2,
+    Governor's Office of Equal Opportunity x2, Revenue x2, WIFA x2 — and all
+    six were hand-checked to be genuine duplicates, no two DIFFERENT
+    agencies collide under it. That hand-check now backs more than this
+    function's own query-side widening: the admin's alias overlay (spec E1)
+    rides the same grouping to widen a saved alias across a split id family
+    (`_expand_group`, both here and in app/search_terms.py), so a bad group
+    here would misroute admin-typed vocabulary too.
 
     The fix this enables is query-side only: resolve a name to ALL the ids in
     its group and filter on all of them. That recovers both the hard filter
