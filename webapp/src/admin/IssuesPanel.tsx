@@ -206,6 +206,10 @@ function ReportRow({
 
 export function IssuesPanel() {
   const [reports, setReports] = useState<api.IssueReport[] | null>(null);
+  // Fix: the server can answer "I couldn't read the shared folder", which is
+  // NOT the same as "there are no reports". Without this the panel printed
+  // the empty state — a confident claim about a folder nobody could read.
+  const [unreachable, setUnreachable] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
@@ -215,6 +219,7 @@ export function IssuesPanel() {
       .then((r) => {
         if (cancelled) return;
         setReports(r.reports);
+        setUnreachable(r.unreachable === true);
       })
       .catch((e) => {
         if (!cancelled) setError(e instanceof Error ? e.message : String(e));
@@ -257,7 +262,13 @@ export function IssuesPanel() {
 
       {reports === null && !error ? <p className="adm-empty">Loading…</p> : null}
 
-      {reports !== null && reports.length === 0 ? (
+      {unreachable ? (
+        <p className="adm-warn" role="alert" data-testid="admin-issues-unreachable">
+          The shared folder couldn&rsquo;t be read just now.
+        </p>
+      ) : null}
+
+      {reports !== null && !unreachable && reports.length === 0 ? (
         <p className="adm-empty" data-testid="admin-issues-empty">
           No reports yet. Anyone can send one from "Report an issue" in the
           top-right menu.

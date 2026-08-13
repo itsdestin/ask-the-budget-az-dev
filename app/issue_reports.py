@@ -22,6 +22,18 @@ REPORTS_DIR = "issue-reports"
 VALID_STATUS = ("unresolved", "resolved")
 
 
+class ReportsUnavailable(Exception):
+    """The reports folder itself could not be read.
+
+    Distinct from "there are no reports", which is an empty list. The two
+    look identical to a caller that gets `[]` for both, and the screens then
+    tell the reader "no reports yet" — a fact nobody actually knows. Callers
+    catch this and say the folder couldn't be read instead. Same posture as
+    store/office_aliases.py's reader: a missing file is silent, anything
+    else gets a stderr line.
+    """
+
+
 def reports_dir() -> Path:
     return data_dir() / REPORTS_DIR
 
@@ -79,12 +91,35 @@ def _read(path: Path) -> dict | None:
 def list_reports() -> list[dict]:
     """Every report, newest first. A corrupt file is a VISIBLE unreadable
     row — an admin must see that a report exists even when it cannot be
-    read, or "the list looks fine" hides a torn submission forever."""
+    read, or "the list looks fine" hides a torn submission forever.
+
+    Raises ReportsUnavailable when the folder itself can't be read (the
+    share is offline, permissions changed). An empty list from here means
+    "nothing has been filed", and nothing else.
+    """
     directory = reports_dir()
     try:
-        paths = sorted(directory.glob("*.json"), reverse=True)
-    except OSError:
+        # os.listdir, NOT Path.glob: pathlib's glob SWALLOWS OSError and
+        # yields nothing, so a permission-denied share was indistinguishable
+        # from an empty folder (verified on this interpreter — glob on a
+        # chmod-000 directory returns [] rather than raising). listdir is the
+        # call that actually reports the failure.
+        names = os.listdir(directory)
+    except FileNotFoundError:
+        # No folder yet is the normal case: nobody has filed a report.
         return []
+    except OSError as err:
+        print(
+            f"app.issue_reports: cannot read {directory} ({err}) — the "
+            "reports on the shared folder are unavailable for this read.",
+            file=sys.stderr,
+        )
+        raise ReportsUnavailable(str(err)) from err
+    # Same selection the "*.json" glob made: the ".tmp-<uuid>" name a
+    # half-written report carries does not end in .json, so it never shows up.
+    paths = sorted(
+        (directory / name for name in names if name.endswith(".json")), reverse=True
+    )
     out: list[dict] = []
     for path in paths:
         report = _read(path)

@@ -60,8 +60,6 @@ function mockEmpty(over: { me?: Partial<api.Me> } = {}) {
   vi.spyOn(api, "listHistory").mockResolvedValue({ conversations: [] });
   return vi.spyOn(api, "issues").mockResolvedValue({
     reports: [],
-    unresolved: 0,
-    is_admin: false,
   });
 }
 
@@ -74,8 +72,8 @@ describe("filing a report", () => {
     const submitSpy = vi.spyOn(api, "submitIssue").mockResolvedValue({ report: newReport });
     const issuesSpy = vi
       .spyOn(api, "issues")
-      .mockResolvedValueOnce({ reports: [], unresolved: 0, is_admin: false })
-      .mockResolvedValueOnce({ reports: [newReport], unresolved: 1, is_admin: false });
+      .mockResolvedValueOnce({ reports: [] })
+      .mockResolvedValueOnce({ reports: [newReport] });
 
     render(<ReportIssue />);
     await screen.findByText(/you haven.t filed a report yet/i);
@@ -151,7 +149,7 @@ describe("filing a report", () => {
 describe("the transcript picker", () => {
   it("renders the caller's chats with no attachment as the default, and shows consent only once one is chosen", async () => {
     vi.spyOn(api, "me").mockResolvedValue(me());
-    vi.spyOn(api, "issues").mockResolvedValue({ reports: [], unresolved: 0, is_admin: false });
+    vi.spyOn(api, "issues").mockResolvedValue({ reports: [] });
     vi.spyOn(api, "listHistory").mockResolvedValue({ conversations: [chat()] });
 
     render(<ReportIssue />);
@@ -204,8 +202,6 @@ describe("Your reports", () => {
           resolved_at: "2026-08-03T10:00:00Z",
         }),
       ],
-      unresolved: 1,
-      is_admin: false,
     });
 
     render(<ReportIssue />);
@@ -221,6 +217,36 @@ describe("Your reports", () => {
     expect(rows[1]).toHaveTextContent("Fixed the indexing bug.");
   });
 
+  it("does not claim you have filed nothing when the folder could not be read", async () => {
+    // "You haven't filed a report yet." off an unreadable share tells the
+    // analyst their report is gone. It is not known to be gone — nobody
+    // could look.
+    vi.spyOn(api, "me").mockResolvedValue(me());
+    vi.spyOn(api, "listHistory").mockResolvedValue({ conversations: [] });
+    vi.spyOn(api, "issues").mockResolvedValue({ reports: [], unreachable: true });
+
+    render(<ReportIssue />);
+    expect(await screen.findByTestId("report-history-unreachable")).toHaveTextContent(
+      /shared folder couldn.t be read/i,
+    );
+    expect(screen.queryByText(/haven.t filed a report yet/i)).toBeNull();
+  });
+
+  it("shows a torn report of your own as a visible row", async () => {
+    // The row carries no fields at all — the server keeps it in a non-admin
+    // list precisely so the person who filed it learns it did not land.
+    vi.spyOn(api, "me").mockResolvedValue(me());
+    vi.spyOn(api, "listHistory").mockResolvedValue({ conversations: [] });
+    vi.spyOn(api, "issues").mockResolvedValue({
+      reports: [{ id: "20260101T000000-abcd", unreadable: true } as api.IssueReport],
+    });
+
+    render(<ReportIssue />);
+    const rows = await screen.findAllByTestId("report-row");
+    expect(rows).toHaveLength(1);
+    expect(rows[0]).toHaveTextContent(/couldn.t be read back/i);
+  });
+
   it("renders a resolved report as a visibly different row", async () => {
     vi.spyOn(api, "me").mockResolvedValue(me());
     vi.spyOn(api, "listHistory").mockResolvedValue({ conversations: [] });
@@ -229,8 +255,6 @@ describe("Your reports", () => {
         report({ id: "r1", status: "unresolved" }),
         report({ id: "r2", status: "resolved", admin_note: "Done." }),
       ],
-      unresolved: 1,
-      is_admin: false,
     });
 
     render(<ReportIssue />);
@@ -242,7 +266,7 @@ describe("Your reports", () => {
   it("states the context the server records, with wording that stays true whether or not a conversation is attached", async () => {
     vi.spyOn(api, "me").mockResolvedValue(me({ user: "jsmith" }));
     vi.spyOn(api, "listHistory").mockResolvedValue({ conversations: [chat()] });
-    vi.spyOn(api, "issues").mockResolvedValue({ reports: [], unresolved: 0, is_admin: false });
+    vi.spyOn(api, "issues").mockResolvedValue({ reports: [] });
 
     render(<ReportIssue />);
     const context = await screen.findByTestId("report-context");

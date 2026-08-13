@@ -111,7 +111,7 @@ def test_analyst_can_submit_and_see_their_own(analyst_client):
     assert r.status_code == 200
     listed = analyst_client.get("/api/issues").json()
     assert listed["reports"][0]["description"] == "search broke"
-    assert listed["unresolved"] == 1
+    assert listed["reports"][0]["status"] == "unresolved"
 
 
 def test_empty_description_is_a_400(analyst_client):
@@ -125,6 +125,42 @@ def test_analyst_sees_only_their_own(analyst_client, admin_client):
     assert [r["description"] for r in mine] == ["mine"]
     everyone = admin_client.get("/api/issues").json()["reports"]
     assert len(everyone) == 2
+
+
+def test_an_analyst_sees_their_own_torn_report_as_a_visible_row(analyst_client):
+    # THE DEFECT THIS GUARDS: an unreadable stub has no `submitted_by` to
+    # match on, so the non-admin filter dropped it — the admin saw the row
+    # and the person who FILED it did not, which is backwards for the one
+    # person who needs to know their report never landed.
+    from app.issue_reports import reports_dir
+
+    analyst_client.post("/api/issues", json={"description": "fine"})
+    (reports_dir() / "20260101T000000000000-deadbeef.json").write_text(
+        "{torn", encoding="utf-8"
+    )
+    rows = analyst_client.get("/api/issues").json()["reports"]
+    assert any(r.get("unreadable") for r in rows)
+    assert any(r.get("description") == "fine" for r in rows)
+
+
+def test_an_unreadable_share_says_so_instead_of_no_reports(analyst_client, monkeypatch):
+    # The screens print "No reports yet" off an empty list. When the folder
+    # can't be read, nobody knows whether it is empty — so the route says
+    # "unreachable" and the list stays empty rather than being narrated.
+    import app.routes.issues as issues_routes
+    from app.issue_reports import ReportsUnavailable
+
+    def boom() -> list[dict]:
+        raise ReportsUnavailable("Permission denied")
+
+    monkeypatch.setattr(issues_routes, "list_reports", boom)
+    body = analyst_client.get("/api/issues").json()
+    assert body["reports"] == [] and body["unreachable"] is True
+
+
+def test_a_readable_share_is_not_flagged_unreachable(analyst_client):
+    analyst_client.post("/api/issues", json={"description": "x"})
+    assert analyst_client.get("/api/issues").json().get("unreachable") is None
 
 
 def test_admin_resolves_with_a_note(analyst_client, admin_client):

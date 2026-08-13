@@ -33,8 +33,6 @@ function report(over: Partial<api.IssueReport> = {}): api.IssueReport {
 function response(over: Partial<api.IssuesResponse> = {}): api.IssuesResponse {
   return {
     reports: [report()],
-    unresolved: 1,
-    is_admin: true,
     ...over,
   };
 }
@@ -59,7 +57,6 @@ describe("the issue report inbox", () => {
   it("counts the open ones in its heading", async () => {
     await renderPanel({
       reports: [report(), report({ id: "r2", description: "Second problem." })],
-      unresolved: 2,
     });
     expect(screen.getByRole("heading", { level: 2 })).toHaveTextContent(
       /issue reports \(2 open\)/i,
@@ -67,9 +64,19 @@ describe("the issue report inbox", () => {
   });
 
   it("says so when there is nothing waiting", async () => {
-    await renderPanel({ reports: [], unresolved: 0 });
+    await renderPanel({ reports: [] });
     expect(screen.getByTestId("admin-issues-empty")).toBeInTheDocument();
     expect(screen.getByRole("heading", { level: 2 })).not.toHaveTextContent(/open/i);
+  });
+
+  it("does not claim there are no reports when the folder could not be read", async () => {
+    // An empty list plus `unreachable` is "nobody could look", and the
+    // empty-state sentence would be a fact this screen does not know.
+    await renderPanel({ reports: [], unreachable: true });
+    expect(screen.getByTestId("admin-issues-unreachable")).toHaveTextContent(
+      /shared folder couldn.t be read/i,
+    );
+    expect(screen.queryByTestId("admin-issues-empty")).toBeNull();
   });
 
   it("puts open reports above resolved ones, newest first", async () => {
@@ -82,7 +89,6 @@ describe("the issue report inbox", () => {
         report({ id: "c", description: "Newest and open.",
                  submitted_at: "2026-08-09T00:00:00Z" }),
       ],
-      unresolved: 2,
     });
 
     const titles = screen
@@ -145,7 +151,6 @@ describe("the issue report inbox", () => {
   it("shows a report whose file is damaged, with nothing to click", async () => {
     await renderPanel({
       reports: [{ id: "torn-file", unreadable: true } as api.IssueReport],
-      unresolved: 0,
     });
 
     const row = screen.getByTestId("admin-issue-torn-file");
@@ -171,7 +176,7 @@ describe("an attached conversation", () => {
   });
 
   it("reads as a conversation, not as a data dump", async () => {
-    await renderPanel({ reports: [withTranscript], unresolved: 1 });
+    await renderPanel({ reports: [withTranscript] });
     openRow(/wrong year/);
 
     const view = screen.getByTestId("admin-issue-transcript");
@@ -184,7 +189,7 @@ describe("an attached conversation", () => {
   });
 
   it("labels who said what in words an admin reads", async () => {
-    await renderPanel({ reports: [withTranscript], unresolved: 1 });
+    await renderPanel({ reports: [withTranscript] });
     openRow(/wrong year/);
 
     const view = screen.getByTestId("admin-issue-transcript");

@@ -34,7 +34,14 @@ MAX_GUIDANCE_BYTES = 8192
 # Fixed, never admin-editable: the sentence that keeps shipped citation/
 # refusal/tool rules senior to anything written here.
 _PREAMBLE = (
-    "## Office guidance from the administrator\n\n"
+    # The leading blank line belongs to the BLOCK, not to the template: with
+    # corpus=budget the slot's preceding `{{#when}}` section ends with a
+    # paragraph, and without this the heading glued onto it
+    # ("…reports the same figure.\n## Office guidance…"). It cannot be fixed
+    # in harness/system-prompt.md, because the empty case removes the slot
+    # LINE and must still render byte-identically to the template with the
+    # slot deleted — a blank line in the template would survive and break that.
+    "\n## Office guidance from the administrator\n\n"
     "The office administrator added the guidance below. It supplements the "
     "rules above; where it conflicts with citation, refusal, or tool rules, "
     "those rules win.\n\n"
@@ -67,7 +74,20 @@ def load_office_guidance() -> str:
     try:
         stat = path.stat()
         stamp = (str(path), stat.st_mtime_ns, stat.st_size)
-    except OSError:
+    except FileNotFoundError:
+        # No guidance file is the normal, silent case — most offices never
+        # write one.
+        return ""
+    except OSError as err:
+        # Anything else (the share is offline, permissions changed) removes
+        # the office's guidance from EVERY prompt, office-wide, with no other
+        # symptom. Same posture as store/office_aliases.py: still degrade to
+        # "" so a prompt build never fails, but leave a line saying why.
+        print(
+            f"harness.office_guidance: cannot read {path} ({err}) — the "
+            "office guidance is missing from prompts for this read.",
+            file=sys.stderr,
+        )
         return ""
     with _lock:
         if _cache is not None and _cache[0] == stamp:

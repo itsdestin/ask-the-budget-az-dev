@@ -14,7 +14,12 @@ from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 
 from app.identity import current_user, is_admin
-from app.issue_reports import create_report, list_reports, update_report
+from app.issue_reports import (
+    ReportsUnavailable,
+    create_report,
+    list_reports,
+    update_report,
+)
 from app.routes.admin import require_admin
 from harness.settings import Settings, load_settings
 
@@ -83,12 +88,30 @@ def _redact(report: dict, *, admin: bool) -> dict:
 def get_issues() -> dict:
     user = current_user()
     admin = is_admin(load_settings(), user)
-    reports = list_reports()
+    try:
+        reports = list_reports()
+    except ReportsUnavailable:
+        # "Nothing has been filed" and "we could not look" are different
+        # facts, and only one of them is known here. The flag is what lets
+        # both screens say the folder couldn't be read instead of printing an
+        # empty state that asserts something nobody checked. The store has
+        # already written the real reason to stderr; the reader gets one
+        # plain sentence, because the cause is not theirs to act on.
+        return {"reports": [], "unreachable": True}
     if not admin:
-        reports = [r for r in reports if r.get("submitted_by") == user]
-    visible = [_redact(r, admin=admin) for r in reports]
-    unresolved = sum(1 for r in visible if r.get("status") == "unresolved")
-    return {"reports": visible, "unresolved": unresolved, "is_admin": admin}
+        reports = [
+            r
+            for r in reports
+            # An unreadable row carries no `submitted_by` to match on — it is
+            # a filename and a flag, nothing else. Keeping it is what makes
+            # "a torn file is a VISIBLE row" true for the person who FILED
+            # it, not just for the admin: dropping it here showed the analyst
+            # a silently shortened list of their own reports, which is
+            # backwards for the one person who needs to know it didn't land.
+            # Nothing leaks: the row holds no data to read.
+            if r.get("unreadable") or r.get("submitted_by") == user
+        ]
+    return {"reports": [_redact(r, admin=admin) for r in reports]}
 
 
 @router.patch("/api/issues/{report_id}")

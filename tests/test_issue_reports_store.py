@@ -45,6 +45,29 @@ def test_corrupt_file_is_a_visible_row_not_a_blank_list():
     assert any(r.get("description") == "fine" for r in listed)
 
 
+def test_missing_directory_is_genuinely_empty():
+    # Nobody has filed anything yet: an empty list is the TRUE answer here,
+    # and it must not be confused with the unreachable case below.
+    assert ir.list_reports() == []
+
+
+def test_an_unreadable_directory_raises_instead_of_looking_empty(capsys):
+    # THE DEFECT THIS GUARDS: an unreadable share used to return [], and the
+    # screens then printed "No reports yet" / "You haven't filed a report
+    # yet" — a confident claim about a folder nobody could read.
+    import os
+
+    directory = ir.reports_dir()
+    directory.mkdir(parents=True)
+    os.chmod(directory, 0)
+    try:
+        with pytest.raises(ir.ReportsUnavailable):
+            ir.list_reports()
+    finally:
+        os.chmod(directory, 0o755)
+    assert "cannot read" in capsys.readouterr().err
+
+
 def test_update_unknown_id_returns_none():
     assert ir.update_report("nope", status="resolved", actor="d") is None
 

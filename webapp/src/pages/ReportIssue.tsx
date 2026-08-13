@@ -30,13 +30,20 @@ export function ReportIssue() {
   const [reports, setReports] = useState<api.IssueReport[]>([]);
   const [reportsLoading, setReportsLoading] = useState(true);
   const [reportsError, setReportsError] = useState<string | null>(null);
+  // Fix: "the shared folder couldn't be read" is not "you haven't filed
+  // anything" — the empty-state sentence below would otherwise assert a fact
+  // derived from an unknown state.
+  const [reportsUnreachable, setReportsUnreachable] = useState(false);
 
   const loadReports = useCallback(() => {
     setReportsLoading(true);
     setReportsError(null);
     return api
       .issues()
-      .then((r) => setReports(r.reports))
+      .then((r) => {
+        setReports(r.reports);
+        setReportsUnreachable(r.unreachable === true);
+      })
       .catch((err) =>
         setReportsError(
           err instanceof Error ? err.message : "Could not load your reports.",
@@ -174,6 +181,10 @@ export function ReportIssue() {
           ) : reportsError ? (
             <p className="adm-warn" role="alert" data-testid="report-history-error">
               {reportsError}
+            </p>
+          ) : reportsUnreachable ? (
+            <p className="adm-warn" role="alert" data-testid="report-history-unreachable">
+              The shared folder couldn&rsquo;t be read just now.
             </p>
           ) : reports.length === 0 ? (
             <p className="adm-empty">You haven&rsquo;t filed a report yet.</p>

@@ -912,9 +912,9 @@ export async function saveAdminAliases(body: {
 }
 
 // ---------------------------------------------------------------------------
-// Admin office guidance (spec E2). The GET/PUT /api/admin/guidance route
-// doesn't exist on this branch yet (parallel task) — payload shape is fixed
-// by harness/office_guidance.py's save_office_guidance (edited_by/edited_at)
+// Admin office guidance (spec E2), GET/PUT /api/admin/guidance
+// (app/routes/tuning.py). Payload shape is fixed by
+// harness/office_guidance.py's save_office_guidance (edited_by/edited_at)
 // and MAX_GUIDANCE_BYTES.
 // ---------------------------------------------------------------------------
 
@@ -968,8 +968,16 @@ export interface IssueReport {
 
 export interface IssuesResponse {
   reports: IssueReport[];
-  unresolved: number;
-  is_admin: boolean;
+  /** The shared folder could not be read. `reports` is then empty because
+   *  nobody could look — NOT because nothing has been filed, which is the
+   *  one thing the screens must not claim (app/routes/issues.py). Absent on
+   *  a healthy read.
+   *
+   *  `unresolved` and `is_admin` used to ride along here and were never
+   *  read: IssuesPanel counts open reports from the rows themselves (and
+   *  says why), and admin-ness comes from api.me(). Dropped on both sides
+   *  rather than left as fields a reader has to check for consumers of. */
+  unreachable?: boolean;
 }
 
 export async function issues(): Promise<IssuesResponse> {

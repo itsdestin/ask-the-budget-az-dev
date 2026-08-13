@@ -180,7 +180,7 @@ function mockAll(over: {
     over.guidance ?? { text: "", max_bytes: 8192, edited_by: "", edited_at: "" },
   );
   vi.spyOn(api, "issues").mockResolvedValue(
-    over.issues ?? { reports: [], unresolved: 0, is_admin: true },
+    over.issues ?? { reports: [] },
   );
 }
 
