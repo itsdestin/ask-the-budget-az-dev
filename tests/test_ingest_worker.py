@@ -131,6 +131,29 @@ def test_run_job_reaches_live_and_is_searchable(job, ctx, data_dir):
     assert docs["jlbc-baseline-fy2027-axs"]["title"] == "FY 2027 Baseline — AHCCCS"
 
 
+def test_documents_json_records_the_extraction_method_and_coverage(job, ctx, data_dir):
+    """Plan B Task 5, wired end to end through the REAL `_write` -> `write_doc`
+    call (not the ladder suite's stubbed `_write`, which never reaches
+    documents.json at all).
+
+    `coverage` is `None` here, not a measured number -- this fixture's source
+    is a 9-byte placeholder (`b"%PDF-1.4\\n"`), which PyMuPDF cannot open as a
+    real PDF, so the denominator in `ingest/coverage.py::source_text_chars`
+    is unreadable. That is the correct, unmeasurable-but-accepted outcome
+    (see `ExtractionOutcome.passed`), not a bug in this test -- confirmed by
+    running this exact fixture shape and reading back what it actually wrote
+    before pinning the value here.
+    """
+    run_job(job, ctx)
+    docs = json.loads((data_dir / "documents.json").read_text(encoding="utf-8"))
+    assert docs["jlbc-baseline-fy2027-axs"]["extraction"] == {
+        "method": "mineru",
+        "coverage": None,
+        "attempts": 1,
+        "fell_back": False,
+    }
+
+
 def test_write_phase_snapshots_before_touching_the_corpus(job, ctx):
     run_job(job, ctx)
     assert list_snapshots()  # S17: a restore point exists
@@ -258,13 +281,108 @@ def test_source_file_is_copied_into_the_shared_pdfs_dir(job, ctx, data_dir):
 def test_extractor_output_lands_on_the_share_for_cross_machine_resume(
     job, ctx, data_dir
 ):
+    """Still on the share, now under the RUNG that produced it: two attempts
+    on one document must never write into the same directory, or the chunker
+    reads a mixture of the two with nothing recording which is which."""
     run_job(job, ctx)
-    assert (data_dir / "extractor-output" / job.doc_id / "page-1.json").is_file()
+    assert (
+        data_dir / "extractor-output" / job.doc_id / "mineru" / "page-1.json"
+    ).is_file()
+
+
+def doc_id_of_output_dir(output_dir: Path) -> str:
+    """The doc_id an extractor's output directory belongs to.
+
+    Output is rung-scoped (`extractor-output/<doc_id>/<rung>/`) but a
+    directory written before rungs existed has no suffix, so this walks up to
+    whichever directory is the child of `extractor-output` rather than
+    assuming a depth. Used by the fakes in the parallel suite, which
+    identify a document by where it was asked to write.
+    """
+    path = Path(output_dir)
+    while path.parent.name and path.parent.name != "extractor-output":
+        path = path.parent
+    return path.name
 
 
 def test_progress_is_journalled_during_the_run(job, ctx):
     run_job(job, ctx)
     assert load_job(job.job_id).pct == 100
+
+
+def test_a_fresh_job_extracts_into_a_rung_scoped_directory(job, data_dir):
+    from ingest import worker
+
+    assert worker._extract_dir(job, "mineru") == (
+        data_dir / "extractor-output" / job.doc_id / "mineru"
+    )
+
+
+def test_output_written_before_rungs_existed_is_still_found(job, data_dir):
+    """Thousands of jobs on the share have un-suffixed output. An interrupted
+    overnight book must resume from it, not re-extract from page 1 — but only
+    the extractor that WROTE it may claim it, or a MinerU fallback would be
+    pointed at a directory full of OpenDataLoader pages."""
+    from ingest import worker
+
+    base = data_dir / "extractor-output" / job.doc_id
+    base.mkdir(parents=True)
+    (base / "page-1.json").write_text("{}", encoding="utf-8")
+
+    # baseline-per-agency declares `mineru`, so `mineru` wrote this.
+    assert worker._extract_dir(job, "mineru") == base
+    # A later rung gets its own directory even so.
+    assert worker._extract_dir(job, "mineru-ocr") == base / "mineru-ocr"
+
+
+def test_the_ocr_rung_runs_mineru_in_ocr_mode(data_dir, monkeypatch):
+    """`MineruRunner` takes MinerU's `-m` flag at CONSTRUCTION, and the worker
+    builds the runner itself rather than going through `dispatcher.extract` —
+    so a rung that failed to pass its method through would run byte-identical
+    work to the rung that already came back empty, under a different name."""
+    import fitz
+
+    from ingest import dispatcher, worker
+
+    source = data_dir / "uploads" / "ef" / f"{'ef' * 32}.pdf"
+    source.parent.mkdir(parents=True, exist_ok=True)
+    doc = fitz.open()
+    doc.new_page()
+    doc.save(str(source))
+    doc.close()
+
+    j = new_job(
+        doc_id="agao-afr-fy2024", title="scan", corpus="budget",
+        source_path=str(source.relative_to(data_dir)), source_sha256="ef" * 32,
+        publisher="agao", doc_type="afr", fiscal_year=2024,
+    )
+    save(j)
+
+    built: list[str] = []
+
+    class FakeRunner:
+        def __init__(self, *args, method: str = "auto", **kwargs) -> None:
+            built.append(method)
+
+        def run(self, **kwargs):
+            return []
+
+        def cancel(self) -> None:  # pragma: no cover - never reached here
+            pass
+
+    monkeypatch.setattr(worker, "MineruRunner", FakeRunner)
+    ctx = WorkerContext(store=None, embedder=None, stamper=None)
+
+    worker._extract(
+        j, ctx,
+        extractor=dispatcher.pick_named("mineru-ocr"),
+        method="mineru-ocr",
+    )
+    worker._extract(
+        j, ctx, extractor=dispatcher.pick_named("mineru"), method="mineru"
+    )
+
+    assert built == ["ocr", "auto"]
 
 
 # --- resume -----------------------------------------------------------------
@@ -319,6 +437,27 @@ def test_failure_lands_in_job_error_verbatim(job, ctx):
     reloaded = load_job(job.job_id)
     assert reloaded.state == "failed"
     assert "model weights not found" in reloaded.error
+
+
+def test_a_crash_after_a_passing_extraction_is_not_held_out(job, ctx):
+    """Blocking 1 on this plan's final review, reproduced at the level the
+    reviewer found it: `extraction_attempts` is non-empty here too -- the
+    ladder journals it after every rung, including a WINNING one -- but the
+    ladder did not LOSE, it never even got the chance to. The failure is
+    downstream, at embedding. `held_out` is what tells these apart, and it
+    must stay False: this is an ordinary crash, not a held-back document,
+    and the Needs-attention panel must not show it."""
+    class Boom(FakeEmbedder):
+        def embed_batch(self, texts, *, input_type: str = "document"):
+            raise RuntimeError("lost the corpus lock after 1800s")
+
+    ctx.embedder = Boom()
+    worker = IngestWorker(ctx=ctx)
+    worker.run_one(job)
+    reloaded = load_job(job.job_id)
+    assert reloaded.state == "failed"
+    assert reloaded.extraction_attempts  # the ladder ran, and won
+    assert reloaded.held_out is False
 
 
 def test_a_failed_job_does_not_kill_the_worker_thread(job, ctx, data_dir):

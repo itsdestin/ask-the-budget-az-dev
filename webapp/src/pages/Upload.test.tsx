@@ -329,6 +329,68 @@ describe("submitting", () => {
     await waitFor(() => expect(upload).toHaveBeenCalledTimes(2));
     expect(upload.mock.calls[1][1].reprocess).toBe(true);
   });
+
+  // Plan B Blocking 3 (T12): the server's own coverage sentence
+  // (app/routes/upload.py's `_duplicate_health`) was computed and pinned by
+  // six backend tests but never reached the page — these two are the two
+  // branches that finding named: a measured duplicate shows the server's
+  // OWN sentence, verbatim; an unmeasured (legacy) one shows nothing extra
+  // and today's fixed sentence is untouched.
+
+  it("shows the server's own coverage sentence for a duplicate extraction looked incomplete", async () => {
+    vi.spyOn(api, "uploadDocument").mockRejectedValueOnce(
+      new api.DuplicateDocumentError({
+        detail: "already in corpus",
+        existing_doc_id: "agao-afr-fy2024",
+        added_at: null,
+        added_by: null,
+        health: { coverage: 0.02, recommend_reprocess: true },
+        message:
+          "Extraction produced 2% as much text as the file contains. Re-processing is recommended.",
+      }),
+    );
+
+    render(<Upload />);
+    await pickFile();
+    fireEvent.click(screen.getByRole("checkbox", { name: /public record/i }));
+    fireEvent.click(screen.getByRole("button", { name: /add document/i }));
+
+    const dupe = await screen.findByTestId("duplicate");
+    // Rendered VERBATIM — a client-composed paraphrase of `health` would
+    // not necessarily match this exact server sentence, and the point of
+    // T12 is that it must.
+    expect(await screen.findByTestId("duplicate-health")).toHaveTextContent(
+      "Extraction produced 2% as much text as the file contains. Re-processing is recommended.",
+    );
+    expect(dupe.textContent).toMatch(/already in the corpus/i);
+  });
+
+  it("adds nothing beyond today's sentence for a duplicate with no recorded coverage", async () => {
+    // No `health` / `message` at all — the shape every real legacy
+    // document's lookup sends (`_duplicate_health` returns `health=None`
+    // for the 7,434 documents with no recorded coverage), and also the
+    // shape this fixture always sent before Blocking 3.
+    vi.spyOn(api, "uploadDocument").mockRejectedValueOnce(
+      new api.DuplicateDocumentError({
+        detail: "already in corpus",
+        existing_doc_id: "jlbc-baseline-fy2020-axs",
+        added_at: "2026-07-01T12:00:00+00:00",
+        added_by: "DMOSS",
+      }),
+    );
+
+    render(<Upload />);
+    await pickFile();
+    fireEvent.click(screen.getByRole("checkbox", { name: /public record/i }));
+    fireEvent.click(screen.getByRole("button", { name: /add document/i }));
+
+    const dupe = await screen.findByTestId("duplicate");
+    // Today's sentence, unchanged.
+    expect(dupe.textContent).toMatch(/already in the corpus/i);
+    expect(dupe.textContent).toMatch(/DMOSS/);
+    // And nothing else — this is the branch that must stay silent.
+    expect(screen.queryByTestId("duplicate-health")).toBeNull();
+  });
 });
 
 // --- switching the selected type (the hazard this rework introduces) -------

@@ -22,6 +22,7 @@ from ingest.dispatcher import (
     EXTRACTOR_REGISTRY,
     ExtractionResult,
     MinerUExtractor,
+    MinerUOcrExtractor,
     OpenDataLoaderExtractor,
     PythonDocxExtractor,
     extract,
@@ -224,3 +225,78 @@ def test_extract_uses_pick_extractor_when_no_extractor_passed(tmp_path: Path) ->
         assert result.extractor == "mock"
     finally:
         EXTRACTOR_REGISTRY[("s-pdf", "pdf")] = original
+
+
+# --- MinerUOcrExtractor — the ladder's last rung (T7) ---
+
+
+def test_ocr_extractor_is_never_a_first_choice() -> None:
+    """data/document-types.yaml declares each type's PREFERRED extractor.
+
+    mineru-ocr is registered in _EXTRACTOR_CLASSES (ingest/ladder.py needs
+    to name it) but must never come out of EXTRACTOR_REGISTRY -- that would
+    mean some doc_type declared OCR as its first choice, which is the exact
+    mistake the brief calls out by name. Nothing in the registry-building
+    code stops that from compiling silently, so this is the guard."""
+    assert MinerUOcrExtractor not in EXTRACTOR_REGISTRY.values()
+
+
+def test_ocr_extractor_calls_run_mineru_with_the_ocr_method(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The entire point of this class is the `method` it passes through.
+
+    If `extract()` silently dropped `method="ocr"` (a typo, a forgotten
+    kwarg, a copy-paste from MinerUExtractor), MinerUOcrExtractor would run
+    byte-for-byte the same extraction as plain `mineru` under a different
+    name -- a scanned document would still come back empty, and nothing
+    about the ladder itself would show it."""
+    calls: list[tuple[tuple, dict]] = []
+
+    class _FakeRunMineruModule:
+        @staticmethod
+        def run_mineru(*args, **kwargs):
+            calls.append((args, kwargs))
+
+    monkeypatch.setattr(
+        "ingest.dispatcher._import_phase0_module",
+        lambda name: _FakeRunMineruModule(),
+    )
+
+    source = tmp_path / "scan.pdf"
+    source.write_bytes(b"%PDF-1.7 fake")
+    out = tmp_path / "out"
+
+    MinerUOcrExtractor().extract(source_path=source, output_dir=out, pages=[1, 2])
+
+    assert calls == [((source, out, [1, 2]), {"method": "ocr"})]
+
+
+def test_pick_named_reaches_a_rung_the_registry_cannot() -> None:
+    """`mineru-ocr` is deliberately absent from data/document-types.yaml, so
+    `pick_extractor` can never return it. The ladder still has to be able to
+    ask for it by name, and that is the whole reason `pick_named` exists."""
+    from ingest.dispatcher import pick_named
+
+    assert isinstance(pick_named("mineru-ocr"), MinerUOcrExtractor)
+    assert pick_named("opendataloader").name == "opendataloader"
+
+
+def test_pick_named_refuses_an_unknown_name() -> None:
+    """A typo'd rung must not resolve to None and then be run as "no
+    extractor" — the worker would report success having extracted nothing."""
+    from ingest.dispatcher import pick_named
+
+    with pytest.raises(ValueError, match="unknown extractor"):
+        pick_named("minerU")
+
+
+def test_ocr_extractor_has_its_own_rung_name() -> None:
+    """MinerUOcrExtractor subclasses MinerUExtractor rather than duplicating
+    it -- `get_version()` is inherited unchanged (comparing it against the
+    plain extractor's own `get_version()` would be tautological: the same
+    method called on two instances with no instance state involved), and
+    the only real difference is this name, which is what the ladder
+    (ingest/ladder.py) and the chunker's reader registry both key on."""
+    ocr = MinerUOcrExtractor()
+    assert ocr.name == "mineru-ocr"

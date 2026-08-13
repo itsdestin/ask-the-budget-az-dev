@@ -529,6 +529,34 @@ function DocTypeForm({
               {duplicate.added_by ? ` by ${duplicate.added_by})` : duplicate.added_at ? ")" : ""}
               .
             </p>
+            {/* Plan B Blocking 3 (T12): the server's OWN sentence about
+                whether the existing copy's extraction looked complete —
+                app/routes/upload.py's `_duplicate_health`, pinned by six
+                backend tests that were shipping with nothing on screen to
+                show for them. Rendered VERBATIM, never recomposed here —
+                T12 exists specifically because a blanket "already
+                ingested" warning would discourage exactly the
+                re-processing a badly-extracted document (like the FY2024
+                AFR) needs, and a client-built paraphrase of `health` could
+                say something the server didn't.
+
+                Gated on `health`, not just on `message` being truthy:
+                `_duplicate_health` ALWAYS returns a message string — for
+                the 7,434 legacy documents with no recorded coverage it
+                returns a generic one ("This document is already in the
+                corpus.") alongside a null `health` — so gating on
+                `message` alone would print that generic line under the
+                sentence above on every single duplicate, which is exactly
+                the redundant, un-actionable line T12 is about NOT adding.
+                `health` is null for precisely those legacy documents and
+                only those, so gating on it is what makes "nothing new to
+                say" actually render as nothing — the sentence above stays
+                exactly what it always rendered, and that is genuinely the
+                overwhelmingly common case, not just a fallback for a
+                missing field. */}
+            {duplicate.health && duplicate.message && (
+              <p data-testid="duplicate-health">{duplicate.message}</p>
+            )}
             <button type="button" className="allbtn" onClick={() => void submit(true)}>
               Process it again anyway
             </button>

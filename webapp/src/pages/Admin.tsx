@@ -6,6 +6,7 @@ import { CorpusPanel } from "../admin/CorpusPanel";
 import { CostsPanel } from "../admin/CostsPanel";
 import { GuidancePanel } from "../admin/GuidancePanel";
 import { IssuesPanel } from "../admin/IssuesPanel";
+import { NeedsAttention } from "../admin/NeedsAttention";
 import { NoticesPanel } from "../admin/NoticesPanel";
 import { ProviderPanel } from "../admin/ProviderPanel";
 import { SaveBar } from "../admin/SaveBar";
@@ -65,6 +66,13 @@ export function Admin() {
   const [corpus, setCorpus] = useState<api.AdminCorpus | null>(null);
   const [snapshots, setSnapshots] = useState<api.Snapshot[]>([]);
   const [notices, setNotices] = useState<api.Notice[]>([]);
+  const [attention, setAttention] = useState<api.AttentionDocument[]>([]);
+  // Errors from Try again / Dismiss. Separate from `saveError` (the
+  // settings form) and `ingestMessage` (the machine toggle) — three
+  // different actions on this page, three different places a failure can
+  // come from, and conflating them would attribute one action's failure to
+  // another's button.
+  const [attentionError, setAttentionError] = useState<string | null>(null);
 
   const [month, setMonth] = useState(currentMonth());
   const [tab, setTab] = useState<Tab>("by_user");
@@ -109,12 +117,13 @@ export function Admin() {
           setLoading(false);
           return;
         }
-        const [s, u, c, b, n] = await Promise.all([
+        const [s, u, c, b, n, a] = await Promise.all([
           api.adminSettings(),
           api.adminUsage(month),
           api.adminCorpus(),
           api.adminBackups(),
           api.adminNotices(),
+          api.adminAttention(),
         ]);
         if (cancelled) return;
         setSettings(s);
@@ -123,6 +132,12 @@ export function Admin() {
         setCorpus(c);
         setSnapshots(b.snapshots);
         setNotices(n.notices);
+        setAttention(a.documents);
+        // The initial load can fail to even read the jobs directory (a
+        // share that's gone away) — surfaced through the SAME error slot
+        // the retry/dismiss actions already use below, rather than a
+        // second message a reader would have to learn to recognise.
+        if (a.error) setAttentionError(a.error);
         // These two are allowed to fail without taking the page down.
         api.aiStatus().then((st) => !cancelled && setTierCopy(st.tiers)).catch(() => {});
         loadModels();
@@ -224,6 +239,32 @@ export function Admin() {
     }
   }
 
+  // Try again / Dismiss both reuse the existing job actions (T8: a
+  // held-back document is an ordinary `failed` job, no new state) — see
+  // the WHY comment on the `failed -> cancelled` branch in
+  // ingest/jobs.py::advance() for why Dismiss's cancel call is legal at
+  // all. Re-reads BOTH the attention list and the corpus queue counts
+  // rather than patching local state: a retry moves a document out of
+  // this panel and into the queue CorpusPanel already shows, and guessing
+  // that transition client-side is how the two panels end up disagreeing.
+  async function attentionAction(kind: "retry" | "dismiss", jobId: string) {
+    try {
+      if (kind === "retry") await api.retryJob(jobId);
+      else await api.cancelJob(jobId);
+      const [a, c] = await Promise.all([api.adminAttention(), api.adminCorpus()]);
+      setAttention(a.documents);
+      setCorpus(c);
+      // A success after an earlier failure must clear the old message -- an
+      // admin who retries after a network hiccup and succeeds should not
+      // still see "The queue could not be reached" beside a panel that just
+      // worked (the same stuck-stale-mark shape the chat-history citation
+      // chips were fixed for).
+      setAttentionError(null);
+    } catch (err) {
+      setAttentionError(err instanceof Error ? err.message : String(err));
+    }
+  }
+
   async function setIngestHere(enabled: boolean) {
     try {
       const result = await api.adminSetMachineIngest(enabled);
@@ -303,6 +344,24 @@ export function Admin() {
             their report would be seen and the door needs a visible other
             end. */}
         <Group title="Needs attention">
+          {/* Held-out documents lead this group (merge with master,
+              2026-08-13). Plan B agreed a standalone panel "above Corpus
+              health"; master has since created this group for exactly this
+              purpose, and TWO surfaces both titled "Needs attention" would
+              have been worse than either. It leads because a document held
+              out of search is the only item here that means the corpus is
+              currently missing content an analyst will look for.
+              Renders nothing at all when nothing has failed. */}
+          <NeedsAttention
+            documents={attention}
+            onRetry={(jobId) => void attentionAction("retry", jobId)}
+            onDismiss={(jobId) => void attentionAction("dismiss", jobId)}
+          />
+          {attentionError ? (
+            <p className="adm-warn" role="alert" data-testid="admin-attention-error">
+              {attentionError}
+            </p>
+          ) : null}
           <NoticesPanel notices={notices} />
           <IssuesPanel />
         </Group>
