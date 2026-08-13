@@ -34,6 +34,7 @@ from app.routes.history import router as history_router
 from app.routes.jobs import router as jobs_router
 from app.routes.pdf import router as pdf_router
 from app.routes.search import router as search_router
+from app.routes.tuning import router as tuning_router
 from app.routes.upload import router as upload_router
 from app.search_provider import LanceSearchProvider, SearchProvider, StubSearchProvider
 
@@ -194,6 +195,10 @@ def create_app(
     # stated in the comment at the top of this block — a router added after
     # `/{path:path}` silently serves index.html to fetch() instead of JSON.
     app.include_router(admin_router)
+    # The admin's search-tuning surface (spec E1). Same gate, same "above the
+    # catch-all" rule as admin_router — see the comment at the top of this
+    # block.
+    app.include_router(tuning_router)
 
     # The worker is only CONSTRUCTED here — `_lifespan` above starts it when
     # the server actually starts serving. Constructing is cheap; the embedding
