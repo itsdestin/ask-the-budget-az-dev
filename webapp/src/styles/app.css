@@ -2572,7 +2572,12 @@ fieldset.adm-field{border:0;padding:0;}
    put while a 1,100-line section is read. */
 .report-modal .modal.is-wide{max-width:760px;}
 .report-modal .modal.is-wide .mbody{max-height:min(70vh,640px);overflow-y:auto;}
-.adm-sysg-label{margin:16px 0 0;font-size:11.5px;text-transform:uppercase;letter-spacing:.04em;color:var(--ink-3);font-weight:800;}
+/* Two class names, not one: the label is an <h3> (the section cards below
+   it are h3s, and an h4 here made the window's outline run backwards), and
+   the dialog renders inside the AI-guidance panel, where `.adm-panel h3`
+   would otherwise out-specify a single class and repaint this as a card
+   heading. */
+.adm-sysg-group .adm-sysg-label{margin:16px 0 0;font-size:11.5px;text-transform:uppercase;letter-spacing:.04em;color:var(--ink-3);font-weight:800;}
 .adm-sysg-group:first-of-type .adm-sysg-label{margin-top:4px;}
 /* Verbatim instructions. `pre-wrap` because this is markdown the assistant
    reads as written — collapsing its blank lines and indentation would show

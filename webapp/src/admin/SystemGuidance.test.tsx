@@ -31,7 +31,6 @@ function section(
   return {
     heading,
     text: `The words under ${heading}.`,
-    chars: 400,
     is_office_guidance: false,
     subsections: [],
     ...over,
@@ -41,6 +40,7 @@ function section(
 function prompt(over: Partial<api.AdminPrompt> = {}): api.AdminPrompt {
   return {
     corpus: "budget",
+    lead: "# Ask the Budget AZ — assistant instructions",
     groups: [
       {
         label: "What the assistant is, and how it decides",
@@ -54,14 +54,12 @@ function prompt(over: Partial<api.AdminPrompt> = {}): api.AdminPrompt {
               {
                 heading: "Accuracy hierarchy for actuals",
                 text: "The AFR wins for actual spending.",
-                chars: 33,
               },
             ],
           }),
         ],
       },
     ],
-    total_chars: 58032,
     total_lines: 1169,
     total_bytes: 58900,
     office_guidance_present: false,
@@ -90,6 +88,26 @@ async function renderPanel(over: Partial<api.AdminPrompt> = {}) {
   return spy;
 }
 
+/** The payload shape once the office HAS written something: their block is
+ *  a real section, in its own group, shown last. */
+const WITH_OFFICE_GUIDANCE: Partial<api.AdminPrompt> = {
+  office_guidance_present: true,
+  groups: [
+    {
+      label: "What the assistant is, and how it decides",
+      sections: [section("Your role")],
+    },
+    {
+      label: "Your office's own guidance",
+      sections: [
+        section("Office guidance from the administrator", {
+          is_office_guidance: true,
+        }),
+      ],
+    },
+  ],
+};
+
 async function openWindow(over: Partial<api.AdminPrompt> = {}) {
   const spy = await renderPanel(over);
   // Focused before the click because jsdom does not focus a button on click
@@ -111,8 +129,16 @@ describe("the See System Guidance button", () => {
       "See System Guidance",
     );
     expect(screen.queryByRole("dialog")).toBeNull();
-    // And nothing is fetched until asked for — this read is the whole
-    // prompt, tens of thousands of characters nobody asked to see.
+    // The panel BODY, which is what the name claims and what this spec used
+    // to leave unchecked: no group labels, no headings, no quoted words.
+    const panel = screen.getByTestId("admin-guidance");
+    expect(panel).not.toHaveTextContent(/Your role/);
+    expect(panel).not.toHaveTextContent(/Reading budget documents/);
+    expect(panel).not.toHaveTextContent(/What the assistant is, and how it decides/);
+    expect(panel).not.toHaveTextContent(/The words under/);
+    expect(within(panel).queryAllByTestId("sysg-group-label")).toHaveLength(0);
+    // And nothing is fetched until asked for — this read is the whole set
+    // of instructions, tens of thousands of characters nobody asked to see.
     expect(spy).not.toHaveBeenCalled();
   });
 
@@ -176,24 +202,42 @@ describe("the System guidance window", () => {
     ).toBeInTheDocument();
   });
 
+  it("shows the words above the first heading, which are read too", async () => {
+    // These were dropped on the floor (review, 2026-08-12): the splitter
+    // returned only the sections, so the document's own title line — which
+    // the assistant really does read — never reached a window captioned as
+    // showing everything it is told.
+    await openWindow();
+    expect(screen.getByTestId("sysg-lead")).toHaveTextContent(
+      /Ask the Budget AZ — assistant instructions/,
+    );
+  });
+
   it("marks where the office's own guidance lands", async () => {
-    await openWindow({
-      office_guidance_present: true,
-      groups: [
-        {
-          label: "Your office's own guidance",
-          sections: [
-            section("Office guidance from the administrator", {
-              is_office_guidance: true,
-            }),
-          ],
-        },
-      ],
-    });
+    await openWindow(WITH_OFFICE_GUIDANCE);
     expect(screen.getByTestId("sysg-mine")).toHaveTextContent(
       /Office guidance from the administrator/,
     );
     expect(screen.getByTestId("sysg-mine")).toHaveTextContent(/written by your office/i);
+  });
+
+  it("says the office's words are NOT the last thing the assistant reads", async () => {
+    // The honesty defect this pins (review, 2026-08-12). The group is shown
+    // last because that is where an admin looks for their own words — but
+    // the block renders MID-way through, with the refusal rules after it.
+    // An admin who believes theirs comes last writes overrides that the
+    // shipped rules then beat, and never finds out why.
+    await openWindow(WITH_OFFICE_GUIDANCE);
+    const note = screen.getByTestId("sysg-position");
+    expect(note).toHaveTextContent(/the assistant does not read it last/i);
+    expect(note).toHaveTextContent(/several sections come after it/i);
+    expect(note).toHaveTextContent(/refuse to answer/i);
+    expect(note).toHaveTextContent(/those rules win/i);
+  });
+
+  it("does not claim a position for guidance nobody has written", async () => {
+    await openWindow();
+    expect(screen.queryByTestId("sysg-position")).toBeNull();
   });
 
   it("says so when the office has written nothing yet", async () => {
@@ -215,12 +259,57 @@ describe("the System guidance window", () => {
     expect(size).toHaveTextContent("up to 8.0 KB");
   });
 
+  it("stops saying the office's guidance is 'added to this' once it is in it", async () => {
+    // The total is the RENDERED instructions, and a saved guidance block is
+    // already inside that number — so the old sentence counted it twice
+    // (review, 2026-08-12).
+    await openWindow(WITH_OFFICE_GUIDANCE);
+    const size = screen.getByTestId("sysg-size");
+    expect(size).toHaveTextContent(/your office's own guidance included/i);
+    expect(size).not.toHaveTextContent(/added to this/i);
+    expect(size).not.toHaveTextContent(/has not written any guidance/i);
+    // The cap is still on screen — it is the number an admin is writing to.
+    expect(size).toHaveTextContent("up to 8.0 KB");
+  });
+
   it("offers nothing that could change any of it", async () => {
     await openWindow();
     const dialog = screen.getByRole("dialog");
+    // Guard the guard: every "there is no X" below would pass against an
+    // empty <div role="dialog"/>, so first prove the instructions are on
+    // screen at all.
+    expect(within(dialog).getByRole("button", { name: /Your role/ })).toBeInTheDocument();
+
+    expect(
+      dialog.querySelectorAll("input, textarea, select, [contenteditable]"),
+    ).toHaveLength(0);
     expect(within(dialog).queryByRole("textbox")).toBeNull();
     expect(within(dialog).queryByRole("button", { name: /save/i })).toBeNull();
+    // Every control in the window is a way to READ: close it, switch which
+    // documents are shown, or open a card. Nothing else is offered.
+    const controls = within(dialog)
+      .getAllByRole("button")
+      .map((b) => (b.getAttribute("aria-label") ?? b.textContent ?? "").trim());
+    expect(controls.length).toBeGreaterThan(0);
+    for (const name of controls) {
+      expect(name).toMatch(/^(Close|Budget documents|Fiscal notes|.*(Show|Hide))$/);
+    }
     expect(dialog).toHaveTextContent(/You can read this, but not change it/i);
+  });
+
+  it("never puts a deeper heading above a shallower one", async () => {
+    // The group label used to be an <h4> sitting above each card's <h3>,
+    // so the window's outline ran backwards for anyone reading it by
+    // structure — a screen reader, or the browser's own outline view.
+    await openWindow();
+    const level = (el: Element) => Number(el.tagName.slice(1));
+    const label = screen.getAllByTestId("sysg-group-label")[0];
+    const card = within(screen.getByRole("dialog")).getByRole("button", {
+      name: /Your role/,
+    });
+    const cardHeading = card.querySelector("h1,h2,h3,h4,h5,h6");
+    expect(cardHeading).not.toBeNull();
+    expect(level(label)).toBeLessThanOrEqual(level(cardHeading!));
   });
 
   it("closes on Escape and puts focus back on the button that opened it", async () => {
@@ -254,10 +343,22 @@ describe("the System guidance window", () => {
     // reads. One shipped heading really is "What this corpus contains",
     // and relabelling it here would make the page lie about the thing it
     // exists to reveal.
-    await openWindow();
+    //
+    // The exemption is exactly the quoted heading and the quoted <pre>.
+    // It used to be a wrapper around whole cards (review, 2026-08-12),
+    // which also exempted the app's OWN chrome — the "written by your
+    // office" hint and each card's Show/Hide label — so the guard below
+    // never saw them. Opened with the office block present so the position
+    // note is checked too.
+    await openWindow(WITH_OFFICE_GUIDANCE);
     const dialog = screen.getByRole("dialog").cloneNode(true) as HTMLElement;
     dialog.querySelectorAll("[data-quoted]").forEach((n) => n.remove());
     const text = dialog.textContent?.toLowerCase() ?? "";
+    // The guard is worthless if the strip took the page with it: the app's
+    // own words must still be here to check.
+    expect(text).toContain("written by your office");
+    expect(text).toContain("show");
+    expect(text).toContain("the assistant does not read it last");
 
     for (const jargon of ["endpoint", "corpus", "chunk", "prompt", "catalog", "tier"]) {
       expect(text).not.toContain(jargon);

@@ -951,15 +951,12 @@ export async function saveAdminGuidance(text: string): Promise<AdminGuidance> {
 export interface PromptSubsection {
   heading: string;
   text: string;
-  chars: number;
 }
 
 export interface PromptSection {
   heading: string;
   /** The prose directly under the heading, before the first subsection. */
   text: string;
-  /** The whole section, subsections included. */
-  chars: number;
   /** True for the one section the office's own guidance renders as. */
   is_office_guidance: boolean;
   subsections: PromptSubsection[];
@@ -972,8 +969,10 @@ export interface PromptGroup {
 
 export interface AdminPrompt {
   corpus: string;
+  /** Everything above the first heading — today the document's own title
+   *  line. Part of what the assistant reads, so the window shows it. */
+  lead: string;
   groups: PromptGroup[];
-  total_chars: number;
   total_lines: number;
   /** Bytes, not characters — the office guidance cap is a byte cap, and the
    *  two numbers are shown side by side. */

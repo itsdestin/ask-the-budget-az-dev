@@ -30,6 +30,51 @@ import { bytes, count } from "./format";
 // to reveal. Everything the APP says — the title, the switch, the group
 // labels, the size line — is plain office English, and the spec in
 // SystemGuidance.test.tsx checks that with the window open.
+//
+// `data-quoted` therefore marks EXACTLY the quoted text and nothing else:
+// each section's <pre> and, via CollapsibleCard's `quotedTitle`, each
+// section's heading. It used to wrap whole cards (review, 2026-08-12),
+// which quietly exempted the app's own chrome — the "written by your
+// office" hint, the card's Show/Hide label — and would have exempted
+// anything added to a card later.
+//
+// WHAT THIS WINDOW MUST NOT IMPLY. The sections are grouped by subject,
+// not shown in the order the assistant reads them, and the office's own
+// group is shown last for findability. Left unsaid, that reads as "my
+// guidance is the assistant's final instruction", which is precisely
+// backwards: the slot sits mid-template and the refusal rules — which
+// outrank the office block by its own preamble — render after it. Hence
+// GUIDANCE_POSITION_NOTE below, pinned by a spec here and by
+// test_the_office_block_really_does_render_mid_prompt in
+// tests/test_admin_tuning_routes.py.
+
+/** Said wherever the office's own guidance is shown. Plain office English,
+ *  no hedging: an admin who believes their words come last will write them
+ *  as overrides, and they are not. */
+const GUIDANCE_POSITION_NOTE =
+  "Where this actually sits: your guidance is shown at the end of this " +
+  "list, but the assistant does not read it last. Several sections come " +
+  "after it — including the rules on when the assistant must refuse to " +
+  "answer. Where your words disagree with the rules on citing sources, " +
+  "refusing, or looking things up, those rules win.";
+
+/** The one size sentence, worded for whichever state the office is in.
+ *
+ *  The total is the RENDERED instructions, so once anything is saved the
+ *  office's own guidance is already inside that number — saying it "is
+ *  added to this" at that point double-counts (review, 2026-08-12). */
+function sizeLine(data: api.AdminPrompt, maxBytes: number | null): string {
+  const total = `${count(data.total_lines)} lines in all — ${bytes(data.total_bytes)}`;
+  const cap = maxBytes ? bytes(maxBytes) : null;
+  if (data.office_guidance_present) {
+    return cap
+      ? `${total}, your office's own guidance included. You can write up to ${cap} of it.`
+      : `${total}, your office's own guidance included.`;
+  }
+  return cap
+    ? `${total}. Your office has not written any guidance yet; what you write in the box is added to this, up to ${cap}.`
+    : `${total}. Your office has not written any guidance yet.`;
+}
 
 /** The two sets of documents, worded as the rest of the app words them
  *  (see pages/Ai.tsx's picker). The wire names are what the route takes. */
@@ -117,31 +162,44 @@ export function SystemGuidanceModal({
 
         {data ? (
           <p className="adm-hint" data-testid="sysg-size">
-            {count(data.total_lines)} lines in all — {bytes(data.total_bytes)}.
-            {maxBytes
-              ? ` What your office writes in the guidance box is added to this, up to ${bytes(maxBytes)}.`
-              : ""}
-            {data.office_guidance_present
-              ? ""
-              : " Your office has not written any guidance yet."}
+            {sizeLine(data, maxBytes)}
           </p>
         ) : null}
 
         {!data && !error ? <p className="adm-empty">Loading…</p> : null}
 
+        {/* Everything above the first heading. One line today — the
+            document's own title — and the assistant reads it, so a window
+            captioned "everything the assistant is told" shows it. It was
+            dropped on the floor until the 2026-08-12 review. */}
+        {data?.lead ? (
+          <div className="adm-sysg-group" data-testid="sysg-lead">
+            <h3 className="adm-sysg-label">How the instructions open</h3>
+            <pre className="adm-sysg-text" data-quoted="true">
+              {data.lead}
+            </pre>
+          </div>
+        ) : null}
+
         {data?.groups.map((group) => (
           <div className="adm-sysg-group" key={group.label}>
-            <h4 className="adm-sysg-label" data-testid="sysg-group-label">
+            {/* h3, not h4: the section cards below are h3s, so an h4 here
+                made the window's outline run backwards. */}
+            <h3 className="adm-sysg-label" data-testid="sysg-group-label">
               {group.label}
-            </h4>
-            {/* `data-quoted` marks the assistant's OWN words, headings
-                included. The jargon spec strips these before checking the
-                app's vocabulary — see the note at the top of this file. */}
-            <div data-quoted="true">
-              {group.sections.map((section) => (
-                <SectionCard key={section.heading} section={section} />
-              ))}
-            </div>
+            </h3>
+            {group.sections.some((s) => s.is_office_guidance) ? (
+              <p className="adm-hint" data-testid="sysg-position">
+                {GUIDANCE_POSITION_NOTE}
+              </p>
+            ) : null}
+            {/* Index in the key because the server deliberately keeps two
+                sections that share a heading (app/routes/tuning.py's
+                `_grouped` filters rather than looks up) — a heading-only
+                key would collide on exactly the case it protects. */}
+            {group.sections.map((section, i) => (
+              <SectionCard key={`${i}-${section.heading}`} section={section} />
+            ))}
           </div>
         ))}
       </div>
@@ -153,17 +211,27 @@ function SectionCard({ section }: { section: api.PromptSection }) {
   return (
     <CollapsibleCard
       title={section.heading}
+      // Verbatim, so exempt from the plain-English guard — but ONLY the
+      // heading text is, not this card's hint or its Show/Hide label.
+      quotedTitle
       // The one thing an admin must be able to tell apart: their own words
       // from the shipped ones. Said on the closed row, so it is visible
-      // while scanning rather than only after opening.
+      // while scanning rather than only after opening. App copy, therefore
+      // NOT exempt.
       hint={section.is_office_guidance ? "written by your office" : undefined}
       testId={section.is_office_guidance ? "sysg-mine" : "sysg-section"}
     >
-      {section.text ? <pre className="adm-sysg-text">{section.text}</pre> : null}
-      {section.subsections.map((sub) => (
-        <div className="adm-sysg-sub" key={sub.heading}>
-          <CollapsibleCard title={sub.heading}>
-            <pre className="adm-sysg-text">{sub.text}</pre>
+      {section.text ? (
+        <pre className="adm-sysg-text" data-quoted="true">
+          {section.text}
+        </pre>
+      ) : null}
+      {section.subsections.map((sub, i) => (
+        <div className="adm-sysg-sub" key={`${i}-${sub.heading}`}>
+          <CollapsibleCard title={sub.heading} quotedTitle>
+            <pre className="adm-sysg-text" data-quoted="true">
+              {sub.text}
+            </pre>
           </CollapsibleCard>
         </div>
       ))}
