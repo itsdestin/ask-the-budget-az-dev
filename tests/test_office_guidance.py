@@ -74,9 +74,12 @@ def test_building_a_prompt_never_loads_lancedb():
     -> store.config must stay stdlib + store.config only. store/__init__.py
     used to import store.chunk_store eagerly, which imports lancedb — that
     would make every prompt build (including the hot per-step path) pull
-    LanceDB into the process. Guard it directly rather than trust the AST
-    import-allowlist test, which only inspects harness/prompt.py's own
-    import statements and cannot see this transitive path."""
+    LanceDB, onnxruntime, and retrieval into the process. Guard it directly
+    rather than trust the AST import-allowlist test
+    (test_harness_prompt.py::test_prompt_py_does_not_import_the_map_builder_or_the_store),
+    which only inspects harness/prompt.py's own import statements and
+    cannot see this transitive path. All three roots are checked, not just
+    LanceDB, because that's what the constraint actually names."""
     import subprocess
     import sys
 
@@ -85,10 +88,39 @@ def test_building_a_prompt_never_loads_lancedb():
             sys.executable,
             "-c",
             "import sys; import harness.prompt; "
-            "print('lancedb' in sys.modules or any(m.startswith('lancedb.') for m in sys.modules))",
+            "roots = ('lancedb', 'onnxruntime', 'retrieval'); "
+            "hits = [r for r in roots if r in sys.modules "
+            "or any(m.startswith(r + '.') for m in sys.modules)]; "
+            "print(hits)",
         ],
         capture_output=True,
         text=True,
         check=True,
     )
-    assert result.stdout.strip() == "False", result.stdout + result.stderr
+    assert result.stdout.strip() == "[]", result.stdout + result.stderr
+
+
+def test_guidance_containing_placeholder_syntax_does_not_raise():
+    # Ordering guard (review finding, Task 5 Minor 5): the splice runs
+    # AFTER `_substitute`, so admin prose that happens to contain a
+    # `{{...}}`-shaped string must render, not be mistaken for a real
+    # template placeholder and raise PromptTemplateError office-wide.
+    reset_template_cache()
+    og.save_office_guidance("Use the {{FOO}} format for citations.", "destin")
+    og.reset_guidance_cache()
+    out = build_system_prompt(corpus="budget", tier="standard")
+    assert "{{FOO}}" in out
+
+
+def test_guidance_with_backslash_escapes_survives_the_splice():
+    # re.sub replacement-form guard (review finding, Task 5 Minor 5): a
+    # STRING replacement interprets `\1` as a backreference and a
+    # trailing backslash raises re.error outright. The splice uses a
+    # callable replacement (`lambda _match: block`) specifically so
+    # admin prose containing either is spliced in literally.
+    reset_template_cache()
+    text = "See item \\1 in the packet.\\"
+    og.save_office_guidance(text, "destin")
+    og.reset_guidance_cache()
+    out = build_system_prompt(corpus="budget", tier="standard")
+    assert text in out

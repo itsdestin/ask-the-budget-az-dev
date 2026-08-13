@@ -93,18 +93,30 @@ def save_office_guidance(text: str, user: str) -> None:
     cleaned = text.strip()
     if len(cleaned.encode("utf-8")) > MAX_GUIDANCE_BYTES:
         raise ValueError(
-            f"Guidance is limited to {MAX_GUIDANCE_BYTES:,} characters of "
-            "text — this text rides every AI request the whole office makes, "
-            "so shorter is genuinely better. Trim it and save again."
+            f"This guidance is too long — it's over the {MAX_GUIDANCE_BYTES:,} "
+            "byte limit. Text pasted from Word often runs over sooner than "
+            "the character count suggests, because accented letters, curly "
+            "quotes, and em dashes each count as more than one byte. This "
+            "text rides every AI request the whole office makes, so shorter "
+            "is genuinely better. Trim it and save again."
         )
     path = guidance_path()
     path.parent.mkdir(parents=True, exist_ok=True)
-    # One-step undo: the version being replaced survives as .bak — the
-    # settings-corrupt-preservation idea, applied to deliberate edits.
-    if path.is_file():
-        os.replace(path, path.with_suffix(".md.bak"))
     tmp = path.with_name(f"{path.name}.tmp-{uuid.uuid4().hex[:8]}")
     tmp.write_text(cleaned, encoding="utf-8")
+    # One-step undo: the version being replaced survives as .bak — the
+    # settings-corrupt-preservation idea, applied to deliberate edits.
+    #
+    # WHY tmp is written BEFORE the live file moves to .bak, not after:
+    # if `tmp.write_text` fails partway (share disconnect, disk full,
+    # permissions — all normal on the SMB share this app ships against),
+    # the live file must still be sitting at `path`, untouched. Writing
+    # tmp first means that failure happens before the live file moves at
+    # all. The only window where the office has NO guidance file is
+    # between the two `os.replace` calls below, and each of those is a
+    # single atomic rename — not a window a failed write can land inside.
+    if path.is_file():
+        os.replace(path, path.with_suffix(".md.bak"))
     os.replace(tmp, path)
     meta = {
         "edited_by": user,

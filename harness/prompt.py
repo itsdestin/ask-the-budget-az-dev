@@ -293,6 +293,15 @@ def _insert_office_guidance(text: str, block: str) -> str:
     empty rendering exactly (pinned by
     `tests/test_office_guidance.py::test_prompt_is_byte_identical_when_guidance_absent`).
     """
+    # WHY a callable replacement and not the string `block` directly: this
+    # is load-bearing, not stylistic. `re.sub`'s STRING form interprets
+    # `\1`, `\g<x>`, and a trailing backslash in the REPLACEMENT as
+    # backreference syntax — and admin prose can contain any of those by
+    # accident (a numbered note "\1) …", a UNC path ending in a
+    # backslash). A trailing backslash there raises `re.error` outright,
+    # which would take down prompt building office-wide over admin
+    # content. A callable replacement's return value is inserted
+    # literally, with no such interpretation.
     return _OFFICE_GUIDANCE_LINE.sub(lambda _match: block, text, count=1)
 
 
