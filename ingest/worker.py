@@ -434,9 +434,10 @@ def _extract_and_chunk(job: JobRecord, ctx: WorkerContext) -> ExtractionOutcome:
     prior = {a.get("extractor"): a for a in job.extraction_attempts}
     attempts: list[dict] = []
     best: ExtractionOutcome | None = None
-    # Outcomes that CLEARED the coverage floor. Kept separately from
-    # `best`, which only ever holds failures: a passing-but-tripped
-    # attempt belongs to neither the early return nor the failure path,
+    # Outcomes that CLEARED the coverage floor -- tripped and untripped
+    # alike, since every stop now routes through `choose_best` below
+    # rather than returning early. Kept separately from `best`, which only
+    # ever holds failures: a passing-but-tripped attempt is not a failure,
     # and dropping it into `best` would hide the document from search.
     passing: list[ExtractionOutcome] = []
 
@@ -537,20 +538,43 @@ def _extract_and_chunk(job: JobRecord, ctx: WorkerContext) -> ExtractionOutcome:
             # DEVIATION FROM THE DRAFTED SPEC: an untripped rung does NOT
             # `return` its own outcome directly -- it `break`s, and the
             # winner is still decided by `choose_best` below, over every
-            # passing attempt seen so far (this one included). Proven by
-            # execution, not by inspection: an early `return` here makes
-            # `test_a_clean_attempt_that_collapsed_in_SIZE_does_not_win`
-            # FAIL. That rung's `unlabelled` reads None -- too few
-            # characters per chunk to judge, MIN_JUDGED_CHUNKS never
-            # reached -- so "not tripped" is true for the wrong reason: the
-            # structure check never RAN, it wasn't skipped clean. A direct
-            # `return` treats "unmeasured" as "healthy" and hands back a
-            # quarter-sized reading over a four-times-larger tripped one
-            # that `choose_best`'s own STRUCTURE_TIE_BAND exists to reject
+            # passing attempt seen so far (this one included).
+            #
+            # THE TRUE RULE, wider than first written here: a literal
+            # `return` bypasses `choose_best`'s STRUCTURE_TIE_BAND for
+            # EVERY untripped rung reached after a tripped one -- whether
+            # or not that rung's OWN structure was even measurable. Proven
+            # by execution twice, not by inspection once:
+            #   - unmeasurable case: a rung's `unlabelled` can read None
+            #     (too few characters per chunk to judge, MIN_JUDGED_CHUNKS
+            #     never reached), so "not tripped" is true because the
+            #     structure check never RAN, not because it ran clean. A
+            #     direct `return` here treats "unmeasured" as "healthy" and
+            #     hands back a quarter-sized reading over a four-times-
+            #     larger tripped one --
+            #     `test_a_clean_attempt_that_collapsed_in_SIZE_does_not_win`
+            #     FAILS against a literal `return`.
+            #   - measured case: a rung whose structure genuinely was
+            #     measured clean (a real `unlabelled == 0.0`) still gets
+            #     the same treatment under a literal `return` -- it wins
+            #     outright the moment it is untripped, without ever being
+            #     weighed against a much larger tripped rung through the
+            #     band. The band exists precisely to make that weighing
+            #     happen, and only routing every stop through `choose_best`
+            #     lets it.
+            # `choose_best`'s own STRUCTURE_TIE_BAND exists to reject this
+            # shape
             # (`tests/test_structure.py::test_structure_does_NOT_beat_coverage_outside_the_band`
             # pins the identical shape one level down). Routing every stop
             # through `choose_best` costs nothing on the common one-rung
             # case -- `choose_best` returns the sole candidate.
+            #
+            # Consequence for future tuning: lowering MIN_JUDGED_CHUNKS or
+            # MIN_JUDGED_CHARS (`ingest/structure.py` explicitly invites
+            # tuning the latter) shrinks the unmeasurable case but does NOT
+            # remove the reason for `break` over `return` -- the measured
+            # case above is independent of both constants. Do not read a
+            # smaller None-rate as licence to restore the `return`.
             tripped = (
                 outcome.unlabelled is not None
                 and outcome.unlabelled > MAX_UNLABELLED

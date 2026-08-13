@@ -122,7 +122,6 @@ def _ctx(monkeypatch, scripted, *, has_text_layer=True, chunks=12, bare=()):
 
     def fake_extract(job, ctx, *, extractor=None, method=None):
         pending["ratio"] = scripted(method)
-        pending["method"] = method
 
     def fake_chunk(job, ctx, *, extractor):
         ratio = pending.get("ratio")
@@ -533,6 +532,27 @@ def test_a_rung_with_too_few_judged_chunks_records_None_not_zero(
     assert outcome.attempts[0]["unlabelled"] is None
 
 
+def test_a_document_with_unmeasured_structure_still_short_circuits(
+    monkeypatch, ladder_job
+):
+    """`unlabelled is None` must NOT be treated as tripped. A one-character
+    edit that flips `tripped`'s `is not None` to `is None` (or drops it)
+    leaves every ladder test here green but sends every document with fewer
+    than MIN_JUDGED_CHUNKS judgeable passages -- roughly 5,200 of the 7,434
+    documents in the live corpus, per `ingest/structure.py` -- through every
+    remaining rung for nothing. Reproduced against that exact mutation: the
+    same script that calls only `opendataloader` here calls
+    `opendataloader`, `mineru`, `mineru-ocr` under it."""
+    scripted = _ScriptedLadder(
+        {"opendataloader": 0.94, "mineru": 0.99, "mineru-ocr": 0.99}
+    )
+    ctx = _ctx(monkeypatch, scripted, chunks=3)
+    outcome = worker._extract_and_chunk(ladder_job, ctx)
+
+    assert outcome.unlabelled is None
+    assert scripted.calls == ["opendataloader"]
+
+
 # --- X4: a passing-but-tripped rung must not short-circuit -----------------
 
 
@@ -571,7 +591,11 @@ def test_a_tripped_document_with_nothing_better_is_STILL_WRITTEN(
     outcome = worker._extract_and_chunk(ladder_job, ctx)
 
     assert outcome.passed, "a tripped document must not be held out of search"
-    assert outcome.extractor == "opendataloader"  # highest coverage, band empty
+    # All three land in the band together (each >= 0.75 * 0.49): tied on
+    # unlabelled (all 1.0, everything bare), so the -coverage tie-break
+    # inside the band picks the highest-coverage rung, not a band-empty
+    # fallback.
+    assert outcome.extractor == "opendataloader"
     assert len(outcome.attempts) == 3
 
 
