@@ -14,7 +14,11 @@
 
 ## Global Constraints
 
-- **Worktree:** `~/ask-the-budget-az-worktrees/jlbc-memo-formatting`, branch `jlbc-memo-formatting`, already created off `origin/master`. `.venv` is symlinked. Run everything with `.venv/bin/python`.
+- **Worktrees.** This plan runs in TWO parallel tracks off `jlbc-memo-formatting`, on disjoint file sets:
+  - **Track A** (Tasks 1-4) in `~/ask-the-budget-az-worktrees/jlbc-memo-render`, branch `jlbc-memo-render` — `memo/`, `harness/documents.py`, `tests/test_jlbc_memo.py`, `tests/test_create_document.py`.
+  - **Track B** (Tasks 5-6) in `~/ask-the-budget-az-worktrees/jlbc-memo-identity`, branch `jlbc-memo-identity` — `app/`, `tests/test_display_name.py`, `webapp/`.
+  - Tasks 7 and 8 run in `~/ask-the-budget-az-worktrees/jlbc-memo-formatting` AFTER both tracks merge, because Task 7 consumes `materialize`'s new signature (Track A) and `display_name` (Track B).
+  - `.venv` is symlinked in each. Run everything with `.venv/bin/python`.
 - **`harness/documents.py` import allowlist** (`tests/test_create_document.py:321`) may gain exactly one entry: `"memo"`. Nothing else.
 - **`harness/tools.py` import allowlist** (`tests/test_harness_tools.py:1078`) — `{__future__, json, sys, threading, typing, uuid, retrieval, store, harness, chunking}` — **must not change.** In particular `harness/tools.py` may not import `app.*`. This is why identity is injected rather than resolved.
 - **`memo/` may import only** `__future__`, `dataclasses`, `datetime`, `re`, `typing`, `docx`. Pinned by its own test in Task 4.
@@ -1275,7 +1279,11 @@ def test_a_corrupt_display_names_value_reads_as_absent(tmp_path):
 @pytest.fixture
 def client(monkeypatch):
     monkeypatch.setenv("JLBC_USER", "djarrett")
-    app = create_app(search_provider=StubSearchProvider(), ingest_worker=None)
+    # `provider=`, NOT `search_provider=` — app/main.py:156 names it that,
+    # and tests/test_identity.py already uses this idiom. The wrong kwarg
+    # raises TypeError, which would make the red step red for the wrong
+    # reason and prove nothing about the missing route.
+    app = create_app(provider=StubSearchProvider(), ingest_worker=None)
     with TestClient(app) as c:
         yield c
 
