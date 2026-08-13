@@ -89,6 +89,22 @@ def test_chunk_doc_docx_dispatch_returns_chunks():
     assert chunks
 
 
+def test_chunk_doc_mineru_ocr_dispatch_returns_chunks():
+    """The ladder's OCR rung (ingest/ladder.py) names 'mineru-ocr' as an
+    extractor; MinerUReader must handle it identically to plain 'mineru'
+    because OCR mode writes the SAME per-page output shape. Reusing the
+    plain-mineru fixture is the point: if this needed a different reader,
+    it would need a different fixture too, and getting only the registry
+    key right (without this) is exactly the gap a review caught once
+    already on this plan."""
+    chunks = chunk_doc(
+        extractor_output_path=FIXTURES / "mineru-jlbc-approps-p513.json",
+        doc_meta=_approps_meta(extractor="mineru-ocr"),
+    )
+    assert chunks
+    assert all(isinstance(c, Chunk) for c in chunks)
+
+
 def test_chunk_doc_unknown_extractor_raises():
     with pytest.raises(ValueError, match="Unknown extractor"):
         chunk_doc(

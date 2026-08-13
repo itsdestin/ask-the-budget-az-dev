@@ -81,9 +81,34 @@ def _all_text(doc: Document) -> list[str]:
     return out
 
 
+# The .docx is a JLBC memo now (see memo/), so the model's body no longer
+# starts at paragraph 0. `render()` emits five chrome paragraphs first —
+# the Title-styled masthead, the "Research Memorandum" subtitle, two
+# address lines, and the paragraph carrying the horizontal rule — followed
+# by the DATE/TO/FROM/SUBJECT block, which is a TABLE and therefore
+# contributes no paragraphs at all.
+#
+# VERIFIED against what render() actually emits rather than counted off
+# the source: `[p.text for p in memo.render("", subject="S").paragraphs]`
+# is exactly those five.
+_CHROME_PARAGRAPHS = 5
+
+
 def _body_paragraphs(doc: Document) -> list:
-    """Paragraphs after the title heading, ignoring blank spacers."""
-    return [p for p in doc.paragraphs[1:] if p.text.strip()]
+    """Paragraphs of the model's body, ignoring chrome and blank spacers."""
+    return [p for p in doc.paragraphs[_CHROME_PARAGRAPHS:] if p.text.strip()]
+
+
+def _body_tables(doc: Document) -> list:
+    """Tables from the model's body.
+
+    `tables[0]` is always the memo block, so a body table that used to be
+    `tables[0]` is now `tables[1]`. Going through this helper keeps that
+    offset stated in ONE place — and keeps `len(...) == 1` meaning "the
+    body produced one table", which is the property these tests are
+    actually about.
+    """
+    return doc.tables[1:]
 
 
 # ---------------------------------------------------------------------------
@@ -139,20 +164,37 @@ def _render(body: str) -> Document:
     return Document(str(path))
 
 
-def test_the_title_becomes_the_documents_first_heading():
+def test_the_title_is_carried_on_the_page_by_the_memo_blocks_subject_row():
+    """Same property as before — the title is IN the document, not only in
+    its filename, so the artifact is still titled once it is printed or
+    pasted into an email. Only WHERE moved: Word's `Title` style is spent
+    on the JLBC masthead now, and the memo has no separate title line
+    (spec M4), so the title rides the SUBJECT row of the memo block."""
     doc = _render("body text")
-    assert doc.paragraphs[0].text == "Doc title"
+    assert doc.paragraphs[0].text == "Joint Legislative Budget Committee"
     assert doc.paragraphs[0].style.name == "Title"
+    assert doc.tables[0].rows[6].cells[0].text == "SUBJECT:"
+    assert doc.tables[0].rows[6].cells[1].text == "Doc title"
+    # ...and it appears exactly once. A body copy would be a second title
+    # competing with the subject row.
+    assert [p.text for p in doc.paragraphs].count("Doc title") == 0
 
 
-def test_hash_headings_become_word_headings():
+def test_hash_headings_become_the_memos_heading_tiers():
+    """The stock `Heading 1/2/3` ladder is gone because the memo does not
+    have one: JLBC's house style is a single `Header`-styled section
+    heading plus a bold run-in label beneath it (spec M8). `#`/`##` map to
+    the heading; anything deeper maps to the run-in label. Every tier is
+    still visually distinct from body text, which is what the old
+    assertion was protecting."""
     doc = _render("# Top\n\n## Second\n\n### Third")
-    styled = [(p.text, p.style.name) for p in _body_paragraphs(doc)]
-    assert styled == [
-        ("Top", "Heading 1"),
-        ("Second", "Heading 2"),
-        ("Third", "Heading 3"),
+    paragraphs = _body_paragraphs(doc)
+    assert [(p.text, p.style.name) for p in paragraphs] == [
+        ("Top", "Header"),
+        ("Second", "Header"),
+        ("Third", "Normal"),
     ]
+    assert all(run.bold for p in paragraphs for run in p.runs)
 
 
 def test_dash_and_star_bullets_become_list_paragraphs():
@@ -174,10 +216,21 @@ def test_bold_markers_become_bold_runs_and_the_markers_disappear():
 
 
 def test_bold_works_inside_headings_and_bullets():
-    doc = _render("## A **bold** heading\n\n- a **bold** bullet")
-    for para in _body_paragraphs(doc):
-        assert "**" not in para.text
-        assert [r.text for r in para.runs if r.bold] == ["bold"]
+    """Unchanged property: the `**` markers are consumed and the
+    emphasized text really is bold. The heading half is asserted
+    separately now because the memo's one heading tier is bold END TO END
+    — `**` inside it is consumed but adds no contrast — while in body text
+    only the marked span is bold, exactly as before."""
+    heading, bullet = _body_paragraphs(
+        _render("## A **bold** heading\n\n- a **bold** bullet")
+    )
+    assert "**" not in heading.text and "**" not in bullet.text
+
+    assert heading.text == "A bold heading"
+    assert [r.text for r in heading.runs if r.bold] == ["A ", "bold", " heading"]
+
+    assert bullet.text == "a bold bullet"
+    assert [r.text for r in bullet.runs if r.bold] == ["bold"]
 
 
 def test_a_pipe_table_becomes_a_real_word_table():
@@ -187,8 +240,8 @@ def test_a_pipe_table_becomes_a_real_word_table():
         "| ADC | $1,000 |\n"
         "| AHCCCS | $2,000 |"
     )
-    assert len(doc.tables) == 1
-    table = doc.tables[0]
+    assert len(_body_tables(doc)) == 1
+    table = _body_tables(doc)[0]
     assert [c.text for c in table.rows[0].cells] == ["Agency", "FY2027"]
     assert [c.text for c in table.rows[1].cells] == ["ADC", "$1,000"]
     assert [c.text for c in table.rows[2].cells] == ["AHCCCS", "$2,000"]
@@ -198,12 +251,12 @@ def test_a_table_cell_with_an_escaped_pipe_keeps_the_pipe():
     # primer/docx_to_md.py escapes literal pipes as \| when it WRITES a
     # markdown table; this is the matching unescape on the way back.
     doc = _render("| a | b |\n| --- | --- |\n| x \\| y | z |")
-    assert doc.tables[0].rows[1].cells[0].text == "x | y"
+    assert _body_tables(doc)[0].rows[1].cells[0].text == "x | y"
 
 
 def test_a_short_row_is_padded_rather_than_dropped():
     doc = _render("| a | b | c |\n| --- | --- | --- |\n| only |")
-    row = doc.tables[0].rows[1]
+    row = _body_tables(doc)[0].rows[1]
     assert [c.text for c in row.cells] == ["only", "", ""]
 
 
@@ -212,8 +265,12 @@ def test_a_short_row_is_padded_rather_than_dropped():
     [
         ("- Agency | Amount", "Agency | Amount", "List Bullet"),
         ("* Agency | Amount", "Agency | Amount", "List Bullet"),
-        ("## Costs | FY2027", "Costs | FY2027", "Heading 2"),
-        ("# Revenue | Expense", "Revenue | Expense", "Heading 1"),
+        # `Heading 2` / `Heading 1` in the generic renderer; the memo has a
+        # single `Header`-styled heading tier instead (spec M8). The
+        # property under test — the line stays a heading rather than
+        # becoming a table cell — is unchanged.
+        ("## Costs | FY2027", "Costs | FY2027", "Header"),
+        ("# Revenue | Expense", "Revenue | Expense", "Header"),
     ],
 )
 def test_a_piped_bullet_or_heading_is_not_mistaken_for_a_table_header(
@@ -227,7 +284,7 @@ def test_a_piped_bullet_or_heading_is_not_mistaken_for_a_table_header(
     doc = _render(f"{first_line}\n| --- |\n| ADC | 1 |")
     first = _body_paragraphs(doc)[0]
     assert (first.text, first.style.name) == (expected_text, expected_style)
-    assert doc.tables == []
+    assert _body_tables(doc) == []
     # The stray table fragments still survive verbatim as plain text.
     rendered = [t.strip() for t in _all_text(doc)]
     assert "| --- |" in rendered and "| ADC | 1 |" in rendered
@@ -237,13 +294,13 @@ def test_a_genuine_table_after_a_heading_still_renders():
     # Regression guard for the fix above: the heading and the table are on
     # separate lines, which is the normal shape, and must be unaffected.
     doc = _render("## Costs\n\n| Agency | FY2027 |\n| --- | --- |\n| ADC | $1 |")
-    assert _body_paragraphs(doc)[0].style.name == "Heading 2"
-    assert [c.text for c in doc.tables[0].rows[1].cells] == ["ADC", "$1"]
+    assert _body_paragraphs(doc)[0].style.name == "Header"
+    assert [c.text for c in _body_tables(doc)[0].rows[1].cells] == ["ADC", "$1"]
 
 
 def test_text_after_a_table_returns_to_normal_paragraphs():
     doc = _render("| a |\n| --- |\n| x |\n\nAfter the table.")
-    assert doc.tables[0].rows[1].cells[0].text == "x"
+    assert _body_tables(doc)[0].rows[1].cells[0].text == "x"
     assert _body_paragraphs(doc)[-1].text == "After the table."
 
 
@@ -334,6 +391,11 @@ def test_documents_module_cannot_reach_the_shared_data_dir():
         "typing",
         "unicodedata",
         "docx",
+        # `memo` renders Markdown into a Word document and does nothing
+        # else. Safe to allow because tests/test_jlbc_memo.py pins ITS
+        # imports the same way, so the guarantee stays structural and
+        # becomes transitive rather than becoming a promise.
+        "memo",
     }
     tree = ast.parse(MODULE_SOURCE_PATH.read_text(encoding="utf-8"))
     roots: set[str] = set()

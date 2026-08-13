@@ -138,6 +138,21 @@ def test_cancel_on_a_live_job_is_409(client):
     assert load_job(job.job_id).state == "live"
 
 
+def test_cancel_dismisses_a_failed_job(client):
+    """Plan B Task 7's "Dismiss" button on the Needs-attention panel is this
+    exact route — a held-back document (T8) is `failed`, and there is
+    deliberately no separate "dismissed" state to add. See the WHY comment
+    on the `failed -> cancelled` branch in ingest/jobs.py::advance()."""
+    job = _job()
+    advance(job, "failed", error="every extraction rung scored below the floor")
+
+    r = client.post(f"/api/jobs/{job.job_id}/cancel")
+
+    assert r.status_code == 200
+    assert r.json()["job"]["state"] == "cancelled"
+    assert load_job(job.job_id).state == "cancelled"
+
+
 def test_a_traversal_job_id_is_rejected(client):
     """job_id lands in a filesystem path; a dotted segment must never reach it."""
     assert client.post("/api/jobs/../cancel").status_code in (400, 404, 405)

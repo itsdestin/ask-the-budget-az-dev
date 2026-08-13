@@ -8,6 +8,7 @@ import pytest
 from chunking.types import Chunk, ChunkProvenance, DocMeta
 from ingest.lance_writer import build_title, chunk_to_lance_row, write_doc
 from store.chunk_store import ChunkStore
+from store.documents import document_record, reset_documents_cache
 
 
 def _chunk(i: int, **over) -> Chunk:
@@ -139,6 +140,76 @@ def test_write_doc_records_page_count_from_chunks(data_dir):
               source_url=None, source_format="pdf", uploaded_by="u")
     docs = json.loads((data_dir / "documents.json").read_text())
     assert docs["gov-test-fy2027"]["page_count"] == 5
+
+
+# --- extraction record (Plan B Task 5) --------------------------------------
+
+
+def test_a_written_document_records_how_its_extraction_went(data_dir):
+    """`extraction` round-trips verbatim -- write_doc takes the already-built
+    dict from its caller (ingest/worker.py::_extraction_record) and stores it
+    as-is; it does not interpret or re-derive any of the four fields."""
+    store = ChunkStore(root=data_dir, dim=8)
+    write_doc(
+        store, "budget_chunks", [_chunk(0)], [[1.0] + [0.0] * 7], _meta(),
+        title="t", source_sha256="ab" * 32, source_blob_path=None,
+        source_url=None, source_format="pdf", uploaded_by="u",
+        extraction={
+            "method": "mineru", "coverage": 0.93,
+            "attempts": 2, "fell_back": True,
+        },
+    )
+    entry = json.loads((data_dir / "documents.json").read_text())["gov-test-fy2027"]
+    assert entry["extraction"] == {
+        "method": "mineru",
+        "coverage": pytest.approx(0.93),
+        "attempts": 2,
+        "fell_back": True,
+    }
+
+
+def test_write_doc_writes_extraction_as_none_when_the_caller_has_nothing_to_report(
+    data_dir,
+):
+    """The key must be present -- not merely allowed -- even when unknown.
+
+    `_merge_document_entry` asserts its entry's key set exactly matches
+    `DOCS_FIELDS | INGEST_DOCS_FIELDS`; if `extraction` were only added when
+    truthy, that assert would fail on every ordinary write instead of
+    documenting the "known-unknown" case as None.
+    """
+    store = ChunkStore(root=data_dir, dim=8)
+    write_doc(store, "budget_chunks", [_chunk(0)], [[1.0] + [0.0] * 7], _meta(),
+              title="t", source_sha256="ab" * 32, source_blob_path=None,
+              source_url=None, source_format="pdf", uploaded_by="u")
+    entry = json.loads((data_dir / "documents.json").read_text())["gov-test-fy2027"]
+    assert "extraction" in entry
+    assert entry["extraction"] is None
+
+
+def test_a_document_written_before_this_shipped_reads_as_fine(data_dir):
+    """All 7,434 pre-existing documents have no "extraction" key at all --
+    not even `null`. A write to a DIFFERENT document must leave that legacy
+    shape untouched, and `document_record` must read the absent key exactly
+    the way it reads an explicit `None` (Task 6's consumer contract): never
+    as unknown, missing, or a warning.
+    """
+    (data_dir / "documents.json").write_text(
+        json.dumps({"legacy-doc": {"title": "Legacy", "source_format": "pdf"}}),
+        encoding="utf-8",
+    )
+    store = ChunkStore(root=data_dir, dim=8)
+    write_doc(store, "budget_chunks", [_chunk(0)], [[1.0] + [0.0] * 7], _meta(),
+              title="t", source_sha256="ab" * 32, source_blob_path=None,
+              source_url=None, source_format="pdf", uploaded_by="u")
+
+    raw = json.loads((data_dir / "documents.json").read_text())
+    assert "extraction" not in raw["legacy-doc"]          # untouched by the merge
+    assert raw["gov-test-fy2027"]["extraction"] is None    # unconditional, but unknown
+
+    reset_documents_cache()
+    assert document_record("legacy-doc").get("extraction") is None
+    assert document_record("gov-test-fy2027").get("extraction") is None
 
 
 def test_write_doc_rejects_mismatched_vectors(data_dir):

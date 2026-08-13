@@ -28,14 +28,16 @@ from pathlib import Path
 from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
+from app import machine_config
 from app.machine_config import ingest_enabled, set_ingest_enabled
 from app.identity import (
     admin_claimable,
     admin_reset_pending,
     claim_admin,
     current_user,
+    display_name,
     is_admin,
 )
 from harness.catalog import fetch_catalog
@@ -169,7 +171,30 @@ def me() -> dict:
         # claiming will use it up" — nobody should burn a reset by accident
         # and then wonder where it went.
         "admin_reset_pending": admin_reset_pending(),
+        # The name printed on documents this analyst generates. Resolved
+        # server-side (override > Windows > username) so the Settings field
+        # shows the SAME string the memo will carry, rather than a client-side
+        # guess that could disagree with it.
+        "display_name": display_name(user),
     }
+
+
+class DisplayNameBody(BaseModel):
+    display_name: str = Field(default="", max_length=machine_config.MAX_DISPLAY_NAME)
+
+
+@router.put("/api/me/display-name")
+def set_my_display_name(body: DisplayNameBody) -> dict:
+    """The analyst's own name, as it appears on documents they generate.
+
+    DELIBERATELY UNGATED, like `GET /api/me`. There is no authentication
+    anywhere in this app (S11), so a gate here would be theater; and the
+    only thing behind it is the name printed on that person's own memos,
+    stored on their own machine.
+    """
+    user = current_user()
+    machine_config.set_display_name(user, body.display_name)
+    return {"display_name": display_name(user)}
 
 
 # ---------------------------------------------------------------------------
@@ -825,6 +850,91 @@ def get_corpus(_settings: Settings = Depends(require_admin)) -> dict:
         "last_ingest_at": last_ingest_at,
         "queue": queue,
     }
+
+
+# ---------------------------------------------------------------------------
+# Needs attention (Plan B Task 7) — documents held out of search
+# ---------------------------------------------------------------------------
+
+
+@router.get("/api/admin/attention")
+def get_attention(_settings: Settings = Depends(require_admin)) -> dict:
+    """Documents the extraction ladder could not save, in one place.
+
+    A `failed` job is either an ordinary crash (network hiccup, a locked
+    file, a bad path, an embed/write/lock failure that happened AFTER a
+    passing extraction) or a document that was HELD OUT because every rung
+    of the ladder scored below `COVERAGE_FLOOR` — and only the second kind
+    is an admin's problem to look at here, not the queue's.
+
+    The discriminator is `job.held_out`, an explicit marker — NOT
+    `job.extraction_attempts`, which was tried first and found wrong
+    (Blocking 1 on this plan's final review): `ingest/worker.py` journals
+    `extraction_attempts` after EVERY rung, including a WINNING one, so a
+    job that passed extraction and then failed at embedding, writing, or
+    losing the ingest-lock race also carries a non-empty
+    `extraction_attempts` — reproduced live as a 94%-coverage document
+    showing up here as "held out" with a raw traceback for its sentence.
+    `job.held_out` is set in exactly one place — the branch in
+    `ingest/worker.py::run_job` that decides every rung lost — and nowhere
+    else, including the generic crash handler (`_fail`), and it is reset on
+    retry (`ingest/jobs.py::advance`) so it cannot survive into a later,
+    unrelated failure. An alternative considered and rejected: inferring
+    the same fact route-side from "no attempt reached COVERAGE_FLOOR". It
+    gives the wrong answer for a document whose WINNING rung had
+    `coverage=None` (an unmeasurable source, accepted unconditionally —
+    see `ExtractionOutcome.passed`) and which then crashed later: every
+    attempt's coverage is `None`, so "no attempt reached the floor" reads
+    as held-out when the ladder actually won. The explicit marker has no
+    such blind spot.
+
+    See ingest/worker.py's `_held_out_message` for why the job's own
+    `error` sentence — not a string rebuilt here — is what ships to the
+    reader: it is the one place that already knows to say what was
+    MEASURED (how much text came out) and never that anything was
+    "checked" or "verified", which this instrument cannot claim (see
+    ingest/coverage.py).
+
+    Ordered newest-failure-first, like the Notices panel this sits below —
+    a glance at what just went wrong, not a chronicle.
+    """
+    error: str | None = None
+    try:
+        from ingest.jobs import load_all
+
+        jobs = load_all()
+    except Exception:  # noqa: BLE001 — an unreadable jobs dir must not 500 the page
+        jobs = []
+        # Distinguishable from "nothing needs attention" on purpose. An
+        # empty `documents` list ALSO looks like this, and is the
+        # overwhelmingly common, entirely fine case (absence-reads-as-fine
+        # everywhere else in this system) — but a share that has gone away
+        # is the one case where silence is the wrong answer, because it
+        # reads identically to "the corpus is healthy" on the one screen an
+        # admin would check to find out otherwise.
+        error = "Couldn't read the list of documents needing attention right now."
+
+    held_back = [job for job in jobs if job.state == "failed" and job.held_out]
+    held_back.sort(key=lambda j: j.updated_at, reverse=True)
+
+    documents = []
+    for job in held_back:
+        measured = [
+            a["coverage"]
+            for a in job.extraction_attempts
+            if a.get("coverage") is not None
+        ]
+        documents.append({
+            "job_id": job.job_id,
+            "title": job.title,
+            "message": job.error,
+            "best_coverage": max(measured) if measured else None,
+            "attempts": [
+                {"extractor": a.get("extractor"), "coverage": a.get("coverage")}
+                for a in job.extraction_attempts
+            ],
+        })
+    return {"documents": documents, "error": error}
 
 
 # ---------------------------------------------------------------------------

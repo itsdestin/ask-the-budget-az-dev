@@ -40,9 +40,125 @@ source. When something ships, update only this file.
 | Query understanding | ✓ Shipped (2026-08-03) | Agency / doc-type / JLBC-shorthand parsing. recall@5 73.81% → 88.10%, recall@15 and @20 100%. Agency is a PREFERENCE, not a filter — a measured deviation from spec Q2 |
 | Budget Documents highlighting + book sections | ✓ **Shipped (2026-08-11)**, one browser check outstanding | Query highlighting marked NOTHING (measured 0 of 200 cards); now 96.5%. 647 documents rendering under raw slugs (`s-pdf`, `bd-pdf`) fold into the books they are sections of. See the section below |
 | AI Mode chat history | ✓ Shipped (2026-08-03), **reviewed and hardened 2026-08-11** | Per-device transcripts, browse/search/resume past chats, auto-naming, collapsible rail. Local disk only — never the share. A second review found ELEVEN defects, four of them silent data loss; all fixed. See the section below |
+| JLBC memo formatting for generated reports | ✓ **Shipped (2026-08-13)**, unverified in real Word | `create_document` renders a JLBC memo — letterhead, DATE/TO/FROM/SUBJECT block, house typography — instead of Word's stock styling. Nine plan-code defects found during execution, two of them tests that proved nothing. See the section below |
 | AI Mode persistent conversation | ✓ **Shipped, browser-tested, merged `28567f0`** (2026-08-11) | "+ New chat" shows a row at once; the conversation survives a tab switch and keeps streaming. 742 vitest / `tsc -b` clean. Destin tested and accepted; browser testing found a two-rows-look-selected defect, fixed. Four Minors carried, and P5 (close-tab-still-aborts) is still unwatched. See the section below |
 | **Corpus navigation** (map, spread, coverage, echo) | ✓ **Shipped, both gates passed, merged `2dc295f`** (2026-08-12) | N1–N7 + N11. A corpus inventory in the prompt, `spread` retrieval, `year_coverage`, inferred-filter echo. **G-N1: Layer 1 identical to a same-hour control. G-N2: `key_fact_rate` 0.463 → 0.685 against a real control**, every citation metric up, input tokens down 41%. Full 31-query run not yet run. See the section below |
 | **Admin extensions** (E1–E3, E6) | ✓ **Merged `b108d13`, gates green, NOT yet browser-verified** (2026-08-13) | Admin-editable alias overlay for search, admin-authored office guidance in the AI prompt, a read-only "See System Guidance" window over the shipped instructions, analyst issue reports with an admin inbox, `/admin` regrouped. 2660 pytest / 834 vitest / `tsc -b` / `npm run build` all clean; E1 eval gate passed with the overlay proven live. Destin opened the app and approved the merge, but three surfaces are still unwitnessed — see the section below |
+| **Plan B — resilient processing** (T5–T8, T12) | ✓ **Shipped** (2026-08-13) | A document that extracts to almost nothing is now detected, retried with another extractor, and held out of search if every method fails — instead of being written and reported `live`. Coverage floor **calibrated at 0.10 across all 7,434 documents**. 2798 pytest / 859 vitest / `tsc -b` clean, Layer 1 eval unmoved. **The acceptance run did NOT go as planned and found two real things — read the section below before building on this** |
+
+## Plan B — resilient processing — SHIPPED (2026-08-13)
+
+Spec: `docs/superpowers/specs/2026-08-11-document-types-and-resilient-processing-design.md`
+(**T5, T6, T7, T8, T12**; T9 shipped in Plan A, T10/T13 are Plan C, **T11 —
+the backfill — is deliberately out of scope**). Plan:
+`docs/superpowers/plans/2026-08-12-standalone-plan-b-resilient-processing.md`.
+Calibration: `docs/superpowers/investigations/2026-08-12-coverage-floor-calibration.md`.
+
+**The problem it solves.** A document could extract to almost nothing and
+still be written to the corpus and reported `live`. `agao-afr-fy2024` produced
+**20 chunks from 191 pages** — an analyst searching it found nothing and
+concluded the corpus lacked the material. Nothing anywhere said otherwise.
+
+**As shipped:** the worker measures each extraction against the source file's
+own text layer, falls to the next extractor below the floor, keeps the best
+attempt, and **holds a document out of the corpus entirely** when every method
+fails — recording every attempt on the job. `documents.json` gains an
+`extraction` record; a duplicate upload reports whether re-processing is worth
+it; held-out documents appear on the Admin page under "Held out of search".
+
+**`COVERAGE_FLOOR = 0.10`, calibrated across all 7,434 documents.** Median
+coverage 87.9%; every floor from just above 2.0% to just below 17.1% catches
+an identical set of two documents, so 10% is the plateau **centre**. The
+spec's expected 15–25% was too high. **A ratio above 1.0 is normal** — healthy
+AFRs score 278–286% because chunk text carries table markup — and is never
+capped.
+
+### 🔴 The acceptance run did not go as planned, and that is the useful part
+
+**The document that motivated this plan no longer fails.** Re-processed
+through the real queue it scored **49.0%** on the first rung — over the floor,
+so the ladder never fired. Extraction is unchanged (page-100.json is still
+23,894 bytes of paragraph blocks); **chunking** changed, almost certainly Plan
+A's orphan recovery. The 2026-08-12 calibration measured the *stored* chunks,
+not what a re-run produces.
+
+**But it is still not a good document**, and the plan's "read the chunks, do
+not count them" step is what caught it: **30% of its chunks are bare figures**
+against 5–8% for its healthy siblings, with no column headers and no units —
+only 5 of 388 chunks carry "expressed in thousands". Under Invariant 1 an
+unlabelled figure is worse than a missing one, because it is still citable.
+
+**So it sits in a gap: not broken enough to trigger fallback, not good enough
+to use.** The floor is a catastrophic-loss detector and does exactly what it
+was specified to do.
+
+### 🔴 The forced-fallback run — coverage ranks the WRONG extractor
+
+Run at Destin's request in an isolated worktree with the floor temporarily
+raised to 0.52 (uncommitted; shipped value stayed 0.10). **The first real
+rung-to-rung fallback ever executed.**
+
+**The machinery works**: all three rungs ran, each was journalled, the document
+was held out with the right sentence, and **the corpus was not damaged** — the
+original 388 chunks and the sidecar record survived a failed re-processing
+untouched.
+
+| rung | coverage | real text (tag-stripped) | bare-figure pages |
+|---|---|---|---|
+| opendataloader | **49.03%** | 344,872 | **28%** |
+| mineru | 44.77% | 353,141 | **13%** |
+| mineru-ocr | 43.68% | 353,002 | 13% |
+
+**MinerU more than halves the bare-figure rate and coverage prefers
+OpenDataLoader anyway.** T5's "keep whichever result scored highest" ranks by
+coverage, so **the ladder would systematically choose the structurally worse
+output for this class of failure.** Volume and structure disagree, and volume
+is wrong. Full write-up, including a corpus-wide calibration of a structural
+signal that separates the bad document from all 2,227 others:
+**`docs/superpowers/investigations/2026-08-13-structural-quality-signal-calibration.md`**.
+
+Two more from that run: **`mineru-ocr` is nearly identical to `mineru` on a
+document that HAS a text layer** (353,002 vs 353,141 chars, same 13%) — a full
+extraction for essentially nothing, and the ladder runs it anyway. And a
+projection that MinerU would score ~75% was **wrong**, because it extrapolated
+from 5 pages chosen for being pathological; the true ratio is 0.91×, not 1.53×.
+
+### What review caught that the suites did not
+
+**Every task's implementation was correct and its reference tests were not.**
+Three tasks found the plan's *example code* wrong while its prose held —
+including a loop that would have discarded healthy extractions in production,
+and one returning the *last* attempt where spec T5 says "keep whichever result
+scored highest". **Four separate WHY comments asserted things measurement
+contradicted**; the clearest claimed "a budget bill is mostly tables" when the
+committed sample bill is 279,819 paragraph characters against 176 table
+characters.
+
+Reviewers ran their own mutations rather than trusting implementers' tables.
+On Task 4 that caught 3 of 23 surviving — two of them guards that are correct,
+load-bearing, and green whether or not they exist. The final whole-branch
+review found two blocking defects **and** a plan defect: **T12's health message
+was built, worded and tested server-side and rendered nowhere**, because Task
+6's file list carried no webapp file. All fixed.
+
+### Still open
+
+- **The FY2024 AFR remains in its OpenDataLoader state** — best of the three by
+  coverage, worst by structure. Deliberately not hand-forced to MinerU: the
+  principled fix is to rank on structure, which is a spec change.
+- **Ranking on structure is unscheduled work.** Neither shipped approach
+  catches this: S26 inspects the input (the two AFRs are indistinguishable, and
+  FY2024 *is* tagged, so S26 routes it exactly where it already goes), and T6
+  measures volume (49% did arrive).
+- **The structural signal is calibrated against ONE positive example.** The
+  false-positive side is solid — 2,227 of 2,228 documents score under 1%. The
+  false-negative side is unknown and cannot be estimated from one example.
+- **T12 only pays off for documents ingested after Plan B.** The 7,434 existing
+  ones have no `extraction` record, so a duplicate upload of any of them
+  correctly makes no claim.
+- **Nothing has been seen in a browser** — the "Held out of search" panel, the
+  two-click Dismiss, and the duplicate-upload health sentence are pinned by
+  specs and unwitnessed. jsdom applies no stylesheet.
 
 ## Admin extensions — aliases, guidance, issue reports (2026-08-13)
 
@@ -983,6 +1099,143 @@ Also: `git mv`-ing `app/book_sections.py` broke
 `test_every_first_party_import_resolves`, because `source_files()` is
 `git ls-files` and the new shim was untracked. The guard is doing its job —
 stage the file.
+
+## JLBC memo formatting for generated reports — code complete (2026-08-13)
+
+Spec: `docs/superpowers/specs/2026-08-12-jlbc-memo-formatting-design.md` (M1–M12).
+Plan: `docs/superpowers/plans/2026-08-12-jlbc-memo-formatting.md` (8 tasks, two
+parallel tracks). Reference fixture:
+`samples/raw-docx/jlbc-staff-memorandum-style-reference.docx` — the real FY 2027
+Appropriations Report Round 1 instructions memo Destin supplied.
+
+**AI Mode's `create_document` produced a generic Office document** — stock
+`Title`/`Heading N`/`List Bullet`, no page setup — so an analyst who wanted to
+send it reformatted it by hand first. It now renders as a JLBC memo.
+
+A new top-level **`memo/`** package renders Markdown into a styled Document:
+letterhead (`Joint Legislative Budget Committee` / **`Research Memorandum`**),
+the address block, a 2.25pt rule, a borderless `DATE / TO / FROM / SUBJECT`
+block, then the body at Calibri 10.5pt with `Header`-styled section headings and
+0.1875″ bullets. Every page carries `Generated with JLBC Agentic Search` in the
+footer. The model's `title` becomes the **SUBJECT** line — there is no separate
+title line, because the reference has none and `Title` is spent on the masthead.
+
+Gates: **pytest 2592 / 5 skipped** (the documented ONNX skips), **vitest 771 /
+74 files**, `tsc -b` exit 0, `npm run build` clean. **No eval run** — the
+system-prompt edit is confined to the `create_document` section and
+`eval/run_eval.py` calls `retrieve()` directly, so it cannot measure it. Same
+call as S22/S23; confirmed with Destin.
+
+### Deliberate deviations, both recorded at the code
+
+- **`Research Memorandum`, not `Staff Memorandum`.** The letterhead is carried
+  verbatim because the analyst edits and sends the result as their own work, and
+  a document needing its letterhead pasted in has saved them nothing. But a
+  Staff Memorandum is a specific JLBC work product with specific authorship, and
+  a machine-drafted document must not claim to be one.
+- **Name resolution is override → Windows → username, REVERSING spec M5.** An
+  override that loses to auto-detection cannot correct a *wrong* AD name, and a
+  wrong name (`JARRETTD`, an un-updated maiden name) is likelier than a missing
+  one. The spec's intent — nobody types this if Windows knows it — is
+  unaffected, because the override is empty until somebody sets it.
+
+### 🔴 Nine defects in the PLAN's code, and two were tests that proved nothing
+
+The plan's prose reasoning held up under execution. **Its code blocks did not** —
+nine defects, every one in a code block, found by agents running the code rather
+than transcribing it. The two worth remembering:
+
+1. **A width assertion that passes on a broken table.** The plan checked
+   `columns[].width`, which reads correctly *even when the cells are wrong*.
+   Creating the memo block's rows up front yields cell widths of 2743200 EMU and
+   wrapping labels while the column assertion stays green. `tblLayout` — which
+   the plan blamed — changes nothing observable; it is kept only because the
+   reference carries it and it governs Word's RENDER-time behaviour. The
+   replacement checks every cell and was verified red first.
+2. **`test_the_memo_block_labels_are_in_order_and_not_bold` does NOT guard the
+   bold-on-runs rule**, though it looks like it does. Proven by mutation: move
+   bold from the runs to the `Header` style and that test stays green while the
+   labels render bold in Word, because run-level bold reads `None` when
+   inheritance supplies it. **Only
+   `test_bold_is_never_put_on_the_header_style_itself` catches it.** Do not
+   delete that test believing the other one covers it.
+
+Also: `create_app` takes `provider=`, not `search_provider=` (the wrong kwarg
+makes a red step red for the WRONG reason); `SENDER_SUFFIX.lstrip(", ")` yields
+`"via JLBC Agentic Search"` because `lstrip` takes a character set; adding
+`display_name` "beside `user`" in `HarnessSession.__init__` would have silently
+rebound `settings`/`executor`/`transport` at positional call sites (it is
+keyword-only); and the route's `user=current_user()` at the `session_factory`
+**seam** is not the constructor — editing it would have broken ~25 fake
+factories.
+
+### Invariant 7 held, structurally
+
+`harness/documents.py`'s import allowlist gained **exactly one** entry, `memo`,
+and that is only safe because `memo` carries its own allowlist test — so the
+guarantee stays structural and becomes transitive. `harness/tools.py`'s
+allowlist is **unchanged**: it may not import `app.*`, so the analyst's name is
+resolved in `app/routes/conversations.py` and injected as a finished string. The
+module that writes files has no knowledge of identity sources; the module that
+knows identity writes no files.
+
+### 🔴 It passed every test and still looked wrong — five differences, found by LOOKING
+
+Destin opened the first version and said "that's not the same." He was right.
+Both documents were then rendered to images and compared, which is what should
+have happened before handing it over:
+
+| | The real memo | First version |
+|---|---|---|
+| Masthead colour | black | **accent blue** (Word's stock `Title` style) |
+| Section headings | inside a **bordered box** | plain bold text |
+| Spacing | tight | **roughly double** everywhere |
+| Address lines | *italic* | not italic |
+| JLBC seal | on page 1 | missing |
+
+**The spacing had one cause with a compounding effect.** python-docx's blank
+template sets `w:spacing w:after="200" w:line="276"` in its document defaults —
+10pt after every paragraph, 1.15 line spacing. The reference sets neither.
+Because this memo builds its vertical rhythm out of EMPTY PARAGRAPHS (recorded
+in the spec, and true), every deliberate gap came out doubled and the
+DATE/TO/FROM/SUBJECT block sprawled over half a page. Zeroing it then collapsed
+the memo block's spacer rows to nothing, so row height and inter-block spacing
+both had to be stated explicitly rather than inherited.
+
+**The boxed heading is the instructive one.** The reference's section headings
+use the built-in `Header` paragraph style — noted correctly in the spec, and odd
+enough to be memorable. But the BOX is direct paragraph formatting on each
+heading, not part of the style, so copying the style name reproduced the oddity
+while missing the thing that makes a JLBC heading recognisable.
+`memo.style.box_paragraph()` applies it per paragraph, deliberately: the memo
+block's labels share that style and must stay unboxed, exactly as the reference
+does it.
+
+**The seal is the reference's own `word/media/image1.png`**, vendored to
+`memo/assets/jlbc-logo.png` and placed at its recorded size (1195465 x 828675
+EMU) in a FIRST-PAGE footer, which is where JLBC puts it — the reference has no
+default footer at all. The "Generated with JLBC Agentic Search" line rides in
+both footers, because a disclosure that appears only on page 1 is missing from
+every page after it.
+
+### The lesson, which this repo has now learned three times
+
+**All 30 assertions were green while the page was plainly wrong.** They measured
+margins to the EMU, font sizes and column widths — properties, not appearance.
+`scripts/render_memo_sample.py` now renders a sample and a PNG of page 1
+precisely so the next person LOOKS instead of inferring. Run it after any change
+to `memo/`.
+
+### ⏸ Still worth a human eye
+
+The comparison above used rendered images at 80 dpi via LibreOffice, which is
+not Word. Opening `/tmp/memo-sample.docx` beside `/tmp/memo-reference.docx` in
+real Word on a JLBC machine is still the final check — particularly the seal's
+placement and the boxed headings, which are what LibreOffice is most likely to
+draw differently.
+
+---
+
 
 ## Budget Documents — highlighting + book sections — SHIPPED (2026-08-11)
 

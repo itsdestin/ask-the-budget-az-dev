@@ -51,7 +51,7 @@ import json
 import sys
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Protocol, runtime_checkable
+from typing import ClassVar, Protocol, runtime_checkable
 
 from ingest.doc_types import all_types as _all_doc_types
 
@@ -107,6 +107,19 @@ def _import_phase0_module(module_name: str):
 class MinerUExtractor:
     name: str = "mineru"
 
+    # MinerU's `-m` flag for this rung. A ClassVar, not a dataclass field, so
+    # the constructor signature is unchanged for every existing caller.
+    #
+    # WHY it exists at all rather than living only inside `extract()`: the
+    # ingest worker does NOT go through `extract()` for MinerU. A book runs
+    # for hours, so `ingest/worker.py::_extract_with_mineru` drives
+    # `MineruRunner` directly to get streamed progress, cancellation and
+    # per-range resume -- and `MineruRunner` takes its method at
+    # construction. Without a value it can read off the extractor, the OCR
+    # rung would build a runner in `auto` mode and run byte-identical work to
+    # the rung that already failed.
+    mineru_method: ClassVar[str] = "auto"
+
     def get_version(self) -> str:
         # Lazy: MinerU imports torch + transformers, which is heavy
         # enough that a "what version?" call shouldn't trigger it
@@ -128,6 +141,41 @@ class MinerUExtractor:
         if pages is None:
             pages = list(range(1, _pdf_page_count(source_path) + 1))
         run_mineru_mod.run_mineru(source_path, output_dir, pages)
+
+
+@dataclass
+class MinerUOcrExtractor(MinerUExtractor):
+    """MinerU reading pages as images (`-m ocr`).
+
+    The last rung of the PDF ladder (ingest/ladder.py). It is the only
+    option for a scanned document, and the slowest thing this app does --
+    so it is never a starting rung for a file that has a text layer.
+
+    Subclasses MinerUExtractor rather than duplicating it: `get_version()`
+    is identical, and the only difference is the `method` passed to
+    `run_mineru()`. Deliberately NOT registered in
+    `data/document-types.yaml` -- see the note at `_EXTRACTOR_CLASSES`
+    below. It exists only as a ladder rung.
+    """
+
+    name: str = "mineru-ocr"
+    mineru_method: ClassVar[str] = "ocr"
+
+    def extract(
+        self,
+        *,
+        source_path: Path,
+        output_dir: Path,
+        pages: list[int] | None,
+    ) -> None:
+        run_mineru_mod = _import_phase0_module("run_mineru")
+        if pages is None:
+            pages = list(range(1, _pdf_page_count(source_path) + 1))
+        # Reads the ClassVar rather than repeating "ocr": the worker's
+        # streamed MinerU path reads the same attribute, and two independent
+        # literals would let one of the two paths silently run in auto mode.
+        run_mineru_mod.run_mineru(source_path, output_dir, pages,
+                                  method=self.mineru_method)
 
 
 @dataclass
@@ -185,6 +233,18 @@ class PythonDocxExtractor:
 
 _EXTRACTOR_CLASSES = {
     "mineru": MinerUExtractor,
+    # `mineru-ocr` is deliberately NOT named in data/document-types.yaml --
+    # that file declares each type's PREFERRED extractor, and OCR must
+    # never be a first choice (spec T7: it is the slowest thing this app
+    # does, and the ordinary document already has a text layer it can read
+    # for free -- see ingest/inspection.py). It is registered here only so
+    # `ingest/ladder.py` can name it as a fallback rung. Nothing in
+    # `_build_registry` stops a future document-types.yaml edit from
+    # naming it as a preference too (the class exists, so that would
+    # resolve, not raise) --
+    # `tests/test_dispatcher.py::test_ocr_extractor_is_never_a_first_choice`
+    # is what actually guards this.
+    "mineru-ocr": MinerUOcrExtractor,
     "opendataloader": OpenDataLoaderExtractor,
     "python-docx": PythonDocxExtractor,
 }
@@ -234,6 +294,29 @@ def pick_extractor(doc_type: str, source_format: str) -> Extractor:
             f"(doc_type={doc_type!r}, source_format={source_format!r}). "
             f"Known doc_types: {valid_types}. "
             f"Known source_formats: {valid_formats}."
+        )
+    return cls()
+
+
+def pick_named(name: str) -> Extractor:
+    """Resolve one extractor by NAME, for a caller that already knows it.
+
+    `pick_extractor` answers "what should this document type use?".  This
+    answers "give me that specific tool", which is what a ladder rung is:
+    `ingest/ladder.py` has already decided the order, and rungs below the
+    first are deliberately absent from `data/document-types.yaml` (see
+    `_EXTRACTOR_CLASSES`), so they cannot be reached by (doc_type, format)
+    at all.
+
+    Lives here rather than in the worker so `_EXTRACTOR_CLASSES` stays this
+    module's private business -- a caller reaching into that dict is a
+    caller that can be handed a class the registry never validated.
+    """
+    cls = _EXTRACTOR_CLASSES.get(name)
+    if cls is None:
+        raise ValueError(
+            f"pick_named: unknown extractor {name!r}. "
+            f"Known: {sorted(_EXTRACTOR_CLASSES)}."
         )
     return cls()
 

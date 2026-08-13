@@ -371,6 +371,17 @@ export interface DuplicateDocument {
   existing_doc_id: string;
   added_at: string | null;
   added_by: string | null;
+  // Plan B Blocking 3 (T12): whether the EXISTING copy's extraction looked
+  // complete, from app/routes/upload.py's `_duplicate_health`. `health` is
+  // the raw measurement (not rendered directly — see Upload.tsx); `message`
+  // is the server's own sentence describing it and is what gets shown,
+  // VERBATIM, never recomposed client-side, so the two cannot drift. Both
+  // optional: an older server response (or a test fixture predating this)
+  // may not send them, and that must read as "nothing extra to say", not
+  // an error — see Upload.tsx for how the fixed sentence stays exactly
+  // what it always rendered in that case.
+  health?: { coverage: number; recommend_reprocess: boolean } | null;
+  message?: string;
 }
 
 /** Thrown on 409 so the page can offer re-process instead of a dead error.
@@ -514,11 +525,38 @@ export interface Me {
   admin_claimable: boolean;
   /** A reset file is waiting to be used up by the next claim. */
   admin_reset_pending: boolean;
+  /** The name printed on documents this analyst generates. Resolved by the
+   *  SERVER (per-machine override > Windows > username, see
+   *  `app/identity.py::display_name`) so the Settings field shows the same
+   *  string the memo will carry — a client-side guess could disagree with it.
+   *
+   *  OPTIONAL in the type, always present on the wire. `GET /api/me` has
+   *  returned it since the display-name work landed; it is declared optional
+   *  only so the several `Me` object literals in other suites
+   *  (`Header.test.tsx`, `Admin.test.tsx`) stay valid without being rewritten
+   *  for a field they do not exercise. Every reader must default it. */
+  display_name?: string;
 }
 
 export async function me(): Promise<Me> {
   const r = await fetch("/api/me");
   if (!r.ok) await fail(r, "who am I");
+  return r.json();
+}
+
+/** Set the name that appears on this analyst's generated memos. Returns the
+ *  name as the server RE-RESOLVED it, not the string that was sent: an empty
+ *  save clears the override and falls back to Windows, so the caller must
+ *  render what comes back rather than what it typed. */
+export async function setDisplayName(
+  name: string,
+): Promise<{ display_name: string }> {
+  const r = await fetch("/api/me/display-name", {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ display_name: name }),
+  });
+  if (!r.ok) await fail(r, "save your name");
   return r.json();
 }
 
@@ -742,6 +780,55 @@ export interface AdminCorpus {
 export async function adminCorpus(): Promise<AdminCorpus> {
   const r = await fetch("/api/admin/corpus");
   if (!r.ok) await fail(r, "corpus health");
+  return r.json();
+}
+
+/** One extraction method the ladder tried on a held-back document.
+ *  `coverage` is null for a rung that crashed, or whose SOURCE could not be
+ *  measured — never rendered as 0%, which would claim a worse measurement
+ *  than was actually taken. */
+export interface AttentionAttempt {
+  extractor: string;
+  coverage: number | null;
+}
+
+/** A document the extraction ladder could not save — every rung scored
+ *  below the coverage floor (or crashed), so it was held OUT of search
+ *  rather than written with almost nothing in it. This measures
+ *  catastrophic TEXT LOSS, never correctness — `message` is the job's own
+ *  sentence (`ingest/worker.py::_held_out_message`) and is written to say
+ *  only what was measured, never that anything was "verified" or "checked".
+ */
+export interface AttentionDocument {
+  job_id: string;
+  title: string;
+  /** Server-side `job.error` is `str | None` -- but every job this route
+   *  lists is in state `failed`, and the only way a job REACHES `failed` is
+   *  `ingest.jobs.advance()`, which raises `ValueError` if `error` is
+   *  falsy (see the `if new_state == "failed": if not error: raise ...`
+   *  guard there). So a null `message` here would mean a job reached
+   *  `failed` some other way, which nothing in this codebase does today. */
+  message: string;
+  /** The best ratio any rung reached, or null when every rung crashed with
+   *  nothing measurable at all. Can exceed 1.0 for a document whose own
+   *  text layer undercounts (real AFRs score up to ~286%) — never capped. */
+  best_coverage: number | null;
+  attempts: AttentionAttempt[];
+}
+
+export async function adminAttention(): Promise<{
+  documents: AttentionDocument[];
+  /** Set when the server couldn't even read the jobs directory (a share
+   *  that's gone away) — distinguishable from an empty `documents` list,
+   *  which is the ordinary "nothing needs attention" case. Optional (not
+   *  just nullable) so fixtures written before this field existed keep
+   *  compiling; a genuinely missing field reads exactly like `null` at the
+   *  one call site that checks it (`if (a.error) ...` in Admin.tsx) —
+   *  absence reads as fine, same as everywhere else here. */
+  error?: string | null;
+}> {
+  const r = await fetch("/api/admin/attention");
+  if (!r.ok) await fail(r, "documents needing attention");
   return r.json();
 }
 

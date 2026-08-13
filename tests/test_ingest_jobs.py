@@ -138,11 +138,41 @@ def test_nonterminal_states_can_be_cancelled(data_dir):
 
 
 def test_terminal_states_cannot_be_left(data_dir):
-    for terminal in TERMINAL_STATES:
+    # `failed` is deliberately excluded here (Plan B Task 7): a held-back
+    # document (T8) is `failed`, and its Dismiss button on the Needs-attention
+    # panel is the existing cancel action, so `failed -> cancelled` has to
+    # succeed. See test_dismissing_a_failed_job_marks_it_cancelled below and
+    # the WHY comment on that branch in `advance()`.
+    for terminal in TERMINAL_STATES - {"failed"}:
         job = _job()
         job.state = terminal
         with pytest.raises(IllegalTransition):
             advance(job, "cancelled")
+
+
+def test_dismissing_a_failed_job_marks_it_cancelled(data_dir):
+    """The Needs-attention panel's Dismiss button, one level below the route.
+
+    Not a new state -- `cancelled` already exists -- only a new edge into it.
+    Scoped narrowly: a LIVE job must stay impossible to cancel (the case
+    `test_cancel_on_a_live_job_is_409` in test_jobs_route.py pins at the
+    route level), or a stray cancel could hide a document that already
+    finished successfully.
+    """
+    job = _job()
+    advance(job, "failed", error="every extraction rung scored below the floor")
+
+    advance(job, "cancelled")
+
+    assert job.state == "cancelled"
+
+
+def test_a_live_job_still_cannot_be_dismissed(data_dir):
+    job = _job()
+    for state in ("extracting", "chunking", "embedding", "writing", "live"):
+        advance(job, state)
+    with pytest.raises(IllegalTransition):
+        advance(job, "cancelled")
 
 
 def test_retry_reopens_a_failed_job(data_dir):
@@ -151,6 +181,93 @@ def test_retry_reopens_a_failed_job(data_dir):
     advance(job, "failed", error="boom")
     advance(job, "queued")
     assert job.state == "queued" and job.error is None
+
+
+def test_retry_clears_the_extraction_attempts_so_the_ladder_runs_again(data_dir):
+    """Otherwise the retried job skips every rung it already tried and fails
+    instantly, having done no work — a retry button that appears dead."""
+    job = _job()
+    advance(job, "extracting")
+    job.extraction_attempts = [
+        {"extractor": "opendataloader", "coverage": 0.02, "chunks": 20},
+        {"extractor": "mineru", "coverage": 0.03, "chunks": 31},
+    ]
+    job.held_out = True
+    advance(job, "failed", error="held out of search")
+
+    advance(job, "queued")
+
+    assert job.extraction_attempts == []
+    assert load_job(job.job_id).extraction_attempts == []
+    # `held_out` resets alongside the ladder's resume marker — it must not
+    # survive into a retry that goes on to fail for an unrelated reason (see
+    # Blocking 1, this plan's final review).
+    assert job.held_out is False
+    assert load_job(job.job_id).held_out is False
+
+
+def test_retry_KEEPS_completed_ranges_so_a_finished_extraction_does_not_redo(data_dir):
+    """Blocking 2 on this plan's final review. `completed_ranges` used to be
+    cleared alongside `extraction_attempts`, on the theory that a range
+    belongs to whichever rung was last extracting and carrying it forward
+    would make a fresh ladder skip pages it never extracted. That hazard
+    does not exist: `_needs_extraction` (ingest/worker.py) checks THAT
+    RUNG'S OWN output directory before ever trusting a range, and each rung
+    writes to its own directory. What clearing it actually cost: a document
+    whose extraction fully SUCCEEDED and which then failed at
+    embed/write/lock — write-lock contention on a shared drive is a
+    documented, recurring failure here — was forced back to page 1 of a
+    (possibly 210-page) book on Retry, for a failure that had nothing to do
+    with extraction."""
+    job = _job()
+    advance(job, "extracting")
+    job.extraction_attempts = [
+        {"extractor": "mineru", "coverage": 0.94, "chunks": 500},
+    ]
+    job.completed_ranges = [[1, 40]]
+    advance(job, "failed", error="RuntimeError: lost the corpus lock after 1800s")
+
+    advance(job, "queued")
+
+    assert job.completed_ranges == [[1, 40]]
+    assert load_job(job.job_id).completed_ranges == [[1, 40]]
+    # The ladder's resume marker still clears — a retry must still run the
+    # ladder logic, just without re-paying for pages already on disk.
+    assert job.extraction_attempts == []
+
+
+def test_a_job_file_written_before_the_ladder_still_loads(data_dir):
+    """Thousands of these are on the share. A missing field is "nothing to
+    say", never an error and never an unknown state worth reporting."""
+    job = _job()
+    save(job)
+    path = jobs_dir() / f"{job.job_id}.json"
+    raw = json.loads(path.read_text(encoding="utf-8"))
+    del raw["extraction_attempts"]
+    path.write_text(json.dumps(raw), encoding="utf-8")
+
+    reloaded = load_job(job.job_id)
+
+    assert reloaded is not None
+    assert reloaded.extraction_attempts == []
+
+
+def test_a_job_file_written_before_held_out_still_loads(data_dir):
+    """Every job file on the share as of this plan's final review predates
+    `held_out`. A missing field must read as "not held out" — none of
+    those jobs COULD have been, since the field didn't exist yet to say
+    so — never as an error."""
+    job = _job()
+    save(job)
+    path = jobs_dir() / f"{job.job_id}.json"
+    raw = json.loads(path.read_text(encoding="utf-8"))
+    del raw["held_out"]
+    path.write_text(json.dumps(raw), encoding="utf-8")
+
+    reloaded = load_job(job.job_id)
+
+    assert reloaded is not None
+    assert reloaded.held_out is False
 
 
 def test_advance_persists_and_bumps_updated_at(data_dir):

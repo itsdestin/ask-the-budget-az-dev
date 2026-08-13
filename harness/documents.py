@@ -27,7 +27,17 @@ Kept import-light on purpose: `harness/tools.py` imports it lazily
 inside its `create_document` handler, so anything expensive at module
 scope would be paid on the first tool dispatch of a conversation.
 python-docx (and its lxml dependency) is therefore imported inside the
-writer, not here — the .md path never pays for it at all.
+writer, not here — the .md path never pays for it at all. `memo`, which
+pulls python-docx in, is imported inside `_render_docx` for the same
+reason.
+
+The .docx rendering itself lives in the `memo/` package: it turns the
+Markdown body into a JLBC-styled document (letterhead, DATE/TO/FROM/
+SUBJECT block, house typography) and nothing else. It is the ONE
+non-stdlib import this module is allowed beyond the stdlib set, and it is
+safe precisely because `memo` carries its OWN import allowlist test
+(`tests/test_jlbc_memo.py`) — so the Invariant 7 guarantee stays
+structural and becomes transitive rather than becoming a promise.
 """
 from __future__ import annotations
 
@@ -204,147 +214,44 @@ def _safe_stem(title: str) -> str:
 # ---------------------------------------------------------------------------
 # Markdown -> Word
 # ---------------------------------------------------------------------------
-# A small, deliberate subset — the inverse of what primer/docx_to_md.py
-# emits, which is also what the system prompt tells the model to write.
-#
-# THE RULE THAT MATTERS: anything unrecognized becomes a plain paragraph,
-# verbatim. Never a silent drop. An analyst who receives a memo with a
-# section quietly missing has no way to know it happened, and that is a
-# far worse failure than a blockquote rendering as ordinary text.
-
-_HEADING_RE = re.compile(r"^(#{1,6})\s+(\S.*)$")
-_BULLET_RE = re.compile(r"^[-*]\s+(\S.*)$")
-_BOLD_RE = re.compile(r"\*\*(.+?)\*\*")
-# A separator row: only dashes, colons, pipes and spaces, and at least
-# one dash. Requiring the PRECEDING line to be a row too (see the loop)
-# keeps a bare `---` thematic break from being mistaken for a table.
-_TABLE_SEPARATOR_RE = re.compile(r"^\|?[\s:|-]*-[\s:|-]*\|?$")
-# Split on pipes that are not backslash-escaped — docx_to_md.py escapes a
-# literal pipe inside a cell as `\|`, so this is the matching unescape.
-_UNESCAPED_PIPE_RE = re.compile(r"(?<!\\)\|")
+# The renderer itself now lives in `memo/`, which maps the same small,
+# deliberate Markdown subset onto the JLBC memo's house styles. The rule
+# that mattered here still holds there and is pinned by its own tests:
+# anything unrecognized becomes a plain paragraph, VERBATIM, never a
+# silent drop.
 
 
-def _is_table_row(line: str) -> bool:
-    return "|" in line
+def _render_docx(
+    title: str,
+    body_markdown: str,
+    target: Path,
+    *,
+    sender: str,
+    recipient: str,
+) -> None:
+    """Write the .docx as a JLBC memo.
 
-
-def _split_row(line: str) -> list[str]:
-    inner = line.strip()
-    if inner.startswith("|"):
-        inner = inner[1:]
-    if inner.endswith("|") and not inner.endswith("\\|"):
-        inner = inner[:-1]
-    return [c.strip().replace("\\|", "|") for c in _UNESCAPED_PIPE_RE.split(inner)]
-
-
-def _add_runs(paragraph, text: str) -> None:
-    """Write `text` into a paragraph, turning **…** into bold runs.
-
-    Everything outside the markers is emitted as-is, so an unmatched `**`
-    stays visible rather than eating the rest of the line.
+    `memo` is imported HERE, not at module scope — see the module
+    docstring on staying import-light. It is the ONLY non-stdlib import
+    this module is permitted, and it is safe precisely because `memo`
+    carries its own import allowlist test: it renders and nothing else,
+    so it has no path to the share either.
     """
-    position = 0
-    for match in _BOLD_RE.finditer(text):
-        if match.start() > position:
-            paragraph.add_run(text[position : match.start()])
-        paragraph.add_run(match.group(1)).bold = True
-        position = match.end()
-    if position < len(text):
-        paragraph.add_run(text[position:])
+    from memo import render
 
-
-def _add_table(doc, rows: list[list[str]]) -> None:
-    """Render collected pipe-table rows as a real Word table.
-
-    Short rows are PADDED rather than dropped, matching what
-    primer/docx_to_md.py does in the other direction: a ragged row is a
-    formatting slip in the model's output, not a reason to lose the cell
-    values it does contain.
-    """
-    columns = max(len(r) for r in rows)
-    table = doc.add_table(rows=0, cols=columns)
-    table.style = "Table Grid"
-    for index, row in enumerate(rows):
-        cells = table.add_row().cells
-        for column in range(columns):
-            value = row[column] if column < len(row) else ""
-            paragraph = cells[column].paragraphs[0]
-            _add_runs(paragraph, value)
-            if index == 0:
-                # Header row: bold every run, including ones **…** already
-                # bolded (idempotent).
-                for run in paragraph.runs:
-                    run.bold = True
-
-
-def _render_docx(title: str, body_markdown: str, target: Path) -> None:
-    """Write the .docx. python-docx is imported HERE, not at module
-    scope — see the module docstring on staying import-light."""
-    from docx import Document
-
-    doc = Document()
+    doc = render(
+        body_markdown,
+        subject=title,
+        sender=sender,
+        recipient=recipient,
+    )
+    # The memo block's SUBJECT row carries the title on the page; this
+    # carries it into Word's document properties, which is what an email
+    # client and File Explorer's preview pane read. There is deliberately
+    # no separate Title-styled line in the body any more — the masthead
+    # owns Word's `Title` style now, and the reference memo has no such
+    # line (spec M4).
     doc.core_properties.title = title
-    # The title leads the document as a Word Title-styled heading. The
-    # filename alone would leave the artifact untitled once it is printed
-    # or pasted into an email.
-    _add_runs(doc.add_heading("", level=0), title)
-
-    lines = body_markdown.splitlines()
-    index = 0
-    while index < len(lines):
-        line = lines[index].rstrip()
-        stripped = line.strip()
-        if not stripped:
-            index += 1
-            continue
-
-        # Classify headings and bullets FIRST, because their text may
-        # legitimately contain a pipe: "- Agency | Amount" is a bullet, and
-        # treating it as a table header row (which it structurally
-        # resembles, if the next line happens to be dashes) produced a
-        # malformed table whose first cell was the literal "- Agency" —
-        # the list item gone, the marker showing as garbled text. No text
-        # technically vanished, but a memo where a bullet became a broken
-        # table is the "no silent drops" rule failing in spirit.
-        heading = _HEADING_RE.match(stripped)
-        bullet = None if heading else _BULLET_RE.match(stripped)
-
-        # A table row is only a table row when the NEXT line is a
-        # separator; otherwise it is ordinary text containing pipe
-        # characters and must survive as such.
-        if (
-            not heading
-            and not bullet
-            and _is_table_row(stripped)
-            and index + 1 < len(lines)
-            and _TABLE_SEPARATOR_RE.match(lines[index + 1].strip())
-            and "|" in lines[index + 1]
-        ):
-            rows = [_split_row(stripped)]
-            index += 2  # header + separator
-            while index < len(lines) and _is_table_row(lines[index].strip()):
-                rows.append(_split_row(lines[index].strip()))
-                index += 1
-            _add_table(doc, rows)
-            continue
-
-        if heading:
-            level = len(heading.group(1))
-            _add_runs(doc.add_heading("", level=level), heading.group(2))
-            index += 1
-            continue
-
-        if bullet:
-            _add_runs(doc.add_paragraph(style="List Bullet"), bullet.group(1))
-            index += 1
-            continue
-
-        # Everything else — blockquotes, numbered lists, code fences,
-        # links, tables missing a separator — lands here VERBATIM. The
-        # markup is visible but no content is lost.
-        _add_runs(doc.add_paragraph(), line)
-        index += 1
-
     doc.save(str(target))
 
 
@@ -354,13 +261,28 @@ def _render_docx(title: str, body_markdown: str, target: Path) -> None:
 
 
 def materialize(
-    title: str, body_markdown: str, fmt: str = "docx", *, user: str = ""
+    title: str,
+    body_markdown: str,
+    fmt: str = "docx",
+    *,
+    user: str = "",
+    sender: str = "",
+    recipient: str = "",
 ) -> tuple[str, Path]:
     """Write one artifact and register it for download.
 
     Returns `(token, path)`. `harness/tools.py` reads `path.name` as the
     filename it reports to the model, which is why the path keeps the
     human title rather than being named after the token.
+
+    `sender` and `recipient` are FINISHED STRINGS resolved by the caller.
+    This module does not know who the analyst is and must not learn —
+    resolving a display name means reading per-machine config, which is
+    exactly the kind of reach Invariant 7's import allowlist forbids here.
+    Both default to "", which the memo renders as the tool's own name and
+    a visible `[Recipient(s)]` placeholder respectively; neither is ever a
+    hard failure, because an unnameable analyst should lose attribution on
+    a memo, not the ability to generate one.
 
     Each artifact gets its OWN randomly-named subdirectory. Two memos
     titled "Memo" would otherwise collide, and the second write would
@@ -390,7 +312,7 @@ def materialize(
         # construct.
         target.write_text(body_markdown, encoding="utf-8")
     else:
-        _render_docx(title, body_markdown, target)
+        _render_docx(title, body_markdown, target, sender=sender, recipient=recipient)
 
     # 32 bytes -> a 43-character URL-safe string. This token is the ONLY
     # thing standing between an artifact and anyone who can reach the

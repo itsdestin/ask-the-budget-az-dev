@@ -147,6 +147,47 @@ def set_ingest_enabled(enabled: bool) -> None:
     _update({"ingest_enabled": bool(enabled)})
 
 
+# The analyst's name as it should appear on a generated memo. Keyed by
+# username, so a machine with two Windows accounts keeps two names.
+#
+# HERE RATHER THAN THE SHARED settings.json ON PURPOSE (spec M6).
+# `save_settings` is a read-modify-write on a file ~20 machines share, and
+# it holds the OpenRouter API key, the tier->model map, the admin username
+# and every spend limit. Routing a routine per-analyst write through it
+# would add a corruption path to all of that in exchange for a name
+# following an analyst between PCs — and the app is installed per machine
+# (S7) and launched by the person sitting at it (S8), so it rarely moves.
+_DISPLAY_NAMES_KEY = "display_names"
+
+# Long enough for a real name with a suffix, short enough that the memo's
+# FROM row cannot wrap.
+MAX_DISPLAY_NAME = 120
+
+
+def read_display_name(user: str) -> str:
+    """This machine's stored name for `user`, or "" if there isn't one."""
+    names = _read_all(quiet=True).get(_DISPLAY_NAMES_KEY)
+    if not isinstance(names, dict):
+        return ""
+    value = names.get(user)
+    return value.strip() if isinstance(value, str) else ""
+
+
+def set_display_name(user: str, name: str) -> None:
+    """Record (or, with a blank name, forget) this machine's name for `user`."""
+    names = _read_all(quiet=True).get(_DISPLAY_NAMES_KEY)
+    if not isinstance(names, dict):
+        names = {}
+    cleaned = name.strip()[:MAX_DISPLAY_NAME]
+    if cleaned:
+        names[user] = cleaned
+    else:
+        # Removed rather than stored blank, so "never set" and "cleared"
+        # are the same state and neither shadows the Windows name.
+        names.pop(user, None)
+    _update({_DISPLAY_NAMES_KEY: names})
+
+
 def validate_data_dir(path: Path | str) -> str | None:
     """None if `path` is a usable corpus folder, else ONE plain sentence.
 
