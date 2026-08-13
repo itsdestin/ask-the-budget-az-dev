@@ -1,0 +1,681 @@
+"""Admin tuning routes: the office alias overlay (spec E1), the office
+guidance block (spec E2) and the read-only view of the instructions that
+guidance is written alongside.
+
+Two surfaces, one module, because both are the same thing from the admin's
+side: words the office puts into the machine. Aliases go into RETRIEVAL
+vocabulary (GET/PUT /api/admin/aliases, below); guidance goes into the AI
+PROMPT, one designated slot with a preamble that keeps the shipped citation
+and refusal rules senior to it (GET/PUT /api/admin/guidance, at the bottom
+of this file — harness/office_guidance.py owns the file, the cap and the
+undo). A third, strictly read-only route (GET /api/admin/prompt) shows
+what the shipped prompt already says on the SUBJECT matter, so guidance
+is not written blind.
+
+A separate module rather than more of app/routes/admin.py — that file is
+926 lines of provider/settings machinery, and these routes have a
+different rhythm (corpus vocabulary, not keys and caps). The gate is the
+same `require_admin`, so the parametrized gate test in
+tests/test_admin_settings_route.py picks these routes up automatically.
+
+WHAT THIS SURFACE IS FOR: `samples/entity-catalog.yaml` ships read-only,
+so an office that calls the Department of Revenue "TPT" has nowhere to
+say so. This writes `store/office_aliases.py`'s overlay instead — added
+aliases resolve WEAK only, and a shipped shorthand can be switched off.
+
+VALIDATION IS THE POINT OF THE MODULE. Everything an admin types here
+becomes retrieval vocabulary, and a bad entry is silent: nobody sees a
+search go to the wrong agency, they just get a worse answer. So no input
+reaches `save_office_aliases` without passing every check below.
+"""
+from __future__ import annotations
+
+import sys
+from datetime import datetime, timezone
+
+from fastapi import APIRouter, Depends, HTTPException
+from pydantic import BaseModel
+
+from app.identity import current_user
+from app.routes.admin import require_admin
+from chunking.agency_catalog import id_to_name, load_agency_catalog
+
+# `_normalize_for_match` is the SAME normalizer the corpus-side stamper and
+# the query-side resolver use. Imported rather than re-implemented for the
+# reason retrieval/query_agency.py imports it: an alias validated under one
+# spelling rule and matched under another is a stoplist anyone bypasses by
+# typing "For." instead of "for".
+from chunking.entity_stamper import _normalize_for_match
+from harness.office_guidance import (
+    MAX_GUIDANCE_BYTES,
+    load_guidance_meta,
+    load_office_guidance,
+    reset_guidance_cache,
+    save_office_guidance,
+)
+from harness.prompt import build_system_prompt
+from harness.settings import Settings
+
+# `_index` is the resolver's own matching tables for the shipped catalog —
+# `alias_to_ids` is literally what its tier 3 scans, `phrase_to_ids` what
+# tiers 1-2 scan. Reading them (rather than rebuilding the same tables here)
+# is what keeps this page's answer to "can this alias be switched off?"
+# identical to what search actually does. Cached for the process lifetime,
+# because the catalog cannot change under a running server.
+from retrieval.query_agency import (
+    AMBIGUOUS_ALIASES,
+    SUPPRESSED_ALIASES,
+    _AgencyIndex,
+    _index,
+)
+from store.office_aliases import (
+    OfficeAlias,
+    OfficeAliases,
+    load_office_aliases,
+    save_office_aliases,
+)
+
+router = APIRouter()
+
+# Long enough for "office of economic opportunity", short enough that a
+# pasted paragraph is refused rather than stored as vocabulary.
+_MAX_ALIAS_LEN = 40
+
+# Below this an alias still saves, but with a warning — two letters match
+# by accident often enough that the admin should be told, not blocked.
+_SHORT_ALIAS_LEN = 2
+
+
+class AliasRow(BaseModel):
+    alias: str
+    canonical_id: str
+
+
+class AliasesBody(BaseModel):
+    added: list[AliasRow]
+    disabled: list[str]
+
+
+def _bad_request(detail: str) -> HTTPException:
+    """One plain sentence, 400 — same shape as app/routes/admin.py. The
+    reader is a non-technical office administrator looking at a form."""
+    return HTTPException(status_code=400, detail=detail)
+
+
+def _shipped_aliases() -> list[dict]:
+    """The shipped shorthands an admin may actually switch off.
+
+    Two exclusions, both of strings that would be a checkbox doing nothing
+    or a hammer far bigger than "switch a shorthand off":
+
+    DERIVED SLUGS — every agency's JLBC URL slug is folded into its alias
+    list automatically (chunking/agency_catalog._aliases). `adc` is how the
+    publisher itself abbreviates Corrections, not an office's reviewed
+    acronym, and disabling it is a much bigger hammer than spec E1's
+    "switch a shipped alias off".
+
+    PHRASES A HIGHER TIER CLAIMS — disabling suppresses the ALIAS tier
+    only (retrieval/query_agency.py tier 3). An alias that is also a
+    catalog name phrase is claimed by tier 1/2 first, so it keeps
+    resolving no matter what the overlay says. Measured on today's
+    catalog this drops exactly 3 of the 156 aliases the resolver knows:
+    `financial institutions`, `comm colleges`, `university of arizona`.
+    Computed from the resolver's own phrase table rather than hardcoded,
+    so a catalog edit that creates or removes a collision is picked up
+    without anyone remembering this list exists.
+    """
+    index = _index(None)
+    names = id_to_name()
+    slugs = {
+        _normalize_for_match(entry.slug)
+        for entry in load_agency_catalog().values()
+        if entry.slug
+    }
+    rows: list[dict] = []
+    for alias, ids in index.alias_to_ids.items():
+        if alias in slugs or alias in index.phrase_to_ids:
+            continue
+        # One row per agency: a curated alias like `ua` names two catalog
+        # entries (Main Campus and the Health Sciences Center), and saying
+        # so is more honest than picking one.
+        for canonical_id in sorted(ids):
+            rows.append({
+                "alias": alias,
+                "canonical_id": canonical_id,
+                "agency_name": names.get(canonical_id, canonical_id),
+            })
+    return sorted(rows, key=lambda row: (row["alias"], row["canonical_id"]))
+
+
+def _picker_agencies() -> list[dict]:
+    """One row per REAL agency for the "Agency" dropdown.
+
+    NOT `id_to_name()` verbatim, which is what this used to be. The catalog
+    records some agencies more than once (see `_logical_key` in
+    retrieval/query_agency.py): measured on today's committed catalog, 7
+    display names cover 15 of the 157 ids — "Revenue, Department of" is both
+    `agency:dor` and `agency:rev`, Child Safety is five entries. A dropdown
+    listing the same words twice gives the admin no way to tell the two
+    apart, and picking is not a coin flip they can see: the wrong half shows
+    up only as answers quietly getting worse, which is the exact silent
+    failure this module exists to prevent.
+
+    Deduped by the RESOLVER's own logical group rather than by display name,
+    because one group can carry two spellings of one agency ("Child Safety,
+    Department of" and "Department of Child Safety") and offering both would
+    put the same agency on the list twice under different words.
+
+    WHICH member is offered: the first one in catalog file order. That is the
+    id `EntityStamper`'s first-wins name index writes onto a chunk printed
+    with that name. For query resolution AND for the browse page's filter
+    box, the choice is not load-bearing at all — an overlay alias now
+    resolves to every id in the group, both in retrieval/query_agency.py's
+    overlay tier and in app/search_terms.py's `_agency_terms`, so either
+    half finds the whole agency and covers every one of its documents.
+    (Review fix: this docstring previously claimed the offered id was also
+    the one app/search_terms.py keyed the office's shorthand on — false.
+    search_terms resolves an alias per-DOCUMENT by that document's own
+    doc_id slug, not by the picker's chosen id, so before the group-expansion
+    fix an overlay entry saved against the offered id silently missed every
+    document under the other member's slug.)
+    """
+    index = _index(None)
+    by_group: dict[object, dict] = {}
+    for canonical_id, entry in load_agency_catalog().items():
+        # `.get(...) or canonical_id`: an id the resolver has never grouped
+        # is its own group of one, and must still reach the dropdown.
+        key = index.logical_group.get(canonical_id) or canonical_id
+        by_group.setdefault(
+            key, {"canonical_id": canonical_id, "name": entry.canonical_name}
+        )
+    return sorted(by_group.values(), key=lambda row: row["name"])
+
+
+def _payload(overlay: OfficeAliases, warnings: list[str]) -> dict:
+    names = id_to_name()
+    return {
+        "added": [
+            {
+                "alias": entry.alias,
+                "canonical_id": entry.canonical_id,
+                "agency_name": names.get(entry.canonical_id, entry.canonical_id),
+                "added_by": entry.added_by,
+                "added_at": entry.added_at,
+            }
+            for entry in overlay.added
+        ],
+        "disabled": sorted(overlay.disabled),
+        "shipped": _shipped_aliases(),
+        "agencies": _picker_agencies(),
+        "warnings": warnings,
+    }
+
+
+@router.get("/api/admin/aliases")
+def get_aliases(_settings: Settings = Depends(require_admin)) -> dict:
+    return _payload(load_office_aliases(), [])
+
+
+@router.put("/api/admin/aliases")
+def put_aliases(
+    body: AliasesBody, _settings: Settings = Depends(require_admin)
+) -> dict:
+    """Replace the overlay wholesale.
+
+    WHOLESALE, never a per-key merge: a merge leaves an admin no way to
+    DELETE an alias — they remove the row, the merge re-adds it from disk,
+    and the word they came here to get rid of is still vocabulary.
+    """
+    catalog = load_agency_catalog()
+    index = _index(None)
+    names = id_to_name()
+
+    warnings: list[str] = []
+    cleaned: list[OfficeAlias] = []
+    existing = {entry.alias: entry for entry in load_office_aliases().added}
+    now = datetime.now(timezone.utc).isoformat()
+    seen: set[str] = set()
+
+    for row in body.added:
+        alias = _normalize_for_match(row.alias)
+        if not alias:
+            # Two different mistakes, so two different sentences: an empty box
+            # versus something like "!!!" that normalizes away to nothing.
+            typed = row.alias.strip()
+            if typed:
+                raise _bad_request(
+                    f"'{typed}' can't be an alias — it needs at least one "
+                    "letter or number."
+                )
+            raise _bad_request(
+                "An alias can't be blank. Type the shorthand your office uses, "
+                "or remove the empty row."
+            )
+        if len(alias) > _MAX_ALIAS_LEN:
+            raise _bad_request(
+                f"'{alias[:_MAX_ALIAS_LEN]}…' is too long for an alias. Keep "
+                f"it under {_MAX_ALIAS_LEN} characters."
+            )
+        if alias in seen:
+            raise _bad_request(f"'{alias}' is in the list twice. Remove one of them.")
+        seen.add(alias)
+        if alias in SUPPRESSED_ALIASES or alias in AMBIGUOUS_ALIASES:
+            # Checked on the NORMALIZED word, so "For." is the same entry as
+            # "for" — see the _normalize_for_match import note above.
+            raise _bad_request(
+                f"'{alias}' is an everyday word that has sent searches to the "
+                "wrong agency before, so it can't be used as an alias. Try a "
+                "longer or more distinctive shorthand."
+            )
+        if row.canonical_id not in catalog:
+            # NOT a harmless no-op, which is why it is a hard rejection: an
+            # unknown id makes the match list non-empty, so the fuzzy tier
+            # that would have found the RIGHT agency never runs, and the id
+            # then reaches ranking as the only preferred agency and penalises
+            # every chunk in the corpus.
+            raise _bad_request(
+                f"There's no agency with the id '{row.canonical_id}'. Pick an "
+                "agency from the list."
+            )
+        # Union BOTH tables the resolver actually scans for this word: an
+        # alias tier-3 hit AND a catalog name/name-head tier-1/2 hit. Reading
+        # alias_to_ids alone (the pre-fix bug) misses names and name-heads
+        # like `corrections` — phrase_to_ids-only vocabulary — and lets an
+        # admin silently repoint another agency's own name at a different
+        # canonical_id. See _shipped_aliases' docstring for the same table.
+        owners = (index.alias_to_ids.get(alias) or set()) | (
+            index.phrase_to_ids.get(alias) or set()
+        )
+        if owners and not _same_agency(index, owners, row.canonical_id):
+            # Name an owner whose logical group actually DIFFERS from the
+            # requested id — `owners` can legitimately contain the same real
+            # agency recorded twice (the `dor`/agency:rev case), and printing
+            # one of those would tell the admin their own request collides
+            # with itself.
+            wanted = index.logical_group.get(row.canonical_id)
+            conflicting = next(
+                (o for o in sorted(owners) if index.logical_group.get(o) != wanted),
+                sorted(owners)[0],
+            )
+            raise _bad_request(
+                f"'{alias}' already means "
+                f"{names.get(conflicting, conflicting)}. One word "
+                "can't point at two agencies, so pick a different shorthand."
+            )
+        if len(alias) <= _SHORT_ALIAS_LEN:
+            warnings.append(
+                f"'{alias}' is very short. It will work, but short words match "
+                "by accident, so watch whether it starts pulling up the wrong "
+                "agency."
+            )
+        prior = existing.get(alias)
+        # An unchanged row keeps its original stamp — re-saving the form
+        # must not rewrite who added a word two years ago.
+        keep_stamp = prior is not None and prior.canonical_id == row.canonical_id
+        cleaned.append(
+            OfficeAlias(
+                alias=alias,
+                canonical_id=row.canonical_id,
+                added_by=prior.added_by if keep_stamp else current_user(),
+                added_at=prior.added_at if keep_stamp else now,
+            )
+        )
+
+    offered = {row["alias"] for row in _shipped_aliases()}
+    disabled: set[str] = set()
+    for word in body.disabled:
+        key = _normalize_for_match(word)
+        if not key:
+            continue
+        if key not in offered:
+            # Covers both "no such alias" and "an alias a higher tier claims,
+            # so switching it off would do nothing" — from the admin's side
+            # they are the same sentence: it isn't on the list of things this
+            # page can turn off.
+            raise _bad_request(
+                f"'{key}' isn't one of the built-in shorthands you can switch "
+                "off. Pick one from the list."
+            )
+        disabled.add(key)
+
+    overlay = OfficeAliases(added=tuple(cleaned), disabled=frozenset(disabled))
+    # Uncaught on purpose (same as put_settings): reads degrade to empty,
+    # writes RAISE. A save that failed on the shared drive must reach the
+    # admin's screen, never look like it worked.
+    save_office_aliases(overlay)
+    # Re-read from disk, like put_settings does — the response is the
+    # admin's confirmation that the save landed, so it should come from the
+    # file, not from the object we hoped we wrote.
+    return _payload(load_office_aliases(), warnings)
+
+
+def _same_agency(index: _AgencyIndex, owners: set[str], canonical_id: str) -> bool:
+    """Is `canonical_id` the same REAL agency as everything in `owners`?
+
+    Not string equality, because the catalog records some agencies twice:
+    `dor` is agency:dor's slug and agency:rev is the same "Revenue,
+    Department of". Refusing that would print "'dor' already means Revenue,
+    Department of" to an admin who just asked for Revenue, Department of.
+    `logical_group` is the resolver's own duplicate-detection key.
+    """
+    wanted = index.logical_group.get(canonical_id)
+    return all(index.logical_group.get(owner) == wanted for owner in owners)
+
+
+# ---------------------------------------------------------------------------
+# Office guidance (spec E2) — GET/PUT /api/admin/guidance
+# ---------------------------------------------------------------------------
+
+
+class GuidanceBody(BaseModel):
+    text: str
+
+
+def _guidance_payload() -> dict:
+    # `load_guidance_meta()` returns {} for a never-edited install — the
+    # .get(..., "") fallbacks are what keep this matching webapp/src/api.ts's
+    # AdminGuidance, which declares edited_by/edited_at as required strings,
+    # not optional ones.
+    meta = load_guidance_meta()
+    return {
+        "text": load_office_guidance(),
+        "max_bytes": MAX_GUIDANCE_BYTES,
+        "edited_by": meta.get("edited_by", ""),
+        "edited_at": meta.get("edited_at", ""),
+    }
+
+
+@router.get("/api/admin/guidance")
+def get_guidance(_settings: Settings = Depends(require_admin)) -> dict:
+    return _guidance_payload()
+
+
+@router.put("/api/admin/guidance")
+def put_guidance(
+    body: GuidanceBody, _settings: Settings = Depends(require_admin)
+) -> dict:
+    try:
+        save_office_guidance(body.text, current_user())
+    except ValueError as err:
+        # The save's own sentence (harness/office_guidance.py) — written for
+        # this reader already, so it is surfaced as-is rather than rewrapped.
+        raise _bad_request(str(err)) from err
+    # Belt-and-suspenders: save_office_guidance() already resets the cache
+    # itself, but calling it again here costs nothing and keeps this route
+    # correct even if that internal detail ever changes. _guidance_payload()
+    # then re-reads from disk, same as put_aliases below — the response is
+    # the admin's confirmation the save landed, not the object this handler
+    # hoped it wrote.
+    reset_guidance_cache()
+    return _guidance_payload()
+
+
+# ---------------------------------------------------------------------------
+# The assistant's shipped instructions, read-only — GET /api/admin/prompt
+# ---------------------------------------------------------------------------
+#
+# WHY THIS EXISTS: without it the admin writes the guidance block above
+# blind. The shipped instructions run to ~1,170 lines they have never
+# seen, so they contradict them, repeat them, or spend the 8,192-byte cap
+# restating something already said at length.
+#
+# READ-ONLY, ALWAYS. There is no PUT here and there must never be one —
+# harness/system-prompt.md is wired to citation discipline and refusal
+# thresholds the eval suite measures, and a runtime edit box over it would
+# be an unreviewable change to every answer the office gets.
+
+# The heading harness/office_guidance.py's fixed preamble renders. Copied
+# rather than imported because it sits mid-string inside that module's
+# `_PREAMBLE`, and pinned against the real render by
+# test_the_admins_own_guidance_is_shown_and_marked — so an edit there fails
+# a test here instead of quietly leaving the admin's own block unmarked.
+GUIDANCE_HEADING = "Office guidance from the administrator"
+
+# Every top-level section, sorted into plain-English groups for the reader.
+#
+# WHY GROUPS AT ALL: twelve headings in one flat run is a list nobody
+# scans. An admin opens this page with a question — "does it already say
+# something about which document wins for actuals?" — and the groups are
+# what let them go straight to the quarter of the instructions that could
+# answer it.
+#
+# WHY THE LABELS ARE NOT THE HEADINGS: the headings are written for the
+# model ("Output hygiene", "Route the question first"). The labels are
+# written for a budget analyst who has never read a line of this.
+#
+# Hardcoded, not inferred. A section added to or renamed in
+# harness/system-prompt.md falls into OTHER_GROUP below, which is loud in
+# tests (test_every_section_lands_in_a_named_group) and still visible to
+# the admin at runtime — the page must never silently show less than the
+# assistant actually reads.
+_GROUPS: tuple[tuple[str, tuple[str, ...]], ...] = (
+    (
+        "What the assistant is, and how it decides",
+        (
+            "Your role",
+            "How much effort this conversation gets",
+            "Route the question first",
+        ),
+    ),
+    (
+        "How it writes an answer",
+        (
+            "Output hygiene",
+            "Refusal — three cases",
+            "Conversation flow",
+            "What goes into your final answer",
+            "Quick reference",
+        ),
+    ),
+    ("What it can look things up in", ("Your tools",)),
+    (
+        "Arizona budget background",
+        (
+            "What this corpus contains",
+            "Reading budget documents",
+            "Reading fiscal notes",
+            "Domain primer — Arizona state budget",
+        ),
+    ),
+    # Last in THIS LIST, and nowhere near last in the prompt. The
+    # `{{OFFICE_GUIDANCE}}` slot sits at harness/system-prompt.md:942 and
+    # five sections render after it — "Refusal — three cases",
+    # "Conversation flow", "What goes into your final answer", "Quick
+    # reference", and the domain primer. It is placed last here because an
+    # admin hunting for their own words looks at the bottom, NOT because
+    # that is where the assistant reads them.
+    #
+    # The window says the true position out loud (SystemGuidance.tsx's
+    # GUIDANCE_POSITION_NOTE) because "mine comes last, so mine wins" is
+    # exactly the wrong mental model: the block's own preamble
+    # (harness/office_guidance.py) promises that the citation, refusal and
+    # tool rules win on conflict, and the refusal rules render BELOW it.
+    ("Your office's own guidance", (GUIDANCE_HEADING,)),
+)
+
+# A heading listed under two groups would have its section emitted twice
+# (see `_grouped`, which FILTERS rather than looks up), and the page would
+# show the same instructions in two places. Import-time because it is a
+# typo in a literal three lines up, not a runtime condition.
+_MAPPED_HEADINGS = [h for _, hs in _GROUPS for h in hs]
+assert len(_MAPPED_HEADINGS) == len(set(_MAPPED_HEADINGS)), (
+    "a heading appears in two _GROUPS entries; it would be shown twice"
+)
+
+# Where a section nobody has classified goes. Shown, never dropped — see
+# the note on `_GROUPS`.
+OTHER_GROUP = "Anything else"
+
+# Which of the two effort levels is rendered. The two differ by 34
+# characters out of 58,032 (measured 2026-08-12), so a switch between them
+# would be a control that changes almost nothing on screen.
+_VIEW_TIER = "standard"
+
+# Which corpora can be asked for. Wire names only — the same two the UI's
+# document switch offers.
+_VIEW_CORPORA = ("budget", "fiscal_notes")
+
+
+def _scan(text: str, level: int) -> tuple[str, list[tuple[str, str]]]:
+    """Fence-aware markdown split: (text before the first heading, parts).
+
+    Fence-aware for the same reason harness/prompt.py's `_select_blocks`
+    is: the template documents its own syntax in fenced examples, and a
+    fenced "## like this" is TEXT. Treating it as a heading would invent a
+    section on this page that the assistant never reads as one.
+
+    The leading text is returned rather than discarded because a section's
+    own prose sits above its first subsection, and finding that boundary
+    any other way (a `body.index("### ")`) would cut the section short at
+    the first fenced example that happens to contain those characters.
+
+    Deeper headings stay inside a part's body — the next level is a second
+    call on that body, not a nested parse here.
+
+    EVERY caller must place the lead somewhere. There used to be a
+    `_split_by_level` helper that returned `[1]` for "callers with no use
+    for it", and the top-level caller used it — which silently dropped
+    `# Ask the Budget AZ — assistant instructions` from a page captioned
+    as showing everything the assistant is told (review, 2026-08-12). The
+    helper is gone so that dropping the lead has to be a deliberate `[1]`
+    at the call site rather than the convenient default.
+    """
+    marker = "#" * level + " "
+    lead: list[str] = []
+    out: list[tuple[str, str]] = []
+    heading: str | None = None
+    body: list[str] = []
+    in_fence = False
+    for line in text.splitlines():
+        if line.strip().startswith("```"):
+            in_fence = not in_fence
+        elif not in_fence and line.startswith(marker):
+            if heading is not None:
+                out.append((heading, "\n".join(body).strip()))
+            heading, body = line[len(marker):].strip(), []
+            continue
+        (body if heading is not None else lead).append(line)
+    if heading is not None:
+        out.append((heading, "\n".join(body).strip()))
+    return "\n".join(lead).strip(), out
+
+
+def _corpus_map_for_view(corpus: str) -> str | None:
+    """The same inventory table a real conversation's prompt gets.
+
+    Built by the same `build_corpus_map(corpus)` call that
+    app/routes/conversations.py's `_corpus_map_snapshot` makes, with the
+    same defaults, so this page cannot show an inventory the assistant
+    never saw. Degrades to None (the prompt renders its own fallback
+    sentence) on ANY failure — an unreadable sidecar must not turn a
+    read-only admin page into an error.
+
+    It reads `documents.json`; no LanceDB, no models.
+    """
+    try:
+        from harness.corpus_map import build_corpus_map
+
+        return build_corpus_map(corpus)
+    except Exception as err:  # noqa: BLE001 — see the docstring
+        print(f"tuning: instructions view has no inventory — {err}", file=sys.stderr)
+        return None
+
+
+def _section_payload(heading: str, body: str) -> dict:
+    """One top-level section, with its `###` subsections split out.
+
+    `text` is the prose directly under the `##`, before the first `###`.
+
+    No per-section size on the wire: a `chars` field shipped here and was
+    rendered nowhere (review, 2026-08-12). Sizes only make sense on this
+    page as ONE total set beside the office's own 8,192-byte allowance,
+    which `get_prompt` returns; a number beside every heading is trivia an
+    admin cannot act on.
+    """
+    intro, subsections = _scan(body, 3)
+    return {
+        "heading": heading,
+        "text": intro,
+        "is_office_guidance": heading == GUIDANCE_HEADING,
+        "subsections": [{"heading": h, "text": t} for h, t in subsections],
+    }
+
+
+def _grouped(sections: list[tuple[str, str]]) -> list[dict]:
+    """Sort rendered sections into `_GROUPS`, dropping nothing.
+
+    NEITHER order here is the assistant's reading order. Group order is
+    the mapping's, not the prompt's (an admin hunting for the budget
+    background should not have to know it renders ninth), and section
+    order within a group stays the render's — but the groups reshuffle the
+    prompt wholesale, so no position in this list tells an admin where
+    anything actually sits. That is why the window states the office
+    block's real position in words instead of implying it by putting the
+    group last; see the note on `_GROUPS`.
+
+    Empty groups are omitted — "Reading fiscal notes" does not exist in a
+    budget render.
+    """
+    placed: set[str] = set()
+    out: list[dict] = []
+    for label, headings in _GROUPS:
+        # Filtered from `sections`, not looked up by heading: a lookup
+        # table would silently drop the second of two sections that ever
+        # shared a heading, and dropping instructions from a page whose
+        # whole job is showing them is the failure to design against.
+        rows = [_section_payload(h, b) for h, b in sections if h in headings]
+        placed.update(h for h, _ in sections if h in headings)
+        if rows:
+            out.append({"label": label, "sections": rows})
+    leftover = [_section_payload(h, b) for h, b in sections if h not in placed]
+    if leftover:
+        out.append({"label": OTHER_GROUP, "sections": leftover})
+    return out
+
+
+@router.get("/api/admin/prompt")
+def get_prompt(
+    corpus: str = "budget", _settings: Settings = Depends(require_admin)
+) -> dict:
+    """Everything the assistant is told, for reading only.
+
+    Split and grouped server-side rather than in the browser: the split is
+    a rule about markdown structure with a code-fence exception, and the
+    grouping is a curated mapping with a drift test. Both are worth Python
+    tests rather than a regex inside a React component.
+    """
+    if corpus not in _VIEW_CORPORA:
+        raise _bad_request(
+            f"There's no set of documents called '{corpus}'. Choose budget "
+            "documents or fiscal notes."
+        )
+
+    prompt = build_system_prompt(
+        corpus=corpus, tier=_VIEW_TIER, corpus_map=_corpus_map_for_view(corpus)
+    )
+    lead, sections = _scan(prompt, 2)
+    groups = _grouped(sections)
+    return {
+        "corpus": corpus,
+        # Everything above the first "##" — today the document's own title
+        # line. It survives rendering, so the assistant reads it, so a page
+        # captioned "everything the assistant is told" must show it. It was
+        # silently dropped until the 2026-08-12 review; the guard that now
+        # keeps it is `test_every_rendered_line_reaches_the_page`, which
+        # checks LINE COVERAGE rather than the heading list (the old heading
+        # check was built from the same splitter, so a splitter that dropped
+        # content could never fail it).
+        "lead": lead,
+        "groups": groups,
+        # The WHOLE thing. The admin's 8,192-byte allowance only reads as
+        # "a small addition to something much larger" against a real total.
+        "total_lines": len(prompt.splitlines()),
+        # Bytes as well as characters, because the guidance cap the
+        # admin is being compared against is a BYTE cap — and this text
+        # is full of em dashes, which cost 3 bytes each. A character
+        # count set beside "8,192 bytes" would be comparing two units.
+        "total_bytes": len(prompt.encode("utf-8")),
+        "office_guidance_present": any(
+            s["is_office_guidance"] for g in groups for s in g["sections"]
+        ),
+    }

@@ -33,6 +33,16 @@ stamper uses.
      agency. See `_name_phrases` for why the head rather than single words.
   3. An alias — the JLBC URL slug, or a reviewed acronym from the catalog.
      EXACT when it identifies exactly one agency and is not stoplisted.
+  3b. An alias the office ADMIN added (`store/office_aliases.py`, spec E1).
+     ALWAYS WEAK — see the overlay block in `parse_query_agencies`. The admin
+     can also switch a shipped tier-3 alias off; that never touches tiers 1-2,
+     so disabling a shorthand cannot hide an agency's real name. LIMITATION,
+     measured rather than fixed: for the same reason, disabling is a complete
+     no-op for an alias that is ALSO a catalog name-phrase — tiers 1-2 already
+     claim the agency before the tier-3 disabled check ever runs. True today
+     for 3 of the 156 shipped aliases: "financial institutions",
+     "comm colleges", "university of arizona". See the WHY comment on the
+     disabled check in `parse_query_agencies`.
   4. rapidfuzz `token_set_ratio` >= 85 against catalog names. Always WEAK.
 """
 from __future__ import annotations
@@ -57,6 +67,12 @@ from chunking.entity_stamper import (
     _normalize_for_match,
 )
 from retrieval.query_match import Confidence, Match
+
+# The admin's alias overlay (spec E1). `store/` is already a dependency of
+# `retrieval/` (pipeline.py, search_lance.py, citations.py all import it), so
+# this adds no new layering — and `store.office_aliases` itself only reaches
+# `store.config`, so nothing heavy comes along.
+from store.office_aliases import OfficeAliases, load_office_aliases
 
 # Aliases that are also ordinary English words, or another agency's everyday
 # shorthand. They still MATCH — "doc baseline" must find Corrections — but they
@@ -306,7 +322,10 @@ _FUNCTION_WORDS = frozenset({"of", "the", "and", "for", "in", "on", "to", "a", "
 
 
 def parse_query_agencies(
-    query: str, *, catalog_path: Path | str | None = None
+    query: str,
+    *,
+    catalog_path: Path | str | None = None,
+    office_aliases: OfficeAliases | None = None,
 ) -> list[Match]:
     """Agencies named in `query`, most confident first.
 
@@ -316,6 +335,10 @@ def parse_query_agencies(
 
     `catalog_path` exists for tests that want a fixture catalog; production
     callers pass nothing and get the workspace catalog.
+
+    `office_aliases` is the admin's overlay (spec E1). `None` means "read it
+    from the shared data dir" — the production path. Tests pass an explicit
+    overlay so they never depend on what is on the machine's data dir.
     """
     if not query or not query.strip():
         return []
@@ -324,6 +347,23 @@ def parse_query_agencies(
     normalized = _normalize_for_match(query)
     if not normalized:
         return []
+
+    # Loaded per call, NOT baked into `_AgencyIndex`: that index is lru-cached
+    # for the process lifetime, while this file can change under a running
+    # server the moment an admin saves. The store's (path, mtime, size) stamp
+    # only skips the overlay's own JSON PARSE — it is not "one stat on the hot
+    # path". In production (JLBC_DATA_DIR unset) every call still walks
+    # office_aliases_path() -> data_dir() -> resolve_data_dir() ->
+    # app.machine_config.read_data_dir(), an UNCACHED machine.json read
+    # (app/machine_config.py:70-83), then data_dir()'s
+    # mkdir(parents=True, exist_ok=True) (store/config.py:83), before the
+    # mtime stat is even taken. Absolute cost is negligible next to embed +
+    # rerank — that is why this is fine, not because it is cheap.
+    overlay = office_aliases if office_aliases is not None else load_office_aliases()
+    # Normalized the same way the query is, or an admin who types "DIFI" or
+    # "Comm Colleges" would disable a string this module never produces.
+    disabled = {_normalize_for_match(d) for d in overlay.disabled}
+    disabled.discard("")
 
     matches: list[Match] = []
     seen: set[str] = set()
@@ -371,6 +411,23 @@ def parse_query_agencies(
 
     # --- Tier 3: slugs and reviewed acronyms --------------------------------
     for alias in _scan_phrases(normalized, index.aliases_longest_first):
+        # An admin-disabled shipped alias never resolves through this tier.
+        # Only the SHORTHAND dies — the agency's NAME is a higher tier and is
+        # untouched, so the escape hatch cannot hide an agency outright.
+        #
+        # LIMITATION, measured, not fixed here: disabling only suppresses THIS
+        # tier. An alias that is ALSO a catalog name-phrase reaches the agency
+        # through tiers 1-2 first, so disabling is a complete no-op for it —
+        # `_add`'s "first tier owns it" rule means this loop's `continue` never
+        # even gets a chance to matter. The curated multi-word aliases are
+        # registered into `phrase_to_ids` too (see `_AgencyIndex.__init__`),
+        # which is how this happens. Measured against the 156 shipped aliases:
+        # "financial institutions", "comm colleges", and "university of
+        # arizona" are the three. Not worth span-tracking here to fix — the
+        # admin write route (a later task) is expected to stop offering these
+        # specific aliases as disable-able instead.
+        if alias in disabled:
+            continue
         ids = index.alias_to_ids[alias]
         # A SPECIFIC name beats a curated umbrella. "university of arizona" is
         # curated to both UA lines, but it is also a prefix of each line's own
@@ -391,6 +448,44 @@ def parse_query_agencies(
         confidence = Confidence.EXACT if exact else Confidence.WEAK
         for canonical_id in _expand_group(index, ids) if exact else ids:
             _add(canonical_id, confidence, alias)
+
+    # --- Overlay tier: the admin's added aliases (spec E1) ------------------
+    # ALWAYS WEAK. The confidence is a hardcoded literal here — never computed
+    # from uniqueness or length the way tier 3 computes it — because these
+    # strings never went through the eval-gated review that earns the right to
+    # hard-filter. A bad overlay alias may cost ranking; it may never delete
+    # the right answer from the page.
+    #
+    # Placed AFTER tier 3 so `_add`'s "first tier owns it" rule does the rest:
+    # an agency a catalog tier already claimed EXACT keeps that confidence, so
+    # the overlay can only ever ADD an agency, never downgrade one.
+    if overlay.added:
+        overlay_to_ids: dict[str, set[str]] = {}
+        for entry in overlay.added:
+            key = _normalize_for_match(entry.alias)
+            # `disabled` applies to the admin's own additions too: switching a
+            # string off must mean off, whichever list it came from.
+            if key and key not in disabled:
+                # Fix: expand to the whole logical group, exactly as tiers 2
+                # and 3 do. WHY: the catalog records some agencies twice, and
+                # the duplicate ids SPLIT the stamped chunks (see
+                # `_expand_group`). An overlay alias resolving to the single id
+                # the admin picked in the dropdown would cover half that
+                # agency's documents and actively PENALISE the other half —
+                # retrieval/agency_boost.py subtracts its penalty from every
+                # chunk not carrying a preferred id — so the office's own
+                # shorthand would make those documents harder to find.
+                # This widens the id set ONLY; the confidence below stays the
+                # hardcoded WEAK literal, so it is not a safety change.
+                overlay_to_ids.setdefault(key, set()).update(
+                    _expand_group(index, {entry.canonical_id})
+                )
+        overlay_longest_first = sorted(overlay_to_ids, key=len, reverse=True)
+        for alias in _scan_phrases(normalized, overlay_longest_first):
+            # Sorted so two agencies sharing one overlay alias resolve in a
+            # stable order rather than on set-iteration order.
+            for canonical_id in sorted(overlay_to_ids[alias]):
+                _add(canonical_id, Confidence.WEAK, alias)
 
     # --- Tier 4: fuzzy fallback ---------------------------------------------
     # Only when nothing else matched. A fuzzy hit ALONGSIDE a confident one is
@@ -513,8 +608,22 @@ def _one_logical_agency(index: "_AgencyIndex", ids: "set[str]") -> bool:
 def _expand_group(index: "_AgencyIndex", ids: "set[str]") -> "set[str]":
     """Every catalog id naming the same real agency as `ids`.
 
-    Applied ONLY when the match is already EXACT, so it widens a filter across
-    a catalog defect and never across genuine ambiguity.
+    Two callers, two different trust levels in `ids` (review fix — this
+    docstring used to describe only the first):
+
+    * Tiers 2-3 call it only once a match is already EXACT (a catalog
+      name/alias hit), so it widens a filter across a catalog defect and
+      never across genuine ambiguity.
+    * The overlay tier (below) calls it on the admin's OWN alias entries —
+      ids picked from a dropdown, always WEAK confidence, never
+      eval-gated — and app/search_terms.py's `_agency_terms` calls it on a
+      DOCUMENT's own resolved id for the same reason. Neither caller can
+      guarantee `ids` names a group at all: an id with no duplicate simply
+      widens to `{that id}` (`index.logical_group.get` returns None), which
+      this function must treat as the ordinary case, not an error.
+
+    In both shapes the function only ever ADDS ids to an already-identified
+    agency; it is never what decides whether a match happened.
 
     WHY widening matters as much as the confidence fix: the duplicate ids also
     SPLIT the stamped chunks. `asu` resolves to agency:uniasu, which JLBC used
@@ -549,9 +658,16 @@ def _logical_key(name: str) -> tuple[str, ...]:
     A sorted token multiset rather than string equality, because the catalog
     writes the same agency both ways round: "Child Safety, Department of" and
     "Department of Child Safety" are five entries for one agency and only
-    match after inversion. Measured on the 2026-08-02 catalog this produces 5
-    groups covering 12 ids, and every one was hand-checked to be a genuine
-    duplicate — no two DIFFERENT agencies collide under it.
+    match after inversion. Re-measured 2026-08-12 (review fix — the prior
+    "5 groups covering 12 ids" was stale): the committed catalog produces 6
+    groups covering 15 ids — ASU x2, Child Safety x5, Constable Ethics x2,
+    Governor's Office of Equal Opportunity x2, Revenue x2, WIFA x2 — and all
+    six were hand-checked to be genuine duplicates, no two DIFFERENT
+    agencies collide under it. That hand-check now backs more than this
+    function's own query-side widening: the admin's alias overlay (spec E1)
+    rides the same grouping to widen a saved alias across a split id family
+    (`_expand_group`, both here and in app/search_terms.py), so a bad group
+    here would misroute admin-typed vocabulary too.
 
     The fix this enables is query-side only: resolve a name to ALL the ids in
     its group and filter on all of them. That recovers both the hard filter

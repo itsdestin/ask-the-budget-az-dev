@@ -1,6 +1,6 @@
 # Project Status
 
-**Last updated:** 2026-08-12
+**Last updated:** 2026-08-13
 
 This file is the single source of truth for what's shipped, what's
 open, and what's blocked. The phase plans under `docs/superpowers/`
@@ -42,6 +42,134 @@ source. When something ships, update only this file.
 | AI Mode chat history | ✓ Shipped (2026-08-03), **reviewed and hardened 2026-08-11** | Per-device transcripts, browse/search/resume past chats, auto-naming, collapsible rail. Local disk only — never the share. A second review found ELEVEN defects, four of them silent data loss; all fixed. See the section below |
 | AI Mode persistent conversation | ✓ **Shipped, browser-tested, merged `28567f0`** (2026-08-11) | "+ New chat" shows a row at once; the conversation survives a tab switch and keeps streaming. 742 vitest / `tsc -b` clean. Destin tested and accepted; browser testing found a two-rows-look-selected defect, fixed. Four Minors carried, and P5 (close-tab-still-aborts) is still unwatched. See the section below |
 | **Corpus navigation** (map, spread, coverage, echo) | ✓ **Shipped, both gates passed, merged `2dc295f`** (2026-08-12) | N1–N7 + N11. A corpus inventory in the prompt, `spread` retrieval, `year_coverage`, inferred-filter echo. **G-N1: Layer 1 identical to a same-hour control. G-N2: `key_fact_rate` 0.463 → 0.685 against a real control**, every citation metric up, input tokens down 41%. Full 31-query run not yet run. See the section below |
+| **Admin extensions** (E1–E3, E6) | ✓ **Code complete, gates green, NOT yet browser-verified** (2026-08-13) | Admin-editable alias overlay for search, admin-authored office guidance in the AI prompt, analyst issue reports with an admin inbox, `/admin` regrouped. 2638 pytest / 816 vitest / `tsc -b` / `npm run build` all clean; E1 eval gate passed with the overlay proven live. Nobody has opened the page. See the section below |
+
+## Admin extensions — aliases, guidance, issue reports (2026-08-13)
+
+**Code complete and gated; visually unwitnessed.** Spec E1–E3 + E6 shipped as fourteen
+tasks (`docs/superpowers/plans/2026-08-12-admin-extensions.md`), each implemented by a
+fresh subagent and reviewed by a second one before merge.
+
+### What shipped
+
+| Piece | Where |
+|---|---|
+| Alias overlay file (mtime-cached read, atomic write) | `store/office_aliases.py` |
+| Overlay consumed in query resolution, **WEAK confidence only** | `retrieval/query_agency.py` |
+| Overlay in the Budget Documents filter box | `app/search_terms.py` |
+| Admin alias routes with plain-English validation | `app/routes/tuning.py` (`GET/PUT /api/admin/aliases`) |
+| Office guidance file + `{{OFFICE_GUIDANCE}}` prompt slot | `harness/office_guidance.py`, `harness/prompt.py`, `harness/system-prompt.md` |
+| Guidance admin routes | `app/routes/tuning.py` (`GET/PUT /api/admin/guidance`) |
+| Issue report storage (one JSON file per report) | `app/issue_reports.py` |
+| Issue routes — ungated submit, own-only listing, admin resolve | `app/routes/issues.py` |
+| Typed client for all three | `webapp/src/api.ts` |
+| Three admin panels + regrouped page | `webapp/src/admin/{Aliases,Guidance,Issues}Panel.tsx`, `webapp/src/pages/Admin.tsx` |
+| Analyst-facing report page + nav entry | `webapp/src/pages/ReportIssue.tsx`, `ToolsNav.tsx`, `App.tsx` |
+
+### The E1 gate — an admin alias cannot move ground-truth queries
+
+Two eval runs on the same machine minutes apart, identical corpus, the second with a
+three-alias overlay loaded (`dor`→`agency:rev`, `ade`→`agency:ade`, `azdps`→`agency:dps`):
+
+| | recall@5 | recall@15 | recall@20 | refusal precision | p95 |
+|---|---|---|---|---|---|
+| Control (no overlay) | 88.10% | 100.00% | 100.00% | 60.00% | 768 ms |
+| With overlay | 88.10% | 100.00% | 100.00% | 60.00% | 772 ms |
+
+Results committed under `eval/results/2026-08-13T0513Z-309f3e5.*` (control) and
+`…0514Z-309f3e5.*` (overlay).
+
+**The unchanged numbers are only meaningful because the overlay was proven live.** Two of
+the three fixture aliases are inert — the catalog already owns `dor` and `ade`, and the
+first tier to name an agency keeps it — so the real test is `azdps`, which nothing
+resolves without the overlay:
+
+    'azdps budget'   no overlay: []   with overlay: [('agency:dps', 'WEAK')]
+
+It resolves, and it resolves WEAK. That is the whole E1 property: an admin's alias can
+improve ranking and can never delete the right answer from the page.
+
+### Deviations from the plan
+
+1. **Report context capture is trimmed.** The spec listed `page` and `app_version` on a
+   report; the form is its own route (so "page they were on" would always read `/report`)
+   and no version constant exists. Reports carry `submitted_by`, `submitted_at`,
+   `description`, `expected` only.
+2. **Transcript attach is a picker, not a "current conversation" checkbox** — the
+   conversation lives in `Ai.tsx` state the report page cannot see. The form offers an
+   optional dropdown fed by `GET /api/history` (the caller's own chats). Same consent
+   property: none by default, explicit copy that the administrator will read everything.
+3. **Only the NEW panels are collapsible.** The five shipped panels got grouping and
+   reordering, not collapse.
+4. **The eval ran against a scratch data dir** that symlinks the corpus read-only, rather
+   than writing the overlay fixture into `data/insight-data/` as the plan said. The 14 GB
+   working data dir was never modified.
+5. **Two spec E6 copy decisions were overridden by Destin** (2026-08-12): the alias
+   explanatory sentence was rewritten in office English because the spec's version used
+   "corpus" and "catalogued", both banned by this repo's own jargon guard; and group
+   labels now render only on multi-panel groups, so "Spending" and "Access & files" appear
+   bare. Surviving labels, in order: Needs attention, AI Mode, Search & documents.
+
+### Defects the reviews caught that the suites did not
+
+- `load_office_aliases` raised `AttributeError` on a malformed *row* inside `added`
+  (`{"added": [null]}`) — uncaught, on the path retrieval calls for every query, for a
+  hand-editable file on the share. Fixed and pinned.
+- The admin alias collision check consulted only the alias table, so a catalog agency's
+  own NAME could be bound to a different agency: `corrections` → Revenue was accepted and
+  would have boosted Revenue on every query containing "corrections". Fixed by unioning
+  the name-phrase table through the same logical-group comparison.
+- `save_office_guidance` moved the live file to `.bak` *before* writing its replacement, so
+  a failed write left the office with no guidance at all.
+- Wiring a filesystem read into `build_system_prompt` left ~134 existing prompt assertions
+  reading whatever `office-guidance.md` happened to be in the live data dir. `conftest.py`
+  now isolates `JLBC_DATA_DIR`.
+- A refused save from the shipped-shorthand card showed the admin *nothing* — the only
+  `role="alert"` lived inside the other, collapsed card, which renders no children.
+- The report form claimed "Nothing else about you is collected." even when the analyst had
+  attached a whole conversation. Clause dropped.
+- The over-cap guidance error said "8,192 characters" while enforcing 8,192 **bytes**.
+
+The final whole-branch review then found what no per-task review could see:
+
+- **The agency picker offered 16 catalog ids under 7 identical display names, and the
+  overlay tier was the only tier that did not expand the logical group.** "Revenue,
+  Department of" appeared twice (`agency:dor`, `agency:rev`) with nothing to tell them
+  apart. Duplicate ids split the stamped chunks, so an admin's shorthand landed on one
+  half of a corpus; with `MATCH_PENALTY = 2.0` against `REFUSAL_THRESHOLD = 1.46`, some
+  real answers become refusals. The overlay tier now expands the group (confidence stays a
+  hardcoded WEAK literal) and the picker is deduped by logical group: 157 rows → 148, no
+  duplicate names, and PUT still accepts any catalog id.
+- **An unreachable share read as "No reports yet" and "You haven't filed a report yet"** —
+  a confident claim from an unknown state. Fixing it uncovered that the `except OSError`
+  around `Path.glob` was **dead code**: pathlib swallows the error (verified against a
+  `chmod 000` directory), so the guard had never once fired. Now `os.listdir`, and both
+  screens say the folder could not be read. A vanished share also had to be told apart
+  from an empty one — `store/config.py` swallows the mkdir failure and returns the path,
+  so a gone network drive surfaced as `FileNotFoundError`, i.e. "genuinely empty"; both
+  this and `harness/office_guidance.py` now discriminate on the root data dir the way
+  `app/health.py` does.
+- **An analyst's own torn report vanished from their list** while the admin saw it — the
+  non-admin filter keyed on `submitted_by`, which an unreadable stub has no room to carry.
+  The frontend branch written to render it was unreachable, with a comment saying otherwise.
+- **A duplicate React key**: the shipped-shorthand list is one row per agency, so `ua`
+  legitimately appears twice; the specs' fixture never repeated an alias.
+- **The picker dedupe then introduced its own miss** in the browse filter box, which keys
+  agencies off the doc_id's trailing slug — so a shorthand set on `agency:cs` covered zero
+  documents, all of which carry `-dcs-`. `_agency_terms` now expands the group too.
+
+### Suite counts at merge
+
+`pytest` 2638 passed / 5 skipped · `vitest` 816 passed (78 files) · `tsc -b` exit 0 ·
+`npm run build` exit 0.
+
+### Standing caveat — nobody has looked at it
+
+jsdom applies no stylesheet. The regrouped Admin page, the three collapsed cards, the
+byte meter, the 157-option agency select, the transcript viewer (which has no
+`max-height`, so a long attached conversation makes an arbitrarily long card) and the
+report form are all pinned by specs and **unwitnessed in a browser**. The "AI Mode" group
+label also still sits directly above the panel headed "AI Mode".
 
 ## Corpus — what is ingested and what is NOT (2026-08-01)
 

@@ -1,4 +1,13 @@
-import { search } from "./api";
+import {
+  adminAliases,
+  adminGuidance,
+  issues,
+  saveAdminAliases,
+  saveAdminGuidance,
+  search,
+  submitIssue,
+  updateIssue,
+} from "./api";
 
 // WHY these two tests exist: TypeScript checks the ARGUMENTS of search(), but
 // nothing checks the JSON that actually goes over the wire against the frozen
@@ -41,4 +50,50 @@ test("surfaces the backend's error detail in the thrown Error", async () => {
   );
 
   await expect(search("")).rejects.toThrow("query is empty");
+});
+
+// One failure-path spec per new function — same "surfaces the backend's
+// error detail" shape as the search() test above, applied to each new
+// route so a broken `fail()` call site doesn't silently flatten to a
+// generic status-code message.
+
+function failJson(status: number, detail: string) {
+  return vi.fn().mockResolvedValue({ ok: false, status, json: async () => ({ detail }) });
+}
+
+test("adminAliases surfaces the backend's error detail", async () => {
+  vi.stubGlobal("fetch", failJson(403, "admin only"));
+  await expect(adminAliases()).rejects.toThrow("admin only");
+});
+
+test("saveAdminAliases surfaces the backend's error detail", async () => {
+  vi.stubGlobal("fetch", failJson(400, "'for' is an everyday word"));
+  await expect(saveAdminAliases({ added: [], disabled: [] })).rejects.toThrow(
+    "'for' is an everyday word",
+  );
+});
+
+test("adminGuidance surfaces the backend's error detail", async () => {
+  vi.stubGlobal("fetch", failJson(403, "admin only"));
+  await expect(adminGuidance()).rejects.toThrow("admin only");
+});
+
+test("saveAdminGuidance surfaces the backend's error detail", async () => {
+  vi.stubGlobal("fetch", failJson(400, "over the 8,192 byte limit"));
+  await expect(saveAdminGuidance("too long")).rejects.toThrow("over the 8,192 byte limit");
+});
+
+test("issues surfaces the backend's error detail", async () => {
+  vi.stubGlobal("fetch", failJson(500, "share unavailable"));
+  await expect(issues()).rejects.toThrow("share unavailable");
+});
+
+test("submitIssue surfaces the backend's error detail", async () => {
+  vi.stubGlobal("fetch", failJson(400, "Describe what went wrong"));
+  await expect(submitIssue({ description: "" })).rejects.toThrow("Describe what went wrong");
+});
+
+test("updateIssue surfaces the backend's error detail", async () => {
+  vi.stubGlobal("fetch", failJson(404, "No such report"));
+  await expect(updateIssue("abc", { status: "resolved" })).rejects.toThrow("No such report");
 });
