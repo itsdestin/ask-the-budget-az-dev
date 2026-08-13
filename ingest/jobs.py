@@ -372,19 +372,49 @@ def archived_count() -> int:
 _NEWEST_LIVE_SCAN_CAP = 50
 
 
-def newest_archived_live() -> JobRecord | None:
-    """The most recently finished successful ingest, or None.
+def newest_live_job() -> JobRecord | None:
+    """The most recently finished successful ingest, wherever its file sits.
 
-    Feeds `last_ingest_at` on the admin health panel. Sorted by file mtime
-    rather than by `updated_at` because mtime comes from the directory entry,
-    so this reads one file where sorting on `updated_at` would read all of
-    them. `cancelled` jobs are skipped -- a dismissed failure is not an
-    ingest, and reporting one as the last successful ingest would be a
-    quietly false reassurance.
+    Feeds `last_ingest_at` on the admin health panel -- "when did this corpus
+    last actually grow", which is not the same question as "is anything
+    running".
+
+    The archive is searched by file MTIME rather than by `updated_at` because
+    mtime comes from the directory entry, so the common case opens exactly one
+    file where sorting on `updated_at` would open all 7,104. `cancelled` jobs
+    are skipped: a dismissed failure is not an ingest, and reporting one as
+    the last successful ingest is a quietly false reassurance on the one
+    screen an admin checks to find out otherwise.
+
+    WHY the main-folder fallback, which is not merely defensive: until
+    `sweep_archive()` has run, every finished job is still in the main folder,
+    and the archive is EMPTY. Without this branch the admin panel would report
+    "nothing has ever been ingested" against a corpus of 7,434 documents for
+    the whole window between server start and the background sweep finishing
+    -- and permanently on any machine where the sweep cannot run. Caught by
+    tests/test_admin_corpus_route.py::test_corpus_reports_the_queue, which
+    writes a `live` job in the pre-sweep layout.
+
+    The fallback is never more expensive than the code this replaced: it only
+    runs when the archive holds no successful ingest at all, and it is the
+    same single scan the old `load_all()` did unconditionally.
+
+    Accepted edge: during a PARTIAL sweep the archive can hold an older `live`
+    job while a newer unswept one is still in the main folder, so the reported
+    date can lag by minutes. It self-corrects the moment the sweep completes,
+    and every job finishing after this ships is written straight to the
+    archive, so the window is one-time and only on upgrade.
     """
+    newest = _newest_live_in(archive_dir())
+    if newest is not None:
+        return newest
+    return _newest_live_in(jobs_dir())
+
+
+def _newest_live_in(directory: Path) -> JobRecord | None:
     try:
         entries = sorted(
-            archive_dir().glob("*.json"),
+            directory.glob("*.json"),
             key=lambda p: p.stat().st_mtime,
             reverse=True,
         )

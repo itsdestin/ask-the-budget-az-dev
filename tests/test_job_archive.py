@@ -160,7 +160,7 @@ def test_archived_count_opens_no_files(data_dir, monkeypatch):
     assert opened == [], f"archived_count opened {len(opened)} files"
 
 
-def test_newest_archived_live_skips_cancelled(data_dir):
+def test_newest_live_job_skips_cancelled(data_dir):
     """`last_ingest_at` on the admin health panel means "when did a document
     last finish successfully", so a dismissed failure must not answer it.
     """
@@ -171,7 +171,7 @@ def test_newest_archived_live_skips_cancelled(data_dir):
     J.save(junk)
     J.advance(junk, "cancelled")
 
-    newest = J.newest_archived_live()
+    newest = J.newest_live_job()
     assert newest is not None and newest.doc_id == "old"
 
 

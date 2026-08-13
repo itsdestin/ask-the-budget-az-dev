@@ -747,11 +747,13 @@ def _queue_summary() -> tuple[dict[str, int], str | None]:
     per job.
     """
     summary = {"queued": 0, "running": 0, "failed": 0}
-    last_live: str | None = None
     try:
-        from ingest.jobs import load_all
+        from ingest.jobs import load_active, newest_live_job
 
-        jobs = load_all()
+        # load_active(): none of the three counts is an archived state
+        # (spec T13 archives only `live` and `cancelled`), so this is the
+        # same arithmetic without reading 7,104 finished job files.
+        jobs = load_active()
     except Exception:  # noqa: BLE001 — unreadable jobs dir
         return summary, None
 
@@ -762,9 +764,20 @@ def _queue_summary() -> tuple[dict[str, int], str | None]:
             summary["failed"] += 1
         elif job.state not in _TERMINAL_JOB_STATES:
             summary["running"] += 1
-        if job.state == "live" and (last_live is None or job.updated_at > last_live):
-            last_live = job.updated_at
-    return summary, last_live
+
+    # NOT derived from `jobs` above, and this is the one caller in the file
+    # that genuinely changed rather than merely getting cheaper. Every `live`
+    # job is archived by spec T13, so reading "when did the corpus last grow"
+    # out of the main folder would report None forever — the health panel
+    # saying nothing has ever been ingested, on a corpus of 7,434 documents,
+    # with no error to explain it. `newest_live_job()` sorts the archive
+    # by file mtime and opens one file in the common case, and skips
+    # `cancelled` because a dismissed failure is not an ingest.
+    try:
+        newest = newest_live_job()
+    except Exception:  # noqa: BLE001 — unreadable archive
+        newest = None
+    return summary, (newest.updated_at if newest else None)
 
 
 MSG_QUEUE_STALLED = (
@@ -900,9 +913,12 @@ def get_attention(_settings: Settings = Depends(require_admin)) -> dict:
     """
     error: str | None = None
     try:
-        from ingest.jobs import load_all
+        # load_active(): `failed` never leaves the main folder — that is
+        # precisely what spec T13's storage shape guarantees — so this panel
+        # sees every held-back document without reading the archive.
+        from ingest.jobs import load_active
 
-        jobs = load_all()
+        jobs = load_active()
     except Exception:  # noqa: BLE001 — an unreadable jobs dir must not 500 the page
         jobs = []
         # Distinguishable from "nothing needs attention" on purpose. An

@@ -26,7 +26,7 @@ from fastapi.responses import JSONResponse
 from ingest.coverage import COVERAGE_FLOOR
 from ingest.doc_types import DocType, all_types, get as get_doc_type
 from ingest.driver import make_doc_id
-from ingest.jobs import TERMINAL_STATES, load_all, new_job, save
+from ingest.jobs import TERMINAL_STATES, load_active, new_job, save
 from store.config import data_dir, documents_path
 from store.documents import document_record
 
@@ -300,7 +300,12 @@ def _find_duplicate(sha256: str) -> dict[str, str | None] | None:
                 "message": message,
             }
 
-    for job in load_all():
+    # load_active(): every archived job is terminal, so the filter below
+    # already excluded all of them -- the same set, without reading the
+    # archive. An already-INGESTED file is caught by the documents.json
+    # loop above, not by this one; the two together are what make a
+    # re-upload of a finished document still report as a duplicate.
+    for job in load_active():
         if job.source_sha256 == sha256 and job.state not in TERMINAL_STATES:
             health, message = _duplicate_health(job.doc_id)
             return {

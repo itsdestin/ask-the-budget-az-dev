@@ -115,7 +115,7 @@ from ingest.jobs import (
     TERMINAL_STATES,
     JobRecord,
     advance,
-    load_all,
+    load_active,
     load_job,
     mark_stage,
     resumable,
@@ -1705,7 +1705,11 @@ class IngestWorker:
 
     def _candidates(self) -> list[JobRecord]:
         """Jobs worth attempting, best first: our resumable work, then queued."""
-        queued = [j for j in reversed(load_all()) if j.state == "queued"]
+        # load_active(), not load_all(): `queued` is never an archived
+        # state, so this is the same set -- but load_all() reads the whole
+        # 7,104-file archive on every pass of this poll loop, off a shared
+        # drive. Spec T13.
+        queued = [j for j in reversed(load_active()) if j.state == "queued"]
         return resumable() + queued
 
 
