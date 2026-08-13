@@ -172,6 +172,30 @@ test("a non-admin never sees the Admin pill", async () => {
   vi.restoreAllMocks();
 });
 
+// "Report an issue" (spec E3, Task 11). adminOnly: false — it has to render
+// for every analyst, not just the one holding the admin seat, since filing a
+// report is the one thing in this menu everyone genuinely needs.
+test("the tools menu shows Report an issue for a non-admin", async () => {
+  vi.spyOn(api, "me").mockResolvedValue({
+    user: "analyst1",
+    is_admin: false,
+    admin_username: "Destin",
+    admin_claimable: false,
+    admin_reset_pending: false,
+  });
+  render(
+    <MemoryRouter>
+      <Header />
+    </MemoryRouter>,
+  );
+  await screen.findByRole("link", { name: "Budget Documents" });
+  await waitFor(() => expect(api.me).toHaveBeenCalled());
+  fireEvent.click(screen.getByTestId("nav-tools-button"));
+  const item = screen.getByRole("menuitem", { name: /Report an issue/i });
+  expect(item).toHaveAttribute("href", "/report");
+  vi.restoreAllMocks();
+});
+
 // A failing /api/me must cost the pill, not the header. The nav is how an
 // analyst reaches every other surface; losing it because an identity probe
 // hiccupped would take down the whole app over a cosmetic detail.
