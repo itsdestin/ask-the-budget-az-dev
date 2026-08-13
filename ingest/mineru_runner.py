@@ -176,13 +176,24 @@ class MineruRunner:
     plus a process handle rather than anything more elaborate.
     """
 
-    def __init__(self, exe: Sequence[str] | Path | None = None) -> None:
+    def __init__(
+        self,
+        exe: Sequence[str] | Path | None = None,
+        *,
+        method: str = "auto",
+    ) -> None:
         if exe is None:
             self._exe = resolve_mineru_exe()
         elif isinstance(exe, Path):
             self._exe = [str(exe)]
         else:
             self._exe = list(exe)
+        # MinerU's `-m` flag. Per-instance, not per-call: the ladder
+        # (ingest/ladder.py) picks a rung BEFORE extraction starts, so the
+        # worker builds one runner per attempt rather than re-deciding the
+        # method mid-run. "auto" reproduces today's command line exactly,
+        # so every existing caller is unaffected.
+        self._method = method
         self._cancelled = threading.Event()
         self._proc: subprocess.Popen | None = None
         self._proc_lock = threading.Lock()
@@ -366,6 +377,7 @@ class MineruRunner:
                 "-p", str(stage),       # a DIRECTORY — MinerU's batch mode
                 "-o", str(mineru_out),
                 "-b", "pipeline",       # CPU-only backend, as per document
+                "-m", self._method,
             ]
             api_url = resolve_api_url()
             if api_url:
@@ -469,6 +481,7 @@ class MineruRunner:
                 "-s", str(start - 1),   # CLI is 0-indexed, inclusive
                 "-e", str(end - 1),
                 "-b", "pipeline",       # CPU-only backend; the default may want a GPU
+                "-m", self._method,
             ]
             api_url = resolve_api_url()
             if api_url:
