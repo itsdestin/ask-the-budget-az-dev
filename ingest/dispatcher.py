@@ -218,11 +218,12 @@ _EXTRACTOR_CLASSES = {
     # `mineru-ocr` is deliberately NOT named in data/document-types.yaml --
     # that file declares each type's PREFERRED extractor, and OCR must
     # never be a first choice (spec T7: it is the slowest thing this app
-    # does, and it is unneeded for the ~99.97% of documents that have a
-    # text layer). It is registered here only so `ingest/ladder.py` can
-    # name it as a fallback rung. Nothing in `_build_registry` stops a
-    # future document-types.yaml edit from naming it as a preference too
-    # (the class exists, so that would resolve, not raise) --
+    # does, and the ordinary document already has a text layer it can read
+    # for free -- see ingest/inspection.py). It is registered here only so
+    # `ingest/ladder.py` can name it as a fallback rung. Nothing in
+    # `_build_registry` stops a future document-types.yaml edit from
+    # naming it as a preference too (the class exists, so that would
+    # resolve, not raise) --
     # `tests/test_dispatcher.py::test_ocr_extractor_is_never_a_first_choice`
     # is what actually guards this.
     "mineru-ocr": MinerUOcrExtractor,
