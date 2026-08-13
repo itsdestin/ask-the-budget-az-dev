@@ -19,6 +19,9 @@ export function Settings() {
   const [corpusDir, setCorpusDir] = useState<string | null>(null);
   const [claimed, setClaimed] = useState<string | null>(null);
   const [claimError, setClaimError] = useState<string | null>(null);
+  const [name, setName] = useState("");
+  const [nameSaved, setNameSaved] = useState(false);
+  const [nameError, setNameError] = useState<string | null>(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -27,6 +30,7 @@ export function Settings() {
       .then((m) => {
         if (cancelled) return;
         setMe(m);
+        setName(m.display_name ?? "");
         // Only an admin may read the corpus endpoint; an analyst simply
         // doesn't get the folder path, which is fine — the sentence below
         // works without it.
@@ -53,6 +57,23 @@ export function Settings() {
       setMe(await api.me());
     } catch (err) {
       setClaimError(err instanceof Error ? err.message : String(err));
+    }
+  }
+
+  async function saveName() {
+    setNameError(null);
+    setNameSaved(false);
+    try {
+      // Render what the SERVER resolved, not what was typed. Clearing the
+      // box does not blank the name — it drops the override and falls back
+      // to the Windows name, and the field has to show that rather than the
+      // empty string the person just submitted.
+      const result = await api.setDisplayName(name);
+      setName(result.display_name);
+      setMe((m) => (m ? { ...m, display_name: result.display_name } : m));
+      setNameSaved(true);
+    } catch (err) {
+      setNameError(err instanceof Error ? err.message : String(err));
     }
   }
 
@@ -106,6 +127,64 @@ export function Settings() {
           {me?.admin_username ? (
             <p className="adm-hint">
               Your admin is <strong>{me.admin_username}</strong>.
+            </p>
+          ) : null}
+        </section>
+
+        {/* The name goes on the FROM line of any memo AI Mode generates, as
+            "<name>, via JLBC Agentic Search". Auto-filled from Windows where
+            it is available; this field exists for the machines where it is
+            not, and to correct it where Windows has it wrong (an un-updated
+            maiden name, or a bare `JARRETTD`) — which is likelier than a
+            missing one, and is why the typed name WINS over Windows rather
+            than only filling a gap. It is stored on this machine, not the
+            share: it is this person's own name on their own documents. */}
+        <section className="card adm-panel" data-testid="settings-display-name">
+          <h2 id="settings-display-name-h">Your name on documents</h2>
+          <p>
+            AI Mode prints this on the <strong>From</strong> line of every memo
+            it writes for you, as{" "}
+            <strong>{(name || me?.display_name || "Your Name").trim()}, via
+            JLBC Agentic Search</strong>. Windows usually supplies it; correct
+            it here if it is wrong or missing.
+          </p>
+          {/* Labelled by the heading rather than a caption of its own: this
+              card holds ONE field, so a caption would print the heading's
+              words a second line below the heading. `aria-labelledby` gives
+              the input the same accessible name without the duplication. */}
+          <div className="adm-field">
+            <input
+              id="settings-display-name-input"
+              aria-labelledby="settings-display-name-h"
+              type="text"
+              value={name}
+              maxLength={120}
+              placeholder="e.g. Destin Jarrett"
+              onChange={(e) => {
+                setName(e.target.value);
+                setNameSaved(false);
+                setNameError(null);
+              }}
+            />
+          </div>
+          <p className="adm-hint">
+            Leave it empty to go back to the name Windows knows you by.
+          </p>
+          <button type="button" className="adm-btn" onClick={saveName}>
+            Save
+          </button>
+          {nameSaved ? (
+            <p
+              className="adm-ok"
+              role="status"
+              data-testid="settings-display-name-saved"
+            >
+              Saved.
+            </p>
+          ) : null}
+          {nameError ? (
+            <p className="adm-warn" role="alert">
+              {nameError}
             </p>
           ) : null}
         </section>
