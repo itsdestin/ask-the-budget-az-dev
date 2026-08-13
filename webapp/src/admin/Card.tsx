@@ -48,12 +48,24 @@ export function Card({
  *  the whole row is one keyboard target — no caret, no tree. */
 export function CollapsibleCard({
   title,
+  quotedTitle = false,
   hint,
   children,
   defaultOpen = false,
   testId,
 }: {
   title: string;
+  /** True when `title` is somebody else's words quoted verbatim rather than
+   *  copy this app wrote. Marks ONLY the title element `data-quoted`, which
+   *  is what the plain-English guards strip before checking vocabulary.
+   *
+   *  WHY the card cannot mark itself as a whole (review, 2026-08-12): the
+   *  See System Guidance window used to wrap every card in one
+   *  `data-quoted` div, which exempted the app's own chrome too — the
+   *  "written by your office" hint and this card's own Show/Hide label —
+   *  so any developer word added to the card later would sail past the
+   *  guard. The exemption has to be as narrow as the quotation is. */
+  quotedTitle?: boolean;
   hint?: string;
   children: React.ReactNode;
   defaultOpen?: boolean;
@@ -73,7 +85,7 @@ export function CollapsibleCard({
         onClick={() => setOpen((v) => !v)}
       >
         <div className="adm-card-title">
-          <h3>{title}</h3>
+          <h3 data-quoted={quotedTitle ? "true" : undefined}>{title}</h3>
           {hint ? <span className="adm-card-hint">{hint}</span> : null}
         </div>
         <span className="adm-card-more">{open ? "Hide" : "Show"}</span>
