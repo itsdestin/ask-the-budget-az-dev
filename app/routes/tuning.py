@@ -33,6 +33,13 @@ from chunking.agency_catalog import id_to_name, load_agency_catalog
 # spelling rule and matched under another is a stoplist anyone bypasses by
 # typing "For." instead of "for".
 from chunking.entity_stamper import _normalize_for_match
+from harness.office_guidance import (
+    MAX_GUIDANCE_BYTES,
+    load_guidance_meta,
+    load_office_guidance,
+    reset_guidance_cache,
+    save_office_guidance,
+)
 from harness.settings import Settings
 
 # `_index` is the resolver's own matching tables for the shipped catalog —
@@ -297,3 +304,51 @@ def _same_agency(index: "_AgencyIndex", owners: set[str], canonical_id: str) -> 
     """
     wanted = index.logical_group.get(canonical_id)
     return all(index.logical_group.get(owner) == wanted for owner in owners)
+
+
+# ---------------------------------------------------------------------------
+# Office guidance (spec E2) — GET/PUT /api/admin/guidance
+# ---------------------------------------------------------------------------
+
+
+class GuidanceBody(BaseModel):
+    text: str
+
+
+def _guidance_payload() -> dict:
+    # `load_guidance_meta()` returns {} for a never-edited install — the
+    # .get(..., "") fallbacks are what keep this matching webapp/src/api.ts's
+    # AdminGuidance, which declares edited_by/edited_at as required strings,
+    # not optional ones.
+    meta = load_guidance_meta()
+    return {
+        "text": load_office_guidance(),
+        "max_bytes": MAX_GUIDANCE_BYTES,
+        "edited_by": meta.get("edited_by", ""),
+        "edited_at": meta.get("edited_at", ""),
+    }
+
+
+@router.get("/api/admin/guidance")
+def get_guidance(_settings: Settings = Depends(require_admin)) -> dict:
+    return _guidance_payload()
+
+
+@router.put("/api/admin/guidance")
+def put_guidance(
+    body: GuidanceBody, _settings: Settings = Depends(require_admin)
+) -> dict:
+    try:
+        save_office_guidance(body.text, current_user())
+    except ValueError as err:
+        # The save's own sentence (harness/office_guidance.py) — written for
+        # this reader already, so it is surfaced as-is rather than rewrapped.
+        raise _bad_request(str(err)) from err
+    # Belt-and-suspenders: save_office_guidance() already resets the cache
+    # itself, but calling it again here costs nothing and keeps this route
+    # correct even if that internal detail ever changes. _guidance_payload()
+    # then re-reads from disk, same as put_aliases below — the response is
+    # the admin's confirmation the save landed, not the object this handler
+    # hoped it wrote.
+    reset_guidance_cache()
+    return _guidance_payload()
