@@ -1376,12 +1376,22 @@ class HarnessSession:
         toggle mid-thread must not keep running the old tier's prompt
         against the new tier's model and step budget.
 
-        This is a PURE FUNCTION of (corpus, tier) and must stay one. It
-        is the bulk of the cacheable prefix (S22): ~40 KB resent on every
-        step, up to 50 steps in a Deep Research turn. Anything that
-        varies here — a timestamp, the user's name, the question — turns
+        No longer a pure function of (corpus, tier) alone: spec E2's office
+        guidance block is read from disk (`store.config.data_dir()`) inside
+        `build_system_prompt`, so the prompt also depends on filesystem
+        state at build time. That's safe because the result is SNAPSHOTTED
+        per (session, tier) in `_prompt_by_tier` below — the read happens
+        once per tier per conversation, at whatever guidance existed at
+        that moment, and never again for that conversation. This is the
+        same guarantee the corpus map gets (see the `_corpus_map` comment
+        above): this prompt is the bulk of the cacheable prefix (S22): ~40
+        KB resent on every step, up to 50 steps in a Deep Research turn.
+        Anything that varies WITHIN a conversation — a timestamp, the
+        user's name, the question, a mid-conversation guidance edit — turns
         every request into a cache miss at roughly 10x the price, with no
-        symptom anyone would notice except the bill.
+        symptom anyone would notice except the bill. Across conversations
+        the guidance may legitimately change — an admin's edit reaching new
+        conversations but not live ones is correct, not a bug.
         """
         if self._system_prompt is not None:
             return self._system_prompt

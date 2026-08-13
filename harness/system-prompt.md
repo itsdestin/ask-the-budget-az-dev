@@ -949,6 +949,7 @@ appropriation and the Approps Report FY M isn't in the corpus,
 the Estimate column of any Baseline FY M+1 or Approps Report FY
 M+1 passage reports the same figure.
 {{/when}}
+{{OFFICE_GUIDANCE}}
 {{#when corpus=fiscal_notes}}
 ## Reading fiscal notes
 

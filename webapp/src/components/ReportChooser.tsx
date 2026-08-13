@@ -10,27 +10,22 @@
 // straight to one agency without downloading the whole report" has nowhere to
 // live in a pill. The dialog is the only place that copy fits.
 //
-// It is the ONLY modal on this page — every other control is inline — so it
-// owes the two things a lone dialog usually forgets: focus goes IN on open and
-// is RESTORED on close, and focus cannot Tab back out to the page behind it.
+// The dialog SHELL — backdrop, focus trap, focus restore, Escape — moved to
+// components/Modal.tsx (2026-08-12) when the admin page grew a second dialog.
+// This file keeps only the chooser's own header and choices; the markup it
+// renders is unchanged.
 //
 // WHY this component does not pick its own mount point: it renders wherever
-// its parent puts it in the tree, but every declaration below is scoped
-// `.page-docs .report-modal...` (see the CSS block at the end of app.css) —
-// this `position:fixed` overlay MUST be mounted somewhere inside
-// `<main className="page-docs">`, or none of its rules match and it paints as
-// an unstyled block. Task 3 owns the mount point; this note is so that isn't
-// rediscovered the hard way a second time.
-
-import { useEffect, useRef } from "react";
+// its parent puts it in the tree. The shell's own rules are unscoped, but the
+// `.choice` rules below are still scoped `.page-docs .report-modal .choice...`
+// (see the CSS block in app.css), so this chooser MUST be mounted somewhere
+// inside `<main className="page-docs">` or its two options paint unstyled.
+// Task 3 owns the mount point; this note is so that isn't rediscovered the
+// hard way a second time.
 
 import { BookIcon, DocIcon, OpenIcon } from "./DocIcons";
+import { Modal } from "./Modal";
 import type { ReportFormats } from "../reportFamilies";
-
-/** Everything focusable the sheet can contain. Queried live on each Tab
- *  rather than cached: a one-format chooser has fewer nodes than a
- *  two-format one, and caching would trap focus on a stale list. */
-const FOCUSABLE = 'a[href], button:not([disabled])';
 
 export function ReportChooser({
   title,
@@ -41,74 +36,17 @@ export function ReportChooser({
   formats: ReportFormats;
   onClose: () => void;
 }) {
-  const sheet = useRef<HTMLDivElement>(null);
-  const restoreTo = useRef<HTMLElement | null>(null);
-
-  // Move focus in, and put it back where it came from on close. Without the
-  // restore, closing the dialog drops focus onto <body> and a keyboard user
-  // has to Tab from the top of the page to get back to the report they were
-  // reading.
-  //
-  // Deliberately narrower than FOCUSABLE: the close button sits in `.mhead`,
-  // before `.mbody`'s links in DOM order, so querying the full FOCUSABLE list
-  // here would land opening focus on "Close" instead of the first format
-  // choice — the reader's actual next action. The Tab trap below still uses
-  // the full list, so the button stays reachable and wrap-around still works.
-  useEffect(() => {
-    restoreTo.current = document.activeElement as HTMLElement | null;
-    // Fall back to the first FOCUSABLE node (the Close button) when neither
-    // format is present: formats={singleFile: null, linkedToc: null} is a
-    // value the ReportFormats type explicitly allows, and .mbody renders zero
-    // <a> elements in that case. An unguarded ".mbody a[href]" query then
-    // returns null, .focus() silently never runs, and focus is left outside
-    // the dialog — which also disarms the Tab trap below, since its wrap
-    // logic only fires once document.activeElement is already the trap's
-    // first/last node.
-    (
-      sheet.current?.querySelector<HTMLElement>(".mbody a[href]") ??
-      sheet.current?.querySelector<HTMLElement>(FOCUSABLE)
-    )?.focus();
-    return () => restoreTo.current?.focus?.();
-  }, []);
-
-  useEffect(() => {
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key === "Escape") {
-        onClose();
-        return;
-      }
-      if (e.key !== "Tab") return;
-      const nodes = sheet.current?.querySelectorAll<HTMLElement>(FOCUSABLE);
-      if (!nodes?.length) return;
-      const first = nodes[0];
-      const last = nodes[nodes.length - 1];
-      // Wrap at both ends. jsdom does not move focus on Tab, so the test for
-      // this asserts the wrap, not the browser's own default step.
-      if (e.shiftKey && document.activeElement === first) {
-        e.preventDefault();
-        last.focus();
-      } else if (!e.shiftKey && document.activeElement === last) {
-        e.preventDefault();
-        first.focus();
-      }
-    };
-    document.addEventListener("keydown", onKey);
-    return () => document.removeEventListener("keydown", onKey);
-  }, [onClose]);
-
+  // `initialFocus` is deliberately narrower than the shell's default: the
+  // close button sits in `.mhead`, before `.mbody`'s links in DOM order, so
+  // the default would land opening focus on "Close" instead of the first
+  // format choice — the reader's actual next action. The shell's Tab trap
+  // still uses the full focusable list, so Close stays reachable.
   return (
-    <div
-      className="report-modal open"
-      role="dialog"
-      aria-modal="true"
-      aria-label="Open the full report"
-      // Backdrop click only — currentTarget is the backdrop, so a click that
-      // started inside the sheet never closes it.
-      onClick={(e) => {
-        if (e.target === e.currentTarget) onClose();
-      }}
+    <Modal
+      label="Open the full report"
+      initialFocus=".mbody a[href]"
+      onClose={onClose}
     >
-      <div className="modal" ref={sheet}>
         <div className="mhead">
           <span className="mic">
             <BookIcon />
@@ -174,7 +112,6 @@ export function ReportChooser({
             </a>
           )}
         </div>
-      </div>
-    </div>
+    </Modal>
   );
 }

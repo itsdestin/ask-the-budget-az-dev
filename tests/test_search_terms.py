@@ -15,6 +15,7 @@ from app.search_terms import (
     _doc_type_forms,
     search_terms,
 )
+from store.office_aliases import OfficeAlias, OfficeAliases
 
 
 def test_a_per_agency_document_carries_its_slug_and_reviewed_aliases():
@@ -279,3 +280,61 @@ def test_exec_terms_for_a_governors_budget_document():
     terms = search_terms("ospb-exec-fy2027", "governors-budget", 2027)
     assert "exec" in terms
     assert "27exec" in terms
+
+
+# --- admin alias overlay (spec E1) ------------------------------------------
+#
+# The filter box is the third consumer of store.office_aliases, after
+# retrieval/query_agency.py. `agency:rev` is a real, verified catalog id
+# (samples/entity-catalog.yaml:8345) but these tests pass a hand-built
+# `catalog` dict directly, so the overlay logic under test never touches the
+# real file.
+
+
+def test_overlay_added_alias_becomes_a_search_term():
+    catalog = {"rev": ("agency:rev", ("rev",))}
+    overlay = OfficeAliases(added=(OfficeAlias("dor", "agency:rev", "", ""),))
+    terms = search_terms(
+        "jlbc-approps-fy2026-rev", "approps-per-agency", 2026, catalog=catalog, overlay=overlay
+    )
+    assert "dor" in terms
+
+
+def test_overlay_disabled_alias_is_removed_from_terms():
+    catalog = {"rev": ("agency:rev", ("rev", "dor"))}
+    overlay = OfficeAliases(disabled=frozenset({"dor"}))
+    terms = search_terms(
+        "jlbc-approps-fy2026-rev", "approps-per-agency", 2026, catalog=catalog, overlay=overlay
+    )
+    assert "dor" not in terms and "rev" in terms
+
+
+def test_overlay_alias_on_one_split_id_reaches_a_document_under_the_other():
+    # IMPORTANT 1 (review): agency:dor and agency:rev are a real, grep-
+    # verified split family — both "Revenue, Department of"
+    # (samples/entity-catalog.yaml:8325 and :8345) — with distinct doc_id
+    # slugs. The picker offers only agency:dor (app/routes/tuning.py's
+    # _picker_agencies), so an admin saving "dor" as a shorthand is really
+    # saving it against agency:dor. Before the group-expansion fix, a
+    # document whose doc_id carries the OTHER member's slug ("-rev") never
+    # picked that alias up at all — `added.get(canonical_id)` looked up
+    # exactly the id on the overlay entry, with no group widening. This
+    # uses the REAL catalog (no `catalog=` override) so the group lookup
+    # exercises the genuine agency:dor/agency:rev split, not a hand-built one.
+    overlay = OfficeAliases(added=(OfficeAlias("dor", "agency:dor", "", ""),))
+    terms = search_terms(
+        "jlbc-approps-fy2026-rev", "approps-per-agency", 2026, overlay=overlay
+    )
+    assert "dor" in terms
+
+
+def test_overlay_cannot_resurrect_a_blocked_word():
+    # The suppress/ambiguous lists still win: an admin alias spelled "for"
+    # must not become a filter-box term even if the save-side validation is
+    # somehow bypassed (hand-edited JSON on the share).
+    catalog = {"rev": ("agency:rev", ("rev",))}
+    overlay = OfficeAliases(added=(OfficeAlias("for", "agency:rev", "", ""),))
+    terms = search_terms(
+        "jlbc-approps-fy2026-rev", "approps-per-agency", 2026, catalog=catalog, overlay=overlay
+    )
+    assert "for" not in terms

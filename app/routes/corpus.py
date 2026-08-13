@@ -128,6 +128,7 @@ def document_listing() -> list[dict]:
     `title_for`'s own docstring — it names this exact case.
     """
     from store.documents import load_documents, title_for
+    from store.office_aliases import load_office_aliases
 
     from app.search_terms import load_agency_catalog_by_slug, search_terms
 
@@ -138,6 +139,9 @@ def document_listing() -> list[dict]:
     # degraded case also meant 5,330 stderr lines and 1.33 MB for a single
     # page load against the live corpus (2026-08-11 review).
     catalog = load_agency_catalog_by_slug()
+    # The admin's alias overlay (spec E1) hoisted the same way, for the same
+    # reason — `search_terms` would otherwise re-read it once per row.
+    overlay = load_office_aliases()
 
     def _terms_for(doc_id: str, meta: dict) -> list[str]:
         """`search_terms`, skipped (not called) when `doc_type`/`fiscal_year`
@@ -185,7 +189,7 @@ def document_listing() -> list[dict]:
             or (isinstance(fiscal_year, int) and 1000 <= fiscal_year <= 9999)
         ):
             return []
-        return search_terms(doc_id, doc_type, fiscal_year, catalog)
+        return search_terms(doc_id, doc_type, fiscal_year, catalog, overlay)
 
     def _section_of_for(meta: dict) -> str | None:
         """`section_of`, skipped (returns None) when `doc_type`/`source_url`

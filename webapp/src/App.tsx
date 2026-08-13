@@ -6,6 +6,7 @@ import { Admin } from "./pages/Admin";
 import { Ai } from "./pages/Ai";
 import { FiscalNotes } from "./pages/FiscalNotes";
 import { Home } from "./pages/Home";
+import { ReportIssue } from "./pages/ReportIssue";
 import { Search } from "./pages/Search";
 import { Settings } from "./pages/Settings";
 import { Upload } from "./pages/Upload";
@@ -29,6 +30,9 @@ export function AppRoutes() {
         <Route path="/ai" element={<Ai />} />
         <Route path="/upload" element={<Upload />} />
         <Route path="/settings" element={<Settings />} />
+        {/* Open to everyone, same as Settings (spec E3/Task 11) — filing a
+            report never depends on holding the admin seat. */}
+        <Route path="/report" element={<ReportIssue />} />
         {/* Always routable, even for a non-admin: the page itself explains who
             holds admin. A route that 404'd would make a shared link look like
             a broken app rather than a permission the reader doesn't have. */}
