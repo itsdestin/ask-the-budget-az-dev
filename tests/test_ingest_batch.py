@@ -136,6 +136,20 @@ def _make_pdf(path: Path, pages: int) -> None:
         doc.close()
 
 
+def _make_blank_pdf(path: Path, pages: int) -> None:
+    """A real PDF with NO text layer — what a scan looks like to inspection."""
+    import fitz
+
+    path.parent.mkdir(parents=True, exist_ok=True)
+    doc = fitz.open()
+    try:
+        for _ in range(pages):
+            doc.new_page()
+        doc.save(str(path))
+    finally:
+        doc.close()
+
+
 @pytest.fixture()
 def data_dir(tmp_path, monkeypatch):
     monkeypatch.setenv("JLBC_DATA_DIR", str(tmp_path))
@@ -460,6 +474,30 @@ def test_a_document_part_way_through_its_pages_is_not_batched(
     assert partial.doc_id not in _batched(runner)
     assert sorted(_batched(runner)) == sorted(j.doc_id for j in small)
     assert load_job(partial.job_id).state == "live"
+
+
+def test_a_scan_is_not_batched_because_a_batch_cannot_run_it_in_ocr_mode(
+    data_dir, ctx, runner, extractor
+):
+    """`MineruRunner` takes MinerU's `-m` flag at CONSTRUCTION and
+    `extract_batch` builds ONE runner for up to 40 documents, so a batch is
+    homogeneous by rung whether or not anybody planned it.
+
+    A scanned PDF's ladder is `mineru-ocr` alone. Batched, it would be
+    extracted in `auto` mode — the mode that cannot read a scan — come back
+    empty, and have to be re-extracted alone anyway. Keeping it out of the
+    batch is the whole of the grouping rule.
+    """
+    small = _queue(data_dir, 2)
+    scan = _queue_doc(data_dir, pages=2)
+    _make_blank_pdf(data_dir / scan.source_path, 2)
+
+    worker = IngestWorker(ctx=ctx, poll_interval_s=0.01, batch=8)
+    _drain(worker, small + [scan])
+
+    assert scan.doc_id not in _batched(runner)
+    assert sorted(_batched(runner)) == sorted(j.doc_id for j in small)
+    assert load_job(scan.job_id).state == "live"
 
 
 def test_a_document_that_needs_a_different_extractor_is_not_batched(

@@ -287,6 +287,81 @@ def test_progress_is_journalled_during_the_run(job, ctx):
     assert load_job(job.job_id).pct == 100
 
 
+def test_a_fresh_job_extracts_into_a_rung_scoped_directory(job, data_dir):
+    from ingest import worker
+
+    assert worker._extract_dir(job, "mineru") == (
+        data_dir / "extractor-output" / job.doc_id / "mineru"
+    )
+
+
+def test_output_written_before_rungs_existed_is_still_found(job, data_dir):
+    """Thousands of jobs on the share have un-suffixed output. An interrupted
+    overnight book must resume from it, not re-extract from page 1 — but only
+    the extractor that WROTE it may claim it, or a MinerU fallback would be
+    pointed at a directory full of OpenDataLoader pages."""
+    from ingest import worker
+
+    base = data_dir / "extractor-output" / job.doc_id
+    base.mkdir(parents=True)
+    (base / "page-1.json").write_text("{}", encoding="utf-8")
+
+    # baseline-per-agency declares `mineru`, so `mineru` wrote this.
+    assert worker._extract_dir(job, "mineru") == base
+    # A later rung gets its own directory even so.
+    assert worker._extract_dir(job, "mineru-ocr") == base / "mineru-ocr"
+
+
+def test_the_ocr_rung_runs_mineru_in_ocr_mode(data_dir, monkeypatch):
+    """`MineruRunner` takes MinerU's `-m` flag at CONSTRUCTION, and the worker
+    builds the runner itself rather than going through `dispatcher.extract` —
+    so a rung that failed to pass its method through would run byte-identical
+    work to the rung that already came back empty, under a different name."""
+    import fitz
+
+    from ingest import dispatcher, worker
+
+    source = data_dir / "uploads" / "ef" / f"{'ef' * 32}.pdf"
+    source.parent.mkdir(parents=True, exist_ok=True)
+    doc = fitz.open()
+    doc.new_page()
+    doc.save(str(source))
+    doc.close()
+
+    j = new_job(
+        doc_id="agao-afr-fy2024", title="scan", corpus="budget",
+        source_path=str(source.relative_to(data_dir)), source_sha256="ef" * 32,
+        publisher="agao", doc_type="afr", fiscal_year=2024,
+    )
+    save(j)
+
+    built: list[str] = []
+
+    class FakeRunner:
+        def __init__(self, *args, method: str = "auto", **kwargs) -> None:
+            built.append(method)
+
+        def run(self, **kwargs):
+            return []
+
+        def cancel(self) -> None:  # pragma: no cover - never reached here
+            pass
+
+    monkeypatch.setattr(worker, "MineruRunner", FakeRunner)
+    ctx = WorkerContext(store=None, embedder=None, stamper=None)
+
+    worker._extract(
+        j, ctx,
+        extractor=dispatcher.pick_named("mineru-ocr"),
+        method="mineru-ocr",
+    )
+    worker._extract(
+        j, ctx, extractor=dispatcher.pick_named("mineru"), method="mineru"
+    )
+
+    assert built == ["ocr", "auto"]
+
+
 # --- resume -----------------------------------------------------------------
 
 
