@@ -790,6 +790,12 @@ export async function adminCorpus(): Promise<AdminCorpus> {
 export interface AttentionAttempt {
   extractor: string;
   coverage: number | null;
+  /** Fraction of this reading's passages that are bare figures. `null`
+   *  means NOT MEASURED (fewer than 10 judgeable passages) -- never render
+   *  it as 0%, which would claim the best possible reading was taken.
+   *  Optional so fixtures written before this field existed keep
+   *  compiling. */
+  unlabelled?: number | null;
 }
 
 /** A document the extraction ladder could not save — every rung scored
@@ -816,8 +822,22 @@ export interface AttentionDocument {
   attempts: AttentionAttempt[];
 }
 
+/** A document the ladder SAVED by changing extraction method. Not a
+ *  problem — a success with a trace. Listed because a swap re-mints every
+ *  chunk_id and replaces the document's text. */
+export interface SwappedDocument {
+  job_id: string;
+  title: string;
+  /** The rung whose output was written. */
+  kept: string;
+  attempts: AttentionAttempt[];
+}
+
 export async function adminAttention(): Promise<{
   documents: AttentionDocument[];
+  /** Optional so a server that predates this field keeps type-checking;
+   *  the call site defaults it to []. */
+  swapped?: SwappedDocument[];
   /** Set when the server couldn't even read the jobs directory (a share
    *  that's gone away) — distinguishable from an empty `documents` list,
    *  which is the ordinary "nothing needs attention" case. Optional (not
