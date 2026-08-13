@@ -388,3 +388,202 @@ def test_guidance_get_on_a_never_edited_install_has_no_none_fields(admin_client)
         "edited_by": "",
         "edited_at": "",
     }
+
+
+# ---------------------------------------------------------------------------
+# The assistant's shipped instructions, read-only — GET /api/admin/prompt
+# ---------------------------------------------------------------------------
+#
+# WHY this surface exists: the admin writes office guidance (above) blind.
+# They cannot see the ~1,170 lines of instructions the assistant already
+# has, so they duplicate them, contradict them, or spend the 8,192-byte cap
+# restating something already said at length.
+#
+# THE TEST THAT MATTERS MOST here is
+# `test_every_section_lands_in_a_named_group`. The page groups sections
+# under plain-English labels from a hardcoded mapping. A section added to
+# or renamed in harness/system-prompt.md would fall into the catch-all
+# group — the admin would still see it, but under a label that says
+# nothing. That must fail here rather than pass quietly.
+
+
+def _prompt(client: TestClient, corpus: str = "budget"):
+    return client.get(f"/api/admin/prompt?corpus={corpus}")
+
+
+def _headings(body: dict) -> list[str]:
+    return [s["heading"] for g in body["groups"] for s in g["sections"]]
+
+
+def _rendered_headings(corpus: str) -> list[str]:
+    """Every top-level heading the real prompt renders, fence-aware."""
+    from app.routes.tuning import _split_by_level
+    from harness.prompt import build_system_prompt
+
+    return [
+        h
+        for h, _ in _split_by_level(
+            build_system_prompt(corpus=corpus, tier="standard"), 2
+        )
+    ]
+
+
+@pytest.mark.parametrize("corpus", ["budget", "fiscal_notes"])
+def test_every_section_lands_in_a_named_group(admin_client, corpus):
+    """THE guard for this feature.
+
+    Two ways the page can quietly stop being true: a section the mapping
+    has never heard of (it lands in the catch-all and the admin reads it
+    under a meaningless label), or a section that never reaches the page
+    at all. Both are checked, with the admin's own guidance present so
+    that section is covered too.
+    """
+    from app.routes.tuning import OTHER_GROUP
+
+    admin_client.put("/api/admin/guidance", json={"text": "Prefer the AFR."})
+    body = _prompt(admin_client, corpus).json()
+
+    assert OTHER_GROUP not in [g["label"] for g in body["groups"]], [
+        s
+        for g in body["groups"]
+        if g["label"] == OTHER_GROUP
+        for s in [x["heading"] for x in g["sections"]]
+    ]
+    # Nothing dropped either: the page shows the WHOLE thing.
+    assert sorted(_headings(body)) == sorted(_rendered_headings(corpus))
+
+
+def test_an_unmapped_section_is_still_shown_rather_than_swallowed(admin_client):
+    # Runtime posture, deliberately different from the test above: an
+    # unknown heading must never VANISH from a read-only page an admin is
+    # using to check what the assistant reads. It goes in the catch-all,
+    # and the test above is what makes that state loud in CI.
+    from app.routes import tuning
+
+    body = tuning._grouped([("Brand new section", "body text")])
+    assert [g["label"] for g in body] == [tuning.OTHER_GROUP]
+    assert body[0]["sections"][0]["heading"] == "Brand new section"
+
+
+def test_groups_are_plain_english_and_ordered(admin_client):
+    labels = [g["label"] for g in _prompt(admin_client).json()["groups"]]
+    # Order is fixed by the mapping, not by render order — an admin looking
+    # for the subject matter should not have to know it comes ninth.
+    assert labels == [
+        "What the assistant is, and how it decides",
+        "How it writes an answer",
+        "What it can look things up in",
+        "Arizona budget background",
+    ]
+
+
+def test_the_middle_section_follows_the_chosen_documents(admin_client):
+    budget = _headings(_prompt(admin_client, "budget").json())
+    notes = _headings(_prompt(admin_client, "fiscal_notes").json())
+    assert "Reading budget documents" in budget
+    assert "Reading budget documents" not in notes
+    assert "Reading fiscal notes" in notes
+
+
+def test_subsections_are_carried_because_that_is_where_the_detail_lives(admin_client):
+    body = _prompt(admin_client).json()
+    sections = {s["heading"]: s for g in body["groups"] for s in g["sections"]}
+
+    primer = sections["Domain primer — Arizona state budget"]
+    subs = [s["heading"] for s in primer["subsections"]]
+    # The tunable detail — an admin about to write "always prefer the AFR"
+    # needs to see that the instructions already rank sources for that.
+    assert "6. Why numbers don't reconcile across documents" in subs
+    assert "1. Fiscal-year convention" in subs
+    assert all(s["text"].strip() for s in primer["subsections"])
+
+    reading = sections["Reading budget documents"]
+    assert "Accuracy hierarchy for actuals" in [
+        s["heading"] for s in reading["subsections"]
+    ]
+
+
+def test_the_admins_own_guidance_is_shown_and_marked(admin_client):
+    before = _prompt(admin_client).json()
+    assert before["office_guidance_present"] is False
+    assert not any(
+        s["is_office_guidance"] for g in before["groups"] for s in g["sections"]
+    )
+
+    admin_client.put("/api/admin/guidance", json={"text": "Prefer the AFR."})
+    after = _prompt(admin_client).json()
+
+    assert after["office_guidance_present"] is True
+    mine = [s for g in after["groups"] for s in g["sections"] if s["is_office_guidance"]]
+    assert len(mine) == 1, _headings(after)
+    # Pins the heading this module hardcodes against the one
+    # harness/office_guidance.py actually renders — a preamble edit there
+    # would otherwise leave the admin's own block unmarked in the list.
+    assert mine[0]["heading"] == "Office guidance from the administrator"
+    assert "Prefer the AFR." in mine[0]["text"]
+    assert [g["label"] for g in after["groups"]][-1] == "Your office's own guidance"
+
+
+def test_sizes_are_the_real_ones(admin_client):
+    from harness.prompt import build_system_prompt
+
+    rendered = build_system_prompt(corpus="budget", tier="standard")
+    body = _prompt(admin_client).json()
+    # The admin's 8,192-byte cap only reads as "a small addition to
+    # something much larger" if this number is the real one.
+    assert body["total_chars"] == len(rendered)
+    assert body["total_lines"] == len(rendered.splitlines())
+    # Bytes too: the cap this number is shown beside is a byte cap, and
+    # the prompt is full of em dashes at 3 bytes each.
+    assert body["total_bytes"] == len(rendered.encode("utf-8"))
+    assert body["total_bytes"] > body["total_chars"]
+
+
+def test_an_unknown_document_set_is_a_plain_sentence(admin_client):
+    r = admin_client.get("/api/admin/prompt?corpus=nonsense")
+    assert r.status_code == 400
+    detail = r.json()["detail"]
+    assert "nonsense" in detail
+    assert detail.endswith(".")
+
+
+def test_the_default_is_budget_documents(admin_client):
+    assert admin_client.get("/api/admin/prompt").json()["corpus"] == "budget"
+
+
+def test_the_viewer_is_read_only(admin_client):
+    # No way to edit the shipped instructions from this surface, ever. The
+    # GET is registered, so a PUT handler added here later would flip these
+    # from 405 to 200 and fail.
+    assert admin_client.put("/api/admin/prompt", json={}).status_code == 405
+    assert admin_client.post("/api/admin/prompt", json={}).status_code == 405
+
+
+def test_prompt_view_is_admin_only(analyst_client):
+    assert analyst_client.get("/api/admin/prompt").status_code == 403
+
+
+def test_reading_the_view_does_not_disturb_the_prompt(admin_client):
+    # Spec E2's headline property: with no guidance file the rendered
+    # prompt is byte-identical to before that feature existed. This page
+    # only READS, so opening it must not perturb caches or the file.
+    from harness.prompt import build_system_prompt
+
+    before = build_system_prompt(corpus="budget", tier="standard")
+    _prompt(admin_client)
+    _prompt(admin_client, "fiscal_notes")
+    assert build_system_prompt(corpus="budget", tier="standard") == before
+
+
+# --- the splitter itself ----------------------------------------------------
+
+
+def test_split_ignores_headings_inside_a_code_fence():
+    # The template documents its own syntax in fenced examples, and a
+    # fenced "## like this" must stay TEXT — otherwise the page invents a
+    # section the assistant never reads as one.
+    from app.routes.tuning import _split_by_level
+
+    text = "## Real\nbody\n```\n## Not a heading\n```\nmore\n## Second\ntail\n"
+    assert [h for h, _ in _split_by_level(text, 2)] == ["Real", "Second"]
+    assert "## Not a heading" in dict(_split_by_level(text, 2))["Real"]

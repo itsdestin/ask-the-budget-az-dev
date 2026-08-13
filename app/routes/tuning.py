@@ -1,5 +1,6 @@
-"""Admin tuning routes: the office alias overlay (spec E1) and the office
-guidance block (spec E2).
+"""Admin tuning routes: the office alias overlay (spec E1), the office
+guidance block (spec E2) and the read-only view of the instructions that
+guidance is written alongside.
 
 Two surfaces, one module, because both are the same thing from the admin's
 side: words the office puts into the machine. Aliases go into RETRIEVAL
@@ -7,7 +8,9 @@ vocabulary (GET/PUT /api/admin/aliases, below); guidance goes into the AI
 PROMPT, one designated slot with a preamble that keeps the shipped citation
 and refusal rules senior to it (GET/PUT /api/admin/guidance, at the bottom
 of this file — harness/office_guidance.py owns the file, the cap and the
-undo).
+undo). A third, strictly read-only route (GET /api/admin/prompt) shows
+what the shipped prompt already says on the SUBJECT matter, so guidance
+is not written blind.
 
 A separate module rather than more of app/routes/admin.py — that file is
 926 lines of provider/settings machinery, and these routes have a
@@ -27,6 +30,7 @@ reaches `save_office_aliases` without passing every check below.
 """
 from __future__ import annotations
 
+import sys
 from datetime import datetime, timezone
 
 from fastapi import APIRouter, Depends, HTTPException
@@ -49,6 +53,7 @@ from harness.office_guidance import (
     reset_guidance_cache,
     save_office_guidance,
 )
+from harness.prompt import build_system_prompt
 from harness.settings import Settings
 
 # `_index` is the resolver's own matching tables for the shipped catalog —
@@ -403,3 +408,227 @@ def put_guidance(
     # hoped it wrote.
     reset_guidance_cache()
     return _guidance_payload()
+
+
+# ---------------------------------------------------------------------------
+# The assistant's shipped instructions, read-only — GET /api/admin/prompt
+# ---------------------------------------------------------------------------
+#
+# WHY THIS EXISTS: without it the admin writes the guidance block above
+# blind. The shipped instructions run to ~1,170 lines they have never
+# seen, so they contradict them, repeat them, or spend the 8,192-byte cap
+# restating something already said at length.
+#
+# READ-ONLY, ALWAYS. There is no PUT here and there must never be one —
+# harness/system-prompt.md is wired to citation discipline and refusal
+# thresholds the eval suite measures, and a runtime edit box over it would
+# be an unreviewable change to every answer the office gets.
+
+# The heading harness/office_guidance.py's fixed preamble renders. Copied
+# rather than imported because it sits mid-string inside that module's
+# `_PREAMBLE`, and pinned against the real render by
+# test_the_admins_own_guidance_is_shown_and_marked — so an edit there fails
+# a test here instead of quietly leaving the admin's own block unmarked.
+GUIDANCE_HEADING = "Office guidance from the administrator"
+
+# Every top-level section, sorted into plain-English groups for the reader.
+#
+# WHY GROUPS AT ALL: twelve headings in one flat run is a list nobody
+# scans. An admin opens this page with a question — "does it already say
+# something about which document wins for actuals?" — and the groups are
+# what let them go straight to the quarter of the instructions that could
+# answer it.
+#
+# WHY THE LABELS ARE NOT THE HEADINGS: the headings are written for the
+# model ("Output hygiene", "Route the question first"). The labels are
+# written for a budget analyst who has never read a line of this.
+#
+# Hardcoded, not inferred. A section added to or renamed in
+# harness/system-prompt.md falls into OTHER_GROUP below, which is loud in
+# tests (test_every_section_lands_in_a_named_group) and still visible to
+# the admin at runtime — the page must never silently show less than the
+# assistant actually reads.
+_GROUPS: tuple[tuple[str, tuple[str, ...]], ...] = (
+    (
+        "What the assistant is, and how it decides",
+        (
+            "Your role",
+            "How much effort this conversation gets",
+            "Route the question first",
+        ),
+    ),
+    (
+        "How it writes an answer",
+        (
+            "Output hygiene",
+            "Refusal — three cases",
+            "Conversation flow",
+            "What goes into your final answer",
+            "Quick reference",
+        ),
+    ),
+    ("What it can look things up in", ("Your tools",)),
+    (
+        "Arizona budget background",
+        (
+            "What this corpus contains",
+            "Reading budget documents",
+            "Reading fiscal notes",
+            "Domain primer — Arizona state budget",
+        ),
+    ),
+    # Last on purpose: the admin's own words read best as the thing added
+    # at the end of everything above, which is also where they land.
+    ("Your office's own guidance", (GUIDANCE_HEADING,)),
+)
+
+# Where a section nobody has classified goes. Shown, never dropped — see
+# the note on `_GROUPS`.
+OTHER_GROUP = "Anything else"
+
+# Which of the two effort levels is rendered. The two differ by 34
+# characters out of 58,032 (measured 2026-08-12), so a switch between them
+# would be a control that changes almost nothing on screen.
+_VIEW_TIER = "standard"
+
+# Which corpora can be asked for. Wire names only — the same two the UI's
+# document switch offers.
+_VIEW_CORPORA = ("budget", "fiscal_notes")
+
+
+def _split_by_level(text: str, level: int) -> list[tuple[str, str]]:
+    """Markdown split into (heading, body) at one `#` depth.
+
+    Fence-aware for the same reason harness/prompt.py's `_select_blocks`
+    is: the template documents its own syntax in fenced examples, and a
+    fenced "## like this" is TEXT. Treating it as a heading would invent a
+    section on this page that the assistant never reads as one.
+
+    Deeper headings stay inside the body — `###` splitting is a second
+    call on that body, not a nested parse here.
+    """
+    marker = "#" * level + " "
+    out: list[tuple[str, str]] = []
+    heading: str | None = None
+    body: list[str] = []
+    in_fence = False
+    for line in text.splitlines():
+        if line.strip().startswith("```"):
+            in_fence = not in_fence
+        elif not in_fence and line.startswith(marker):
+            if heading is not None:
+                out.append((heading, "\n".join(body).strip()))
+            heading, body = line[len(marker):].strip(), []
+            continue
+        if heading is not None:
+            body.append(line)
+    if heading is not None:
+        out.append((heading, "\n".join(body).strip()))
+    return out
+
+
+def _corpus_map_for_view(corpus: str) -> str | None:
+    """The same inventory table a real conversation's prompt gets.
+
+    Built by the same `build_corpus_map(corpus)` call that
+    app/routes/conversations.py's `_corpus_map_snapshot` makes, with the
+    same defaults, so this page cannot show an inventory the assistant
+    never saw. Degrades to None (the prompt renders its own fallback
+    sentence) on ANY failure — an unreadable sidecar must not turn a
+    read-only admin page into an error.
+
+    It reads `documents.json`; no LanceDB, no models.
+    """
+    try:
+        from harness.corpus_map import build_corpus_map
+
+        return build_corpus_map(corpus)
+    except Exception as err:  # noqa: BLE001 — see the docstring
+        print(f"tuning: instructions view has no inventory — {err}", file=sys.stderr)
+        return None
+
+
+def _section_payload(heading: str, body: str) -> dict:
+    """One top-level section, with its `###` subsections split out.
+
+    `text` is the prose directly under the `##`, before the first `###`;
+    `chars` counts the WHOLE section including subsections, so a size shown
+    beside a heading is the size of everything under it.
+    """
+    subsections = _split_by_level(body, 3)
+    intro = body if not subsections else body[: body.index("### ")].strip()
+    return {
+        "heading": heading,
+        "text": intro,
+        "chars": len(body),
+        "is_office_guidance": heading == GUIDANCE_HEADING,
+        "subsections": [
+            {"heading": h, "text": t, "chars": len(t)} for h, t in subsections
+        ],
+    }
+
+
+def _grouped(sections: list[tuple[str, str]]) -> list[dict]:
+    """Sort rendered sections into `_GROUPS`, dropping nothing.
+
+    Group ORDER is the mapping's, not the prompt's: an admin hunting for
+    the budget background should not have to know it renders ninth.
+    Section order WITHIN a group stays the render's, so the admin's own
+    block sits where the assistant actually reads it. Empty groups are
+    omitted — "Reading fiscal notes" does not exist in a budget render.
+    """
+    by_heading = {heading: body for heading, body in sections}
+    placed: set[str] = set()
+    out: list[dict] = []
+    for label, headings in _GROUPS:
+        rows = [
+            _section_payload(h, by_heading[h]) for h in headings if h in by_heading
+        ]
+        placed.update(h for h in headings if h in by_heading)
+        if rows:
+            out.append({"label": label, "sections": rows})
+    leftover = [
+        _section_payload(h, b) for h, b in sections if h not in placed
+    ]
+    if leftover:
+        out.append({"label": OTHER_GROUP, "sections": leftover})
+    return out
+
+
+@router.get("/api/admin/prompt")
+def get_prompt(
+    corpus: str = "budget", _settings: Settings = Depends(require_admin)
+) -> dict:
+    """Everything the assistant is told, for reading only.
+
+    Split and grouped server-side rather than in the browser: the split is
+    a rule about markdown structure with a code-fence exception, and the
+    grouping is a curated mapping with a drift test. Both are worth Python
+    tests rather than a regex inside a React component.
+    """
+    if corpus not in _VIEW_CORPORA:
+        raise _bad_request(
+            f"There's no set of documents called '{corpus}'. Choose budget "
+            "documents or fiscal notes."
+        )
+
+    prompt = build_system_prompt(
+        corpus=corpus, tier=_VIEW_TIER, corpus_map=_corpus_map_for_view(corpus)
+    )
+    groups = _grouped(_split_by_level(prompt, 2))
+    return {
+        "corpus": corpus,
+        "groups": groups,
+        # The WHOLE thing. The admin's 8,192-byte allowance only reads as
+        # "a small addition to something much larger" against a real total.
+        "total_chars": len(prompt),
+        "total_lines": len(prompt.splitlines()),
+        # Bytes as well as characters, because the guidance cap the
+        # admin is being compared against is a BYTE cap — and this text
+        # is full of em dashes, which cost 3 bytes each. A character
+        # count set beside "8,192 bytes" would be comparing two units.
+        "total_bytes": len(prompt.encode("utf-8")),
+        "office_guidance_present": any(
+            s["is_office_guidance"] for g in groups for s in g["sections"]
+        ),
+    }
