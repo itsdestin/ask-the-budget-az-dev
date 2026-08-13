@@ -8,7 +8,7 @@ from __future__ import annotations
 
 from docx.document import Document as DocumentT
 
-from memo import style
+from memo import markdown, style
 
 __all__ = ["render"]
 
@@ -38,4 +38,5 @@ def render(
         sender=sender,
         subject=subject,
     )
+    markdown.render_body(doc, body_markdown)
     return doc

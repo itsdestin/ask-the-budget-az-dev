@@ -216,3 +216,86 @@ def test_the_date_defaults_to_today_in_long_form():
 
     doc = memo.render("Body.", subject="S", sender="A")
     assert doc.tables[0].rows[0].cells[1].text == today_long()
+
+
+def _body_paragraphs(doc):
+    """Paragraphs after the chrome. The masthead is 4 paragraphs, then the
+    rule, then the memo block (a table, which does not appear here).
+
+    VERIFIED against what Tasks 1-2 actually emit rather than taken from
+    the plan on trust: `render()` with an empty body produces exactly five
+    paragraphs — Title, subtitle, two address lines, rule — and the memo
+    block contributes none, because `Document.paragraphs` does not descend
+    into table cells. So the body starts at index 5.
+    """
+    return doc.paragraphs[5:]
+
+
+def test_a_heading_becomes_a_bold_header_styled_paragraph():
+    doc = memo.render("## Policy Issues\n\nText.", subject="S", sender="A")
+    heading = [p for p in _body_paragraphs(doc) if p.text == "Policy Issues"][0]
+    assert heading.style.name == "Header"
+    assert heading.runs[0].bold is True
+
+
+def test_bold_is_never_put_on_the_header_style_itself():
+    """The memo block's labels share this style and must stay unbold."""
+    doc = memo.render("## Policy Issues", subject="S", sender="A")
+    assert doc.styles["Header"].font.bold is not True
+
+
+def test_a_deep_heading_becomes_a_bold_run_in_label():
+    """`###` and deeper map to the memo's third level, which is a bold
+    run-in label (`BUDS Table: ...`), not another heading tier."""
+    doc = memo.render("### BUDS Table", subject="S", sender="A")
+    label = [p for p in _body_paragraphs(doc) if p.text == "BUDS Table"][0]
+    assert label.style.name == "Normal"
+    assert label.runs[0].bold is True
+
+
+def test_a_bullet_is_indented_to_the_house_measure():
+    doc = memo.render("- One item", subject="S", sender="A")
+    bullet = [p for p in _body_paragraphs(doc) if p.text == "One item"][0]
+    assert bullet.style.name == "List Bullet"
+    assert bullet.paragraph_format.left_indent == style.BULLET_INDENT
+
+
+def test_bold_markers_become_bold_runs():
+    doc = memo.render("The **budget includes** $5.", subject="S", sender="A")
+    paragraph = [p for p in _body_paragraphs(doc) if p.text.startswith("The ")][0]
+    assert [(r.text, r.bold) for r in paragraph.runs] == [
+        ("The ", None),
+        ("budget includes", True),
+        (" $5.", None),
+    ]
+
+
+def test_a_pipe_table_becomes_a_real_table_after_the_memo_block():
+    doc = memo.render(
+        "| Agency | Amount |\n|---|---|\n| ADC | $5 |", subject="S", sender="A"
+    )
+    assert len(doc.tables) == 2  # memo block + this one
+    body_table = doc.tables[1]
+    assert body_table.style.name == "Table Grid"
+    assert [c.text for c in body_table.rows[0].cells] == ["Agency", "Amount"]
+    assert body_table.rows[0].cells[0].paragraphs[0].runs[0].bold is True
+
+
+def test_a_bullet_containing_a_pipe_stays_a_bullet():
+    """Regression, carried over from harness/documents.py: classifying
+    table rows before bullets turned `- Agency | Amount` into a malformed
+    table whose first cell read `- Agency`."""
+    doc = memo.render("- Agency | Amount\n|---|---|", subject="S", sender="A")
+    assert len(doc.tables) == 1  # the memo block only
+    bullet = [p for p in _body_paragraphs(doc) if "Agency" in p.text][0]
+    assert bullet.style.name == "List Bullet"
+
+
+def test_unrecognized_markup_survives_verbatim():
+    """No silent drops. An analyst who receives a memo with a section
+    quietly missing has no way to know it happened; a blockquote showing
+    its `>` is a far better failure."""
+    doc = memo.render("> quoted line\n\n1. numbered", subject="S", sender="A")
+    texts = [p.text for p in _body_paragraphs(doc)]
+    assert "> quoted line" in texts
+    assert "1. numbered" in texts
