@@ -305,3 +305,30 @@ def test_get_lists_every_agency_for_the_picker(admin_client):
 def test_non_admin_gets_403(analyst_client):
     assert analyst_client.get("/api/admin/aliases").status_code == 403
     assert _put(analyst_client, [{"alias": "tpt", "canonical_id": REV}]).status_code == 403
+
+
+# ---------------------------------------------------------------------------
+# Office guidance (spec E2) — GET/PUT /api/admin/guidance
+# ---------------------------------------------------------------------------
+
+
+def test_guidance_round_trip_and_meta(admin_client):
+    r = admin_client.put("/api/admin/guidance", json={"text": "Prefer the AFR."})
+    assert r.status_code == 200
+    got = admin_client.get("/api/admin/guidance").json()
+    assert got["text"] == "Prefer the AFR."
+    assert got["edited_by"] and got["edited_at"]
+    assert got["max_bytes"] == 8192
+
+
+def test_guidance_over_cap_is_a_400_with_the_reason(admin_client):
+    r = admin_client.put("/api/admin/guidance", json={"text": "x" * 9000})
+    assert r.status_code == 400
+    # The save's OWN sentence (harness/office_guidance.py), surfaced as-is —
+    # "byte limit", not "limited". Asserting the substring that's actually
+    # shipped, not rewriting the message to fit a different word.
+    assert "byte limit" in r.json()["detail"]
+
+
+def test_guidance_routes_are_admin_only(analyst_client):
+    assert analyst_client.get("/api/admin/guidance").status_code == 403
