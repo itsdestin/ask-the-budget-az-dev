@@ -41,10 +41,16 @@ def test_the_scan_reads_BOTH_chunk_tables():
 
 
 def test_the_scan_projects_only_two_columns():
-    """It must not drag vectors out of the store."""
+    """It must not drag vectors out of the store, on EVERY table scanned --
+    not just the first. This project has twice been burned by the
+    fiscal-notes table being treated differently from the budget table, so
+    a projection regression scoped to only the second table is the exact
+    shape that must not slip through."""
     store = _FakeStore({})
     scan(store)
-    assert store.asked[0][1] == ("doc_id", "text")
+    assert len(store.asked) == 2
+    for _, columns in store.asked:
+        assert columns == ("doc_id", "text")
 
 
 def test_a_document_over_the_ceiling_is_reported():
@@ -74,3 +80,24 @@ def test_the_near_miss_band_is_reported_separately():
     store = _FakeStore({"budget_chunks": _rows("close", bare=2, clean=18)})
     result = scan(store)
     assert result["near_miss"] == [("close", 0.1)]
+
+
+def test_a_document_scoring_exactly_the_ceiling_is_not_over_it():
+    """The ceiling is EXCLUSIVE -- a document fails by scoring ABOVE
+    MAX_UNLABELLED, not at or above it. A document landing exactly on 0.20
+    belongs in the near-miss band, not over_ceiling."""
+    store = _FakeStore({"budget_chunks": _rows("on_ceiling", bare=4, clean=16)})
+    result = scan(store)
+    assert result["scores"]["on_ceiling"] == 0.20
+    assert result["over_ceiling"] == []
+    assert result["near_miss"] == [("on_ceiling", 0.20)]
+
+
+def test_the_near_miss_band_is_inclusive_at_the_floor():
+    """NEAR_MISS_FLOOR is the bottom of an inclusive band -- a document
+    landing exactly on it still counts as a near-miss, not below the band
+    and unreported."""
+    store = _FakeStore({"budget_chunks": _rows("on_floor", bare=1, clean=19)})
+    result = scan(store)
+    assert result["scores"]["on_floor"] == 0.05
+    assert result["near_miss"] == [("on_floor", 0.05)]

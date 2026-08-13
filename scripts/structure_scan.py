@@ -28,9 +28,14 @@ from collections import defaultdict
 from ingest.structure import MAX_UNLABELLED, unlabelled_fraction
 
 # The bottom of the near-miss band. Not a threshold anything acts on --
-# a reporting boundary, chosen to sit just under the highest healthy
-# document measured (7.14%) so the band shows anything that is unusual
-# without listing every table-dense budget document.
+# a reporting boundary. 7.14% is the figure from the ORIGINAL calibration
+# sweep in ingest/structure.py, taken at LETTER_RATIO=0.15 (the value first
+# proposed there, before it was tightened to the shipped 0.10). At 0.10 that
+# same document scores 0.00%, which is why it does not reappear at 7.14% in
+# this script's own docstring above -- the two are different runs at
+# different ratios, not a contradiction. 0.05 was picked to sit under that
+# 0.15-ratio figure with margin to spare, so it stays a safe floor across
+# both ratios rather than one recalibrated every time LETTER_RATIO moves.
 NEAR_MISS_FLOOR = 0.05
 
 TABLES = ("budget_chunks", "fiscal_note_chunks")
