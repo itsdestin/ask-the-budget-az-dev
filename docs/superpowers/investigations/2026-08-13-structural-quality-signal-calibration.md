@@ -190,6 +190,75 @@ first: whether the probe's cost is acceptable for office uploads, and that
 ground truth is pinned to — so it applies to new uploads and deliberate
 re-processing, never as a silent sweep.
 
+---
+
+## 🔴 The forced-fallback run — and the finding that changes the design
+
+Run 2026-08-13 at Destin's request, in an isolated worktree with
+`COVERAGE_FLOOR` temporarily raised to 0.52 (uncommitted; the shipped value
+stayed 0.10) so the ladder would fall past OpenDataLoader's 49.0%. **The first
+real rung-to-rung fallback ever executed** — until this, only unit tests
+covered it.
+
+**The machinery works.** All three rungs ran, each was journalled, the document
+was held out with the correct sentence, and — the property that matters most —
+**the corpus was not damaged**: `documents.json` still records the original
+OpenDataLoader result and the 388 live chunks were left untouched. A failed
+re-processing does not cost you the copy you already had.
+
+| rung | coverage | chunks |
+|---|---|---|
+| opendataloader | **49.03%** | 388 |
+| mineru | 44.77% | 450 |
+| mineru-ocr | 43.68% | 450 |
+
+### 🔴 Coverage ranks the structurally WORSE extractor higher
+
+Comparing the two rungs' raw extraction output, **with HTML tags stripped** —
+which is load-bearing, because MinerU emits `<table><td>` markup whose tag
+letters otherwise inflate the letter ratio and produce a false 0%:
+
+| rung | real text (tag-stripped) | pages that are bare figures |
+|---|---|---|
+| opendataloader | 344,872 chars | **53/186 (28%)** |
+| mineru | 353,141 chars | **22/162 (13%)** |
+
+**MinerU more than halves the bare-figure rate, and coverage prefers
+OpenDataLoader anyway** (49.0% vs 44.8%). Since T5's "keep whichever result
+scored highest" ranks by coverage, the ladder would systematically choose the
+structurally worse output for this class of failure — even with the floor set
+so that both rungs fail.
+
+This is the strongest evidence yet that the structural signal belongs in the
+ranking, not merely in a gate: **volume and structure disagree here, and volume
+is wrong.**
+
+### Two further measurements worth keeping
+
+- **`mineru-ocr` is nearly identical to `mineru` on a document that has a text
+  layer** — 353,002 vs 353,141 characters, the same 13% bare. The third rung
+  cost a full extraction to change essentially nothing. That is the expected
+  result (OCR earns its cost on a scan, and this is not one), but it means the
+  ladder's last rung is close to free of value whenever `has_text_layer` is
+  true, and the ladder currently runs it anyway.
+- **MinerU is an improvement, not a fix.** 13% of its pages are still bare.
+  Re-processing this document through MinerU would roughly halve the problem,
+  not eliminate it.
+
+### A sampling error worth recording
+
+The projection that sent this run — "MinerU should score ~75%" — came from
+extracting **5 pages** and comparing character counts: MinerU produced 1.53×
+OpenDataLoader's characters. Corpus-wide the true ratio is **0.91×**.
+
+The five pages were chosen *because* they were the pathological table section,
+which is exactly where MinerU's markup inflates and ODL collapses. Almost all
+of that apparent 1.53× advantage was HTML tags. **A sample chosen for being
+interesting is not a sample you can extrapolate from**, and the tag-stripped
+totals (344,872 vs 353,141 — a 2.4% difference) show the two extractors
+recover nearly the same amount of real text; what differs is how much of it
+keeps its structure.
+
 ## Reproducing
 
 Script: `scratchpad/structure_calibration.py` (not committed — a one-shot
