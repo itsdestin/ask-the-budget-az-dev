@@ -258,6 +258,12 @@ def test_shipped_omits_aliases_that_a_disable_cannot_reach(admin_client):
 
 def test_shipped_omits_derived_slugs(admin_client):
     shipped = {row["alias"] for row in admin_client.get("/api/admin/aliases").json()["shipped"]}
+    # PIN THE CANDIDATE: `rev` must be a string the slug exclusion actually
+    # REMOVED, not one that was never there. Without this the assertion below
+    # passes just as happily if the slug exclusion is deleted and `rev` stops
+    # being alias vocabulary at all — a vacuous guard. (Measured: 142 of the
+    # 156 aliases the resolver knows are derived slugs.)
+    assert "rev" in _index(None).alias_to_ids
     assert "rev" not in shipped  # a JLBC URL slug, not a reviewed shorthand
     assert "adc" not in shipped
     assert "doc" in shipped  # a reviewed acronym for the same agency
@@ -292,9 +298,39 @@ def test_disabling_something_that_is_not_offered_is_rejected(admin_client):
 def test_get_lists_every_agency_for_the_picker(admin_client):
     agencies = admin_client.get("/api/admin/aliases").json()["agencies"]
     ids = {a["canonical_id"] for a in agencies}
-    assert REV in ids and ADE in ids
-    assert len(agencies) > 150
+    assert ADE in ids
     assert all(a["name"] for a in agencies)
+    # EVERY real agency is still offered — one row per logical group, which
+    # is fewer rows than the catalog has ids (see the dedupe test below) and
+    # must never be fewer than the number of real agencies.
+    index = _index(None)
+    groups = {index.logical_group[cid] for cid in load_agency_catalog()}
+    assert len(agencies) == len(groups)
+    assert len(agencies) > 140
+
+
+def test_the_picker_never_offers_two_rows_for_one_agency(admin_client):
+    # THE DEFECT THIS GUARDS: the picker used to be `id_to_name()` verbatim,
+    # so an admin choosing an agency saw "Revenue, Department of" twice with
+    # nothing to tell the two apart — the catalog records that agency (and 6
+    # other names, 15 ids in all) more than once. Picking the wrong half
+    # cannot be seen, only measured later in worse answers.
+    agencies = admin_client.get("/api/admin/aliases").json()["agencies"]
+    names = [a["name"] for a in agencies]
+    duplicates = sorted({n for n in names if names.count(n) > 1})
+    assert not duplicates, duplicates
+    index = _index(None)
+    groups = [index.logical_group.get(a["canonical_id"]) for a in agencies]
+    assert len(groups) == len(set(groups))
+    # The id offered is the catalog-order-first member of the group, which
+    # is the one EntityStamper's first-wins name index stamps onto chunks
+    # carrying that printed name.
+    ids = {a["canonical_id"] for a in agencies}
+    assert "agency:dor" in ids and "agency:rev" not in ids
+    assert "agency:uniasu" in ids and "agency:uniasum" not in ids
+    # The dropped id is still a legal thing to POST — the picker narrows what
+    # is OFFERED, it does not narrow what the route accepts.
+    assert _put(admin_client, [{"alias": "tpt", "canonical_id": REV}]).status_code == 200
 
 
 # ---------------------------------------------------------------------------

@@ -466,7 +466,20 @@ def parse_query_agencies(
             # `disabled` applies to the admin's own additions too: switching a
             # string off must mean off, whichever list it came from.
             if key and key not in disabled:
-                overlay_to_ids.setdefault(key, set()).add(entry.canonical_id)
+                # Fix: expand to the whole logical group, exactly as tiers 2
+                # and 3 do. WHY: the catalog records some agencies twice, and
+                # the duplicate ids SPLIT the stamped chunks (see
+                # `_expand_group`). An overlay alias resolving to the single id
+                # the admin picked in the dropdown would cover half that
+                # agency's documents and actively PENALISE the other half —
+                # retrieval/agency_boost.py subtracts its penalty from every
+                # chunk not carrying a preferred id — so the office's own
+                # shorthand would make those documents harder to find.
+                # This widens the id set ONLY; the confidence below stays the
+                # hardcoded WEAK literal, so it is not a safety change.
+                overlay_to_ids.setdefault(key, set()).update(
+                    _expand_group(index, {entry.canonical_id})
+                )
         overlay_longest_first = sorted(overlay_to_ids, key=len, reverse=True)
         for alias in _scan_phrases(normalized, overlay_longest_first):
             # Sorted so two agencies sharing one overlay alias resolve in a

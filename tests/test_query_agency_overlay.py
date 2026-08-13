@@ -115,7 +115,10 @@ def test_overlay_match_suppresses_fuzzy_tier():
     matches = parse_query_agencies(
         "dorx water resorces department", office_aliases=overlay
     )
-    assert [m.value for m in matches] == ["agency:rev"]
+    # A set, and BOTH Revenue ids: the overlay now expands its match to the
+    # whole logical group, and `_expand_group` returns a set, so the order
+    # inside a duplicate group is not a promise this module makes.
+    assert {m.value for m in matches} == {"agency:dor", "agency:rev"}
 
 
 def test_none_means_load_from_disk_and_missing_file_changes_nothing(
@@ -148,9 +151,12 @@ def test_an_overlay_on_disk_is_picked_up_without_an_explicit_argument(tmp_path):
         path=tmp_path / "office-aliases.json",
     )
     matches = parse_query_agencies("revenuedept baseline")
-    assert [(m.value, m.confidence) for m in matches] == [
-        ("agency:rev", Confidence.WEAK)
-    ]
+    # Both halves of the Revenue duplicate pair, WEAK — see
+    # test_overlay_alias_covers_the_whole_split_id_family for why.
+    assert {(m.value, m.confidence) for m in matches} == {
+        ("agency:dor", Confidence.WEAK),
+        ("agency:rev", Confidence.WEAK),
+    }
 
 
 def test_overlay_alias_with_two_agencies_yields_both_sorted():
@@ -166,6 +172,42 @@ def test_overlay_alias_with_two_agencies_yields_both_sorted():
         ("agency:acc", Confidence.WEAK),
         ("agency:ema", Confidence.WEAK),
     ]
+
+
+@pytest.mark.parametrize(
+    "picked, family",
+    [
+        # The catalog records ONE Arizona State University twice — this is
+        # `_expand_group`'s own worked example: agency:uniasu carries the
+        # FY2021+ documents, agency:uniasum the FY2015-2020 ones.
+        ("agency:uniasu", {"agency:uniasu", "agency:uniasum"}),
+        # Child Safety is five catalog entries for one real agency.
+        (
+            "agency:doacfs",
+            {
+                "agency:cs",
+                "agency:dcs",
+                "agency:doa-cfs",
+                "agency:doa-csf",
+                "agency:doacfs",
+            },
+        ),
+    ],
+)
+def test_overlay_alias_covers_the_whole_split_id_family(picked, family):
+    # THE DEFECT THIS GUARDS: the overlay tier used to add the admin's one
+    # chosen id and stop, while tiers 1-3 expand to every id naming the same
+    # real agency. An overlay alias pointing at half a split family boosts
+    # half the corpus and PENALISES the other half (retrieval/agency_boost.py
+    # subtracts MATCH_PENALTY from every chunk without a preferred id), so
+    # the admin's own shorthand made those documents harder to find, not
+    # easier — silently.
+    overlay = _overlay(("zqfam", picked))
+    matches = parse_query_agencies("zqfam baseline", office_aliases=overlay)
+    assert {m.value for m in matches} == family
+    # Widening must NOT buy confidence: still WEAK, still never a hard filter.
+    assert all(m.confidence is Confidence.WEAK for m in matches)
+    assert not is_filterable(matches)
 
 
 def test_overlay_alias_colliding_with_catalog_alias_does_not_downgrade_or_duplicate():

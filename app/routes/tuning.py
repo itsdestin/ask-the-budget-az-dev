@@ -1,4 +1,13 @@
-"""Admin tuning routes: the office alias overlay (spec E1).
+"""Admin tuning routes: the office alias overlay (spec E1) and the office
+guidance block (spec E2).
+
+Two surfaces, one module, because both are the same thing from the admin's
+side: words the office puts into the machine. Aliases go into RETRIEVAL
+vocabulary (GET/PUT /api/admin/aliases, below); guidance goes into the AI
+PROMPT, one designated slot with a preamble that keeps the shipped citation
+and refusal rules senior to it (GET/PUT /api/admin/guidance, at the bottom
+of this file — harness/office_guidance.py owns the file, the cap and the
+undo).
 
 A separate module rather than more of app/routes/admin.py — that file is
 926 lines of provider/settings machinery, and these routes have a
@@ -51,6 +60,7 @@ from harness.settings import Settings
 from retrieval.query_agency import (
     AMBIGUOUS_ALIASES,
     SUPPRESSED_ALIASES,
+    _AgencyIndex,
     _index,
 )
 from store.office_aliases import (
@@ -132,6 +142,44 @@ def _shipped_aliases() -> list[dict]:
     return sorted(rows, key=lambda row: (row["alias"], row["canonical_id"]))
 
 
+def _picker_agencies() -> list[dict]:
+    """One row per REAL agency for the "Agency" dropdown.
+
+    NOT `id_to_name()` verbatim, which is what this used to be. The catalog
+    records some agencies more than once (see `_logical_key` in
+    retrieval/query_agency.py): measured on today's committed catalog, 7
+    display names cover 15 of the 157 ids — "Revenue, Department of" is both
+    `agency:dor` and `agency:rev`, Child Safety is five entries. A dropdown
+    listing the same words twice gives the admin no way to tell the two
+    apart, and picking is not a coin flip they can see: the wrong half shows
+    up only as answers quietly getting worse, which is the exact silent
+    failure this module exists to prevent.
+
+    Deduped by the RESOLVER's own logical group rather than by display name,
+    because one group can carry two spellings of one agency ("Child Safety,
+    Department of" and "Department of Child Safety") and offering both would
+    put the same agency on the list twice under different words.
+
+    WHICH member is offered: the first one in catalog file order. That is the
+    id `EntityStamper`'s first-wins name index writes onto a chunk printed
+    with that name, so it is also the id the browse page's filter box keys
+    the office's own shorthand on (app/search_terms.py). For query
+    resolution the choice is not load-bearing at all — an overlay alias now
+    resolves to every id in the group (retrieval/query_agency.py's overlay
+    tier), so either half finds the whole agency.
+    """
+    index = _index(None)
+    by_group: dict[object, dict] = {}
+    for canonical_id, entry in load_agency_catalog().items():
+        # `.get(...) or canonical_id`: an id the resolver has never grouped
+        # is its own group of one, and must still reach the dropdown.
+        key = index.logical_group.get(canonical_id) or canonical_id
+        by_group.setdefault(
+            key, {"canonical_id": canonical_id, "name": entry.canonical_name}
+        )
+    return sorted(by_group.values(), key=lambda row: row["name"])
+
+
 def _payload(overlay: OfficeAliases, warnings: list[str]) -> dict:
     names = id_to_name()
     return {
@@ -147,10 +195,7 @@ def _payload(overlay: OfficeAliases, warnings: list[str]) -> dict:
         ],
         "disabled": sorted(overlay.disabled),
         "shipped": _shipped_aliases(),
-        "agencies": [
-            {"canonical_id": canonical_id, "name": name}
-            for canonical_id, name in sorted(names.items(), key=lambda kv: kv[1])
-        ],
+        "agencies": _picker_agencies(),
         "warnings": warnings,
     }
 
@@ -293,7 +338,7 @@ def put_aliases(
     return _payload(load_office_aliases(), warnings)
 
 
-def _same_agency(index: "_AgencyIndex", owners: set[str], canonical_id: str) -> bool:
+def _same_agency(index: _AgencyIndex, owners: set[str], canonical_id: str) -> bool:
     """Is `canonical_id` the same REAL agency as everything in `owners`?
 
     Not string equality, because the catalog records some agencies twice:
