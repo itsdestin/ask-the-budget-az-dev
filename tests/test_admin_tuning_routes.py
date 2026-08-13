@@ -416,16 +416,41 @@ def _headings(body: dict) -> list[str]:
 
 
 def _rendered_headings(corpus: str) -> list[str]:
-    """Every top-level heading the real prompt renders, fence-aware."""
-    from app.routes.tuning import _split_by_level
+    """Every top-level heading the real prompt renders, fence-aware.
+
+    NOTE what this can and cannot prove. It splits with the SAME `_scan`
+    the route uses, so the equality it feeds only shows that `_grouped`
+    dropped nothing — a SPLITTER that drops content is invisible to it,
+    which is how the lead text went missing for a whole review cycle.
+    `test_every_rendered_line_reaches_the_page` is the one that would
+    catch that; this is the group-mapping check, nothing more.
+    """
+    from app.routes.tuning import _scan
     from harness.prompt import build_system_prompt
 
     return [
-        h
-        for h, _ in _split_by_level(
-            build_system_prompt(corpus=corpus, tier="standard"), 2
-        )
+        h for h, _ in _scan(build_system_prompt(corpus=corpus, tier="standard"), 2)[1]
     ]
+
+
+def _shown_lines(body: dict) -> set[str]:
+    """Every non-blank line of text the page actually puts on screen.
+
+    Headings arrive without their `##` markers, so they are added bare and
+    the comparison below strips markers off the rendered side too.
+    """
+    out: set[str] = set()
+    chunks = [body["lead"]]
+    for group in body["groups"]:
+        for section in group["sections"]:
+            out.add(section["heading"])
+            chunks.append(section["text"])
+            for sub in section["subsections"]:
+                out.add(sub["heading"])
+                chunks.append(sub["text"])
+    for chunk in chunks:
+        out.update(line.strip() for line in chunk.splitlines() if line.strip())
+    return out
 
 
 @pytest.mark.parametrize("corpus", ["budget", "fiscal_notes"])
@@ -449,8 +474,44 @@ def test_every_section_lands_in_a_named_group(admin_client, corpus):
         if g["label"] == OTHER_GROUP
         for s in [x["heading"] for x in g["sections"]]
     ]
-    # Nothing dropped either: the page shows the WHOLE thing.
+    # Nothing dropped by the GROUPING either. See `_rendered_headings` for
+    # why this half proves less than it looks like it does.
     assert sorted(_headings(body)) == sorted(_rendered_headings(corpus))
+
+
+@pytest.mark.parametrize("corpus", ["budget", "fiscal_notes"])
+def test_every_rendered_line_reaches_the_page(admin_client, corpus):
+    """THE coverage guard: content, not heading names.
+
+    The heading-list assertion above is built with the route's own
+    splitter, so a splitter that silently drops text passes it — which is
+    exactly what happened: everything above the first `##` (the document's
+    own title line) never reached the page, and no test could see it.
+
+    This compares LINES against the rendered prompt instead, so anything
+    the page fails to carry — a lead, a section, a subsection body, the
+    tail of a section cut short by a fence — shows up here by its own text.
+    Order-independent on purpose: the page regroups the prompt.
+    """
+    from harness.prompt import build_system_prompt
+
+    admin_client.put("/api/admin/guidance", json={"text": "Prefer the AFR."})
+    rendered = build_system_prompt(corpus=corpus, tier="standard")
+    shown = _shown_lines(_prompt(admin_client, corpus).json())
+
+    missing = [
+        line
+        for raw in rendered.splitlines()
+        if (line := raw.strip())
+        # A heading arrives on the wire without its markers; a "#" line
+        # inside a fenced example arrives verbatim. Accept either.
+        and line not in shown
+        and line.lstrip("#").strip() not in shown
+    ]
+    assert not missing, missing
+    # And the lead specifically, because it is the one that was missing and
+    # a set comparison would go quiet again the moment it is folded in.
+    assert "# Ask the Budget AZ — assistant instructions" in shown
 
 
 def test_an_unmapped_section_is_still_shown_rather_than_swallowed(admin_client):
@@ -463,6 +524,32 @@ def test_an_unmapped_section_is_still_shown_rather_than_swallowed(admin_client):
     body = tuning._grouped([("Brand new section", "body text")])
     assert [g["label"] for g in body] == [tuning.OTHER_GROUP]
     assert body[0]["sections"][0]["heading"] == "Brand new section"
+
+
+def test_two_sections_sharing_a_heading_are_both_shown():
+    # `_grouped` filters `sections` rather than looking each heading up,
+    # precisely so a repeated heading cannot lose its second section. That
+    # choice was argued for in a comment and pinned by nothing until the
+    # 2026-08-12 review; a lookup-table rewrite would have passed the whole
+    # suite while dropping instructions off a page whose only job is
+    # showing them.
+    from app.routes import tuning
+
+    got = tuning._grouped([("Your role", "a"), ("Your role", "b")])
+    rows = [s for g in got for s in g["sections"]]
+    assert [s["heading"] for s in rows] == ["Your role", "Your role"]
+    assert [s["text"] for s in rows] == ["a", "b"]
+
+
+def test_no_heading_is_mapped_into_two_groups():
+    # The other half of the same hazard: `_grouped` filters, so a heading
+    # listed under two labels emits its section TWICE. The module asserts
+    # this at import; this fails loudly under `python -O`, where asserts
+    # are stripped.
+    from app.routes.tuning import _GROUPS
+
+    mapped = [h for _, headings in _GROUPS for h in headings]
+    assert sorted(mapped) == sorted(set(mapped))
 
 
 def test_groups_are_plain_english_and_ordered(admin_client):
@@ -524,19 +611,52 @@ def test_the_admins_own_guidance_is_shown_and_marked(admin_client):
     assert [g["label"] for g in after["groups"]][-1] == "Your office's own guidance"
 
 
+def test_the_office_block_really_does_render_mid_prompt(admin_client):
+    """The claim the window's position note makes, checked against reality.
+
+    The group above is shown LAST, which reads as "the assistant's final
+    instruction" unless the page says otherwise — and it isn't: the
+    `{{OFFICE_GUIDANCE}}` slot sits mid-template, and the refusal rules
+    that the block's own preamble says outrank it render BELOW it. The
+    window says so in words (SystemGuidance.tsx's GUIDANCE_POSITION_NOTE);
+    this pins that those words stay true if the template is reordered.
+    """
+    from harness.prompt import build_system_prompt
+
+    admin_client.put("/api/admin/guidance", json={"text": "Prefer the AFR."})
+    rendered = build_system_prompt(corpus="budget", tier="standard")
+    at = rendered.index("## Office guidance from the administrator")
+    for later in (
+        "## Refusal — three cases",
+        "## Conversation flow",
+        "## What goes into your final answer",
+        "## Quick reference",
+        "## Domain primer — Arizona state budget",
+    ):
+        assert rendered.index(later) > at, f"{later} no longer renders after the block"
+
+
 def test_sizes_are_the_real_ones(admin_client):
     from harness.prompt import build_system_prompt
 
     rendered = build_system_prompt(corpus="budget", tier="standard")
     body = _prompt(admin_client).json()
     # The admin's 8,192-byte cap only reads as "a small addition to
-    # something much larger" if this number is the real one.
-    assert body["total_chars"] == len(rendered)
+    # something much larger" if these numbers are the real ones.
     assert body["total_lines"] == len(rendered.splitlines())
-    # Bytes too: the cap this number is shown beside is a byte cap, and
-    # the prompt is full of em dashes at 3 bytes each.
+    # Bytes, not characters: the cap this number is shown beside is a byte
+    # cap, and the prompt is full of em dashes at 3 bytes each.
     assert body["total_bytes"] == len(rendered.encode("utf-8"))
-    assert body["total_bytes"] > body["total_chars"]
+    assert body["total_bytes"] > len(rendered)
+    # Only the totals ship. Per-section sizes were on the wire and rendered
+    # nowhere (review, 2026-08-12); this keeps them from creeping back as
+    # dead payload.
+    assert "total_chars" not in body
+    assert all(
+        "chars" not in s and all("chars" not in sub for sub in s["subsections"])
+        for g in body["groups"]
+        for s in g["sections"]
+    )
 
 
 def test_an_unknown_document_set_is_a_plain_sentence(admin_client):
@@ -582,11 +702,23 @@ def test_split_ignores_headings_inside_a_code_fence():
     # The template documents its own syntax in fenced examples, and a
     # fenced "## like this" must stay TEXT — otherwise the page invents a
     # section the assistant never reads as one.
-    from app.routes.tuning import _split_by_level
+    from app.routes.tuning import _scan
 
     text = "## Real\nbody\n```\n## Not a heading\n```\nmore\n## Second\ntail\n"
-    assert [h for h, _ in _split_by_level(text, 2)] == ["Real", "Second"]
-    assert "## Not a heading" in dict(_split_by_level(text, 2))["Real"]
+    assert [h for h, _ in _scan(text, 2)[1]] == ["Real", "Second"]
+    assert "## Not a heading" in dict(_scan(text, 2)[1])["Real"]
+
+
+def test_the_text_above_the_first_heading_is_kept_not_dropped():
+    # The defect this pins: `_scan`'s lead was thrown away by the route, so
+    # `# Ask the Budget AZ — assistant instructions` — which the assistant
+    # really does read — never appeared on a page captioned as showing
+    # everything it is told.
+    from app.routes.tuning import _scan
+
+    lead, parts = _scan("# Title\n\nOpening words.\n## First\nbody\n", 2)
+    assert lead == "# Title\n\nOpening words."
+    assert [h for h, _ in parts] == ["First"]
 
 
 def test_a_fenced_example_never_cuts_a_section_short():

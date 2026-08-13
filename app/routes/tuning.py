@@ -477,9 +477,29 @@ _GROUPS: tuple[tuple[str, tuple[str, ...]], ...] = (
             "Domain primer — Arizona state budget",
         ),
     ),
-    # Last on purpose: the admin's own words read best as the thing added
-    # at the end of everything above, which is also where they land.
+    # Last in THIS LIST, and nowhere near last in the prompt. The
+    # `{{OFFICE_GUIDANCE}}` slot sits at harness/system-prompt.md:942 and
+    # five sections render after it — "Refusal — three cases",
+    # "Conversation flow", "What goes into your final answer", "Quick
+    # reference", and the domain primer. It is placed last here because an
+    # admin hunting for their own words looks at the bottom, NOT because
+    # that is where the assistant reads them.
+    #
+    # The window says the true position out loud (SystemGuidance.tsx's
+    # GUIDANCE_POSITION_NOTE) because "mine comes last, so mine wins" is
+    # exactly the wrong mental model: the block's own preamble
+    # (harness/office_guidance.py) promises that the citation, refusal and
+    # tool rules win on conflict, and the refusal rules render BELOW it.
     ("Your office's own guidance", (GUIDANCE_HEADING,)),
+)
+
+# A heading listed under two groups would have its section emitted twice
+# (see `_grouped`, which FILTERS rather than looks up), and the page would
+# show the same instructions in two places. Import-time because it is a
+# typo in a literal three lines up, not a runtime condition.
+_MAPPED_HEADINGS = [h for _, hs in _GROUPS for h in hs]
+assert len(_MAPPED_HEADINGS) == len(set(_MAPPED_HEADINGS)), (
+    "a heading appears in two _GROUPS entries; it would be shown twice"
 )
 
 # Where a section nobody has classified goes. Shown, never dropped — see
@@ -511,6 +531,14 @@ def _scan(text: str, level: int) -> tuple[str, list[tuple[str, str]]]:
 
     Deeper headings stay inside a part's body — the next level is a second
     call on that body, not a nested parse here.
+
+    EVERY caller must place the lead somewhere. There used to be a
+    `_split_by_level` helper that returned `[1]` for "callers with no use
+    for it", and the top-level caller used it — which silently dropped
+    `# Ask the Budget AZ — assistant instructions` from a page captioned
+    as showing everything the assistant is told (review, 2026-08-12). The
+    helper is gone so that dropping the lead has to be a deliberate `[1]`
+    at the call site rather than the convenient default.
     """
     marker = "#" * level + " "
     lead: list[str] = []
@@ -530,11 +558,6 @@ def _scan(text: str, level: int) -> tuple[str, list[tuple[str, str]]]:
     if heading is not None:
         out.append((heading, "\n".join(body).strip()))
     return "\n".join(lead).strip(), out
-
-
-def _split_by_level(text: str, level: int) -> list[tuple[str, str]]:
-    """`_scan`'s parts, for callers that have no use for the lead text."""
-    return _scan(text, level)[1]
 
 
 def _corpus_map_for_view(corpus: str) -> str | None:
@@ -561,30 +584,37 @@ def _corpus_map_for_view(corpus: str) -> str | None:
 def _section_payload(heading: str, body: str) -> dict:
     """One top-level section, with its `###` subsections split out.
 
-    `text` is the prose directly under the `##`, before the first `###`;
-    `chars` counts the WHOLE section including subsections, so a size shown
-    beside a heading is the size of everything under it.
+    `text` is the prose directly under the `##`, before the first `###`.
+
+    No per-section size on the wire: a `chars` field shipped here and was
+    rendered nowhere (review, 2026-08-12). Sizes only make sense on this
+    page as ONE total set beside the office's own 8,192-byte allowance,
+    which `get_prompt` returns; a number beside every heading is trivia an
+    admin cannot act on.
     """
     intro, subsections = _scan(body, 3)
     return {
         "heading": heading,
         "text": intro,
-        "chars": len(body),
         "is_office_guidance": heading == GUIDANCE_HEADING,
-        "subsections": [
-            {"heading": h, "text": t, "chars": len(t)} for h, t in subsections
-        ],
+        "subsections": [{"heading": h, "text": t} for h, t in subsections],
     }
 
 
 def _grouped(sections: list[tuple[str, str]]) -> list[dict]:
     """Sort rendered sections into `_GROUPS`, dropping nothing.
 
-    Group ORDER is the mapping's, not the prompt's: an admin hunting for
-    the budget background should not have to know it renders ninth.
-    Section order WITHIN a group stays the render's, so the admin's own
-    block sits where the assistant actually reads it. Empty groups are
-    omitted — "Reading fiscal notes" does not exist in a budget render.
+    NEITHER order here is the assistant's reading order. Group order is
+    the mapping's, not the prompt's (an admin hunting for the budget
+    background should not have to know it renders ninth), and section
+    order within a group stays the render's — but the groups reshuffle the
+    prompt wholesale, so no position in this list tells an admin where
+    anything actually sits. That is why the window states the office
+    block's real position in words instead of implying it by putting the
+    group last; see the note on `_GROUPS`.
+
+    Empty groups are omitted — "Reading fiscal notes" does not exist in a
+    budget render.
     """
     placed: set[str] = set()
     out: list[dict] = []
@@ -623,13 +653,22 @@ def get_prompt(
     prompt = build_system_prompt(
         corpus=corpus, tier=_VIEW_TIER, corpus_map=_corpus_map_for_view(corpus)
     )
-    groups = _grouped(_split_by_level(prompt, 2))
+    lead, sections = _scan(prompt, 2)
+    groups = _grouped(sections)
     return {
         "corpus": corpus,
+        # Everything above the first "##" — today the document's own title
+        # line. It survives rendering, so the assistant reads it, so a page
+        # captioned "everything the assistant is told" must show it. It was
+        # silently dropped until the 2026-08-12 review; the guard that now
+        # keeps it is `test_every_rendered_line_reaches_the_page`, which
+        # checks LINE COVERAGE rather than the heading list (the old heading
+        # check was built from the same splitter, so a splitter that dropped
+        # content could never fail it).
+        "lead": lead,
         "groups": groups,
         # The WHOLE thing. The admin's 8,192-byte allowance only reads as
         # "a small addition to something much larger" against a real total.
-        "total_chars": len(prompt),
         "total_lines": len(prompt.splitlines()),
         # Bytes as well as characters, because the guidance cap the
         # admin is being compared against is a BYTE cap — and this text
