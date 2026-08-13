@@ -354,7 +354,7 @@ def test_list_filter_values_and_create_document_schemas():
         "fund",
     ]
     doc = TOOLS[4]["function"]["parameters"]
-    assert set(doc["properties"]) == {"title", "body_markdown", "format"}
+    assert set(doc["properties"]) == {"title", "body_markdown", "to", "format"}
     assert doc["properties"]["format"]["enum"] == ["docx", "md"]
     assert set(doc["required"]) == {"title", "body_markdown"}
 
@@ -899,7 +899,7 @@ def test_unknown_field_is_a_tool_visible_error(store):
 def test_create_document_dispatches_to_the_materializer(tmp_path):
     seen: list[tuple] = []
 
-    def fake_materialize(title, body_markdown, fmt, *, user):
+    def fake_materialize(title, body_markdown, fmt, *, user, sender="", recipient=""):
         seen.append((title, body_markdown, fmt, user))
         return "tok-123", tmp_path / "JLBC-memo.docx"
 
@@ -918,7 +918,7 @@ def test_create_document_dispatches_to_the_materializer(tmp_path):
 def test_create_document_defaults_to_docx(tmp_path):
     seen: list[str] = []
 
-    def fake_materialize(title, body_markdown, fmt, *, user):
+    def fake_materialize(title, body_markdown, fmt, *, user, sender="", recipient=""):
         seen.append(fmt)
         return "t", tmp_path / "x.docx"
 
@@ -928,13 +928,88 @@ def test_create_document_defaults_to_docx(tmp_path):
 
 
 def test_create_document_failure_is_a_tool_visible_error(tmp_path):
-    def boom(title, body_markdown, fmt, *, user):
+    def boom(title, body_markdown, fmt, *, user, sender="", recipient=""):
         raise OSError("disk full")
 
     ex = ToolExecutor("conv-1", "budget", "standard", materialize=boom)
     out = _run(ex, "create_document", {"title": "T", "body_markdown": "b"})
     assert out["ok"] is False
     assert "disk full" in out["error"]
+
+
+def test_create_document_passes_the_recipient_and_the_analysts_name(tmp_path):
+    captured: dict = {}
+
+    def fake_materialize(title, body, fmt, *, user="", sender="", recipient=""):
+        captured.update(
+            title=title, fmt=fmt, user=user, sender=sender, recipient=recipient
+        )
+        return "tok", tmp_path / "Memo.docx"
+
+    ex = ToolExecutor(
+        "conv-1",
+        "budget",
+        "standard",
+        user="djarrett",
+        display_name="Destin Jarrett",
+        materialize=fake_materialize,
+    )
+    result = _run(
+        ex,
+        "create_document",
+        {"title": "T", "body_markdown": "B", "to": "Director Smith"},
+    )
+    assert result["ok"] is True
+    assert captured["sender"] == "Destin Jarrett"
+    assert captured["recipient"] == "Director Smith"
+
+
+def test_an_omitted_to_reaches_the_renderer_as_empty(tmp_path):
+    """The renderer owns the `[Recipient(s)]` placeholder, not this layer —
+    one source for that string."""
+    captured: dict = {}
+
+    def fake_materialize(title, body, fmt, *, user="", sender="", recipient=""):
+        captured["recipient"] = recipient
+        captured["sender"] = sender
+        return "tok", tmp_path / "Memo.docx"
+
+    ex = ToolExecutor(
+        "conv-1", "budget", "standard", user="djarrett", materialize=fake_materialize
+    )
+    _run(ex, "create_document", {"title": "T", "body_markdown": "B"})
+    assert captured["recipient"] == ""
+    # An executor built without a display name attributes nothing rather
+    # than guessing; the renderer prints the tool's own name instead.
+    assert captured["sender"] == ""
+
+
+def test_a_blank_or_non_string_to_is_the_same_as_omitting_it(tmp_path):
+    """Models emit `"to": null` and `"to": "  "` routinely. Both mean the
+    analyst named no audience, and neither may reach the renderer as a
+    recipient — `"  "` would print a blank TO line where the placeholder
+    belongs, which reads as a finished memo addressed to nobody."""
+    seen: list[str] = []
+
+    def fake_materialize(title, body, fmt, *, user="", sender="", recipient=""):
+        seen.append(recipient)
+        return "tok", tmp_path / "Memo.docx"
+
+    ex = ToolExecutor("conv-1", "budget", "standard", materialize=fake_materialize)
+    for value in (None, "   ", 7, ["Director"]):
+        _run(
+            ex,
+            "create_document",
+            {"title": "T", "body_markdown": "B", "to": value},
+        )
+    assert seen == ["", "", "", ""]
+
+
+def test_the_create_document_schema_offers_to_and_does_not_require_it():
+    schema = next(t for t in TOOLS if t["function"]["name"] == "create_document")
+    params = schema["function"]["parameters"]
+    assert "to" in params["properties"]
+    assert "to" not in params["required"]
 
 
 # ---------------------------------------------------------------------------

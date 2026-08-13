@@ -19,6 +19,7 @@ function me(over: Partial<api.Me> = {}): api.Me {
     admin_username: "Destin",
     admin_claimable: false,
     admin_reset_pending: false,
+    display_name: "Analyst One",
     ...over,
   };
 }
@@ -209,6 +210,79 @@ describe("who you are and where things live", () => {
     mockAll({ me: { is_admin: true, user: "Destin", admin_username: "Destin" } });
     render(<Settings />);
     expect(await screen.findByText("/share/jlbc-insight-data")).toBeInTheDocument();
+  });
+});
+
+describe("the name on generated documents", () => {
+  // The server resolves this name (override > Windows > username) and the
+  // field shows what it resolved. A client-side guess could disagree with
+  // the string the memo actually carries, which is the one thing this field
+  // exists to let someone correct.
+  it("shows the name that will appear on generated documents", async () => {
+    mockAll({ me: { display_name: "Destin Jarrett" } });
+    render(<Settings />);
+
+    expect(await screen.findByDisplayValue("Destin Jarrett")).toBeInTheDocument();
+  });
+
+  it("says what the name is for, in the words the memo will use", async () => {
+    mockAll({ me: { display_name: "Destin Jarrett" } });
+    render(<Settings />);
+
+    // Nobody can judge whether a name is right without knowing where it
+    // prints. The suffix is the renderer's, quoted verbatim.
+    const card = await screen.findByTestId("settings-display-name");
+    expect(card).toHaveTextContent(/via JLBC Agentic Search/);
+    expect(card).toHaveTextContent(/memo/i);
+  });
+
+  it("saves an edited name and reports it saved", async () => {
+    const setDisplayName = vi
+      .spyOn(api, "setDisplayName")
+      .mockResolvedValue({ display_name: "Destin J. Jarrett" });
+    mockAll({ me: { display_name: "Destin Jarrett" } });
+    render(<Settings />);
+
+    const field = await screen.findByLabelText(/name on documents/i);
+    fireEvent.change(field, { target: { value: "Destin J. Jarrett" } });
+    fireEvent.click(screen.getByRole("button", { name: /^save$/i }));
+
+    await waitFor(() =>
+      expect(setDisplayName).toHaveBeenCalledWith("Destin J. Jarrett"),
+    );
+    expect(await screen.findByTestId("settings-display-name-saved")).toHaveTextContent(
+      /saved/i,
+    );
+  });
+
+  it("holds the server's own length cap so a name is never silently truncated", async () => {
+    mockAll();
+    render(<Settings />);
+    // MAX_DISPLAY_NAME in app/machine_config.py. A longer name is refused by
+    // the route with a 422, which reads as a mystery failure; stopping the
+    // typing is the honest surface.
+    expect(await screen.findByLabelText(/name on documents/i)).toHaveAttribute(
+      "maxlength",
+      "120",
+    );
+  });
+
+  it("surfaces the server's refusal instead of implying it saved", async () => {
+    vi.spyOn(api, "setDisplayName").mockRejectedValue(
+      new Error("save your name: something went wrong"),
+    );
+    mockAll();
+    render(<Settings />);
+
+    fireEvent.change(await screen.findByLabelText(/name on documents/i), {
+      target: { value: "Somebody Else" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: /^save$/i }));
+
+    await waitFor(() =>
+      expect(screen.getByRole("alert")).toHaveTextContent(/something went wrong/i),
+    );
+    expect(screen.queryByTestId("settings-display-name-saved")).toBeNull();
   });
 });
 

@@ -749,7 +749,7 @@ The response shape:
 `name` appears for agencies when the agency catalog is available; the
 other fields are always present.
 
-### `create_document(title, body_markdown, format?)`
+### `create_document(title, body_markdown, to?, format?)`
 
 Turns something you have already written into a downloadable Word
 (`docx`, the default) or Markdown (`md`) file. It returns a download
@@ -775,8 +775,18 @@ so avoid leaning on it. Keep the citations' substance in the prose:
 name the document and fiscal year in the text, because the clickable
 citation markers do not travel into the file.
 
-You choose the TITLE. You do not choose where the file is saved, and
-there is no parameter for it.
+The document is rendered as a JLBC memo: letterhead, then a
+DATE / TO / FROM / SUBJECT block, then your body. **Your TITLE becomes
+the SUBJECT line**, so write it like a subject — "FY 2027 AHCCCS
+Appropriations Summary", not "Report".
+
+`to` is optional and you should usually leave it out. Supply it ONLY when
+the analyst named an audience ("write this up for the Director"); the
+document prints a placeholder for them to fill in otherwise. Never guess
+a recipient.
+
+DATE and FROM are filled in for you. You do not choose them, you do not
+choose where the file is saved, and there is no parameter for any of it.
 
 ---
 
