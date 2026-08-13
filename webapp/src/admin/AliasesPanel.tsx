@@ -81,6 +81,13 @@ export function AliasesPanel() {
     canonical_id: row.canonical_id,
   }));
 
+  // Fix: SHORTHANDS, not rows. `shipped` carries one row per agency, so a
+  // shorthand naming two agencies (`ua` names both University of Arizona
+  // entries) was counted twice and the card claimed 12 where the office has
+  // 11 words to type. The switch below is per-word too — turning `ua` off
+  // turns it off for both rows — so the word is the honest unit here.
+  const shorthandCount = new Set(data.shipped.map((s) => s.alias)).size;
+
   async function add() {
     const ok = await persist({
       added: [...pairs, { alias: alias.trim(), canonical_id: agency }],
@@ -240,7 +247,7 @@ export function AliasesPanel() {
         title="Shorthand that comes with the app"
         hint={
           data.disabled.length === 0
-            ? `${data.shipped.length} in use`
+            ? `${shorthandCount} in use`
             : `${data.disabled.length} switched off`
         }
         testId="admin-shipped-card"
@@ -253,7 +260,15 @@ export function AliasesPanel() {
           {data.shipped.map((s) => {
             const enabled = !data.disabled.includes(s.alias);
             return (
-              <li key={s.alias} data-testid={`admin-shipped-${s.alias}`}>
+              // Fix: keyed by alias AND agency, because the server sends ONE
+              // ROW PER AGENCY — `ua` names both University of Arizona
+              // entries, so `key={s.alias}` was a duplicate React key (React
+              // may then reconcile the wrong toggle) and a duplicate
+              // data-testid (a getByTestId for it throws).
+              <li
+                key={`${s.alias}-${s.canonical_id}`}
+                data-testid={`admin-shipped-${s.alias}-${s.canonical_id}`}
+              >
                 <span>
                   <strong>{s.alias}</strong> — {s.agency_name}
                 </span>

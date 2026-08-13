@@ -28,11 +28,27 @@ function aliases(over: Partial<api.AdminAliases> = {}): api.AdminAliases {
       },
     ],
     disabled: [],
+    // ONE ROW PER AGENCY, which means a shorthand can repeat: `ua` really
+    // does name both University of Arizona entries on the shipped catalog
+    // (retrieval/query_agency.py's CURATED_ALIAS_AGENCIES), and the real
+    // GET returns 12 rows for 11 shorthands. The old fixture had no repeat,
+    // which is why the duplicate React key and duplicate data-testid this
+    // shape produces were invisible to these specs.
     shipped: [
       {
         alias: "adoa",
         canonical_id: "agency:doa",
         agency_name: "Administration, Arizona Department of",
+      },
+      {
+        alias: "ua",
+        canonical_id: "agency:uniumain",
+        agency_name: "University of Arizona - Main Campus",
+      },
+      {
+        alias: "ua",
+        canonical_id: "agency:uniuhsc",
+        agency_name: "University of Arizona - Health Sciences Center",
       },
     ],
     agencies: [
@@ -199,7 +215,7 @@ describe("the shorthand that ships with the app", () => {
       .spyOn(api, "saveAdminAliases")
       .mockResolvedValue(aliases({ disabled: ["adoa"] }));
 
-    const row = screen.getByTestId("admin-shipped-adoa");
+    const row = screen.getByTestId("admin-shipped-adoa-agency:doa");
     expect(within(row).getByRole("switch")).toBeChecked();
     fireEvent.click(within(row).getByRole("switch"));
 
@@ -212,9 +228,34 @@ describe("the shorthand that ships with the app", () => {
     // Off because the SERVER says it is off.
     await waitFor(() =>
       expect(
-        within(screen.getByTestId("admin-shipped-adoa")).getByRole("switch"),
+        within(screen.getByTestId("admin-shipped-adoa-agency:doa")).getByRole("switch"),
       ).not.toBeChecked(),
     );
+  });
+
+  it("gives every agency its own row when one shorthand names two", async () => {
+    // The defect this guards: keyed on the alias alone, `ua`'s two rows were
+    // one duplicate React key and one duplicate data-testid — React can
+    // reconcile the wrong toggle, and a lookup by testid throws on the
+    // duplicate rather than finding either row.
+    await renderPanel();
+    openCard(/shorthand that comes with the app/i);
+
+    const main = screen.getByTestId("admin-shipped-ua-agency:uniumain");
+    const hsc = screen.getByTestId("admin-shipped-ua-agency:uniuhsc");
+    expect(main).toHaveTextContent(/Main Campus/);
+    expect(hsc).toHaveTextContent(/Health Sciences Center/);
+    expect(within(main).getByRole("switch")).toBeChecked();
+    expect(within(hsc).getByRole("switch")).toBeChecked();
+  });
+
+  it("counts shorthands, not rows", async () => {
+    // 3 rows, 2 words to type. The card used to say "3 in use", which is a
+    // number the admin cannot find anywhere on the list.
+    await renderPanel();
+    expect(
+      screen.getByTestId("admin-shipped-card"),
+    ).toHaveTextContent(/2 in use/);
   });
 
   it("says so when the shorthand cannot be loaded at all", async () => {
@@ -240,7 +281,7 @@ describe("the shorthand that ships with the app", () => {
       ),
     );
 
-    const row = screen.getByTestId("admin-shipped-adoa");
+    const row = screen.getByTestId("admin-shipped-adoa-agency:doa");
     fireEvent.click(within(row).getByRole("switch"));
 
     expect(await screen.findByRole("alert")).toHaveTextContent(
