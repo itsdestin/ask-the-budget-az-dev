@@ -61,16 +61,17 @@ describe("Fiscal Notes — AI Mode is not on this page", () => {
   });
 
   it("leaves Plan 3's filter rail intact", async () => {
-    // The toggle removal touched the page-head band only. The rail — its filter
-    // box, chamber switch, session list and semantic search — is Plan 3's and is
-    // untouched by this change.
+    // The toggle removal touched the page-head band only; the rail is not its business.
+    // Updated 2026-08-13 for the browse rebuild: the session control is a multi-select
+    // (`.fctl`) rather than a `.yscroll` radio list (spec F1), and the rail's SECOND
+    // search box is deleted (spec F6). What this test is actually for — "removing AI Mode
+    // did not take the filter rail with it" — is unchanged.
     stubConversationFetch();
     const view = mountPage();
     await screen.findByText(/HB2001/);
     const rail = view.container.querySelector(".fnside")!;
     expect(rail.querySelector(".fside-search")).not.toBeNull();
     expect(rail.querySelector(".chswitch")).not.toBeNull();
-    expect(rail.querySelector(".yscroll")).not.toBeNull();
-    expect(screen.getByTestId("fn-semantic")).toBeInTheDocument();
+    expect(rail.querySelector(".fctl")).not.toBeNull();
   });
 });

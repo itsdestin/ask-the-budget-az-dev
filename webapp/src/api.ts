@@ -11,6 +11,11 @@ export interface SearchResult {
    *  preview window and marks query terms in it — see search/contentSearch.ts.
    *  `snippet` remains the leading 280 chars for the Fiscal Notes page. */
   text: string;
+  /** Heading trail this passage sits under, innermost LAST ("JLBC Fiscal Note"
+   *  > "Estimated Impact"). Additive 2026-08-13 — the fiscal-note result card
+   *  prints the innermost heading as its excerpt legend. Empty when the chunk
+   *  carries no headings. */
+  section_path: string[];
   page: number | null;
   score: number;
   doc_type: string;
@@ -38,6 +43,27 @@ export interface SearchResponse {
   results: SearchResult[];
   total: number;
   provider: string;
+  /** What the retrieval pipeline INFERRED from the words typed, and applied,
+   *  before searching (additive, 2026-08-13 — spec F15).
+   *
+   *  These describe the QUERY, not any one result, which is why they sit
+   *  beside `results` rather than on each row. The consequential one is
+   *  `inferred_fiscal_years`: a question naming a year is hard-filtered by
+   *  session (widened a year either side), and unlike the doc-type guess it
+   *  is NEVER dropped when it empties the page — so without this echo a
+   *  narrow guess just returns less, confidently, forever, while the page's
+   *  own session control still reads "Any session".
+   *
+   *  Optional (`?`) on purpose: a server that predates this change omits
+   *  them, and typing them as required would break the client during a
+   *  partial deploy. Read them as "absent means the server is older", and
+   *  an empty array as "inferred nothing". */
+  inferred_fiscal_years?: number[];
+  inferred_doc_types?: string[];
+  /** Dimensions whose INFERRED filter was thrown away because it emptied the
+   *  result set, and the search was re-run without it. Only doc_type is ever
+   *  droppable — see retrieval/pipeline.py. */
+  dropped_filters?: string[];
 }
 
 export interface SearchFilters {

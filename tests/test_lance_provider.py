@@ -91,12 +91,18 @@ def test_provider_maps_retrieval_result_to_contract(monkeypatch, tmp_path):
 
     # The frozen contract's row fields, mapped from the chunk + the mockup
     # index join (title and meta are the WEBSITE MOCKUP'S own strings).
-    assert out == [
+    assert out.rows == [
         {
             "chunk_id": "c1",
             "doc_id": "jlbc-baseline-fy2027-ahcccs",
             "doc_title": "Health Care Cost Containment System, Arizona — FY 2027 Baseline",
             "snippet": "provider rate increases of $58.1 million from the General Fund",
+            # Additive 2026-08-13: the fiscal-note result card prints the
+            # INNERMOST heading as its excerpt legend, and until now the only
+            # section-ish row field was `doc_meta` -- the mockup index's
+            # category line, which on the fiscal-note corpus renders as the
+            # doubled, uninformative "Fiscal Notes . Fiscal Notes . FY 2026".
+            "section_path": ["AHCCCS"],
             # Task 1: the frozen contract gained `text` (full, untruncated
             # passage) alongside `snippet` (the leading-280-char preview) —
             # here they're equal because the fixture chunk is short.
@@ -137,7 +143,7 @@ def test_snippet_truncates_long_text(monkeypatch, tmp_path):
     )
     _sidecar(tmp_path, monkeypatch, {})
     out = LanceSearchProvider().search("q", top_k=5, corpus="budget", filters={})
-    assert len(out[0]["snippet"]) == 280
+    assert len(out.rows[0]["snippet"]) == 280
 
 
 def test_missing_sidecar_degrades_to_unlinked_rows(monkeypatch, tmp_path):
@@ -145,7 +151,7 @@ def test_missing_sidecar_degrades_to_unlinked_rows(monkeypatch, tmp_path):
     monkeypatch.setattr("app.search_provider.retrieve", lambda req, **kw: _fake_result([_chunk()]))
     monkeypatch.setattr("store.config.documents_path", lambda: tmp_path / "absent.json")
     out = LanceSearchProvider().search("q", top_k=5, corpus="budget", filters={})
-    assert out[0]["doc_url"] is None
+    assert out.rows[0]["doc_url"] is None
 
 
 # --- Task 7: family filtering asks retrieve() for the pipeline's ceiling ----
@@ -202,7 +208,7 @@ def test_family_filter_reslices_to_the_caller_s_top_k(monkeypatch, tmp_path):
         filters={"doc_type": ["detailed-list-pdf"], "section_family": "Baseline"},
     )
 
-    assert len(out) == 1
+    assert len(out.rows) == 1
 
 
 def test_fiscal_notes_corpus_maps_to_its_table(monkeypatch, tmp_path):
@@ -215,7 +221,7 @@ def test_fiscal_notes_corpus_maps_to_its_table(monkeypatch, tmp_path):
     monkeypatch.setattr("app.search_provider.retrieve", fake_retrieve)
     _sidecar(tmp_path, monkeypatch, {})
     out = LanceSearchProvider().search("q", top_k=5, corpus="fiscal_notes", filters={})
-    assert out == []
+    assert out.rows == []
     assert captured["req"].corpus == "fiscal_note_chunks"
 
 

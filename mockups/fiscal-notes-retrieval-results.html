@@ -1,0 +1,1044 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Fiscal Notes — retrieval results mockup (not shipped code)</title>
+<!--
+
+  MOCKUP ONLY — the CONTENT-SEARCH half of the proposed Fiscal Notes redesign,
+  shown on its own so it can be looked at without typing a query and waiting
+  out the escalation pause. Open it directly in a browser.
+
+  Companion to `mockups/fiscal-notes-browse.html`, which carries the browse and
+  title-search states and the full list of decisions behind the redesign. This
+  file assumes those and only shows what happens AFTER the page escalates:
+
+      one ranked "Results" card · one card per NOTE · headline is the best
+      matching PASSAGE · page pill opens the note at that passage
+
+  It lands pre-filled with a real analyst question and `mode = "contents"`, but
+  everything is live — retype the box, change the chamber, pick sessions, click
+  a page pill, click the toggle.
+
+  ================= WHAT THIS FILE ADDS OVER THE BROWSE MOCKUP =============
+
+  0. ONE PASSAGE PER NOTE — the note's BEST match, and nothing else (Destin,
+     2026-08-13). There is no "N more passages" tray. A result answers "which
+     note should I read?", and the top-ranked passage is the evidence for that
+     answer; the rest belong to the note itself, which is one click away.
+
+     THE CONSEQUENCE, WORTH KNOWING: retrieval still ranks and truncates at
+     `top_k = 20` PASSAGES, so how many NOTES a search surfaces now depends on
+     how concentrated the ranking is. A query where one note owns five of the
+     top twenty passages shows four fewer notes than one where every hit lands
+     in a different note. The lever for that is `top_k`, not the card — and it
+     is a real decision, not a rounding error, so the counts below say "notes"
+     and never imply a corpus-wide total.
+
+  0b. THE CARD IS ONE BUTTON, AND ITS ACTION IS "Open note" (Destin,
+     2026-08-13). Three changes at once, and they hang together:
+
+       - the dashed `.ctx` block under each result is GONE. It carried the
+         bill title, the session, and an "Open note" link — the title and
+         session moved up into the card proper, so the block had nothing left
+         to hold that the card was not already saying.
+       - the session sits BESIDE THE BILL CHIP, at the top of the card:
+         `[HB 2135]  2024 (56th Legislature, 2nd Regular Session)`
+       - the small grey "p. N" pill is replaced BY the blue "Open note"
+         button.
+
+     REVISED 2026-08-13 (Destin), the card tightened again:
+
+       - bill number and title are ONE line: `SB 1035 — state department of
+         corrections; appropriation`. No navy chip.
+       - the session sits small and tight beneath it.
+       - "Open note" moved up to that top row, right-aligned.
+       - PAGE REFERENCES ARE GONE from the card. The page still names itself
+         in the drawer's breadcrumb, which is where a reader is actually
+         looking at the page — see the note under item 1.
+       - the section name is now a tiny faint legend breaking the top edge of
+         a hairline box that traces the whole excerpt, so the quote reads as
+         lifted OUT of the note rather than as more card text.
+       - excerpt type is smaller and the padding is tighter throughout: the
+         cards were too tall to compare at a glance, which is the one thing a
+         result list has to support.
+
+     ⚠ ONE JUDGMENT CALL, EASY TO REVERSE. "Open note" opens the SOURCE
+     DRAWER — in-app, at the cited passage — and the drawer carries its own
+     "Open the source PDF" link out to azleg.gov. It does NOT jump straight to
+     the PDF. The page pill it replaced was the drawer's trigger, and handing
+     that click to a new tab would delete the only surface that shows the
+     cited span in place, which is most of what makes a result checkable. If
+     the intent was to link out directly, it is a one-line change: make the
+     card an `<a href={bill.u}>` and drop the drawer.
+
+     Because the "Open note" pill is now the only affordance on the card and
+     the card is the button, the pill is a DECORATIVE span — the same way
+     `.fbill-dl`'s "PDF" label is decorative inside a `.fbill` link. It names
+     the action; it does not take the click.
+
+     THE PAGE NUMBER did not vanish with its pill: it rides the section line,
+     `ESTIMATED IMPACT · P. 1`. Dropping it outright would have removed the
+     provenance the pill existed to state.
+
+  1. THE SOURCE DRAWER. Clicking anywhere on a card opens `.pdf-drawer` —
+     the same fixed right-hand overlay Budget Documents uses (SourcePanel /
+     SourceView), so the results underneath are untouched. Fiscal-note chunks
+     carry `page`, so this works on this corpus exactly as it does on budget
+     documents. THE PAGE SURFACE HERE IS A DRAWN STAND-IN, not a pdf.js render:
+     the real one paints the PDF page and highlights the chunk's bbox. What is
+     being shown is the SHAPE — breadcrumb, page, the cited span marked in
+     place, and a link out to the source PDF — not the rendering fidelity.
+
+  2. A RICHER PASSAGE SET. ~34 passages across 25 notes, so a query returns a
+     full page of cards instead of the browse mockup's handful. Several notes
+     hold more than one matching passage — which is what makes the
+     best-passage-only rule above visible rather than theoretical.
+
+  3. THE SESSION, YEAR FIRST (Destin, 2026-08-13):
+
+         2026 (57th Legislature, 2nd Regular Session)
+
+     The directory ships it the other way round — "57th Legislature, 2nd Reg.
+     Session (2026)" — which buries the year at the end of a string a reader
+     scans by year. `sessionLabel()` inverts it and expands the abbreviation.
+     ALL 28 SESSIONS IN THE LIVE DIRECTORY ARE REGULAR SESSIONS (verified, not
+     assumed), but Arizona does hold special sessions, so the expansion goes
+     through a small map and passes anything unrecognised through untouched
+     rather than blind-replacing on a substring.
+
+  ================= THINGS THAT ARE DELIBERATELY NOT PRETTIFIED ============
+
+  - EVERY TYPED WORD IS MARKED, on word boundaries — including "how" and
+    "does". That is the shipped Budget Documents matcher, and dropping function
+    words was MEASURED there as cosmetic (it leaves the blank-card rate
+    unchanged). Marking looks slightly noisy on a natural-language question and
+    that is the honest rendering, not a defect to tune out here.
+
+  - THE COUNT SAYS "Top N". `app/routes/search.py` defaults `top_k = 20` and
+    the frontend never overrides it, so the number of results is a truncation
+    cap, not a corpus-wide match count. Any wording that implied otherwise
+    would be a claim the system cannot support.
+
+  - A CHAMBER-NARROWED SEARCH COMES BACK SHORT, AND SAYS SO. There is no
+    chamber column on `fiscal_note_chunks` (verified against the live corpus —
+    the only chamber evidence is the doc_id slug, `…-hb2240-66`). So the
+    SESSION dropdown narrows the REQUEST and the CHAMBER segment narrows what
+    came BACK, with no "fetch more" behind it. Switch to House and read the
+    status line.
+
+  ================= HOW TO DRIVE IT =======================================
+
+    - Loads on   "how much does inmate health care cost"
+    - Click any card ("Open note") → the source drawer, cited span marked
+    - Click it again / Esc         → closes
+    - Chamber → House              → watch the status line explain the drop
+    - Session → 2026 only          → narrows the request, not the results
+    - "↩ Back to title matches"    → the round trip, and it STAYS back
+    - Type "SB 1035"               → title mode, exact bill-number hit
+
+  Bills, titles, sessions and note URLs are REAL (live `GET /api/fiscal-notes`).
+  Passages are hand-written in the shape the corpus stores them — the section
+  path prefix ("JLBC Fiscal Note > Estimated Impact") is real and is what the
+  small-caps line on each passage shows. Ranking here is naive term overlap;
+  the real page POSTs /api/search and gets a reranked list back.
+
+-->
+<style>
+/* Design tokens — verbatim from webapp/src/styles/tokens.css. */
+:root {
+  --navy:#2b2f63; --navy-700:#232752; --navy-900:#181b3d; --navy-100:#e7e8f2;
+  --az-red:#2f55c4; --az-red-100:#e1e6fa;
+  --az-gold:#1b6fc4; --az-gold-d:#145aa6; --az-gold-100:#dceaf7;
+  --copper:#3d6a99; --copper-100:#e3ebf3;
+  --teal:#1782b3; --teal-100:#dbeef8;
+  --ink:#21243f; --ink-2:#4a4e6a; --ink-3:#757895;
+  --line:#e6e6ef; --canvas:#f5f5fa; --card:#fff;
+  --r-lg:22px; --r-md:16px; --r-sm:12px; --r-pill:999px; --gap:22px;
+  --shadow:0 1px 2px rgba(27,27,61,.05),0 10px 26px rgba(27,27,61,.08);
+  --shadow-sm:0 1px 2px rgba(27,27,61,.06),0 3px 10px rgba(27,27,61,.05);
+  --maxw:1140px; --font:"Nunito","Segoe UI",system-ui,-apple-system,sans-serif;
+}
+
+*{box-sizing:border-box;}
+body{margin:0;font-family:var(--font);background:var(--canvas);color:var(--ink);-webkit-font-smoothing:antialiased;}
+a{color:inherit;text-decoration:none;}
+button{font-family:inherit;}
+
+header.site{position:sticky;top:0;z-index:50;background:rgba(255,255,255,.92);backdrop-filter:blur(8px);border-bottom:1px solid var(--line);}
+header.site .bar{max-width:var(--maxw);margin:0 auto;padding:12px 22px;display:flex;align-items:center;gap:18px;}
+.brand{display:flex;align-items:center;gap:11px;}
+.brand img{width:38px;height:38px;border-radius:10px;}
+.brand .bt{line-height:1.1;}
+.brand .bt b{display:block;font-size:14.5px;font-weight:800;color:var(--navy);letter-spacing:-.2px;}
+.brand .bt span{font-size:11.5px;font-weight:700;color:var(--ink-3);}
+nav.pills{display:flex;gap:4px;margin-left:auto;background:var(--canvas);border:1px solid var(--line);border-radius:var(--r-pill);padding:4px;}
+nav.pills a{font-size:13px;font-weight:800;color:var(--ink-2);padding:8px 16px;border-radius:var(--r-pill);transition:.13s;}
+nav.pills a.active{background:var(--navy);color:#fff;}
+
+/* ===== subhero ============================================================ */
+.page-fiscal-notes .subhero{position:relative;overflow:hidden;color:#fff;
+  background:linear-gradient(105deg,rgba(18,21,48,.94) 0%,rgba(20,23,52,.86) 60%,rgba(20,23,52,.78) 100%),url('../webapp/public/capitol-bg.jpg') center 28% / cover no-repeat;}
+.page-fiscal-notes .subhero .wrap{position:relative;z-index:2;padding:32px 22px 34px;}
+.page-fiscal-notes .subhero h1{margin:0;font-size:clamp(24px,3.2vw,34px);font-weight:800;letter-spacing:-.4px;}
+.page-fiscal-notes .subhero .lead{margin:10px 0 0;font-size:clamp(14px,1.5vw,16.5px);color:#d9dcf2;font-weight:600;max-width:66ch;line-height:1.5;}
+.page-fiscal-notes .subhero .chips{display:flex;flex-wrap:wrap;gap:8px;margin-top:16px;min-height:31px;}
+.page-fiscal-notes .subhero .chip{display:inline-flex;align-items:center;gap:7px;background:rgba(255,255,255,.1);border:1px solid rgba(255,255,255,.2);border-radius:var(--r-pill);padding:6px 13px;font-size:12.5px;font-weight:700;color:#eef0fb;}
+.page-fiscal-notes .subhero .chip svg{width:14px;height:14px;color:#9fc4ee;flex:0 0 auto;}
+
+/* ===== layout ============================================================= */
+.wrap{max-width:var(--maxw);margin:0 auto;}
+.page-fiscal-notes .wrap.fnwrap{display:block;padding:28px 22px 22px;}
+.page-fiscal-notes .fnlayout{display:grid;grid-template-columns:248px 1fr;gap:var(--gap);align-items:start;}
+.page-fiscal-notes .fnside{background:#fff;border:1px solid var(--line);border-radius:var(--r-lg);box-shadow:var(--shadow-sm);padding:8px;position:sticky;top:84px;}
+.page-fiscal-notes .fnside .fgrp{padding:8px 8px 14px;}
+.page-fiscal-notes .fnside .fgrp+.fgrp{border-top:1px solid var(--line);}
+.page-fiscal-notes .flbl{font-size:11px;font-weight:800;text-transform:uppercase;letter-spacing:.08em;color:var(--ink-3);padding:6px 8px 8px;display:block;}
+.page-fiscal-notes .fnmain{display:flex;flex-direction:column;gap:var(--gap);min-width:0;}
+.page-fiscal-notes .fnnote{font-size:12.5px;font-weight:700;color:var(--ink-3);margin:0;}
+.page-fiscal-notes .fnstatus{padding:0 2px;margin:0 0 12px calc(248px + var(--gap));line-height:1.5;}
+
+/* ===== rail =============================================================== */
+.page-fiscal-notes .fside-search{display:flex;align-items:center;gap:8px;background:var(--canvas);border:1px solid var(--line);border-radius:var(--r-pill);padding:8px 12px;margin:2px 4px 6px;}
+.page-fiscal-notes .fside-search:focus-within{border-color:var(--navy);background:#fff;box-shadow:0 0 0 3px var(--navy-100);}
+.page-fiscal-notes .fside-search svg{width:16px;height:16px;color:var(--ink-3);flex:0 0 auto;}
+.page-fiscal-notes .fside-search input{border:0;background:transparent;outline:0;font-family:inherit;font-size:13.5px;flex:1;min-width:0;color:var(--ink);}
+.page-fiscal-notes .clr-x{flex:0 0 auto;display:none;align-items:center;justify-content:center;width:24px;height:24px;border-radius:50%;border:1px solid var(--line);background:#fff;color:var(--ink-2);cursor:pointer;padding:0;transition:.14s;}
+.page-fiscal-notes .clr-x:hover{background:var(--navy-100);color:var(--navy);border-color:var(--navy);}
+.page-fiscal-notes .clr-x svg{width:13px;height:13px;}
+.page-fiscal-notes .clr-x.show{display:inline-flex;}
+
+.page-fiscal-notes .chswitch{display:grid;grid-template-columns:1fr 1fr 1fr;gap:3px;background:var(--canvas);border:1px solid var(--line);border-radius:var(--r-pill);padding:4px;margin:0 4px;}
+.page-fiscal-notes .chseg{cursor:pointer;text-align:center;font-size:13px;font-weight:800;color:var(--ink-2);border-radius:var(--r-pill);padding:8px 4px;transition:.13s;font-family:inherit;background:transparent;width:100%;border:0;}
+.page-fiscal-notes .chseg:hover{color:var(--az-gold-d);}
+.page-fiscal-notes .chseg.on{background:var(--navy);color:#fff;}
+/* Stood down in content mode (spec F9) — same treatment the sort control gets,
+   because they go inactive together for the same reason. */
+.page-fiscal-notes .chseg:disabled{opacity:.55;cursor:not-allowed;}
+.page-fiscal-notes .chseg:disabled:hover{color:var(--ink-2);}
+.page-fiscal-notes .chseg.on:disabled:hover{color:#fff;}
+
+.page-fiscal-notes .fctl{position:relative;margin:0 4px;}
+.page-fiscal-notes .fbtn{display:flex;align-items:center;gap:7px;width:100%;cursor:pointer;font-family:inherit;font-size:12.5px;font-weight:800;color:var(--ink-2);background:var(--canvas);border:1.5px solid var(--line);border-radius:var(--r-pill);padding:8px 13px;white-space:nowrap;transition:.14s;}
+.page-fiscal-notes .fbtn:hover{border-color:var(--az-gold);color:var(--az-gold-d);}
+.page-fiscal-notes .fbtn.has{background:var(--az-gold-100);border-color:var(--az-gold);color:var(--az-gold-d);}
+.page-fiscal-notes .fbtn .fb-label{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;text-align:left;}
+.page-fiscal-notes .fbtn .chev{flex:0 0 auto;width:10px;height:6px;opacity:.7;transition:transform .2s;}
+.page-fiscal-notes .fbtn[aria-expanded="true"] .chev{transform:rotate(180deg);}
+.page-fiscal-notes .fbtn:disabled{opacity:.55;cursor:not-allowed;}
+.page-fiscal-notes .fbtn:disabled:hover{border-color:var(--line);color:var(--ink-2);}
+.page-fiscal-notes .fmenu{position:absolute;top:100%;left:0;right:0;margin-top:6px;background:#fff;border:1px solid var(--line);border-radius:var(--r-md);box-shadow:var(--shadow);padding:6px;z-index:30;max-height:264px;overflow-y:auto;}
+.page-fiscal-notes .fopt{display:flex;align-items:center;gap:10px;width:100%;text-align:left;font-family:inherit;font-size:13.5px;font-weight:700;color:var(--ink-2);padding:9px 12px;border-radius:var(--r-sm);cursor:pointer;white-space:nowrap;background:transparent;border:0;}
+.page-fiscal-notes .fopt:hover{background:var(--canvas);color:var(--navy);}
+.page-fiscal-notes .fopt.on{background:var(--az-gold-100);color:var(--az-gold-d);}
+.page-fiscal-notes .fopt .ck{flex:0 0 16px;width:16px;height:16px;border-radius:5px;border:1.5px solid var(--line);display:grid;place-items:center;background:#fff;}
+.page-fiscal-notes .fopt.on .ck{border-color:var(--az-gold);background:var(--az-gold);}
+.page-fiscal-notes .fopt .ck svg{width:10px;height:10px;color:#fff;opacity:0;}
+.page-fiscal-notes .fopt.on .ck svg{opacity:1;}
+.page-fiscal-notes .fopt .fopt-n{margin-left:auto;font-size:11px;font-weight:800;color:var(--ink-3);}
+.page-fiscal-notes .fopt.radio .ck{border-radius:50%;}
+.page-fiscal-notes .fopt.radio .ck svg{display:none;}
+.page-fiscal-notes .fopt.radio.on .ck{background:#fff;border-color:var(--az-gold);box-shadow:inset 0 0 0 3px var(--az-gold);}
+.page-fiscal-notes .fhint{font-size:11.5px;font-weight:700;color:var(--ink-3);padding:8px 8px 0;margin:0;line-height:1.45;}
+
+/* ===== the Results card =================================================== */
+.page-fiscal-notes .yg{background:#fff;border:1px solid var(--line);border-radius:var(--r-lg);box-shadow:var(--shadow-sm);overflow:hidden;}
+.page-fiscal-notes .yg-head-static{display:flex;align-items:center;gap:12px;padding:15px 18px;border-bottom:1px solid var(--line);}
+.page-fiscal-notes .yg-head{display:flex;align-items:center;gap:12px;width:100%;padding:15px 18px;background:transparent;border:0;border-bottom:1px solid transparent;font-family:inherit;cursor:pointer;text-align:left;transition:background .14s;}
+.page-fiscal-notes .yg-head:hover{background:#fafafe;}
+.page-fiscal-notes .yg-open .yg-head{border-bottom-color:var(--line);}
+.page-fiscal-notes .yg-ttl{display:flex;flex-direction:column;gap:2px;min-width:0;flex:1;}
+.page-fiscal-notes .yg-yr{font-size:18px;font-weight:800;color:var(--navy);}
+.page-fiscal-notes .yg-meta{font-size:12.5px;font-weight:700;color:var(--ink-3);}
+.page-fiscal-notes .yg-mode{font-size:13px;font-weight:700;color:var(--ink-3);margin-left:7px;}
+.page-fiscal-notes .yg-chev{flex:0 0 auto;width:18px;height:18px;color:var(--ink-3);transition:transform .18s;}
+.page-fiscal-notes .yg-chev.open{transform:rotate(180deg);}
+
+/* ===== one result card per NOTE ===========================================
+   THE WHOLE CARD IS ONE BUTTON (Destin, 2026-08-13). The dashed `.ctx` block
+   that used to hang under each result is gone, and with it the only other
+   interactive element on the card — so there is nothing left to nest, and the
+   card can be a single control the way a `.fbill` row is a single link. Its
+   "Open note" pill is therefore a DECORATIVE span inside the button, exactly
+   as `.fbill-dl`'s "PDF" is: it names the action, it does not take the click.
+
+   No `.ctx` / `.tray` / `.grp-more` / `.doc-pill` rules survive here. The
+   browse mockup keeps its own. */
+/* 🔴 `width: calc(100% - 28px)`, NOT `width: 100%`. The card used to be an
+   <article>: a block box with `width:auto` shrinks to fit INSIDE its own
+   margins, so `margin:12px 14px 0` just worked. A <button> does not — form
+   controls resolve `auto` to shrink-to-fit, which is why an explicit width is
+   needed at all — so `width:100%` made the card exactly 28px wider than its
+   parent, and `.yg{overflow:hidden}` clipped the overflow, taking the card's
+   right border and rounded corner with it. The width must stay equal to
+   100% minus the two horizontal margins; change one and change the other. */
+.page-fiscal-notes .grp{display:block;width:calc(100% - 28px);margin:12px 14px 0;padding:0;border:1px solid var(--line);border-radius:var(--r-lg);overflow:hidden;box-shadow:var(--shadow-sm);background:#fff;font-family:inherit;text-align:left;cursor:pointer;transition:background .15s,border-color .15s;}
+.page-fiscal-notes .grp:last-child{margin-bottom:14px;}
+.page-fiscal-notes .grp:hover{background:#fafafe;border-color:#d9dcec;}
+.page-fiscal-notes .grp:focus-visible{outline:2px solid var(--navy);outline-offset:-2px;}
+/* The card whose source is open in the drawer. */
+.page-fiscal-notes .grp.is-open{border-color:var(--navy);box-shadow:0 0 0 2px var(--navy-100),var(--shadow-sm);}
+
+/* TOP ROW: bill number and title as ONE line, with the action beside it.
+   The title WRAPS rather than truncating — a fiscal-note title is the only
+   plain-English description of what the bill does, and several of them
+   (the retitled "…(NOW: …)" ones especially) are long enough that an ellipsis
+   would hide the half that matters. The button top-aligns so it stays on the
+   first line however far the title runs. */
+.page-fiscal-notes .res-top{display:flex;align-items:flex-start;gap:12px;padding:11px 15px 0;}
+.page-fiscal-notes .res-name{flex:1;min-width:0;font-size:14px;font-weight:700;color:var(--navy);line-height:1.42;}
+.page-fiscal-notes .res-no{font-weight:800;color:var(--navy-900);}
+.page-fiscal-notes .grp:hover .res-name{color:var(--az-gold-d);}
+.page-fiscal-notes .grp:hover .res-no{color:var(--az-gold-d);}
+.page-fiscal-notes .grp-open{flex:0 0 auto;display:inline-flex;align-items:center;font-size:11px;font-weight:800;border-radius:var(--r-pill);padding:5px 12px;white-space:nowrap;background:var(--az-gold);border:1px solid var(--az-gold);color:#fff;letter-spacing:.01em;}
+.page-fiscal-notes .grp:hover .grp-open{background:var(--az-gold-d);border-color:var(--az-gold-d);}
+.page-fiscal-notes .grp.is-open .grp-open{background:var(--navy);border-color:var(--navy);}
+
+/* The session, small and tight under the title line. */
+.page-fiscal-notes .res-year{display:block;padding:1px 15px 0;font-size:10.5px;font-weight:700;color:var(--ink-3);letter-spacing:.01em;}
+
+/* THE EXCERPT BOX. A faint hairline all the way round with rounded corners,
+   and the section name breaking the top border like a legend — so the quote
+   reads as lifted OUT of the note rather than as more card text.
+   The label sits ON the card's own background to mask the border behind it,
+   which is why the hover rule below has to repaint it: leave it painting #fff
+   over a #fafafe card and a pale notch appears under the cursor. */
+/* The label's TEXT starts at x=0 of the box, and the box's left edge is the
+   same 15px the top row and the year use — so the three left edges line up
+   (Destin, 2026-08-13). That is why the label has NO left padding and sits at
+   `left:0`: any inset here, however small, pushes the label out of line with
+   the two lines above it. The corner radius is small for the same reason —
+   the label masks the border from x=0 rightward, and a large curve would be
+   half-covered and read as a broken corner. */
+.page-fiscal-notes .exc{position:relative;display:block;margin:11px 15px 13px;border:1px solid #dee1ef;border-radius:10px;padding:11px 12px 9px;}
+/* `padding-bottom` on the label, not a taller line-height: it grows the
+   masking background DOWNWARD without moving the text, so the left border
+   resumes lower while the label itself stays put on the border line. */
+.page-fiscal-notes .exc-lbl{position:absolute;top:-6px;left:0;padding:0 7px 5px 0;background:#fff;font-size:9px;font-weight:800;letter-spacing:.14em;text-transform:uppercase;color:#9498b4;line-height:1.3;}
+.page-fiscal-notes .grp:hover .exc-lbl{background:#fafafe;}
+.page-fiscal-notes .grp:hover .exc{border-color:#d3d7e9;}
+.page-fiscal-notes .doc-quote{display:block;font-size:12.5px;font-weight:600;color:var(--ink-2);line-height:1.5;}
+.page-fiscal-notes .doc-quote mark{background:#eaf1fa;color:#3a72ac;border-radius:3px;padding:0 2px;font-weight:700;}
+
+/* ===== title-mode rows (the round trip back) ============================== */
+.page-fiscal-notes .fnlist{display:flex;flex-direction:column;}
+.page-fiscal-notes .fbill{display:flex;align-items:center;gap:14px;padding:11px 18px;border-bottom:1px solid var(--line);color:inherit;transition:background .14s;}
+.page-fiscal-notes .fbill:last-child{border-bottom:0;}
+.page-fiscal-notes .fbill:hover{background:#fafafe;}
+.page-fiscal-notes .fbill-no{flex:0 0 auto;font-size:12.5px;font-weight:800;color:#fff;background:var(--navy);border-radius:var(--r-pill);padding:4px 12px;min-width:78px;text-align:center;}
+.page-fiscal-notes .fbill-desc{flex:1;min-width:0;font-size:14px;font-weight:600;color:var(--ink-2);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+.page-fiscal-notes .fbill-desc mark{background:#eaf1fa;color:#3a72ac;border-radius:3px;padding:0 3px;font-weight:700;}
+.page-fiscal-notes .fbill-dl{flex:0 0 auto;font-size:11.5px;font-weight:800;color:var(--ink-3);background:var(--canvas);border:1px solid var(--line);border-radius:var(--r-pill);padding:5px 12px;}
+.page-fiscal-notes .fbill-dl::before{content:"\2193";margin-right:5px;}
+
+/* ===== loading / empty / toggle =========================================== */
+.page-fiscal-notes .docload{display:flex;align-items:flex-start;gap:12px;padding:20px 22px;font-size:14px;font-weight:700;color:var(--ink-2);}
+.page-fiscal-notes .docload .sub{display:block;font-size:12.5px;font-weight:600;color:var(--ink-3);margin-top:4px;}
+.page-fiscal-notes .spin{flex:0 0 auto;width:16px;height:16px;margin-top:2px;border-radius:50%;border:2px solid var(--az-gold-100);border-top-color:var(--az-gold);animation:spin .8s linear infinite;}
+@keyframes spin{to{transform:rotate(360deg);}}
+@media (prefers-reduced-motion:reduce){.page-fiscal-notes .spin{animation:none;}}
+.page-fiscal-notes .empty{padding:20px 22px;font-size:14px;font-weight:600;color:var(--ink-2);}
+.page-fiscal-notes .allbar{display:flex;justify-content:center;padding:2px 0;}
+.page-fiscal-notes .allbtn{display:inline-flex;align-items:center;gap:9px;cursor:pointer;font-size:13.5px;font-weight:800;color:var(--az-gold-d);background:#fff;border:1px solid var(--az-gold-100);border-radius:var(--r-pill);padding:11px 20px;box-shadow:var(--shadow-sm);transition:.14s;font-family:inherit;}
+.page-fiscal-notes .allbtn:hover{border-color:var(--az-gold);background:var(--az-gold-100);}
+.page-fiscal-notes .allbtn svg{width:16px;height:16px;flex:0 0 auto;}
+.page-fiscal-notes .all-off,.page-fiscal-notes .all-on{display:inline-flex;align-items:center;gap:9px;}
+.page-fiscal-notes .all-on{display:none;}
+.page-fiscal-notes .allbtn.on{color:var(--navy);border-color:var(--navy-100);background:var(--navy-100);}
+.page-fiscal-notes .allbtn.on .all-off{display:none;}
+.page-fiscal-notes .allbtn.on .all-on{display:inline-flex;}
+
+/* ===== the source drawer — .pdf-drawer, verbatim geometry ================= */
+.pdf-drawer{position:fixed;top:0;right:0;bottom:0;z-index:60;width:min(560px,100vw);display:flex;flex-direction:column;background:var(--canvas);border-left:1px solid var(--line);box-shadow:var(--shadow);}
+.pdf-drawer-head{display:flex;align-items:center;justify-content:space-between;gap:8px;padding:10px 12px;border-bottom:1px solid var(--line);background:var(--navy);color:#fff;}
+.pdf-drawer-title{font-weight:800;font-size:13px;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+.pdf-drawer-close{display:inline-flex;align-items:center;justify-content:center;width:28px;height:28px;border:0;border-radius:var(--r-pill);background:rgba(255,255,255,.12);color:#fff;cursor:pointer;flex:0 0 auto;}
+.pdf-drawer-close:hover{background:rgba(255,255,255,.24);}
+.pdf-drawer-close svg{width:16px;height:16px;}
+.pdf-drawer-body{flex:1 1 auto;min-height:0;overflow-y:auto;padding:14px;}
+.pdf-drawer-crumb{font-size:11.5px;font-weight:800;color:var(--ink-3);text-transform:uppercase;letter-spacing:.05em;margin:0 0 10px;}
+/* The drawn stand-in for the pdf.js page render. */
+.pdf-page{background:#fff;border:1px solid var(--line);border-radius:var(--r-sm);box-shadow:var(--shadow-sm);padding:26px 24px;font-size:12.5px;line-height:1.7;color:var(--ink-2);}
+.pdf-page h4{margin:0 0 3px;font-size:13px;font-weight:800;color:var(--navy);text-transform:uppercase;letter-spacing:.06em;}
+.pdf-page .pp-sub{margin:0 0 16px;font-size:11.5px;font-weight:700;color:var(--ink-3);}
+.pdf-page .pp-h{margin:16px 0 5px;font-size:12px;font-weight:800;color:var(--navy);text-transform:uppercase;letter-spacing:.05em;}
+.pdf-page p{margin:0 0 9px;}
+/* The bbox highlight. Strict: it marks the CITED SPAN, and nothing else.
+   NOT yellow. Two reasons it changed (Destin, 2026-08-13): yellow is off this
+   palette entirely — the tokens are monochrome navy, so a highlighter colour
+   arrives as the only warm thing on the page — and it read as the same KIND
+   of mark as the search-term wash, which it is not.
+   These two highlights answer different questions and must not be confused:
+     · the pale wash in the results  = WORDS YOU TYPED
+     · this one, in the source panel = THE PASSAGE THE SYSTEM CITED
+   So they are separated by FORM, not just by hue, which is the only thing
+   that reliably reads in a one-colour palette: this is a deeper navy band
+   with a solid rule under it, against a flat pale tint with no rule. The
+   underline repeats per line, so a span that wraps stays legible.
+   `box-decoration-break:clone` keeps the padding on every wrapped fragment. */
+.pdf-page .hit{background:var(--navy-100);box-shadow:0 0 0 3px var(--navy-100);border-radius:2px;color:var(--ink);font-weight:700;
+  text-decoration:underline;text-decoration-color:var(--navy);text-decoration-thickness:2px;text-underline-offset:3px;
+  -webkit-box-decoration-break:clone;box-decoration-break:clone;}
+.pdf-foot{display:flex;align-items:center;gap:10px;margin-top:12px;flex-wrap:wrap;}
+.pdf-foot .pg{font-size:11.5px;font-weight:800;color:var(--ink-3);}
+.pdf-foot a{display:inline-flex;align-items:center;gap:6px;font-size:12px;font-weight:800;color:var(--az-gold-d);background:#fff;border:1px solid var(--az-gold-100);border-radius:var(--r-pill);padding:6px 13px;}
+.pdf-foot a:hover{border-color:var(--az-gold);background:var(--az-gold-100);}
+.pdf-note{margin:12px 0 0;font-size:11.5px;font-weight:700;color:var(--ink-3);line-height:1.5;}
+.pdf-scrim{position:fixed;inset:0;z-index:59;background:rgba(24,27,61,.18);border:0;}
+
+@media (max-width:860px){
+  .page-fiscal-notes .fnlayout{grid-template-columns:1fr;}
+  .page-fiscal-notes .fnside{position:static;}
+  .page-fiscal-notes .fnstatus{margin-left:0;}
+}
+</style>
+</head>
+<body>
+
+<header class="site">
+  <div class="bar">
+    <a class="brand" href="#">
+      <img src="../webapp/public/jlbc-logo.png" alt="JLBC logo">
+      <span class="bt"><b>Ask the Budget</b><span>Arizona budget documents</span></span>
+    </a>
+    <nav class="pills" aria-label="Primary">
+      <a href="#">Budget Documents</a>
+      <a href="#">AI Mode</a>
+      <a href="#" class="active" aria-current="page">Fiscal Notes</a>
+    </nav>
+  </div>
+</header>
+
+<main class="page-fiscal-notes">
+
+  <section class="subhero">
+    <div class="wrap">
+      <h1>Fiscal Notes</h1>
+      <p class="lead">
+        Independent fiscal-impact analyses of pending legislation — each bill's
+        effect on state revenues, spending, and the General Fund.
+      </p>
+      <div class="chips">
+        <span class="chip">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M6 2h9l5 5v15H6z"/><path d="M14 2v6h6"/></svg>
+          House &amp; Senate bills
+        </span>
+        <span class="chip">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="m21 21-4.3-4.3"/></svg>
+          Search by bill number, or by what the note says
+        </span>
+      </div>
+    </div>
+  </section>
+
+  <div class="wrap fnwrap">
+    <p class="fnnote fnstatus" id="status" role="status"></p>
+
+    <div class="fnlayout">
+      <aside class="fnside">
+        <div class="fgrp">
+          <label class="fside-search">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="m21 21-4.3-4.3"/></svg>
+            <input id="q" type="text" placeholder="Bill #, keyword, or a question…" aria-label="Search fiscal notes by bill number, keyword, or question" autocomplete="off">
+            <button type="button" class="clr-x" id="qclear" aria-label="Clear search">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" aria-hidden="true"><path d="M6 6l12 12M18 6 6 18"/></svg>
+            </button>
+          </label>
+        </div>
+
+        <div class="fgrp">
+          <div class="flbl" id="ch-label">Chamber</div>
+          <div class="chswitch" role="group" aria-labelledby="ch-label">
+            <button type="button" class="chseg on" data-ch="all" aria-pressed="true">All</button>
+            <button type="button" class="chseg" data-ch="house" aria-pressed="false">House</button>
+            <button type="button" class="chseg" data-ch="senate" aria-pressed="false">Senate</button>
+          </div>
+        </div>
+
+        <div class="fgrp">
+          <div class="flbl" id="sess-label">Legislative Session</div>
+          <div class="fctl">
+            <button type="button" class="fbtn" id="sess-btn" aria-expanded="false" aria-labelledby="sess-label">
+              <span class="fb-label" id="sess-btn-label">Any session</span>
+              <svg class="chev" viewBox="0 0 10 6" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><path d="m1 1 4 4 4-4"/></svg>
+            </button>
+            <div class="fmenu" id="sess-menu" hidden role="group" aria-label="Legislative session options"></div>
+          </div>
+        </div>
+
+        <div class="fgrp">
+          <div class="flbl" id="sort-label">Sort bills</div>
+          <div class="fctl">
+            <button type="button" class="fbtn" id="sort-btn" aria-expanded="false" aria-labelledby="sort-label">
+              <span class="fb-label" id="sort-btn-label">Bill number (low to high)</span>
+              <svg class="chev" viewBox="0 0 10 6" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><path d="m1 1 4 4 4-4"/></svg>
+            </button>
+            <div class="fmenu" id="sort-menu" hidden role="group" aria-label="Sort options"></div>
+          </div>
+          <!-- ONE sentence for BOTH stood-down controls (spec F9). Chamber and
+               sort go inactive together, for the same reason, in the same
+               words — two sentences would imply two different reasons. It
+               lives under Sort because Sort is the lower of the two. -->
+          <p class="fhint" id="sort-hint" hidden>Ranked results are ordered by relevance — chamber and sort apply to browsing.</p>
+        </div>
+      </aside>
+
+      <div class="fnmain" id="cards"></div>
+    </div>
+  </div>
+</main>
+
+<div id="drawer"></div>
+
+<script>
+/* ==========================================================================
+   Throwaway demo wiring. The real page POSTs /api/search with
+   corpus:"fiscal_notes" and opens SourcePanel on a passage click.
+   ========================================================================== */
+
+const SESSIONS = [
+  {y:2026, name:"57th Legislature, 2nd Reg. Session (2026)", total:112},
+  {y:2025, name:"57th Legislature, 1st Reg. Session (2025)", total:126},
+  {y:2024, name:"56th Legislature, 2nd Reg. Session (2024)", total:96},
+  {y:2023, name:"56th Legislature, 1st Reg. Session (2023)", total:100},
+  {y:2022, name:"55th Legislature, 2nd Reg. Session (2022)", total:101},
+];
+
+/* Real bills, from the live directory. */
+const BILLS = [
+  {y:2026,c:"S",n:"SB 1035",t:"state department of corrections; appropriation"},
+  {y:2026,c:"S",n:"SB 1086",t:"AHCCCS; noncontracting providers; reimbursement"},
+  {y:2026,c:"S",n:"SB 1092",t:"dangerous crimes against children; probation"},
+  {y:2026,c:"S",n:"SB 1009",t:"high school students; AED training"},
+  {y:2026,c:"H",n:"HB 2091",t:"financial surveillance fund; insurer examinations"},
+  {y:2026,c:"H",n:"HB 2011",t:"individual income tax; subtraction; adoption"},
+  {y:2026,c:"H",n:"HB 2113",t:"public service corporation; rates; intervenor"},
+  {y:2025,c:"S",n:"SB 1010",t:"appropriation; state department of corrections"},
+  {y:2025,c:"S",n:"SB 1037",t:"<strike>health boards; fund balances; fees</strike> (NOW: regulated professions; boards; fees)"},
+  {y:2025,c:"H",n:"HB 2081",t:"income tax; subtraction; tipped wages"},
+  {y:2025,c:"H",n:"HCR 2012",t:"income tax; rate; reduction"},
+  {y:2024,c:"H",n:"HB 2135",t:"adult incarceration contracts"},
+  {y:2024,c:"H",n:"HB 2035",t:"insurance; claims; appeals; provider credentialing"},
+  {y:2024,c:"S",n:"SB 1037",t:"AHCCCS; comprehensive dental care"},
+  {y:2024,c:"S",n:"SB 1020",t:"newborn screening; Duchenne muscular dystrophy"},
+  {y:2024,c:"S",n:"SB 1083",t:"mental illness; medication; authorization"},
+  {y:2023,c:"S",n:"SB 1016",t:"AHCCCS; speech therapy"},
+  {y:2023,c:"S",n:"SB 1017",t:"AHCCCS; cochlear implants"},
+  {y:2023,c:"S",n:"SB 1018",t:"<strike>mental health coverage; collaborative care</strike> (NOW: collaborative care; appropriation)"},
+  {y:2023,c:"H",n:"HB 2003",t:"corporate income tax; rates"},
+  {y:2023,c:"H",n:"HB 2018",t:"counties; committed youth contributions; repeal"},
+  {y:2022,c:"S",n:"SB 1031",t:"developmental disabilities; ALTCS services"},
+  {y:2022,c:"H",n:"HB 2144",t:"health insurance coverage; biomarker testing"},
+  {y:2022,c:"H",n:"HB 2180",t:"school facilities; replacement; renovation; funding"},
+  {y:2022,c:"H",n:"HB 2117",t:"schools; transportation support level; CTE"},
+];
+const LEG_PATH = {2026:"57leg/2R", 2025:"57leg/1R", 2024:"56leg/2R", 2023:"56leg/1R", 2022:"55leg/2R"};
+BILLS.forEach(b => { b.u = `https://www.azleg.gov/legtext/${LEG_PATH[b.y]}/fiscal/${b.n.replace(/\s+/g,"")}.DOCX.pdf`; });
+
+/* Passages, in the shape the corpus stores them. `sec` is the tail of the real
+   section_path ("JLBC Fiscal Note > Estimated Impact"). `cite` is the span the
+   drawer highlights inside `page_text` — the equivalent of the chunk bbox. */
+const P = (n,y,page,sec,text,cite) => ({n,y,page,sec,text,cite:cite||text});
+const PASSAGES = [
+  P("SB 1035",2026,1,"Estimated Impact","The bill would appropriate $28,700,000 from the General Fund in FY 2027 to the State Department of Corrections for inmate health care. The department reports an average annual cost per inmate of $30,900, of which health care is $9,400.","average annual cost per inmate of $30,900, of which health care is $9,400"),
+  P("SB 1035",2026,2,"Analysis","The department operates 15,880 beds statewide. Inmate health care is delivered under a single statewide contract, and the per-member per-month rate rose 6.1% at the most recent renewal.","the per-member per-month rate rose 6.1% at the most recent renewal"),
+  P("SB 1035",2026,3,"Analysis","A bed added above current operating capacity carries a marginal cost lower than the average, because fixed perimeter and administrative costs do not scale with population. JLBC staff estimates the marginal cost at $12,700.","JLBC staff estimates the marginal cost at $12,700"),
+  P("SB 1010",2025,1,"Estimated Impact","The bill would appropriate $16,300,000 from the General Fund in FY 2026 to the State Department of Corrections. Health care services account for $9,100,000 of that amount.","Health care services account for $9,100,000 of that amount"),
+  P("SB 1010",2025,2,"Analysis","JLBC staff estimates the per-inmate operating cost at $29,800 in FY 2026, up 3.7% over the prior year. Health care is the fastest-growing component.","the per-inmate operating cost at $29,800 in FY 2026, up 3.7%"),
+  P("HB 2135",2024,1,"Estimated Impact","The General Fund impact cannot be precisely determined. Private adult incarceration contracts are currently paid at a per diem of $69.32 per inmate per day, inclusive of on-site health care.","a per diem of $69.32 per inmate per day, inclusive of on-site health care"),
+  P("HB 2135",2024,3,"Analysis","If the department were to shift 1,000 inmates from private beds to state-operated beds, the annual cost difference would be approximately $5,600,000, though the estimate is sensitive to which units absorbed the population.","the annual cost difference would be approximately $5,600,000"),
+  P("HB 2135",2024,4,"Description","The bill would require that any adult incarceration contract disclose the health care staffing ratio maintained at the facility.","disclose the health care staffing ratio maintained at the facility"),
+  P("SB 1092",2026,1,"Analysis","The Department of Corrections estimates 40 additional inmates would be admitted annually. At the marginal cost of $12,700 per inmate, the steady-state cost after ten years would be $5,100,000 annually.","the steady-state cost after ten years would be $5,100,000 annually"),
+  P("SB 1086",2026,1,"Estimated Impact","AHCCCS estimates the reimbursement change would increase General Fund spending by $4,100,000 and Total Fund spending by $17,900,000 in FY 2027.","increase General Fund spending by $4,100,000 and Total Fund spending by $17,900,000"),
+  P("SB 1086",2026,2,"Analysis","Noncontracting provider claims represent roughly 2.4% of acute care encounters. The change would raise the average paid amount per encounter from $412 to $487.","raise the average paid amount per encounter from $412 to $487"),
+  P("SB 1037",2024,1,"Estimated Impact","Adding comprehensive dental care for adult members would cost an estimated $37,600,000 Total Fund, of which $12,900,000 is General Fund, in the first full year.","$37,600,000 Total Fund, of which $12,900,000 is General Fund"),
+  P("SB 1037",2024,2,"Analysis","AHCCCS reports 385,000 adult members would be eligible. The estimate assumes a utilization rate of 31%, consistent with the emergency dental benefit's observed take-up.","assumes a utilization rate of 31%"),
+  P("SB 1016",2023,1,"Estimated Impact","AHCCCS reports that speech therapy utilization among the affected population averages 11.4 visits per member per year at $84 per visit, giving a Total Fund cost of $2,300,000.","11.4 visits per member per year at $84 per visit"),
+  P("SB 1017",2023,1,"Description","The bill would require AHCCCS to cover cochlear implants for members over 21. The device and surgical episode together average $52,000.","The device and surgical episode together average $52,000"),
+  P("SB 1017",2023,2,"Estimated Impact","AHCCCS estimates 60 to 90 members annually would qualify, for a Total Fund cost between $3,100,000 and $4,700,000, of which roughly 30% is General Fund.","a Total Fund cost between $3,100,000 and $4,700,000"),
+  P("SB 1018",2023,1,"Estimated Impact","The collaborative care model would be reimbursed at a monthly case rate. AHCCCS estimates a General Fund cost of $1,900,000 in the first year, rising to $4,400,000 at full enrollment.","a General Fund cost of $1,900,000 in the first year"),
+  P("SB 1083",2024,1,"Analysis","The Department of Health Services reports that the average inpatient psychiatric day costs $1,180, and that authorization delays add an average of 2.3 days per admission.","the average inpatient psychiatric day costs $1,180"),
+  P("HB 2144",2022,1,"Estimated Impact","Requiring health insurance coverage of biomarker testing would increase state employee health plan costs by an estimated $2,400,000 annually.","increase state employee health plan costs by an estimated $2,400,000 annually"),
+  P("HB 2144",2022,2,"Analysis","The Department of Administration reports the state health plan covers 142,000 lives. The estimate assumes a per-member per-month cost of $1.41.","assumes a per-member per-month cost of $1.41"),
+  P("HB 2035",2024,1,"Estimated Impact","The Department of Insurance and Financial Institutions estimates no General Fund cost. Health care provider credentialing timelines would be shortened by rule, at an administrative cost absorbed within existing appropriations.","estimates no General Fund cost"),
+  P("SB 1031",2022,1,"Estimated Impact","The Division of Developmental Disabilities estimates that expanding ALTCS services would increase Total Fund spending by $22,400,000, of which $7,700,000 would be General Fund, in FY 2023.","increase Total Fund spending by $22,400,000, of which $7,700,000 would be General Fund"),
+  P("SB 1020",2024,1,"Estimated Impact","Adding Duchenne muscular dystrophy to the newborn screening panel would cost $310,000 annually, funded by the Newborn Screening Fund rather than the General Fund.","cost $310,000 annually, funded by the Newborn Screening Fund"),
+  P("HB 2081",2025,1,"Estimated Impact","The Department of Revenue estimates the individual income tax subtraction for tipped wages would reduce General Fund revenue by $67,000,000 in FY 2026 and by $71,500,000 in FY 2027.","reduce General Fund revenue by $67,000,000 in FY 2026"),
+  P("HCR 2012",2025,1,"Estimated Impact","A reduction in the individual income tax rate to 2.25% would reduce General Fund revenue by an estimated $475,000,000 annually once fully phased in.","reduce General Fund revenue by an estimated $475,000,000 annually"),
+  P("HB 2003",2023,1,"Estimated Impact","Reducing the corporate income tax rate from 4.9% to 4.5% would reduce General Fund revenue by an estimated $86,000,000 in the first full year.","reduce General Fund revenue by an estimated $86,000,000"),
+  P("HB 2018",2023,1,"Analysis","Counties currently contribute $8,400,000 annually toward the cost of committed youth. Repeal would shift that cost to the General Fund.","Repeal would shift that cost to the General Fund"),
+  P("HB 2180",2022,1,"Estimated Impact","The School Facilities Division estimates the formula change would require $138,000,000 in additional General Fund appropriations over six years.","require $138,000,000 in additional General Fund appropriations over six years"),
+  P("HB 2117",2022,2,"Analysis","Transportation support level funding is distributed per mile. The estimated additional cost of $8,900,000 assumes districts report route mileage consistently with prior years.","The estimated additional cost of $8,900,000"),
+  P("SB 1009",2026,1,"Estimated Impact","AED training for high school students would be delivered within existing health curriculum time. The Department of Education reports no additional General Fund cost.","reports no additional General Fund cost"),
+  P("HB 2091",2026,1,"Estimated Impact","Insurer examination costs are recovered through the Financial Surveillance Fund, so the bill has no General Fund impact.","the bill has no General Fund impact"),
+  P("SB 1037",2025,1,"Estimated Impact","Regulated professions boards recover their costs through fees. The bill would sweep $3,200,000 of accumulated fund balances to the General Fund in FY 2026.","sweep $3,200,000 of accumulated fund balances to the General Fund"),
+  P("HB 2011",2026,1,"Estimated Impact","The adoption subtraction would reduce General Fund revenue by an estimated $1,100,000 annually, based on 2,400 qualifying returns.","reduce General Fund revenue by an estimated $1,100,000 annually"),
+  P("HB 2113",2026,1,"Estimated Impact","Intervenor funding would be recovered through utility rates and has no General Fund cost. The Corporation Commission estimates an administrative cost of $180,000.","has no General Fund cost"),
+];
+
+const SORTS = [
+  {k:"na", label:"Bill number (low to high)"},
+  {k:"nd", label:"Bill number (high to low)"},
+  {k:"ta", label:"Bill title (A to Z)"},
+  {k:"td", label:"Bill title (Z to A)"},
+];
+const CHAMBER_NOUN = {all:"Fiscal Notes", house:"House Notes", senate:"Senate Notes"};
+/* The retrieval pool. NOT a setting: FUSED_TOP_K in retrieval/pipeline.py is a
+   hard ceiling, and asking /api/search for more returns 20 anyway. */
+const TOP_K = 20;
+/* How many NOTES the results list shows (spec F10, Destin 2026-08-13). Applied
+   in the BROWSER, after the response arrives — nothing under retrieval/ moves.
+   Measured against eight real questions, 20 passages collapse to 9-17 notes, so
+   this cut fires on the minority of searches and "all N" is the common header. */
+const SHOW_NOTES = 15;
+/* How many matching session cards auto-expand during a TITLE search (spec F8).
+   Three keeps the matches visible, newest first, while capping mounted rows at
+   roughly one session-and-a-half in the worst case. */
+const AUTO_OPEN = 3;
+const ESCALATE_MS = 2000;
+
+/* "57th Legislature, 2nd Reg. Session (2026)"  ->
+   "2026 (57th Legislature, 2nd Regular Session)"
+
+   Year first, because a reader scans this page by year and the directory's own
+   ordering buries it at the end.
+
+   The abbreviation goes through a MAP, not a blind `.replace("Reg.","Regular")`
+   — every one of the 28 live sessions is a Regular session today, but Arizona
+   holds special sessions, and an unrecognised form must pass through intact
+   rather than be half-rewritten. Same for the trailing "(YYYY)": it is stripped
+   only when it is exactly this session's own year, so a name that does not
+   carry one is left alone instead of losing its last four characters. */
+const SESSION_WORDS = {"Reg.":"Regular", "Spec.":"Special"};
+function sessionLabel(s){
+  let body = s.name.replace(new RegExp("\\s*\\(" + s.y + "\\)\\s*$"), "");
+  body = body.replace(/\S+\./g, w => SESSION_WORDS[w] ?? w);
+  return `${s.y} (${body})`;
+}
+const labelFor = y => {
+  const s = SESSIONS.find(x=>x.y===y);
+  return s ? sessionLabel(s) : String(y);
+};
+
+const $ = s => document.querySelector(s);
+const state = {
+  q:"how much does inmate health care cost",
+  chamber:"all",
+  sessions:new Set(),
+  sort:"na",
+  mode:"contents",              // this page LANDS on the retrieval half
+  suppressed:null,
+  openSource:null,              // "y|bill|page" of the passage in the drawer
+  openSessions:new Map(),       // manual card toggles; absent = the mode's default
+  contentBusy:false,
+};
+let escalateTimer = null, openMenu = null;
+
+/* ---------- titles ------------------------------------------------------- */
+const STRUCK = /^([\s\S]*?)<strike>([\s\S]*?)<\/strike>([\s\S]*)$/i;
+const esc = s => String(s).replace(/[&<>"]/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
+const stripTags = s => s.replace(/<[^>]*>/g," ").replace(/\s+/g," ").trim();
+const titleText = t => t.includes("<") ? stripTags(t) : t;
+function titleHtml(t, q){
+  if (!t.includes("<")) return mark(t, q);
+  const p = STRUCK.exec(t);
+  if (!p) return mark(stripTags(t), q);
+  const [, lead, struck, rest] = p;
+  const before = stripTags(lead), after = stripTags(rest);
+  return `${before?mark(before,q)+" ":""}<s>${mark(stripTags(struck),q)}</s>${after?" "+mark(after,q):""}`;
+}
+
+/* ---------- highlighting ------------------------------------------------- */
+function terms(q){ return q.toLowerCase().split(/\s+/).filter(t=>t.length>1); }
+/* Match on RAW text and escape each run as it is emitted. Marking already-
+   escaped text lets a query word land inside an entity and emit broken markup. */
+function mark(text, q){
+  const ts = terms(q||"");
+  if (!ts.length) return esc(text);
+  // A boundary at BOTH ends, matching the shipped highlightTerms(). Anchoring
+  // only the front highlights "inmate" inside "inmates" and leaves the "s"
+  // outside the mark — which renders as a highlighted word with a loose
+  // letter drifting after it. Caught by looking at the page, not by any test.
+  const re = new RegExp("\\b(?:" + ts.map(t=>t.replace(/[.*+?^${}()|[\]\\]/g,"\\$&")).join("|") + ")\\b", "gi");
+  let out="", last=0, m;
+  while ((m = re.exec(text)) !== null){
+    if (m[0].length===0){ re.lastIndex++; continue; }
+    out += esc(text.slice(last, m.index)) + "<mark>" + esc(m[0]) + "</mark>";
+    last = m.index + m[0].length;
+  }
+  return out + esc(text.slice(last));
+}
+
+/* ---------- title filter ------------------------------------------------- */
+const billId  = b => b.n.replace(/\s+/g,"").toUpperCase();
+const billNum = b => (b.n.match(/\d+/)||[""])[0];
+function matchesQuery(b, q){
+  if (!q) return true;
+  if (/[a-z]/i.test(q)){
+    if (billId(b).startsWith(q.toUpperCase().replace(/\s+/g,""))) return true;
+    return titleText(b.t).toLowerCase().includes(q.toLowerCase());
+  }
+  const digits = q.replace(/[^0-9]/g,"");
+  return digits!=="" && billNum(b).startsWith(digits);
+}
+const inChamber = (b,ch) => ch==="all" || (ch==="house" ? b.c==="H" : b.c!=="H");
+const inSessions = b => state.sessions.size===0 || state.sessions.has(b.y);
+const billOf = p => BILLS.find(b => b.n===p.n && b.y===p.y);
+
+function sortBills(bills){
+  const byNumber=(a,b)=>(+billNum(a)||0)-(+billNum(b)||0)||a.n.localeCompare(b.n);
+  const byTitle =(a,b)=>titleText(a.t).toLowerCase().localeCompare(titleText(b.t).toLowerCase());
+  const out=[...bills].sort(state.sort==="na"||state.sort==="nd"?byNumber:byTitle);
+  if (state.sort==="nd"||state.sort==="td") out.reverse();
+  return out;
+}
+
+/* ---------- retrieval stand-in ------------------------------------------- */
+/* Session filters the REQUEST (the real page sends filters.fiscal_year).
+   CHAMBER DOES NOT FILTER THIS AT ALL (spec F9, reversed 2026-08-13): there is
+   no chamber column on fiscal_note_chunks, so a chamber lens could only remove
+   ranked notes AFTER the fact, with no way to fetch replacements — a House-only
+   search would come back short by an unpredictable amount. The segments stand
+   down instead, exactly as sort does. */
+function retrieve(q){
+  const ts = terms(q);
+  return PASSAGES
+    .filter(p => state.sessions.size===0 || state.sessions.has(p.y))
+    .map(p => {
+      const hay = (p.text + " " + p.sec).toLowerCase();
+      return {p, score: ts.reduce((n,t)=>n+(hay.includes(t)?1:0),0)};
+    })
+    .filter(x => x.score>0)
+    .sort((a,b)=> b.score-a.score || b.p.y-a.p.y || a.p.page-b.p.page)
+    .slice(0, TOP_K)
+    .map(x => x.p);
+}
+
+function titleHits(){
+  return BILLS.filter(b=>inSessions(b)&&inChamber(b,state.chamber)&&matchesQuery(b,state.q)).length;
+}
+function escalating(){
+  return state.mode==="titles" && state.q!=="" && titleHits()===0 && state.suppressed!==state.q;
+}
+const showingContents = () => state.mode==="contents" || escalating();
+
+/* ---------- rendering ---------------------------------------------------- */
+const MAG=`<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="m21 21-4.3-4.3"/></svg>`;
+const X=`<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" aria-hidden="true"><path d="M6 6l12 12M18 6 6 18"/></svg>`;
+
+const srcKey = p => `${p.y}|${p.n}|${p.page}`;
+
+/* ONE card per note, holding that note's BEST passage and nothing else, and
+   the whole card is ONE button that opens the source drawer.
+   `passages` still arrives as the note's full ranked list — the card takes
+   [0] and the rest inform nothing but the ordering. */
+function noteCard(bill, passages){
+  const p = passages[0];
+  const on = state.openSource===srcKey(p);
+  return `<button type="button" class="grp${on?" is-open":""}" data-src="${esc(srcKey(p))}">
+    <span class="res-top">
+      <span class="res-name"><span class="res-no">${esc(bill.n)}</span> — ${titleHtml(bill.t, state.q)}</span>
+      <span class="grp-open">${on?"Close note":"Open note"}</span>
+    </span>
+    <span class="res-year">${esc(labelFor(bill.y))}</span>
+    <span class="exc">
+      <span class="exc-lbl">${esc(p.sec)}</span>
+      <span class="doc-quote">${mark(p.text, state.q)}</span>
+    </span>
+  </button>`;
+}
+
+function toggleBar(){
+  if (state.q==="" || state.contentBusy) return "";
+  const on = showingContents();
+  return `<div class="allbar">
+    <button type="button" class="allbtn${on?" on":""}" id="modebtn" aria-pressed="${on}">
+      <span class="all-off">${MAG} Search note contents</span>
+      <span class="all-on">↩ Back to title matches</span>
+    </button>
+  </div>`;
+}
+
+function renderMenus(){
+  $("#sess-menu").innerHTML = SESSIONS.map(s=>{
+    const on=state.sessions.has(s.y);
+    const n=BILLS.filter(b=>b.y===s.y&&inChamber(b,state.chamber)).length;
+    return `<button type="button" class="fopt${on?" on":""}" data-sess="${s.y}" aria-pressed="${on}">
+      <span class="ck"><svg viewBox="0 0 12 10" fill="none" stroke="currentColor" stroke-width="2.4"><path d="m1 5 3.5 3.5L11 1"/></svg></span>
+      ${s.y}<span class="fopt-n">${n}</span></button>`;
+  }).join("");
+  $("#sort-menu").innerHTML = SORTS.map(o=>{
+    const on=state.sort===o.k;
+    return `<button type="button" class="fopt radio${on?" on":""}" data-sort="${o.k}" aria-pressed="${on}"><span class="ck"></span>${o.label}</button>`;
+  }).join("");
+  $("#sess-btn-label").textContent = state.sessions.size===0?"Any session"
+    : state.sessions.size===1?String([...state.sessions][0]):`${state.sessions.size} selected`;
+  $("#sess-btn").classList.toggle("has", state.sessions.size>0);
+  $("#sort-btn-label").textContent = SORTS.find(o=>o.k===state.sort).label;
+  // BOTH controls stand down in content mode (spec F9), sharing one sentence.
+  const inert = showingContents();
+  $("#sort-btn").disabled = inert;
+  $("#sort-hint").hidden = !inert;
+  [...document.querySelectorAll(".chseg")].forEach(el=>{
+    const on = el.dataset.ch===state.chamber;
+    el.classList.toggle("on", on);
+    el.setAttribute("aria-pressed", String(on));
+    // Disabled, not hidden: the reader keeps seeing WHICH lens is set and that
+    // it will come back, which a vanishing control would not tell them.
+    el.disabled = inert;
+  });
+}
+
+/** Ranked passages -> one entry per note -> cut at SHOW_NOTES.
+ *
+ *  Nothing filters between the ranking and the cut: chamber stood down (F9), so
+ *  the only thing that removes a ranked note is the 15-note ceiling itself.
+ *
+ *  `cut` is what the header needs — it is the whole difference between "showing
+ *  top 15" and "showing all N", and it is a fact about THIS response, not about
+ *  the corpus. */
+function resultSet(){
+  const ranked = retrieve(state.q);
+  const byNote = new Map();
+  for (const p of ranked){
+    const k=`${p.y}|${p.n}`;
+    if(!byNote.has(k)) byNote.set(k,[]);
+    byNote.get(k).push(p);          // ranked order; the card renders [0] only
+  }
+  const all = [...byNote.entries()];
+  const shownNotes = all.slice(0, SHOW_NOTES);
+  return {ranked, shownNotes, cut: all.length > SHOW_NOTES};
+}
+
+/** The results header, both halves of spec F10's copy.
+ *
+ *  Two strings, chosen by one comparison. Both are claims about what THIS
+ *  SEARCH surfaced; neither is a claim about the corpus, and nothing on this
+ *  page may imply one. "all" here means "all that the 20-passage ceiling
+ *  reached" — see F10 for the accepted honesty cost and its one-word remedy. */
+function resultsHeader(n, cut){
+  return cut ? `Showing top ${SHOW_NOTES} matches` : `Showing all ${n} match${n===1?"":"es"}`;
+}
+
+function renderCards(){
+  const el = $("#cards");
+
+  if (showingContents()){
+    const head = meta => `<div class="yg-head-static"><div class="yg-ttl">
+        <span class="yg-yr">Results <span class="yg-mode">(searching note contents)</span></span>
+        <span class="yg-meta">${meta}</span>
+      </div></div>`;
+    if (state.contentBusy || escalating()){
+      el.innerHTML = `<section class="yg">${head("")}
+        <div class="docload" role="status"><span class="spin" aria-hidden="true"></span>
+          <span>Searching note contents…<span class="sub">Reading inside every ingested fiscal note.</span></span>
+        </div></section>${toggleBar()}`;
+      return;
+    }
+    const {shownNotes, cut} = resultSet();
+    const cards=shownNotes.map(([,ps])=>{
+      const b=billOf(ps[0]); return b?noteCard(b,ps):"";
+    }).join("");
+    // NOTES, not passages: one card is one note is one match, so counting
+    // passages would name a quantity nothing on screen corresponds to.
+    const meta = shownNotes.length ? resultsHeader(shownNotes.length, cut) : "";
+    // Only SESSION can empty this now — chamber no longer touches results, so
+    // naming it here would send the reader to clear a filter that did nothing.
+    const body = cards || `<p class="empty">No passages inside the ingested notes mention “${esc(state.q)}”${
+      state.sessions.size?" in the sessions you picked. Try adding one.":"."}</p>`;
+    el.innerHTML = `<section class="yg">${head(meta)}${body}</section>${toggleBar()}`;
+    return;
+  }
+
+  /* Title mode — the round trip back, so the toggle is never a dead end.
+     Only the NEWEST THREE matching cards auto-expand (spec F8): expanding all
+     of them puts every row on the page at once, and typing `a` matches 2,029
+     rows across all 28 sessions. Older matching cards stay collapsed behind a
+     true count, one click from their rows. */
+  const matching = SESSIONS
+    .filter(s=>state.sessions.size===0||state.sessions.has(s.y))
+    .map(s=>({s, bills: sortBills(BILLS.filter(b=>b.y===s.y&&inChamber(b,state.chamber)&&matchesQuery(b,state.q)))}))
+    .filter(x=>state.q==="" || x.bills.length);
+  const cards = matching.map(({s, bills}, i)=>{
+    const open = state.openSessions.has(s.y) ? state.openSessions.get(s.y) : i < AUTO_OPEN;
+    const noun = CHAMBER_NOUN[state.chamber];
+    const label = sessionLabel(s);
+    return `<section class="yg${open?" yg-open":" yg-closed"}">
+      <button type="button" class="yg-head" data-stoggle="${s.y}" aria-expanded="${open}"
+              aria-label="${esc(label)}: ${bills.length} ${noun}">
+        <div class="yg-ttl">
+          <span class="yg-yr">${esc(label)}</span>
+          <span class="yg-meta">${bills.length} ${noun}</span>
+        </div>
+        <svg class="yg-chev${open?" open":""}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="m6 9 6 6 6-6"/></svg>
+      </button>
+      ${open ? `<div class="fnlist">${bills.map(b=>`<a class="fbill" href="${b.u}" target="_blank" rel="noopener noreferrer">
+        <span class="fbill-no">${esc(b.n)}</span>
+        <span class="fbill-desc">${titleHtml(b.t, state.q)}</span>
+        <span class="fbill-dl">PDF</span></a>`).join("")}</div>` : ""}
+    </section>`;
+  }).join("");
+  el.innerHTML = (cards || `<section class="yg"><p class="empty">No note titles or bill numbers match “${esc(state.q)}”.</p></section>`) + toggleBar();
+}
+
+function renderStatus(){
+  const scope = state.sessions.size===0 ? `all ${SESSIONS.length} sessions`
+    : state.sessions.size===1 ? `the ${[...state.sessions][0]} session` : `${state.sessions.size} sessions`;
+
+  if (showingContents()){
+    if (state.contentBusy || escalating()){ $("#status").textContent=`Searching note contents for “${state.q}”…`; return; }
+    const {shownNotes, cut} = resultSet();
+    if (!shownNotes.length){ $("#status").textContent = `No passages matching “${state.q}” in ${scope}.`; return; }
+    // Spec F10's copy, with the query and scope the status line has always
+    // carried. The old "N ranked notes were dropped after ranking" apology is
+    // GONE with the chamber filter that caused it (F9) — nothing removes a
+    // ranked note now except the 15-note ceiling, and the header states that.
+    $("#status").textContent =
+      `${resultsHeader(shownNotes.length, cut)} for “${state.q}” in ${scope}, each showing its best-matching passage.`;
+    return;
+  }
+  const noun = state.chamber==="all"?"fiscal notes":state.chamber==="house"?"House notes":"Senate notes";
+  const n = BILLS.filter(b=>inSessions(b)&&inChamber(b,state.chamber)&&matchesQuery(b,state.q)).length;
+  $("#status").textContent = state.q
+    ? (n===0 ? `No ${noun} matching “${state.q}” in ${scope}.`
+             : `${n} ${n===1?noun.replace(/s$/,""):noun} matching “${state.q}”, in ${scope}.`)
+    : `${n} ${noun} across ${scope}.`;
+}
+
+/* ---------- the source drawer -------------------------------------------- */
+/* A DRAWN stand-in for the pdf.js render: the real SourceView paints the PDF
+   page and highlights the chunk's bbox. What this shows is the SHAPE —
+   breadcrumb, page, the cited span marked IN PLACE inside the surrounding
+   page text, and a link out. */
+function renderDrawer(){
+  const host = $("#drawer");
+  if (!state.openSource){ host.innerHTML=""; return; }
+  const [y, n, page] = state.openSource.split("|");
+  const p = PASSAGES.find(x=>String(x.y)===y && x.n===n && String(x.page)===page);
+  if (!p){ host.innerHTML=""; return; }
+  const bill = billOf(p);
+  // The cited span, marked inside the passage it came from.
+  const i = p.text.indexOf(p.cite);
+  const body = i<0 ? esc(p.text)
+    : esc(p.text.slice(0,i)) + `<span class="hit">${esc(p.cite)}</span>` + esc(p.text.slice(i+p.cite.length));
+  host.innerHTML = `
+    <button type="button" class="pdf-scrim" id="scrim" aria-label="Close source"></button>
+    <aside class="pdf-drawer" role="dialog" aria-label="Source">
+      <div class="pdf-drawer-head">
+        <span class="pdf-drawer-title">${esc(bill?bill.n:n)} — ${esc(bill?titleText(bill.t):"")}</span>
+        <button type="button" class="pdf-drawer-close" id="drawerclose" aria-label="Close">${X}</button>
+      </div>
+      <div class="pdf-drawer-body">
+        <p class="pdf-drawer-crumb">${esc(labelFor(p.y))} · page ${p.page} · ${esc(p.sec)}</p>
+        <div class="pdf-page">
+          <h4>Arizona Joint Legislative Budget Committee</h4>
+          <p class="pp-sub">Fiscal Note — ${esc(bill?bill.n:n)}${bill?" · "+esc(titleText(bill.t)):""}</p>
+          <p class="pp-h">${esc(p.sec)}</p>
+          <p>${body}</p>
+          <p style="color:var(--ink-3)">Prepared by JLBC Staff. This fiscal note reflects the bill as introduced and does not account for subsequent amendment.</p>
+        </div>
+        <div class="pdf-foot">
+          <span class="pg">Page ${p.page}</span>
+          <a href="${bill?bill.u:"#"}" target="_blank" rel="noopener noreferrer">Open the source PDF</a>
+        </div>
+        <p class="pdf-note">
+          Stand-in, not a render. The shipped drawer paints the PDF page with
+          pdf.js and highlights the chunk's stored bbox; when the bbox search
+          misses it says “couldn't pinpoint” rather than drawing a box in the
+          wrong place. Fiscal-note chunks carry <code>page</code>, so the
+          provenance path is the same one Budget Documents uses.
+        </p>
+      </div>
+    </aside>`;
+}
+
+function renderAll(){
+  renderMenus(); renderCards(); renderStatus(); renderDrawer();
+  $("#qclear").classList.toggle("show", !!state.q);
+}
+
+/* ---------- events -------------------------------------------------------- */
+function closeMenus(){
+  openMenu=null;
+  $("#sess-menu").hidden=true; $("#sort-menu").hidden=true;
+  $("#sess-btn").setAttribute("aria-expanded","false");
+  $("#sort-btn").setAttribute("aria-expanded","false");
+}
+function openMenuFor(w){
+  const was=openMenu===w; closeMenus();
+  if(!was){ openMenu=w; $(`#${w}-menu`).hidden=false; $(`#${w}-btn`).setAttribute("aria-expanded","true"); }
+}
+function runContentSearch(){
+  state.contentBusy=true; renderAll();
+  setTimeout(()=>{ state.contentBusy=false; renderAll(); }, 700);
+}
+
+document.addEventListener("click", e=>{
+  const t=e.target;
+  if (t.closest("#sess-btn")){ openMenuFor("sess"); return; }
+  if (t.closest("#sort-btn") && !$("#sort-btn").disabled){ openMenuFor("sort"); return; }
+
+  const so=t.closest("#sess-menu .fopt");
+  if (so){ const y=+so.dataset.sess; state.sessions.has(y)?state.sessions.delete(y):state.sessions.add(y);
+    state.openSource=null; renderAll(); return; }
+
+  const oo=t.closest("#sort-menu .fopt");
+  if (oo){ state.sort=oo.dataset.sort; closeMenus(); renderAll(); return; }
+
+  const ch=t.closest(".chseg");
+  // A narrowed result set may no longer contain the open passage; leaving the
+  // drawer up would show a source from the set the reader just filtered away.
+  // (`.disabled` already blocks this in content mode — spec F9 — so this only
+  // ever runs while browsing or title-searching.)
+  if (ch){ state.chamber=ch.dataset.ch; state.openSource=null; renderAll(); return; }
+
+  const st=t.closest("[data-stoggle]");
+  if (st){
+    // Flip what is ACTUALLY ON SCREEN rather than recomputing the default: the
+    // default is "newest three" here and "newest one" while browsing, and
+    // re-deriving it at the click site is how those drift apart. The symptom
+    // would be a first click that appears to do nothing.
+    state.openSessions.set(+st.dataset.stoggle, st.getAttribute("aria-expanded")!=="true");
+    renderCards(); return;
+  }
+
+  const src=t.closest("[data-src]");
+  if (src){ const k=src.dataset.src; state.openSource = state.openSource===k?null:k; renderAll(); return; }
+
+  if (t.closest("#drawerclose")||t.closest("#scrim")){ state.openSource=null; renderAll(); return; }
+
+  if (t.closest("#modebtn")){
+    if (showingContents()){
+      state.suppressed=state.q; state.mode="titles"; state.openSource=null;
+      clearTimeout(escalateTimer); renderAll();
+    } else { state.mode="contents"; state.openSource=null; runContentSearch(); }
+    return;
+  }
+  if (t.closest("#qclear")){
+    state.q=""; state.mode="titles"; state.suppressed=null; state.openSource=null;
+    clearTimeout(escalateTimer); $("#q").value=""; $("#q").focus(); renderAll(); return;
+  }
+  if (!t.closest(".fctl")) closeMenus();
+});
+
+document.addEventListener("keydown", e=>{
+  if (e.key!=="Escape") return;
+  if (state.openSource){ state.openSource=null; renderAll(); return; }
+  closeMenus();
+});
+
+$("#q").addEventListener("input", e=>{
+  state.q=e.target.value.trim();
+  state.mode="titles"; state.contentBusy=false;
+  state.openSource=null;
+  renderAll();
+  clearTimeout(escalateTimer);
+  if (escalating()) escalateTimer=setTimeout(()=>{ state.mode="contents"; runContentSearch(); }, ESCALATE_MS);
+});
+
+$("#q").value = state.q;
+renderAll();
+</script>
+</body>
+</html>
