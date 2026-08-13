@@ -188,11 +188,19 @@ class MineruRunner:
             self._exe = [str(exe)]
         else:
             self._exe = list(exe)
-        # MinerU's `-m` flag. Per-instance, not per-call: the ladder
-        # (ingest/ladder.py) picks a rung BEFORE extraction starts, so the
-        # worker builds one runner per attempt rather than re-deciding the
-        # method mid-run. "auto" reproduces today's command line exactly,
-        # so every existing caller is unaffected.
+        # MinerU's `-m` flag. Per-instance, not per-call -- fine for the
+        # per-document path (the ladder in ingest/ladder.py picks a rung
+        # BEFORE extraction starts, so the worker builds one runner per
+        # attempt), but NOT solved for the batch path: `run_batch()` takes
+        # up to 40 documents and ingest/worker.py builds exactly ONE runner
+        # for the whole batch (see the `MineruRunner()` construction ahead
+        # of the `run_batch(items, ...)` call), so one `-m` value covers
+        # every document in it. A mixed-rung batch either OCRs documents
+        # that didn't need it (hours of wasted work) or fails to OCR the one
+        # that did -- grouping a batch to be homogeneous by rung before it
+        # reaches this class is the CALLER's job, not something enforced
+        # here. "auto" reproduces today's command line exactly, so every
+        # existing caller is unaffected.
         self._method = method
         self._cancelled = threading.Event()
         self._proc: subprocess.Popen | None = None

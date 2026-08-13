@@ -15,6 +15,7 @@ from ingest.ladder import ladder_for
 
 TEXT = SourceInspection("pdf", 100, has_text_layer=True)
 SCANNED = SourceInspection("pdf", 100, has_text_layer=False)
+UNKNOWN = SourceInspection("pdf", None, has_text_layer=None)
 DOCX = SourceInspection("docx", None, has_text_layer=True)
 SCANNED_DOCX = SourceInspection("docx", None, has_text_layer=False)
 
@@ -34,6 +35,19 @@ def test_a_mineru_first_pdf_starts_below_opendataloader():
 
 def test_a_pdf_with_no_text_layer_goes_straight_to_ocr():
     assert ladder_for("afr", "pdf", SCANNED) == ["mineru-ocr"]
+
+
+def test_an_inspection_failure_gets_the_full_ladder_not_ocr_only():
+    """None means inspection could not tell -- e.g. `import fitz` failing in
+    a broken install, not a positive scan finding -- and must fall through
+    to the full ladder exactly like TEXT does. `has_text_layer` is `bool |
+    None`, and None is falsy in Python, so a version of this check written
+    as `if not inspection.has_text_layer` would treat "we don't know" the
+    same as "it's a scan" and route every uninspectable PDF to the slowest
+    rung with no signal anywhere that inspection had actually failed."""
+    assert ladder_for("afr", "pdf", UNKNOWN) == [
+        "opendataloader", "mineru", "mineru-ocr",
+    ]
 
 
 def test_a_mineru_first_pdf_with_no_text_layer_also_goes_straight_to_ocr():
@@ -84,10 +98,21 @@ def test_every_rung_can_actually_be_chunked():
     reader that parses that extractor's output. A rung the chunker has no
     reader for cannot complete, and would surface as a confusing failure
     days into execution rather than here.
+
+    The rung list is DERIVED, not hardcoded. A prior version wrote out
+    ("opendataloader", "mineru", "mineru-ocr", "python-docx") by hand, and a
+    reviewer proved that stays green even when a bogus "pdfplumber" rung is
+    added to `_PDF_LADDER` -- nothing tied the two lists together, so the
+    one test meant to catch an unreadable rung couldn't see it. Deriving
+    from `_PDF_LADDER` plus the registered extractor names is what makes
+    that mutation visible here.
     """
+    from ingest.dispatcher import _EXTRACTOR_CLASSES
+    from ingest.ladder import _PDF_LADDER
     from chunking.builder import _READER_REGISTRY
 
-    for rung in ("opendataloader", "mineru", "mineru-ocr", "python-docx"):
+    rungs = set(_PDF_LADDER) | set(_EXTRACTOR_CLASSES)
+    for rung in rungs:
         assert rung in _READER_REGISTRY
 
 

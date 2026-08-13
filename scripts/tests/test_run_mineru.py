@@ -9,6 +9,7 @@ import json
 import subprocess
 import sys
 from pathlib import Path
+from typing import Callable
 
 # `scripts/` has no __init__.py, so pytest's rootdir insertion puts
 # `scripts/tests/` on sys.path, not `scripts/` itself. Add it explicitly --
@@ -82,7 +83,7 @@ class _FakeResult:
         self.stderr = ""
 
 
-def _make_fake_run(seen_cmds: list) -> callable:
+def _make_fake_run(seen_cmds: list) -> Callable[..., object]:
     """A `subprocess.run` stand-in that writes MinerU's expected output
     shape so `_read_mineru_output` (called right after) has something real
     to read, rather than raising `mineru produced no output dir`."""

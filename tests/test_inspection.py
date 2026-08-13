@@ -65,13 +65,19 @@ def test_an_unreadable_file_does_not_raise(tmp_path):
     pdfium rejects shapes PyMuPDF tolerates and vice versa; whatever the
     reason, an inspection failure means "we learned nothing", which is a
     valid answer that starts the ladder at rung 1.
+
+    `has_text_layer` must be None, not False, on this path -- False means
+    we POSITIVELY determined there is no text layer (a scan). Reporting
+    False here instead would be indistinguishable from `import fitz`
+    failing outright (e.g. a broken Windows bundle), which would silently
+    route every PDF in the corpus to OCR-only. See ingest/ladder.py.
     """
     path = tmp_path / "broken.pdf"
     path.write_bytes(b"%PDF-1.4\nnot really a pdf")
 
     got = inspect_source(path)
     assert got.pages is None
-    assert got.has_text_layer is False
+    assert got.has_text_layer is None
 
 
 def test_an_unreadable_docx_does_not_raise(tmp_path):
@@ -89,7 +95,7 @@ def test_an_unreadable_docx_does_not_raise(tmp_path):
     got = inspect_source(path)
     assert got.source_format == "docx"
     assert got.pages is None
-    assert got.has_text_layer is False
+    assert got.has_text_layer is None
 
 
 def test_a_scanned_pdf_with_only_whitespace_glyphs_has_no_text_layer(tmp_path):

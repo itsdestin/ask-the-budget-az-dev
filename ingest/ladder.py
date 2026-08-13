@@ -49,7 +49,15 @@ def ladder_for(
         # DOCX: the structure is in the file and there is no second tool.
         return [preferred]
 
-    if not inspection.has_text_layer:
+    # `is False`, not `not inspection.has_text_layer`: `has_text_layer` is
+    # `bool | None`, and None means inspection COULD NOT TELL (e.g.
+    # `import fitz` failing in a broken Windows bundle) rather than a
+    # positive scan finding. None is falsy, so `not ...` would silently
+    # route every uninspectable PDF to OCR-only -- hours per document, with
+    # no signal anywhere that inspection had actually failed. Only a
+    # POSITIVE "no text layer" finding may skip the full ladder; a failure
+    # falls through to the normal cost-order start below.
+    if inspection.has_text_layer is False:
         # A scan. Nothing above OCR can read it, so do not spend hours
         # proving that -- true even when the declared preference is
         # already `mineru`, so this check runs before, not as part of,

@@ -272,11 +272,12 @@ def test_ocr_extractor_calls_run_mineru_with_the_ocr_method(
     assert calls == [((source, out, [1, 2]), {"method": "ocr"})]
 
 
-def test_ocr_extractor_name_and_version_match_the_plain_extractor() -> None:
-    """MinerUOcrExtractor subclasses MinerUExtractor for get_version() --
-    both report the same installed MinerU package, since OCR mode is a
-    flag on the same tool, not a different one."""
-    plain = MinerUExtractor()
+def test_ocr_extractor_has_its_own_rung_name() -> None:
+    """MinerUOcrExtractor subclasses MinerUExtractor rather than duplicating
+    it -- `get_version()` is inherited unchanged (comparing it against the
+    plain extractor's own `get_version()` would be tautological: the same
+    method called on two instances with no instance state involved), and
+    the only real difference is this name, which is what the ladder
+    (ingest/ladder.py) and the chunker's reader registry both key on."""
     ocr = MinerUOcrExtractor()
     assert ocr.name == "mineru-ocr"
-    assert ocr.get_version() == plain.get_version()

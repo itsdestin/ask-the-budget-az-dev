@@ -38,7 +38,13 @@ class SourceInspection:
     # None for DOCX (no pages at rest) and for a file we could not open.
     # None rather than 0: "not applicable" and "empty" are different.
     pages: int | None
-    has_text_layer: bool
+    # None means inspection could not tell -- e.g. `import fitz` failing in
+    # a broken install, or a truncated download `fitz.open` can't parse --
+    # and is distinct from False, which means we POSITIVELY determined
+    # there is no text layer (a scan). Conflating the two would route every
+    # uninspectable PDF to the slowest OCR-only rung instead of the full
+    # ladder; see ingest/ladder.py's `is False` check.
+    has_text_layer: bool | None
 
 
 def inspect_source(path: Path) -> SourceInspection:
@@ -46,7 +52,9 @@ def inspect_source(path: Path) -> SourceInspection:
 
     An inspection failure is a valid answer -- it means we learned nothing
     and the ladder starts at rung 1. Raising here would take down the worker
-    thread over a truncated download.
+    thread over a truncated download. A failure reports
+    `has_text_layer=None`, never False -- False is reserved for a scan we
+    positively identified.
     """
     source_format = path.suffix.lstrip(".").lower()
 
@@ -61,7 +69,7 @@ def inspect_source(path: Path) -> SourceInspection:
                 has_text = any(page.get_text().strip() for page in doc)
                 return SourceInspection("pdf", doc.page_count, has_text)
         except Exception:
-            return SourceInspection("pdf", None, False)
+            return SourceInspection("pdf", None, None)
 
     if source_format == "docx":
         try:
@@ -76,6 +84,6 @@ def inspect_source(path: Path) -> SourceInspection:
             )
             return SourceInspection("docx", None, has_text)
         except Exception:
-            return SourceInspection("docx", None, False)
+            return SourceInspection("docx", None, None)
 
     return SourceInspection(source_format, None, False)
