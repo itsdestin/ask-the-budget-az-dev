@@ -79,7 +79,7 @@ async function pickFile(file = pdf()) {
 }
 
 beforeEach(() => {
-  vi.spyOn(api, "jobs").mockResolvedValue({ jobs: [] });
+  vi.spyOn(api, "jobs").mockResolvedValue({ jobs: [], finished_count: 0, showing: "active" as const });
   // Default: exactly one plain (non-redirect, non-staged) row, so every test
   // written against the old single-form assumptions (one file input, one
   // "Fiscal year" field, one submit button) still resolves unambiguously.
@@ -682,7 +682,7 @@ describe("the type picker and form", () => {
 
 describe("the queue", () => {
   it("renders progress and stage detail per job", async () => {
-    vi.spyOn(api, "jobs").mockResolvedValue({ jobs: [job()] });
+    vi.spyOn(api, "jobs").mockResolvedValue({ jobs: [job()], finished_count: 0, showing: "active" as const });
     render(<Upload />);
     const row = await screen.findByTestId("job");
     expect(row.textContent).toMatch(/Reading the document/);
@@ -693,7 +693,7 @@ describe("the queue", () => {
 
   it("polls for updates", async () => {
     vi.useFakeTimers();
-    const list = vi.spyOn(api, "jobs").mockResolvedValue({ jobs: [] });
+    const list = vi.spyOn(api, "jobs").mockResolvedValue({ jobs: [], finished_count: 0, showing: "active" as const });
     render(<Upload />);
     await vi.advanceTimersByTimeAsync(3000);
     expect(list.mock.calls.length).toBeGreaterThan(1);
@@ -705,6 +705,8 @@ describe("the queue", () => {
         job({ job_id: "bad", state: "failed", error: "mineru exploded" }),
         job({ job_id: "busy", state: "embedding" }),
       ],
+      finished_count: 0,
+      showing: "active" as const,
     });
     const retry = vi.spyOn(api, "retryJob").mockResolvedValue({ job: job() });
     const cancel = vi.spyOn(api, "cancelJob").mockResolvedValue({ job: job() });
@@ -722,7 +724,7 @@ describe("the queue", () => {
   });
 
   it("has no progress bar or cancel once a job is live", async () => {
-    vi.spyOn(api, "jobs").mockResolvedValue({ jobs: [job({ state: "live" })] });
+    vi.spyOn(api, "jobs").mockResolvedValue({ jobs: [job({ state: "live" })], finished_count: 0, showing: "active" as const });
     render(<Upload />);
     const row = await screen.findByTestId("job");
     expect(within(row).queryByRole("progressbar")).toBeNull();
@@ -735,7 +737,7 @@ describe("the queue", () => {
     // rather than waitFor — waitFor polls on real timers and would hang here.
     vi.useFakeTimers();
     vi.spyOn(api, "jobs")
-      .mockResolvedValueOnce({ jobs: [job()] })
+      .mockResolvedValueOnce({ jobs: [job()], finished_count: 0, showing: "active" as const })
       .mockRejectedValue(new Error("jobs: share offline"));
     render(<Upload />);
     await vi.advanceTimersByTimeAsync(0);

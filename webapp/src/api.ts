@@ -426,8 +426,19 @@ export async function uploadDocument(
   return r.json();
 }
 
-export async function jobs(): Promise<{ jobs: Job[] }> {
-  const r = await fetch("/api/jobs");
+export interface JobsResponse {
+  jobs: Job[];
+  /** How many jobs have finished, from a directory listing on the server.
+   *  Never counted client-side — the point of spec T13 is that the browser
+   *  no longer receives the 7,104 finished rows it would have to count. */
+  finished_count: number;
+  showing: "active" | "all";
+}
+
+/** The queue. Outstanding work plus every failure of any age by default
+ *  (spec T13); `all` asks for the whole history instead. */
+export async function jobs(all = false): Promise<JobsResponse> {
+  const r = await fetch(all ? "/api/jobs?all=1" : "/api/jobs");
   if (!r.ok) await fail(r, "jobs");
   return r.json();
 }

@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import * as api from "../api";
+import { QueuePanel } from "./upload/QueuePanel";
 
 // The upload surface. Two jobs: get a document into the queue with correct
 // metadata, and be honest about what happens next.
@@ -30,55 +31,19 @@ import * as api from "../api";
 // all — that list drifting from the server's is exactly the bug this page
 // used to ship (twice, now, in two different shapes).
 
-const RUNNING_STATES: api.JobState[] = [
-  "queued",
-  "extracting",
-  "chunking",
-  "embedding",
-  "writing",
-];
-
-const STAGE_LABELS: Record<api.JobState, string> = {
-  queued: "Waiting",
-  extracting: "Reading the document",
-  chunking: "Splitting into passages",
-  embedding: "Building the search index",
-  writing: "Saving to the corpus",
-  live: "Searchable",
-  failed: "Failed",
-  cancelled: "Cancelled",
-};
-
-const POLL_MS = 3000;
-
 export function Upload() {
   const [rows, setRows] = useState<api.DocTypeCard[] | null>(null);
   const [rowsError, setRowsError] = useState("");
-  const [jobs, setJobs] = useState<api.Job[]>([]);
-  const [queueError, setQueueError] = useState<string>("");
+  // Bumped whenever this page queues something, so QueuePanel refetches
+  // immediately instead of waiting out its poll interval. The panel owns
+  // the queue state itself (spec T13) -- the page only says "look again".
+  const [queueToken, setQueueToken] = useState(0);
+  const refreshJobs = useCallback(() => setQueueToken((n) => n + 1), []);
   // Which of the registry's types the analyst has picked, if any. Lives on
   // the page (not inside a child) because it decides which single form to
   // render below the list — there is exactly one form on screen, so exactly
   // one component needs to know which type it is for.
   const [selectedKey, setSelectedKey] = useState<string | null>(null);
-
-  const refreshJobs = useCallback(async () => {
-    try {
-      const body = await api.jobs();
-      setJobs(body.jobs);
-      setQueueError("");
-    } catch (e) {
-      // Stale-while-revalidate: keep showing the last good queue rather than
-      // blanking it, because a momentary share hiccup is not "no jobs".
-      setQueueError(e instanceof Error ? e.message : String(e));
-    }
-  }, []);
-
-  useEffect(() => {
-    void refreshJobs();
-    const id = setInterval(() => void refreshJobs(), POLL_MS);
-    return () => clearInterval(id);
-  }, [refreshJobs]);
 
   useEffect(() => {
     api
@@ -94,16 +59,6 @@ export function Upload() {
   }, []);
 
   const selected = (rows ?? []).find((r) => r.key === selectedKey) ?? null;
-
-  async function act(kind: "retry" | "cancel", jobId: string) {
-    try {
-      if (kind === "retry") await api.retryJob(jobId);
-      else await api.cancelJob(jobId);
-      await refreshJobs();
-    } catch (e) {
-      setQueueError(e instanceof Error ? e.message : String(e));
-    }
-  }
 
   return (
     <main className="page-upload" data-testid="upload">
@@ -180,65 +135,7 @@ export function Upload() {
 
         <AddBookPanel onQueued={() => void refreshJobs()} />
 
-        <section className="card up-queue" aria-labelledby="up-queue-h">
-          <h2 id="up-queue-h">Queue</h2>
-          {queueError && (
-            <p className="up-note">
-              <span className="err">Couldn’t refresh the queue: {queueError}</span>
-            </p>
-          )}
-          {jobs.length === 0 ? (
-            <p className="up-note">Nothing is processing right now.</p>
-          ) : (
-            <ul className="up-jobs">
-              {jobs.map((job) => (
-                <li key={job.job_id} className="up-job" data-testid="job">
-                  <div className="up-job-head">
-                    <span className="up-job-title">{job.title}</span>
-                    <span className="up-job-state">{STAGE_LABELS[job.state]}</span>
-                  </div>
-                  {RUNNING_STATES.includes(job.state) && (
-                    <div
-                      className="up-bar"
-                      role="progressbar"
-                      aria-label={`${job.title} progress`}
-                      aria-valuenow={job.pct}
-                      aria-valuemin={0}
-                      aria-valuemax={100}
-                    >
-                      <span style={{ width: `${job.pct}%` }} />
-                    </div>
-                  )}
-                  <p className="up-job-detail">
-                    {job.stage_detail}
-                    {job.machine ? ` · ${job.machine}` : ""}
-                  </p>
-                  {job.error && <p className="up-job-error">{job.error}</p>}
-                  <div className="up-job-actions">
-                    {job.state === "failed" && (
-                      <button
-                        type="button"
-                        className="fchip"
-                        onClick={() => void act("retry", job.job_id)}
-                      >
-                        Retry
-                      </button>
-                    )}
-                    {RUNNING_STATES.includes(job.state) && (
-                      <button
-                        type="button"
-                        className="fchip"
-                        onClick={() => void act("cancel", job.job_id)}
-                      >
-                        Cancel
-                      </button>
-                    )}
-                  </div>
-                </li>
-              ))}
-            </ul>
-          )}
-        </section>
+        <QueuePanel reloadToken={queueToken} />
       </div>
     </main>
   );
