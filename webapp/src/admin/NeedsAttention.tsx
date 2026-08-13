@@ -72,7 +72,14 @@ export function NeedsAttention({
       data-testid="admin-attention"
     >
       <div className="adm-panel-head">
-        <h2 id="adm-attention-h">Needs attention</h2>
+        {/* "Held out of search", not "Needs attention" (merge with master,
+            2026-08-13): master added a Group whose title is already "Needs
+            attention", and this panel now sits inside it. Two identical
+            headings, one nested in the other, would read as a bug. This
+            wording is also what the document's own failure sentence says
+            ("Held out of search -- only 2% of this document's text produced
+            any content"), so the panel and the row agree. */}
+        <h2 id="adm-attention-h">Held out of search</h2>
         <span className="adm-attention-count" data-testid="admin-attention-count">
           {documents.length}
         </span>

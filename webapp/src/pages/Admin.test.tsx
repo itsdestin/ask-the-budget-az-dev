@@ -154,6 +154,9 @@ function mockAll(over: {
   notices?: api.Notice[];
   attention?: api.AttentionDocument[];
   me?: Partial<api.Me>;
+  aliases?: api.AdminAliases;
+  guidance?: api.AdminGuidance;
+  issues?: api.IssuesResponse;
 } = {}) {
   vi.spyOn(api, "me").mockResolvedValue({
     user: "Destin", is_admin: true, admin_username: "Destin",
@@ -167,6 +170,20 @@ function mockAll(over: {
   vi.spyOn(api, "adminNotices").mockResolvedValue({ notices: over.notices ?? [] });
   vi.spyOn(api, "adminAttention").mockResolvedValue({ documents: over.attention ?? [] });
   vi.spyOn(api, "aiStatus").mockResolvedValue(AI_STATUS);
+  // The three E6 panels fetch for themselves rather than riding the page's
+  // settings draft, so the page's own mock set has to cover them too —
+  // otherwise every spec in this file makes three real network calls and the
+  // page renders three load errors that no assertion here is about. Their
+  // behaviour is pinned in their own spec files.
+  vi.spyOn(api, "adminAliases").mockResolvedValue(
+    over.aliases ?? { added: [], disabled: [], shipped: [], agencies: [], warnings: [] },
+  );
+  vi.spyOn(api, "adminGuidance").mockResolvedValue(
+    over.guidance ?? { text: "", max_bytes: 8192, edited_by: "", edited_at: "" },
+  );
+  vi.spyOn(api, "issues").mockResolvedValue(
+    over.issues ?? { reports: [] },
+  );
 }
 
 afterEach(() => vi.restoreAllMocks());
@@ -831,8 +848,35 @@ describe("the page's shape", () => {
     expect(items[0]).toHaveTextContent("newer");
     expect(items[1]).toHaveTextContent("older");
     const main = screen.getByTestId("admin");
-    const panels = within(main).getAllByRole("heading", { level: 2 });
-    expect(panels[0]).toHaveTextContent(/needs a look/i);
+    // The page is function groups now (spec E6), so the first heading is the
+    // group label and the notices panel is the first thing inside it. Both
+    // are asserted: "problems first" is a claim about the whole page, and it
+    // would still be satisfiable by a group whose first panel was something
+    // else.
+    const headings = within(main).getAllByRole("heading", { level: 2 });
+    expect(headings[0]).toHaveTextContent(/needs attention/i);
+    expect(headings[1]).toHaveTextContent(/needs a look/i);
+  });
+
+  it("labels multi-panel groups, in the order an admin needs them, and drops the label from single-panel groups", async () => {
+    mockAll();
+    const { container } = render(<Admin />);
+    await screen.findByTestId("admin-costs");
+
+    // Read off the rendered page by the group label's own class, not by
+    // matching text: two panels carry a heading identical to the group they
+    // sit in ("AI Mode", "Spending"), so a text filter would count those too.
+    //
+    // Task 10 fix pass 2 (Destin's call): "Spending" and "Access & files"
+    // each hold exactly one panel, and that panel already carries the same
+    // heading — so those two groups render with NO `.adm-group-title` at
+    // all now. This assertion is exact-array, not "contains": it fails if
+    // the order changes, if a surviving label goes missing, or if either
+    // single-panel group's label comes back.
+    const groups = [...container.querySelectorAll(".adm-group-title")].map(
+      (h) => h.textContent,
+    );
+    expect(groups).toEqual(["Needs attention", "AI Mode", "Search & documents"]);
   });
 
   it("keeps developer vocabulary off the page", async () => {

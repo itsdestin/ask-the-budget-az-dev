@@ -1,20 +1,24 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useState, type ReactNode } from "react";
 import * as api from "../api";
 import { AdvancedPanel } from "../admin/AdvancedPanel";
+import { AliasesPanel } from "../admin/AliasesPanel";
 import { CorpusPanel } from "../admin/CorpusPanel";
 import { CostsPanel } from "../admin/CostsPanel";
+import { GuidancePanel } from "../admin/GuidancePanel";
+import { IssuesPanel } from "../admin/IssuesPanel";
 import { NeedsAttention } from "../admin/NeedsAttention";
 import { NoticesPanel } from "../admin/NoticesPanel";
 import { ProviderPanel } from "../admin/ProviderPanel";
 import { SaveBar } from "../admin/SaveBar";
 import { describeChanges } from "../admin/changes";
 
-// The admin surface (Plan 5 Track 1).
+// The admin surface (Plan 5 Track 1; regrouped for spec E6).
 //
-// Panel order is the order a new admin needs them, not the order they were
-// built: what is this costing → how do I turn AI Mode on → who can spend what
-// → is the corpus healthy → what broke → who holds this page → where does
-// everything live.
+// The page is now FUNCTION GROUPS rather than a stack of equal panels: what
+// needs attention → AI Mode → search and documents → spending → access. Eight
+// full-width panels in a column read as a wall, and a new panel could only
+// ever be appended to the bottom of it. A group says which question a panel
+// answers before it is opened, so the page reads as a table of contents.
 //
 // Two structural decisions:
 //
@@ -26,6 +30,24 @@ import { describeChanges } from "../admin/changes";
 //    editing", and that sends the "__unchanged__" sentinel. Holding the key in
 //    page state so a save could round-trip it is exactly the mistake the
 //    sentinel exists to make impossible.
+
+/** A labelled band of panels. The heading is the group's whole job: it names
+ *  the question its panels answer, so an admin scanning the page can skip
+ *  four sections without opening any of them.
+ *
+ *  Fix (Task 10 fix pass 2, Destin's call): `title` is optional. A group
+ *  holding exactly one panel would repeat that panel's own heading right
+ *  above it — "Spending" over a card titled "Spending" — which reads as the
+ *  page talking to itself. Omit `title` on single-panel groups; the grouping
+ *  (and its layout spacing) stays, only the redundant label goes. */
+function Group({ title, children }: { title?: string; children: ReactNode }) {
+  return (
+    <div className="adm-group">
+      {title ? <h2 className="adm-group-title">{title}</h2> : null}
+      {children}
+    </div>
+  );
+}
 
 function currentMonth(): string {
   const now = new Date();
@@ -311,104 +333,129 @@ export function Admin() {
       <div className="wrap">
         <h1>Admin</h1>
 
-        {/* Anything wrong goes FIRST and disappears entirely when there is
-            nothing — a panel that is present every day gets scrolled past. */}
-        <NoticesPanel notices={notices} />
+        {/* Anything wrong goes FIRST. NoticesPanel disappears entirely when
+            there is nothing — a panel that is present every day gets scrolled
+            past — but the issue inbox stays, because an analyst was told
+            their report would be seen and the door needs a visible other
+            end. */}
+        <Group title="Needs attention">
+          {/* Held-out documents lead this group (merge with master,
+              2026-08-13). Plan B agreed a standalone panel "above Corpus
+              health"; master has since created this group for exactly this
+              purpose, and TWO surfaces both titled "Needs attention" would
+              have been worse than either. It leads because a document held
+              out of search is the only item here that means the corpus is
+              currently missing content an analyst will look for.
+              Renders nothing at all when nothing has failed. */}
+          <NeedsAttention
+            documents={attention}
+            onRetry={(jobId) => void attentionAction("retry", jobId)}
+            onDismiss={(jobId) => void attentionAction("dismiss", jobId)}
+          />
+          {attentionError ? (
+            <p className="adm-warn" role="alert" data-testid="admin-attention-error">
+              {attentionError}
+            </p>
+          ) : null}
+          <NoticesPanel notices={notices} />
+          <IssuesPanel />
+        </Group>
 
-        <CostsPanel
-          usage={usage}
-          month={month}
-          onMonthChange={setMonth}
-          tab={tab}
-          onTabChange={setTab}
-          isCustomEndpoint={draft.provider.provider === "custom"}
-        />
+        <Group title="AI Mode">
+          {/* AI Mode is one section now: key, models, spending limits and which
+              service, in that order of how often they are touched. They used to
+              be three panels, which put a spending cap several screens away
+              from the model choice that drives it. */}
+          <ProviderPanel
+            settings={draft}
+            models={models}
+            tierCopy={tierCopy}
+            apiKey={apiKey}
+            onApiKeyChange={setApiKey}
+            onAiEnabledChange={(ai_enabled) => setDraft({ ...draft, ai_enabled })}
+            onTierEnabledChange={(tier, enabled) =>
+              setDraft({
+                ...draft,
+                // Spread the existing tier: switching a mode off must keep the
+                // model it was using, or turning it back on becomes a fresh
+                // decision the admin already made once.
+                tiers: { ...draft.tiers, [tier]: { ...draft.tiers[tier], enabled } },
+              })
+            }
+            onProviderChange={(provider) =>
+              setDraft({ ...draft, provider: { ...draft.provider, provider } })
+            }
+            onBaseUrlChange={(base_url) =>
+              setDraft({ ...draft, provider: { ...draft.provider, base_url } })
+            }
+            onPriceChange={(field, value) =>
+              setDraft({ ...draft, provider: { ...draft.provider, [field]: value } })
+            }
+            onTierModelChange={(tier, model) =>
+              setDraft({
+                ...draft,
+                tiers: { ...draft.tiers, [tier]: { ...draft.tiers[tier], model } },
+              })
+            }
+            onRefreshModels={() => loadModels(true)}
+            limitsActive={usage.limits_active}
+            limitsInactiveReason={usage.limits_inactive_reason}
+            onDefaultChange={(default_monthly_limit_usd) =>
+              setDraft({ ...draft, default_monthly_limit_usd })
+            }
+            onUserLimitsChange={(user_limits) => setDraft({ ...draft, user_limits })}
+            onExemptChange={(exempt_users) => setDraft({ ...draft, exempt_users })}
+          />
+          <GuidancePanel />
+        </Group>
 
-        {/* AI Mode is one section now: key, models, spending limits and which
-            service, in that order of how often they are touched. They used to
-            be three panels, which put a spending cap several screens away
-            from the model choice that drives it. */}
-        <ProviderPanel
-          settings={draft}
-          models={models}
-          tierCopy={tierCopy}
-          apiKey={apiKey}
-          onApiKeyChange={setApiKey}
-          onAiEnabledChange={(ai_enabled) => setDraft({ ...draft, ai_enabled })}
-          onTierEnabledChange={(tier, enabled) =>
-            setDraft({
-              ...draft,
-              // Spread the existing tier: switching a mode off must keep the
-              // model it was using, or turning it back on becomes a fresh
-              // decision the admin already made once.
-              tiers: { ...draft.tiers, [tier]: { ...draft.tiers[tier], enabled } },
-            })
-          }
-          onProviderChange={(provider) =>
-            setDraft({ ...draft, provider: { ...draft.provider, provider } })
-          }
-          onBaseUrlChange={(base_url) =>
-            setDraft({ ...draft, provider: { ...draft.provider, base_url } })
-          }
-          onPriceChange={(field, value) =>
-            setDraft({ ...draft, provider: { ...draft.provider, [field]: value } })
-          }
-          onTierModelChange={(tier, model) =>
-            setDraft({
-              ...draft,
-              tiers: { ...draft.tiers, [tier]: { ...draft.tiers[tier], model } },
-            })
-          }
-          onRefreshModels={() => loadModels(true)}
-          limitsActive={usage.limits_active}
-          limitsInactiveReason={usage.limits_inactive_reason}
-          onDefaultChange={(default_monthly_limit_usd) =>
-            setDraft({ ...draft, default_monthly_limit_usd })
-          }
-          onUserLimitsChange={(user_limits) => setDraft({ ...draft, user_limits })}
-          onExemptChange={(exempt_users) => setDraft({ ...draft, exempt_users })}
-        />
+        <Group title="Search & documents">
+          <CorpusPanel
+            corpus={corpus}
+            snapshots={snapshots}
+            onRestore={restore}
+            restoreState={restoreState}
+            onSetIngest={setIngestHere}
+            ingestMessage={ingestMessage}
+          />
+          <AliasesPanel />
+        </Group>
 
-        {/* Above Corpus health (Destin, 2026-08-12) — a document held out of
-            search is the most direct thing that can be wrong with the
-            corpus, so it sits immediately next to the section that shows
-            the corpus's own size and queue. Renders nothing at all when
-            nothing has failed. */}
-        <NeedsAttention
-          documents={attention}
-          onRetry={(jobId) => void attentionAction("retry", jobId)}
-          onDismiss={(jobId) => void attentionAction("dismiss", jobId)}
-        />
-        {attentionError ? (
-          <p className="adm-warn" role="alert" data-testid="admin-attention-error">
-            {attentionError}
-          </p>
-        ) : null}
+        {/* No title: this group holds only CostsPanel, whose own heading is
+            "Spending" (Task 10 fix pass 2, Destin's call). */}
+        <Group>
+          <CostsPanel
+            usage={usage}
+            month={month}
+            onMonthChange={setMonth}
+            tab={tab}
+            onTabChange={setTab}
+            isCustomEndpoint={draft.provider.provider === "custom"}
+          />
+        </Group>
 
-        <CorpusPanel
-          corpus={corpus}
-          snapshots={snapshots}
-          onRestore={restore}
-          restoreState={restoreState}
-          onSetIngest={setIngestHere}
-          ingestMessage={ingestMessage}
-        />
+        {/* No title: this group holds only AdvancedPanel, whose own heading
+            is "Access and files" (Task 10 fix pass 2, Destin's call). */}
+        <Group>
+          <AdvancedPanel
+            settings={settings ?? draft}
+            me={me}
+            dataDir={corpus.data_dir}
+            onTransfer={(username) => {
+              setTransferTo(username);
+              setDraft({ ...draft, admin_username: username });
+            }}
+          />
+        </Group>
 
+        {/* The settings save confirmation, kept at the bottom of the page
+            beside the sticky bar that triggers it — the admin's eye is there,
+            not at a heading five groups up. */}
         {saved ? (
           <p className="adm-ok" role="status" data-testid="admin-saved">
             Saved. Every machine picks this up without restarting.
           </p>
         ) : null}
-
-        <AdvancedPanel
-          settings={settings ?? draft}
-          me={me}
-          dataDir={corpus.data_dir}
-          onTransfer={(username) => {
-            setTransferTo(username);
-            setDraft({ ...draft, admin_username: username });
-          }}
-        />
       </div>
 
       {/* Outside the .wrap so it can stick to the viewport rather than to a

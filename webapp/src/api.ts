@@ -903,3 +903,196 @@ export async function deleteHistoryChat(id: string): Promise<{ deleted: string }
   if (!r.ok) await fail(r, "delete chat");
   return r.json();
 }
+
+// ---------------------------------------------------------------------------
+// Admin alias overlay (spec E1, app/routes/tuning.py) — the office's own
+// shorthands layered over the shipped, read-only agency catalog.
+// ---------------------------------------------------------------------------
+
+export interface OfficeAliasRow {
+  alias: string;
+  canonical_id: string;
+  agency_name: string;
+  added_by: string;
+  added_at: string;
+}
+
+export interface ShippedAlias {
+  alias: string;
+  canonical_id: string;
+  agency_name: string;
+}
+
+export interface AdminAliases {
+  added: OfficeAliasRow[];
+  disabled: string[];
+  shipped: ShippedAlias[];
+  agencies: { canonical_id: string; name: string }[];
+  warnings: string[];
+}
+
+export async function adminAliases(): Promise<AdminAliases> {
+  const r = await fetch("/api/admin/aliases");
+  if (!r.ok) await fail(r, "load search language");
+  return r.json();
+}
+
+export async function saveAdminAliases(body: {
+  added: { alias: string; canonical_id: string }[];
+  disabled: string[];
+}): Promise<AdminAliases> {
+  const r = await fetch("/api/admin/aliases", {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(body),
+  });
+  if (!r.ok) await fail(r, "save search language");
+  return r.json();
+}
+
+// ---------------------------------------------------------------------------
+// Admin office guidance (spec E2), GET/PUT /api/admin/guidance
+// (app/routes/tuning.py). Payload shape is fixed by
+// harness/office_guidance.py's save_office_guidance (edited_by/edited_at)
+// and MAX_GUIDANCE_BYTES.
+// ---------------------------------------------------------------------------
+
+export interface AdminGuidance {
+  text: string;
+  max_bytes: number;
+  edited_by: string;
+  edited_at: string;
+}
+
+export async function adminGuidance(): Promise<AdminGuidance> {
+  const r = await fetch("/api/admin/guidance");
+  if (!r.ok) await fail(r, "load office guidance");
+  return r.json();
+}
+
+export async function saveAdminGuidance(text: string): Promise<AdminGuidance> {
+  const r = await fetch("/api/admin/guidance", {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ text }),
+  });
+  if (!r.ok) await fail(r, "save office guidance");
+  return r.json();
+}
+
+// ---------------------------------------------------------------------------
+// The assistant's shipped instructions, read-only (GET /api/admin/prompt,
+// app/routes/tuning.py). What the "See System Guidance" window reads so the
+// office guidance above is not written blind. There is no writer here on
+// purpose — the shipped instructions cannot be edited from the app.
+// ---------------------------------------------------------------------------
+
+export interface PromptSubsection {
+  heading: string;
+  text: string;
+}
+
+export interface PromptSection {
+  heading: string;
+  /** The prose directly under the heading, before the first subsection. */
+  text: string;
+  /** True for the one section the office's own guidance renders as. */
+  is_office_guidance: boolean;
+  subsections: PromptSubsection[];
+}
+
+export interface PromptGroup {
+  label: string;
+  sections: PromptSection[];
+}
+
+export interface AdminPrompt {
+  corpus: string;
+  /** Everything above the first heading — today the document's own title
+   *  line. Part of what the assistant reads, so the window shows it. */
+  lead: string;
+  groups: PromptGroup[];
+  total_lines: number;
+  /** Bytes, not characters — the office guidance cap is a byte cap, and the
+   *  two numbers are shown side by side. */
+  total_bytes: number;
+  office_guidance_present: boolean;
+}
+
+export async function adminPrompt(corpus: string): Promise<AdminPrompt> {
+  const r = await fetch(`/api/admin/prompt?corpus=${encodeURIComponent(corpus)}`);
+  if (!r.ok) await fail(r, "load the assistant's instructions");
+  return r.json();
+}
+
+// ---------------------------------------------------------------------------
+// Analyst issue reports (spec E3, app/routes/issues.py).
+// ---------------------------------------------------------------------------
+
+export interface IssueReport {
+  id: string;
+  /** Always present on a real report (app/issue_reports.py stamps it at
+   *  creation); not in the original task brief — added because the server
+   *  actually sends it on every non-`unreadable` row. */
+  version: number;
+  submitted_by: string;
+  submitted_at: string;
+  description: string;
+  expected: string;
+  status: "unresolved" | "resolved";
+  admin_note: string | null;
+  resolved_by: string | null;
+  resolved_at: string | null;
+  transcript?: unknown; // admin GET/PATCH only
+  transcript_attached?: boolean; // non-admin GET only
+  /** A torn report file: every field above is absent, `id` is the filename
+   *  stem, and this is `true` (app/issue_reports.py's list_reports). */
+  unreadable?: boolean;
+}
+
+export interface IssuesResponse {
+  reports: IssueReport[];
+  /** The shared folder could not be read. `reports` is then empty because
+   *  nobody could look — NOT because nothing has been filed, which is the
+   *  one thing the screens must not claim (app/routes/issues.py). Absent on
+   *  a healthy read.
+   *
+   *  `unresolved` and `is_admin` used to ride along here and were never
+   *  read: IssuesPanel counts open reports from the rows themselves (and
+   *  says why), and admin-ness comes from api.me(). Dropped on both sides
+   *  rather than left as fields a reader has to check for consumers of. */
+  unreachable?: boolean;
+}
+
+export async function issues(): Promise<IssuesResponse> {
+  const r = await fetch("/api/issues");
+  if (!r.ok) await fail(r, "load issue reports");
+  return r.json();
+}
+
+export async function submitIssue(body: {
+  description: string;
+  expected?: string;
+  conversation_id?: string;
+}): Promise<{ report: IssueReport }> {
+  const r = await fetch("/api/issues", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(body),
+  });
+  if (!r.ok) await fail(r, "submit issue report");
+  return r.json();
+}
+
+export async function updateIssue(
+  id: string,
+  body: { status?: "unresolved" | "resolved"; admin_note?: string },
+): Promise<{ report: IssueReport }> {
+  const r = await fetch(`/api/issues/${encodeURIComponent(id)}`, {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(body),
+  });
+  if (!r.ok) await fail(r, "update issue report");
+  return r.json();
+}
