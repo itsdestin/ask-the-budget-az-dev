@@ -499,11 +499,38 @@ export interface Me {
   admin_claimable: boolean;
   /** A reset file is waiting to be used up by the next claim. */
   admin_reset_pending: boolean;
+  /** The name printed on documents this analyst generates. Resolved by the
+   *  SERVER (per-machine override > Windows > username, see
+   *  `app/identity.py::display_name`) so the Settings field shows the same
+   *  string the memo will carry — a client-side guess could disagree with it.
+   *
+   *  OPTIONAL in the type, always present on the wire. `GET /api/me` has
+   *  returned it since the display-name work landed; it is declared optional
+   *  only so the several `Me` object literals in other suites
+   *  (`Header.test.tsx`, `Admin.test.tsx`) stay valid without being rewritten
+   *  for a field they do not exercise. Every reader must default it. */
+  display_name?: string;
 }
 
 export async function me(): Promise<Me> {
   const r = await fetch("/api/me");
   if (!r.ok) await fail(r, "who am I");
+  return r.json();
+}
+
+/** Set the name that appears on this analyst's generated memos. Returns the
+ *  name as the server RE-RESOLVED it, not the string that was sent: an empty
+ *  save clears the override and falls back to Windows, so the caller must
+ *  render what comes back rather than what it typed. */
+export async function setDisplayName(
+  name: string,
+): Promise<{ display_name: string }> {
+  const r = await fetch("/api/me/display-name", {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ display_name: name }),
+  });
+  if (!r.ok) await fail(r, "save your name");
   return r.json();
 }
 

@@ -20,6 +20,7 @@ from dataclasses import replace
 from datetime import datetime, timezone
 from pathlib import Path
 
+from app import machine_config
 from harness.notices import KIND_ADMIN_CLAIMED, record_notice
 from harness.settings import (
     Settings,
@@ -64,6 +65,60 @@ def current_user() -> str:
         return getpass.getuser()
     except Exception:  # noqa: BLE001 — no username source on this host
         return ""
+
+
+def _windows_display_name() -> str:
+    """The AD full name (`Geoff Paulsen`), or "" anywhere it isn't available.
+
+    `GetUserNameEx(NameDisplay)` is the documented way to get a person's
+    name rather than their logon name. Wrapped in a blanket except because
+    every failure here — not Windows, no `secur32`, a machine not joined to
+    a domain, an empty AD field — has the same correct answer: fall through
+    to the next source. A name on a memo is not worth an exception.
+    """
+    if sys.platform != "win32":
+        return ""
+    try:
+        import ctypes
+        from ctypes import wintypes
+
+        name_display = 3  # EXTENDED_NAME_FORMAT.NameDisplay
+        secur32 = ctypes.WinDLL("secur32")
+        size = wintypes.ULONG(0)
+        secur32.GetUserNameExW(name_display, None, ctypes.byref(size))
+        if not size.value:
+            return ""
+        buffer = ctypes.create_unicode_buffer(size.value)
+        if not secur32.GetUserNameExW(name_display, buffer, ctypes.byref(size)):
+            return ""
+        return buffer.value.strip()
+    except Exception:  # noqa: BLE001 — see the docstring
+        return ""
+
+
+def display_name(user: str | None = None) -> str:
+    """The name to print on a document this analyst generates.
+
+    Order: stored override > Windows display name > the bare username.
+
+    DEVIATION FROM SPEC M5, which listed Windows first. An override that
+    loses to auto-detection cannot correct a WRONG AD name, and a wrong
+    name (`JARRETTD`, an un-updated maiden name) is likelier than a
+    missing one. The spec's intent — nobody has to type this if Windows
+    already knows it — is unaffected, because the override is empty until
+    somebody deliberately sets it.
+
+    Never raises: the fallback chain bottoms out at `current_user()`,
+    which itself bottoms out at "".
+    """
+    resolved = current_user() if user is None else user
+    override = machine_config.read_display_name(resolved)
+    if override:
+        return override
+    windows = _windows_display_name()
+    if windows:
+        return windows
+    return resolved
 
 
 def reset_file_path() -> Path:

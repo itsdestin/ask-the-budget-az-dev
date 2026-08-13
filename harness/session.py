@@ -434,6 +434,7 @@ class HarnessSession:
         executor: Any = None,
         transport: httpx.BaseTransport | None = None,
         *,
+        display_name: str = "",
         system_prompt: str | None = None,
         prompt_builder: Callable[..., str] | None = None,
         corpus_map: str | None = None,
@@ -448,6 +449,12 @@ class HarnessSession:
         self.corpus = corpus
         self.tier = tier
         self.user = user
+        # KEYWORD-ONLY on purpose, unlike `user` beside it: `settings`,
+        # `executor` and `transport` are still positional here and a
+        # dozen call sites rely on that order, so a new positional
+        # parameter in the middle would silently rebind them. Carried
+        # only to hand on to ToolExecutor — nothing in the loop reads it.
+        self.display_name = display_name
         self.settings = settings if settings is not None else Settings()
 
         # Public and mutable on purpose: Task 8 keeps the session in a
@@ -1342,7 +1349,11 @@ class HarnessSession:
             from harness.tools import ToolExecutor
 
             self._executor = ToolExecutor(
-                self.conversation_id, self.corpus, self.tier, user=self.user
+                self.conversation_id,
+                self.corpus,
+                self.tier,
+                user=self.user,
+                display_name=self.display_name,
             )
         return self._executor
 

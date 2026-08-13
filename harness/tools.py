@@ -590,8 +590,9 @@ _CREATE_DOCUMENT_SCHEMA = {
             "or Markdown file for the analyst. Offer this for memo-shaped "
             "requests ('write this up', 'draft a memo') — never for a simple "
             "answer. Write the full body yourself in Markdown; headings, "
-            "bullets, bold and pipe tables are rendered. You name the "
-            "document by TITLE only; where it is saved is not yours to "
+            "bullets, bold and pipe tables are rendered. The TITLE becomes "
+            "the memo's SUBJECT line, so write it like a subject. You name "
+            "the document by TITLE only; where it is saved is not yours to "
             "choose. Returns a download token the interface turns into a "
             "link."
         ),
@@ -605,6 +606,15 @@ _CREATE_DOCUMENT_SCHEMA = {
                     "minLength": 1,
                     "description": (
                         "Document title. Also the basis of the download name."
+                    ),
+                },
+                "to": {
+                    "type": "string",
+                    "description": (
+                        "Who the memo is addressed to — ONLY when the analyst "
+                        "named an audience ('write this up for the Director'). "
+                        "Omit it otherwise; the document prints a placeholder "
+                        "for them to fill in. Never guess a name."
                     ),
                 },
                 "body_markdown": {
@@ -682,6 +692,23 @@ def _req_str(args: Mapping[str, Any], key: str) -> str:
     if not isinstance(value, str) or not value.strip():
         raise _ArgumentError(f"{key} is required and must be a non-empty string.")
     return value
+
+
+def _opt_str(args: Mapping[str, Any], key: str) -> str:
+    """An optional string argument, or "" when absent, blank or the wrong
+    type.
+
+    Absent and empty are the same thing to every caller here, so they are
+    not distinguished — and unlike `_opt_int`, a wrong type is NOT an
+    error. Models emit `"to": null` and `"to": "  "` routinely; failing
+    the whole call over a decorative argument would cost the analyst the
+    document. Whitespace is stripped rather than passed through because a
+    blank recipient prints an empty TO line where the renderer's
+    `[Recipient(s)]` placeholder belongs — a memo addressed to nobody
+    that looks finished.
+    """
+    value = args.get(key)
+    return value.strip() if isinstance(value, str) else ""
 
 
 def _opt_int(args: Mapping[str, Any], key: str, lo: int, hi: int) -> int | None:
@@ -1081,6 +1108,7 @@ class ToolExecutor:
         tier: str = DEFAULT_TIER,
         *,
         user: str = "",
+        display_name: str = "",
         store: Any = None,
         materialize: Callable[..., tuple[str, Any]] | None = None,
     ) -> None:
@@ -1088,6 +1116,13 @@ class ToolExecutor:
         self.corpus = resolve_corpus(corpus)
         self.tier = tier
         self.user = user
+        # Resolved by the HTTP route, not here: this module's import
+        # allowlist forbids `app.*`, and resolving a name means reading
+        # per-machine config. Injecting a finished string is what keeps
+        # that guard structural rather than a promise (spec M7). Empty is
+        # a legitimate value — an unnameable analyst loses attribution on
+        # a memo, never the ability to generate one.
+        self.display_name = display_name
         self._store = store
         self._materialize = materialize
 
@@ -1523,7 +1558,17 @@ class ToolExecutor:
             # task's tests runnable) before Task 4 writes harness/documents.py.
             from harness.documents import materialize  # type: ignore[no-redef]
 
-        # The model supplies content and a title; it never supplies a
-        # destination. Invariant 7 lives or dies on that split.
-        token, path = materialize(title, body_markdown, fmt, user=self.user)
+        # The model supplies content, a title and — when the analyst named
+        # one — an audience; it never supplies a destination. Invariant 7
+        # lives or dies on that split. The SENDER is not the model's to
+        # choose either: it is the finished string injected at
+        # construction, so no answer text can put a name on a memo.
+        token, path = materialize(
+            title,
+            body_markdown,
+            fmt,
+            user=self.user,
+            sender=self.display_name,
+            recipient=_opt_str(args, "to"),
+        )
         return {"ok": True, "download_token": token, "filename": path.name}
