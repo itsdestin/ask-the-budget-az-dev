@@ -180,6 +180,54 @@ def test_duplicate_of_a_pending_job_is_409(client):
     assert r.status_code == 409
 
 
+def test_duplicate_of_a_pending_job_reports_health(client):
+    """The pending-job branch of `_find_duplicate` calls `_duplicate_health`
+    with the JOB's doc_id, not the uploaded bytes' sha256 -- so it reports
+    health from whatever documents.json record is filed under that doc_id,
+    even when that record's own bytes (and sha256) differ from what's
+    queued. That happens whenever a doc_id was ingested once, then somebody
+    uploads a fresh copy of the same logical document while the new job is
+    still queued.
+
+    T12 wired `health`/`message` into both branches of `_find_duplicate`,
+    but nothing pinned this branch's body -- `test_duplicate_of_a_pending_
+    job_is_409` above only ever asserts the status code, so this branch
+    could regress to the pre-T12 two-key shape (`detail` + bare status) and
+    every test in this file would still pass."""
+    doc_id = "jlbc-baseline-fy2027-27baseline-axs"
+    queued = _upload(client, content=b"%PDF-1.4 hello")
+    assert queued.status_code == 202
+    assert queued.json()["doc_id"] == doc_id
+
+    # A documents.json record for the SAME doc_id but DIFFERENT bytes -- the
+    # prior ingest of this logical document -- so the first (live-document)
+    # loop in `_find_duplicate` does NOT match on sha256 and the pending-job
+    # branch is the one that fires.
+    documents_path().write_text(json.dumps({
+        doc_id: {
+            "title": "FY 2027 Baseline — AHCCCS",
+            "source_sha256": _sha(b"%PDF-1.4 an earlier edition"),
+            "ingested_at": "2026-07-01T12:00:00+00:00",
+            "uploaded_by": "DMOSS",
+            "extraction": {
+                "method": "opendataloader",
+                "coverage": 0.42,
+                "attempts": 1,
+                "fell_back": False,
+            },
+        }
+    }), encoding="utf-8")
+
+    r = _upload(client, content=b"%PDF-1.4 hello")
+    assert r.status_code == 409
+    body = r.json()
+    assert body["detail"] == "already in corpus"
+    assert body["existing_doc_id"] == doc_id
+    assert body["health"] == {"coverage": 0.42, "recommend_reprocess": False}
+    assert "42%" in body["message"]
+    assert "not needed" in body["message"]
+
+
 def test_reprocess_overrides_the_duplicate_check(client):
     """The spec's explicit re-process option — a document was re-issued at
     the same URL, or a chunker bug needs re-running."""
@@ -271,6 +319,21 @@ def test_a_duplicate_right_at_the_floor_does_not_recommend_reprocessing(client):
 
     resp = _upload_duplicate(client, coverage=COVERAGE_FLOOR)
     assert resp.json()["health"]["recommend_reprocess"] is False
+
+
+def test_a_coverage_ratio_above_one_is_reported_uncapped(client):
+    """Healthy AFRs measure 278-286% -- chunk text carries table markup the
+    source's text layer does not -- and the global constraint is that such a
+    ratio must never be capped, clamped or normalized. `round(coverage *
+    100)` has no ceiling today, but nothing pinned that: a future
+    well-intentioned `min(coverage, 1.0)` "safety" edit would pass every
+    other test in this file."""
+    resp = _upload_duplicate(client, coverage=2.78)
+    assert resp.status_code == 409
+    body = resp.json()
+    assert body["health"] == {"coverage": 2.78, "recommend_reprocess": False}
+    assert "278%" in body["message"]
+    assert "not needed" in body["message"]
 
 
 def test_a_duplicate_with_no_recorded_coverage_makes_no_health_claim(client):
