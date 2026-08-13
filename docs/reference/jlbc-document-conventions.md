@@ -75,10 +75,25 @@ this cost real time here.
 
 Both documents. No second face anywhere, including headings.
 
-### Black. No colour at all.
+### No coloured headings, and no accent rules
 
-Neither document uses colour for anything — no coloured headings, no
-accent rules. The fiscal-note skill says `color: "000000"` explicitly.
+Neither document uses colour as decoration. The fiscal-note skill says
+`color: "000000"` explicitly for its section headers.
+
+**Colour IS used, but only as an analyst flag** — an earlier version of
+this file wrongly said "no colour at all", and both sources refute it:
+
+- the fiscal-note template carries a red strikethrough placeholder the
+  analyst is told to delete (SKILL.md:460)
+- the skill **mandates** yellow highlighting on the unknown date digits
+  (SKILL.md:61-63; spec mandate 2026-03-13)
+- the staff memorandum instructs analysts to highlight *"substantive
+  changes from the Baseline"* in yellow (para 125)
+
+So the convention is: **colour marks something a human must act on, never
+anything decorative.** A generated document should carry none, because it
+has nothing for the analyst to fill in — but if that ever changes, yellow
+highlight is the house signal for it.
 
 ---
 
@@ -122,15 +137,40 @@ and they are the most directly reusable thing in it.
 ABOR, DIFI, DFFM, CMS, IHS.
 
 **The one real conflict, and its resolution.** The staff memorandum
-instructs analysts: "Continue to use full numbers (e.g., `$15,000,000`)
-throughout the entire document." That contradicts the fiscal note's
-`$15.0 million`.
+carries the rule twice, and the second statement is the sharper one:
+
+> para 23: "Continue to use full numbers (e.g., `$15,000,000`) throughout
+> the entire document."
+>
+> para 72: "**Numbers: Match numbers in the narrative to the BUDS table.**
+> Numbers greater than one million should be written out completely (e.g.
+> `$15,000,000`) rather than abbreviated."
+
+That contradicts the fiscal note's `$15.0 million`. Two things follow that
+an earlier version of this file missed. The rule is **scoped to figures
+over $1 million** — exactly the range the fiscal note rounds, so the
+conflict is narrower and more direct than first stated. And its stated
+*reason* is that the narrative must match the BUDS table, i.e. **JLBC's own
+tables carry full numbers** — which a sweep of the live corpus confirms.
 
 **Resolved 2026-08-13 in favour of the fiscal note: generated documents use
 `$15.0 million`.** The memorandum's rule governs *Appropriations Report
 narratives*, a specific product with its own house requirement, and AI Mode
-does not produce those. Applying it everywhere would also make comparison
-tables unreadable, since full-precision figures do not align in columns.
+does not produce those; the fiscal note is by far the closer product to a
+research memo.
+
+**An earlier version of this file argued that full numbers "would make
+comparison tables unreadable". That argument is withdrawn — the source it
+was overriding refutes it.** Para 72's whole point is that JLBC's own
+tables carry full numbers, and analysts do not even author that table by
+hand (para 57: *"Export the new table, run the macro… do NOT make manual
+edits to BUDS table numbers"*).
+
+**So this is a real trade, not a free win.** The full-number form is also
+the citable form — see the citation-floor section of
+`docs/superpowers/specs/2026-08-13-document-guide-design.md` (G5). Rounding
+buys JLBC-native prose and costs the analyst the ability to find the figure
+by searching the source PDF.
 
 **If the app is ever extended to draft Appropriations Report narratives,
 this flips for that type only** — which is exactly why number style belongs
@@ -151,6 +191,15 @@ to the report type rather than to the renderer.
 
 > `"It is estimated that…"` · `"note that"` · `"please note"` ·
 > `"it should be noted"` · `"on an annual basis"` · `"recurring"`
+
+**Neutrality**, from the staff memorandum (para 74) rather than the skill:
+
+> "limit the text to descriptive/explanatory words, and avoid 'advocacy'
+> adverbs and adjectives, particularly for Executive-requested budget
+> increases."
+
+JLBC's own house rule against editorialising, and squarely on point for a
+tool that must not advocate.
 
 ---
 
