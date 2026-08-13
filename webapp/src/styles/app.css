@@ -764,21 +764,27 @@ nav.primary{position:relative;padding-right:44px;}
    longer exists, and an id inside a per-card component is a page-wide
    uniqueness claim it cannot keep, hence the class.
    The `.open` class is always present because React mounts it only while open. */
-.page-docs .report-modal{position:fixed;inset:0;background:rgba(24,27,61,.42);display:none;align-items:center;justify-content:center;padding:20px;z-index:1000;}
-.page-docs .report-modal.open{display:flex;}
-.page-docs .report-modal .modal{width:100%;max-width:440px;background:var(--card);border-radius:var(--r-lg);box-shadow:0 18px 50px rgba(27,27,61,.28);overflow:hidden;animation:rmpop .16s ease;}
+/*  The SHELL rules (`.report-modal`, `.modal`, `.mhead`/`.mic`/`.mt`/`.mx`,
+   `.mbody`) lost their `.page-docs ` prefix on 2026-08-12: the admin page
+   grew a second dialog ("See System Guidance") and a `position:fixed`
+   overlay that only paints inside one page's <main> is a trap the next
+   consumer walks into. The `.choice` rules below stay scoped — they are
+   the report chooser's OWN options, not part of the shell. */
+.report-modal{position:fixed;inset:0;background:rgba(24,27,61,.42);display:none;align-items:center;justify-content:center;padding:20px;z-index:1000;}
+.report-modal.open{display:flex;}
+.report-modal .modal{width:100%;max-width:440px;background:var(--card);border-radius:var(--r-lg);box-shadow:0 18px 50px rgba(27,27,61,.28);overflow:hidden;animation:rmpop .16s ease;}
 @keyframes rmpop{from{opacity:0;transform:translateY(8px) scale(.98);}to{opacity:1;transform:none;}}
-@media (prefers-reduced-motion:reduce){.page-docs .report-modal .modal{animation:none;}}
-.page-docs .report-modal .mhead{padding:18px 20px 14px;border-bottom:1px solid var(--line);display:flex;align-items:flex-start;gap:12px;}
-.page-docs .report-modal .mic{flex:0 0 38px;width:38px;height:38px;border-radius:11px;background:var(--navy);color:#fff;display:grid;place-items:center;}
-.page-docs .report-modal .mic svg{width:18px;height:18px;}
-.page-docs .report-modal .mt{flex:1;min-width:0;}
-.page-docs .report-modal .mt b{display:block;font-size:16px;color:var(--navy);font-weight:900;}
-.page-docs .report-modal .mt span{display:block;font-size:13px;color:var(--ink-3);font-weight:600;margin-top:1px;}
-.page-docs .report-modal .mx{flex:0 0 auto;width:30px;height:30px;border-radius:50%;border:0;background:var(--canvas);color:var(--ink-3);cursor:pointer;display:grid;place-items:center;}
-.page-docs .report-modal .mx:hover{background:#eceef6;color:var(--ink);}
-.page-docs .report-modal .mx svg{width:15px;height:15px;}
-.page-docs .report-modal .mbody{padding:14px;display:flex;flex-direction:column;gap:12px;}
+@media (prefers-reduced-motion:reduce){.report-modal .modal{animation:none;}}
+.report-modal .mhead{padding:18px 20px 14px;border-bottom:1px solid var(--line);display:flex;align-items:flex-start;gap:12px;}
+.report-modal .mic{flex:0 0 38px;width:38px;height:38px;border-radius:11px;background:var(--navy);color:#fff;display:grid;place-items:center;}
+.report-modal .mic svg{width:18px;height:18px;}
+.report-modal .mt{flex:1;min-width:0;}
+.report-modal .mt b{display:block;font-size:16px;color:var(--navy);font-weight:900;}
+.report-modal .mt span{display:block;font-size:13px;color:var(--ink-3);font-weight:600;margin-top:1px;}
+.report-modal .mx{flex:0 0 auto;width:30px;height:30px;border-radius:50%;border:0;background:var(--canvas);color:var(--ink-3);cursor:pointer;display:grid;place-items:center;}
+.report-modal .mx:hover{background:#eceef6;color:var(--ink);}
+.report-modal .mx svg{width:15px;height:15px;}
+.report-modal .mbody{padding:14px;display:flex;flex-direction:column;gap:12px;}
 .page-docs .report-modal .choice{display:flex;gap:13px;padding:15px;border:1.5px solid var(--line);border-radius:var(--r-md);text-decoration:none;color:inherit;transition:border-color .15s,background .15s,box-shadow .15s;}
 .page-docs .report-modal .choice:hover,.page-docs .report-modal .choice:focus-visible{border-color:var(--az-gold);background:#f7fbff;box-shadow:var(--shadow-sm);text-decoration:none;}
 .page-docs .report-modal .choice .cic{flex:0 0 40px;width:40px;height:40px;border-radius:11px;display:grid;place-items:center;}
@@ -2557,3 +2563,19 @@ fieldset.adm-field{border:0;padding:0;}
    `.yg .empty .err` (not bare `.page-docs .err`) so it cannot restyle any
    other `.err` elsewhere on this page. */
 .page-docs .yg .empty .err{color:var(--az-red);}
+
+
+/* The "See System Guidance" window (admin/SystemGuidance.tsx) — the read-only
+   view of everything the assistant is told. Wide, because the content is
+   prose the assistant reads, not a two-option chooser; and scrolling inside
+   the sheet rather than the page, so the header and the document switch stay
+   put while a 1,100-line section is read. */
+.report-modal .modal.is-wide{max-width:760px;}
+.report-modal .modal.is-wide .mbody{max-height:min(70vh,640px);overflow-y:auto;}
+.adm-sysg-label{margin:16px 0 0;font-size:11.5px;text-transform:uppercase;letter-spacing:.04em;color:var(--ink-3);font-weight:800;}
+.adm-sysg-group:first-of-type .adm-sysg-label{margin-top:4px;}
+/* Verbatim instructions. `pre-wrap` because this is markdown the assistant
+   reads as written — collapsing its blank lines and indentation would show
+   the admin something other than what is actually there. */
+.adm-sysg-text{margin:0;padding:10px 12px;background:var(--canvas);border-radius:var(--r-sm);font:inherit;font-size:12.5px;line-height:1.55;color:var(--ink-2);white-space:pre-wrap;overflow-wrap:anywhere;}
+.adm-sysg-sub{margin-top:10px;}
