@@ -42,6 +42,7 @@ source. When something ships, update only this file.
 | AI Mode chat history | ✓ Shipped (2026-08-03), **reviewed and hardened 2026-08-11** | Per-device transcripts, browse/search/resume past chats, auto-naming, collapsible rail. Local disk only — never the share. A second review found ELEVEN defects, four of them silent data loss; all fixed. See the section below |
 | JLBC memo formatting for generated reports | ✓ **Shipped (2026-08-13)**, unverified in real Word | `create_document` renders a JLBC memo — letterhead, DATE/TO/FROM/SUBJECT block, house typography — instead of Word's stock styling. Nine plan-code defects found during execution, two of them tests that proved nothing. See the section below |
 | AI Mode persistent conversation | ✓ **Shipped, browser-tested, merged `28567f0`** (2026-08-11) | "+ New chat" shows a row at once; the conversation survives a tab switch and keeps streaming. 742 vitest / `tsc -b` clean. Destin tested and accepted; browser testing found a two-rows-look-selected defect, fixed. Four Minors carried, and P5 (close-tab-still-aborts) is still unwatched. See the section below |
+| **Plan C — book panel + queue (T10/T13)** | ✅ **Shipped 2026-08-13**, browser pass outstanding | The queue shows outstanding work instead of 7,104 rows of history — **3.13 MB → 0.008 MB per poll, 391× smaller**, 7,118 file reads → 14. The book panel offers only editions the corpus lacks (was: 62 offered, **0** usefully addable). See the section below |
 | **Corpus navigation** (map, spread, coverage, echo) | ✓ **Shipped, both gates passed, merged `2dc295f`** (2026-08-12) | N1–N7 + N11. A corpus inventory in the prompt, `spread` retrieval, `year_coverage`, inferred-filter echo. **G-N1: Layer 1 identical to a same-hour control. G-N2: `key_fact_rate` 0.463 → 0.685 against a real control**, every citation metric up, input tokens down 41%. Full 31-query run not yet run. See the section below |
 | Document guide for generated reports | ✓ **Shipped (2026-08-13)**, merged `f91b68f` | A sixth tool, `document_guide(report_type)`, hands the model JLBC's house style and one of three report shapes only when it is about to write a document. **Advisory and unenforced** — nothing validates what the model then writes. Five plan-code defects found during execution, two of them tests that proved nothing. **Nobody has watched a real document produced under it.** See the section below |
 | **Admin extensions** (E1–E3, E6) | ✓ **Merged `b108d13`, gates green, NOT yet browser-verified** (2026-08-13) | Admin-editable alias overlay for search, admin-authored office guidance in the AI prompt, a read-only "See System Guidance" window over the shipped instructions, analyst issue reports with an admin inbox, `/admin` regrouped. 2660 pytest / 834 vitest / `tsc -b` / `npm run build` all clean; E1 eval gate passed with the overlay proven live. Destin opened the app and approved the merge, but three surfaces are still unwitnessed — see the section below |
@@ -338,6 +339,157 @@ merge, but did not report on every surface, and these three were never looked at
 Also unwitnessed and pinned only by specs: the byte meter, the 148-option agency select,
 and the report form. The "AI Mode" group label still sits directly above the panel headed
 "AI Mode" — Destin saw the stutter described and chose to leave it.
+
+## Plan C — the book panel and the queue (2026-08-13)
+
+Spec: `docs/superpowers/specs/2026-08-11-document-types-and-resilient-processing-design.md`
+— **T10** (invert the book panel) and **T13** (the queue shows work, not
+history), with T13 amended the same day. Plan:
+`docs/superpowers/plans/2026-08-13-plan-c-book-panel-and-queue.md` (8 tasks).
+
+Gates: **pytest 2861 / 5 skipped** (from 2824) · **vitest 925** (from 913) ·
+`tsc -b` 0 · `npm run build` 0. **No eval run, and the rule does not ask for
+one**: nothing under `retrieval/`, `chunking/`, `citation/` or
+`harness/system-prompt.md` was touched. `ingest/` was, but only in where a
+job file lives and which loader a caller uses — the eval calls `retrieve()`
+and cannot observe either.
+
+### 🔴 The spec's own implementation instruction was wrong, and measurement caught it
+
+T13 said to filter job files on **mtime from the directory scan, before
+parsing them**. A file's mtime does not carry the job's **state**. Measured
+on the live data dir:
+
+| | |
+|---|---|
+| job files | **7,118** |
+| `live` / `failed` / `cancelled` | 7,100 / **14** / 4 |
+| **`failed` with a file older than 24 h** | **13 of 14** |
+
+**A 24-hour mtime window drops 13 of the 14 failures** — the exact inversion
+of the clause T13 calls the one rule not to relax. The same hole applies to a
+`queued` job: ingest is default-OFF per machine, so an upload can legitimately
+wait days with a stale mtime while the ingest PC is closed.
+
+### T13 is a STORAGE change, not a filter — Destin's call, 2026-08-13
+
+Jobs reaching `live` or `cancelled` move to `<data_dir>/jobs/done/`.
+**`failed` never moves**, so "every failed job regardless of age" is a
+property of *where the file is* rather than a rule something must remember to
+apply. Dismiss (`failed → cancelled`) moves it, so T13's "until retried,
+cancelled or dismissed" falls out of the same shape.
+
+Chosen over encoding the state in the filename because this queue is a
+directory of small JSON files precisely so a colleague with no code access
+can read it in Notepad (`ingest/jobs.py` module docstring). A folder named
+`done` says what it holds; a filename suffix does not.
+
+**The 24-hour window was dropped entirely.** Once finished jobs live
+elsewhere an age window has nothing to do, and a window with an exception
+clause is what produced the defect above. The one thing it was really buying
+— not yanking a row out from under someone watching their own upload finish —
+is now a **client-side** touch, because the browser knows what it was
+watching and the server does not.
+
+### Measured, before and after, on a copy of the live jobs folder
+
+| | rows | payload | file reads |
+|---|---|---|---|
+| before (`load_all`) | 7,118 | **3.128 MB** per poll | 7,118 |
+| after (`load_active`) | **14** | **0.008 MB** | 14 + one listing |
+| `?all=1` | 7,118 | 3.128 MB | on request only |
+
+The one-time sweep moved **7,104 files in 0.13 s**; 14 + 7,104 = 7,118, so
+nothing was lost, and the only state left in the main folder is `failed`.
+
+**The cost was in seven callers, not one.** The worst was
+`ingest/worker.py::_candidates` — the ingest poll loop read all 7,118 files
+every pass, off a shared drive, and nobody had noticed. Six of the seven are
+equivalent by construction (their filters already excluded every archived
+state). **The seventh genuinely changes and the obvious edit breaks it
+silently**: every `live` job is archived, so building `last_ingest_at` from
+the main folder reports "nothing has ever been ingested" against 7,434
+documents, with no error. Both the naive swap and the missing fallback were
+reproduced as mutations.
+
+### 🔴 A REAL GAP the existing suite found in the new code
+
+`test_admin_corpus_route::test_corpus_reports_the_queue` writes a `live` job
+in the **pre-sweep** layout, and the first version of `newest_live_job()`
+returned `None` for it. Until the sweep runs, every finished job is still in
+the main folder and the archive is empty — so the admin panel would have read
+"nothing ingested" for the whole window between server start and the sweep
+finishing, and **permanently on any machine where the sweep cannot run**. It
+now falls back to the main folder, which is never more expensive than the
+`load_all()` it replaced.
+
+### T10 — the panel offers only what is missing
+
+Before: **62 editions offered, 0 usefully addable** — 38 ingestable and all 38
+already in the corpus, 24 not ingestable and offered anyway. "Add all"
+reported `skipped_existing: 139` and appeared to do nothing.
+
+**JLBC has used FOUR book URL conventions, not two**, and this is what makes
+the check correct: `{yy}ar` (approps FY2013–2026), `{yy}app` (approps
+FY2005–2012), `{yy}baseline` (baseline FY2013–2027), `{yy}book1` (baseline
+FY2012 only). The last two were confirmed **by title**, not guessed.
+Verified against the live corpus: approps newest **FY2026** (22 editions),
+baseline newest **FY2027** (16).
+
+**A comment I wrote was wrong and mutation caught it.** I claimed a
+two-pattern regex would report the newest approps edition as FY2013. It does
+not — the newest year is unaffected. What it really costs is the older end
+(approps 22 → 14, baseline 16 → 15), and **all nine lost editions are marked
+ingestable in the catalog**, so every one would have been offered as "not in
+your corpus" when the corpus holds it. The comment now says that, with the
+numbers.
+
+Editions are read from `source_url` and **never from the doc_id** — 21
+documents carry a family in their id that contradicts their own title.
+
+**Offline behaviour is part of the feature.** The answer is cached 12 hours;
+a network failure serves the last good answer with `online: false` and a
+plain reason. This app is verified to cold-start with WiFi disconnected, and
+a panel reporting an empty gap as "everything is already here" would be a
+confident wrong answer produced by a network failure.
+
+**I nearly dropped a real capability.** T10's mockup shows only an Add
+button, so the first version had no dry run — and five existing specs went
+red, which is how it was noticed. "Discover" is what found the FY2027
+Appropriations Report (139 documents, 0 unreachable). It returns as a
+per-edition **Preview**.
+
+### Two defects in this work's own tests
+
+Both are the class this project keeps shipping, and neither came from review:
+
+1. **The stage labels were RETYPED rather than moved** during the queue
+   extraction, turning "Searchable" into "Done". The existing suite caught it.
+2. **A spec passed with the button wired to the wrong mode** — the fake
+   returned `showing: "all"` unconditionally, which flipped component state so
+   a *later* poll satisfied the assertion. The fake now echoes its argument
+   like the real route. Caught by mutating the button and watching it stay
+   green.
+
+Seventeen mutations were run in place across the eight tasks; every one
+turned its target red.
+
+### ⏸ OUTSTANDING — nobody has looked at either page
+
+Every check above is data, logic or a test. **jsdom applies no stylesheet**,
+so the rendering is unverified — and both of the last two shipped defects on
+this project went out green under thousands of passing tests. Task 8 Step 3
+of the plan carries the checklist: the queue showing a handful of rows with a
+true finished count; "view all"; a 12-day-old failure present; a row
+surviving the moment it turns live; the book panel offering **FY 2027
+Appropriations Report** and nothing already held; an un-addable edition
+showing its `era_note` with no Add button; and — WiFi off — the panel saying
+it could not reach azjlbc.gov rather than hanging.
+
+⚠ `uvicorn` runs without `--reload`, so **Python changes need a server
+restart**; only the SPA picks up a rebuild.
+
+---
 
 ## Corpus — what is ingested and what is NOT (2026-08-01)
 
