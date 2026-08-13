@@ -124,8 +124,41 @@ def test_an_unmeasurable_coverage_does_not_win_by_default():
     assert choose_best([(None, 0.0), (0.44, 0.0)]) == 1
 
 
+def test_a_mixed_band_excludes_the_none_unlabelled_candidate():
+    """Catches deleting the `unlabelled is not None` guard in choose_best's
+    band filter. With both candidates' `unlabelled` real, `(0.49, None)
+    and (0.44, None)`-shaped tests can't observe the guard at all --
+    `None == None` lets the tie-break fall through to coverage regardless.
+    Here index 1's `unlabelled` is real (0.10) and index 0's is `None`, so
+    only a MIXED band exercises the clause: with the guard, index 0 never
+    enters the band and index 1 wins on coverage (0.50) alone. Delete the
+    guard and index 0 (cov 0.45, 90% of best) joins the band too -- its
+    `(None, -0.45)` tie-break key then has to compare against index 1's
+    `(0.10, -0.50)`, and `None < 0.10` raises TypeError, since `None` and
+    `0.10` are unequal and Python cannot order them."""
+    assert choose_best([(0.50, 0.10), (0.45, None)]) == 0
+
+
+def test_an_empty_band_does_not_let_an_unmeasurable_coverage_win():
+    """Drives an EMPTY band -- unlike `test_an_unmeasurable_coverage_does_
+    not_win_by_default` above, where index 1 alone satisfies the band
+    filter and the function returns from the BAND branch without ever
+    evaluating the fallback. Here every measured coverage is exactly 0.0,
+    so `best_coverage > 0` is false for every candidate and the band is
+    empty regardless of the sentinel; only the fallback's own max() picks
+    the winner. Catches changing the fallback's `-1.0` sentinel for a
+    `None` coverage to a positive value like `999.0`, which would let an
+    unmeasurable coverage beat a real measured 0.0."""
+    assert choose_best([(None, 0.0), (0.0, 0.0)]) == 1
+
+
 def test_choose_best_rejects_an_empty_candidate_list():
-    with pytest.raises(ValueError):
+    """Asserts the GUARD's own message, not just the exception type.
+    `max(range(0), key=...)` independently raises `ValueError: max()
+    iterable argument is empty` once band and fallback both run on zero
+    candidates, so a type-only assertion passes even after the explicit
+    `if not candidates: raise ValueError(...)` guard is deleted."""
+    with pytest.raises(ValueError, match="requires at least one candidate"):
         choose_best([])
 
 
