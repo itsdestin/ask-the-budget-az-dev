@@ -47,6 +47,7 @@ from ingest.worker import (
     WORKERS_ENV_VAR,
     IngestWorker,
     WorkerContext,
+    batch_eligible,
     configured_batch_size,
 )
 from store.chunk_store import ChunkStore
@@ -520,12 +521,41 @@ def test_a_document_that_needs_a_different_extractor_is_not_batched(
 
     assert sorted(_batched(runner)) == sorted(j.doc_id for j in small)
     assert odl.doc_id not in _batched(runner)
-    # It ran per-document instead. The count is deliberately not pinned: an
-    # AFR prefers OpenDataLoader and this fake writes MinerU-shaped output,
-    # so the extraction ladder legitimately falls through to its `mineru`
-    # rung — which is the ladder working, not the batch routing under test.
-    assert extractor.calls >= 1, "the AFR skipped the per-document path"
+    # It ran per-document instead, at count 2, not merely ">= 1": an AFR
+    # prefers OpenDataLoader (rung 1) but this fixture's extractor override
+    # always writes MinerU-shaped page output regardless of which rung asked
+    # for it, so rung 1 reads that output with the WRONG reader, measures
+    # near-zero coverage, and the ladder legitimately falls through to its
+    # `mineru` rung (call 2), which reads the same files with the reader that
+    # actually matches them and passes. That is the ladder working, not the
+    # batch routing under test — pin the real number so a change to either
+    # mechanism is visible here instead of silently passing under `>= 1`.
+    assert extractor.calls == 2, "the AFR skipped the per-document path"
     assert load_job(odl.job_id).state == "live"
+
+
+def test_a_job_that_already_failed_a_rung_is_not_batch_eligible(data_dir):
+    """Ground truth 4 in `batch_eligible`'s own docstring, pinned directly.
+
+    Not covered by the `completed_ranges` guard above: `completed_ranges` is
+    cleared on every rung change (`ingest/worker.py::_extract_and_chunk`), so
+    a job that already crashed on rung 1 and is waiting to resume carries an
+    EMPTY `completed_ranges` — and its first ladder rung is still plain
+    `mineru` (`ladder_for` is stateless), so `_batch_rung_matches` would pass
+    it too. Only the `extraction_attempts` guard stops it from being
+    re-batched under `-m auto`, re-running the identical extraction that just
+    failed, and never reaching the `mineru-ocr` rung it actually needs.
+
+    A direct call, not a `_drain()` round trip: `batch_eligible` is a pure
+    predicate over a `JobRecord` and needs no worker, runner or real MinerU
+    output to exercise.
+    """
+    job = _queue_doc(data_dir, pages=2)
+    job.extraction_attempts = [
+        {"extractor": "mineru", "coverage": None, "chunks": 0, "error": "boom"}
+    ]
+
+    assert batch_eligible(job) is False
 
 
 # --- 4 + 5: per-document failure, and resume --------------------------------

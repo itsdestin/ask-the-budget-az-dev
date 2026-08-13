@@ -221,7 +221,8 @@ def test_a_terminal_failure_never_reaches_live_and_writes_no_chunks(monkeypatch,
     assert written == []
     assert len(job.extraction_attempts) == 3
     # `job.error`, NOT `stage_detail`: `advance(job, "failed")` REQUIRES an
-    # error message and raises ValueError without one (jobs.py:307). A
+    # error message and raises ValueError without one (see the
+    # `new_state == "failed"` branch in `ingest/jobs.py::advance`). A
     # message written only to stage_detail would leave `error` empty on the
     # one screen that exists to explain the failure.
     assert job.error
@@ -256,6 +257,33 @@ def test_a_rung_that_CRASHES_falls_through_to_the_next(monkeypatch, ladder_job):
     assert outcome.attempts[0]["extractor"] == "opendataloader"
     assert outcome.attempts[0]["coverage"] is None
     assert "Data format error" in outcome.attempts[0]["error"]
+
+
+def test_a_cancel_during_a_rung_stops_the_ladder_and_is_not_recorded_as_a_crash(
+    monkeypatch, ladder_job
+):
+    """`JobCancelled` is a cancel, not a crashed rung -- it must propagate
+    past the `except Exception` handler above, not be swallowed by it.
+
+    This is the one exception type that must NOT fall through to the next
+    rung. Reviewed with a throwaway probe: with the `except JobCancelled:
+    raise` line in place, a cancel during rung 1 stops the ladder here; strip
+    that line and the cancel is caught by the generic handler, filed as a
+    crashed attempt, and rungs 2 and 3 run anyway -- potentially hours of
+    MinerU on a document the user already gave up on, plus fabricated crash
+    entries in `extraction_attempts`.
+    """
+    calls: list[str] = []
+
+    def scripted(name):
+        calls.append(name)
+        raise worker.JobCancelled("user cancelled")
+
+    with pytest.raises(worker.JobCancelled):
+        worker._extract_and_chunk(ladder_job, _ctx(monkeypatch, scripted))
+
+    assert calls == ["opendataloader"], "rung 2 must never run after a cancel"
+    assert ladder_job.extraction_attempts == [], "a cancel is not a crashed attempt"
 
 
 def test_every_rung_crashing_is_a_terminal_failure_not_a_traceback(

@@ -426,6 +426,18 @@ def _extract_and_chunk(job: JobRecord, ctx: WorkerContext) -> ExtractionOutcome:
             # Carrying it forward makes the next rung skip pages it has never
             # extracted — a partial document failing coverage for a reason
             # unrelated to the extractor.
+            #
+            # This clear is POSITIONAL (`index > 0`), not rung-aware — it does
+            # not check which rung wrote the ranges it is clearing. That is
+            # safe only because nothing today ever arrives at index > 0 with
+            # ranges still set from something other than a completed rung 0:
+            # `_extract_with_mineru` (the per-document path) always passes the
+            # WHOLE page range in one call, so `completed_ranges` stays empty
+            # for the whole rung and only gets populated at rung 0 by
+            # `extract_batch`'s hand-off, which `_batch_rung_matches`
+            # guarantees only ever runs at index 0. If per-range incremental
+            # journalling is ever added within a single rung, this positional
+            # rule would clear a mid-rung journal it should have kept.
             if job.completed_ranges:
                 job.completed_ranges = []
                 save(job)
@@ -505,6 +517,16 @@ def _outcome_rank(outcome: ExtractionOutcome) -> tuple[float, int]:
     An unmeasurable attempt ranks below every measured one (-1.0 is below a
     genuine 0.0): a crash or an unreadable source tells us nothing, while a
     measured 0% is at least a real observation about a real extraction.
+
+    NOTE: among FAILING outcomes, `extractor` and `coverage` are the only
+    fields this comparison can distinguish on — nothing downstream currently
+    reads which one was picked. `_held_out_message` recomputes
+    `max(measured)` from `attempts` directly rather than consulting the
+    returned outcome, and nothing else consults it either. Keeping the best
+    attempt is still correct and required (spec T5 step 4, "keep whichever
+    result scored highest") — it is what leaves the best output on disk for
+    a human to look at — but do not delete this function as dead code on the
+    strength of nothing reading its result TODAY.
     """
     return (
         outcome.coverage if outcome.coverage is not None else -1.0,
@@ -783,11 +805,28 @@ def _batch_rung_matches(job: JobRecord) -> bool:
     documents that did not need it (hours of wasted work) or fails to OCR the
     one that did.
 
-    Grouping is therefore the caller's job, and this is the whole of it: a
-    document whose ladder starts anywhere other than plain `mineru` — today
-    only a scan, which `ingest/ladder.py` routes straight to `mineru-ocr` —
-    is kept out of the batch and takes the per-document path, where it gets
-    its own runner in the mode it needs.
+    Grouping is a document whose ladder starts anywhere other than plain
+    `mineru` — today only a scan, which `ingest/ladder.py` routes straight to
+    `mineru-ocr` — being kept out of the batch and taking the per-document
+    path, where it gets its own runner in the mode it needs. THIS FUNCTION IS
+    NOT THE WHOLE OF THAT RULE, and a review confirmed it is not an
+    equivalent substitute for the other two: rung-homogeneity holds by THREE
+    cooperating guards, and deleting any one of them re-opens a real gap.
+
+    1. **This function** — excludes a document whose first ladder rung is
+       not `mineru` (a scan) from ever entering a batch.
+    2. **`batch_eligible`'s `completed_ranges` check** — excludes a document
+       that is part-way through the per-document page range.
+    3. **`batch_eligible`'s `extraction_attempts` check** — excludes a
+       document that is past rung 1 already, which THIS function alone
+       cannot: `ladder_for` is stateless, so a document that already crashed
+       on `mineru` and is waiting to resume still reports `rungs[0] ==
+       "mineru"` here (correctly — that IS rung 1 of its ladder), and its
+       `completed_ranges` was cleared at the rung change, so guard 2 does not
+       see it either. Without guard 3, such a document is re-batched under
+       `-m auto`, re-runs the identical extraction that just failed, and
+       never reaches the `mineru-ocr` rung it actually needs. Pinned by
+       `tests/test_ingest_batch.py::test_a_job_that_already_failed_a_rung_is_not_batch_eligible`.
 
     Needs the file on disk (inspection reads the text layer), so it is one of
     the two LATE eligibility checks, not part of `batch_eligible`.
@@ -827,10 +866,13 @@ def _pdf_pages(source: Path) -> int | None:
 def _extraction_complete(out: Path, pages: int) -> bool:
     """Is this document's extractor output already on the share, in full?
 
-    `<data_dir>/extractor-output/<doc_id>/` IS the resume signal — batch mode
-    adds no journal of its own. This is safe because a document that FAILS
-    inside a batch leaves no output directory behind, so a partial directory
-    can never be mistaken for a finished one.
+    `out` is one RUNG's output directory (`_extract_dir(job, method)`,
+    rung-scoped since the extraction ladder shipped — this predates that and
+    the un-suffixed base it originally described is now only ever reached
+    through `_legacy_extract_dir`'s own fallback). That directory IS the
+    resume signal — batch mode adds no journal of its own. This is safe
+    because a document that FAILS inside a batch leaves no output directory
+    behind, so a partial directory can never be mistaken for a finished one.
     """
     return pages > 0 and all(
         (out / f"page-{page}.json").is_file() for page in range(1, pages + 1)
@@ -1648,7 +1690,7 @@ def _source_format(job: JobRecord) -> str:
     return Path(job.source_path).suffix.lstrip(".").lower()
 
 
-def _extract_dir(job: JobRecord, method: str | None = None) -> Path:
+def _extract_dir(job: JobRecord, method: str) -> Path:
     """Where one rung's extractor output lives.
 
     Rung-scoped (`<doc_id>/<method>/`) so two attempts on one document never
@@ -1658,12 +1700,13 @@ def _extract_dir(job: JobRecord, method: str | None = None) -> Path:
     which. It also means the best attempt's output survives on disk for
     whoever looks at the failure.
 
-    `method=None` is the un-suffixed base, which only callers that predate
-    rungs should want.
+    `method` is required: every production caller already knows which rung
+    it means, and there is no caller left (including in tests) that predates
+    rungs and wants the bare un-suffixed base — that shape is now reached
+    only through `_legacy_extract_dir`'s fallback below, keyed off the SAME
+    named method, not a missing one.
     """
     base = data_dir() / "extractor-output" / job.doc_id
-    if method is None:
-        return base
     scoped = base / method
     if not scoped.exists():
         legacy = _legacy_extract_dir(job, base, method)
@@ -1683,6 +1726,19 @@ def _legacy_extract_dir(job: JobRecord, base: Path, method: str) -> Path | None:
     that is what wrote it. Letting any rung claim it would point a MinerU
     fallback at a directory full of OpenDataLoader pages — exactly the mixing
     the scoped directories exist to prevent.
+
+    ASSUMPTION THIS RELIES ON: a doc_type's default extractor never changes.
+    The rule is meant to be "only the extractor that WROTE this directory may
+    claim it" but is implemented as "only the CURRENT default may claim it" —
+    those are the same thing only as long as `_default_extractor_name(job)`
+    today equals what it was when the legacy directory was written. Plan 6
+    (`data/document-types.yaml` becoming an admin-editable registry) is
+    exactly the case that breaks this: if a type is ever re-pointed to a
+    different default extractor, the NEW default would claim a legacy
+    directory the OLD default actually wrote, silently mixing readers again.
+    No sentinel file records which extractor really produced a legacy
+    directory, so nothing here can currently tell the difference — flagged,
+    not fixed.
     """
     if method != _default_extractor_name(job):
         return None
