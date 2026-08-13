@@ -2417,6 +2417,24 @@ fieldset.adm-field{border:0;padding:0;}
 .adm-inline label{display:block;}
 .adm-price{color:var(--ink-3);}
 
+/* ===== page-report (spec E3, Task 11) =====
+   The analyst's own door into issue reports: a short form, then their own
+   past reports below it. Reuses .adm-panel/.adm-field/.adm-btn so the page
+   reads like the rest of the app rather than inventing its own look; the
+   rules below only cover what those classes don't already style — a
+   textarea (the shared .adm-field selector only covers input/select) and
+   the report list itself. */
+.adm-field textarea{display:block;width:min(560px,100%);resize:vertical;border:1px solid var(--line);border-radius:var(--r-sm);padding:7px 10px;font:inherit;font-size:13.5px;background:var(--card);color:var(--ink);}
+.rpt-list{list-style:none;margin:8px 0 0;padding:0;}
+.rpt-row{padding:12px 0;border-bottom:1px solid var(--line);}
+.rpt-row:last-child{border-bottom:0;}
+.rpt-desc{margin:0;font-size:13.5px;color:var(--ink);line-height:1.5;}
+.rpt-meta{margin:6px 0 0;font-size:12px;color:var(--ink-3);}
+.rpt-status{font-size:11.5px;font-weight:800;background:var(--canvas);border:1px solid var(--line);border-radius:var(--r-pill);padding:2px 9px;color:var(--ink-3);}
+/* A resolved report reads differently at a glance, not just in its words —
+   the same teal the rest of the app uses for "this is fine now". */
+.rpt-row.is-resolved .rpt-status{background:var(--teal-100);border-color:transparent;color:#12607f;}
+
 /* ===== page-repair (Plan 5 Task 12, S18) =====
    The screen that renders INSTEAD of the app when it can't start. Centred,
    narrow, and quiet: its reader is not browsing, they are stuck. Nothing here

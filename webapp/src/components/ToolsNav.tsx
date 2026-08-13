@@ -44,6 +44,14 @@ const TOOLS = [
     hint: "Your preferences and usage",
     adminOnly: false,
   },
+  // Spec E3/Task 11. adminOnly: false — filing a report is the one thing in
+  // this menu every analyst genuinely needs, not just whoever holds admin.
+  {
+    to: "/report",
+    label: "Report an issue",
+    hint: "Tell the administrator something's wrong",
+    adminOnly: false,
+  },
   {
     to: "/admin",
     label: "Admin",
@@ -88,9 +96,25 @@ function AdminIcon() {
   );
 }
 
+/** A speech bubble with a "!" — this is a message TO the administrator, not
+ *  a form to fill in and forget, and the exclamation is what says "something
+ *  is wrong" without a second glyph nearby. The dot uses a near-zero-length
+ *  stroked segment (the house's round linecap turns it into a solid point),
+ *  which keeps the whole glyph stroke-only like its siblings. */
+function ReportIcon() {
+  return (
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+      <path d="M4 5.5h16a1 1 0 0 1 1 1V15a1 1 0 0 1-1 1h-9l-4.2 3.6V16H4a1 1 0 0 1-1-1V6.5a1 1 0 0 1 1-1Z" />
+      <path d="M12 9v3" />
+      <path d="M12 15.01v.01" />
+    </svg>
+  );
+}
+
 const ICONS: Record<string, () => JSX.Element> = {
   "/upload": UploadIcon,
   "/settings": SettingsIcon,
+  "/report": ReportIcon,
   "/admin": AdminIcon,
 };
 
