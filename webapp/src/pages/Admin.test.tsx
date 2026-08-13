@@ -153,6 +153,7 @@ function mockAll(over: {
   snapshots?: api.Snapshot[];
   notices?: api.Notice[];
   attention?: api.AttentionDocument[];
+  swapped?: api.SwappedDocument[];
   me?: Partial<api.Me>;
   aliases?: api.AdminAliases;
   guidance?: api.AdminGuidance;
@@ -168,7 +169,10 @@ function mockAll(over: {
   vi.spyOn(api, "adminModels").mockResolvedValue(over.models ?? models());
   vi.spyOn(api, "adminBackups").mockResolvedValue({ snapshots: over.snapshots ?? [] });
   vi.spyOn(api, "adminNotices").mockResolvedValue({ notices: over.notices ?? [] });
-  vi.spyOn(api, "adminAttention").mockResolvedValue({ documents: over.attention ?? [] });
+  vi.spyOn(api, "adminAttention").mockResolvedValue({
+    documents: over.attention ?? [],
+    swapped: over.swapped ?? [],
+  });
   vi.spyOn(api, "aiStatus").mockResolvedValue(AI_STATUS);
   // The three E6 panels fetch for themselves rather than riding the page's
   // settings draft, so the page's own mock set has to cover them too —
@@ -656,6 +660,48 @@ describe("needs attention", () => {
     await waitFor(() =>
       expect(screen.queryByTestId("admin-attention-error")).toBeNull(),
     );
+  });
+});
+
+describe("extraction method changed", () => {
+  // Finding 3: the page reads `a.swapped` off the SAME `adminAttention()`
+  // response as `a.documents`, and threads it into `setSwapped`. Nothing in
+  // this file drove that field before -- `ExtractionChanges.test.tsx` only
+  // covers the component in isolation, against a fake `documents` prop, so
+  // it cannot see whether the page ever calls `setSwapped` at all.
+
+  function swap(over: Partial<api.SwappedDocument> = {}): api.SwappedDocument {
+    return {
+      job_id: "job-swap-1",
+      title: "JLBC Baseline FY2026 — AHCCCS",
+      kept: "mineru-ocr",
+      attempts: [
+        { extractor: "opendataloader", coverage: 0.02 },
+        { extractor: "mineru", coverage: 0.05 },
+        { extractor: "mineru-ocr", coverage: 0.98 },
+      ],
+      ...over,
+    };
+  }
+
+  it("renders a document the ladder saved by swapping extraction method", async () => {
+    mockAll({ swapped: [swap()] });
+    await renderAdmin();
+
+    const section = screen.getByTestId("adm-swaps");
+    expect(section).toHaveTextContent("JLBC Baseline FY2026 — AHCCCS");
+    expect(screen.getByTestId("adm-swap-kept")).toHaveTextContent("MinerU (OCR)");
+  });
+
+  it("renders nothing when nothing was swapped", async () => {
+    mockAll({ swapped: [] });
+    await renderAdmin();
+
+    expect(screen.queryByTestId("adm-swaps")).toBeNull();
+    // Pins the conditional `Group` gate too -- master's Group always paints
+    // its own heading, so wrapping it unconditionally would leave an
+    // "Extraction method changed" heading on the page every ordinary day.
+    expect(screen.queryByText("Extraction method changed")).toBeNull();
   });
 });
 

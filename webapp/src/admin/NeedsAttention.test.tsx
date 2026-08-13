@@ -83,22 +83,49 @@ describe("NeedsAttention", () => {
   });
 
   it("renders an unmeasured rung honestly, never as 0%", () => {
+    // `unlabelled` is set to a real number on both rows so the only "not
+    // measured" cell in the OpenDataLoader row is its coverage cell --
+    // scoping to that one row (rather than "somewhere on the page") is
+    // what makes this fail if the coverage cell itself silently started
+    // reading "0%" while some unrelated cell still said "not measured".
     setup([
       held({
         attempts: [
-          { extractor: "opendataloader", coverage: null },
-          { extractor: "mineru", coverage: 0.02 },
+          { extractor: "opendataloader", coverage: null, unlabelled: 0.05 },
+          { extractor: "mineru", coverage: 0.02, unlabelled: 0.1 },
         ],
         best_coverage: 0.02,
       }),
     ]);
     const doc = screen.getByTestId("admin-attention-doc");
-    // Also matches the new bare-figure column, which every row in this
-    // fixture reads as "not measured" too (the fixture sets no
-    // `unlabelled` field) -- at least one match is still the point: an
-    // unmeasured rung never silently reads as 0%.
-    expect(within(doc).getAllByText("not measured").length).toBeGreaterThan(0);
-    expect(within(doc).queryByText("0%")).not.toBeInTheDocument();
+    const row = within(doc).getByText("OpenDataLoader").closest("li");
+    if (!row) throw new Error("no row for OpenDataLoader");
+    // cells[0] is the coverage reading (unlabelled is a separate, defined
+    // 5% and would not match this pattern anyway); asserting on the row's
+    // own cell, not on whether the phrase appears anywhere in the document.
+    const cells = within(row).getAllByText(/^(not measured|\d+%)$/);
+    expect(cells[0]).toHaveTextContent("not measured");
+    expect(cells[0]).not.toHaveTextContent("0%");
+  });
+
+  it("renders a measured bare-figure fraction as its own percentage", () => {
+    // Finding 1: every existing fixture in this file omits `unlabelled`, so
+    // only the undefined -> "not measured" path was ever exercised for that
+    // column. This pins the numeric path -- it fails if the unlabelled cell
+    // is hardcoded to "not measured" regardless of the real value.
+    setup([
+      held({
+        attempts: [
+          { extractor: "opendataloader", coverage: 0.49, unlabelled: 0.31 },
+        ],
+        best_coverage: 0.49,
+      }),
+    ]);
+    const doc = screen.getByTestId("admin-attention-doc");
+    const row = within(doc).getByText("OpenDataLoader").closest("li");
+    if (!row) throw new Error("no row for OpenDataLoader");
+    expect(within(row).getByText("49%")).toBeInTheDocument();
+    expect(within(row).getByText("31%")).toBeInTheDocument();
   });
 
   it("renders a coverage ratio above 100% honestly, never capped", () => {
