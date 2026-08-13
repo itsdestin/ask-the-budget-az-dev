@@ -137,10 +137,15 @@ def test_attention_lists_a_held_back_document_with_what_was_tried(client):
     doc = docs[0]
     assert doc["title"] == "AGAO Annual Financial Report FY2024"
     assert doc["best_coverage"] == pytest.approx(0.02)
+    # HELD_BACK_ATTEMPTS predates the `unlabelled` field, so `.get()`
+    # reads None for all three rather than 500ing the page.
     assert doc["attempts"] == [
-        {"extractor": "opendataloader", "coverage": pytest.approx(0.02)},
-        {"extractor": "mineru", "coverage": pytest.approx(0.02)},
-        {"extractor": "mineru-ocr", "coverage": pytest.approx(0.01)},
+        {"extractor": "opendataloader", "coverage": pytest.approx(0.02),
+         "unlabelled": None},
+        {"extractor": "mineru", "coverage": pytest.approx(0.02),
+         "unlabelled": None},
+        {"extractor": "mineru-ocr", "coverage": pytest.approx(0.01),
+         "unlabelled": None},
     ]
     # The job's OWN sentence, not a rebuilt one — see ingest/worker.py's
     # `_held_out_message`, which is the one place calibrated to say what was
@@ -233,6 +238,34 @@ def test_the_happy_path_reports_no_error(client):
     assert _attention(client)["error"] is None
 
 
+def test_attention_reports_each_attempts_unlabelled_fraction(client):
+    """Both numbers per rung, because they DISAGREE: the whole reason this
+    feature exists is a document where coverage said 49% and structure said
+    30.63% bare (see ingest/structure_scan.py)."""
+    job = new_job(
+        doc_id="agao-afr-fy2024", title="FY 2024 Annual Financial Report",
+        corpus="budget", source_path="afr24.pdf", source_sha256="a" * 64,
+        publisher="agao", doc_type="afr", fiscal_year=2024,
+    )
+    job.extraction_attempts = [
+        {"extractor": "opendataloader", "coverage": 0.05,
+         "unlabelled": 0.31, "chunks": 20},
+        {"extractor": "mineru", "coverage": 0.04,
+         "unlabelled": None, "chunks": 3},
+    ]
+    job.held_out = True
+    save(job)
+    advance(job, "failed", error=(
+        "Held out of search — only 5% of this document's text produced "
+        "any content, after 2 extraction methods were tried."
+    ))
+
+    tried = _attention(client)["documents"][0]["attempts"]
+
+    assert tried[0]["unlabelled"] == 0.31
+    assert tried[1]["unlabelled"] is None
+
+
 def test_an_unreadable_jobs_directory_is_a_visible_error_not_silence(client, monkeypatch):
     """Minor finding on this plan's final review: swallowing an unreadable
     jobs directory into an empty `documents` list read IDENTICALLY to
@@ -250,7 +283,182 @@ def test_an_unreadable_jobs_directory_is_a_visible_error_not_silence(client, mon
     body = _attention(client)
 
     assert body["documents"] == []
+    assert body["swapped"] == []
     assert body["error"]
+
+
+# ---------------------------------------------------------------------------
+# "swapped" — documents the ladder saved by changing extractor
+# ---------------------------------------------------------------------------
+
+
+def _live_job(*, doc_id: str, title: str, kept_extractor: str, attempts: list[dict]):
+    """A job that finished successfully, possibly on a LATER ladder rung.
+
+    Set directly rather than walked through `advance()` — this file's other
+    helpers reach `failed` through the real state machine because Dismiss/
+    Retry behaviour depends on it, but nothing about `swapped` depends on
+    the path a job took to `live`, and `advance()` only steps one
+    `PIPELINE_STATES` hop at a time.
+    """
+    job = new_job(
+        doc_id=doc_id, title=title, corpus="budget",
+        source_path="x.pdf", source_sha256="d" * 64, publisher="agao",
+        doc_type="afr", fiscal_year=2024,
+    )
+    job.extraction_attempts = attempts
+    job.kept_extractor = kept_extractor
+    job.state = "live"
+    save(job)
+    return job
+
+
+def test_a_document_whose_extractor_changed_is_listed_as_swapped(client):
+    """A swap re-mints every chunk_id and replaces the document's text. A
+    change that size leaving no trace is how a corpus becomes
+    unexplainable a year later."""
+    _live_job(
+        doc_id="agao-afr-fy2024", title="FY 2024 Annual Financial Report",
+        kept_extractor="mineru",
+        attempts=[
+            {"extractor": "opendataloader", "coverage": 0.49,
+             "unlabelled": 0.31, "chunks": 388},
+            {"extractor": "mineru", "coverage": 0.45,
+             "unlabelled": 0.0, "chunks": 450},
+        ],
+    )
+
+    body = _attention(client)
+
+    assert len(body["swapped"]) == 1
+    row = body["swapped"][0]
+    assert row["kept"] == "mineru"
+    assert [a["extractor"] for a in row["attempts"]] == [
+        "opendataloader", "mineru",
+    ]
+    assert row["attempts"][0]["unlabelled"] == 0.31
+
+
+def test_a_document_kept_on_its_first_rung_is_not_listed_as_swapped(client):
+    """Nothing changed, so there is nothing to explain. A list that fills
+    up with ordinary uploads teaches an admin to scroll past it."""
+    _live_job(
+        doc_id="jlbc-baseline-fy2027-adoa", title="A baseline book",
+        kept_extractor="opendataloader",
+        attempts=[
+            {"extractor": "opendataloader", "coverage": 0.94,
+             "unlabelled": 0.0, "chunks": 200},
+        ],
+    )
+
+    assert _attention(client)["swapped"] == []
+
+
+def test_a_held_back_document_is_not_listed_as_swapped(client):
+    """`swapped` is a success list — the ladder chose a later rung and it
+    WORKED. A document every rung of which failed belongs on the
+    `documents` panel above, never here."""
+    _held_back_job()
+
+    assert _attention(client)["swapped"] == []
+
+
+def test_a_not_yet_live_job_with_a_real_swap_shape_is_not_listed(client):
+    """Isolates `job.state != "live"`. Every OTHER swap condition holds —
+    `kept_extractor` is set, there are 2+ attempts, and the first attempt's
+    extractor differs from `kept` — so this fixture trips nothing except
+    the state check. `_held_back_job` (above) also fails this way, but it
+    ALSO leaves `kept_extractor` unset, so it would still pass with the
+    state check deleted; this fixture would not."""
+    job = new_job(
+        doc_id="agao-afr-fy2025", title="Still mid-ladder",
+        corpus="budget", source_path="x.pdf", source_sha256="e" * 64,
+        publisher="agao", doc_type="afr", fiscal_year=2025,
+    )
+    job.extraction_attempts = [
+        {"extractor": "opendataloader", "coverage": 0.49,
+         "unlabelled": 0.31, "chunks": 388},
+        {"extractor": "mineru", "coverage": 0.45,
+         "unlabelled": 0.0, "chunks": 450},
+    ]
+    job.kept_extractor = "mineru"
+    job.state = "queued"
+    save(job)
+
+    assert _attention(client)["swapped"] == []
+
+
+def test_a_job_kept_on_its_first_rung_with_a_later_retry_attempt_is_not_listed(client):
+    """Isolates `attempts[0].get("extractor") == kept`. State is live, kept
+    is set, and there ARE 2+ attempts — the guard this fixture must trip is
+    the first-rung comparison alone, so the second attempt exists but the
+    first already matches `kept`."""
+    _live_job(
+        doc_id="jlbc-baseline-fy2027-adoa-retry",
+        title="Kept on the first rung despite a later retry",
+        kept_extractor="opendataloader",
+        attempts=[
+            {"extractor": "opendataloader", "coverage": 0.94,
+             "unlabelled": 0.0, "chunks": 200},
+            {"extractor": "mineru", "coverage": 0.10,
+             "unlabelled": 0.5, "chunks": 5},
+        ],
+    )
+
+    assert _attention(client)["swapped"] == []
+
+
+def test_a_null_titled_swapped_job_does_not_500_the_whole_route(client):
+    """This project has already shipped the exact "one bad file costs the
+    whole rail" defect once (STATUS.md's IngestLock heartbeat incident).
+    `swapped.sort(key=lambda row: row["title"])` raises TypeError comparing
+    None to str the moment a second, ordinarily-titled job is also present
+    to sort against -- and an uncaught exception here 500s the whole route,
+    blanking BOTH the swaps panel and the held-out panel above it."""
+    job = _live_job(
+        doc_id="agao-afr-fy2024", title="A null title",
+        kept_extractor="mineru",
+        attempts=[
+            {"extractor": "opendataloader", "coverage": 0.49,
+             "unlabelled": 0.31, "chunks": 388},
+            {"extractor": "mineru", "coverage": 0.45,
+             "unlabelled": 0.0, "chunks": 450},
+        ],
+    )
+    job.title = None  # a malformed job file, not something the API can write
+    save(job)
+    _live_job(
+        doc_id="agao-afr-fy2023", title="An ordinary title",
+        kept_extractor="mineru",
+        attempts=[
+            {"extractor": "opendataloader", "coverage": 0.49,
+             "unlabelled": 0.31, "chunks": 388},
+            {"extractor": "mineru", "coverage": 0.45,
+             "unlabelled": 0.0, "chunks": 450},
+        ],
+    )
+
+    r = client.get("/api/admin/attention")
+
+    assert r.status_code == 200
+    assert len(r.json()["swapped"]) == 2
+
+
+def test_a_job_with_only_one_recorded_attempt_is_not_listed_as_swapped(client):
+    """Isolates `len(attempts) < 2`. State is live, kept is set, and the
+    lone attempt's extractor differs from `kept` — so if the length guard
+    were the only thing missing, `attempts[0]` would still fail its
+    equality check and this fixture would slip through as swapped."""
+    _live_job(
+        doc_id="agao-afr-fy2023", title="Only one attempt was ever recorded",
+        kept_extractor="mineru",
+        attempts=[
+            {"extractor": "opendataloader", "coverage": 0.10,
+             "unlabelled": 0.5, "chunks": 5},
+        ],
+    )
+
+    assert _attention(client)["swapped"] == []
 
 
 # ---------------------------------------------------------------------------

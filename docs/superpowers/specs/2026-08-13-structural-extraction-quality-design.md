@@ -749,10 +749,19 @@ artefact.
 **🔴 Correcting revision 2's own claim: the scan has now been RUN, and there is
 no second example.** Revision 2 predicted the scan would deliver a near-miss
 band today. It does not. At the shipped settings the entire corpus between 5%
-and the ceiling holds **two** documents — `jlbc-baseline-fy2020-531` at 7.14%
+and the ceiling holds **two** documents *at the ratio those figures were
+measured on (0.15, since abandoned — see below)* — `jlbc-baseline-fy2020-531` at 7.14%
 and `jlbc-baseline-fy2018-545` at 6.25% — both already identified as
-legitimately table-dense and healthy. **Between 7.14% and 30.63% the corpus is
-empty.**
+legitimately table-dense. **Between 7.14% and 30.63% the corpus is empty.**
+
+**🔴 Updated after implementation, 2026-08-13.** Both figures above were
+measured at a letter ratio of **0.15**. The sweep that ran before
+implementation moved the shipped ratio to **0.10** (the cliff at 0.20 flags
+healthy JLBC baselines; 0.25 flags the healthy AFR control group). At 0.10,
+`jlbc-baseline-fy2020-531` scores **0.00%**, so the near-miss band holds
+exactly **one** document — `jlbc-baseline-fy2018-545` at 6.25%, unchanged at
+either ratio — and the empty void is **6.25% to 30.63%**, wider than recorded
+here. Verified twice, independently, against the live corpus.
 
 Two things follow, and the second is the one that matters:
 

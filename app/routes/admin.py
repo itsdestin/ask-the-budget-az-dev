@@ -930,11 +930,56 @@ def get_attention(_settings: Settings = Depends(require_admin)) -> dict:
             "message": job.error,
             "best_coverage": max(measured) if measured else None,
             "attempts": [
-                {"extractor": a.get("extractor"), "coverage": a.get("coverage")}
+                {
+                    "extractor": a.get("extractor"),
+                    "coverage": a.get("coverage"),
+                    # Both numbers, because they DISAGREE: this whole
+                    # feature exists because one document read 49% on
+                    # coverage and 30.63% bare on structure. `.get` rather
+                    # than `[...]` — job files written before the field
+                    # existed have no such key and must not 500 the page.
+                    "unlabelled": a.get("unlabelled"),
+                }
                 for a in job.extraction_attempts
             ],
         })
-    return {"documents": documents, "error": error}
+
+    # Documents the ladder SAVED by changing extractor. Not an alert —
+    # these are successes — but a swap re-mints every chunk_id and
+    # replaces the document's text, and a change that size leaving no
+    # trace is how a corpus becomes unexplainable a year later.
+    #
+    # A job kept on its FIRST rung is not listed: nothing changed, so
+    # there is nothing to explain, and a list that fills up with ordinary
+    # uploads teaches an admin to scroll past it.
+    swapped = []
+    for job in jobs:
+        attempts = job.extraction_attempts
+        kept = job.kept_extractor
+        if job.state != "live" or not kept or len(attempts) < 2:
+            continue
+        if attempts[0].get("extractor") == kept:
+            continue
+        swapped.append({
+            "job_id": job.job_id,
+            "title": job.title,
+            "kept": kept,
+            "attempts": [
+                {
+                    "extractor": a.get("extractor"),
+                    "coverage": a.get("coverage"),
+                    "unlabelled": a.get("unlabelled"),
+                }
+                for a in attempts
+            ],
+        })
+    # `row["title"] or ""` -- a job file with a null title (this project has
+    # already shipped the "one bad file costs the whole rail" defect once:
+    # see IngestLock in STATUS.md) must not raise TypeError comparing None
+    # to str and 500 this route, blanking both the swaps and held-out panels.
+    swapped.sort(key=lambda row: row["title"] or "")
+
+    return {"documents": documents, "swapped": swapped, "error": error}
 
 
 # ---------------------------------------------------------------------------

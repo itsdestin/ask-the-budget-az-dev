@@ -111,6 +111,7 @@ from ingest.claim import JobClaim
 from ingest.coverage import COVERAGE_FLOOR, coverage_ratio
 from ingest.inspection import inspect_source
 from ingest.ladder import ladder_for
+from ingest.structure import MAX_UNLABELLED, choose_best, unlabelled_fraction
 from ingest.jobs import (
     TERMINAL_STATES,
     JobRecord,
@@ -341,6 +342,12 @@ def run_job(job: JobRecord, ctx: WorkerContext) -> JobRecord:
         advance(job, "failed", error=_held_out_message(outcome))
         return job
 
+    # `outcome` is the rung whose chunks are about to be embedded and
+    # written, now that the `not outcome.passed` branch above has
+    # returned. Recorded here, not inside `_extract_and_chunk`, because
+    # that function's job is choosing an outcome, not persisting one.
+    job.kept_extractor = outcome.extractor
+
     chunks = outcome.chunks
     if job.state == "extracting":
         advance(job, "chunking")
@@ -371,6 +378,9 @@ class ExtractionOutcome:
     chunks: list[Chunk]
     attempts: list[dict]
     coverage: float | None
+    # None means NOT MEASURED (fewer than MIN_JUDGED_CHUNKS judgeable
+    # passages), never "measured and clean" -- same contract as `coverage`.
+    unlabelled: float | None
     extractor: str
     fell_back: bool
 
@@ -424,9 +434,51 @@ def _extract_and_chunk(job: JobRecord, ctx: WorkerContext) -> ExtractionOutcome:
     prior = {a.get("extractor"): a for a in job.extraction_attempts}
     attempts: list[dict] = []
     best: ExtractionOutcome | None = None
+    # Outcomes that CLEARED the coverage floor -- tripped and untripped
+    # alike, since every stop now routes through `choose_best` below
+    # rather than returning early. Kept separately from `best`, which only
+    # ever holds failures: a passing-but-tripped attempt is not a failure,
+    # and dropping it into `best` would hide the document from search.
+    passing: list[ExtractionOutcome] = []
 
     for index, name in enumerate(rungs):
+        # Computed BEFORE the skip guard below, not after. A resumed job can
+        # arrive here with a mineru-ocr attempt already on file from a run
+        # that predates this guard (`run_job`'s own docstring: a job found
+        # mid-ladder re-runs `_extract_and_chunk` in full). If the guard ran
+        # first it would `continue` past this rung without ever looking at
+        # `recorded`, silently dropping that attempt out of `attempts` and
+        # overwriting the persisted `job.extraction_attempts` with a record
+        # that no longer mentions it -- work already done, erased with no
+        # error. `recorded is None` below is what keeps the guard scoped to
+        # its actual job: skipping a PAYMENT that has not happened yet, not
+        # a record of one that has.
         recorded = prior.get(name)
+
+        if (
+            name == "mineru-ocr"
+            and inspection.has_text_layer is True
+            and passing
+            and recorded is None
+        ):
+            # Spec X12. Measured on the one document this plan exists for:
+            # mineru-ocr produced 353,002 characters against mineru's
+            # 353,141 and the same 13% bare pages -- a full extraction,
+            # roughly 30 minutes on a 191-page book, to change nothing.
+            #
+            # `is True`, NOT truthiness. `has_text_layer` is `bool | None`
+            # and None means the inspector COULD NOT TELL, which is not the
+            # same as "there is a text layer". Skipping on an unknown would
+            # quietly remove the rescue path from every document the
+            # inspector could not read -- disproportionately the damaged
+            # ones. `ingest/ladder.py` tests `is False` for the mirror
+            # image of this reason.
+            #
+            # `and passing` is the escape hatch: with nothing above the
+            # floor the document is being held out of search anyway, so
+            # OCR is the last thing that might rescue it.
+            continue
+
         if recorded is not None and recorded.get("error"):
             # This rung CRASHED on an earlier run. Don't pay for it again,
             # and don't try to chunk output it never produced.
@@ -469,8 +521,18 @@ def _extract_and_chunk(job: JobRecord, ctx: WorkerContext) -> ExtractionOutcome:
             # MinerU output with the OpenDataLoader reader on every fallback.
             chunks = _chunk(job, ctx, extractor=name)
             coverage, coverage_error = _measure_coverage(chunks, source)
+            # Recorded for EVERY rung, whether or not it trips the ceiling
+            # and whether or not it changes anything (spec X11). It is
+            # free -- the number is already computed -- and it is the only
+            # mechanism that can ever produce a second positive example:
+            # documents in the near-miss band are otherwise ignored and
+            # nothing writes down that they were close.
+            unlabelled = unlabelled_fraction(c.text for c in chunks)
             attempt: dict = {
-                "extractor": name, "coverage": coverage, "chunks": len(chunks),
+                "extractor": name,
+                "coverage": coverage,
+                "unlabelled": unlabelled,
+                "chunks": len(chunks),
             }
             if coverage_error is not None:
                 attempt["coverage_error"] = coverage_error
@@ -482,10 +544,11 @@ def _extract_and_chunk(job: JobRecord, ctx: WorkerContext) -> ExtractionOutcome:
             # likeliest real trigger for the whole ladder, and letting the
             # exception out would bypass the entire mechanism.
             attempt = {
-                "extractor": name, "coverage": None, "chunks": 0,
+                "extractor": name, "coverage": None, "unlabelled": None,
+                "chunks": 0,
                 "error": f"{type(exc).__name__}: {exc}",
             }
-            chunks, coverage = [], None
+            chunks, coverage, unlabelled = [], None, None
 
         attempts.append(attempt)
         # Journalled per rung, not at the end: a machine that dies during
@@ -497,13 +560,77 @@ def _extract_and_chunk(job: JobRecord, ctx: WorkerContext) -> ExtractionOutcome:
             chunks=chunks,
             attempts=list(attempts),
             coverage=coverage,
+            unlabelled=unlabelled,
             extractor=name,
             fell_back=index > 0,
         )
         if outcome.passed:
-            return outcome
-        if best is None or _outcome_rank(outcome) > _outcome_rank(best):
+            passing.append(outcome)
+            # A document that passes on VOLUME can still have arrived with
+            # its meaning stripped off (spec X4). Only an untripped
+            # passing rung stops the ladder; a tripped one advances so
+            # `choose_best` has something to compare it against.
+            #
+            # DEVIATION FROM THE DRAFTED SPEC: an untripped rung does NOT
+            # `return` its own outcome directly -- it `break`s, and the
+            # winner is still decided by `choose_best` below, over every
+            # passing attempt seen so far (this one included).
+            #
+            # THE TRUE RULE, wider than first written here: a literal
+            # `return` bypasses `choose_best`'s STRUCTURE_TIE_BAND for
+            # EVERY untripped rung reached after a tripped one -- whether
+            # or not that rung's OWN structure was even measurable. Proven
+            # by execution twice, not by inspection once:
+            #   - unmeasurable case: a rung's `unlabelled` can read None
+            #     (too few characters per chunk to judge, MIN_JUDGED_CHUNKS
+            #     never reached), so "not tripped" is true because the
+            #     structure check never RAN, not because it ran clean. A
+            #     direct `return` here treats "unmeasured" as "healthy" and
+            #     hands back a quarter-sized reading over a four-times-
+            #     larger tripped one --
+            #     `test_a_clean_attempt_that_collapsed_in_SIZE_does_not_win`
+            #     FAILS against a literal `return`.
+            #   - measured case: a rung whose structure genuinely was
+            #     measured clean (a real `unlabelled == 0.0`) still gets
+            #     the same treatment under a literal `return` -- it wins
+            #     outright the moment it is untripped, without ever being
+            #     weighed against a much larger tripped rung through the
+            #     band. The band exists precisely to make that weighing
+            #     happen, and only routing every stop through `choose_best`
+            #     lets it.
+            # `choose_best`'s own STRUCTURE_TIE_BAND exists to reject this
+            # shape
+            # (`tests/test_structure.py::test_structure_does_NOT_beat_coverage_outside_the_band`
+            # pins the identical shape one level down). Routing every stop
+            # through `choose_best` costs nothing on the common one-rung
+            # case -- `choose_best` returns the sole candidate.
+            #
+            # Consequence for future tuning: lowering MIN_JUDGED_CHUNKS or
+            # MIN_JUDGED_CHARS (`ingest/structure.py` explicitly invites
+            # tuning the latter) shrinks the unmeasurable case but does NOT
+            # remove the reason for `break` over `return` -- the measured
+            # case above is independent of both constants. Do not read a
+            # smaller None-rate as licence to restore the `return`.
+            tripped = (
+                outcome.unlabelled is not None
+                and outcome.unlabelled > MAX_UNLABELLED
+            )
+            if not tripped:
+                break
+        elif best is None or _outcome_rank(outcome) > _outcome_rank(best):
             best = outcome
+
+    if passing:
+        # Every rung that cleared the floor tripped the ceiling, the last
+        # one stopped the ladder untripped, or there was only ever one.
+        # Keep the structurally best reading of comparable size (spec X3).
+        # A degraded document that is the best available reading is still
+        # the best available reading -- it is WRITTEN, and X7 makes the
+        # choice visible.
+        winner = passing[
+            choose_best([(o.coverage, o.unlabelled) for o in passing])
+        ]
+        return replace(winner, attempts=list(attempts))
 
     # Every rung is below the floor. Keep whichever scored HIGHEST (spec T5),
     # not whichever ran last: OCR is the final rung and is also the rung most
@@ -515,7 +642,7 @@ def _extract_and_chunk(job: JobRecord, ctx: WorkerContext) -> ExtractionOutcome:
         # Only reachable when every rung was a crash recorded by an earlier
         # run, so nothing ran here at all.
         best = ExtractionOutcome(
-            chunks=[], attempts=[], coverage=None,
+            chunks=[], attempts=[], coverage=None, unlabelled=None,
             extractor=rungs[-1], fell_back=len(rungs) > 1,
         )
     # The full attempt list, not the slice that existed when `best` was

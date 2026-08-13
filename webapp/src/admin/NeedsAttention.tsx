@@ -42,8 +42,8 @@ function extractorLabel(name: string): string {
  *  (a rung that crashed, or whose source coverage could not be measured)
  *  reads as "not measured" — never as 0%, which would claim a worse
  *  reading than was actually taken. */
-function pct(value: number | null): string {
-  if (value === null) return "not measured";
+function pct(value: number | null | undefined): string {
+  if (value === null || value === undefined) return "not measured";
   return `${Math.round(value * 100)}%`;
 }
 
@@ -103,15 +103,30 @@ export function NeedsAttention({
                 future consumer that wants the single number (e.g. sorting
                 the panel by severity) without re-deriving it. */}
 
-            {/* The agreed layout (task-7-brief.md) labels this list "Tried:"
-                so the reader knows what the name/percent pairs below it
-                are -- without it they're three bare rows with no caption. */}
-            <p className="adm-attention-tried-label">Tried:</p>
+            {/* The agreed layout (task-7-brief.md) labels this list so the
+                reader knows what the name/percent pairs below it are --
+                without a caption they're bare rows with two numbers pointing
+                in OPPOSITE directions (higher coverage is better, higher
+                unlabelled is worse) and nothing saying which is which.
+                Wording matches ExtractionChanges.tsx's identical list --
+                one caption, not two near-duplicates. */}
+            <p className="adm-attention-tried-label">
+              Tried, with how much text came out and how much of it was
+              figures with no words:
+            </p>
             <ul className="adm-attention-tried">
               {doc.attempts.map((attempt, i) => (
                 <li key={`${attempt.extractor}-${i}`}>
                   <span>{extractorLabel(attempt.extractor)}</span>
                   <span>{pct(attempt.coverage)}</span>
+                  {/* The second number is how much of what came out was
+                      figures with no words. It is shown beside coverage
+                      rather than instead of it because the two DISAGREE:
+                      the document this feature exists for read 49% on
+                      coverage and 31% bare on structure. `pct` renders an
+                      absent value as "not measured" -- job files written
+                      before this field existed have no such key. */}
+                  <span>{pct(attempt.unlabelled)}</span>
                 </li>
               ))}
             </ul>
