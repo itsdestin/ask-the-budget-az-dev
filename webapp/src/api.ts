@@ -738,6 +738,12 @@ export interface AttentionAttempt {
 export interface AttentionDocument {
   job_id: string;
   title: string;
+  /** Server-side `job.error` is `str | None` -- but every job this route
+   *  lists is in state `failed`, and the only way a job REACHES `failed` is
+   *  `ingest.jobs.advance()`, which raises `ValueError` if `error` is
+   *  falsy (see the `if new_state == "failed": if not error: raise ...`
+   *  guard there). So a null `message` here would mean a job reached
+   *  `failed` some other way, which nothing in this codebase does today. */
   message: string;
   /** The best ratio any rung reached, or null when every rung crashed with
    *  nothing measurable at all. Can exceed 1.0 for a document whose own

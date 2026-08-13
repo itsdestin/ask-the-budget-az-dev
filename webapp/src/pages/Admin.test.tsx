@@ -578,6 +578,45 @@ describe("needs attention", () => {
     // silent no-op that quietly clears the panel.
     expect(screen.getByTestId("admin-attention")).toBeInTheDocument();
   });
+
+  it("clears a stale action error once a later action succeeds", async () => {
+    // Reproduces the exact shape this project has shipped before (a
+    // chat-history citation chip branded "source no longer available"
+    // that never cleared after a transient failure): a failed Dismiss
+    // followed by a SUCCESSFUL one must not leave the old error message
+    // sitting beside a panel that just worked.
+    mockAll({ attention: [heldBack()] });
+    const retry = vi.spyOn(api, "retryJob");
+    retry.mockRejectedValueOnce(new Error("The queue could not be reached."));
+    await renderAdmin();
+
+    fireEvent.click(within(screen.getByTestId("admin-attention")).getByRole(
+      "button", { name: "Try again" },
+    ));
+    await waitFor(() =>
+      expect(screen.getByTestId("admin-attention-error")).toHaveTextContent(
+        /could not be reached/i,
+      ),
+    );
+
+    retry.mockResolvedValueOnce({
+      job: {
+        job_id: "job-afr24", doc_id: "d", title: "t", corpus: "budget",
+        state: "queued", pct: 0, stage_detail: "", error: null,
+        machine: "m", user: "u", created_at: "", updated_at: "",
+      },
+    });
+    const attentionSpy = vi.spyOn(api, "adminAttention");
+    attentionSpy.mockResolvedValueOnce({ documents: [] });
+
+    fireEvent.click(within(screen.getByTestId("admin-attention")).getByRole(
+      "button", { name: "Try again" },
+    ));
+
+    await waitFor(() =>
+      expect(screen.queryByTestId("admin-attention-error")).toBeNull(),
+    );
+  });
 });
 
 describe("which computer processes uploads", () => {

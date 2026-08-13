@@ -227,6 +227,12 @@ export function Admin() {
       const [a, c] = await Promise.all([api.adminAttention(), api.adminCorpus()]);
       setAttention(a.documents);
       setCorpus(c);
+      // A success after an earlier failure must clear the old message -- an
+      // admin who retries after a network hiccup and succeeds should not
+      // still see "The queue could not be reached" beside a panel that just
+      // worked (the same stuck-stale-mark shape the chat-history citation
+      // chips were fixed for).
+      setAttentionError(null);
     } catch (err) {
       setAttentionError(err instanceof Error ? err.message : String(err));
     }

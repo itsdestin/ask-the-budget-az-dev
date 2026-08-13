@@ -4,9 +4,10 @@ import * as api from "../api";
 // Documents the extraction ladder could not save (Plan B Task 7 / spec T8).
 //
 // Renders NOTHING at all when the list is empty — same rule as
-// NoticesPanel just below it, and the same reasoning: a box that is on
-// screen every day teaches an admin to scroll past it, which is exactly
-// the habit that makes it useless the one day it has something to say.
+// NoticesPanel, which sits just above it on the page, and the same
+// reasoning: a box that is on screen every day teaches an admin to scroll
+// past it, which is exactly the habit that makes it useless the one day it
+// has something to say.
 // A "0 documents need attention" line would be restating what the
 // interface already shows by not showing anything.
 //
@@ -87,6 +88,18 @@ export function NeedsAttention({
             <p className="adm-attention-title">{doc.title}</p>
             <p className="adm-warn">{doc.message}</p>
 
+            {/* doc.best_coverage is part of the route's contract
+                (task-7-brief.md) but is deliberately not rendered here --
+                the "Tried:" list just below already shows every rung's own
+                score, so repeating their max as a fourth number would say
+                nothing a reader can't already see. Left in the API for a
+                future consumer that wants the single number (e.g. sorting
+                the panel by severity) without re-deriving it. */}
+
+            {/* The agreed layout (task-7-brief.md) labels this list "Tried:"
+                so the reader knows what the name/percent pairs below it
+                are -- without it they're three bare rows with no caption. */}
+            <p className="adm-attention-tried-label">Tried:</p>
             <ul className="adm-attention-tried">
               {doc.attempts.map((attempt, i) => (
                 <li key={`${attempt.extractor}-${i}`}>

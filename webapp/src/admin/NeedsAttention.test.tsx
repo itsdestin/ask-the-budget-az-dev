@@ -52,7 +52,22 @@ describe("NeedsAttention", () => {
     ).toBeInTheDocument();
     expect(screen.queryByText(/COVERAGE_FLOOR/i)).not.toBeInTheDocument();
     expect(screen.queryByText(/few blocks/i)).not.toBeInTheDocument();
-    expect(screen.queryByText(/verified|validated|healthy/i)).not.toBeInTheDocument();
+    // All five banned words the honesty rule names (the comment atop this
+    // file, and ingest/coverage.py) -- a regex covering only three of them
+    // once let the sentence "This document was checked and looks good."
+    // through with every one of these ten specs still green.
+    expect(
+      screen.queryByText(/verified|checked|validated|healthy|good/i),
+    ).not.toBeInTheDocument();
+  });
+
+  it("labels the attempt list 'Tried:', matching the agreed layout", () => {
+    // task-7-brief.md's owner-approved sketch captions the extractor/score
+    // rows with "Tried:" -- without it they're three bare pairs with
+    // nothing on the page saying what they are.
+    setup([held()]);
+    const doc = screen.getByTestId("admin-attention-doc");
+    expect(within(doc).getByText("Tried:")).toBeInTheDocument();
   });
 
   it("lists every attempt with its score", () => {

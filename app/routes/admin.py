@@ -848,7 +848,7 @@ def get_attention(_settings: Settings = Depends(require_admin)) -> dict:
     and never that anything was "checked" or "verified", which this
     instrument cannot claim (see ingest/coverage.py).
 
-    Ordered newest-failure-first, like the Notices panel this sits above —
+    Ordered newest-failure-first, like the Notices panel this sits below —
     a glance at what just went wrong, not a chronicle.
     """
     try:

@@ -2353,7 +2353,8 @@ fieldset.adm-field{border:0;padding:0;}
 .adm-attention-list{list-style:none;margin:8px 0 0;padding:0;display:flex;flex-direction:column;gap:12px;}
 .adm-attention-item{border:1px solid var(--line);border-radius:var(--r-sm);padding:12px 14px;}
 .adm-attention-title{margin:0;font-size:13.5px;font-weight:800;color:var(--navy);}
-.adm-attention-tried{list-style:none;margin:8px 0 0;padding:0;font-size:12.5px;color:var(--ink-2);}
+.adm-attention-tried-label{margin:8px 0 0;font-size:12.5px;font-weight:700;color:var(--ink-2);}
+.adm-attention-tried{list-style:none;margin:2px 0 0;padding:0;font-size:12.5px;color:var(--ink-2);}
 .adm-attention-tried li{display:flex;justify-content:space-between;gap:12px;padding:3px 0;}
 .adm-attention-actions{display:flex;gap:8px;margin-top:10px;}
 
