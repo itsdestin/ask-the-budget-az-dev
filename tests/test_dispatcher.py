@@ -22,6 +22,7 @@ from ingest.dispatcher import (
     EXTRACTOR_REGISTRY,
     ExtractionResult,
     MinerUExtractor,
+    MinerUOcrExtractor,
     OpenDataLoaderExtractor,
     PythonDocxExtractor,
     extract,
@@ -224,3 +225,58 @@ def test_extract_uses_pick_extractor_when_no_extractor_passed(tmp_path: Path) ->
         assert result.extractor == "mock"
     finally:
         EXTRACTOR_REGISTRY[("s-pdf", "pdf")] = original
+
+
+# --- MinerUOcrExtractor — the ladder's last rung (T7) ---
+
+
+def test_ocr_extractor_is_never_a_first_choice() -> None:
+    """data/document-types.yaml declares each type's PREFERRED extractor.
+
+    mineru-ocr is registered in _EXTRACTOR_CLASSES (ingest/ladder.py needs
+    to name it) but must never come out of EXTRACTOR_REGISTRY -- that would
+    mean some doc_type declared OCR as its first choice, which is the exact
+    mistake the brief calls out by name. Nothing in the registry-building
+    code stops that from compiling silently, so this is the guard."""
+    assert MinerUOcrExtractor not in EXTRACTOR_REGISTRY.values()
+
+
+def test_ocr_extractor_calls_run_mineru_with_the_ocr_method(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The entire point of this class is the `method` it passes through.
+
+    If `extract()` silently dropped `method="ocr"` (a typo, a forgotten
+    kwarg, a copy-paste from MinerUExtractor), MinerUOcrExtractor would run
+    byte-for-byte the same extraction as plain `mineru` under a different
+    name -- a scanned document would still come back empty, and nothing
+    about the ladder itself would show it."""
+    calls: list[tuple[tuple, dict]] = []
+
+    class _FakeRunMineruModule:
+        @staticmethod
+        def run_mineru(*args, **kwargs):
+            calls.append((args, kwargs))
+
+    monkeypatch.setattr(
+        "ingest.dispatcher._import_phase0_module",
+        lambda name: _FakeRunMineruModule(),
+    )
+
+    source = tmp_path / "scan.pdf"
+    source.write_bytes(b"%PDF-1.7 fake")
+    out = tmp_path / "out"
+
+    MinerUOcrExtractor().extract(source_path=source, output_dir=out, pages=[1, 2])
+
+    assert calls == [((source, out, [1, 2]), {"method": "ocr"})]
+
+
+def test_ocr_extractor_name_and_version_match_the_plain_extractor() -> None:
+    """MinerUOcrExtractor subclasses MinerUExtractor for get_version() --
+    both report the same installed MinerU package, since OCR mode is a
+    flag on the same tool, not a different one."""
+    plain = MinerUExtractor()
+    ocr = MinerUOcrExtractor()
+    assert ocr.name == "mineru-ocr"
+    assert ocr.get_version() == plain.get_version()
