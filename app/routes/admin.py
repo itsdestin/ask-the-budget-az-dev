@@ -828,6 +828,62 @@ def get_corpus(_settings: Settings = Depends(require_admin)) -> dict:
 
 
 # ---------------------------------------------------------------------------
+# Needs attention (Plan B Task 7) — documents held out of search
+# ---------------------------------------------------------------------------
+
+
+@router.get("/api/admin/attention")
+def get_attention(_settings: Settings = Depends(require_admin)) -> dict:
+    """Documents the extraction ladder could not save, in one place.
+
+    A `failed` job is either an ordinary crash (network hiccup, a locked
+    file, a bad path) or a document that was HELD OUT because every rung
+    of the ladder produced too little text — and only the second kind is
+    an admin's problem to look at, not the queue's. `extraction_attempts`
+    is exactly that distinction: non-empty means the ladder ran and lost,
+    empty means the job never got that far. See ingest/worker.py's
+    `_held_out_message` for why the job's own `error` sentence — not a
+    string rebuilt here — is what ships to the reader: it is the one place
+    that already knows to say what was MEASURED (how much text came out)
+    and never that anything was "checked" or "verified", which this
+    instrument cannot claim (see ingest/coverage.py).
+
+    Ordered newest-failure-first, like the Notices panel this sits above —
+    a glance at what just went wrong, not a chronicle.
+    """
+    try:
+        from ingest.jobs import load_all
+
+        jobs = load_all()
+    except Exception:  # noqa: BLE001 — an unreadable jobs dir must not 500 the page
+        jobs = []
+
+    held_back = [
+        job for job in jobs if job.state == "failed" and job.extraction_attempts
+    ]
+    held_back.sort(key=lambda j: j.updated_at, reverse=True)
+
+    documents = []
+    for job in held_back:
+        measured = [
+            a["coverage"]
+            for a in job.extraction_attempts
+            if a.get("coverage") is not None
+        ]
+        documents.append({
+            "job_id": job.job_id,
+            "title": job.title,
+            "message": job.error,
+            "best_coverage": max(measured) if measured else None,
+            "attempts": [
+                {"extractor": a.get("extractor"), "coverage": a.get("coverage")}
+                for a in job.extraction_attempts
+            ],
+        })
+    return {"documents": documents}
+
+
+# ---------------------------------------------------------------------------
 # Backups + restore (S17)
 # ---------------------------------------------------------------------------
 
