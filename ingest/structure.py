@@ -79,7 +79,10 @@ MIN_JUDGED_CHUNKS = 10
 # exactly how a `>` gets typed as a `<` by someone pattern-matching on the
 # neighbour. 20% is the centre of a 10%-30% plateau on which every
 # threshold catches the same single document; the corpus is EMPTY between
-# 7.14% (the highest healthy document) and 30.63%, so this is not a
+# 6.25% (the highest scoring document short of the known-degraded one, at
+# the SHIPPED ratio of 0.10 -- the 7.14% quoted elsewhere for
+# jlbc-baseline-fy2020-531 was measured at an abandoned ratio of 0.15, and
+# that document scores 0.00% here) and 30.63%, so this is not a
 # delicate choice.
 MAX_UNLABELLED = 0.20
 
