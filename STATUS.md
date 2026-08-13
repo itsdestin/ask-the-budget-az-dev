@@ -42,13 +42,18 @@ source. When something ships, update only this file.
 | AI Mode chat history | ✓ Shipped (2026-08-03), **reviewed and hardened 2026-08-11** | Per-device transcripts, browse/search/resume past chats, auto-naming, collapsible rail. Local disk only — never the share. A second review found ELEVEN defects, four of them silent data loss; all fixed. See the section below |
 | AI Mode persistent conversation | ✓ **Shipped, browser-tested, merged `28567f0`** (2026-08-11) | "+ New chat" shows a row at once; the conversation survives a tab switch and keeps streaming. 742 vitest / `tsc -b` clean. Destin tested and accepted; browser testing found a two-rows-look-selected defect, fixed. Four Minors carried, and P5 (close-tab-still-aborts) is still unwatched. See the section below |
 | **Corpus navigation** (map, spread, coverage, echo) | ✓ **Shipped, both gates passed, merged `2dc295f`** (2026-08-12) | N1–N7 + N11. A corpus inventory in the prompt, `spread` retrieval, `year_coverage`, inferred-filter echo. **G-N1: Layer 1 identical to a same-hour control. G-N2: `key_fact_rate` 0.463 → 0.685 against a real control**, every citation metric up, input tokens down 41%. Full 31-query run not yet run. See the section below |
-| **Admin extensions** (E1–E3, E6) | ✓ **Code complete, gates green, NOT yet browser-verified** (2026-08-13) | Admin-editable alias overlay for search, admin-authored office guidance in the AI prompt, analyst issue reports with an admin inbox, `/admin` regrouped. 2638 pytest / 816 vitest / `tsc -b` / `npm run build` all clean; E1 eval gate passed with the overlay proven live. Nobody has opened the page. See the section below |
+| **Admin extensions** (E1–E3, E6) | ✓ **Merged `b108d13`, gates green, NOT yet browser-verified** (2026-08-13) | Admin-editable alias overlay for search, admin-authored office guidance in the AI prompt, a read-only "See System Guidance" window over the shipped instructions, analyst issue reports with an admin inbox, `/admin` regrouped. 2660 pytest / 834 vitest / `tsc -b` / `npm run build` all clean; E1 eval gate passed with the overlay proven live. Destin opened the app and approved the merge, but three surfaces are still unwitnessed — see the section below |
 
 ## Admin extensions — aliases, guidance, issue reports (2026-08-13)
 
-**Code complete and gated; visually unwitnessed.** Spec E1–E3 + E6 shipped as fourteen
-tasks (`docs/superpowers/plans/2026-08-12-admin-extensions.md`), each implemented by a
-fresh subagent and reviewed by a second one before merge.
+**Merged `b108d13`; gated; visually unwitnessed.** Spec E1–E3 + E6 shipped as fourteen
+tasks ([`docs/superpowers/plans/2026-08-12-admin-extensions.md`](docs/superpowers/plans/2026-08-12-admin-extensions.md),
+against [the design spec](docs/superpowers/specs/2026-08-12-admin-extensions-design.md)),
+each implemented by a fresh subagent and reviewed by a second one before merge. **A
+fifteenth piece — the System Guidance viewer — was added after Destin saw the merged UI
+running; it is not in the plan.** Both documents were written on the
+`ai-persistent-conversation` branch and were copied onto master when this section was
+corrected, so the links above resolve.
 
 ### What shipped
 
@@ -158,18 +163,64 @@ The final whole-branch review then found what no per-task review could see:
   agencies off the doc_id's trailing slug — so a shorthand set on `agency:cs` covered zero
   documents, all of which carry `-dcs-`. `_agency_terms` now expands the group too.
 
+### The System Guidance viewer (added after the merge review, not in the plan)
+
+Destin asked for it after opening the merged page: an administrator writing guidance
+could not see the ~1,200 lines of instructions the assistant already has, so they were
+liable to contradict them, duplicate them, or spend the 8 KB cap restating something.
+
+A **"See System Guidance"** button in the AI guidance panel opens a read-only window
+listing every section of the rendered instructions, grouped by kind, each expanding to
+its text, with a Budget-documents / Fiscal-notes switch (the two renders genuinely
+differ — 58 KB vs 49 KB). `GET /api/admin/prompt` (`app/routes/tuning.py`) does the
+splitting server-side; `webapp/src/admin/SystemGuidance.tsx` renders it; the dialog shell
+was extracted out of `ReportChooser` into `webapp/src/components/Modal.tsx` so both
+consumers share one focus-trap implementation.
+
+Three review findings on it were honesty defects, worth recording because the feature
+exists to give an accurate picture:
+
+- The office's own guidance was shown **last**, but `{{OFFICE_GUIDANCE}}`
+  (`harness/system-prompt.md:942`) has five sections after it — including the refusal
+  rules that its own preamble says override it. Two code comments asserted the opposite.
+  The window now states where the block actually sits.
+- The size line rendered the whole prompt's byte count (guidance already included) and
+  then said the admin's writing is "added to this". It now switches on whether guidance
+  is saved.
+- Everything above the first `##` was silently dropped, and the test asserting nothing was
+  dropped used the **same splitter**, so it structurally could not see it. There is now a
+  line-coverage assertion, verified to fail when the lead is removed.
+
+Guards worth keeping: every top-level heading must land in a named group (a new section
+cannot quietly vanish from the window), and the jargon guard now exempts only the quoted
+shipped heading and text — not the card around it.
+
 ### Suite counts at merge
 
-`pytest` 2638 passed / 5 skipped · `vitest` 816 passed (78 files) · `tsc -b` exit 0 ·
-`npm run build` exit 0.
+`pytest` 2660 passed / 5 skipped · `vitest` 834 passed (79 files) · `tsc -b` exit 0 ·
+`npm run build` exit 0. (The plan's own fourteen tasks finished at 2638 / 816; the
+viewer added the rest.)
 
 ### Standing caveat — nobody has looked at it
 
-jsdom applies no stylesheet. The regrouped Admin page, the three collapsed cards, the
-byte meter, the 157-option agency select, the transcript viewer (which has no
-`max-height`, so a long attached conversation makes an arbitrarily long card) and the
-report form are all pinned by specs and **unwitnessed in a browser**. The "AI Mode" group
-label also still sits directly above the panel headed "AI Mode".
+jsdom applies no stylesheet. Destin opened the merged app on 2026-08-13 and approved the
+merge, but did not report on every surface, and these three were never looked at:
+
+1. **The report chooser on `/search`** (open a report card → "Full report"). The System
+   Guidance work removed the `.page-docs ` prefix from 14 modal shell rules so the dialog
+   would paint on the admin page. A reviewer verified no other rule targets those class
+   names and that `ReportChooser` mounts only inside `.page-docs`, so it should be
+   pixel-identical — but if that sheet ever renders as an unstyled white block, this is
+   the change that did it.
+2. **`Your tools` expanded in the System Guidance window.** That section has no `###`
+   subsections (~550 lines), so it opens as one block inside a 640px scroller. If it is
+   unreadable the fix is splitting it into subsections, not CSS.
+3. **A long attached conversation in the issue inbox.** The transcript viewer has no
+   `max-height`, so it makes an arbitrarily tall card.
+
+Also unwitnessed and pinned only by specs: the byte meter, the 148-option agency select,
+and the report form. The "AI Mode" group label still sits directly above the panel headed
+"AI Mode" — Destin saw the stutter described and chose to leave it.
 
 ## Corpus — what is ingested and what is NOT (2026-08-01)
 
@@ -4027,6 +4078,8 @@ Current architecture first:
 - [docs/superpowers/plans/2026-07-30-standalone-plan-3-ingest.md](docs/superpowers/plans/2026-07-30-standalone-plan-3-ingest.md) — Plan 3: GUI ingest queue (shipped 2026-07-31)
 - [docs/superpowers/plans/2026-07-30-standalone-plan-4-ai-mode.md](docs/superpowers/plans/2026-07-30-standalone-plan-4-ai-mode.md) — Plan 4: AI Mode (shipped 2026-07-31; see its "Task 8 amendments" for the as-shipped HTTP contract)
 - [docs/superpowers/plans/2026-07-31-standalone-plan-recency-ranking.md](docs/superpowers/plans/2026-07-31-standalone-plan-recency-ranking.md) — recency-ranking plan (S21; pending)
+- [docs/superpowers/specs/2026-08-12-admin-extensions-design.md](docs/superpowers/specs/2026-08-12-admin-extensions-design.md) — admin extensions design (E1–E6; E4 and E5 are future direction, nothing was built for them)
+- [docs/superpowers/plans/2026-08-12-admin-extensions.md](docs/superpowers/plans/2026-08-12-admin-extensions.md) — admin extensions plan, 14 tasks (shipped 2026-08-13, merge `b108d13`). Its task checkboxes were never ticked and its code blocks are sketches — several were wrong about this codebase and were corrected during execution. **Read the STATUS section above for what actually shipped**, not this plan
 - [PROMPT-z13-backfill.md](PROMPT-z13-backfill.md) — **the only active handoff** — Z13 backfill + recency calibration runbook
 - [README.md](README.md) — how to run it, links
 - [STATUS.md](STATUS.md) — this file (current state)
