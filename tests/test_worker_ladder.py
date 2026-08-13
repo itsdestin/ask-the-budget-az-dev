@@ -227,6 +227,11 @@ def test_a_terminal_failure_never_reaches_live_and_writes_no_chunks(monkeypatch,
     # one screen that exists to explain the failure.
     assert job.error
     assert "2%" in job.error
+    # This IS the ladder losing -- every rung scored below the floor -- so
+    # the admin-panel marker must be set. See ingest/jobs.py::held_out and
+    # Blocking 1 of this plan's final review for why this can't be inferred
+    # from `extraction_attempts` alone.
+    assert job.held_out is True
 
 
 def test_no_text_layer_routes_straight_to_ocr(monkeypatch, ladder_job):

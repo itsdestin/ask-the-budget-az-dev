@@ -345,6 +345,17 @@ export interface DuplicateDocument {
   existing_doc_id: string;
   added_at: string | null;
   added_by: string | null;
+  // Plan B Blocking 3 (T12): whether the EXISTING copy's extraction looked
+  // complete, from app/routes/upload.py's `_duplicate_health`. `health` is
+  // the raw measurement (not rendered directly — see Upload.tsx); `message`
+  // is the server's own sentence describing it and is what gets shown,
+  // VERBATIM, never recomposed client-side, so the two cannot drift. Both
+  // optional: an older server response (or a test fixture predating this)
+  // may not send them, and that must read as "nothing extra to say", not
+  // an error — see Upload.tsx for how the fixed sentence stays exactly
+  // what it always rendered in that case.
+  health?: { coverage: number; recommend_reprocess: boolean } | null;
+  message?: string;
 }
 
 /** Thrown on 409 so the page can offer re-process instead of a dead error.
@@ -752,7 +763,17 @@ export interface AttentionDocument {
   attempts: AttentionAttempt[];
 }
 
-export async function adminAttention(): Promise<{ documents: AttentionDocument[] }> {
+export async function adminAttention(): Promise<{
+  documents: AttentionDocument[];
+  /** Set when the server couldn't even read the jobs directory (a share
+   *  that's gone away) — distinguishable from an empty `documents` list,
+   *  which is the ordinary "nothing needs attention" case. Optional (not
+   *  just nullable) so fixtures written before this field existed keep
+   *  compiling; a genuinely missing field reads exactly like `null` at the
+   *  one call site that checks it (`if (a.error) ...` in Admin.tsx) —
+   *  absence reads as fine, same as everywhere else here. */
+  error?: string | null;
+}> {
   const r = await fetch("/api/admin/attention");
   if (!r.ok) await fail(r, "documents needing attention");
   return r.json();

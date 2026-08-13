@@ -133,6 +133,11 @@ export function Admin() {
         setSnapshots(b.snapshots);
         setNotices(n.notices);
         setAttention(a.documents);
+        // The initial load can fail to even read the jobs directory (a
+        // share that's gone away) — surfaced through the SAME error slot
+        // the retry/dismiss actions already use below, rather than a
+        // second message a reader would have to learn to recognise.
+        if (a.error) setAttentionError(a.error);
         // These two are allowed to fail without taking the page down.
         api.aiStatus().then((st) => !cancelled && setTierCopy(st.tiers)).catch(() => {});
         loadModels();

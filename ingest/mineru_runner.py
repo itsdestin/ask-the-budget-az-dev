@@ -199,8 +199,13 @@ class MineruRunner:
         # that didn't need it (hours of wasted work) or fails to OCR the one
         # that did -- grouping a batch to be homogeneous by rung before it
         # reaches this class is the CALLER's job, not something enforced
-        # here. "auto" reproduces today's command line exactly, so every
-        # existing caller is unaffected.
+        # here. "auto" is BEHAVIOURALLY equivalent to today's command line,
+        # not textually identical to it -- every call site below now passes
+        # `-m auto` explicitly where it previously omitted `-m` and relied
+        # on the installed CLI's own default (`mineru --help` documents
+        # `-m, --method [auto|txt|ocr]`, defaulting to auto), so every
+        # existing caller's RESULT is unaffected even though the literal
+        # argv is not.
         self._method = method
         self._cancelled = threading.Event()
         self._proc: subprocess.Popen | None = None

@@ -326,6 +326,18 @@ def run_job(job: JobRecord, ctx: WorkerContext) -> JobRecord:
         # this transition (jobs.py) — passing it via mark_stage's `detail`
         # alone both raises here and leaves `job.error` empty on the one
         # screen that exists to explain a failure.
+        #
+        # `held_out = True` is set HERE and ONLY here (never by the generic
+        # crash handler `_fail`) — it is what tells the Needs-attention
+        # panel "the ladder LOST" apart from "the ladder ran and something
+        # else crashed afterward". `extraction_attempts` alone cannot make
+        # that distinction: it is journalled after every rung, including a
+        # WINNING one, so a job that passed extraction and then failed at
+        # embed/write/lock also carries a non-empty `extraction_attempts`.
+        # See the field's own WHY comment in ingest/jobs.py and Blocking 1
+        # of this plan's final review, which reproduced exactly that
+        # mislabel through the real admin route.
+        job.held_out = True
         advance(job, "failed", error=_held_out_message(outcome))
         return job
 
@@ -1055,6 +1067,20 @@ def _extraction_record(outcome: ExtractionOutcome) -> dict[str, Any]:
     This is a record of what was measured, never a verdict: see
     `ingest/coverage.py`'s module docstring for why a passing document is
     not a "verified" or "healthy" one, only one that produced enough text.
+
+    DELIBERATE DIVERGENCE FROM SPEC T8: the spec's sidecar shape shows
+    `"attempts": [...]` — the full per-rung list, same shape as the
+    Needs-attention panel's `job.extraction_attempts`. Plan B's Task 5
+    narrowed it to `len(...)`, a bare count, and that narrowing is correct
+    (it was a deliberate scope cut, not an oversight — the job file is
+    already the durable record of the list and duplicating it into
+    documents.json is a second place for the two to drift). The COST: for a
+    document that reached `live`, the sidecar alone can say HOW MANY
+    methods were tried but not WHICH ones or what each scored — that detail
+    lives only in the job record, and job records are not kept forever the
+    way documents.json is. An admin auditing a live document's extraction
+    history after its job file has aged out sees "2 attempts" and nothing
+    more.
     """
     return {
         "method": outcome.extractor,

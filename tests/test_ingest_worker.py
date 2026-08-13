@@ -439,6 +439,27 @@ def test_failure_lands_in_job_error_verbatim(job, ctx):
     assert "model weights not found" in reloaded.error
 
 
+def test_a_crash_after_a_passing_extraction_is_not_held_out(job, ctx):
+    """Blocking 1 on this plan's final review, reproduced at the level the
+    reviewer found it: `extraction_attempts` is non-empty here too -- the
+    ladder journals it after every rung, including a WINNING one -- but the
+    ladder did not LOSE, it never even got the chance to. The failure is
+    downstream, at embedding. `held_out` is what tells these apart, and it
+    must stay False: this is an ordinary crash, not a held-back document,
+    and the Needs-attention panel must not show it."""
+    class Boom(FakeEmbedder):
+        def embed_batch(self, texts, *, input_type: str = "document"):
+            raise RuntimeError("lost the corpus lock after 1800s")
+
+    ctx.embedder = Boom()
+    worker = IngestWorker(ctx=ctx)
+    worker.run_one(job)
+    reloaded = load_job(job.job_id)
+    assert reloaded.state == "failed"
+    assert reloaded.extraction_attempts  # the ladder ran, and won
+    assert reloaded.held_out is False
+
+
 def test_a_failed_job_does_not_kill_the_worker_thread(job, ctx, data_dir):
     class Boom(FakeExtractor):
         def extract(self, **kwargs):

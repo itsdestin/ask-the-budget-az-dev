@@ -131,6 +131,20 @@ class JobRecord:
     # a rung already listed here, which is what stops a reboot during
     # embedding paying for an overnight extraction twice.
     extraction_attempts: list[dict] = field(default_factory=list)
+    # True ONLY when `ingest/worker.py::run_job` decided every rung of the
+    # ladder scored below `COVERAGE_FLOOR` and held the document out of
+    # search -- set in exactly that one branch, never by the generic crash
+    # handler (`_fail`). This is what the Needs-attention panel filters on
+    # (app/routes/admin.py::get_attention), and NOT `extraction_attempts`:
+    # that list is journalled after every rung including a WINNING one, so a
+    # job that passed extraction and then failed at embed/write/lock also
+    # carries a non-empty `extraction_attempts` -- reproduced live as a
+    # 94%-coverage document appearing under "Held out of search" with a raw
+    # traceback for its sentence (Plan B final review, Blocking 1). Default
+    # False so every job file written before this field existed reads as
+    # "not held out", which is correct -- none of them could have been,
+    # since the field didn't exist yet to say so.
+    held_out: bool = False
 
     def to_json(self) -> dict[str, Any]:
         return asdict(self)
@@ -319,24 +333,42 @@ def advance(job: JobRecord, new_state: str, *, error: str | None = None) -> JobR
         job.error = None
         job.pct = 0
         job.stage_detail = ""
-        # Retry means "run the whole extraction ladder again", so the two
-        # fields that make a job SKIP work are reset with the error message.
+        # Retry means "run the whole extraction ladder again", so the field
+        # that makes a job SKIP a rung it already tried is reset along with
+        # the error message.
         #
         # `extraction_attempts` is the ladder's resume marker: a retried job
         # that kept it would skip every rung it had already tried and fail
         # again instantly, having done nothing — a retry button that appears
-        # not to work.
+        # not to work. `held_out` resets alongside it for the same class of
+        # reason: it must not survive into a retry that goes on to fail for
+        # an UNRELATED cause (an embed/write/lock crash on the next attempt)
+        # — see the WHY comment on the field itself, and Blocking 1 of this
+        # plan's final review, which is what a stale `True` here would have
+        # reproduced.
         #
-        # `completed_ranges` goes with it because those ranges belong to
-        # whichever rung was last extracting, which is not necessarily the
-        # rung a fresh ladder starts on. Carrying them into rung 1 would make
-        # rung 1 skip pages it has never extracted, and the partial document
-        # then fails coverage for a reason unrelated to the extractor. The
-        # cost is re-extracting a partly-done document on retry; the
-        # RESUME path (a job still mid-flight, not failed) is untouched and
-        # is what makes an interrupted overnight book survivable.
+        # `completed_ranges` is DELIBERATELY **KEPT**, not cleared. It used
+        # to be cleared here on the theory that carrying it into a fresh
+        # ladder run would make rung 1 skip pages it had never extracted —
+        # reviewed on this plan's final pass and found FALSE:
+        # `_needs_extraction` checks whether THAT RUNG'S OWN output
+        # directory (`_extract_dir(job, method)`) already holds every page
+        # before ever trusting a range, and each rung writes to its own
+        # directory, so a range recorded under one rung can never be
+        # mistaken for another rung's progress — the hazard this used to
+        # guard against does not exist. Because `_extract_with_mineru`
+        # always extracts the WHOLE requested range in one call,
+        # `completed_ranges` is only ever empty or fully covers whichever
+        # rung wrote it, so the case this matters for is a document whose
+        # EXTRACTION SUCCEEDED and which then failed at embed/write/lock —
+        # write-phase contention on a shared drive is a documented,
+        # recurring failure here. Clearing it forced a 210-page book back to
+        # page 1 on retry for a failure that had nothing to do with
+        # extraction; kept, Retry resumes exactly where it always did before
+        # this field existed. The RESUME path (a job still mid-flight, not
+        # failed) was never affected either way.
         job.extraction_attempts = []
-        job.completed_ranges = []
+        job.held_out = False
         return _commit(job, "queued")
 
     # T8's held-back documents (every extraction rung scored below the

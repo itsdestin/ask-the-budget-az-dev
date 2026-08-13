@@ -197,11 +197,15 @@ def run_mineru(pdf: Path, out: Path, pages: list[int], *, method: str = "auto") 
     default `hybrid-auto-engine` may want a GPU. See the Phase 0 README
     at samples/extractor-output/mineru/README.md for backend rationale.
 
-    `method` is MinerU's `-m` flag. "auto" is today's behaviour and the
-    default, so every existing caller is unchanged. "ocr" is the ladder's
-    last rung (spec T7, ingest/ladder.py) and reads pages as images --
-    the only path that can read a scan, at the cost of being the slowest
-    thing this app does.
+    `method` is MinerU's `-m` flag. "auto" is BEHAVIOURALLY equivalent to
+    today's behaviour, not textually identical to today's command line --
+    it is now passed explicitly (`-m auto`) where the command line used to
+    omit `-m` and rely on the installed CLI's own default (`mineru --help`
+    documents `-m, --method [auto|txt|ocr]`, defaulting to auto), so every
+    existing caller's result is unchanged even though the literal argv is
+    not. "ocr" is the ladder's last rung (spec T7, ingest/ladder.py) and
+    reads pages as images -- the only path that can read a scan, at the
+    cost of being the slowest thing this app does.
     """
     out.mkdir(parents=True, exist_ok=True)
     pdf_stem = pdf.stem

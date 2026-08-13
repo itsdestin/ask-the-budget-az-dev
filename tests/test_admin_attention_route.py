@@ -8,10 +8,19 @@ writing it, and this route is the human surface for that: which documents
 were held back, and what was tried.
 
 No new job state exists here. A held-back document is an ordinary `failed`
-job whose `extraction_attempts` is non-empty; [Try again] is the existing
-retry (`POST /api/jobs/{id}/retry`), [Dismiss] is the existing cancel
+job with `job.held_out` set; [Try again] is the existing retry
+(`POST /api/jobs/{id}/retry`), [Dismiss] is the existing cancel
 (`POST /api/jobs/{id}/cancel`). This file only has to prove the LISTING
 gets the right jobs onto the panel and leaves everyone else off it.
+
+The filter is `held_out`, an explicit marker set in exactly one place
+(`ingest/worker.py::run_job`, the branch that decided every rung lost) —
+NOT `extraction_attempts`, which was tried first and found wrong (Blocking
+1, this plan's final review): that list is journalled after every rung
+INCLUDING a winning one, so a job that passed extraction and then crashed
+at embed/write/lock also carries a non-empty `extraction_attempts`, and
+would have shown up here as "held out" with a raw traceback for its
+sentence.
 """
 from __future__ import annotations
 
@@ -72,6 +81,7 @@ def _held_back_job(title: str = "AGAO Annual Financial Report FY2024"):
         doc_type="afr", fiscal_year=2024,
     )
     job.extraction_attempts = list(HELD_BACK_ATTEMPTS)
+    job.held_out = True
     save(job)
     advance(job, "failed", error=HELD_BACK_MESSAGE)
     return job
@@ -86,6 +96,26 @@ def _ordinary_crash():
     )
     save(job)
     advance(job, "failed", error="Connection reset while downloading the source.")
+    return job
+
+
+def _crash_after_a_passing_extraction():
+    """The hard half of Blocking 1: a document whose extraction PASSED (one
+    high-scoring attempt is journalled) but a LATER stage -- embedding,
+    writing, losing the ingest-lock race -- crashed. `extraction_attempts`
+    is non-empty, exactly the shape that made the old `extraction_attempts`
+    filter mislabel it, but `held_out` was never set: the ladder did not
+    lose, it never got the chance to."""
+    job = new_job(
+        doc_id="jlbc-baseline-fy2027-dps", title="A baseline book",
+        corpus="budget", source_path="dps.pdf", source_sha256="c" * 64,
+        publisher="jlbc", doc_type="baseline-per-agency", fiscal_year=2027,
+    )
+    job.extraction_attempts = [
+        {"extractor": "mineru", "coverage": 0.94, "chunks": 500},
+    ]
+    save(job)
+    advance(job, "failed", error="RuntimeError: lost the corpus lock after 1800s")
     return job
 
 
@@ -122,6 +152,18 @@ def test_an_ordinary_crash_is_not_a_needs_attention_document(client):
     """A failed job with no extraction_attempts is a crash, not a held-back
     document, and belongs on the queue where it already is."""
     _ordinary_crash()
+
+    assert _attention(client)["documents"] == []
+
+
+def test_a_crash_after_a_passing_extraction_is_not_a_needs_attention_document(client):
+    """The HARD half of Blocking 1 (this plan's final review): a crash
+    whose job carries a non-empty, PASSING `extraction_attempts` entry must
+    still read as an ordinary crash, because the ladder never lost -- it
+    ran, won, and something unrelated crashed afterward. The old filter
+    (`job.state == "failed" and job.extraction_attempts`) could not tell
+    this apart from a genuinely held-back document; `held_out` can."""
+    _crash_after_a_passing_extraction()
 
     assert _attention(client)["documents"] == []
 
@@ -183,6 +225,32 @@ def test_newest_failure_first(client):
     titles = [d["title"] for d in _attention(client)["documents"]]
 
     assert titles == ["Newer FY2024 AFR", "Older FY2022 AFR"]
+
+
+def test_the_happy_path_reports_no_error(client):
+    _held_back_job()
+
+    assert _attention(client)["error"] is None
+
+
+def test_an_unreadable_jobs_directory_is_a_visible_error_not_silence(client, monkeypatch):
+    """Minor finding on this plan's final review: swallowing an unreadable
+    jobs directory into an empty `documents` list read IDENTICALLY to
+    "nothing needs attention" -- the overwhelmingly common, entirely fine
+    case. A share that has gone away is the one case where silence is the
+    wrong answer, because it reads as "the corpus is healthy" on the one
+    screen an admin would check to find out otherwise."""
+    import ingest.jobs as jobs_module
+
+    def _boom():
+        raise OSError("share unavailable")
+
+    monkeypatch.setattr(jobs_module, "load_all", _boom)
+
+    body = _attention(client)
+
+    assert body["documents"] == []
+    assert body["error"]
 
 
 # ---------------------------------------------------------------------------

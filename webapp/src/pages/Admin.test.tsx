@@ -596,6 +596,29 @@ describe("needs attention", () => {
     expect(screen.getByTestId("admin-attention")).toBeInTheDocument();
   });
 
+  it("surfaces an unreadable jobs directory on the initial load, not silence", async () => {
+    // Plan B final review, minor finding: the route used to swallow an
+    // unreadable jobs directory into an empty `documents` list, which
+    // reads identically to "nothing needs attention" — the overwhelmingly
+    // common, entirely fine case. A share that has gone away is the one
+    // case that must NOT read as fine.
+    mockAll({});
+    vi.spyOn(api, "adminAttention").mockResolvedValue({
+      documents: [],
+      error: "Couldn't read the list of documents needing attention right now.",
+    });
+
+    await renderAdmin();
+
+    expect(await screen.findByTestId("admin-attention-error")).toHaveTextContent(
+      /couldn't read the list of documents needing attention/i,
+    );
+    // Genuinely nothing was found (an empty `documents` list on top of the
+    // error) — the panel itself still renders nothing, only the error line
+    // says why that emptiness can't be trusted.
+    expect(screen.queryByTestId("admin-attention")).toBeNull();
+  });
+
   it("clears a stale action error once a later action succeeds", async () => {
     // Reproduces the exact shape this project has shipped before (a
     // chat-history citation chip branded "source no longer available"
