@@ -45,7 +45,9 @@
 **Two traps found during planning, both verified:**
 
 1. **python-docx's default `Title` style carries a blue bottom border** (`w:pBdr`, `sz=8`, `themeColor accent1`) and `spacing after 300`. The reference has neither. Left in place it draws a stray blue line directly above the real 2.25pt rule. Both must be stripped.
-2. **`table.autofit = False` alone does not fix column widths** — they round-tripped as `2743200` EMU each instead of `925830` / `4914900`. A `<w:tblLayout w:type="fixed"/>` element on `tblPr` is required as well.
+2. **Memo-block widths depend on HOW the rows are created, not on `tblLayout`.** Corrected during Task 2 after a four-way matrix: with the rows created up front (`add_table(rows=7, cols=2)`) the CELL widths round-trip as `2743200` EMU each regardless of `tblLayout`, while `columns[].width` still reads the correct `925830` / `4914900` — so a test that checks only columns passes while the labels wrap. Create the table with `rows=0`, set `columns[].width`, then `add_row()`; each row inherits the gridCol widths. Keep the `<w:tblLayout w:type="fixed"/>` element anyway: the reference carries it and it is what tells Word to honour fixed widths at render time, which no python-docx getter can observe.
+
+   *(An earlier draft of this plan attributed the effect to `tblLayout`. That was a measurement error — the prototype changed two things at once.)*
 
 ---
 
@@ -269,8 +271,9 @@ ADDRESS_LINES = (
     ("1716 West Adams", "Telephone: (602) 926-5491"),
     ("Phoenix, Arizona 85007", "azjlbc.gov"),
 )
-FOOTER_NOTE = "Generated with JLBC Agentic Search"
-SENDER_SUFFIX = ", via JLBC Agentic Search"
+TOOL_NAME = "JLBC Agentic Search"
+FOOTER_NOTE = f"Generated with {TOOL_NAME}"
+SENDER_SUFFIX = f", via {TOOL_NAME}"
 # A visible placeholder, not an empty cell: an empty cell beside a label
 # reads as a rendering bug (spec M4).
 NO_RECIPIENT = "[Recipient(s)]"
@@ -598,15 +601,21 @@ def add_memo_block(
     `Document.paragraphs`, which is why a first pass at measuring this
     document missed it entirely.
     """
-    sender_line = f"{sender}{SENDER_SUFFIX}" if sender else SENDER_SUFFIX.lstrip(", ")
+    # NOT `SENDER_SUFFIX.lstrip(", ")` — lstrip takes a character SET, so
+    # that yields "via JLBC Agentic Search". Name the tool once instead.
+    sender_line = f"{sender}{SENDER_SUFFIX}" if sender else TOOL_NAME
     values = (date, recipient or NO_RECIPIENT, sender_line, subject)
 
     table = doc.add_table(rows=0, cols=2)
     table.autofit = False
-    # `autofit = False` ALONE DOES NOT WORK. Measured during planning:
-    # without an explicit fixed layout the widths round-trip as 2743200
-    # EMU each (Word's default split) instead of 925830 / 4914900, and
-    # the labels wrap. The reference carries this element too.
+    # Rows are added ONE AT A TIME below, deliberately. Measured: with
+    # `add_table(rows=7, cols=2)` the CELL widths come back 2743200 EMU
+    # each and the labels wrap, while `columns[].width` still reads
+    # correctly — so a column-only assertion passes on a broken table.
+    # With rows=0 each `add_row()` inherits the gridCol widths.
+    # `tblLayout` is kept because the reference carries it and it is what
+    # makes Word honour fixed widths at RENDER time, which no getter here
+    # can observe.
     layout = OxmlElement("w:tblLayout")
     layout.set(qn("w:type"), "fixed")
     table._tbl.tblPr.append(layout)
