@@ -283,6 +283,7 @@ def test_an_unreadable_jobs_directory_is_a_visible_error_not_silence(client, mon
     body = _attention(client)
 
     assert body["documents"] == []
+    assert body["swapped"] == []
     assert body["error"]
 
 
@@ -358,6 +359,68 @@ def test_a_held_back_document_is_not_listed_as_swapped(client):
     WORKED. A document every rung of which failed belongs on the
     `documents` panel above, never here."""
     _held_back_job()
+
+    assert _attention(client)["swapped"] == []
+
+
+def test_a_not_yet_live_job_with_a_real_swap_shape_is_not_listed(client):
+    """Isolates `job.state != "live"`. Every OTHER swap condition holds —
+    `kept_extractor` is set, there are 2+ attempts, and the first attempt's
+    extractor differs from `kept` — so this fixture trips nothing except
+    the state check. `_held_back_job` (above) also fails this way, but it
+    ALSO leaves `kept_extractor` unset, so it would still pass with the
+    state check deleted; this fixture would not."""
+    job = new_job(
+        doc_id="agao-afr-fy2025", title="Still mid-ladder",
+        corpus="budget", source_path="x.pdf", source_sha256="e" * 64,
+        publisher="agao", doc_type="afr", fiscal_year=2025,
+    )
+    job.extraction_attempts = [
+        {"extractor": "opendataloader", "coverage": 0.49,
+         "unlabelled": 0.31, "chunks": 388},
+        {"extractor": "mineru", "coverage": 0.45,
+         "unlabelled": 0.0, "chunks": 450},
+    ]
+    job.kept_extractor = "mineru"
+    job.state = "queued"
+    save(job)
+
+    assert _attention(client)["swapped"] == []
+
+
+def test_a_job_kept_on_its_first_rung_with_a_later_retry_attempt_is_not_listed(client):
+    """Isolates `attempts[0].get("extractor") == kept`. State is live, kept
+    is set, and there ARE 2+ attempts — the guard this fixture must trip is
+    the first-rung comparison alone, so the second attempt exists but the
+    first already matches `kept`."""
+    _live_job(
+        doc_id="jlbc-baseline-fy2027-adoa-retry",
+        title="Kept on the first rung despite a later retry",
+        kept_extractor="opendataloader",
+        attempts=[
+            {"extractor": "opendataloader", "coverage": 0.94,
+             "unlabelled": 0.0, "chunks": 200},
+            {"extractor": "mineru", "coverage": 0.10,
+             "unlabelled": 0.5, "chunks": 5},
+        ],
+    )
+
+    assert _attention(client)["swapped"] == []
+
+
+def test_a_job_with_only_one_recorded_attempt_is_not_listed_as_swapped(client):
+    """Isolates `len(attempts) < 2`. State is live, kept is set, and the
+    lone attempt's extractor differs from `kept` — so if the length guard
+    were the only thing missing, `attempts[0]` would still fail its
+    equality check and this fixture would slip through as swapped."""
+    _live_job(
+        doc_id="agao-afr-fy2023", title="Only one attempt was ever recorded",
+        kept_extractor="mineru",
+        attempts=[
+            {"extractor": "opendataloader", "coverage": 0.10,
+             "unlabelled": 0.5, "chunks": 5},
+        ],
+    )
 
     assert _attention(client)["swapped"] == []
 
