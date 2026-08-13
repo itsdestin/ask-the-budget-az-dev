@@ -575,12 +575,19 @@ def test_a_tripped_document_with_nothing_better_is_STILL_WRITTEN(
 ):
     """🔴 The regression guard for the worst way this change goes wrong.
 
-    Every rung trips the ceiling, so the loop reaches its end with no
-    untripped winner. The document must still be WRITTEN -- a degraded
+    Every rung that runs trips the ceiling, so the loop reaches its end with
+    no untripped winner. The document must still be WRITTEN -- a degraded
     reading that is the best available reading is still the best available
     reading. If this returns a failing outcome, `run_job` hides the
     document from search, and an analyst who could previously find its
-    figures (badly labelled) can now find nothing at all."""
+    figures (badly labelled) can now find nothing at all.
+
+    UPDATED FOR X12 (Task 4): opendataloader already clears COVERAGE_FLOOR
+    (0.49 >= 0.10), so by the time the loop reaches mineru-ocr, `passing` is
+    non-empty and the OCR rung is skipped -- tripped or not, a floor-passing
+    reading is already in hand. Only 2 rungs run now, not 3; the assertion
+    this test exists for (a fully-tripped document is still written, not
+    held out) is unaffected."""
     scripted = _ScriptedLadder(
         {"opendataloader": 0.49, "mineru": 0.45, "mineru-ocr": 0.44}
     )
@@ -591,12 +598,14 @@ def test_a_tripped_document_with_nothing_better_is_STILL_WRITTEN(
     outcome = worker._extract_and_chunk(ladder_job, ctx)
 
     assert outcome.passed, "a tripped document must not be held out of search"
-    # All three land in the band together (each >= 0.75 * 0.49): tied on
-    # unlabelled (all 1.0, everything bare), so the -coverage tie-break
-    # inside the band picks the highest-coverage rung, not a band-empty
-    # fallback.
+    # Both rungs that ran land in the band together (each >= 0.75 * 0.49):
+    # tied on unlabelled (both 1.0, everything bare), so the -coverage
+    # tie-break inside the band picks the highest-coverage rung, not a
+    # band-empty fallback.
     assert outcome.extractor == "opendataloader"
-    assert len(outcome.attempts) == 3
+    assert scripted.calls == ["opendataloader", "mineru"]
+    assert "mineru-ocr" not in scripted.calls
+    assert len(outcome.attempts) == 2
 
 
 def test_structure_picks_the_winner_among_comparable_attempts(
@@ -635,3 +644,53 @@ def test_a_healthy_document_still_short_circuits(monkeypatch, ladder_job):
 
     assert scripted.calls == ["opendataloader"]
     assert outcome.extractor == "opendataloader"
+
+
+# --- X12: the OCR rung is skipped on a document that has a real text layer --
+
+
+def test_the_ocr_rung_is_skipped_when_the_document_has_a_text_layer(
+    monkeypatch, ladder_job
+):
+    """Spec X12. Measured on agao-afr-fy2024: mineru-ocr produced 353,002
+    characters against mineru's 353,141 and the same 13% bare pages -- a
+    full extraction to change essentially nothing. OCR earns its cost on a
+    SCAN, and a document with a text layer is not one."""
+    scripted = _ScriptedLadder({"opendataloader": 0.49, "mineru": 0.45})
+    ctx = _ctx(monkeypatch, scripted, chunks=20,
+               bare=("opendataloader", "mineru"))
+    outcome = worker._extract_and_chunk(ladder_job, ctx)
+
+    assert scripted.calls == ["opendataloader", "mineru"]
+    assert "mineru-ocr" not in scripted.calls
+    assert outcome.passed
+
+
+def test_a_scan_still_reaches_the_ocr_rung(monkeypatch, ladder_job):
+    """The test that keeps scans working. A blank PDF makes
+    `inspect_source` report a POSITIVE has_text_layer=False, and
+    `ladder_for` returns ["mineru-ocr"] alone for it."""
+    scripted = _ScriptedLadder({"mineru-ocr": None})
+    ctx = _ctx(monkeypatch, scripted, has_text_layer=False, chunks=20)
+    outcome = worker._extract_and_chunk(ladder_job, ctx)
+
+    assert scripted.calls == ["mineru-ocr"]
+    assert outcome.passed
+
+
+def test_ocr_still_runs_when_every_earlier_rung_FAILED_the_floor(
+    monkeypatch, ladder_job
+):
+    """The escape hatch. With nothing passing, the document is being held
+    out of search anyway and OCR is the last thing that might rescue it --
+    text layer or not. The skip applies only where a usable reading is
+    already in hand."""
+    scripted = _ScriptedLadder(
+        {"opendataloader": 0.01, "mineru": 0.02, "mineru-ocr": 0.9}
+    )
+    ctx = _ctx(monkeypatch, scripted, chunks=20)
+    outcome = worker._extract_and_chunk(ladder_job, ctx)
+
+    assert scripted.calls == ["opendataloader", "mineru", "mineru-ocr"]
+    assert outcome.extractor == "mineru-ocr"
+    assert outcome.passed

@@ -442,6 +442,29 @@ def _extract_and_chunk(job: JobRecord, ctx: WorkerContext) -> ExtractionOutcome:
     passing: list[ExtractionOutcome] = []
 
     for index, name in enumerate(rungs):
+        if (
+            name == "mineru-ocr"
+            and inspection.has_text_layer is True
+            and passing
+        ):
+            # Spec X12. Measured on the one document this plan exists for:
+            # mineru-ocr produced 353,002 characters against mineru's
+            # 353,141 and the same 13% bare pages -- a full extraction,
+            # roughly 30 minutes on a 191-page book, to change nothing.
+            #
+            # `is True`, NOT truthiness. `has_text_layer` is `bool | None`
+            # and None means the inspector COULD NOT TELL, which is not the
+            # same as "there is a text layer". Skipping on an unknown would
+            # quietly remove the rescue path from every document the
+            # inspector could not read -- disproportionately the damaged
+            # ones. `ingest/ladder.py` tests `is False` for the mirror
+            # image of this reason.
+            #
+            # `and passing` is the escape hatch: with nothing above the
+            # floor the document is being held out of search anyway, so
+            # OCR is the last thing that might rescue it.
+            continue
+
         recorded = prior.get(name)
         if recorded is not None and recorded.get("error"):
             # This rung CRASHED on an earlier run. Don't pay for it again,
