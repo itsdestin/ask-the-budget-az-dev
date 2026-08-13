@@ -2412,6 +2412,31 @@ fieldset.adm-field{border:0;padding:0;}
 .adm-panel-alert{border-left:4px solid var(--az-red);}
 .adm-panel-alert h2{color:var(--az-red);}
 
+/* --- function groups (spec E6) --------------------------------------------
+   The page is bands of panels now, each band labelled with the question its
+   panels answer. The label is deliberately SMALLER than a panel heading: it
+   is a signpost above the cards, not a competing title. Same uppercase-tracked
+   treatment as `.adm-table thead th` and `.adm-stats dt`, which is what this
+   page already uses for "this names the thing below it". */
+.adm-group{margin-bottom:calc(var(--gap) * 1.5);}
+.adm-group-title{font-size:11.5px;font-weight:800;text-transform:uppercase;letter-spacing:.06em;color:var(--ink-3);margin:0 0 8px 4px;}
+.adm-group>.adm-panel:last-child{margin-bottom:0;}
+
+/* A run of buttons under a form. `<p>` so it inherits the block rhythm. */
+.adm-actions{display:flex;align-items:center;gap:14px;flex-wrap:wrap;margin:14px 0 0;}
+/* The guidance box. Wide and tall because it holds prose, not a value. */
+.adm-textarea{display:block;width:100%;border:1px solid var(--line);border-radius:var(--r-sm);padding:9px 11px;font:inherit;font-size:13.5px;line-height:1.55;background:var(--card);color:var(--ink);resize:vertical;}
+/* Same size line, coloured only when the cap is close enough to matter. */
+.adm-hint.is-warn{color:var(--copper);font-weight:800;}
+
+/* An attached conversation inside an issue report. Read as a chat, never as
+   the JSON it arrived in. */
+.adm-convo{list-style:none;margin:6px 0 0;padding:0;}
+.adm-convo li{padding:8px 0;border-bottom:1px solid var(--line);}
+.adm-convo li:last-child{border-bottom:0;}
+.adm-convo-who{font-size:11.5px;font-weight:800;text-transform:uppercase;letter-spacing:.04em;color:var(--ink-3);}
+.adm-convo p{margin:3px 0 0;font-size:13px;color:var(--ink-2);line-height:1.55;white-space:pre-wrap;}
+
 .adm-inline{display:flex;gap:10px;align-items:flex-end;flex-wrap:wrap;}
 .adm-inline input{width:auto;min-width:120px;}
 .adm-inline label{display:block;}
