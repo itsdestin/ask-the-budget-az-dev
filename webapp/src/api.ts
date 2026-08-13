@@ -426,6 +426,34 @@ export async function uploadDocument(
   return r.json();
 }
 
+export interface MissingEdition {
+  family: string;
+  fiscal_year: number;
+  /** null for an edition found by PROBING: counting its documents means
+   *  fetching and parsing JLBC's index pages, which is seconds rather than
+   *  milliseconds, so it is deferred until the analyst actually adds it. */
+  document_count: number | null;
+  source: "catalog" | "probed";
+}
+
+export interface BookCheck {
+  checked_at: string | null;
+  online: boolean;
+  reason: string | null;
+  missing: MissingEdition[];
+  present: { family: string; fiscal_year: number }[];
+  unavailable: { family: string; fiscal_year: number; era_note: string }[];
+}
+
+/** Which JLBC book editions the corpus lacks (spec T10). Served from a
+ *  12-hour cache unless `refresh` — this app is offline-capable and must not
+ *  probe azjlbc.gov every time the Upload page opens. */
+export async function booksMissing(refresh = false): Promise<BookCheck> {
+  const r = await fetch(refresh ? "/api/books/missing?refresh=1" : "/api/books/missing");
+  if (!r.ok) await fail(r, "book check");
+  return r.json();
+}
+
 export interface JobsResponse {
   jobs: Job[];
   /** How many jobs have finished, from a directory listing on the server.
