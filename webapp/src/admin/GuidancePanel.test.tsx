@@ -97,8 +97,11 @@ describe("the office guidance box", () => {
 
   it("shows how much room is left", async () => {
     await renderPanel({ text: "12345", max_bytes: 8192 });
+    // Bytes, not characters — the backend's cap and its refusal message are
+    // both byte-denominated, and pasted curly quotes/em dashes cost 3 bytes
+    // each, so "characters" would visibly disagree with the real count.
     expect(screen.getByTestId("admin-guidance-size")).toHaveTextContent(
-      "5 / 8,192 characters",
+      "5 / 8,192 bytes",
     );
   });
 

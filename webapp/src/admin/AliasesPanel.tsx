@@ -118,6 +118,16 @@ export function AliasesPanel() {
         agency's documents.
       </p>
 
+      {/* Fix: hoisted out of "Your office's shorthand" — that card can be
+          collapsed (renders no children while closed) while a save from the
+          OTHER card fails, and a `role="alert"` inside unmounted content is
+          an alert nobody sees. Panel-level catches refusals from both. */}
+      {error ? (
+        <p className="adm-warn" role="alert">
+          {error}
+        </p>
+      ) : null}
+
       <CollapsibleCard
         title="Your office's shorthand"
         hint={
@@ -211,12 +221,6 @@ export function AliasesPanel() {
             Add
           </button>
         </div>
-
-        {error ? (
-          <p className="adm-warn" role="alert">
-            {error}
-          </p>
-        ) : null}
 
         {/* Accepted, but worth saying out loud — the server allows these and
             tells us why it is uneasy. */}

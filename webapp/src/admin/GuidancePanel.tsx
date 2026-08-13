@@ -69,8 +69,11 @@ export function GuidancePanel() {
     }
   }
 
-  // Bytes, not characters: the cap is a byte cap, and for ordinary typing the
-  // two are the same number. "Characters" is the word the reader knows.
+  // Fix: this IS a byte count (the cap the server enforces is a byte cap,
+  // and its refusal already says "byte limit"). Pasted curly quotes and em
+  // dashes are 3 bytes each, so labelling this "characters" made the number
+  // visibly disagree with what an admin counted by eye — say "bytes" so the
+  // meter agrees with the backend instead of contradicting it.
   const used = new TextEncoder().encode(text).length;
   const max = saved?.max_bytes ?? 0;
   const nearlyFull = max > 0 && used > max * NEARLY_FULL;
@@ -114,7 +117,13 @@ export function GuidancePanel() {
               className="adm-textarea"
               rows={10}
               value={text}
-              onChange={(e) => setText(e.target.value)}
+              onChange={(e) => {
+                setText(e.target.value);
+                // Fix: typing after a save left "Saved. New conversations
+                // will use it." on screen beside unsaved text — clear it the
+                // moment the text no longer matches what was saved.
+                setOk(false);
+              }}
             />
           </label>
 
@@ -128,7 +137,7 @@ export function GuidancePanel() {
             className={nearlyFull ? "adm-hint is-warn" : "adm-hint"}
             data-testid="admin-guidance-size"
           >
-            {count(used)} / {count(max)} characters
+            {count(used)} / {count(max)} bytes
             {nearlyFull ? " — close to the limit." : ""}
           </p>
 

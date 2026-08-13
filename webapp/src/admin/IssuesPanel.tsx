@@ -206,7 +206,6 @@ function ReportRow({
 
 export function IssuesPanel() {
   const [reports, setReports] = useState<api.IssueReport[] | null>(null);
-  const [open, setOpen] = useState(0);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
@@ -216,7 +215,6 @@ export function IssuesPanel() {
       .then((r) => {
         if (cancelled) return;
         setReports(r.reports);
-        setOpen(r.unresolved);
       })
       .catch((e) => {
         if (!cancelled) setError(e instanceof Error ? e.message : String(e));
@@ -226,14 +224,21 @@ export function IssuesPanel() {
     };
   }, []);
 
-  /** Swap in the server's copy of one report and re-count what is open, so
-   *  the heading badge and the rows can never disagree. */
+  // Fix: derived from `reports` at render, not a second piece of state kept
+  // in sync by hand. It used to be set from the server's `unresolved` on
+  // load but recomputed locally (excluding unreadable rows) after every
+  // update — two rules for one number, so the heading could jump on the
+  // first resolve for a reason the admin couldn't see. The excluding rule
+  // won: an unreadable row has no status and nothing to act on, so it isn't
+  // an "open" report an admin owes an answer to, and this is the rule the
+  // rows themselves already follow (no buttons on an unreadable row).
+  const open = (reports ?? []).filter((r) => !r.unreadable && r.status !== "resolved").length;
+
+  /** Swap in the server's copy of one report. `open` above recomputes from
+   *  the new array on its own, so the heading badge and the rows can never
+   *  disagree. */
   function onUpdated(next: api.IssueReport) {
-    setReports((current) => {
-      const merged = (current ?? []).map((r) => (r.id === next.id ? next : r));
-      setOpen(merged.filter((r) => !r.unreadable && r.status !== "resolved").length);
-      return merged;
-    });
+    setReports((current) => (current ?? []).map((r) => (r.id === next.id ? next : r)));
   }
 
   return (

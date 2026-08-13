@@ -224,4 +224,26 @@ describe("the shorthand that ships with the app", () => {
 
     expect(await screen.findByRole("alert")).toHaveTextContent(/search language/i);
   });
+
+  // The realistic sequence: an admin who never opened "Your office's
+  // shorthand" at all — only this card — flips a switch and gets refused.
+  // The alert used to live inside the OTHER card's collapsed (unmounted)
+  // body, so the refusal vanished with no explanation and the switch just
+  // snapped back.
+  it("shows a refused save as an alert even when only this card is open", async () => {
+    await renderPanel();
+    openCard(/shorthand that comes with the app/i);
+    vi.spyOn(api, "saveAdminAliases").mockRejectedValue(
+      new Error(
+        "save search language: cannot switch off the last shorthand for an agency.",
+      ),
+    );
+
+    const row = screen.getByTestId("admin-shipped-adoa");
+    fireEvent.click(within(row).getByRole("switch"));
+
+    expect(await screen.findByRole("alert")).toHaveTextContent(
+      /cannot switch off the last shorthand/i,
+    );
+  });
 });
