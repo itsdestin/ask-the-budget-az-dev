@@ -15,6 +15,8 @@ from fastapi import APIRouter, HTTPException
 from ingest.jobs import (
     IllegalTransition,
     advance,
+    archived_count,
+    load_active,
     load_all,
     load_job,
 )
@@ -23,8 +25,34 @@ router = APIRouter()
 
 
 @router.get("/api/jobs")
-def list_jobs():
-    return {"jobs": [job.view() for job in load_all()]}
+def list_jobs(all: bool = False):
+    """Outstanding work by default; the whole history on request.
+
+    Spec T13: the queue shows work, not history. Before this change the route
+    was `load_all()` with no filter, no limit and no sort — measured against
+    the live data dir at **7,118 jobs and a 3.02 MB response on every poll**,
+    of which **14** needed anybody's attention. The Upload page polls, and the
+    office reads it off an SMB share.
+
+    The default set is simply whatever is in the main jobs folder: every
+    unfinished job plus every failure, of any age, because finished jobs have
+    moved to `jobs/done/` (see ingest/archive.py). There is deliberately NO
+    age window and NO state filter here — a window with an exception clause
+    for failures is exactly what the 2026-08-13 amendment to T13 removed,
+    after measuring that a 24-hour window hid 13 of the 14 live failures. A
+    filter here would also be a second place for that rule to be got wrong.
+
+    `finished_count` is a directory listing, not 7,104 file reads. It exists
+    so the page can say "N documents finished — view all" rather than leaving
+    an analyst to wonder where their document went; "the queue is empty" and
+    "the corpus is empty" must not look the same.
+    """
+    jobs = load_all() if all else load_active()
+    return {
+        "jobs": [job.view() for job in jobs],
+        "finished_count": archived_count(),
+        "showing": "all" if all else "active",
+    }
 
 
 @router.post("/api/jobs/{job_id}/retry")

@@ -79,7 +79,11 @@ def test_other_machines_jobs_are_listed_too(client):
 
 
 def test_empty_queue_returns_an_empty_list(client):
-    assert client.get("/api/jobs").json() == {"jobs": []}
+    # `finished_count` and `showing` joined the body with spec T13 — the page
+    # needs to distinguish "nothing outstanding" from "nothing in the corpus".
+    assert client.get("/api/jobs").json() == {
+        "jobs": [], "finished_count": 0, "showing": "active",
+    }
 
 
 # --- retry ------------------------------------------------------------------
@@ -157,3 +161,74 @@ def test_a_traversal_job_id_is_rejected(client):
     """job_id lands in a filesystem path; a dotted segment must never reach it."""
     assert client.post("/api/jobs/../cancel").status_code in (400, 404, 405)
     assert client.post("/api/jobs/.hidden/cancel").status_code == 400
+
+
+# --- T13: the queue shows work, not history ---------------------------------
+#
+# Measured on the live data dir 2026-08-13 before this change: 7,118 jobs and
+# a 3.02 MB response on every poll, of which 14 rows needed anybody's
+# attention. There is no age window anywhere in this section on purpose --
+# the amendment to spec T13 removed it, after measuring that a 24-hour window
+# hid 13 of the 14 live failures.
+
+
+def test_the_queue_returns_work_not_history(client):
+    finished = _job(doc_id="jlbc-baseline-fy2027-done")
+    for state in ("extracting", "chunking", "embedding", "writing", "live"):
+        advance(finished, state)
+    broken = _job(doc_id="jlbc-baseline-fy2027-bad")
+    advance(broken, "failed", error="boom")
+
+    body = client.get("/api/jobs").json()
+
+    assert [j["state"] for j in body["jobs"]] == ["failed"]
+    assert body["finished_count"] == 1
+    assert body["showing"] == "active"
+
+
+def test_a_failed_job_of_ANY_age_is_still_returned(client):
+    """Spec T13's one rule not to relax.
+
+    13 of the 14 failures in the live data dir were 12.6 days old, so this
+    backdates the file well past any window anybody might be tempted to add
+    later.
+    """
+    import os
+    import time
+
+    from ingest.jobs import jobs_dir
+
+    broken = _job()
+    advance(broken, "failed", error="boom")
+    path = jobs_dir() / f"{broken.job_id}.json"
+    ancient = time.time() - 90 * 86400
+    os.utime(path, (ancient, ancient))
+
+    body = client.get("/api/jobs").json()
+    assert [j["job_id"] for j in body["jobs"]] == [broken.job_id]
+
+
+def test_all_1_returns_everything_and_says_so(client):
+    finished = _job(doc_id="jlbc-baseline-fy2027-done")
+    for state in ("extracting", "chunking", "embedding", "writing", "live"):
+        advance(finished, state)
+    broken = _job(doc_id="jlbc-baseline-fy2027-bad")
+    advance(broken, "failed", error="boom")
+
+    body = client.get("/api/jobs?all=1").json()
+
+    assert {j["state"] for j in body["jobs"]} == {"failed", "live"}
+    assert body["showing"] == "all"
+    assert body["finished_count"] == 1
+
+
+def test_the_finished_count_is_reported_even_when_nothing_is_outstanding(client):
+    """The page's "N documents finished — view all" line. An empty queue with
+    a live corpus must not read as an empty corpus."""
+    finished = _job()
+    for state in ("extracting", "chunking", "embedding", "writing", "live"):
+        advance(finished, state)
+
+    body = client.get("/api/jobs").json()
+    assert body["jobs"] == []
+    assert body["finished_count"] == 1
