@@ -111,6 +111,21 @@ class JobRecord:
     completed_ranges: list[list[int]] = field(default_factory=list)
     # Non-fatal post-ingest validation findings (Task 14), surfaced in the UI.
     warnings: list[str] = field(default_factory=list)
+    # One entry per extraction method tried, in order:
+    #   {"extractor": "opendataloader", "coverage": 0.02, "chunks": 20}
+    # A rung that crashed carries `error` instead of a ratio; a rung whose
+    # SOURCE could not be measured carries `coverage_error` alongside a null
+    # coverage, so "this document is a scan" stays distinguishable from "we
+    # could not read the denominator".
+    #
+    # Empty on every job written before spec T5 shipped, and `from_json`
+    # must keep reading those -- thousands are on the share. Empty is
+    # therefore "nothing to say", never "unknown" or "not checked".
+    #
+    # It is also the ladder's resume marker: ingest/worker.py does not re-run
+    # a rung already listed here, which is what stops a reboot during
+    # embedding paying for an overnight extraction twice.
+    extraction_attempts: list[dict] = field(default_factory=list)
 
     def to_json(self) -> dict[str, Any]:
         return asdict(self)
@@ -297,6 +312,24 @@ def advance(job: JobRecord, new_state: str, *, error: str | None = None) -> JobR
         job.error = None
         job.pct = 0
         job.stage_detail = ""
+        # Retry means "run the whole extraction ladder again", so the two
+        # fields that make a job SKIP work are reset with the error message.
+        #
+        # `extraction_attempts` is the ladder's resume marker: a retried job
+        # that kept it would skip every rung it had already tried and fail
+        # again instantly, having done nothing — a retry button that appears
+        # not to work.
+        #
+        # `completed_ranges` goes with it because those ranges belong to
+        # whichever rung was last extracting, which is not necessarily the
+        # rung a fresh ladder starts on. Carrying them into rung 1 would make
+        # rung 1 skip pages it has never extracted, and the partial document
+        # then fails coverage for a reason unrelated to the extractor. The
+        # cost is re-extracting a partly-done document on retry; the
+        # RESUME path (a job still mid-flight, not failed) is untouched and
+        # is what makes an interrupted overnight book survivable.
+        job.extraction_attempts = []
+        job.completed_ranges = []
         return _commit(job, "queued")
 
     if job.state in TERMINAL_STATES:

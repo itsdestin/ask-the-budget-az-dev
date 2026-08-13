@@ -153,6 +153,43 @@ def test_retry_reopens_a_failed_job(data_dir):
     assert job.state == "queued" and job.error is None
 
 
+def test_retry_clears_the_extraction_attempts_so_the_ladder_runs_again(data_dir):
+    """Otherwise the retried job skips every rung it already tried and fails
+    instantly, having done no work — a retry button that appears dead."""
+    job = _job()
+    advance(job, "extracting")
+    job.extraction_attempts = [
+        {"extractor": "opendataloader", "coverage": 0.02, "chunks": 20},
+        {"extractor": "mineru", "coverage": 0.03, "chunks": 31},
+    ]
+    job.completed_ranges = [[1, 40]]
+    advance(job, "failed", error="held out of search")
+
+    advance(job, "queued")
+
+    assert job.extraction_attempts == []
+    # The ranges belong to whichever rung was last extracting, which is not
+    # necessarily the rung a fresh ladder starts on.
+    assert job.completed_ranges == []
+    assert load_job(job.job_id).extraction_attempts == []
+
+
+def test_a_job_file_written_before_the_ladder_still_loads(data_dir):
+    """Thousands of these are on the share. A missing field is "nothing to
+    say", never an error and never an unknown state worth reporting."""
+    job = _job()
+    save(job)
+    path = jobs_dir() / f"{job.job_id}.json"
+    raw = json.loads(path.read_text(encoding="utf-8"))
+    del raw["extraction_attempts"]
+    path.write_text(json.dumps(raw), encoding="utf-8")
+
+    reloaded = load_job(job.job_id)
+
+    assert reloaded is not None
+    assert reloaded.extraction_attempts == []
+
+
 def test_advance_persists_and_bumps_updated_at(data_dir):
     job = _job()
     before = job.updated_at
