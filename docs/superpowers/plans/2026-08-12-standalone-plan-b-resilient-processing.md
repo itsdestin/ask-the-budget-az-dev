@@ -57,6 +57,22 @@ afterwards.
   an unknown state worth reporting.
 - **The floor rejects; it never approves.** A document at or above the floor
   proceeds exactly as it does today, with no new gate, banner or annotation.
+- **🔴 MEASURED DEVIATION from spec T7 — inspection does NOT consider tagging.**
+  T7 says *"A PDF with no structure tree starts at rung 2."* Measured against
+  the corpus, that rule is **wrong and would cause a regression**:
+
+  | document | tagged? | first rung today | coverage |
+  |---|---|---|---|
+  | `governor-governors-budget-fy2025` | **no** | OpenDataLoader | **92.2%** |
+  | `governor-governors-budget-fy2026` | yes | OpenDataLoader | 96.0% |
+  | `agao-afr-fy2024` | **yes** | OpenDataLoader | **2.0%** |
+
+  OpenDataLoader handles a 639-page **untagged** PDF at 92.2%, so tagging does
+  not predict its success — and the one document that does fail **is** tagged.
+  Dropping OpenDataLoader for untagged files would divert a healthy 639-page
+  document to a slower tool and change its chunk text for no gain. **Only
+  `has_text_layer` survives**, which routes a scan straight to OCR. Coverage
+  plus fallback already handles everything tagging was supposed to predict.
 
 ---
 
@@ -282,14 +298,15 @@ git commit -m "feat(ingest): the coverage signal, floor calibrated at 10%"
 **Interfaces:**
 - Consumes: nothing.
 - Produces: `SourceInspection` (frozen dataclass: `source_format: str`,
-  `pages: int | None`, `has_text_layer: bool`, `has_structure_tree: bool`) and
+  `pages: int | None`, `has_text_layer: bool`) and
   `inspect_source(path: Path) -> SourceInspection`.
 
-**Context the implementer needs:** the API below is **verified against the real
-corpus**, not guessed. `doc.xref_get_key(doc.pdf_catalog(), "StructTreeRoot")`
-returns `('xref', '6 0 R')` for the AGAO AFRs and `('null', 'null')` for JLBC
-PDFs — which reproduces today's shipped routing (AGAO → OpenDataLoader, JLBC →
-MinerU) from the file itself.
+**Context the implementer needs:** there is deliberately **no tagging /
+structure-tree field** — see the measured deviation in Global Constraints. Do
+not add one back "for completeness": it was measured, it predicts nothing, and
+acting on it causes a regression. Inspection here answers exactly one
+question — *is there any text in this file at all?* — because that is the only
+question whose answer changes the starting rung.
 
 - [ ] **Step 1: Write the failing test**
 
@@ -328,9 +345,17 @@ def test_detects_the_absence_of_a_text_layer(tmp_path):
     assert inspect_source(_pdf(tmp_path, pages=1, text=False)).has_text_layer is False
 
 
-def test_an_untagged_pdf_reports_no_structure_tree(tmp_path):
-    """Verified against the corpus: every JLBC PDF reports ('null', 'null')."""
-    assert inspect_source(_pdf(tmp_path, pages=1, text=True)).has_structure_tree is False
+def test_inspection_reports_nothing_about_tagging(tmp_path):
+    """A regression guard, not a capability test.
+
+    Tagging was measured across every OpenDataLoader-first document and does
+    not predict extraction success: an UNTAGGED 639-page Executive Budget
+    scores 92.2% through OpenDataLoader, while the one document that fails IS
+    tagged. A future edit that re-adds this field will re-add the rule that
+    consumes it, which diverts a healthy document to a slower extractor.
+    """
+    got = inspect_source(_pdf(tmp_path, pages=1, text=True))
+    assert not hasattr(got, "has_structure_tree")
 
 
 def test_docx_has_no_page_count(tmp_path):
@@ -361,7 +386,6 @@ def test_an_unreadable_file_does_not_raise(tmp_path):
     got = inspect_source(path)
     assert got.pages is None
     assert got.has_text_layer is False
-    assert got.has_structure_tree is False
 ```
 
 - [ ] **Step 2: Run test to verify it fails**
@@ -380,11 +404,24 @@ Expected: FAIL — `ModuleNotFoundError: No module named 'ingest.inspection'`
 This is the decisive measurement behind the whole design and it is worth
 stating at the code: `agao-afr-fy2023` (healthy, 281% coverage) and
 `agao-afr-fy2024` (broken, 2.0%) are INDISTINGUISHABLE here. Both report
-191/184 pages, ~1.1M characters of text layer, and the same
-`StructTreeRoot=('xref', '6 0 R')`. Anything that tries to predict failure
-from inspection alone will pass the FY2024 AFR, which is the document this
-design exists for. Only running the extraction and measuring its output
-(T6) separates them.
+191/184 pages and ~1.1M characters of text layer. Anything that tries to
+predict failure from inspection alone will pass the FY2024 AFR, which is the
+document this design exists for. Only running the extraction and measuring
+its output (T6) separates them.
+
+## Why there is no tagging field, despite spec T7 asking for one
+
+Measured across every OpenDataLoader-first document in the corpus:
+
+    governor-governors-budget-fy2025   UNTAGGED, 639pp   ->  92.2%
+    governor-governors-budget-fy2026   tagged,   661pp   ->  96.0%
+    agao-afr-fy2024                    TAGGED,   191pp   ->   2.0%
+
+Tagging does not predict success. OpenDataLoader reads a large untagged PDF
+fine, and the one document that fails is tagged. A "no structure tree ->
+skip OpenDataLoader" rule would therefore divert a healthy 639-page document
+to a slower extractor and change its chunk text for nothing. Do not add the
+field back.
 """
 from __future__ import annotations
 
@@ -401,7 +438,6 @@ class SourceInspection:
     # None rather than 0: "not applicable" and "empty" are different.
     pages: int | None
     has_text_layer: bool
-    has_structure_tree: bool
 
 
 def inspect_source(path: Path) -> SourceInspection:
@@ -418,23 +454,13 @@ def inspect_source(path: Path) -> SourceInspection:
             import fitz  # PyMuPDF
 
             with fitz.open(path) as doc:
-                # A structure tree is what OpenDataLoader depends on entirely.
-                # Verified on the live corpus: ('xref', '6 0 R') when present
-                # (AGAO), ('null', 'null') when absent (every JLBC PDF) --
-                # which reproduces the shipped routing table from the file.
-                key = doc.xref_get_key(doc.pdf_catalog(), "StructTreeRoot")
-                has_tree = bool(key) and key[0] != "null"
                 # `.strip()` matters: a PDF of scanned pages often carries a
-                # few whitespace glyphs, which would otherwise read as text.
+                # few whitespace glyphs, which would otherwise read as text
+                # and route a scan away from the OCR rung it needs.
                 has_text = any(page.get_text().strip() for page in doc)
-                return SourceInspection(
-                    source_format="pdf",
-                    pages=doc.page_count,
-                    has_text_layer=has_text,
-                    has_structure_tree=has_tree,
-                )
+                return SourceInspection("pdf", doc.page_count, has_text)
         except Exception:
-            return SourceInspection("pdf", None, False, False)
+            return SourceInspection("pdf", None, False)
 
     if source_format == "docx":
         try:
@@ -447,14 +473,11 @@ def inspect_source(path: Path) -> SourceInspection:
                 for row in table.rows
                 for cell in row.cells
             )
-            # A DOCX carries its structure in the file by definition; there
-            # is no second tool to fall back to, so the flag is True and
-            # carries no routing weight.
-            return SourceInspection("docx", None, has_text, True)
+            return SourceInspection("docx", None, has_text)
         except Exception:
-            return SourceInspection("docx", None, False, False)
+            return SourceInspection("docx", None, False)
 
-    return SourceInspection(source_format, None, False, False)
+    return SourceInspection(source_format, None, False)
 ```
 
 - [ ] **Step 4: Run test to verify it passes**
@@ -497,22 +520,22 @@ writes — so the OCR rung needs a flag, not a new reader.
 from ingest.inspection import SourceInspection
 from ingest.ladder import ladder_for
 
-TAGGED = SourceInspection("pdf", 100, has_text_layer=True, has_structure_tree=True)
-UNTAGGED = SourceInspection("pdf", 100, has_text_layer=True, has_structure_tree=False)
-SCANNED = SourceInspection("pdf", 100, has_text_layer=False, has_structure_tree=False)
-DOCX = SourceInspection("docx", None, has_text_layer=True, has_structure_tree=True)
+TEXT = SourceInspection("pdf", 100, has_text_layer=True)
+SCANNED = SourceInspection("pdf", 100, has_text_layer=False)
+DOCX = SourceInspection("docx", None, has_text_layer=True)
 
 
-def test_a_tagged_pdf_starts_at_opendataloader():
-    assert ladder_for("afr", "pdf", TAGGED) == [
+def test_an_odl_first_pdf_gets_the_full_ladder():
+    assert ladder_for("afr", "pdf", TEXT) == [
         "opendataloader", "mineru", "mineru-ocr",
     ]
 
 
-def test_an_untagged_pdf_skips_the_rung_that_needs_tags():
-    """OpenDataLoader depends entirely on tagging, so on an untagged file it
-    is not a slower option -- it is a guaranteed-worse one."""
-    assert ladder_for("afr", "pdf", UNTAGGED) == ["mineru", "mineru-ocr"]
+def test_a_mineru_first_pdf_starts_below_opendataloader():
+    """The declared preference sets the starting rung; nothing above it runs."""
+    assert ladder_for("baseline-per-agency", "pdf", TEXT) == [
+        "mineru", "mineru-ocr",
+    ]
 
 
 def test_a_pdf_with_no_text_layer_goes_straight_to_ocr():
@@ -527,25 +550,38 @@ def test_docx_has_no_ladder():
 def test_the_first_rung_matches_todays_shipped_routing():
     """The safety net for the whole change.
 
-    Every (doc_type, format) pair the registry knows must still START on the
-    extractor it uses today. A different first rung means different chunk
-    text, different chunk_ids, and broken eval ground truth on the next
-    re-ingest.
+    EVERY (doc_type, format) pair the registry knows must still START on the
+    extractor it uses today, for any file that has a text layer. A different
+    first rung means different chunk text, different chunk_ids, and broken
+    eval ground truth on the next re-ingest.
+
+    Note there is no per-type special-casing here: with tagging removed from
+    inspection, one inspection value covers every PDF type, which is itself
+    evidence the rule that needed the special case was not carrying weight.
     """
-    from ingest import doc_types
     from ingest.dispatcher import EXTRACTOR_REGISTRY, pick_extractor
 
     for (doc_type, fmt) in EXTRACTOR_REGISTRY:
-        inspection = TAGGED if fmt == "pdf" else DOCX
-        # Today's routing is declared per doc_type, so compare against it on
-        # the inspection that does not override the declaration.
-        if fmt == "pdf" and pick_extractor(doc_type, fmt).name == "mineru":
-            inspection = UNTAGGED
+        inspection = TEXT if fmt == "pdf" else DOCX
         assert ladder_for(doc_type, fmt, inspection)[0] == pick_extractor(doc_type, fmt).name
 
 
+def test_every_rung_can_actually_be_chunked():
+    """The seam that a review caught and this plan originally missed.
+
+    A rung name is used TWICE: once to extract, and once to choose the
+    reader that parses that extractor's output. A rung the chunker has no
+    reader for cannot complete, and would surface as a confusing failure
+    days into execution rather than here.
+    """
+    from chunking.builder import _READER_REGISTRY
+
+    for rung in ("opendataloader", "mineru", "mineru-ocr", "python-docx"):
+        assert rung in _READER_REGISTRY
+
+
 def test_an_unknown_combination_has_no_ladder():
-    assert ladder_for("budget-bill", "pdf", TAGGED) == []
+    assert ladder_for("budget-bill", "pdf", TEXT) == []
 ```
 
 - [ ] **Step 2: Run test to verify it fails**
@@ -598,6 +634,27 @@ _EXTRACTOR_CLASSES = {
 > extractor; the ladder supplies the fallbacks. Adding it to the YAML would
 > make it a first choice for some type.
 
+- [ ] **Step 3b: Teach the CHUNKER about the OCR rung**
+
+An extractor name is used **twice** — once to extract, and once to choose the
+reader that parses that extractor's output. `chunking/builder.py` keys
+`_READER_REGISTRY` on that name and **raises `Unknown extractor` on anything
+it does not know**, so without this the OCR rung extracts successfully and
+then cannot be chunked.
+
+```python
+# chunking/builder.py
+_READER_REGISTRY = {
+    "mineru": MinerUReader,
+    # MinerU's OCR mode writes the SAME output format -- the reader already
+    # discovers whichever method subdirectory MinerU produced (auto / txt /
+    # ocr), so the OCR rung needs a name here, not a second reader.
+    "mineru-ocr": MinerUReader,
+    "opendataloader": ODLReader,
+    "python-docx": DocxReader,
+}
+```
+
 - [ ] **Step 4: Thread `method` through the two MinerU entry points**
 
 `scripts/run_mineru.py` — change the signature and the command:
@@ -642,12 +699,16 @@ extracts cleanly on the first attempt behaves EXACTLY as it does today, and
 the fallbacks exist only for the documents that would otherwise have been
 written empty.
 
-Inspection can only REMOVE rungs from the front, never reorder them:
+Inspection can only REMOVE rungs from the front, never reorder them, and it
+has exactly ONE rule:
 
-  no structure tree  -> drop OpenDataLoader (it depends entirely on tagging,
-                        so on an untagged file it is not a slower option,
-                        it is a guaranteed-worse one)
-  no text layer      -> drop everything but OCR
+  no text layer  ->  go straight to OCR
+
+Spec T7 also asked for "no structure tree -> skip OpenDataLoader". That was
+MEASURED and dropped: an untagged 639-page Executive Budget scores 92.2%
+through OpenDataLoader while the one document that fails is tagged, so the
+rule would divert a healthy document to a slower tool and predict nothing.
+See ingest/inspection.py's docstring for the numbers.
 
 Cost: a document that needs a fallback pays extraction twice. Measured as
 acceptable on 2026-08-12 -- at the calibrated floor, 2 documents of 7,434
@@ -681,15 +742,15 @@ def ladder_for(
         # DOCX: the structure is in the file and there is no second tool.
         return [preferred]
 
-    rungs = list(_PDF_LADDER)
+    if not inspection.has_text_layer:
+        # A scan. Nothing above OCR can read it, so do not spend hours
+        # proving that.
+        return ["mineru-ocr"]
+
     # Start on the declared preference, keeping everything below it.
+    rungs = list(_PDF_LADDER)
     if preferred in rungs:
         rungs = rungs[rungs.index(preferred):]
-
-    if not inspection.has_text_layer:
-        return [r for r in rungs if r == "mineru-ocr"] or ["mineru-ocr"]
-    if not inspection.has_structure_tree:
-        rungs = [r for r in rungs if r != "opendataloader"]
     return rungs
 ```
 
@@ -804,9 +865,12 @@ def test_a_terminal_failure_never_reaches_live_and_writes_no_chunks(monkeypatch,
     assert job.state == "failed"
     assert written == []
     assert len(job.extraction_attempts) == 3
-    # The sentence a non-technical admin reads. It must name the document's
-    # symptom, not the mechanism.
-    assert "2%" in job.error or "produced" in job.error
+    # `job.error`, NOT `stage_detail`: `advance(job, "failed")` REQUIRES an
+    # error message and raises ValueError without one (jobs.py:307). A
+    # message written only to stage_detail would leave `error` empty on the
+    # one screen that exists to explain the failure.
+    assert job.error
+    assert "2%" in job.error
 
 
 def test_no_text_layer_routes_straight_to_ocr(monkeypatch, ladder_job):
@@ -816,6 +880,75 @@ def test_no_text_layer_routes_straight_to_ocr(monkeypatch, ladder_job):
     )
     assert scripted.calls == ["mineru-ocr"]
     assert outcome.fell_back is False
+
+
+def test_a_rung_that_CRASHES_falls_through_to_the_next(monkeypatch, ladder_job):
+    """The likeliest real trigger, and the half "resilient" was missing.
+
+    A malformed PDF makes an extractor raise; without this the exception
+    takes the job down with no rung 2, which is the same silent-ish dead end
+    the ladder exists to remove. The crash is recorded as an attempt so the
+    admin panel can show WHY a rung was abandoned.
+    """
+    def scripted(name):
+        if name == "opendataloader":
+            raise RuntimeError("pdfium: Data format error")
+        return 0.91
+
+    outcome = worker._extract_and_chunk(ladder_job, _ctx(monkeypatch, scripted))
+
+    assert outcome.extractor == "mineru"
+    assert outcome.attempts[0]["extractor"] == "opendataloader"
+    assert outcome.attempts[0]["coverage"] is None
+    assert "Data format error" in outcome.attempts[0]["error"]
+
+
+def test_every_rung_crashing_is_a_terminal_failure_not_a_traceback(
+    monkeypatch, ladder_job
+):
+    def boom(name):
+        raise RuntimeError("nope")
+
+    job = worker.run_job(ladder_job, _ctx(monkeypatch, boom))
+    assert job.state == "failed"
+    assert job.error
+
+
+def test_an_ocr_run_that_produces_NOTHING_is_not_treated_as_success(
+    monkeypatch, ladder_job
+):
+    """A scan has no text layer, so coverage has no denominator and returns
+    None. None must not mean "pass" unconditionally -- otherwise a scanned
+    PDF whose OCR produced zero passages is written live and empty, which is
+    precisely the silent-empty failure this plan exists to kill, for exactly
+    the document class the OCR rung serves.
+    """
+    scripted = _ScriptedLadder({"mineru-ocr": None})  # no denominator, 0 chunks
+    job = worker.run_job(
+        ladder_job, _ctx(monkeypatch, scripted, has_text_layer=False, chunks=0)
+    )
+    assert job.state == "failed"
+
+
+def test_a_scan_that_DOES_produce_passages_is_accepted(monkeypatch, ladder_job):
+    """The other side of the same rule -- an unmeasurable document that
+    plainly worked must not be rejected for being unmeasurable."""
+    scripted = _ScriptedLadder({"mineru-ocr": None})
+    job = worker.run_job(
+        ladder_job, _ctx(monkeypatch, scripted, has_text_layer=False, chunks=140)
+    )
+    assert job.state == "live"
+
+
+def test_the_chunker_is_told_WHICH_rung_produced_the_output(monkeypatch, ladder_job):
+    """The seam a review caught: `_chunk` used to derive the reader from the
+    doc_type's DEFAULT extractor, so a job that fell back to MinerU would
+    parse MinerU output with the OpenDataLoader reader."""
+    seen = []
+    monkeypatch.setattr(worker, "_chunk", lambda job, ctx, extractor: seen.append(extractor) or [])
+    scripted = _ScriptedLadder({"opendataloader": 0.02, "mineru": 0.93})
+    worker._extract_and_chunk(ladder_job, _ctx(monkeypatch, scripted))
+    assert seen == ["opendataloader", "mineru"]
 ```
 
 > **Implementer:** write the `_ctx` helper and the `ladder_job` fixture to
@@ -858,10 +991,20 @@ class ExtractionOutcome:
 
     @property
     def passed(self) -> bool:
-        # None means "no text layer to compare against" -- OCR ran and we
-        # have no denominator. That is not a failure; refusing it would
-        # reject every scanned document the OCR rung exists to rescue.
-        return self.coverage is None or self.coverage >= COVERAGE_FLOOR
+        # A document that produced NO passages has failed regardless of what
+        # the ratio says, and the ratio is exactly where that slips through:
+        # a scan has no text layer, so there is no denominator and coverage
+        # is None. Treating None as an unconditional pass would write a
+        # scanned document live and empty -- the silent-empty failure this
+        # whole plan exists to kill, for precisely the document class the OCR
+        # rung serves. So chunks first, ratio second.
+        if not self.chunks:
+            return False
+        if self.coverage is None:
+            # Unmeasurable but non-empty. Accept: refusing it would reject
+            # every scan the OCR rung exists to rescue.
+            return True
+        return self.coverage >= COVERAGE_FLOOR
 
 
 def _extract_and_chunk(job: JobRecord, ctx: WorkerContext) -> ExtractionOutcome:
@@ -883,27 +1026,52 @@ def _extract_and_chunk(job: JobRecord, ctx: WorkerContext) -> ExtractionOutcome:
         )
 
     attempts: list[dict] = []
-    best: ExtractionOutcome | None = None
 
     for index, name in enumerate(rungs):
+        if any(a["extractor"] == name for a in job.extraction_attempts):
+            # Already tried, on an earlier run of this job. Do not pay for it
+            # twice after a reboot.
+            attempts = [a for a in job.extraction_attempts]
+            continue
         if index > 0:
-            # A retry must not resume the previous method's half-finished
-            # output: the extractor-output directory is keyed on doc_id, not
-            # on method, so leftovers would be read as this rung's work.
-            _reset_extraction(job)
+            # completed_ranges is scoped to ONE rung's output directory.
+            # Carrying it forward makes the next rung skip pages it has never
+            # extracted -- a partial document failing coverage for a reason
+            # unrelated to the extractor.
+            job.completed_ranges = []
             _progress(
                 job, "extracting", pct=0,
                 detail=f"first attempt produced almost nothing — trying {name}",
             )
+        try:
+            # Each rung extracts into ITS OWN directory. Three things fall
+            # out of that and all three were defects in the first draft of
+            # this plan: no destructive reset between rungs; a resumed job
+            # cannot mistake rung 2's half-finished output for rung 1's; and
+            # the best attempt's output survives on disk for the human who
+            # is about to look at the failure.
+            _extract(job, ctx, extractor=dispatcher.pick_named(name), method=name)
+            _check_cancelled(job)
+            # The rung name is passed EXPLICITLY. `_chunk` used to derive the
+            # reader from the doc_type's DEFAULT extractor, which would parse
+            # MinerU output with the OpenDataLoader reader on every fallback.
+            chunks = _chunk(job, ctx, extractor=name)
+            coverage = coverage_ratio((c.text for c in chunks), source)
+            attempts.append(
+                {"extractor": name, "coverage": coverage, "chunks": len(chunks)}
+            )
+        except JobCancelled:
+            raise
+        except Exception as exc:
+            # A rung that CRASHES is a rung that failed, not a job that
+            # failed. A malformed PDF making one extractor raise is the
+            # likeliest real trigger for the whole ladder, and letting the
+            # exception out would bypass the entire mechanism.
+            attempts.append(
+                {"extractor": name, "coverage": None, "chunks": 0, "error": str(exc)}
+            )
+            chunks, coverage = [], None
 
-        _extract(job, ctx, extractor=dispatcher.pick_named(name))
-        _check_cancelled(job)
-        chunks = _chunk(job, ctx)
-        coverage = coverage_ratio((c.text for c in chunks), source)
-
-        attempts.append(
-            {"extractor": name, "coverage": coverage, "chunks": len(chunks)}
-        )
         job.extraction_attempts = list(attempts)
         save(job)
 
@@ -916,13 +1084,14 @@ def _extract_and_chunk(job: JobRecord, ctx: WorkerContext) -> ExtractionOutcome:
         )
         if outcome.passed:
             return outcome
-        # Keep the BEST attempt, not the last: a later rung can score worse,
-        # and the best result is the evidence a human will read.
-        if best is None or (coverage or 0.0) > (best.coverage or 0.0):
-            best = outcome
 
-    assert best is not None  # rungs is non-empty, so the loop ran at least once
-    return best
+    # Every rung is below the floor. Return the LAST outcome, carrying every
+    # attempt: nothing below the floor is ever written, so there is no "best
+    # result" to select between -- only scores to report. (Spec T5 says "keep
+    # whichever result scored highest"; with the hold-out rule in T8 the two
+    # readings coincide, because the kept result is never used for anything
+    # but its score, and every score is in `attempts`.)
+    return outcome
 ```
 
 and rewrite the head of `run_job`:
@@ -938,14 +1107,22 @@ and rewrite the head of `run_job`:
         # Spec T8: held out of search, NOT marked live. Nothing is written,
         # so the document simply is not in the corpus -- "held out" needs no
         # separate mechanism, only the discipline of not writing it.
-        advance(job, "failed")
-        best = max(a["coverage"] or 0.0 for a in outcome.attempts)
-        mark_stage(
-            job, "failed", pct=100,
-            detail=(
+        #
+        # A REPROCESS of an already-live document that fails every rung
+        # leaves the existing chunks in place, still searchable. That is
+        # deliberate: destroying a working document because a re-extraction
+        # went badly would turn an attempted improvement into data loss. The
+        # admin panel says the re-processing failed; the old copy stands.
+        best = max((a["coverage"] or 0.0) for a in outcome.attempts)
+        # The message goes through `error=`, which `advance` REQUIRES for
+        # this transition (jobs.py:307) -- passing it via mark_stage's
+        # `detail` alone both raises here and leaves `job.error` empty.
+        advance(
+            job, "failed",
+            error=(
                 f"Held out of search — only {best:.0%} of this document's "
-                f"text produced any content. Tried "
-                f"{len(outcome.attempts)} extraction methods."
+                f"text produced any content, after "
+                f"{len(outcome.attempts)} extraction methods were tried."
             ),
         )
         return job
@@ -957,13 +1134,39 @@ and rewrite the head of `run_job`:
         advance(job, "embedding")
 ```
 
-> **Implementer:** `_extract` currently resolves its own extractor. Add an
-> `extractor=` keyword so the ladder can name the rung, keeping
-> `ctx.extractor` as the test override it already is. Add
-> `dispatcher.pick_named(name)` — a one-line lookup in `_EXTRACTOR_CLASSES`
-> — rather than reaching into the dict from the worker. `_reset_extraction`
-> clears `<data_dir>/extractor-output/<doc_id>/` and empties
-> `job.completed_ranges`.
+> **Implementer — four seams, all of them found by review of this plan's
+> first draft. Do not skip any:**
+>
+> 1. **`_extract` resolves its own extractor.** Add `extractor=` and
+>    `method=` keywords, keeping `ctx.extractor` as the test override it
+>    already is. Add `dispatcher.pick_named(name)` — a one-line lookup in
+>    `_EXTRACTOR_CLASSES` — rather than reaching into the dict from the
+>    worker.
+> 2. **`_chunk` derives the reader from the doc_type's DEFAULT extractor**
+>    (`worker.py:605-608`). Add an `extractor: str` parameter and pass it
+>    straight into `DocMeta.extractor`, which is what `chunk_doc` dispatches
+>    on. Without this, a fallback parses MinerU output with the
+>    OpenDataLoader reader.
+> 3. **Extraction output becomes rung-scoped:**
+>    `<data_dir>/extractor-output/<doc_id>/<method>/`. `_extract_dir(job)`
+>    gains a `method` argument, and `_chunk` reads the same rung's directory.
+>    **Legacy fallback required:** a job already on disk has output at the
+>    un-suffixed path, so when no method subdirectory exists, fall back to
+>    `<doc_id>/` — thousands of job files predate this and an interrupted
+>    overnight book must still resume.
+> 4. **Resume, and the `completed_ranges` trap.** `run_job` no longer guards
+>    the ladder behind `job.state == "extracting"`, so a job resuming at
+>    `embedding` re-enters it. Two rules make that safe, and the second is
+>    **not optional**:
+>
+>    - **Rungs already recorded in `job.extraction_attempts` are not
+>      re-run.** That list is the resume marker for which rung we reached.
+>    - **`job.completed_ranges` is cleared when moving to a new rung.** It
+>      records which page ranges are already extracted, and it is scoped to
+>      ONE rung's output directory. Carrying it into rung 2 would make rung 2
+>      skip pages it has never extracted — producing a partial document that
+>      then fails coverage for a reason that has nothing to do with the
+>      extractor. Clear it on every rung change, including on resume.
 
 - [ ] **Step 5: Run the tests**
 
@@ -1000,6 +1203,13 @@ git commit -m "feat(ingest): run the extraction ladder; hold a terminal failure 
 **Note:** `_merge_document_entry` carries an `assert set(entry) == expected`
 pinned against `DOCS_FIELDS | INGEST_DOCS_FIELDS`. Adding a key without adding
 it to one of those lists fails that assert — which is the guard working.
+
+**`method` comes from the `ExtractionOutcome`, not from `DocMeta`.** A review
+raised the worry that the recorded method could disagree with what chunks are
+stamped with; checked, and **chunk rows carry no extractor column at all**
+(`store/schema.py`), so `documents.json` is the only place the method is
+recorded and there is nothing to keep in sync. Take it from the outcome
+anyway — that is the value that is true after a fallback.
 
 - [ ] **Step 1: Write the failing test**
 
