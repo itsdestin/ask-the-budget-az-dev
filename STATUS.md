@@ -40,7 +40,7 @@ source. When something ships, update only this file.
 | Query understanding | ✓ Shipped (2026-08-03) | Agency / doc-type / JLBC-shorthand parsing. recall@5 73.81% → 88.10%, recall@15 and @20 100%. Agency is a PREFERENCE, not a filter — a measured deviation from spec Q2 |
 | Budget Documents highlighting + book sections | ✓ **Shipped (2026-08-11)**, one browser check outstanding | Query highlighting marked NOTHING (measured 0 of 200 cards); now 96.5%. 647 documents rendering under raw slugs (`s-pdf`, `bd-pdf`) fold into the books they are sections of. See the section below |
 | AI Mode chat history | ✓ Shipped (2026-08-03), **reviewed and hardened 2026-08-11** | Per-device transcripts, browse/search/resume past chats, auto-naming, collapsible rail. Local disk only — never the share. A second review found ELEVEN defects, four of them silent data loss; all fixed. See the section below |
-| JLBC memo formatting for generated reports | ✓ **Code complete (2026-08-13)**, one visual check outstanding | `create_document` renders a JLBC memo — letterhead, DATE/TO/FROM/SUBJECT block, house typography — instead of Word's stock styling. Nine plan-code defects found during execution, two of them tests that proved nothing. See the section below |
+| JLBC memo formatting for generated reports | ✓ **Shipped (2026-08-13)**, unverified in real Word | `create_document` renders a JLBC memo — letterhead, DATE/TO/FROM/SUBJECT block, house typography — instead of Word's stock styling. Nine plan-code defects found during execution, two of them tests that proved nothing. See the section below |
 | AI Mode persistent conversation | ✓ **Shipped, browser-tested, merged `28567f0`** (2026-08-11) | "+ New chat" shows a row at once; the conversation survives a tab switch and keeps streaming. 742 vitest / `tsc -b` clean. Destin tested and accepted; browser testing found a two-rows-look-selected defect, fixed. Four Minors carried, and P5 (close-tab-still-aborts) is still unwatched. See the section below |
 | **Corpus navigation** (map, spread, coverage, echo) | ✓ **Shipped, both gates passed, merged `2dc295f`** (2026-08-12) | N1–N7 + N11. A corpus inventory in the prompt, `spread` retrieval, `year_coverage`, inferred-filter echo. **G-N1: Layer 1 identical to a same-hour control. G-N2: `key_fact_rate` 0.463 → 0.685 against a real control**, every citation metric up, input tokens down 41%. Full 31-query run not yet run. See the section below |
 
@@ -885,14 +885,60 @@ resolved in `app/routes/conversations.py` and injected as a finished string. The
 module that writes files has no knowledge of identity sources; the module that
 knows identity writes no files.
 
-### ⏸ OUTSTANDING — nobody has opened the document
+### 🔴 It passed every test and still looked wrong — five differences, found by LOOKING
 
-Every check above is structural. `/tmp/memo-sample.docx` and
-`/tmp/memo-reference.docx` need reading side by side to confirm: one rule under
-the letterhead (not two, not blue), the address column aligning with the
-reference's, labels not wrapping, headings distinct but not oversized, and
-`- 2 -` at the top of page 2 with nothing at the top of page 1. **Both of this
-repo's last two features shipped visible defects under green suites.**
+Destin opened the first version and said "that's not the same." He was right.
+Both documents were then rendered to images and compared, which is what should
+have happened before handing it over:
+
+| | The real memo | First version |
+|---|---|---|
+| Masthead colour | black | **accent blue** (Word's stock `Title` style) |
+| Section headings | inside a **bordered box** | plain bold text |
+| Spacing | tight | **roughly double** everywhere |
+| Address lines | *italic* | not italic |
+| JLBC seal | on page 1 | missing |
+
+**The spacing had one cause with a compounding effect.** python-docx's blank
+template sets `w:spacing w:after="200" w:line="276"` in its document defaults —
+10pt after every paragraph, 1.15 line spacing. The reference sets neither.
+Because this memo builds its vertical rhythm out of EMPTY PARAGRAPHS (recorded
+in the spec, and true), every deliberate gap came out doubled and the
+DATE/TO/FROM/SUBJECT block sprawled over half a page. Zeroing it then collapsed
+the memo block's spacer rows to nothing, so row height and inter-block spacing
+both had to be stated explicitly rather than inherited.
+
+**The boxed heading is the instructive one.** The reference's section headings
+use the built-in `Header` paragraph style — noted correctly in the spec, and odd
+enough to be memorable. But the BOX is direct paragraph formatting on each
+heading, not part of the style, so copying the style name reproduced the oddity
+while missing the thing that makes a JLBC heading recognisable.
+`memo.style.box_paragraph()` applies it per paragraph, deliberately: the memo
+block's labels share that style and must stay unboxed, exactly as the reference
+does it.
+
+**The seal is the reference's own `word/media/image1.png`**, vendored to
+`memo/assets/jlbc-logo.png` and placed at its recorded size (1195465 x 828675
+EMU) in a FIRST-PAGE footer, which is where JLBC puts it — the reference has no
+default footer at all. The "Generated with JLBC Agentic Search" line rides in
+both footers, because a disclosure that appears only on page 1 is missing from
+every page after it.
+
+### The lesson, which this repo has now learned three times
+
+**All 30 assertions were green while the page was plainly wrong.** They measured
+margins to the EMU, font sizes and column widths — properties, not appearance.
+`scripts/render_memo_sample.py` now renders a sample and a PNG of page 1
+precisely so the next person LOOKS instead of inferring. Run it after any change
+to `memo/`.
+
+### ⏸ Still worth a human eye
+
+The comparison above used rendered images at 80 dpi via LibreOffice, which is
+not Word. Opening `/tmp/memo-sample.docx` beside `/tmp/memo-reference.docx` in
+real Word on a JLBC machine is still the final check — particularly the seal's
+placement and the boxed headings, which are what LibreOffice is most likely to
+draw differently.
 
 ---
 
