@@ -129,9 +129,37 @@ improve ranking and can never delete the right answer from the page.
   attached a whole conversation. Clause dropped.
 - The over-cap guidance error said "8,192 characters" while enforcing 8,192 **bytes**.
 
+The final whole-branch review then found what no per-task review could see:
+
+- **The agency picker offered 16 catalog ids under 7 identical display names, and the
+  overlay tier was the only tier that did not expand the logical group.** "Revenue,
+  Department of" appeared twice (`agency:dor`, `agency:rev`) with nothing to tell them
+  apart. Duplicate ids split the stamped chunks, so an admin's shorthand landed on one
+  half of a corpus; with `MATCH_PENALTY = 2.0` against `REFUSAL_THRESHOLD = 1.46`, some
+  real answers become refusals. The overlay tier now expands the group (confidence stays a
+  hardcoded WEAK literal) and the picker is deduped by logical group: 157 rows → 148, no
+  duplicate names, and PUT still accepts any catalog id.
+- **An unreachable share read as "No reports yet" and "You haven't filed a report yet"** —
+  a confident claim from an unknown state. Fixing it uncovered that the `except OSError`
+  around `Path.glob` was **dead code**: pathlib swallows the error (verified against a
+  `chmod 000` directory), so the guard had never once fired. Now `os.listdir`, and both
+  screens say the folder could not be read. A vanished share also had to be told apart
+  from an empty one — `store/config.py` swallows the mkdir failure and returns the path,
+  so a gone network drive surfaced as `FileNotFoundError`, i.e. "genuinely empty"; both
+  this and `harness/office_guidance.py` now discriminate on the root data dir the way
+  `app/health.py` does.
+- **An analyst's own torn report vanished from their list** while the admin saw it — the
+  non-admin filter keyed on `submitted_by`, which an unreadable stub has no room to carry.
+  The frontend branch written to render it was unreachable, with a comment saying otherwise.
+- **A duplicate React key**: the shipped-shorthand list is one row per agency, so `ua`
+  legitimately appears twice; the specs' fixture never repeated an alias.
+- **The picker dedupe then introduced its own miss** in the browse filter box, which keys
+  agencies off the doc_id's trailing slug — so a shorthand set on `agency:cs` covered zero
+  documents, all of which carry `-dcs-`. `_agency_terms` now expands the group too.
+
 ### Suite counts at merge
 
-`pytest` 2626 passed / 5 skipped · `vitest` 811 passed (78 files) · `tsc -b` exit 0 ·
+`pytest` 2638 passed / 5 skipped · `vitest` 816 passed (78 files) · `tsc -b` exit 0 ·
 `npm run build` exit 0.
 
 ### Standing caveat — nobody has looked at it
