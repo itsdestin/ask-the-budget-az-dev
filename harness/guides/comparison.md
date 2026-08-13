@@ -7,8 +7,7 @@ Use when the answer sets things side by side.
 - **Bottom line** — what moved, by how much, and over what period.
 - **The table** — leads the document. Rows are the things compared.
 - **What moved and why** — prose under the table. A table states; it does
-  not explain, and the explanation is the part the analyst cannot get from
-  the source alone.
+  not explain, and the explanation is what the source cannot supply.
 - **What this is based on** — documents by name and fiscal year.
 - **What to verify** — two or three items.
 

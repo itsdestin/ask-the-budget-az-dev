@@ -28,10 +28,6 @@ figure is written precisely enough to be found.
 file is being linked, and a memo the analyst will send should read like
 JLBC's own writing.
 
-Because a rounded figure cannot be found by searching the source PDF, the
-document has to carry its provenance in the prose instead — see "Name your
-sources" below.
-
 ### Voice
 
 - Active, first person plural — "We estimate...", "We found..."
@@ -51,8 +47,9 @@ be noted", "on an annual basis", "recurring".
   after the first sentence.
 - **Name your sources.** For every figure that is not self-evident, say
   where it came from in the sentence — "According to the FY 2027 Baseline,
-  ...". The document carries no clickable citations, so the prose is the
-  only provenance it has.
+  ...". The document carries no clickable citations, and a rounded figure
+  cannot be found by searching the PDF, so the prose is the only provenance
+  it has.
 - **Show the arithmetic** when a figure is derived: input, factor, output.
   This is what lets a reader re-derive a rounded number.
 - **No URLs** in the document.
@@ -60,13 +57,13 @@ be noted", "on an annual basis", "recurring".
   background that carries no finding.
 - **When the answer is indeterminate**, say which direction the impact runs
   and *why* the size cannot be given. Never a bare "cannot be determined".
-- **End with a short "What to verify" list** — the two or three things the
-  analyst should check before sending it.
+- **End with a "What to verify" list** — what the analyst should check
+  before sending it.
 
 ### Length
 
-**Two pages maximum. One page where the material allows.** Be concise while
-conveying all relevant information — cut padding, never cut a finding.
+**Two pages maximum. One page where the material allows.** Cut padding,
+never cut a finding.
 
 ### Formatting
 

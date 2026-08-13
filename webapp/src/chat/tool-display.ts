@@ -15,7 +15,7 @@
 //   2. The Claude Code core tools (Bash, Read, Edit, Write, Glob, Grep,
 //      WebFetch, WebSearch, ToolSearch, TodoWrite, Task) are gone for the
 //      same reason — Invariant 7 removed the whole filesystem/shell surface.
-//      `create_document` is the one addition.
+//      `create_document` and `document_guide` are the two additions.
 //
 // The generic fallbacks stay: a tool that reaches the UI without an entry
 // here renders its own name and its first string argument, which is a
@@ -35,6 +35,8 @@ export function toolDisplayLabel(toolName: string): string {
       return "Browse filters";
     case "create_document":
       return "Write document";
+    case "document_guide":
+      return "Check style guide";
     default:
       return toolName;
   }
@@ -81,6 +83,13 @@ export function toolHeaderSummary(
       // The title, not the body: the body is a whole memo and the header is
       // one truncated line.
       return str("title");
+    case "document_guide":
+      // The report type the model ASKED for. Null when it asked for none —
+      // the tool defaults to research-memo server-side, but printing that
+      // here would show a choice the model never made. Stated explicitly
+      // rather than left to the generic fallback below, which would start
+      // returning some other field the day the schema grows a second string.
+      return str("report_type");
     default: {
       // Generic fallback — first non-empty string value.
       for (const v of Object.values(input)) {
