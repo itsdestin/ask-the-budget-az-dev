@@ -293,10 +293,21 @@ spec, recorded here so it is visibly considered rather than missed.
   does not style (G4).
 - `harness/tools.py`'s import allowlist is unchanged — now true, given G8.
 
-## Open question for Destin
+## G11 — length: two pages maximum, one page preferred
 
-**Length targets.** The fiscal note mandates "one page maximum, trim
-aggressively." Proposed: one page for `research-memo`, no cap for
-`comparison` and `agency-profile`, with "trim aggressively" stated for all
-three. The staff memorandum itself runs several pages, so a universal
-one-page cap would not match either source.
+**Destin's call, 2026-08-13.** All three report types: **two pages
+maximum, one page where the material allows.** The instruction the guide
+gives the model is *"be concise while conveying all relevant
+information"* — a completeness rule with a ceiling, not a word budget.
+
+Why not the fiscal note's flat one page: that cap belongs to a
+single-purpose statutory product. A multi-agency comparison held to one
+page would have to drop rows, and a document that omits an agency to fit
+is worse than one that runs to a second page. Why a cap at all: without
+one, models expand to fill available structure, and an analyst who has to
+skim a generated memo has lost the reason to use it.
+
+**"Conveying all relevant information" is the load-bearing half.** Paired
+with G10's "no background-only items" and "findings must not repeat the
+bottom line", it cuts padding rather than content — the two rules aim at
+opposite failure modes and are stated together deliberately.
