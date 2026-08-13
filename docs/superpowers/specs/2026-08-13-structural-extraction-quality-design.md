@@ -2,10 +2,11 @@
 
 **Date:** 2026-08-13
 **Decisions:** X1–X9, X11, X12 (X10 withdrawn)
-**Status:** proposed — revision 3, 2026-08-13. All four prerequisite
-measurements have now been RUN (results near the top). **One new blocker:** a
-chunker heading-inheritance defect found by reading the winning chunks, which
-must be decided before X4 ships.
+**Status:** proposed — revision 3, 2026-08-13. **All prerequisite measurements
+are RUN and no blocker survives them** (results near the top). A chunker
+heading-inheritance defect found by reading the winning chunks was held as a
+blocker for one hour, then measured at 8 wrong passages in 80,854 and
+reclassified as a follow-up.
 
 ## What this amends
 
@@ -90,12 +91,15 @@ results are the next section. What they changed:
 2. **The letter ratio moves 0.15 → 0.10.** It was the load-bearing number all
    along, and 0.15 sits closer than anyone knew to the value that flags the
    healthy AFRs. The judging minimum turns out to be inert.
-3. **🔴 Reading the winning chunks found a defect neither the counts nor the
+3. **Reading the winning chunks found a defect neither the counts nor the
    review could see:** the chunker propagates a section heading across pages
    that have none, attaching `(expressed in thousands)` from page 5 to a
    whole-dollar schedule on page 10 — a 1,000× units error in a chunk scoring a
-   perfect 0.00%. It is on master today and X4 sends more documents down the
-   path that carries it. **New precondition for shipping.**
+   perfect 0.00%. Held as a blocker, then **measured: 8 wrong passages in
+   80,854 across 2 documents.** Real, pre-existing, and a follow-up. **X4 is
+   not blocked.** Two claims made about it in haste are corrected in place —
+   the AFR instance is NOT live, and the mechanism's breadth is not the harm's
+   breadth.
 4. **Revision 2's own optimism is corrected.** The corpus scan was predicted to
    yield a near-miss band; it was run, and the band is empty. Risk 1 stands.
 
@@ -226,24 +230,71 @@ page-10 chunks carry `section_path=[]` and make no such claim.
    rate" was measured on pages; at chunk level it zeroes it. But "the document
    ends up better, not correct" is now *more* true, not less, and for a
    different reason.
-3. **There is a chunker defect on master today**, independent of this spec:
-   section headings propagate onto pages that carry none, including an
-   intentionally blank one and across a statement boundary.
+3. **There is a chunker defect on master**, independent of this spec: section
+   headings propagate onto pages that carry none, including an intentionally
+   blank one and across a statement boundary. **It has now been measured
+   corpus-wide — see the next section. It is real, it is live, and it is
+   small: 8 passages in 80,854. It does NOT block this spec.**
 
-   **Scope, stated precisely, because the mechanism and the harm are not the
-   same size.** The *mechanism* is live for **12 of the 14 PDF document types**
-   — every one that defaults to MinerU, which is JLBC books, fiscal notes and
-   almost everything else; only `afr` and `governors-budget` default to
-   OpenDataLoader. The *harm* has been observed on **exactly one document**.
-   Documents with a heading on most pages would inherit over a short distance
-   and probably correctly; this AFR's financial statements run for pages with
-   no heading block at all, which is what let a page-5 heading reach page 10.
-   **How far this generalises is UNVERIFIED and must not be assumed in either
-   direction.**
+---
 
-   **That needs its own investigation, and this spec should not ship without a
-   decision on it** — X4 deliberately routes more documents onto the MinerU
-   path, which is the path that carries the mechanism.
+## Heading inheritance — MEASURED corpus-wide 2026-08-13, and it is small
+
+Every document whose extractor output is on disk was re-read with its own
+default reader and every table passage's heading traced back to the page it
+came from. **7,056 documents, 0 failures, 71 seconds, read-only.**
+
+**Heading travel is common and mostly harmless.** Of 16,358 table passages
+carrying a heading: 51.7% sit on the same page as their heading, 73.9% within
+one page, 80.6% within two. **19.4% are 3+ pages away** and the maximum is 641
+— but that tail is largely a book's own title legitimately governing the book.
+**Distance on its own measures nothing.**
+
+**The harmful shape — a heading making a PAGE-SPECIFIC claim landing on
+unrelated content — is rare.** Across the whole corpus only **10** passages sit
+under a heading that states units at all, and only **one** of those is 2+ pages
+from it. Running it down by hand found the real extent:
+
+| | |
+|---|---|
+| live budget passages | 80,854 |
+| carrying `Coronavirus Relief Fund Allocations ($ in Millions)` | 9 |
+| …whose body never mentions coronavirus again — i.e. **wrong** | **8** |
+| documents affected | 2 (`jlbc-baseline-fy2022-gov`, `jlbc-approps-fy2022-gov`) |
+
+Those 8 include a **Livestock Fair** fund, a gifts-and-donations fund and the
+**Prevention of Child Abuse Fund**, each labelled as a Coronavirus Relief Fund
+allocation; and a table of whole dollars (`682,390,800`) under a heading
+claiming millions. **The defect is genuine — 0.01% of the corpus.**
+
+### 🔴 Correcting a claim made earlier the same day
+
+An earlier draft of this section said the wrong-units passage was live in the
+corpus. **It is not.** The live `agao-afr-fy2024` is read by OpenDataLoader
+(the default for `afr`), whose passages carry no heading at all on those pages —
+only 19 of its 388 passages have a section path, and "expressed in thousands"
+appears only on pages 3, 4 and 5 where it belongs. **The mislabelled passage
+exists only in the MinerU reading, which is not live and becomes live only if
+X4 ships.**
+
+Both halves matter and they point opposite ways: the AFR harm is one this spec
+would **introduce**, while the FY2022 Governor's-Office harm is one the corpus
+already **carries**.
+
+### What this settles
+
+- **X4 is not blocked.** Shipping it adds this failure shape to one document.
+  The same shape already exists in two others, has existed for months, and
+  concerns 0.01% of passages. That is a follow-up, not a gate.
+- **It is still worth fixing**, and cheaply: the outline builder files every
+  block under the most recent heading with no distance limit and no reset
+  (`chunking/readers/mineru_reader.py::_build_outline`).
+- **🔴 The measurement's reach is limited, and the limit is stated rather than
+  hidden.** It keys on *units* phrasing plus one heading run down by hand. The
+  broader class — **any** specific heading landing on unrelated content — is
+  not measured, and the FY2022 case was found only because the units filter
+  happened to catch one of its nine passages. **The true count is a floor of 8,
+  not a ceiling.** Do not quote it as "the corpus has 8 bad passages."
 
 ---
 
@@ -787,11 +838,13 @@ nothing, which is what X7's "no copy may say verified, checked, validated,
 healthy or good" already demands — this is the concrete example proving that
 rule was not decorative.
 
-**🔴 Risk 2c — the heading-inheritance defect is on master TODAY**, for every
-MinerU-extracted document in the corpus, independently of this spec. X4
-deliberately routes *more* documents onto that path. **A decision on it is a
-precondition for shipping X4**, and it belongs in its own investigation, not
-buried here.
+**Risk 2c — the heading-inheritance defect: MEASURED, small, NOT a blocker.**
+8 wrong passages in 80,854, across 2 documents, live for months. X4 adds the
+same shape to one more. Fix it as a follow-up in
+`chunking/readers/mineru_reader.py::_build_outline`, which files every block
+under the most recent heading with no distance limit and no reset. **The count
+is a floor**: the search keyed on units phrasing, so headings that mislead
+without stating units are not counted.
 
 **Risk 3 — RESOLVED as X12.** `mineru-ocr` earns nothing on a document that has
 a text layer, and is now skipped there. Revision 1 left this open and paid for
@@ -840,12 +893,12 @@ level against OpenDataLoader's 30.63%; the coverage gap is entirely
 OpenDataLoader's bare digit runs; the letter ratio moves to 0.10 and the judging
 minimum is inert; a real flagged chunk is recorded.
 
-**🔴 A FIFTH prerequisite, created by what reading the chunks found:** decide
-what to do about the chunker's **heading inheritance across pages that have no
-heading of their own** — which today attaches a wrong `(expressed in thousands)`
-to a whole-dollar schedule. It is a defect on master, not of this spec, but X4
-routes more documents onto the path that carries it, so it must be decided
-before X4 ships.
+**A fifth prerequisite was raised and is now ✅ DISCHARGED.** Reading the
+chunks found the chunker's heading inheritance attaching a wrong
+`(expressed in thousands)` to a whole-dollar schedule, and it was briefly held
+as a blocker. Measured corpus-wide it is 8 wrong passages in 80,854 across 2
+documents — real, pre-existing, and a follow-up rather than a gate. **X4 is
+unblocked.** Full numbers in the heading-inheritance section above.
 
 **pytest:**
 - **Tab-padded labelled text scores as labelled** — the whitespace case the
