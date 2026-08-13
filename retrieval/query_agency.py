@@ -36,7 +36,13 @@ stamper uses.
   3b. An alias the office ADMIN added (`store/office_aliases.py`, spec E1).
      ALWAYS WEAK — see the overlay block in `parse_query_agencies`. The admin
      can also switch a shipped tier-3 alias off; that never touches tiers 1-2,
-     so disabling a shorthand cannot hide an agency's real name.
+     so disabling a shorthand cannot hide an agency's real name. LIMITATION,
+     measured rather than fixed: for the same reason, disabling is a complete
+     no-op for an alias that is ALSO a catalog name-phrase — tiers 1-2 already
+     claim the agency before the tier-3 disabled check ever runs. True today
+     for 3 of the 156 shipped aliases: "financial institutions",
+     "comm colleges", "university of arizona". See the WHY comment on the
+     disabled check in `parse_query_agencies`.
   4. rapidfuzz `token_set_ratio` >= 85 against catalog names. Always WEAK.
 """
 from __future__ import annotations
@@ -344,8 +350,15 @@ def parse_query_agencies(
 
     # Loaded per call, NOT baked into `_AgencyIndex`: that index is lru-cached
     # for the process lifetime, while this file can change under a running
-    # server the moment an admin saves. The store's own (path, mtime, size)
-    # stamp makes the repeat call cheap — one `stat` on the hot path.
+    # server the moment an admin saves. The store's (path, mtime, size) stamp
+    # only skips the overlay's own JSON PARSE — it is not "one stat on the hot
+    # path". In production (JLBC_DATA_DIR unset) every call still walks
+    # office_aliases_path() -> data_dir() -> resolve_data_dir() ->
+    # app.machine_config.read_data_dir(), an UNCACHED machine.json read
+    # (app/machine_config.py:70-83), then data_dir()'s
+    # mkdir(parents=True, exist_ok=True) (store/config.py:83), before the
+    # mtime stat is even taken. Absolute cost is negligible next to embed +
+    # rerank — that is why this is fine, not because it is cheap.
     overlay = office_aliases if office_aliases is not None else load_office_aliases()
     # Normalized the same way the query is, or an admin who types "DIFI" or
     # "Comm Colleges" would disable a string this module never produces.
@@ -401,6 +414,18 @@ def parse_query_agencies(
         # An admin-disabled shipped alias never resolves through this tier.
         # Only the SHORTHAND dies — the agency's NAME is a higher tier and is
         # untouched, so the escape hatch cannot hide an agency outright.
+        #
+        # LIMITATION, measured, not fixed here: disabling only suppresses THIS
+        # tier. An alias that is ALSO a catalog name-phrase reaches the agency
+        # through tiers 1-2 first, so disabling is a complete no-op for it —
+        # `_add`'s "first tier owns it" rule means this loop's `continue` never
+        # even gets a chance to matter. The curated multi-word aliases are
+        # registered into `phrase_to_ids` too (see `_AgencyIndex.__init__`),
+        # which is how this happens. Measured against the 156 shipped aliases:
+        # "financial institutions", "comm colleges", and "university of
+        # arizona" are the three. Not worth span-tracking here to fix — the
+        # admin write route (a later task) is expected to stop offering these
+        # specific aliases as disable-able instead.
         if alias in disabled:
             continue
         ids = index.alias_to_ids[alias]
