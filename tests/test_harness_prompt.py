@@ -680,9 +680,22 @@ def test_both_corpora_carry_the_map_section(corpus):
 
 
 def test_prompt_py_does_not_import_the_map_builder_or_the_store():
-    """Spec N2: the CALLER builds the map. `harness/prompt.py` must stay
-    cheap to import — pulling `store` in would drag LanceDB and the ONNX
-    models into any process that only wanted a string."""
+    """Spec N2: the CALLER builds the map. This checks that
+    `harness/prompt.py` never NAMES `store`, `retrieval`, `ingest`, or
+    `lancedb` in its own import statements.
+
+    Note (Task 5, spec E2): `import harness.prompt` DOES pull in the
+    `store` package now — transitively, via
+    `harness.office_guidance -> store.config` — so this guard no longer
+    means "importing prompt.py never touches store" the way it did when
+    it was written. It stays cheap anyway: `store/__init__.py` only
+    imports `store.config` eagerly (stdlib + a Path), and defers
+    `ChunkStore`/`DEFAULT_DIM` — the names that pull in LanceDB — behind
+    a PEP 562 `__getattr__`. What this AST walk still guarantees is that
+    prompt.py's OWN import statements name none of these; the runtime
+    check that LanceDB, onnxruntime, and retrieval never land in
+    `sys.modules` lives in
+    `tests/test_office_guidance.py::test_building_a_prompt_never_loads_lancedb`."""
     import ast
     from pathlib import Path
 

@@ -51,6 +51,44 @@ def _isolate_chat_history(tmp_path_factory, monkeypatch):
 
 
 @pytest.fixture(autouse=True)
+def _isolate_office_guidance_data_dir(tmp_path_factory, monkeypatch):
+    """Point JLBC_DATA_DIR at a throwaway directory for EVERY test.
+
+    `office_guidance_block()` (spec E2, Task 5) reads `office-guidance.md`
+    out of `store.config.data_dir()`, which resolves `JLBC_DATA_DIR` >
+    `machine.json` > the repo default — i.e., on any dev or CI machine
+    that has ever saved office guidance, a REAL file. `build_system_prompt`
+    calls it on every render, so any of the ~134 other prompt-adjacent
+    tests that never mention guidance at all (only `test_office_guidance.py`
+    repoints `guidance_path` itself) would start asserting against
+    whatever that machine's real guidance happens to contain: a stray
+    `{{` in it raises `PromptTemplateError` outright, and every
+    byte-length / "not in prompt" / cache-prefix assertion in
+    `test_harness_prompt.py`, `test_harness_prompt_caching.py`,
+    `test_citation_prompt.py`, and `test_system_prompt_lifecycle.py`
+    silently changes meaning instead.
+
+    AUTOUSE for the same reason the chat-history fixture above is: the
+    read is a side effect of building ANY system prompt, so the tests
+    that need protecting are exactly the ones whose authors had no
+    reason to think about office guidance at all.
+
+    Import deferred into the fixture body rather than module scope, so a
+    suite that never touches the harness doesn't pay for it at collection
+    time.
+    """
+    from harness.office_guidance import reset_guidance_cache
+
+    monkeypatch.setenv(
+        "JLBC_DATA_DIR",
+        str(tmp_path_factory.mktemp("office-guidance-isolation")),
+    )
+    reset_guidance_cache()
+    yield
+    reset_guidance_cache()
+
+
+@pytest.fixture(autouse=True)
 def _isolate_documents_cache():
     """Clear the documents.json cache around every test.
 
