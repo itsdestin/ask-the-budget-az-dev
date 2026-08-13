@@ -10,8 +10,9 @@ Public API:
     chunk_doc(*, extractor_output_path, doc_meta, output_dir=None,
               stamper=None) -> list[Chunk]
 
-Reader dispatch is by `doc_meta.extractor`. Three extractors known:
+Reader dispatch is by `doc_meta.extractor`. Four extractors known:
     - 'mineru'           → MinerUReader
+    - 'mineru-ocr'       → MinerUReader (OCR mode; same output shape)
     - 'opendataloader'   → ODLReader
     - 'python-docx'      → DocxReader
 
@@ -44,6 +45,20 @@ log = logging.getLogger(__name__)
 
 _READER_REGISTRY = {
     "mineru": MinerUReader,
+    # MinerU's OCR mode (ingest/ladder.py's last PDF rung) writes the SAME
+    # output format -- page-N.json files that MinerUReader reads via
+    # `_PAGE_FILE_RE` regardless of which rung produced them -- so the OCR
+    # rung needs a NAME here, not a second reader. (The "discover whichever
+    # method subdirectory MinerU produced" step -- auto / txt / ocr -- is a
+    # DIFFERENT layer: it lives in scripts/run_mineru.py's
+    # `_read_mineru_output`, upstream of what this reader ever sees; by the
+    # time a page reaches `_extract_dir(job, method)` it is already the
+    # flat page-N.json shape this reader expects. Two different modules,
+    # cited correctly here so a future reader doesn't go looking for
+    # subdirectory-discovery logic in the wrong file.) Without this entry,
+    # an OCR extraction succeeds and then `chunk_doc` raises "Unknown
+    # extractor" -- a defect a review caught once already on this plan.
+    "mineru-ocr": MinerUReader,
     "opendataloader": ODLReader,
     "python-docx": DocxReader,
 }

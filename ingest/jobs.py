@@ -45,8 +45,13 @@ REFRESH_STATES = ("queued", "extracting", "writing", "live")
 
 PIPELINES = {"document": PIPELINE_STATES, "refresh": REFRESH_STATES}
 
-# Nothing leaves these. `live` is success; `failed` and `cancelled` are ends a
-# human has to act on (retry re-queues; cancel is final).
+# `live` and `cancelled` are truly final -- nothing in `advance()` ever
+# leaves either one. `failed` is the one exception in this set: a human can
+# route it back into the pipeline (`failed` -> `queued`, the retry button)
+# or forward into `cancelled` (`failed` -> `cancelled`, the Needs-attention
+# panel's Dismiss button -- see the WHY comment on that branch below). Both
+# of those are named exceptions carved out below the blanket check this
+# constant drives; nothing else ever leaves `failed` either.
 TERMINAL_STATES = frozenset({"live", "failed", "cancelled"})
 
 STATES = frozenset(PIPELINE_STATES) | {"failed", "cancelled"}
@@ -111,6 +116,35 @@ class JobRecord:
     completed_ranges: list[list[int]] = field(default_factory=list)
     # Non-fatal post-ingest validation findings (Task 14), surfaced in the UI.
     warnings: list[str] = field(default_factory=list)
+    # One entry per extraction method tried, in order:
+    #   {"extractor": "opendataloader", "coverage": 0.02, "chunks": 20}
+    # A rung that crashed carries `error` instead of a ratio; a rung whose
+    # SOURCE could not be measured carries `coverage_error` alongside a null
+    # coverage, so "this document is a scan" stays distinguishable from "we
+    # could not read the denominator".
+    #
+    # Empty on every job written before spec T5 shipped, and `from_json`
+    # must keep reading those -- thousands are on the share. Empty is
+    # therefore "nothing to say", never "unknown" or "not checked".
+    #
+    # It is also the ladder's resume marker: ingest/worker.py does not re-run
+    # a rung already listed here, which is what stops a reboot during
+    # embedding paying for an overnight extraction twice.
+    extraction_attempts: list[dict] = field(default_factory=list)
+    # True ONLY when `ingest/worker.py::run_job` decided every rung of the
+    # ladder scored below `COVERAGE_FLOOR` and held the document out of
+    # search -- set in exactly that one branch, never by the generic crash
+    # handler (`_fail`). This is what the Needs-attention panel filters on
+    # (app/routes/admin.py::get_attention), and NOT `extraction_attempts`:
+    # that list is journalled after every rung including a WINNING one, so a
+    # job that passed extraction and then failed at embed/write/lock also
+    # carries a non-empty `extraction_attempts` -- reproduced live as a
+    # 94%-coverage document appearing under "Held out of search" with a raw
+    # traceback for its sentence (Plan B final review, Blocking 1). Default
+    # False so every job file written before this field existed reads as
+    # "not held out", which is correct -- none of them could have been,
+    # since the field didn't exist yet to say so.
+    held_out: bool = False
 
     def to_json(self) -> dict[str, Any]:
         return asdict(self)
@@ -285,6 +319,8 @@ def advance(job: JobRecord, new_state: str, *, error: str | None = None) -> JobR
       * anything non-terminal → `failed` (an error message is required) or
         `cancelled`
       * `failed` → `queued` (the retry button)
+      * `failed` → `cancelled` (the Needs-attention panel's Dismiss button —
+        see the WHY comment at that branch below)
 
     Everything else raises. The guard matters because two writers can reach
     the same job — the worker and an HTTP cancel — and a "cancel" that landed
@@ -297,7 +333,68 @@ def advance(job: JobRecord, new_state: str, *, error: str | None = None) -> JobR
         job.error = None
         job.pct = 0
         job.stage_detail = ""
+        # Retry means "run the whole extraction ladder again", so the field
+        # that makes a job SKIP a rung it already tried is reset along with
+        # the error message.
+        #
+        # `extraction_attempts` is the ladder's resume marker: a retried job
+        # that kept it would skip every rung it had already tried and fail
+        # again instantly, having done nothing — a retry button that appears
+        # not to work. `held_out` resets alongside it for the same class of
+        # reason: it must not survive into a retry that goes on to fail for
+        # an UNRELATED cause (an embed/write/lock crash on the next attempt)
+        # — see the WHY comment on the field itself, and Blocking 1 of this
+        # plan's final review, which is what a stale `True` here would have
+        # reproduced.
+        #
+        # `completed_ranges` is DELIBERATELY **KEPT**, not cleared. It used
+        # to be cleared here on the theory that carrying it into a fresh
+        # ladder run would make rung 1 skip pages it had never extracted —
+        # reviewed on this plan's final pass and found FALSE:
+        # `_needs_extraction` checks whether THAT RUNG'S OWN output
+        # directory (`_extract_dir(job, method)`) already holds every page
+        # before ever trusting a range, and each rung writes to its own
+        # directory, so a range recorded under one rung can never be
+        # mistaken for another rung's progress — the hazard this used to
+        # guard against does not exist. Because `_extract_with_mineru`
+        # always extracts the WHOLE requested range in one call,
+        # `completed_ranges` is only ever empty or fully covers whichever
+        # rung wrote it, so the case this matters for is a document whose
+        # EXTRACTION SUCCEEDED and which then failed at embed/write/lock —
+        # write-phase contention on a shared drive is a documented,
+        # recurring failure here. Clearing it forced a 210-page book back to
+        # page 1 on retry for a failure that had nothing to do with
+        # extraction; kept, Retry resumes exactly where it always did before
+        # this field existed. The RESUME path (a job still mid-flight, not
+        # failed) was never affected either way.
+        job.extraction_attempts = []
+        job.held_out = False
         return _commit(job, "queued")
+
+    # T8's held-back documents (every extraction rung scored below the
+    # coverage floor) land here in `failed`, and Plan B Task 7's "Dismiss"
+    # button on the Needs-attention panel is deliberately the EXISTING
+    # cancel action, not a new job state (see that panel's brief: "No new
+    # job states"). Without this branch a held-back document could never be
+    # dismissed — the blanket TERMINAL_STATES check just below would 409 on
+    # every attempt, forever, which is exactly wrong for the one document
+    # this project has actually hit where re-extraction cannot help (a
+    # fiscal note where azleg.gov published a literal "THIS IS A TEST" file
+    # — see docs/superpowers/investigations/2026-08-12-coverage-floor-
+    # calibration.md). Scoped to `failed` only, NOT to every terminal state:
+    # `live → cancelled` stays illegal, which is what the class comment
+    # above is protecting — a stray cancel must never hide a document that
+    # already finished successfully.
+    #
+    # Dismissal is ONE-WAY. Once here the job is `cancelled`, and
+    # `app/routes/jobs.py::retry_job` refuses anything whose state isn't
+    # `failed` (409) — there is no `cancelled` → anything edge, on purpose,
+    # same as every other exit from `cancelled`. The only route back for a
+    # dismissed document is re-uploading the source file as a new job.
+    # Defensible behind the panel's two-click confirm, but worth naming
+    # here since nothing else in the code says it.
+    if job.state == "failed" and new_state == "cancelled":
+        return _commit(job, "cancelled")
 
     if job.state in TERMINAL_STATES:
         raise IllegalTransition(

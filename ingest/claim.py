@@ -23,8 +23,11 @@ Two keys are taken per claim, all-or-nothing:
   * the **job id** — nobody else runs this job record; and
   * the **doc id** — nobody else runs any OTHER job record for the same
     document. Two jobs sharing a doc_id extract into the same
-    `extractor-output/<doc_id>/` directory and then write the same LanceDB
-    rows. Serial ingest made that safe by accident. It is not hypothetical:
+    `extractor-output/<doc_id>/<method>/` directory (rung-scoped since the
+    extraction ladder shipped — see `ingest/worker.py::_extract_dir` — but
+    still one shared `<doc_id>` tree, so two jobs for the same document
+    still collide rung-for-rung) and then write the same LanceDB rows.
+    Serial ingest made that safe by accident. It is not hypothetical:
     `make_doc_id()` is known to collide across report families (STATUS.md,
     2026-07-31), so a bulk backfill really does queue two jobs for one id.
 

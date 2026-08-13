@@ -37,7 +37,7 @@ from ingest.worker import (
     configured_worker_count,
 )
 from store.chunk_store import ChunkStore
-from tests.test_ingest_worker import PAGE_BLOCKS, FakeEmbedder
+from tests.test_ingest_worker import PAGE_BLOCKS, FakeEmbedder, doc_id_of_output_dir
 
 
 class SlowFakeExtractor:
@@ -68,7 +68,7 @@ class SlowFakeExtractor:
         with self._lock:
             self.live += 1
             self.max_live = max(self.max_live, self.live)
-            self.calls.append(Path(output_dir).name)
+            self.calls.append(doc_id_of_output_dir(output_dir))
         try:
             time.sleep(self.delay_s)
             # Only meaningful at ONE worker, where nobody else could be

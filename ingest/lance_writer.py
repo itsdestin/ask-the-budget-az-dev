@@ -29,9 +29,11 @@ from store.documents import load_documents
 
 # Document-metadata fields ingest adds on top of the migration's set. They
 # answer the two questions the migration never had to: "have we seen this
-# file before?" (dedup, Task 10) and "who put it here?" (Invariant 8
-# accountability — the corpus is public-record-only and uploads are attributed).
-INGEST_DOCS_FIELDS = ("source_sha256", "ingested_at", "uploaded_by")
+# file before?" (dedup, Task 10), "who put it here?" (Invariant 8
+# accountability — the corpus is public-record-only and uploads are attributed),
+# and "how much of the source came out?" (Plan B Task 5 — see `extraction`
+# below, and `ingest/coverage.py` for what the measurement can and cannot see).
+INGEST_DOCS_FIELDS = ("source_sha256", "ingested_at", "uploaded_by", "extraction")
 
 # doc_type → display pattern. `{y}` is the fiscal year; `{agency}` is appended
 # by the caller-facing builder when the document is a per-agency page.
@@ -127,6 +129,7 @@ def write_doc(
     source_format: str,
     uploaded_by: str,
     agency_ids_by_chunk: dict[str, list[str]] | None = None,
+    extraction: dict[str, Any] | None = None,
 ) -> None:
     """Replace one document in the corpus and record its metadata.
 
@@ -148,6 +151,16 @@ def write_doc(
     chunks. The merge preserves every other document's entry.
 
     **The caller holds the ingest lock and has already snapshotted.**
+
+    `extraction` is the Plan B Task 5 record of how this write's extraction
+    went — `{"method", "coverage", "attempts", "fell_back"}`, built by the
+    caller from `ingest.worker.ExtractionOutcome` — or `None` when the
+    caller has nothing to report (a legacy code path, or a re-write that
+    never re-extracted). It is taken as a plain dict rather than the
+    `ExtractionOutcome` dataclass itself: that type lives in `ingest.worker`,
+    which already imports THIS module, so accepting it here would be a
+    circular import for no benefit — nothing below needs more than these
+    four fields.
     """
     if len(chunks) != len(vectors):
         raise ValueError(
@@ -178,6 +191,7 @@ def write_doc(
         source_format=source_format,
         uploaded_by=uploaded_by,
         page_count=_page_count(chunks),
+        extraction=extraction,
     )
 
 
@@ -262,6 +276,7 @@ def _merge_document_entry(
     source_format: str,
     uploaded_by: str,
     page_count: int | None,
+    extraction: dict[str, Any] | None,
 ) -> None:
     """Update this document's entry in documents.json, preserving the rest.
 
@@ -281,6 +296,16 @@ def _merge_document_entry(
         "source_sha256": source_sha256,
         "ingested_at": datetime.now(timezone.utc).isoformat(),
         "uploaded_by": uploaded_by,
+        # Written unconditionally, even as None, so the pinned key-set assert
+        # below stays exact regardless of whether the caller had anything to
+        # report. Absence-as-None is deliberate, not a placeholder to later
+        # replace with "unknown": all 7,434 documents ingested before this
+        # shipped have NO "extraction" key at all, and a consumer reading
+        # this field must treat that prior state identically to a `None`
+        # written here today — neither is a failure, a warning, or anything
+        # worth surfacing (see store/documents.py::document_record and its
+        # test for the read side of that contract).
+        "extraction": extraction,
     }
     # Pin the key set against the sidecar's declared fields so a typo here
     # can't quietly produce an entry the /docs endpoint won't read.
