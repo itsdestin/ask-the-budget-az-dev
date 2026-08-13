@@ -13,13 +13,14 @@ without widening Invariant 7's blast radius (spec M1).
 from __future__ import annotations
 
 from datetime import date as _date
+from pathlib import Path
 
 from docx import Document
 from docx.document import Document as DocumentT
 from docx.enum.text import WD_ALIGN_PARAGRAPH, WD_TAB_ALIGNMENT
 from docx.oxml import OxmlElement
 from docx.oxml.ns import qn
-from docx.shared import Inches, Pt, Twips
+from docx.shared import Emu, Inches, Pt, RGBColor, Twips
 
 # --- copy, verbatim -------------------------------------------------------
 MASTHEAD_TITLE = "Joint Legislative Budget Committee"
@@ -64,6 +65,29 @@ BULLET_INDENT = Inches(0.1875)
 # Word expresses border weight in EIGHTHS of a point, so 2.25pt is 18.
 RULE_SIZE_EIGHTHS = "18"
 
+# The blank rows between DATE/TO/FROM/SUBJECT. Read off the reference,
+# which records 85725 EMU. Once `Normal` lost its stray 10pt space-after
+# these rows collapsed to nothing and the block read as a dense stack, so
+# the height has to be stated rather than inherited.
+MEMO_SPACER_HEIGHT = Emu(85725)
+
+# The boxed section heading. Read straight off the reference's own
+# paragraphs: all four sides single, w:sz 4 (0.5pt), top/bottom inset 1,
+# left/right inset 4. This is DIRECT paragraph formatting in the
+# reference, not part of the `Header` style — the style itself carries
+# only tab stops — which is why copying the style name alone produced a
+# bare bold word where JLBC has a boxed banner.
+HEADING_BORDER_EIGHTHS = "4"
+HEADING_BORDER_INSET_TB = "1"
+HEADING_BORDER_INSET_LR = "4"
+
+# The JLBC seal, lifted from the reference memo's own first-page footer
+# (word/media/image1.png) and displayed at its own recorded size,
+# 1195465 x 828675 EMU.
+LOGO_PATH = Path(__file__).with_name("assets") / "jlbc-logo.png"
+LOGO_WIDTH = Inches(1195465 / 914400)
+LOGO_HEIGHT = Inches(828675 / 914400)
+
 BODY_FONT = "Calibri"
 
 
@@ -95,6 +119,17 @@ def new_document() -> DocumentT:
     normal = doc.styles["Normal"]
     normal.font.name = BODY_FONT
     normal.font.size = BODY_PT
+    # THE SINGLE BIGGEST VISUAL DIFFERENCE, found by rendering both
+    # documents to images and comparing them. python-docx's blank
+    # template sets `w:spacing w:after="200" w:line="276"` in its
+    # document defaults — 10pt after EVERY paragraph and 1.15 line
+    # spacing. The reference sets neither. Because this memo uses EMPTY
+    # PARAGRAPHS for vertical rhythm, the error compounds: every
+    # deliberate gap came out roughly double, and the DATE/TO/FROM/
+    # SUBJECT block sprawled over half a page.
+    normal.paragraph_format.space_after = Pt(0)
+    normal.paragraph_format.space_before = Pt(0)
+    normal.paragraph_format.line_spacing = 1.0
 
     _fix_title_style(doc)
     _add_page_number_header(section)
@@ -117,6 +152,11 @@ def _fix_title_style(doc: DocumentT) -> None:
     title.font.name = BODY_FONT
     title.paragraph_format.alignment = WD_ALIGN_PARAGRAPH.CENTER
     title.paragraph_format.space_after = Pt(0)
+    title.paragraph_format.space_before = Pt(0)
+    title.paragraph_format.line_spacing = 1.0
+    # The stock style paints the title in accent blue. JLBC's is black,
+    # and a blue masthead is the first thing the eye catches as wrong.
+    title.font.color.rgb = RGBColor(0x00, 0x00, 0x00)
     pPr = title.element.get_or_add_pPr()
     for border in pPr.findall(qn("w:pBdr")):
         pPr.remove(border)
@@ -134,19 +174,52 @@ def _add_page_number_header(section) -> None:
 
 
 def _add_footer_note(section) -> None:
-    """The disclosure (spec M3), on every page.
+    """The JLBC seal on page 1, and the disclosure on every page.
 
-    In the FOOTER rather than the body because a body line sits in the
-    analyst's prose and gets deleted; a footer travels with the document,
-    survives printing, and costs no vertical space. `different_first_page`
-    is set for the header's sake, which means page 1 has its own footer
-    part and needs the note written into it separately.
+    The reference puts the seal in a FIRST-PAGE footer and has no default
+    footer at all, so pages 2+ carry nothing. That is reproduced here,
+    with one addition: the "Generated with…" line rides in both footers,
+    because a disclosure that appears only on the first page is missing
+    from every page after it.
     """
-    for footer in (section.footer, section.first_page_footer):
-        paragraph = footer.paragraphs[0]
-        paragraph.alignment = WD_ALIGN_PARAGRAPH.CENTER
-        run = paragraph.add_run(FOOTER_NOTE)
-        run.font.size = FOOTER_PT
+    first = section.first_page_footer.paragraphs[0]
+    first.alignment = WD_ALIGN_PARAGRAPH.CENTER
+    if LOGO_PATH.exists():
+        first.add_run().add_picture(
+            str(LOGO_PATH), width=LOGO_WIDTH, height=LOGO_HEIGHT
+        )
+    note = section.first_page_footer.add_paragraph()
+    note.alignment = WD_ALIGN_PARAGRAPH.CENTER
+    note.add_run(FOOTER_NOTE).font.size = FOOTER_PT
+
+    later = section.footer.paragraphs[0]
+    later.alignment = WD_ALIGN_PARAGRAPH.CENTER
+    later.add_run(FOOTER_NOTE).font.size = FOOTER_PT
+
+
+def box_paragraph(paragraph) -> None:
+    """Draw JLBC's section-heading box around one paragraph.
+
+    All four sides, 0.5pt, with the reference's own insets. Applied to
+    the paragraph rather than to the `Header` style deliberately: the
+    memo block's DATE/TO/FROM/SUBJECT labels use that same style and must
+    NOT be boxed, which is exactly how the reference does it too.
+    """
+    pPr = paragraph._p.get_or_add_pPr()
+    borders = OxmlElement("w:pBdr")
+    for edge, inset in (
+        ("top", HEADING_BORDER_INSET_TB),
+        ("left", HEADING_BORDER_INSET_LR),
+        ("bottom", HEADING_BORDER_INSET_TB),
+        ("right", HEADING_BORDER_INSET_LR),
+    ):
+        element = OxmlElement(f"w:{edge}")
+        element.set(qn("w:val"), "single")
+        element.set(qn("w:sz"), HEADING_BORDER_EIGHTHS)
+        element.set(qn("w:space"), inset)
+        element.set(qn("w:color"), "auto")
+        borders.append(element)
+    pPr.append(borders)
 
 
 def add_masthead(doc: DocumentT, *, subtitle: str = SUBTITLE) -> None:
@@ -165,6 +238,9 @@ def add_masthead(doc: DocumentT, *, subtitle: str = SUBTITLE) -> None:
         )
         run = paragraph.add_run(f"{left}\t{right}")
         run.font.size = ADDRESS_PT
+        # Italic in the reference. Easy to miss reading the XML, obvious
+        # the moment the two pages are put side by side.
+        run.italic = True
 
 
 def add_rule(doc: DocumentT) -> None:
@@ -240,6 +316,7 @@ def add_memo_block(
     for index, (label, value) in enumerate(zip(MEMO_LABELS, values)):
         if index:
             spacer = table.add_row()
+            spacer.height = MEMO_SPACER_HEIGHT
             spacer.cells[0].width = LABEL_COL_TWIPS
             spacer.cells[1].width = VALUE_COL_TWIPS
         row = table.add_row()

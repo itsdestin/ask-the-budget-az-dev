@@ -20,7 +20,7 @@ import re
 
 from docx.document import Document as DocumentT
 
-from memo.style import BULLET_INDENT
+from memo.style import BULLET_INDENT, box_paragraph
 
 _HEADING_RE = re.compile(r"^(#{1,6})\s+(\S.*)$")
 _BULLET_RE = re.compile(r"^[-*]\s+(\S.*)$")
@@ -99,6 +99,10 @@ def _add_heading(doc: DocumentT, level: int, text: str) -> None:
     run-in label that is really its third level."""
     if level <= _SECTION_HEADING_DEPTH:
         paragraph = doc.add_paragraph(style="Header")
+        # The box is what makes a JLBC section heading recognisable.
+        # Copying only the style name gave a bare bold word, because the
+        # border is direct paragraph formatting in the reference.
+        box_paragraph(paragraph)
     else:
         paragraph = doc.add_paragraph()
     _add_runs(paragraph, text)
@@ -109,9 +113,24 @@ def _add_heading(doc: DocumentT, level: int, text: str) -> None:
         run.bold = True
 
 
+def _add_spacer(doc: DocumentT) -> None:
+    """One empty paragraph.
+
+    The reference builds its vertical rhythm out of empty paragraphs
+    rather than space-after — stated in the spec (M9 note) and visible on
+    the page. With `Normal`'s space-after correctly zeroed, nothing else
+    separates a heading from the text under it, so the blocks have to be
+    spaced explicitly or the memo reads as one dense column.
+    """
+    doc.add_paragraph()
+
+
 def render_body(doc: DocumentT, body_markdown: str) -> None:
+    # A gap between the memo block and the first thing the analyst wrote.
+    _add_spacer(doc)
     lines = body_markdown.splitlines()
     index = 0
+    previous_was_bullet = False
     while index < len(lines):
         line = lines[index].rstrip()
         stripped = line.strip()
@@ -147,11 +166,25 @@ def render_body(doc: DocumentT, body_markdown: str) -> None:
                 rows.append(_split_row(lines[index].strip()))
                 index += 1
             _add_table(doc, rows)
+            _add_spacer(doc)
+            previous_was_bullet = False
             continue
 
         if heading:
-            _add_heading(doc, len(heading.group(1)), heading.group(2))
+            # A bullet run ends without a trailing gap, so a heading
+            # arriving straight after one would butt against the last
+            # bullet.
+            if previous_was_bullet:
+                _add_spacer(doc)
+            level = len(heading.group(1))
+            _add_heading(doc, level, heading.group(2))
+            # A blank line under a BOXED heading, matching the reference.
+            # Not under a run-in label (`###`), where the reference runs
+            # the text straight on from the label.
+            if level <= _SECTION_HEADING_DEPTH:
+                _add_spacer(doc)
             index += 1
+            previous_was_bullet = False
             continue
 
         if bullet:
@@ -164,11 +197,17 @@ def render_body(doc: DocumentT, body_markdown: str) -> None:
             paragraph = doc.add_paragraph(style="List Bullet")
             paragraph.paragraph_format.left_indent = BULLET_INDENT
             _add_runs(paragraph, bullet.group(1))
+            previous_was_bullet = True
             index += 1
             continue
 
         # Everything else — blockquotes, numbered lists, code fences,
         # links, tables missing a separator — lands here VERBATIM. The
         # markup is visible but no content is lost.
+        # Bullets in a run stay tight; everything else is separated.
+        if previous_was_bullet:
+            _add_spacer(doc)
+            previous_was_bullet = False
         _add_runs(doc.add_paragraph(), line)
+        _add_spacer(doc)
         index += 1

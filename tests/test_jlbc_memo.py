@@ -101,11 +101,25 @@ def test_the_rule_is_a_225pt_paragraph_bottom_border(rendered):
 
 
 def test_the_footer_note_appears_on_the_first_page_too(rendered):
+    """Page 1's footer holds the JLBC seal, so the note is the paragraph
+    BELOW it. Pages 2+ have no seal and the note is the whole footer.
+
+    The reference has no default footer at all — the seal sits in a
+    first-page footer and later pages carry nothing. The note is added to
+    both because a disclosure that appears only on page 1 is missing from
+    every page after it.
+    """
     section = rendered.sections[0]
     assert section.different_first_page_header_footer is True
-    for footer in (section.footer, section.first_page_footer):
-        assert footer.paragraphs[0].text == "Generated with JLBC Agentic Search"
-        assert footer.paragraphs[0].runs[0].font.size == Pt(9)
+
+    first = section.first_page_footer
+    assert "graphicData" in first.paragraphs[0]._p.xml  # the seal
+    assert first.paragraphs[1].text == "Generated with JLBC Agentic Search"
+    assert first.paragraphs[1].runs[0].font.size == Pt(9)
+
+    later = section.footer
+    assert later.paragraphs[0].text == "Generated with JLBC Agentic Search"
+    assert later.paragraphs[0].runs[0].font.size == Pt(9)
 
 
 def test_later_pages_carry_a_page_number_and_the_first_page_does_not(rendered):
@@ -308,7 +322,14 @@ def test_memo_package_imports_are_allowlisted():
     conscious edit, exactly like the allowlist it backs."""
     import ast
 
-    allowed = {"__future__", "dataclasses", "datetime", "re", "typing", "docx", "memo"}
+    # `pathlib` is here only to locate memo/assets/jlbc-logo.png, a file
+    # inside this package. Like every other entry it is stdlib and cannot
+    # reach the shared drive — `harness/documents.py`'s own allowlist has
+    # carried pathlib since before this work.
+    allowed = {
+        "__future__", "dataclasses", "datetime", "pathlib", "re", "typing",
+        "docx", "memo",
+    }
     package = Path(memo.__file__).parent
     roots: set[str] = set()
     for source in package.glob("*.py"):
