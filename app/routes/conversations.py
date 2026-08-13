@@ -366,11 +366,22 @@ def default_session_factory(
     `history` is forwarded ONLY when resuming a stored chat; a fresh
     conversation passes nothing and gets the default (empty list).
     HarnessSession.__init__ already accepts it.
+
+    The analyst's DISPLAY NAME is resolved here rather than passed in
+    through the `session_factory` seam. Two reasons, and both matter.
+    `harness/tools.py` — which is what eventually prints the name on a
+    memo — has an import allowlist that forbids `app.*` (spec M7), so the
+    name has to become a finished string somewhere on this side of the
+    boundary. And adding a `display_name=` argument at the seam would
+    break every fake factory in the suite, exactly as the comment at the
+    `_build()` call site says of `history=`. This function is the one
+    place that already knows it is running inside the app.
     """
     from harness.session import HarnessSession
 
     return HarnessSession(
         conversation_id, corpus=corpus, tier=tier, user=user,
+        display_name=identity.display_name(user),
         settings=load_settings(),
         history=history,
         corpus_map=_corpus_map_snapshot(corpus),
