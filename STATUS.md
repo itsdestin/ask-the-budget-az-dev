@@ -32,7 +32,7 @@ source. When something ships, update only this file.
 | Standalone consolidation — Plan 5 (admin + packaging + deletion) | 🟡 **Tracks 1–4 done, 5–6 open** (2026-08-01) | 20 of 27 tasks. Tracks 1–2 (1–13, Session A): admin identity + gate, settings API, OpenRouter catalog, model fallback, corpus health/restore, Admin + Settings pages, per-machine data dir, health ladder, lockout recovery. Track 3 (14–17, Session B): the Windows bundle. **Track 4 (18–20) shipped 2026-08-01** — `web/`, `mcp-server/`, `db/` and the dead `retrieval/` modules are DELETED (~36,000 lines), one `documents.json` reader, four ingest defects fixed, and all three of Session B's orphaned app-side asks built. **Track 5 (handbook, 21–23) and Track 6 (gates, 24–27) remain.** See the Track 4 section below |
 | Standalone consolidation — Plan 6 (document types) | ⬛ **Superseded 2026-08-11** by the document-types re-scope | Plan 6's scope was replaced by a new spec (T1–T14) split into Plans A/B/C. **Plan A shipped 2026-08-11** — see the section below. Plans B and C are not written |
 | Document types — **Plan A** (registry + upload rows) | ✓ Backend shipped (2026-08-11); 🔴 **its UI is REJECTED and awaiting redesign** | T1/T2/T3/T4/T9. One YAML registry is now the single source of truth for extraction, doc_id identity, the upload API, the model's filter enum and the upload UI. Two new types; found a collision that would have left 1 document of 78. **The Upload page's shape is NOT accepted — see "The Upload UI is unfinished" below.** Do not treat it as done |
-| Document types — Plans **B** and **C** | 🔴 **Not written** | B = resilient processing (T5–T8, T12): detection, the extractor fallback ladder, the coverage quality gate, terminal-failure handling, health-aware re-ingest. C = upload-page surfaces (T10 book panel, T13 queue bounding) |
+| Document types — Plan **C** | 🔴 **Not started; handoff written** | C = upload-page surfaces (T10 book panel, T13 queue bounding). Runbook: [`PROMPT-plan-c.md`](PROMPT-plan-c.md). Needs no API key and spends nothing. Plan **B shipped 2026-08-13** — see its own row and section |
 | Standalone consolidation — Plan 7 (batch extraction) | ✓ Shipped (2026-08-02) | Batch MinerU (~4x), the backfill, recency re-calibration. Three defect fixes not in any plan. See the Plan 7 section below |
 | Citation linking (post-hoc linker) | ⬛ **Superseded 2026-08-11** by attested linking | Shipped 2026-08-02, then found to overclaim: 34.2% of linked figures matched >1 document and were resolved by document authority. That ranking is now DELETED. Section kept as the historical record of the defect |
 | **Attested citation linking** | ✅ **Shipped and VERIFIED LIVE** (2026-08-11) | The model tags each figure, the system verifies the tag. False-link rate down 13–15×; 100% coverage on a captured live turn, 44 figures linked by tag. Six defects found by browser testing — see the section below. The 31-query Layer 2 baseline still has not been run |
@@ -914,7 +914,12 @@ Recorded because they are the kind of thing that gets copied forward:
   faulty evals. Thread-based (not process): the paid work is I/O, and the two
   ONNX models are already shared singletons. Defaults stay serial (1 worker).
   No Layer 1 or Layer 2 numbers changed.
-- **🔵 RUNNING NOW — S20 backfill on the Z13** (`PROMPT-z13-backfill.md`).
+- ~~**🔵 RUNNING NOW — S20 backfill on the Z13**~~ **DONE 2026-08-02** — every
+  ingestable JLBC book edition is in the corpus (38 editions, 7 failures all
+  azjlbc.gov 404s), and Phase D's recency re-calibration landed the same day.
+  See the "Volume ingest / S20 backfill" row and the Plan 7 section. The stale
+  "RUNNING NOW" text below is kept only because the rest of the bullet records
+  the phase structure; **it is not live work.**
   Phase A (parity gate) and Phase B (recency machinery) are DONE and merged.
   Phase C (the backfill itself) is ~65% through the fiscal notes with the
   38 book editions still to come; ~6 h remaining at the current rate.
