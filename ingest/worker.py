@@ -434,6 +434,11 @@ def _extract_and_chunk(job: JobRecord, ctx: WorkerContext) -> ExtractionOutcome:
     prior = {a.get("extractor"): a for a in job.extraction_attempts}
     attempts: list[dict] = []
     best: ExtractionOutcome | None = None
+    # Outcomes that CLEARED the coverage floor. Kept separately from
+    # `best`, which only ever holds failures: a passing-but-tripped
+    # attempt belongs to neither the early return nor the failure path,
+    # and dropping it into `best` would hide the document from search.
+    passing: list[ExtractionOutcome] = []
 
     for index, name in enumerate(rungs):
         recorded = prior.get(name)
@@ -523,9 +528,49 @@ def _extract_and_chunk(job: JobRecord, ctx: WorkerContext) -> ExtractionOutcome:
             fell_back=index > 0,
         )
         if outcome.passed:
-            return outcome
-        if best is None or _outcome_rank(outcome) > _outcome_rank(best):
+            passing.append(outcome)
+            # A document that passes on VOLUME can still have arrived with
+            # its meaning stripped off (spec X4). Only an untripped
+            # passing rung stops the ladder; a tripped one advances so
+            # `choose_best` has something to compare it against.
+            #
+            # DEVIATION FROM THE DRAFTED SPEC: an untripped rung does NOT
+            # `return` its own outcome directly -- it `break`s, and the
+            # winner is still decided by `choose_best` below, over every
+            # passing attempt seen so far (this one included). Proven by
+            # execution, not by inspection: an early `return` here makes
+            # `test_a_clean_attempt_that_collapsed_in_SIZE_does_not_win`
+            # FAIL. That rung's `unlabelled` reads None -- too few
+            # characters per chunk to judge, MIN_JUDGED_CHUNKS never
+            # reached -- so "not tripped" is true for the wrong reason: the
+            # structure check never RAN, it wasn't skipped clean. A direct
+            # `return` treats "unmeasured" as "healthy" and hands back a
+            # quarter-sized reading over a four-times-larger tripped one
+            # that `choose_best`'s own STRUCTURE_TIE_BAND exists to reject
+            # (`tests/test_structure.py::test_structure_does_NOT_beat_coverage_outside_the_band`
+            # pins the identical shape one level down). Routing every stop
+            # through `choose_best` costs nothing on the common one-rung
+            # case -- `choose_best` returns the sole candidate.
+            tripped = (
+                outcome.unlabelled is not None
+                and outcome.unlabelled > MAX_UNLABELLED
+            )
+            if not tripped:
+                break
+        elif best is None or _outcome_rank(outcome) > _outcome_rank(best):
             best = outcome
+
+    if passing:
+        # Every rung that cleared the floor tripped the ceiling, the last
+        # one stopped the ladder untripped, or there was only ever one.
+        # Keep the structurally best reading of comparable size (spec X3).
+        # A degraded document that is the best available reading is still
+        # the best available reading -- it is WRITTEN, and X7 makes the
+        # choice visible.
+        winner = passing[
+            choose_best([(o.coverage, o.unlabelled) for o in passing])
+        ]
+        return replace(winner, attempts=list(attempts))
 
     # Every rung is below the floor. Keep whichever scored HIGHEST (spec T5),
     # not whichever ran last: OCR is the final rung and is also the rung most

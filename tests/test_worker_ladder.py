@@ -76,8 +76,14 @@ def _write_pdf(*, text: bool) -> "object":
     return path
 
 
-def _fake_chunks(job, count: int, total_chars: int) -> list[Chunk]:
-    """`count` chunks whose text sums to exactly `total_chars` characters."""
+def _fake_chunks(job, count: int, total_chars: int, *, filler: str = "x") -> list[Chunk]:
+    """`count` chunks whose text sums to exactly `total_chars` characters.
+
+    `filler` decides whether those characters are LETTERS (the default --
+    a structurally healthy reading) or DIGITS, which is how a rung is
+    scripted to trip the structure ceiling. The chunk text is real text
+    measured by the real `unlabelled_fraction`, not a handed-in score.
+    """
     if count <= 0:
         return []
     per = total_chars // count
@@ -87,7 +93,7 @@ def _fake_chunks(job, count: int, total_chars: int) -> list[Chunk]:
         Chunk(
             chunk_id=f"{job.doc_id}-{i:04d}",
             doc_id=job.doc_id,
-            text="x" * length,
+            text=filler * length,
             section_path=[],
             provenance=ChunkProvenance(page=1),
             fiscal_year=job.fiscal_year,
@@ -99,13 +105,16 @@ def _fake_chunks(job, count: int, total_chars: int) -> list[Chunk]:
     ]
 
 
-def _ctx(monkeypatch, scripted, *, has_text_layer=True, chunks=12):
+def _ctx(monkeypatch, scripted, *, has_text_layer=True, chunks=12, bare=()):
     """A context whose extraction is scripted per rung.
 
     `_extract` records which rung ran and asks the script for its ratio;
     `_chunk` turns that ratio into real characters of chunk text against the
     real source file. Everything between them -- the ladder, the coverage
     measurement, the floor -- is the production code.
+
+    `bare` names the rungs whose chunk text is digits rather than letters,
+    i.e. the rungs scripted to trip the structure ceiling.
     """
     source = _write_pdf(text=has_text_layer)
     total = source_text_chars(source)
@@ -113,6 +122,7 @@ def _ctx(monkeypatch, scripted, *, has_text_layer=True, chunks=12):
 
     def fake_extract(job, ctx, *, extractor=None, method=None):
         pending["ratio"] = scripted(method)
+        pending["method"] = method
 
     def fake_chunk(job, ctx, *, extractor):
         ratio = pending.get("ratio")
@@ -121,7 +131,8 @@ def _ctx(monkeypatch, scripted, *, has_text_layer=True, chunks=12):
         # A blank source has no denominator, so the ratio is meaningless
         # there; any non-empty text stands for "OCR produced passages".
         target = 200 * chunks if ratio is None else round(ratio * total)
-        return _fake_chunks(job, chunks, target)
+        filler = "7" if extractor in bare else "x"
+        return _fake_chunks(job, chunks, target, filler=filler)
 
     monkeypatch.setattr(worker, "_extract", fake_extract)
     monkeypatch.setattr(worker, "_chunk", fake_chunk)
@@ -520,3 +531,83 @@ def test_a_rung_with_too_few_judged_chunks_records_None_not_zero(
 
     assert outcome.unlabelled is None
     assert outcome.attempts[0]["unlabelled"] is None
+
+
+# --- X4: a passing-but-tripped rung must not short-circuit -----------------
+
+
+def test_a_document_over_the_ceiling_advances_to_the_next_rung(
+    monkeypatch, ladder_job
+):
+    """Spec X4. FY2024's exact shape: rung 1 passes on VOLUME and is
+    structurally useless, so the ladder keeps going instead of stopping."""
+    scripted = _ScriptedLadder({"opendataloader": 0.49, "mineru": 0.4477})
+    ctx = _ctx(monkeypatch, scripted, chunks=20, bare=("opendataloader",))
+    outcome = worker._extract_and_chunk(ladder_job, ctx)
+
+    assert scripted.calls[:2] == ["opendataloader", "mineru"]
+    assert outcome.extractor == "mineru"
+    assert outcome.passed
+
+
+def test_a_tripped_document_with_nothing_better_is_STILL_WRITTEN(
+    monkeypatch, ladder_job
+):
+    """🔴 The regression guard for the worst way this change goes wrong.
+
+    Every rung trips the ceiling, so the loop reaches its end with no
+    untripped winner. The document must still be WRITTEN -- a degraded
+    reading that is the best available reading is still the best available
+    reading. If this returns a failing outcome, `run_job` hides the
+    document from search, and an analyst who could previously find its
+    figures (badly labelled) can now find nothing at all."""
+    scripted = _ScriptedLadder(
+        {"opendataloader": 0.49, "mineru": 0.45, "mineru-ocr": 0.44}
+    )
+    ctx = _ctx(
+        monkeypatch, scripted, chunks=20,
+        bare=("opendataloader", "mineru", "mineru-ocr"),
+    )
+    outcome = worker._extract_and_chunk(ladder_job, ctx)
+
+    assert outcome.passed, "a tripped document must not be held out of search"
+    assert outcome.extractor == "opendataloader"  # highest coverage, band empty
+    assert len(outcome.attempts) == 3
+
+
+def test_structure_picks_the_winner_among_comparable_attempts(
+    monkeypatch, ladder_job
+):
+    """The real measured pair. Coverage prefers OpenDataLoader (49.03% vs
+    44.77%) because a third of its text is the bare digit runs; structure
+    prefers MinerU, and structure is right."""
+    scripted = _ScriptedLadder({"opendataloader": 0.4903, "mineru": 0.4477})
+    ctx = _ctx(monkeypatch, scripted, chunks=20, bare=("opendataloader",))
+    outcome = worker._extract_and_chunk(ladder_job, ctx)
+
+    assert outcome.extractor == "mineru"
+    assert outcome.unlabelled == 0.0
+
+
+def test_a_clean_attempt_that_collapsed_in_SIZE_does_not_win(
+    monkeypatch, ladder_job
+):
+    """The silent quarter-document guard, end to end. 0.12/0.49 = 0.24 is
+    far outside the 0.75 band, so the tripped-but-complete reading is
+    kept."""
+    scripted = _ScriptedLadder({"opendataloader": 0.49, "mineru": 0.12})
+    ctx = _ctx(monkeypatch, scripted, chunks=20, bare=("opendataloader",))
+    outcome = worker._extract_and_chunk(ladder_job, ctx)
+
+    assert outcome.extractor == "opendataloader"
+
+
+def test_a_healthy_document_still_short_circuits(monkeypatch, ladder_job):
+    """What keeps 2,227 of 2,228 documents paying exactly what they pay
+    today. Fails if X4 is written as "always run every rung"."""
+    scripted = _ScriptedLadder({"opendataloader": 0.94})
+    ctx = _ctx(monkeypatch, scripted, chunks=20)
+    outcome = worker._extract_and_chunk(ladder_job, ctx)
+
+    assert scripted.calls == ["opendataloader"]
+    assert outcome.extractor == "opendataloader"
