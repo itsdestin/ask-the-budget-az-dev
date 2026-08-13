@@ -97,7 +97,7 @@ import socket
 import sys
 import threading
 import traceback
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from pathlib import Path
 from typing import Any, Protocol, Sequence
 
@@ -108,6 +108,9 @@ from chunking.types import Chunk, DocMeta
 from ingest import dispatcher
 from ingest.cache import DownloadCache
 from ingest.claim import JobClaim
+from ingest.coverage import COVERAGE_FLOOR, coverage_ratio
+from ingest.inspection import inspect_source
+from ingest.ladder import ladder_for
 from ingest.jobs import (
     TERMINAL_STATES,
     JobRecord,
@@ -304,13 +307,31 @@ def run_job(job: JobRecord, ctx: WorkerContext) -> JobRecord:
 
     if job.state == "queued":
         advance(job, "extracting")
-    if job.state == "extracting":
-        _extract(job, ctx)
-        _check_cancelled(job)
-        advance(job, "chunking")
 
-    chunks = _chunk(job, ctx)
+    outcome = _extract_and_chunk(job, ctx)
     _check_cancelled(job)
+
+    if not outcome.passed:
+        # Spec T8: held out of search, NOT marked live. Nothing is written,
+        # so the document simply is not in the corpus — "held out" needs no
+        # separate mechanism, only the discipline of not writing it.
+        #
+        # A REPROCESS of an already-live document that fails every rung
+        # leaves the existing chunks in place, still searchable. That is
+        # deliberate: destroying a working document because a re-extraction
+        # went badly would turn an attempted improvement into data loss. The
+        # queue page says the re-processing failed; the old copy stands.
+        #
+        # The message goes through `error=`, which `advance` REQUIRES for
+        # this transition (jobs.py) — passing it via mark_stage's `detail`
+        # alone both raises here and leaves `job.error` empty on the one
+        # screen that exists to explain a failure.
+        advance(job, "failed", error=_held_out_message(outcome))
+        return job
+
+    chunks = outcome.chunks
+    if job.state == "extracting":
+        advance(job, "chunking")
     if job.state == "chunking":
         advance(job, "embedding")
 
@@ -329,6 +350,250 @@ def run_job(job: JobRecord, ctx: WorkerContext) -> JobRecord:
         detail = f"{detail} — {' '.join(job.warnings)}"
     mark_stage(job, "live", pct=100, detail=detail)
     return job
+
+
+@dataclass(frozen=True)
+class ExtractionOutcome:
+    """What the ladder produced, and what it cost to get there."""
+
+    chunks: list[Chunk]
+    attempts: list[dict]
+    coverage: float | None
+    extractor: str
+    fell_back: bool
+
+    @property
+    def passed(self) -> bool:
+        # A document that produced NO passages has failed regardless of what
+        # the ratio says, and the ratio is exactly where that slips through:
+        # a scan has no text layer, so there is no denominator and coverage
+        # is None. Treating None as an unconditional pass would write a
+        # scanned document live and empty — the silent-empty failure this
+        # whole plan exists to kill, for precisely the document class the OCR
+        # rung serves. So chunks first, ratio second.
+        if not self.chunks:
+            return False
+        if self.coverage is None:
+            # Unmeasurable but non-empty. Accept: refusing it would reject
+            # every scan the OCR rung exists to rescue, and the floor is a
+            # rejector — it never approves anything, so it cannot be asked
+            # to approve on no evidence either.
+            return True
+        return self.coverage >= COVERAGE_FLOOR
+
+
+def _extract_and_chunk(job: JobRecord, ctx: WorkerContext) -> ExtractionOutcome:
+    """Extract, chunk, measure; fall back a rung and repeat if it came out empty.
+
+    The check sits AFTER chunking and BEFORE embedding (spec T6). Extraction
+    takes hours and embedding takes minutes, so measuring here catches a
+    failed document before the expensive write phase is paid for, and it
+    measures exactly what would have been written.
+
+    The job stays in `extracting` for the whole loop, including the chunking
+    inside it. That is the honest state: a fallback re-enters extraction, and
+    a queue page that showed "chunking" and then went back to "extracting"
+    would look like a bug.
+    """
+    source = _ensure_source(job)
+    inspection = inspect_source(source)
+    rungs = ladder_for(job.doc_type, inspection.source_format, inspection)
+    if not rungs:
+        # Preserve today's loud failure for a genuinely unsupported pair —
+        # (budget-bill, pdf) and friends are caller bugs, not documents to
+        # keep trying tools against.
+        raise ValueError(
+            f"no extractor for (doc_type={job.doc_type!r}, "
+            f"format={inspection.source_format!r})"
+        )
+
+    # What earlier runs of THIS job already paid for. Keyed by rung name
+    # because that is what the loop below asks about.
+    prior = {a.get("extractor"): a for a in job.extraction_attempts}
+    attempts: list[dict] = []
+    best: ExtractionOutcome | None = None
+
+    for index, name in enumerate(rungs):
+        recorded = prior.get(name)
+        if recorded is not None and recorded.get("error"):
+            # This rung CRASHED on an earlier run. Don't pay for it again,
+            # and don't try to chunk output it never produced.
+            attempts.append(dict(recorded))
+            continue
+
+        if index > 0:
+            # completed_ranges is scoped to ONE rung's output directory.
+            # Carrying it forward makes the next rung skip pages it has never
+            # extracted — a partial document failing coverage for a reason
+            # unrelated to the extractor.
+            if job.completed_ranges:
+                job.completed_ranges = []
+                save(job)
+            _progress(job, "extracting", pct=0, detail=_fallback_detail(attempts, name))
+
+        try:
+            if recorded is None and _needs_extraction(job, source, name):
+                # Each rung extracts into ITS OWN directory. Three things
+                # fall out of that: no destructive reset between rungs; a
+                # resumed job cannot mistake rung 2's half-finished output
+                # for rung 1's; and the best attempt's output survives on
+                # disk for the human who is about to look at the failure.
+                _extract(job, ctx, extractor=dispatcher.pick_named(name), method=name)
+            _check_cancelled(job)
+            # The rung name is passed EXPLICITLY. `_chunk` used to derive the
+            # reader from the doc_type's DEFAULT extractor, which would parse
+            # MinerU output with the OpenDataLoader reader on every fallback.
+            chunks = _chunk(job, ctx, extractor=name)
+            coverage, coverage_error = _measure_coverage(chunks, source)
+            attempt: dict = {
+                "extractor": name, "coverage": coverage, "chunks": len(chunks),
+            }
+            if coverage_error is not None:
+                attempt["coverage_error"] = coverage_error
+        except JobCancelled:
+            raise
+        except Exception as exc:  # noqa: BLE001 — a rung's failure, not the job's
+            # A rung that CRASHES is a rung that failed, not a job that
+            # failed. A malformed PDF making one extractor raise is the
+            # likeliest real trigger for the whole ladder, and letting the
+            # exception out would bypass the entire mechanism.
+            attempt = {
+                "extractor": name, "coverage": None, "chunks": 0,
+                "error": f"{type(exc).__name__}: {exc}",
+            }
+            chunks, coverage = [], None
+
+        attempts.append(attempt)
+        # Journalled per rung, not at the end: a machine that dies during
+        # rung 2 must not come back believing rung 1 was never tried.
+        job.extraction_attempts = list(attempts)
+        save(job)
+
+        outcome = ExtractionOutcome(
+            chunks=chunks,
+            attempts=list(attempts),
+            coverage=coverage,
+            extractor=name,
+            fell_back=index > 0,
+        )
+        if outcome.passed:
+            return outcome
+        if best is None or _outcome_rank(outcome) > _outcome_rank(best):
+            best = outcome
+
+    # Every rung is below the floor. Keep whichever scored HIGHEST (spec T5),
+    # not whichever ran last: OCR is the final rung and is also the rung most
+    # likely to score near zero on a document that was never a scan, so
+    # "last" would routinely discard the better evidence a human is about to
+    # look at. Nothing below the floor is written either way; what is kept is
+    # the number the failure message quotes and the output left on disk.
+    if best is None:
+        # Only reachable when every rung was a crash recorded by an earlier
+        # run, so nothing ran here at all.
+        best = ExtractionOutcome(
+            chunks=[], attempts=[], coverage=None,
+            extractor=rungs[-1], fell_back=len(rungs) > 1,
+        )
+    # The full attempt list, not the slice that existed when `best` was
+    # built: the queue page has to show every method that was tried.
+    return replace(best, attempts=list(attempts))
+
+
+def _outcome_rank(outcome: ExtractionOutcome) -> tuple[float, int]:
+    """Sort key for "which failed attempt was least bad".
+
+    An unmeasurable attempt ranks below every measured one (-1.0 is below a
+    genuine 0.0): a crash or an unreadable source tells us nothing, while a
+    measured 0% is at least a real observation about a real extraction.
+    """
+    return (
+        outcome.coverage if outcome.coverage is not None else -1.0,
+        len(outcome.chunks),
+    )
+
+
+def _measure_coverage(
+    chunks: Sequence[Chunk], source: Path
+) -> tuple[float | None, str | None]:
+    """The coverage ratio, or None plus why it could not be measured.
+
+    A measurement that fails is NOT an extraction that failed. The floor
+    rejects; it never approves — so when the denominator cannot be read (a
+    PDF PyMuPDF refuses, a source format with no text-layer reader) the
+    check has learned nothing and must not hold the document out of search
+    on the strength of that.
+
+    The reason is recorded rather than swallowed, so a corpus where the
+    denominator has silently stopped being readable is visible on the job
+    instead of looking like a corpus of scans.
+    """
+    try:
+        return coverage_ratio((c.text for c in chunks), source), None
+    except Exception as exc:  # noqa: BLE001 — any unreadable source
+        return None, f"{type(exc).__name__}: {exc}"
+
+
+def _needs_extraction(job: JobRecord, source: Path, method: str) -> bool:
+    """Does this rung still have to run, or is its output already complete?
+
+    This is the batch hand-off, and only that. `extract_batch` extracts a
+    whole document and journals `completed_ranges` for it, then hands the job
+    back to the ordinary pipeline — which would otherwise re-extract every
+    batched document one at a time, undoing the entire point of batching.
+
+    Deliberately requires BOTH the journal and the files: `completed_ranges`
+    alone would skip extraction for a job whose output directory was cleared,
+    and files alone would reuse a previous ingest's output for a REPROCESS of
+    the same doc_id with a corrected source file (a fresh job carries no
+    ranges, so it always re-extracts).
+    """
+    if not job.completed_ranges:
+        return True
+    pages = _pdf_pages(source)
+    if not pages:
+        return True
+    covered = {p for start, end in job.completed_ranges for p in range(start, end + 1)}
+    if not set(range(1, pages + 1)) <= covered:
+        return True
+    return not _extraction_complete(_extract_dir(job, method), pages)
+
+
+def _fallback_detail(attempts: list[dict], name: str) -> str:
+    """One line for the queue page saying why another method is running."""
+    if attempts and attempts[-1].get("error"):
+        return f"the previous method failed — trying {name}"
+    return f"the previous method produced almost nothing — trying {name}"
+
+
+def _held_out_message(outcome: ExtractionOutcome) -> str:
+    """Why this document is not in the corpus, in a sentence.
+
+    States what was MEASURED — how much text came out — and never that
+    anything was verified or checked: this test detects catastrophic loss,
+    not correctness, and copy that implies otherwise would be a claim the
+    measurement cannot support (see ingest/coverage.py).
+    """
+    tried = len(outcome.attempts)
+    methods = f"{tried} extraction method{'s' if tried != 1 else ''}"
+    were = "were" if tried != 1 else "was"
+    measured = [
+        a["coverage"] for a in outcome.attempts if a.get("coverage") is not None
+    ]
+    if measured:
+        return (
+            f"Held out of search — only {max(measured):.0%} of this document's "
+            f"text produced any content, after {methods} {were} tried."
+        )
+    errors = [a["error"] for a in outcome.attempts if a.get("error")]
+    if errors:
+        return (
+            f"Held out of search — all {methods} failed. "
+            f"Last error: {errors[-1]}"
+        )
+    return (
+        f"Held out of search — {methods} {were} tried and none of them "
+        "produced any passages."
+    )
 
 
 def run_refresh_job(job: JobRecord, *, fetcher=None) -> JobRecord:
@@ -361,23 +626,48 @@ def run_refresh_job(job: JobRecord, *, fetcher=None) -> JobRecord:
     return job
 
 
-def _extract(job: JobRecord, ctx: WorkerContext) -> None:
-    """Run the extractor into `<data_dir>/extractor-output/<doc_id>/`.
+def _extract(
+    job: JobRecord,
+    ctx: WorkerContext,
+    *,
+    extractor: Any | None = None,
+    method: str | None = None,
+) -> None:
+    """Run one extractor into `<data_dir>/extractor-output/<doc_id>/<method>/`.
 
     Output goes on the SHARE, not in a temp dir, so a machine that dies
     overnight doesn't cost the office the extraction — any machine can pick
     the job up and continue from the pages already done.
+
+    `method` is the LADDER RUNG name and scopes the output directory. It is
+    not MinerU's `-m` flag, despite the word: that value comes off the
+    extractor itself (`mineru_method`) further down. Two different things
+    that happen to share a name.
+
+    Precedence for which tool runs: `ctx.extractor` (the test override, which
+    has always won here) → the rung the caller named → the registry.
     """
     source = _ensure_source(job)
-    out = _extract_dir(job)
+    out = _extract_dir(job, method)
     out.mkdir(parents=True, exist_ok=True)
     source_format = source.suffix.lstrip(".").lower()
 
-    extractor = ctx.extractor or dispatcher.pick_extractor(job.doc_type, source_format)
+    chosen = (
+        ctx.extractor
+        or extractor
+        or dispatcher.pick_extractor(job.doc_type, source_format)
+    )
 
-    if ctx.extractor is None and isinstance(extractor, dispatcher.MinerUExtractor):
-        _extract_with_mineru(job, source=source, out=out)
+    if ctx.extractor is None and isinstance(chosen, dispatcher.MinerUExtractor):
+        _extract_with_mineru(
+            job, source=source, out=out,
+            # The OCR rung differs from the plain one by exactly this flag.
+            # Reading it off the extractor keeps the ladder from having to
+            # know anything about MinerU's CLI.
+            method=getattr(chosen, "mineru_method", "auto"),
+        )
         return
+    extractor = chosen
 
     # DOCX and OpenDataLoader run as one blocking call — both are minutes,
     # not hours, so there's nothing to stream progress against.
@@ -392,10 +682,17 @@ def _extract(job: JobRecord, ctx: WorkerContext) -> None:
     _progress(job, "extracting", pct=100, detail="")
 
 
-def _extract_with_mineru(job: JobRecord, *, source: Path, out: Path) -> None:
-    """MinerU path: streamed progress, cancellable, resumable per page range."""
+def _extract_with_mineru(
+    job: JobRecord, *, source: Path, out: Path, method: str = "auto"
+) -> None:
+    """MinerU path: streamed progress, cancellable, resumable per page range.
+
+    `method` here IS MinerU's `-m` flag — "auto" for the ordinary rung,
+    "ocr" for the ladder's last one. It is per-runner, so a runner is built
+    per attempt.
+    """
     pages = list(range(1, dispatcher._pdf_page_count(source) + 1))
-    runner = MineruRunner()
+    runner = MineruRunner(method=method)
 
     stop = threading.Event()
 
@@ -453,13 +750,19 @@ def batch_eligible(job: JobRecord) -> bool:
        `completed_ranges` is mid-extraction on the per-document path, whose
        resume granularity is the page range. Batch mode extracts whole
        documents, so batching it would re-do the pages it already paid for.
-    4. **It is small** (`BATCH_MAX_PAGES`). Checked separately by the caller,
-       because it needs the file on disk and this predicate must stay cheap
-       enough to run over every queued job.
+    4. **It is not part-way through its LADDER.** A job with recorded
+       `extraction_attempts` is past rung 1, and rung 2 is never the rung a
+       batch runs (see `_batch_rung_matches`).
+    5. **It is small** (`BATCH_MAX_PAGES`), and **its first ladder rung is
+       the one a batch actually runs**. Both are checked separately by the
+       caller, because they need the file on disk and this predicate must
+       stay cheap enough to run over every queued job.
     """
     if job.kind != "document":
         return False
     if job.completed_ranges:
+        return False
+    if job.extraction_attempts:
         return False
     try:
         return dispatcher.pick_extractor(job.doc_type, _batch_format(job)).name \
@@ -469,6 +772,34 @@ def batch_eligible(job: JobRecord) -> bool:
         # per-document path raise it with its own clear message rather than
         # swallowing it here as "not batchable".
         return False
+
+
+def _batch_rung_matches(job: JobRecord) -> bool:
+    """Is this document's FIRST ladder rung the one a batch actually runs?
+
+    **A MinerU batch is homogeneous by rung whether or not anybody planned
+    it.** `MineruRunner` takes MinerU's `-m` flag at CONSTRUCTION, and
+    `extract_batch` builds exactly one runner for up to 40 documents — so one
+    `-m` value covers the whole batch. A batch mixing rungs either OCRs 39
+    documents that did not need it (hours of wasted work) or fails to OCR the
+    one that did.
+
+    Grouping is therefore the caller's job, and this is the whole of it: a
+    document whose ladder starts anywhere other than plain `mineru` — today
+    only a scan, which `ingest/ladder.py` routes straight to `mineru-ocr` —
+    is kept out of the batch and takes the per-document path, where it gets
+    its own runner in the mode it needs.
+
+    Needs the file on disk (inspection reads the text layer), so it is one of
+    the two LATE eligibility checks, not part of `batch_eligible`.
+    """
+    try:
+        source = _ensure_source(job)
+    except Exception:  # noqa: BLE001 — diagnosed on the per-document path
+        return False
+    inspection = inspect_source(source)
+    rungs = ladder_for(job.doc_type, inspection.source_format, inspection)
+    return bool(rungs) and rungs[0] == MINERU_EXTRACTOR_NAME
 
 
 def _batch_format(job: JobRecord) -> str:
@@ -534,7 +865,10 @@ def extract_batch(
     for job in jobs:
         try:
             source = _ensure_source(job)
-            out = _extract_dir(job)
+            # Scoped to the rung a batch runs. Every member is guaranteed to
+            # be at that rung — see `_batch_rung_matches` — so this is the
+            # same directory the per-document ladder will read afterwards.
+            out = _extract_dir(job, MINERU_EXTRACTOR_NAME)
             out.mkdir(parents=True, exist_ok=True)
             pages = _pdf_pages(source) or 0
             pages_by_doc[job.doc_id] = pages
@@ -600,21 +934,24 @@ def extract_batch(
     return results
 
 
-def _chunk(job: JobRecord, ctx: WorkerContext) -> list[Chunk]:
+def _chunk(job: JobRecord, ctx: WorkerContext, *, extractor: str) -> list[Chunk]:
+    """Build passages from ONE rung's extractor output.
+
+    `extractor` is the rung that produced that output, and it decides both
+    which directory is read and which reader parses it. It used to be
+    derived from the doc_type's DEFAULT extractor, which is right only while
+    nothing ever falls back — a job that fell back to MinerU would then parse
+    MinerU output with the OpenDataLoader reader.
+    """
     _progress(job, "chunking", pct=0, detail="building passages")
-    extractor_name = (
-        ctx.extractor.name
-        if ctx.extractor is not None
-        else dispatcher.pick_extractor(job.doc_type, _source_format(job)).name
-    )
     chunks = chunk_doc(
-        extractor_output_path=_extract_dir(job),
+        extractor_output_path=_extract_dir(job, extractor),
         doc_meta=DocMeta(
             doc_id=job.doc_id,
             publisher=job.publisher,
             doc_type=job.doc_type,
             fiscal_year=job.fiscal_year,
-            extractor=extractor_name,
+            extractor=extractor,
             source_format=_source_format(job),
             source_url=job.source_url,
         ),
@@ -1143,7 +1480,11 @@ class IngestWorker:
         size = self.batch_size
         if size <= 1:
             return []
-        if not batch_eligible(lead) or not self._small_enough(lead):
+        if (
+            not batch_eligible(lead)
+            or not self._small_enough(lead)
+            or not _batch_rung_matches(lead)
+        ):
             return []
 
         mates: list[tuple[JobRecord, JobClaim]] = []
@@ -1164,7 +1505,11 @@ class IngestWorker:
             fresh, claim = claimed
             # Re-checked under the claim, because the listing may be stale —
             # and the page count is only knowable once we own the download.
-            if not batch_eligible(fresh) or not self._small_enough(fresh):
+            if (
+                not batch_eligible(fresh)
+                or not self._small_enough(fresh)
+                or not _batch_rung_matches(fresh)
+            ):
                 claim.release()
                 continue
             mates.append((fresh, claim))
@@ -1304,8 +1649,55 @@ def _source_format(job: JobRecord) -> str:
     return Path(job.source_path).suffix.lstrip(".").lower()
 
 
-def _extract_dir(job: JobRecord) -> Path:
-    return data_dir() / "extractor-output" / job.doc_id
+def _extract_dir(job: JobRecord, method: str | None = None) -> Path:
+    """Where one rung's extractor output lives.
+
+    Rung-scoped (`<doc_id>/<method>/`) so two attempts on one document never
+    share a directory: without that, a MinerU fallback would write pages into
+    a directory still holding the OpenDataLoader attempt's pages and the
+    chunker would read a mixture of the two with nothing recording which is
+    which. It also means the best attempt's output survives on disk for
+    whoever looks at the failure.
+
+    `method=None` is the un-suffixed base, which only callers that predate
+    rungs should want.
+    """
+    base = data_dir() / "extractor-output" / job.doc_id
+    if method is None:
+        return base
+    scoped = base / method
+    if not scoped.exists():
+        legacy = _legacy_extract_dir(job, base, method)
+        if legacy is not None:
+            return legacy
+    return scoped
+
+
+def _legacy_extract_dir(job: JobRecord, base: Path, method: str) -> Path | None:
+    """The pre-rung, un-suffixed output directory, when it belongs to `method`.
+
+    Thousands of jobs on the share were extracted before rung-scoped
+    directories existed, and an interrupted overnight book must resume rather
+    than re-extract from page 1.
+
+    Only the doc_type's DEFAULT extractor may claim that directory, because
+    that is what wrote it. Letting any rung claim it would point a MinerU
+    fallback at a directory full of OpenDataLoader pages — exactly the mixing
+    the scoped directories exist to prevent.
+    """
+    if method != _default_extractor_name(job):
+        return None
+    if not any(base.glob("page-*.json")):
+        return None
+    return base
+
+
+def _default_extractor_name(job: JobRecord) -> str | None:
+    """The extractor `data/document-types.yaml` declares for this document."""
+    try:
+        return dispatcher.pick_extractor(job.doc_type, _source_format(job)).name
+    except ValueError:
+        return None
 
 
 def _copy_source_to_share(job: JobRecord) -> str | None:

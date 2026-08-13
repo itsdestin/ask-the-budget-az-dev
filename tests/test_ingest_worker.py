@@ -258,8 +258,28 @@ def test_source_file_is_copied_into_the_shared_pdfs_dir(job, ctx, data_dir):
 def test_extractor_output_lands_on_the_share_for_cross_machine_resume(
     job, ctx, data_dir
 ):
+    """Still on the share, now under the RUNG that produced it: two attempts
+    on one document must never write into the same directory, or the chunker
+    reads a mixture of the two with nothing recording which is which."""
     run_job(job, ctx)
-    assert (data_dir / "extractor-output" / job.doc_id / "page-1.json").is_file()
+    assert (
+        data_dir / "extractor-output" / job.doc_id / "mineru" / "page-1.json"
+    ).is_file()
+
+
+def doc_id_of_output_dir(output_dir: Path) -> str:
+    """The doc_id an extractor's output directory belongs to.
+
+    Output is rung-scoped (`extractor-output/<doc_id>/<rung>/`) but a
+    directory written before rungs existed has no suffix, so this walks up to
+    whichever directory is the child of `extractor-output` rather than
+    assuming a depth. Used by the fakes in the parallel suite, which
+    identify a document by where it was asked to write.
+    """
+    path = Path(output_dir)
+    while path.parent.name and path.parent.name != "extractor-output":
+        path = path.parent
+    return path.name
 
 
 def test_progress_is_journalled_during_the_run(job, ctx):

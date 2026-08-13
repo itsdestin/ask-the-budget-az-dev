@@ -482,7 +482,12 @@ def test_a_document_that_needs_a_different_extractor_is_not_batched(
 
     assert sorted(_batched(runner)) == sorted(j.doc_id for j in small)
     assert odl.doc_id not in _batched(runner)
-    assert extractor.calls == 1, "the AFR skipped the per-document path"
+    # It ran per-document instead. The count is deliberately not pinned: an
+    # AFR prefers OpenDataLoader and this fake writes MinerU-shaped output,
+    # so the extraction ladder legitimately falls through to its `mineru`
+    # rung — which is the ladder working, not the batch routing under test.
+    assert extractor.calls >= 1, "the AFR skipped the per-document path"
+    assert load_job(odl.job_id).state == "live"
 
 
 # --- 4 + 5: per-document failure, and resume --------------------------------
