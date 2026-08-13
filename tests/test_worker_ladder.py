@@ -694,3 +694,33 @@ def test_ocr_still_runs_when_every_earlier_rung_FAILED_the_floor(
     assert scripted.calls == ["opendataloader", "mineru", "mineru-ocr"]
     assert outcome.extractor == "mineru-ocr"
     assert outcome.passed
+
+
+def test_a_resumed_ocr_record_is_not_dropped_by_the_skip_guard(
+    monkeypatch, ladder_job
+):
+    """A job resumed mid-flight across the X12 rollout: `extraction_attempts`
+    already holds a mineru-ocr record from a run that predates the skip
+    guard. Earlier rungs are scripted to clear the coverage floor but trip
+    the structure ceiling, so `passing` is non-empty and the loop reaches
+    mineru-ocr without ever breaking early -- exactly the condition the
+    skip guard fires on.
+
+    The rung's record is on file already. The guard exists to avoid PAYING
+    for an OCR pass, not to erase one that already happened -- so it must
+    not be silently discarded and overwritten out of `extraction_attempts`.
+    """
+    ladder_job.extraction_attempts = [
+        {"extractor": "mineru-ocr", "coverage": 0.91, "unlabelled": 0.0,
+         "chunks": 20}
+    ]
+    scripted = _ScriptedLadder({"opendataloader": 0.5, "mineru": 0.5})
+    ctx = _ctx(monkeypatch, scripted, chunks=20, bare=("opendataloader", "mineru"))
+
+    outcome = worker._extract_and_chunk(ladder_job, ctx)
+
+    assert "mineru-ocr" not in scripted.calls  # not paid for again
+    assert [a["extractor"] for a in outcome.attempts] == [
+        "opendataloader", "mineru", "mineru-ocr",
+    ]
+    assert ladder_job.extraction_attempts[-1]["extractor"] == "mineru-ocr"

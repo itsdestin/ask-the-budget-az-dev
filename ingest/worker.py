@@ -442,10 +442,24 @@ def _extract_and_chunk(job: JobRecord, ctx: WorkerContext) -> ExtractionOutcome:
     passing: list[ExtractionOutcome] = []
 
     for index, name in enumerate(rungs):
+        # Computed BEFORE the skip guard below, not after. A resumed job can
+        # arrive here with a mineru-ocr attempt already on file from a run
+        # that predates this guard (`run_job`'s own docstring: a job found
+        # mid-ladder re-runs `_extract_and_chunk` in full). If the guard ran
+        # first it would `continue` past this rung without ever looking at
+        # `recorded`, silently dropping that attempt out of `attempts` and
+        # overwriting the persisted `job.extraction_attempts` with a record
+        # that no longer mentions it -- work already done, erased with no
+        # error. `recorded is None` below is what keeps the guard scoped to
+        # its actual job: skipping a PAYMENT that has not happened yet, not
+        # a record of one that has.
+        recorded = prior.get(name)
+
         if (
             name == "mineru-ocr"
             and inspection.has_text_layer is True
             and passing
+            and recorded is None
         ):
             # Spec X12. Measured on the one document this plan exists for:
             # mineru-ocr produced 353,002 characters against mineru's
@@ -465,7 +479,6 @@ def _extract_and_chunk(job: JobRecord, ctx: WorkerContext) -> ExtractionOutcome:
             # OCR is the last thing that might rescue it.
             continue
 
-        recorded = prior.get(name)
         if recorded is not None and recorded.get("error"):
             # This rung CRASHED on an earlier run. Don't pay for it again,
             # and don't try to chunk output it never produced.
