@@ -306,6 +306,8 @@ def test_run_batch_command_also_carries_the_requested_method(monkeypatch, tmp_pa
     """run_batch builds its OWN command line, separate from _run_range's --
     a method threaded through one and not the other would look correct in
     the single-document path and silently do nothing for a batch."""
+    import pypdfium2 as pdfium
+
     seen: list[list[str]] = []
 
     def fake_stream(self, cmd, *, timeout_s, on_page):
@@ -314,7 +316,13 @@ def test_run_batch_command_also_carries_the_requested_method(monkeypatch, tmp_pa
 
     monkeypatch.setattr(MineruRunner, "_stream", fake_stream, raising=False)
     pdf = tmp_path / "scan.pdf"
-    pdf.write_bytes(b"%PDF-1.4\n")
+    # run_batch probes every input with pdfium BEFORE staging it (Plan 7's
+    # poison-pill guard); a placeholder byte string reads as unreadable and
+    # the batch would never reach _stream at all, so this needs a document
+    # pdfium can actually open.
+    doc = pdfium.PdfDocument.new()
+    doc.new_page(200, 200)
+    doc.save(str(pdf))
     runner = MineruRunner(exe=["mineru"], method="ocr")
 
     with contextlib.suppress(_StopForTest):
