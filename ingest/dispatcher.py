@@ -131,6 +131,36 @@ class MinerUExtractor:
 
 
 @dataclass
+class MinerUOcrExtractor(MinerUExtractor):
+    """MinerU reading pages as images (`-m ocr`).
+
+    The last rung of the PDF ladder (ingest/ladder.py). It is the only
+    option for a scanned document, and the slowest thing this app does --
+    so it is never a starting rung for a file that has a text layer.
+
+    Subclasses MinerUExtractor rather than duplicating it: `get_version()`
+    is identical, and the only difference is the `method` passed to
+    `run_mineru()`. Deliberately NOT registered in
+    `data/document-types.yaml` -- see the note at `_EXTRACTOR_CLASSES`
+    below. It exists only as a ladder rung.
+    """
+
+    name: str = "mineru-ocr"
+
+    def extract(
+        self,
+        *,
+        source_path: Path,
+        output_dir: Path,
+        pages: list[int] | None,
+    ) -> None:
+        run_mineru_mod = _import_phase0_module("run_mineru")
+        if pages is None:
+            pages = list(range(1, _pdf_page_count(source_path) + 1))
+        run_mineru_mod.run_mineru(source_path, output_dir, pages, method="ocr")
+
+
+@dataclass
 class OpenDataLoaderExtractor:
     name: str = "opendataloader"
 
@@ -185,6 +215,17 @@ class PythonDocxExtractor:
 
 _EXTRACTOR_CLASSES = {
     "mineru": MinerUExtractor,
+    # `mineru-ocr` is deliberately NOT named in data/document-types.yaml --
+    # that file declares each type's PREFERRED extractor, and OCR must
+    # never be a first choice (spec T7: it is the slowest thing this app
+    # does, and it is unneeded for the ~99.97% of documents that have a
+    # text layer). It is registered here only so `ingest/ladder.py` can
+    # name it as a fallback rung. Nothing in `_build_registry` stops a
+    # future document-types.yaml edit from naming it as a preference too
+    # (the class exists, so that would resolve, not raise) --
+    # `tests/test_dispatcher.py::test_ocr_extractor_is_never_a_first_choice`
+    # is what actually guards this.
+    "mineru-ocr": MinerUOcrExtractor,
     "opendataloader": OpenDataLoaderExtractor,
     "python-docx": PythonDocxExtractor,
 }
