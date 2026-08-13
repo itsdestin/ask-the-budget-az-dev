@@ -45,8 +45,13 @@ REFRESH_STATES = ("queued", "extracting", "writing", "live")
 
 PIPELINES = {"document": PIPELINE_STATES, "refresh": REFRESH_STATES}
 
-# Nothing leaves these. `live` is success; `failed` and `cancelled` are ends a
-# human has to act on (retry re-queues; cancel is final).
+# `live` and `cancelled` are truly final -- nothing in `advance()` ever
+# leaves either one. `failed` is the one exception in this set: a human can
+# route it back into the pipeline (`failed` -> `queued`, the retry button)
+# or forward into `cancelled` (`failed` -> `cancelled`, the Needs-attention
+# panel's Dismiss button -- see the WHY comment on that branch below). Both
+# of those are named exceptions carved out below the blanket check this
+# constant drives; nothing else ever leaves `failed` either.
 TERMINAL_STATES = frozenset({"live", "failed", "cancelled"})
 
 STATES = frozenset(PIPELINE_STATES) | {"failed", "cancelled"}
@@ -300,6 +305,8 @@ def advance(job: JobRecord, new_state: str, *, error: str | None = None) -> JobR
       * anything non-terminal → `failed` (an error message is required) or
         `cancelled`
       * `failed` → `queued` (the retry button)
+      * `failed` → `cancelled` (the Needs-attention panel's Dismiss button —
+        see the WHY comment at that branch below)
 
     Everything else raises. The guard matters because two writers can reach
     the same job — the worker and an HTTP cancel — and a "cancel" that landed
@@ -331,6 +338,31 @@ def advance(job: JobRecord, new_state: str, *, error: str | None = None) -> JobR
         job.extraction_attempts = []
         job.completed_ranges = []
         return _commit(job, "queued")
+
+    # T8's held-back documents (every extraction rung scored below the
+    # coverage floor) land here in `failed`, and Plan B Task 7's "Dismiss"
+    # button on the Needs-attention panel is deliberately the EXISTING
+    # cancel action, not a new job state (see that panel's brief: "No new
+    # job states"). Without this branch a held-back document could never be
+    # dismissed — the blanket TERMINAL_STATES check just below would 409 on
+    # every attempt, forever, which is exactly wrong for the one document
+    # this project has actually hit where re-extraction cannot help (a
+    # fiscal note where azleg.gov published a literal "THIS IS A TEST" file
+    # — see docs/superpowers/investigations/2026-08-12-coverage-floor-
+    # calibration.md). Scoped to `failed` only, NOT to every terminal state:
+    # `live → cancelled` stays illegal, which is what the class comment
+    # above is protecting — a stray cancel must never hide a document that
+    # already finished successfully.
+    #
+    # Dismissal is ONE-WAY. Once here the job is `cancelled`, and
+    # `app/routes/jobs.py::retry_job` refuses anything whose state isn't
+    # `failed` (409) — there is no `cancelled` → anything edge, on purpose,
+    # same as every other exit from `cancelled`. The only route back for a
+    # dismissed document is re-uploading the source file as a new job.
+    # Defensible behind the panel's two-click confirm, but worth naming
+    # here since nothing else in the code says it.
+    if job.state == "failed" and new_state == "cancelled":
+        return _commit(job, "cancelled")
 
     if job.state in TERMINAL_STATES:
         raise IllegalTransition(

@@ -719,6 +719,45 @@ export async function adminCorpus(): Promise<AdminCorpus> {
   return r.json();
 }
 
+/** One extraction method the ladder tried on a held-back document.
+ *  `coverage` is null for a rung that crashed, or whose SOURCE could not be
+ *  measured — never rendered as 0%, which would claim a worse measurement
+ *  than was actually taken. */
+export interface AttentionAttempt {
+  extractor: string;
+  coverage: number | null;
+}
+
+/** A document the extraction ladder could not save — every rung scored
+ *  below the coverage floor (or crashed), so it was held OUT of search
+ *  rather than written with almost nothing in it. This measures
+ *  catastrophic TEXT LOSS, never correctness — `message` is the job's own
+ *  sentence (`ingest/worker.py::_held_out_message`) and is written to say
+ *  only what was measured, never that anything was "verified" or "checked".
+ */
+export interface AttentionDocument {
+  job_id: string;
+  title: string;
+  /** Server-side `job.error` is `str | None` -- but every job this route
+   *  lists is in state `failed`, and the only way a job REACHES `failed` is
+   *  `ingest.jobs.advance()`, which raises `ValueError` if `error` is
+   *  falsy (see the `if new_state == "failed": if not error: raise ...`
+   *  guard there). So a null `message` here would mean a job reached
+   *  `failed` some other way, which nothing in this codebase does today. */
+  message: string;
+  /** The best ratio any rung reached, or null when every rung crashed with
+   *  nothing measurable at all. Can exceed 1.0 for a document whose own
+   *  text layer undercounts (real AFRs score up to ~286%) — never capped. */
+  best_coverage: number | null;
+  attempts: AttentionAttempt[];
+}
+
+export async function adminAttention(): Promise<{ documents: AttentionDocument[] }> {
+  const r = await fetch("/api/admin/attention");
+  if (!r.ok) await fail(r, "documents needing attention");
+  return r.json();
+}
+
 /** Make (or unmake) this computer the one that processes uploads.
  *
  *  Per-machine, not a shared setting — settings.json lives on the share and

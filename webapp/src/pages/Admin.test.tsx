@@ -152,6 +152,7 @@ function mockAll(over: {
   models?: api.ModelCatalog;
   snapshots?: api.Snapshot[];
   notices?: api.Notice[];
+  attention?: api.AttentionDocument[];
   me?: Partial<api.Me>;
 } = {}) {
   vi.spyOn(api, "me").mockResolvedValue({
@@ -164,6 +165,7 @@ function mockAll(over: {
   vi.spyOn(api, "adminModels").mockResolvedValue(over.models ?? models());
   vi.spyOn(api, "adminBackups").mockResolvedValue({ snapshots: over.snapshots ?? [] });
   vi.spyOn(api, "adminNotices").mockResolvedValue({ notices: over.notices ?? [] });
+  vi.spyOn(api, "adminAttention").mockResolvedValue({ documents: over.attention ?? [] });
   vi.spyOn(api, "aiStatus").mockResolvedValue(AI_STATUS);
 }
 
@@ -470,6 +472,152 @@ describe("the spending panel", () => {
 });
 
 // --- restore ----------------------------------------------------------------
+
+describe("needs attention", () => {
+  // The panel itself is unit-tested against fake callbacks in
+  // NeedsAttention.test.tsx; these specs are the wiring — real API calls,
+  // real state refresh — which that file cannot see.
+
+  function heldBack(over: Partial<api.AttentionDocument> = {}): api.AttentionDocument {
+    return {
+      job_id: "job-afr24",
+      title: "AGAO Annual Financial Report FY2024",
+      message:
+        "Held out of search — only 2% of this document's text produced any "
+        + "content, after 3 extraction methods were tried.",
+      best_coverage: 0.02,
+      attempts: [
+        { extractor: "opendataloader", coverage: 0.02 },
+        { extractor: "mineru", coverage: 0.02 },
+        { extractor: "mineru-ocr", coverage: 0.01 },
+      ],
+      ...over,
+    };
+  }
+
+  it("is absent when nothing has failed", async () => {
+    mockAll({ attention: [] });
+    await renderAdmin();
+
+    expect(screen.queryByTestId("admin-attention")).toBeNull();
+  });
+
+  it("lists a document the extraction ladder held out of search", async () => {
+    mockAll({ attention: [heldBack()] });
+    await renderAdmin();
+
+    expect(screen.getByTestId("admin-attention")).toHaveTextContent(
+      "AGAO Annual Financial Report FY2024",
+    );
+  });
+
+  it("retrying calls the real retry endpoint and drops the document off the panel", async () => {
+    mockAll({ attention: [heldBack()] });
+    const retry = vi.spyOn(api, "retryJob").mockResolvedValue({
+      job: {
+        job_id: "job-afr24", doc_id: "d", title: "t", corpus: "budget",
+        state: "queued", pct: 0, stage_detail: "", error: null,
+        machine: "m", user: "u", created_at: "", updated_at: "",
+      },
+    });
+    // Once retried it is no longer `failed`, so the SERVER's next answer is
+    // an empty list — this is what the refetch-after-action must reflect.
+    const attentionSpy = vi.spyOn(api, "adminAttention");
+    attentionSpy.mockResolvedValueOnce({ documents: [heldBack()] });
+    await renderAdmin();
+    attentionSpy.mockResolvedValueOnce({ documents: [] });
+
+    fireEvent.click(within(screen.getByTestId("admin-attention")).getByRole(
+      "button", { name: "Try again" },
+    ));
+
+    await waitFor(() => expect(retry).toHaveBeenCalledWith("job-afr24"));
+    await waitFor(() => expect(screen.queryByTestId("admin-attention")).toBeNull());
+  });
+
+  it("dismissing calls the real cancel endpoint after the second click", async () => {
+    mockAll({ attention: [heldBack()] });
+    const cancel = vi.spyOn(api, "cancelJob").mockResolvedValue({
+      job: {
+        job_id: "job-afr24", doc_id: "d", title: "t", corpus: "budget",
+        state: "cancelled", pct: 0, stage_detail: "", error: null,
+        machine: "m", user: "u", created_at: "", updated_at: "",
+      },
+    });
+    const attentionSpy = vi.spyOn(api, "adminAttention");
+    attentionSpy.mockResolvedValueOnce({ documents: [heldBack()] });
+    await renderAdmin();
+    attentionSpy.mockResolvedValueOnce({ documents: [] });
+
+    const panel = screen.getByTestId("admin-attention");
+    fireEvent.click(within(panel).getByRole("button", { name: "Dismiss" }));
+    expect(cancel).not.toHaveBeenCalled();
+    fireEvent.click(within(panel).getByRole("button", { name: /Confirm dismiss/i }));
+
+    await waitFor(() => expect(cancel).toHaveBeenCalledWith("job-afr24"));
+    await waitFor(() => expect(screen.queryByTestId("admin-attention")).toBeNull());
+  });
+
+  it("surfaces a failed action instead of pretending it worked", async () => {
+    mockAll({ attention: [heldBack()] });
+    vi.spyOn(api, "retryJob").mockRejectedValue(
+      new Error("The queue could not be reached."),
+    );
+    await renderAdmin();
+
+    fireEvent.click(within(screen.getByTestId("admin-attention")).getByRole(
+      "button", { name: "Try again" },
+    ));
+
+    await waitFor(() =>
+      expect(screen.getByTestId("admin-attention-error")).toHaveTextContent(
+        /could not be reached/i,
+      ),
+    );
+    // The document must still be listed -- a failed action is not a
+    // silent no-op that quietly clears the panel.
+    expect(screen.getByTestId("admin-attention")).toBeInTheDocument();
+  });
+
+  it("clears a stale action error once a later action succeeds", async () => {
+    // Reproduces the exact shape this project has shipped before (a
+    // chat-history citation chip branded "source no longer available"
+    // that never cleared after a transient failure): a failed Dismiss
+    // followed by a SUCCESSFUL one must not leave the old error message
+    // sitting beside a panel that just worked.
+    mockAll({ attention: [heldBack()] });
+    const retry = vi.spyOn(api, "retryJob");
+    retry.mockRejectedValueOnce(new Error("The queue could not be reached."));
+    await renderAdmin();
+
+    fireEvent.click(within(screen.getByTestId("admin-attention")).getByRole(
+      "button", { name: "Try again" },
+    ));
+    await waitFor(() =>
+      expect(screen.getByTestId("admin-attention-error")).toHaveTextContent(
+        /could not be reached/i,
+      ),
+    );
+
+    retry.mockResolvedValueOnce({
+      job: {
+        job_id: "job-afr24", doc_id: "d", title: "t", corpus: "budget",
+        state: "queued", pct: 0, stage_detail: "", error: null,
+        machine: "m", user: "u", created_at: "", updated_at: "",
+      },
+    });
+    const attentionSpy = vi.spyOn(api, "adminAttention");
+    attentionSpy.mockResolvedValueOnce({ documents: [] });
+
+    fireEvent.click(within(screen.getByTestId("admin-attention")).getByRole(
+      "button", { name: "Try again" },
+    ));
+
+    await waitFor(() =>
+      expect(screen.queryByTestId("admin-attention-error")).toBeNull(),
+    );
+  });
+});
 
 describe("which computer processes uploads", () => {
   // The per-machine switch defaults to OFF because one bundle is installed

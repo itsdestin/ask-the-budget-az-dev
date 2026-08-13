@@ -138,11 +138,41 @@ def test_nonterminal_states_can_be_cancelled(data_dir):
 
 
 def test_terminal_states_cannot_be_left(data_dir):
-    for terminal in TERMINAL_STATES:
+    # `failed` is deliberately excluded here (Plan B Task 7): a held-back
+    # document (T8) is `failed`, and its Dismiss button on the Needs-attention
+    # panel is the existing cancel action, so `failed -> cancelled` has to
+    # succeed. See test_dismissing_a_failed_job_marks_it_cancelled below and
+    # the WHY comment on that branch in `advance()`.
+    for terminal in TERMINAL_STATES - {"failed"}:
         job = _job()
         job.state = terminal
         with pytest.raises(IllegalTransition):
             advance(job, "cancelled")
+
+
+def test_dismissing_a_failed_job_marks_it_cancelled(data_dir):
+    """The Needs-attention panel's Dismiss button, one level below the route.
+
+    Not a new state -- `cancelled` already exists -- only a new edge into it.
+    Scoped narrowly: a LIVE job must stay impossible to cancel (the case
+    `test_cancel_on_a_live_job_is_409` in test_jobs_route.py pins at the
+    route level), or a stray cancel could hide a document that already
+    finished successfully.
+    """
+    job = _job()
+    advance(job, "failed", error="every extraction rung scored below the floor")
+
+    advance(job, "cancelled")
+
+    assert job.state == "cancelled"
+
+
+def test_a_live_job_still_cannot_be_dismissed(data_dir):
+    job = _job()
+    for state in ("extracting", "chunking", "embedding", "writing", "live"):
+        advance(job, state)
+    with pytest.raises(IllegalTransition):
+        advance(job, "cancelled")
 
 
 def test_retry_reopens_a_failed_job(data_dir):

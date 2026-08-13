@@ -3,6 +3,7 @@ import * as api from "../api";
 import { AdvancedPanel } from "../admin/AdvancedPanel";
 import { CorpusPanel } from "../admin/CorpusPanel";
 import { CostsPanel } from "../admin/CostsPanel";
+import { NeedsAttention } from "../admin/NeedsAttention";
 import { NoticesPanel } from "../admin/NoticesPanel";
 import { ProviderPanel } from "../admin/ProviderPanel";
 import { SaveBar } from "../admin/SaveBar";
@@ -43,6 +44,13 @@ export function Admin() {
   const [corpus, setCorpus] = useState<api.AdminCorpus | null>(null);
   const [snapshots, setSnapshots] = useState<api.Snapshot[]>([]);
   const [notices, setNotices] = useState<api.Notice[]>([]);
+  const [attention, setAttention] = useState<api.AttentionDocument[]>([]);
+  // Errors from Try again / Dismiss. Separate from `saveError` (the
+  // settings form) and `ingestMessage` (the machine toggle) — three
+  // different actions on this page, three different places a failure can
+  // come from, and conflating them would attribute one action's failure to
+  // another's button.
+  const [attentionError, setAttentionError] = useState<string | null>(null);
 
   const [month, setMonth] = useState(currentMonth());
   const [tab, setTab] = useState<Tab>("by_user");
@@ -87,12 +95,13 @@ export function Admin() {
           setLoading(false);
           return;
         }
-        const [s, u, c, b, n] = await Promise.all([
+        const [s, u, c, b, n, a] = await Promise.all([
           api.adminSettings(),
           api.adminUsage(month),
           api.adminCorpus(),
           api.adminBackups(),
           api.adminNotices(),
+          api.adminAttention(),
         ]);
         if (cancelled) return;
         setSettings(s);
@@ -101,6 +110,7 @@ export function Admin() {
         setCorpus(c);
         setSnapshots(b.snapshots);
         setNotices(n.notices);
+        setAttention(a.documents);
         // These two are allowed to fail without taking the page down.
         api.aiStatus().then((st) => !cancelled && setTierCopy(st.tiers)).catch(() => {});
         loadModels();
@@ -199,6 +209,32 @@ export function Admin() {
         error: err instanceof Error ? err.message : String(err),
         restored: null,
       });
+    }
+  }
+
+  // Try again / Dismiss both reuse the existing job actions (T8: a
+  // held-back document is an ordinary `failed` job, no new state) — see
+  // the WHY comment on the `failed -> cancelled` branch in
+  // ingest/jobs.py::advance() for why Dismiss's cancel call is legal at
+  // all. Re-reads BOTH the attention list and the corpus queue counts
+  // rather than patching local state: a retry moves a document out of
+  // this panel and into the queue CorpusPanel already shows, and guessing
+  // that transition client-side is how the two panels end up disagreeing.
+  async function attentionAction(kind: "retry" | "dismiss", jobId: string) {
+    try {
+      if (kind === "retry") await api.retryJob(jobId);
+      else await api.cancelJob(jobId);
+      const [a, c] = await Promise.all([api.adminAttention(), api.adminCorpus()]);
+      setAttention(a.documents);
+      setCorpus(c);
+      // A success after an earlier failure must clear the old message -- an
+      // admin who retries after a network hiccup and succeeds should not
+      // still see "The queue could not be reached" beside a panel that just
+      // worked (the same stuck-stale-mark shape the chat-history citation
+      // chips were fixed for).
+      setAttentionError(null);
+    } catch (err) {
+      setAttentionError(err instanceof Error ? err.message : String(err));
     }
   }
 
@@ -332,6 +368,22 @@ export function Admin() {
           onUserLimitsChange={(user_limits) => setDraft({ ...draft, user_limits })}
           onExemptChange={(exempt_users) => setDraft({ ...draft, exempt_users })}
         />
+
+        {/* Above Corpus health (Destin, 2026-08-12) — a document held out of
+            search is the most direct thing that can be wrong with the
+            corpus, so it sits immediately next to the section that shows
+            the corpus's own size and queue. Renders nothing at all when
+            nothing has failed. */}
+        <NeedsAttention
+          documents={attention}
+          onRetry={(jobId) => void attentionAction("retry", jobId)}
+          onDismiss={(jobId) => void attentionAction("dismiss", jobId)}
+        />
+        {attentionError ? (
+          <p className="adm-warn" role="alert" data-testid="admin-attention-error">
+            {attentionError}
+          </p>
+        ) : null}
 
         <CorpusPanel
           corpus={corpus}

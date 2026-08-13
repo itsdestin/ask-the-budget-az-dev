@@ -2347,6 +2347,17 @@ fieldset.adm-field{border:0;padding:0;}
 .adm-notice-kind{font-size:11.5px;font-weight:800;text-transform:uppercase;letter-spacing:.04em;color:var(--navy);}
 .adm-notice-when{font-size:11.5px;color:var(--ink-3);margin-left:8px;}
 
+/* Needs attention (Plan B Task 7) — one bordered card per held-back
+   document, mirroring the mockup box Destin approved verbatim. */
+.adm-attention-count{flex:0 0 auto;display:inline-flex;align-items:center;justify-content:center;min-width:22px;height:22px;padding:0 6px;border-radius:var(--r-pill);background:var(--az-red);color:#fff;font-size:12.5px;font-weight:800;}
+.adm-attention-list{list-style:none;margin:8px 0 0;padding:0;display:flex;flex-direction:column;gap:12px;}
+.adm-attention-item{border:1px solid var(--line);border-radius:var(--r-sm);padding:12px 14px;}
+.adm-attention-title{margin:0;font-size:13.5px;font-weight:800;color:var(--navy);}
+.adm-attention-tried-label{margin:8px 0 0;font-size:12.5px;font-weight:700;color:var(--ink-2);}
+.adm-attention-tried{list-style:none;margin:2px 0 0;padding:0;font-size:12.5px;color:var(--ink-2);}
+.adm-attention-tried li{display:flex;justify-content:space-between;gap:12px;padding:3px 0;}
+.adm-attention-actions{display:flex;gap:8px;margin-top:10px;}
+
 /* Own-usage meter on Settings. Colour tracks the ledger's own status so the
    bar and the sentence beneath it can never disagree. */
 .adm-meter{height:9px;background:var(--canvas);border:1px solid var(--line);border-radius:var(--r-pill);overflow:hidden;margin:8px 0;max-width:420px;}
