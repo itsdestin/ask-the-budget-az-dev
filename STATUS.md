@@ -43,7 +43,7 @@ source. When something ships, update only this file.
 | JLBC memo formatting for generated reports | ✓ **Shipped (2026-08-13)**, unverified in real Word | `create_document` renders a JLBC memo — letterhead, DATE/TO/FROM/SUBJECT block, house typography — instead of Word's stock styling. Nine plan-code defects found during execution, two of them tests that proved nothing. See the section below |
 | AI Mode persistent conversation | ✓ **Shipped, browser-tested, merged `28567f0`** (2026-08-11) | "+ New chat" shows a row at once; the conversation survives a tab switch and keeps streaming. 742 vitest / `tsc -b` clean. Destin tested and accepted; browser testing found a two-rows-look-selected defect, fixed. Four Minors carried, and P5 (close-tab-still-aborts) is still unwatched. See the section below |
 | **Corpus navigation** (map, spread, coverage, echo) | ✓ **Shipped, both gates passed, merged `2dc295f`** (2026-08-12) | N1–N7 + N11. A corpus inventory in the prompt, `spread` retrieval, `year_coverage`, inferred-filter echo. **G-N1: Layer 1 identical to a same-hour control. G-N2: `key_fact_rate` 0.463 → 0.685 against a real control**, every citation metric up, input tokens down 41%. Full 31-query run not yet run. See the section below |
-| Document guide for generated reports | ✓ **Code complete (2026-08-13)**, on branch `document-guide`, unmerged | A sixth tool, `document_guide(report_type)`, hands the model JLBC's house style and one of three report shapes only when it is about to write a document. **Advisory and unenforced** — nothing validates what the model then writes. Five plan-code defects found during execution, two of them tests that proved nothing. **Nobody has watched a real document produced under it.** See the section below |
+| Document guide for generated reports | ✓ **Shipped (2026-08-13)**, merged `f91b68f` | A sixth tool, `document_guide(report_type)`, hands the model JLBC's house style and one of three report shapes only when it is about to write a document. **Advisory and unenforced** — nothing validates what the model then writes. Five plan-code defects found during execution, two of them tests that proved nothing. **Nobody has watched a real document produced under it.** See the section below |
 | **Admin extensions** (E1–E3, E6) | ✓ **Merged `b108d13`, gates green, NOT yet browser-verified** (2026-08-13) | Admin-editable alias overlay for search, admin-authored office guidance in the AI prompt, a read-only "See System Guidance" window over the shipped instructions, analyst issue reports with an admin inbox, `/admin` regrouped. 2660 pytest / 834 vitest / `tsc -b` / `npm run build` all clean; E1 eval gate passed with the overlay proven live. Destin opened the app and approved the merge, but three surfaces are still unwitnessed — see the section below |
 | **Plan B — resilient processing** (T5–T8, T12) | ✓ **Shipped** (2026-08-13) | A document that extracts to almost nothing is now detected, retried with another extractor, and held out of search if every method fails — instead of being written and reported `live`. Coverage floor **calibrated at 0.10 across all 7,434 documents**. 2798 pytest / 859 vitest / `tsc -b` clean, Layer 1 eval unmoved. **The acceptance run did NOT go as planned and found two real things — read the section below before building on this** |
 
@@ -1242,13 +1242,17 @@ draw differently.
 
 ---
 
-## Document guide — code complete, unwitnessed (2026-08-13)
+## Document guide — SHIPPED, unwitnessed (2026-08-13)
 
 Spec: `docs/superpowers/specs/2026-08-13-document-guide-design.md` (G1–G11).
-Plan: `docs/superpowers/plans/2026-08-13-document-guide.md` (3 tasks). Branch
-`document-guide`, commits `ded4242` / `3eb3b2c` / this one. Builds on the memo
+Plan: `docs/superpowers/plans/2026-08-13-document-guide.md` (3 tasks, **executed
+— do not re-run**; its example code carried five defects, see below). Merged
+`f91b68f`, commits `ded4242` / `3eb3b2c` / `923cc43`. Builds on the memo
 formatting section above: that made a generated document LOOK like JLBC's; this
 is about what it SAYS and how it is shaped.
+
+Gates on the merged tree: pytest 2824 / 5 skipped, vitest 913 across 83 files,
+`tsc -b` 0, `npm run build` clean. **No eval was run** — see the reason below.
 
 **A sixth tool, `document_guide(report_type)`.** It returns JLBC house style
 (numbers, voice, forbidden phrases, length, formatting) plus one of three
@@ -1262,8 +1266,10 @@ the cached prefix every conversation pays for on every step (S22). Only the
 tool's ~90-word schema joins it; the ~700-word guide is fetched on the small
 minority of turns that write a document.
 
-Gates: **pytest 2727 / 5 skipped** (the documented ONNX skips), **vitest 842 /
-79 files**, `tsc -b` exit 0, `npm run build` clean.
+Gates on the branch before merge: pytest 2727 / 5 skipped (the documented ONNX
+skips), vitest 842 / 79 files. The merged-tree numbers at the top of this
+section are the ones that count — master moved 46 commits during execution and
+was re-synced and re-gated twice before the push.
 
 ### 🔴 It is ADVISORY and UNENFORCED
 

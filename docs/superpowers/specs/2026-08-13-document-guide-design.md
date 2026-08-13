@@ -1,7 +1,12 @@
 # Report types and formatting guidance for generated documents — design
 
 **Date:** 2026-08-13
-**Status:** draft, awaiting approval
+**Status:** ⬛ **IMPLEMENTED AND MERGED 2026-08-13 (`f91b68f`).** G1–G11 all
+shipped. One deviation: G4's component-breakdown table style landed in
+`harness/guides/shared.md`, not `comparison.md`. What shipped is recorded in
+`STATUS.md` → "Document guide — SHIPPED, unwitnessed"; the plan
+(`docs/superpowers/plans/2026-08-13-document-guide.md`) carries a header
+listing five defects in its own example code — do not re-run it.
 **Revised:** 2026-08-13 after an audit against the fiscal-note skill found
 seven defects, including a wrong measurement in G5 and an internal
 contradiction in G8. Every correction below was re-verified against the

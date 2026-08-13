@@ -1,5 +1,52 @@
 # Document Guide Implementation Plan
 
+> ## ⬛ EXECUTED AND MERGED 2026-08-13 (`f91b68f`) — DO NOT RE-RUN
+>
+> All three tasks shipped. The checkboxes below are left unticked as the
+> authoring record; **they do not mean there is work outstanding.** What
+> actually shipped is recorded in `STATUS.md` → "Document guide — SHIPPED,
+> unwitnessed".
+>
+> **The worktree named in Global Constraints
+> (`~/ask-the-budget-az-worktrees/jlbc-memo-formatting`) no longer exists**,
+> and neither does the `document-guide` worktree used instead.
+>
+> ### 🔴 Five of this plan's example code blocks were WRONG. Do not transcribe them.
+>
+> Each was caught by running it, and three by deliberately breaking the rule a
+> test claimed to guard and watching the test stay green:
+>
+> 1. **`test_no_guide_recommends_numbered_lists` was inverted.** It asserted
+>    `"numbered list" not in text` — but the guide's own rule reads *"Use
+>    bullets, never numbered lists"*, which contains that substring. The test
+>    therefore passed **precisely when the rule was deleted from the guide**.
+>    It now asserts the rule is PRESENT.
+> 2. **`test_the_answer_versus_document_number_split_is_stated` matched a
+>    literal the guide wraps across a line break**, so it could never match.
+>    Content assertions now normalize whitespace — a guard that breaks when
+>    someone rewraps a Markdown paragraph is the wrong shape.
+> 3. **`_read`'s docstring claimed the suite catches a missing guide file.**
+>    It did not: `guide_for()` returns the type block *plus* the shared block,
+>    so a missing type file still reads as non-empty.
+>    `test_every_guide_file_is_present_on_disk` was added to make it true.
+> 4. **Task 2's only discoverability test could not see the system prompt.**
+>    It checked the tool's own *description*. Deleting the entire pointer
+>    paragraph from `harness/system-prompt.md` left it green. Four prompt
+>    tests were added that go red.
+> 5. **Task 2's edit anchor does not exist.** The plan anchors on
+>    `"...link the analyst can click."`; the real description ends
+>    *"Returns a download token the interface turns into a link"*. A blind
+>    append would have buried the pointer after the return-value sentence.
+>
+> Also unmentioned by the plan: registering a sixth tool turns
+> `test_registry_exposes_the_five_tools_in_openai_function_form` red, and the
+> new entry must be **appended**, never inserted — `TOOLS[0]` is indexed by
+> another test and the block's order is part of the S22 cached prefix.
+>
+> **The prose in this plan held up; its example code did not.** That is the
+> recurring pattern in this repo, and it is why every block should be run
+> rather than copied.
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** A sixth tool, `document_guide(report_type)`, that hands the model JLBC's report-type and formatting guidance only when it is about to write a document.
@@ -632,7 +679,7 @@ Then use `superpowers:finishing-a-development-branch`.
 
 ## Self-review
 
-**Spec coverage:** G1 → Task 2. G2 → Task 1 Steps 4-5 (+ the no-fiscal-note test). G3 → Task 1. G4 → `comparison.md` (one table style; points at the prompt for the published shapes; forbids a share column). G5 → `shared.md` + the guard test + the prompt paragraph. G6 → nothing to build; no rewriting exists. G7 → the drift test against the conventions reference. G8 → `harness/guides/` + the docstring. G9 → the pointer test. G10 → `shared.md`'s "Rules for every document". G11 → `shared.md`'s Length section.
+**Spec coverage:** G1 → Task 2. G2 → Task 1 Steps 4-5 (+ the no-fiscal-note test). G3 → Task 1. G4 → **shipped in `shared.md`, not `comparison.md` as claimed here** — the plan's own guide text never wrote the component-breakdown style anywhere, and Task 1 closed the gap by adding it to the shared block. `comparison.md` carries the rest of G4 (points at the prompt for the published shapes; forbids a share column; never sum rows into a total). G5 → `shared.md` + the guard test + the prompt paragraph. G6 → nothing to build; no rewriting exists. G7 → the drift test against the conventions reference. G8 → `harness/guides/` + the docstring. G9 → the pointer test. G10 → `shared.md`'s "Rules for every document". G11 → `shared.md`'s Length section.
 
 **Placeholder scan:** none. Every guide file is written out in full.
 
