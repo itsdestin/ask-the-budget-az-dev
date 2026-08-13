@@ -15,8 +15,31 @@ primary sources rather than inferred. Written 2026-08-13 while building
    there as a rule, most of it recorded as a dated user mandate.
 
 The two are different document types, so where they agree the agreement is
-strong evidence of a house rule, and where they differ the difference is
-per-document and must not be averaged away.
+strong evidence of a house rule.
+
+## 🔵 How conflicts are resolved (Destin's call, 2026-08-13)
+
+Where the two sources disagree:
+
+- **WRITING conventions follow the FISCAL NOTE.** Numbers, voice, phrasing,
+  rounding, forbidden phrases, abbreviations. The fiscal-note skill wins
+  because its rules are recorded as explicit dated mandates rather than
+  read off one document, and they are consistent across every JLBC written
+  product.
+- **DOCUMENT STRUCTURE stays SEPARATE, per document type.** Page setup,
+  letterhead, section-heading treatment, list style, and length are
+  properties of the document you are producing, not of JLBC writing in
+  general. A research memo keeps the staff memorandum's structure; it does
+  not become fiscal-note-shaped.
+
+The dividing line: **structure is what the page looks like; conventions are
+what the sentences say.** `memo/` owns the first. The guidance given to the
+model owns the second.
+
+One item sits on the line and is settled here: **body point size is
+STRUCTURE.** `memo/` stays at the staff memorandum's measured 10.5pt rather
+than adopting the fiscal note's 10pt, because it is a property of that page
+layout and was measured from the document being reproduced.
 
 ---
 
@@ -98,11 +121,20 @@ and they are the most directly reusable thing in it.
 **Agency abbreviations** the skill fixes: ADOT, AHCCCS, ADOA, DCS, AOC,
 ABOR, DIFI, DFFM, CMS, IHS.
 
-**A useful contrast with the staff memorandum**, which instructs analysts:
-"Continue to use full numbers (e.g., `$15,000,000`) throughout the entire
-document." That is a rule for *Appropriations Report narratives*
-specifically, and it contradicts the fiscal note's `$15.0 million`. **The
-number style follows the document type.** Do not apply one globally.
+**The one real conflict, and its resolution.** The staff memorandum
+instructs analysts: "Continue to use full numbers (e.g., `$15,000,000`)
+throughout the entire document." That contradicts the fiscal note's
+`$15.0 million`.
+
+**Resolved 2026-08-13 in favour of the fiscal note: generated documents use
+`$15.0 million`.** The memorandum's rule governs *Appropriations Report
+narratives*, a specific product with its own house requirement, and AI Mode
+does not produce those. Applying it everywhere would also make comparison
+tables unreadable, since full-precision figures do not align in columns.
+
+**If the app is ever extended to draft Appropriations Report narratives,
+this flips for that type only** — which is exactly why number style belongs
+to the report type rather than to the renderer.
 
 ---
 
@@ -171,4 +203,5 @@ Applying it to "what did we spend on child care subsidy" would produce
 padded, mislabelled sections.
 
 **Borrow the style rules. Do not borrow the workflow or the section
-structure.**
+structure.** That is the same dividing line stated at the top: conventions
+transfer, structure does not.
