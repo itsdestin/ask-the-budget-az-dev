@@ -27,6 +27,10 @@ def reports_dir() -> Path:
 
 
 def _write(path: Path, report: dict) -> None:
+    # This dir lives on a shared network folder several machines read/write at
+    # once. Write to a temp file (whose ".tmp-<uuid>" name doesn't match the
+    # "*.json" glob) then atomically replace, so list_reports() can never see
+    # a half-written file.
     tmp = path.with_name(f"{path.name}.tmp-{uuid.uuid4().hex[:8]}")
     tmp.write_text(json.dumps(report, ensure_ascii=False, indent=2), encoding="utf-8")
     os.replace(tmp, path)
@@ -66,6 +70,9 @@ def _read(path: Path) -> dict | None:
         raw = json.loads(path.read_text(encoding="utf-8"))
         return raw if isinstance(raw, dict) else None
     except (OSError, ValueError):
+        # ValueError covers both JSONDecodeError (torn write) and
+        # UnicodeDecodeError; degrade to None instead of raising so one bad
+        # report can't take down list_reports() for every other report.
         return None
 
 
@@ -111,6 +118,8 @@ def update_report(
             report["resolved_by"] = actor
             report["resolved_at"] = datetime.now(timezone.utc).isoformat()
         else:
+            # Reopening must not leave stale resolver/timestamp behind —
+            # those stamps would otherwise lie about who last resolved it.
             report["resolved_by"] = None
             report["resolved_at"] = None
     if admin_note is not None:
