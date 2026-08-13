@@ -93,7 +93,11 @@ describe("NeedsAttention", () => {
       }),
     ]);
     const doc = screen.getByTestId("admin-attention-doc");
-    expect(within(doc).getByText("not measured")).toBeInTheDocument();
+    // Also matches the new bare-figure column, which every row in this
+    // fixture reads as "not measured" too (the fixture sets no
+    // `unlabelled` field) -- at least one match is still the point: an
+    // unmeasured rung never silently reads as 0%.
+    expect(within(doc).getAllByText("not measured").length).toBeGreaterThan(0);
     expect(within(doc).queryByText("0%")).not.toBeInTheDocument();
   });
 

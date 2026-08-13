@@ -42,8 +42,8 @@ function extractorLabel(name: string): string {
  *  (a rung that crashed, or whose source coverage could not be measured)
  *  reads as "not measured" — never as 0%, which would claim a worse
  *  reading than was actually taken. */
-function pct(value: number | null): string {
-  if (value === null) return "not measured";
+function pct(value: number | null | undefined): string {
+  if (value === null || value === undefined) return "not measured";
   return `${Math.round(value * 100)}%`;
 }
 
@@ -112,6 +112,14 @@ export function NeedsAttention({
                 <li key={`${attempt.extractor}-${i}`}>
                   <span>{extractorLabel(attempt.extractor)}</span>
                   <span>{pct(attempt.coverage)}</span>
+                  {/* The second number is how much of what came out was
+                      figures with no words. It is shown beside coverage
+                      rather than instead of it because the two DISAGREE:
+                      the document this feature exists for read 49% on
+                      coverage and 31% bare on structure. `pct` renders an
+                      absent value as "not measured" -- job files written
+                      before this field existed have no such key. */}
+                  <span>{pct(attempt.unlabelled)}</span>
                 </li>
               ))}
             </ul>

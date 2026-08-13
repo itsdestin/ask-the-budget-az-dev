@@ -4,6 +4,7 @@ import { AdvancedPanel } from "../admin/AdvancedPanel";
 import { AliasesPanel } from "../admin/AliasesPanel";
 import { CorpusPanel } from "../admin/CorpusPanel";
 import { CostsPanel } from "../admin/CostsPanel";
+import { ExtractionChanges } from "../admin/ExtractionChanges";
 import { GuidancePanel } from "../admin/GuidancePanel";
 import { IssuesPanel } from "../admin/IssuesPanel";
 import { NeedsAttention } from "../admin/NeedsAttention";
@@ -67,6 +68,7 @@ export function Admin() {
   const [snapshots, setSnapshots] = useState<api.Snapshot[]>([]);
   const [notices, setNotices] = useState<api.Notice[]>([]);
   const [attention, setAttention] = useState<api.AttentionDocument[]>([]);
+  const [swapped, setSwapped] = useState<api.SwappedDocument[]>([]);
   // Errors from Try again / Dismiss. Separate from `saveError` (the
   // settings form) and `ingestMessage` (the machine toggle) — three
   // different actions on this page, three different places a failure can
@@ -133,6 +135,7 @@ export function Admin() {
         setSnapshots(b.snapshots);
         setNotices(n.notices);
         setAttention(a.documents);
+        setSwapped(a.swapped ?? []);
         // The initial load can fail to even read the jobs directory (a
         // share that's gone away) — surfaced through the SAME error slot
         // the retry/dismiss actions already use below, rather than a
@@ -253,6 +256,7 @@ export function Admin() {
       else await api.cancelJob(jobId);
       const [a, c] = await Promise.all([api.adminAttention(), api.adminCorpus()]);
       setAttention(a.documents);
+      setSwapped(a.swapped ?? []);
       setCorpus(c);
       // A success after an earlier failure must clear the old message -- an
       // admin who retries after a network hiccup and succeeds should not
@@ -365,6 +369,20 @@ export function Admin() {
           <NoticesPanel notices={notices} />
           <IssuesPanel />
         </Group>
+
+        {/* Group always paints its own <h2>, even with no children (see
+            `function Group` above) -- so wrapping ExtractionChanges
+            unconditionally would put a permanent "Extraction method
+            changed" heading over an empty section on every ordinary day,
+            which is exactly the scroll-past habit the global no-swaps
+            rule exists to prevent. The whole group is gated on the same
+            condition ExtractionChanges checks internally, so a normal day
+            with nothing swapped shows nothing here at all. */}
+        {swapped.length > 0 ? (
+          <Group title="Extraction method changed">
+            <ExtractionChanges documents={swapped} />
+          </Group>
+        ) : null}
 
         <Group title="AI Mode">
           {/* AI Mode is one section now: key, models, spending limits and which
