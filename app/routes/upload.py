@@ -23,10 +23,12 @@ from pathlib import Path
 from fastapi import APIRouter, File, Form, HTTPException, Request, UploadFile
 from fastapi.responses import JSONResponse
 
+from ingest.coverage import COVERAGE_FLOOR
 from ingest.doc_types import DocType, all_types, get as get_doc_type
 from ingest.driver import make_doc_id
 from ingest.jobs import TERMINAL_STATES, load_all, new_job, save
 from store.config import data_dir, documents_path
+from store.documents import document_record
 
 router = APIRouter()
 
@@ -288,22 +290,68 @@ def _find_duplicate(sha256: str) -> dict[str, str | None] | None:
     """
     for doc_id, entry in _documents().items():
         if entry.get("source_sha256") == sha256:
+            health, message = _duplicate_health(doc_id)
             return {
                 "detail": "already in corpus",
                 "existing_doc_id": doc_id,
                 "added_at": entry.get("ingested_at"),
                 "added_by": entry.get("uploaded_by"),
+                "health": health,
+                "message": message,
             }
 
     for job in load_all():
         if job.source_sha256 == sha256 and job.state not in TERMINAL_STATES:
+            health, message = _duplicate_health(job.doc_id)
             return {
                 "detail": "already in corpus",
                 "existing_doc_id": job.doc_id,
                 "added_at": job.created_at,
                 "added_by": job.user,
+                "health": health,
+                "message": message,
             }
     return None
+
+
+# T12: what today's fixed sentence stays for a document this check has no
+# evidence about — every document ingested before this shipped (7,434 of
+# them at the time), and unchanged from before this task.
+_NO_HEALTH_MESSAGE = "This document is already in the corpus."
+
+
+def _duplicate_health(doc_id: str) -> tuple[dict[str, float | bool] | None, str]:
+    """Whether the existing copy's extraction looked complete, and the
+    sentence that says so.
+
+    WHY `coverage is None` -- covering both "no extraction key at all" and
+    "extraction ran but coverage is null" -- gets the SAME silent treatment
+    as the legacy-document case: `ingest/coverage.py::coverage_ratio`
+    returns None (not 0.0) when the source has no text layer to measure
+    against, e.g. an image-only PDF routed straight to OCR. That is a
+    genuinely unmeasured state, not a measured failure, and the global
+    constraint this task shipped against is explicit that a health claim
+    with no evidence behind it is exactly the thing to avoid -- "unknown"
+    would be noise on the 7,434 legacy documents that are the overwhelming
+    majority of what this branch will see, and "healthy" would be a lie
+    about a document nothing was ever computed for.
+    """
+    record = document_record(doc_id)
+    extraction = record.get("extraction") if isinstance(record, dict) else None
+    coverage = extraction.get("coverage") if isinstance(extraction, dict) else None
+    if coverage is None:
+        return None, _NO_HEALTH_MESSAGE
+
+    # The floor REJECTS; it never approves (global constraint) — equality
+    # with COVERAGE_FLOOR must land on the healthy side, matching the T5
+    # ladder's own "at or above the floor" rule in `ingest/coverage.py`.
+    recommend_reprocess = coverage < COVERAGE_FLOOR
+    verdict = "recommended" if recommend_reprocess else "not needed"
+    message = (
+        f"Extraction produced {round(coverage * 100)}% as much text as the "
+        f"file contains. Re-processing is {verdict}."
+    )
+    return {"coverage": coverage, "recommend_reprocess": recommend_reprocess}, message
 
 
 def _documents() -> dict[str, dict]:

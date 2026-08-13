@@ -202,6 +202,100 @@ def _sha(blob: bytes) -> str:
     return hashlib.sha256(blob).hexdigest()
 
 
+# --- duplicate health (T12) --------------------------------------------------
+#
+# The brief's own sketch reads `resp.json()["detail"]` before indexing
+# `["health"]`/`["message"]`, but `_find_duplicate` returns a flat dict via
+# `JSONResponse(content=existing)` (see `test_duplicate_of_a_live_document_
+# is_409_with_provenance` above, which already pins `body["detail"] ==
+# "already in corpus"` as a plain string). "health" and "message" are new
+# TOP-LEVEL siblings of "detail", not nested under it -- corrected here per
+# the outer task's "treat the brief's code as a sketch to run and correct"
+# instruction.
+
+
+def _upload_duplicate(client, *, coverage: float | None,
+                       content: bytes = b"%PDF-1.4 hello"):
+    """Seed documents.json with a live entry for these bytes, then repeat
+    the upload so it lands on the 409 duplicate path.
+
+    `coverage=None` writes NO "extraction" key at all -- reproducing the
+    7,434 documents that predate Task 5, the shape the "absence must read
+    as fine" constraint is about. A float writes the `extraction` block
+    Task 5's ingest actually records.
+    """
+    entry: dict = {
+        "title": "FY 2027 Baseline — AHCCCS",
+        "source_sha256": _sha(content),
+        "ingested_at": "2026-07-01T12:00:00+00:00",
+        "uploaded_by": "DMOSS",
+    }
+    if coverage is not None:
+        entry["extraction"] = {
+            "method": "opendataloader",
+            "coverage": coverage,
+            "attempts": 1,
+            "fell_back": False,
+        }
+    documents_path().write_text(json.dumps({
+        "jlbc-baseline-fy2027-27baseline-axs": entry,
+    }), encoding="utf-8")
+    return _upload(client, content=content)
+
+
+def test_a_duplicate_of_a_healthy_document_says_reprocessing_is_not_needed(client):
+    resp = _upload_duplicate(client, coverage=0.94)
+    assert resp.status_code == 409
+    body = resp.json()
+    assert body["health"] == {"coverage": 0.94, "recommend_reprocess": False}
+    assert "not needed" in body["message"]
+    assert "94%" in body["message"]
+
+
+def test_a_duplicate_of_a_below_floor_document_recommends_reprocessing(client):
+    """The FY2024 AFR case. A blanket "already ingested" warning would
+    discourage exactly the re-processing this document needs."""
+    resp = _upload_duplicate(client, coverage=0.02)
+    assert resp.status_code == 409
+    body = resp.json()
+    assert body["health"] == {"coverage": 0.02, "recommend_reprocess": True}
+    assert "recommended" in body["message"]
+    assert "2%" in body["message"]
+
+
+def test_a_duplicate_right_at_the_floor_does_not_recommend_reprocessing(client):
+    """"At or above the floor gets today's behaviour exactly" (global
+    constraint) — the floor REJECTS, it never approves, so equality must
+    fall on the healthy side, not the recommend side."""
+    from ingest.coverage import COVERAGE_FLOOR
+
+    resp = _upload_duplicate(client, coverage=COVERAGE_FLOOR)
+    assert resp.json()["health"]["recommend_reprocess"] is False
+
+
+def test_a_duplicate_with_no_recorded_coverage_makes_no_health_claim(client):
+    """7,434 documents predate the measurement. Saying "unknown health" about
+    all of them would be noise, and saying "healthy" would be a lie."""
+    resp = _upload_duplicate(client, coverage=None)
+    body = resp.json()
+    assert body["health"] is None
+    assert "coverage" not in body["message"].lower()
+    # And the pinned literal "detail" string is untouched — this is the
+    # exact shape 7,434 real documents will hit, so it must be byte-identical
+    # to what `test_duplicate_of_a_live_document_is_409_with_provenance`
+    # already pins.
+    assert body["detail"] == "already in corpus"
+
+
+def test_reprocess_still_overrides_a_below_floor_duplicate(client):
+    """The existing escape hatch is unchanged by this feature — reprocess
+    must still queue a new job even when the existing copy is recommended
+    for re-processing."""
+    resp = _upload_duplicate(client, coverage=0.02)
+    assert resp.status_code == 409
+    assert _upload(client, reprocess="true").status_code == 202
+
+
 # --- Review Finding 1: the registry, not the client, decides `publisher` ----
 #
 # `GET /api/document-types` doesn't project `publisher`, so the webapp used to
