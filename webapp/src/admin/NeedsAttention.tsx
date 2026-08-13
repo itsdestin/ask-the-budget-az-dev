@@ -103,10 +103,17 @@ export function NeedsAttention({
                 future consumer that wants the single number (e.g. sorting
                 the panel by severity) without re-deriving it. */}
 
-            {/* The agreed layout (task-7-brief.md) labels this list "Tried:"
-                so the reader knows what the name/percent pairs below it
-                are -- without it they're three bare rows with no caption. */}
-            <p className="adm-attention-tried-label">Tried:</p>
+            {/* The agreed layout (task-7-brief.md) labels this list so the
+                reader knows what the name/percent pairs below it are --
+                without a caption they're bare rows with two numbers pointing
+                in OPPOSITE directions (higher coverage is better, higher
+                unlabelled is worse) and nothing saying which is which.
+                Wording matches ExtractionChanges.tsx's identical list --
+                one caption, not two near-duplicates. */}
+            <p className="adm-attention-tried-label">
+              Tried, with how much text came out and how much of it was
+              figures with no words:
+            </p>
             <ul className="adm-attention-tried">
               {doc.attempts.map((attempt, i) => (
                 <li key={`${attempt.extractor}-${i}`}>

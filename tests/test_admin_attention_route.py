@@ -408,6 +408,42 @@ def test_a_job_kept_on_its_first_rung_with_a_later_retry_attempt_is_not_listed(c
     assert _attention(client)["swapped"] == []
 
 
+def test_a_null_titled_swapped_job_does_not_500_the_whole_route(client):
+    """This project has already shipped the exact "one bad file costs the
+    whole rail" defect once (STATUS.md's IngestLock heartbeat incident).
+    `swapped.sort(key=lambda row: row["title"])` raises TypeError comparing
+    None to str the moment a second, ordinarily-titled job is also present
+    to sort against -- and an uncaught exception here 500s the whole route,
+    blanking BOTH the swaps panel and the held-out panel above it."""
+    job = _live_job(
+        doc_id="agao-afr-fy2024", title="A null title",
+        kept_extractor="mineru",
+        attempts=[
+            {"extractor": "opendataloader", "coverage": 0.49,
+             "unlabelled": 0.31, "chunks": 388},
+            {"extractor": "mineru", "coverage": 0.45,
+             "unlabelled": 0.0, "chunks": 450},
+        ],
+    )
+    job.title = None  # a malformed job file, not something the API can write
+    save(job)
+    _live_job(
+        doc_id="agao-afr-fy2023", title="An ordinary title",
+        kept_extractor="mineru",
+        attempts=[
+            {"extractor": "opendataloader", "coverage": 0.49,
+             "unlabelled": 0.31, "chunks": 388},
+            {"extractor": "mineru", "coverage": 0.45,
+             "unlabelled": 0.0, "chunks": 450},
+        ],
+    )
+
+    r = client.get("/api/admin/attention")
+
+    assert r.status_code == 200
+    assert len(r.json()["swapped"]) == 2
+
+
 def test_a_job_with_only_one_recorded_attempt_is_not_listed_as_swapped(client):
     """Isolates `len(attempts) < 2`. State is live, kept is set, and the
     lone attempt's extractor differs from `kept` — so if the length guard

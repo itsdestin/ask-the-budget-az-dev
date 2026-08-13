@@ -973,7 +973,11 @@ def get_attention(_settings: Settings = Depends(require_admin)) -> dict:
                 for a in attempts
             ],
         })
-    swapped.sort(key=lambda row: row["title"])
+    # `row["title"] or ""` -- a job file with a null title (this project has
+    # already shipped the "one bad file costs the whole rail" defect once:
+    # see IngestLock in STATUS.md) must not raise TypeError comparing None
+    # to str and 500 this route, blanking both the swaps and held-out panels.
+    swapped.sort(key=lambda row: row["title"] or "")
 
     return {"documents": documents, "swapped": swapped, "error": error}
 

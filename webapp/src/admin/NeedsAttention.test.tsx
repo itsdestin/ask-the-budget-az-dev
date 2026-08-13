@@ -61,13 +61,19 @@ describe("NeedsAttention", () => {
     ).not.toBeInTheDocument();
   });
 
-  it("labels the attempt list 'Tried:', matching the agreed layout", () => {
-    // task-7-brief.md's owner-approved sketch captions the extractor/score
-    // rows with "Tried:" -- without it they're three bare pairs with
-    // nothing on the page saying what they are.
+  it("captions the attempt list with what its two numbers mean", () => {
+    // Finding 3: a bare "Tried:" caption leaves two numbers pointing in
+    // OPPOSITE directions (higher coverage is better, higher unlabelled is
+    // worse) with nothing saying which is which. Wording matches
+    // ExtractionChanges.tsx's identical list -- one legend, not two
+    // near-duplicates.
     setup([held()]);
     const doc = screen.getByTestId("admin-attention-doc");
-    expect(within(doc).getByText("Tried:")).toBeInTheDocument();
+    expect(
+      within(doc).getByText(
+        /Tried, with how much text came out and how much of it was figures with no words:/,
+      ),
+    ).toBeInTheDocument();
   });
 
   it("lists every attempt with its score", () => {

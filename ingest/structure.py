@@ -114,8 +114,15 @@ _TAG_RE = re.compile(r"<[^>]+>")
 
 
 def _strip_markup(text: str) -> str:
-    # Replaced with a SPACE, not the empty string: `<td>A</td><td>B</td>`
-    # must not become `AB` and invent a word that was never there.
+    # Replaced with a SPACE, not the empty string. This canNOT change
+    # whether a passage reads as unlabelled: `is_unlabelled` strips
+    # whitespace out of the denominator and counts individual letters, so
+    # it never looks at word boundaries -- `<td>A</td><td>B</td>` and
+    # `<td>A</td> <td>B</td>` score an identical ratio either way. The one
+    # place the space matters is the `len(stripped) < MIN_JUDGED_CHARS`
+    # gate just below, which DOES count whitespace: replacing with "" would
+    # shrink a tag-heavy chunk's length and could push it under the floor
+    # into "too short to judge" when the space form keeps it judgeable.
     return _TAG_RE.sub(" ", text)
 
 

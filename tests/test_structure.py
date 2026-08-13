@@ -42,6 +42,30 @@ def test_tab_padded_labelled_text_is_labelled():
     assert is_unlabelled(LABELLED_TABLE) is False
 
 
+# A partially-labelled row -- short labels scattered among bare figures,
+# the shape a table gets when only some columns carry a header. 23 letters
+# of 152 non-whitespace characters = 0.1513, strictly between the shipped
+# LETTER_RATIO (0.10) and 0.25 -- the value the calibration comment names
+# as flagging the three healthy AGAO AFRs that are this spec's own control
+# group. Neither BARE (0 letters of 697) nor LABELLED_TABLE (~66% letters)
+# sits anywhere near that gap, which is why a mutation from 0.10 to 0.25
+# passed the whole suite before this fixture existed.
+PARTIALLY_LABELLED = (
+    "FUND BAL 34,863,017 REV 34,863,017 EXP -34,863,017 - - "
+    "TAX 4,423,700 FEE -4,423,700 - - "
+    "MISC 1,415,900 -1,415,900 - - 151,400 -151,400 - - "
+    "1,661,900 -1,661,900 - - 924,400 -924,400 -"
+)
+
+
+def test_a_ratio_between_the_shipped_value_and_a_rejected_one_is_labelled():
+    """Pins LETTER_RATIO at 0.10, not merely below-1.0. A ratio of 0.1513
+    is labelled (False) at the shipped 0.10 but would read as unlabelled
+    (True) at 0.25, the calibration comment's own rejected value -- this
+    is the mutation the other fixtures cannot catch."""
+    assert is_unlabelled(PARTIALLY_LABELLED) is False
+
+
 def test_a_short_chunk_is_not_judged_at_all():
     """Under MIN_JUDGED_CHARS the answer is None -- never False, which
     would claim a measurement that was not taken."""

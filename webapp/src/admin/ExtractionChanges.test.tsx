@@ -64,6 +64,17 @@ describe("ExtractionChanges", () => {
     expect(cells[1]).toHaveTextContent("not measured"); // unlabelled
   });
 
+  it("is styled as a card panel, like every other admin panel", () => {
+    // Finding 4: this was the one admin panel with none of `.card`/
+    // `.adm-panel`'s chrome and no gap between one swapped document's rows
+    // and the next document's title -- jsdom applies no stylesheet, so this
+    // only pins that the CLASSES are present, not how they render; a human
+    // at a browser still has to confirm the paint.
+    render(<ExtractionChanges documents={[SWAP]} />);
+    expect(screen.getByTestId("adm-swaps")).toHaveClass("card", "adm-panel");
+    expect(screen.getByTestId("adm-swap")).toHaveClass("adm-attention-item");
+  });
+
   it("never describes the kept reading as verified, checked or healthy", () => {
     const { container } = render(<ExtractionChanges documents={[SWAP]} />);
     const text = container.textContent ?? "";

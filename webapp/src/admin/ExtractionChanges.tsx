@@ -38,9 +38,16 @@ export function ExtractionChanges({
   if (documents.length === 0) return null;
 
   return (
-    <div className="adm-swaps" data-testid="adm-swaps">
+    // `card adm-panel` + `.adm-attention-list`'s flex/gap are REUSED, not
+    // re-authored: this panel was the only admin panel with no card chrome
+    // at all (no siblings' background/border/padding, and no gap between
+    // one swapped document's rows and the next document's title). Every
+    // other rule this component needs (`.adm-attention-title`,
+    // `.adm-attention-tried-label`, `.adm-attention-tried`) already exists
+    // and is unchanged below.
+    <div className="adm-swaps card adm-panel adm-attention-list" data-testid="adm-swaps">
       {documents.map((doc) => (
-        <div className="adm-swap" key={doc.job_id} data-testid="adm-swap">
+        <div className="adm-swap adm-attention-item" key={doc.job_id} data-testid="adm-swap">
           <p className="adm-attention-title">{doc.title}</p>
           <p className="adm-swap-kept" data-testid="adm-swap-kept">
             Read with {extractorLabel(doc.kept)}

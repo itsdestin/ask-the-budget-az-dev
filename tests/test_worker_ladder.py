@@ -80,9 +80,9 @@ def _fake_chunks(job, count: int, total_chars: int, *, filler: str = "x") -> lis
     """`count` chunks whose text sums to exactly `total_chars` characters.
 
     `filler` decides whether those characters are LETTERS (the default --
-    a structurally healthy reading) or DIGITS, which is how a rung is
-    scripted to trip the structure ceiling. The chunk text is real text
-    measured by the real `unlabelled_fraction`, not a handed-in score.
+    a reading that scores below MAX_UNLABELLED) or DIGITS, which is how a
+    rung is scripted to trip the structure ceiling. The chunk text is real
+    text measured by the real `unlabelled_fraction`, not a handed-in score.
     """
     if count <= 0:
         return []
