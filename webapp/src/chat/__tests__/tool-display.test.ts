@@ -32,6 +32,27 @@ describe("toolDisplayLabel", () => {
     expect(toolDisplayLabel("cite_batch")).toBe("Cite claims");
     expect(toolDisplayLabel("list_filter_values")).toBe("Browse filters");
     expect(toolDisplayLabel("create_document")).toBe("Write document");
+    expect(toolDisplayLabel("document_guide")).toBe("Check style guide");
+  });
+
+  it("never leaks a raw snake_case tool name for a registered tool", () => {
+    // The generic fallback returns the bare name, which is a legible
+    // degradation for a tool nobody has labelled yet — and a defect for one
+    // that ships. `document_guide` reached the UI unlabelled once; this
+    // asserts the whole registered set, so the next tool added to
+    // harness/tools.py fails here rather than in front of an analyst.
+    const registered = [
+      "retrieve",
+      "cite",
+      "cite_batch",
+      "list_filter_values",
+      "create_document",
+      "document_guide",
+    ];
+    for (const name of registered) {
+      expect(toolDisplayLabel(name)).not.toBe(name);
+      expect(toolDisplayLabel(name)).not.toContain("_");
+    }
   });
 
   it("falls back to the bare name for unknown tools", () => {
@@ -83,6 +104,19 @@ describe("toolHeaderSummary", () => {
     });
     expect(summary).toBe("FY2027 ADOT operating budget");
     expect(summary).not.toContain("long memo body");
+  });
+
+  it("returns the report type for document_guide", () => {
+    expect(
+      toolHeaderSummary("document_guide", { report_type: "comparison" }),
+    ).toBe("comparison");
+  });
+
+  it("summarizes document_guide with nothing when no type was asked for", () => {
+    // The tool defaults to research-memo server-side, but the header reports
+    // what the model SENT. Printing "research-memo" here would show a choice
+    // the model never made.
+    expect(toolHeaderSummary("document_guide", {})).toBeNull();
   });
 
   it("falls back to first string value for unknown tools", () => {

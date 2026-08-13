@@ -1,4 +1,4 @@
-"""The five tools the model can call, as in-process Python (Plan 4, S2).
+"""The six tools the model can call, as in-process Python (Plan 4, S2).
 
 These used to be four TypeScript files behind an MCP server that talked
 HTTP to a FastAPI sidecar. Spec decision S2 drops MCP entirely: the
@@ -27,6 +27,14 @@ actually went wrong.
   never heard of MCP, Claude Code, sessions, or a sidecar.
 * *`create_document` is new* (S3) — the only tool that produces a file,
   and it takes no path from the model (see Invariant 7 below).
+* *`document_guide` is new* — house rules for a document the model is
+  about to write. A TOOL rather than more system prompt because the
+  prompt is the cached prefix every conversation pays for on every step,
+  and this guidance is wanted on the small minority of turns that
+  produce a document. Its CONTENT lives in `harness/guides/*.md`, loaded
+  by `harness/guides.py` — under `harness/` and not `memo/` because the
+  import allowlist below permits `harness` and forbids `pathlib`, so a
+  guide loader outside this package is what keeps that guard intact.
 
 **Invariant 7 — the model-callable surface has no filesystem access.**
 No shell tool, no file read/write tool, and no path-typed argument
@@ -60,6 +68,10 @@ from harness.constants import (
     SPREAD_MIN_PER_GROUP,
     TIER_BUDGETS,
 )
+# Aliased on import: this module already has DEFAULT_TIER and
+# DEFAULT_PIPELINE_TOP_K in scope, and a bare DEFAULT_TYPE beside them
+# reads as "the default of what?".
+from harness.guides import DEFAULT_TYPE as DEFAULT_REPORT_TYPE, REPORT_TYPES, guide_for
 from retrieval import (
     DEFAULT_PIPELINE_TOP_K,
     RetrievalRequest,
@@ -593,8 +605,9 @@ _CREATE_DOCUMENT_SCHEMA = {
             "bullets, bold and pipe tables are rendered. The TITLE becomes "
             "the memo's SUBJECT line, so write it like a subject. You name "
             "the document by TITLE only; where it is saved is not yours to "
-            "choose. Returns a download token the interface turns into a "
-            "link."
+            "choose. Call document_guide first for the house rules on "
+            "sections, tables and numbers. Returns a download token the "
+            "interface turns into a link."
         ),
         "parameters": {
             "type": "object",
@@ -632,15 +645,61 @@ _CREATE_DOCUMENT_SCHEMA = {
     },
 }
 
+# The guidance itself is NOT in this schema, and that is the point of
+# making it a tool rather than more system prompt: only these ~90 words
+# join the cached prefix every conversation pays for on every step, while
+# the ~800-word guide is fetched only on the turns that write a document.
+#
+# `report_type` is OPTIONAL and its handler falls back rather than
+# rejecting. There is nothing useful a model can do with "unknown report
+# type" except guess again, so a required argument would buy a round-trip
+# and no correctness.
+_DOCUMENT_GUIDE_SCHEMA = {
+    "type": "function",
+    "function": {
+        "name": "document_guide",
+        "description": (
+            "House formatting and structure guidance for a document you "
+            "are about to write. Call it BEFORE create_document, once, "
+            "with the report type that fits: 'research-memo' (the "
+            "default — a question with an answer), 'comparison' (two or "
+            "more years, agencies or funds), 'agency-profile' (one "
+            "agency's budget). Returns JLBC's conventions for sections, "
+            "tables, numbers and voice. Free and instant — no search, no "
+            "cost."
+        ),
+        "parameters": {
+            "type": "object",
+            "additionalProperties": False,
+            "properties": {
+                "report_type": {
+                    "type": "string",
+                    "enum": list(REPORT_TYPES),
+                    "description": (
+                        "Which kind of document. Defaults to "
+                        f"'{DEFAULT_REPORT_TYPE}' when omitted."
+                    ),
+                },
+            },
+        },
+    },
+}
+
 # Tuple, not list: this is a process-wide global handed to every request
 # builder, and one caller doing `TOOLS.append(...)` would change what
 # every conversation in the office sees.
+#
+# APPENDED, never inserted: the order is what the model reads in the
+# request body, and reordering the tool block changes the cached prefix
+# byte-for-byte (S22) — every conversation in the office would lose its
+# cache hit.
 TOOLS: tuple[dict[str, Any], ...] = (
     _RETRIEVE_SCHEMA,
     _CITE_SCHEMA,
     _CITE_BATCH_SCHEMA,
     _LIST_FILTER_VALUES_SCHEMA,
     _CREATE_DOCUMENT_SCHEMA,
+    _DOCUMENT_GUIDE_SCHEMA,
 )
 
 TOOL_NAMES: tuple[str, ...] = tuple(t["function"]["name"] for t in TOOLS)
@@ -1173,6 +1232,7 @@ class ToolExecutor:
             "cite_batch": self._cite_batch,
             "list_filter_values": self._list_filter_values,
             "create_document": self._create_document,
+            "document_guide": self._document_guide,
         }.get(name)
         if handler is None:
             return _error(
@@ -1572,3 +1632,27 @@ class ToolExecutor:
             recipient=_opt_str(args, "to"),
         )
         return {"ok": True, "download_token": token, "filename": path.name}
+
+    # -- document_guide ----------------------------------------------------
+
+    def _document_guide(self, args: dict[str, Any]) -> dict[str, Any]:
+        """House guidance for a document the model is about to write.
+
+        Reads nothing, writes nothing, costs nothing — the only tool here
+        that touches neither the store nor the model's own output.
+
+        `report_type` echoes back the type ACTUALLY used, not the one
+        requested. Reflecting the request instead would tell a model it
+        got `comparison` guidance when it got the default, so a document
+        written to the wrong shape would look correct to the thing that
+        wrote it.
+
+        `_opt_str` rather than `_opt_enum`, deliberately: the schema's
+        enum is advice to the model, and a value outside it must resolve
+        to the default rather than raise. Models emit `null` and invented
+        type names routinely, and there is nothing a model can usefully
+        do with "unknown report type" except spend a step guessing again.
+        """
+        requested = _opt_str(args, "report_type")
+        resolved = requested if requested in REPORT_TYPES else DEFAULT_REPORT_TYPE
+        return {"ok": True, "report_type": resolved, "guide": guide_for(resolved)}

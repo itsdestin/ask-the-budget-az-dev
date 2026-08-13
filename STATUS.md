@@ -43,6 +43,7 @@ source. When something ships, update only this file.
 | JLBC memo formatting for generated reports | ✓ **Shipped (2026-08-13)**, unverified in real Word | `create_document` renders a JLBC memo — letterhead, DATE/TO/FROM/SUBJECT block, house typography — instead of Word's stock styling. Nine plan-code defects found during execution, two of them tests that proved nothing. See the section below |
 | AI Mode persistent conversation | ✓ **Shipped, browser-tested, merged `28567f0`** (2026-08-11) | "+ New chat" shows a row at once; the conversation survives a tab switch and keeps streaming. 742 vitest / `tsc -b` clean. Destin tested and accepted; browser testing found a two-rows-look-selected defect, fixed. Four Minors carried, and P5 (close-tab-still-aborts) is still unwatched. See the section below |
 | **Corpus navigation** (map, spread, coverage, echo) | ✓ **Shipped, both gates passed, merged `2dc295f`** (2026-08-12) | N1–N7 + N11. A corpus inventory in the prompt, `spread` retrieval, `year_coverage`, inferred-filter echo. **G-N1: Layer 1 identical to a same-hour control. G-N2: `key_fact_rate` 0.463 → 0.685 against a real control**, every citation metric up, input tokens down 41%. Full 31-query run not yet run. See the section below |
+| Document guide for generated reports | ✓ **Code complete (2026-08-13)**, on branch `document-guide`, unmerged | A sixth tool, `document_guide(report_type)`, hands the model JLBC's house style and one of three report shapes only when it is about to write a document. **Advisory and unenforced** — nothing validates what the model then writes. Five plan-code defects found during execution, two of them tests that proved nothing. **Nobody has watched a real document produced under it.** See the section below |
 | **Admin extensions** (E1–E3, E6) | ✓ **Merged `b108d13`, gates green, NOT yet browser-verified** (2026-08-13) | Admin-editable alias overlay for search, admin-authored office guidance in the AI prompt, a read-only "See System Guidance" window over the shipped instructions, analyst issue reports with an admin inbox, `/admin` regrouped. 2660 pytest / 834 vitest / `tsc -b` / `npm run build` all clean; E1 eval gate passed with the overlay proven live. Destin opened the app and approved the merge, but three surfaces are still unwitnessed — see the section below |
 | **Plan B — resilient processing** (T5–T8, T12) | ✓ **Shipped** (2026-08-13) | A document that extracts to almost nothing is now detected, retried with another extractor, and held out of search if every method fails — instead of being written and reported `live`. Coverage floor **calibrated at 0.10 across all 7,434 documents**. 2798 pytest / 859 vitest / `tsc -b` clean, Layer 1 eval unmoved. **The acceptance run did NOT go as planned and found two real things — read the section below before building on this** |
 
@@ -1238,6 +1239,143 @@ not Word. Opening `/tmp/memo-sample.docx` beside `/tmp/memo-reference.docx` in
 real Word on a JLBC machine is still the final check — particularly the seal's
 placement and the boxed headings, which are what LibreOffice is most likely to
 draw differently.
+
+---
+
+## Document guide — code complete, unwitnessed (2026-08-13)
+
+Spec: `docs/superpowers/specs/2026-08-13-document-guide-design.md` (G1–G11).
+Plan: `docs/superpowers/plans/2026-08-13-document-guide.md` (3 tasks). Branch
+`document-guide`, commits `ded4242` / `3eb3b2c` / this one. Builds on the memo
+formatting section above: that made a generated document LOOK like JLBC's; this
+is about what it SAYS and how it is shaped.
+
+**A sixth tool, `document_guide(report_type)`.** It returns JLBC house style
+(numbers, voice, forbidden phrases, length, formatting) plus one of three
+report shapes — `research-memo` (the default), `comparison`, `agency-profile`.
+Guidance lives as Markdown under `harness/guides/`, loaded by
+`harness/guides.py`, so a non-technical successor edits house rules in a text
+file — the same reasoning that makes `harness/system-prompt.md` a file.
+
+**A tool rather than more system prompt, for a measured reason.** The prompt is
+the cached prefix every conversation pays for on every step (S22). Only the
+tool's ~90-word schema joins it; the ~700-word guide is fetched on the small
+minority of turns that write a document.
+
+Gates: **pytest 2727 / 5 skipped** (the documented ONNX skips), **vitest 842 /
+79 files**, `tsc -b` exit 0, `npm run build` clean.
+
+### 🔴 It is ADVISORY and UNENFORCED
+
+Nothing validates the model's output against the guide, and **no code rewrites
+the model's numbers** (spec G6). The tool hands over advice; the model writes
+what it writes. That is deliberate — a server-side rounding pass would be
+editing figures the analyst is about to send under their own name — but it
+means the only evidence the guidance works is reading a real document.
+
+### 🔴 The answer-versus-document number split, and why losing it would be silent
+
+Rounding (`$6.0 million`) is scoped to the **document body** and explicitly
+forbidden in the **chat answer**, where figures keep source precision
+(`$6,043,200`). Documents carry no citation chips; chat answers do, and
+`citation/matching.py` refuses an untagged figure below **4 written significant
+digits**. A bare "round your numbers" would be applied to answers too.
+
+**If that split were ever dropped from the guide, untagged citation coverage
+would fall with no error anywhere** — no test fails, no log line, nothing
+visible until someone re-measures the false-link/coverage numbers. It is
+therefore stated in TWO places and guarded in both: in `harness/guides/shared.md`
+(`test_the_answer_versus_document_number_split_is_stated`) and repeated inline
+in the `create_document` section of the system prompt
+(`test_the_prompt_repeats_the_source_precision_rule_for_answers`, run against
+both corpora). The prompt copy is not redundancy: the guide is read only on
+turns that write a document, and the rule applies to every turn.
+
+The second content rule with its own guard is **"use bullets, never numbered
+lists"** — `memo/markdown.py` renders `1)` as an unstyled plain paragraph, so
+borrowing the fiscal-note skill's numbered convention produces visibly broken
+documents.
+
+### No eval was run, and that is the right call
+
+The prompt edit is confined to the `create_document` section, which
+`eval/run_eval.py` cannot measure — it calls `retrieve()` directly and never
+reads the system prompt. Same reasoning as S22/S23 and the memo work. Nothing
+under `retrieval/`, `ingest/`, `chunking/` or `citation/` was touched.
+
+### Guide length — judged, not just counted
+
+Read as the model would and trimmed: research-memo **672 → 641** words,
+comparison **765 → 729**, agency-profile **702 → 671**. The three type files
+are already tight (93 / 181 / 123 words); the 548-word shared block is the bulk
+of every total. What came out was redundancy only — a paragraph restating "Name
+your sources" (its one unique clause folded into that bullet instead), and two
+compressions. **Comparison deliberately stays over the plan's ~700 guideline.**
+Its remaining three table rules each prevent a distinct concrete defect —
+building a total by summing rows, adding a derived percentage-share column, and
+a one-row "comparison" — and cutting to hit the number would mean deleting a
+rule. 729 vs 700 is not a difference the model can feel.
+
+### 🔴 Five defects in the PLAN's code, and two were tests that proved nothing
+
+Same shape as the memo work, and the third time this repo has recorded it: the
+plan's **prose reasoning held**; its **example code did not**. Every defect was
+in a code block, found by running it rather than transcribing it.
+
+1. **The bullets guard was BACKWARDS — it passed precisely when the rule was
+   deleted.** The plan asserted `"numbered list" not in text.lower()`, which is
+   unsatisfiable beside the rule it protects ("Use bullets, never numbered
+   lists"): it forbids the *phrase*, not the practice. Proven by mutation —
+   removing the rule from `shared.md` turned it green. It now asserts the
+   prohibition is **present**.
+2. **The discoverability test could not see the system prompt at all.** The
+   plan's only pointer test checked the `create_document` tool description.
+   The prompt paragraph is what actually drives the behaviour, and deleting it
+   entirely left the plan's test green. Two tests now cover it, both run
+   against both corpora, and a test asserting only the tool-list line would
+   still not do — a bare name in a list is not an instruction.
+3. **A content guard that never matched.** The plan matched the literal
+   `"as the source writes"`, which the guide wraps between "the source" and
+   "writes them". All content assertions now normalize whitespace, so
+   reflowing a Markdown paragraph cannot break a guard.
+4. **`guides._read`'s docstring claimed the suite catches a missing guide
+   file. It did not** — a missing *type* file still returns the shared block
+   and reads as non-empty. `test_every_guide_file_is_present_on_disk` checks
+   the disk and makes the claim true.
+5. **The plan's edit anchor did not exist.** It said to add the pointer after
+   `"...link the analyst can click."`; the description actually ends "Returns
+   a download token the interface turns into a link". Appending blindly would
+   have buried the pointer after the return-value sentence.
+
+### The webapp tool card had no label
+
+Found by Task 2, fixed here. `webapp/src/chat/tool-display.ts` had no
+`document_guide` case, so the chat rendered a raw row reading `document_guide`
+with its argument beside it while every sibling tool has plain English. It now
+reads **"Check style guide"**, summarised by the report type the model asked
+for (null when it asked for none — printing `research-memo` there would show a
+choice the model never made). A new spec asserts the whole registered tool set
+never renders a raw snake_case name, so the *next* tool added to
+`harness/tools.py` fails there rather than in front of an analyst. Both cases
+verified by in-place mutation. The expanded body and the card icon still take
+their generic fallbacks, which degrade legibly (collapsed raw JSON, neutral
+square) — worth a pass if anyone touches `tool-views/` next.
+
+### Packaging needs nothing
+
+`packaging/build_bundle.py` selects app files via `git ls-files`, so
+`harness/guides/*.md` ship in the Windows bundle automatically. Verified in
+Task 1, not assumed.
+
+### ⏸ NOBODY HAS WATCHED A REAL DOCUMENT PRODUCED UNDER IT
+
+Every check above is tests and content. **No model has been given this
+guidance and asked to write a memo** — that needs a machine with an OpenRouter
+key. The open questions a live run answers: whether the model calls the tool at
+all without enforcement, whether it keeps source precision in the answer while
+rounding in the document, and whether the three shapes produce documents an
+analyst would send. Until then the feature is unmeasured in the only way that
+counts.
 
 ---
 

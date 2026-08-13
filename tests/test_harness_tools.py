@@ -231,7 +231,7 @@ def _descriptions() -> list[str]:
 # ---------------------------------------------------------------------------
 
 
-def test_registry_exposes_the_five_tools_in_openai_function_form():
+def test_registry_exposes_the_six_tools_in_openai_function_form():
     names = [t["function"]["name"] for t in TOOLS]
     assert names == [
         "retrieve",
@@ -239,6 +239,11 @@ def test_registry_exposes_the_five_tools_in_openai_function_form():
         "cite_batch",
         "list_filter_values",
         "create_document",
+        # Appended, never inserted: `test_retrieve_schema_mirrors_the_locked_
+        # zod_shape` below indexes TOOLS[0], and the ORDER is what the model
+        # reads in the request body. Adding a tool at the front would reorder
+        # the cached prefix and cost every conversation its cache hit.
+        "document_guide",
     ]
     for tool in TOOLS:
         assert tool["type"] == "function"
