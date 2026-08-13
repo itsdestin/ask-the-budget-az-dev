@@ -33,10 +33,11 @@ There is no plan yet. **Write one** (`superpowers:writing-plans` →
 
 ---
 
-## 🔴 Task 0 — measure the queue, then bring Destin the choice
+## 🔴 Task 0 — reproduce the measurement before you write the plan
 
-**Do this before writing the plan.** It takes ten minutes and it decides the
-shape of half the work.
+**Do this first.** It takes ten minutes, and the decision recorded at the end
+of this section rests on it. The storage shape is already chosen — you are
+confirming the evidence, not re-opening the choice.
 
 The spec's T13 says: *"Filter on the job file's mtime from the directory scan,
 before parsing it."* **A job file's timestamp cannot tell you the job's
@@ -77,43 +78,68 @@ print("all:", dict(states)); print("older than 24h:", dict(stale))
 EOF
 ```
 
-### The choice to put to Destin
+### ✅ DECIDED 2026-08-13 by Destin — finished jobs move to `jobs/done/`
 
-Knowing a job's state cheaply requires one of these. **Options 2 and 3 change
-how job files are written, which crosses the file boundary below — that is
-exactly why this is a decision and not a guess.**
+Three options were put to him; this is the one he chose, and it is not open
+for a fresh session to re-litigate:
 
-| | what it means | cost |
+| | what it means | why not |
 |---|---|---|
-| **1. Read every file** | Keep today's behaviour; filter after parsing. Correct, and the payload shrinks even if the read count does not | 7,118 file opens per refresh over SMB stays |
-| **2. Put the state in the filename** | `<job_id>.<state>.json`. One directory listing answers everything, zero file opens for rows you will not show | Touches `save()`/`advance()` and `load_job()`'s path building |
-| **3. Move finished jobs to `jobs/done/`** | The main folder holds only work; history is one folder over and still readable in Notepad | Touches the write path at the `live` transition |
+| 1. Read every file | Filter after parsing. Correct, shrinks the payload only | 7,118 file opens per refresh over SMB stays, and it fixes none of the six other callers |
+| 2. State in the filename `<job_id>.<state>.json` | One directory listing answers everything | Same speed win, but `load_job()` can no longer build a path from an id alone, and every rename is a state change in two places at once |
+| **3. Move finished jobs to `jobs/done/` ← CHOSEN** | The main folder holds only work; history is one folder over | — |
 
-**Recommended: option 3, paired with the T13 simplification below.** It is the
-only one that also fixes the callers in the next section, and it keeps the
-"readable in Notepad" property that the whole one-file-per-job design exists
-for.
+**Why 3 over 2:** it keeps the property the whole one-file-per-job design
+exists for — *"a colleague, or a future maintainer with no code access, can
+read the queue in Notepad"* (`ingest/jobs.py` module docstring). A folder
+called `done` says what it holds. A filename suffix does not.
 
-### The T13 simplification worth putting to Destin at the same time
-
-T13 as written has two interacting rules — an age window, plus an exception
-that overrides the window for failures. Exceptions to a window are where bugs
-live, and the exception is what the error above hinges on. The simpler rule:
+**This makes the 24-hour window moot, so T13's rule simplifies to:**
 
 > **The queue shows work: anything unfinished, plus anything failed. Nothing
 > else. Plus one line — "7,100 documents finished — view all".**
 
-Drop the 24-hour window. The spec itself gives the reason it is unnecessary:
-*"successes age out because a finished document is visible in search."* If
-that is true after a day it is true after a minute. The one moment a window
-genuinely serves someone is the second a document finishes and its row would
-vanish while they are watching it — and the **browser already knows what you
-were watching**, so that is a small front-end touch, not a server rule with a
-configurable window.
+Once finished jobs live in another folder they simply do not appear, so an age
+window is machinery with nothing left to do — and an age window with an
+exception clause is precisely what produced the defect measured above. One
+rule with no exception cannot reproduce it. Destin has accepted this.
 
-This is a change to T13 as written, so **it needs Destin's yes, not your
-judgement.** If he says no, keep the window and note that it does not change
-the storage question above.
+### What choice 3 actually commits you to — think this through in the plan
+
+These are the consequences, not optional extras. Work them into the plan
+rather than discovering them one at a time:
+
+- **`failed` stays in the main folder.** That is the entire point. Only `live`
+  and `cancelled` move. Retry (`failed → queued`) needs no move because it
+  never left; **dismiss is `failed → cancelled`, which moves it** — that is
+  exactly T13's "until it is retried, cancelled or dismissed", and it falls
+  out of the design instead of needing a rule.
+- **`load_all()` splits in two, and each of the seven callers must be told
+  which one it wants.** Roughly: the worker's `_candidates()`, the upload
+  duplicate check and the book skip-existing check want **active only**; the
+  admin panels want **active only** (they are looking for failures); the "view
+  all" link is the one caller that wants **both**. Getting one of these wrong
+  is a silent correctness bug, not a performance bug — a duplicate check that
+  stops seeing history starts re-ingesting documents. **Read each caller and
+  justify its choice in a WHY comment.**
+- **`load_job(job_id)` must look in both folders** — a job id from a URL may
+  name an archived job.
+- **The move needs `_replace_with_retry`'s treatment**, not a bare
+  `os.rename`. Windows and SMB refuse to move a file another machine has open,
+  and the queue page polls these files from other PCs. Same reasoning as the
+  comment already on that function.
+- **The failure mode must be benign.** If the move fails, the job file stays
+  put as `live` and shows up in the queue until something sweeps it. That is
+  the right way round — a stray finished row is noise; a lost job file is the
+  audit trail gone.
+- **7,100 existing files need moving once.** Decide deliberately whether that
+  is a startup sweep, an admin button, or a one-off script, and whether it
+  takes the ingest lock. It runs against the live office share.
+- **Nothing is deleted, ever.** Unchanged from the spec.
+- **One front-end touch:** a row now disappears the instant it finishes, which
+  is abrupt for the person who just uploaded it and is watching. The browser
+  knows what it was watching — keep those rows visible for the rest of the
+  session. This is the only thing the 24-hour window was ever really doing.
 
 ---
 
@@ -134,10 +160,15 @@ ingest/jobs.py:305         resumable()
 
 `ingest/worker.py:1708` is the one that matters most and is on nobody's radar:
 **the background worker reads all 7,118 files every time it looks for the next
-document to process.** Fixing only the listing route leaves five of seven
-callers paying the full cost. Do not go and fix all seven — that is scope
-creep — but let it inform the Task 0 choice, because option 2 or 3 fixes them
-all for free where option 1 fixes none of them.
+document to process.** That is why the storage choice went the way it did —
+moving finished jobs out of the folder fixes every one of these at once, where
+a filter in the listing route fixes none of them.
+
+**Every one of these seven callers must be visited**, not to be rewritten, but
+to be told which of the two loaders it wants (see the consequences list
+above). Leaving one on the wrong loader is a silent correctness bug. This is
+the largest single risk in Plan C — treat it as its own task with its own
+review, and state each caller's choice and its reason in the plan.
 
 ---
 
@@ -155,9 +186,10 @@ catalog-first with a HEAD-verified probe ladder that once found the FY2027
 Appropriations Report the harvest had recorded as unpublished, walking 139
 documents with 0 unreachable. Do not re-engineer the ladder.
 
-**T13 — the queue shows history instead of work.** See Task 0 above for the
-one instruction not to take literally, and for the rule shape to confirm.
-**Job files are NOT deleted** either way. They are the ingest audit trail —
+**T13 — the queue shows history instead of work.** Read Task 0 above before
+the spec: it carries the one spec instruction not to take literally, the
+measurement that disproves it, and the storage decision Destin has already
+made. **Job files are NOT deleted** either way. They are the ingest audit trail —
 what was added, by whom, when, and now which extraction methods were tried.
 T13 changes what the queue *shows*, never what is *kept*, and the page keeps a
 way to see everything so "where did my document go" has an answer better than
@@ -221,11 +253,17 @@ T13:  app/routes/jobs.py    ingest/jobs.py
 ```
 
 `ingest/jobs.py` is the genuine overlap — the other session added
-`JobRecord.held_out` and `extraction_attempts` there. Stay out of `advance()`
-and the state machine. **If Task 0 lands on option 2 or 3 you will need to
-touch the write path, which is a coordination event, not a merge risk to
-absorb quietly** — raise it with Destin and the other session before you
-build it.
+`JobRecord.held_out` and `extraction_attempts` there. **The decision above
+means you WILL touch its write path** (the move on reaching a terminal state)
+and you will change `load_all()`'s shape, which `ingest/worker.py` calls —
+a file the other session owns.
+
+**That is a coordination event, not a merge risk to absorb quietly.** Before
+you build it: tell the other session what `load_all()` is becoming, agree who
+edits `ingest/worker.py:_candidates`, and prefer *adding* `load_active()`
+alongside a `load_all()` that keeps working over changing `load_all()` under
+them. Still stay out of `advance()`'s transition rules and the state machine
+itself — the move is a consequence of a transition, not a new transition.
 
 Both of you edit `webapp/src/pages/Upload.tsx` in different regions (book
 panel + queue vs. the duplicate-upload response). **Rebase on master before

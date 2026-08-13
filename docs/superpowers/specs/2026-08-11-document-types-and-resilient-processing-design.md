@@ -544,7 +544,8 @@ real case, and detecting it is a separate problem — the current behaviour
 
 - every job in a **non-terminal** state (queued, extracting, chunking,
   embedding, writing), and
-- terminal jobs that finished **within a window, default 24 hours**, and
+- ~~terminal jobs that finished **within a window, default 24 hours**~~
+  — **DROPPED 2026-08-13, see the amendment below**, and
 - **every `failed` job, regardless of age**, until it is retried, cancelled or
   dismissed.
 
@@ -582,13 +583,20 @@ office reads the queue off an SMB share.
 > while the ingest PC is closed, and the row would silently disappear.
 > (0 such jobs today; that is luck, not safety.)
 >
-> **Knowing a job's state cheaply requires changing how job files are written**
-> — the state in the filename (`<job_id>.<state>.json`), or finished jobs moved
-> to a `jobs/done/` subdirectory. Either keeps the "readable in Notepad"
-> property this design rests on. The alternative is to keep reading every file
-> and filter after parsing, which is correct and shrinks only the payload.
-> **This is a decision for Destin, not an implementation detail** — pick it
-> before building.
+> **Knowing a job's state cheaply requires changing how job files are written.**
+> Three options were put to Destin and he chose the third on 2026-08-13:
+>
+> 1. Keep reading every file and filter after parsing — correct, shrinks only
+>    the payload, fixes none of the other callers below.
+> 2. Put the state in the filename, `<job_id>.<state>.json`.
+> 3. ✅ **CHOSEN — finished jobs move to a `jobs/done/` subdirectory.**
+>
+> Chosen over (2) because it preserves the property this whole one-file-per-job
+> design rests on — *"a colleague (or a future maintainer with no code access)
+> can read the queue in Notepad"* (`ingest/jobs.py` module docstring). A folder
+> named `done` states what it holds; a filename suffix does not. `failed` stays
+> in the main folder, which is what makes "every failed job, regardless of age"
+> fall out of the storage shape instead of needing a rule to enforce it.
 >
 > **The cost is also in six other callers**, not just the listing route:
 > `app/routes/admin.py` (×2), `app/routes/upload.py` (every upload),
@@ -598,13 +606,17 @@ office reads the queue off an SMB share.
 > to process.** A filename/subdirectory scheme fixes all of them; a filter in
 > the listing route fixes none of them.
 >
-> **Recommended simplification, not yet accepted:** drop the 24-hour window
-> entirely and state the rule as *"the queue shows anything unfinished plus
-> anything failed, and one line saying how many finished documents exist"*.
-> The window's only genuine job is not yanking a row out from under someone
-> watching it finish — and the browser already knows what they were watching,
-> so that is a client-side touch, not a server-side window with an exception
-> clause. One rule with no exception cannot reproduce the defect above.
+> **✅ ACCEPTED 2026-08-13 — the 24-hour window is dropped.** The rule above
+> is superseded by: *"the queue shows anything unfinished plus anything failed,
+> and one line saying how many finished documents exist."* Once finished jobs
+> live in another folder an age window has nothing left to do, and an age
+> window with an exception clause is exactly what produced the defect measured
+> above. One rule with no exception cannot reproduce it.
+>
+> The window's only genuine job was not yanking a row out from under someone
+> watching their upload finish. **The browser knows what it was watching**, so
+> that becomes a client-side touch — keep those rows for the rest of the
+> session — rather than a server-side window with a configurable duration.
 
 **Job files are not deleted.** They are the ingest audit trail — what was
 added, by whom, when, and now which extraction methods were tried. This
