@@ -559,6 +559,53 @@ The current cost is 7,116 file reads; deciding from the directory entry means
 parsing only the handful that qualify. This matters specifically because the
 office reads the queue off an SMB share.
 
+> #### 🔴 AMENDED 2026-08-13 — the mtime instruction above CANNOT be
+> #### implemented as written, and following it hides the failures
+>
+> A job file's modification time does not carry the job's **state** — that is
+> inside the file. So a timestamp-first filter cannot identify either category
+> this decision says must always appear, and the 24-hour window then deletes
+> them. Measured against the live data dir on 2026-08-13:
+>
+> | | count |
+> |---|---|
+> | job files on disk | 7,118 |
+> | `live` | 7,100 |
+> | **`failed`** | **14** |
+> | `cancelled` | 4 |
+> | **`failed` with a file older than 24 h** | **13 (all 12.6 days old)** |
+>
+> **A 24-hour mtime window drops 13 of the 14 failures** — the exact opposite
+> of the clause above it, which this decision calls the one rule not to relax.
+> The same hole applies to a `queued` job: ingest is default-OFF per machine,
+> so an uploaded document can legitimately wait days with a stale timestamp
+> while the ingest PC is closed, and the row would silently disappear.
+> (0 such jobs today; that is luck, not safety.)
+>
+> **Knowing a job's state cheaply requires changing how job files are written**
+> — the state in the filename (`<job_id>.<state>.json`), or finished jobs moved
+> to a `jobs/done/` subdirectory. Either keeps the "readable in Notepad"
+> property this design rests on. The alternative is to keep reading every file
+> and filter after parsing, which is correct and shrinks only the payload.
+> **This is a decision for Destin, not an implementation detail** — pick it
+> before building.
+>
+> **The cost is also in six other callers**, not just the listing route:
+> `app/routes/admin.py` (×2), `app/routes/upload.py` (every upload),
+> `app/routes/books.py` (every book ingest), `ingest/jobs.py::resumable`, and
+> — the one nobody had noticed — **`ingest/worker.py::_candidates`, which reads
+> all 7,118 files every time the background worker looks for the next document
+> to process.** A filename/subdirectory scheme fixes all of them; a filter in
+> the listing route fixes none of them.
+>
+> **Recommended simplification, not yet accepted:** drop the 24-hour window
+> entirely and state the rule as *"the queue shows anything unfinished plus
+> anything failed, and one line saying how many finished documents exist"*.
+> The window's only genuine job is not yanking a row out from under someone
+> watching it finish — and the browser already knows what they were watching,
+> so that is a client-side touch, not a server-side window with an exception
+> clause. One rule with no exception cannot reproduce the defect above.
+
 **Job files are not deleted.** They are the ingest audit trail — what was
 added, by whom, when, and now which extraction methods were tried. This
 decision changes what the queue *shows*, not what is *kept*. Pruning them is a
