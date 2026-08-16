@@ -189,3 +189,47 @@ def test_a_route_never_BUILDS_a_worker_on_a_machine_that_opted_out(
 
     assert _upload(client).status_code == 202
     assert getattr(app.state, "ingest_worker", None) is None
+
+
+def test_no_route_module_starts_the_ingest_worker_directly():
+    """The CLASS guard, not a third instance of the same fix.
+
+    Two routes were gated on 2026-08-16 (upload, books) and a THIRD —
+    `fiscal_notes.refresh` — was found still calling `worker.start()` when
+    the branch was merged and the whole tree was grepped. That is the point
+    at which patching instances stops being the right move: per CLAUDE.md,
+    "a guard that fires twice is telling you the design is wrong".
+
+    Any route that wants the queue to move must call
+    `ingest.worker.revive_if_this_machine_ingests`, which consults
+    `app.machine_config.ingest_enabled()` first. A direct `.start()` bypasses
+    the per-machine switch, and the cost lands on a colleague: one bundle on
+    ~20 office PCs, so the machine that gets conscripted is whichever analyst
+    happened to press the button, and it then spends hours at 100% CPU on a
+    Baseline book while they are trying to work.
+
+    AST rather than a regex so a comment mentioning `.start()` cannot fail
+    the suite and a line-wrapped call cannot pass it.
+    """
+    import ast
+    from pathlib import Path
+
+    routes = Path(__file__).resolve().parent.parent / "app" / "routes"
+    offenders = []
+    for path in sorted(routes.glob("*.py")):
+        tree = ast.parse(path.read_text(encoding="utf-8"))
+        for node in ast.walk(tree):
+            if (
+                isinstance(node, ast.Call)
+                and isinstance(node.func, ast.Attribute)
+                and node.func.attr == "start"
+                and isinstance(node.func.value, ast.Name)
+                and node.func.value.id == "worker"
+            ):
+                offenders.append(f"{path.name}:{node.lineno}")
+
+    assert offenders == [], (
+        "These routes start the ingest worker directly and so bypass the "
+        f"per-machine ingest switch: {offenders}. Call "
+        "ingest.worker.revive_if_this_machine_ingests(request.app) instead."
+    )

@@ -17,6 +17,7 @@ from fastapi import APIRouter, Request
 
 from ingest.fiscal_notes_refresh import directory_path
 from ingest.jobs import new_job, save
+from ingest.worker import revive_if_this_machine_ingests
 
 router = APIRouter()
 SNAPSHOT = Path(__file__).resolve().parent.parent / "data" / "fiscal-notes-snapshot.json"
@@ -102,7 +103,16 @@ def refresh(request: Request):
         kind="refresh",
     )
     save(job)
-    worker = getattr(request.app.state, "ingest_worker", None)
-    if worker is not None:
-        worker.start()
+    # 🔴 GATED (2026-08-16). This was the THIRD route that started the ingest
+    # worker outright, and it was missed when upload.py and books.py were
+    # fixed earlier the same day — found only by grepping the merged tree.
+    # Starting here conscripts a machine whose machine.json says it does not
+    # process uploads, which is the whole point of that switch: one bundle on
+    # ~20 office PCs, and the loser is an analyst whose laptop then spends
+    # hours at 100% CPU.
+    #
+    # Two fixes and a third instance is the signal to guard the CLASS, not to
+    # patch again — see tests/test_ingest_switch.py, which walks every module
+    # under app/routes/ and fails on any direct `.start()`.
+    revive_if_this_machine_ingests(request.app)
     return {"job_id": job.job_id}

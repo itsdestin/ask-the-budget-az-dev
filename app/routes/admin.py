@@ -852,14 +852,36 @@ def get_attention(_settings: Settings = Depends(require_admin)) -> dict:
     """
     error: str | None = None
     try:
-        # load_active(): `failed` never leaves the main folder — that is
-        # precisely what spec T13's storage shape guarantees — so this panel
-        # sees every held-back document without reading the archive.
-        from ingest.jobs import load_active
+        # 🔴 TWO READERS, ON PURPOSE. This route serves three panels and they
+        # do NOT want the same jobs, which a clean merge on 2026-08-16 hid:
+        # spec T13's archiving (this branch) and the swapped/degraded lists
+        # (master) landed independently, git merged them without a conflict,
+        # and both suites had been green on their own side. The fused
+        # function shared ONE `load_active()` list, so the two new lists —
+        # which are ONLY ever about jobs that reached `live` — could never
+        # match a row. Eight tests caught it here; in production it would
+        # have been a permanently empty panel with no error.
+        #
+        #   held_back  -> `failed`, which by T13 NEVER leaves the main
+        #                 folder, so load_active() sees all of it and reads
+        #                 no archive.
+        #   swapped /
+        #   degraded   -> `live`, which by T13 is ALWAYS archived, so these
+        #                 need load_all().
+        #
+        # load_all() opens every archived job file (~7,200 today). That is
+        # the O(n) cost T13 removed from the 3-second queue poll, and it is
+        # accepted HERE because this is an admin page fetched on open, not a
+        # poll. If this route ever becomes polled, index the archive rather
+        # than narrowing these lists back to the main folder — narrowing
+        # would silently reintroduce exactly this defect.
+        from ingest.jobs import load_active, load_all
 
         jobs = load_active()
+        finished = load_all()
     except Exception:  # noqa: BLE001 — an unreadable jobs dir must not 500 the page
         jobs = []
+        finished = []
         # Distinguishable from "nothing needs attention" on purpose. An
         # empty `documents` list ALSO looks like this, and is the
         # overwhelmingly common, entirely fine case (absence-reads-as-fine
@@ -908,7 +930,7 @@ def get_attention(_settings: Settings = Depends(require_admin)) -> dict:
     # there is nothing to explain, and a list that fills up with ordinary
     # uploads teaches an admin to scroll past it.
     swapped = []
-    for job in jobs:
+    for job in finished:
         attempts = job.extraction_attempts
         kept = job.kept_extractor
         if job.state != "live" or not kept or len(attempts) < 2:
@@ -965,7 +987,7 @@ def get_attention(_settings: Settings = Depends(require_admin)) -> dict:
     # is what stops every job file written before this field existed from
     # arriving here as a false alarm on the day the feature ships.
     degraded = []
-    for job in jobs:
+    for job in finished:
         kept = job.kept_extractor
         if job.state != "live" or not kept:
             continue
