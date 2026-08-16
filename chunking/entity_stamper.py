@@ -342,9 +342,45 @@ class EntityStamper:
             if key and key in self._name_to_id:
                 return self._name_to_id[key], []
 
-        # Fuzzy fallback: rapidfuzz token_set_ratio against canonical_names.
-        # The processor is load-bearing on TWO axes:
-        #   1. Casefold — rapidfuzz's token_set_ratio is case-sensitive in 3.x
+        # Fuzzy fallback: rapidfuzz token_sort_ratio against canonical_names.
+        #
+        # WHY token_sort_ratio and not token_set_ratio (2026-08-16 — this is
+        # the defect that mis-labelled 732 of the 992 documents stamped
+        # 'agency:ost', making one small regulatory board the largest agency
+        # in the corpus, above Corrections and AHCCCS): token_set_ratio
+        # compares token SETS, so a candidate whose tokens are a SUBSET of a
+        # catalog name scores 100 no matter how little of the name it
+        # covers. Measured against the real Osteopathic catalog entry:
+        #
+        #     candidate                    token_set_ratio  token_sort_ratio
+        #     'Arizona'                              100                14
+        #     'Medicine'                             100                16
+        #     'Board of'                              77                16
+        #     'Board of Barbers' vs                   97                97
+        #       'Barbers, Board of'
+        #     'DEPARTMENT OF CORRECTIONS' vs          88                88
+        #       'Corrections, State Department of'
+        #
+        # The candidates are the first ten non-blank lines of a chunk plus
+        # its section_path, so a page whose header merely says "Arizona"
+        # reached a 100-way tie under token_set_ratio — and extractOne broke
+        # that tie by CATALOG ORDER, not by evidence.
+        #
+        # token_sort_ratio separates the two classes completely at the
+        # existing floor of 85. It sorts tokens before comparing, so it
+        # still handles the reordered-name case the scorer was originally
+        # chosen for ('Board of Barbers' vs 'Barbers, Board of' both stay at
+        # 97), while penalising the length mismatch token_set_ratio ignores.
+        # Switching costs NOTHING on candidates carrying extra words —
+        # 'Board of Barbers   Executive Director: Mario J. Herrera' scores
+        # 64 under token_set_ratio and 46 under token_sort_ratio, both
+        # already below the 85 floor. The fuzzy rung only ever fires on
+        # short, clean candidate lines, which is exactly where the defect
+        # lived.
+        #
+        # The processor is load-bearing on TWO axes, unrelated to the scorer
+        # choice above:
+        #   1. Casefold — rapidfuzz's ratio scorers are case-sensitive in 3.x
         #      without an explicit processor, so 'DEPARTMENT OF CORRECTIONS'
         #      vs 'Department of Corrections' scored ~19, far below the 85
         #      floor.
@@ -354,20 +390,42 @@ class EntityStamper:
         #      'Sec.\xa025.\xa0\xa0DEPARTMENT' fuses with the section number
         #      and never matches the catalog. Replacing \xa0 with regular
         #      space restores normal whitespace tokenization.
+        #
+        # Ties are refused, not broken by catalog order. `process.extract`
+        # (plural) is used instead of `extractOne` so every name at the top
+        # score is visible; if two or more of them map to DIFFERENT
+        # canonical ids, that candidate line is not evidence for any one of
+        # them and is skipped. This is deliberately per-CANDIDATE, not
+        # whole-chunk: a later, cleaner line can still resolve even if an
+        # earlier one was ambiguous. An unlabelled chunk costs only a
+        # ranking preference (agency is a PREFERENCE, not a filter — see
+        # CLAUDE.md), while a wrong guess costs a wrong agency facet, which
+        # is what 732 mis-labelled documents look like.
         for cand in candidates:
-            best = process.extractOne(
+            matches = process.extract(
                 cand,
                 self._all_names,
-                scorer=fuzz.token_set_ratio,
+                scorer=fuzz.token_sort_ratio,
                 processor=_fuzzy_processor,
                 score_cutoff=_FUZZY_THRESHOLD,
+                limit=5,
             )
-            if best is not None:
-                matched_name = best[0]
-                key = _normalize_for_match(matched_name)
-                canonical_id = self._name_to_id.get(key)
-                if canonical_id:
-                    return canonical_id, []
+            if not matches:
+                continue
+            top_score = matches[0][1]
+            top_ids = {
+                self._name_to_id[key]
+                for name, score, _idx in matches
+                if score == top_score
+                for key in [_normalize_for_match(name)]
+                if key in self._name_to_id
+            }
+            if len(top_ids) == 1:
+                return next(iter(top_ids)), []
+            # len(top_ids) == 0: matched name(s) not in the index (shouldn't
+            # happen, _all_names is built from indexed names) — treat as no
+            # match. len(top_ids) > 1: a genuine tie between distinct
+            # agencies — refuse rather than guess, per the WHY above.
 
         return None, []
 
