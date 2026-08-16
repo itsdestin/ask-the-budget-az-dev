@@ -23,7 +23,12 @@
 
 import { describe, expect, it } from "vitest";
 
-import { toolDisplayLabel, toolHeaderSummary } from "../tool-display.js";
+import {
+  coalesceActionLabels,
+  toolActionLabel,
+  toolDisplayLabel,
+  toolHeaderSummary,
+} from "../tool-display.js";
 
 describe("toolDisplayLabel", () => {
   it("renames the budget tools to human-readable labels", () => {
@@ -128,5 +133,89 @@ describe("toolHeaderSummary", () => {
   it("returns null when there's no useful summary", () => {
     expect(toolHeaderSummary("retrieve", {})).toBeNull();
     expect(toolHeaderSummary("cite", { chunk_id: "x" })).toBeNull(); // no confidence
+  });
+});
+
+describe("toolActionLabel", () => {
+  it("names what happened, in the tense the run is actually in", () => {
+    expect(toolActionLabel("retrieve", "past")).toBe("Searched");
+    expect(toolActionLabel("retrieve", "present")).toBe("Searching");
+    expect(toolActionLabel("create_document", "past")).toBe("Wrote a document");
+    expect(toolActionLabel("create_document", "present")).toBe(
+      "Writing a document",
+    );
+    expect(toolActionLabel("list_filter_values", "past")).toBe(
+      "Browsed filters",
+    );
+    expect(toolActionLabel("document_guide", "past")).toBe(
+      "Checked the style guide",
+    );
+  });
+
+  it("never leaks a raw snake_case tool name for a registered tool", () => {
+    // Same guard as toolDisplayLabel's, for the same reason: `document_guide`
+    // reached the UI unlabelled once. Asserting the whole registered set means
+    // the next tool added to harness/tools.py fails HERE rather than in front
+    // of an analyst.
+    const registered = [
+      "retrieve",
+      "cite",
+      "cite_batch",
+      "list_filter_values",
+      "create_document",
+      "document_guide",
+    ];
+    for (const name of registered) {
+      for (const tense of ["past", "present"] as const) {
+        expect(toolActionLabel(name, tense)).not.toBe(name);
+        expect(toolActionLabel(name, tense)).not.toContain("_");
+      }
+    }
+  });
+
+  it("falls back to the bare name for an unknown tool", () => {
+    expect(toolActionLabel("some_future_tool", "past")).toBe("some_future_tool");
+  });
+});
+
+describe("coalesceActionLabels", () => {
+  const t = (toolName: string) => ({ toolName });
+
+  it("collapses an adjacent same-label run into a count", () => {
+    expect(
+      coalesceActionLabels([t("retrieve"), t("retrieve")], "past"),
+    ).toBe("Searched ×2");
+  });
+
+  it("keeps only the first phrase capitalised", () => {
+    // "Searched ×3, wrote a document" reads as one sentence fragment.
+    // "Searched ×3, Wrote a document" reads as two headings jammed together.
+    expect(
+      coalesceActionLabels(
+        [t("retrieve"), t("retrieve"), t("retrieve"), t("create_document")],
+        "past",
+      ),
+    ).toBe("Searched ×3, wrote a document");
+  });
+
+  it("does not merge non-adjacent same-label runs", () => {
+    // Order is the model's actual sequence of work; collapsing across a gap
+    // would claim it did three searches back to back when it did not.
+    expect(
+      coalesceActionLabels(
+        [t("retrieve"), t("create_document"), t("retrieve")],
+        "past",
+      ),
+    ).toBe("Searched, wrote a document, searched");
+  });
+
+  it("carries the tense through to every phrase", () => {
+    expect(
+      coalesceActionLabels([t("retrieve"), t("create_document")], "present"),
+    ).toBe("Searching, writing a document");
+  });
+
+  it("returns an empty string for an empty run", () => {
+    expect(coalesceActionLabels([], "past")).toBe("");
   });
 });

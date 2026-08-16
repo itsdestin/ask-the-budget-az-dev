@@ -99,3 +99,65 @@ export function toolHeaderSummary(
     }
   }
 }
+
+/** Which tense a run's label is written in. A run is described in the present
+ *  participle while any of its calls is still in flight and in the past tense
+ *  once every call has settled — "Searched" over a call that is still running
+ *  is a false statement about a live process (spec TC4). */
+export type LabelTense = "past" | "present";
+
+// These are ACTION labels for a whole run, and they are deliberately separate
+// from `toolDisplayLabel` above. That one names a CALL — "Search corpus" — and
+// present-tense-imperative is the right register for a row that says "here is
+// the call that was made"; it still names the child rows inside an expansion.
+// This one names what the assistant DID, and reads as narration.
+const PAST_ACTION: Record<string, string> = {
+  retrieve: "Searched",
+  cite: "Cited",
+  cite_batch: "Cited",
+  list_filter_values: "Browsed filters",
+  create_document: "Wrote a document",
+  document_guide: "Checked the style guide",
+};
+
+const PRESENT_ACTION: Record<string, string> = {
+  retrieve: "Searching",
+  cite: "Citing",
+  cite_batch: "Citing",
+  list_filter_values: "Browsing filters",
+  create_document: "Writing a document",
+  document_guide: "Checking the style guide",
+};
+
+/** What the assistant did (or is doing) with one tool. Falls back to the raw
+ *  name, which is a legible degradation for a tool nobody has labelled yet. */
+export function toolActionLabel(toolName: string, tense: LabelTense): string {
+  const table = tense === "past" ? PAST_ACTION : PRESENT_ACTION;
+  return table[toolName] ?? toolName;
+}
+
+/** "Searched ×2, wrote a document" — ADJACENT same-label calls coalesce into a
+ *  count, and only the leading phrase keeps its capital so the whole thing
+ *  reads as one sentence fragment rather than several stacked headings.
+ *
+ *  Adjacency matters: the array is the model's real sequence of work, so
+ *  merging across a gap would claim a run of three searches where there were
+ *  two separated by something else. */
+export function coalesceActionLabels(
+  tools: { toolName: string }[],
+  tense: LabelTense,
+): string {
+  const parts: { label: string; n: number }[] = [];
+  for (const t of tools) {
+    const label = toolActionLabel(t.toolName, tense);
+    const last = parts[parts.length - 1];
+    if (last && last.label === label) last.n += 1;
+    else parts.push({ label, n: 1 });
+  }
+  return parts
+    .map((p, i) => {
+      const text = p.n > 1 ? `${p.label} ×${p.n}` : p.label;
+      return i === 0 ? text : text.charAt(0).toLowerCase() + text.slice(1);
+    })
+    .join(", ");
+}
