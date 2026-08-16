@@ -38,6 +38,11 @@ const retrieveFailed = block({
   toolName: "retrieve",
   status: "failed",
 });
+const retrieveRunning = block({
+  toolUseId: "t4",
+  toolName: "retrieve",
+  status: "running",
+});
 
 describe("ToolGroup", () => {
   it("coalesces a multi-call run into one past-tense summary row", () => {
@@ -95,6 +100,52 @@ describe("ToolGroup", () => {
     const expansion = container.querySelector(".chat-tool-group-expansion")!;
     expect(expansion, "the expansion must have its capped wrapper").not.toBeNull();
     expect(expansion.querySelector(".chat-tool-group-body")).not.toBeNull();
+  });
+});
+
+describe("ToolGroup tense and progress", () => {
+  it("uses the present participle while any call is still in flight", () => {
+    // "Searched" over a call that has not finished is a false statement about
+    // a live process (TC4).
+    render(<ToolGroup tools={[retrieveRunning, retrieveComplete]} />);
+    const head = screen.getByRole("button", { name: /Searching/ });
+    expect(head).toHaveTextContent("Searching ×2");
+    expect(head).not.toHaveTextContent("Searched");
+  });
+
+  it("reports progress while a multi-call run is in flight", () => {
+    render(<ToolGroup tools={[retrieveRunning, retrieveComplete]} />);
+    expect(
+      screen.getByRole("button", { name: /Searching/ }),
+    ).toHaveTextContent("1 of 2 done");
+  });
+
+  it("shows NO detail line once a multi-call run has settled", () => {
+    // "all complete" is deleted, not kept. Asserting it while suppressing
+    // "1 failed" would make the card claim a clean run it cannot vouch for;
+    // silence claims nothing (TC3).
+    const { container } = render(
+      <ToolGroup tools={[retrieveComplete, retrieveComplete2]} />,
+    );
+    expect(container.querySelector(".chat-tool-summary")).toBeNull();
+    expect(container.textContent).not.toContain("all complete");
+  });
+
+  it("still shows the query on a settled run of one", () => {
+    const { container } = render(<ToolGroup tools={[retrieveComplete]} />);
+    expect(container.querySelector(".chat-tool-summary")).not.toBeNull();
+  });
+
+  it("wraps a single call's expansion in the capped container too", () => {
+    // The height cap is one CSS rule on .chat-tool-group-expansion. Dropping
+    // the wrapper only in the n = 1 branch would pass every other test here,
+    // including the one-click test, which looks for .chat-tool-body and not
+    // for what contains it.
+    const { container } = render(<ToolGroup tools={[retrieveComplete]} />);
+    fireEvent.click(screen.getByRole("button", { name: /Searched/ }));
+    const expansion = container.querySelector(".chat-tool-group-expansion")!;
+    expect(expansion).not.toBeNull();
+    expect(expansion.querySelector(".chat-tool-body")).not.toBeNull();
   });
 });
 
