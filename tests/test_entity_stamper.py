@@ -252,3 +252,159 @@ def test_stamper_constructor_accepts_explicit_paths(tmp_path):
         _chunk(), source_url="https://www.azjlbc.gov/27baseline/custom.pdf"
     )
     assert stamped.agency_canonical_id == "agency:custom"
+
+
+# --- Sub-programme slug prefix fallback (rung 1b) ---------------------------
+#
+# Older JLBC editions (roughly FY2005-2012) split some large agencies into
+# several sub-programme documents whose slugs are NOT themselves in the
+# catalog — e.g. AHCCCS Acute Care published as 'axsacute', not 'axs'. The
+# fuzzy text rung was recently tightened (token_sort_ratio, see the WHY
+# block in entity_stamper.py) and correctly stopped guessing these from
+# text alone, which lost the label these slugs used to get by accident.
+#
+# Measured by the controller against the live corpus (2026-08-16): the
+# longest-catalogued-prefix rule below recovers 36 slugs / 195 documents,
+# 35 of them unambiguously correct. This dict is that exact 35-slug
+# mapping, transcribed from the measurement — pinned so any future change
+# to the catalog or the prefix rule is a conscious edit, not silent drift.
+_SUB_PROGRAMME_SLUG_TO_AGENCY = {
+    # Department of Education
+    "adeadmn": "agency:ade",
+    "adeassis": "agency:ade",
+    "adeboe": "agency:ade",
+    "adeform": "agency:ade",
+    "adegs": "agency:ade",
+    "adenf": "agency:ade",
+    # AHCCCS
+    "axsacute": "agency:axs",
+    "axsadmn": "agency:axs",
+    "axsltc": "agency:axs",
+    # Department of Economic Security
+    "desadmn": "agency:des",
+    "desage": "agency:des",
+    "desbene": "agency:des",
+    "descf": "agency:des",
+    "descs": "agency:des",
+    "descyf": "agency:des",
+    "desdd": "agency:des",
+    "desemp": "agency:des",
+    "desltc": "agency:des",
+    # Department of Health Services
+    "dhsadmn": "agency:dhs",
+    "dhsash": "agency:dhs",
+    "dhsbehav": "agency:dhs",
+    "dhsfam": "agency:dhs",
+    "dhspub": "agency:dhs",
+    # Department of Administration
+    "doafm": "agency:doa",
+    "doafs": "agency:doa",
+    "doahum": "agency:doa",
+    "doaits": "agency:doa",
+    "doarisk": "agency:doa",
+    "doass": "agency:doa",
+    "doasum": "agency:doa",
+    # Department of Transportation
+    "dotadmn": "agency:dot",
+    "dotaero": "agency:dot",
+    "dothwys": "agency:dot",
+    "dotmvd": "agency:dot",
+    # Superior Court
+    "judsuperior": "agency:judsup",
+}
+
+# The one measured false positive: 'appropveto' is JLBC's "Appropriation
+# Vetoes" summary chapter, not a document about the agency slugged 'app'
+# (Legislature budget-bill index). It shares the first 3 letters by
+# coincidence only, so it must never resolve via this rung.
+_APPROPVETO_SLUG = "appropveto"
+
+
+def _url_for_slug(slug: str) -> str:
+    # Directory choice doesn't matter to the URL regex (baseline/book*/ar/app
+    # all match) — '07app' matches the FY2005-2012 era these slugs come from.
+    return f"https://www.azjlbc.gov/07app/{slug}.pdf"
+
+
+def test_sub_programme_slugs_recover_via_longest_catalogued_prefix():
+    """Pins the exact 35-slug recovery set measured against the live corpus.
+
+    Assert the mapping derived from the real catalog is exactly these 35
+    slugs and no more, so a future catalog change surfaces as a failing
+    test rather than a silent change in which documents get labelled.
+    """
+    stamper = EntityStamper.from_default_paths()
+    for slug, expected_agency in _SUB_PROGRAMME_SLUG_TO_AGENCY.items():
+        stamped = stamper.stamp(_chunk(), source_url=_url_for_slug(slug))
+        assert stamped.agency_canonical_id == expected_agency, (
+            f"slug {slug!r} expected {expected_agency!r}, "
+            f"got {stamped.agency_canonical_id!r}"
+        )
+
+
+def test_appropveto_does_not_resolve_via_the_prefix_rung():
+    """The one measured false positive must stay unresolved, not become
+    'agency:app' — see the WHY on _APPROPVETO_SLUG above."""
+    stamper = EntityStamper.from_default_paths()
+    stamped = stamper.stamp(_chunk(), source_url=_url_for_slug(_APPROPVETO_SLUG))
+    assert stamped.agency_canonical_id is None
+
+
+def test_numbered_section_slugs_stay_unresolved():
+    """Uncatalogued slugs with no catalogued prefix at all — JLBC's numbered
+    summary chapters ('302', '341-353', ...) — must keep resolving to
+    nothing rather than being swept up by this rung."""
+    stamper = EntityStamper.from_default_paths()
+    for slug in ["302", "341-353", "zzz-not-a-real-slug"]:
+        stamped = stamper.stamp(_chunk(), source_url=_url_for_slug(slug))
+        assert stamped.agency_canonical_id is None
+
+
+def test_prefix_fallback_requires_at_least_three_catalogued_characters(tmp_path):
+    """A 2-character catalogued slug (e.g. the real catalog's 'cf', 'cs')
+    must never anchor a prefix match — too short to be evidence, it would
+    fire inside unrelated slugs across the corpus."""
+    catalog = tmp_path / "cat.yaml"
+    aliases = tmp_path / "al.yaml"
+    catalog.write_text(
+        "agencies:\n"
+        "- canonical_name: Two Char Agency\n"
+        "  canonical_id: agency:tc\n"
+        "  slug: tc\n",
+        encoding="utf-8",
+    )
+    aliases.write_text("renames: []\n", encoding="utf-8")
+    stamper = EntityStamper(catalog_path=catalog, aliases_path=aliases)
+    stamped = stamper.stamp(_chunk(), source_url=_url_for_slug("tcextra"))
+    assert stamped.agency_canonical_id is None
+
+
+def test_prefix_fallback_picks_the_longest_catalogued_match(tmp_path):
+    """When more than one catalogued slug is a valid prefix, the longest
+    one wins (mirrors 'judsuperior' -> 'judsup', not a shorter accident)."""
+    catalog = tmp_path / "cat.yaml"
+    aliases = tmp_path / "al.yaml"
+    catalog.write_text(
+        "agencies:\n"
+        "- canonical_name: Short Match\n"
+        "  canonical_id: agency:short\n"
+        "  slug: abc\n"
+        "- canonical_name: Long Match\n"
+        "  canonical_id: agency:long\n"
+        "  slug: abcde\n",
+        encoding="utf-8",
+    )
+    aliases.write_text("renames: []\n", encoding="utf-8")
+    stamper = EntityStamper(catalog_path=catalog, aliases_path=aliases)
+    stamped = stamper.stamp(_chunk(), source_url=_url_for_slug("abcdefgh"))
+    assert stamped.agency_canonical_id == "agency:long"
+
+
+def test_prefix_fallback_does_not_fire_on_non_jlbc_urls():
+    """A non-JLBC URL still yields nothing — the fallback lives entirely
+    inside the URL rung and must not change this."""
+    stamper = EntityStamper.from_default_paths()
+    stamped = stamper.stamp(
+        _chunk(), source_url="https://example.com/axsacute-report.pdf"
+    )
+    assert stamped.agency_canonical_id is None
