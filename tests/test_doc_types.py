@@ -6,7 +6,7 @@ extraction), and every row an analyst can see tells them what to do.
 """
 import pytest
 
-from ingest import doc_types
+from ingest import book_discovery, doc_types
 
 
 def test_registry_reproduces_every_shipped_extractor_route():
@@ -67,6 +67,32 @@ def test_book_rows_redirect_and_carry_no_upload_instruction():
         assert row.redirect is not None
         assert row.redirect["action"] == "add-jlbc-book"
         assert not row.which_file
+
+
+def test_every_book_row_names_the_family_it_is():
+    # The upload page's book cards fetch one shared "what is JLBC missing?"
+    # answer covering BOTH families and each shows only its own rows, keyed
+    # on this field. It is deliberately NOT derivable client-side:
+    # webapp/src/pages/Upload.tsx is under a spec forbidding it to contain
+    # any doc_type slug, because a second hand-typed copy of this list has
+    # shipped bugs twice.
+    #
+    # 🔴 A missing or misspelt family FAILS SILENTLY AND CONFIDENTLY, which
+    # is why this is pinned rather than left to the UI. Nothing errors: the
+    # filter matches nothing, so the card renders "Every published Baseline
+    # Book is already here" — the exact sentence it would show if the corpus
+    # really were complete. An analyst is told there is nothing to add on a
+    # page whose only job is telling them what is missing.
+    families = {
+        key: doc_types.get(key).redirect["family"]
+        for key in ("baseline-book", "approps-report")
+    }
+    # The vocabulary is ingest/book_discovery's, not a new one — these are the
+    # values `plan_edition(family, ...)` and `/api/books/ingest` accept.
+    assert set(families.values()) == set(book_discovery.FAMILIES)
+    # And the two rows must not name the SAME family: that reads as valid
+    # everywhere above, and simply shows one family's gap on both cards.
+    assert len(set(families.values())) == 2
 
 
 def test_every_non_redirect_row_tells_the_analyst_which_file_to_get():
