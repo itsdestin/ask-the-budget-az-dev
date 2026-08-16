@@ -16,11 +16,27 @@ or thousands of dollars.
 
 It detects ONE failure shape. A document that passes has not been checked,
 verified, validated or certified, and no copy anywhere may say it has. The
-counterexample is live and was measured on 2026-08-13: a MinerU table chunk
-scoring a perfect 0.00% here while carrying a section heading inherited from
-four pages earlier that declares "(expressed in thousands)" over
+counterexample is live, and it got WORSE when this measure started working:
+`agao-afr-fy2024` scores a perfect 0.00% here while **122 of its 450
+passages** carry a section heading declaring "(expressed in thousands)" over
 whole-dollar figures -- a 1,000x error this measure cannot see, because it
 counts letters and a wrong heading is made of letters.
+
+That is not a coincidence and it is the sharpest thing on this page. Before
+2026-08-16 the document was read by OpenDataLoader, which emits NO heading
+for those pages, so it contributed ZERO wrong labels. Routing it to MinerU --
+which this measure exists to do, and which is right on every axis this
+measure can see -- removed 117 unlabelled passages and created 122
+wrongly-labelled ones. **Making passages labelled is what makes a wrong label
+possible.** A future change that improves structure should assume it may
+raise the labelling-error rate and go measure that specifically.
+
+The heading defect itself is NOT in the outline builder. That was assumed on
+2026-08-16, a bounded `_build_outline` was shipped, and it changed zero
+chunks. `chunking/builders/table_chunk.py::_resolve_section_path` picks a
+table's section path by TEXT SEARCH over its own cell strings with no
+locality requirement at all -- see the amendment at the top of
+docs/superpowers/specs/2026-08-13-structural-extraction-quality-design.md.
 
 ## Why the two odd rules are load-bearing
 

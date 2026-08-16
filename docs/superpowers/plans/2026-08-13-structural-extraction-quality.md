@@ -1744,7 +1744,8 @@ for r in sorted(rows, key=lambda r: (r['page'] or 0))[:12]:
 **The honest expected outcome is BETTER, NOT FIXED.** With chunk-dropping
 deferred, some figures remain hard to attribute:
 - Page 9/10 is one landscape spread. MinerU recovers page 10's column headers where OpenDataLoader emitted pure digits — a real win — but the line-item names live in the page-9 chunk and are not joined to it.
-- At least one chunk carries a section heading inherited from four pages earlier declaring `(expressed in thousands)` over whole-dollar figures. **This is the known chunker defect** (8 wrong passages in 80,854 corpus-wide, measured 2026-08-13), it is a follow-up, and it is not caused by this plan.
+- At least one chunk carries a section heading declaring `(expressed in thousands)` over whole-dollar figures. **This is the known chunker defect** (8 wrong passages in 80,854 corpus-wide, measured 2026-08-13), it is a follow-up, and it is not caused by this plan.
+  > 🔴 **AMENDED 2026-08-16, and the second half of that sentence turned out to be false.** Task 8 ran, and the swap to MinerU took this document from 0 wrong labels to **122**, corpus-wide 8 → 151 — this plan's own change is what caused it. The defect is also NOT in `_build_outline`; a bounded version was shipped and reverted after measuring zero effect. Real site: `chunking/builders/table_chunk.py::_resolve_section_path`. See the amendment at the top of the spec.
 
 **If the kept chunks are no better than today's, STOP and report rather than tuning the ceiling.**
 
