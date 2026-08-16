@@ -100,6 +100,12 @@ types:
     publisher: agency
     one_per_year: false
     upload_row: true
+    # The ONLY row that asks which agency, and the only one where a document's
+    # name is not fully determined by its type and year. Every other type has
+    # exactly one edition a year, so "FY 2027 Annual Financial Report" names it
+    # completely; there are ~78 agency budget requests in a year and without
+    # this they would all be called "FY 2027 Agency Submission".
+    agency_field: true
     where_published: >-
       Each agency publishes its own budget request each autumn, on its own
       website. Some are also collected at ospb.az.gov.

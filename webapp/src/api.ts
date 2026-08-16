@@ -334,6 +334,11 @@ export interface UploadMeta {
    *  (422 without it) whenever the row's `stage_field` is true — see
    *  DocTypeCard.stage_field below. */
   stage?: "introduced" | "engrossed";
+  /** Which agency this budget request belongs to. Required server-side
+   *  whenever the row's `agency_field` is true, and REFUSED on any row where
+   *  it is false — the id is written into the document's title, so a
+   *  misplaced one is a false statement about what the document is. */
+  agency_canonical_id?: string;
 }
 
 /** One row of `GET /api/document-types` — the upload page's own copy of the
@@ -364,6 +369,11 @@ export interface DocTypeCard {
    *  the Introduced/Engrossed picker, and whether the upload route requires
    *  one (422 without it on a staged type). */
   stage_field: boolean;
+  /** True only for agency-submission today — gates whether the row shows the
+   *  agency picker, and whether the upload route requires one (422 without
+   *  it, and 422 WITH it on any other type). It is the one document type
+   *  whose title is not determined by its type and year alone. */
+  agency_field: boolean;
   order: number;
 }
 
@@ -420,6 +430,9 @@ export async function uploadDocument(
   form.append("fiscal_year", String(meta.fiscal_year));
   form.append("title", meta.title);
   if (meta.stage) form.append("stage", meta.stage);
+  if (meta.agency_canonical_id) {
+    form.append("agency_canonical_id", meta.agency_canonical_id);
+  }
   // Invariant 8: the server rejects the upload without this. The page only
   // sends it once the user has actually ticked the box.
   form.append("is_public_record", "true");
@@ -1215,4 +1228,37 @@ export async function updateIssue(
   });
   if (!r.ok) await fail(r, "update issue report");
   return r.json();
+}
+
+/** One row of the upload page's agency picker. `source` is "catalog" for the
+ *  157 agencies the app ships with and "office" for names an admin added —
+ *  the picker keeps them apart, because nothing in the corpus is stamped
+ *  with an office-added id. */
+export interface AgencyOption {
+  canonical_id: string;
+  name: string;
+  source: "catalog" | "office";
+}
+
+export async function agencies(): Promise<AgencyOption[]> {
+  const r = await fetch("/api/agencies");
+  if (!r.ok) await fail(r, "agencies");
+  return (await r.json()).agencies;
+}
+
+export async function addAgency(name: string): Promise<AgencyOption> {
+  const r = await fetch("/api/admin/agencies", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ name }),
+  });
+  if (!r.ok) await fail(r, "add agency");
+  return (await r.json()).agency;
+}
+
+export async function removeAgency(canonicalId: string): Promise<void> {
+  const r = await fetch(`/api/admin/agencies/${encodeURIComponent(canonicalId)}`, {
+    method: "DELETE",
+  });
+  if (!r.ok) await fail(r, "remove agency");
 }

@@ -41,14 +41,14 @@ const ROWS: api.DocTypeCard[] = [
     where_published: "JLBC, each January.", which_file: "",
     redirect: { action: "add-jlbc-book", family: "baseline",
                 detail: "Stored as one document per agency." },
-    stage_field: false, order: 10 },
+    stage_field: false, agency_field: false, order: 10 },
   { key: "afr", label: "Annual Financial Report", group: "Auditor General",
     formats: [".pdf"], where_published: "Auditor General, gao.az.gov.",
-    which_file: "The combined PDF.", redirect: null, stage_field: false, order: 30 },
+    which_file: "The combined PDF.", redirect: null, stage_field: false, agency_field: false, order: 30 },
   { key: "budget-bill-summary", label: "Budget Bill Summary", group: "JLBC",
     formats: [".pdf"], where_published: "azjlbc.gov/budget/",
     which_file: "The House and Senate Budget Bills PDF.",
-    redirect: null, stage_field: true, order: 60 },
+    redirect: null, stage_field: true, agency_field: false, order: 60 },
 ];
 
 // The single row every OTHER describe block in this file selects and fills
@@ -56,6 +56,21 @@ const ROWS: api.DocTypeCard[] = [
 // ever relevant — see pickFile()). It's ROWS' own "afr" entry, not a fresh
 // fixture, so the two can't quietly drift apart.
 const DEFAULT_ROW = ROWS[1];
+
+// The one row that asks which agency. Kept out of ROWS so the blocks above,
+// which assume no row needs an agency, stay unambiguous.
+const AGENCY_ROW: api.DocTypeCard = {
+  key: "agency-row", label: "Agency Submission", group: "Agencies",
+  formats: [".pdf"], where_published: "Each agency's own website.",
+  which_file: "That agency's budget request.", redirect: null,
+  stage_field: false, agency_field: true, order: 50,
+};
+
+const AGENCIES: api.AgencyOption[] = [
+  { canonical_id: "agency:adc", name: "Department of Corrections", source: "catalog" },
+  { canonical_id: "agency:des", name: "Department of Economic Security", source: "catalog" },
+  { canonical_id: "agency:office-made-up", name: "Office of Made-Up Things", source: "office" },
+];
 
 /** Opens a document type's card by clicking its header. Every describe block
  *  below needs this first: the whole point of the accordion is that no form
@@ -802,6 +817,129 @@ describe("the type picker and form", () => {
     await waitFor(() =>
       expect(screen.getByRole("button", { name: /add document/i })).toBeDisabled());
     expect((screen.getByLabelText("Version") as HTMLSelectElement).value).toBe("");
+  });
+
+  it("offers NO title field on any type", async () => {
+    // 🔴 Removing the Title box was invisible to this suite — nothing had
+    // ever asserted it existed, so nothing failed when it went. This is the
+    // guard the other direction: a future edit that re-adds a free-text
+    // title fails here and has to argue for it.
+    //
+    // The reason it went: every type is named completely by its type and
+    // year ("FY 2025 Annual Financial Report" IS the AFR, there is one a
+    // year), so the box offered a choice where there was none — and a typed
+    // title WINS over the automatic one in build_title, so the only thing it
+    // could do was make a correct title worse.
+    vi.spyOn(api, "documentTypes").mockResolvedValue(ROWS);
+    render(<Upload />);
+    for (const label of [/annual financial report/i, /budget bill summary/i]) {
+      await selectType(label);
+      expect(screen.queryByLabelText(/^title/i)).toBeNull();
+      await selectType(label);
+    }
+  });
+
+  it("asks which agency only on the row that declares one", async () => {
+    vi.spyOn(api, "agencies").mockResolvedValue(AGENCIES);
+    vi.spyOn(api, "documentTypes").mockResolvedValue([...ROWS, AGENCY_ROW]);
+    render(<Upload />);
+
+    await selectType(/annual financial report/i);
+    expect(screen.queryByLabelText("Agency")).toBeNull();
+
+    await selectType(/agency submission/i);
+    expect(await screen.findByLabelText("Agency")).toBeTruthy();
+  });
+
+  it("stays unsubmittable until the typed text resolves to a real agency", async () => {
+    // The typed text is not the answer — the canonical id is. A half-typed
+    // "Depart" must not become a document's title, so the gate is the same
+    // shape as the staged-type gate beside it.
+    vi.spyOn(api, "agencies").mockResolvedValue(AGENCIES);
+    vi.spyOn(api, "documentTypes").mockResolvedValue([AGENCY_ROW]);
+    render(<Upload />);
+    await selectType(/agency submission/i);
+    fireEvent.change(await screen.findByLabelText(/choose a pdf/i), {
+      target: { files: [pdf("request.pdf")] },
+    });
+    fireEvent.click(screen.getByRole("checkbox", { name: /public record/i }));
+
+    const add = screen.getByRole("button", { name: /add document/i });
+    expect(add).toBeDisabled();
+
+    fireEvent.change(screen.getByLabelText("Agency"), { target: { value: "Depart" } });
+    expect(add).toBeDisabled();
+    expect(screen.getByText(/No agency by that name/i)).toBeTruthy();
+
+    fireEvent.change(screen.getByLabelText("Agency"), {
+      target: { value: "Department of Corrections" },
+    });
+    expect(add).toBeEnabled();
+    expect(screen.queryByText(/No agency by that name/i)).toBeNull();
+  });
+
+  it("sends the agency's canonical id, not the words that were typed", async () => {
+    const up = vi.spyOn(api, "uploadDocument").mockResolvedValue(
+      { job_id: "j", doc_id: "d" });
+    vi.spyOn(api, "agencies").mockResolvedValue(AGENCIES);
+    vi.spyOn(api, "documentTypes").mockResolvedValue([AGENCY_ROW]);
+    render(<Upload />);
+    await selectType(/agency submission/i);
+    fireEvent.change(await screen.findByLabelText(/choose a pdf/i), {
+      target: { files: [pdf("request.pdf")] },
+    });
+    fireEvent.change(screen.getByLabelText("Agency"), {
+      // Cased and spaced differently from the catalog on purpose: the match
+      // is case-insensitive and whitespace-collapsed, and the ID is what
+      // travels either way.
+      target: { value: "  department of corrections " },
+    });
+    fireEvent.click(screen.getByRole("checkbox", { name: /public record/i }));
+    fireEvent.click(screen.getByRole("button", { name: /add document/i }));
+
+    await waitFor(() => expect(up).toHaveBeenCalled());
+    expect(up.mock.calls[0][1]).toMatchObject({
+      doc_type: AGENCY_ROW.key,
+      agency_canonical_id: "agency:adc",
+    });
+    expect(up.mock.calls[0][1].title).toBe("");
+  });
+
+  it("never sends an agency for a type that does not take one", async () => {
+    // The route 422s on this, so sending it would turn a good upload into a
+    // confusing rejection.
+    const up = vi.spyOn(api, "uploadDocument").mockResolvedValue(
+      { job_id: "j", doc_id: "d" });
+    render(<Upload />);
+    await pickFile();
+    fireEvent.click(screen.getByRole("checkbox", { name: /public record/i }));
+    fireEvent.click(screen.getByRole("button", { name: /add document/i }));
+
+    await waitFor(() => expect(up).toHaveBeenCalled());
+    expect(up.mock.calls[0][1].agency_canonical_id).toBeUndefined();
+  });
+
+  it("keeps agencies an admin added separable from the shipped catalog", async () => {
+    // Nothing in the corpus is stamped with an office-added id, so the two
+    // are genuinely different things and the list should not pretend
+    // otherwise.
+    vi.spyOn(api, "agencies").mockResolvedValue(AGENCIES);
+    vi.spyOn(api, "documentTypes").mockResolvedValue([AGENCY_ROW]);
+    render(<Upload />);
+    await selectType(/agency submission/i);
+    await screen.findByLabelText("Agency");
+    const office = document.querySelector(
+      '#up-agency-options option[value="Office of Made-Up Things"]',
+    )!;
+    expect(office.getAttribute("label")).toMatch(/added by your office/i);
+  });
+
+  it("says so when the agency list cannot be loaded", async () => {
+    vi.spyOn(api, "agencies").mockRejectedValue(new Error("agencies: 500"));
+    vi.spyOn(api, "documentTypes").mockResolvedValue([AGENCY_ROW]);
+    render(<Upload />);
+    await selectType(/agency submission/i);
+    expect(await screen.findByText(/Couldn.t load the agency list/i)).toBeTruthy();
   });
 
   it("holds no hardcoded doc_type strings of its own", async () => {

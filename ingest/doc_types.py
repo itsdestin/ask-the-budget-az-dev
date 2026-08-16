@@ -38,6 +38,9 @@ class DocType:
     which_file: str
     upload_row: bool = False
     stage_field: bool = False
+    # Ask which agency this document belongs to (agency-submission only). Its
+    # title is the one that is not determined by type + year alone.
+    agency_field: bool = False
     redirect: dict[str, str] | None = None
 
 
@@ -78,6 +81,7 @@ def _load(path: Path | None = None) -> tuple[DocType, ...]:
             which_file=entry.get("which_file", ""),
             upload_row=bool(entry.get("upload_row", False)),
             stage_field=bool(entry.get("stage_field", False)),
+            agency_field=bool(entry.get("agency_field", False)),
             redirect=entry.get("redirect"),
         ))
 

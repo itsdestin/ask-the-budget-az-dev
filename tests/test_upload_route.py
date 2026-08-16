@@ -422,3 +422,81 @@ def test_resolve_publisher_falls_back_and_validates_when_the_row_declares_none()
 def test_resolve_publisher_with_no_row_still_validates():
     with pytest.raises(Exception):
         _resolve_publisher(None, "not-a-real-publisher")
+
+
+# --- the agency a budget request is filed under -----------------------------
+#
+# Every other document type is named completely by its type and its year —
+# "FY 2025 Annual Financial Report" IS the AFR, there is one a year. Agency
+# budget requests are the exception: ~78 a year, and without an agency every
+# one of them is titled "FY 2027 Budget Request". So the picker replaced the
+# free-text Title box, and these are the guards that make a picked agency
+# mean something.
+#
+# The agency gets the SAME three guards as the stage, and for the same
+# reason: it is written into the document's TITLE, so a wrong or misplaced
+# one is a false statement about what the document is, and nothing
+# downstream will ever notice.
+
+
+def _agency_form(**over) -> dict:
+    return _form(
+        doc_type="agency-submission",
+        publisher="agency",
+        **over,
+    )
+
+
+def test_an_agency_submission_needs_an_agency(client):
+    r = _upload(client, **_agency_form())
+    assert r.status_code == 422
+    assert "which agency" in r.json()["detail"].lower()
+
+
+def test_a_picked_agency_rides_onto_the_job(client):
+    from store.office_agencies import all_agencies
+
+    shipped = next(a for a in all_agencies() if a.source == "catalog")
+    r = _upload(client, **_agency_form(agency_canonical_id=shipped.canonical_id))
+    assert r.status_code == 202, r.text
+    job = load_all()[0]
+    assert job.agency_canonical_id == shipped.canonical_id
+
+
+def test_an_agency_nobody_has_heard_of_is_refused(client):
+    # The picker sends an id, never typed words — but the route is the gate,
+    # and a client that sent a name or a typo must not have it written into
+    # a title.
+    r = _upload(client, **_agency_form(agency_canonical_id="agency:not-a-real-one"))
+    assert r.status_code == 422
+    assert "Unknown agency" in r.json()["detail"]
+
+
+def test_an_agency_on_a_type_that_does_not_take_one_is_refused(client):
+    # The mirror of the stage guard directly above this block, and the same
+    # silent-corruption shape: an agency accepted here would be appended to
+    # the title of a document that is not one agency's — an AFR retitled
+    # "FY 2027 Annual Financial Report — Department of Corrections" is a
+    # false claim about a statewide document.
+    from store.office_agencies import all_agencies
+
+    shipped = next(a for a in all_agencies() if a.source == "catalog")
+    r = _upload(client, agency_canonical_id=shipped.canonical_id)
+    assert r.status_code == 422
+    assert "not filed under one agency" in r.json()["detail"]
+
+
+def test_an_agency_the_office_added_is_accepted(client, tmp_path, monkeypatch):
+    from store import office_agencies as oa
+
+    monkeypatch.setattr(oa, "data_dir", lambda: tmp_path)
+    oa.reset_office_agencies_cache()
+    oa.save_office_agencies(
+        (oa.OfficeAgency(canonical_id="agency:office-x", name="Office of X"),)
+    )
+    try:
+        r = _upload(client, **_agency_form(agency_canonical_id="agency:office-x"))
+        assert r.status_code == 202, r.text
+        assert load_all()[0].agency_canonical_id == "agency:office-x"
+    finally:
+        oa.reset_office_agencies_cache()

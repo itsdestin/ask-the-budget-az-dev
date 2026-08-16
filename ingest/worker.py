@@ -122,6 +122,7 @@ from ingest.jobs import (
     save,
 )
 from ingest.lance_writer import build_title, write_doc
+from store.office_agencies import agency_name
 from ingest.lock import IngestLock
 from ingest.mineru_runner import MineruCancelled, MineruRunner, batch_timeout_s
 from ingest.validate import validate_doc
@@ -1155,7 +1156,7 @@ def _write(
                 doc_type=job.doc_type,
                 fiscal_year=job.fiscal_year,
                 user_title=job.user_title,
-                agency_name=_primary_agency_name(chunks, ctx),
+                agency_name=_agency_name_for_title(job, chunks, ctx),
                 stage=job.stage,
             ),
             source_sha256=job.source_sha256,
@@ -1844,6 +1845,38 @@ def _copy_source_to_share(job: JobRecord) -> str | None:
         target.parent.mkdir(parents=True, exist_ok=True)
         shutil.copy2(source, target)
     return target.relative_to(data_dir()).as_posix()
+
+
+def _agency_name_for_title(
+    job: JobRecord, chunks: Sequence[Chunk], ctx: WorkerContext
+) -> str | None:
+    """The agency name that goes in the title — DECLARED beats INFERRED.
+
+    An uploader who picked "Department of Corrections" from the agency
+    picker has told us what the document is. `_primary_agency_name` below
+    counts stamps in the extracted text, which is a good guess and only a
+    guess: `chunking/entity_stamper.py` cannot resolve an agency it has no
+    alias for, and 103 of the 157 catalogued agencies carry no alias at all
+    (recorded in STATUS.md under "Query understanding"). On exactly the
+    documents this picker exists for -- one agency's own budget request --
+    the inferred answer is therefore most likely to be None or wrong, and
+    the declared one is ground truth.
+
+    Falls through to the inferred name when nothing was declared, which is
+    every doc_type except agency-submission and every job queued before the
+    picker existed.
+    """
+    declared = (job.agency_canonical_id or "").strip()
+    if declared:
+        # Resolved through the same function the upload route validated
+        # against, so a document cannot be accepted under one name and then
+        # given another. An id that no longer resolves (an office entry an
+        # admin deleted between upload and ingest) falls through rather than
+        # failing the job -- a worse title is not worth losing the document.
+        name = agency_name(declared)
+        if name:
+            return name
+    return _primary_agency_name(chunks, ctx)
 
 
 def _primary_agency_name(chunks: Sequence[Chunk], ctx: WorkerContext) -> str | None:

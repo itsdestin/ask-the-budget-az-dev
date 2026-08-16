@@ -104,6 +104,11 @@ class JobRecord:
     # thousands of job files already on disk predate this field, and
     # `from_json` must not raise reading them.
     stage: str | None = None
+    # The agency an uploader DECLARED this document belongs to
+    # (agency-submission only). Same optional-with-default reasoning as
+    # `stage` above: job files already on disk predate this field and
+    # `from_json` must not raise reading them.
+    agency_canonical_id: str | None = None
     source_url: str | None = None
     # "document" (the normal ingest) or "refresh" (scrape azjlbc.gov for new
     # fiscal notes). Decides which state pipeline applies.
@@ -219,6 +224,7 @@ def new_job(
     fiscal_year: int,
     user_title: str = "",
     stage: str | None = None,
+    agency_canonical_id: str | None = None,
     user: str | None = None,
     source_url: str | None = None,
     kind: str = "document",
@@ -246,6 +252,7 @@ def new_job(
         fiscal_year=fiscal_year,
         user_title=user_title,
         stage=stage,
+        agency_canonical_id=agency_canonical_id,
         source_url=source_url,
         kind=kind,
         batch_id=batch_id,

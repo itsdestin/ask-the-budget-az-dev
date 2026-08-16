@@ -394,7 +394,15 @@ function DocTypeForm({
   const [file, setFile] = useState<File | null>(null);
   const [stage, setStage] = useState("");
   const [fy, setFy] = useState(() => String(defaultFiscalYear()));
-  const [title, setTitle] = useState("");
+  // 🔴 NO TITLE FIELD. Every other type is named completely by its type and
+  // its year -- "FY 2025 Annual Financial Report" IS the AFR, there is one a
+  // year -- so a free-text box offered a choice where there was none, and
+  // invited a hand-typed title to override a correct automatic one. The one
+  // type where the name genuinely varies is an agency budget request (~78 a
+  // year, otherwise all called "FY 2027 Budget Request"), and that is a
+  // PICKED agency rather than typed prose, so two people uploading two
+  // agencies' requests cannot spell the same agency two ways.
+  const [agencyId, setAgencyId] = useState("");
   const [publicRecord, setPublicRecord] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
@@ -407,7 +415,10 @@ function DocTypeForm({
   // Introduced" true, so it must hold on every submission through this
   // form, not just the first (see the "requires a fresh stage pick" spec).
   const ready =
-    file !== null && publicRecord && (!row.stage_field || stage !== "");
+    file !== null &&
+    publicRecord &&
+    (!row.stage_field || stage !== "") &&
+    (!row.agency_field || agencyId !== "");
 
   // The ONE place a new file — picked or dropped — enters this form's state.
   // Both the <input onChange> and the form's own onDrop call this same
@@ -449,14 +460,22 @@ function DocTypeForm({
         corpus: "budget",
         doc_type: row.key,
         fiscal_year: Number(fy),
-        title: title.trim(),
+        // Always empty now. The field is kept on the wire because the
+        // server still honours a supplied title (`build_title`: "a title the
+        // uploader typed wins verbatim") and the books route and any future
+        // caller may want it -- the UPLOAD PAGE simply no longer offers one.
+        title: "",
         ...(row.stage_field ? { stage: stage as "introduced" | "engrossed" } : {}),
+        // Sent only when the row declares it. The route 422s on an agency
+        // supplied for a type that has no `agency_field`, the same way it
+        // does for a stray stage.
+        ...(row.agency_field ? { agency_canonical_id: agencyId } : {}),
         ...(reprocess ? { reprocess: true } : {}),
       });
       setFile(null);
       setPublicRecord(false);
       setStage("");
-      setTitle("");
+      setAgencyId("");
       setDuplicate(null);
       // The only success signal on the page — scoped to this form's own
       // `.up-status` (the same element/role AddBookPanel already uses for
@@ -527,6 +546,10 @@ function DocTypeForm({
         </div>
 
         <div className="up-fields">
+          {row.agency_field && (
+            <AgencyPicker value={agencyId} onChange={setAgencyId} />
+          )}
+
           {row.stage_field && (
             <label className="up-field">
               Version
@@ -552,10 +575,6 @@ function DocTypeForm({
             />
           </label>
 
-          <label className="up-field">
-            Title (optional)
-            <input type="text" value={title} onChange={(e) => setTitle(e.target.value)} />
-          </label>
         </div>
 
         {/* Invariant 8. The server returns 400 without this, so removing it
@@ -636,6 +655,114 @@ function DocTypeForm({
             can't sit above a new failure. */}
         <p className="up-status" role="status">{status}</p>
       </div>
+    </div>
+  );
+}
+
+/** Which agency a budget request belongs to.
+ *
+ *  🔴 A NATIVE <select> WITH 157 OPTIONS WAS THE WRONG SHAPE, and the count
+ *  is the reason: a browser's own select only jumps by first letter, so
+ *  finding "Water Infrastructure Finance Authority" means scrolling past
+ *  most of the list. This is a `<datalist>`-backed text input instead — the
+ *  analyst types "water", the browser filters, and the same control still
+ *  works with a mouse and a keyboard because it IS a native input.
+ *
+ *  The typed text is NOT the answer. `value` is the canonical id, resolved
+ *  from an exact name match, and the form stays unsubmittable until one
+ *  resolves — a half-typed "Depart" must not become a document title, and
+ *  the server refuses an id it does not know anyway (422). That is the
+ *  whole point of a picker over the free-text Title box it replaces.
+ *
+ *  Agencies an ADMIN added are listed under their own heading rather than
+ *  merged into the alphabetical run. Nothing in the corpus is stamped with
+ *  an office-added id, so the two are genuinely different things and the
+ *  list should not pretend otherwise.
+ */
+function AgencyPicker({
+  value,
+  onChange,
+}: {
+  value: string;
+  onChange: (canonicalId: string) => void;
+}) {
+  const [options, setOptions] = useState<api.AgencyOption[]>([]);
+  const [error, setError] = useState("");
+  const [typed, setTyped] = useState("");
+
+  useEffect(() => {
+    api
+      .agencies()
+      .then(setOptions)
+      .catch((e) => setError(e instanceof Error ? e.message : String(e)));
+  }, []);
+
+  // Exact, case-insensitive, whitespace-collapsed. Deliberately NOT a fuzzy
+  // or prefix match: a near-match that silently picks an agency is the
+  // failure this control exists to prevent, and "Department of Health
+  // Services" vs "Department of Child Safety" are one letter apart in the
+  // places that matter.
+  function resolve(text: string): string {
+    const wanted = text.trim().replace(/\s+/g, " ").toLowerCase();
+    const hit = options.find(
+      (o) => o.name.trim().replace(/\s+/g, " ").toLowerCase() === wanted,
+    );
+    return hit ? hit.canonical_id : "";
+  }
+
+  const catalog = options.filter((o) => o.source === "catalog");
+  const office = options.filter((o) => o.source === "office");
+
+  const noteId = "up-agency-note";
+  // 🔴 A <div> with a `htmlFor` label, NOT a <label> wrapping everything —
+  // which is what the other fields on this form use and what this was
+  // written as first. A <label>'s whole text content becomes the field's
+  // ACCESSIBLE NAME, so with the "No agency by that name" note inside it the
+  // input stopped being called "Agency" and started being called "Agency No
+  // agency by that name. Pick one from the list…". A screen reader would
+  // read the error as part of the field's name every time focus landed, and
+  // the name would change as you typed. The note is `aria-describedby`
+  // instead, which is what describes a field's STATE.
+  return (
+    <div className="up-field up-field-agency">
+      <label htmlFor="up-agency">Agency</label>
+      <input
+        id="up-agency"
+        type="text"
+        list="up-agency-options"
+        aria-describedby={noteId}
+        value={typed}
+        placeholder={options.length ? "Start typing an agency's name" : "Loading…"}
+        onChange={(e) => {
+          setTyped(e.target.value);
+          onChange(resolve(e.target.value));
+        }}
+      />
+      <datalist id="up-agency-options">
+        {catalog.map((o) => (
+          <option key={o.canonical_id} value={o.name} />
+        ))}
+        {office.length > 0 && (
+          <>
+            {office.map((o) => (
+              <option key={o.canonical_id} value={o.name} label="added by your office" />
+            ))}
+          </>
+        )}
+      </datalist>
+      {/* Three states, and the middle one is the one that matters: text
+          typed that resolves to nothing. Saying nothing there would leave a
+          disabled Add button with no explanation for why. */}
+      {/* Rendered unconditionally (empty when there is nothing to say) so
+          the described-by target always exists — an element that appears and
+          disappears is announced unreliably. */}
+      <span id={noteId} className={`up-field-note${error ? " err" : ""}`}>
+        {error
+          ? `Couldn’t load the agency list: ${error}`
+          : typed.trim() && !value
+            ? "No agency by that name. Pick one from the list — an admin can add a missing agency in Settings."
+            : ""}
+      </span>
     </div>
   );
 }

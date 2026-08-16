@@ -1736,6 +1736,17 @@ nav.primary{position:relative;padding-right:44px;}
 
 .page-upload .up-expect{font-size:12.5px;font-weight:700;color:var(--ink-3);}
 
+/* The agency picker. A <div> rather than a <label> wrapping everything (see
+   Upload.tsx) so its note describes the field instead of becoming part of
+   the field's name, which means the caption needs the label styling the
+   other fields get from `.up-field` itself. */
+.page-upload .up-field>label{font-size:12.5px;font-weight:700;color:var(--ink-3);}
+.page-upload .up-field-agency{grid-column:1/-1;}
+/* Rendered unconditionally so the aria-describedby target always exists;
+   an empty one must not leave a gap under the input. */
+.page-upload .up-field-note:empty{display:none;}
+.page-upload .up-field-note{font-size:12px;font-weight:700;color:var(--ink-3);}
+
 .page-upload .up-dupe{margin-top:14px;display:grid;gap:8px;justify-items:start;}
 .page-upload .up-status{min-height:1.4em;}
 .page-upload .err{color:var(--az-red);}
@@ -2787,3 +2798,12 @@ fieldset.adm-field{border:0;padding:0;}
 .page-fiscal-notes .fn-fixture strong{color:var(--az-gold-d);}
 .page-fiscal-notes .fn-inferred{margin:0;font-size:12px;line-height:1.5;color:var(--ink-2);}
 .page-fiscal-notes .linkbtn{background:none;border:0;padding:0;font:inherit;color:var(--az-gold-d);font-weight:800;cursor:pointer;text-decoration:underline;}
+
+/* ===== admin: agencies the office added (upload page's agency picker) =====
+   Same borrowed values as the rest of the admin surface — the alias panel's
+   own row rhythm, no new tokens. */
+.adm-agency-list{list-style:none;margin:10px 0 0;padding:0;display:grid;gap:6px;}
+.adm-agency-list li{display:flex;align-items:center;gap:10px;padding:8px 10px;border:1px solid var(--line);border-radius:var(--r-sm);}
+.adm-agency-name{flex:1;min-width:0;font-size:13.5px;font-weight:700;color:var(--ink);}
+.adm-agency-add{display:flex;align-items:end;gap:10px;margin-top:12px;flex-wrap:wrap;}
+.adm-agency-add label{display:grid;gap:4px;flex:1 1 260px;font-size:12.5px;font-weight:700;color:var(--ink-3);}
