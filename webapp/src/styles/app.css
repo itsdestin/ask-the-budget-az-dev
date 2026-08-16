@@ -1569,24 +1569,42 @@ nav.primary{position:relative;padding-right:44px;}
    Sources: the `.card` panel primitive; home's `main .wrap` 34px/12px page padding;
    `.card .head-row h2`'s 19px/800 navy heading; `.item p`'s 14px `--ink-2` body copy;
    the fiscal-notes page's `.fnnote` 12.5px/700 `--ink-3` note line; `--az-red` for
-   errors, as on the search page's status line. The `.allbtn` and `.fchip` buttons are
-   the mockup's own primitives, used unmodified. */
+   errors, as on the search page's status line.
+
+   🔴 CORRECTED 2026-08-15. The sentence that used to end this comment —
+   "The `.allbtn` and `.fchip` buttons are the mockup's own primitives, used
+   unmodified" — was FALSE, and had been since this page shipped. Upload.tsx
+   asked for `.allbtn`, `.fchip` and `.linkish` by name; `.allbtn` and
+   `.fchip` are defined ONLY under `.page-docs` / `.page-fiscal-notes`, and
+   `.linkish` was defined nowhere in this stylesheet at all. Nothing matched
+   here, so every button on this page rendered as a raw browser default —
+   which is the whole of why the page did not look like the rest of the app.
+   Definitions now live in the "button primitives" block below, copied from
+   their existing homes rather than restyled. */
 .page-upload .wrap{display:block;padding-top:34px;padding-bottom:24px;max-width:820px;}
 .page-upload .up-title{font-size:19px;color:var(--navy);font-weight:800;margin:0 0 14px;}
 .page-upload .card{margin:0 0 16px;padding:20px 24px;}
 .page-upload h2{font-size:19px;color:var(--navy);font-weight:800;}
-/* Task 6 finding, selector renamed for the single-card rework (`.up-row` ->
-   `.up-form`, the one form that now appears below the type picker — grep-
-   confirmed `.up-row` is gone from Upload.tsx): each upload row/form
-   introduced a new <h3> with no rule of its own, which would render at the
-   browser default (bold, larger than surrounding text, wrong color) inside
-   a .card. This page has no other h3, so rather than invent a size, this
-   follows the two h3-inside-a-card precedents already in this file
-   (.adm-panel h3, .adm-card-title h3) — navy/800 like every other heading
-   here, sized down from the page's own 19px h2 the same way those two size
-   down from THEIR page's headings. */
-.page-upload .up-form h3{font-size:14px;color:var(--navy);font-weight:800;margin:0 0 4px;}
 .page-upload p{margin:4px 0 0;font-size:14px;color:var(--ink-2);}
+
+/* ----- button primitives, on this page ------------------------------------
+   Copied VERBATIM from where each already lives, not re-derived: `.allbtn`
+   from `.page-docs .allbtn`, `.fchip` from the mockup's own rule in
+   reference/subpage-search_jlbc.html (line 211). `.linkish` has no existing
+   home — it is the one new recipe here, and it is built from values already
+   on this page (12.5px/800, `--az-gold-d`) rather than invented, so a
+   text-button reads as the same family as the pill buttons beside it. */
+.page-upload .allbtn{display:inline-flex;align-items:center;gap:9px;cursor:pointer;font-size:13.5px;font-weight:800;color:var(--az-gold-d);background:#fff;border:1px solid var(--az-gold-100);border-radius:var(--r-pill);padding:11px 20px;box-shadow:var(--shadow-sm);transition:.14s;font-family:inherit;}
+.page-upload .allbtn:hover{border-color:var(--az-gold);background:var(--az-gold-100);}
+.page-upload .allbtn:disabled{opacity:.65;cursor:not-allowed;}
+.page-upload .allbtn:disabled:hover{border-color:var(--az-gold-100);background:#fff;}
+.page-upload .fchip{font-family:inherit;font-size:12.5px;font-weight:700;color:var(--ink-2);background:var(--canvas);border:1.5px solid var(--line);border-radius:var(--r-pill);padding:5px 12px;cursor:pointer;transition:background .13s,border-color .13s,color .13s;}
+.page-upload .fchip:hover{border-color:var(--az-gold);color:var(--az-gold-d);}
+.page-upload .fchip:disabled{opacity:.65;cursor:not-allowed;}
+.page-upload .fchip:disabled:hover{border-color:var(--line);color:var(--ink-2);}
+.page-upload .linkish{font-family:inherit;font-size:12.5px;font-weight:800;color:var(--az-gold-d);background:none;border:0;padding:0;cursor:pointer;text-decoration:underline;text-underline-offset:2px;}
+.page-upload .linkish:hover{color:var(--navy);}
+.page-upload .linkish:disabled{opacity:.65;cursor:not-allowed;text-decoration:none;}
 
 /* The Invariant 8 notice. Always visible, never collapsible: the rule it states is
    the reason the corpus can be sent to an outside AI provider at all, and a notice
@@ -1595,52 +1613,87 @@ nav.primary{position:relative;padding-right:44px;}
 .page-upload .up-notice{border-left:4px solid var(--navy-900);}
 .page-upload .up-notice p+p{margin-top:8px;}
 
-/* Single-card rework: "What are you uploading?" is now a radio-group list
-   feeding one form below it, replacing six independent cards. Shape borrowed
-   from the admin page's own fieldset/legend/radio pattern
-   (`fieldset.adm-field{border:0;padding:0}`, `.adm-radio`) rather than
-   inventing new fieldset chrome; `.up-type-guidance` reuses `.up-note`'s
-   12.5px/700/--ink-3 line. */
-.page-upload fieldset.up-types{border:0;padding:0;margin:0;}
-.page-upload .up-types legend{font-size:13.5px;font-weight:800;color:var(--ink);margin-bottom:8px;padding:0;}
-.page-upload .up-type-row{display:flex;gap:10px;align-items:flex-start;padding:10px 12px;border:1px solid var(--line);border-radius:var(--r-md);margin-bottom:6px;}
-.page-upload .up-type-row input[type=radio]{margin-top:3px;flex:none;}
-.page-upload .up-type-copy{display:grid;gap:2px;}
-.page-upload .up-type-row label{font-size:14px;font-weight:800;color:var(--ink);cursor:pointer;}
-.page-upload .up-type-guidance{font-size:12.5px;font-weight:700;color:var(--ink-3);margin:0;}
-/* The selected row is the one the form below belongs to — a border/background
-   change is the only cue, since the radio dot alone is easy to miss at a
-   glance across a list of six. */
-.page-upload .up-type-row.is-selected{border-color:var(--navy-100);background:#fafbff;}
+/* ----- one expandable card per document type -------------------------------
+   Supersedes the radio-group list, which superseded six always-open cards
+   (Upload.tsx's own header comment carries why each was rejected).
 
-/* The form (or the redirect panel) for whichever type is picked above —
-   a rule, not another nested .card, separates it from the type list it
-   belongs to. */
-.page-upload .up-form,.page-upload .up-redirect{margin-top:18px;padding-top:18px;border-top:1px solid var(--line);}
+   The head is BORROWED WHOLESALE from `.page-docs .yg-head` — the Budget
+   Documents year-card accordion — down to the hover tint, the -2px inset
+   focus ring, the hairline that only appears once open, and the caret that
+   rotates rather than swapping glyph. That is deliberate: this page now has
+   the same interaction as the app's other expandable list, so it should not
+   merely resemble it, it should be the same rule. */
+.page-upload .up-cards{display:grid;gap:12px;margin:0 0 16px;}
+/* Beats `.page-upload .card` (equal specificity, later in the file): the
+   head button supplies its own padding, so the card must not add the page's
+   blanket 20px/24px on top of it. */
+.page-upload .up-card{margin:0;padding:0;}
+/* The head is an <h2> for document structure; its own 19px/800 would fight
+   the borrowed `.yg-yr` sizing on the name span inside it. */
+.page-upload .up-card-head{margin:0;font-size:inherit;font-weight:inherit;}
+.page-upload .up-card-toggle{display:flex;align-items:center;gap:12px;width:100%;padding:15px 18px;background:transparent;border:0;border-bottom:1px solid transparent;font-family:inherit;cursor:pointer;text-align:left;transition:background .14s;}
+.page-upload .up-card-toggle:hover{background:#fafafe;}
+.page-upload .up-card-toggle:focus-visible{outline:2px solid var(--navy);outline-offset:-2px;border-radius:var(--r-lg) var(--r-lg) 0 0;}
+.page-upload .up-card.is-open .up-card-toggle{border-bottom-color:var(--line);}
+.page-upload .up-card-ttl{display:flex;flex-direction:column;gap:2px;min-width:0;flex:1;}
+.page-upload .up-card-name{font-size:16px;font-weight:800;color:var(--navy);}
+.page-upload .up-card-where{font-size:12.5px;font-weight:700;color:var(--ink-3);}
+.page-upload .up-card-caret{flex:0 0 auto;width:18px;height:18px;color:var(--ink-3);transition:transform .18s;}
+.page-upload .up-card-toggle:hover .up-card-caret{color:var(--az-gold-d);}
+.page-upload .up-card.is-open .up-card-caret{transform:rotate(180deg);}
+.page-upload .up-card-body{padding:16px 18px 18px;}
+/* Which-file guidance, first thing inside an opened card. */
+.page-upload .up-which{margin:0 0 4px;}
 
-/* .up-drop / .up-choose / .up-hint removed (review finding 2, task-6 review,
-   second pass): they styled the single shared dropzone Task 6 replaced with
-   six per-row file inputs. grep-confirmed zero references left in webapp/src/
-   before deleting — none of the three names appear in any .tsx file. */
+/* ----- the drop zone -------------------------------------------------------
+   The browser's own file widget ("Choose File · No file chosen") is what
+   made this page read as a raw HTML form, so the real <input type=file> is
+   moved out of sight and its <label> wears `.fchip`. The input is HIDDEN,
+   never `display:none` — that would drop it out of the accessibility tree
+   and off the keyboard, turning a cosmetic change into a functional
+   regression. `:focus-within` puts the focus ring on the visible label, so
+   tabbing to it still shows where you are.
 
-/* .up-drop reintroduced (final-review Finding 3): each row's own <section>
-   has always accepted a dropped file (Upload.tsx's onDrop), but with no
-   on-screen cue that it does, so the feature was invisible. This is the same
-   dashed-box language the paragraph above records as removed, now scoped to
-   one row's file picker instead of a page-wide zone — border colour borrowed
-   from the existing dashed-box precedent at `.page-docs .ctx` (1px dashed
-   #cdd3e6), not invented, per this file's own convention. */
-.page-upload .up-drop{border:1px dashed #cdd3e6;border-radius:var(--r-md);padding:10px 12px;background:#fafbff;}
-.page-upload .up-drop-hint{margin:4px 0 0;font-size:12px;font-weight:700;color:var(--ink-3);}
+   Dashed-border colour borrowed from `.page-docs .ctx`, per this file's
+   convention of not inventing values. */
+.page-upload .up-drop{display:grid;justify-items:center;gap:6px;border:1.5px dashed #cdd3e6;border-radius:var(--r-md);padding:18px 14px;background:#fafbff;text-align:center;transition:border-color .14s,background .14s;}
+.page-upload .up-drop:hover{border-color:var(--az-gold);background:var(--az-gold-100);}
+.page-upload .up-drop-glyph{width:26px;height:26px;color:var(--ink-3);}
+.page-upload .up-drop-hint{margin:0;font-size:12.5px;font-weight:700;color:var(--ink-3);}
+.page-upload .up-drop-btn{display:inline-flex;align-items:center;cursor:pointer;}
+.page-upload .up-drop-btn:focus-within{border-color:var(--az-gold);color:var(--az-gold-d);box-shadow:0 0 0 3px var(--az-gold-100);}
+.page-upload .up-file{position:absolute;width:1px;height:1px;padding:0;margin:-1px;overflow:hidden;clip:rect(0 0 0 0);clip-path:inset(50%);white-space:nowrap;border:0;}
 
-.page-upload .up-meta{margin-top:16px;display:grid;gap:10px;}
-.page-upload .up-filename{font-weight:700;color:var(--ink);}
-.page-upload .up-meta label{display:grid;gap:4px;font-size:12.5px;font-weight:700;color:var(--ink-3);}
-.page-upload .up-meta select,.page-upload .up-meta input[type=text],.page-upload .up-meta input[type=number]{
-  font:inherit;font-size:14px;padding:7px 10px;border:1px solid var(--line);border-radius:var(--r-pill);color:var(--ink);background:#fff;}
-/* The checkbox row is a single line, unlike the stacked label/control pairs above. */
-.page-upload .up-check{display:flex;align-items:center;gap:8px;font-size:14px;font-weight:700;color:var(--ink);}
-.page-upload .up-meta button[disabled]{opacity:.5;cursor:not-allowed;}
+.page-upload .up-meta{margin-top:14px;display:grid;gap:12px;}
+.page-upload .up-filename{margin:2px 0 0;font-size:13px;font-weight:800;color:var(--ink);word-break:break-all;}
+.page-upload .up-fields{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px;}
+.page-upload .up-field{display:grid;gap:4px;font-size:12.5px;font-weight:700;color:var(--ink-3);}
+.page-upload .up-field select,.page-upload .up-field input[type=text]{
+  font:inherit;font-size:14px;padding:8px 12px;border:1px solid var(--line);border-radius:var(--r-pill);color:var(--ink);background:#fff;transition:border-color .13s,box-shadow .13s;}
+.page-upload .up-field select:focus,.page-upload .up-field input[type=text]:focus{
+  outline:0;border-color:var(--navy-100);box-shadow:0 0 0 3px var(--navy-100);}
+
+/* The Invariant 8 tick. The native box is replaced with a drawn one rather
+   than left at the OS default — the deliberate moment the invariant exists
+   for should not look like the least considered control on the page. It is
+   still a real <input type=checkbox> (appearance:none only repaints it), so
+   keyboard, screen readers and `getByRole("checkbox")` are untouched. */
+.page-upload .up-check{display:flex;align-items:center;gap:9px;font-size:14px;font-weight:700;color:var(--ink);cursor:pointer;}
+.page-upload .up-check input[type=checkbox]{appearance:none;-webkit-appearance:none;width:18px;height:18px;flex:none;margin:0;border:1.5px solid #cdd3e6;border-radius:5px;background:#fff;cursor:pointer;display:grid;place-content:center;transition:border-color .13s,background .13s;}
+.page-upload .up-check input[type=checkbox]::before{content:"";width:10px;height:10px;transform:scale(0);transition:transform .12s;background:#fff;clip-path:polygon(14% 44%,0 65%,50% 100%,100% 16%,80% 0,43% 62%);}
+.page-upload .up-check input[type=checkbox]:checked{border-color:var(--az-gold);background:var(--az-gold);}
+.page-upload .up-check input[type=checkbox]:checked::before{transform:scale(1);}
+.page-upload .up-check input[type=checkbox]:focus-visible{outline:2px solid var(--navy);outline-offset:2px;}
+
+/* A <details> wearing the page's own language instead of the browser's
+   triangle, which differs per browser and cannot be coloured. */
+.page-upload .up-disclose{margin-top:12px;}
+.page-upload .up-disclose>summary{display:flex;align-items:center;gap:8px;cursor:pointer;list-style:none;font-size:12.5px;font-weight:800;color:var(--az-gold-d);}
+.page-upload .up-disclose>summary::-webkit-details-marker{display:none;}
+.page-upload .up-disclose>summary:hover{color:var(--navy);}
+.page-upload .up-disclose-mark{flex:none;width:0;height:0;border-left:5px solid currentColor;border-top:4px solid transparent;border-bottom:4px solid transparent;transition:transform .15s;}
+.page-upload .up-disclose[open]>summary .up-disclose-mark{transform:rotate(90deg);}
+
 .page-upload .up-expect{font-size:12.5px;font-weight:700;color:var(--ink-3);}
 
 .page-upload .up-dupe{margin-top:14px;display:grid;gap:8px;justify-items:start;}
@@ -1674,13 +1727,34 @@ nav.primary{position:relative;padding-right:44px;}
 .page-fiscal-notes .fnsem-snip{font-size:12.5px;line-height:1.45;}
 .page-fiscal-notes .fnsem-page{font-size:11.5px;font-weight:700;color:var(--ink-3);}
 
-/* ===== page-upload: Add a JLBC book panel (Plan 3, Task 15) =====
-   Same borrowed values as the rest of the upload page — no new tokens. */
-.page-upload .up-book-row{display:flex;flex-wrap:wrap;align-items:end;gap:10px;margin-top:12px;}
-.page-upload .up-book-row label{flex:1 1 260px;}
-.page-upload .up-book-row select{width:100%;}
-.page-upload .up-book-plan{margin-top:12px;}
+/* ===== page-upload: the JLBC book flow, inside a document-type card =====
+   (Plan 3 Task 15 → spec T10 → folded into the type cards 2026-08-15, when
+   the standalone "Add a JLBC book" section was removed.)
+
+   Same borrowed values as the rest of the upload page — no new tokens. A
+   missing edition is a bordered row on the card's own tint, matching the
+   `.up-drop` recipe directly above it, so the two things a book card can
+   show you sit at the same visual weight. */
+.page-upload .up-book-why{margin:0;}
+.page-upload .up-book-missing{list-style:none;margin:12px 0 0;padding:0;display:grid;gap:8px;}
+.page-upload .up-book-item{border:1px solid var(--line);border-radius:var(--r-md);padding:12px 14px;background:#fafbff;}
+.page-upload .up-book-row{display:flex;flex-wrap:wrap;align-items:center;gap:10px;}
+.page-upload .up-book-lead{display:grid;gap:2px;flex:1 1 220px;min-width:0;}
+.page-upload .up-book-name{font-size:14px;font-weight:800;color:var(--navy);}
+.page-upload .up-book-detail{font-size:12.5px;font-weight:700;color:var(--ink-3);}
+.page-upload .up-book-acts{display:flex;align-items:center;gap:8px;margin-left:auto;}
+.page-upload .up-book-plan{margin-top:10px;padding-top:10px;border-top:1px solid var(--line);}
 .page-upload .up-book-bad{list-style:none;margin:6px 0 0;padding:0;display:grid;gap:4px;font-size:12px;color:var(--ink-3);word-break:break-all;}
+.page-upload .up-book-checked{margin-top:10px;}
+/* Un-addable editions: dimmed, and with NO action of any kind beside them
+   (spec T10). The dimming is the second signal after the missing Add
+   button — an eye scanning the list should not have to read each row to
+   learn there is nothing to do with it. */
+.page-upload .up-book-unavailable ul{list-style:none;margin:8px 0 0;padding:0;display:grid;gap:7px;}
+.page-upload .up-book-dim{display:grid;gap:1px;opacity:.72;}
+.page-upload .up-book-manual{margin-top:12px;}
+.page-upload .up-book-manual .up-book-row{margin-top:8px;align-items:end;}
+.page-upload .up-book-manual .up-field{flex:0 0 130px;}
 
 /* ===== AI Mode ===== (Plan 4 Task 12 — the toggle, the tier control, the panel)
  *

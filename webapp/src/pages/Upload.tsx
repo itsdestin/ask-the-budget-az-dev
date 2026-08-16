@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import * as api from "../api";
-import { BookPanel } from "./upload/BookPanel";
+import { BookFamilyPanel } from "./upload/BookFamilyPanel";
 import { QueuePanel } from "./upload/QueuePanel";
 
 // The upload surface. Two jobs: get a document into the queue with correct
@@ -16,21 +16,43 @@ import { QueuePanel } from "./upload/QueuePanel";
 // The other honesty requirement is timing. MinerU can take a while per page
 // on the office i5s, so a large document can run for hours. The copy says so.
 //
-// WHY one card with a type PICKER, not six full cards (this rework,
-// superseding Task 6's "six guided rows" — see that section's history in
-// STATUS.md): six independent cards with their own file input, fiscal year,
-// checkbox and Submit button read as six different features, and the product
-// owner's reaction to seeing them was blunt — "why are there 6 entirely
-// different upload cards." The types themselves are still exactly Task 6's
-// insight (an analyst doesn't know a raw doc_type slug, so name a real
-// document and let the row determine its own doc_type/publisher) — only the
-// SHAPE changed: the six are now a selectable list feeding one form, so
-// there is one file input, one fiscal year field, one checkbox and one
-// Submit button on the page at a time, no matter which type is picked. The
-// rows still come from GET /api/document-types, a straight projection of
-// data/document-types.yaml, so this file holds no copy of the type list at
-// all — that list drifting from the server's is exactly the bug this page
-// used to ship (twice, now, in two different shapes).
+// WHY six cards that expand ONE AT A TIME (2026-08-15, superseding both the
+// original "six guided rows" and the radio-list-plus-one-shared-form that
+// replaced it). The history matters because the two obvious shapes have each
+// already been rejected for a reason worth keeping:
+//
+//   - Six full cards, all expanded, was rejected on sight — "why are there 6
+//     entirely different upload cards." Six file inputs, six fiscal-year
+//     boxes, six checkboxes and six Add buttons down one page read as six
+//     features, and make it easy to fill in one card and press Add in
+//     another.
+//   - A radio list feeding one shared form below fixed that, and was
+//     rejected in turn: the form was visibly a separate section rather than
+//     part of the thing you picked, and it left a SECOND separate section
+//     ("Add a JLBC book") restating two of the same six types.
+//
+// The accordion keeps the property the shared form was built for — exactly
+// one file input, one fiscal year, one checkbox and one Add button on screen
+// at any moment — while the form lives INSIDE the card it belongs to.
+// Opening a card closes the one that was open, and a closed card's body is
+// unmounted, so no half-filled form for a type you are not looking at can
+// exist at all. That is what makes the "does not carry X to the next type"
+// specs structural rather than something a future edit could quietly undo:
+// they used to depend on a `key=` prop, and now the state cannot outlive the
+// close.
+//
+// The two JLBC-book types expand into their OWN family's gap (spec T10)
+// instead of a file form — that is the whole of "no separate JLBC Books
+// section".
+//
+// The types themselves are still exactly Task 6's insight (an analyst
+// doesn't know a raw doc_type slug, so name a real document and let the row
+// determine its own doc_type/publisher). The rows come from
+// GET /api/document-types, a straight projection of data/document-types.yaml,
+// so this file holds no copy of the type list at all — that list drifting
+// from the server's is exactly the bug this page used to ship (twice, now,
+// in two different shapes). That is also why the book family arrives as
+// `redirect.family` off the wire rather than a key→family map written here.
 
 export function Upload() {
   const [rows, setRows] = useState<api.DocTypeCard[] | null>(null);
@@ -40,11 +62,10 @@ export function Upload() {
   // the queue state itself (spec T13) -- the page only says "look again".
   const [queueToken, setQueueToken] = useState(0);
   const refreshJobs = useCallback(() => setQueueToken((n) => n + 1), []);
-  // Which of the registry's types the analyst has picked, if any. Lives on
-  // the page (not inside a child) because it decides which single form to
-  // render below the list — there is exactly one form on screen, so exactly
-  // one component needs to know which type it is for.
-  const [selectedKey, setSelectedKey] = useState<string | null>(null);
+  // Which card is open, if any. Lives on the page rather than inside each
+  // card because "one at a time" is a statement about the SET — a card
+  // cannot know to close itself when a sibling opens.
+  const [openKey, setOpenKey] = useState<string | null>(null);
 
   useEffect(() => {
     api
@@ -58,8 +79,6 @@ export function Upload() {
         setRowsError(e instanceof Error ? e.message : String(e));
       });
   }, []);
-
-  const selected = (rows ?? []).find((r) => r.key === selectedKey) ?? null;
 
   return (
     <main className="page-upload" data-testid="upload">
@@ -96,45 +115,22 @@ export function Upload() {
           </p>
         )}
 
-        <section className="card up-card" data-testid="upload-card">
-          <fieldset className="up-types">
-            <legend>What are you uploading?</legend>
-            {(rows ?? []).map((row) => (
-              <DocTypeOption
-                key={row.key}
-                row={row}
-                selected={selectedKey === row.key}
-                onSelect={() => setSelectedKey(row.key)}
-              />
-            ))}
-          </fieldset>
-
-          {selected &&
-            (selected.redirect ? (
-              // No `key` needed here: a redirect panel holds no form state of
-              // its own, so there is nothing that could leak across a switch.
-              <RedirectPanel row={selected} />
-            ) : (
-              // `key={selected.key}` is the whole fix for the hazard this
-              // rework introduces: six independent cards used to mean six
-              // independent pieces of React state, so nothing could leak
-              // between them. One form now serves six types in turn, so
-              // switching the selection must not let a file, fiscal year,
-              // stage, error, duplicate or success message from the type
-              // just left carry into the type just picked. Changing `key`
-              // is what tells React "this is conceptually a different
-              // component instance" — it unmounts the old form's state
-              // (and its DOM, including the native file input's own
-              // displayed filename) and mounts a brand new one, rather than
-              // reusing the same instance and hoping every field was
-              // reset by hand. See Upload.test.tsx's "switching the
-              // selected type" spec, which fails the moment this key is
-              // removed.
-              <DocTypeForm key={selected.key} row={selected} onQueued={() => void refreshJobs()} />
-            ))}
-        </section>
-
-        <BookPanel onQueued={() => void refreshJobs()} />
+        <div className="up-cards">
+          {(rows ?? []).map((row) => (
+            <DocTypeCard
+              key={row.key}
+              row={row}
+              open={openKey === row.key}
+              // Clicking the open card closes it — the header is a toggle,
+              // not a one-way selector, so there is always a way back to
+              // "nothing open" without picking something you don't want.
+              onToggle={() =>
+                setOpenKey((current) => (current === row.key ? null : row.key))
+              }
+              onQueued={() => void refreshJobs()}
+            />
+          ))}
+        </div>
 
         <QueuePanel reloadToken={queueToken} />
       </div>
@@ -142,94 +138,128 @@ export function Upload() {
   );
 }
 
-// --- the type picker ---------------------------------------------------------
+// --- one card per document type ----------------------------------------------
 
-/** One selectable row in the "What are you uploading?" list. Native radio
- *  semantics (shared `name`, grouped by a `<fieldset>`/`<legend>`) rather
- *  than a hand-rolled listbox — a single choice from a short list is exactly
- *  what a radio group is for, and it comes with keyboard (arrow-key) support
- *  and screen-reader grouping for free.
+/** One expandable document-type card.
  *
- *  The radio's accessible NAME is just the type's label (`<label htmlFor>`);
- *  the "where to find it / which file" guidance is a separate paragraph
- *  wired in as `aria-describedby` rather than folded into the label. That
- *  keeps the name short (so "Annual Financial Report" reads as one clean
- *  choice, not a paragraph) while most screen readers still announce the
- *  description right after the name — the guidance stays legible, it's just
- *  not IN the name.
+ *  The header is a `<button aria-expanded>` inside a heading — the standard
+ *  disclosure pattern, chosen over the two alternatives this page has worn
+ *  before. A `<details>/<summary>` cannot be driven from the outside, and
+ *  "only one open at a time" is a decision about the SET, so the parent has
+ *  to own it. A radio group (what this replaced) says "choose one of these"
+ *  when what actually happens is "open this one" — and a radio can never be
+ *  un-picked, so there was no way back to a page with nothing open.
+ *
+ *  The accessible name is just the type's label, so a screen reader hears
+ *  "Annual Financial Report, collapsed" rather than a paragraph. The "where
+ *  it's published" line rides along as `aria-describedby`, which most
+ *  readers announce straight after the name — legible, just not IN the name.
+ *
+ *  The body is UNMOUNTED when closed, not hidden. Two things follow, both
+ *  wanted: a closed card's half-filled form cannot survive to be submitted
+ *  by accident, and there is only ever one file input in the document, so
+ *  "the Add button" is unambiguous to a test, a screen reader and a person.
  */
-function DocTypeOption({
+function DocTypeCard({
   row,
-  selected,
-  onSelect,
+  open,
+  onToggle,
+  onQueued,
 }: {
   row: api.DocTypeCard;
-  selected: boolean;
-  onSelect: () => void;
+  open: boolean;
+  onToggle: () => void;
+  onQueued: () => void;
 }) {
-  const inputId = `doctype-${row.key}`;
-  const guidanceId = `${inputId}-guidance`;
-  // where_published and which_file are two separate registry fields but read
-  // as one sentence here — a redirect row's which_file is "" (see
-  // api.ts's DocTypeCard comment), so this naturally drops the empty second
-  // half instead of leaving a trailing space or an empty <p>.
-  const guidance = [row.where_published, row.which_file].filter(Boolean).join(" ");
+  const headId = `up-head-${row.key}`;
+  const bodyId = `up-body-${row.key}`;
+  const whereId = `up-where-${row.key}`;
 
   return (
-    <div
-      className={`up-type-row${selected ? " is-selected" : ""}`}
+    <section
+      className={`card up-card${open ? " is-open" : ""}`}
+      data-testid="doc-type-card"
       data-doc-type={row.key}
     >
-      <input
-        type="radio"
-        id={inputId}
-        name="doc-type"
-        value={row.key}
-        checked={selected}
-        onChange={onSelect}
-        aria-describedby={guidance ? guidanceId : undefined}
-      />
-      <div className="up-type-copy">
-        <label htmlFor={inputId}>{row.label}</label>
-        {guidance && (
-          <p id={guidanceId} className="up-type-guidance">
-            {guidance}
-          </p>
-        )}
-      </div>
-    </div>
+      <h2 className="up-card-head">
+        <button
+          type="button"
+          id={headId}
+          className="up-card-toggle"
+          aria-expanded={open}
+          aria-controls={bodyId}
+          aria-describedby={row.where_published ? whereId : undefined}
+          onClick={onToggle}
+        >
+          <span className="up-card-ttl">
+            <span className="up-card-name">{row.label}</span>
+            {row.where_published && (
+              <span id={whereId} className="up-card-where">
+                {row.where_published}
+              </span>
+            )}
+          </span>
+          <Chevron />
+        </button>
+      </h2>
+
+      {open && (
+        <div className="up-card-body" id={bodyId} role="region" aria-labelledby={headId}>
+          {row.redirect ? (
+            // A Baseline Book / Appropriations Report is never uploaded as a
+            // single file (spec S25 — it's stored as ~110 per-agency
+            // documents, and offering "which file?" for it is itself the
+            // bug). Its card expands into that family's own gap instead: a
+            // list of what JLBC has published that this corpus lacks. Never
+            // both, and never a file input a type cannot accept.
+            <BookFamilyPanel
+              family={row.redirect.family}
+              label={row.label}
+              detail={row.redirect.detail}
+              onQueued={onQueued}
+            />
+          ) : (
+            <DocTypeForm row={row} onQueued={onQueued} />
+          )}
+        </div>
+      )}
+    </section>
   );
 }
 
-/** A Baseline Book / Appropriations Report is never uploaded as a single
- *  file (spec S25 — it's stored as ~110 per-agency documents, and offering
- *  "which file?" for it is itself the bug). Picking one of these two types
- *  shows its `redirect.detail` and a button to the existing Add-a-JLBC-book
- *  panel INSTEAD of a form — never both, and never a file input a type
- *  cannot accept.
- */
-function RedirectPanel({ row }: { row: api.DocTypeCard }) {
-  const redirect = row.redirect;
-  // Guarded rather than asserted: the caller only renders this component for
-  // a row it already checked has `redirect` set, but narrowing it here
-  // (instead of a non-null assertion) means a future caller mistake fails
-  // quietly with nothing rendered, not a runtime crash.
-  if (!redirect) return null;
+/** The drop zone's mark. Decorative — `aria-hidden`, because the label and
+ *  the hint beside it already say what this box does, and a screen reader
+ *  announcing "upload icon" adds nothing a blind user can act on. */
+function UploadGlyph() {
   return (
-    <div className="up-redirect" data-testid="upload-redirect" data-doc-type={row.key}>
-      <p>{redirect.detail}</p>
-      <button
-        type="button"
-        className="fchip"
-        onClick={() =>
-          document
-            .querySelector('[data-testid="add-book"]')
-            ?.scrollIntoView({ behavior: "smooth" })
-        }
-      >
-        {redirect.label}
-      </button>
-    </div>
+    <svg className="up-drop-glyph" viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+      <path
+        d="M12 16V4m0 0L7.5 8.5M12 4l4.5 4.5M4 15v3a2 2 0 002 2h12a2 2 0 002-2v-3"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth="1.7"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
+    </svg>
+  );
+}
+
+/** The disclosure caret. Rotated by CSS on `.is-open` rather than swapped
+ *  for a second glyph, so the two states are one shape in motion — the same
+ *  treatment the Budget Documents year cards already use. */
+function Chevron() {
+  return (
+    <svg className="up-card-caret" viewBox="0 0 16 16" aria-hidden="true" focusable="false">
+      <path
+        d="M4 6l4 4 4-4"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth="2"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
+    </svg>
   );
 }
 
@@ -243,10 +273,11 @@ function formatsLabel(formats: string[]): string {
   return formats.map((f) => f.replace(/^\./, "").toUpperCase()).join(" or ");
 }
 
-/** The one form on the page. Rendered only for a selected, non-redirect
- *  type — remounted (via the caller's `key={row.key}`) every time the
- *  selection changes, which is what keeps one type's file/fiscal-year/
- *  stage/error/duplicate/success state from leaking into the next.
+/** The upload form, rendered inside its own type's card and only while that
+ *  card is open. Closing the card unmounts it, which is what keeps one
+ *  type's file / fiscal-year / stage / error / duplicate / success state
+ *  from ever reaching another type's — the earlier shared-form design
+ *  needed a deliberate `key=` prop to get the same guarantee.
  */
 function DocTypeForm({
   row,
@@ -358,54 +389,66 @@ function DocTypeForm({
         selectFile(e.dataTransfer.files?.[0] ?? null);
       }}
     >
-      <h3>{row.label}</h3>
-      <p className="up-note">{row.where_published}</p>
-      {row.which_file && <p>{row.which_file}</p>}
+      {/* `which_file` — which of a publisher's several PDFs to take — lives
+          here rather than on the collapsed card header. It is instructions
+          for the moment you go and fetch the file, which is after you've
+          opened this card; `where_published` is the recognition cue and
+          stays on the header where it helps you choose. */}
+      {row.which_file && <p className="up-which">{row.which_file}</p>}
 
       <div className="up-meta">
+        {/* The file input itself is visually hidden (never `display:none`,
+            which would take it out of the accessibility tree and off the
+            keyboard) and its own <label> is painted as the button. The
+            browser's native widget is the "Choose File · No file chosen"
+            control that made this page look like a raw HTML form. */}
         <div className="up-drop">
-          <label>
+          <UploadGlyph />
+          <p className="up-drop-hint">Drag and drop it here, or</p>
+          <label className="fchip up-drop-btn">
             {`Choose a ${formatsLabel(row.formats)} document`}
             <input
+              className="up-file"
               ref={fileInputRef}
               type="file"
               accept={row.formats.join(",")}
               onChange={(e) => selectFile(e.target.files?.[0] ?? null)}
             />
           </label>
-          <p className="up-drop-hint">or drag and drop it here</p>
           {file && <p className="up-filename">{file.name}</p>}
         </div>
 
-        {row.stage_field && (
-          <label>
-            Version
-            <select
-              name="stage"
-              value={stage}
-              onChange={(e) => setStage(e.target.value)}
-            >
-              <option value="">Choose…</option>
-              <option value="introduced">As Introduced</option>
-              <option value="engrossed">As Engrossed</option>
-            </select>
+        <div className="up-fields">
+          {row.stage_field && (
+            <label className="up-field">
+              Version
+              <select
+                name="stage"
+                value={stage}
+                onChange={(e) => setStage(e.target.value)}
+              >
+                <option value="">Choose…</option>
+                <option value="introduced">As Introduced</option>
+                <option value="engrossed">As Engrossed</option>
+              </select>
+            </label>
+          )}
+
+          <label className="up-field">
+            Fiscal year
+            <input
+              type="text"
+              value={fy}
+              onChange={(e) => setFy(e.target.value)}
+              inputMode="numeric"
+            />
           </label>
-        )}
 
-        <label>
-          Fiscal year
-          <input
-            type="text"
-            value={fy}
-            onChange={(e) => setFy(e.target.value)}
-            inputMode="numeric"
-          />
-        </label>
-
-        <label>
-          Title (optional)
-          <input type="text" value={title} onChange={(e) => setTitle(e.target.value)} />
-        </label>
+          <label className="up-field">
+            Title (optional)
+            <input type="text" value={title} onChange={(e) => setTitle(e.target.value)} />
+          </label>
+        </div>
 
         {/* Invariant 8. The server returns 400 without this, so removing it
             here produces a confusing error rather than a hole — but it is
@@ -520,17 +563,3 @@ function formatDate(iso: string): string {
   return Number.isNaN(d.getTime()) ? iso : d.toLocaleDateString();
 }
 
-// ---------------------------------------------------------------------------
-// Add a JLBC book
-// ---------------------------------------------------------------------------
-
-/** Bulk-add one published JLBC edition — this year's Baseline, or a historical
- *  backfill — without hunting down 130 PDF links by hand.
- *
- *  No Invariant 8 checkbox here: everything this panel can reach is a
- *  JLBC-published report, which is public record by definition. Asking again
- *  would train people to click past the checkbox that does matter.
- *
- *  Discover and Add are separate steps on purpose. A book is an overnight
- *  commitment on office hardware, so the honest sequence is: see exactly what
- *  it contains (and what's unreachable) first, then decide. */

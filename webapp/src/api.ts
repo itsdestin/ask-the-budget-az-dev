@@ -351,8 +351,15 @@ export interface DocTypeCard {
   /** Present only for the two JLBC-book rows, which are never uploaded —
    *  see `app/book_sections.py`'s reasoning for why a book is added by the
    *  book tool (one document per agency) rather than as a single PDF.
-   *  `which_file` is "" on a redirect row; every other row has `null` here. */
-  redirect: { action: string; label: string; detail: string } | null;
+   *  `which_file` is "" on a redirect row; every other row has `null` here.
+   *
+   *  `family` is the row's book family in `ingest/book_discovery`'s own
+   *  vocabulary ("approps" / "baseline"). It arrives from the registry
+   *  rather than being derived from `key` here on purpose: Upload.tsx is
+   *  under a test forbidding it to contain any doc_type slug, so a
+   *  webapp-side key→family map is exactly the second copy of the type list
+   *  that Task 6 removed. */
+  redirect: { action: string; family: string; detail: string } | null;
   /** True only for budget-bill-summary today — gates whether the row shows
    *  the Introduced/Engrossed picker, and whether the upload route requires
    *  one (422 without it on a staged type). */

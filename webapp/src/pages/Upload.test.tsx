@@ -39,7 +39,7 @@ function pdf(name = "27baseline-axs.pdf"): File {
 const ROWS: api.DocTypeCard[] = [
   { key: "baseline-book", label: "Baseline Book", group: "JLBC", formats: [".pdf"],
     where_published: "JLBC, each January.", which_file: "",
-    redirect: { action: "add-jlbc-book", label: "Use “Add a JLBC book” instead",
+    redirect: { action: "add-jlbc-book", family: "baseline",
                 detail: "Stored as one document per agency." },
     stage_field: false, order: 10 },
   { key: "afr", label: "Annual Financial Report", group: "Auditor General",
@@ -57,14 +57,19 @@ const ROWS: api.DocTypeCard[] = [
 // fixture, so the two can't quietly drift apart.
 const DEFAULT_ROW = ROWS[1];
 
-/** Picks a type from the "What are you uploading?" list by its label —
- *  radio inputs, so a click on the label toggles them. Every describe block
- *  below needs this first: the rework's whole point is that no form exists
- *  until a type is selected. */
+/** Opens a document type's card by clicking its header. Every describe block
+ *  below needs this first: the whole point of the accordion is that no form
+ *  exists until a card is opened.
+ *
+ *  `findByRole("button", { name })` and not a class or a test id — the card
+ *  head IS a disclosure button, and asserting through the accessible name is
+ *  what keeps these specs pinned to behaviour rather than to whichever
+ *  element the head happens to be built from this month (it has been six
+ *  cards, then a radio row, then this). */
 async function selectType(label: string | RegExp = /annual financial report/i) {
-  const radio = (await screen.findByRole("radio", { name: label })) as HTMLInputElement;
-  fireEvent.click(radio);
-  return radio;
+  const head = await screen.findByRole("button", { name: label });
+  fireEvent.click(head);
+  return head;
 }
 
 async function pickFile(file = pdf()) {
@@ -135,57 +140,71 @@ describe("the public-record notice", () => {
 
 // --- the type picker itself --------------------------------------------------
 
-describe("the type picker", () => {
-  it("shows no form at all before a type is picked", async () => {
+describe("the type cards", () => {
+  it("shows no form at all before a card is opened", async () => {
     render(<Upload />);
-    await screen.findByRole("radio", { name: /annual financial report/i });
+    await screen.findByRole("button", { name: /annual financial report/i });
     expect(screen.queryByLabelText("Fiscal year")).toBeNull();
     expect(screen.queryByLabelText(/choose a pdf/i)).toBeNull();
     expect(screen.queryByRole("button", { name: /add document/i })).toBeNull();
   });
 
-  it("shows the form for the picked type as soon as it's picked, before any file", async () => {
-    // Superseded, not just renamed: the old six-cards-per-type design showed
-    // every row's fields immediately, with no selection step at all. This
-    // rework adds the selection step but keeps the property those old tests
-    // protected — the analyst needs to see "does this type want a stage?"
-    // before hunting for a file, not after choosing one.
+  it("shows the form for the opened card as soon as it's opened, before any file", async () => {
+    // Carried through three shapes now (six open cards, a radio list, this
+    // accordion) because the property is what matters, not the widget: the
+    // analyst needs to see "does this type want a stage?" before hunting for
+    // a file, not after choosing one.
     render(<Upload />);
     await selectType();
     expect(await screen.findByLabelText("Fiscal year")).toBeTruthy();
   });
 
-  it("marks the picked row as selected and leaves the others visible", async () => {
+  it("reports its open/closed state where a screen reader can hear it", async () => {
+    // aria-expanded, not a class: this is the one signal a keyboard or
+    // screen-reader user has for whether the thing they just pressed did
+    // anything, and jsdom can see it where it cannot see the caret rotate.
     vi.spyOn(api, "documentTypes").mockResolvedValue(ROWS);
     render(<Upload />);
-    await selectType(/annual financial report/i);
-    // { selector: "label" }, not a bare getByText: once a type is picked its
-    // form shows an <h3> with the SAME label text, so "Budget Bill Summary"
-    // would otherwise match twice as soon as it's the one selected.
-    const afrRow = screen.getByText("Annual Financial Report", { selector: "label" })
-      .closest("[data-doc-type]")!;
-    const summaryRow = screen.getByText("Budget Bill Summary", { selector: "label" })
-      .closest("[data-doc-type]")!;
-    expect(afrRow.className).toMatch(/is-selected/);
-    expect(summaryRow.className).not.toMatch(/is-selected/);
-    // "The rows stay visible after selection" — nothing about picking one
-    // type removes the others from the list.
-    expect(screen.getByText("Baseline Book", { selector: "label" })).toBeInTheDocument();
+    const head = await screen.findByRole("button", { name: /annual financial report/i });
+    expect(head.getAttribute("aria-expanded")).toBe("false");
+    fireEvent.click(head);
+    expect(head.getAttribute("aria-expanded")).toBe("true");
   });
 
-  it("switching the pick moves the selection instead of adding a second one", async () => {
+  it("closes the card that was open when another is opened", async () => {
+    // "One at a time" is the property that kept this rework from re-earning
+    // the original complaint about six simultaneous upload forms. Asserted
+    // as ONE Add button in the whole document, which is the thing that
+    // actually goes wrong if this breaks.
     vi.spyOn(api, "documentTypes").mockResolvedValue(ROWS);
     render(<Upload />);
     await selectType(/annual financial report/i);
     await selectType(/budget bill summary/i);
-    const afrRow = screen.getByText("Annual Financial Report", { selector: "label" })
-      .closest("[data-doc-type]")!;
-    const summaryRow = screen.getByText("Budget Bill Summary", { selector: "label" })
-      .closest("[data-doc-type]")!;
-    expect(afrRow.className).not.toMatch(/is-selected/);
-    expect(summaryRow.className).toMatch(/is-selected/);
-    // Only one form on the page, for the CURRENT pick.
+
+    expect(
+      screen.getByRole("button", { name: /annual financial report/i })
+        .getAttribute("aria-expanded"),
+    ).toBe("false");
     expect(screen.getAllByRole("button", { name: /add document/i })).toHaveLength(1);
+    expect(screen.getAllByLabelText(/choose a pdf/i)).toHaveLength(1);
+  });
+
+  it("closes an open card when its own head is pressed again", async () => {
+    // A radio could never be un-picked, so the old picker had no way back to
+    // "nothing open". The head is a toggle.
+    render(<Upload />);
+    await selectType();
+    expect(screen.getByLabelText("Fiscal year")).toBeTruthy();
+    await selectType();
+    expect(screen.queryByLabelText("Fiscal year")).toBeNull();
+  });
+
+  it("leaves every other card listed and reachable while one is open", async () => {
+    vi.spyOn(api, "documentTypes").mockResolvedValue(ROWS);
+    render(<Upload />);
+    await selectType(/annual financial report/i);
+    expect(screen.getAllByTestId("doc-type-card")).toHaveLength(ROWS.length);
+    expect(screen.getByRole("button", { name: /baseline book/i })).toBeTruthy();
   });
 });
 
@@ -522,32 +541,68 @@ describe("the type picker and form", () => {
     vi.spyOn(api, "documentTypes").mockResolvedValue(ROWS);
   });
 
-  it("lists one radio per document type from the API, in order", async () => {
+  it("lists one card per document type from the API, in order", async () => {
     render(<Upload />);
     expect(await screen.findByText("Annual Financial Report")).toBeInTheDocument();
     expect(screen.getByText("Budget Bill Summary")).toBeInTheDocument();
-    expect(screen.getAllByRole("radio")).toHaveLength(ROWS.length);
+    expect(screen.getAllByTestId("doc-type-card")).toHaveLength(ROWS.length);
   });
 
-  it("shows where to get the file and which file to get, in the list itself", async () => {
-    // No selection needed — this guidance is what lets an analyst recognise
-    // their document well enough to pick the right radio in the first
-    // place, so it has to be visible BEFORE a pick, not after.
+  it("names the publisher on the closed card, and which file to get inside it", async () => {
+    // These two registry fields are deliberately split across the fold.
+    // `where_published` is the RECOGNITION cue ("gao.az.gov") and has to be
+    // readable while choosing, so it rides on the closed head. `which_file`
+    // ("The combined PDF") is an instruction for the moment you go and fetch
+    // the file, which is after you have opened the card — putting it on the
+    // head as well would put six paragraphs above the fold and make the list
+    // unscannable, which is the thing the accordion is for.
     render(<Upload />);
-    expect(await screen.findByText(/The combined PDF\./)).toBeInTheDocument();
-    expect(screen.getByText(/gao\.az\.gov/)).toBeInTheDocument();
+    expect(await screen.findByText(/gao\.az\.gov/)).toBeInTheDocument();
+    expect(screen.queryByText(/The combined PDF\./)).toBeNull();
+
+    await selectType(/annual financial report/i);
+    expect(screen.getByText(/The combined PDF\./)).toBeInTheDocument();
   });
 
-  it("a redirect type shows its own detail and button instead of a form", async () => {
+  it("a JLBC-book type opens into its own family's gap, not a file form", async () => {
+    vi.spyOn(api, "booksMissing").mockResolvedValue({
+      checked_at: new Date().toISOString(),
+      online: true,
+      reason: null,
+      missing: [],
+      present: [],
+      unavailable: [],
+    });
     render(<Upload />);
     await selectType(/baseline book/i);
-    expect(screen.queryByRole("radio", { name: /baseline book/i })).toBeTruthy();
-    // No form at all for a redirect type — not a disabled one.
+
+    // No form at all for a book type — not a disabled one, and above all
+    // not a file input for a document that is never uploaded as one file.
     expect(screen.queryByTestId("upload-form")).toBeNull();
     expect(screen.queryByLabelText(/choose a pdf/i)).toBeNull();
-    const redirect = await screen.findByTestId("upload-redirect");
-    expect(redirect.textContent).toMatch(/Stored as one document per agency/);
-    expect(within(redirect).getByRole("button", { name: /Add a JLBC book/i })).toBeTruthy();
+
+    const panel = await screen.findByTestId("book-panel");
+    expect(panel.getAttribute("data-family")).toBe("baseline");
+    expect(panel.textContent).toMatch(/Stored as one document per agency/);
+  });
+
+  it("sends each book card its OWN family, off the wire", async () => {
+    // The family comes from the registry's `redirect.family`, never from a
+    // key -> family map written in the webapp: Upload.tsx is under the
+    // no-hardcoded-slug spec below precisely because a second hand-typed
+    // copy of the type list has shipped bugs twice.
+    vi.spyOn(api, "documentTypes").mockResolvedValue([
+      { ...ROWS[0], redirect: { action: "add-jlbc-book", family: "made-up-family",
+                                detail: "Detail." } },
+    ]);
+    vi.spyOn(api, "booksMissing").mockResolvedValue({
+      checked_at: new Date().toISOString(), online: true, reason: null,
+      missing: [], present: [], unavailable: [],
+    });
+    render(<Upload />);
+    await selectType(/baseline book/i);
+    expect((await screen.findByTestId("book-panel")).getAttribute("data-family"))
+      .toBe("made-up-family");
   });
 
   it("only the bill summary asks for a stage", async () => {
@@ -609,10 +664,14 @@ describe("the type picker and form", () => {
       .toBe("2026");
   });
 
-  it("gives the file-accepting form a visible drop affordance, and gives a redirect type none", async () => {
+  it("gives the file-accepting form a visible drop affordance, and gives a book type none", async () => {
     // jsdom applies no stylesheet, so this can only pin the MARKUP (the
     // .up-drop box + its hint text), not that the dashed border actually
     // renders — see the report for the human-in-a-browser follow-up.
+    vi.spyOn(api, "booksMissing").mockResolvedValue({
+      checked_at: new Date().toISOString(), online: true, reason: null,
+      missing: [], present: [], unavailable: [],
+    });
     render(<Upload />);
     await selectType(/annual financial report/i);
     const form = await screen.findByTestId("upload-form");
@@ -621,6 +680,22 @@ describe("the type picker and form", () => {
 
     await selectType(/baseline book/i);
     expect(screen.queryByTestId("upload-form")).toBeNull();
+  });
+
+  it("keeps the real file input reachable, not display:none'd away", async () => {
+    // The visible "Choose a PDF document" control is a <label> wearing the
+    // app's chip style, because the browser's own file widget is what made
+    // this page read as a raw HTML form. The input behind it must still be
+    // a real, labelled, focusable input — hiding it with display:none would
+    // take it out of the accessibility tree and off the keyboard, turning a
+    // cosmetic change into a functional regression. Its discoverability by
+    // LABEL is the part jsdom can actually check.
+    render(<Upload />);
+    await selectType();
+    const input = (await screen.findByLabelText(/choose a pdf/i)) as HTMLInputElement;
+    expect(input.type).toBe("file");
+    expect(input.hidden).toBe(false);
+    expect(input.disabled).toBe(false);
   });
 
   it("requires a fresh stage pick before a second upload of the same type", async () => {
