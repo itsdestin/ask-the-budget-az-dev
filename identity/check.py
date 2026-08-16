@@ -40,6 +40,7 @@ from typing import Any, Iterable, Mapping
 
 from identity.validator import (
     distinctive_words,
+    is_section_document,
     longest_distinctive_word,
     mentions_agency,
     validate_name,
@@ -65,6 +66,26 @@ class IdentityReport:
     # the fiscal-note exclusion below. Reported so the exclusion is VISIBLE
     # rather than a silent filter nobody can see (2026-08-16 reconciliation).
     fiscal_notes_excluded: int = 0
+    # Informational, not an error count. Defect 2, 2026-08-16
+    # (`.superpowers/sdd/task-7-report.md`, "Format-only repair for section
+    # documents"): a book-section chapter (its own slug is a printed page
+    # code or a bare page number, e.g. `bh20`, `531` — see
+    # `identity.validator.is_section_document`) names no agency of its own,
+    # so `title_names_wrong_agency` cannot legitimately fire on one — a
+    # metric measuring "does the title name a DIFFERENT agency than the
+    # document's own" has no meaning for a document with no agency of its
+    # own to differ FROM. Measured: `jlbc-baseline-fy2021-491`, titled
+    # "General Fund Revenue", was flagged as naming the wrong agency purely
+    # because "revenue" happens to be the Department of Revenue's longest
+    # distinctive word — a chapter covering every agency's revenue can
+    # never pass a check built to catch a document standing in for ONE
+    # wrong agency, so the metric could never reach zero and nobody would
+    # trust it. Counted here instead, using the SAME slug test
+    # `identity/repair.py` already uses to veto composing a section's title
+    # from its own table of agencies — extracted to
+    # `identity.validator.is_section_document` so the two can never
+    # disagree about what counts as a section.
+    section_documents: int = 0
     findings: list[dict[str, Any]] = field(default_factory=list)
 
     def as_dict(self) -> dict[str, Any]:
@@ -79,6 +100,7 @@ class IdentityReport:
             "distinct_agency_slugs": self.distinct_agency_slugs,
             "catalogued_agencies": self.catalogued_agencies,
             "fiscal_notes_excluded": self.fiscal_notes_excluded,
+            "section_documents": self.section_documents,
             "findings": self.findings,
         }
 
@@ -135,6 +157,14 @@ def check_corpus(
         title = (meta.get("title") or "").strip()
         text = " \n".join(chunks_by_doc.get(doc_id, [])).lower()
         stamps = list(stamps_by_doc.get(doc_id, []))
+        # Defect 2 (see `section_documents`'s field docstring above): a
+        # section chapter names no agency of its own, computed once per
+        # document from the doc_id alone via the SAME test
+        # `identity/repair.py` uses to veto composing one from its table of
+        # agencies — the two must never disagree about what counts as one.
+        is_section = is_section_document(doc_id)
+        if is_section:
+            report.section_documents += 1
 
         if _SLUG_TITLE_RE.match(title):
             report.uninformative_titles += 1
@@ -195,7 +225,19 @@ def check_corpus(
         # Institutions, Department of" flagged against agency:ban, its own
         # slug) — that is a stamping defect surfacing here, and the stamping
         # fix is separate, later work.
-        titled = distinctive_words(title) if title else set()
+        #
+        # Defect 2, 2026-08-16: a SECTION document (`is_section`, above) is
+        # excluded from this metric entirely — its title is a chapter name,
+        # not a claim about which agency the document is, so it cannot
+        # "name a different agency" than a document that never claimed to
+        # be any one agency in the first place. Measured:
+        # `jlbc-baseline-fy2021-491`, titled "General Fund Revenue", was
+        # flagged here purely because "revenue" is agency:dor's longest
+        # distinctive word — a false defect this metric cannot avoid
+        # manufacturing for every summary chapter unless section documents
+        # are excluded up front, which is what `report.section_documents`
+        # (counted above) exists to make visible instead.
+        titled = distinctive_words(title) if (title and not is_section) else set()
         if titled:
             corroborated_longest = set()
             for agency_id in stamps:

@@ -196,6 +196,39 @@ def test_the_wrong_agency_rule_does_NOT_fire_when_the_stamp_is_uncorroborated():
     assert report.title_names_wrong_agency == 0
 
 
+def test_a_section_document_is_excluded_from_the_wrong_agency_metric_and_counted_separately():
+    """`jlbc-baseline-fy2021-491`, real doc_id: a bare page-number slug (a
+    summary chapter, not any one agency's pages) titled "General Fund
+    Revenue — FY 2021 Baseline". Its chunk text genuinely corroborates two
+    OTHER agencies (Board of Barbers, Dept. of Agriculture — a summary
+    chapter necessarily mentions many), and "revenue" happens to be the
+    Department of Revenue's longest distinctive word — exactly the shape
+    that, before this fix, flagged the document as naming the wrong
+    agency. A chapter that names no agency of its own cannot be "wrong"
+    about which agency it names. `is_section_document` uses the identical
+    slug rule `identity.repair` already vetoes stamp-composition on (both
+    call the one shared `identity.validator.is_section_document`), so the
+    two modules can never disagree about what counts as a section."""
+    report = check_corpus(
+        documents={"jlbc-baseline-fy2021-491": _doc(
+            "General Fund Revenue — FY 2021 Baseline",
+            "https://www.azjlbc.gov/21baseline/491.pdf", fy=2021, book="Baseline",
+        )},
+        chunks_by_doc={"jlbc-baseline-fy2021-491": [
+            "Board of Barbers   150,000\n"
+            "Agriculture, Arizona Department of   6,789,000",
+        ]},
+        agency_names={
+            "agency:bar": "Board of Barbers",
+            "agency:agr": "Agriculture, Arizona Department of",
+            "agency:dor": "Revenue, Arizona Department of",
+        },
+        stamps_by_doc={"jlbc-baseline-fy2021-491": ["agency:bar", "agency:agr"]},
+    )
+    assert report.title_names_wrong_agency == 0
+    assert report.section_documents == 1
+
+
 def test_the_report_never_carries_a_production_count():
     """Gate on the ERROR rate, never coverage — spec I13, and the specific
     lesson the citation work paid for."""

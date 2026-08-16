@@ -109,6 +109,44 @@ def longest_distinctive_word(name: str) -> str | None:
     return max(words, key=len) if words else None
 
 
+_DOC_ID_TAIL = re.compile(r"fy\d{4}-(.+)$")
+
+# A book SECTION's slug — a printed page code (BD-13 -> "bd13", S-1 -> "s1")
+# or a bare page number ("531") — never a real agency abbreviation. An
+# agency's own slug is letters only ("bar", "ata") or has an internal
+# sub-programme hyphen ("doa-apf"); neither shape matches this.
+_SECTION_DOC_SLUG = re.compile(r"^(?:[a-z]{1,3}\d+|\d+)$")
+
+
+def doc_id_tail(doc_id: str) -> str:
+    """The document-specific tail of a doc_id (e.g. "bh20" out of
+    "jlbc-approps-fy2027-bh20"). Moved here from `identity/repair.py`
+    2026-08-16 alongside `is_section_document` so `identity/check.py` can
+    share the exact same slug-extraction step — see that function's
+    docstring for why the two must never drift apart."""
+    match = _DOC_ID_TAIL.search(doc_id)
+    return match.group(1) if match else doc_id
+
+
+def is_section_document(doc_id: str) -> bool:
+    """Is this doc_id a chapter of a book rather than any one agency's own
+    page? Moved here 2026-08-16 from a private helper in `identity/repair.py`
+    — `identity/check.py`'s "title names the wrong agency" metric was
+    counting section documents as defects (`jlbc-baseline-fy2021-491`,
+    titled "General Fund Revenue", flagged because "revenue" happens to be
+    the Department of Revenue's longest distinctive word) when a summary
+    chapter naming no agency of its own cannot be "wrong" about which
+    agency it names. `identity/repair.py`'s title-composition pass already
+    had this exact test — a section's table of agencies is never
+    trustworthy evidence for what to CALL the section (the incident that
+    motivated the rule: a summary chapter's table was once composed into
+    "Barbers, Board of" because `stamps[0]` picked one row of its table
+    arbitrarily). Extracted to one shared function so the repair pass and
+    the check that measures its work can never disagree about what counts
+    as a section — computed identically, from the doc_id alone, by both."""
+    return bool(_SECTION_DOC_SLUG.match(doc_id_tail(doc_id)))
+
+
 def mentions_agency(text: str, agency_name: str) -> bool:
     """Does `text` actually corroborate that it is about `agency_name`?
 

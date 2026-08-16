@@ -221,11 +221,15 @@ def test_fix4_a_book_section_is_never_named_from_its_table_of_agencies():
     (a "LONG TERM GENERAL FUND ESTIMATES" section, not any one agency's
     pages) whose chunk text is a table listing several different agencies.
     Before this fix, `stamps[0]` picked one of them arbitrarily and renamed
-    706 such documents to an agency they are not. Title has no ' — FY YYYY
-    <book>' suffix yet (so fix #3's already-correct guard cannot short-
-    circuit this case) — the pass must still refuse to name it from the
-    stamp, and must leave the ENTIRE document untouched rather than
-    reformat around a name it cannot trust."""
+    706 such documents to an agency they are not.
+
+    UPDATED for the format-only-repair fix (2026-08-16,
+    `.superpowers/sdd/task-7-report.md`, "Format-only repair for section
+    documents"): the pass must still refuse to name this document from any
+    of its three stamps — none of "Governor", "Agriculture" or "Barbers"
+    may appear anywhere in the result — but it is no longer left untouched
+    outright. Its own existing name has no decoration to strip, so the
+    format-only repair just appends the book/year it was always missing."""
     docs = {
         "jlbc-baseline-fy2020-531": {
             "title": "LONG TERM GENERAL FUND ESTIMATES",
@@ -252,10 +256,110 @@ def test_fix4_a_book_section_is_never_named_from_its_table_of_agencies():
         },
         stamps_by_doc=stamps, dry_run=True,
     )
+    assert result.skipped == []
+    changed = {c["doc_id"]: c for c in result.changes}
+    assert set(changed) == {"jlbc-baseline-fy2020-531"}
+    after = changed["jlbc-baseline-fy2020-531"]["after"]
+    assert after == "LONG TERM GENERAL FUND ESTIMATES — FY 2020 Baseline"
+    for agency in ("Governor", "Agriculture", "Barbers"):
+        assert agency not in after
+
+
+def test_fix8_a_section_document_whose_name_cannot_be_cleaned_is_skipped_not_guessed():
+    """A section document whose supplied name is corrupted INSIDE the
+    string (an embedded page number in the middle, not decoration at the
+    edges) has no trustworthy repair — `identity.validator.validate_name`
+    refuses to guess which half is real (see that module's own docstring
+    on the decoration-vs-corruption distinction). The document must come
+    through as a skip with a reason, and its agency stamp — a real one,
+    "Governor" — must never leak into that reason or anywhere else, proving
+    the agency guard is untouched by this fix."""
+    docs = {
+        "jlbc-baseline-fy2020-531": {
+            "title": "Long Term  342 General Fund Estimates",
+            "fiscal_year": 2020,
+            "source_url": "https://www.azjlbc.gov/20baseline/531.pdf",
+        },
+    }
+    chunks = {
+        "jlbc-baseline-fy2020-531": ["Governor, Office of the   12,345,000"],
+    }
+    result = repair_titles(
+        documents=docs, chunks_by_doc=chunks,
+        agency_names={"agency:gov": "Governor, Office of the"},
+        stamps_by_doc={"jlbc-baseline-fy2020-531": ["agency:gov"]},
+        dry_run=True,
+    )
     assert result.changes == []
     assert len(result.skipped) == 1
-    assert result.skipped[0]["doc_id"] == "jlbc-baseline-fy2020-531"
-    assert "section" in result.skipped[0]["reason"]
+    skip = result.skipped[0]
+    assert skip["doc_id"] == "jlbc-baseline-fy2020-531"
+    assert "Governor" not in skip["reason"]
+
+
+def test_fix8_two_real_section_documents_get_a_format_only_repair():
+    """Real doc_ids and titles from the corpus, straight from the task
+    that motivated this fix. Both are book-section chapters — a "Then and
+    Now" comparison and an "Other Appropriated Funds Summary by Agency"
+    table — that carry several agency stamps (a comparison/summary chapter
+    necessarily mentions many agencies) but must never be named after any
+    of them. `bh20` additionally proves the decoration-strip (leading
+    bullet, trailing dot-leaders + page code); `s18` additionally proves
+    the legacy `JLBC FY<year> — ` prefix strip runs before the section
+    veto, not after."""
+    docs = {
+        "jlbc-approps-fy2027-bh20": {
+            "title": (
+                '• FY 2017 - FY 2027 "Then and Now" Comparisons '
+                ".................. BH-20"
+            ),
+            "fiscal_year": 2027,
+            "source_url": "https://www.azjlbc.gov/27ar/bh20.pdf",
+        },
+        "jlbc-baseline-fy2027-s18": {
+            "title": (
+                "JLBC FY2027 — •  FY 2027 Other Appropriated "
+                "Funds Summary by Agency"
+            ),
+            "fiscal_year": 2027,
+            "source_url": "https://www.azjlbc.gov/27baseline/s18.pdf",
+        },
+    }
+    chunks = {
+        "jlbc-approps-fy2027-bh20": [
+            "Agriculture, Arizona Department of   6,789,000\n"
+            "Board of Barbers   150,000",
+        ],
+        "jlbc-baseline-fy2027-s18": [
+            "Agriculture, Arizona Department of   6,789,000\n"
+            "Board of Barbers   150,000",
+        ],
+    }
+    stamps = {
+        "jlbc-approps-fy2027-bh20": ["agency:agr", "agency:bar"],
+        "jlbc-baseline-fy2027-s18": ["agency:agr", "agency:bar"],
+    }
+    result = repair_titles(
+        documents=docs, chunks_by_doc=chunks,
+        agency_names={
+            "agency:agr": "Agriculture, Arizona Department of",
+            "agency:bar": "Board of Barbers",
+        },
+        stamps_by_doc=stamps, dry_run=True,
+    )
+    assert result.skipped == []
+    changed = {c["doc_id"]: c for c in result.changes}
+    assert changed["jlbc-approps-fy2027-bh20"]["after"] == (
+        'FY 2017 - FY 2027 "Then and Now" Comparisons '
+        "— FY 2027 Appropriations Report"
+    )
+    assert changed["jlbc-baseline-fy2027-s18"]["after"] == (
+        "FY 2027 Other Appropriated Funds Summary by Agency "
+        "— FY 2027 Baseline"
+    )
+    for after in (c["after"] for c in result.changes):
+        assert "Agriculture" not in after
+        assert "Barbers" not in after
 
 
 def test_fix4_ambiguous_multi_stamp_agency_document_is_also_vetoed():

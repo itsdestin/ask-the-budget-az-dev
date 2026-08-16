@@ -91,6 +91,39 @@ in `.superpowers/sdd/task-7-report.md` for the full record:
    they do for any other name — verified directly, not assumed, before
    this fix shipped.
 
+CORRECTION 3, 2026-08-16 (after applying Corrections 1-2 to the live
+corpus). Fix #4's veto (rule 1 above) was doing two jobs at once and only
+one of them was correct: it correctly stops a section document's AGENCY
+NAME from being guessed off an arbitrary row of its own table of agencies
+(the Barbers Board incident) — but it was also refusing to so much as tidy
+the FORMAT of a section document's title, so all 706 of them kept their
+stray bullet, dot-leaders, printed page code and legacy `JLBC FY<year> — `
+prefix forever, no matter how many of Corrections 1-2's fixes landed.
+Measured against the live corpus after Corrections 1-2: 74 of the
+remaining out-of-format titles and most of the remaining 82 wrong-agency
+flags are this same population — e.g. `jlbc-approps-fy2027-bh20` ("• FY
+2017 - FY 2027 "Then and Now" Comparisons .................."),
+`jlbc-baseline-fy2027-s18` ("JLBC FY2027 — •  FY 2027 Other Appropriated
+Funds Summary by Agency"). Full write-up: `.superpowers/sdd/task-7-report.md`,
+"Format-only repair for section documents".
+
+8. **A section document now gets a FORMAT-ONLY repair instead of being
+   skipped outright.** The agency-name guard stays exactly as strict as it
+   was — a section's title is never composed from any of its stamps, full
+   stop, still enforced by `_resolve_trusted_stamp` returning a veto for
+   every section document regardless of how many stamps it carries. What
+   changed is what `repair_titles` does with that veto: for a section
+   document (only) it now takes the name ALREADY in the title — the
+   chapter's own real name, the one trustworthy source, since no agency
+   label may ever stand in for it — strips the same decoration and legacy
+   prefix every other title gets stripped (`validate_name`,
+   `_strip_legacy_prefix`), and recomposes `{that name} — FY {year}
+   {book}` around it. A name that cannot be cleaned into something
+   `validate_name` accepts (corruption INSIDE the string, not just
+   decoration at its edges) is left alone and recorded as skipped with the
+   reason — a corrupt name is a question with an answer, not something to
+   guess at. See the "Fix #8" branch inside `repair_titles`'s main loop.
+
 `repair_titles()` is a pure function of its arguments plus, when
 `dry_run=False`, two file writes: the repaired `documents.json` (via
 `store.config.write_documents_sidecar`, which already does tmp+`os.replace`)
@@ -116,7 +149,13 @@ from pathlib import Path
 from typing import Any, Iterable, Mapping
 
 from identity.compose import compose_title, resolve_supplier_disagreement
-from identity.validator import distinctive_words, mentions_agency, validate_name
+from identity.validator import (
+    distinctive_words,
+    doc_id_tail,
+    is_section_document,
+    mentions_agency,
+    validate_name,
+)
 
 # The composed format is `{name} — FY {year} {book}` (identity/compose.py).
 # Splitting an EXISTING title on this pattern recovers the "book" text
@@ -139,21 +178,17 @@ _BOOK_BY_DOC_ID_FAMILY = (
     ("legislature-", "Budget Bill"),
 )
 
-# The document-specific tail of a doc_id (e.g. "doa-apf" out of
-# "jlbc-approps-fy2016-doa-apf"), used as `compose_title`'s `distinguisher`
-# when two documents in the same (book, fiscal_year) would otherwise compose
-# to the identical name — the parent-agency / sub-programme collision spec
-# I5 exists for (77 real pairs, e.g. `doa` alongside `doa-apf`).
-_DOC_ID_TAIL = re.compile(r"fy\d{4}-(.+)$")
-
-# A book SECTION's slug — a printed page code (BD-13 -> "bd13", S-1 -> "s1")
-# or a bare page number ("531") — never a real agency abbreviation. An
-# agency's own slug is letters only ("bar", "ata") or has an internal
-# sub-programme hyphen ("doa-apf"); neither shape matches this. Fix #4
-# (module docstring): a section document is a chapter of a book, its own
-# title IS the section name, and a stamp is never evidence for what to call
-# it — matched against `_doc_id_slug(doc_id)`.
-_SECTION_DOC_SLUG = re.compile(r"^(?:[a-z]{1,3}\d+|\d+)$")
+# `doc_id_tail` (the document-specific tail of a doc_id, e.g. "doa-apf" out
+# of "jlbc-approps-fy2016-doa-apf") and `is_section_document` moved to
+# `identity/validator.py` 2026-08-16 so `identity/check.py` can share the
+# exact same "is this a section document" test — see that module's
+# docstring for the full reasoning. `doc_id_tail` is used two ways here:
+# as `compose_title`'s `distinguisher` when two documents in the same
+# (book, fiscal_year) would otherwise compose to the identical name (spec
+# I5, 77 real parent/sub-programme pairs), and, via `is_section_document`,
+# to veto composing a section's title from its table of agencies (fix #4
+# below) — a book SECTION's slug is a printed page code (BD-13 -> "bd13")
+# or a bare page number ("531"), never a real agency abbreviation.
 
 # The older title format (~375 live documents) puts the book/year FIRST —
 # "JLBC FY2025 — African-American Affairs, Arizona Commission of" — where
@@ -205,11 +240,6 @@ def _book_from_doc_id(doc_id: str) -> str | None:
         if doc_id.startswith(prefix):
             return book
     return None
-
-
-def _doc_id_slug(doc_id: str) -> str:
-    match = _DOC_ID_TAIL.search(doc_id)
-    return match.group(1) if match else doc_id
 
 
 def _atomic_write_json(path: Path, payload: Any) -> None:
@@ -267,19 +297,25 @@ def _resolve_trusted_stamp(
     """Which stamp, if any, may be composed into a title.
 
     Returns `(stamp_id, veto_reason)`. A non-`None` `veto_reason` means:
-    skip this document ENTIRELY this pass — do not even attempt a
-    format-only repair around the supplied name. This mirrors
-    `repair_titles`'s existing "uncorroborated stamp" branch below, which
-    already treats "the one witness available cannot be trusted" as a hard
-    skip rather than a partial fix; an untrustworthy stamp here is the same
-    shape of problem.
+    this document's AGENCY may not be re-decided this pass. For a
+    non-section document that is a hard skip of the whole document — this
+    mirrors `repair_titles`'s existing "uncorroborated stamp" branch below,
+    which already treats "the one witness available cannot be trusted" as
+    a hard skip rather than a partial fix, and an untrustworthy stamp here
+    is the same shape of problem. For a SECTION document (below), a veto
+    from THIS function only means "no agency label" — as of the 2026-08-16
+    format-only-repair fix (`repair_titles`'s caller, not here), the
+    document's own existing name is still cleaned up around whatever book
+    and year it belongs to. This function decides agency trust only; it has
+    no opinion on formatting.
 
     `stamp_counts` is `{agency_id: passages that stamp carries}` — not a
     plain set. Fix #4 (module docstring), rule 1: a SECTION document — its
     slug is a printed page code (`bd2`, `s12`) or a bare page number
-    (`531`), matched by `_SECTION_DOC_SLUG` — is a chapter of a book, not
-    an agency. Its own title IS the section name. Never compose a name from
-    a stamp for one, full stop. A table chunk inside a section like this
+    (`531`), matched by `identity.validator.is_section_document` — is a
+    chapter of a book, not an agency. Its own title IS the section name.
+    Never compose a name from a stamp for one, full stop. A table chunk
+    inside a section like this
     often lists dozens of agencies, and the original pass took `stamps[0]`
     — an arbitrary pick, since stamps arrive from a `set` with no
     meaningful order — and renamed 706 such documents to whichever agency
@@ -478,15 +514,60 @@ def repair_titles(
         # from. A section document, or a document whose several stamps are
         # not unambiguously resolvable, is vetoed here and skipped entirely
         # this pass — see `_resolve_trusted_stamp`.
-        is_section_doc = bool(_SECTION_DOC_SLUG.match(_doc_id_slug(doc_id)))
+        is_section_doc = is_section_document(doc_id)
         stamp_id, veto_reason = _resolve_trusted_stamp(
             doc_id=doc_id, stamp_counts=Counter(stamps),
             slug_agency_id=slug_agency_id, is_section_doc=is_section_doc,
         )
         if veto_reason is not None:
-            result.skipped.append({
-                "doc_id": doc_id, "field": "title", "reason": veto_reason,
-            })
+            # Fix #8, 2026-08-16 (`.superpowers/sdd/task-7-report.md`,
+            # "Format-only repair for section documents"): a vetoed SECTION
+            # document must not be skipped OUTRIGHT — only the agency-name
+            # part of its repair is unsafe (the Barbers Board incident this
+            # veto exists for, module docstring fix #4), not the FORMAT
+            # part. Its existing title's own words are the chapter's real
+            # name — the only trustworthy source for one, since no agency
+            # label may ever be consulted for it — so still strip the
+            # decoration (`validate_name`, inside `compose_title`) and the
+            # legacy prefix (`supplied_name` above already has it stripped)
+            # and recompose `{that name} — FY {year} {book}` around it. A
+            # non-section veto (the ambiguous-tie case, fix #4's general
+            # form) still gets skipped outright — an ordinary document with
+            # more than one CORROBORATED stamp and no way to break the tie
+            # really might be misnamed, where a section chapter's title was
+            # never going to be an agency name in the first place.
+            if not is_section_doc:
+                result.skipped.append({
+                    "doc_id": doc_id, "field": "title", "reason": veto_reason,
+                })
+                continue
+            try:
+                composed = compose_title(
+                    name=supplied_name, fiscal_year=fiscal_year, book=book,
+                )
+            except ValueError as err:
+                # Corrupt INSIDE the string (identity/validator.py's own
+                # distinction) — a stripped string here would be a guess,
+                # and this pass never guesses. Leave the document alone.
+                result.skipped.append({
+                    "doc_id": doc_id, "field": "title",
+                    "reason": (
+                        f"{veto_reason}; its existing name could not be "
+                        f"cleaned up into a usable one either: {err}"
+                    ),
+                })
+                continue
+            candidates[doc_id] = {
+                "title": title, "book": book, "fiscal_year": fiscal_year,
+                "chosen_name": supplied_name,
+                "note": (
+                    "book section — its own title is the section name; "
+                    "only the format was cleaned up (stray bullet, "
+                    "dot-leaders, legacy prefix), no agency stamp was "
+                    "consulted for the name itself"
+                ),
+                "composed": composed,
+            }
             continue
         stamp_name = agency_names.get(stamp_id) if stamp_id else None
 
@@ -565,7 +646,7 @@ def repair_titles(
                 if doc_id not in candidates:
                     continue
                 candidate = candidates[doc_id]
-                slug = _doc_id_slug(doc_id)
+                slug = doc_id_tail(doc_id)
                 others = ", ".join(m for m in members if m != doc_id)
                 try:
                     recomposed = compose_title(
