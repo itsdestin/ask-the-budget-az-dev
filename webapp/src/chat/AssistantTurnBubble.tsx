@@ -26,7 +26,6 @@ import {
 } from "./citation-extract.js";
 import type { AssistantBlock, AssistantTurn } from "./chat-types.js";
 import CitedMarkdownContent from "./CitedMarkdownContent.js";
-import ToolCard from "./ToolCard.js";
 import ToolGroup from "./ToolGroup.js";
 
 // Plain boolean predicate — the `block is …` form narrows the false branch to
@@ -149,61 +148,63 @@ export default function AssistantTurnBubble({
 
   const stopReason = turn.isComplete ? turn.stopReason : undefined;
 
-  // Partition the block stream into text blocks and RUNS of consecutive
-  // tool calls, so 2+ adjacent tools collapse into one ToolGroup row instead
-  // of stacking as separate cards that out-shout the answer. Cite tools stay
-  // invisible (the chips are their surface — see the suppression ruling
-  // above the CITE_TOOL_NAMES declaration), and — this is the subtle part —
-  // they do NOT break a run: retrieve, cite, retrieve is still one group of
-  // two retrieves, because the cite call is simply skipped rather than
-  // treated as a segment boundary.
-  type Segment =
-    | { kind: "text"; block: Extract<AssistantBlock, { kind: "text" }> }
-    | { kind: "tools"; blocks: Extract<AssistantBlock, { kind: "tool" }>[] };
-  const segments: Segment[] = [];
+  // TC1 — a run of tool calls attaches DOWNWARD, to the bubble that follows
+  // it, and renders as that bubble's FIRST CHILD rather than as a sibling
+  // above it. Reading order is the point: a turn that searched, wrote a
+  // paragraph, searched again and wrote more produces two bubbles each wearing
+  // its own card, never one card at the top claiming all the work.
+  //
+  // A run with no text after it renders standalone (TC6) — that covers both
+  // mid-search, where no text block exists yet, and a turn that ended on a
+  // tool call. Withholding it would leave the analyst watching nothing through
+  // a multi-second search.
+  //
+  // Cite tools stay invisible (see the ruling above CITE_TOOL_NAMES) and,
+  // because they are SKIPPED rather than treated as a boundary, do not split a
+  // run: retrieve, cite, retrieve is still one run of two searches (TC7).
+  type ToolBlockT = Extract<AssistantBlock, { kind: "tool" }>;
+  type TextBlockT = Extract<AssistantBlock, { kind: "text" }>;
+  type Row = { tools: ToolBlockT[]; block?: TextBlockT };
+
+  const rows: Row[] = [];
+  let pendingTools: ToolBlockT[] = [];
   for (const block of turn.blocks) {
     if (block.kind === "text") {
-      segments.push({ kind: "text", block });
+      rows.push({ tools: pendingTools, block });
+      pendingTools = [];
     } else if (!isCiteToolBlock(block)) {
-      const last = segments[segments.length - 1];
-      if (last?.kind === "tools") last.blocks.push(block);
-      else segments.push({ kind: "tools", blocks: [block] });
+      pendingTools.push(block);
     }
   }
+  if (pendingTools.length > 0) rows.push({ tools: pendingTools });
 
   return (
     <div className="chat-turn">
-      {segments.map((seg) => {
-        if (seg.kind === "text") {
-          const block = seg.block;
-          const tool = toolCitationsByBlock.get(block.uuid) ?? [];
-          const inline = blockData.get(block.uuid);
-          const blockCitations = [...tool, ...(inline?.citations ?? [])];
-          const renderText = inline?.renderText ?? block.text;
-          return (
-            <div
-              key={block.uuid}
-              // The tail (`has-tail`) is applied ONLY on the most-recent
-              // assistant turn, so one tail anchors the conversation to the
-              // mascot. Older turns keep the bubble look without it.
-              className={`chat-bubble${isLatest ? " has-tail" : ""}`}
-            >
-              <CitedMarkdownContent
-                content={renderText}
-                citations={blockCitations}
-                annotation={turn.annotation}
-              />
-            </div>
-          );
+      {rows.map((row) => {
+        if (!row.block) {
+          return <ToolGroup key={row.tools[0]!.toolUseId} tools={row.tools} />;
         }
-        // A lone tool call still renders bare — group chrome (the "N tool
-        // calls" header) only earns its keep once there's more than one row
-        // to summarize.
-        if (seg.blocks.length === 1) {
-          const tool = seg.blocks[0]!;
-          return <ToolCard key={tool.toolUseId} tool={tool} />;
-        }
-        return <ToolGroup key={seg.blocks[0]!.toolUseId} tools={seg.blocks} />;
+        const block = row.block;
+        const tool = toolCitationsByBlock.get(block.uuid) ?? [];
+        const inline = blockData.get(block.uuid);
+        const blockCitations = [...tool, ...(inline?.citations ?? [])];
+        const renderText = inline?.renderText ?? block.text;
+        return (
+          <div
+            key={block.uuid}
+            // The tail (`has-tail`) is applied ONLY on the most-recent
+            // assistant turn, so one tail anchors the conversation to the
+            // mascot. Older turns keep the bubble look without it.
+            className={`chat-bubble${isLatest ? " has-tail" : ""}`}
+          >
+            {row.tools.length > 0 && <ToolGroup tools={row.tools} />}
+            <CitedMarkdownContent
+              content={renderText}
+              citations={blockCitations}
+              annotation={turn.annotation}
+            />
+          </div>
+        );
       })}
       {stopReason === "max_steps" && (
         <div className="chat-notice is-warn" role="status">
