@@ -773,6 +773,95 @@ changes need a server restart** — only the SPA picks up a rebuild.
 
 ---
 
+## "Full report" now covers every book edition in the corpus (2026-08-16)
+
+**Destin asked why the FY2027 Appropriations Report had no "Full report"
+button when the FY2027 Baseline beside it did.** The answer was neither type
+nor a defect: `REPORT_FORMATS` in `webapp/src/reportFamilies.ts` — the curated
+family+year → whole-report-URL map — held **three** editions (Baseline 2026 /
+2027, Approps 2025). Everything else fell through to "no verified URL, so no
+button". FY2025 was the mirror image, with the button on the Approps row and
+not the Baseline.
+
+**39 editions now, up from 3** — Appropriations Report FY2005–FY2027 and
+Baseline FY2012–FY2027, which is every book edition the corpus holds. 72 URLs.
+
+### Every URL was DOWNLOADED and read, and that is not ceremony
+
+Two cheaper sources were available and both would have shipped a wrong file:
+
+- **The vendored site index** (`webapp/reference/assets/search/index-lite.js`)
+  files **slideshows and single sections under the bare report title**. "FY
+  2021 Appropriations Report" is also `21H-Sfullappropspres.pdf`; "FY 2014
+  Appropriations Report" is also `14AR/384.pdf`. Title matching would have put
+  a presentation behind six of these buttons.
+- **`data/jlbc-book-catalog.json`** is clean but is built to feed a probe
+  ladder that TOLERATES a 404, so it carries unverified URLs. Its FY2027
+  Baseline `linked_toc_url` is a different path from the shipped one, and
+  `budget/fy2027approprpt.pdf` — the shape its own convention implies — **is a
+  404**. The real FY2027 Appropriations Report is `27ar/fy2027approprpt.pdf`
+  (550 pages, verified), and it is **in no committed catalog at all**, because
+  that edition postdates the 2026-06-16 harvest snapshot.
+
+Each file's page count and size are recorded on its row. Three Baseline single
+files (**FY2017, FY2018, FY2019**) are scans with **no text layer whatsoever**
+— they were verified by rendering their cover pages to images and reading them
+by eye.
+
+### Two shapes worth not re-deriving
+
+- **Approps FY2005–FY2010 have a linked TOC and no single file.** JLBC did not
+  publish one until FY2011 (the book catalog's `both_formats_from` agrees).
+  One format means the row links straight to it with no chooser — intended, not
+  a gap to fill with a guess.
+- **`Baseline:2014`'s single file is 229 MB**, ~5× its siblings. It is the
+  right document (cover reads "FY 2014 Baseline Book, January 2013"); JLBC
+  published that one un-optimised. Nothing warns the reader about the size.
+
+### 🔴 It invalidated the fixture of a CRITICAL regression guard
+
+`Search.test.tsx`'s docs[0]-fallback guard — the one pinning the 2026-08-10
+defect where "Full report" on the FY2026 Appropriations Report opened the
+**AHCCCS section PDF** — worked by asserting that FY2026 Approps was
+*uncurated and multi-document*. Curating it turned that test green-for-the-
+wrong-reason territory, and it failed loudly, which is the good outcome.
+
+Re-pointed at a **raw-slug family** (`program-review`, two fixture documents),
+which by construction can never acquire a curated entry — `familyOf` returns
+the slug only for doc_types `FAMILY_OF_DOC_TYPE` does not name. **Verified by
+mutation**: restoring the pre-fix `docs[0]?.doc_url` fallback turns it red.
+
+### Guards and gates
+
+`reportFamilies.test.ts` gained four offline checks, the load-bearing one being
+**every curated URL must name its own fiscal year** — copying a row and
+forgetting to bump the URL yields a live, downloadable, WRONG report behind a
+button, which is the one failure a 200 OK cannot detect. Verified by mutation
+(FY2018 row pointed at the FY2019 report → red). One documented exemption:
+FY2023's TOC lives at `budget/apprpttoc.pdf` with no year in the path, because
+JLBC published that edition out of the undated directory.
+
+`scripts/verify_report_formats.py` re-checks reachability (`--full` re-reads
+every PDF). A script, not a test: it needs the public internet, and a test
+reaching azjlbc.gov would fail on a disconnected office machine.
+
+**pytest 3151 / 5 skipped · vitest 984 (88 files) · `tsc -b` 0 ·
+`npm run build` 0 · all 72 URLs live.** **No eval run, and the rule does not
+ask for one** — nothing under `retrieval/`, `ingest/`, `chunking/`, `citation/`
+or `harness/system-prompt.md` was touched; this is `webapp/` plus one script.
+
+### Browser-verified, unlike most entries in this file
+
+Driven in headless Chrome against the real corpus: the FY2027 Appropriations
+Report row now shows "Full report", its chooser opens with
+`27ar/apprpttoc.pdf` and `27ar/fy2027approprpt.pdf`, FY2005 Approps renders as
+a plain link straight to its TOC (one format, no chooser), and FY2012/FY2019
+render as chooser buttons.
+
+**Not checked:** nobody has clicked through to confirm a browser actually
+renders each of the 72 PDFs, and the 229 MB FY2014 download has not been tried
+on a slow connection.
+
 ## Corpus — what is ingested and what is NOT (2026-08-01)
 
 **The corpus is MVP-complete for recent years. It is NOT finished.** Recorded
