@@ -126,9 +126,7 @@ export function Upload() {
             <span className="up-notice-rule">
               Public record only — never confidential state data.
             </span>
-            <span className="up-notice-more">
-              why? <span className="up-disclose-mark" aria-hidden="true" />
-            </span>
+            <Chevron />
           </summary>
           <p>
             When AI Mode answers a question it sends the text of retrieved
@@ -147,10 +145,15 @@ export function Upload() {
           </p>
         )}
 
-        {/* ONE card holding six rows, not six cards with gaps between them.
-            Six separated boxes read as six separate decisions; hairlined rows
-            in one card read as a list you run your eye down. */}
-        <section className="card up-list">
+        {/* One NAMED card holding six cards of its own. The rows were
+            hairlined inside a single card first; separating them again was
+            asked for directly, and the outer card is what stops six floating
+            boxes reading as six unrelated features — the objection that
+            killed the original six-card layout. The outer card carries the
+            page's canvas as its ground so the six read as sitting IN
+            something rather than merely near each other. */}
+        <section className="card up-list" aria-labelledby="up-list-h">
+          <h2 id="up-list-h">Uploads</h2>
           {(rows ?? []).map((row) => (
             <DocTypeCard
               key={row.key}
@@ -256,7 +259,7 @@ function DocTypeCard({
 
   return (
     <div
-      className={`up-card${open ? " is-open" : ""}`}
+      className={`card up-card${open ? " is-open" : ""}`}
       data-testid="doc-type-card"
       data-doc-type={row.key}
     >

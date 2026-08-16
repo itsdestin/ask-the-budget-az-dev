@@ -1615,13 +1615,22 @@ nav.primary{position:relative;padding-right:44px;}
    is read once and skipped for ever after. The per-upload tick-box, which is
    the deliberate human moment the invariant is really built on, is
    unchanged. The left rule reuses the header's navy, as before. */
-.page-upload .up-notice{border-left:4px solid var(--navy-900);padding:14px 18px;}
-.page-upload .up-notice>summary{gap:10px;color:var(--ink);font-size:14px;font-weight:800;}
-.page-upload .up-notice-glyph{flex:none;width:18px;height:18px;color:var(--navy-900);}
+.page-upload .up-notice{border:2px solid var(--warn);padding:14px 18px;}
+.page-upload .up-notice>summary{gap:10px;color:var(--warn);font-size:14px;font-weight:800;}
+.page-upload .up-notice-glyph{flex:none;width:18px;height:18px;color:var(--warn);}
 .page-upload .up-notice-rule{flex:1;min-width:0;}
-.page-upload .up-notice-more{display:inline-flex;align-items:center;gap:6px;flex:none;font-size:12.5px;font-weight:800;color:var(--az-gold-d);}
-.page-upload .up-notice>summary:hover .up-notice-more{color:var(--navy);}
-.page-upload .up-notice p{margin-top:10px;}
+/* The SAME caret the document-type rows use, rotating the same way — this
+   is one disclosure pattern on one page, so it should not be two glyphs.
+   The word "why?" that used to sit beside it is gone: a caret on a notice
+   is already understood, and the words were competing with the rule itself,
+   which is the only thing on that line anyone must read. */
+.page-upload .up-notice .up-card-caret{color:var(--warn);}
+.page-upload .up-notice[open] .up-card-caret{transform:rotate(180deg);}
+/* The browser's own focus ring was showing as a black rectangle around the
+   summary (visible in the 2026-08-16 screenshot). Same inset navy ring the
+   type rows use. */
+.page-upload .up-notice>summary:focus-visible{outline:2px solid var(--navy);outline-offset:-2px;}
+.page-upload .up-notice p{margin-top:10px;color:var(--ink-2);}
 
 /* ----- one expandable card per document type -------------------------------
    Supersedes the radio-group list, which superseded six always-open cards
@@ -1633,12 +1642,22 @@ nav.primary{position:relative;padding-right:44px;}
    rotates rather than swapping glyph. That is deliberate: this page now has
    the same interaction as the app's other expandable list, so it should not
    merely resemble it, it should be the same rule. */
-/* ONE card, six hairlined rows. Six separate cards with gaps between them
-   read as six separate decisions; a single list reads as something you run
-   your eye down. `padding:0` beats `.page-upload .card`'s blanket 20/24
-   (equal specificity, later in the file) — each row supplies its own. */
-.page-upload .up-list{padding:0;}
-.page-upload .up-card + .up-card{border-top:1px solid var(--line);}
+/* SIX CARDS INSIDE ONE NAMED CARD (2026-08-16, asked for directly —
+   superseding the hairlined-rows-in-one-card arrangement above it in the
+   git history).
+
+   The outer card takes the page's own canvas as its ground. That is what
+   makes the six read as contained rather than as six floating boxes, which
+   is the objection that killed the very first six-card layout — separation
+   was never the problem, unrelatedness was. */
+.page-upload .up-list{background:var(--canvas);padding:14px 16px 16px;}
+.page-upload .up-list>h2{margin:0 0 10px;}
+/* Each row is a real `.card` again — white, bordered, rounded — so the
+   whole rule is `overflow:hidden`, which also clips the open body's corners
+   for free. `--r-md` rather than the `.card` default `--r-lg`: a card
+   nested inside another should read as the smaller thing. */
+.page-upload .up-card{border-radius:var(--r-md);margin:0 0 8px;}
+.page-upload .up-card:last-child{margin-bottom:0;}
 /* The head is an <h2> for document structure; its own 19px/800 would fight
    the sizing on the name span inside it. */
 .page-upload .up-card-head{margin:0;font-size:inherit;font-weight:inherit;}

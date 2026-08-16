@@ -138,6 +138,20 @@ describe("the public-record notice", () => {
     expect(within(notice).queryByRole("button")).toBeNull();
   });
 
+  it("uses the SAME disclosure caret as the document-type rows", () => {
+    // One page, one disclosure pattern. The notice used to carry a small
+    // sideways triangle plus the word "why?" while the rows below carried a
+    // rotating chevron — two glyphs for one idea, on one screen. The word
+    // is gone too: a caret on a notice is already understood, and "why?"
+    // competed with the rule itself, which is the only thing on that line
+    // anybody must read.
+    render(<Upload />);
+    const notice = screen.getByTestId("public-record-notice");
+    const summary = notice.querySelector("summary")!;
+    expect(summary.querySelector(".up-card-caret")).toBeTruthy();
+    expect(summary.textContent).not.toMatch(/why/i);
+  });
+
   it("keeps the AI-provider and shared-drive warning on the page, one click away", () => {
     // Demoted, not deleted. This is the sentence that explains WHY the rule
     // exists, and it is read once and skipped for ever after — so it sits
@@ -562,6 +576,17 @@ describe("when the document-type registry can't be reached", () => {
 describe("the type picker and form", () => {
   beforeEach(() => {
     vi.spyOn(api, "documentTypes").mockResolvedValue(ROWS);
+  });
+
+  it("holds every type card inside one named card", async () => {
+    // Six separated boxes with nothing around them read as six unrelated
+    // features — the objection that killed the very first six-card layout.
+    // Separation was never the problem; unrelatedness was. The outer card
+    // is what makes them read as contained.
+    render(<Upload />);
+    const cards = await screen.findAllByTestId("doc-type-card");
+    const outer = screen.getByRole("region", { name: /uploads/i });
+    for (const card of cards) expect(outer.contains(card)).toBe(true);
   });
 
   it("lists one card per document type from the API, in order", async () => {

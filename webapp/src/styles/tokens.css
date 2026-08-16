@@ -27,4 +27,20 @@
   --shadow:0 1px 2px rgba(27,27,61,.05),0 10px 26px rgba(27,27,61,.08);
   --shadow-sm:0 1px 2px rgba(27,27,61,.06),0 3px 10px rgba(27,27,61,.05);
   --maxw:1140px; --font:"Nunito","Segoe UI",system-ui,-apple-system,sans-serif;
+
+  /* 🔴 THE ONE TOKEN NOT FROM THE MOCKUP, added 2026-08-16 at the product
+     owner's direction ("give the whole public record notice box a
+     yellow/orange outline").
+
+     The mockup's palette is monochrome navy and has NO warning colour at
+     all — `--az-red` is #2f55c4, a blue, and `--az-gold` is #1b6fc4, also a
+     blue. STATUS.md already records that absence as a real gap ("a failed
+     citation chip rendered in navy would regress Invariants 1-3"), so this
+     is filling a hole rather than decorating.
+
+     #b45309 and not a brighter amber because the notice's HEADING is
+     rendered in it at 14px bold, which WCAG treats as normal text and so
+     needs 4.5:1 — this is 5.9:1 on white. #d97706 reads more yellow and
+     manages only 3.3:1, which would fail. */
+  --warn:#b45309;
 }
