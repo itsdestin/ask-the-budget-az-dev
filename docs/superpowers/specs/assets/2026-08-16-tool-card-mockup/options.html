@@ -1,0 +1,389 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Tool card inside the message bubble — options</title>
+<style>
+/* ---- real tokens, copied from webapp/src/styles/tokens.css + app.css ---- */
+:root{
+  --navy:#2b2f63; --navy-700:#232752; --navy-900:#181b3d; --navy-100:#e7e8f2;
+  --ink:#21243f; --ink-2:#4a4e6a; --ink-3:#757895;
+  --line:#e6e6ef; --canvas:#f5f5fa; --card:#fff;
+  --r-lg:22px; --r-md:16px; --r-sm:12px; --r-pill:999px;
+  --shadow-sm:0 1px 2px rgba(27,27,61,.06),0 3px 10px rgba(27,27,61,.05);
+  --font:"Nunito","Segoe UI",system-ui,-apple-system,sans-serif;
+  --chat-danger:#b3261e; --chat-danger-tint:#fbe9e7;
+  --ai-col:768px;
+}
+*{box-sizing:border-box}
+body{margin:0;background:var(--canvas);color:var(--ink);font-family:var(--font);line-height:1.6;-webkit-font-smoothing:antialiased}
+.page{max-width:960px;margin:0 auto;padding:32px 22px 80px}
+
+h1{font-size:24px;font-weight:800;margin:0 0 6px}
+.lede{color:var(--ink-2);font-size:14px;margin:0 0 34px;max-width:70ch}
+
+section{margin:0 0 40px;background:var(--card);border:1px solid var(--line);border-radius:var(--r-lg);padding:22px 24px 26px;box-shadow:var(--shadow-sm)}
+section.is-reject{opacity:.85}
+h2{font-size:15px;font-weight:800;margin:0 0 4px;display:flex;align-items:center;gap:9px}
+.tag{font-size:10.5px;font-weight:800;text-transform:uppercase;letter-spacing:.08em;padding:2px 9px;border-radius:var(--r-pill);border:1px solid var(--line);color:var(--ink-3);background:var(--canvas)}
+.tag.rec{color:#fff;background:var(--navy);border-color:var(--navy)}
+.tag.no{color:var(--chat-danger);background:var(--chat-danger-tint);border-color:var(--chat-danger)}
+.note{color:var(--ink-2);font-size:13px;margin:0 0 18px;max-width:72ch}
+.note b{color:var(--ink);font-weight:800}
+.stage{background:var(--canvas);border:1px dashed var(--line);border-radius:var(--r-md);padding:20px 18px}
+.stage + .stage{margin-top:12px}
+.cap{font-size:11px;font-weight:800;text-transform:uppercase;letter-spacing:.08em;color:var(--ink-3);margin:0 0 10px}
+
+/* ---- real chat geometry ---- */
+.chat-thread-column{max-width:var(--ai-col);width:100%;display:flex;flex-direction:column;gap:24px}
+.chat-turn{display:flex;flex-direction:column;gap:8px}
+.chat-bubble{position:relative;background:var(--card);border:1px solid var(--line);border-radius:var(--r-md);padding:10px 16px;color:var(--ink);font-size:14px;max-width:65ch}
+.chat-bubble.has-tail{border-bottom-left-radius:4px}
+.chat-bubble p{margin:0 0 10px} .chat-bubble p:last-child{margin-bottom:0}
+.chat-bubble strong{font-weight:800}
+.chip{display:inline-flex;align-items:center;justify-content:center;min-width:16px;height:16px;padding:0 4px;margin-left:3px;border-radius:5px;background:#e8eefb;border:1px solid #b9caf0;color:#2f55c4;font-size:10px;font-weight:800;vertical-align:2px;line-height:1}
+
+.chat-tool{border-radius:var(--r-sm);border:1px solid var(--line);background:var(--card);max-width:65ch;overflow:hidden}
+.chat-tool.is-failed{border-color:var(--chat-danger)}
+.chat-tool.is-inset{background:var(--canvas)}
+.chat-tool-head{width:100%;display:flex;align-items:center;gap:8px;padding:6px 12px;font-size:12.5px;color:var(--ink-2);background:none;border:none;cursor:pointer;text-align:left;font-family:inherit;transition:background .15s}
+.chat-tool-head:hover{background:var(--navy-100)}
+.chat-tool-glyph{flex-shrink:0;color:var(--ink-3)}
+.chat-tool.is-failed .chat-tool-glyph,.chat-tool.is-failed .chat-tool-label{color:var(--chat-danger)}
+.chat-tool-label{font-weight:700;color:var(--ink-2);flex-shrink:0}
+.chat-tool-summary{color:var(--ink-3);font-size:12px;min-width:0;flex:1 1 auto;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.chat-tool-summary::before{content:"↳ "}
+.chat-tool-chevron{margin-left:auto;flex-shrink:0;color:var(--ink-3);transition:transform .15s}
+.chat-tool-chevron.is-open{transform:rotate(180deg)}
+.chat-tool-body{border-top:1px solid var(--line);padding:8px 12px}
+.chat-tool-group-body{padding:4px 8px 8px;display:flex;flex-direction:column;gap:4px}
+
+/* expanded-body filler that reads like RetrieveView */
+.mini-lbl{font-size:11px;font-weight:800;text-transform:uppercase;letter-spacing:.08em;color:var(--ink-3);margin:0 0 6px}
+.mini-hit{font-size:12px;color:var(--ink-2);padding:5px 8px;border:1px solid var(--line);border-radius:8px;background:var(--card);margin-bottom:4px}
+.mini-hit:last-child{margin-bottom:0}
+.mini-hit b{font-weight:800;color:var(--ink)}
+
+/* ===== OPTION A — flush header (rejected shape) ===== */
+.optA .chat-bubble{padding:0;overflow:hidden}
+.optA .chat-bubble > .chat-tool-head{border-bottom:1px solid var(--line);background:var(--canvas)}
+.optA .bub-prose{padding:10px 16px}
+
+/* ===== OPTION B — card sits in the bubble's own padding ===== */
+.optB .bub-tools{padding-bottom:10px}
+.optB .chat-tool{background:var(--canvas)}
+
+/* ===== OPTION C — tinted top strip, card floats inside it ===== */
+.optC .chat-bubble{padding:0;overflow:hidden}
+.optC .bub-strip{background:var(--canvas);border-bottom:1px solid var(--line);padding:8px}
+.optC .bub-prose{padding:12px 16px}
+.optC .bub-strip .chat-tool{background:var(--card)}
+
+/* side-by-side */
+.pair{display:grid;grid-template-columns:1fr;gap:14px}
+@media(min-width:1000px){.pair{grid-template-columns:1fr 1fr}}
+.pair .stage{margin-top:0}
+</style>
+</head>
+<body>
+<div class="page">
+
+<h1>Tool card inside the message bubble</h1>
+<p class="lede">Three ways the grouped tool card can sit at the top of an answer bubble, drawn with the app's real tokens, spacing and row geometry. Same content in each so only the containment differs. Everything is static — nothing expands on click.</p>
+
+<!-- ============ TODAY ============ -->
+<section>
+  <h2>Today <span class="tag">current</span></h2>
+  <p class="note">Tool rows are <b>siblings</b> of the bubble — separate grey cards stacked above it, with an 8px gap. Two searches split by a sentence of prose can't group, so you get the "searched, searched" stack.</p>
+  <div class="stage">
+    <div class="chat-thread-column"><div class="chat-turn">
+      <div class="chat-tool"><div class="chat-tool-head">
+        <svg viewBox="0 0 12 12" width="12" height="12" class="chat-tool-glyph"><g><rect x="3" y="1" width="4" height="1" fill="currentColor"/><rect x="3" y="6" width="4" height="1" fill="currentColor"/><rect x="1" y="2" width="1" height="4" fill="currentColor"/><rect x="7" y="2" width="1" height="4" fill="currentColor"/><rect x="8" y="7" width="1" height="2" fill="currentColor"/><rect x="9" y="8" width="2" height="1" fill="currentColor"/></g></svg>
+        <span class="chat-tool-label">Search corpus</span><span class="chat-tool-summary">Aviation Fund balance FY2025</span>
+        <svg viewBox="0 0 10 6" width="10" height="6" class="chat-tool-chevron"><path d="M1 1l4 4 4-4" stroke="currentColor" stroke-width="1.6" fill="none" stroke-linecap="round"/></svg>
+      </div></div>
+      <div class="chat-tool"><div class="chat-tool-head">
+        <svg viewBox="0 0 12 12" width="12" height="12" class="chat-tool-glyph"><g><rect x="3" y="1" width="4" height="1" fill="currentColor"/><rect x="3" y="6" width="4" height="1" fill="currentColor"/><rect x="1" y="2" width="1" height="4" fill="currentColor"/><rect x="7" y="2" width="1" height="4" fill="currentColor"/><rect x="8" y="7" width="1" height="2" fill="currentColor"/><rect x="9" y="8" width="2" height="1" fill="currentColor"/></g></svg>
+        <span class="chat-tool-label">Search corpus</span><span class="chat-tool-summary">AGAO annual financial report fund 2005</span>
+        <svg viewBox="0 0 10 6" width="10" height="6" class="chat-tool-chevron"><path d="M1 1l4 4 4-4" stroke="currentColor" stroke-width="1.6" fill="none" stroke-linecap="round"/></svg>
+      </div></div>
+      <div class="chat-bubble has-tail">
+        <p><strong>Quick lookup:</strong></p>
+        <p>The State Aviation Fund (Fund 2005) ended FY 2025 with a fund balance of <strong>$60,092,781.04</strong><span class="chip">1</span> as of June 30, 2025, down from a beginning balance of $78,990,607.28<span class="chip">2</span> on July 1, 2024.</p>
+      </div>
+    </div></div>
+  </div>
+</section>
+
+<!-- ============ OPTION A ============ -->
+<section class="is-reject optA">
+  <h2>A — Flush header bar <span class="tag no">not this</span></h2>
+  <p class="note">The card spans the bubble edge to edge and takes its top corners, so it reads as the bubble's <b>title bar</b>. This is the shape you just ruled out — shown for contrast.</p>
+  <div class="stage">
+    <div class="chat-thread-column"><div class="chat-turn">
+      <div class="chat-bubble has-tail">
+        <div class="chat-tool-head">
+          <svg viewBox="0 0 12 12" width="12" height="12" class="chat-tool-glyph"><g><rect x="3" y="1" width="4" height="1" fill="currentColor"/><rect x="3" y="6" width="4" height="1" fill="currentColor"/><rect x="1" y="2" width="1" height="4" fill="currentColor"/><rect x="7" y="2" width="1" height="4" fill="currentColor"/><rect x="8" y="7" width="1" height="2" fill="currentColor"/><rect x="9" y="8" width="2" height="1" fill="currentColor"/></g></svg>
+          <span class="chat-tool-label">Searched ×2</span>
+          <svg viewBox="0 0 10 6" width="10" height="6" class="chat-tool-chevron"><path d="M1 1l4 4 4-4" stroke="currentColor" stroke-width="1.6" fill="none" stroke-linecap="round"/></svg>
+        </div>
+        <div class="bub-prose">
+          <p><strong>Quick lookup:</strong></p>
+          <p>The State Aviation Fund (Fund 2005) ended FY 2025 with a fund balance of <strong>$60,092,781.04</strong><span class="chip">1</span> as of June 30, 2025, down from a beginning balance of $78,990,607.28<span class="chip">2</span> on July 1, 2024.</p>
+        </div>
+      </div>
+    </div></div>
+  </div>
+</section>
+
+<!-- ============ OPTION B ============ -->
+<section class="optB">
+  <h2>B — Card inset in the bubble's padding <span class="tag rec">recommended</span></h2>
+  <p class="note">The bubble keeps its normal 10&nbsp;/&nbsp;16px padding and the tool card sits inside it as a <b>self-contained card</b> — its own border, its own corners, white gutter all the way round. It is plainly an object <i>in</i> the message, not a bar <i>on</i> it. Nothing about the bubble changes; one card is simply the first thing in it.</p>
+  <div class="pair">
+    <div class="stage">
+      <p class="cap">Collapsed</p>
+      <div class="chat-thread-column"><div class="chat-turn">
+        <div class="chat-bubble has-tail">
+          <div class="bub-tools">
+            <div class="chat-tool"><div class="chat-tool-head">
+              <svg viewBox="0 0 12 12" width="12" height="12" class="chat-tool-glyph"><g><rect x="3" y="1" width="4" height="1" fill="currentColor"/><rect x="3" y="6" width="4" height="1" fill="currentColor"/><rect x="1" y="2" width="1" height="4" fill="currentColor"/><rect x="7" y="2" width="1" height="4" fill="currentColor"/><rect x="8" y="7" width="1" height="2" fill="currentColor"/><rect x="9" y="8" width="2" height="1" fill="currentColor"/></g></svg>
+              <span class="chat-tool-label">Searched ×2</span>
+              <svg viewBox="0 0 10 6" width="10" height="6" class="chat-tool-chevron"><path d="M1 1l4 4 4-4" stroke="currentColor" stroke-width="1.6" fill="none" stroke-linecap="round"/></svg>
+            </div></div>
+          </div>
+          <p><strong>Quick lookup:</strong></p>
+          <p>The State Aviation Fund (Fund 2005) ended FY 2025 with a fund balance of <strong>$60,092,781.04</strong><span class="chip">1</span> as of June 30, 2025, down from a beginning balance of $78,990,607.28<span class="chip">2</span> on July 1, 2024.</p>
+        </div>
+      </div></div>
+    </div>
+    <div class="stage">
+      <p class="cap">Expanded</p>
+      <div class="chat-thread-column"><div class="chat-turn">
+        <div class="chat-bubble has-tail">
+          <div class="bub-tools">
+            <div class="chat-tool">
+              <div class="chat-tool-head">
+                <svg viewBox="0 0 12 12" width="12" height="12" class="chat-tool-glyph"><g><rect x="3" y="1" width="4" height="1" fill="currentColor"/><rect x="3" y="6" width="4" height="1" fill="currentColor"/><rect x="1" y="2" width="1" height="4" fill="currentColor"/><rect x="7" y="2" width="1" height="4" fill="currentColor"/><rect x="8" y="7" width="1" height="2" fill="currentColor"/><rect x="9" y="8" width="2" height="1" fill="currentColor"/></g></svg>
+                <span class="chat-tool-label">Searched ×2</span>
+                <svg viewBox="0 0 10 6" width="10" height="6" class="chat-tool-chevron is-open"><path d="M1 1l4 4 4-4" stroke="currentColor" stroke-width="1.6" fill="none" stroke-linecap="round"/></svg>
+              </div>
+              <div class="chat-tool-group-body">
+                <div class="chat-tool is-inset"><div class="chat-tool-head">
+                  <svg viewBox="0 0 12 12" width="12" height="12" class="chat-tool-glyph"><g><rect x="3" y="1" width="4" height="1" fill="currentColor"/><rect x="3" y="6" width="4" height="1" fill="currentColor"/><rect x="1" y="2" width="1" height="4" fill="currentColor"/><rect x="7" y="2" width="1" height="4" fill="currentColor"/><rect x="8" y="7" width="1" height="2" fill="currentColor"/><rect x="9" y="8" width="2" height="1" fill="currentColor"/></g></svg>
+                  <span class="chat-tool-label">Search corpus</span><span class="chat-tool-summary">Aviation Fund balance FY2025</span>
+                  <svg viewBox="0 0 10 6" width="10" height="6" class="chat-tool-chevron"><path d="M1 1l4 4 4-4" stroke="currentColor" stroke-width="1.6" fill="none" stroke-linecap="round"/></svg>
+                </div></div>
+                <div class="chat-tool is-inset">
+                  <div class="chat-tool-head">
+                    <svg viewBox="0 0 12 12" width="12" height="12" class="chat-tool-glyph"><g><rect x="3" y="1" width="4" height="1" fill="currentColor"/><rect x="3" y="6" width="4" height="1" fill="currentColor"/><rect x="1" y="2" width="1" height="4" fill="currentColor"/><rect x="7" y="2" width="1" height="4" fill="currentColor"/><rect x="8" y="7" width="1" height="2" fill="currentColor"/><rect x="9" y="8" width="2" height="1" fill="currentColor"/></g></svg>
+                    <span class="chat-tool-label">Search corpus</span><span class="chat-tool-summary">AGAO annual financial report fund 2005</span>
+                    <svg viewBox="0 0 10 6" width="10" height="6" class="chat-tool-chevron is-open"><path d="M1 1l4 4 4-4" stroke="currentColor" stroke-width="1.6" fill="none" stroke-linecap="round"/></svg>
+                  </div>
+                  <div class="chat-tool-body">
+                    <p class="mini-lbl">15 passages</p>
+                    <div class="mini-hit"><b>AGAO — FY 2025 Annual Financial Report</b> · p. 112</div>
+                    <div class="mini-hit"><b>AGAO — FY 2025 Annual Financial Report</b> · p. 113</div>
+                    <div class="mini-hit"><b>JLBC — FY 2026 Baseline · Transportation</b> · p. 4</div>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+          <p><strong>Quick lookup:</strong></p>
+          <p>The State Aviation Fund (Fund 2005) ended FY 2025 with a fund balance of <strong>$60,092,781.04</strong><span class="chip">1</span> as of June 30, 2025.</p>
+        </div>
+      </div></div>
+    </div>
+  </div>
+</section>
+
+<!-- ============ OPTION C ============ -->
+<section class="optC">
+  <h2>C — Card floating in a tinted top strip <span class="tag">alternative</span></h2>
+  <p class="note">The bubble grows a shaded band across its top, and the white tool card sits inside that band. The strip is a visible <b>zone</b> — "this part of the bubble is the work, below it is the answer" — at the cost of a second surface colour and a heavier-looking bubble.</p>
+  <div class="pair">
+    <div class="stage">
+      <p class="cap">Collapsed</p>
+      <div class="chat-thread-column"><div class="chat-turn">
+        <div class="chat-bubble has-tail">
+          <div class="bub-strip">
+            <div class="chat-tool"><div class="chat-tool-head">
+              <svg viewBox="0 0 12 12" width="12" height="12" class="chat-tool-glyph"><g><rect x="3" y="1" width="4" height="1" fill="currentColor"/><rect x="3" y="6" width="4" height="1" fill="currentColor"/><rect x="1" y="2" width="1" height="4" fill="currentColor"/><rect x="7" y="2" width="1" height="4" fill="currentColor"/><rect x="8" y="7" width="1" height="2" fill="currentColor"/><rect x="9" y="8" width="2" height="1" fill="currentColor"/></g></svg>
+              <span class="chat-tool-label">Searched ×2</span>
+              <svg viewBox="0 0 10 6" width="10" height="6" class="chat-tool-chevron"><path d="M1 1l4 4 4-4" stroke="currentColor" stroke-width="1.6" fill="none" stroke-linecap="round"/></svg>
+            </div></div>
+          </div>
+          <div class="bub-prose">
+            <p><strong>Quick lookup:</strong></p>
+            <p>The State Aviation Fund (Fund 2005) ended FY 2025 with a fund balance of <strong>$60,092,781.04</strong><span class="chip">1</span> as of June 30, 2025, down from a beginning balance of $78,990,607.28<span class="chip">2</span> on July 1, 2024.</p>
+          </div>
+        </div>
+      </div></div>
+    </div>
+    <div class="stage">
+      <p class="cap">Expanded</p>
+      <div class="chat-thread-column"><div class="chat-turn">
+        <div class="chat-bubble has-tail">
+          <div class="bub-strip">
+            <div class="chat-tool">
+              <div class="chat-tool-head">
+                <svg viewBox="0 0 12 12" width="12" height="12" class="chat-tool-glyph"><g><rect x="3" y="1" width="4" height="1" fill="currentColor"/><rect x="3" y="6" width="4" height="1" fill="currentColor"/><rect x="1" y="2" width="1" height="4" fill="currentColor"/><rect x="7" y="2" width="1" height="4" fill="currentColor"/><rect x="8" y="7" width="1" height="2" fill="currentColor"/><rect x="9" y="8" width="2" height="1" fill="currentColor"/></g></svg>
+                <span class="chat-tool-label">Searched ×2</span>
+                <svg viewBox="0 0 10 6" width="10" height="6" class="chat-tool-chevron is-open"><path d="M1 1l4 4 4-4" stroke="currentColor" stroke-width="1.6" fill="none" stroke-linecap="round"/></svg>
+              </div>
+              <div class="chat-tool-group-body">
+                <div class="chat-tool is-inset"><div class="chat-tool-head">
+                  <svg viewBox="0 0 12 12" width="12" height="12" class="chat-tool-glyph"><g><rect x="3" y="1" width="4" height="1" fill="currentColor"/><rect x="3" y="6" width="4" height="1" fill="currentColor"/><rect x="1" y="2" width="1" height="4" fill="currentColor"/><rect x="7" y="2" width="1" height="4" fill="currentColor"/><rect x="8" y="7" width="1" height="2" fill="currentColor"/><rect x="9" y="8" width="2" height="1" fill="currentColor"/></g></svg>
+                  <span class="chat-tool-label">Search corpus</span><span class="chat-tool-summary">Aviation Fund balance FY2025</span>
+                  <svg viewBox="0 0 10 6" width="10" height="6" class="chat-tool-chevron"><path d="M1 1l4 4 4-4" stroke="currentColor" stroke-width="1.6" fill="none" stroke-linecap="round"/></svg>
+                </div></div>
+                <div class="chat-tool is-inset"><div class="chat-tool-head">
+                  <svg viewBox="0 0 12 12" width="12" height="12" class="chat-tool-glyph"><g><rect x="3" y="1" width="4" height="1" fill="currentColor"/><rect x="3" y="6" width="4" height="1" fill="currentColor"/><rect x="1" y="2" width="1" height="4" fill="currentColor"/><rect x="7" y="2" width="1" height="4" fill="currentColor"/><rect x="8" y="7" width="1" height="2" fill="currentColor"/><rect x="9" y="8" width="2" height="1" fill="currentColor"/></g></svg>
+                  <span class="chat-tool-label">Search corpus</span><span class="chat-tool-summary">AGAO annual financial report fund 2005</span>
+                  <svg viewBox="0 0 10 6" width="10" height="6" class="chat-tool-chevron"><path d="M1 1l4 4 4-4" stroke="currentColor" stroke-width="1.6" fill="none" stroke-linecap="round"/></svg>
+                </div></div>
+              </div>
+            </div>
+          </div>
+          <div class="bub-prose">
+            <p><strong>Quick lookup:</strong></p>
+            <p>The State Aviation Fund (Fund 2005) ended FY 2025 with a fund balance of <strong>$60,092,781.04</strong><span class="chip">1</span> as of June 30, 2025.</p>
+          </div>
+        </div>
+      </div></div>
+    </div>
+  </div>
+</section>
+
+<!-- ============ EDGE CASES on the recommended shape ============ -->
+<section class="optB">
+  <h2>The other states, drawn in option B</h2>
+  <p class="note">Same containment, four situations that will happen daily.</p>
+
+  <div class="stage">
+    <p class="cap">One search only — the card carries the query instead of a status</p>
+    <div class="chat-thread-column"><div class="chat-turn">
+      <div class="chat-bubble">
+        <div class="bub-tools">
+          <div class="chat-tool"><div class="chat-tool-head">
+            <svg viewBox="0 0 12 12" width="12" height="12" class="chat-tool-glyph"><g><rect x="3" y="1" width="4" height="1" fill="currentColor"/><rect x="3" y="6" width="4" height="1" fill="currentColor"/><rect x="1" y="2" width="1" height="4" fill="currentColor"/><rect x="7" y="2" width="1" height="4" fill="currentColor"/><rect x="8" y="7" width="1" height="2" fill="currentColor"/><rect x="9" y="8" width="2" height="1" fill="currentColor"/></g></svg>
+            <span class="chat-tool-label">Searched</span><span class="chat-tool-summary">Aviation Fund balance FY2025</span>
+            <svg viewBox="0 0 10 6" width="10" height="6" class="chat-tool-chevron"><path d="M1 1l4 4 4-4" stroke="currentColor" stroke-width="1.6" fill="none" stroke-linecap="round"/></svg>
+          </div></div>
+        </div>
+        <p>The State Aviation Fund ended FY 2025 with a balance of <strong>$60,092,781.04</strong><span class="chip">1</span>.</p>
+      </div>
+    </div></div>
+  </div>
+
+  <div class="stage">
+    <p class="cap">Mixed actions in one answer</p>
+    <div class="chat-thread-column"><div class="chat-turn">
+      <div class="chat-bubble">
+        <div class="bub-tools">
+          <div class="chat-tool"><div class="chat-tool-head">
+            <svg viewBox="0 0 12 12" width="12" height="12" class="chat-tool-glyph"><g><rect x="3" y="1" width="4" height="1" fill="currentColor"/><rect x="3" y="6" width="4" height="1" fill="currentColor"/><rect x="1" y="2" width="1" height="4" fill="currentColor"/><rect x="7" y="2" width="1" height="4" fill="currentColor"/><rect x="8" y="7" width="1" height="2" fill="currentColor"/><rect x="9" y="8" width="2" height="1" fill="currentColor"/></g></svg>
+            <span class="chat-tool-label">Searched ×3, wrote a document</span>
+            <svg viewBox="0 0 10 6" width="10" height="6" class="chat-tool-chevron"><path d="M1 1l4 4 4-4" stroke="currentColor" stroke-width="1.6" fill="none" stroke-linecap="round"/></svg>
+          </div></div>
+        </div>
+        <p>I've drafted the memo comparing AHCCCS General Fund appropriations across FY 2024–2026.</p>
+      </div>
+    </div></div>
+  </div>
+
+  <div class="stage">
+    <p class="cap">A call failed — the collapsed card looks ordinary; nothing red, nothing counted</p>
+    <div class="chat-thread-column"><div class="chat-turn">
+      <div class="chat-bubble">
+        <div class="bub-tools">
+          <div class="chat-tool"><div class="chat-tool-head">
+            <svg viewBox="0 0 12 12" width="12" height="12" class="chat-tool-glyph"><g><rect x="3" y="1" width="4" height="1" fill="currentColor"/><rect x="3" y="6" width="4" height="1" fill="currentColor"/><rect x="1" y="2" width="1" height="4" fill="currentColor"/><rect x="7" y="2" width="1" height="4" fill="currentColor"/><rect x="8" y="7" width="1" height="2" fill="currentColor"/><rect x="9" y="8" width="2" height="1" fill="currentColor"/></g></svg>
+            <span class="chat-tool-label">Searched ×2</span>
+            <svg viewBox="0 0 10 6" width="10" height="6" class="chat-tool-chevron"><path d="M1 1l4 4 4-4" stroke="currentColor" stroke-width="1.6" fill="none" stroke-linecap="round"/></svg>
+          </div></div>
+        </div>
+        <p>I could only reach part of the record for that year — here is what I could confirm.</p>
+      </div>
+    </div></div>
+  </div>
+
+  <div class="stage">
+    <p class="cap">…the same failed call, on expanding — demoted, not deleted</p>
+    <div class="chat-thread-column"><div class="chat-turn">
+      <div class="chat-bubble">
+        <div class="bub-tools">
+          <div class="chat-tool">
+            <div class="chat-tool-head">
+              <svg viewBox="0 0 12 12" width="12" height="12" class="chat-tool-glyph"><g><rect x="3" y="1" width="4" height="1" fill="currentColor"/><rect x="3" y="6" width="4" height="1" fill="currentColor"/><rect x="1" y="2" width="1" height="4" fill="currentColor"/><rect x="7" y="2" width="1" height="4" fill="currentColor"/><rect x="8" y="7" width="1" height="2" fill="currentColor"/><rect x="9" y="8" width="2" height="1" fill="currentColor"/></g></svg>
+              <span class="chat-tool-label">Searched ×2</span>
+              <svg viewBox="0 0 10 6" width="10" height="6" class="chat-tool-chevron is-open"><path d="M1 1l4 4 4-4" stroke="currentColor" stroke-width="1.6" fill="none" stroke-linecap="round"/></svg>
+            </div>
+            <div class="chat-tool-group-body">
+              <div class="chat-tool is-inset"><div class="chat-tool-head">
+                <svg viewBox="0 0 12 12" width="12" height="12" class="chat-tool-glyph"><g><rect x="3" y="1" width="4" height="1" fill="currentColor"/><rect x="3" y="6" width="4" height="1" fill="currentColor"/><rect x="1" y="2" width="1" height="4" fill="currentColor"/><rect x="7" y="2" width="1" height="4" fill="currentColor"/><rect x="8" y="7" width="1" height="2" fill="currentColor"/><rect x="9" y="8" width="2" height="1" fill="currentColor"/></g></svg>
+                <span class="chat-tool-label">Search corpus</span><span class="chat-tool-summary">Aviation Fund balance FY2025</span>
+                <svg viewBox="0 0 10 6" width="10" height="6" class="chat-tool-chevron"><path d="M1 1l4 4 4-4" stroke="currentColor" stroke-width="1.6" fill="none" stroke-linecap="round"/></svg>
+              </div></div>
+              <div class="chat-tool is-inset is-failed">
+                <div class="chat-tool-head">
+                  <svg viewBox="0 0 12 12" width="12" height="12" class="chat-tool-glyph"><g><rect x="3" y="1" width="4" height="1" fill="currentColor"/><rect x="3" y="6" width="4" height="1" fill="currentColor"/><rect x="1" y="2" width="1" height="4" fill="currentColor"/><rect x="7" y="2" width="1" height="4" fill="currentColor"/><rect x="8" y="7" width="1" height="2" fill="currentColor"/><rect x="9" y="8" width="2" height="1" fill="currentColor"/></g></svg>
+                  <span class="chat-tool-label">Search corpus</span><span class="chat-tool-summary">AGAO fund 2005 detail</span>
+                  <svg viewBox="0 0 10 6" width="10" height="6" class="chat-tool-chevron is-open"><path d="M1 1l4 4 4-4" stroke="currentColor" stroke-width="1.6" fill="none" stroke-linecap="round"/></svg>
+                </div>
+                <div class="chat-tool-body">
+                  <p class="mini-lbl" style="color:var(--chat-danger)">Call failed</p>
+                  <div class="mini-hit" style="border-color:var(--chat-danger);background:var(--chat-danger-tint);color:var(--chat-danger)">Retrieval timed out after 30s. The assistant retried and the follow-up call succeeded.</div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+        <p>I could only reach part of the record for that year — here is what I could confirm.</p>
+      </div>
+    </div></div>
+  </div>
+
+  <div class="stage">
+    <p class="cap">Mid-search, before any answer exists — the card stands alone until the bubble arrives under it</p>
+    <div class="chat-thread-column"><div class="chat-turn">
+      <div class="chat-tool"><div class="chat-tool-head">
+        <svg viewBox="0 0 12 12" width="12" height="12" class="chat-tool-glyph" style="opacity:.45"><g><rect x="3" y="1" width="4" height="1" fill="currentColor"/><rect x="3" y="6" width="4" height="1" fill="currentColor"/><rect x="1" y="2" width="1" height="4" fill="currentColor"/><rect x="7" y="2" width="1" height="4" fill="currentColor"/><rect x="8" y="7" width="1" height="2" fill="currentColor"/><rect x="9" y="8" width="2" height="1" fill="currentColor"/></g></svg>
+        <span class="chat-tool-label">Searching</span><span class="chat-tool-summary">Aviation Fund balance FY2025</span>
+        <svg viewBox="0 0 10 6" width="10" height="6" class="chat-tool-chevron"><path d="M1 1l4 4 4-4" stroke="currentColor" stroke-width="1.6" fill="none" stroke-linecap="round"/></svg>
+      </div></div>
+    </div></div>
+  </div>
+
+  <div class="stage">
+    <p class="cap">Two rounds of work in one answer — reading order is kept, nothing is hoisted to the top</p>
+    <div class="chat-thread-column"><div class="chat-turn">
+      <div class="chat-bubble">
+        <div class="bub-tools">
+          <div class="chat-tool"><div class="chat-tool-head">
+            <svg viewBox="0 0 12 12" width="12" height="12" class="chat-tool-glyph"><g><rect x="3" y="1" width="4" height="1" fill="currentColor"/><rect x="3" y="6" width="4" height="1" fill="currentColor"/><rect x="1" y="2" width="1" height="4" fill="currentColor"/><rect x="7" y="2" width="1" height="4" fill="currentColor"/><rect x="8" y="7" width="1" height="2" fill="currentColor"/><rect x="9" y="8" width="2" height="1" fill="currentColor"/></g></svg>
+            <span class="chat-tool-label">Searched</span><span class="chat-tool-summary">Aviation Fund balance FY2025</span>
+            <svg viewBox="0 0 10 6" width="10" height="6" class="chat-tool-chevron"><path d="M1 1l4 4 4-4" stroke="currentColor" stroke-width="1.6" fill="none" stroke-linecap="round"/></svg>
+          </div></div>
+        </div>
+        <p>The FY 2025 ending balance is <strong>$60,092,781.04</strong><span class="chip">1</span>. Let me check the prior year for comparison.</p>
+      </div>
+      <div class="chat-bubble has-tail">
+        <div class="bub-tools">
+          <div class="chat-tool"><div class="chat-tool-head">
+            <svg viewBox="0 0 12 12" width="12" height="12" class="chat-tool-glyph"><g><rect x="3" y="1" width="4" height="1" fill="currentColor"/><rect x="3" y="6" width="4" height="1" fill="currentColor"/><rect x="1" y="2" width="1" height="4" fill="currentColor"/><rect x="7" y="2" width="1" height="4" fill="currentColor"/><rect x="8" y="7" width="1" height="2" fill="currentColor"/><rect x="9" y="8" width="2" height="1" fill="currentColor"/></g></svg>
+            <span class="chat-tool-label">Searched ×2</span>
+            <svg viewBox="0 0 10 6" width="10" height="6" class="chat-tool-chevron"><path d="M1 1l4 4 4-4" stroke="currentColor" stroke-width="1.6" fill="none" stroke-linecap="round"/></svg>
+          </div></div>
+        </div>
+        <p>FY 2024 closed at $78,990,607.28<span class="chip">2</span> — a drawdown of $18.9 million over the year.</p>
+      </div>
+    </div></div>
+  </div>
+</section>
+
+</div>
+</body>
+</html>
