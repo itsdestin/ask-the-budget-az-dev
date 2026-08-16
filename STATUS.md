@@ -769,13 +769,16 @@ follow-up on that basis — but that measurement was taken while this document
 was read by OpenDataLoader, which emits no heading at all for those pages and
 so contributed **zero**. One document raised that defect class ~15×.
 
-**Fixed in `eccfbdc`** — see the next section. The fix does NOT repair what is
-already written.
+**NOT fixed.** `eccfbdc` attempted it and was reverted (`1292030`) after being
+measured as inert — see the next section. The real cause is
+`_resolve_section_path`'s text search, and no fix is designed yet.
 
 ### Still open from this run
 
 - **The 8 documents holding a >20-page heading run are still wrong in the
-  corpus** and need re-processing to benefit from `eccfbdc`:
+  corpus.** Re-processing them buys NOTHING until the `_resolve_section_path`
+  fix lands — that was measured, see the next section. The list, for when it
+  does:
   `agao-afr-fy{2021,2022,2023,2024,2025}`,
   `governor-governors-budget-fy{2026,2027}`, `jlbc-baseline-fy2027-s58`.
   **`agao-afr-fy2025` is pinned by SIX eval ground-truth chunk ids and nothing
@@ -796,67 +799,58 @@ already written.
 
 ---
 
-## ✅ Heading inheritance is BOUNDED — a heading governs 5 pages, not a book (2026-08-16)
+## 🔴 Heading inheritance — the bound was INERT and was REVERTED (2026-08-16)
 
-Merge `eccfbdc`. Found by the acceptance run above, not by a test.
+Merge `eccfbdc`, reverted by `1292030` the same day. **Kept as the record of
+how the mistake happened, because it is the exact failure this repo's own
+rules warn about.**
 
-`_build_outline` in **both** readers is a level-stacked walk with **no
-distance limit**: a heading stays on the stack until a same-or-lower-level
-heading appears. A document whose real section breaks the extractor did not
-mark as headings inherits ONE heading for the rest of the book. An AFR's
-appropriations schedule is ~180 consecutive pages of bare `<table>` blocks.
+The fix bounded `_build_outline`'s positional heading inheritance to 5 pages,
+calibrated across a measured distribution of 48,382 heading runs. It had
+**ZERO effect on a single chunk in the corpus** — verified by running the
+actual chunker over 40 documents with and without it: section paths
+byte-identical.
 
-**Calibrated with BOTH sides measured, because both genuinely degrade:**
+**Why it did nothing.** `_build_outline` is not what decides a chunk's
+`section_path`. For table chunks — nearly all of an AFR or a Governor's
+budget — `chunking/builders/table_chunk.py::_resolve_section_path` picks the
+path by **TEXT SEARCH** (`doc.outline_path(q)` over the table's own cell
+text), falling back to its own separate nearest-preceding-heading walk.
+Neither consults the outline's positional inheritance.
 
-| bound | real sections truncated (of 48,382 runs) | AFR blocks left wrong by 1,000× |
-|---|---|---|
-| 3 | 1,211 (2.50%) | 5 |
-| **5 (shipped)** | **427 (0.88%)** | **5** |
-| 8 | 98 (0.20%) | 12 |
-| 15 | 27 (0.06%) | 21 |
-| 20 | 24 (0.05%) | 27 |
-| none (before) | 0 | 53 |
+**So the real cause of the mislabelling is the text search, not distance.**
+A table on page 177 of `agao-afr-fy2023` binds to a heading on page 3 because
+one of its cells matches text in that heading's section. That is why 166 of
+that document's 198 chunks (84%) sit under "Note 3. — Description of Selected
+Columns", and **why re-processing those documents would have fixed nothing.**
 
-**5 is the loose edge of the harm plateau** — bounds 3 and 5 both reach the
-floor of 5 residual blocks, and 5 pays a third of 3's price. Neither "plateau
-centre" nor "safe edge" applies unmodified: the metric has a plateau on one
-axis and is monotonic on the other.
+**How the error happened.** Every measurement behind the bound was taken
+against `OutlineNode.body_blocks` — the MECHANISM — and treated as a proxy
+for what chunks receive. The 53 → 27 → 5 curve that picked the bound is a
+true measurement of a quantity nothing downstream reads. The chunker was
+never run end-to-end until afterwards.
 
-Drawn against the real distribution: **86.5% of contiguous heading runs govern
-ONE page, 94.8% one or two, 99.1% five or fewer.** All 24 runs longer than 20
-pages were READ and every one is wrong — "Table of Contents" governing **408
-consecutive pages** of the FY2027 Governor's budget, "Note 3. — Description of
-Selected Columns" governing 27–49 pages of five separate AFRs, a garbled fused
-fragment governing 65. A 14-run sample of the 6–20 band is all legitimate
-("Capital Projects", "Red Imported Fire Ant Control", "CROSSWALK OF GENERAL
-APPROPRIATION ACT TO …") — that is what the 0.88% buys.
+**"Assert behaviour, not mechanism."** Twelve specs passed, five of six
+mutations were caught, and the whole thing verified a function no chunk
+depends on. **Mutation testing proves a test observes the CODE; it cannot
+prove the CODE observes anything.** The missing step was one end-to-end run
+of `chunk_doc` against cached extractor output — free, offline, and about
+sixty seconds.
 
-**The two failure modes are NOT symmetric, which is why the pick leans tight.**
-Too tight yields a chunk with NO heading — exactly what OpenDataLoader already
-produces for these pages and what the corpus lived with before. Too loose
-yields a chunk with a CONFIDENTLY WRONG heading, which is citable. Under
-Invariant 1 those are not comparable.
+### What is still true, and still open
 
-**A BACKSTOP, NOT A COMPLETE FIX**, and the constant's comment says so: 5
-blocks immediately after a stale heading still inherit it. Fixing those needs a
-real section-boundary signal — a page that is entirely a table carrying its own
-header row is a new table, whatever the last prose heading said — which is its
-own design and is **not done**.
-
-**Applied to both readers via one shared helper.** A fix in the MinerU reader
-alone would have left the defect live on every PDF that reads cleanly on rung
-1, which is most of the corpus.
-
-**Known equivalent mutant, checked rather than waved through:** replacing the
-`while` pop with `stack.clear()` passes every spec and is genuinely equivalent
-— headings push in document order so the stack is non-decreasing in page
-number (verified: 0 violations across the real AFR outline), meaning a stale
-top implies stale ancestors. Recorded in the test so nobody "fixes" it later.
-
-2990 pytest / 5 skipped. **The eval was run as the CLAUDE.md rule requires and
-DISCARDED rather than committed** — it reports figures identical to the
-control because the corpus is untouched, so the number would be a measurement
-of nothing dressed as a result.
+- **The mislabelling itself is real and large.** 166 of 198 chunks in
+  `agao-afr-fy2023`; **1,092 of 1,577 in `governor-governors-budget-fy2026`
+  are filed under "Table of Contents"**, spanning pages 2–643, including real
+  program tables (Adult Probation Services $35,884.7, etc.).
+- **`agao-afr-fy2024`'s 1,000× units error is real** and is NOT fixed: 122 of
+  its 450 chunks claim "(expressed in thousands)" over whole-dollar figures.
+- **The fix belongs in `_resolve_section_path`**, and it is not yet designed.
+  The text-search rule binds a table to any outline node containing one of
+  its cell strings, with no locality requirement at all.
+- **Re-processing the 8 documents buys nothing until that lands.** The
+  earlier "1,799 pages fixed" estimate in this file's history was derived
+  from the same mechanism-proxy and is withdrawn.
 
 ---
 
