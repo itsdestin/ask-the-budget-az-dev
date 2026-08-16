@@ -35,7 +35,6 @@ from chunking.readers.types import (
     Bbox,
     Block,
     Cell,
-    drop_stale_sections,
     ExtractedDocument,
     Heading,
     Image,
@@ -242,12 +241,6 @@ class MinerUReader:
                         roots.append(node)
                     stack.append(node)
                 else:
-                    # Bound heading inheritance before attaching. See
-                    # MAX_SECTION_PAGES in chunking/readers/types.py for the
-                    # measurement: every heading run longer than this in the
-                    # live corpus is wrong, and the AFR case turned 121
-                    # passages into a 1,000x units error.
-                    drop_stale_sections(stack, block.page)
                     if stack:
                         stack[-1].body_blocks.append(block)
         return roots
