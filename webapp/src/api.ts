@@ -833,11 +833,35 @@ export interface SwappedDocument {
   attempts: AttentionAttempt[];
 }
 
+/** A document that WAS saved and is searchable, whose kept reading is over
+ *  the structure ceiling. Neither held out nor swapped — the case those two
+ *  lists leave between them (a single-rung source like a DOCX, or a PDF
+ *  where every rung scored badly and the least-bad was rung 1).
+ *
+ *  `unlabelled` is REQUIRED here, unlike on `AttentionAttempt`: the server
+ *  only lists a document once that number has been measured and exceeds the
+ *  ceiling, so a row on this list without one would mean the route accused
+ *  a document on no evidence. */
+export interface DegradedDocument {
+  job_id: string;
+  title: string;
+  /** The rung whose output was written. */
+  kept: string;
+  unlabelled: number;
+  /** How much text came out. Shown beside `unlabelled` because the two
+   *  DISAGREE, which is the entire reason this measure exists — the
+   *  document that motivated it read 49% here and 31% bare. */
+  coverage: number | null;
+}
+
 export async function adminAttention(): Promise<{
   documents: AttentionDocument[];
   /** Optional so a server that predates this field keeps type-checking;
    *  the call site defaults it to []. */
   swapped?: SwappedDocument[];
+  /** Optional for the same reason as `swapped`; defaulted to [] at the
+   *  call site. */
+  degraded?: DegradedDocument[];
   /** Set when the server couldn't even read the jobs directory (a share
    *  that's gone away) — distinguishable from an empty `documents` list,
    *  which is the ordinary "nothing needs attention" case. Optional (not

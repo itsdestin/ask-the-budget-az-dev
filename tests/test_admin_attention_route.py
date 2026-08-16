@@ -36,6 +36,7 @@ from harness.settings import (
     save_settings,
 )
 from ingest.jobs import advance, new_job, save
+from ingest.structure import MAX_UNLABELLED
 
 ADMIN = "Destin"
 ANALYST = "analyst1"
@@ -292,7 +293,9 @@ def test_an_unreadable_jobs_directory_is_a_visible_error_not_silence(client, mon
 # ---------------------------------------------------------------------------
 
 
-def _live_job(*, doc_id: str, title: str, kept_extractor: str, attempts: list[dict]):
+def _live_job(
+    *, doc_id: str, title: str, kept_extractor: str | None, attempts: list[dict]
+):
     """A job that finished successfully, possibly on a LATER ladder rung.
 
     Set directly rather than walked through `advance()` — this file's other
@@ -459,6 +462,318 @@ def test_a_job_with_only_one_recorded_attempt_is_not_listed_as_swapped(client):
     )
 
     assert _attention(client)["swapped"] == []
+
+
+# ---------------------------------------------------------------------------
+# "degraded" — documents that ARE in search and were read badly anyway
+#
+# The blind spot the two lists above leave between them. `held_out` catches
+# only documents the ladder REFUSED to write; `swapped` catches only
+# documents whose extractor CHANGED. A document that is bad AND saved
+# satisfies neither, and there are two ordinary ways to get there: a
+# single-rung source (a DOCX has one extractor, so nothing can change), and
+# a PDF where every rung trips the ceiling and the least-bad is rung 1.
+# ---------------------------------------------------------------------------
+
+
+def _degraded(client):
+    return _attention(client)["degraded"]
+
+
+def test_a_single_rung_document_over_the_ceiling_is_listed(client):
+    """The DOCX case, and the reason this list exists. One extractor means
+    nothing can ever change, so `swapped` can never show it; it was
+    written, so `held_out` can never show it either. Before this list it
+    appeared on no admin surface at all."""
+    _live_job(
+        doc_id="bill-fy2026", title="FY 2026 budget bill",
+        kept_extractor="docx",
+        attempts=[
+            {"extractor": "docx", "coverage": 0.88,
+             "unlabelled": 0.44, "chunks": 120},
+        ],
+    )
+
+    rows = _degraded(client)
+
+    assert len(rows) == 1
+    assert rows[0]["title"] == "FY 2026 budget bill"
+    assert rows[0]["kept"] == "docx"
+    assert rows[0]["unlabelled"] == 0.44
+    # Coverage rides along because the two DISAGREE — that disagreement is
+    # the entire reason the structure measure exists, and showing only the
+    # flattering number is how this failure stayed invisible.
+    assert rows[0]["coverage"] == 0.88
+    # And it is genuinely on NEITHER of the other lists — the assertion
+    # that makes this a blind-spot test rather than a listing test.
+    body = _attention(client)
+    assert body["swapped"] == []
+    assert body["documents"] == []
+
+
+def test_a_document_whose_every_rung_tripped_the_ceiling_is_listed(client):
+    """`choose_best` still has to return something, and it returns the
+    LEAST bad. When that is rung 1, `attempts[0] == kept` drops it from
+    `swapped` too — so a PDF can trip every rung and still show nowhere."""
+    _live_job(
+        doc_id="agao-afr-fy2019", title="FY 2019 Annual Financial Report",
+        kept_extractor="opendataloader",
+        attempts=[
+            {"extractor": "opendataloader", "coverage": 0.50,
+             "unlabelled": 0.30, "chunks": 300},
+            {"extractor": "mineru", "coverage": 0.48,
+             "unlabelled": 0.55, "chunks": 280},
+        ],
+    )
+
+    rows = _degraded(client)
+
+    assert len(rows) == 1
+    assert rows[0]["unlabelled"] == 0.30
+    assert _attention(client)["swapped"] == []
+
+
+def test_a_swapped_document_still_over_the_ceiling_appears_on_BOTH_lists(client):
+    """Deliberate overlap. "We changed how this was read" and "what we kept
+    is still poor" are different facts and an admin needs both; suppressing
+    either hides the more actionable one behind the less."""
+    _live_job(
+        doc_id="agao-afr-fy2018", title="FY 2018 Annual Financial Report",
+        kept_extractor="mineru",
+        attempts=[
+            {"extractor": "opendataloader", "coverage": 0.49,
+             "unlabelled": 0.80, "chunks": 388},
+            {"extractor": "mineru", "coverage": 0.45,
+             "unlabelled": 0.35, "chunks": 450},
+        ],
+    )
+
+    body = _attention(client)
+
+    assert len(body["swapped"]) == 1
+    assert len(body["degraded"]) == 1
+    # The KEPT rung's number, not the first rung's — a row reporting 80%
+    # here would be describing a reading that was thrown away.
+    assert body["degraded"][0]["unlabelled"] == 0.35
+
+
+def test_a_clean_document_is_not_listed(client):
+    """Isolates the `unlabelled <= MAX_UNLABELLED` comparison. Everything
+    else about this fixture matches a listed document — live, kept set,
+    the kept attempt present and measured."""
+    _live_job(
+        doc_id="jlbc-baseline-fy2027-ahcccs", title="FY 2027 Baseline — AHCCCS",
+        kept_extractor="opendataloader",
+        attempts=[
+            {"extractor": "opendataloader", "coverage": 0.95,
+             "unlabelled": 0.01, "chunks": 200},
+        ],
+    )
+
+    assert _degraded(client) == []
+
+
+def test_a_document_exactly_AT_the_ceiling_is_not_listed(client):
+    """MAX_UNLABELLED is a CEILING and the ladder fails by scoring ABOVE
+    it (`ingest/structure.py`), so the boundary value passes. A route that
+    used `<` would list documents the pipeline itself considers acceptable
+    — the panel and the pipeline disagreeing about the same number."""
+    _live_job(
+        doc_id="edge", title="Exactly at the ceiling",
+        kept_extractor="opendataloader",
+        attempts=[
+            {"extractor": "opendataloader", "coverage": 0.90,
+             "unlabelled": MAX_UNLABELLED, "chunks": 200},
+        ],
+    )
+
+    assert _degraded(client) == []
+
+
+def test_an_unmeasured_reading_is_not_listed(client):
+    """`unlabelled: None` means NOT MEASURED (too few judgeable passages),
+    never "measured and clean" — the contract mirrored from
+    ingest/coverage.py. This panel ACCUSES a document, so it must never do
+    so on absent evidence."""
+    _live_job(
+        doc_id="tiny", title="A four-page document nobody could judge",
+        kept_extractor="opendataloader",
+        attempts=[
+            {"extractor": "opendataloader", "coverage": 0.90,
+             "unlabelled": None, "chunks": 4},
+        ],
+    )
+
+    assert _degraded(client) == []
+
+
+def test_a_job_file_written_before_the_field_existed_is_not_listed(client):
+    """The whole existing corpus. Every job file predating the structure
+    measure has NO `unlabelled` key at all, and `.get` returns None — so
+    the day this ships the panel is empty rather than accusing 7,000
+    documents it never measured. Distinct from the None case above: that
+    one has the key."""
+    _live_job(
+        doc_id="legacy", title="Ingested before any of this existed",
+        kept_extractor="opendataloader",
+        attempts=[{"extractor": "opendataloader", "coverage": 0.90, "chunks": 200}],
+    )
+
+    assert _degraded(client) == []
+
+
+def test_a_held_back_document_is_not_listed_as_degraded(client):
+    """It is not in search, so it does not belong on a list whose whole
+    claim is "analysts are getting answers from these". It has its own
+    panel, with its own actions."""
+    _held_back_job(title="FY 2024 AFR")
+
+    body = _attention(client)
+
+    assert len(body["documents"]) == 1
+    assert body["degraded"] == []
+
+
+def test_a_job_that_crashed_after_a_bad_extraction_is_not_listed(client):
+    """`kept_extractor` is set BEFORE embed and write (worker.py), so a job
+    that chose a rung and then died at the write step carries both a kept
+    extractor and a bad number while having written nothing. Isolates the
+    `state != "live"` guard: every other condition here would list it."""
+    job = new_job(
+        doc_id="crashed", title="Chose a rung, then died writing",
+        corpus="budget", source_path="x.pdf", source_sha256="e" * 64,
+        publisher="agao", doc_type="afr", fiscal_year=2024,
+    )
+    job.extraction_attempts = [
+        {"extractor": "opendataloader", "coverage": 0.50,
+         "unlabelled": 0.60, "chunks": 300},
+    ]
+    job.kept_extractor = "opendataloader"
+    job.state = "failed"
+    job.error = "Ran out of disk while writing."
+    save(job)
+
+    assert _degraded(client) == []
+
+
+def test_a_job_with_no_kept_extractor_recorded_is_not_listed(client):
+    """A live job from before `kept_extractor` existed. The route cannot
+    tell WHICH of its attempts was written, so it cannot honestly report
+    one — and picking the best-looking attempt would invent a fact."""
+    _live_job(
+        doc_id="nokept", title="Live, but nothing recorded which rung won",
+        kept_extractor=None,
+        attempts=[
+            {"extractor": "opendataloader", "coverage": 0.50,
+             "unlabelled": 0.60, "chunks": 300},
+        ],
+    )
+
+    assert _degraded(client) == []
+
+
+def test_the_KEPT_rungs_number_decides_not_any_rungs(client):
+    """A job whose DISCARDED rung was terrible and whose kept rung is fine
+    must not be listed. Isolates the attempt lookup: a route that scanned
+    for "any attempt over the ceiling" would list this, and would be
+    describing a reading that was thrown away."""
+    _live_job(
+        doc_id="discarded", title="The bad reading was the one we dropped",
+        kept_extractor="mineru",
+        attempts=[
+            {"extractor": "opendataloader", "coverage": 0.49,
+             "unlabelled": 0.90, "chunks": 388},
+            {"extractor": "mineru", "coverage": 0.45,
+             "unlabelled": 0.02, "chunks": 450},
+        ],
+    )
+
+    assert _degraded(client) == []
+
+
+def test_a_kept_extractor_naming_no_recorded_attempt_is_not_listed(client):
+    """Isolates the `kept_attempt is None` guard. `kept_extractor` names a
+    rung that is not in `extraction_attempts` at all — inconsistent job
+    data, which must produce an omission rather than a KeyError that 500s
+    the route and blanks all three panels (this project has shipped the
+    "one bad file costs the whole rail" defect once already)."""
+    _live_job(
+        doc_id="mismatch", title="Kept a rung it never recorded trying",
+        kept_extractor="mineru",
+        attempts=[
+            {"extractor": "opendataloader", "coverage": 0.50,
+             "unlabelled": 0.60, "chunks": 300},
+        ],
+    )
+
+    assert _degraded(client) == []
+
+
+def test_a_corrupt_unlabelled_value_does_not_500_the_whole_route(client):
+    """This is the route's only ARITHMETIC on job-file data. Everything else
+    copies values straight through, so a corrupt field costs one blank cell
+    — but `"0.4" <= 0.20` raises TypeError, and an unhandled TypeError here
+    blanks all three panels over one bad file. That shape has shipped in
+    this project before (IngestLock; the null-title sort above)."""
+    _live_job(
+        doc_id="corrupt", title="Somebody hand-edited a job file",
+        kept_extractor="opendataloader",
+        attempts=[{"extractor": "opendataloader", "coverage": 0.9,
+                   "unlabelled": "0.44", "chunks": 200}],
+    )
+    _live_job(
+        doc_id="fine", title="An ordinary bad document beside it",
+        kept_extractor="opendataloader",
+        attempts=[{"extractor": "opendataloader", "coverage": 0.9,
+                   "unlabelled": 0.44, "chunks": 200}],
+    )
+
+    r = client.get("/api/admin/attention")
+
+    # 200, AND the healthy neighbour still listed — a route that returned
+    # 200 with an empty list would pass a status-code-only assertion while
+    # having lost the panel's whole contents.
+    assert r.status_code == 200
+    assert [row["title"] for row in r.json()["degraded"]] == [
+        "An ordinary bad document beside it",
+    ]
+
+
+def test_degraded_documents_are_ordered_worst_first(client):
+    """Unlike the two lists above — chronological and alphabetical, because
+    they are a queue and a record — this one is an ALERT, and the document
+    with the most unlabelled figures is the one most worth opening.
+    Alphabetical order would bury it at random; the titles here are
+    deliberately in the OPPOSITE order to the scores."""
+    _live_job(
+        doc_id="a", title="A comes first alphabetically",
+        kept_extractor="opendataloader",
+        attempts=[{"extractor": "opendataloader", "coverage": 0.9,
+                   "unlabelled": 0.25, "chunks": 200}],
+    )
+    _live_job(
+        doc_id="z", title="Z comes last alphabetically",
+        kept_extractor="opendataloader",
+        attempts=[{"extractor": "opendataloader", "coverage": 0.9,
+                   "unlabelled": 0.75, "chunks": 200}],
+    )
+
+    assert [row["unlabelled"] for row in _degraded(client)] == [0.75, 0.25]
+
+
+def test_the_route_uses_the_pipelines_own_ceiling_constant(client):
+    """A copy of the threshold in the route would drift from the ladder's
+    and quietly stop listing documents the pipeline considers bad. Pinned
+    by driving a value just over whatever `ingest.structure` currently
+    says, so moving that constant moves this test with it."""
+    _live_job(
+        doc_id="justover", title="A hair over whatever the ceiling is",
+        kept_extractor="opendataloader",
+        attempts=[{"extractor": "opendataloader", "coverage": 0.9,
+                   "unlabelled": MAX_UNLABELLED + 0.001, "chunks": 200}],
+    )
+
+    assert len(_degraded(client)) == 1
 
 
 # ---------------------------------------------------------------------------

@@ -8,6 +8,7 @@ import { ExtractionChanges } from "../admin/ExtractionChanges";
 import { GuidancePanel } from "../admin/GuidancePanel";
 import { IssuesPanel } from "../admin/IssuesPanel";
 import { NeedsAttention } from "../admin/NeedsAttention";
+import { PoorlyRead } from "../admin/PoorlyRead";
 import { NoticesPanel } from "../admin/NoticesPanel";
 import { ProviderPanel } from "../admin/ProviderPanel";
 import { SaveBar } from "../admin/SaveBar";
@@ -69,6 +70,7 @@ export function Admin() {
   const [notices, setNotices] = useState<api.Notice[]>([]);
   const [attention, setAttention] = useState<api.AttentionDocument[]>([]);
   const [swapped, setSwapped] = useState<api.SwappedDocument[]>([]);
+  const [degraded, setDegraded] = useState<api.DegradedDocument[]>([]);
   // Errors from Try again / Dismiss. Separate from `saveError` (the
   // settings form) and `ingestMessage` (the machine toggle) — three
   // different actions on this page, three different places a failure can
@@ -136,6 +138,7 @@ export function Admin() {
         setNotices(n.notices);
         setAttention(a.documents);
         setSwapped(a.swapped ?? []);
+        setDegraded(a.degraded ?? []);
         // The initial load can fail to even read the jobs directory (a
         // share that's gone away) — surfaced through the SAME error slot
         // the retry/dismiss actions already use below, rather than a
@@ -257,6 +260,7 @@ export function Admin() {
       const [a, c] = await Promise.all([api.adminAttention(), api.adminCorpus()]);
       setAttention(a.documents);
       setSwapped(a.swapped ?? []);
+      setDegraded(a.degraded ?? []);
       setCorpus(c);
       // A success after an earlier failure must clear the old message -- an
       // admin who retries after a network hiccup and succeeds should not
@@ -366,6 +370,13 @@ export function Admin() {
               {attentionError}
             </p>
           ) : null}
+          {/* Second, not first: a document held OUT of search is content an
+              analyst cannot reach at all, which outranks one they can reach
+              but should not fully trust. Inside this group rather than
+              beside ExtractionChanges below because it is an ALERT, not a
+              record — a swap is a success with a trace, this is a document
+              still wrong. Renders nothing at all when the list is empty. */}
+          <PoorlyRead documents={degraded} />
           <NoticesPanel notices={notices} />
           <IssuesPanel />
         </Group>
