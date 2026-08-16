@@ -22,7 +22,8 @@ from ingest.book_discovery import (
     walk_edition,
 )
 from ingest.driver import make_doc_id
-from ingest.jobs import TERMINAL_STATES, load_all, new_job, save
+from ingest.worker import revive_if_this_machine_ingests
+from ingest.jobs import TERMINAL_STATES, load_active, new_job, save
 from app.routes.upload import _documents
 
 router = APIRouter()
@@ -115,7 +116,10 @@ def ingest(body: EditionBody, request: Request):
         if entry.get("source_url")
     }
     pending = {
-        job.source_url for job in load_all()
+        # load_active(): the same set as load_all() under this filter,
+        # since every archived job is terminal. A URL that has finished is
+        # in `known` (documents.json) just above.
+        job.source_url for job in load_active()
         if job.state not in TERMINAL_STATES and job.source_url
     }
 
@@ -157,9 +161,14 @@ def ingest(body: EditionBody, request: Request):
         save(job)
         queued.append(job.job_id)
 
-    worker = getattr(request.app.state, "ingest_worker", None)
-    if worker is not None:
-        worker.start()
+    # 🔴 GATED (2026-08-16) — see ingest/worker.py's
+    # `revive_if_this_machine_ingests`. THIS was the worst of the two
+    # bypasses: a book is ~140 documents and hours of CPU, so an analyst
+    # pressing Add here is precisely the request that used to conscript
+    # their own laptop into doing it, on a machine the office had set not
+    # to. The jobs are queued regardless; the machine that ingests picks
+    # them up.
+    revive_if_this_machine_ingests(request.app)
 
     return {
         "queued": len(queued),

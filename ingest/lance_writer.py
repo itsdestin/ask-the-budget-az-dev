@@ -44,10 +44,25 @@ _TITLE_PATTERNS: dict[str, str] = {
     "governors-budget": "FY {y} Executive Budget",
     "budget-bill": "FY {y} Budget Bill",
     "fiscal-note": "FY {y} Fiscal Note",
+    # "Budget Request", not the registry's "Agency Submission" label, because
+    # the agency name is appended right after it and "FY 2027 Agency
+    # Submission - Department of Corrections" says agency twice. This is what
+    # the registry's own where_published calls it: "each agency publishes its
+    # own budget request each autumn".
+    "agency-submission": "FY {y} Budget Request",
 }
 
 # doc_types whose title carries an agency name when one was resolved.
-_PER_AGENCY_DOC_TYPES = frozenset({"baseline-per-agency", "approps-per-agency"})
+#
+# agency-submission is here for a different reason from the other two. A
+# per-agency book page is one of ~110 in an edition, so without the agency
+# they are indistinguishable from each other. An agency budget request is
+# one of ~78 in a year with the SAME problem -- and unlike a book page,
+# nothing else in its title varies at all, so every one of them would read
+# "FY 2027 Budget Request" exactly.
+_PER_AGENCY_DOC_TYPES = frozenset(
+    {"baseline-per-agency", "approps-per-agency", "agency-submission"}
+)
 
 
 def chunk_to_lance_row(

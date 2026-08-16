@@ -279,7 +279,11 @@ def test_an_unreadable_jobs_directory_is_a_visible_error_not_silence(client, mon
     def _boom():
         raise OSError("share unavailable")
 
-    monkeypatch.setattr(jobs_module, "load_all", _boom)
+    # `load_active`, not `load_all`: spec T13 moved finished jobs into
+    # jobs/done/ and this panel now reads only the main folder, since
+    # `failed` never leaves it. The BEHAVIOUR under test is unchanged --
+    # an unreadable share must say so rather than read as "all clear".
+    monkeypatch.setattr(jobs_module, "load_active", _boom)
 
     body = _attention(client)
 

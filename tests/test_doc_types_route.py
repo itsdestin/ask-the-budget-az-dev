@@ -58,6 +58,15 @@ def test_publisher_is_projected_so_the_webapp_never_hand_maintains_its_own_map(t
 
 
 def test_upload_accepts_a_new_type(tmp_path, monkeypatch):
+    # agency-submission also declares `agency_field`, so this now carries an
+    # agency. That is not incidental to what the test is for: the point is
+    # that a type added to the REGISTRY is accepted by the route, and a
+    # registry row's own required fields are part of what "accepted" means.
+    # An agency is supplied from the shipped catalog rather than typed, for
+    # the same reason the picker sends an id and not words.
+    from store.office_agencies import all_agencies
+
+    shipped = next(a for a in all_agencies() if a.source == "catalog")
     c = _client(tmp_path, monkeypatch)
     r = c.post(
         "/api/upload",
@@ -66,6 +75,7 @@ def test_upload_accepts_a_new_type(tmp_path, monkeypatch):
             "corpus": "budget", "publisher": "agency",
             "doc_type": "agency-submission", "fiscal_year": "2027",
             "title": "", "is_public_record": "true",
+            "agency_canonical_id": shipped.canonical_id,
         },
     )
     assert r.status_code == 202, r.text

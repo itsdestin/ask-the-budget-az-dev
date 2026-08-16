@@ -116,13 +116,14 @@ from ingest.jobs import (
     TERMINAL_STATES,
     JobRecord,
     advance,
-    load_all,
+    load_active,
     load_job,
     mark_stage,
     resumable,
     save,
 )
 from ingest.lance_writer import build_title, write_doc
+from store.office_agencies import agency_name
 from ingest.lock import IngestLock
 from ingest.mineru_runner import MineruCancelled, MineruRunner, batch_timeout_s
 from ingest.validate import validate_doc
@@ -1282,7 +1283,7 @@ def _write(
                 doc_type=job.doc_type,
                 fiscal_year=job.fiscal_year,
                 user_title=job.user_title,
-                agency_name=_primary_agency_name(chunks, ctx),
+                agency_name=_agency_name_for_title(job, chunks, ctx),
                 stage=job.stage,
             ),
             source_sha256=job.source_sha256,
@@ -1832,7 +1833,11 @@ class IngestWorker:
 
     def _candidates(self) -> list[JobRecord]:
         """Jobs worth attempting, best first: our resumable work, then queued."""
-        queued = [j for j in reversed(load_all()) if j.state == "queued"]
+        # load_active(), not load_all(): `queued` is never an archived
+        # state, so this is the same set -- but load_all() reads the whole
+        # 7,104-file archive on every pass of this poll loop, off a shared
+        # drive. Spec T13.
+        queued = [j for j in reversed(load_active()) if j.state == "queued"]
         return resumable() + queued
 
 
@@ -1840,6 +1845,11 @@ def ensure_started(app: Any) -> IngestWorker:
     """Attach a worker to a FastAPI app, starting it once.
 
     Idempotent so route modules can call it without coordinating.
+
+    🔴 CALLERS: this does NOT consult `ingest_enabled()`. It is the "start
+    the queue" primitive, and the one place entitled to call it
+    unconditionally is app/main.py's lifespan, which checks first. A ROUTE
+    must call `revive_if_this_machine_ingests` below instead.
     """
     worker = getattr(app.state, "ingest_worker", None)
     if worker is None:
@@ -1847,6 +1857,46 @@ def ensure_started(app: Any) -> IngestWorker:
         app.state.ingest_worker = worker
     worker.start()
     return worker
+
+
+def revive_if_this_machine_ingests(app: Any) -> bool:
+    """Restart an already-attached worker, but only where ingest belongs.
+
+    🔴 THE DEFECT THIS FIXES, found 2026-08-16 by watching a real ingest run
+    on a machine with `ingest_enabled()` False. The lifespan handler
+    correctly declined to start the queue and said so on stderr — and then
+    `POST /api/books/ingest` called `worker.start()` with no check at all,
+    so pressing "Add" on a book turned that machine into the ingest machine
+    anyway. `POST /api/upload` did the same. Both bypassed the switch
+    completely.
+
+    That switch is not a preference. `app/machine_config.ingest_enabled`'s
+    own docstring names the outcome it exists to prevent: one bundle on ~20
+    office PCs, so without it "the winner is arbitrary and may be an
+    analyst's laptop that then spends six hours at 100% CPU on a Baseline
+    book while they are trying to work." Queuing a book is exactly the
+    request that costs six hours, and it was the one request that ignored
+    the switch.
+
+    ONE helper both routes call, rather than the same two-line check written
+    out twice — the same reasoning as `IngestLock._take()`. Two paths
+    independently deciding when to start a worker is the shape that produced
+    this defect and the shape that would reproduce it in six months.
+
+    Never BUILDS a worker (unlike `ensure_started`): a machine that opted
+    out must not acquire one because somebody used the upload form. Returns
+    whether the queue is running here, so a caller can tell the difference
+    between "started" and "deliberately not started".
+    """
+    from app.machine_config import ingest_enabled
+
+    if not ingest_enabled():
+        return False
+    worker = getattr(app.state, "ingest_worker", None)
+    if worker is None:
+        return False
+    worker.start()
+    return True
 
 
 # --- helpers ----------------------------------------------------------------
@@ -1967,6 +2017,38 @@ def _copy_source_to_share(job: JobRecord) -> str | None:
         target.parent.mkdir(parents=True, exist_ok=True)
         shutil.copy2(source, target)
     return target.relative_to(data_dir()).as_posix()
+
+
+def _agency_name_for_title(
+    job: JobRecord, chunks: Sequence[Chunk], ctx: WorkerContext
+) -> str | None:
+    """The agency name that goes in the title — DECLARED beats INFERRED.
+
+    An uploader who picked "Department of Corrections" from the agency
+    picker has told us what the document is. `_primary_agency_name` below
+    counts stamps in the extracted text, which is a good guess and only a
+    guess: `chunking/entity_stamper.py` cannot resolve an agency it has no
+    alias for, and 103 of the 157 catalogued agencies carry no alias at all
+    (recorded in STATUS.md under "Query understanding"). On exactly the
+    documents this picker exists for -- one agency's own budget request --
+    the inferred answer is therefore most likely to be None or wrong, and
+    the declared one is ground truth.
+
+    Falls through to the inferred name when nothing was declared, which is
+    every doc_type except agency-submission and every job queued before the
+    picker existed.
+    """
+    declared = (job.agency_canonical_id or "").strip()
+    if declared:
+        # Resolved through the same function the upload route validated
+        # against, so a document cannot be accepted under one name and then
+        # given another. An id that no longer resolves (an office entry an
+        # admin deleted between upload and ingest) falls through rather than
+        # failing the job -- a worse title is not worth losing the document.
+        name = agency_name(declared)
+        if name:
+            return name
+    return _primary_agency_name(chunks, ctx)
 
 
 def _primary_agency_name(chunks: Sequence[Chunk], ctx: WorkerContext) -> str | None:

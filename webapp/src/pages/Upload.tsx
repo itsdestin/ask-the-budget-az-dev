@@ -1,5 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import * as api from "../api";
+import { BookFamilyPanel } from "./upload/BookFamilyPanel";
+import { QueuePanel } from "./upload/QueuePanel";
 
 // The upload surface. Two jobs: get a document into the queue with correct
 // metadata, and be honest about what happens next.
@@ -14,71 +16,79 @@ import * as api from "../api";
 // The other honesty requirement is timing. MinerU can take a while per page
 // on the office i5s, so a large document can run for hours. The copy says so.
 //
-// WHY one card with a type PICKER, not six full cards (this rework,
-// superseding Task 6's "six guided rows" — see that section's history in
-// STATUS.md): six independent cards with their own file input, fiscal year,
-// checkbox and Submit button read as six different features, and the product
-// owner's reaction to seeing them was blunt — "why are there 6 entirely
-// different upload cards." The types themselves are still exactly Task 6's
-// insight (an analyst doesn't know a raw doc_type slug, so name a real
-// document and let the row determine its own doc_type/publisher) — only the
-// SHAPE changed: the six are now a selectable list feeding one form, so
-// there is one file input, one fiscal year field, one checkbox and one
-// Submit button on the page at a time, no matter which type is picked. The
-// rows still come from GET /api/document-types, a straight projection of
-// data/document-types.yaml, so this file holds no copy of the type list at
-// all — that list drifting from the server's is exactly the bug this page
-// used to ship (twice, now, in two different shapes).
-
-const RUNNING_STATES: api.JobState[] = [
-  "queued",
-  "extracting",
-  "chunking",
-  "embedding",
-  "writing",
-];
-
-const STAGE_LABELS: Record<api.JobState, string> = {
-  queued: "Waiting",
-  extracting: "Reading the document",
-  chunking: "Splitting into passages",
-  embedding: "Building the search index",
-  writing: "Saving to the corpus",
-  live: "Searchable",
-  failed: "Failed",
-  cancelled: "Cancelled",
-};
-
-const POLL_MS = 3000;
+// WHY six cards that expand ONE AT A TIME (2026-08-15, superseding both the
+// original "six guided rows" and the radio-list-plus-one-shared-form that
+// replaced it). The history matters because the two obvious shapes have each
+// already been rejected for a reason worth keeping:
+//
+//   - Six full cards, all expanded, was rejected on sight — "why are there 6
+//     entirely different upload cards." Six file inputs, six fiscal-year
+//     boxes, six checkboxes and six Add buttons down one page read as six
+//     features, and make it easy to fill in one card and press Add in
+//     another.
+//   - A radio list feeding one shared form below fixed that, and was
+//     rejected in turn: the form was visibly a separate section rather than
+//     part of the thing you picked, and it left a SECOND separate section
+//     ("Add a JLBC book") restating two of the same six types.
+//
+// The accordion keeps the property the shared form was built for — exactly
+// one file input, one fiscal year, one checkbox and one Add button on screen
+// at any moment — while the form lives INSIDE the card it belongs to.
+// Opening a card closes the one that was open, and a closed card's body is
+// unmounted, so no half-filled form for a type you are not looking at can
+// exist at all. That is what makes the "does not carry X to the next type"
+// specs structural rather than something a future edit could quietly undo:
+// they used to depend on a `key=` prop, and now the state cannot outlive the
+// close.
+//
+// The two JLBC-book types expand into their OWN family's gap (spec T10)
+// instead of a file form — that is the whole of "no separate JLBC Books
+// section".
+//
+// The types themselves are still exactly Task 6's insight (an analyst
+// doesn't know a raw doc_type slug, so name a real document and let the row
+// determine its own doc_type/publisher). The rows come from
+// GET /api/document-types, a straight projection of data/document-types.yaml,
+// so this file holds no copy of the type list at all — that list drifting
+// from the server's is exactly the bug this page used to ship (twice, now,
+// in two different shapes). That is also why the book family arrives as
+// `redirect.family` off the wire rather than a key→family map written here.
 
 export function Upload() {
   const [rows, setRows] = useState<api.DocTypeCard[] | null>(null);
   const [rowsError, setRowsError] = useState("");
-  const [jobs, setJobs] = useState<api.Job[]>([]);
-  const [queueError, setQueueError] = useState<string>("");
-  // Which of the registry's types the analyst has picked, if any. Lives on
-  // the page (not inside a child) because it decides which single form to
-  // render below the list — there is exactly one form on screen, so exactly
-  // one component needs to know which type it is for.
-  const [selectedKey, setSelectedKey] = useState<string | null>(null);
+  // Bumped whenever this page queues something, so QueuePanel refetches
+  // immediately instead of waiting out its poll interval. The panel owns
+  // the queue state itself (spec T13) -- the page only says "look again".
+  const [queueToken, setQueueToken] = useState(0);
+  const refreshJobs = useCallback(() => setQueueToken((n) => n + 1), []);
+  // Which card is open, if any. Lives on the page rather than inside each
+  // card because "one at a time" is a statement about the SET — a card
+  // cannot know to close itself when a sibling opens.
+  const [openKey, setOpenKey] = useState<string | null>(null);
 
-  const refreshJobs = useCallback(async () => {
+  // "What has JLBC published that we don't have?" (spec T10) is fetched ONCE
+  // here, not inside each book card, for two reasons. It answers for BOTH
+  // families in one round-trip, so two cards fetching it separately is two
+  // calls for one answer. And the collapsed row shows a count off it — so if
+  // the panel owned the fetch, pressing "Check again" inside an open card
+  // would update the panel and leave the row above it stating the OLD count,
+  // which is the same number disagreeing with itself on one screen.
+  const [check, setCheck] = useState<api.BookCheck | null>(null);
+  const [checking, setChecking] = useState(true);
+  const [checkError, setCheckError] = useState("");
+
+  const loadCheck = useCallback(async (refresh: boolean) => {
+    setChecking(true);
+    setCheckError("");
     try {
-      const body = await api.jobs();
-      setJobs(body.jobs);
-      setQueueError("");
+      setCheck(await api.booksMissing(refresh));
     } catch (e) {
-      // Stale-while-revalidate: keep showing the last good queue rather than
-      // blanking it, because a momentary share hiccup is not "no jobs".
-      setQueueError(e instanceof Error ? e.message : String(e));
+      setCheckError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setChecking(false);
     }
   }, []);
-
-  useEffect(() => {
-    void refreshJobs();
-    const id = setInterval(() => void refreshJobs(), POLL_MS);
-    return () => clearInterval(id);
-  }, [refreshJobs]);
 
   useEffect(() => {
     api
@@ -93,44 +103,39 @@ export function Upload() {
       });
   }, []);
 
-  const selected = (rows ?? []).find((r) => r.key === selectedKey) ?? null;
-
-  async function act(kind: "retry" | "cancel", jobId: string) {
-    try {
-      if (kind === "retry") await api.retryJob(jobId);
-      else await api.cancelJob(jobId);
-      await refreshJobs();
-    } catch (e) {
-      setQueueError(e instanceof Error ? e.message : String(e));
-    }
-  }
+  useEffect(() => {
+    void loadCheck(false);
+  }, [loadCheck]);
 
   return (
     <main className="page-upload" data-testid="upload">
       <div className="wrap">
         <h1 className="up-title">Add a document</h1>
 
-        <section className="card up-notice" aria-labelledby="up-notice-h">
-          <h2 id="up-notice-h">Public record documents only</h2>
+        {/* Invariant 8, in ONE line. Measured before this change: the page
+            carried 214 words before an analyst could do anything, 87 of them
+            here — and the six things they came to choose between are 14
+            words. The RULE is what has to be permanently visible, and it is;
+            the explanation of why the rule exists is read once and then
+            skipped for ever, so it sits behind a disclosure. The per-upload
+            tick-box, which is the deliberate moment the invariant is really
+            built on, is untouched. */}
+        <details className="card up-notice up-disclose" data-testid="public-record-notice">
+          <summary>
+            <WarnGlyph />
+            <span className="up-notice-rule">
+              Public record only — never confidential state data.
+            </span>
+            <Chevron />
+          </summary>
           <p>
-            This corpus is only for documents that are already public record:
-            baseline books, appropriations reports, fiscal notes, bills, executive
-            budget requests, agency budget requests, and Annual Financial Reports.
+            When AI Mode answers a question it sends the text of retrieved
+            passages to an outside AI provider, and anything placed here is
+            readable by everyone with access to the shared drive. Search on its
+            own never sends document text anywhere — but the document is still
+            on the shared drive once uploaded.
           </p>
-          <p>
-            Do not upload confidential state data. When AI Mode answers a question
-            it sends the text of retrieved passages to an outside AI provider, and
-            anything placed here is readable by everyone with access to the shared
-            drive. Search on its own never sends document text anywhere — but the
-            document is still on the shared drive once uploaded.
-          </p>
-        </section>
-
-        <p className="up-note up-expect">
-          Most documents here are searchable within the hour. Larger uploads take
-          longer — progress survives restarts, and the queue below shows exactly
-          where each document stands.
-        </p>
+        </details>
 
         {rowsError && (
           <p className="up-note">
@@ -140,198 +145,229 @@ export function Upload() {
           </p>
         )}
 
-        <section className="card up-card" data-testid="upload-card">
-          <fieldset className="up-types">
-            <legend>What are you uploading?</legend>
-            {(rows ?? []).map((row) => (
-              <DocTypeOption
-                key={row.key}
-                row={row}
-                selected={selectedKey === row.key}
-                onSelect={() => setSelectedKey(row.key)}
-              />
-            ))}
-          </fieldset>
-
-          {selected &&
-            (selected.redirect ? (
-              // No `key` needed here: a redirect panel holds no form state of
-              // its own, so there is nothing that could leak across a switch.
-              <RedirectPanel row={selected} />
-            ) : (
-              // `key={selected.key}` is the whole fix for the hazard this
-              // rework introduces: six independent cards used to mean six
-              // independent pieces of React state, so nothing could leak
-              // between them. One form now serves six types in turn, so
-              // switching the selection must not let a file, fiscal year,
-              // stage, error, duplicate or success message from the type
-              // just left carry into the type just picked. Changing `key`
-              // is what tells React "this is conceptually a different
-              // component instance" — it unmounts the old form's state
-              // (and its DOM, including the native file input's own
-              // displayed filename) and mounts a brand new one, rather than
-              // reusing the same instance and hoping every field was
-              // reset by hand. See Upload.test.tsx's "switching the
-              // selected type" spec, which fails the moment this key is
-              // removed.
-              <DocTypeForm key={selected.key} row={selected} onQueued={() => void refreshJobs()} />
-            ))}
+        {/* One NAMED card holding six cards of its own. The rows were
+            hairlined inside a single card first; separating them again was
+            asked for directly, and the outer card is what stops six floating
+            boxes reading as six unrelated features — the objection that
+            killed the original six-card layout. The outer card carries the
+            page's canvas as its ground so the six read as sitting IN
+            something rather than merely near each other. */}
+        <section className="card up-list" aria-labelledby="up-list-h">
+          <h2 id="up-list-h">Uploads</h2>
+          {(rows ?? []).map((row) => (
+            <DocTypeCard
+              key={row.key}
+              row={row}
+              open={openKey === row.key}
+              status={bookStatus(row, check, checking)}
+              // Clicking the open card closes it — the header is a toggle,
+              // not a one-way selector, so there is always a way back to
+              // "nothing open" without picking something you don't want.
+              onToggle={() =>
+                setOpenKey((current) => (current === row.key ? null : row.key))
+              }
+              check={check}
+              checking={checking}
+              checkError={checkError}
+              onRecheck={() => void loadCheck(true)}
+              onQueued={() => void refreshJobs()}
+            />
+          ))}
         </section>
 
-        <AddBookPanel onQueued={() => void refreshJobs()} />
-
-        <section className="card up-queue" aria-labelledby="up-queue-h">
-          <h2 id="up-queue-h">Queue</h2>
-          {queueError && (
-            <p className="up-note">
-              <span className="err">Couldn’t refresh the queue: {queueError}</span>
-            </p>
-          )}
-          {jobs.length === 0 ? (
-            <p className="up-note">Nothing is processing right now.</p>
-          ) : (
-            <ul className="up-jobs">
-              {jobs.map((job) => (
-                <li key={job.job_id} className="up-job" data-testid="job">
-                  <div className="up-job-head">
-                    <span className="up-job-title">{job.title}</span>
-                    <span className="up-job-state">{STAGE_LABELS[job.state]}</span>
-                  </div>
-                  {RUNNING_STATES.includes(job.state) && (
-                    <div
-                      className="up-bar"
-                      role="progressbar"
-                      aria-label={`${job.title} progress`}
-                      aria-valuenow={job.pct}
-                      aria-valuemin={0}
-                      aria-valuemax={100}
-                    >
-                      <span style={{ width: `${job.pct}%` }} />
-                    </div>
-                  )}
-                  <p className="up-job-detail">
-                    {job.stage_detail}
-                    {job.machine ? ` · ${job.machine}` : ""}
-                  </p>
-                  {job.error && <p className="up-job-error">{job.error}</p>}
-                  <div className="up-job-actions">
-                    {job.state === "failed" && (
-                      <button
-                        type="button"
-                        className="fchip"
-                        onClick={() => void act("retry", job.job_id)}
-                      >
-                        Retry
-                      </button>
-                    )}
-                    {RUNNING_STATES.includes(job.state) && (
-                      <button
-                        type="button"
-                        className="fchip"
-                        onClick={() => void act("cancel", job.job_id)}
-                      >
-                        Cancel
-                      </button>
-                    )}
-                  </div>
-                </li>
-              ))}
-            </ul>
-          )}
-        </section>
+        <QueuePanel reloadToken={queueToken} />
       </div>
     </main>
   );
 }
 
-// --- the type picker ---------------------------------------------------------
+// --- one card per document type ----------------------------------------------
 
-/** One selectable row in the "What are you uploading?" list. Native radio
- *  semantics (shared `name`, grouped by a `<fieldset>`/`<legend>`) rather
- *  than a hand-rolled listbox — a single choice from a short list is exactly
- *  what a radio group is for, and it comes with keyboard (arrow-key) support
- *  and screen-reader grouping for free.
+/** The collapsed row's right-hand state, for the two JLBC-book types only.
  *
- *  The radio's accessible NAME is just the type's label (`<label htmlFor>`);
- *  the "where to find it / which file" guidance is a separate paragraph
- *  wired in as `aria-describedby` rather than folded into the label. That
- *  keeps the name short (so "Annual Financial Report" reads as one clean
- *  choice, not a paragraph) while most screen readers still announce the
- *  description right after the name — the guidance stays legible, it's just
- *  not IN the name.
+ *  This is the whole reason the check is fetched at page level: it answers
+ *  the only question anyone has about a book card — is there anything to
+ *  add? — without opening it. The other four types have no equivalent (the
+ *  app cannot know whether the Auditor General has published this year's
+ *  AFR until somebody looks), and inventing a filler state for them would
+ *  be four labels that say nothing.
  */
-function DocTypeOption({
+function bookStatus(
+  row: api.DocTypeCard,
+  check: api.BookCheck | null,
+  checking: boolean,
+): { text: string; tone: string } | null {
+  if (!row.redirect) return null;
+  if (!check) return checking ? { text: "checking…", tone: "wait" } : null;
+  // An unreachable azjlbc.gov must not read as "up to date" — that is a
+  // confident wrong answer produced by a network failure, on the one row
+  // whose job is telling you what is missing.
+  if (!check.online) return { text: "can’t check", tone: "warn" };
+  const n = check.missing.filter((m) => m.family === row.redirect?.family).length;
+  return n > 0
+    ? { text: `${n} to add`, tone: "act" }
+    : { text: "up to date", tone: "ok" };
+}
+
+/** One expandable row of the document-type list.
+ *
+ *  The head is a `<button aria-expanded>` inside a heading — the standard
+ *  disclosure pattern, chosen over the two alternatives this page has worn
+ *  before. A `<details>/<summary>` cannot be driven from the outside, and
+ *  "only one open at a time" is a decision about the SET, so the parent has
+ *  to own it. A radio group (what this replaced) says "choose one of these"
+ *  when what actually happens is "open this one" — and a radio can never be
+ *  un-picked, so there was no way back to a page with nothing open.
+ *
+ *  🔴 THE ROW CARRIES THE NAME AND NOTHING ELSE THAT NEEDS READING. It used
+ *  to carry `where_published` as a full sentence, which put 101 words across
+ *  six rows whose six NAMES are 14 words — the list you came to scan was the
+ *  minority of its own text. `group` (already on the wire, and previously
+ *  displayed nowhere) becomes a quiet publisher tag in a fixed left column,
+ *  so the eye can sort six rows by publisher without reading a word of
+ *  prose. The sentence itself is not deleted — it moves inside, where it is
+ *  guidance for the moment you act rather than noise while you choose.
+ *
+ *  The body is UNMOUNTED when closed, not hidden. Two things follow, both
+ *  wanted: a closed row's half-filled form cannot survive to be submitted
+ *  by accident, and there is only ever one file input in the document, so
+ *  "the Add button" is unambiguous to a test, a screen reader and a person.
+ */
+function DocTypeCard({
   row,
-  selected,
-  onSelect,
+  open,
+  status,
+  onToggle,
+  check,
+  checking,
+  checkError,
+  onRecheck,
+  onQueued,
 }: {
   row: api.DocTypeCard;
-  selected: boolean;
-  onSelect: () => void;
+  open: boolean;
+  status: { text: string; tone: string } | null;
+  onToggle: () => void;
+  check: api.BookCheck | null;
+  checking: boolean;
+  checkError: string;
+  onRecheck: () => void;
+  onQueued: () => void;
 }) {
-  const inputId = `doctype-${row.key}`;
-  const guidanceId = `${inputId}-guidance`;
-  // where_published and which_file are two separate registry fields but read
-  // as one sentence here — a redirect row's which_file is "" (see
-  // api.ts's DocTypeCard comment), so this naturally drops the empty second
-  // half instead of leaving a trailing space or an empty <p>.
-  const guidance = [row.where_published, row.which_file].filter(Boolean).join(" ");
+  const headId = `up-head-${row.key}`;
+  const bodyId = `up-body-${row.key}`;
 
   return (
     <div
-      className={`up-type-row${selected ? " is-selected" : ""}`}
+      className={`card up-card${open ? " is-open" : ""}`}
+      data-testid="doc-type-card"
       data-doc-type={row.key}
     >
-      <input
-        type="radio"
-        id={inputId}
-        name="doc-type"
-        value={row.key}
-        checked={selected}
-        onChange={onSelect}
-        aria-describedby={guidance ? guidanceId : undefined}
-      />
-      <div className="up-type-copy">
-        <label htmlFor={inputId}>{row.label}</label>
-        {guidance && (
-          <p id={guidanceId} className="up-type-guidance">
-            {guidance}
-          </p>
-        )}
-      </div>
+      <h2 className="up-card-head">
+        <button
+          type="button"
+          id={headId}
+          className="up-card-toggle"
+          aria-expanded={open}
+          aria-controls={bodyId}
+          onClick={onToggle}
+        >
+          {/* aria-hidden: the publisher is already the first words of the
+              sentence inside, and a screen reader hearing "J L B C, Baseline
+              Book" gains nothing over "Baseline Book". This tag is a visual
+              sorting aid, and claiming otherwise would just make the
+              accessible name longer for no one's benefit. */}
+          <span className="up-card-pub" aria-hidden="true">
+            {row.group}
+          </span>
+          <span className="up-card-name">{row.label}</span>
+          {status && (
+            <span className={`up-card-state up-tone-${status.tone}`}>{status.text}</span>
+          )}
+          <Chevron />
+        </button>
+      </h2>
+
+      {open && (
+        <div className="up-card-body" id={bodyId} role="region" aria-labelledby={headId}>
+          {row.redirect ? (
+            // A Baseline Book / Appropriations Report is never uploaded as a
+            // single file (spec S25 — it's stored as ~110 per-agency
+            // documents, and offering "which file?" for it is itself the
+            // bug). Its row expands into that family's own gap instead: a
+            // list of what JLBC has published that this corpus lacks. Never
+            // both, and never a file input a type cannot accept.
+            <BookFamilyPanel
+              family={row.redirect.family}
+              label={row.label}
+              detail={row.redirect.detail}
+              wherePublished={row.where_published}
+              check={check}
+              checking={checking}
+              checkError={checkError}
+              onRecheck={onRecheck}
+              onQueued={onQueued}
+            />
+          ) : (
+            <DocTypeForm row={row} onQueued={onQueued} />
+          )}
+        </div>
+      )}
     </div>
   );
 }
 
-/** A Baseline Book / Appropriations Report is never uploaded as a single
- *  file (spec S25 — it's stored as ~110 per-agency documents, and offering
- *  "which file?" for it is itself the bug). Picking one of these two types
- *  shows its `redirect.detail` and a button to the existing Add-a-JLBC-book
- *  panel INSTEAD of a form — never both, and never a file input a type
- *  cannot accept.
- */
-function RedirectPanel({ row }: { row: api.DocTypeCard }) {
-  const redirect = row.redirect;
-  // Guarded rather than asserted: the caller only renders this component for
-  // a row it already checked has `redirect` set, but narrowing it here
-  // (instead of a non-null assertion) means a future caller mistake fails
-  // quietly with nothing rendered, not a runtime crash.
-  if (!redirect) return null;
+/** The notice's mark. Decorative — the sentence beside it carries the whole
+ *  meaning, and a screen reader announcing "warning icon" ahead of it adds
+ *  nothing the words don't already say. */
+function WarnGlyph() {
   return (
-    <div className="up-redirect" data-testid="upload-redirect" data-doc-type={row.key}>
-      <p>{redirect.detail}</p>
-      <button
-        type="button"
-        className="fchip"
-        onClick={() =>
-          document
-            .querySelector('[data-testid="add-book"]')
-            ?.scrollIntoView({ behavior: "smooth" })
-        }
-      >
-        {redirect.label}
-      </button>
-    </div>
+    <svg className="up-notice-glyph" viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+      <path
+        d="M12 3.8L21 19.5H3L12 3.8zM12 10v4.2M12 16.6v.1"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth="1.9"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
+    </svg>
+  );
+}
+
+/** The drop zone's mark. Decorative — `aria-hidden`, because the label and
+ *  the hint beside it already say what this box does, and a screen reader
+ *  announcing "upload icon" adds nothing a blind user can act on. */
+function UploadGlyph() {
+  return (
+    <svg className="up-drop-glyph" viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+      <path
+        d="M12 16V4m0 0L7.5 8.5M12 4l4.5 4.5M4 15v3a2 2 0 002 2h12a2 2 0 002-2v-3"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth="1.7"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
+    </svg>
+  );
+}
+
+/** The disclosure caret. Rotated by CSS on `.is-open` rather than swapped
+ *  for a second glyph, so the two states are one shape in motion — the same
+ *  treatment the Budget Documents year cards already use. */
+function Chevron() {
+  return (
+    <svg className="up-card-caret" viewBox="0 0 16 16" aria-hidden="true" focusable="false">
+      <path
+        d="M4 6l4 4 4-4"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth="2"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
+    </svg>
   );
 }
 
@@ -345,10 +381,11 @@ function formatsLabel(formats: string[]): string {
   return formats.map((f) => f.replace(/^\./, "").toUpperCase()).join(" or ");
 }
 
-/** The one form on the page. Rendered only for a selected, non-redirect
- *  type — remounted (via the caller's `key={row.key}`) every time the
- *  selection changes, which is what keeps one type's file/fiscal-year/
- *  stage/error/duplicate/success state from leaking into the next.
+/** The upload form, rendered inside its own type's card and only while that
+ *  card is open. Closing the card unmounts it, which is what keeps one
+ *  type's file / fiscal-year / stage / error / duplicate / success state
+ *  from ever reaching another type's — the earlier shared-form design
+ *  needed a deliberate `key=` prop to get the same guarantee.
  */
 function DocTypeForm({
   row,
@@ -360,7 +397,15 @@ function DocTypeForm({
   const [file, setFile] = useState<File | null>(null);
   const [stage, setStage] = useState("");
   const [fy, setFy] = useState(() => String(defaultFiscalYear()));
-  const [title, setTitle] = useState("");
+  // 🔴 NO TITLE FIELD. Every other type is named completely by its type and
+  // its year -- "FY 2025 Annual Financial Report" IS the AFR, there is one a
+  // year -- so a free-text box offered a choice where there was none, and
+  // invited a hand-typed title to override a correct automatic one. The one
+  // type where the name genuinely varies is an agency budget request (~78 a
+  // year, otherwise all called "FY 2027 Budget Request"), and that is a
+  // PICKED agency rather than typed prose, so two people uploading two
+  // agencies' requests cannot spell the same agency two ways.
+  const [agencyId, setAgencyId] = useState("");
   const [publicRecord, setPublicRecord] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
@@ -373,7 +418,10 @@ function DocTypeForm({
   // Introduced" true, so it must hold on every submission through this
   // form, not just the first (see the "requires a fresh stage pick" spec).
   const ready =
-    file !== null && publicRecord && (!row.stage_field || stage !== "");
+    file !== null &&
+    publicRecord &&
+    (!row.stage_field || stage !== "") &&
+    (!row.agency_field || agencyId !== "");
 
   // The ONE place a new file — picked or dropped — enters this form's state.
   // Both the <input onChange> and the form's own onDrop call this same
@@ -415,14 +463,22 @@ function DocTypeForm({
         corpus: "budget",
         doc_type: row.key,
         fiscal_year: Number(fy),
-        title: title.trim(),
+        // Always empty now. The field is kept on the wire because the
+        // server still honours a supplied title (`build_title`: "a title the
+        // uploader typed wins verbatim") and the books route and any future
+        // caller may want it -- the UPLOAD PAGE simply no longer offers one.
+        title: "",
         ...(row.stage_field ? { stage: stage as "introduced" | "engrossed" } : {}),
+        // Sent only when the row declares it. The route 422s on an agency
+        // supplied for a type that has no `agency_field`, the same way it
+        // does for a stray stage.
+        ...(row.agency_field ? { agency_canonical_id: agencyId } : {}),
         ...(reprocess ? { reprocess: true } : {}),
       });
       setFile(null);
       setPublicRecord(false);
       setStage("");
-      setTitle("");
+      setAgencyId("");
       setDuplicate(null);
       // The only success signal on the page — scoped to this form's own
       // `.up-status` (the same element/role AddBookPanel already uses for
@@ -460,54 +516,69 @@ function DocTypeForm({
         selectFile(e.dataTransfer.files?.[0] ?? null);
       }}
     >
-      <h3>{row.label}</h3>
-      <p className="up-note">{row.where_published}</p>
-      {row.which_file && <p>{row.which_file}</p>}
+      {/* Both registry sentences live HERE, not on the collapsed row. They
+          are instructions for the moment you go and fetch a file, which is
+          after you have opened this — and on the row they were 101 words of
+          prose wrapped around 14 words of names. The AFR's is the clearest
+          case: "gao.az.gov blocks automated downloads, so save it from a
+          browser" is genuinely important and completely useless as scanning
+          material. Nothing is lost, it is one click later. */}
+      {row.where_published && <p className="up-where">{row.where_published}</p>}
+      {row.which_file && <p className="up-which">{row.which_file}</p>}
 
       <div className="up-meta">
+        {/* The file input itself is visually hidden (never `display:none`,
+            which would take it out of the accessibility tree and off the
+            keyboard) and its own <label> is painted as the button. The
+            browser's native widget is the "Choose File · No file chosen"
+            control that made this page look like a raw HTML form. */}
         <div className="up-drop">
-          <label>
+          <UploadGlyph />
+          <p className="up-drop-hint">Drag and drop it here, or</p>
+          <label className="fchip up-drop-btn">
             {`Choose a ${formatsLabel(row.formats)} document`}
             <input
+              className="up-file"
               ref={fileInputRef}
               type="file"
               accept={row.formats.join(",")}
               onChange={(e) => selectFile(e.target.files?.[0] ?? null)}
             />
           </label>
-          <p className="up-drop-hint">or drag and drop it here</p>
           {file && <p className="up-filename">{file.name}</p>}
         </div>
 
-        {row.stage_field && (
-          <label>
-            Version
-            <select
-              name="stage"
-              value={stage}
-              onChange={(e) => setStage(e.target.value)}
-            >
-              <option value="">Choose…</option>
-              <option value="introduced">As Introduced</option>
-              <option value="engrossed">As Engrossed</option>
-            </select>
+        <div className="up-fields">
+          {row.agency_field && (
+            <AgencyPicker value={agencyId} onChange={setAgencyId} />
+          )}
+
+          {row.stage_field && (
+            <label className="up-field">
+              Version
+              <select
+                name="stage"
+                value={stage}
+                onChange={(e) => setStage(e.target.value)}
+              >
+                <option value="">Choose…</option>
+                <option value="introduced">As Introduced</option>
+                <option value="engrossed">As Engrossed</option>
+              </select>
+            </label>
+          )}
+
+          <label className="up-field">
+            Fiscal year
+            <input
+              type="text"
+              value={fy}
+              onChange={(e) => setFy(e.target.value)}
+              inputMode="numeric"
+            />
           </label>
-        )}
 
-        <label>
-          Fiscal year
-          <input
-            type="text"
-            value={fy}
-            onChange={(e) => setFy(e.target.value)}
-            inputMode="numeric"
-          />
-        </label>
-
-        <label>
-          Title (optional)
-          <input type="text" value={title} onChange={(e) => setTitle(e.target.value)} />
-        </label>
+        </div>
 
         {/* Invariant 8. The server returns 400 without this, so removing it
             here produces a confusing error rather than a hole — but it is
@@ -591,6 +662,114 @@ function DocTypeForm({
   );
 }
 
+/** Which agency a budget request belongs to.
+ *
+ *  🔴 A NATIVE <select> WITH 157 OPTIONS WAS THE WRONG SHAPE, and the count
+ *  is the reason: a browser's own select only jumps by first letter, so
+ *  finding "Water Infrastructure Finance Authority" means scrolling past
+ *  most of the list. This is a `<datalist>`-backed text input instead — the
+ *  analyst types "water", the browser filters, and the same control still
+ *  works with a mouse and a keyboard because it IS a native input.
+ *
+ *  The typed text is NOT the answer. `value` is the canonical id, resolved
+ *  from an exact name match, and the form stays unsubmittable until one
+ *  resolves — a half-typed "Depart" must not become a document title, and
+ *  the server refuses an id it does not know anyway (422). That is the
+ *  whole point of a picker over the free-text Title box it replaces.
+ *
+ *  Agencies an ADMIN added are listed under their own heading rather than
+ *  merged into the alphabetical run. Nothing in the corpus is stamped with
+ *  an office-added id, so the two are genuinely different things and the
+ *  list should not pretend otherwise.
+ */
+function AgencyPicker({
+  value,
+  onChange,
+}: {
+  value: string;
+  onChange: (canonicalId: string) => void;
+}) {
+  const [options, setOptions] = useState<api.AgencyOption[]>([]);
+  const [error, setError] = useState("");
+  const [typed, setTyped] = useState("");
+
+  useEffect(() => {
+    api
+      .agencies()
+      .then(setOptions)
+      .catch((e) => setError(e instanceof Error ? e.message : String(e)));
+  }, []);
+
+  // Exact, case-insensitive, whitespace-collapsed. Deliberately NOT a fuzzy
+  // or prefix match: a near-match that silently picks an agency is the
+  // failure this control exists to prevent, and "Department of Health
+  // Services" vs "Department of Child Safety" are one letter apart in the
+  // places that matter.
+  function resolve(text: string): string {
+    const wanted = text.trim().replace(/\s+/g, " ").toLowerCase();
+    const hit = options.find(
+      (o) => o.name.trim().replace(/\s+/g, " ").toLowerCase() === wanted,
+    );
+    return hit ? hit.canonical_id : "";
+  }
+
+  const catalog = options.filter((o) => o.source === "catalog");
+  const office = options.filter((o) => o.source === "office");
+
+  const noteId = "up-agency-note";
+  // 🔴 A <div> with a `htmlFor` label, NOT a <label> wrapping everything —
+  // which is what the other fields on this form use and what this was
+  // written as first. A <label>'s whole text content becomes the field's
+  // ACCESSIBLE NAME, so with the "No agency by that name" note inside it the
+  // input stopped being called "Agency" and started being called "Agency No
+  // agency by that name. Pick one from the list…". A screen reader would
+  // read the error as part of the field's name every time focus landed, and
+  // the name would change as you typed. The note is `aria-describedby`
+  // instead, which is what describes a field's STATE.
+  return (
+    <div className="up-field up-field-agency">
+      <label htmlFor="up-agency">Agency</label>
+      <input
+        id="up-agency"
+        type="text"
+        list="up-agency-options"
+        aria-describedby={noteId}
+        value={typed}
+        placeholder={options.length ? "Start typing an agency's name" : "Loading…"}
+        onChange={(e) => {
+          setTyped(e.target.value);
+          onChange(resolve(e.target.value));
+        }}
+      />
+      <datalist id="up-agency-options">
+        {catalog.map((o) => (
+          <option key={o.canonical_id} value={o.name} />
+        ))}
+        {office.length > 0 && (
+          <>
+            {office.map((o) => (
+              <option key={o.canonical_id} value={o.name} label="added by your office" />
+            ))}
+          </>
+        )}
+      </datalist>
+      {/* Three states, and the middle one is the one that matters: text
+          typed that resolves to nothing. Saying nothing there would leave a
+          disabled Add button with no explanation for why. */}
+      {/* Rendered unconditionally (empty when there is nothing to say) so
+          the described-by target always exists — an element that appears and
+          disappears is announced unreliably. */}
+      <span id={noteId} className={`up-field-note${error ? " err" : ""}`}>
+        {error
+          ? `Couldn’t load the agency list: ${error}`
+          : typed.trim() && !value
+            ? "No agency by that name. Pick one from the list — an admin can add a missing agency in Settings."
+            : ""}
+      </span>
+    </div>
+  );
+}
+
 // --- filename heuristics ------------------------------------------------------
 
 /** Best-effort fiscal year from a filename, falling back to the year most
@@ -622,142 +801,3 @@ function formatDate(iso: string): string {
   return Number.isNaN(d.getTime()) ? iso : d.toLocaleDateString();
 }
 
-// ---------------------------------------------------------------------------
-// Add a JLBC book
-// ---------------------------------------------------------------------------
-
-/** Bulk-add one published JLBC edition — this year's Baseline, or a historical
- *  backfill — without hunting down 130 PDF links by hand.
- *
- *  No Invariant 8 checkbox here: everything this panel can reach is a
- *  JLBC-published report, which is public record by definition. Asking again
- *  would train people to click past the checkbox that does matter.
- *
- *  Discover and Add are separate steps on purpose. A book is an overnight
- *  commitment on office hardware, so the honest sequence is: see exactly what
- *  it contains (and what's unreachable) first, then decide. */
-function AddBookPanel({ onQueued }: { onQueued: () => void }) {
-  const [editions, setEditions] = useState<api.BookEdition[] | null>(null);
-  const [key, setKey] = useState("");
-  const [plan, setPlan] = useState<api.BookPlan | null>(null);
-  const [busy, setBusy] = useState(false);
-  const [message, setMessage] = useState("");
-  const [error, setError] = useState("");
-
-  useEffect(() => {
-    api
-      .bookCatalog()
-      .then((body) => {
-        const ingestable = body.editions.filter((e) => e.ingestable);
-        setEditions(ingestable);
-        setKey((current) => current || ingestable[0]?.key || "");
-      })
-      .catch((e) => setError(e instanceof Error ? e.message : String(e)));
-  }, []);
-
-  const edition = editions?.find((e) => e.key === key) ?? null;
-
-  async function act(kind: "discover" | "ingest") {
-    if (!edition) return;
-    setBusy(true);
-    setError("");
-    setMessage("");
-    try {
-      if (kind === "discover") {
-        setPlan(await api.discoverBook(edition.family, edition.fiscal_year));
-      } else {
-        const r = await api.ingestBook(edition.family, edition.fiscal_year);
-        setMessage(
-          `Queued ${r.queued} documents` +
-            (r.skipped_existing ? `; ${r.skipped_existing} already in the corpus` : "") +
-            (r.unreachable.length ? `; ${r.unreachable.length} unreachable` : "") +
-            ".",
-        );
-        setPlan(null);
-        onQueued();
-      }
-    } catch (e) {
-      setError(e instanceof Error ? e.message : String(e));
-    } finally {
-      setBusy(false);
-    }
-  }
-
-  return (
-    <section className="card up-book" aria-labelledby="up-book-h" data-testid="add-book">
-      <h2 id="up-book-h">Add a JLBC book</h2>
-      <p>
-        JLBC-published reports are public record, so no confirmation is needed —
-        pick an edition and the whole book is added at once.
-      </p>
-
-      {error && <p className="up-note"><span className="err">{error}</span></p>}
-
-      <div className="up-book-row">
-        <label>
-          Edition
-          <select
-            aria-label="Edition"
-            value={key}
-            onChange={(e) => {
-              setKey(e.target.value);
-              setPlan(null);
-              setMessage("");
-            }}
-          >
-            {(editions ?? []).map((e) => (
-              <option key={e.key} value={e.key}>
-                {`FY ${e.fiscal_year} ${e.family === "baseline" ? "Baseline" : "Appropriations Report"}`}
-                {` — ${e.document_count} documents`}
-              </option>
-            ))}
-          </select>
-        </label>
-        <button type="button" className="fchip" disabled={!edition || busy}
-                onClick={() => void act("discover")}>
-          {busy ? "Working…" : "Discover"}
-        </button>
-        <button type="button" className="allbtn" disabled={!edition || busy}
-                onClick={() => void act("ingest")}>
-          Add all
-        </button>
-      </div>
-
-      {edition?.rolling && (
-        <p className="up-note">
-          This edition is published in a folder JLBC reuses each year. Its
-          contents are checked against FY {edition.fiscal_year} before anything
-          is queued.
-        </p>
-      )}
-
-      {plan && (
-        <div className="up-book-plan" data-testid="book-plan" role="status">
-          <p>
-            {`Found ${plan.count} documents for FY ${edition?.fiscal_year} `}
-            {edition?.family === "baseline" ? "Baseline" : "Appropriations Report"}
-            {plan.unreachable.length
-              ? ` (${plan.unreachable.length} unreachable — listed below)`
-              : ""}
-            .
-          </p>
-          {plan.notes.map((note) => (
-            <p className="up-note" key={note}>{note}</p>
-          ))}
-          {plan.unreachable.length > 0 && (
-            <ul className="up-book-bad">
-              {plan.unreachable.map((url) => <li key={url}>{url}</li>)}
-            </ul>
-          )}
-        </div>
-      )}
-
-      <p className="up-status" role="status">{message}</p>
-
-      <p className="up-expect">
-        A full book takes overnight on office computers. Historical backfills are
-        best run one book at a time.
-      </p>
-    </section>
-  );
-}

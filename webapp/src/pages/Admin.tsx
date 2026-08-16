@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState, type ReactNode } from "react";
 import * as api from "../api";
 import { AdvancedPanel } from "../admin/AdvancedPanel";
+import { AgenciesPanel } from "../admin/AgenciesPanel";
 import { AliasesPanel } from "../admin/AliasesPanel";
 import { CorpusPanel } from "../admin/CorpusPanel";
 import { CostsPanel } from "../admin/CostsPanel";
@@ -453,6 +454,7 @@ export function Admin() {
             ingestMessage={ingestMessage}
           />
           <AliasesPanel />
+          <AgenciesPanel />
         </Group>
 
         {/* No title: this group holds only CostsPanel, whose own heading is

@@ -27,7 +27,13 @@ types:
     which_file: ""
     redirect:
       action: add-jlbc-book
-      label: "Use “Add a JLBC book” instead"
+      # Which book family this row is, in the vocabulary ingest/book_discovery
+      # already uses ("approps" / "baseline"). The upload page needs it to show
+      # THIS row's missing editions and no other family's, and it has to come
+      # from here rather than a webapp-side map: Upload.tsx is under a test
+      # that forbids it from containing any doc_type slug at all, precisely
+      # because a hand-typed second copy of this list has shipped bugs twice.
+      family: baseline
       detail: >-
         A Baseline Book is stored as one document per agency, which is what
         makes “show me Corrections’ budget” work. The book tool fetches
@@ -47,11 +53,11 @@ types:
     which_file: ""
     redirect:
       action: add-jlbc-book
-      label: "Use “Add a JLBC book” instead"
+      family: approps
       detail: >-
         An Appropriations Report is stored as one document per agency, the
-        same way the Baseline Book is. Use the book tool so every agency page
-        is added.
+        same way the Baseline Book is, so this row adds every agency page for
+        a year rather than taking a file.
 
   # --- The six rows that accept a file -----------------------------------
   - key: afr
@@ -94,6 +100,12 @@ types:
     publisher: agency
     one_per_year: false
     upload_row: true
+    # The ONLY row that asks which agency, and the only one where a document's
+    # name is not fully determined by its type and year. Every other type has
+    # exactly one edition a year, so "FY 2027 Annual Financial Report" names it
+    # completely; there are ~78 agency budget requests in a year and without
+    # this they would all be called "FY 2027 Agency Submission".
+    agency_field: true
     where_published: >-
       Each agency publishes its own budget request each autumn, on its own
       website. Some are also collected at ospb.az.gov.

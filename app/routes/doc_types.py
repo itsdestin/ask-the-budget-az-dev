@@ -37,6 +37,7 @@ def document_types():
                 "which_file": row.which_file,
                 "redirect": row.redirect,
                 "stage_field": row.stage_field,
+                "agency_field": row.agency_field,
                 "order": row.order,
             }
             for row in upload_rows()

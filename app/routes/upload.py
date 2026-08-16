@@ -26,7 +26,9 @@ from fastapi.responses import JSONResponse
 from ingest.coverage import COVERAGE_FLOOR
 from ingest.doc_types import DocType, all_types, get as get_doc_type
 from ingest.driver import make_doc_id
-from ingest.jobs import TERMINAL_STATES, load_all, new_job, save
+from store.office_agencies import agency_name
+from ingest.worker import revive_if_this_machine_ingests
+from ingest.jobs import TERMINAL_STATES, load_active, new_job, save
 from store.config import data_dir, documents_path
 from store.documents import document_record
 
@@ -89,6 +91,7 @@ async def upload(
     is_public_record: str = Form(""),
     reprocess: str = Form(""),
     stage: str = Form(""),
+    agency_canonical_id: str = Form(""),
 ):
     # Invariant 8 first — before the file is written anywhere. A rejected
     # upload must leave no trace of the document on the share.
@@ -140,6 +143,28 @@ async def upload(
             detail=f"{row.label} documents do not have a stage — leave that field blank.",
         )
 
+    # The agency gets the SAME three guards as the stage, and for the same
+    # reason: a declared agency is written into the document's title, so a
+    # wrong or misplaced one is a false statement about what the document is
+    # -- and unlike a bad file, nothing downstream will ever notice.
+    agency_id = agency_canonical_id.strip()
+    if agency_id and agency_name(agency_id) is None:
+        raise HTTPException(
+            status_code=422,
+            detail=f"Unknown agency {agency_id!r}. Choose one from the list.",
+        )
+    if row is not None and row.agency_field and not agency_id:
+        raise HTTPException(
+            status_code=422,
+            detail="Say which agency this budget request is for.",
+        )
+    if row is not None and not row.agency_field and agency_id:
+        raise HTTPException(
+            status_code=422,
+            detail=f"{row.label} documents are not filed under one agency — "
+                   "leave that field blank.",
+        )
+
     filename = Path(file.filename or "upload").name
     suffix = Path(filename).suffix.lower()
     if suffix not in ACCEPTED_SUFFIXES:
@@ -177,16 +202,21 @@ async def upload(
         fiscal_year=year,
         user_title=title.strip(),
         stage=stage_value or None,
+        agency_canonical_id=agency_id or None,
     )
     save(job)
 
     # Belt and braces. The server starts the worker at startup now (see
     # app/main.py's lifespan), so this is no longer what gets the queue
-    # moving — but `start()` is idempotent, and a worker that died is worth
-    # reviving at the moment somebody is actually waiting on a document.
-    worker = getattr(request.app.state, "ingest_worker", None)
-    if worker is not None:
-        worker.start()
+    # moving — but a worker that died is worth reviving at the moment
+    # somebody is actually waiting on a document.
+    #
+    # 🔴 GATED (2026-08-16). This used to call `worker.start()` outright,
+    # which meant an upload started the queue on a machine explicitly set
+    # NOT to process uploads. The job still queues either way — that is the
+    # design, the share is the queue — and `GET /api/jobs` now says when
+    # nothing here will pick it up, so the silence is not silent.
+    revive_if_this_machine_ingests(request.app)
 
     return {"job_id": job.job_id, "doc_id": doc_id}
 
@@ -300,7 +330,12 @@ def _find_duplicate(sha256: str) -> dict[str, str | None] | None:
                 "message": message,
             }
 
-    for job in load_all():
+    # load_active(): every archived job is terminal, so the filter below
+    # already excluded all of them -- the same set, without reading the
+    # archive. An already-INGESTED file is caught by the documents.json
+    # loop above, not by this one; the two together are what make a
+    # re-upload of a finished document still report as a duplicate.
+    for job in load_active():
         if job.source_sha256 == sha256 and job.state not in TERMINAL_STATES:
             health, message = _duplicate_health(job.doc_id)
             return {

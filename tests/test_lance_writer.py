@@ -261,6 +261,31 @@ def test_build_title_covers_the_corpus_doc_types():
         == "FY 2026 Budget Bill"
 
 
+def test_an_agency_budget_request_is_named_for_its_agency():
+    # 🔴 THE WHOLE REASON THE UPLOAD PAGE HAS AN AGENCY PICKER. There are
+    # ~78 agency budget requests in a fiscal year and nothing else in their
+    # titles varies, so without the agency every one of them reads
+    # "FY 2027 Budget Request" and a results list is 78 identical rows.
+    #
+    # "Budget Request" rather than the registry's "Agency Submission" label
+    # because the agency name follows immediately, and "Agency Submission —
+    # Department of Corrections" says agency twice. It is also what the
+    # registry's own where_published calls it.
+    assert build_title(publisher="agency", doc_type="agency-submission",
+                       fiscal_year=2027, user_title="",
+                       agency_name="Department of Corrections") \
+        == "FY 2027 Budget Request — Department of Corrections"
+
+
+def test_an_agency_budget_request_with_no_agency_still_gets_a_readable_title():
+    # The degraded case: a job queued before the picker existed, or an
+    # office-added agency an admin deleted between upload and ingest. Worse
+    # than it should be, still not the doc_id soup the migration produced.
+    assert build_title(publisher="agency", doc_type="agency-submission",
+                       fiscal_year=2027, user_title="", agency_name=None) \
+        == "FY 2027 Budget Request"
+
+
 def test_build_title_falls_back_to_a_humanized_doc_type():
     """This is what retires the 'GOVERNOR FY2027 fy2027' titles: an unknown
     doc_type still yields something a human can read."""

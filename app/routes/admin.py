@@ -32,6 +32,16 @@ from pydantic import BaseModel, Field
 
 from app import machine_config
 from app.machine_config import ingest_enabled, set_ingest_enabled
+# Moved out 2026-08-16: the upload page needs the same answer, and two
+# implementations of "is the queue stalled?" would eventually disagree in
+# the worst way — the admin page saying all is well while an analyst stares
+# at a stuck upload. See app/queue_status.py.
+from app.queue_status import (
+    MSG_QUEUE_STALLED,
+    TERMINAL_JOB_STATES,
+    queue_stalled,
+    queue_summary,
+)
 from app.identity import (
     admin_claimable,
     admin_reset_pending,
@@ -663,7 +673,6 @@ def get_my_usage() -> dict:
 # Job states that mean "this document is being worked on right now".
 # Derived from ingest.jobs.PIPELINE_STATES rather than re-typed, so a new
 # pipeline stage counts as running without anyone remembering to come here.
-_TERMINAL_JOB_STATES = frozenset({"live", "failed", "cancelled"})
 
 
 def _dir_bytes(path: Path) -> int:
@@ -743,68 +752,6 @@ def _reclaimable_bytes() -> int | None:
     return max(0, _dir_bytes(root) - live)
 
 
-def _queue_summary() -> tuple[dict[str, int], str | None]:
-    """(counts by state, when the corpus last actually grew).
-
-    "running" is every non-terminal, non-queued state collapsed into one
-    number: an admin wants to know that something is moving, not which of
-    six pipeline stages it is in — the Documents page already shows that
-    per job.
-    """
-    summary = {"queued": 0, "running": 0, "failed": 0}
-    last_live: str | None = None
-    try:
-        from ingest.jobs import load_all
-
-        jobs = load_all()
-    except Exception:  # noqa: BLE001 — unreadable jobs dir
-        return summary, None
-
-    for job in jobs:
-        if job.state == "queued":
-            summary["queued"] += 1
-        elif job.state == "failed":
-            summary["failed"] += 1
-        elif job.state not in _TERMINAL_JOB_STATES:
-            summary["running"] += 1
-        if job.state == "live" and (last_live is None or job.updated_at > last_live):
-            last_live = job.updated_at
-    return summary, last_live
-
-
-MSG_QUEUE_STALLED = (
-    "Uploads are waiting and no computer is set to process them. Open JLBC "
-    "Insight on the computer that should do this work, go to Admin → "
-    'Corpus, and turn on "Process uploads on this computer".'
-)
-
-
-def _queue_stalled(queue: dict[str, int]) -> bool:
-    """Is there work nobody will ever pick up?
-
-    The per-machine ingest switch defaults to OFF because one bundle is
-    installed on all ~20 office PCs. That default re-creates the exact
-    silent failure the one-bundle decision was made to avoid — uploads
-    queue on the share and nothing drains them, with no error anywhere —
-    so the switch without this warning is only half a fix.
-
-    Three conditions, and the last two are what stop it crying wolf:
-
-    * something is actually queued (nineteen of the twenty PCs sit with an
-      empty queue and ingest off all day; that is not a problem),
-    * nothing is running (a job in flight proves SOME machine is draining
-      the queue even though it isn't this one), and
-    * this machine is not the ingest machine (on the machine that IS, a
-      queue is just a queue).
-
-    A failed job alone does not count. Failures have their own signal and
-    their own UI; this warning is specifically about work with no owner.
-    """
-    if not queue.get("queued") or queue.get("running"):
-        return False
-    return not ingest_enabled()
-
-
 class MachineIngestBody(BaseModel):
     enabled: bool
 
@@ -840,8 +787,8 @@ def set_machine_ingest(
 @router.get("/api/admin/corpus")
 def get_corpus(_settings: Settings = Depends(require_admin)) -> dict:
     counts = _chunk_counts()
-    queue, last_ingest_at = _queue_summary()
-    stalled = _queue_stalled(queue)
+    queue, last_ingest_at = queue_summary()
+    stalled = queue_stalled(queue)
     return {
         "data_dir": str(data_dir()),
         "budget_chunks": counts["budget_chunks"],
@@ -905,11 +852,36 @@ def get_attention(_settings: Settings = Depends(require_admin)) -> dict:
     """
     error: str | None = None
     try:
-        from ingest.jobs import load_all
+        # 🔴 TWO READERS, ON PURPOSE. This route serves three panels and they
+        # do NOT want the same jobs, which a clean merge on 2026-08-16 hid:
+        # spec T13's archiving (this branch) and the swapped/degraded lists
+        # (master) landed independently, git merged them without a conflict,
+        # and both suites had been green on their own side. The fused
+        # function shared ONE `load_active()` list, so the two new lists —
+        # which are ONLY ever about jobs that reached `live` — could never
+        # match a row. Eight tests caught it here; in production it would
+        # have been a permanently empty panel with no error.
+        #
+        #   held_back  -> `failed`, which by T13 NEVER leaves the main
+        #                 folder, so load_active() sees all of it and reads
+        #                 no archive.
+        #   swapped /
+        #   degraded   -> `live`, which by T13 is ALWAYS archived, so these
+        #                 need load_all().
+        #
+        # load_all() opens every archived job file (~7,200 today). That is
+        # the O(n) cost T13 removed from the 3-second queue poll, and it is
+        # accepted HERE because this is an admin page fetched on open, not a
+        # poll. If this route ever becomes polled, index the archive rather
+        # than narrowing these lists back to the main folder — narrowing
+        # would silently reintroduce exactly this defect.
+        from ingest.jobs import load_active, load_all
 
-        jobs = load_all()
+        jobs = load_active()
+        finished = load_all()
     except Exception:  # noqa: BLE001 — an unreadable jobs dir must not 500 the page
         jobs = []
+        finished = []
         # Distinguishable from "nothing needs attention" on purpose. An
         # empty `documents` list ALSO looks like this, and is the
         # overwhelmingly common, entirely fine case (absence-reads-as-fine
@@ -958,7 +930,7 @@ def get_attention(_settings: Settings = Depends(require_admin)) -> dict:
     # there is nothing to explain, and a list that fills up with ordinary
     # uploads teaches an admin to scroll past it.
     swapped = []
-    for job in jobs:
+    for job in finished:
         attempts = job.extraction_attempts
         kept = job.kept_extractor
         if job.state != "live" or not kept or len(attempts) < 2:
@@ -1015,7 +987,7 @@ def get_attention(_settings: Settings = Depends(require_admin)) -> dict:
     # is what stops every job file written before this field existed from
     # arriving here as a false alarm on the day the feature ships.
     degraded = []
-    for job in jobs:
+    for job in finished:
         kept = job.kept_extractor
         if job.state != "live" or not kept:
             continue

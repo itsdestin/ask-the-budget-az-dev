@@ -39,16 +39,16 @@ function pdf(name = "27baseline-axs.pdf"): File {
 const ROWS: api.DocTypeCard[] = [
   { key: "baseline-book", label: "Baseline Book", group: "JLBC", formats: [".pdf"],
     where_published: "JLBC, each January.", which_file: "",
-    redirect: { action: "add-jlbc-book", label: "Use “Add a JLBC book” instead",
+    redirect: { action: "add-jlbc-book", family: "baseline",
                 detail: "Stored as one document per agency." },
-    stage_field: false, order: 10 },
+    stage_field: false, agency_field: false, order: 10 },
   { key: "afr", label: "Annual Financial Report", group: "Auditor General",
     formats: [".pdf"], where_published: "Auditor General, gao.az.gov.",
-    which_file: "The combined PDF.", redirect: null, stage_field: false, order: 30 },
+    which_file: "The combined PDF.", redirect: null, stage_field: false, agency_field: false, order: 30 },
   { key: "budget-bill-summary", label: "Budget Bill Summary", group: "JLBC",
     formats: [".pdf"], where_published: "azjlbc.gov/budget/",
     which_file: "The House and Senate Budget Bills PDF.",
-    redirect: null, stage_field: true, order: 60 },
+    redirect: null, stage_field: true, agency_field: false, order: 60 },
 ];
 
 // The single row every OTHER describe block in this file selects and fills
@@ -57,14 +57,34 @@ const ROWS: api.DocTypeCard[] = [
 // fixture, so the two can't quietly drift apart.
 const DEFAULT_ROW = ROWS[1];
 
-/** Picks a type from the "What are you uploading?" list by its label —
- *  radio inputs, so a click on the label toggles them. Every describe block
- *  below needs this first: the rework's whole point is that no form exists
- *  until a type is selected. */
+// The one row that asks which agency. Kept out of ROWS so the blocks above,
+// which assume no row needs an agency, stay unambiguous.
+const AGENCY_ROW: api.DocTypeCard = {
+  key: "agency-row", label: "Agency Submission", group: "Agencies",
+  formats: [".pdf"], where_published: "Each agency's own website.",
+  which_file: "That agency's budget request.", redirect: null,
+  stage_field: false, agency_field: true, order: 50,
+};
+
+const AGENCIES: api.AgencyOption[] = [
+  { canonical_id: "agency:adc", name: "Department of Corrections", source: "catalog" },
+  { canonical_id: "agency:des", name: "Department of Economic Security", source: "catalog" },
+  { canonical_id: "agency:office-made-up", name: "Office of Made-Up Things", source: "office" },
+];
+
+/** Opens a document type's card by clicking its header. Every describe block
+ *  below needs this first: the whole point of the accordion is that no form
+ *  exists until a card is opened.
+ *
+ *  `findByRole("button", { name })` and not a class or a test id — the card
+ *  head IS a disclosure button, and asserting through the accessible name is
+ *  what keeps these specs pinned to behaviour rather than to whichever
+ *  element the head happens to be built from this month (it has been six
+ *  cards, then a radio row, then this). */
 async function selectType(label: string | RegExp = /annual financial report/i) {
-  const radio = (await screen.findByRole("radio", { name: label })) as HTMLInputElement;
-  fireEvent.click(radio);
-  return radio;
+  const head = await screen.findByRole("button", { name: label });
+  fireEvent.click(head);
+  return head;
 }
 
 async function pickFile(file = pdf()) {
@@ -79,7 +99,7 @@ async function pickFile(file = pdf()) {
 }
 
 beforeEach(() => {
-  vi.spyOn(api, "jobs").mockResolvedValue({ jobs: [] });
+  vi.spyOn(api, "jobs").mockResolvedValue({ jobs: [], finished_count: 0, showing: "active" as const });
   // Default: exactly one plain (non-redirect, non-staged) row, so every test
   // written against the old single-form assumptions (one file input, one
   // "Fiscal year" field, one submit button) still resolves unambiguously.
@@ -96,31 +116,53 @@ afterEach(() => {
 // --- Invariant 8 ------------------------------------------------------------
 
 describe("the public-record notice", () => {
-  it("is always visible and names the allowed document types", () => {
+  it("states the rule with no interaction, and cannot be dismissed", () => {
+    // 🔴 REWRITTEN 2026-08-15, and the rewrite is the point. This used to
+    // assert the notice named all seven allowed document kinds — 20 words
+    // restating the list of cards directly below it, inside an 87-word
+    // block that was 40% of everything on the page before an analyst could
+    // act. The list is gone; the six rows ARE the list.
+    //
+    // What Invariant 8 actually requires is that the RULE is unavoidable,
+    // so that is what is asserted, and asserted against the <summary> —
+    // the part that is on screen with nothing clicked. A `<details>` keeps
+    // its body in the DOM when closed, so a document-wide `getByText` here
+    // would pass whether or not the sentence were visible, which is a test
+    // that proves nothing.
     render(<Upload />);
-    const notice = screen.getByRole("heading", { name: /public record/i })
-      .closest("section")!;
-    expect(notice).toBeTruthy();
-    const text = notice.textContent ?? "";
-    expect(text).toMatch(/public record/i);
-    for (const kind of [
-      /baseline books/i,
-      /appropriations reports/i,
-      /fiscal notes/i,
-      /bills/i,
-      /executive budget requests/i,
-      /agency budget requests/i,
-      /Annual Financial Reports/i,
-    ]) {
-      expect(text).toMatch(kind);
-    }
+    const notice = screen.getByTestId("public-record-notice");
+    const summary = notice.querySelector("summary")!;
+    expect(summary.textContent).toMatch(/public record only/i);
+    expect(summary.textContent).toMatch(/never confidential state data/i);
+    // No dismiss: a notice you can close is a notice that gets closed.
+    expect(within(notice).queryByRole("button")).toBeNull();
   });
 
-  it("says plainly that uploads are exposed to the AI provider and the share", () => {
+  it("uses the SAME disclosure caret as the document-type rows", () => {
+    // One page, one disclosure pattern. The notice used to carry a small
+    // sideways triangle plus the word "why?" while the rows below carried a
+    // rotating chevron — two glyphs for one idea, on one screen. The word
+    // is gone too: a caret on a notice is already understood, and "why?"
+    // competed with the rule itself, which is the only thing on that line
+    // anybody must read.
     render(<Upload />);
-    const text = document.body.textContent ?? "";
-    expect(text).toMatch(/confidential/i);
-    expect(text).toMatch(/shared drive/i);
+    const notice = screen.getByTestId("public-record-notice");
+    const summary = notice.querySelector("summary")!;
+    expect(summary.querySelector(".up-card-caret")).toBeTruthy();
+    expect(summary.textContent).not.toMatch(/why/i);
+  });
+
+  it("keeps the AI-provider and shared-drive warning on the page, one click away", () => {
+    // Demoted, not deleted. This is the sentence that explains WHY the rule
+    // exists, and it is read once and skipped for ever after — so it sits
+    // behind the disclosure rather than above the work. Asserted to be in
+    // the notice's BODY and NOT its summary, which is exactly the split.
+    render(<Upload />);
+    const notice = screen.getByTestId("public-record-notice");
+    const summary = notice.querySelector("summary")!;
+    const body = notice.textContent!.replace(summary.textContent!, "");
+    expect(body).toMatch(/outside AI provider/i);
+    expect(body).toMatch(/shared drive/i);
   });
 
   it("keeps the submit button disabled until the checkbox is ticked", async () => {
@@ -135,57 +177,71 @@ describe("the public-record notice", () => {
 
 // --- the type picker itself --------------------------------------------------
 
-describe("the type picker", () => {
-  it("shows no form at all before a type is picked", async () => {
+describe("the type cards", () => {
+  it("shows no form at all before a card is opened", async () => {
     render(<Upload />);
-    await screen.findByRole("radio", { name: /annual financial report/i });
+    await screen.findByRole("button", { name: /annual financial report/i });
     expect(screen.queryByLabelText("Fiscal year")).toBeNull();
     expect(screen.queryByLabelText(/choose a pdf/i)).toBeNull();
     expect(screen.queryByRole("button", { name: /add document/i })).toBeNull();
   });
 
-  it("shows the form for the picked type as soon as it's picked, before any file", async () => {
-    // Superseded, not just renamed: the old six-cards-per-type design showed
-    // every row's fields immediately, with no selection step at all. This
-    // rework adds the selection step but keeps the property those old tests
-    // protected — the analyst needs to see "does this type want a stage?"
-    // before hunting for a file, not after choosing one.
+  it("shows the form for the opened card as soon as it's opened, before any file", async () => {
+    // Carried through three shapes now (six open cards, a radio list, this
+    // accordion) because the property is what matters, not the widget: the
+    // analyst needs to see "does this type want a stage?" before hunting for
+    // a file, not after choosing one.
     render(<Upload />);
     await selectType();
     expect(await screen.findByLabelText("Fiscal year")).toBeTruthy();
   });
 
-  it("marks the picked row as selected and leaves the others visible", async () => {
+  it("reports its open/closed state where a screen reader can hear it", async () => {
+    // aria-expanded, not a class: this is the one signal a keyboard or
+    // screen-reader user has for whether the thing they just pressed did
+    // anything, and jsdom can see it where it cannot see the caret rotate.
     vi.spyOn(api, "documentTypes").mockResolvedValue(ROWS);
     render(<Upload />);
-    await selectType(/annual financial report/i);
-    // { selector: "label" }, not a bare getByText: once a type is picked its
-    // form shows an <h3> with the SAME label text, so "Budget Bill Summary"
-    // would otherwise match twice as soon as it's the one selected.
-    const afrRow = screen.getByText("Annual Financial Report", { selector: "label" })
-      .closest("[data-doc-type]")!;
-    const summaryRow = screen.getByText("Budget Bill Summary", { selector: "label" })
-      .closest("[data-doc-type]")!;
-    expect(afrRow.className).toMatch(/is-selected/);
-    expect(summaryRow.className).not.toMatch(/is-selected/);
-    // "The rows stay visible after selection" — nothing about picking one
-    // type removes the others from the list.
-    expect(screen.getByText("Baseline Book", { selector: "label" })).toBeInTheDocument();
+    const head = await screen.findByRole("button", { name: /annual financial report/i });
+    expect(head.getAttribute("aria-expanded")).toBe("false");
+    fireEvent.click(head);
+    expect(head.getAttribute("aria-expanded")).toBe("true");
   });
 
-  it("switching the pick moves the selection instead of adding a second one", async () => {
+  it("closes the card that was open when another is opened", async () => {
+    // "One at a time" is the property that kept this rework from re-earning
+    // the original complaint about six simultaneous upload forms. Asserted
+    // as ONE Add button in the whole document, which is the thing that
+    // actually goes wrong if this breaks.
     vi.spyOn(api, "documentTypes").mockResolvedValue(ROWS);
     render(<Upload />);
     await selectType(/annual financial report/i);
     await selectType(/budget bill summary/i);
-    const afrRow = screen.getByText("Annual Financial Report", { selector: "label" })
-      .closest("[data-doc-type]")!;
-    const summaryRow = screen.getByText("Budget Bill Summary", { selector: "label" })
-      .closest("[data-doc-type]")!;
-    expect(afrRow.className).not.toMatch(/is-selected/);
-    expect(summaryRow.className).toMatch(/is-selected/);
-    // Only one form on the page, for the CURRENT pick.
+
+    expect(
+      screen.getByRole("button", { name: /annual financial report/i })
+        .getAttribute("aria-expanded"),
+    ).toBe("false");
     expect(screen.getAllByRole("button", { name: /add document/i })).toHaveLength(1);
+    expect(screen.getAllByLabelText(/choose a pdf/i)).toHaveLength(1);
+  });
+
+  it("closes an open card when its own head is pressed again", async () => {
+    // A radio could never be un-picked, so the old picker had no way back to
+    // "nothing open". The head is a toggle.
+    render(<Upload />);
+    await selectType();
+    expect(screen.getByLabelText("Fiscal year")).toBeTruthy();
+    await selectType();
+    expect(screen.queryByLabelText("Fiscal year")).toBeNull();
+  });
+
+  it("leaves every other card listed and reachable while one is open", async () => {
+    vi.spyOn(api, "documentTypes").mockResolvedValue(ROWS);
+    render(<Upload />);
+    await selectType(/annual financial report/i);
+    expect(screen.getAllByTestId("doc-type-card")).toHaveLength(ROWS.length);
+    expect(screen.getByRole("button", { name: /baseline book/i })).toBeTruthy();
   });
 });
 
@@ -522,32 +578,155 @@ describe("the type picker and form", () => {
     vi.spyOn(api, "documentTypes").mockResolvedValue(ROWS);
   });
 
-  it("lists one radio per document type from the API, in order", async () => {
+  it("holds every type card inside one named card", async () => {
+    // Six separated boxes with nothing around them read as six unrelated
+    // features — the objection that killed the very first six-card layout.
+    // Separation was never the problem; unrelatedness was. The outer card
+    // is what makes them read as contained.
+    render(<Upload />);
+    const cards = await screen.findAllByTestId("doc-type-card");
+    const outer = screen.getByRole("region", { name: /uploads/i });
+    for (const card of cards) expect(outer.contains(card)).toBe(true);
+  });
+
+  it("lists one card per document type from the API, in order", async () => {
     render(<Upload />);
     expect(await screen.findByText("Annual Financial Report")).toBeInTheDocument();
     expect(screen.getByText("Budget Bill Summary")).toBeInTheDocument();
-    expect(screen.getAllByRole("radio")).toHaveLength(ROWS.length);
+    expect(screen.getAllByTestId("doc-type-card")).toHaveLength(ROWS.length);
   });
 
-  it("shows where to get the file and which file to get, in the list itself", async () => {
-    // No selection needed — this guidance is what lets an analyst recognise
-    // their document well enough to pick the right radio in the first
-    // place, so it has to be visible BEFORE a pick, not after.
+  it("tags a closed row with its publisher and NO prose at all", async () => {
+    // Measured: the six rows carried 101 words of `where_published` around
+    // six names totalling 14 — the list you came to scan was the minority of
+    // its own text. A closed row now carries the name and a publisher tag
+    // (`group`, already on the wire and previously displayed nowhere), so
+    // six rows can be sorted by eye without reading a sentence.
+    //
+    // Both registry sentences are asserted ABSENT while closed and PRESENT
+    // once open. Nothing is deleted — the AFR's "gao.az.gov blocks automated
+    // downloads, so save it from a browser" is the clearest case of guidance
+    // that matters when you act and is noise while you choose.
     render(<Upload />);
-    expect(await screen.findByText(/The combined PDF\./)).toBeInTheDocument();
+    expect(await screen.findByText("Auditor General")).toBeInTheDocument();
+    expect(screen.queryByText(/gao\.az\.gov/)).toBeNull();
+    expect(screen.queryByText(/The combined PDF\./)).toBeNull();
+
+    await selectType(/annual financial report/i);
     expect(screen.getByText(/gao\.az\.gov/)).toBeInTheDocument();
+    expect(screen.getByText(/The combined PDF\./)).toBeInTheDocument();
   });
 
-  it("a redirect type shows its own detail and button instead of a form", async () => {
+  it("shows each book row ITS OWN count, without opening either", async () => {
+    // The one honest state a collapsed row can carry, and the reason the
+    // check is fetched by the PAGE. It answers the only question anyone has
+    // about a book row.
+    //
+    // 🔴 TWO redirect rows and BOTH families missing, deliberately. The
+    // first version of this spec used one redirect row and one missing
+    // edition, and a mutation proved it vacuous: dropping the family filter
+    // entirely — so every book row reports every family's gap — left it
+    // green. With two rows carrying different counts, the unfiltered
+    // version reports "2 to add" on both and the spec fails.
+    vi.spyOn(api, "documentTypes").mockResolvedValue([
+      ROWS[0],
+      { ...ROWS[0], key: "approps-row", label: "Appropriations Report",
+        redirect: { action: "add-jlbc-book", family: "approps",
+                    detail: "Stored as one document per agency." } },
+    ]);
+    vi.spyOn(api, "booksMissing").mockResolvedValue({
+      checked_at: new Date().toISOString(),
+      online: true,
+      reason: null,
+      missing: [
+        { family: "baseline", fiscal_year: 2028, document_count: 110, source: "catalog" },
+        { family: "baseline", fiscal_year: 2029, document_count: 110, source: "catalog" },
+      ],
+      present: [],
+      unavailable: [],
+    });
+    render(<Upload />);
+    const cards = await screen.findAllByTestId("doc-type-card");
+    const baseline = cards.find((c) => c.getAttribute("data-doc-type") === ROWS[0].key)!;
+    const approps = cards.find((c) => c.getAttribute("data-doc-type") === "approps-row")!;
+
+    expect(await within(baseline).findByText("2 to add")).toBeInTheDocument();
+    expect(within(approps).getByText("up to date")).toBeInTheDocument();
+    // Still closed — the point is that nothing had to be opened.
+    expect(within(baseline).getByRole("button").getAttribute("aria-expanded")).toBe("false");
+  });
+
+  it("gives the four file types no invented state", async () => {
+    // The app cannot know whether the Auditor General has published this
+    // year's AFR until somebody looks, so those rows carry nothing. Four
+    // filler labels that say nothing would undo the point of the column.
+    vi.spyOn(api, "booksMissing").mockResolvedValue({
+      checked_at: new Date().toISOString(), online: true, reason: null,
+      missing: [], present: [], unavailable: [],
+    });
+    render(<Upload />);
+    const cards = await screen.findAllByTestId("doc-type-card");
+    const afr = cards.find((c) => c.getAttribute("data-doc-type") === ROWS[1].key)!;
+    await within(cards[0]).findByText("up to date");
+    expect(afr.querySelector(".up-card-state")).toBeNull();
+  });
+
+  it("a book row says it cannot check, rather than claiming to be up to date", async () => {
+    // An offline check must not render as "up to date" — that is a
+    // confident wrong answer produced by a network failure, on the one row
+    // whose job is telling you what is missing.
+    vi.spyOn(api, "booksMissing").mockResolvedValue({
+      checked_at: new Date().toISOString(),
+      online: false,
+      reason: "Couldn't reach azjlbc.gov to check for new editions (OSError).",
+      missing: [],
+      present: [],
+      unavailable: [],
+    });
+    render(<Upload />);
+    expect(await screen.findAllByText("can’t check")).toHaveLength(1);
+    expect(screen.queryByText("up to date")).toBeNull();
+  });
+
+  it("a JLBC-book type opens into its own family's gap, not a file form", async () => {
+    vi.spyOn(api, "booksMissing").mockResolvedValue({
+      checked_at: new Date().toISOString(),
+      online: true,
+      reason: null,
+      missing: [],
+      present: [],
+      unavailable: [],
+    });
     render(<Upload />);
     await selectType(/baseline book/i);
-    expect(screen.queryByRole("radio", { name: /baseline book/i })).toBeTruthy();
-    // No form at all for a redirect type — not a disabled one.
+
+    // No form at all for a book type — not a disabled one, and above all
+    // not a file input for a document that is never uploaded as one file.
     expect(screen.queryByTestId("upload-form")).toBeNull();
     expect(screen.queryByLabelText(/choose a pdf/i)).toBeNull();
-    const redirect = await screen.findByTestId("upload-redirect");
-    expect(redirect.textContent).toMatch(/Stored as one document per agency/);
-    expect(within(redirect).getByRole("button", { name: /Add a JLBC book/i })).toBeTruthy();
+
+    const panel = await screen.findByTestId("book-panel");
+    expect(panel.getAttribute("data-family")).toBe("baseline");
+    expect(panel.textContent).toMatch(/Stored as one document per agency/);
+  });
+
+  it("sends each book card its OWN family, off the wire", async () => {
+    // The family comes from the registry's `redirect.family`, never from a
+    // key -> family map written in the webapp: Upload.tsx is under the
+    // no-hardcoded-slug spec below precisely because a second hand-typed
+    // copy of the type list has shipped bugs twice.
+    vi.spyOn(api, "documentTypes").mockResolvedValue([
+      { ...ROWS[0], redirect: { action: "add-jlbc-book", family: "made-up-family",
+                                detail: "Detail." } },
+    ]);
+    vi.spyOn(api, "booksMissing").mockResolvedValue({
+      checked_at: new Date().toISOString(), online: true, reason: null,
+      missing: [], present: [], unavailable: [],
+    });
+    render(<Upload />);
+    await selectType(/baseline book/i);
+    expect((await screen.findByTestId("book-panel")).getAttribute("data-family"))
+      .toBe("made-up-family");
   });
 
   it("only the bill summary asks for a stage", async () => {
@@ -609,10 +788,14 @@ describe("the type picker and form", () => {
       .toBe("2026");
   });
 
-  it("gives the file-accepting form a visible drop affordance, and gives a redirect type none", async () => {
+  it("gives the file-accepting form a visible drop affordance, and gives a book type none", async () => {
     // jsdom applies no stylesheet, so this can only pin the MARKUP (the
     // .up-drop box + its hint text), not that the dashed border actually
     // renders — see the report for the human-in-a-browser follow-up.
+    vi.spyOn(api, "booksMissing").mockResolvedValue({
+      checked_at: new Date().toISOString(), online: true, reason: null,
+      missing: [], present: [], unavailable: [],
+    });
     render(<Upload />);
     await selectType(/annual financial report/i);
     const form = await screen.findByTestId("upload-form");
@@ -621,6 +804,22 @@ describe("the type picker and form", () => {
 
     await selectType(/baseline book/i);
     expect(screen.queryByTestId("upload-form")).toBeNull();
+  });
+
+  it("keeps the real file input reachable, not display:none'd away", async () => {
+    // The visible "Choose a PDF document" control is a <label> wearing the
+    // app's chip style, because the browser's own file widget is what made
+    // this page read as a raw HTML form. The input behind it must still be
+    // a real, labelled, focusable input — hiding it with display:none would
+    // take it out of the accessibility tree and off the keyboard, turning a
+    // cosmetic change into a functional regression. Its discoverability by
+    // LABEL is the part jsdom can actually check.
+    render(<Upload />);
+    await selectType();
+    const input = (await screen.findByLabelText(/choose a pdf/i)) as HTMLInputElement;
+    expect(input.type).toBe("file");
+    expect(input.hidden).toBe(false);
+    expect(input.disabled).toBe(false);
   });
 
   it("requires a fresh stage pick before a second upload of the same type", async () => {
@@ -643,6 +842,129 @@ describe("the type picker and form", () => {
     await waitFor(() =>
       expect(screen.getByRole("button", { name: /add document/i })).toBeDisabled());
     expect((screen.getByLabelText("Version") as HTMLSelectElement).value).toBe("");
+  });
+
+  it("offers NO title field on any type", async () => {
+    // 🔴 Removing the Title box was invisible to this suite — nothing had
+    // ever asserted it existed, so nothing failed when it went. This is the
+    // guard the other direction: a future edit that re-adds a free-text
+    // title fails here and has to argue for it.
+    //
+    // The reason it went: every type is named completely by its type and
+    // year ("FY 2025 Annual Financial Report" IS the AFR, there is one a
+    // year), so the box offered a choice where there was none — and a typed
+    // title WINS over the automatic one in build_title, so the only thing it
+    // could do was make a correct title worse.
+    vi.spyOn(api, "documentTypes").mockResolvedValue(ROWS);
+    render(<Upload />);
+    for (const label of [/annual financial report/i, /budget bill summary/i]) {
+      await selectType(label);
+      expect(screen.queryByLabelText(/^title/i)).toBeNull();
+      await selectType(label);
+    }
+  });
+
+  it("asks which agency only on the row that declares one", async () => {
+    vi.spyOn(api, "agencies").mockResolvedValue(AGENCIES);
+    vi.spyOn(api, "documentTypes").mockResolvedValue([...ROWS, AGENCY_ROW]);
+    render(<Upload />);
+
+    await selectType(/annual financial report/i);
+    expect(screen.queryByLabelText("Agency")).toBeNull();
+
+    await selectType(/agency submission/i);
+    expect(await screen.findByLabelText("Agency")).toBeTruthy();
+  });
+
+  it("stays unsubmittable until the typed text resolves to a real agency", async () => {
+    // The typed text is not the answer — the canonical id is. A half-typed
+    // "Depart" must not become a document's title, so the gate is the same
+    // shape as the staged-type gate beside it.
+    vi.spyOn(api, "agencies").mockResolvedValue(AGENCIES);
+    vi.spyOn(api, "documentTypes").mockResolvedValue([AGENCY_ROW]);
+    render(<Upload />);
+    await selectType(/agency submission/i);
+    fireEvent.change(await screen.findByLabelText(/choose a pdf/i), {
+      target: { files: [pdf("request.pdf")] },
+    });
+    fireEvent.click(screen.getByRole("checkbox", { name: /public record/i }));
+
+    const add = screen.getByRole("button", { name: /add document/i });
+    expect(add).toBeDisabled();
+
+    fireEvent.change(screen.getByLabelText("Agency"), { target: { value: "Depart" } });
+    expect(add).toBeDisabled();
+    expect(screen.getByText(/No agency by that name/i)).toBeTruthy();
+
+    fireEvent.change(screen.getByLabelText("Agency"), {
+      target: { value: "Department of Corrections" },
+    });
+    expect(add).toBeEnabled();
+    expect(screen.queryByText(/No agency by that name/i)).toBeNull();
+  });
+
+  it("sends the agency's canonical id, not the words that were typed", async () => {
+    const up = vi.spyOn(api, "uploadDocument").mockResolvedValue(
+      { job_id: "j", doc_id: "d" });
+    vi.spyOn(api, "agencies").mockResolvedValue(AGENCIES);
+    vi.spyOn(api, "documentTypes").mockResolvedValue([AGENCY_ROW]);
+    render(<Upload />);
+    await selectType(/agency submission/i);
+    fireEvent.change(await screen.findByLabelText(/choose a pdf/i), {
+      target: { files: [pdf("request.pdf")] },
+    });
+    fireEvent.change(screen.getByLabelText("Agency"), {
+      // Cased and spaced differently from the catalog on purpose: the match
+      // is case-insensitive and whitespace-collapsed, and the ID is what
+      // travels either way.
+      target: { value: "  department of corrections " },
+    });
+    fireEvent.click(screen.getByRole("checkbox", { name: /public record/i }));
+    fireEvent.click(screen.getByRole("button", { name: /add document/i }));
+
+    await waitFor(() => expect(up).toHaveBeenCalled());
+    expect(up.mock.calls[0][1]).toMatchObject({
+      doc_type: AGENCY_ROW.key,
+      agency_canonical_id: "agency:adc",
+    });
+    expect(up.mock.calls[0][1].title).toBe("");
+  });
+
+  it("never sends an agency for a type that does not take one", async () => {
+    // The route 422s on this, so sending it would turn a good upload into a
+    // confusing rejection.
+    const up = vi.spyOn(api, "uploadDocument").mockResolvedValue(
+      { job_id: "j", doc_id: "d" });
+    render(<Upload />);
+    await pickFile();
+    fireEvent.click(screen.getByRole("checkbox", { name: /public record/i }));
+    fireEvent.click(screen.getByRole("button", { name: /add document/i }));
+
+    await waitFor(() => expect(up).toHaveBeenCalled());
+    expect(up.mock.calls[0][1].agency_canonical_id).toBeUndefined();
+  });
+
+  it("keeps agencies an admin added separable from the shipped catalog", async () => {
+    // Nothing in the corpus is stamped with an office-added id, so the two
+    // are genuinely different things and the list should not pretend
+    // otherwise.
+    vi.spyOn(api, "agencies").mockResolvedValue(AGENCIES);
+    vi.spyOn(api, "documentTypes").mockResolvedValue([AGENCY_ROW]);
+    render(<Upload />);
+    await selectType(/agency submission/i);
+    await screen.findByLabelText("Agency");
+    const office = document.querySelector(
+      '#up-agency-options option[value="Office of Made-Up Things"]',
+    )!;
+    expect(office.getAttribute("label")).toMatch(/added by your office/i);
+  });
+
+  it("says so when the agency list cannot be loaded", async () => {
+    vi.spyOn(api, "agencies").mockRejectedValue(new Error("agencies: 500"));
+    vi.spyOn(api, "documentTypes").mockResolvedValue([AGENCY_ROW]);
+    render(<Upload />);
+    await selectType(/agency submission/i);
+    expect(await screen.findByText(/Couldn.t load the agency list/i)).toBeTruthy();
   });
 
   it("holds no hardcoded doc_type strings of its own", async () => {
@@ -682,7 +1004,7 @@ describe("the type picker and form", () => {
 
 describe("the queue", () => {
   it("renders progress and stage detail per job", async () => {
-    vi.spyOn(api, "jobs").mockResolvedValue({ jobs: [job()] });
+    vi.spyOn(api, "jobs").mockResolvedValue({ jobs: [job()], finished_count: 0, showing: "active" as const });
     render(<Upload />);
     const row = await screen.findByTestId("job");
     expect(row.textContent).toMatch(/Reading the document/);
@@ -693,7 +1015,7 @@ describe("the queue", () => {
 
   it("polls for updates", async () => {
     vi.useFakeTimers();
-    const list = vi.spyOn(api, "jobs").mockResolvedValue({ jobs: [] });
+    const list = vi.spyOn(api, "jobs").mockResolvedValue({ jobs: [], finished_count: 0, showing: "active" as const });
     render(<Upload />);
     await vi.advanceTimersByTimeAsync(3000);
     expect(list.mock.calls.length).toBeGreaterThan(1);
@@ -705,6 +1027,8 @@ describe("the queue", () => {
         job({ job_id: "bad", state: "failed", error: "mineru exploded" }),
         job({ job_id: "busy", state: "embedding" }),
       ],
+      finished_count: 0,
+      showing: "active" as const,
     });
     const retry = vi.spyOn(api, "retryJob").mockResolvedValue({ job: job() });
     const cancel = vi.spyOn(api, "cancelJob").mockResolvedValue({ job: job() });
@@ -722,7 +1046,7 @@ describe("the queue", () => {
   });
 
   it("has no progress bar or cancel once a job is live", async () => {
-    vi.spyOn(api, "jobs").mockResolvedValue({ jobs: [job({ state: "live" })] });
+    vi.spyOn(api, "jobs").mockResolvedValue({ jobs: [job({ state: "live" })], finished_count: 0, showing: "active" as const });
     render(<Upload />);
     const row = await screen.findByTestId("job");
     expect(within(row).queryByRole("progressbar")).toBeNull();
@@ -735,7 +1059,7 @@ describe("the queue", () => {
     // rather than waitFor — waitFor polls on real timers and would hang here.
     vi.useFakeTimers();
     vi.spyOn(api, "jobs")
-      .mockResolvedValueOnce({ jobs: [job()] })
+      .mockResolvedValueOnce({ jobs: [job()], finished_count: 0, showing: "active" as const })
       .mockRejectedValue(new Error("jobs: share offline"));
     render(<Upload />);
     await vi.advanceTimersByTimeAsync(0);
@@ -754,96 +1078,3 @@ describe("the queue", () => {
 
 // --- Add a JLBC book --------------------------------------------------------
 
-describe("the Add-a-JLBC-book panel", () => {
-  const EDITIONS: api.BookEdition[] = [
-    {
-      key: "baseline-fy2027", family: "baseline", fiscal_year: 2027,
-      ingestable: true, rolling: false, era_note: "",
-      single_file_url: null, linked_toc_url: "https://x/27baselinelinks.pdf",
-      document_count: 129,
-    },
-    {
-      key: "approps-fy1996", family: "approps", fiscal_year: 1996,
-      ingestable: false, rolling: false, era_note: "Whole book only",
-      single_file_url: "https://x/FY1996.pdf", linked_toc_url: null,
-      document_count: 0,
-    },
-  ];
-
-  it("offers only editions that have something to ingest", async () => {
-    vi.spyOn(api, "bookCatalog").mockResolvedValue({ editions: EDITIONS });
-    render(<Upload />);
-    const picker = await screen.findByLabelText("Edition");
-    const options = within(picker).getAllByRole("option");
-    expect(options).toHaveLength(1);
-    expect(options[0].textContent).toMatch(/FY 2027 Baseline — 129 documents/);
-  });
-
-  it("discovers without queuing anything", async () => {
-    vi.spyOn(api, "bookCatalog").mockResolvedValue({ editions: EDITIONS });
-    const discover = vi.spyOn(api, "discoverBook").mockResolvedValue({
-      source: "catalog", count: 129, documents: [], notes: [],
-      unreachable: ["https://x/gone.pdf", "https://x/also-gone.pdf"],
-      single_file_url: null, linked_toc_url: null,
-    });
-    const ingest = vi.spyOn(api, "ingestBook");
-
-    render(<Upload />);
-    await screen.findByLabelText("Edition");
-    fireEvent.click(screen.getByRole("button", { name: /discover/i }));
-
-    await waitFor(() => expect(discover).toHaveBeenCalledWith("baseline", 2027));
-    const plan = await screen.findByTestId("book-plan");
-    expect(plan.textContent).toMatch(/Found 129 documents for FY 2027 Baseline/);
-    expect(plan.textContent).toMatch(/2 unreachable/);
-    expect(within(plan).getByText("https://x/gone.pdf")).toBeTruthy();
-    expect(ingest).not.toHaveBeenCalled();
-  });
-
-  it("queues the whole book and reports what was skipped", async () => {
-    vi.spyOn(api, "bookCatalog").mockResolvedValue({ editions: EDITIONS });
-    vi.spyOn(api, "ingestBook").mockResolvedValue({
-      queued: 127, skipped_existing: 2, unreachable: [],
-    });
-    render(<Upload />);
-    await screen.findByLabelText("Edition");
-    fireEvent.click(screen.getByRole("button", { name: /add all/i }));
-    expect(await screen.findByText(/Queued 127 documents; 2 already in the corpus/i))
-      .toBeTruthy();
-  });
-
-  it("states the overnight cost without softening it", async () => {
-    vi.spyOn(api, "bookCatalog").mockResolvedValue({ editions: EDITIONS });
-    render(<Upload />);
-    const panel = await screen.findByTestId("add-book");
-    expect(panel.textContent).toMatch(/takes overnight on office computers/i);
-    expect(panel.textContent).toMatch(/one book at a time/i);
-  });
-
-  it("has no Invariant 8 checkbox — JLBC reports are public record", async () => {
-    vi.spyOn(api, "bookCatalog").mockResolvedValue({ editions: EDITIONS });
-    render(<Upload />);
-    const panel = await screen.findByTestId("add-book");
-    expect(within(panel).queryByRole("checkbox")).toBeNull();
-    expect(panel.textContent).toMatch(/public record, so no confirmation is needed/i);
-  });
-
-  it("warns when the edition lives in the rolling folder", async () => {
-    vi.spyOn(api, "bookCatalog").mockResolvedValue({
-      editions: [{ ...EDITIONS[0], rolling: true }],
-    });
-    render(<Upload />);
-    expect(await screen.findByText(/folder JLBC reuses each year/i)).toBeTruthy();
-  });
-
-  it("surfaces a discovery failure verbatim", async () => {
-    vi.spyOn(api, "bookCatalog").mockResolvedValue({ editions: EDITIONS });
-    vi.spyOn(api, "discoverBook").mockRejectedValue(
-      new Error("discover: No FY2029 approps book found on azjlbc.gov."),
-    );
-    render(<Upload />);
-    await screen.findByLabelText("Edition");
-    fireEvent.click(screen.getByRole("button", { name: /discover/i }));
-    expect(await screen.findByText(/No FY2029 approps book/)).toBeTruthy();
-  });
-});

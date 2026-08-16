@@ -334,6 +334,11 @@ export interface UploadMeta {
    *  (422 without it) whenever the row's `stage_field` is true — see
    *  DocTypeCard.stage_field below. */
   stage?: "introduced" | "engrossed";
+  /** Which agency this budget request belongs to. Required server-side
+   *  whenever the row's `agency_field` is true, and REFUSED on any row where
+   *  it is false — the id is written into the document's title, so a
+   *  misplaced one is a false statement about what the document is. */
+  agency_canonical_id?: string;
 }
 
 /** One row of `GET /api/document-types` — the upload page's own copy of the
@@ -351,12 +356,24 @@ export interface DocTypeCard {
   /** Present only for the two JLBC-book rows, which are never uploaded —
    *  see `app/book_sections.py`'s reasoning for why a book is added by the
    *  book tool (one document per agency) rather than as a single PDF.
-   *  `which_file` is "" on a redirect row; every other row has `null` here. */
-  redirect: { action: string; label: string; detail: string } | null;
+   *  `which_file` is "" on a redirect row; every other row has `null` here.
+   *
+   *  `family` is the row's book family in `ingest/book_discovery`'s own
+   *  vocabulary ("approps" / "baseline"). It arrives from the registry
+   *  rather than being derived from `key` here on purpose: Upload.tsx is
+   *  under a test forbidding it to contain any doc_type slug, so a
+   *  webapp-side key→family map is exactly the second copy of the type list
+   *  that Task 6 removed. */
+  redirect: { action: string; family: string; detail: string } | null;
   /** True only for budget-bill-summary today — gates whether the row shows
    *  the Introduced/Engrossed picker, and whether the upload route requires
    *  one (422 without it on a staged type). */
   stage_field: boolean;
+  /** True only for agency-submission today — gates whether the row shows the
+   *  agency picker, and whether the upload route requires one (422 without
+   *  it, and 422 WITH it on any other type). It is the one document type
+   *  whose title is not determined by its type and year alone. */
+  agency_field: boolean;
   order: number;
 }
 
@@ -413,6 +430,9 @@ export async function uploadDocument(
   form.append("fiscal_year", String(meta.fiscal_year));
   form.append("title", meta.title);
   if (meta.stage) form.append("stage", meta.stage);
+  if (meta.agency_canonical_id) {
+    form.append("agency_canonical_id", meta.agency_canonical_id);
+  }
   // Invariant 8: the server rejects the upload without this. The page only
   // sends it once the user has actually ticked the box.
   form.append("is_public_record", "true");
@@ -426,8 +446,56 @@ export async function uploadDocument(
   return r.json();
 }
 
-export async function jobs(): Promise<{ jobs: Job[] }> {
-  const r = await fetch("/api/jobs");
+export interface MissingEdition {
+  family: string;
+  fiscal_year: number;
+  /** null for an edition found by PROBING: counting its documents means
+   *  fetching and parsing JLBC's index pages, which is seconds rather than
+   *  milliseconds, so it is deferred until the analyst actually adds it. */
+  document_count: number | null;
+  source: "catalog" | "probed";
+}
+
+export interface BookCheck {
+  checked_at: string | null;
+  online: boolean;
+  reason: string | null;
+  missing: MissingEdition[];
+  present: { family: string; fiscal_year: number }[];
+  unavailable: { family: string; fiscal_year: number; era_note: string }[];
+}
+
+/** Which JLBC book editions the corpus lacks (spec T10). Served from a
+ *  12-hour cache unless `refresh` — this app is offline-capable and must not
+ *  probe azjlbc.gov every time the Upload page opens. */
+export async function booksMissing(refresh = false): Promise<BookCheck> {
+  const r = await fetch(refresh ? "/api/books/missing?refresh=1" : "/api/books/missing");
+  if (!r.ok) await fail(r, "book check");
+  return r.json();
+}
+
+export interface JobsResponse {
+  jobs: Job[];
+  /** How many jobs have finished, from a directory listing on the server.
+   *  Never counted client-side — the point of spec T13 is that the browser
+   *  no longer receives the 7,104 finished rows it would have to count. */
+  finished_count: number;
+  showing: "active" | "all";
+  /** Set when documents are queued and NO computer is set to process them
+   *  (2026-08-16). The server owns both the decision and the words — the
+   *  same ones the admin page shows, from app/queue_status.py, so the two
+   *  surfaces cannot say different things about one queue. Render it
+   *  verbatim; a paraphrase here is how they would start to drift.
+   *
+   *  Optional (`?`): a server predating this omits it, and that must read
+   *  as "no warning", not as a crash. */
+  stalled_message?: string | null;
+}
+
+/** The queue. Outstanding work plus every failure of any age by default
+ *  (spec T13); `all` asks for the whole history instead. */
+export async function jobs(all = false): Promise<JobsResponse> {
+  const r = await fetch(all ? "/api/jobs?all=1" : "/api/jobs");
   if (!r.ok) await fail(r, "jobs");
   return r.json();
 }
@@ -1213,4 +1281,37 @@ export async function updateIssue(
   });
   if (!r.ok) await fail(r, "update issue report");
   return r.json();
+}
+
+/** One row of the upload page's agency picker. `source` is "catalog" for the
+ *  157 agencies the app ships with and "office" for names an admin added —
+ *  the picker keeps them apart, because nothing in the corpus is stamped
+ *  with an office-added id. */
+export interface AgencyOption {
+  canonical_id: string;
+  name: string;
+  source: "catalog" | "office";
+}
+
+export async function agencies(): Promise<AgencyOption[]> {
+  const r = await fetch("/api/agencies");
+  if (!r.ok) await fail(r, "agencies");
+  return (await r.json()).agencies;
+}
+
+export async function addAgency(name: string): Promise<AgencyOption> {
+  const r = await fetch("/api/admin/agencies", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ name }),
+  });
+  if (!r.ok) await fail(r, "add agency");
+  return (await r.json()).agency;
+}
+
+export async function removeAgency(canonicalId: string): Promise<void> {
+  const r = await fetch(`/api/admin/agencies/${encodeURIComponent(canonicalId)}`, {
+    method: "DELETE",
+  });
+  if (!r.ok) await fail(r, "remove agency");
 }
