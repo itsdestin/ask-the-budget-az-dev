@@ -27,6 +27,7 @@ from ingest.coverage import COVERAGE_FLOOR
 from ingest.doc_types import DocType, all_types, get as get_doc_type
 from ingest.driver import make_doc_id
 from store.office_agencies import agency_name
+from ingest.worker import revive_if_this_machine_ingests
 from ingest.jobs import TERMINAL_STATES, load_active, new_job, save
 from store.config import data_dir, documents_path
 from store.documents import document_record
@@ -207,11 +208,15 @@ async def upload(
 
     # Belt and braces. The server starts the worker at startup now (see
     # app/main.py's lifespan), so this is no longer what gets the queue
-    # moving — but `start()` is idempotent, and a worker that died is worth
-    # reviving at the moment somebody is actually waiting on a document.
-    worker = getattr(request.app.state, "ingest_worker", None)
-    if worker is not None:
-        worker.start()
+    # moving — but a worker that died is worth reviving at the moment
+    # somebody is actually waiting on a document.
+    #
+    # 🔴 GATED (2026-08-16). This used to call `worker.start()` outright,
+    # which meant an upload started the queue on a machine explicitly set
+    # NOT to process uploads. The job still queues either way — that is the
+    # design, the share is the queue — and `GET /api/jobs` now says when
+    # nothing here will pick it up, so the silence is not silent.
+    revive_if_this_machine_ingests(request.app)
 
     return {"job_id": job.job_id, "doc_id": doc_id}
 

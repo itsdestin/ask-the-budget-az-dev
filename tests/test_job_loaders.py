@@ -57,10 +57,10 @@ def test_the_admin_panel_still_reports_the_last_finished_ingest(data_dir):
     7,434 documents. It is silent: no error, no empty list, just a date
     that never appears.
     """
-    from app.routes.admin import _queue_summary
+    from app.queue_status import queue_summary
 
     job = _finished("d1", "sha1")
-    summary, last_live = _queue_summary()
+    summary, last_live = queue_summary()
 
     assert last_live == job.updated_at
     assert summary == {"queued": 0, "running": 0, "failed": 0}
@@ -72,18 +72,18 @@ def test_the_last_finished_ingest_is_not_answered_by_a_dismissed_failure(data_di
     Reporting one as "the corpus last grew at..." is a quietly false
     reassurance on the one screen an admin checks to find out otherwise.
     """
-    from app.routes.admin import _queue_summary
+    from app.queue_status import queue_summary
 
     junk = _job("junk", "sha-junk")
     J.save(junk)
     J.advance(junk, "cancelled")
 
-    _summary, last_live = _queue_summary()
+    _summary, last_live = queue_summary()
     assert last_live is None
 
 
 def test_the_queue_summary_still_counts_queued_running_and_failed(data_dir):
-    from app.routes.admin import _queue_summary
+    from app.queue_status import queue_summary
 
     failed = _job("f", "sha-f")
     J.save(failed)
@@ -95,7 +95,7 @@ def test_the_queue_summary_still_counts_queued_running_and_failed(data_dir):
     J.save(running)
     J.advance(running, "extracting")
 
-    summary, _ = _queue_summary()
+    summary, _ = queue_summary()
     assert summary == {"queued": 1, "running": 1, "failed": 1}
 
 

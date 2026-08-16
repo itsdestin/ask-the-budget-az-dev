@@ -22,6 +22,7 @@ from ingest.book_discovery import (
     walk_edition,
 )
 from ingest.driver import make_doc_id
+from ingest.worker import revive_if_this_machine_ingests
 from ingest.jobs import TERMINAL_STATES, load_active, new_job, save
 from app.routes.upload import _documents
 
@@ -160,9 +161,14 @@ def ingest(body: EditionBody, request: Request):
         save(job)
         queued.append(job.job_id)
 
-    worker = getattr(request.app.state, "ingest_worker", None)
-    if worker is not None:
-        worker.start()
+    # 🔴 GATED (2026-08-16) — see ingest/worker.py's
+    # `revive_if_this_machine_ingests`. THIS was the worst of the two
+    # bypasses: a book is ~140 documents and hours of CPU, so an analyst
+    # pressing Add here is precisely the request that used to conscript
+    # their own laptop into doing it, on a machine the office had set not
+    # to. The jobs are queued regardless; the machine that ingests picks
+    # them up.
+    revive_if_this_machine_ingests(request.app)
 
     return {
         "queued": len(queued),

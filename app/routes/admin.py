@@ -32,6 +32,16 @@ from pydantic import BaseModel, Field
 
 from app import machine_config
 from app.machine_config import ingest_enabled, set_ingest_enabled
+# Moved out 2026-08-16: the upload page needs the same answer, and two
+# implementations of "is the queue stalled?" would eventually disagree in
+# the worst way — the admin page saying all is well while an analyst stares
+# at a stuck upload. See app/queue_status.py.
+from app.queue_status import (
+    MSG_QUEUE_STALLED,
+    TERMINAL_JOB_STATES,
+    queue_stalled,
+    queue_summary,
+)
 from app.identity import (
     admin_claimable,
     admin_reset_pending,
@@ -658,7 +668,6 @@ def get_my_usage() -> dict:
 # Job states that mean "this document is being worked on right now".
 # Derived from ingest.jobs.PIPELINE_STATES rather than re-typed, so a new
 # pipeline stage counts as running without anyone remembering to come here.
-_TERMINAL_JOB_STATES = frozenset({"live", "failed", "cancelled"})
 
 
 def _dir_bytes(path: Path) -> int:
@@ -738,81 +747,6 @@ def _reclaimable_bytes() -> int | None:
     return max(0, _dir_bytes(root) - live)
 
 
-def _queue_summary() -> tuple[dict[str, int], str | None]:
-    """(counts by state, when the corpus last actually grew).
-
-    "running" is every non-terminal, non-queued state collapsed into one
-    number: an admin wants to know that something is moving, not which of
-    six pipeline stages it is in — the Documents page already shows that
-    per job.
-    """
-    summary = {"queued": 0, "running": 0, "failed": 0}
-    try:
-        from ingest.jobs import load_active, newest_live_job
-
-        # load_active(): none of the three counts is an archived state
-        # (spec T13 archives only `live` and `cancelled`), so this is the
-        # same arithmetic without reading 7,104 finished job files.
-        jobs = load_active()
-    except Exception:  # noqa: BLE001 — unreadable jobs dir
-        return summary, None
-
-    for job in jobs:
-        if job.state == "queued":
-            summary["queued"] += 1
-        elif job.state == "failed":
-            summary["failed"] += 1
-        elif job.state not in _TERMINAL_JOB_STATES:
-            summary["running"] += 1
-
-    # NOT derived from `jobs` above, and this is the one caller in the file
-    # that genuinely changed rather than merely getting cheaper. Every `live`
-    # job is archived by spec T13, so reading "when did the corpus last grow"
-    # out of the main folder would report None forever — the health panel
-    # saying nothing has ever been ingested, on a corpus of 7,434 documents,
-    # with no error to explain it. `newest_live_job()` sorts the archive
-    # by file mtime and opens one file in the common case, and skips
-    # `cancelled` because a dismissed failure is not an ingest.
-    try:
-        newest = newest_live_job()
-    except Exception:  # noqa: BLE001 — unreadable archive
-        newest = None
-    return summary, (newest.updated_at if newest else None)
-
-
-MSG_QUEUE_STALLED = (
-    "Uploads are waiting and no computer is set to process them. Open JLBC "
-    "Insight on the computer that should do this work, go to Admin → "
-    'Corpus, and turn on "Process uploads on this computer".'
-)
-
-
-def _queue_stalled(queue: dict[str, int]) -> bool:
-    """Is there work nobody will ever pick up?
-
-    The per-machine ingest switch defaults to OFF because one bundle is
-    installed on all ~20 office PCs. That default re-creates the exact
-    silent failure the one-bundle decision was made to avoid — uploads
-    queue on the share and nothing drains them, with no error anywhere —
-    so the switch without this warning is only half a fix.
-
-    Three conditions, and the last two are what stop it crying wolf:
-
-    * something is actually queued (nineteen of the twenty PCs sit with an
-      empty queue and ingest off all day; that is not a problem),
-    * nothing is running (a job in flight proves SOME machine is draining
-      the queue even though it isn't this one), and
-    * this machine is not the ingest machine (on the machine that IS, a
-      queue is just a queue).
-
-    A failed job alone does not count. Failures have their own signal and
-    their own UI; this warning is specifically about work with no owner.
-    """
-    if not queue.get("queued") or queue.get("running"):
-        return False
-    return not ingest_enabled()
-
-
 class MachineIngestBody(BaseModel):
     enabled: bool
 
@@ -848,8 +782,8 @@ def set_machine_ingest(
 @router.get("/api/admin/corpus")
 def get_corpus(_settings: Settings = Depends(require_admin)) -> dict:
     counts = _chunk_counts()
-    queue, last_ingest_at = _queue_summary()
-    stalled = _queue_stalled(queue)
+    queue, last_ingest_at = queue_summary()
+    stalled = queue_stalled(queue)
     return {
         "data_dir": str(data_dir()),
         "budget_chunks": counts["budget_chunks"],

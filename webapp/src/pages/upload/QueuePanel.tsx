@@ -45,6 +45,13 @@ export function QueuePanel({ reloadToken }: { reloadToken?: number }) {
   const [jobs, setJobs] = useState<api.Job[]>([]);
   const [finishedCount, setFinishedCount] = useState(0);
   const [showing, setShowing] = useState<"active" | "all">("active");
+  // Set by the server when work is queued and no computer is set to process
+  // it. This is the counterweight to the 2026-08-16 ingest-switch fix: the
+  // upload and books routes no longer start the queue on a machine that
+  // opted out, which is correct -- but without this an analyst would queue a
+  // document and watch it sit at "Waiting" for ever with nothing explaining
+  // why, trading a CPU problem for a trust problem.
+  const [stalled, setStalled] = useState<string | null>(null);
   const [queueError, setQueueError] = useState("");
 
   // Job ids this browser has seen in a non-terminal state, i.e. documents the
@@ -57,6 +64,7 @@ export function QueuePanel({ reloadToken }: { reloadToken?: number }) {
       try {
         const body = await api.jobs(mode === "all");
         const incoming = body.jobs;
+        setStalled(body.stalled_message ?? null);
 
         // Remember anything still in flight, so we can keep its row when it
         // vanishes from the server's list a moment later.
@@ -137,6 +145,16 @@ export function QueuePanel({ reloadToken }: { reloadToken?: number }) {
         Most documents are searchable within the hour; a full book takes
         overnight. Progress survives restarts.
       </p>
+
+      {/* Above the rows, not below: it explains why the rows below are not
+          moving, and a reader who has scrolled past them has already formed
+          the wrong conclusion. Rendered VERBATIM from the server -- see
+          api.ts's JobsResponse. */}
+      {stalled && (
+        <p className="up-note up-stalled" role="status" data-testid="queue-stalled">
+          <span className="err">{stalled}</span>
+        </p>
+      )}
 
       {visibleJobs.length === 0 ? (
         <p className="up-note">Nothing is processing right now.</p>

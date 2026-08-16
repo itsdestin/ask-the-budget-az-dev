@@ -1718,6 +1718,11 @@ def ensure_started(app: Any) -> IngestWorker:
     """Attach a worker to a FastAPI app, starting it once.
 
     Idempotent so route modules can call it without coordinating.
+
+    🔴 CALLERS: this does NOT consult `ingest_enabled()`. It is the "start
+    the queue" primitive, and the one place entitled to call it
+    unconditionally is app/main.py's lifespan, which checks first. A ROUTE
+    must call `revive_if_this_machine_ingests` below instead.
     """
     worker = getattr(app.state, "ingest_worker", None)
     if worker is None:
@@ -1725,6 +1730,46 @@ def ensure_started(app: Any) -> IngestWorker:
         app.state.ingest_worker = worker
     worker.start()
     return worker
+
+
+def revive_if_this_machine_ingests(app: Any) -> bool:
+    """Restart an already-attached worker, but only where ingest belongs.
+
+    🔴 THE DEFECT THIS FIXES, found 2026-08-16 by watching a real ingest run
+    on a machine with `ingest_enabled()` False. The lifespan handler
+    correctly declined to start the queue and said so on stderr — and then
+    `POST /api/books/ingest` called `worker.start()` with no check at all,
+    so pressing "Add" on a book turned that machine into the ingest machine
+    anyway. `POST /api/upload` did the same. Both bypassed the switch
+    completely.
+
+    That switch is not a preference. `app/machine_config.ingest_enabled`'s
+    own docstring names the outcome it exists to prevent: one bundle on ~20
+    office PCs, so without it "the winner is arbitrary and may be an
+    analyst's laptop that then spends six hours at 100% CPU on a Baseline
+    book while they are trying to work." Queuing a book is exactly the
+    request that costs six hours, and it was the one request that ignored
+    the switch.
+
+    ONE helper both routes call, rather than the same two-line check written
+    out twice — the same reasoning as `IngestLock._take()`. Two paths
+    independently deciding when to start a worker is the shape that produced
+    this defect and the shape that would reproduce it in six months.
+
+    Never BUILDS a worker (unlike `ensure_started`): a machine that opted
+    out must not acquire one because somebody used the upload form. Returns
+    whether the queue is running here, so a caller can tell the difference
+    between "started" and "deliberately not started".
+    """
+    from app.machine_config import ingest_enabled
+
+    if not ingest_enabled():
+        return False
+    worker = getattr(app.state, "ingest_worker", None)
+    if worker is None:
+        return False
+    worker.start()
+    return True
 
 
 # --- helpers ----------------------------------------------------------------

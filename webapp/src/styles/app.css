@@ -1735,6 +1735,11 @@ nav.primary{position:relative;padding-right:44px;}
 .page-upload .up-disclose[open]>summary .up-disclose-mark{transform:rotate(90deg);}
 
 .page-upload .up-expect{font-size:12.5px;font-weight:700;color:var(--ink-3);}
+/* The "nobody is processing uploads" warning. Bordered rather than a bare
+   red line: it explains why every row beneath it is standing still, so it
+   has to read as a statement about the whole queue and not as one row's
+   error. */
+.page-upload .up-stalled{margin-top:10px;padding:10px 12px;border:1px solid var(--az-red-100);background:#fdf6f6;border-radius:var(--r-sm);}
 
 /* The agency picker. A <div> rather than a <label> wrapping everything (see
    Upload.tsx) so its note describes the field instead of becoming part of

@@ -83,6 +83,11 @@ def test_empty_queue_returns_an_empty_list(client):
     # needs to distinguish "nothing outstanding" from "nothing in the corpus".
     assert client.get("/api/jobs").json() == {
         "jobs": [], "finished_count": 0, "showing": "active",
+        # 2026-08-16: null unless work is queued that no computer will pick
+        # up. Asserted here rather than left out of the comparison — this is
+        # the whole-body pin, and a field silently appearing or vanishing
+        # from it is exactly what it exists to catch.
+        "stalled_message": None,
     }
 
 

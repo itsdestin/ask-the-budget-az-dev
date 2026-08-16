@@ -12,6 +12,7 @@ from __future__ import annotations
 
 from fastapi import APIRouter, HTTPException
 
+from app.queue_status import MSG_QUEUE_STALLED, queue_stalled, queue_summary
 from ingest.jobs import (
     IllegalTransition,
     advance,
@@ -48,10 +49,26 @@ def list_jobs(all: bool = False):
     "the corpus is empty" must not look the same.
     """
     jobs = load_all() if all else load_active()
+    # 🔴 The counterweight to the 2026-08-16 ingest-switch fix. The upload
+    # and books routes no longer start the queue on a machine set not to
+    # process uploads — correct, and the reason the switch exists — but
+    # without a word on screen an analyst would queue a document here and
+    # watch it sit at "Waiting" for ever with nothing explaining why. That
+    # would trade a CPU problem for a trust problem.
+    #
+    # The predicate and the sentence both come from app/queue_status.py, the
+    # same ones the admin page shows. Two surfaces cannot say different
+    # things about one queue.
+    #
+    # Computed from `queue_summary()` and not from `jobs` above, because
+    # `?all=true` includes archived jobs and would report a queue that is
+    # only historically busy.
+    counts, _last = queue_summary()
     return {
         "jobs": [job.view() for job in jobs],
         "finished_count": archived_count(),
         "showing": "all" if all else "active",
+        "stalled_message": MSG_QUEUE_STALLED if queue_stalled(counts) else None,
     }
 
 

@@ -33,6 +33,61 @@ function body(over: Partial<api.JobsResponse> = {}): api.JobsResponse {
 
 afterEach(() => vi.restoreAllMocks());
 
+describe("when no computer is set to process uploads", () => {
+  it("says so, above the rows that are not moving", async () => {
+    // 🔴 The counterweight to the 2026-08-16 ingest-switch fix. The upload
+    // and books routes no longer start the queue on a machine that opted
+    // out, which is correct -- but without this an analyst queues a
+    // document and watches "Waiting" for ever with nothing explaining why,
+    // trading a CPU problem for a trust problem.
+    const message =
+      "Uploads are waiting and no computer is set to process them. Open JLBC " +
+      "Insight on the computer that should do this work, go to Admin → " +
+      'Corpus, and turn on "Process uploads on this computer".';
+    vi.spyOn(api, "jobs").mockResolvedValue(
+      body({ jobs: [job()], stalled_message: message }),
+    );
+    render(<QueuePanel />);
+
+    const warning = await screen.findByTestId("queue-stalled");
+    expect(warning.textContent).toBe(message);
+    // Above the rows: a reader who has scrolled past them has already
+    // formed the wrong conclusion about why nothing is moving.
+    const row = await screen.findByTestId("job");
+    expect(warning.compareDocumentPosition(row) & Node.DOCUMENT_POSITION_FOLLOWING)
+      .toBeTruthy();
+  });
+
+  it("renders the server's sentence VERBATIM, never a local paraphrase", async () => {
+    // The same words the admin page shows, from one place on the server
+    // (app/queue_status.py). A paraphrase here is how the two surfaces
+    // would start telling an office two different things about one queue.
+    vi.spyOn(api, "jobs").mockResolvedValue(
+      body({ jobs: [job()], stalled_message: "SERVER SAYS THIS EXACT THING" }),
+    );
+    render(<QueuePanel />);
+    expect((await screen.findByTestId("queue-stalled")).textContent)
+      .toBe("SERVER SAYS THIS EXACT THING");
+  });
+
+  it("says nothing at all on the machine that does the work", async () => {
+    vi.spyOn(api, "jobs").mockResolvedValue(
+      body({ jobs: [job()], stalled_message: null }),
+    );
+    render(<QueuePanel />);
+    await screen.findByTestId("job");
+    expect(screen.queryByTestId("queue-stalled")).toBeNull();
+  });
+
+  it("says nothing when an older server omits the field entirely", async () => {
+    // A server predating this must read as "no warning", not as a crash.
+    vi.spyOn(api, "jobs").mockResolvedValue(body({ jobs: [job()] }));
+    render(<QueuePanel />);
+    await screen.findByTestId("job");
+    expect(screen.queryByTestId("queue-stalled")).toBeNull();
+  });
+});
+
 describe("the queue shows work, not history", () => {
   it("renders a failed job whatever its age", async () => {
     // 13 of the 14 failures in the live data dir were 12.6 days old. The

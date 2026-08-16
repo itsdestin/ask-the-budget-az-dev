@@ -481,6 +481,15 @@ export interface JobsResponse {
    *  no longer receives the 7,104 finished rows it would have to count. */
   finished_count: number;
   showing: "active" | "all";
+  /** Set when documents are queued and NO computer is set to process them
+   *  (2026-08-16). The server owns both the decision and the words — the
+   *  same ones the admin page shows, from app/queue_status.py, so the two
+   *  surfaces cannot say different things about one queue. Render it
+   *  verbatim; a paraphrase here is how they would start to drift.
+   *
+   *  Optional (`?`): a server predating this omits it, and that must read
+   *  as "no warning", not as a crash. */
+  stalled_message?: string | null;
 }
 
 /** The queue. Outstanding work plus every failure of any age by default
