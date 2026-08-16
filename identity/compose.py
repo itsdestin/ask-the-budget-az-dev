@@ -25,14 +25,27 @@ def compose_title(
     book: str,
     distinguisher: str | None = None,
 ) -> str:
-    """`{Name} — FY {year} {Book}`, raising on a name that cannot be trusted."""
+    """`{Name} — FY {year} {Book}`, raising on a name that cannot be trusted.
+
+    Raises `ValueError` if EITHER `name` or `distinguisher` fails
+    `validate_name` — the same refusal applies to both arguments, because a
+    guessed-at distinguisher writes the same class of corruption into the
+    title that a guessed-at name would. This is not a hard failure of
+    ingest: a bad name must never block a document from being ingested, so
+    callers are expected to catch this, fall back to an uncomposed title,
+    and record an advisory note rather than let the raise propagate.
+    """
     verdict = validate_name(name)
     if not verdict.ok:
         raise ValueError(f"unusable name {name!r}: {verdict.reason}")
     stem = verdict.value
     if distinguisher:
         d = validate_name(distinguisher)
-        stem = f"{stem} ({d.value if d.ok else distinguisher.strip()})"
+        if not d.ok:
+            raise ValueError(
+                f"unusable distinguisher {distinguisher!r}: {d.reason}"
+            )
+        stem = f"{stem} ({d.value})"
     return f"{stem} — FY {fiscal_year} {book}"
 
 
@@ -49,7 +62,11 @@ def resolve_supplier_disagreement(
         return supplied, None
 
     text = (doc_text or "").lower()
-    corroborated = bool(stamp_words) and any(w in text for w in stamp_words)
+    # `any()` over an empty iterable is already False, so no explicit
+    # `bool(stamp_words) and` guard is needed — a name with no distinctive
+    # words (e.g. every word is a stop word) correctly reads as
+    # uncorroborated on its own.
+    corroborated = any(w in text for w in stamp_words)
     if not corroborated:
         return supplied, (
             f"supplier said {supplied!r}, stamp said {stamp_name!r}, and the "

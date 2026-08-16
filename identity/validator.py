@@ -31,16 +31,22 @@ _LEADING_GLYPH = re.compile(r"^\s*[•·▪◦*\-–—]\s+")
 _TRAILING_DECORATION = re.compile(r"\s*\.{2,}\s*[A-Z]{0,3}-?\d*\s*$")
 # Any surviving run of >=2 dots is INSIDE the string.
 _INNER_DOT_LEADERS = re.compile(r"\.{2,}")
-# A bare integer of 2-4 digits sitting between words — a page number that
-# the TOC wrapped into the name. Word-bounded on both sides so a real
-# number in a name (none observed, but cheap) is not caught mid-token.
-# The trailing boundary allows END-OF-STRING as well as whitespace: the
-# brief's original `(?=\s)`-only form missed a page number that is the LAST
-# token in the string (e.g. "...Arizona  286" with no trailing space), which
-# fell through to the doubled-space check and reported the wrong reason —
-# caught by test_an_embedded_page_number_quarantines failing against this
-# module's own first draft.
-_EMBEDDED_PAGE_NUMBER = re.compile(r"(?<=\s)\d{2,4}(?=\s|$)")
+# A page number that a TOC scrape wrapped into the name. What actually
+# distinguishes a scraped page number from a real number that belongs in a
+# name is the COLUMN GAP: a printed TOC row separates the name from its page
+# number with a run of >=2 spaces (the table's column separator), not one
+# ordinary word-space. An earlier, narrower version of this rule fired on
+# ANY 2-4 digit number preceded by a single space and was REJECTED — measured
+# 2026-08-16, it quarantined real Arizona budget-document content:
+# "Proposition 123" (a real education-funding ballot measure that appears
+# verbatim in these books), "Laws 2008 Ch. 53", and "Fiscal Year 2027
+# Budget". A single space is how a name legitimately writes a number next to
+# a word; only the widened multi-space gap is the TOC's column boundary.
+# The trailing boundary allows END-OF-STRING as well as whitespace: a page
+# number can be the LAST token in the string (e.g. "...Arizona  286" with no
+# trailing space) — caught by test_an_embedded_page_number_quarantines
+# failing against this module's own first draft.
+_EMBEDDED_PAGE_NUMBER = re.compile(r"\s{2,}\d{2,4}(?=\s|$)")
 _DOUBLED_SPACE = re.compile(r"\S {2,}\S")
 
 

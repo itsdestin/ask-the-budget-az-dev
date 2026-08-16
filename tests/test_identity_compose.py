@@ -42,6 +42,24 @@ def test_a_corrupt_name_refuses_rather_than_guessing():
     assert "dot leaders" in str(e.value)
 
 
+def test_a_corrupt_distinguisher_refuses_rather_than_guessing():
+    """The `name` argument already refuses on corruption rather than
+    stripping and guessing (see the test above) — the same rule must apply
+    to `distinguisher`. Before the fix, an invalid distinguisher fell
+    through to `.strip()`, writing dot leaders straight into the title."""
+    import pytest
+
+    with pytest.raises(ValueError) as e:
+        compose_title(
+            name="Administration, Arizona Department of",
+            fiscal_year=2016,
+            book="Appropriations Report",
+            distinguisher="Automation Projects Fund ...  400  Corrupt",
+        )
+    assert "distinguisher" in str(e.value)
+    assert "dot leaders" in str(e.value)
+
+
 def test_a_distinguisher_is_appended_when_one_is_supplied():
     """The sub-programme case: parent and child in the same book and year."""
     assert compose_title(
@@ -84,4 +102,40 @@ def test_an_UNCORROBORATED_stamp_does_not_overrule_the_supplier():
         doc_text="General Fund revenue collections exceeded forecast.",
     )
     assert chosen == "Agriculture, Arizona Department of"
+    assert note is not None and "not corroborated" in note
+
+
+def test_a_missing_stamp_returns_the_supplied_name_unchanged():
+    """`stamp_name=None` — no second witness exists at all, so there is
+    nothing to disagree with; the supplier is returned untouched."""
+    chosen, note = resolve_supplier_disagreement(
+        supplied="Board of Barbers", stamp_name=None, doc_text="anything"
+    )
+    assert chosen == "Board of Barbers"
+    assert note is None
+
+
+def test_an_empty_stamp_returns_the_supplied_name_unchanged():
+    """`stamp_name=""` is falsy the same way `None` is — same behaviour,
+    pinned separately because it is a distinct real-world shape (a stamp
+    field present but blank), not just an alias for the `None` case."""
+    chosen, note = resolve_supplier_disagreement(
+        supplied="Board of Barbers", stamp_name="", doc_text="anything"
+    )
+    assert chosen == "Board of Barbers"
+    assert note is None
+
+
+def test_a_stamp_with_no_distinctive_words_never_overrules_the_supplier():
+    """Intended behaviour, not merely observed: a stamp built entirely of
+    stop words (`distinctive_words` returns an empty set) can never supply a
+    second, independent witness — `any()` over that empty set is False by
+    construction, so this correctly falls to the uncorroborated branch
+    rather than crashing or silently claiming agreement."""
+    chosen, note = resolve_supplier_disagreement(
+        supplied="Board of Barbers",
+        stamp_name="Department of the State of Arizona",
+        doc_text="Department of the State of Arizona handles many things.",
+    )
+    assert chosen == "Board of Barbers"
     assert note is not None and "not corroborated" in note

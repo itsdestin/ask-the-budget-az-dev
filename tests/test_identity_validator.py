@@ -55,6 +55,33 @@ def test_an_embedded_page_number_quarantines():
     assert "page number" in v.reason
 
 
+def test_a_real_ballot_measure_number_is_NOT_rejected():
+    """Measured 2026-08-16: the narrower "any number preceded by a single
+    space" version of the page-number rule quarantined this. Proposition 123
+    is a real Arizona education-funding measure named verbatim in these
+    budget books — a single word-space is how a name legitimately writes a
+    number, and only a multi-space TOC column gap should quarantine."""
+    v = validate_name("Proposition 123")
+    assert v.ok is True
+    assert v.value == "Proposition 123"
+
+
+def test_a_real_law_chapter_number_is_NOT_rejected():
+    """Same rejected-rule fixture: "Laws 2008 Ch. 53" is a real citation to
+    a session law, not a TOC-scraped page number."""
+    v = validate_name("Laws 2008 Ch. 53")
+    assert v.ok is True
+    assert v.value == "Laws 2008 Ch. 53"
+
+
+def test_a_real_fiscal_year_number_is_NOT_rejected():
+    """Same rejected-rule fixture: "Fiscal Year 2027 Budget" names a real
+    fiscal year, not a scraped page number."""
+    v = validate_name("Fiscal Year 2027 Budget")
+    assert v.ok is True
+    assert v.value == "Fiscal Year 2027 Budget"
+
+
 def test_a_doubled_internal_space_quarantines():
     v = validate_name("Osteopathic Examiners in Medicine and Surgery, Arizona  Board of")
     assert v.ok is False
