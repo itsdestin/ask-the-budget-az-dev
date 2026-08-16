@@ -1284,14 +1284,19 @@ nav.primary{position:relative;padding-right:44px;}
    Same row geometry as a single tool; the body has no background of its own so
    header+children read as one surface, children lifted by is-inset. */
 .chat-tool-group { border-radius: var(--r-sm); border: 1px solid var(--line); background: var(--card); max-width: 65ch; overflow: hidden; }
-.chat-tool-group.is-failed { border-color: var(--chat-danger); }
-/* CHILD combinator, and only as far as the group's own header row. As a
-   descendant selector this reddened the labels of the group's SUCCESSFUL
-   children too whenever it was expanded, telling the analyst that calls
-   which actually worked had failed. Each child row already has its own
-   `.chat-tool.is-failed` treatment; the header keeps the run-level summary
-   tint and nothing reaches into the body. */
-.chat-tool-group.is-failed > .chat-tool-head > .chat-tool-label { color: var(--chat-danger); }
+/* NO group-level failure treatment, deliberately (spec TC9, 2026-08-16). A
+   failed tool call no longer reddens this card or reports itself in the
+   collapsed row. The model retries a failed call itself, so a red row usually
+   marks a transient step in work that then succeeded — not actionable, and
+   alarming an analyst about a self-correcting event costs the trust every
+   other warning in this app depends on.
+   Demoted, not deleted: the child row inside the expansion keeps its own
+   `.chat-tool.is-failed` border and its error body, so the audit trail is
+   intact for anyone who opens the card.
+   Two rules used to live here — a group border tint, and a child-combinator
+   label tint written that way because as a DESCENDANT selector it reddened
+   successful children too. With no group tint at all, that defect is
+   structurally impossible rather than merely guarded against. */
 /* The flex `gap` here is the ONLY thing spacing stacked child rows — which is
    why the old `.chat-tool + .chat-tool { margin-top: 4px }` (and the rule that
    cancelled it again inside this body) were both deleted: a run of

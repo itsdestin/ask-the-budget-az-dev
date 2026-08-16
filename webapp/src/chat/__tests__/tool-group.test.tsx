@@ -5,8 +5,6 @@
 // dependency; every other test file in the suite drives clicks via fireEvent
 // (see citation-chip.test.tsx / citation-bus.test.tsx).
 
-import { readFileSync } from "node:fs";
-import { resolve } from "node:path";
 import { describe, expect, it } from "vitest";
 import { fireEvent, render, screen } from "@testing-library/react";
 
@@ -150,69 +148,50 @@ describe("ToolGroup tense and progress", () => {
 });
 
 // ---------------------------------------------------------------------------
-// FINAL REVIEW — IMPORTANT 3: a failed group must not redden its successful
-// children
+// 2026-08-16 — TC9. The collapsed card carries NO failure signal at all.
+//
+// This INVERTS what this file used to assert. The old tests pinned a red group
+// header and a "1 failed" count, and carefully scoped the tint so it could not
+// reach a successful child. All of that is gone, because the signal is not
+// actionable: the model retries a failed call itself, so a red row usually
+// marks a transient step in work that then succeeded, and alarming an analyst
+// about a self-correcting event spends the trust every other warning needs.
+//
+// DEMOTED, NOT DELETED — the second test below is the half that matters. A
+// suppression that also drops the call on the floor would satisfy the first
+// test perfectly and destroy the audit trail, which is the direction this is
+// most at risk of drifting in.
 // ---------------------------------------------------------------------------
-//
-// The rule was written as a DESCENDANT selector
-// (`.chat-tool-group.is-failed .chat-tool-label`), so expanding a group in
-// which ONE call failed painted the labels of every SUCCESSFUL child red too.
-// That is the mirror image of the failed-citation-hover bug fixed elsewhere on
-// this branch — there a failure was dressed as a success, here a success is
-// dressed as a failure — and it misinforms the analyst about which call
-// actually failed.
-//
-// jsdom applies no stylesheet, so this cannot be asserted with
-// getComputedStyle. Instead it reads the real selector out of app.css and asks
-// each rendered label whether it MATCHES — which is precisely the question the
-// browser's cascade would ask, with no reimplementation of the cascade.
 
-/** The selector app.css uses to paint a failed group's label text red. */
-function failedGroupLabelSelector(): string {
-  const css = readFileSync(resolve(process.cwd(), "src/styles/app.css"), "utf-8")
-    .replace(/\/\*[\s\S]*?\*\//g, "");
-  const match = css.match(
-    /(\.chat-tool-group\.is-failed[^{}]*?\.chat-tool-label)\s*\{[^}]*color:\s*var\(--chat-danger\)/,
-  );
-  expect(
-    match,
-    "app.css must still tint a failed group's own label — this test would be vacuous otherwise",
-  ).not.toBeNull();
-  return match![1].trim();
-}
-
-describe("ToolGroup danger scoping", () => {
-  it("tints only its own header row, never a successful child's label", () => {
-    const selector = failedGroupLabelSelector();
-    const { container } = render(
-      // Mixed run: the first call succeeded, the second failed. The group is
-      // is-failed (one failure is a failure), but only ONE row really failed.
+describe("ToolGroup failure handling", () => {
+  it("looks identical to an all-successful run when collapsed", () => {
+    const { container: withFailure } = render(
       <ToolGroup tools={[retrieveComplete, retrieveFailed]} />,
     );
-    fireEvent.click(screen.getByRole("button", { name: /2 tool calls/ }));
+    const head = withFailure.querySelector(".chat-tool-head")!;
 
-    const group = container.querySelector(".chat-tool-group.is-failed")!;
-    expect(group, "a run containing a failure marks the group").not.toBeNull();
+    expect(withFailure.querySelector(".is-failed")).toBeNull();
+    expect(withFailure.textContent).not.toMatch(/fail/i);
+    expect(head.getAttribute("aria-label")).not.toMatch(/fail/i);
+  });
 
-    const groupLabel = group.querySelector(
-      ".chat-tool-head > .chat-tool-label",
-    )!;
+  it("still records the failure inside the expansion", () => {
+    // The audit trail is intact for anyone who opens the card; it simply stops
+    // shouting at people who did not ask.
+    const { container } = render(
+      <ToolGroup tools={[retrieveComplete, retrieveFailed]} />,
+    );
+    fireEvent.click(container.querySelector(".chat-tool-head") as HTMLElement);
+
+    const failedRows = container.querySelectorAll(
+      ".chat-tool-group-body .chat-tool.is-failed",
+    );
     expect(
-      groupLabel.matches(selector),
-      "the group's own summary label keeps the danger tint",
-    ).toBe(true);
-
-    const childLabels = [
-      ...container.querySelectorAll(".chat-tool-group-body .chat-tool-label"),
-    ];
-    expect(childLabels.length).toBeGreaterThan(0);
-    for (const label of childLabels) {
-      const row = label.closest(".chat-tool")!;
-      if (row.classList.contains("is-failed")) continue;
-      expect(
-        label.matches(selector),
-        "a SUCCESSFUL child row's label must carry no danger colour",
-      ).toBe(false);
-    }
+      failedRows,
+      "the failed call must still be visible once expanded",
+    ).toHaveLength(1);
+    expect(
+      container.querySelectorAll(".chat-tool-group-body .chat-tool"),
+    ).toHaveLength(2);
   });
 });
