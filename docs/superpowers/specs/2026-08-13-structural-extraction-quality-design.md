@@ -2,11 +2,62 @@
 
 **Date:** 2026-08-13
 **Decisions:** X1–X9, X11, X12 (X10 withdrawn)
-**Status:** proposed — revision 3, 2026-08-13. **All prerequisite measurements
-are RUN and no blocker survives them** (results near the top). A chunker
+**Status:** SHIPPED and accepted 2026-08-16 — see the amendment directly below
+before acting on anything in this document. Revision 3, 2026-08-13: all
+prerequisite measurements RUN, no blocker surviving. A chunker
 heading-inheritance defect found by reading the winning chunks was held as a
 blocker for one hour, then measured at 8 wrong passages in 80,854 and
 reclassified as a follow-up.
+
+---
+
+## 🔴 AMENDMENT 2026-08-16 — two claims below are WRONG. Read this first.
+
+Both were true when written. Executing this spec falsified the first, and
+attempting the follow-up falsified the second.
+
+**1. "8 wrong passages in 80,854 … it is small … does NOT block this spec"
+is now 151 passages in 83,197, and THIS SPEC'S OWN X4 DECISION CAUSED THE
+INCREASE.** The 2026-08-13 measurement was taken while `agao-afr-fy2024` was
+read by OpenDataLoader, which emits no heading for its schedule pages and so
+contributed zero. X4's acceptance run (2026-08-16) switched that document to
+MinerU as designed — removing 117 unlabelled passages and creating **122
+wrongly-labelled ones**, every one claiming "(expressed in thousands)" over
+whole-dollar figures. One document raised the defect class ~15×.
+
+The reasoning in this spec was sound on the evidence it had. What it could not
+see is that the follow-up's severity was **coupled to the decision being
+approved** — the fix makes a document's passages labelled, and labelled is
+what makes a wrong label possible. **Any future spec deferring a defect should
+ask whether its own change alters that defect's rate**, which is the general
+lesson and is not recorded anywhere else.
+
+**2. "Fix it … in `chunking/readers/mineru_reader.py::_build_outline`, which
+files every block under the most recent heading with no distance limit" NAMES
+THE WRONG FUNCTION.** That instruction was followed on 2026-08-16, a bounded
+version of `_build_outline` was built, calibrated and shipped (`eccfbdc`), and
+it changed **ZERO chunks** — verified by running the real chunker over 40
+documents with and without it, byte-identical output. Reverted in `1292030`.
+
+`_build_outline` does not decide a chunk's `section_path`. For table chunks —
+nearly all of an AFR or a Governor's budget —
+`chunking/builders/table_chunk.py::_resolve_section_path` picks the path by
+**TEXT SEARCH** (`doc.outline_path(q)` over the table's own cell text), and
+falls back to its own separate nearest-preceding-heading walk. Neither
+consults the outline's positional inheritance, so bounding it is unobservable.
+
+**The real defect is the text search's total absence of a locality
+requirement.** A table on page 177 of `agao-afr-fy2023` binds to a heading on
+page 3 because one cell string matches — which is why 166 of that document's
+198 passages sit under "Note 3. — Description of Selected Columns", and
+**1,092 of 1,577 passages in `governor-governors-budget-fy2026` are filed
+under "Table of Contents"**, spanning pages 2–643 and including real program
+tables. Distance-based reasoning cannot reach any of that.
+
+**Before writing a fix, run `chunk_doc` end-to-end** over cached extractor
+output (`<data_dir>/extractor-output/<doc_id>/`) and diff the section paths.
+It is free, offline, ~60 seconds, and it is the step whose absence cost a day.
+Full record in STATUS.md → "Heading inheritance — the bound was INERT".
 
 ## What this amends
 
@@ -848,6 +899,14 @@ healthy or good" already demands — this is the concrete example proving that
 rule was not decorative.
 
 **Risk 2c — the heading-inheritance defect: MEASURED, small, NOT a blocker.**
+
+> 🔴 **BOTH HALVES OF THIS PARAGRAPH ARE WRONG — see the amendment at the top
+> of this document (2026-08-16).** The count became 151 in 83,197 *because of
+> X4*, and `_build_outline` is not the function to fix: a bounded version of
+> it was built and shipped and changed zero chunks. The real site is
+> `chunking/builders/table_chunk.py::_resolve_section_path`. Kept below as the
+> record of what was believed at approval time.
+
 8 wrong passages in 80,854, across 2 documents, live for months. X4 adds the
 same shape to one more. Fix it as a follow-up in
 `chunking/readers/mineru_reader.py::_build_outline`, which files every block

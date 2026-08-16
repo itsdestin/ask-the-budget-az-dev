@@ -822,7 +822,198 @@ backlog. Earlier years of agency budget requests are NOT harvested and live on
 78 separate agency websites with no shared URL convention — a research project,
 not a crawl.
 
+## ✅ Structural extraction — acceptance run DONE, and it found a real defect (2026-08-16)
+
+The acceptance step of the structural-extraction work (plan Task 8). Merges
+`c7db891` (the feature), `6bae076` (admin visibility), `639f0cf` (this run),
+`eccfbdc` (the defect it found). **The corpus changed**: `agao-afr-fy2024` is
+re-minted and now reads with `mineru`. Restore point:
+`backups/lancedb-20260816T121040Z.zip` (2.0 GB, taken automatically seconds
+before the write); the previous reading's extractor output is still cached
+under `extractor-output/agao-afr-fy2024/`.
+
+**All five predictions confirmed, from the job record:**
+
+| rung | coverage | unlabelled | outcome |
+|---|---|---|---|
+| `opendataloader` | 0.4903 | **0.3063** | trips the ceiling — ladder continues |
+| `mineru` | 0.4477 | **0.0000** | **kept** |
+| `mineru-ocr` | — | — | **never ran** (X12: text layer present, a rung had passed) |
+
+MinerU is inside X3's comparability band (0.4477 ≥ 0.75 × 0.4903 = 0.3677) and
+wins on structure. The swap renders on the admin page with both numbers; the
+new "in search, but badly read" panel correctly shows nothing, because the kept
+reading scores 0.00%.
+
+**Content — the actual gate, since the count is not:**
+
+| | before | after |
+|---|---|---|
+| bare digit-run passages | 117 | **0** |
+| table chunks | 1 | **422** |
+| chunks with any heading | few | **450 of 450** |
+| chunk characters | 565,478 | 516,399 |
+
+Page 9 was a heading-less run of digits and now reads *"DEPARTMENT OF
+ADMINISTRATION / ADDITIONAL GILA WORKFORCE DEVELOPMENT AID … 200,000"* — an
+agency, an appropriation name and an amount. Page 10's figures now sit under
+their real column headers (NET APPROPRIATIONS / EXPENDITURES / LAPSED
+APPROPRIATION AUTHORITY).
+
+**Retrieval unmoved, against a CONTROL not a remembered baseline**
+(`eval/results/2026-08-16T1122Z-9c9f8d6`, same branch and same 47-query set,
+run one hour earlier on the pre-change corpus): recall@5 85.71% (=), @15
+97.62% (=), @20 100% (=), refusal 60% (=). **0 of 47 queries changed status**;
+one moved rank 1 → 2. Gate G1 passes.
+
+### 🔴 What it found: the reading swap CREATED 121 wrongly-labelled passages
+
+**This is why "read the kept chunks" is the gate and the count is not.**
+Switching the document to MinerU removed 117 *unlabelled* passages and created
+121 *wrongly-labelled* ones — 27% of the document claiming "(expressed in
+thousands)" over whole-dollar figures, **a 1,000× error on citable numbers**,
+inherited from a heading four pages earlier belonging to a different statement.
+
+`ingest/structure.py`'s docstring already warned about exactly this
+counterexample. **What was new is the SCALE.** The corpus-wide measurement on
+2026-08-13 found 8 such passages in 80,854 and the defect was downgraded to a
+follow-up on that basis — but that measurement was taken while this document
+was read by OpenDataLoader, which emits no heading at all for those pages and
+so contributed **zero**. One document raised that defect class ~15×.
+
+**NOT fixed.** `eccfbdc` attempted it and was reverted (`1292030`) after being
+measured as inert — see the next section. The real cause is
+`_resolve_section_path`'s text search, and no fix is designed yet.
+
+### Still open from this run
+
+- **The 8 documents holding a >20-page heading run are still wrong in the
+  corpus.** Re-processing them buys NOTHING until the `_resolve_section_path`
+  fix lands — that was measured, see the next section. The list, for when it
+  does:
+  `agao-afr-fy{2021,2022,2023,2024,2025}`,
+  `governor-governors-budget-fy{2026,2027}`, `jlbc-baseline-fy2027-s58`.
+  **`agao-afr-fy2025` is pinned by SIX eval ground-truth chunk ids and nothing
+  re-binds them** (`eval/refresh_chunk_ids.py` was deleted) — re-process it
+  only with a plan for those.
+- **A live document written OVER the structure ceiling is now visible** (the
+  admin panel shipped in `6bae076`), but its silence means "nothing ingested
+  since the measure shipped scored badly", NOT "the corpus is clean" — every
+  document ingested earlier carries no measurement and can never appear there.
+  `scripts/structure_scan.py` is what audits those.
+- **`STRUCTURE_TIE_BAND` tension, unresolved and hypothetical on this corpus:**
+  a ~100%-bare reading can still beat a materially cleaner one that falls
+  outside the 0.75 size band. Deliberately NOT fixed — adding a second
+  uncalibrated threshold against a failure never observed is how this gets
+  fragile. Wait for a real example.
+- `settings.json` on the dev corpus had `admin_username: "desti"`, a typo that
+  locked the admin page. Fixed in place 2026-08-16 (backup beside it).
+
+---
+
+## 🔴 Heading inheritance — the bound was INERT and was REVERTED (2026-08-16)
+
+Merge `eccfbdc`, reverted by `1292030` the same day. **Kept as the record of
+how the mistake happened, because it is the exact failure this repo's own
+rules warn about.**
+
+The fix bounded `_build_outline`'s positional heading inheritance to 5 pages,
+calibrated across a measured distribution of 48,382 heading runs. It had
+**ZERO effect on a single chunk in the corpus** — verified by running the
+actual chunker over 40 documents with and without it: section paths
+byte-identical.
+
+**Why it did nothing.** `_build_outline` is not what decides a chunk's
+`section_path`. For table chunks — nearly all of an AFR or a Governor's
+budget — `chunking/builders/table_chunk.py::_resolve_section_path` picks the
+path by **TEXT SEARCH** (`doc.outline_path(q)` over the table's own cell
+text), falling back to its own separate nearest-preceding-heading walk.
+Neither consults the outline's positional inheritance.
+
+**So the real cause of the mislabelling is the text search, not distance.**
+A table on page 177 of `agao-afr-fy2023` binds to a heading on page 3 because
+one of its cells matches text in that heading's section. That is why 166 of
+that document's 198 chunks (84%) sit under "Note 3. — Description of Selected
+Columns", and **why re-processing those documents would have fixed nothing.**
+
+**How the error happened.** Every measurement behind the bound was taken
+against `OutlineNode.body_blocks` — the MECHANISM — and treated as a proxy
+for what chunks receive. The 53 → 27 → 5 curve that picked the bound is a
+true measurement of a quantity nothing downstream reads. The chunker was
+never run end-to-end until afterwards.
+
+**"Assert behaviour, not mechanism."** Twelve specs passed, five of six
+mutations were caught, and the whole thing verified a function no chunk
+depends on. **Mutation testing proves a test observes the CODE; it cannot
+prove the CODE observes anything.** The missing step was one end-to-end run
+of `chunk_doc` against cached extractor output — free, offline, and about
+sixty seconds.
+
+### 📏 The measurement, kept — it was gathered for the wrong fix and fits the right one
+
+Recorded here because it otherwise survives only inside a REVERTED commit
+(`git show eccfbdc`), findable only by someone who already knows to look.
+It cost real time, and whoever adds a locality rule to
+`_resolve_section_path` needs exactly this: what section lengths are NORMAL.
+
+**Contiguous heading runs across the live 97,358-chunk corpus — 48,382 runs**
+(a run = consecutive pages carrying the same leaf heading; keyed on runs, not
+min-to-max span, because a heading recurring in a table of contents AND its
+own section is recurrence, not travel, and conflating them inflates the tail):
+
+| run length | share |
+|---|---|
+| 1 page | **86.5%** |
+| 2 pages | 8.3% |
+| 3–5 | 4.3% |
+| 6–20 | 0.8% |
+| 21–50 | 12 runs |
+| 51+ | 12 runs |
+
+**Every one of the 24 runs longer than 20 pages was READ, and every one is
+wrong** — "Table of Contents" governing **408 consecutive pages** of the
+FY2027 Governor's budget, "Note 3. — Description of Selected Columns"
+governing 27–49 pages of five separate AFRs, and a garbled fused fragment
+(`OTAL OTHER FUND EXPENDITURES: \$15,208,607,391FY24 TOTAL…`) governing 65.
+
+**A 14-run sample of the 6–20 band is all legitimate** — "Capital Projects",
+"Red Imported Fire Ant Control", "CROSSWALK OF GENERAL APPROPRIATION ACT TO
+…". So the boundary between right and wrong sits between 20 and 21 pages on
+this corpus, and anything at or under 5 pages is unambiguously normal.
+
+**Caveat that makes it usable rather than misleading:** these are *observed*
+run lengths in the CURRENT corpus, which is the output of the buggy text
+search — not ground truth about how long real sections are. A long run here
+means "the current rule assigned this heading to that many pages", which is
+precisely the thing being fixed. Use it to calibrate what is normal, never to
+validate the fix; validate that by running `chunk_doc` end-to-end and reading
+the result.
+
+### What is still true, and still open
+
+- **The mislabelling itself is real and large.** 166 of 198 chunks in
+  `agao-afr-fy2023`; **1,092 of 1,577 in `governor-governors-budget-fy2026`
+  are filed under "Table of Contents"**, spanning pages 2–643, including real
+  program tables (Adult Probation Services $35,884.7, etc.).
+- **`agao-afr-fy2024`'s 1,000× units error is real** and is NOT fixed: 122 of
+  its 450 chunks claim "(expressed in thousands)" over whole-dollar figures.
+- **The fix belongs in `_resolve_section_path`**, and it is not yet designed.
+  The text-search rule binds a table to any outline node containing one of
+  its cell strings, with no locality requirement at all.
+- **Re-processing the 8 documents buys nothing until that lands.** The
+  earlier "1,799 pages fixed" estimate in this file's history was derived
+  from the same mechanism-proxy and is withdrawn.
+
+---
+
 ## 🔴 FY2024 AFR ingested but effectively EMPTY (2026-08-01)
+
+> **⬛ SUPERSEDED 2026-08-16.** The 20-passage state described below is long
+> gone — the document was re-ingested 2026-08-13 (388 passages, OpenDataLoader)
+> and re-read 2026-08-16 (450 passages, MinerU, 0% bare). Kept as the record of
+> the failure that motivated both the coverage floor and the structure measure.
+> The open decisions at the bottom are all now DECIDED: it was re-routed to
+> MinerU by the ladder, automatically, on the evidence.
 
 **Found immediately after ingest, by comparing passage counts.** All four AFRs
 report `live`; three are fine and one is not:

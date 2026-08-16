@@ -226,6 +226,18 @@ class MinerUReader:
     def _build_outline(self, pages: list[Page]) -> list[OutlineNode]:
         """Stack-based outline construction. Same algorithm as ODL reader —
         but MinerU heading levels start at 1 and are used directly.
+        
+        THIS DOES NOT DECIDE A CHUNK'S `section_path`, and assuming it does
+        cost a day on 2026-08-16. Table chunks -- nearly all of an AFR or a
+        Governor's budget -- get their path from
+        `chunking/builders/table_chunk.py::_resolve_section_path`, which
+        searches the outline by TEXT (`outline_path`) over the table's own
+        cell strings and otherwise walks its own separate
+        nearest-preceding-heading stack. A bounded version of the walk below
+        was built, calibrated and shipped to fix mislabelled headings; it
+        changed ZERO chunks across 40 documents and was reverted (`1292030`).
+        Whatever you are about to change here, run `chunk_doc` end-to-end
+        over cached extractor output and diff the section paths first.
         """
         roots: list[OutlineNode] = []
         stack: list[OutlineNode] = []
