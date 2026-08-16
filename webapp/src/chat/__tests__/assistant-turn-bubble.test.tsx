@@ -121,7 +121,7 @@ describe("AssistantTurnBubble — tool blocks", () => {
     expect(html).not.toContain("Cite claim");
     // The load-bearing check: a suppressed `cite` block never reaches
     // ToolGroup, so its collapsed header never carries the past-tense action
-    // label "Cited" (tool-display.ts's ACTION_LABEL_DONE["cite"]). Under the
+    // label "Cited" (tool-display.ts's PAST_ACTION["cite"]). Under the
     // same mutation above, this assertion goes red — proven by running it.
     expect(html).not.toContain("Cited");
     // Task 5 removed the bare-ToolCard special case for a lone tool call, so
