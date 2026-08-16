@@ -112,7 +112,18 @@ describe("AssistantTurnBubble — tool blocks", () => {
         })}
       />,
     );
+    // "Cite claim" is ToolCard's label and only renders inside an OPENED
+    // expansion (see the comment below) — renderToString here renders the
+    // card closed, so this assertion is true whether or not cite suppression
+    // works at all. Verified by mutation: with `!isCiteToolBlock(block)`
+    // changed to `true` in AssistantTurnBubble.tsx, this line stayed green.
+    // Kept anyway because it is still a correct (if inert) statement.
     expect(html).not.toContain("Cite claim");
+    // The load-bearing check: a suppressed `cite` block never reaches
+    // ToolGroup, so its collapsed header never carries the past-tense action
+    // label "Cited" (tool-display.ts's ACTION_LABEL_DONE["cite"]). Under the
+    // same mutation above, this assertion goes red — proven by running it.
+    expect(html).not.toContain("Cited");
     // Task 5 removed the bare-ToolCard special case for a lone tool call, so
     // a single retrieve now renders through ToolGroup's collapsed header —
     // action label + the call's own summary — rather than ToolCard's
