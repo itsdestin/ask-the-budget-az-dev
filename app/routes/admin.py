@@ -22,6 +22,7 @@ from __future__ import annotations
 import json
 import re
 import sys
+import threading
 from dataclasses import replace
 from datetime import datetime, timezone
 from pathlib import Path
@@ -805,6 +806,84 @@ def get_corpus(_settings: Settings = Depends(require_admin)) -> dict:
 
 
 # ---------------------------------------------------------------------------
+# Identity findings (spec I15) — eval/identity_check.py's report, read the
+# same mtime-cached-degrade-to-empty way store/office_aliases.py reads its
+# JSON file on the data dir. NOT the notices.json shape: notices is an
+# append-only JSONL log with its own reader in harness/notices.py; this is
+# one whole-file JSON object rewritten wholesale by a batch script, so the
+# office_aliases.py pattern is the closer model.
+# ---------------------------------------------------------------------------
+
+IDENTITY_REPORT_FILE = "identity-report.json"
+
+_identity_lock = threading.Lock()
+# (path_str, mtime_ns, size) -> parsed dict. One entry — there is one file.
+_identity_cache: tuple[tuple[str, int, int], dict] | None = None
+
+
+def identity_report_path() -> Path:
+    return data_dir() / IDENTITY_REPORT_FILE
+
+
+def _load_identity_report() -> dict:
+    """The last `eval.identity_check` run, or {}. NEVER raises — a fresh
+    install has never run the check, and a corrupt file must not blank the
+    whole Needs-attention panel over an unrelated batch job's output."""
+    global _identity_cache
+    path = identity_report_path()
+    try:
+        stat = path.stat()
+        stamp = (str(path), stat.st_mtime_ns, stat.st_size)
+    except OSError:
+        # Missing is the ordinary case (nobody has run the check yet); any
+        # other OSError (share offline, permissions) degrades the same way
+        # — this route already has its own "couldn't read..." fallback
+        # sentence above for the jobs half of the page, and duplicating
+        # that machinery here for one more file would just be two places
+        # that can say the same thing differently.
+        return {}
+    with _identity_lock:
+        if _identity_cache is not None and _identity_cache[0] == stamp:
+            return _identity_cache[1]
+    try:
+        raw = json.loads(path.read_text(encoding="utf-8"))
+        if not isinstance(raw, dict):
+            raise ValueError(f"expected an object, got {type(raw).__name__}")
+    except (OSError, ValueError) as err:
+        print(
+            f"app.routes.admin: ignoring {path} ({err}) — identity findings "
+            "are unavailable for this read.",
+            file=sys.stderr,
+        )
+        return {}
+    with _identity_lock:
+        _identity_cache = (stamp, raw)
+    return raw
+
+
+def _identity_block() -> dict:
+    """`{"findings": int, "report_path": str, "generated_at": str | None}`
+    (spec I15's produced shape). `findings` counts the LIST, not any of the
+    report's per-kind integer totals — those overlap (one document can
+    trip more than one metric) and would double-count against the number
+    of rows the panel actually renders."""
+    report = _load_identity_report()
+    findings = report.get("findings")
+    path = identity_report_path()
+    try:
+        generated_at = datetime.fromtimestamp(
+            path.stat().st_mtime, tz=timezone.utc
+        ).isoformat()
+    except OSError:
+        generated_at = None
+    return {
+        "findings": len(findings) if isinstance(findings, list) else 0,
+        "report_path": str(path),
+        "generated_at": generated_at,
+    }
+
+
+# ---------------------------------------------------------------------------
 # Needs attention (Plan B Task 7) — documents held out of search
 # ---------------------------------------------------------------------------
 
@@ -1031,6 +1110,7 @@ def get_attention(_settings: Settings = Depends(require_admin)) -> dict:
         "swapped": swapped,
         "degraded": degraded,
         "error": error,
+        "identity": _identity_block(),
     }
 
 

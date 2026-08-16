@@ -130,6 +130,11 @@ from ingest.validate import validate_doc
 from store.backup import snapshot
 from store.chunk_store import ChunkStore
 from store.config import data_dir
+# Kept import-light on purpose (same reasoning as harness/office_guidance.py):
+# identity/validator.py is stdlib-only regex, so pulling in `validate_name`
+# costs nothing here and does not drag identity/compose.py's catalog
+# dependencies into the ingest hot path.
+from identity.validator import validate_name
 
 # corpus name (API contract) → LanceDB table
 CORPUS_TABLES = {"budget": "budget_chunks", "fiscal_notes": "fiscal_note_chunks"}
@@ -1298,6 +1303,7 @@ def _write(
         # Findings never fail the job — a partly-stamped document is degraded,
         # not wrong, and refusing it would leave the analyst with nothing.
         job.warnings = validate_doc(ctx.store, CORPUS_TABLES[job.corpus], job.doc_id)
+        _note_bad_supplied_title(job)
         _progress(job, "writing", pct=90, detail="")
 
 
@@ -1516,6 +1522,15 @@ class IngestWorker:
         self._batch = batch
         self._stop = threading.Event()
         self._threads: list[threading.Thread] = []
+        # Debounce for the identity-consistency check (spec I14): set True
+        # whenever ANY worker thread claims a job, cleared by whichever
+        # thread next finds the queue empty and runs the check. Guarded by
+        # its own lock rather than `_ctx_lock` (which the check-running call
+        # must NOT hold — it can take real time against a real corpus, and
+        # holding `_ctx_lock` across it would block every worker thread from
+        # building its own WorkerContext).
+        self._identity_lock = threading.Lock()
+        self._queue_had_work = False
 
     @property
     def context(self) -> WorkerContext:
@@ -1627,11 +1642,21 @@ class IngestWorker:
                 claimed = None
 
             if claimed is None:
+                # The queue looks empty from here — the point Task 9 (I14)
+                # calls "the end of the ingest queue". `_maybe_check_identity`
+                # only actually runs the instrument the FIRST time this fires
+                # since a job last ran; without that, `poll_interval_s` (as
+                # low as 10ms in tests, a few seconds in production) would
+                # make this the loop's dominant cost while the office sits
+                # idle, which most installs do most of the time.
+                self._maybe_check_identity()
                 if self._stop.wait(self._poll_interval_s):
                     return
                 continue
 
             job, claim = claimed
+            with self._identity_lock:
+                self._queue_had_work = True
             mates: list[tuple[JobRecord, JobClaim]] = []
             try:
                 # Empty whenever batching is off, so the default install never
@@ -1649,6 +1674,40 @@ class IngestWorker:
                 claim.release()
                 for _mate, mate_claim in mates:
                     mate_claim.release()
+
+    def _maybe_check_identity(self) -> None:
+        """Run the identity-consistency check once, the first time the queue
+        is found empty after having had work — never on an install that has
+        been idle the whole time, and never a second time in a row while it
+        stays idle.
+
+        Imports `identity.check`, NOT `eval.identity_check` — this method
+        ships in the Windows bundle and `eval/` does not
+        (`packaging/build_bundle.py` excludes it), so importing the eval
+        module here resolved fine in dev and raised `ModuleNotFoundError` on
+        every real install, silently, because the except below swallows it.
+        See `identity/check.py`'s module docstring for the full reasoning.
+
+        I14 is a DETECTION instrument, not a gate: it must never be able to
+        fail an ingest, so the whole call is swallowed. A crash here would
+        otherwise take down every worker thread's polling loop over a
+        problem in a completely separate, offline measurement script.
+        """
+        with self._identity_lock:
+            if not self._queue_had_work:
+                return
+            self._queue_had_work = False
+        try:
+            from identity.check import write_report as _identity_write_report
+
+            _identity_write_report()
+        except Exception as err:  # noqa: BLE001 — see docstring
+            print(
+                f"ingest.worker: the identity-consistency check didn't run "
+                f"({err}) — Needs attention will keep showing its last "
+                "successful result, if any.",
+                file=sys.stderr,
+            )
 
     def _claim_next(self) -> tuple[JobRecord, JobClaim] | None:
         """Take exclusive ownership of the next job this worker should run.
@@ -2017,6 +2076,49 @@ def _copy_source_to_share(job: JobRecord) -> str | None:
         target.parent.mkdir(parents=True, exist_ok=True)
         shutil.copy2(source, target)
     return target.relative_to(data_dir()).as_posix()
+
+
+def _note_bad_supplied_title(job: JobRecord) -> None:
+    """Spec I4: a bad SUPPLIED title is advisory, never blocking.
+
+    `build_title` (deliberately untouched by this task — see
+    docs/superpowers/plans/2026-08-16-corpus-identity-consistency-units-a-b.md)
+    still gives a typed title the win verbatim, and the document still
+    goes `live` with whatever the uploader typed. This only makes a
+    dubious one VISIBLE on the queue page — the same `job.warnings` field
+    `ingest/validate.py`'s "only NN% agency-stamped" line already uses —
+    so an admin sees it without opening every document.
+
+    The alternative — holding the document until the name is fixed — is
+    exactly the FY2024 AFR failure (STATUS.md): a held document looks
+    identical to a missing one, and nobody noticed for weeks. A name that
+    reads as slightly wrong is a much smaller harm than a document that
+    silently isn't there.
+
+    Never raises: a broken check on the way in must not cost the analyst
+    the document, which is the same posture `validate_doc` above already
+    takes.
+    """
+    title = (job.user_title or "").strip()
+    if not title:
+        return
+    try:
+        verdict = validate_name(title)
+    except Exception as err:  # noqa: BLE001 — see docstring
+        print(
+            f"ingest.worker: identity check on the supplied title for "
+            f"{job.doc_id} failed ({err}) — no advisory note was added.",
+            file=sys.stderr,
+        )
+        return
+    if verdict.ok:
+        return
+    job.warnings = [
+        *job.warnings,
+        f"The title typed for this document looked wrong "
+        f"({verdict.reason}); the document's own name will be shown "
+        "in its place.",
+    ]
 
 
 def _agency_name_for_title(

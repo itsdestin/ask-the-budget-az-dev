@@ -792,3 +792,44 @@ def test_the_route_is_admin_gated(client, monkeypatch):
     r = fresh.get("/api/admin/attention")
 
     assert r.status_code == 403
+
+
+# ---------------------------------------------------------------------------
+# Identity findings (spec I15) — a flag nobody sees is the same failure as a
+# held document nobody notices.
+# ---------------------------------------------------------------------------
+
+
+def test_identity_findings_appear_in_needs_attention(tmp_path, monkeypatch):
+    """Spec I15 — a flag nobody sees is the FY2024-AFR failure again: a held
+    document looks exactly like a missing one, and so does an unread flag."""
+    import json
+
+    monkeypatch.setenv("JLBC_DATA_DIR", str(tmp_path))
+    (tmp_path / "identity-report.json").write_text(json.dumps({
+        "title_names_wrong_agency": 2,
+        "findings": [
+            {"doc_id": "jlbc-approps-fy2005-bar", "kind": "title-wrong-agency"},
+            {"doc_id": "jlbc-approps-fy2027-ost", "kind": "invalid-name"},
+        ],
+    }), encoding="utf-8")
+
+    from fastapi.testclient import TestClient
+    from app.main import create_app
+
+    with TestClient(create_app(ingest_worker=None)) as client:
+        body = client.get("/api/admin/attention").json()
+    assert body["identity"]["findings"] == 2
+
+
+def test_a_missing_identity_report_is_not_an_error(tmp_path, monkeypatch):
+    """A fresh install has never run the check. Absence reports zero, it does
+    not 500 the whole Needs-attention group."""
+    monkeypatch.setenv("JLBC_DATA_DIR", str(tmp_path))
+    from fastapi.testclient import TestClient
+    from app.main import create_app
+
+    with TestClient(create_app(ingest_worker=None)) as client:
+        r = client.get("/api/admin/attention")
+    assert r.status_code == 200
+    assert r.json()["identity"]["findings"] == 0
