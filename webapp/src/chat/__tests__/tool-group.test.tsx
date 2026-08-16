@@ -33,11 +33,6 @@ const listFiltersComplete = block({
   toolName: "list_filter_values",
   input: { field: "agency" },
 });
-const retrieveRunning = block({
-  toolUseId: "t4",
-  toolName: "retrieve",
-  status: "running",
-});
 const retrieveFailed = block({
   toolUseId: "t5",
   toolName: "retrieve",
@@ -45,29 +40,61 @@ const retrieveFailed = block({
 });
 
 describe("ToolGroup", () => {
-  it("coalesces names and states into one summary row", () => {
+  it("coalesces a multi-call run into one past-tense summary row", () => {
     render(
       <ToolGroup
         tools={[retrieveComplete, retrieveComplete2, listFiltersComplete]}
       />,
     );
-    const head = screen.getByRole("button", { name: /3 tool calls/ });
-    expect(head).toHaveTextContent("Search corpus ×2, Browse filters");
-    expect(head).toHaveTextContent("all complete");
+    const head = screen.getByRole("button", {
+      name: /Searched ×2, browsed filters/,
+    });
+    expect(head).toHaveTextContent("Searched ×2, browsed filters");
   });
 
-  it("reports running and failed counts while in flight", () => {
-    render(<ToolGroup tools={[retrieveRunning, retrieveFailed]} />);
-    const head = screen.getByRole("button", { name: /2 tool calls/ });
-    expect(head).toHaveTextContent("1 failed");
+  it("renders a run of ONE, carrying that call's own summary", () => {
+    render(<ToolGroup tools={[retrieveComplete]} />);
+    const head = screen.getByRole("button", { name: /Searched/ });
+    expect(head).toHaveTextContent("Searched");
+    // The query is the single most useful thing on the row and the bare
+    // ToolCard this replaced showed it. Losing it would be a regression.
+    expect(head).toHaveTextContent("Aviation Fund");
   });
 
-  it("expands to inset child rows", () => {
+  it("expands a run of ONE straight to that call's body — one click, not two", () => {
+    // The bare ToolCard this replaced opened its body on a single click.
+    // Wrapping the sole call in a child row would silently make every source
+    // check a two-click operation, and every count-based assertion would
+    // still pass.
+    const { container } = render(<ToolGroup tools={[retrieveComplete]} />);
+    fireEvent.click(screen.getByRole("button", { name: /Searched/ }));
+    expect(container.querySelector(".chat-tool-body")).not.toBeNull();
+    expect(container.querySelectorAll(".chat-tool.is-inset")).toHaveLength(0);
+  });
+
+  it("expands a multi-call run to inset child rows", () => {
     const { container } = render(
       <ToolGroup tools={[retrieveComplete, listFiltersComplete]} />,
     );
-    fireEvent.click(screen.getByRole("button", { name: /2 tool calls/ }));
+    fireEvent.click(
+      screen.getByRole("button", { name: /Searched, browsed filters/ }),
+    );
     expect(container.querySelectorAll(".chat-tool.is-inset")).toHaveLength(2);
+  });
+
+  it("puts every expansion inside one capped container", () => {
+    // TC8's cap is a single CSS rule on this element. If a future edit renders
+    // the body outside it, the cap silently stops applying and a 15-passage
+    // expansion buries the answer again.
+    const { container } = render(
+      <ToolGroup tools={[retrieveComplete, listFiltersComplete]} />,
+    );
+    fireEvent.click(
+      screen.getByRole("button", { name: /Searched, browsed filters/ }),
+    );
+    const expansion = container.querySelector(".chat-tool-group-expansion")!;
+    expect(expansion, "the expansion must have its capped wrapper").not.toBeNull();
+    expect(expansion.querySelector(".chat-tool-group-body")).not.toBeNull();
   });
 });
 
