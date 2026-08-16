@@ -424,20 +424,19 @@ describe("chat CSS containment contract", () => {
   });
 
   // ------------------------------------------------------------------
-  // FINAL REVIEW — IMPORTANT 3. `.chat-tool-group.is-failed .chat-tool-label`
-  // was a DESCENDANT selector, so expanding a group in which one call failed
-  // painted the labels of its SUCCESSFUL children red too. That is the mirror
-  // image of the failed-citation-hover bug fixed above (there: failure dressed
-  // as success; here: success dressed as failure) and it misinforms the
-  // analyst about WHICH call actually failed. The group header keeps the
-  // summary tint; each child row's own `.chat-tool.is-failed` rule is left to
-  // speak for itself. Child combinator, so it can never reach into the body.
-  it("the failed-group tint stops at the group's own header row", () => {
-    expect(bare).not.toMatch(
-      /\.chat-tool-group\.is-failed\s+\.chat-tool-label\s*\{/,
-    );
+  // 2026-08-16 — TC9. This REPLACES a pin that required the failed-group tint
+  // to exist and be scoped with a child combinator. There is no group-level
+  // failure tint any more, so the defect that pin guarded — a descendant
+  // selector reddening a successful child's label — is now structurally
+  // impossible rather than merely tested for.
+  //
+  // The second assertion is what keeps this non-vacuous: the CHILD row's own
+  // failed treatment must survive, or "no red on the card" would be satisfied
+  // by a stylesheet that had stopped marking failures anywhere at all.
+  it("the card header never carries a failure tint in any state", () => {
+    expect(bare).not.toMatch(/\.chat-tool-group\.is-failed/);
     expect(bare).toMatch(
-      /\.chat-tool-group\.is-failed\s*>\s*\.chat-tool-head[^{]*\{/,
+      /\.chat-tool\.is-failed\s*\{[^}]*border-color:\s*var\(--chat-danger\)/,
     );
   });
 
