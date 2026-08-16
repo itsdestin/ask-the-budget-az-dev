@@ -1,5 +1,6 @@
 import { useState } from "react";
 import * as api from "../api";
+import { extractorLabel, pct } from "./extractionDisplay";
 
 // Documents the extraction ladder could not save (Plan B Task 7 / spec T8).
 //
@@ -21,31 +22,9 @@ import * as api from "../api";
 // than one rebuilt here, so there is exactly one place in the whole system
 // that has to get that wording right.
 
-// Display names for the ladder's rungs (`ingest/ladder.py::_PDF_LADDER`).
-// A name this map doesn't know (a rung added later) falls back to the raw
-// slug rather than disappearing — an unfamiliar name beats a blank one.
-const EXTRACTOR_LABELS: Record<string, string> = {
-  opendataloader: "OpenDataLoader",
-  mineru: "MinerU",
-  "mineru-ocr": "MinerU (OCR)",
-};
-
-function extractorLabel(name: string): string {
-  return EXTRACTOR_LABELS[name] ?? name;
-}
-
-/** A coverage ratio as a percentage. Never capped at 100% — a ratio above
- *  1.0 is a real, normal reading for some document shapes (healthy AFRs
- *  score 278–286%, because their text layer undercounts against the
- *  denominator; see ingest/coverage.py) and rendering it honestly is the
- *  whole point of showing a raw measurement instead of a verdict. `null`
- *  (a rung that crashed, or whose source coverage could not be measured)
- *  reads as "not measured" — never as 0%, which would claim a worse
- *  reading than was actually taken. */
-function pct(value: number | null): string {
-  if (value === null) return "not measured";
-  return `${Math.round(value * 100)}%`;
-}
+// `extractorLabel` and `pct` moved to ./extractionDisplay when the third
+// extraction panel arrived — they were byte-identical copies here and in
+// ExtractionChanges, and a third would have made drift inevitable.
 
 export function NeedsAttention({
   documents,
@@ -103,15 +82,30 @@ export function NeedsAttention({
                 future consumer that wants the single number (e.g. sorting
                 the panel by severity) without re-deriving it. */}
 
-            {/* The agreed layout (task-7-brief.md) labels this list "Tried:"
-                so the reader knows what the name/percent pairs below it
-                are -- without it they're three bare rows with no caption. */}
-            <p className="adm-attention-tried-label">Tried:</p>
+            {/* The agreed layout (task-7-brief.md) labels this list so the
+                reader knows what the name/percent pairs below it are --
+                without a caption they're bare rows with two numbers pointing
+                in OPPOSITE directions (higher coverage is better, higher
+                unlabelled is worse) and nothing saying which is which.
+                Wording matches ExtractionChanges.tsx's identical list --
+                one caption, not two near-duplicates. */}
+            <p className="adm-attention-tried-label">
+              Tried, with how much text came out and how much of it was
+              figures with no words:
+            </p>
             <ul className="adm-attention-tried">
               {doc.attempts.map((attempt, i) => (
                 <li key={`${attempt.extractor}-${i}`}>
                   <span>{extractorLabel(attempt.extractor)}</span>
                   <span>{pct(attempt.coverage)}</span>
+                  {/* The second number is how much of what came out was
+                      figures with no words. It is shown beside coverage
+                      rather than instead of it because the two DISAGREE:
+                      the document this feature exists for read 49% on
+                      coverage and 31% bare on structure. `pct` renders an
+                      absent value as "not measured" -- job files written
+                      before this field existed have no such key. */}
+                  <span>{pct(attempt.unlabelled)}</span>
                 </li>
               ))}
             </ul>

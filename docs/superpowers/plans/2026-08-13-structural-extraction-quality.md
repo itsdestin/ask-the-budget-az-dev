@@ -1674,7 +1674,14 @@ Expected: PASS, 6 tests
 - [ ] **Step 5: Run it for real against the dev corpus**
 
 Run: `JLBC_DATA_DIR=<repo>/data/insight-data uv run python -m scripts.structure_scan`
-Expected: `documents 7,4xx`, `judgeable 2,228`, **one** document over the ceiling (`agao-afr-fy2024` at 30.63%), and a near-miss band holding only `jlbc-baseline-fy2020-531` (7.14%) and `jlbc-baseline-fy2018-545` (6.25%).
+Expected: `documents 7,4xx`, `judgeable 2,228`, **one** document over the ceiling (`agao-afr-fy2024` at 30.63%), and a near-miss band holding exactly **one** document, `jlbc-baseline-fy2018-545` (6.25%).
+
+**🔴 Corrected 2026-08-13, during execution.** An earlier draft of this step
+also expected `jlbc-baseline-fy2020-531` at 7.14%. That figure was measured at
+a letter ratio of **0.15**; the shipped ratio is **0.10**, at which the same
+document scores **0.00%**. The implementer who hit the mismatch correctly
+stopped and reported rather than adjusting the code — which is what this step's
+own instruction asks for, and the reason the instruction is there.
 If the numbers differ, **stop and report** — the corpus moved, and the constants were calibrated against the numbers above.
 
 - [ ] **Step 6: Commit**

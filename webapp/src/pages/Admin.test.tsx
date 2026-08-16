@@ -153,6 +153,8 @@ function mockAll(over: {
   snapshots?: api.Snapshot[];
   notices?: api.Notice[];
   attention?: api.AttentionDocument[];
+  swapped?: api.SwappedDocument[];
+  degraded?: api.DegradedDocument[];
   me?: Partial<api.Me>;
   aliases?: api.AdminAliases;
   guidance?: api.AdminGuidance;
@@ -168,7 +170,11 @@ function mockAll(over: {
   vi.spyOn(api, "adminModels").mockResolvedValue(over.models ?? models());
   vi.spyOn(api, "adminBackups").mockResolvedValue({ snapshots: over.snapshots ?? [] });
   vi.spyOn(api, "adminNotices").mockResolvedValue({ notices: over.notices ?? [] });
-  vi.spyOn(api, "adminAttention").mockResolvedValue({ documents: over.attention ?? [] });
+  vi.spyOn(api, "adminAttention").mockResolvedValue({
+    documents: over.attention ?? [],
+    swapped: over.swapped ?? [],
+    degraded: over.degraded ?? [],
+  });
   vi.spyOn(api, "aiStatus").mockResolvedValue(AI_STATUS);
   // The three E6 panels fetch for themselves rather than riding the page's
   // settings draft, so the page's own mock set has to cover them too —
@@ -656,6 +662,220 @@ describe("needs attention", () => {
     await waitFor(() =>
       expect(screen.queryByTestId("admin-attention-error")).toBeNull(),
     );
+  });
+});
+
+describe("extraction method changed", () => {
+  // Finding 3: the page reads `a.swapped` off the SAME `adminAttention()`
+  // response as `a.documents`, and threads it into `setSwapped`. Nothing in
+  // this file drove that field before -- `ExtractionChanges.test.tsx` only
+  // covers the component in isolation, against a fake `documents` prop, so
+  // it cannot see whether the page ever calls `setSwapped` at all.
+
+  function swap(over: Partial<api.SwappedDocument> = {}): api.SwappedDocument {
+    return {
+      job_id: "job-swap-1",
+      title: "JLBC Baseline FY2026 — AHCCCS",
+      kept: "mineru-ocr",
+      attempts: [
+        { extractor: "opendataloader", coverage: 0.02 },
+        { extractor: "mineru", coverage: 0.05 },
+        { extractor: "mineru-ocr", coverage: 0.98 },
+      ],
+      ...over,
+    };
+  }
+
+  it("renders a document the ladder saved by swapping extraction method", async () => {
+    mockAll({ swapped: [swap()] });
+    await renderAdmin();
+
+    const section = screen.getByTestId("adm-swaps");
+    expect(section).toHaveTextContent("JLBC Baseline FY2026 — AHCCCS");
+    expect(screen.getByTestId("adm-swap-kept")).toHaveTextContent("MinerU (OCR)");
+  });
+
+  it("renders nothing when nothing was swapped", async () => {
+    mockAll({ swapped: [] });
+    await renderAdmin();
+
+    expect(screen.queryByTestId("adm-swaps")).toBeNull();
+    // Pins the conditional `Group` gate too -- master's Group always paints
+    // its own heading, so wrapping it unconditionally would leave an
+    // "Extraction method changed" heading on the page every ordinary day.
+    expect(screen.queryByText("Extraction method changed")).toBeNull();
+  });
+
+  it("refreshes the swapped list after a retry, not just on initial load", async () => {
+    // `setSwapped(a.swapped ?? [])` is called from TWO places in Admin.tsx:
+    // the initial-load effect and `attentionAction`'s post-retry refetch.
+    // The existing "retrying calls the real retry endpoint..." spec above
+    // never gives its second `adminAttention()` mock a `swapped` field, so
+    // it cannot tell the two call sites apart -- deleting the second one
+    // leaves that test green. This one uses two DIFFERENT non-empty
+    // `swapped` lists so a before/after content change is the only way to
+    // pass.
+    const heldBack: api.AttentionDocument = {
+      job_id: "job-afr24",
+      title: "AGAO Annual Financial Report FY2024",
+      message: "Held out of search — only 2% of this document's text "
+        + "produced any content, after 3 extraction methods were tried.",
+      best_coverage: 0.02,
+      attempts: [{ extractor: "opendataloader", coverage: 0.02 }],
+    };
+    mockAll({ attention: [heldBack] });
+    vi.spyOn(api, "retryJob").mockResolvedValue({
+      job: {
+        job_id: "job-afr24", doc_id: "d", title: "t", corpus: "budget",
+        state: "queued", pct: 0, stage_detail: "", error: null,
+        machine: "m", user: "u", created_at: "", updated_at: "",
+      },
+    });
+    const attentionSpy = vi.spyOn(api, "adminAttention");
+    attentionSpy.mockResolvedValueOnce({
+      documents: [heldBack],
+      swapped: [swap()],
+    });
+    await renderAdmin();
+
+    expect(screen.getByTestId("adm-swaps")).toHaveTextContent(
+      "JLBC Baseline FY2026 — AHCCCS",
+    );
+    expect(screen.getByTestId("adm-swap-kept")).toHaveTextContent("MinerU (OCR)");
+
+    attentionSpy.mockResolvedValueOnce({
+      documents: [],
+      swapped: [swap({
+        job_id: "job-swap-2",
+        title: "JLBC Approps FY2025 — DES",
+        kept: "opendataloader",
+        attempts: [{ extractor: "opendataloader", coverage: 0.99 }],
+      })],
+    });
+
+    fireEvent.click(within(screen.getByTestId("admin-attention")).getByRole(
+      "button", { name: "Try again" },
+    ));
+
+    await waitFor(() =>
+      expect(screen.getByTestId("adm-swaps")).toHaveTextContent(
+        "JLBC Approps FY2025 — DES",
+      ),
+    );
+    expect(screen.getByTestId("adm-swap-kept")).toHaveTextContent("OpenDataLoader");
+    // The first response's document must be GONE, not merely joined by the
+    // second -- a stale union would still pass a "contains the new title"
+    // assertion.
+    expect(screen.queryByText("JLBC Baseline FY2026 — AHCCCS")).toBeNull();
+  });
+});
+
+describe("in search, but badly read", () => {
+  // The page reads `a.degraded` off the SAME `adminAttention()` response as
+  // `a.documents` and threads it into `setDegraded`. `PoorlyRead.test.tsx`
+  // covers the component in isolation against a fake prop, so it cannot see
+  // whether the page ever calls `setDegraded` at all — which is exactly the
+  // gap that shipped an entirely unwired panel once before on this page.
+
+  function bad(over: Partial<api.DegradedDocument> = {}): api.DegradedDocument {
+    return {
+      job_id: "job-bad-1",
+      title: "FY 2026 budget bill",
+      kept: "docx",
+      unlabelled: 0.44,
+      coverage: 0.88,
+      ...over,
+    };
+  }
+
+  it("renders a document that was saved despite reading badly", async () => {
+    mockAll({ degraded: [bad()] });
+    await renderAdmin();
+
+    expect(screen.getByTestId("adm-poorly-read")).toHaveTextContent(
+      "FY 2026 budget bill",
+    );
+  });
+
+  it("renders nothing when no document is over the ceiling", async () => {
+    mockAll({ degraded: [] });
+    await renderAdmin();
+
+    expect(screen.queryByTestId("adm-poorly-read")).toBeNull();
+  });
+
+  it("refreshes the list after a retry, not just on initial load", async () => {
+    // `setDegraded(a.degraded ?? [])` has TWO call sites — the initial-load
+    // effect and `attentionAction`'s post-retry refetch. Two DIFFERENT
+    // non-empty lists, so deleting either site fails: a before/after
+    // content change is the only way through.
+    const heldBack: api.AttentionDocument = {
+      job_id: "job-afr24",
+      title: "AGAO Annual Financial Report FY2024",
+      message: "Held out of search — only 2% of this document's text "
+        + "produced any content, after 3 extraction methods were tried.",
+      best_coverage: 0.02,
+      attempts: [{ extractor: "opendataloader", coverage: 0.02 }],
+    };
+    mockAll({ attention: [heldBack] });
+    vi.spyOn(api, "retryJob").mockResolvedValue({
+      job: {
+        job_id: "job-afr24", doc_id: "d", title: "t", corpus: "budget",
+        state: "queued", pct: 0, stage_detail: "", error: null,
+        machine: "m", user: "u", created_at: "", updated_at: "",
+      },
+    });
+    const attentionSpy = vi.spyOn(api, "adminAttention");
+    attentionSpy.mockResolvedValueOnce({
+      documents: [heldBack], swapped: [], degraded: [bad()],
+    });
+    await renderAdmin();
+
+    expect(screen.getByTestId("adm-poorly-read")).toHaveTextContent(
+      "FY 2026 budget bill",
+    );
+
+    attentionSpy.mockResolvedValueOnce({
+      documents: [], swapped: [],
+      degraded: [bad({ job_id: "job-bad-2", title: "FY 2019 Annual Financial Report" })],
+    });
+
+    fireEvent.click(within(screen.getByTestId("admin-attention")).getByRole(
+      "button", { name: "Try again" },
+    ));
+
+    await waitFor(() =>
+      expect(screen.getByTestId("adm-poorly-read")).toHaveTextContent(
+        "FY 2019 Annual Financial Report",
+      ),
+    );
+    // The first response's document must be GONE, not merely joined by the
+    // second — a stale union would still pass a "contains the new title"
+    // assertion.
+    expect(screen.queryByText("FY 2026 budget bill")).toBeNull();
+  });
+
+  it("sits inside Needs attention, below the held-out panel", async () => {
+    // Placement is a decision, not a detail: a document held OUT of search
+    // is content an analyst cannot reach at all, which outranks one they
+    // can reach but should not fully trust. And it belongs in the alert
+    // group rather than beside the swap RECORD below it.
+    const heldBack: api.AttentionDocument = {
+      job_id: "job-afr24",
+      title: "AGAO Annual Financial Report FY2024",
+      message: "Held out of search — only 2% of this document's text "
+        + "produced any content, after 3 extraction methods were tried.",
+      best_coverage: 0.02,
+      attempts: [{ extractor: "opendataloader", coverage: 0.02 }],
+    };
+    mockAll({ attention: [heldBack], degraded: [bad()] });
+    await renderAdmin();
+
+    const held = screen.getByTestId("admin-attention");
+    const poor = screen.getByTestId("adm-poorly-read");
+    expect(
+      held.compareDocumentPosition(poor) & Node.DOCUMENT_POSITION_FOLLOWING,
+    ).toBeTruthy();
   });
 });
 

@@ -61,13 +61,19 @@ describe("NeedsAttention", () => {
     ).not.toBeInTheDocument();
   });
 
-  it("labels the attempt list 'Tried:', matching the agreed layout", () => {
-    // task-7-brief.md's owner-approved sketch captions the extractor/score
-    // rows with "Tried:" -- without it they're three bare pairs with
-    // nothing on the page saying what they are.
+  it("captions the attempt list with what its two numbers mean", () => {
+    // Finding 3: a bare "Tried:" caption leaves two numbers pointing in
+    // OPPOSITE directions (higher coverage is better, higher unlabelled is
+    // worse) with nothing saying which is which. Wording matches
+    // ExtractionChanges.tsx's identical list -- one legend, not two
+    // near-duplicates.
     setup([held()]);
     const doc = screen.getByTestId("admin-attention-doc");
-    expect(within(doc).getByText("Tried:")).toBeInTheDocument();
+    expect(
+      within(doc).getByText(
+        /Tried, with how much text came out and how much of it was figures with no words:/,
+      ),
+    ).toBeInTheDocument();
   });
 
   it("lists every attempt with its score", () => {
@@ -83,18 +89,48 @@ describe("NeedsAttention", () => {
   });
 
   it("renders an unmeasured rung honestly, never as 0%", () => {
+    // `unlabelled` is set to a real number on both rows so the only "not
+    // measured" cell in the OpenDataLoader row is its coverage cell --
+    // scoping to that one row (rather than "somewhere on the page") is
+    // what makes this fail if the coverage cell itself silently started
+    // reading "0%" while some unrelated cell still said "not measured".
     setup([
       held({
         attempts: [
-          { extractor: "opendataloader", coverage: null },
-          { extractor: "mineru", coverage: 0.02 },
+          { extractor: "opendataloader", coverage: null, unlabelled: 0.05 },
+          { extractor: "mineru", coverage: 0.02, unlabelled: 0.1 },
         ],
         best_coverage: 0.02,
       }),
     ]);
     const doc = screen.getByTestId("admin-attention-doc");
-    expect(within(doc).getByText("not measured")).toBeInTheDocument();
-    expect(within(doc).queryByText("0%")).not.toBeInTheDocument();
+    const row = within(doc).getByText("OpenDataLoader").closest("li");
+    if (!row) throw new Error("no row for OpenDataLoader");
+    // cells[0] is the coverage reading (unlabelled is a separate, defined
+    // 5% and would not match this pattern anyway); asserting on the row's
+    // own cell, not on whether the phrase appears anywhere in the document.
+    const cells = within(row).getAllByText(/^(not measured|\d+%)$/);
+    expect(cells[0]).toHaveTextContent("not measured");
+  });
+
+  it("renders a measured bare-figure fraction as its own percentage", () => {
+    // Finding 1: every existing fixture in this file omits `unlabelled`, so
+    // only the undefined -> "not measured" path was ever exercised for that
+    // column. This pins the numeric path -- it fails if the unlabelled cell
+    // is hardcoded to "not measured" regardless of the real value.
+    setup([
+      held({
+        attempts: [
+          { extractor: "opendataloader", coverage: 0.49, unlabelled: 0.31 },
+        ],
+        best_coverage: 0.49,
+      }),
+    ]);
+    const doc = screen.getByTestId("admin-attention-doc");
+    const row = within(doc).getByText("OpenDataLoader").closest("li");
+    if (!row) throw new Error("no row for OpenDataLoader");
+    expect(within(row).getByText("49%")).toBeInTheDocument();
+    expect(within(row).getByText("31%")).toBeInTheDocument();
   });
 
   it("renders a coverage ratio above 100% honestly, never capped", () => {

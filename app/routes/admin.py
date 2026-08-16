@@ -62,6 +62,11 @@ from harness.settings import (
     save_settings,
 )
 from ingest.lock import IngestLock, LockHeldError
+# The route compares against the SAME constant the ladder decided with
+# (ingest/structure.py), never a copy: a panel whose threshold has drifted
+# from the pipeline's would quietly stop listing documents the pipeline
+# considers bad, which is worse than not having the panel.
+from ingest.structure import MAX_UNLABELLED
 from store.backup import (
     SNAPSHOT_PREFIX,
     SNAPSHOT_SUFFIX,
@@ -880,11 +885,131 @@ def get_attention(_settings: Settings = Depends(require_admin)) -> dict:
             "message": job.error,
             "best_coverage": max(measured) if measured else None,
             "attempts": [
-                {"extractor": a.get("extractor"), "coverage": a.get("coverage")}
+                {
+                    "extractor": a.get("extractor"),
+                    "coverage": a.get("coverage"),
+                    # Both numbers, because they DISAGREE: this whole
+                    # feature exists because one document read 49% on
+                    # coverage and 30.63% bare on structure. `.get` rather
+                    # than `[...]` — job files written before the field
+                    # existed have no such key and must not 500 the page.
+                    "unlabelled": a.get("unlabelled"),
+                }
                 for a in job.extraction_attempts
             ],
         })
-    return {"documents": documents, "error": error}
+
+    # Documents the ladder SAVED by changing extractor. Not an alert —
+    # these are successes — but a swap re-mints every chunk_id and
+    # replaces the document's text, and a change that size leaving no
+    # trace is how a corpus becomes unexplainable a year later.
+    #
+    # A job kept on its FIRST rung is not listed: nothing changed, so
+    # there is nothing to explain, and a list that fills up with ordinary
+    # uploads teaches an admin to scroll past it.
+    swapped = []
+    for job in jobs:
+        attempts = job.extraction_attempts
+        kept = job.kept_extractor
+        if job.state != "live" or not kept or len(attempts) < 2:
+            continue
+        if attempts[0].get("extractor") == kept:
+            continue
+        swapped.append({
+            "job_id": job.job_id,
+            "title": job.title,
+            "kept": kept,
+            "attempts": [
+                {
+                    "extractor": a.get("extractor"),
+                    "coverage": a.get("coverage"),
+                    "unlabelled": a.get("unlabelled"),
+                }
+                for a in attempts
+            ],
+        })
+    # `row["title"] or ""` -- a job file with a null title (this project has
+    # already shipped the "one bad file costs the whole rail" defect once:
+    # see IngestLock in STATUS.md) must not raise TypeError comparing None
+    # to str and 500 this route, blanking both the swaps and held-out panels.
+    swapped.sort(key=lambda row: row["title"] or "")
+
+    # Documents that WERE saved and are searchable right now, whose kept
+    # reading is still over the structure ceiling — the blind spot the two
+    # lists above leave between them, and the one this whole feature exists
+    # to close.
+    #
+    # `held_out` catches only documents the ladder REFUSED to write, and
+    # `swapped` catches only documents whose extractor CHANGED. A document
+    # that is bad and saved anyway satisfies neither, and there are two
+    # ordinary ways to get there:
+    #
+    #   1. A single-rung source. A DOCX has exactly one extractor, so
+    #      nothing can ever "change" and `len(attempts) < 2` drops it.
+    #      There is no second reading to swap to and no coverage failure to
+    #      hold it out — it is simply written, however it read.
+    #   2. Every rung trips the ceiling. `choose_best` still has to return
+    #      one, and it returns the LEAST bad; when that is rung 1,
+    #      `attempts[0] == kept` drops it from `swapped` too.
+    #
+    # A swapped document can ALSO be over the ceiling, and then it appears
+    # in both lists on purpose: "we changed how this was read" and "what we
+    # kept is still poor" are different facts and an admin needs both. The
+    # alternative — suppressing one — hides the more actionable of the two
+    # behind the less.
+    #
+    # `unlabelled is None` means NOT MEASURED (fewer than
+    # `MIN_JUDGED_CHUNKS` judgeable passages), never "measured and clean",
+    # so an unmeasured reading is NOT listed: this panel accuses a document
+    # of being bad and must never do that on absent evidence. The same rule
+    # is what stops every job file written before this field existed from
+    # arriving here as a false alarm on the day the feature ships.
+    degraded = []
+    for job in jobs:
+        kept = job.kept_extractor
+        if job.state != "live" or not kept:
+            continue
+        # Last match, not first. Extractor names are unique per job today
+        # (`_extract_and_chunk` keys its resume journal by name, so a second
+        # entry for one rung cannot survive a save), but if that ever stops
+        # being true the LATER record is the run that actually happened.
+        kept_attempt = None
+        for a in job.extraction_attempts:
+            if a.get("extractor") == kept:
+                kept_attempt = a
+        if kept_attempt is None:
+            continue
+        unlabelled = kept_attempt.get("unlabelled")
+        # `isinstance` rather than a bare `is None` check, because this is
+        # the route's only ARITHMETIC on job-file data: everything else here
+        # copies values straight through, so a corrupt field costs one blank
+        # cell, while `"0.4" <= 0.20` raises TypeError and 500s the request
+        # — blanking all three panels over one bad file. That exact shape
+        # has shipped in this project before (IngestLock, and the
+        # null-title sort two lists above).
+        if not isinstance(unlabelled, (int, float)):
+            continue
+        if unlabelled <= MAX_UNLABELLED:
+            continue
+        degraded.append({
+            "job_id": job.job_id,
+            "title": job.title,
+            "kept": kept,
+            "unlabelled": unlabelled,
+            "coverage": kept_attempt.get("coverage"),
+        })
+    # Worst first. Unlike the two lists above — which are chronological and
+    # alphabetical because they are a queue and a record — this one is an
+    # alert, and the document with the most unlabelled figures is the one
+    # most worth opening. Sorting by title would bury it at random.
+    degraded.sort(key=lambda row: row["unlabelled"], reverse=True)
+
+    return {
+        "documents": documents,
+        "swapped": swapped,
+        "degraded": degraded,
+        "error": error,
+    }
 
 
 # ---------------------------------------------------------------------------

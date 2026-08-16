@@ -76,8 +76,14 @@ def _write_pdf(*, text: bool) -> "object":
     return path
 
 
-def _fake_chunks(job, count: int, total_chars: int) -> list[Chunk]:
-    """`count` chunks whose text sums to exactly `total_chars` characters."""
+def _fake_chunks(job, count: int, total_chars: int, *, filler: str = "x") -> list[Chunk]:
+    """`count` chunks whose text sums to exactly `total_chars` characters.
+
+    `filler` decides whether those characters are LETTERS (the default --
+    a reading that scores below MAX_UNLABELLED) or DIGITS, which is how a
+    rung is scripted to trip the structure ceiling. The chunk text is real
+    text measured by the real `unlabelled_fraction`, not a handed-in score.
+    """
     if count <= 0:
         return []
     per = total_chars // count
@@ -87,7 +93,7 @@ def _fake_chunks(job, count: int, total_chars: int) -> list[Chunk]:
         Chunk(
             chunk_id=f"{job.doc_id}-{i:04d}",
             doc_id=job.doc_id,
-            text="x" * length,
+            text=filler * length,
             section_path=[],
             provenance=ChunkProvenance(page=1),
             fiscal_year=job.fiscal_year,
@@ -99,13 +105,16 @@ def _fake_chunks(job, count: int, total_chars: int) -> list[Chunk]:
     ]
 
 
-def _ctx(monkeypatch, scripted, *, has_text_layer=True, chunks=3):
+def _ctx(monkeypatch, scripted, *, has_text_layer=True, chunks=12, bare=()):
     """A context whose extraction is scripted per rung.
 
     `_extract` records which rung ran and asks the script for its ratio;
     `_chunk` turns that ratio into real characters of chunk text against the
     real source file. Everything between them -- the ladder, the coverage
     measurement, the floor -- is the production code.
+
+    `bare` names the rungs whose chunk text is digits rather than letters,
+    i.e. the rungs scripted to trip the structure ceiling.
     """
     source = _write_pdf(text=has_text_layer)
     total = source_text_chars(source)
@@ -121,7 +130,8 @@ def _ctx(monkeypatch, scripted, *, has_text_layer=True, chunks=3):
         # A blank source has no denominator, so the ratio is meaningless
         # there; any non-empty text stands for "OCR produced passages".
         target = 200 * chunks if ratio is None else round(ratio * total)
-        return _fake_chunks(job, chunks, target)
+        filler = "7" if extractor in bare else "x"
+        return _fake_chunks(job, chunks, target, filler=filler)
 
     monkeypatch.setattr(worker, "_extract", fake_extract)
     monkeypatch.setattr(worker, "_chunk", fake_chunk)
@@ -232,6 +242,40 @@ def test_a_terminal_failure_never_reaches_live_and_writes_no_chunks(monkeypatch,
     # Blocking 1 of this plan's final review for why this can't be inferred
     # from `extraction_attempts` alone.
     assert job.held_out is True
+
+
+def test_run_job_records_which_rung_was_kept_on_success(monkeypatch, ladder_job):
+    """Catches deleting `job.kept_extractor = outcome.extractor` from
+    `run_job` (ingest/worker.py). Without that line a document whose
+    extractor changed -- every passage id re-minted, every chunk's text
+    replaced -- would leave no trace of which rung actually wrote it, and
+    the admin page (and the ranking behaviour built on this field) would
+    have nothing to read."""
+    _capture_writes(monkeypatch)
+    scripted = _ScriptedLadder({"opendataloader": 0.02, "mineru": 0.93})
+
+    job = worker.run_job(ladder_job, _ctx(monkeypatch, scripted))
+
+    assert job.state == "live"
+    assert job.kept_extractor == "mineru"
+
+
+def test_a_document_held_out_of_search_records_no_kept_extractor(
+    monkeypatch, ladder_job
+):
+    """Nothing was written for a held-out document, so nothing should be
+    named as having written it -- `kept_extractor` describes what's on
+    disk, and for this job that's still nothing."""
+    written = _capture_writes(monkeypatch)
+    scripted = _ScriptedLadder(
+        {"opendataloader": 0.02, "mineru": 0.02, "mineru-ocr": 0.01}
+    )
+
+    job = worker.run_job(ladder_job, _ctx(monkeypatch, scripted))
+
+    assert job.state == "failed"
+    assert written == []
+    assert job.kept_extractor is None
 
 
 def test_no_text_layer_routes_straight_to_ocr(monkeypatch, ladder_job):
@@ -460,3 +504,223 @@ def test_the_attempts_are_journalled_as_they_happen(monkeypatch, ladder_job):
 
     # Rung 2 chunks only after rung 1's attempt is already on disk.
     assert seen_on_disk == [[], ["opendataloader"]]
+
+
+def test_every_rung_that_runs_records_its_unlabelled_fraction(
+    monkeypatch, ladder_job
+):
+    """Spec X11. Recorded for a rung that PASSES too, not only a loser --
+    the near-miss band is the only path out of "calibrated against one
+    example", and a threshold that never records its inputs can only be
+    re-argued, never re-tuned."""
+    scripted = _ScriptedLadder({"opendataloader": 0.94})
+    outcome = worker._extract_and_chunk(ladder_job, _ctx(monkeypatch, scripted))
+
+    assert outcome.unlabelled == 0.0
+    assert outcome.attempts[0]["unlabelled"] == 0.0
+
+
+def test_a_rung_with_too_few_judged_chunks_records_None_not_zero(
+    monkeypatch, ladder_job
+):
+    """None means "not measured". Zero would claim a perfect reading."""
+    scripted = _ScriptedLadder({"opendataloader": 0.94})
+    ctx = _ctx(monkeypatch, scripted, chunks=3)
+    outcome = worker._extract_and_chunk(ladder_job, ctx)
+
+    assert outcome.unlabelled is None
+    assert outcome.attempts[0]["unlabelled"] is None
+
+
+def test_a_document_with_unmeasured_structure_still_short_circuits(
+    monkeypatch, ladder_job
+):
+    """`unlabelled is None` must NOT be treated as tripped. A one-character
+    edit that flips `tripped`'s `is not None` to `is None` (or drops it)
+    leaves every ladder test here green but sends every document with fewer
+    than MIN_JUDGED_CHUNKS judgeable passages -- roughly 5,200 of the 7,434
+    documents in the live corpus, per `ingest/structure.py` -- through every
+    remaining rung for nothing. Reproduced against that exact mutation: the
+    same script that calls only `opendataloader` here calls
+    `opendataloader`, `mineru`, `mineru-ocr` under it."""
+    scripted = _ScriptedLadder(
+        {"opendataloader": 0.94, "mineru": 0.99, "mineru-ocr": 0.99}
+    )
+    ctx = _ctx(monkeypatch, scripted, chunks=3)
+    outcome = worker._extract_and_chunk(ladder_job, ctx)
+
+    assert outcome.unlabelled is None
+    assert scripted.calls == ["opendataloader"]
+
+
+# --- X4: a passing-but-tripped rung must not short-circuit -----------------
+
+
+def test_a_document_over_the_ceiling_advances_to_the_next_rung(
+    monkeypatch, ladder_job
+):
+    """Spec X4. FY2024's exact shape: rung 1 passes on VOLUME and is
+    structurally useless, so the ladder keeps going instead of stopping."""
+    scripted = _ScriptedLadder({"opendataloader": 0.49, "mineru": 0.4477})
+    ctx = _ctx(monkeypatch, scripted, chunks=20, bare=("opendataloader",))
+    outcome = worker._extract_and_chunk(ladder_job, ctx)
+
+    assert scripted.calls[:2] == ["opendataloader", "mineru"]
+    assert outcome.extractor == "mineru"
+    assert outcome.passed
+
+
+def test_a_tripped_document_with_nothing_better_is_STILL_WRITTEN(
+    monkeypatch, ladder_job
+):
+    """🔴 The regression guard for the worst way this change goes wrong.
+
+    Every rung that runs trips the ceiling, so the loop reaches its end with
+    no untripped winner. The document must still be WRITTEN -- a degraded
+    reading that is the best available reading is still the best available
+    reading. If this returns a failing outcome, `run_job` hides the
+    document from search, and an analyst who could previously find its
+    figures (badly labelled) can now find nothing at all.
+
+    UPDATED FOR X12 (Task 4): opendataloader already clears COVERAGE_FLOOR
+    (0.49 >= 0.10), so by the time the loop reaches mineru-ocr, `passing` is
+    non-empty and the OCR rung is skipped -- tripped or not, a floor-passing
+    reading is already in hand. Only 2 rungs run now, not 3; the assertion
+    this test exists for (a fully-tripped document is still written, not
+    held out) is unaffected."""
+    scripted = _ScriptedLadder(
+        {"opendataloader": 0.49, "mineru": 0.45, "mineru-ocr": 0.44}
+    )
+    ctx = _ctx(
+        monkeypatch, scripted, chunks=20,
+        bare=("opendataloader", "mineru", "mineru-ocr"),
+    )
+    outcome = worker._extract_and_chunk(ladder_job, ctx)
+
+    assert outcome.passed, "a tripped document must not be held out of search"
+    # Both rungs that ran land in the band together (each >= 0.75 * 0.49):
+    # tied on unlabelled (both 1.0, everything bare), so the -coverage
+    # tie-break inside the band picks the highest-coverage rung, not a
+    # band-empty fallback.
+    assert outcome.extractor == "opendataloader"
+    assert scripted.calls == ["opendataloader", "mineru"]
+    assert "mineru-ocr" not in scripted.calls
+    assert len(outcome.attempts) == 2
+
+
+def test_structure_picks_the_winner_among_comparable_attempts(
+    monkeypatch, ladder_job
+):
+    """The real measured pair. Coverage prefers OpenDataLoader (49.03% vs
+    44.77%) because a third of its text is the bare digit runs; structure
+    prefers MinerU, and structure is right."""
+    scripted = _ScriptedLadder({"opendataloader": 0.4903, "mineru": 0.4477})
+    ctx = _ctx(monkeypatch, scripted, chunks=20, bare=("opendataloader",))
+    outcome = worker._extract_and_chunk(ladder_job, ctx)
+
+    assert outcome.extractor == "mineru"
+    assert outcome.unlabelled == 0.0
+
+
+def test_a_clean_attempt_that_collapsed_in_SIZE_does_not_win(
+    monkeypatch, ladder_job
+):
+    """The silent quarter-document guard, end to end. 0.12/0.49 = 0.24 is
+    far outside the 0.75 band, so the tripped-but-complete reading is
+    kept."""
+    scripted = _ScriptedLadder({"opendataloader": 0.49, "mineru": 0.12})
+    ctx = _ctx(monkeypatch, scripted, chunks=20, bare=("opendataloader",))
+    outcome = worker._extract_and_chunk(ladder_job, ctx)
+
+    assert outcome.extractor == "opendataloader"
+
+
+def test_a_healthy_document_still_short_circuits(monkeypatch, ladder_job):
+    """What keeps 2,227 of 2,228 documents paying exactly what they pay
+    today. Fails if X4 is written as "always run every rung"."""
+    scripted = _ScriptedLadder({"opendataloader": 0.94})
+    ctx = _ctx(monkeypatch, scripted, chunks=20)
+    outcome = worker._extract_and_chunk(ladder_job, ctx)
+
+    assert scripted.calls == ["opendataloader"]
+    assert outcome.extractor == "opendataloader"
+
+
+# --- X12: the OCR rung is skipped on a document that has a real text layer --
+
+
+def test_the_ocr_rung_is_skipped_when_the_document_has_a_text_layer(
+    monkeypatch, ladder_job
+):
+    """Spec X12. Measured on agao-afr-fy2024: mineru-ocr produced 353,002
+    characters against mineru's 353,141 and the same 13% bare pages -- a
+    full extraction to change essentially nothing. OCR earns its cost on a
+    SCAN, and a document with a text layer is not one."""
+    scripted = _ScriptedLadder({"opendataloader": 0.49, "mineru": 0.45})
+    ctx = _ctx(monkeypatch, scripted, chunks=20,
+               bare=("opendataloader", "mineru"))
+    outcome = worker._extract_and_chunk(ladder_job, ctx)
+
+    assert scripted.calls == ["opendataloader", "mineru"]
+    assert "mineru-ocr" not in scripted.calls
+    assert outcome.passed
+
+
+def test_a_scan_still_reaches_the_ocr_rung(monkeypatch, ladder_job):
+    """The test that keeps scans working. A blank PDF makes
+    `inspect_source` report a POSITIVE has_text_layer=False, and
+    `ladder_for` returns ["mineru-ocr"] alone for it."""
+    scripted = _ScriptedLadder({"mineru-ocr": None})
+    ctx = _ctx(monkeypatch, scripted, has_text_layer=False, chunks=20)
+    outcome = worker._extract_and_chunk(ladder_job, ctx)
+
+    assert scripted.calls == ["mineru-ocr"]
+    assert outcome.passed
+
+
+def test_ocr_still_runs_when_every_earlier_rung_FAILED_the_floor(
+    monkeypatch, ladder_job
+):
+    """The escape hatch. With nothing passing, the document is being held
+    out of search anyway and OCR is the last thing that might rescue it --
+    text layer or not. The skip applies only where a usable reading is
+    already in hand."""
+    scripted = _ScriptedLadder(
+        {"opendataloader": 0.01, "mineru": 0.02, "mineru-ocr": 0.9}
+    )
+    ctx = _ctx(monkeypatch, scripted, chunks=20)
+    outcome = worker._extract_and_chunk(ladder_job, ctx)
+
+    assert scripted.calls == ["opendataloader", "mineru", "mineru-ocr"]
+    assert outcome.extractor == "mineru-ocr"
+    assert outcome.passed
+
+
+def test_a_resumed_ocr_record_is_not_dropped_by_the_skip_guard(
+    monkeypatch, ladder_job
+):
+    """A job resumed mid-flight across the X12 rollout: `extraction_attempts`
+    already holds a mineru-ocr record from a run that predates the skip
+    guard. Earlier rungs are scripted to clear the coverage floor but trip
+    the structure ceiling, so `passing` is non-empty and the loop reaches
+    mineru-ocr without ever breaking early -- exactly the condition the
+    skip guard fires on.
+
+    The rung's record is on file already. The guard exists to avoid PAYING
+    for an OCR pass, not to erase one that already happened -- so it must
+    not be silently discarded and overwritten out of `extraction_attempts`.
+    """
+    ladder_job.extraction_attempts = [
+        {"extractor": "mineru-ocr", "coverage": 0.91, "unlabelled": 0.0,
+         "chunks": 20}
+    ]
+    scripted = _ScriptedLadder({"opendataloader": 0.5, "mineru": 0.5})
+    ctx = _ctx(monkeypatch, scripted, chunks=20, bare=("opendataloader", "mineru"))
+
+    outcome = worker._extract_and_chunk(ladder_job, ctx)
+
+    assert "mineru-ocr" not in scripted.calls  # not paid for again
+    assert [a["extractor"] for a in outcome.attempts] == [
+        "opendataloader", "mineru", "mineru-ocr",
+    ]
+    assert ladder_job.extraction_attempts[-1]["extractor"] == "mineru-ocr"

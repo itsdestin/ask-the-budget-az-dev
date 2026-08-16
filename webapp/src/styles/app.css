@@ -2516,6 +2516,14 @@ fieldset.adm-field{border:0;padding:0;}
 .adm-attention-tried li{display:flex;justify-content:space-between;gap:12px;padding:3px 0;}
 .adm-attention-actions{display:flex;gap:8px;margin-top:10px;}
 
+/* Extraction method changed (spec X7) — reuses `.card`, `.adm-panel` and the
+   `.adm-attention-*` rules above for chrome and list spacing (see
+   ExtractionChanges.tsx for which classes carry which rule). Only the
+   "Read with X" line has no sibling equivalent to reuse: a bare `<p>` here
+   inherited the browser default ~16px/1em-margin type, out of step with
+   every other line in the panel (12.5–13.5px). */
+.adm-swap-kept{margin:2px 0 8px;font-size:13px;font-weight:700;color:var(--navy);}
+
 /* Own-usage meter on Settings. Colour tracks the ledger's own status so the
    bar and the sentence beneath it can never disagree. */
 .adm-meter{height:9px;background:var(--canvas);border:1px solid var(--line);border-radius:var(--r-pill);overflow:hidden;margin:8px 0;max-width:420px;}

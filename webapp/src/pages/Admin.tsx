@@ -5,9 +5,11 @@ import { AgenciesPanel } from "../admin/AgenciesPanel";
 import { AliasesPanel } from "../admin/AliasesPanel";
 import { CorpusPanel } from "../admin/CorpusPanel";
 import { CostsPanel } from "../admin/CostsPanel";
+import { ExtractionChanges } from "../admin/ExtractionChanges";
 import { GuidancePanel } from "../admin/GuidancePanel";
 import { IssuesPanel } from "../admin/IssuesPanel";
 import { NeedsAttention } from "../admin/NeedsAttention";
+import { PoorlyRead } from "../admin/PoorlyRead";
 import { NoticesPanel } from "../admin/NoticesPanel";
 import { ProviderPanel } from "../admin/ProviderPanel";
 import { SaveBar } from "../admin/SaveBar";
@@ -68,6 +70,8 @@ export function Admin() {
   const [snapshots, setSnapshots] = useState<api.Snapshot[]>([]);
   const [notices, setNotices] = useState<api.Notice[]>([]);
   const [attention, setAttention] = useState<api.AttentionDocument[]>([]);
+  const [swapped, setSwapped] = useState<api.SwappedDocument[]>([]);
+  const [degraded, setDegraded] = useState<api.DegradedDocument[]>([]);
   // Errors from Try again / Dismiss. Separate from `saveError` (the
   // settings form) and `ingestMessage` (the machine toggle) — three
   // different actions on this page, three different places a failure can
@@ -134,6 +138,8 @@ export function Admin() {
         setSnapshots(b.snapshots);
         setNotices(n.notices);
         setAttention(a.documents);
+        setSwapped(a.swapped ?? []);
+        setDegraded(a.degraded ?? []);
         // The initial load can fail to even read the jobs directory (a
         // share that's gone away) — surfaced through the SAME error slot
         // the retry/dismiss actions already use below, rather than a
@@ -254,6 +260,8 @@ export function Admin() {
       else await api.cancelJob(jobId);
       const [a, c] = await Promise.all([api.adminAttention(), api.adminCorpus()]);
       setAttention(a.documents);
+      setSwapped(a.swapped ?? []);
+      setDegraded(a.degraded ?? []);
       setCorpus(c);
       // A success after an earlier failure must clear the old message -- an
       // admin who retries after a network hiccup and succeeds should not
@@ -363,9 +371,30 @@ export function Admin() {
               {attentionError}
             </p>
           ) : null}
+          {/* Second, not first: a document held OUT of search is content an
+              analyst cannot reach at all, which outranks one they can reach
+              but should not fully trust. Inside this group rather than
+              beside ExtractionChanges below because it is an ALERT, not a
+              record — a swap is a success with a trace, this is a document
+              still wrong. Renders nothing at all when the list is empty. */}
+          <PoorlyRead documents={degraded} />
           <NoticesPanel notices={notices} />
           <IssuesPanel />
         </Group>
+
+        {/* Group always paints its own <h2>, even with no children (see
+            `function Group` above) -- so wrapping ExtractionChanges
+            unconditionally would put a permanent "Extraction method
+            changed" heading over an empty section on every ordinary day,
+            which is exactly the scroll-past habit the global no-swaps
+            rule exists to prevent. The whole group is gated on the same
+            condition ExtractionChanges checks internally, so a normal day
+            with nothing swapped shows nothing here at all. */}
+        {swapped.length > 0 ? (
+          <Group title="Extraction method changed">
+            <ExtractionChanges documents={swapped} />
+          </Group>
+        ) : null}
 
         <Group title="AI Mode">
           {/* AI Mode is one section now: key, models, spending limits and which
