@@ -101,31 +101,39 @@ afterEach(() => {
 // --- Invariant 8 ------------------------------------------------------------
 
 describe("the public-record notice", () => {
-  it("is always visible and names the allowed document types", () => {
+  it("states the rule with no interaction, and cannot be dismissed", () => {
+    // 🔴 REWRITTEN 2026-08-15, and the rewrite is the point. This used to
+    // assert the notice named all seven allowed document kinds — 20 words
+    // restating the list of cards directly below it, inside an 87-word
+    // block that was 40% of everything on the page before an analyst could
+    // act. The list is gone; the six rows ARE the list.
+    //
+    // What Invariant 8 actually requires is that the RULE is unavoidable,
+    // so that is what is asserted, and asserted against the <summary> —
+    // the part that is on screen with nothing clicked. A `<details>` keeps
+    // its body in the DOM when closed, so a document-wide `getByText` here
+    // would pass whether or not the sentence were visible, which is a test
+    // that proves nothing.
     render(<Upload />);
-    const notice = screen.getByRole("heading", { name: /public record/i })
-      .closest("section")!;
-    expect(notice).toBeTruthy();
-    const text = notice.textContent ?? "";
-    expect(text).toMatch(/public record/i);
-    for (const kind of [
-      /baseline books/i,
-      /appropriations reports/i,
-      /fiscal notes/i,
-      /bills/i,
-      /executive budget requests/i,
-      /agency budget requests/i,
-      /Annual Financial Reports/i,
-    ]) {
-      expect(text).toMatch(kind);
-    }
+    const notice = screen.getByTestId("public-record-notice");
+    const summary = notice.querySelector("summary")!;
+    expect(summary.textContent).toMatch(/public record only/i);
+    expect(summary.textContent).toMatch(/never confidential state data/i);
+    // No dismiss: a notice you can close is a notice that gets closed.
+    expect(within(notice).queryByRole("button")).toBeNull();
   });
 
-  it("says plainly that uploads are exposed to the AI provider and the share", () => {
+  it("keeps the AI-provider and shared-drive warning on the page, one click away", () => {
+    // Demoted, not deleted. This is the sentence that explains WHY the rule
+    // exists, and it is read once and skipped for ever after — so it sits
+    // behind the disclosure rather than above the work. Asserted to be in
+    // the notice's BODY and NOT its summary, which is exactly the split.
     render(<Upload />);
-    const text = document.body.textContent ?? "";
-    expect(text).toMatch(/confidential/i);
-    expect(text).toMatch(/shared drive/i);
+    const notice = screen.getByTestId("public-record-notice");
+    const summary = notice.querySelector("summary")!;
+    const body = notice.textContent!.replace(summary.textContent!, "");
+    expect(body).toMatch(/outside AI provider/i);
+    expect(body).toMatch(/shared drive/i);
   });
 
   it("keeps the submit button disabled until the checkbox is ticked", async () => {
@@ -548,20 +556,96 @@ describe("the type picker and form", () => {
     expect(screen.getAllByTestId("doc-type-card")).toHaveLength(ROWS.length);
   });
 
-  it("names the publisher on the closed card, and which file to get inside it", async () => {
-    // These two registry fields are deliberately split across the fold.
-    // `where_published` is the RECOGNITION cue ("gao.az.gov") and has to be
-    // readable while choosing, so it rides on the closed head. `which_file`
-    // ("The combined PDF") is an instruction for the moment you go and fetch
-    // the file, which is after you have opened the card — putting it on the
-    // head as well would put six paragraphs above the fold and make the list
-    // unscannable, which is the thing the accordion is for.
+  it("tags a closed row with its publisher and NO prose at all", async () => {
+    // Measured: the six rows carried 101 words of `where_published` around
+    // six names totalling 14 — the list you came to scan was the minority of
+    // its own text. A closed row now carries the name and a publisher tag
+    // (`group`, already on the wire and previously displayed nowhere), so
+    // six rows can be sorted by eye without reading a sentence.
+    //
+    // Both registry sentences are asserted ABSENT while closed and PRESENT
+    // once open. Nothing is deleted — the AFR's "gao.az.gov blocks automated
+    // downloads, so save it from a browser" is the clearest case of guidance
+    // that matters when you act and is noise while you choose.
     render(<Upload />);
-    expect(await screen.findByText(/gao\.az\.gov/)).toBeInTheDocument();
+    expect(await screen.findByText("Auditor General")).toBeInTheDocument();
+    expect(screen.queryByText(/gao\.az\.gov/)).toBeNull();
     expect(screen.queryByText(/The combined PDF\./)).toBeNull();
 
     await selectType(/annual financial report/i);
+    expect(screen.getByText(/gao\.az\.gov/)).toBeInTheDocument();
     expect(screen.getByText(/The combined PDF\./)).toBeInTheDocument();
+  });
+
+  it("shows each book row ITS OWN count, without opening either", async () => {
+    // The one honest state a collapsed row can carry, and the reason the
+    // check is fetched by the PAGE. It answers the only question anyone has
+    // about a book row.
+    //
+    // 🔴 TWO redirect rows and BOTH families missing, deliberately. The
+    // first version of this spec used one redirect row and one missing
+    // edition, and a mutation proved it vacuous: dropping the family filter
+    // entirely — so every book row reports every family's gap — left it
+    // green. With two rows carrying different counts, the unfiltered
+    // version reports "2 to add" on both and the spec fails.
+    vi.spyOn(api, "documentTypes").mockResolvedValue([
+      ROWS[0],
+      { ...ROWS[0], key: "approps-row", label: "Appropriations Report",
+        redirect: { action: "add-jlbc-book", family: "approps",
+                    detail: "Stored as one document per agency." } },
+    ]);
+    vi.spyOn(api, "booksMissing").mockResolvedValue({
+      checked_at: new Date().toISOString(),
+      online: true,
+      reason: null,
+      missing: [
+        { family: "baseline", fiscal_year: 2028, document_count: 110, source: "catalog" },
+        { family: "baseline", fiscal_year: 2029, document_count: 110, source: "catalog" },
+      ],
+      present: [],
+      unavailable: [],
+    });
+    render(<Upload />);
+    const cards = await screen.findAllByTestId("doc-type-card");
+    const baseline = cards.find((c) => c.getAttribute("data-doc-type") === ROWS[0].key)!;
+    const approps = cards.find((c) => c.getAttribute("data-doc-type") === "approps-row")!;
+
+    expect(await within(baseline).findByText("2 to add")).toBeInTheDocument();
+    expect(within(approps).getByText("up to date")).toBeInTheDocument();
+    // Still closed — the point is that nothing had to be opened.
+    expect(within(baseline).getByRole("button").getAttribute("aria-expanded")).toBe("false");
+  });
+
+  it("gives the four file types no invented state", async () => {
+    // The app cannot know whether the Auditor General has published this
+    // year's AFR until somebody looks, so those rows carry nothing. Four
+    // filler labels that say nothing would undo the point of the column.
+    vi.spyOn(api, "booksMissing").mockResolvedValue({
+      checked_at: new Date().toISOString(), online: true, reason: null,
+      missing: [], present: [], unavailable: [],
+    });
+    render(<Upload />);
+    const cards = await screen.findAllByTestId("doc-type-card");
+    const afr = cards.find((c) => c.getAttribute("data-doc-type") === ROWS[1].key)!;
+    await within(cards[0]).findByText("up to date");
+    expect(afr.querySelector(".up-card-state")).toBeNull();
+  });
+
+  it("a book row says it cannot check, rather than claiming to be up to date", async () => {
+    // An offline check must not render as "up to date" — that is a
+    // confident wrong answer produced by a network failure, on the one row
+    // whose job is telling you what is missing.
+    vi.spyOn(api, "booksMissing").mockResolvedValue({
+      checked_at: new Date().toISOString(),
+      online: false,
+      reason: "Couldn't reach azjlbc.gov to check for new editions (OSError).",
+      missing: [],
+      present: [],
+      unavailable: [],
+    });
+    render(<Upload />);
+    expect(await screen.findAllByText("can’t check")).toHaveLength(1);
+    expect(screen.queryByText("up to date")).toBeNull();
   });
 
   it("a JLBC-book type opens into its own family's gap, not a file form", async () => {

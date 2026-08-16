@@ -126,6 +126,18 @@ export function QueuePanel({ reloadToken }: { reloadToken?: number }) {
         </p>
       )}
 
+      {/* Moved down from the top of the page (2026-08-15). It used to sit
+          above the document-type list as a 26-word paragraph, where it was
+          text between an analyst and the thing they came to do — and it
+          describes THIS panel ("the queue below shows exactly where each
+          document stands"), so it belongs beside it. Shortened on the way,
+          but neither honest number is softened: an hour is an hour and
+          overnight is overnight. */}
+      <p className="up-note">
+        Most documents are searchable within the hour; a full book takes
+        overnight. Progress survives restarts.
+      </p>
+
       {visibleJobs.length === 0 ? (
         <p className="up-note">Nothing is processing right now.</p>
       ) : (

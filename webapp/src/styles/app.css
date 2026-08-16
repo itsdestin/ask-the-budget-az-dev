@@ -1606,12 +1606,22 @@ nav.primary{position:relative;padding-right:44px;}
 .page-upload .linkish:hover{color:var(--navy);}
 .page-upload .linkish:disabled{opacity:.65;cursor:not-allowed;text-decoration:none;}
 
-/* The Invariant 8 notice. Always visible, never collapsible: the rule it states is
-   the reason the corpus can be sent to an outside AI provider at all, and a notice
-   the user can dismiss is a notice they will dismiss. The left rule is the only new
-   decoration and reuses the header's navy. */
-.page-upload .up-notice{border-left:4px solid var(--navy-900);}
-.page-upload .up-notice p+p{margin-top:8px;}
+/* The Invariant 8 notice, one line (2026-08-15).
+   Measured before the change: 214 words on the page before an analyst could
+   act, 87 of them here, against 14 words of document-type names — the list
+   you came to scan was a minority of its own page's text.
+   The RULE stays permanently visible and undismissable; only the
+   EXPLANATION of why the rule exists moved behind the disclosure, because it
+   is read once and skipped for ever after. The per-upload tick-box, which is
+   the deliberate human moment the invariant is really built on, is
+   unchanged. The left rule reuses the header's navy, as before. */
+.page-upload .up-notice{border-left:4px solid var(--navy-900);padding:14px 18px;}
+.page-upload .up-notice>summary{gap:10px;color:var(--ink);font-size:14px;font-weight:800;}
+.page-upload .up-notice-glyph{flex:none;width:18px;height:18px;color:var(--navy-900);}
+.page-upload .up-notice-rule{flex:1;min-width:0;}
+.page-upload .up-notice-more{display:inline-flex;align-items:center;gap:6px;flex:none;font-size:12.5px;font-weight:800;color:var(--az-gold-d);}
+.page-upload .up-notice>summary:hover .up-notice-more{color:var(--navy);}
+.page-upload .up-notice p{margin-top:10px;}
 
 /* ----- one expandable card per document type -------------------------------
    Supersedes the radio-group list, which superseded six always-open cards
@@ -1623,27 +1633,57 @@ nav.primary{position:relative;padding-right:44px;}
    rotates rather than swapping glyph. That is deliberate: this page now has
    the same interaction as the app's other expandable list, so it should not
    merely resemble it, it should be the same rule. */
-.page-upload .up-cards{display:grid;gap:12px;margin:0 0 16px;}
-/* Beats `.page-upload .card` (equal specificity, later in the file): the
-   head button supplies its own padding, so the card must not add the page's
-   blanket 20px/24px on top of it. */
-.page-upload .up-card{margin:0;padding:0;}
+/* ONE card, six hairlined rows. Six separate cards with gaps between them
+   read as six separate decisions; a single list reads as something you run
+   your eye down. `padding:0` beats `.page-upload .card`'s blanket 20/24
+   (equal specificity, later in the file) — each row supplies its own. */
+.page-upload .up-list{padding:0;}
+.page-upload .up-card + .up-card{border-top:1px solid var(--line);}
 /* The head is an <h2> for document structure; its own 19px/800 would fight
-   the borrowed `.yg-yr` sizing on the name span inside it. */
+   the sizing on the name span inside it. */
 .page-upload .up-card-head{margin:0;font-size:inherit;font-weight:inherit;}
-.page-upload .up-card-toggle{display:flex;align-items:center;gap:12px;width:100%;padding:15px 18px;background:transparent;border:0;border-bottom:1px solid transparent;font-family:inherit;cursor:pointer;text-align:left;transition:background .14s;}
+.page-upload .up-card-toggle{display:flex;align-items:center;gap:14px;width:100%;padding:14px 18px;background:transparent;border:0;font-family:inherit;cursor:pointer;text-align:left;transition:background .14s;}
 .page-upload .up-card-toggle:hover{background:#fafafe;}
-.page-upload .up-card-toggle:focus-visible{outline:2px solid var(--navy);outline-offset:-2px;border-radius:var(--r-lg) var(--r-lg) 0 0;}
-.page-upload .up-card.is-open .up-card-toggle{border-bottom-color:var(--line);}
-.page-upload .up-card-ttl{display:flex;flex-direction:column;gap:2px;min-width:0;flex:1;}
-.page-upload .up-card-name{font-size:16px;font-weight:800;color:var(--navy);}
-.page-upload .up-card-where{font-size:12.5px;font-weight:700;color:var(--ink-3);}
+.page-upload .up-card-toggle:focus-visible{outline:2px solid var(--navy);outline-offset:-2px;}
+.page-upload .up-card.is-open .up-card-toggle{background:#fafbff;}
+
+/* The publisher tag: a FIXED-WIDTH left column, which is the whole point —
+   six rows starting at the same x with JLBC / JLBC / Auditor General /
+   Governor / Agencies / JLBC lets the eye group them without reading a
+   word. Value is the registry's `group`, which was already on the wire and
+   displayed nowhere. Quiet on purpose: it is an index, not a headline, so
+   it takes the page's smallest muted treatment (11px/800/--ink-3, the
+   `.yg-meta` family) and never competes with the name beside it. */
+.page-upload .up-card-pub{flex:0 0 104px;font-size:11px;font-weight:800;letter-spacing:.04em;text-transform:uppercase;color:var(--ink-3);line-height:1.3;}
+.page-upload .up-card-name{flex:1;min-width:0;font-size:16px;font-weight:800;color:var(--navy);}
+
+/* The only state a collapsed row can honestly show, and only the two book
+   rows have one. Three tones, each earning its colour: `act` is the one
+   that wants you (there is something to add), `warn` is a network failure
+   that must not be mistaken for "up to date", and `ok` is deliberately the
+   quietest thing on the row — "nothing to do here" should not shout. */
+.page-upload .up-card-state{flex:none;font-size:11.5px;font-weight:800;border-radius:var(--r-pill);padding:4px 11px;white-space:nowrap;}
+.page-upload .up-tone-act{color:var(--az-gold-d);background:var(--az-gold-100);}
+.page-upload .up-tone-ok{color:var(--ink-3);background:var(--canvas);}
+.page-upload .up-tone-warn{color:var(--az-red);background:var(--az-red-100);}
+.page-upload .up-tone-wait{color:var(--ink-3);background:transparent;}
+
 .page-upload .up-card-caret{flex:0 0 auto;width:18px;height:18px;color:var(--ink-3);transition:transform .18s;}
 .page-upload .up-card-toggle:hover .up-card-caret{color:var(--az-gold-d);}
 .page-upload .up-card.is-open .up-card-caret{transform:rotate(180deg);}
-.page-upload .up-card-body{padding:16px 18px 18px;}
-/* Which-file guidance, first thing inside an opened card. */
-.page-upload .up-which{margin:0 0 4px;}
+/* The opened body is inset to the name column, so an open row reads as one
+   thing with its head rather than a new block beginning. */
+.page-upload .up-card-body{padding:2px 18px 20px 136px;}
+/* The two registry sentences, now inside. */
+.page-upload .up-where,.page-upload .up-which{margin:0 0 4px;}
+
+@media (max-width:640px){
+  /* The fixed publisher column costs too much of a narrow screen, so it
+     moves above the name and the body loses its inset. */
+  .page-upload .up-card-toggle{flex-wrap:wrap;gap:6px 12px;}
+  .page-upload .up-card-pub{flex:0 0 100%;}
+  .page-upload .up-card-body{padding:2px 18px 20px;}
+}
 
 /* ----- the drop zone -------------------------------------------------------
    The browser's own file widget ("Choose File · No file chosen") is what

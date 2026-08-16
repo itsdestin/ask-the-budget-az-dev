@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from "react";
+import { useState } from "react";
 import * as api from "../../api";
 
 // The JLBC-book flow for ONE family, rendered inside that family's own
@@ -58,6 +58,11 @@ export function BookFamilyPanel({
   family,
   label,
   detail,
+  wherePublished,
+  check,
+  checking,
+  checkError,
+  onRecheck,
   onQueued,
 }: {
   /** The book family in `ingest/book_discovery`'s vocabulary — "approps" or
@@ -71,10 +76,19 @@ export function BookFamilyPanel({
   /** The registry's explanation of why this type is fetched rather than
    *  uploaded. Rendered verbatim. */
   detail: string;
+  /** The registry's "where it comes from" sentence, which used to sit on
+   *  the collapsed row and now lives inside, like every other type's. */
+  wherePublished: string;
+  /** The shared "what has JLBC published that we don't have?" answer, owned
+   *  by the PAGE. It covers both families in one round-trip and the
+   *  collapsed rows above show a count off it, so a panel-local copy would
+   *  be a second fetch and a second version of the same number. */
+  check: api.BookCheck | null;
+  checking: boolean;
+  checkError: string;
+  onRecheck: () => void;
   onQueued: () => void;
 }) {
-  const [check, setCheck] = useState<api.BookCheck | null>(null);
-  const [checking, setChecking] = useState(true);
   const [busyKey, setBusyKey] = useState("");
   const [message, setMessage] = useState("");
   const [error, setError] = useState("");
@@ -87,22 +101,6 @@ export function BookFamilyPanel({
   const [manualYear, setManualYear] = useState("");
 
   const [plan, setPlan] = useState<{ key: string; plan: api.BookPlan } | null>(null);
-
-  const load = useCallback(async (refresh: boolean) => {
-    setChecking(true);
-    setError("");
-    try {
-      setCheck(await api.booksMissing(refresh));
-    } catch (e) {
-      setError(e instanceof Error ? e.message : String(e));
-    } finally {
-      setChecking(false);
-    }
-  }, []);
-
-  useEffect(() => {
-    void load(false);
-  }, [load]);
 
   function editionName(fiscalYear: number): string {
     return `FY ${fiscalYear} ${label}`;
@@ -122,7 +120,7 @@ export function BookFamilyPanel({
           ".",
       );
       onQueued();
-      await load(true);
+      onRecheck();
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
     } finally {
@@ -159,11 +157,12 @@ export function BookFamilyPanel({
 
   return (
     <div className="up-book" data-testid="book-panel" data-family={family}>
+      {wherePublished && <p className="up-where">{wherePublished}</p>}
       <p className="up-book-why">{detail}</p>
 
-      {error && (
+      {(error || checkError) && (
         <p className="up-note">
-          <span className="err">{error}</span>
+          <span className="err">{error || checkError}</span>
         </p>
       )}
 
@@ -255,7 +254,7 @@ export function BookFamilyPanel({
             type="button"
             className="linkish"
             disabled={checking}
-            onClick={() => void load(true)}
+            onClick={onRecheck}
           >
             {checking ? "Checking…" : "Check again"}
           </button>

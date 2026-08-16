@@ -67,6 +67,29 @@ export function Upload() {
   // cannot know to close itself when a sibling opens.
   const [openKey, setOpenKey] = useState<string | null>(null);
 
+  // "What has JLBC published that we don't have?" (spec T10) is fetched ONCE
+  // here, not inside each book card, for two reasons. It answers for BOTH
+  // families in one round-trip, so two cards fetching it separately is two
+  // calls for one answer. And the collapsed row shows a count off it — so if
+  // the panel owned the fetch, pressing "Check again" inside an open card
+  // would update the panel and leave the row above it stating the OLD count,
+  // which is the same number disagreeing with itself on one screen.
+  const [check, setCheck] = useState<api.BookCheck | null>(null);
+  const [checking, setChecking] = useState(true);
+  const [checkError, setCheckError] = useState("");
+
+  const loadCheck = useCallback(async (refresh: boolean) => {
+    setChecking(true);
+    setCheckError("");
+    try {
+      setCheck(await api.booksMissing(refresh));
+    } catch (e) {
+      setCheckError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setChecking(false);
+    }
+  }, []);
+
   useEffect(() => {
     api
       .documentTypes()
@@ -80,32 +103,41 @@ export function Upload() {
       });
   }, []);
 
+  useEffect(() => {
+    void loadCheck(false);
+  }, [loadCheck]);
+
   return (
     <main className="page-upload" data-testid="upload">
       <div className="wrap">
         <h1 className="up-title">Add a document</h1>
 
-        <section className="card up-notice" aria-labelledby="up-notice-h">
-          <h2 id="up-notice-h">Public record documents only</h2>
+        {/* Invariant 8, in ONE line. Measured before this change: the page
+            carried 214 words before an analyst could do anything, 87 of them
+            here — and the six things they came to choose between are 14
+            words. The RULE is what has to be permanently visible, and it is;
+            the explanation of why the rule exists is read once and then
+            skipped for ever, so it sits behind a disclosure. The per-upload
+            tick-box, which is the deliberate moment the invariant is really
+            built on, is untouched. */}
+        <details className="card up-notice up-disclose" data-testid="public-record-notice">
+          <summary>
+            <WarnGlyph />
+            <span className="up-notice-rule">
+              Public record only — never confidential state data.
+            </span>
+            <span className="up-notice-more">
+              why? <span className="up-disclose-mark" aria-hidden="true" />
+            </span>
+          </summary>
           <p>
-            This corpus is only for documents that are already public record:
-            baseline books, appropriations reports, fiscal notes, bills, executive
-            budget requests, agency budget requests, and Annual Financial Reports.
+            When AI Mode answers a question it sends the text of retrieved
+            passages to an outside AI provider, and anything placed here is
+            readable by everyone with access to the shared drive. Search on its
+            own never sends document text anywhere — but the document is still
+            on the shared drive once uploaded.
           </p>
-          <p>
-            Do not upload confidential state data. When AI Mode answers a question
-            it sends the text of retrieved passages to an outside AI provider, and
-            anything placed here is readable by everyone with access to the shared
-            drive. Search on its own never sends document text anywhere — but the
-            document is still on the shared drive once uploaded.
-          </p>
-        </section>
-
-        <p className="up-note up-expect">
-          Most documents here are searchable within the hour. Larger uploads take
-          longer — progress survives restarts, and the queue below shows exactly
-          where each document stands.
-        </p>
+        </details>
 
         {rowsError && (
           <p className="up-note">
@@ -115,22 +147,30 @@ export function Upload() {
           </p>
         )}
 
-        <div className="up-cards">
+        {/* ONE card holding six rows, not six cards with gaps between them.
+            Six separated boxes read as six separate decisions; hairlined rows
+            in one card read as a list you run your eye down. */}
+        <section className="card up-list">
           {(rows ?? []).map((row) => (
             <DocTypeCard
               key={row.key}
               row={row}
               open={openKey === row.key}
+              status={bookStatus(row, check, checking)}
               // Clicking the open card closes it — the header is a toggle,
               // not a one-way selector, so there is always a way back to
               // "nothing open" without picking something you don't want.
               onToggle={() =>
                 setOpenKey((current) => (current === row.key ? null : row.key))
               }
+              check={check}
+              checking={checking}
+              checkError={checkError}
+              onRecheck={() => void loadCheck(true)}
               onQueued={() => void refreshJobs()}
             />
           ))}
-        </div>
+        </section>
 
         <QueuePanel reloadToken={queueToken} />
       </div>
@@ -140,9 +180,35 @@ export function Upload() {
 
 // --- one card per document type ----------------------------------------------
 
-/** One expandable document-type card.
+/** The collapsed row's right-hand state, for the two JLBC-book types only.
  *
- *  The header is a `<button aria-expanded>` inside a heading — the standard
+ *  This is the whole reason the check is fetched at page level: it answers
+ *  the only question anyone has about a book card — is there anything to
+ *  add? — without opening it. The other four types have no equivalent (the
+ *  app cannot know whether the Auditor General has published this year's
+ *  AFR until somebody looks), and inventing a filler state for them would
+ *  be four labels that say nothing.
+ */
+function bookStatus(
+  row: api.DocTypeCard,
+  check: api.BookCheck | null,
+  checking: boolean,
+): { text: string; tone: string } | null {
+  if (!row.redirect) return null;
+  if (!check) return checking ? { text: "checking…", tone: "wait" } : null;
+  // An unreachable azjlbc.gov must not read as "up to date" — that is a
+  // confident wrong answer produced by a network failure, on the one row
+  // whose job is telling you what is missing.
+  if (!check.online) return { text: "can’t check", tone: "warn" };
+  const n = check.missing.filter((m) => m.family === row.redirect?.family).length;
+  return n > 0
+    ? { text: `${n} to add`, tone: "act" }
+    : { text: "up to date", tone: "ok" };
+}
+
+/** One expandable row of the document-type list.
+ *
+ *  The head is a `<button aria-expanded>` inside a heading — the standard
  *  disclosure pattern, chosen over the two alternatives this page has worn
  *  before. A `<details>/<summary>` cannot be driven from the outside, and
  *  "only one open at a time" is a decision about the SET, so the parent has
@@ -150,34 +216,47 @@ export function Upload() {
  *  when what actually happens is "open this one" — and a radio can never be
  *  un-picked, so there was no way back to a page with nothing open.
  *
- *  The accessible name is just the type's label, so a screen reader hears
- *  "Annual Financial Report, collapsed" rather than a paragraph. The "where
- *  it's published" line rides along as `aria-describedby`, which most
- *  readers announce straight after the name — legible, just not IN the name.
+ *  🔴 THE ROW CARRIES THE NAME AND NOTHING ELSE THAT NEEDS READING. It used
+ *  to carry `where_published` as a full sentence, which put 101 words across
+ *  six rows whose six NAMES are 14 words — the list you came to scan was the
+ *  minority of its own text. `group` (already on the wire, and previously
+ *  displayed nowhere) becomes a quiet publisher tag in a fixed left column,
+ *  so the eye can sort six rows by publisher without reading a word of
+ *  prose. The sentence itself is not deleted — it moves inside, where it is
+ *  guidance for the moment you act rather than noise while you choose.
  *
  *  The body is UNMOUNTED when closed, not hidden. Two things follow, both
- *  wanted: a closed card's half-filled form cannot survive to be submitted
+ *  wanted: a closed row's half-filled form cannot survive to be submitted
  *  by accident, and there is only ever one file input in the document, so
  *  "the Add button" is unambiguous to a test, a screen reader and a person.
  */
 function DocTypeCard({
   row,
   open,
+  status,
   onToggle,
+  check,
+  checking,
+  checkError,
+  onRecheck,
   onQueued,
 }: {
   row: api.DocTypeCard;
   open: boolean;
+  status: { text: string; tone: string } | null;
   onToggle: () => void;
+  check: api.BookCheck | null;
+  checking: boolean;
+  checkError: string;
+  onRecheck: () => void;
   onQueued: () => void;
 }) {
   const headId = `up-head-${row.key}`;
   const bodyId = `up-body-${row.key}`;
-  const whereId = `up-where-${row.key}`;
 
   return (
-    <section
-      className={`card up-card${open ? " is-open" : ""}`}
+    <div
+      className={`up-card${open ? " is-open" : ""}`}
       data-testid="doc-type-card"
       data-doc-type={row.key}
     >
@@ -188,17 +267,20 @@ function DocTypeCard({
           className="up-card-toggle"
           aria-expanded={open}
           aria-controls={bodyId}
-          aria-describedby={row.where_published ? whereId : undefined}
           onClick={onToggle}
         >
-          <span className="up-card-ttl">
-            <span className="up-card-name">{row.label}</span>
-            {row.where_published && (
-              <span id={whereId} className="up-card-where">
-                {row.where_published}
-              </span>
-            )}
+          {/* aria-hidden: the publisher is already the first words of the
+              sentence inside, and a screen reader hearing "J L B C, Baseline
+              Book" gains nothing over "Baseline Book". This tag is a visual
+              sorting aid, and claiming otherwise would just make the
+              accessible name longer for no one's benefit. */}
+          <span className="up-card-pub" aria-hidden="true">
+            {row.group}
           </span>
+          <span className="up-card-name">{row.label}</span>
+          {status && (
+            <span className={`up-card-state up-tone-${status.tone}`}>{status.text}</span>
+          )}
           <Chevron />
         </button>
       </h2>
@@ -209,13 +291,18 @@ function DocTypeCard({
             // A Baseline Book / Appropriations Report is never uploaded as a
             // single file (spec S25 — it's stored as ~110 per-agency
             // documents, and offering "which file?" for it is itself the
-            // bug). Its card expands into that family's own gap instead: a
+            // bug). Its row expands into that family's own gap instead: a
             // list of what JLBC has published that this corpus lacks. Never
             // both, and never a file input a type cannot accept.
             <BookFamilyPanel
               family={row.redirect.family}
               label={row.label}
               detail={row.redirect.detail}
+              wherePublished={row.where_published}
+              check={check}
+              checking={checking}
+              checkError={checkError}
+              onRecheck={onRecheck}
               onQueued={onQueued}
             />
           ) : (
@@ -223,7 +310,25 @@ function DocTypeCard({
           )}
         </div>
       )}
-    </section>
+    </div>
+  );
+}
+
+/** The notice's mark. Decorative — the sentence beside it carries the whole
+ *  meaning, and a screen reader announcing "warning icon" ahead of it adds
+ *  nothing the words don't already say. */
+function WarnGlyph() {
+  return (
+    <svg className="up-notice-glyph" viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+      <path
+        d="M12 3.8L21 19.5H3L12 3.8zM12 10v4.2M12 16.6v.1"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth="1.9"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
+    </svg>
   );
 }
 
@@ -389,11 +494,14 @@ function DocTypeForm({
         selectFile(e.dataTransfer.files?.[0] ?? null);
       }}
     >
-      {/* `which_file` — which of a publisher's several PDFs to take — lives
-          here rather than on the collapsed card header. It is instructions
-          for the moment you go and fetch the file, which is after you've
-          opened this card; `where_published` is the recognition cue and
-          stays on the header where it helps you choose. */}
+      {/* Both registry sentences live HERE, not on the collapsed row. They
+          are instructions for the moment you go and fetch a file, which is
+          after you have opened this — and on the row they were 101 words of
+          prose wrapped around 14 words of names. The AFR's is the clearest
+          case: "gao.az.gov blocks automated downloads, so save it from a
+          browser" is genuinely important and completely useless as scanning
+          material. Nothing is lost, it is one click later. */}
+      {row.where_published && <p className="up-where">{row.where_published}</p>}
       {row.which_file && <p className="up-which">{row.which_file}</p>}
 
       <div className="up-meta">
