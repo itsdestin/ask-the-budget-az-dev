@@ -1,5 +1,36 @@
 # Identity consistency audit — how the same thing gets named more than one way
 
+> ## ⚠ CORRECTED 2026-08-16 — read this before Finding 1
+>
+> **This audit's stated ROOT CAUSE for Finding 1 is wrong**, and the finding
+> itself is right. The work it prompted is built and applied; the outcome is
+> in `STATUS.md` under "Corpus identity — names and agency labels repaired".
+>
+> Finding 1 blames `agency:ost`'s corrupted `canonical_name` — a
+> table-of-contents row — on the theory that the standalone phrase
+> `Board of` therefore acts as a name for that agency. **There is no bare
+> `Board of` entry in the catalog**; its shortest key is `ahcccs` (6 chars).
+> Repairing all three corrupted names changes the labelling outcome on 300
+> sampled mis-labelled chunks by **zero**, and for the phrase `Board of` the
+> repaired name scores *higher* (76.9 → 100).
+>
+> The real cause is `_resolve`'s fuzzy fallback, which scored with
+> `rapidfuzz.token_set_ratio` at cutoff 85. That compares token **sets**, so
+> any candidate whose tokens are a subset of a catalog name scores 100
+> regardless of coverage — the single word `Arizona` scored **100** against
+> the Osteopathic entry. `extractOne` then broke the resulting tie by catalog
+> order. Fixed by scoring with `token_sort_ratio` (which scores those 14 and
+> 16 while keeping genuine matches at 88–98) and refusing ties.
+>
+> **Two other numbers here were also measured differently:** Finding 2's
+> "137 documents named by a bullet or a bare slug" is really 25 bullets plus
+> ~112 correct names missing the format suffix, and a further **375**
+> documents sit in a third title format this audit does not mention. The
+> counts of *documents affected* were sound; the characterisations were not.
+>
+> Everything else in this document held up.
+
+
 > **STATUS: this is the EVIDENCE. The approved design is
 > [`../specs/2026-08-16-corpus-identity-consistency-design.md`](../specs/2026-08-16-corpus-identity-consistency-design.md)**
 > (I1–I14, seven phases, approved 2026-08-16). No implementation plan

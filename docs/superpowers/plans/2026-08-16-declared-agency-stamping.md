@@ -4,7 +4,7 @@
 any code is written. Written 2026-08-16, off the back of the upload page's
 new agency picker (merge `039c3ad`).
 
-> **⚠ SEQUENCING — do this AFTER the identity spec's Unit C, not before.**
+> **⚠ SEQUENCING — do this AFTER the identity spec's "fix the labels", not before.**
 > [`../specs/2026-08-16-corpus-identity-consistency-design.md`](../specs/2026-08-16-corpus-identity-consistency-design.md)
 > re-stamps the corpus and it touches the same
 > `chunking/entity_stamper.py` ladder this document adds a Rule 0 to.

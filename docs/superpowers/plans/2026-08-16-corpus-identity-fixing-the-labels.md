@@ -12,13 +12,15 @@
 [`docs/superpowers/specs/2026-08-16-corpus-identity-consistency-design.md`](../specs/2026-08-16-corpus-identity-consistency-design.md)
 — decisions **I2, I9, I10**, gates **G-I1, G-I3, G-I5** — plus applying the
 title repair built by
-[`2026-08-16-corpus-identity-consistency-units-a-b.md`](2026-08-16-corpus-identity-consistency-units-a-b.md),
+[`2026-08-16-corpus-identity-measure-and-fix-titles.md`](2026-08-16-corpus-identity-measure-and-fix-titles.md),
 which is code-complete and deliberately unapplied.
 
-> **Naming.** The spec calls these groups Unit A / B / C. This repo already
-> has "Phases" and "Plans 1–7", and a third lettering scheme earns nothing.
-> Task 12 renames them in the spec to **measure it** / **fix the titles** /
-> **fix the labels**. This plan is *fix the labels*.
+> **Naming.** The spec's three groups were originally lettered A / B / C.
+> This repo already has "Phases" and "Plans 1–7", and a third lettering
+> scheme earned nothing, so they are now named for what they do:
+> **measure it** / **fix the titles** / **fix the labels**. This plan is
+> *fix the labels*. Phase ids inside a group (A1, B2, C1 …) survive as short
+> labels only.
 
 ---
 
@@ -1027,7 +1029,7 @@ Barbers, and the post-ingest check finds the same defect forever.
 
 **Files:** the spec, both plans, `STATUS.md`
 
-- [ ] **Step 1: Rename Unit A / B / C** in
+- [ ] **Step 1: Rename the three groups** in
       `docs/superpowers/specs/2026-08-16-corpus-identity-consistency-design.md`
       and both plan files to **measure it** / **fix the titles** /
       **fix the labels**. Keep the phase ids (A1, B2, C1 …) as short labels

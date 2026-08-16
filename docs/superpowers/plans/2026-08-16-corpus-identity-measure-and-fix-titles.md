@@ -12,13 +12,13 @@
 [`docs/superpowers/specs/2026-08-16-corpus-identity-consistency-design.md`](../specs/2026-08-16-corpus-identity-consistency-design.md)
 — decisions I1, I3, I4, I5, I6, I7, I8, I12, I13, I14, I15.
 
-**Unit C is deliberately NOT in this plan** (I2 matcher guard, corpus
+**"fix the labels" is deliberately NOT in this plan** (I2 matcher guard, corpus
 re-stamp, I9 agency merge, I10 doc_id rename + transcript migration). Its
 first task is calibrating a fuzzy-match coverage floor against measured
 per-agency error rates, and **those numbers do not exist until Task 4 of
 this plan runs.** Writing calibration steps before the instrument exists
 is exactly the failure the spec's own measurement discipline forbids.
-Unit C gets its own plan, written from Task 4's output.
+"fix the labels" gets its own plan, written from Task 4's output.
 
 ---
 
@@ -94,7 +94,7 @@ requirements implicitly include this section.
 | `app/routes/admin.py` | surface `identity-report.json` in Needs attention (I15) |
 
 **Deliberately untouched:** `ingest/lance_writer.py::build_title`,
-`app/routes/books.py`, `chunking/entity_stamper.py` (Unit C),
+`app/routes/books.py`, `chunking/entity_stamper.py` ("fix the labels"),
 `store/schema.py` (the title is not a chunk column).
 
 ---
@@ -1058,7 +1058,7 @@ Expected: PASS, 7 passed.
 
 Run: `JLBC_DATA_DIR=data/insight-data uv run python -m eval.identity_check --json eval/results/identity-2026-08-16-baseline.json`
 
-Expected, from the audit — **these are the numbers Unit C is calibrated
+Expected, from the audit — **these are the numbers "fix the labels" is calibrated
 against, so record what you actually get even if it differs**:
 
 ```
@@ -1442,7 +1442,7 @@ agency_canonical_ids, fiscal_year, doc_type, publisher, section_path and
 the fund fields, and `title` lives only in `documents.json`. So this pass
 takes no ingest lock, needs no snapshot, never calls `upsert_chunks`, and
 cannot lose a chunk_id. Those hazards belong to the re-stamp and the
-doc_id rename (Unit C).
+doc_id rename ("fix the labels").
 """
 from __future__ import annotations
 
@@ -1607,7 +1607,7 @@ JLBC_DATA_DIR=data/insight-data uv run python -m eval.identity_check --json eval
 
 Expected against Task 4's baseline: `title_names_wrong_agency` → 0,
 `titles_outside_format` → 0, `duplicate_titles` → 0,
-`documents_never_mentioning_stamp` **unchanged** (that is Unit C).
+`documents_never_mentioning_stamp` **unchanged** (that is "fix the labels").
 
 - [ ] **Step 7: Commit**
 
@@ -1705,7 +1705,7 @@ repairs:
 **Do NOT expect this to change any stamp.** Measured 2026-08-16: repairing
 these strings changes the stamping outcome by zero, because the over-match
 comes from `token_set_ratio`, not from the string — and for the phrase
-`Board of` the repaired name scores **higher** (76.9 → 100). That is Unit C
+`Board of` the repaired name scores **higher** (76.9 → 100). That is "fix the labels"
 (I2). This repair is for the name the MODEL is shown by
 `list_filter_values`, and record that in the commit message so nobody later
 reads it as the stamping fix.
@@ -1941,12 +1941,12 @@ git commit -m "docs: identity Units A+B shipped — measured before/after"
 Task 1. I4 → Task 6 fallback + Task 9. I5 → Task 5 + Task 7 uniqueness.
 I6 → Tasks 6 and 8. I7 → Task 7 (and its docstring pins why no lock).
 I8 → Task 7 reversal record. I12 → Tasks 2, 3. I13 → Task 4. I14 → Task 9
-Step 5. I15 → Task 9. **I2, I9, I10 are Unit C and are deliberately
+Step 5. I15 → Task 9. **I2, I9, I10 are "fix the labels" and are deliberately
 absent** — see the scope note at the top.
 
 **Gates.** G-I1 runs in Tasks 6 and 8 (the two touching `ingest/` and
 `chunking/`). G-I2 is Task 7 Step 6. G-I4 is Task 3 Step 1. G-I3 and G-I5
-belong to Unit C — nothing here rewrites a chunk.
+belong to "fix the labels" — nothing here rewrites a chunk.
 
 **Known soft spot.** Task 6's test names (`_document_from_agency_entry`,
 `_AgencyEntry`) are written against what lines 275/284 of
