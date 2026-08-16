@@ -35,6 +35,17 @@ const DOCS: api.CorpusDocument[] = [
   // dropped. No prior fixture in this file exercised that path. Shifts the
   // report count from 5 to 6; see "the status line counts reports" below.
   { doc_id: "misc26", title: "FY 2026 Special Program Review", publisher: "jlbc", doc_type: "program-review", fiscal_year: 2026, doc_url: "https://x/pr26.pdf", section_of: null, terms: [] },
+  // The SECOND program-review document, and the only reason it exists: it
+  // makes "program-review" FY 2026 a MULTI-DOCUMENT family with no curated
+  // REPORT_FORMATS entry, which is the fixture the CRITICAL 2026-08-10
+  // docs[0]-fallback guard needs (see "full-report actions appear only where a
+  // hand-verified URL exists" below). That guard used to lean on FY 2026
+  // Appropriations Report being uncurated; it is curated as of 2026-08-16, and
+  // every JLBC book year now is. A raw-slug family can never acquire an entry
+  // — familyOf returns the slug only for doc_types FAMILY_OF_DOC_TYPE does not
+  // name — so this fixture cannot be invalidated the same way twice.
+  // Adds no report to the count: same family AND same year as misc26.
+  { doc_id: "misc26b", title: "FY 2026 Special Program Review — Volume 2", publisher: "jlbc", doc_type: "program-review", fiscal_year: 2026, doc_url: "https://x/pr26b.pdf", section_of: null, terms: [] },
 ];
 
 function mount(docs = DOCS, entry = "/search") {
@@ -118,15 +129,21 @@ test("full-report actions appear only where a hand-verified URL exists", async (
   const bill = screen.getByText("FY 2026 Budget Bill").closest(".doc")!;
   expect(bill).not.toHaveTextContent(/full report/i);
   expect(bill).toHaveClass("doc-unlinked");
-  // CRITICAL, 2026-08-10: FY 2026 Appropriations Report has no curated
-  // REPORT_FORMATS entry (only 2025 is hand-verified) AND more than one
-  // document (ar26-ahcccs, ar26-edu) — the docs[0]?.doc_url fallback must NOT
-  // apply here, or the pill silently links to whichever agency section
-  // happens to sort first (demonstrated pre-fix: the AHCCCS section PDF,
-  // labeled "Full report").
+  // CRITICAL, 2026-08-10: a family with no curated REPORT_FORMATS entry AND
+  // more than one document must NOT fall back to docs[0]?.doc_url, or the pill
+  // silently links to whichever section happens to sort first (demonstrated
+  // pre-fix on FY 2026 Appropriations Report: the AHCCCS section PDF, labeled
+  // "Full report"). The fixture is now "program-review" — a raw-slug family,
+  // which by construction can never gain a curated entry — because every JLBC
+  // book year DID gain one on 2026-08-16.
+  const multi = screen.getByText("FY 2026 program-review").closest(".doc")!;
+  expect(multi).not.toHaveTextContent(/full report/i);
+  expect(multi).toHaveClass("doc-unlinked");
+  // …and the year that used to play that role now offers the chooser, because
+  // both of its formats were downloaded and read (reportFamilies.ts).
   const ar = screen.getByText("FY 2026 Appropriations Report").closest(".doc")!;
-  expect(ar).not.toHaveTextContent(/full report/i);
-  expect(ar).toHaveClass("doc-unlinked");
+  expect(ar).toHaveTextContent(/full report/i);
+  expect(ar.tagName).toBe("BUTTON");
 });
 
 test("the report row's own action is Full report, not a generic Open", async () => {
