@@ -32,7 +32,12 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Iterable, Mapping
 
-from identity.validator import distinctive_words, validate_name
+from identity.validator import (
+    distinctive_words,
+    longest_distinctive_word,
+    mentions_agency,
+    validate_name,
+)
 
 _FORMAT_RE = re.compile(r" — FY \d{4} .+$")
 # A title that is the document's own slug shouted back at it.
@@ -72,24 +77,13 @@ class IdentityReport:
         }
 
 
-def _longest_word(words: Iterable[str]) -> str | None:
-    """The single most specific token in a set of distinctive words.
-
-    Used instead of "any word" / "all words" for both the stamping check and
-    the wrong-agency check. Measured against the live corpus 2026-08-16 for
-    `agency:ost` ("Osteopathic Examiners in Medicine and Surgery, Arizona
-    Board of" — distinctive words {osteopathic, examiners, medicine,
-    surgery}): "any word" scored 142 mis-stamped documents corpus-wide
-    because an ordinary budget page saying "medicine" or "surgery" passes;
-    "longest word" ("osteopathic") scored 732 for this agency alone (audit:
-    721, 1.5% off) and 1140 corpus-wide; "all words" scored 1771 corpus-wide
-    — over-strict, since a correct document can phrase its own boilerplate
-    around any one distinctive word without using every one of them. The
-    longest word is the agency's most specific token: short shared words like
-    "medicine" recur across the whole corpus and prove nothing.
-    """
-    words = list(words)
-    return max(words, key=len) if words else None
+# The longest-distinctive-word corroboration rule used to be reimplemented
+# here as a private `_longest_word` helper, with its own copy of the
+# 2026-08-16 measurement in its docstring. `identity/compose.py` had an
+# independent (and weaker, "any word") copy of the same idea, and the two
+# had already drifted — see `identity.validator.mentions_agency`'s
+# docstring for the full three-way comparison this module's measurement
+# fed into. Both modules now call the one shared implementation.
 
 
 def check_corpus(
@@ -157,16 +151,15 @@ def check_corpus(
 
         # Per-DOCUMENT stamping check. A document is a mis-stamp only when
         # the stamped agency's LONGEST distinctive word appears nowhere in
-        # its chunks — see `_longest_word` for why "longest", not "any" or
-        # "all". Per-document (not per-chunk): checking chunk-by-chunk would
-        # flag a correct document's own boilerplate/footnotes page and could
-        # never reach zero.
+        # its chunks — see `identity.validator.mentions_agency` for why
+        # "longest", not "any" or "all". Per-document (not per-chunk):
+        # checking chunk-by-chunk would flag a correct document's own
+        # boilerplate/footnotes page and could never reach zero.
         for agency_id in stamps:
             name = agency_names.get(agency_id)
             if not name:
                 continue
-            longest = _longest_word(distinctive_words(name))
-            if longest and longest not in text:
+            if not mentions_agency(text, name):
                 report.documents_never_mentioning_stamp += 1
                 report.findings.append(
                     {"doc_id": doc_id, "kind": "stamp-unmentioned",
@@ -203,14 +196,13 @@ def check_corpus(
                 name = agency_names.get(agency_id)
                 if not name:
                     continue
-                longest = _longest_word(distinctive_words(name))
-                if longest and longest in text:
-                    corroborated_longest.add(longest)
+                if mentions_agency(text, name):
+                    corroborated_longest.add(longest_distinctive_word(name))
             if corroborated_longest and not (corroborated_longest & titled):
                 other = [
                     aid for aid, nm in agency_names.items()
                     if aid not in stamps
-                    and (lw := _longest_word(distinctive_words(nm)))
+                    and (lw := longest_distinctive_word(nm))
                     and len(lw) > 4
                     and lw in titled
                 ]

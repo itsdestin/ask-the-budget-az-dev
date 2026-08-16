@@ -126,6 +126,27 @@ def test_an_empty_stamp_returns_the_supplied_name_unchanged():
     assert note is None
 
 
+def test_a_SHORT_shared_word_does_not_corroborate_the_stamp():
+    """Regression for the repair-pass over-firing defect (2026-08-16
+    correction): `resolve_supplier_disagreement` used to corroborate a
+    stamp off ANY of its distinctive words. "Osteopathic Examiners in
+    Medicine and Surgery" has distinctive words {osteopathic, examiners,
+    medicine, surgery}; a page merely saying "medicine" is not evidence the
+    document is about that Board — only its LONGEST word ("osteopathic")
+    is specific enough. Before the fix (any-word), this returned the stamp
+    name with a "stamp wins" note; after (longest-word, via the shared
+    `identity.validator.mentions_agency`), it must fall through to
+    uncorroborated and leave the supplied name alone."""
+    chosen, note = resolve_supplier_disagreement(
+        supplied="Some Other Title",
+        stamp_name="Osteopathic Examiners in Medicine and Surgery, "
+                   "Arizona Board of",
+        doc_text="General surgery and medicine funding increased this year.",
+    )
+    assert chosen == "Some Other Title"
+    assert note is not None and "not corroborated" in note
+
+
 def test_a_stamp_with_no_distinctive_words_never_overrules_the_supplier():
     """Intended behaviour, not merely observed: a stamp built entirely of
     stop words (`distinctive_words` returns an empty set) can never supply a

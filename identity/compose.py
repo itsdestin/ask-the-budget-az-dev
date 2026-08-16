@@ -15,7 +15,7 @@ every finding in the audit. Where the stamp is the broken witness — the 721
 """
 from __future__ import annotations
 
-from identity.validator import distinctive_words, validate_name
+from identity.validator import distinctive_words, mentions_agency, validate_name
 
 
 def compose_title(
@@ -61,12 +61,18 @@ def resolve_supplier_disagreement(
     if stamp_words & supplied_words:
         return supplied, None
 
-    text = (doc_text or "").lower()
-    # `any()` over an empty iterable is already False, so no explicit
-    # `bool(stamp_words) and` guard is needed — a name with no distinctive
-    # words (e.g. every word is a stop word) correctly reads as
-    # uncorroborated on its own.
-    corroborated = any(w in text for w in stamp_words)
+    # `mentions_agency` is the LONGEST-distinctive-word rule (shared with
+    # `eval/identity_check.py` via `identity/validator.py`) — this used to
+    # be a local "does the text contain ANY distinctive word" check, and
+    # that weaker rule is what let the repair pass over-fire: a page merely
+    # saying "medicine" corroborated "Osteopathic Examiners in Medicine and
+    # Surgery." Measured 2026-08-16: any-word flags 142 documents
+    # corpus-wide, longest-word flags 1,140 (732 for agency:ost alone
+    # against an independent audit's 721). See `mentions_agency`'s
+    # docstring for the full comparison. A name with no distinctive words
+    # (every word is a stop word) correctly reads as uncorroborated —
+    # `mentions_agency` returns False when there is no longest word to test.
+    corroborated = mentions_agency(doc_text, stamp_name)
     if not corroborated:
         return supplied, (
             f"supplier said {supplied!r}, stamp said {stamp_name!r}, and the "
