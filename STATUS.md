@@ -710,7 +710,164 @@ backlog. Earlier years of agency budget requests are NOT harvested and live on
 78 separate agency websites with no shared URL convention — a research project,
 not a crawl.
 
+## ✅ Structural extraction — acceptance run DONE, and it found a real defect (2026-08-16)
+
+The acceptance step of the structural-extraction work (plan Task 8). Merges
+`c7db891` (the feature), `6bae076` (admin visibility), `639f0cf` (this run),
+`eccfbdc` (the defect it found). **The corpus changed**: `agao-afr-fy2024` is
+re-minted and now reads with `mineru`. Restore point:
+`backups/lancedb-20260816T121040Z.zip` (2.0 GB, taken automatically seconds
+before the write); the previous reading's extractor output is still cached
+under `extractor-output/agao-afr-fy2024/`.
+
+**All five predictions confirmed, from the job record:**
+
+| rung | coverage | unlabelled | outcome |
+|---|---|---|---|
+| `opendataloader` | 0.4903 | **0.3063** | trips the ceiling — ladder continues |
+| `mineru` | 0.4477 | **0.0000** | **kept** |
+| `mineru-ocr` | — | — | **never ran** (X12: text layer present, a rung had passed) |
+
+MinerU is inside X3's comparability band (0.4477 ≥ 0.75 × 0.4903 = 0.3677) and
+wins on structure. The swap renders on the admin page with both numbers; the
+new "in search, but badly read" panel correctly shows nothing, because the kept
+reading scores 0.00%.
+
+**Content — the actual gate, since the count is not:**
+
+| | before | after |
+|---|---|---|
+| bare digit-run passages | 117 | **0** |
+| table chunks | 1 | **422** |
+| chunks with any heading | few | **450 of 450** |
+| chunk characters | 565,478 | 516,399 |
+
+Page 9 was a heading-less run of digits and now reads *"DEPARTMENT OF
+ADMINISTRATION / ADDITIONAL GILA WORKFORCE DEVELOPMENT AID … 200,000"* — an
+agency, an appropriation name and an amount. Page 10's figures now sit under
+their real column headers (NET APPROPRIATIONS / EXPENDITURES / LAPSED
+APPROPRIATION AUTHORITY).
+
+**Retrieval unmoved, against a CONTROL not a remembered baseline**
+(`eval/results/2026-08-16T1122Z-9c9f8d6`, same branch and same 47-query set,
+run one hour earlier on the pre-change corpus): recall@5 85.71% (=), @15
+97.62% (=), @20 100% (=), refusal 60% (=). **0 of 47 queries changed status**;
+one moved rank 1 → 2. Gate G1 passes.
+
+### 🔴 What it found: the reading swap CREATED 121 wrongly-labelled passages
+
+**This is why "read the kept chunks" is the gate and the count is not.**
+Switching the document to MinerU removed 117 *unlabelled* passages and created
+121 *wrongly-labelled* ones — 27% of the document claiming "(expressed in
+thousands)" over whole-dollar figures, **a 1,000× error on citable numbers**,
+inherited from a heading four pages earlier belonging to a different statement.
+
+`ingest/structure.py`'s docstring already warned about exactly this
+counterexample. **What was new is the SCALE.** The corpus-wide measurement on
+2026-08-13 found 8 such passages in 80,854 and the defect was downgraded to a
+follow-up on that basis — but that measurement was taken while this document
+was read by OpenDataLoader, which emits no heading at all for those pages and
+so contributed **zero**. One document raised that defect class ~15×.
+
+**Fixed in `eccfbdc`** — see the next section. The fix does NOT repair what is
+already written.
+
+### Still open from this run
+
+- **The 8 documents holding a >20-page heading run are still wrong in the
+  corpus** and need re-processing to benefit from `eccfbdc`:
+  `agao-afr-fy{2021,2022,2023,2024,2025}`,
+  `governor-governors-budget-fy{2026,2027}`, `jlbc-baseline-fy2027-s58`.
+  **`agao-afr-fy2025` is pinned by SIX eval ground-truth chunk ids and nothing
+  re-binds them** (`eval/refresh_chunk_ids.py` was deleted) — re-process it
+  only with a plan for those.
+- **A live document written OVER the structure ceiling is now visible** (the
+  admin panel shipped in `6bae076`), but its silence means "nothing ingested
+  since the measure shipped scored badly", NOT "the corpus is clean" — every
+  document ingested earlier carries no measurement and can never appear there.
+  `scripts/structure_scan.py` is what audits those.
+- **`STRUCTURE_TIE_BAND` tension, unresolved and hypothetical on this corpus:**
+  a ~100%-bare reading can still beat a materially cleaner one that falls
+  outside the 0.75 size band. Deliberately NOT fixed — adding a second
+  uncalibrated threshold against a failure never observed is how this gets
+  fragile. Wait for a real example.
+- `settings.json` on the dev corpus had `admin_username: "desti"`, a typo that
+  locked the admin page. Fixed in place 2026-08-16 (backup beside it).
+
+---
+
+## ✅ Heading inheritance is BOUNDED — a heading governs 5 pages, not a book (2026-08-16)
+
+Merge `eccfbdc`. Found by the acceptance run above, not by a test.
+
+`_build_outline` in **both** readers is a level-stacked walk with **no
+distance limit**: a heading stays on the stack until a same-or-lower-level
+heading appears. A document whose real section breaks the extractor did not
+mark as headings inherits ONE heading for the rest of the book. An AFR's
+appropriations schedule is ~180 consecutive pages of bare `<table>` blocks.
+
+**Calibrated with BOTH sides measured, because both genuinely degrade:**
+
+| bound | real sections truncated (of 48,382 runs) | AFR blocks left wrong by 1,000× |
+|---|---|---|
+| 3 | 1,211 (2.50%) | 5 |
+| **5 (shipped)** | **427 (0.88%)** | **5** |
+| 8 | 98 (0.20%) | 12 |
+| 15 | 27 (0.06%) | 21 |
+| 20 | 24 (0.05%) | 27 |
+| none (before) | 0 | 53 |
+
+**5 is the loose edge of the harm plateau** — bounds 3 and 5 both reach the
+floor of 5 residual blocks, and 5 pays a third of 3's price. Neither "plateau
+centre" nor "safe edge" applies unmodified: the metric has a plateau on one
+axis and is monotonic on the other.
+
+Drawn against the real distribution: **86.5% of contiguous heading runs govern
+ONE page, 94.8% one or two, 99.1% five or fewer.** All 24 runs longer than 20
+pages were READ and every one is wrong — "Table of Contents" governing **408
+consecutive pages** of the FY2027 Governor's budget, "Note 3. — Description of
+Selected Columns" governing 27–49 pages of five separate AFRs, a garbled fused
+fragment governing 65. A 14-run sample of the 6–20 band is all legitimate
+("Capital Projects", "Red Imported Fire Ant Control", "CROSSWALK OF GENERAL
+APPROPRIATION ACT TO …") — that is what the 0.88% buys.
+
+**The two failure modes are NOT symmetric, which is why the pick leans tight.**
+Too tight yields a chunk with NO heading — exactly what OpenDataLoader already
+produces for these pages and what the corpus lived with before. Too loose
+yields a chunk with a CONFIDENTLY WRONG heading, which is citable. Under
+Invariant 1 those are not comparable.
+
+**A BACKSTOP, NOT A COMPLETE FIX**, and the constant's comment says so: 5
+blocks immediately after a stale heading still inherit it. Fixing those needs a
+real section-boundary signal — a page that is entirely a table carrying its own
+header row is a new table, whatever the last prose heading said — which is its
+own design and is **not done**.
+
+**Applied to both readers via one shared helper.** A fix in the MinerU reader
+alone would have left the defect live on every PDF that reads cleanly on rung
+1, which is most of the corpus.
+
+**Known equivalent mutant, checked rather than waved through:** replacing the
+`while` pop with `stack.clear()` passes every spec and is genuinely equivalent
+— headings push in document order so the stack is non-decreasing in page
+number (verified: 0 violations across the real AFR outline), meaning a stale
+top implies stale ancestors. Recorded in the test so nobody "fixes" it later.
+
+2990 pytest / 5 skipped. **The eval was run as the CLAUDE.md rule requires and
+DISCARDED rather than committed** — it reports figures identical to the
+control because the corpus is untouched, so the number would be a measurement
+of nothing dressed as a result.
+
+---
+
 ## 🔴 FY2024 AFR ingested but effectively EMPTY (2026-08-01)
+
+> **⬛ SUPERSEDED 2026-08-16.** The 20-passage state described below is long
+> gone — the document was re-ingested 2026-08-13 (388 passages, OpenDataLoader)
+> and re-read 2026-08-16 (450 passages, MinerU, 0% bare). Kept as the record of
+> the failure that motivated both the coverage floor and the structure measure.
+> The open decisions at the bottom are all now DECIDED: it was re-routed to
+> MinerU by the ladder, automatically, on the evidence.
 
 **Found immediately after ingest, by comparing passage counts.** All four AFRs
 report `live`; three are fine and one is not:
