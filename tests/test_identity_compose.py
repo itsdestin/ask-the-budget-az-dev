@@ -131,17 +131,24 @@ def test_a_SHORT_shared_word_does_not_corroborate_the_stamp():
     correction): `resolve_supplier_disagreement` used to corroborate a
     stamp off ANY of its distinctive words. "Osteopathic Examiners in
     Medicine and Surgery" has distinctive words {osteopathic, examiners,
-    medicine, surgery}; a page merely saying "medicine" is not evidence the
-    document is about that Board — only its LONGEST word ("osteopathic")
-    is specific enough. Before the fix (any-word), this returned the stamp
-    name with a "stamp wins" note; after (longest-word, via the shared
-    `identity.validator.mentions_agency`), it must fall through to
-    uncorroborated and leave the supplied name alone."""
+    medicine, surgery}; a page merely saying one shared word ("surgery") is
+    not evidence the document is about that Board.
+
+    UPDATED 2026-08-16 (Task 3 recalibration): the corroboration rule moved
+    again, from "longest word" to "majority (>= half, minimum 1) of
+    >= 3-character distinctive words" — see `mentions_agency`'s docstring
+    for why "longest" was itself rejected (it let "Highway Safety,
+    Governor's Office of" corroborate off "governor" alone). `agency:ost`
+    has four distinctive words, so a majority needs 2; mentioning only ONE
+    ("surgery") is a minority and must still fall through to uncorroborated.
+    (Mentioning two of the four — exactly half — now legitimately
+    corroborates under the shipped rule; that boundary is exercised
+    directly in `tests/test_identity_validator.py`, not duplicated here.)"""
     chosen, note = resolve_supplier_disagreement(
         supplied="Some Other Title",
         stamp_name="Osteopathic Examiners in Medicine and Surgery, "
                    "Arizona Board of",
-        doc_text="General surgery and medicine funding increased this year.",
+        doc_text="General surgery funding increased this year.",
     )
     assert chosen == "Some Other Title"
     assert note is not None and "not corroborated" in note

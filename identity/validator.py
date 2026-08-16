@@ -113,34 +113,73 @@ def mentions_agency(text: str, agency_name: str) -> bool:
     """Does `text` actually corroborate that it is about `agency_name`?
 
     The ONE corroboration rule, used everywhere a second witness is needed
-    (spec I1's "two witnesses" repair rule in `identity/compose.py`, and the
-    stamping + wrong-agency metrics in `eval/identity_check.py`). It used to
-    be written twice — once per module — and the two copies had DRIFTED:
-    `identity/compose.py` still used "does the text contain ANY of the
-    agency's distinctive words", the weaker rule `eval/identity_check.py`
-    had already measured and rejected. That drift is what let the repair
-    pass over-fire: a page merely saying "medicine" was accepted as
-    corroborating "Osteopathic Examiners in Medicine and Surgery."
+    (spec I1's "two witnesses" repair rule in `identity/compose.py`, the
+    stamping + wrong-agency metrics in `identity/check.py`, and the
+    per-agency label audit in `identity/label_audit.py` that gates the
+    whole labelling fix). It used to be written twice — once per module —
+    and the two copies had DRIFTED: `identity/compose.py` still used "does
+    the text contain ANY of the agency's distinctive words", the weaker
+    rule that let the repair pass over-fire: a page merely saying "medicine"
+    was accepted as corroborating "Osteopathic Examiners in Medicine and
+    Surgery." That was fixed by moving both callers to "longest word" — but
+    "longest word" carries its OWN defect, found only once title repair
+    started proposing real renames: for "Highway Safety, Governor's Office
+    of" the longest distinctive word is "governor", which appears on nearly
+    every budget document (the Governor transmits the whole budget), so an
+    utterly unrelated document — e.g. a Liquor Licenses page that merely
+    mentions "the Governor's Office recommends no change" — passed as
+    corroborating the Highway Safety label.
 
-    Measured on the live corpus 2026-08-16, three candidate rules compared
-    for `agency:ost` ("Osteopathic Examiners in Medicine and Surgery,
-    Arizona Board of" — distinctive words {osteopathic, examiners, medicine,
-    surgery}):
+    Re-measured on the live corpus 2026-08-16 (`identity.label_audit`,
+    83,016 `budget_chunks` rows / 5,356 documents), against `agency:ost`
+    ("Osteopathic Examiners in Medicine and Surgery, Arizona Board of" —
+    distinctive words {osteopathic, examiners, medicine, surgery}) and the
+    four known-clean agencies (`tre`, `gam`, `adc`, `axs` — each has exactly
+    one distinctive word, so every candidate rule agrees on them and all
+    four MUST stay at 0% or the "fix" is worse than the defect):
 
-    * "any word" — 142 documents corpus-wide, because ordinary budget pages
-      saying "medicine" or "surgery" pass;
-    * **"longest word" ("osteopathic") — 732 for `agency:ost` alone against
-      an independent audit's 721 (1.5% off), 1,140 corpus-wide. This is what
-      ships;**
-    * "all words" — 1,771 corpus-wide, over-strict: a correct document can
-      phrase its own boilerplate around any one distinctive word without
-      using every one of them.
+    | rule | ost error rate | corpus `total_unmentioned` | tre/gam/adc/axs | Highway Safety case |
+    |---|---|---|---|---|
+    | "longest word" (was shipped) | 732/992 = 73.8% | 1,128 | 0/0/0/0 | **WRONGLY corroborates** ("governor") |
+    | "all words present" | 927/992 = **93.4%** (worse) | 1,771 | 0/0/0/0 | correctly rejects |
+    | "majority (>=half, min 1) present" | 673/992 = 67.8% | 925 | 0/0/0/0 | **WRONGLY corroborates** |
 
-    The longest word is the agency's most specific token — short shared
-    words recur across the whole corpus and prove nothing about whether a
-    document is really about that agency.
+    **None of the three separates the classes** — "longest" and "majority"
+    both wrongly corroborate the motivating false-positive case; "all"
+    rejects it correctly but makes `ost` WORSE than the rule it would
+    replace, because a correct document can phrase its own boilerplate
+    around any one distinctive word without using every single one. So a
+    fourth rule ships instead:
+
+    **"majority (>=half, minimum 1), counting only distinctive words of at
+    least 3 characters."** Measured: `ost` 673/992 = 67.8% (same as
+    unfiltered majority — the short tokens it drops never decided an `ost`
+    document either way), `total_unmentioned` 962, all four clean agencies
+    still 0/0/0/0, and the Highway Safety case now correctly rejects.
+
+    Why the length-3 floor, not a new stopword: `distinctive_words` splits
+    on the regex `[a-z]+`, so a possessive apostrophe silently mints a
+    junk one-letter "word" — "Governor's" -> {"governor", "s"} — and "in"
+    (as in "Examiners **in** Medicine") isn't on its stopword list either.
+    Neither is a real distinguishing token, and both are exactly why
+    "majority" alone still corroborated Highway Safety: "governor" plus the
+    stray "s" (itself minted from an unrelated "agency's" elsewhere in the
+    same test sentence) made 2 of 4 words "present", clearing the >=half
+    bar by coincidence. Filtering by length inside THIS function — not by
+    editing `distinctive_words`, which four other call sites depend on
+    unchanged — removes the coincidence without touching anyone else's
+    behaviour. Checked against the full 157-agency catalog: 10 agencies
+    have at least one word this filter removes, and NONE is left with zero
+    distinctive words afterward — the filter never silently disables an
+    agency the way a two-word minimum would.
+
+    A single-word agency name (`AHCCCS`) still corroborates correctly: one
+    word, minimum-1 applies, and "ahcccs" is 6 characters.
     """
-    longest = longest_distinctive_word(agency_name)
-    if not longest:
+    words = {w for w in distinctive_words(agency_name) if len(w) >= 3}
+    if not words:
         return False
-    return longest in (text or "").lower()
+    haystack = (text or "").lower()
+    present = sum(1 for w in words if w in haystack)
+    needed = max(1, (len(words) + 1) // 2)  # at least half, rounded up; minimum 1
+    return present >= needed

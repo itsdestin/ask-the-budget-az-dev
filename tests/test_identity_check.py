@@ -137,15 +137,26 @@ def test_a_document_mentioning_only_a_SHORT_shared_word_of_its_agency_still_coun
     """agency:ost measured 2026-08-16: "any distinctive word" let ordinary
     shared words like "medicine" or "surgery" pass a document that never
     actually discusses the Board of Osteopathic Examiners — 142 mis-stamps
-    found corpus-wide vs the audit's 721 for this one agency alone. The
-    LONGEST distinctive word ("osteopathic") is the agency's own specific
-    token; a document that only says a short shared word must still count as
-    not mentioning its stamp."""
+    found corpus-wide vs the audit's 721 for this one agency alone.
+
+    UPDATED 2026-08-16 (Task 3 recalibration): "longest word" itself was
+    then measured and rejected too — for "Highway Safety, Governor's Office
+    of" the longest word is "governor", present on nearly every budget
+    document, so an unrelated page could pass. `mentions_agency` now
+    requires a MAJORITY (>= half, minimum 1) of an agency's distinctive
+    words of >= 3 characters — see its docstring for the full three-way
+    comparison and why a fourth rule shipped. `agency:ost` has FOUR
+    distinctive words {osteopathic, examiners, medicine, surgery}, so a
+    majority needs 2; mentioning only ONE of them ("surgery") is still a
+    minority and must still count as not mentioning the stamp. (Mentioning
+    two of the four — exactly half — now legitimately corroborates; that
+    boundary is exercised directly in `tests/test_identity_validator.py`,
+    not duplicated here.)"""
     report = check_corpus(
         documents={"jlbc-approps-fy2026-x": _doc(
             "Some Other Title — FY 2026 Appropriations Report")},
         chunks_by_doc={"jlbc-approps-fy2026-x": [
-            "General surgery and medicine funding increased this year.",
+            "General surgery funding increased this year.",
         ]},
         agency_names={
             "agency:ost": "Osteopathic Examiners in Medicine and Surgery, "
@@ -157,18 +168,24 @@ def test_a_document_mentioning_only_a_SHORT_shared_word_of_its_agency_still_coun
 
 
 def test_the_wrong_agency_rule_does_NOT_fire_when_the_stamp_is_uncorroborated():
-    """Corroboration now requires the stamp's LONGEST distinctive word
-    (mirrors the stamping-check tightening) rather than 'any' word. A
-    document mentioning only the shorter word "financial" without
-    "institutions" is not corroborated, so a differing title must not be
-    flagged as a wrong-agency defect — an uncorroborated stamp is a stamping
-    problem (separate, later work; see the KNOWN false-positive comment in
-    the source), not evidence the TITLE is wrong."""
+    """Corroboration is `mentions_agency` (Task 3, 2026-08-16: majority of an
+    agency's >= 3-character distinctive words, minimum 1 — see its
+    docstring). `agency:ban` ("Financial Institutions, Department of") has
+    exactly TWO distinctive words {financial, institutions}, so for THIS
+    agency a majority is just one word — mentioning "financial" alone WOULD
+    now corroborate it (a real, measured, and accepted property of the
+    majority rule for two-word names; see `mentions_agency`'s docstring).
+    So this fixture mentions NEITHER word, to test what it always meant to
+    test: a title differing from a genuinely uncorroborated stamp (zero
+    matching words, not one) must not be flagged as a wrong-agency defect —
+    an uncorroborated stamp is a stamping problem (separate, later work; see
+    the KNOWN false-positive comment in the source), not evidence the TITLE
+    is wrong."""
     report = check_corpus(
         documents={"jlbc-approps-fy2005-x": _doc(
             "Agriculture, Arizona Department of — FY 2005 Appropriations Report")},
         chunks_by_doc={"jlbc-approps-fy2005-x": [
-            "This page references financial matters only, nothing else.",
+            "This page references appropriations matters only, nothing else.",
         ]},
         agency_names={
             "agency:ban": "Financial Institutions, Department of",

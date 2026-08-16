@@ -139,3 +139,45 @@ def test_distinctive_words_does_not_match_unrelated_agencies():
         distinctive_words("Board of Barbers")
         & distinctive_words("Agriculture, Arizona Department of")
     )
+
+
+# --- mentions_agency (I1's corroboration rule) --------------------------
+
+def test_a_common_word_does_not_corroborate_a_label():
+    """The measured failure that blocked the title repair.
+
+    `mentions_agency` asked whether the document contained the agency name's
+    LONGEST distinctive word. For "Highway Safety, Governor's Office of" that
+    word is "governor", which appears in nearly every budget document -- so a
+    wrong label passed the check, and the title repair proposed renaming
+    "Liquor Licenses and Control, Department of" to "Highway Safety,
+    Governor's Office of" on a document whose title was already correct."""
+    from identity.validator import mentions_agency
+
+    liquor_page = (
+        "Liquor Licenses and Control, Department of. The Governor's Office "
+        "recommends no change to the agency's operating budget."
+    )
+    assert mentions_agency(liquor_page, "Liquor Licenses and Control, Department of")
+    assert not mentions_agency(liquor_page, "Highway Safety, Governor's Office of")
+
+
+def test_a_genuine_mention_still_corroborates():
+    from identity.validator import mentions_agency
+
+    assert mentions_agency(
+        "The Board of Osteopathic Examiners licenses physicians.",
+        "Osteopathic Examiners in Medicine and Surgery, Arizona Board of",
+    )
+    assert mentions_agency(
+        "Arizona Department of Racing  Director: Geoffrey Gonsher",
+        "Racing, Arizona Department of",
+    )
+
+
+def test_a_single_word_agency_name_still_works():
+    """AHCCCS has exactly one distinctive word. A rule that requires two
+    would silently stop corroborating the fourth-largest agency."""
+    from identity.validator import mentions_agency
+
+    assert mentions_agency("AHCCCS capitation rates rose", "AHCCCS")
