@@ -1,5 +1,24 @@
 # Corpus identity consistency — Units A + B implementation plan
 
+> # ⛔ EXECUTED AND MERGED 2026-08-16 — DO NOT RUN THIS PLAN AGAIN
+>
+> Every task below is done, merged to `master`, and **applied to the live
+> corpus**. The unchecked `- [ ]` boxes are the record of what was planned,
+> not a to-do list, and the "REQUIRED SUB-SKILL … implement this plan
+> task-by-task" line above is addressed to the session that already did.
+>
+> **Re-running it would re-apply corpus mutations that have already
+> happened** — re-labelling, agency merges, document renames, title
+> rewrites — against data those passes have already changed.
+>
+> What actually shipped, the measured before/after, the places this plan
+> was WRONG, and the open follow-ups are in **`STATUS.md` → "Corpus
+> identity — names and agency labels repaired (2026-08-16)"**. STATUS.md
+> is the source of truth for status; this file is design intent only.
+>
+> This plan is the *measure it / fix the titles* group of the spec.
+
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Make every surface show the same, correct name for a document, measured by an error rate rather than by coverage — and stop the wrong names being re-imported.

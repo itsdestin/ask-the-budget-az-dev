@@ -1488,14 +1488,15 @@ Recorded because they are the kind of thing that gets copied forward:
 
 ## What's next
 
-- **🔴 CORPUS IDENTITY CONSISTENCY — spec approved 2026-08-16, no plan yet,
-  nothing built.** The largest known-wrong thing in the corpus: **721
-  documents stamped as an agency they never mention** and **218 carrying a
-  different agency's name**, which is what a CITATION displays. Section
-  above; spec at
-  [`docs/superpowers/specs/2026-08-16-corpus-identity-consistency-design.md`](docs/superpowers/specs/2026-08-16-corpus-identity-consistency-design.md).
-  **Next step is the implementation plan** (Destin: to be done in a fresh
-  session). Phase 1 is the audit script and everything else is gated on it.
+- **✅ CORPUS IDENTITY CONSISTENCY — BUILT, APPLIED AND MERGED 2026-08-16.**
+  Titles naming a different agency 284 → **4**; duplicate titles 218 → **0**;
+  doc_ids contradicting their source 22 → **0**; documents labelled with an
+  agency they never mention 1,072 → **171**. Layer 1 eval unchanged through
+  all four corpus passes. **Both implementation plans carry a DO-NOT-RE-RUN
+  banner** — they applied corpus mutations and are design intent now, not
+  work. Full record, including the two figures the audit got wrong and the
+  open follow-ups, in the section below. **Only the browser walkthrough is
+  outstanding.**
   **Repairing needs NO re-ingest — verified**, so do not scope this as a
   corpus rebuild.
 - **Two corrections landed in this file on 2026-08-16 — both were claims
@@ -2783,7 +2784,18 @@ ordinary-word slugs nobody knew were live.
 
 ### Catalog debris removed — 🔴 QUERY-SIDE ONLY. THE CORPUS IS STILL POISONED
 
-> **⚠ CORRECTION 2026-08-16. Do not read the heading below as "handled".**
+> **⚠ CORRECTED TWICE. As of 2026-08-16 this IS handled — and the middle
+> correction below was itself wrong.** The catalog's `canonical_name` values
+> are repaired, the corpus is re-labelled, and `agency:ost` now sits at
+> **0 wrong of 117 documents** (was 673 of 992). **But the causal claim in
+> the paragraph below — that the corrupted catalog string is what stamped
+> the corpus — was measured and is FALSE.** There is no bare `Board of`
+> entry; repairing the strings changes labelling by zero. The real defect
+> was `rapidfuzz.token_set_ratio` scoring 100 for any candidate whose tokens
+> are a subset of a catalog name. See the identity section below.
+>
+> The original (now doubly-superseded) text follows.
+>
 > The debris was removed from the QUERY resolver. The catalog's own
 > `canonical_name` was never repaired, and **that is what stamped the
 > corpus.** `agency:ost`'s canonical name is still the raw TOC row

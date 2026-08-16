@@ -4,6 +4,17 @@
 any code is written. Written 2026-08-16, off the back of the upload page's
 new agency picker (merge `039c3ad`).
 
+> **✅ UNBLOCKED 2026-08-16 — the thing this waited on is DONE.**
+> The identity spec's "fix the labels" group is built, applied and merged,
+> so the sequencing constraint below is satisfied and this work can start.
+> Note it now edits a stamping ladder that CHANGED: the fuzzy rung scores
+> by `token_sort_ratio` and refuses ties, the URL rung knows all four JLBC
+> directory conventions, and uncatalogued sub-programme slugs resolve to
+> their parent agency. Re-read `chunking/entity_stamper.py` before adding
+> a Rule 0 to it.
+>
+> The original sequencing note follows.
+>
 > **⚠ SEQUENCING — do this AFTER the identity spec's "fix the labels", not before.**
 > [`../specs/2026-08-16-corpus-identity-consistency-design.md`](../specs/2026-08-16-corpus-identity-consistency-design.md)
 > re-stamps the corpus and it touches the same
