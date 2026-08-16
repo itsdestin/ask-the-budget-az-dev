@@ -837,6 +837,46 @@ prove the CODE observes anything.** The missing step was one end-to-end run
 of `chunk_doc` against cached extractor output — free, offline, and about
 sixty seconds.
 
+### 📏 The measurement, kept — it was gathered for the wrong fix and fits the right one
+
+Recorded here because it otherwise survives only inside a REVERTED commit
+(`git show eccfbdc`), findable only by someone who already knows to look.
+It cost real time, and whoever adds a locality rule to
+`_resolve_section_path` needs exactly this: what section lengths are NORMAL.
+
+**Contiguous heading runs across the live 97,358-chunk corpus — 48,382 runs**
+(a run = consecutive pages carrying the same leaf heading; keyed on runs, not
+min-to-max span, because a heading recurring in a table of contents AND its
+own section is recurrence, not travel, and conflating them inflates the tail):
+
+| run length | share |
+|---|---|
+| 1 page | **86.5%** |
+| 2 pages | 8.3% |
+| 3–5 | 4.3% |
+| 6–20 | 0.8% |
+| 21–50 | 12 runs |
+| 51+ | 12 runs |
+
+**Every one of the 24 runs longer than 20 pages was READ, and every one is
+wrong** — "Table of Contents" governing **408 consecutive pages** of the
+FY2027 Governor's budget, "Note 3. — Description of Selected Columns"
+governing 27–49 pages of five separate AFRs, and a garbled fused fragment
+(`OTAL OTHER FUND EXPENDITURES: \$15,208,607,391FY24 TOTAL…`) governing 65.
+
+**A 14-run sample of the 6–20 band is all legitimate** — "Capital Projects",
+"Red Imported Fire Ant Control", "CROSSWALK OF GENERAL APPROPRIATION ACT TO
+…". So the boundary between right and wrong sits between 20 and 21 pages on
+this corpus, and anything at or under 5 pages is unambiguously normal.
+
+**Caveat that makes it usable rather than misleading:** these are *observed*
+run lengths in the CURRENT corpus, which is the output of the buggy text
+search — not ground truth about how long real sections are. A long run here
+means "the current rule assigned this heading to that many pages", which is
+precisely the thing being fixed. Use it to calibrate what is normal, never to
+validate the fix; validate that by running `chunk_doc` end-to-end and reading
+the result.
+
 ### What is still true, and still open
 
 - **The mislabelling itself is real and large.** 166 of 198 chunks in
