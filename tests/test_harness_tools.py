@@ -1171,6 +1171,13 @@ def test_tools_module_imports_are_allowlisted():
         "store",
         "harness",
         "chunking",
+        # `identity` joined this list on 2026-08-16, when AI Mode stopped
+        # resolving document titles its own way and started calling the one
+        # shared resolver. It grants no new reach: `identity.resolve` imports
+        # nothing but `store.documents`, which this module already imported
+        # directly. See the narrower guard below for why the PACKAGE being
+        # allowed is not the same as every module in it being safe.
+        "identity",
     }
     tree = ast.parse(TOOLS_SOURCE_PATH.read_text(encoding="utf-8"))
     roots: set[str] = set()
@@ -1180,6 +1187,36 @@ def test_tools_module_imports_are_allowlisted():
         elif isinstance(node, ast.ImportFrom) and node.module and node.level == 0:
             roots.add(node.module.split(".")[0])
     assert roots <= allowed, f"unexpected imports: {sorted(roots - allowed)}"
+
+
+def test_tools_module_reaches_only_the_read_side_of_identity():
+    """`identity` is allowed as a package; only one module in it is safe.
+
+    The allowlist above collects ROOT package names, so it cannot express
+    "`identity.resolve` yes, `identity.repair` no" — and that distinction is
+    load-bearing. `identity/repair.py` is an offline maintenance CLI that
+    imports `os`, `pathlib` and `argparse` and rewrites `documents.json`.
+    Every one of those is a thing the allowlist above exists to keep out of
+    this module, and admitting the package admits them by the back door.
+
+    So this guard pins the module, not the package. `identity.resolve` and
+    `identity.validator` are pure read/derive helpers; anything else is a
+    conscious decision that has to be made here."""
+    read_side = {"identity.resolve", "identity.validator"}
+    tree = ast.parse(TOOLS_SOURCE_PATH.read_text(encoding="utf-8"))
+    reached: set[str] = set()
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Import):
+            reached.update(
+                a.name for a in node.names if a.name.split(".")[0] == "identity"
+            )
+        elif isinstance(node, ast.ImportFrom) and node.module and node.level == 0:
+            if node.module.split(".")[0] == "identity":
+                reached.add(node.module)
+    assert reached <= read_side, (
+        f"harness/tools.py reaches a write-capable identity module: "
+        f"{sorted(reached - read_side)}"
+    )
 
 
 def test_tools_module_never_calls_a_write_method():

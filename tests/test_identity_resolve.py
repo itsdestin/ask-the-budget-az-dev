@@ -92,3 +92,72 @@ def test_resolve_titles_reads_the_sidecar_ONCE_and_agrees_with_the_singular(data
     assert out == {"a": "Alpha — FY 2026 Baseline", "b": "Beta — FY 2026 Baseline"}
     assert calls["n"] == 1
     assert out["a"] == resolve_title("a")
+
+
+def test_all_three_surfaces_return_the_SAME_title(data_dir):
+    """Gate G-I4. Its absence is audit Finding 7.
+
+    Drives the three real call sites, not three copies of the ladder:
+    the search provider's `_info`, the browse route's title expression,
+    and the harness's `_doc_titles`.
+    """
+    _write(data_dir, {"jlbc-approps-fy2005-bar": {
+        "title": "Board of Barbers — FY 2005 Appropriations Report",
+        "source_url": "https://www.azjlbc.gov/05app/bar.pdf",
+    }})
+
+    from app.search_provider import LanceSearchProvider
+    from store.documents import title_for
+    from harness import tools as harness_tools
+
+    provider = LanceSearchProvider.__new__(LanceSearchProvider)
+    provider._doc_info = None
+    provider._doc_info_sig = None
+    search_title = provider._info("jlbc-approps-fy2005-bar")["title"]
+
+    browse_title = title_for("jlbc-approps-fy2005-bar")
+    ai_title = harness_tools._doc_titles({"jlbc-approps-fy2005-bar"})[
+        "jlbc-approps-fy2005-bar"
+    ]
+
+    assert search_title == browse_title == ai_title == (
+        "Board of Barbers — FY 2005 Appropriations Report"
+    )
+
+
+def test_the_website_harvest_no_longer_overrides_a_repaired_title(data_dir, monkeypatch):
+    """The regression this whole unit exists to prevent.
+
+    The harvest says "Agriculture" for `05app/bar.pdf`. Before this change
+    it won unconditionally on the search page, so repairing the corpus
+    changed nothing an analyst saw while the audit script reported zero
+    errors.
+    """
+    _write(data_dir, {"jlbc-approps-fy2005-bar": {
+        "title": "Board of Barbers — FY 2005 Appropriations Report",
+        "source_url": "https://www.azjlbc.gov/05app/bar.pdf",
+    }})
+    from app.search_provider import LanceSearchProvider
+
+    monkeypatch.setattr(
+        LanceSearchProvider,
+        "_load_mockup_index",
+        staticmethod(lambda: {
+            "https://www.azjlbc.gov/05app/bar.pdf": {
+                "url": "https://www.azjlbc.gov/05app/bar.pdf",
+                "title": "Agriculture, Arizona Department of — FY 2005 Appropriations Report",
+                "category": "Agency Budget Detail",
+                "doc_type": "Appropriations Report",
+                "fiscal_year": 2005,
+            }
+        }),
+    )
+    provider = LanceSearchProvider.__new__(LanceSearchProvider)
+    provider._doc_info = None
+    provider._doc_info_sig = None
+    info = provider._info("jlbc-approps-fy2005-bar")
+
+    assert info["title"] == "Board of Barbers — FY 2005 Appropriations Report"
+    # The meta line still comes from the harvest — it is the only source of
+    # the category/doc-type sentence and it was never wrong.
+    assert info["meta"] == "Agency Budget Detail · Appropriations Report · FY 2005"

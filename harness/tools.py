@@ -82,11 +82,11 @@ from retrieval import (
 )
 from retrieval.citations import CiteValidateBody, validate_cite, validate_cites
 from store.chunk_store import CORPUS_TABLES
+from identity.resolve import resolve_titles
 from store.documents import (
     humanize_doc_id,
     load_documents,
     reset_documents_cache,
-    titles_for,
 )
 
 # ---------------------------------------------------------------------------
@@ -132,7 +132,19 @@ def resolve_corpus(name: str) -> str:
 reset_document_title_cache = reset_documents_cache
 _document_metadata = load_documents
 _title_from_doc_id = humanize_doc_id
-_doc_titles = titles_for
+
+# WHY this stopped being `titles_for` (2026-08-16): three surfaces resolved a
+# document's display title three different ways — search results preferred a
+# vendored scrape of JLBC's website index, the browse listing used the sidecar
+# ungated, and AI Mode used the sidecar ungated — so the same document could be
+# named one thing on the page and another inside an answer, with no test able
+# to compare them. `identity.resolve` is now the only ladder, and a spec
+# asserts all three agree. See spec I12.
+#
+# Only the READ side of `identity` may be reached from here — Invariant 7. The
+# guard is `tests/test_harness_tools.py::
+# test_tools_module_reaches_only_the_read_side_of_identity`.
+_doc_titles = resolve_titles
 
 
 # ---------------------------------------------------------------------------
