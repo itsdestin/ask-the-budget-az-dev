@@ -48,6 +48,11 @@ export default function ToolGroup({ tools }: Props) {
   // (TC12).
   const ariaLabel = detail ? `${label}, ${detail}` : label;
 
+  // Only consulted inside the expansion — never in the collapsed header, where
+  // TC9 forbids any failure signal at all.
+  const failed = single && first.status === "failed";
+  const hasErrorBody = Boolean(first.isError && first.output);
+
   return (
     <div className="chat-tool-group">
       <button
@@ -93,7 +98,36 @@ export default function ToolGroup({ tools }: Props) {
         // rows opened at once still cannot exceed the cap (TC8).
         <div className="chat-tool-group-expansion">
           {single ? (
-            <ToolBody tool={first} />
+            // TC9 is "demoted, not DELETED". At n >= 2 the failure survives
+            // because each call renders through ToolCard, which owns both the
+            // `.chat-tool.is-failed` treatment and the glyph's "failed"
+            // accessible name. The n = 1 branch renders ToolBody directly (TC5
+            // — one click, not two) and so bypasses BOTH, which erased the
+            // failure entirely: a lone failed retrieve expanded to
+            // `<div class="chat-tool-body"><div class="chat-stack"></div></div>`
+            // with nothing matching /fail/i anywhere in the DOM or the
+            // accessible name. This wrapper restores the signal at the only
+            // place TC9 allows it — inside the expansion — without adding the
+            // child row that would cost the single click.
+            //
+            // The note renders on `status === "failed"` and NOT on
+            // `isError && output`, because that pair is reachable with both
+            // absent: history-rehydrate.ts marks any still-running tool block
+            // failed when a stored transcript was torn or stopped mid-call,
+            // with no error text to show. That case is the whole reason this
+            // exists — every tool view gates its ErrorBlock on `isError &&
+            // output`, so an expansion built on that gate renders NOTHING.
+            <div
+              className={"chat-tool-single" + (failed ? " is-failed" : "")}
+            >
+              {failed && (
+                <p className="chat-tool-failed-note">
+                  This call failed.
+                  {hasErrorBody ? "" : " No result was recorded."}
+                </p>
+              )}
+              <ToolBody tool={first} />
+            </div>
           ) : (
             <div className="chat-tool-group-body">
               {tools.map((t) => (

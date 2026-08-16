@@ -101,6 +101,17 @@ describe("AssistantTurnBubble — tool blocks", () => {
               input: { chunk_id: "c1", confidence: "verbatim" },
               status: "complete",
             },
+            // FINAL REVIEW — MINOR 3. `cite_batch` is the other half of TC7's
+            // suppression and was untested. PAST_ACTION maps both names to
+            // "Cited", so the existing assertion below covers it with no new
+            // one: suppress only `cite` and this block leaks that word.
+            {
+              kind: "tool",
+              toolUseId: "t1b",
+              toolName: "cite_batch",
+              input: { citations: [{ chunk_id: "c2" }] },
+              status: "complete",
+            },
             {
               kind: "tool",
               toolUseId: "t2",

@@ -194,4 +194,73 @@ describe("ToolGroup failure handling", () => {
       container.querySelectorAll(".chat-tool-group-body .chat-tool"),
     ).toHaveLength(2);
   });
+
+  // -------------------------------------------------------------------------
+  // FINAL REVIEW — IMPORTANT 1. Everything above this line uses a TWO-call run,
+  // which is exactly why the "demoted, not deleted" guard never caught the
+  // n = 1 hole. A run of one expands straight to ToolBody (TC5), bypassing
+  // ToolCard — the only thing that draws `.chat-tool.is-failed` and the glyph's
+  // "failed" accessible name — so a lone failed call expanded to an EMPTY body
+  // with nothing matching /fail/i anywhere.
+  //
+  // The fixture deliberately carries NEITHER `isError` NOR `output`: that is
+  // the state history-rehydrate.ts writes for a stored conversation whose turn
+  // was stopped or torn mid-search, and every tool view gates its ErrorBlock on
+  // `isError && output`, so it is the case an ErrorBlock-based fix would miss.
+  // -------------------------------------------------------------------------
+  it("a lone failed call still shows nothing when collapsed", () => {
+    const { container } = render(<ToolGroup tools={[retrieveFailed]} />);
+    const head = container.querySelector(".chat-tool-head")!;
+
+    expect(container.querySelector(".is-failed")).toBeNull();
+    expect(container.textContent).not.toMatch(/fail/i);
+    expect(head.getAttribute("aria-label")).not.toMatch(/fail/i);
+  });
+
+  it("a lone failed call DOES surface its failure once expanded", () => {
+    const { container } = render(<ToolGroup tools={[retrieveFailed]} />);
+    fireEvent.click(container.querySelector(".chat-tool-head") as HTMLElement);
+
+    // Both halves, as with the multi-call pair above: the visible words and
+    // the class the stylesheet paints from.
+    expect(
+      container.textContent,
+      "an empty expansion is the defect — the failure must be stated",
+    ).toMatch(/fail/i);
+    expect(container.querySelector(".chat-tool-single.is-failed")).not.toBeNull();
+    // Still one click to the body: the fix must not have reintroduced a child
+    // row (TC5).
+    expect(container.querySelector(".chat-tool-body")).not.toBeNull();
+    expect(container.querySelectorAll(".chat-tool.is-inset")).toHaveLength(0);
+  });
+
+  it("names the missing result when a torn transcript recorded no error text", () => {
+    const { container } = render(<ToolGroup tools={[retrieveFailed]} />);
+    fireEvent.click(container.querySelector(".chat-tool-head") as HTMLElement);
+    expect(container.textContent).toContain("No result was recorded");
+  });
+
+  it("does not claim a missing result when the error text IS present", () => {
+    const withError = block({
+      toolUseId: "t6",
+      toolName: "retrieve",
+      status: "failed",
+      isError: true,
+      output: "Connection lost",
+    });
+    const { container } = render(<ToolGroup tools={[withError]} />);
+    fireEvent.click(container.querySelector(".chat-tool-head") as HTMLElement);
+    expect(container.textContent).toMatch(/fail/i);
+    expect(container.textContent).not.toContain("No result was recorded");
+    expect(container.textContent).toContain("Connection lost");
+  });
+
+  it("a lone SUCCESSFUL call carries no failure treatment when expanded", () => {
+    // Keeps the pair above non-vacuous: if the wrapper ever tinted
+    // unconditionally, every expansion would read as a failure.
+    const { container } = render(<ToolGroup tools={[retrieveComplete]} />);
+    fireEvent.click(container.querySelector(".chat-tool-head") as HTMLElement);
+    expect(container.querySelector(".is-failed")).toBeNull();
+    expect(container.textContent).not.toMatch(/fail/i);
+  });
 });

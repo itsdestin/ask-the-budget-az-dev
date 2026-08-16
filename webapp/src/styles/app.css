@@ -1264,6 +1264,16 @@ nav.primary{position:relative;padding-right:44px;}
    row reads as an annotation, not a competing message), neutral glyph, friendly
    label + truncated detail, chevron. The row shares the prose measure — a
    supporting artifact must never be wider than the answer it supports. */
+/* `max-width: 65ch` here is currently UNREACHABLE and is kept deliberately.
+   Since 2026-08-16 every tool call renders through ToolGroup — as a child row
+   inside `.chat-tool-group-body`, which is already inside a card carrying the
+   measure — so no `.chat-tool` is ever a top-level element of the thread.
+   TC10's "the standalone form keeps its max-width" now refers to
+   `.chat-tool-group`, and the CSS-contract test pins it there.
+   NOT deleted: this stylesheet has a recorded incident where a block removed
+   by line range silently took an unrelated block's rules with it and no test
+   failed (see STATUS.md, the AI Mode UI redesign's `.chat-welcome` loss). The
+   rest of this declaration is live. */
 .chat-tool { border-radius: var(--r-sm); border: 1px solid var(--line); background: var(--card); max-width: 65ch; overflow: hidden; }
 .chat-tool.is-failed { border-color: var(--chat-danger); }
 .chat-tool.is-inset { background: var(--canvas); }
@@ -1311,6 +1321,20 @@ nav.primary{position:relative;padding-right:44px;}
    than on each child, so several child rows opened at once still cannot
    exceed it. */
 .chat-tool-group-expansion { max-height: 50vh; overflow-y: auto; }
+
+/* The n = 1 expansion (spec TC9's "demoted, not deleted", 2026-08-16).
+   A run of one expands straight to its ToolBody so a source check stays one
+   click (TC5) — which means it never passes through ToolCard, the only thing
+   that draws `.chat-tool.is-failed`. Measured on the shipped code: a lone
+   failed retrieve expanded to an EMPTY body, with nothing matching /fail/i in
+   the DOM or the accessible name, so the failure was deleted rather than
+   demoted. These two rules put it back, and only here — inside the expansion,
+   where TC9 permits it. The collapsed row stays untouched.
+   Reusing --chat-danger / --chat-danger-tint rather than inventing a token:
+   every other failure surface in this stylesheet (.chat-tool.is-failed, the
+   cite chips, .chat-notice.is-danger) is already drawn from that pair. */
+.chat-tool-single.is-failed { border-left: 2px solid var(--chat-danger); }
+.chat-tool-failed-note { margin: 0; padding: 6px 12px; border-top: 1px solid var(--line); background: var(--chat-danger-tint); color: var(--chat-danger); font-size: 12.5px; font-weight: 700; }
 
 /* ----- the card nested in an answer bubble (spec TC2/TC10, 2026-08-16) -------
    Option B of three rendered candidates, approved 2026-08-16 — see
