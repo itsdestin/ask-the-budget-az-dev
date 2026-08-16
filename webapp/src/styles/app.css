@@ -1303,6 +1303,30 @@ nav.primary{position:relative;padding-right:44px;}
    consecutive tool calls always coalesces into a group, so two adjacent
    `.chat-tool` siblings never exist anywhere else. */
 .chat-tool-group-body { padding: 4px 8px 8px; display: flex; flex-direction: column; gap: 4px; }
+
+/* ONE capped container for either expansion shape (spec TC8, 2026-08-16).
+   Without the cap, opening a search that returned 15 passages pushes the
+   answer far down the page — the analyst opens a card to check a source and
+   loses what they were reading. The cap sits on this single wrapper rather
+   than on each child, so several child rows opened at once still cannot
+   exceed it. */
+.chat-tool-group-expansion { max-height: 50vh; overflow-y: auto; }
+
+/* ----- the card nested in an answer bubble (spec TC2/TC10, 2026-08-16) -------
+   Option B of three rendered candidates, approved 2026-08-16 — see
+   docs/superpowers/specs/assets/2026-08-16-tool-card-mockup/options.html.
+   The bubble keeps its own padding and radius and the card sits INSIDE that
+   padding as a self-contained object: its own border, its own corners, white
+   gutter on all four sides. It must read as an object IN the message, never as
+   a title bar ON it — a flush strip taking the bubble's top corners was shown
+   and rejected outright.
+   Nesting is decided by DOM POSITION, not a prop: AssistantTurnBubble renders
+   the card as the bubble's first child, so a child selector is the whole
+   mechanism.
+   `max-width: none` because the parent bubble already enforces the 65ch prose
+   measure; the standalone form (mid-search, when there is no bubble to inherit
+   from) keeps 65ch of its own. */
+.chat-bubble > .chat-tool-group { background: var(--canvas); max-width: none; width: 100%; margin-bottom: 10px; }
 .chat-pulse { animation: chat-pulse 1.4s ease-in-out infinite; }
 @keyframes chat-pulse { 0%, 100% { opacity: 1; } 50% { opacity: .4; } }
 @media (prefers-reduced-motion: reduce) { .chat-pulse { animation: none; } }

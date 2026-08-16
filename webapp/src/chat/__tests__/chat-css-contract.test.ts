@@ -700,4 +700,37 @@ describe("chat CSS containment contract", () => {
       ),
     ).toMatch(/color:\s*var\(--ink\)/);
   });
+
+  // ------------------------------------------------------------------
+  // 2026-08-16 — TC2/TC10. The card is nested by DOM POSITION, so the
+  // containment styling hangs off a child selector rather than a prop. If that
+  // selector is ever renamed without the component moving with it, the card
+  // silently reverts to looking like a standalone row inside a white bubble —
+  // a change no render test can see, because jsdom applies no stylesheet.
+  it("a card inside a bubble takes the inset fill and the bubble's full width", () => {
+    const rule = bareRule(".chat-bubble > .chat-tool-group");
+    expect(rule, "the nested-card rule must exist").toBeTruthy();
+    expect(rule).toMatch(/background:\s*var\(--canvas\)/);
+    // 65ch is right for a standalone row and wrong here: the parent bubble
+    // already enforces the prose measure, so leaving it on would stop the card
+    // short of the bubble's right edge for no reason.
+    expect(rule).toMatch(/max-width:\s*none/);
+    expect(rule).toMatch(/width:\s*100%/);
+  });
+
+  it("the standalone card keeps its own prose measure", () => {
+    // A supporting artifact must never be wider than the answer it supports,
+    // and mid-search there is no bubble to inherit that from.
+    expect(bareRule(".chat-tool-group")).toMatch(/max-width:\s*65ch/);
+  });
+
+  it("the card's expansion is capped and scrolls", () => {
+    // TC8. Without this, opening a search that returned 15 passages pushes the
+    // answer far down the page — the analyst opens a card to check a source
+    // and loses what they were reading.
+    const rule = bareRule(".chat-tool-group-expansion");
+    expect(rule, "the expansion cap rule must exist").toBeTruthy();
+    expect(rule).toMatch(/max-height:\s*50vh/);
+    expect(rule).toMatch(/overflow-y:\s*auto/);
+  });
 });
