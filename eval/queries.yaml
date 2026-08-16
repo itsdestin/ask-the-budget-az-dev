@@ -113,7 +113,13 @@
   query: What is Arizona's FY 2026 employer contribution rate for the Elected Officials Retirement Plan, and what portion of it goes toward paying down unfunded liability?
   type: lookup
   expected_chunks:
-    - chunk_id: jlbc-baseline-fy2026-crr-0013
+    # Re-pointed 2026-08-16: this document's id said "baseline" while its own
+    # source_url is /26AR/ (the Appropriations Report). It was one of 22 such
+    # contradictions, and a colliding id silently REPLACES a document on a
+    # from-scratch rebuild. Verified against this entry's own anchor_text at
+    # the new id before the change landed -- `eval/refresh_chunk_ids.py` was
+    # deleted and anchor_text is the surviving repair path.
+    - chunk_id: jlbc-approps-fy2026-crr-0013
       dimensions:
         publisher: jlbc
         doc_type: topic-pdf

@@ -4,9 +4,9 @@
  "validator_failures": 13,
  "titles_outside_format": 17,
  "duplicate_titles": 0,
- "doc_id_family_contradicts_url": 22,
+ "doc_id_family_contradicts_url": 0,
  "uninformative_titles": 59,
- "distinct_agency_slugs": 153,
+ "distinct_agency_slugs": 147,
  "catalogued_agencies": 157,
  "fiscal_notes_excluded": 2104,
  "section_documents": 652,
@@ -35,7 +35,7 @@
    "doc_id": "jlbc-approps-fy2006-riskmgmt",
    "kind": "title-wrong-agency",
    "title": "Summary of Risk Management Charges \u2014 FY 2006 Appropriations Report",
-   "stamped": "agency:cor",
+   "stamped": "agency:djc",
    "titled": "agency:for"
   },
   {
@@ -692,6 +692,11 @@
    "reason": "contains a doubled space"
   },
   {
+   "doc_id": "jlbc-approps-fy2026-crr",
+   "kind": "title-format",
+   "title": "JLBC FY2026 \u2014 CONSOLIDATED RETIREMENT REPORT"
+  },
+  {
    "doc_id": "jlbc-approps-fy2026-gov",
    "kind": "stamp-unmentioned",
    "agency": "agency:gov"
@@ -885,7 +890,7 @@
    "doc_id": "jlbc-baseline-fy2018-otr",
    "kind": "title-wrong-agency",
    "title": "Tribal Relations, Governor's Office on \u2014 FY 2018 Baseline",
-   "stamped": "agency:cia",
+   "stamped": "agency:otr",
    "titled": "agency:gov"
   },
   {
@@ -927,11 +932,6 @@
    "doc_id": "jlbc-baseline-fy2026-cet",
    "kind": "stamp-unmentioned",
    "agency": "agency:cet"
-  },
-  {
-   "doc_id": "jlbc-baseline-fy2026-crr",
-   "kind": "title-format",
-   "title": "JLBC FY2026 \u2014 CONSOLIDATED RETIREMENT REPORT"
   },
   {
    "doc_id": "jlbc-baseline-fy2026-equ",
