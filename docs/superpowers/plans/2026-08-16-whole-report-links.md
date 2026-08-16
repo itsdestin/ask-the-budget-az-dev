@@ -9,10 +9,11 @@ approval of its "Full report" links, so nobody ever edits code to add a year.
 
 **Architecture:** The table of whole-report URLs moves out of
 `webapp/src/reportFamilies.ts` into a committed `data/report-formats.json`,
-merged at read time with an admin overlay on the shared drive. A new admin route
-scans the corpus for editions that table does not answer, resolves candidate
-URLs through the *existing* `ingest/book_discovery.plan_edition`, and an admin
-panel approves, replaces, or marks a format as never published.
+merged at read time with an admin overlay on the shared drive. New admin routes
+scan the corpus for editions that table does not answer, resolve candidate URLs
+through the *existing* `ingest/book_discovery.plan_edition` and confirm each one
+responds, and an admin panel approves, replaces, marks a format as never
+published, or corrects an edition already answered.
 
 **Tech Stack:** Python 3.12 / FastAPI / pytest on the server; React 18 + Vite +
 vitest in `webapp/`. No new dependencies.
@@ -57,7 +58,8 @@ vitest in `webapp/`. No new dependencies.
 |---|---|
 | `data/report-formats.json` | **create.** The 39 verified editions, committed, ships in the bundle via `git ls-files` |
 | `store/report_formats.py` | **create.** Load shipped + overlay, merge, validate, save. mtime-stamped cache |
-| `app/routes/book_formats.py` | **create.** Pending scan, probe cache, the three admin routes |
+| `app/routes/book_formats.py` | **create.** Pending scan, per-edition probe cache, the three admin routes |
+| `app/routes/books.py` | **modify.** `HttpProber` gains `head_info` (status + Content-Length) |
 | `app/routes/corpus.py` | **modify.** `GET /api/corpus/documents` gains `report_formats` |
 | `app/main.py` | **modify.** Register the new router |
 | `scripts/verify_report_formats.py` | **modify.** Read the merged table instead of parsing TypeScript |
@@ -67,11 +69,23 @@ vitest in `webapp/`. No new dependencies.
 | `webapp/src/admin/ReportLinksPanel.tsx` | **create.** The approval card |
 | `webapp/src/pages/Admin.tsx` | **modify.** Mount the panel in the "Needs attention" group |
 | `tests/test_report_formats_store.py` | **create.** Load/merge/validate/save |
-| `tests/test_report_formats_data.py` | **create.** The four guards against the committed file |
-| `tests/test_book_formats_route.py` | **create.** Scan, probe cache, offline, the two writes |
+| `tests/test_report_formats_data.py` | **create.** The guards against the committed file |
+| `tests/test_book_formats_route.py` | **create.** Scan, probe cache, offline, the writes |
+| `tests/test_packaging_manifest.py` | **modify.** The committed table must ship in the Windows bundle |
 | `webapp/src/reportFamilies.test.ts` | **modify.** Drop the four URL guards (they move to pytest) |
-| `webapp/src/pages/Search.test.tsx` | **modify.** Fixture gains `report_formats` |
+| `webapp/src/pages/Search.test.tsx` | **modify.** Fixture gains `report_formats` (2 mock sites) |
+| `webapp/src/pages/Search.content.test.tsx` | **modify.** Fixture gains `report_formats` (8 mock sites) |
+| `webapp/src/pages/Search.ai-mode.test.tsx` | **modify.** Fixture gains `report_formats` |
+| `webapp/src/pdf/__tests__/search-source-panel.test.tsx` | **modify.** Fixture gains `report_formats` |
 | `webapp/src/admin/ReportLinksPanel.test.tsx` | **create.** Panel behaviour |
+
+> **`corpusDocuments` is mocked at 16 sites across 4 test files.** Counted
+> 2026-08-16 with `grep -rn corpusDocuments webapp/src`. Every one must be
+> updated in Task 3, and `report_formats` must stay a **required** field on the
+> return type. Making it optional (`report_formats?`) is the shortcut that
+> compiles instantly and then silently defaults every un-updated caller to no
+> table — which removes every "Full report" button on the page while the whole
+> suite stays green.
 
 ---
 
@@ -203,11 +217,26 @@ def test_every_edition_offers_at_least_one_format():
 
 
 def test_the_committed_table_still_covers_every_edition_it_did_on_2026_08_16():
-    # A count, deliberately: this file was generated from the shipped
-    # TypeScript, and a regex that silently matches fewer rows would look like
-    # a clean smaller table rather than a loss.
-    assert len(load_shipped()) == 39
+    # A floor, deliberately: this file was generated from the shipped
+    # TypeScript, and a regex that silently matched fewer rows would look like
+    # a clean smaller table rather than a loss. `>=` rather than `==` so that
+    # promoting an approved edition into the committed file is a data change,
+    # not a data change plus a test edit.
+    assert len(load_shipped()) >= 39
 ```
+
+- [ ] **Step 2b: Pin that the table actually ships**
+
+The committed table is worthless if the Windows bundle drops it: every office
+install would silently lose all 39 editions and every "Full report" button, with
+no error anywhere. `packaging/build_bundle.py` selects files with `git ls-files`
+minus `EXCLUDED_PREFIXES`, and `data/` is not excluded — so this holds today and
+nothing pins it.
+
+Add `"data/report-formats.json"` to the tuple in
+`tests/test_packaging_manifest.py::test_source_files_ships_the_live_application`.
+Verify by temporarily adding `"data/report-formats.json"` to
+`build_bundle.EXCLUDED_PREFIXES` and confirming the test goes red.
 
 - [ ] **Step 3: Run them to verify they fail**
 
@@ -284,20 +313,42 @@ def format_key(family: str, fiscal_year: int) -> str:
     return f"{family}:{fiscal_year}"
 
 
+# Maximal runs of digits. The year must be a WHOLE run, never a substring of
+# one -- see names_its_year.
+_DIGIT_RUN = re.compile(r"\d+")
+
+
 def names_its_year(url: str, fiscal_year: int) -> bool:
     """Does this address mention the year it claims to be?
 
-    JLBC's own filenames carry it — 19AR/FY2019AppropRpt.pdf,
-    26baseline/26baselinesinglefile.pdf — so this is checkable with no network.
+    JLBC's own filenames carry it -- 19AR/FY2019AppropRpt.pdf,
+    26baseline/26baselinesinglefile.pdf -- so this is checkable with no network.
     It is the only defence against the probe ladder's rolling /budget/ rung,
     which returns a live 200 for a year that does not exist yet.
+
+    🔴 SUBSTRING MATCHING DOES NOT WORK HERE, AND IT FAILS EXACTLY WHERE IT
+    MATTERS. The obvious form -- `str(fy) in path or f"{fy % 100:02d}" in path`
+    -- was measured against the real 71 URLs on 2026-08-16 and accepted **32
+    wrong year/URL pairs**, because "20" is a substring of every `fy20xx`
+    filename JLBC publishes. Under the key `Appropriations Report:2020` it
+    accepted SIXTEEN other editions' reports, including
+    `11app/FY2011AppropRpt.pdf`. The one guard standing between a copy-pasted
+    row and a live, downloadable, wrong-year report was therefore off for that
+    edition entirely. `:2001`..`:2009` have the same hole ("01" sits inside
+    "2019").
+
+    Comparing whole digit runs instead separates perfectly on the same data:
+    **0 real URLs wrongly rejected, 0 wrong pairs accepted.** `19ar/
+    fy2019approprpt.pdf` yields the runs {"19", "2019"}, which answers FY2019
+    and refuses FY2020.
 
     The host is stripped first: "azjlbc" contains no digits today, but a future
     host or a query string could contribute a stray "27" and quietly make this
     guard always true.
     """
     path = url.lower().split("://", 1)[-1].partition("/")[2]
-    return str(fiscal_year) in path or f"{fiscal_year % 100:02d}" in path
+    runs = set(_DIGIT_RUN.findall(path))
+    return str(fiscal_year) in runs or f"{fiscal_year % 100:02d}" in runs
 
 
 def shipped_path() -> Path:
@@ -309,8 +360,16 @@ def overlay_path() -> Path:
 
 
 _lock = threading.Lock()
-# (path_str, mtime_ns, size) -> parsed. Two entries at most (shipped, overlay).
-_cache: dict[str, tuple[tuple[str, int, int], dict[str, EditionFormats]]] = {}
+# path -> (stamp, parsed, problems). Two entries at most (shipped, overlay).
+#
+# The PROBLEMS are cached with the rows, not recomputed and not dropped. An
+# earlier shape cached only `parsed` and returned `[]` on a hit, so the sentence
+# explaining a dropped row appeared on the admin's first page load and vanished
+# on every one after it -- while the row went on being dropped. A test that
+# loads once cannot see that, so the guard below loads twice.
+_cache: dict[
+    str, tuple[tuple[str, int, int], dict[str, EditionFormats], list[str]]
+] = {}
 
 
 def reset_cache() -> None:
@@ -373,7 +432,7 @@ def _read(resolved: Path, *, strict: bool) -> tuple[dict[str, EditionFormats], l
     with _lock:
         hit = _cache.get(str(resolved))
     if hit is not None and hit[0] == stamp:
-        return hit[1], []
+        return hit[1], list(hit[2])
     try:
         parsed, problems = _parse(json.loads(resolved.read_text(encoding="utf-8")), strict=strict)
     except (OSError, ValueError, TypeError) as err:
@@ -384,8 +443,8 @@ def _read(resolved: Path, *, strict: bool) -> tuple[dict[str, EditionFormats], l
         _say_unavailable(resolved, err)
         return {}, [f"The saved link file could not be read ({err})."]
     with _lock:
-        _cache[str(resolved)] = (stamp, parsed)
-    return parsed, problems
+        _cache[str(resolved)] = (stamp, parsed, problems)
+    return parsed, list(problems)
 
 
 def _say_unavailable(resolved: Path, err: Exception) -> None:
@@ -528,6 +587,18 @@ def test_a_torn_overlay_row_costs_itself_not_the_file(tmp_path):
     assert len(problems) == 1 and "Nonsense Family:2027" in problems[0]
 
 
+def test_the_reason_a_row_was_dropped_survives_a_second_load(tmp_path):
+    # The second load is the one that comes off the mtime cache. A first version
+    # cached only the rows, so the admin saw the explanation once and never
+    # again while the row went on being dropped -- a warning that disappears is
+    # worse than no warning, because the page then looks healthy.
+    shipped = tmp_path / "shipped.json"
+    overlay = tmp_path / "overlay.json"
+    _write(shipped, {"Baseline:2027": {"single_file": "https://x/a.pdf", "linked_toc": None}})
+    _write(overlay, {"Nonsense Family:2027": {"single_file": "https://y/c.pdf", "linked_toc": None}})
+    assert load(shipped, overlay)[1] == load(shipped, overlay)[1] != []
+
+
 def test_unreadable_overlay_json_leaves_the_shipped_table_serving(tmp_path):
     shipped = tmp_path / "shipped.json"
     overlay = tmp_path / "overlay.json"
@@ -597,16 +668,32 @@ def test_a_corrupt_overlay_is_replaced_rather_than_blocking_every_future_save(tm
         ("https://www.azjlbc.gov/19AR/FY2019AppropRpt.pdf", 2019, True),
         ("https://www.azjlbc.gov/26baseline/26baselinesinglefile.pdf", 2026, True),
         ("https://www.azjlbc.gov/12book1/12BaselineSingleFile.pdf", 2012, True),
+        ("https://www.azjlbc.gov/05app/apprpttoc.pdf", 2005, True),
+        ("https://www.azjlbc.gov/budget/24baselinelinks.pdf", 2024, True),
         # The rolling directory: a live 200 that names no year at all. This is
         # the case the whole guard exists for.
         ("https://www.azjlbc.gov/budget/apprpttoc.pdf", 2028, False),
         # The realistic copy-paste slip: last year's report under this year's key.
         ("https://www.azjlbc.gov/19AR/FY2019AppropRpt.pdf", 2018, False),
+        # 🔴 THE CASE A SUBSTRING TEST GETS WRONG, and the reason this function
+        # compares whole digit runs. "20" sits inside "fy2019", so a substring
+        # test answers True here and the FY2020 key accepts sixteen other
+        # editions' reports. Measured on the real table 2026-08-16: 32 wrong
+        # pairs accepted, all of them on :2020. Delete this row and the hole
+        # comes back invisibly.
+        ("https://www.azjlbc.gov/19AR/FY2019AppropRpt.pdf", 2020, False),
+        ("https://www.azjlbc.gov/26ar/fy2026approprpt.pdf", 2020, False),
+        # Same hole one digit along: "01" sits inside "2019".
+        ("https://www.azjlbc.gov/19AR/FY2019AppropRpt.pdf", 2001, False),
     ],
 )
 def test_names_its_year(url, year, expected):
     assert names_its_year(url, year) is expected
 ```
+
+> **Mutation check, run it:** replace the body with the substring form
+> (`str(fiscal_year) in path or f"{fiscal_year % 100:02d}" in path`) and confirm
+> the three `:2020` / `:2001` rows go red. They are the only rows that move.
 
 - [ ] **Step 7: Run the store tests**
 
@@ -631,7 +718,7 @@ Then `git checkout data/report-formats.json` and re-run to confirm green.
 - [ ] **Step 9: Commit**
 
 ```bash
-git add data/report-formats.json store/report_formats.py tests/test_report_formats_store.py tests/test_report_formats_data.py
+git add data/report-formats.json store/report_formats.py tests/test_report_formats_store.py tests/test_report_formats_data.py tests/test_packaging_manifest.py
 git commit -m "store: the whole-report link table becomes data with an admin overlay"
 ```
 
@@ -738,7 +825,10 @@ git commit -m "app: the corpus listing carries the whole-report link table"
 - Modify: `webapp/src/reportFamilies.test.ts` (drop the four URL guards)
 - Modify: `webapp/src/api.ts` (`corpusDocuments` return type)
 - Modify: `webapp/src/pages/Search.tsx` (thread the table)
-- Modify: `webapp/src/pages/Search.test.tsx` (fixture)
+- Modify: `webapp/src/pages/Search.test.tsx` (fixture, 2 mock sites)
+- Modify: `webapp/src/pages/Search.content.test.tsx` (8 mock sites)
+- Modify: `webapp/src/pages/Search.ai-mode.test.tsx` (mock site)
+- Modify: `webapp/src/pdf/__tests__/search-source-panel.test.tsx` (mock site)
 
 **Interfaces:**
 - Consumes: `GET /api/corpus/documents` → `report_formats` (Task 2)
@@ -853,6 +943,10 @@ export type { ReportFormatTable };
 
 export async function corpusDocuments(): Promise<{
   documents: CorpusDocument[];
+  // REQUIRED, never `report_formats?`. Optional compiles instantly against all
+  // 16 existing mock sites and then hands every un-updated caller no table at
+  // all -- which removes every "Full report" button on the page with the whole
+  // suite green. The compiler errors are the work item, not an obstacle to it.
   report_formats: ReportFormatTable;
 }> {
   const r = await fetch("/api/corpus/documents");
@@ -907,6 +1001,23 @@ function mount(docs = DOCS, entry = "/search", formats = FIXTURE_FORMATS) {
 }
 ```
 
+- [ ] **Step 6b: Update the other three suites' mock sites**
+
+`tsc -b` will name every one. As of 2026-08-16 there are **16 mock sites across
+4 files**:
+
+| file | sites | table to pass |
+|---|---|---|
+| `webapp/src/pages/Search.test.tsx` | 2 | `FIXTURE_FORMATS` above |
+| `webapp/src/pages/Search.content.test.tsx` | 8 | `{}` unless a test asserts a Full report control |
+| `webapp/src/pages/Search.ai-mode.test.tsx` | 1 | `{}` |
+| `webapp/src/pdf/__tests__/search-source-panel.test.tsx` | 1 | `{}` |
+
+Re-count before starting (`grep -rn corpusDocuments webapp/src`) — master moves
+daily. Pass `{}` wherever the file makes no assertion about a "Full report"
+control; where one does, give it the specific edition it asserts on and nothing
+else, so the fixture states what the test depends on.
+
 - [ ] **Step 7: Run the webapp suites**
 
 Run: `cd webapp && npx vitest run && npx tsc -b && npm run build`
@@ -937,25 +1048,34 @@ Expected: PASS.
 - [ ] **Step 9: Commit**
 
 ```bash
-git add webapp/src/reportFamilies.ts webapp/src/reportFamilies.test.ts webapp/src/api.ts webapp/src/pages/Search.tsx webapp/src/pages/Search.test.tsx
+git add webapp/src/reportFamilies.ts webapp/src/reportFamilies.test.ts webapp/src/api.ts webapp/src/pages/Search.tsx webapp/src/pages/Search.test.tsx webapp/src/pages/Search.content.test.tsx webapp/src/pages/Search.ai-mode.test.tsx webapp/src/pdf/__tests__/search-source-panel.test.tsx
 git commit -m "webapp: whole-report links come from the server, not a table in the bundle"
 ```
 
 ---
 
-## Task 4: Which editions has nobody answered for?
+## Task 4: The three admin routes
 
 **Files:**
 - Create: `app/routes/book_formats.py`
+- Modify: `app/routes/books.py` (`HttpProber.head_info`)
 - Modify: `app/main.py`
 - Create: `tests/test_book_formats_route.py`
 
 **Interfaces:**
-- Consumes: `store.report_formats.load`, `format_key`, `names_its_year`;
-  `app.routes.books_missing.corpus_editions` and `FAMILY_LABELS`;
-  `ingest.book_discovery.plan_edition`, `DiscoveryError`;
+- Consumes: `store.report_formats.load`, `save_edition`, `format_key`,
+  `names_its_year`; `app.routes.books_missing.corpus_editions` and
+  `FAMILY_LABELS`; `ingest.book_discovery.plan_edition`, `DiscoveryError`;
   `app.routes.books.HttpProber`, `_prober`
-- Produces: `GET /api/admin/book-formats` → the panel's whole state
+- Produces:
+  - `GET /api/admin/book-formats` → the panel's whole state
+  - `PUT /api/admin/book-formats`, body
+    `{"family": str, "fiscal_year": int, "single_file": str | null, "linked_toc": str | null}`
+    → `{"ok": true}`; 400 with a plain sentence on refusal
+  - `POST /api/admin/book-formats/check`, body `{"url": str, "fiscal_year": int}`
+    → `{"ok": bool, "status": int | null, "bytes": int | null, "names_its_year": bool, "reason": str | null}`
+  - `app.routes.books.HttpProber.head_info(url) -> tuple[int | None, int | None]`
+    — (HTTP status, Content-Length), both `None` when the host is unreachable
 
 > **Reuse, do not rewrite.** `app/routes/books_missing.py::corpus_editions()`
 > already answers "which book editions does the corpus hold", reading each
@@ -964,6 +1084,49 @@ git commit -m "webapp: whole-report links come from the server, not a table in t
 > a two-pattern version was written first and measured wrong. `FAMILY_LABELS`
 > in the same module maps `"approps" → "Appropriations Report"`. A second
 > implementation of either would drift.
+
+> **Where that reuse deviates from spec R3, and what would make it bite.** R3
+> says to derive the corpus side "exactly as the browse page derives it" —
+> `section_of` first, `doc_type` second. `corpus_editions()` instead reads the
+> `{yy}ar|app|baseline|book1/` directory out of `source_url` for every document.
+> **Measured over all 7,574 documents on 2026-08-16: both rules yield the same
+> 39 editions, with zero disagreement in either direction.** The reuse is
+> therefore correct today and is chosen because the alternative needs the
+> `doc_type → family` map, which lives in TypeScript
+> (`reportFamilies.ts::FAMILY_OF_DOC_TYPE`) and would have to be copied into
+> Python — a second copy of a different rule, which is worse.
+>
+> The two WILL diverge for a book document with no azjlbc `{yy}dir/` address:
+> a hand-upload through the Upload page, or a fifth directory convention. The
+> browse page would group it under a family and year; this scan would not see
+> it, so it could never become pending and would never get a button — silently.
+> Record it in `STATUS.md` as the known limit, and if a hand-uploaded book
+> section ever appears, that is the trigger to move the family map server-side.
+
+> **`HttpProber` gains `head_info`, and it is not optional.** `head()` returns
+> only a boolean, and the card must show status and size (R9). Add:
+>
+> ```python
+> def head_info(self, url: str) -> tuple[int | None, int | None]:
+>     """(status, Content-Length). (None, None) when the host is unreachable."""
+>     try:
+>         r = requests.head(url, timeout=self._timeout_s, allow_redirects=True)
+>         if r.status_code >= 400:
+>             r = requests.get(url, timeout=self._timeout_s, stream=True,
+>                              allow_redirects=True)
+>             r.close()
+>         raw = r.headers.get("Content-Length")
+>         return r.status_code, int(raw) if raw and raw.isdigit() else None
+>     except requests.RequestException:
+>         return None, None
+> ```
+>
+> Mirror `head()`'s existing HEAD-then-GET fallback — azjlbc.gov's IIS answers
+> some HEADs with a 405 — and reuse `head_info` inside `head()` rather than
+> keeping two request paths. **Do not reach for it through `getattr` with a
+> `None` fallback.** That shape ships a card with no size and no status while
+> every test passes, and R9's whole mitigation for "an admin approves without
+> looking" is the size and the status.
 
 - [ ] **Step 1: Write the failing tests**
 
@@ -982,19 +1145,36 @@ from app.main import create_app
 class FakeProber:
     """Stands in for HttpProber. Records what was asked."""
 
-    def __init__(self, live: set[str] | None = None):
+    def __init__(
+        self,
+        live: set[str] | None = None,
+        broken: set[str] | None = None,
+        size: int = 47_000_000,
+    ):
         self.live = live or set()
+        # Addresses the ladder accepts but that do not actually serve. This is
+        # not a contrived shape: `plan_edition` answers a catalogued edition
+        # straight from `data/jlbc-book-catalog.json`, which is built to feed a
+        # ladder that TOLERATES a 404 and therefore carries URLs nobody ever
+        # fetched. A candidate can be offered and be dead.
+        self.broken = broken or set()
+        self.size = size
         self.asked: list[str] = []
 
     def head(self, url: str) -> bool:
         self.asked.append(url)
-        return url in self.live
+        return url in self.live or url in self.broken
+
+    def head_info(self, url: str) -> tuple[int | None, int | None]:
+        self.asked.append(url)
+        return (200, self.size) if url in self.live else (404, None)
 
     def get(self, url: str):
         raise AssertionError("the pending scan must never download a book")
 
 
 def _client(tmp_path, monkeypatch, *, documents, overlay=None, prober=None):
+    import app.routes.book_formats as bf
     import app.routes.books_missing as bm
     import store.report_formats as rf
 
@@ -1003,9 +1183,11 @@ def _client(tmp_path, monkeypatch, *, documents, overlay=None, prober=None):
     # the function is already bound into that module's namespace and patching
     # the source module has no effect — the test would silently run against the
     # real 7,566-document corpus and pass or fail for reasons unrelated to it.
+    # The same rule applies to everything `book_formats.py` imports by name:
+    # patch `bf.save_edition`, never `rf.save_edition`.
     monkeypatch.setattr(bm, "load_documents", lambda: documents)
     monkeypatch.setattr(rf, "overlay_path", lambda: overlay or (tmp_path / "absent.json"))
-    monkeypatch.setattr("app.routes.book_formats._cache_path", lambda: tmp_path / "probe.json")
+    monkeypatch.setattr(bf, "_cache_path", lambda: tmp_path / "probe.json")
     rf.reset_cache()
     app = create_app()
     app.state.book_prober = prober or FakeProber()
@@ -1036,8 +1218,38 @@ def test_an_edition_with_no_entry_becomes_pending_with_its_candidates(tmp_path, 
     ).json()
     row = next(p for p in body["pending"] if p["fiscal_year"] == 2028)
     assert row["family"] == "Appropriations Report"
-    assert row["candidates"]["single_file"]["url"].endswith("28ar/fy2028approprpt.pdf")
-    assert row["candidates"]["single_file"]["names_its_year"] is True
+    single = row["candidates"]["single_file"]
+    assert single["url"].endswith("28ar/fy2028approprpt.pdf")
+    assert single["names_its_year"] is True
+    # R9: the card claims the address responded and how big it is, so both must
+    # come off a real request rather than being assumed from the ladder.
+    assert single["status"] == 200
+    assert single["bytes"] == 47_000_000
+
+
+def test_a_candidate_that_does_not_respond_is_shown_as_not_responding(tmp_path, monkeypatch):
+    # 🔴 The case that makes this check load-bearing rather than decorative.
+    # `plan_edition` is CATALOG-FIRST, so for any edition the committed catalog
+    # names it returns URLs with ZERO network calls — and STATUS.md records
+    # that catalog carrying unverified addresses, one of which
+    # (`budget/fy2027approprpt.pdf`) is a live 404. Without this the panel
+    # offers a dead link as confidently as a good one.
+    #
+    # `broken` is what makes the assertion mean something: the address IS
+    # offered, so the row cannot pass by the candidate simply being absent.
+    docs = {"d1": {"source_url": "https://www.azjlbc.gov/28ar/axs.pdf"}}
+    prober = FakeProber(
+        live={"https://www.azjlbc.gov/28ar/apprpttoc.pdf"},
+        broken={"https://www.azjlbc.gov/28ar/fy2028approprpt.pdf"},
+    )
+    body = _client(tmp_path, monkeypatch, documents=docs, prober=prober).get(
+        "/api/admin/book-formats"
+    ).json()
+    row = next(p for p in body["pending"] if p["fiscal_year"] == 2028)
+    single = row["candidates"]["single_file"]
+    assert single["url"].endswith("28ar/fy2028approprpt.pdf")
+    assert single["status"] == 404 and single["bytes"] is None
+    assert row["candidates"]["linked_toc"]["status"] == 200
 
 
 def test_a_candidate_from_the_rolling_directory_is_flagged_not_dropped(tmp_path, monkeypatch):
@@ -1075,8 +1287,36 @@ def test_the_probe_answer_is_cached_so_opening_the_page_twice_costs_one_look(tmp
     client = _client(tmp_path, monkeypatch, documents=docs, prober=prober)
     client.get("/api/admin/book-formats")
     first = len(prober.asked)
+    assert first > 0
     client.get("/api/admin/book-formats")
     assert len(prober.asked) == first
+
+
+def test_a_healthy_corpus_asks_the_network_nothing(tmp_path, monkeypatch):
+    # The scan is free by construction: it reads documents.json and the merged
+    # table, both already cached. Only a PENDING edition costs a request, and
+    # on a healthy corpus there are none.
+    docs = {"d1": {"source_url": "https://www.azjlbc.gov/26ar/axs.pdf"}}
+    prober = FakeProber()
+    _client(tmp_path, monkeypatch, documents=docs, prober=prober).get("/api/admin/book-formats")
+    assert prober.asked == []
+
+
+def test_a_newly_ingested_edition_appears_at_once(tmp_path, monkeypatch):
+    # 🔴 The reason the cache holds PROBE RESULTS and not the whole answer. A
+    # cached payload would keep reporting the old pending list for its full TTL,
+    # so an analyst who ingests a book sees an admin page saying nothing is
+    # waiting — for up to twelve hours, with nothing on screen explaining why.
+    # Noticing the book costs no network, so nothing justifies delaying it.
+    import app.routes.books_missing as bm
+
+    docs = {"d1": {"source_url": "https://www.azjlbc.gov/26ar/axs.pdf"}}
+    client = _client(tmp_path, monkeypatch, documents=docs)
+    assert client.get("/api/admin/book-formats").json()["pending"] == []
+    docs["d2"] = {"source_url": "https://www.azjlbc.gov/28ar/axs.pdf"}
+    monkeypatch.setattr(bm, "load_documents", lambda: docs)
+    body = client.get("/api/admin/book-formats").json()
+    assert [p["fiscal_year"] for p in body["pending"]] == [2028]
 
 
 def test_overlay_problems_reach_the_admin(tmp_path, monkeypatch):
@@ -1128,7 +1368,7 @@ def test_the_route_is_admin_gated(tmp_path, monkeypatch):
 Run: `uv run python -m pytest tests/test_book_formats_route.py -q`
 Expected: FAIL — 404 on `/api/admin/book-formats`
 
-- [ ] **Step 3: Implement the route**
+- [ ] **Step 3: Implement the routes**
 
 `app/routes/book_formats.py`:
 
@@ -1141,14 +1381,22 @@ this feature existed. A hook catches only books that arrive the one expected
 way, and the FY2027 Appropriations Report — which appeared through the probe
 ladder rather than the catalog — is the proof that they arrive other ways.
 
-The scan itself is free: it reads `documents.json` and the merged link table,
-both already cached, and touches no network. Only a PENDING edition is probed,
-and that answer is cached for 12 hours. A fully-answered corpus — the normal
-state — costs zero requests.
+WHAT IS CACHED IS THE PROBE, NOT THE ANSWER. The scan is free -- it reads
+`documents.json` and the merged link table, both already cached, and touches no
+network -- so it runs on every request and a newly ingested edition appears at
+once. Only the candidate lookup for a PENDING edition costs requests, and those
+results are stored per edition for 12 hours. A fully-answered corpus, the normal
+state, costs zero requests and zero staleness.
+
+Caching the whole reply instead would mean an analyst ingests a book, opens
+/admin, and is told nothing is waiting -- for up to twelve hours, with nothing on
+screen saying why.
 """
 from __future__ import annotations
 
 import json
+import os
+import uuid
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -1168,6 +1416,11 @@ from store.report_formats import (
 
 router = APIRouter()
 
+# Its OWN file. `books_missing.py` has helpers of the same shape, but they are
+# hardwired to `book-check.json` -- importing them would make the two panels
+# read and overwrite one payload, so whichever ran last would hand the other
+# its data and the "Add a JLBC book" panel would report an empty gap it never
+# measured. Two files, two helper sets, no shared state.
 CACHE_FILENAME = "book-format-probe.json"
 CACHE_TTL_SECONDS = 12 * 60 * 60
 
@@ -1181,16 +1434,54 @@ def _cache_path() -> Path:
     return data_dir() / CACHE_FILENAME
 
 
+def _read_cache() -> dict:
+    """{edition_key: {"checked_at": iso, "single_file": {...}|None, ...}}."""
+    try:
+        raw = json.loads(_cache_path().read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        # A corrupt or absent cache costs a probe, never the page. Same rule as
+        # books_missing.py and store/documents.py.
+        return {}
+    return raw if isinstance(raw, dict) else {}
+
+
+def _write_cache(payload: dict) -> None:
+    try:
+        resolved = _cache_path()
+        resolved.parent.mkdir(parents=True, exist_ok=True)
+        tmp = resolved.with_suffix(f".json.{uuid.uuid4().hex}.tmp")
+        tmp.write_text(json.dumps(payload, indent=2), encoding="utf-8")
+        os.replace(tmp, resolved)
+    except OSError:
+        # An unwritable data dir means we probe every time. Slower, never wrong.
+        pass
+
+
+def _is_stale(checked_at: str | None) -> bool:
+    if not checked_at:
+        return True
+    try:
+        when = datetime.fromisoformat(checked_at)
+    except ValueError:
+        return True
+    return (datetime.now(timezone.utc) - when).total_seconds() > CACHE_TTL_SECONDS
+
+
 def _candidate(url: str | None, fiscal_year: int, prober) -> dict | None:
-    """One format's candidate, with the two facts the card shows."""
+    """One format's candidate, with the facts the card shows (R6, R9)."""
     if not url:
         return None
-    size = None
-    head = getattr(prober, "head_size", None)
-    if head is not None:
-        size = head(url)          # bytes, or None when the server omits it
+    status, size = prober.head_info(url)
     return {
         "url": url,
+        # 🔴 A REAL REQUEST, not an assumption. `plan_edition` is catalog-first,
+        # so for a catalogued edition it returns URLs having made no network
+        # call at all -- and that catalog is built to feed a ladder that
+        # TOLERATES a 404, so it carries addresses nobody verified. Without
+        # this the panel offers a dead link exactly as confidently as a good
+        # one, and the size that R9 leans on for "a 0.2 MB book is visibly
+        # wrong" would never appear.
+        "status": status,
         "bytes": size,
         # R6: flagged, never refused. The rolling /budget/ rung produces
         # exactly this shape and is sometimes still the right answer.
@@ -1198,24 +1489,55 @@ def _candidate(url: str | None, fiscal_year: int, prober) -> dict | None:
     }
 
 
-def pending_editions(prober, *, refresh: bool = False) -> dict:
-    cached = _read_cache()
-    if not refresh and cached and not _is_stale(cached.get("checked_at")):
-        return cached
+def _candidates_for(label, family_slug, year, prober, cache) -> tuple[dict, str | None, bool]:
+    """This edition's two candidates, from cache when fresh.
 
+    Third element says whether the network was actually used, so the caller
+    only rewrites the cache file when there is something new in it.
+    """
+    key = format_key(label, year)
+    hit = cache.get(key)
+    if isinstance(hit, dict) and not _is_stale(hit.get("checked_at")):
+        return (
+            {"single_file": hit.get("single_file"), "linked_toc": hit.get("linked_toc")},
+            hit.get("source"),
+            False,
+        )
+    try:
+        plan = plan_edition(family_slug, year, prober=prober)
+    except DiscoveryError:
+        # JLBC published no whole-report file for this edition we can find.
+        # Still pending — the admin can paste one by hand.
+        plan = None
+    found = {
+        "single_file": _candidate(getattr(plan, "single_file_url", None), year, prober),
+        "linked_toc": _candidate(getattr(plan, "linked_toc_url", None), year, prober),
+    }
+    source = getattr(plan, "source", None)
+    cache[key] = {
+        "checked_at": datetime.now(timezone.utc).isoformat(),
+        "source": source,
+        **found,
+    }
+    return found, source, True
+
+
+def pending_editions(prober, *, refresh: bool = False) -> dict:
     table, problems = load()
+    cache = {} if refresh else _read_cache()
     pending, online, reason = [], True, None
+    dirty = False
+
     for family_slug, years in corpus_editions().items():
         label = FAMILY_LABELS[family_slug]
         for year in sorted(years, reverse=True):
             if format_key(label, year) in table:
                 continue
             try:
-                plan = plan_edition(family_slug, year, prober=prober)
-            except DiscoveryError:
-                # JLBC published no whole-report file for this edition we can
-                # find. Still pending — the admin can paste one by hand.
-                plan = None
+                candidates, source, probed = _candidates_for(
+                    label, family_slug, year, prober, cache
+                )
+                dirty = dirty or probed
             except Exception as exc:  # noqa: BLE001 — network, DNS, timeout
                 online = False
                 reason = (
@@ -1226,24 +1548,16 @@ def pending_editions(prober, *, refresh: bool = False) -> dict:
             pending.append({
                 "family": label,
                 "fiscal_year": year,
-                "candidates": {
-                    "single_file": _candidate(
-                        getattr(plan, "single_file_url", None), year, prober),
-                    "linked_toc": _candidate(
-                        getattr(plan, "linked_toc_url", None), year, prober),
-                },
-                "source": getattr(plan, "source", None),
+                "candidates": candidates,
+                "source": source,
             })
         if not online:
             break
 
-    if not online and cached:
-        payload = dict(cached)
-        payload.update(online=False, reason=reason, problems=problems)
-        return payload
+    if dirty and online:
+        _write_cache(cache)
 
-    payload = {
-        "checked_at": datetime.now(timezone.utc).isoformat(),
+    return {
         "online": online,
         "reason": reason,
         "problems": problems,
@@ -1257,79 +1571,98 @@ def pending_editions(prober, *, refresh: bool = False) -> dict:
             key=lambda a: (-a["fiscal_year"], a["family"]),
         ),
     }
-    if online:
-        _write_cache(payload)
-    return payload
 ```
 
-`_read_cache`, `_write_cache` and `_is_stale` are byte-identical in intent to
-`app/routes/books_missing.py`'s. **Import them from there rather than copying**;
-if their signatures make that awkward, move all three into a small shared helper
-and have `books_missing.py` import it, so there is one implementation.
+**`approved` is not decoration** — it is what makes an already-answered edition
+correctable. Without it the panel can only ever show editions nobody has
+answered, so approving a wrong link would be unfixable from the app and the
+admin would be back to hand-editing JSON on the share, which is the exact thing
+this feature exists to abolish. It is also what the spec's concurrency risk row
+assumes ("the loser re-appears as approved-with-the-other-URL, visible on the
+same panel").
 
-Then the route:
+Then the routes:
 
 ```python
 @router.get("/api/admin/book-formats")
 def book_formats(request: Request, refresh: bool = False, _s=Depends(require_admin)):
+    return pending_editions(_probe_with(request), refresh=refresh)
+
+
+def _probe_with(request: Request):
     from app.routes.books import HttpProber, _prober
 
     prober = _prober(request)
     if isinstance(prober, HttpProber):
         prober = HttpProber(timeout_s=PROBE_TIMEOUT_S)
-    return pending_editions(prober, refresh=refresh)
+    return prober
+
+
+class EditionWrite(BaseModel):
+    family: str
+    fiscal_year: int
+    single_file: str | None = None
+    linked_toc: str | None = None
+
+
+@router.put("/api/admin/book-formats")
+def write_edition(body: EditionWrite, _s=Depends(require_admin)) -> dict:
+    """Record one edition's whole-report links.
+
+    The same route both approves a pending edition and corrects one that was
+    already answered — the overlay entry replaces its key wholesale either way
+    (R1), so there is one write path and no separate "edit" verb to keep in
+    step with it.
+
+    A `ValueError` from the store is the admin's own input being refused, so it
+    becomes a 400 carrying the store's sentence verbatim — that sentence is
+    written for a reader and rewriting it here would give the office two
+    wordings for one refusal. Anything else is a real failure and is allowed to
+    500: a save that did not happen must never report success.
+    """
+    try:
+        save_edition(body.family, body.fiscal_year, body.single_file, body.linked_toc)
+    except ValueError as err:
+        raise HTTPException(status_code=400, detail=str(err)) from err
+    return {"ok": True}
+
+
+class UrlCheck(BaseModel):
+    url: str
+    fiscal_year: int
+
+
+@router.post("/api/admin/book-formats/check")
+def check_url(body: UrlCheck, request: Request, _s=Depends(require_admin)) -> dict:
+    """Does a typed address respond, how big is it, does it name its year?
+
+    Same three facts `_candidate` reports, so the pasted link and the offered
+    one are described identically on the card.
+    """
+    try:
+        status, size = _probe_with(request).head_info(body.url)
+        reason = None
+    except Exception as exc:  # noqa: BLE001 — offline is an answer, not a 500
+        status, size = None, None
+        reason = f"Couldn't reach that address ({type(exc).__name__})."
+    return {
+        "ok": status is not None and status < 400,
+        "status": status,
+        "bytes": size,
+        "names_its_year": names_its_year(body.url, body.fiscal_year),
+        "reason": reason,
+    }
 ```
 
-Register it in `app/main.py` beside `books_missing_router`.
+Register the router in `app/main.py` beside `books_missing_router`.
 
-> **`head_size` does not exist on `HttpProber` yet.** `_candidate` above calls
-> it through `getattr` so the scan works without it, but the card is meant to
-> show file size (R9). Add a `head_size(url) -> int | None` method to
-> `HttpProber` returning `Content-Length` as an int, and have `FakeProber`
-> implement it too. If adding it to `HttpProber` turns out to widen a class
-> other routes depend on, put the helper in `book_formats.py` instead and note
-> the deviation.
+**No cache invalidation on write.** The pending list is recomputed from the
+merged table on every request, and `save_edition` resets the store's own mtime
+cache, so an approved edition leaves the list on the very next load. The probe
+cache holds only candidate URLs for editions that are still pending, and an
+approved edition is no longer consulted.
 
-- [ ] **Step 4: Run the tests**
-
-Run: `uv run python -m pytest tests/test_book_formats_route.py -q`
-Expected: all pass
-
-- [ ] **Step 5: Mutation-check the offline guard**
-
-Temporarily change the `except Exception` branch to `continue` instead of
-setting `online = False`. Re-run:
-
-Run: `uv run python -m pytest tests/test_book_formats_route.py -q`
-Expected: FAIL on
-`test_an_unreachable_network_says_so_instead_of_reporting_nothing_pending`.
-Revert with a separate `git checkout app/routes/book_formats.py`.
-
-- [ ] **Step 6: Commit**
-
-```bash
-git add app/routes/book_formats.py app/main.py tests/test_book_formats_route.py
-git commit -m "app: report which book editions have no whole-report link yet"
-```
-
----
-
-## Task 5: Approving, replacing, and marking a format as never published
-
-**Files:**
-- Modify: `app/routes/book_formats.py`
-- Modify: `tests/test_book_formats_route.py`
-
-**Interfaces:**
-- Consumes: `store.report_formats.save_edition`, `names_its_year`
-- Produces:
-  - `PUT /api/admin/book-formats`, body
-    `{"family": str, "fiscal_year": int, "single_file": str | null, "linked_toc": str | null}`
-    → `{"ok": true}`; 400 with a plain sentence on refusal
-  - `POST /api/admin/book-formats/check`, body `{"url": str, "fiscal_year": int}`
-    → `{"ok": bool, "status": int | null, "bytes": int | null, "names_its_year": bool, "reason": str | null}`
-
-- [ ] **Step 1: Write the failing tests**
+- [ ] **Step 4: Write the failing write tests**
 
 Append to `tests/test_book_formats_route.py`:
 
@@ -1344,8 +1677,30 @@ def test_approving_an_edition_writes_it_and_clears_it_from_pending(tmp_path, mon
         "linked_toc": "https://www.azjlbc.gov/28ar/apprpttoc.pdf",
     })
     assert r.status_code == 200
-    body = client.get("/api/admin/book-formats?refresh=true").json()
+    # No ?refresh — the list must be right on an ordinary load, or an admin who
+    # presses Approve watches the card sit there and presses it again.
+    body = client.get("/api/admin/book-formats").json()
     assert all(p["fiscal_year"] != 2028 for p in body["pending"])
+
+
+def test_an_already_approved_edition_can_be_corrected(tmp_path, monkeypatch):
+    # Approving a wrong link must be recoverable from the app. Without this the
+    # only repair is hand-editing JSON on the share — the thing this feature
+    # exists to abolish — and the spec's concurrency risk row is unfounded.
+    overlay = tmp_path / "report-formats.json"
+    docs = {"d1": {"source_url": "https://www.azjlbc.gov/26ar/axs.pdf"}}
+    client = _client(tmp_path, monkeypatch, documents=docs, overlay=overlay)
+    for url in ("https://www.azjlbc.gov/26ar/wrong.pdf",
+                "https://www.azjlbc.gov/26ar/fy2026approprpt.pdf"):
+        assert client.put("/api/admin/book-formats", json={
+            "family": "Appropriations Report", "fiscal_year": 2026,
+            "single_file": url, "linked_toc": None,
+        }).status_code == 200
+    row = next(
+        a for a in client.get("/api/admin/book-formats").json()["approved"]
+        if a["fiscal_year"] == 2026 and a["family"] == "Appropriations Report"
+    )
+    assert row["single_file"].endswith("fy2026approprpt.pdf")
 
 
 def test_marking_one_format_as_never_published_is_accepted(tmp_path, monkeypatch):
@@ -1389,20 +1744,26 @@ def test_an_unknown_family_is_refused(tmp_path, monkeypatch):
 def test_a_failed_save_reaches_the_caller_rather_than_reporting_success(tmp_path, monkeypatch):
     # The read paths degrade on purpose. This one must not: an admin told
     # nothing has no way to learn the approval did not stick.
-    import store.report_formats as rf
+    #
+    # 🔴 Patch `book_formats`, NOT `store.report_formats`. The route does
+    # `from store.report_formats import save_edition`, so the name is already
+    # bound into the route module and patching the source module changes
+    # nothing — the real save would succeed, the route would return 200, and
+    # this test would fail for a reason that has nothing to do with what it
+    # asserts. Same trap `_client` documents for `load_documents`.
+    import app.routes.book_formats as bf
 
     def boom(*a, **k):
         raise OSError("the share went away")
 
-    monkeypatch.setattr(rf, "save_edition", boom)
+    monkeypatch.setattr(bf, "save_edition", boom)
     docs = {"d1": {"source_url": "https://www.azjlbc.gov/28ar/axs.pdf"}}
     client = _client(tmp_path, monkeypatch, documents=docs)
-    r = client.put("/api/admin/book-formats", json={
-        "family": "Appropriations Report", "fiscal_year": 2028,
-        "single_file": "https://x/a.pdf", "linked_toc": None,
-    })
-    assert r.status_code >= 500 or r.status_code == 400
-    assert "ok" not in r.json() or r.json().get("ok") is not True
+    with pytest.raises(OSError):
+        client.put("/api/admin/book-formats", json={
+            "family": "Appropriations Report", "fiscal_year": 2028,
+            "single_file": "https://x/a.pdf", "linked_toc": None,
+        })
 
 
 def test_checking_a_typed_url_reports_its_year_and_size(tmp_path, monkeypatch):
@@ -1416,89 +1777,54 @@ def test_checking_a_typed_url_reports_its_year_and_size(tmp_path, monkeypatch):
     # year-less address, and one such address really exists.
     assert r.json()["names_its_year"] is False
     assert r.json()["ok"] is True
+    assert r.json()["bytes"] == 47_000_000
+
+
+def test_a_typed_url_that_does_not_respond_says_so(tmp_path, monkeypatch):
+    docs = {"d1": {"source_url": "https://www.azjlbc.gov/28ar/axs.pdf"}}
+    client = _client(tmp_path, monkeypatch, documents=docs, prober=FakeProber())
+    r = client.post("/api/admin/book-formats/check", json={
+        "url": "https://www.azjlbc.gov/28ar/nope.pdf", "fiscal_year": 2028,
+    }).json()
+    assert r["ok"] is False and r["status"] == 404
 ```
 
-- [ ] **Step 2: Run to verify they fail**
+> `TestClient` re-raises a server-side exception by default, which is why the
+> failed-save test uses `pytest.raises` rather than asserting a 500. If the app
+> is built with `raise_server_exceptions=False` anywhere in this suite, assert
+> `r.status_code == 500` instead — but never assert only `!= 200`, which passes
+> on a 400 and would let a refusal masquerade as a failure.
 
-Run: `uv run python -m pytest tests/test_book_formats_route.py -q -k "approving or never_published or typed_url or unknown_family or failed_save"`
-Expected: FAIL — 405 Method Not Allowed
+Run them before implementing the two write routes:
+`uv run python -m pytest tests/test_book_formats_route.py -q -k "approving or corrected or never_published or typed_url or unknown_family or failed_save"`
+Expected: FAIL — 405 Method Not Allowed / 404 on `/check`.
 
-- [ ] **Step 3: Implement**
-
-```python
-class EditionWrite(BaseModel):
-    family: str
-    fiscal_year: int
-    single_file: str | None = None
-    linked_toc: str | None = None
-
-
-@router.put("/api/admin/book-formats")
-def write_edition(body: EditionWrite, _s=Depends(require_admin)) -> dict:
-    """Record one edition's whole-report links.
-
-    A `ValueError` from the store is the admin's own input being refused, so it
-    becomes a 400 carrying the store's sentence verbatim — that sentence is
-    written for a reader and rewriting it here would give the office two
-    wordings for one refusal. Anything else is a real failure and is allowed to
-    500: a save that did not happen must never report success.
-    """
-    try:
-        save_edition(body.family, body.fiscal_year, body.single_file, body.linked_toc)
-    except ValueError as err:
-        raise HTTPException(status_code=400, detail=str(err)) from err
-    _invalidate_cache()
-    return {"ok": True}
-
-
-class UrlCheck(BaseModel):
-    url: str
-    fiscal_year: int
-
-
-@router.post("/api/admin/book-formats/check")
-def check_url(body: UrlCheck, request: Request, _s=Depends(require_admin)) -> dict:
-    from app.routes.books import HttpProber, _prober
-
-    prober = _prober(request)
-    if isinstance(prober, HttpProber):
-        prober = HttpProber(timeout_s=PROBE_TIMEOUT_S)
-    try:
-        ok = bool(prober.head(body.url))
-        reason = None
-    except Exception as exc:  # noqa: BLE001 — offline is an answer, not a 500
-        ok, reason = False, f"Couldn't reach that address ({type(exc).__name__})."
-    size = None
-    head_size = getattr(prober, "head_size", None)
-    if ok and head_size is not None:
-        size = head_size(body.url)
-    return {
-        "ok": ok,
-        "bytes": size,
-        "names_its_year": names_its_year(body.url, body.fiscal_year),
-        "reason": reason,
-    }
-```
-
-`_invalidate_cache()` deletes `_cache_path()` if it exists, ignoring `OSError` —
-a stale probe cache after an approval would leave the just-approved edition on
-the panel until the TTL expired.
-
-- [ ] **Step 4: Run the tests**
+- [ ] **Step 5: Run the tests**
 
 Run: `uv run python -m pytest tests/test_book_formats_route.py -q`
 Expected: all pass
 
-- [ ] **Step 5: Commit**
+- [ ] **Step 6: Mutation-check the three guards that carry this task**
+
+Run each in place, confirm the named test goes red, then revert with a
+**separate** `git checkout app/routes/book_formats.py`.
+
+| mutate | must turn red |
+|---|---|
+| `except Exception` branch → `continue` instead of `online = False` | `..._unreachable_network_says_so...` |
+| `_candidate`'s `status, size = prober.head_info(url)` → `status, size = 200, None` | `..._candidate_that_does_not_respond...` |
+| `_read_cache()` → `{}` unconditionally in `pending_editions` | `..._probe_answer_is_cached...` |
+
+- [ ] **Step 7: Commit**
 
 ```bash
-git add app/routes/book_formats.py tests/test_book_formats_route.py
-git commit -m "app: approve, replace or dismiss a book edition's whole-report links"
+git add app/routes/book_formats.py app/routes/books.py app/main.py tests/test_book_formats_route.py
+git commit -m "app: report, approve and correct a book edition's whole-report links"
 ```
 
 ---
 
-## Task 6: The approval card
+## Task 5: The approval card
 
 **Files:**
 - Create: `webapp/src/admin/ReportLinksPanel.tsx`
@@ -1507,14 +1833,14 @@ git commit -m "app: approve, replace or dismiss a book edition's whole-report li
 - Modify: `webapp/src/pages/Admin.tsx`
 
 **Interfaces:**
-- Consumes: the three routes from Tasks 4–5
+- Consumes: the three routes from Task 4
 - Produces:
-  - `api.BookFormatCandidate = { url: string; bytes: number | null; names_its_year: boolean }`
+  - `api.BookFormatCandidate = { url: string; status: number | null; bytes: number | null; names_its_year: boolean }`
   - `api.PendingEdition = { family: string; fiscal_year: number; candidates: { single_file: BookFormatCandidate | null; linked_toc: BookFormatCandidate | null }; source: string | null }`
   - `api.BookFormats = { pending: PendingEdition[]; approved: {...}[]; online: boolean; reason: string | null; problems: string[] }`
   - `api.bookFormats(): Promise<BookFormats>`
   - `api.saveBookFormat(family, fiscalYear, singleFile, linkedToc): Promise<void>`
-  - `api.checkBookFormatUrl(url, fiscalYear): Promise<{ ok: boolean; bytes: number | null; names_its_year: boolean; reason: string | null }>`
+  - `api.checkBookFormatUrl(url, fiscalYear): Promise<{ ok: boolean; status: number | null; bytes: number | null; names_its_year: boolean; reason: string | null }>`
 
 - [ ] **Step 1: Write the failing tests**
 
@@ -1530,10 +1856,17 @@ const PENDING: api.PendingEdition = {
   family: "Appropriations Report",
   fiscal_year: 2028,
   candidates: {
-    single_file: { url: "https://www.azjlbc.gov/28ar/fy2028approprpt.pdf", bytes: 47_000_000, names_its_year: true },
-    linked_toc: { url: "https://www.azjlbc.gov/budget/apprpttoc.pdf", bytes: 200_000, names_its_year: false },
+    single_file: { url: "https://www.azjlbc.gov/28ar/fy2028approprpt.pdf", status: 200, bytes: 47_000_000, names_its_year: true },
+    linked_toc: { url: "https://www.azjlbc.gov/budget/apprpttoc.pdf", status: 200, bytes: 200_000, names_its_year: false },
   },
   source: "probed",
+};
+
+const APPROVED: api.ApprovedEdition = {
+  family: "Appropriations Report",
+  fiscal_year: 2026,
+  single_file: "https://www.azjlbc.gov/26ar/fy2026approprpt.pdf",
+  linked_toc: "https://www.azjlbc.gov/26ar/apprpttoc.pdf",
 };
 
 function stub(over: Partial<api.BookFormats> = {}) {
@@ -1544,11 +1877,53 @@ function stub(over: Partial<api.BookFormats> = {}) {
 
 test("renders nothing at all when no edition is waiting", async () => {
   // Same rule as NoticesPanel and NeedsAttention directly above it: a box on
-  // screen every day teaches an admin to scroll past it.
-  stub({ pending: [] });
+  // screen every day teaches an admin to scroll past it. `approved` is
+  // populated here on purpose — the already-answered list must not be what
+  // keeps the panel on screen.
+  stub({ pending: [], approved: [APPROVED] });
   const { container } = render(<ReportLinksPanel />);
   await waitFor(() => expect(api.bookFormats).toHaveBeenCalled());
   expect(container).toBeEmptyDOMElement();
+});
+
+test("an already-answered edition can be reopened and corrected", async () => {
+  // Without this, approving a wrong link is unfixable from the app and the
+  // admin is back to hand-editing JSON on the share — the exact step this
+  // feature exists to remove. It is deliberately behind a disclosure, so the
+  // panel still renders nothing when nothing is waiting.
+  stub({ approved: [APPROVED] });
+  const save = vi.spyOn(api, "saveBookFormat").mockResolvedValue();
+  render(<ReportLinksPanel />);
+  fireEvent.click(await screen.findByRole("button", { name: /already answered/i }));
+  fireEvent.click(screen.getByRole("button", { name: /change the links for FY 2026/i }));
+  fireEvent.change(screen.getAllByLabelText(/web address/i)[0], {
+    target: { value: "https://www.azjlbc.gov/26ar/corrected.pdf" },
+  });
+  fireEvent.click(screen.getAllByRole("button", { name: /^approve$/i })[0]);
+  await waitFor(() =>
+    expect(save).toHaveBeenCalledWith(
+      "Appropriations Report", 2026,
+      "https://www.azjlbc.gov/26ar/corrected.pdf",
+      APPROVED.linked_toc,
+    ),
+  );
+});
+
+test("a candidate that did not respond is marked as not responding", async () => {
+  // A dead address must look different from a live one before it is approved.
+  // `plan_edition` returns catalogued URLs with no network call at all, and
+  // that catalog is known to carry addresses that 404.
+  stub({
+    pending: [{
+      ...PENDING,
+      candidates: {
+        ...PENDING.candidates,
+        single_file: { ...PENDING.candidates.single_file!, status: 404, bytes: null },
+      },
+    }],
+  });
+  render(<ReportLinksPanel />);
+  expect(await screen.findByText(/didn't respond/i)).toBeInTheDocument();
 });
 
 test("a waiting edition shows both addresses as openable links", async () => {
@@ -1557,6 +1932,17 @@ test("a waiting edition shows both addresses as openable links", async () => {
   const link = await screen.findByRole("link", { name: /open to check/i, exact: false });
   expect(link).toHaveAttribute("href", PENDING.candidates.single_file!.url);
   expect(link).toHaveAttribute("target", "_blank");
+});
+
+test("the file size is shown, because it is half of R9's defence", async () => {
+  // The other half is the year warning. Between them they are the only thing
+  // catching an admin who approves without opening either link — a 0.2 MB
+  // "book" or a 47 MB "table of contents" is visibly wrong. A size that
+  // silently never renders would leave that risk unmitigated with every test
+  // green, so it is asserted rather than assumed.
+  stub();
+  render(<ReportLinksPanel />);
+  expect(await screen.findByText(/47\.0 MB/)).toBeInTheDocument();
 });
 
 test("an address that does not name the edition's year is flagged", async () => {
@@ -1599,7 +1985,7 @@ test("a typed replacement is checked before it can be approved", async () => {
   stub();
   const check = vi
     .spyOn(api, "checkBookFormatUrl")
-    .mockResolvedValue({ ok: true, bytes: 123, names_its_year: true, reason: null });
+    .mockResolvedValue({ ok: true, status: 200, bytes: 123, names_its_year: true, reason: null });
   render(<ReportLinksPanel />);
   fireEvent.click((await screen.findAllByRole("button", { name: /use a different link/i }))[0]);
   fireEvent.change(screen.getByLabelText(/web address/i), {
@@ -1637,6 +2023,8 @@ must have a link" becomes "Request failed".
 ```ts
 export interface BookFormatCandidate {
   url: string;
+  /** HTTP status from a real request. Null when the host was unreachable. */
+  status: number | null;
   /** From Content-Length. Null when the server omits it — show nothing, never a 0. */
   bytes: number | null;
   /** False when the address does not mention this edition's year (spec R6). */
@@ -1697,7 +2085,13 @@ export async function saveBookFormat(
 export async function checkBookFormatUrl(
   url: string,
   fiscalYear: number,
-): Promise<{ ok: boolean; bytes: number | null; names_its_year: boolean; reason: string | null }> {
+): Promise<{
+  ok: boolean;
+  status: number | null;
+  bytes: number | null;
+  names_its_year: boolean;
+  reason: string | null;
+}> {
   const r = await fetch("/api/admin/book-formats/check", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
@@ -1767,13 +2161,20 @@ export function ReportLinksPanel() {
 
 Requirements, each pinned by a test above:
 
-- **Renders nothing** when `pending` is empty AND `online` AND no `problems`.
+- **Renders nothing** when `pending` is empty AND `online` AND no `problems`,
+  **however many editions are in `approved`** — the already-answered list is a
+  reference, never a reason to occupy the page.
 - **Never renders a loading box** — an empty panel and a loading panel look the
   same, and the loading one flashes on every admin page open.
 - One card per pending edition, titled `FY {year} {family} — no "Full report" link yet`.
 - Per format: the address, its size in MB when known, **Open to check ↗**
   (`target="_blank" rel="noopener noreferrer"`), **Use a different link**,
   **None published**.
+- **A candidate whose `status` is not 2xx says so** — *"This address didn't
+  respond (404)."* — and `status === null` says the site could not be reached.
+  A dead link must not look identical to a good one, because a catalogued
+  candidate is returned with no network call and the catalog carries addresses
+  nobody verified.
 - The R6 warning renders when `names_its_year` is false:
   *"This address doesn't mention FY 2028 — open it before approving."*
 - **Approve** sends the current choice for both formats; **Not now** does nothing.
@@ -1781,9 +2182,15 @@ Requirements, each pinned by a test above:
   reason visible rather than a silently dead button.
 - `problems` render as plain sentences above the cards.
 - `online === false` renders `reason` and no claim about what is or is not missing.
+- **Already answered** — a collapsed disclosure listing `approved`, each row
+  offering **Change the links for FY {year}**, which opens the same per-format
+  editor and the same **Approve** against the same `PUT`. It renders only when
+  something else has already put the panel on screen, so it costs nothing on a
+  healthy install. Without it an approved mistake is unfixable from the app and
+  the admin is back to hand-editing JSON on the share.
 
 > **jsdom applies no stylesheet.** Nothing in this task is visually verified by
-> its tests; Task 7's acceptance walk is where the card is actually looked at.
+> its tests; Task 6's acceptance walk is where the card is actually looked at.
 
 - [ ] **Step 5: Mount it**
 
@@ -1806,7 +2213,7 @@ git commit -m "webapp: approve a new book edition's Full report links from /admi
 
 ---
 
-## Task 7: The verifier follows the data, and somebody watches the whole loop
+## Task 6: The verifier follows the data, and somebody watches the whole loop
 
 **Files:**
 - Modify: `scripts/verify_report_formats.py`
@@ -1871,19 +2278,26 @@ admin-extensions eval used, so the 14 GB working dir is never modified), then:
    `JLBC_DATA_DIR=<scratch> uv run uvicorn app.main:create_app --factory --port 9301`
 2. Open `/admin`. **Expected:** a card reading *FY 2027 Appropriations Report —
    no "Full report" link yet*, offering `27ar/fy2027approprpt.pdf` and
-   `27ar/apprpttoc.pdf`, each with a working **Open to check ↗**.
-3. Press **Approve**. **Expected:** the card disappears, and
-   `<scratch>/report-formats.json` now holds the edition.
+   `27ar/apprpttoc.pdf`, each with a working **Open to check ↗** and a real
+   size (~43.9 MB and ~1 page respectively). **A missing size or a size of
+   "0 MB" is a failure, not a cosmetic gap** — it is half of what R9 relies on.
+3. Press **Approve**. **Expected:** the card disappears **without a manual
+   refresh**, and `<scratch>/report-formats.json` now holds the edition.
 4. Open `/search`, expand Fiscal Year 2027. **Expected:** the FY 2027
    Appropriations Report row shows **Full report** and opens the chooser at
    those two files.
-5. **Use a different link** on one format, paste
+5. Back on `/admin`, expand **Already answered**, choose **Change the links for
+   FY 2027**, paste a different address and Approve. **Expected:** the browse
+   row follows it. Then put the correct address back.
+6. **Use a different link** on one format, paste
    `https://www.azjlbc.gov/26ar/fy2026approprpt.pdf` (a real, live, WRONG-year
    file), press Check. **Expected:** the R6 warning renders. Do not approve it.
-6. **None published** on the single file, then Approve. **Expected:** the
+7. Paste an address that does not exist (`…/27ar/nope.pdf`) and press Check.
+   **Expected:** it reports that the address did not respond, with the status.
+8. **None published** on the single file, then Approve. **Expected:** the
    browse row becomes a plain link straight to the table of contents, with no
    chooser dialog.
-7. **Disconnect the network**, restart the server, open `/admin`.
+9. **Disconnect the network**, restart the server, open `/admin`.
    **Expected:** the panel says it could not reach azjlbc.gov. It must NOT say
    there is nothing to add.
 
@@ -1895,9 +2309,12 @@ admin-extensions eval used, so the 14 GB working dir is never modified), then:
 
 A section dated the day it ships, covering: what shipped, the suite counts, the
 acceptance-walk result **including anything that did not behave as written
-above**, that no eval was run and why, and the two standing items — the accepted
-approve-without-looking risk (R9) and the fact that breakage of already-approved
-links is left to `scripts/verify_report_formats.py` (R13).
+above**, that no eval was run and why, and the three standing items — the
+accepted approve-without-looking risk (R9), the fact that breakage of
+already-approved links is left to `scripts/verify_report_formats.py` (R13), and
+the R3 derivation deviation recorded in Task 4 (a book document with no
+azjlbc `{yy}dir/` address would render on the browse page and never become
+pending; measured identical on 7,574 documents 2026-08-16).
 
 - [ ] **Step 6: Commit, merge, push, clean up**
 
@@ -1925,3 +2342,10 @@ stayed green), push, and `git worktree remove` + `git branch -d`.
 - **Do not report a count as a success measure.** "39 editions answered" says
   nothing about whether any of them is right; the year guard and the acceptance
   walk are what carry that weight.
+- **Patch names where they are BOUND, not where they are defined.** Every module
+  here does `from x import y`, so `monkeypatch.setattr(x, "y", ...)` changes
+  nothing. This plan's own tests were wrong about it once; check each one.
+- **Every network fact on the card must come from a request.** `plan_edition`
+  answers a catalogued edition with zero network calls, and that catalog is
+  built to tolerate a 404, so "the ladder returned it" is not evidence the file
+  exists.
