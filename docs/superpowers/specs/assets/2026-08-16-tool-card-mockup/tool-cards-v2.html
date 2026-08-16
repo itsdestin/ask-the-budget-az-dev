@@ -1,0 +1,299 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Tool cards — headers, icons and expanded bodies</title>
+<style>
+:root{
+  --navy:#2b2f63; --navy-700:#232752; --navy-900:#181b3d; --navy-100:#e7e8f2;
+  --ink:#21243f; --ink-2:#4a4e6a; --ink-3:#757895;
+  --line:#e6e6ef; --canvas:#f5f5fa; --card:#fff;
+  --r-lg:22px; --r-md:16px; --r-sm:12px; --r-pill:999px;
+  --shadow-sm:0 1px 2px rgba(27,27,61,.06),0 3px 10px rgba(27,27,61,.05);
+  --font:"Nunito","Segoe UI",system-ui,-apple-system,sans-serif;
+  --mono:"Cascadia Mono","Fira Code",Consolas,Menlo,monospace;
+  --danger:#b3261e; --danger-tint:#fbe9e7;
+}
+*{box-sizing:border-box}
+body{margin:0;background:var(--canvas);color:var(--ink);font-family:var(--font);line-height:1.6;-webkit-font-smoothing:antialiased}
+.page{max-width:1000px;margin:0 auto;padding:32px 22px 90px}
+h1{font-size:24px;font-weight:800;margin:0 0 6px}
+.lede{color:var(--ink-2);font-size:14px;margin:0 0 30px;max-width:76ch}
+section{margin:0 0 36px;background:var(--card);border:1px solid var(--line);border-radius:var(--r-lg);padding:22px 24px 26px;box-shadow:var(--shadow-sm)}
+h2{font-size:15px;font-weight:800;margin:0 0 4px;display:flex;align-items:center;gap:9px;flex-wrap:wrap}
+h3{font-size:12.5px;font-weight:800;margin:18px 0 8px;color:var(--ink-2)}
+.tag{font-size:10.5px;font-weight:800;text-transform:uppercase;letter-spacing:.08em;padding:2px 9px;border-radius:var(--r-pill);border:1px solid var(--line);color:var(--ink-3);background:var(--canvas)}
+.tag.rec{color:#fff;background:var(--navy);border-color:var(--navy)}
+.tag.no{color:var(--danger);background:var(--danger-tint);border-color:var(--danger)}
+.note{color:var(--ink-2);font-size:13px;margin:0 0 16px;max-width:78ch}
+.note b{color:var(--ink);font-weight:800}
+code{font-family:var(--mono);font-size:12px;background:var(--canvas);border:1px solid var(--line);border-radius:5px;padding:1px 5px}
+.stage{background:var(--canvas);border:1px dashed var(--line);border-radius:var(--r-md);padding:18px}
+.stage + .stage{margin-top:12px}
+.cap{font-size:11px;font-weight:800;text-transform:uppercase;letter-spacing:.08em;color:var(--ink-3);margin:0 0 9px}
+table{width:100%;border-collapse:collapse;font-size:12.5px;margin-bottom:6px}
+th{text-align:left;font-size:11px;text-transform:uppercase;letter-spacing:.07em;color:var(--ink-3);padding:0 10px 7px 0;border-bottom:1px solid var(--line)}
+td{padding:8px 10px 8px 0;border-bottom:1px solid var(--line);vertical-align:top;color:var(--ink-2)}
+td b{color:var(--ink)}
+.bad{color:var(--danger);font-weight:800}
+ul.pts{margin:0 0 14px;padding-left:20px;font-size:13px;color:var(--ink-2)}
+ul.pts li{margin-bottom:5px}
+ul.pts b{color:var(--ink)}
+
+/* chat geometry */
+.bubble{background:var(--card);border:1px solid var(--line);border-radius:var(--r-md);padding:10px 16px;font-size:14px;max-width:65ch}
+.tc{border-radius:var(--r-sm);border:1px solid var(--line);background:var(--canvas);overflow:hidden;margin-bottom:10px}
+.tc:last-child{margin-bottom:0}
+.tc-head{display:flex;align-items:center;gap:8px;padding:6px 12px;font-size:12.5px;color:var(--ink-2)}
+.tc-g{flex-shrink:0;color:var(--ink-3)}
+.tc-t{min-width:0;flex:1 1 auto;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--ink-2)}
+.tc-t b{font-weight:800;color:var(--ink-2)}
+.tc-t .q{color:var(--ink-3)}
+.tc-c{margin-left:auto;flex-shrink:0;color:var(--ink-3)}
+.tc-c.open{transform:rotate(180deg)}
+.exp{border-top:1px solid var(--line);padding:10px 12px;background:var(--card);max-height:50vh;overflow-y:auto}
+
+.did{font-size:12.5px;color:var(--ink-2);margin:0 0 10px;line-height:1.55}
+.did b{color:var(--ink);font-weight:800}
+.chip{display:inline-flex;align-items:center;font-size:11px;font-weight:800;border-radius:var(--r-pill);padding:1px 9px;border:1px solid var(--line);background:var(--canvas);color:var(--ink-3);white-space:nowrap}
+.chip.on{background:var(--navy-100);border-color:#c9cce4;color:var(--navy)}
+.src{font-size:12.5px;font-weight:800;color:var(--ink)}
+.snip{font-size:12.5px;color:var(--ink-2);line-height:1.55;margin-top:5px}
+.more{margin-top:8px;font-size:11.5px;font-weight:800;color:var(--navy);background:none;border:none;padding:0;cursor:pointer;text-decoration:underline}
+.b-doc{border:1px solid var(--line);border-radius:10px;padding:9px 11px;margin-bottom:8px;background:var(--card)}
+.b-doc:last-of-type{margin-bottom:0}
+.b-head{display:flex;align-items:baseline;gap:8px;flex-wrap:wrap;margin-bottom:4px}
+.b-pages{display:flex;gap:5px;flex-wrap:wrap;margin-top:7px;align-items:center}
+.meta{font-size:11.5px;color:var(--ink-3)}
+.raw{font-family:var(--mono);font-size:11px;color:var(--ink-3);background:var(--canvas);border:1px solid var(--line);border-radius:8px;padding:8px 10px;white-space:pre-wrap;word-break:break-all;line-height:1.45}
+.strike{text-decoration:line-through;text-decoration-color:var(--danger);text-decoration-thickness:2px}
+
+/* icons */
+.iconrow{display:flex;gap:10px;flex-wrap:wrap}
+.icell{background:var(--card);border:1px solid var(--line);border-radius:10px;padding:12px 10px;text-align:center;min-width:118px;flex:1 1 118px}
+.icell .big{height:46px;display:flex;align-items:center;justify-content:center;color:var(--ink-2)}
+.icell .sm{height:22px;display:flex;align-items:center;justify-content:center;color:var(--ink-3)}
+.icell .nm{font-size:10.5px;font-weight:800;color:var(--ink-3);margin-top:6px;text-transform:uppercase;letter-spacing:.05em}
+</style>
+</head>
+<body>
+<div class="page">
+
+<h1>Tool cards — headers, icons and expanded bodies</h1>
+<p class="lede">Everything below uses the app's real colours, type sizes and spacing, and only data the cards already receive. Four tools actually reach an analyst; the two citation tools never draw a card at all, because the citation chips in the answer are their surface.</p>
+
+<!-- ============ AUDIT ============ -->
+<section>
+  <h2>What each tool looks like today</h2>
+  <table>
+    <tr><th>Tool</th><th>Icon</th><th>When opened</th><th>Verdict</th></tr>
+    <tr><td><b>Search</b></td><td>hand-drawn magnifier</td><td>a wall of scores, ranks and repeated headings</td><td class="bad">both broken</td></tr>
+    <tr><td><b>Browse filters</b></td><td>three stacked bars</td><td>works, but labelled <code>agency_canonical_id</code> and lists raw codes</td><td class="bad">jargon</td></tr>
+    <tr><td><b>Write document</b></td><td>a download tray</td><td>title, download link, preview — genuinely fine</td><td>wording + icon only</td></tr>
+    <tr><td><b>Check style guide</b></td><td class="bad">a plain filled square</td><td class="bad">raw JSON</td><td class="bad">never styled at all</td></tr>
+    <tr><td>Cite / Cite claims</td><td>—</td><td>—</td><td>never drawn (chips are the surface)</td></tr>
+  </table>
+  <p class="note" style="margin-top:14px"><b>“Check style guide” was never given an icon or a view.</b> It falls through to the generic square and dumps its JSON. It is the tool the assistant calls before writing you a memo, so an analyst does see it.</p>
+</section>
+
+<!-- ============ HEADERS ============ -->
+<section>
+  <h2>The collapsed card — reading it as a sentence</h2>
+  <p class="note">Today the row is two pieces bolted together: a bold label, then an arrow, then the query. Below, it reads as something a person would say. The <b>verb stays bold</b> so the row is still scannable at a glance down a long conversation; the rest is normal weight. The row truncates with an ellipsis exactly as it does now, so length is not a risk.</p>
+
+  <h3>Version 1 — keep the first query always visible <span class="tag rec" style="margin-left:6px">recommended</span></h3>
+  <div class="stage">
+    <p class="cap">One search</p>
+    <div class="bubble"><div class="tc"><div class="tc-head">
+      <svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2.4" class="tc-g"><circle cx="11" cy="11" r="7"/><path d="m21 21-4.3-4.3"/></svg>
+      <span class="tc-t"><b>Searched</b> for <span class="q">“State Aviation Fund balance FY2025”</span></span>
+      <svg viewBox="0 0 10 6" width="10" height="6" class="tc-c"><path d="M1 1l4 4 4-4" stroke="currentColor" stroke-width="1.6" fill="none" stroke-linecap="round"/></svg>
+    </div></div>
+    <p class="cap" style="margin:14px 0 9px">Three searches</p>
+    <div class="tc"><div class="tc-head">
+      <svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2.4" class="tc-g"><circle cx="11" cy="11" r="7"/><path d="m21 21-4.3-4.3"/></svg>
+      <span class="tc-t"><b>Searched</b> for <span class="q">“State Aviation Fund balance FY2025” and 2 more</span></span>
+      <svg viewBox="0 0 10 6" width="10" height="6" class="tc-c"><path d="M1 1l4 4 4-4" stroke="currentColor" stroke-width="1.6" fill="none" stroke-linecap="round"/></svg>
+    </div></div>
+    <p class="cap" style="margin:14px 0 9px">Still running</p>
+    <div class="tc"><div class="tc-head">
+      <svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2.4" class="tc-g" style="opacity:.5"><circle cx="11" cy="11" r="7"/><path d="m21 21-4.3-4.3"/></svg>
+      <span class="tc-t"><b>Searching</b> for <span class="q">“State Aviation Fund balance FY2025”…</span></span>
+      <svg viewBox="0 0 10 6" width="10" height="6" class="tc-c"><path d="M1 1l4 4 4-4" stroke="currentColor" stroke-width="1.6" fill="none" stroke-linecap="round"/></svg>
+    </div></div>
+    <p class="cap" style="margin:14px 0 9px">Searches plus a document</p>
+    <div class="tc"><div class="tc-head">
+      <svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2.4" class="tc-g"><circle cx="11" cy="11" r="7"/><path d="m21 21-4.3-4.3"/></svg>
+      <span class="tc-t"><b>Searched</b> for <span class="q">“AHCCCS General Fund FY2026” and 2 more, then <b style="font-weight:800">wrote a document</b></span></span>
+      <svg viewBox="0 0 10 6" width="10" height="6" class="tc-c"><path d="M1 1l4 4 4-4" stroke="currentColor" stroke-width="1.6" fill="none" stroke-linecap="round"/></svg>
+    </div></div>
+    <p class="cap" style="margin:14px 0 9px">The other three tools, same shape</p>
+    <div class="tc"><div class="tc-head">
+      <svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2.2" class="tc-g"><path d="M3 5h18l-7 8v6l-4 2v-8z"/></svg>
+      <span class="tc-t"><b>Checked</b> <span class="q">which agencies the corpus covers</span></span>
+      <svg viewBox="0 0 10 6" width="10" height="6" class="tc-c"><path d="M1 1l4 4 4-4" stroke="currentColor" stroke-width="1.6" fill="none" stroke-linecap="round"/></svg>
+    </div></div>
+    <div class="tc"><div class="tc-head">
+      <svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2.2" class="tc-g"><path d="M6 3h8l4 4v14H6z"/><path d="M14 3v4h4"/><path d="M9 12h6M9 16h6"/></svg>
+      <span class="tc-t"><b>Wrote</b> the document <span class="q">“AHCCCS General Fund, FY 2024–2026”</span></span>
+      <svg viewBox="0 0 10 6" width="10" height="6" class="tc-c"><path d="M1 1l4 4 4-4" stroke="currentColor" stroke-width="1.6" fill="none" stroke-linecap="round"/></svg>
+    </div></div>
+    <div class="tc"><div class="tc-head">
+      <svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2.2" class="tc-g"><path d="M4 4.5A2.5 2.5 0 0 1 6.5 2H19v18H6.5A2.5 2.5 0 0 0 4 22z"/><path d="M9 7h6"/></svg>
+      <span class="tc-t"><b>Checked</b> the house style <span class="q">for a research memo</span></span>
+      <svg viewBox="0 0 10 6" width="10" height="6" class="tc-c"><path d="M1 1l4 4 4-4" stroke="currentColor" stroke-width="1.6" fill="none" stroke-linecap="round"/></svg>
+    </div></div>
+    </div>
+  </div>
+
+  <h3>Version 2 — count first, query second</h3>
+  <p class="note">Puts the number of searches up front. Slightly better if you mostly care <i>how hard it worked</i>; slightly worse if you mostly care <i>what it looked for</i>, because on a long run the query gets pushed toward the truncation.</p>
+  <div class="stage">
+    <div class="bubble">
+      <div class="tc"><div class="tc-head">
+        <svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2.4" class="tc-g"><circle cx="11" cy="11" r="7"/><path d="m21 21-4.3-4.3"/></svg>
+        <span class="tc-t"><b>Searched</b> for <span class="q">“State Aviation Fund balance FY2025”</span></span>
+        <svg viewBox="0 0 10 6" width="10" height="6" class="tc-c"><path d="M1 1l4 4 4-4" stroke="currentColor" stroke-width="1.6" fill="none" stroke-linecap="round"/></svg>
+      </div></div>
+      <div class="tc"><div class="tc-head">
+        <svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2.4" class="tc-g"><circle cx="11" cy="11" r="7"/><path d="m21 21-4.3-4.3"/></svg>
+        <span class="tc-t"><b>Searched 3 times</b>, starting with <span class="q">“State Aviation Fund balance FY2025”</span></span>
+        <svg viewBox="0 0 10 6" width="10" height="6" class="tc-c"><path d="M1 1l4 4 4-4" stroke="currentColor" stroke-width="1.6" fill="none" stroke-linecap="round"/></svg>
+      </div></div>
+    </div>
+  </div>
+</section>
+
+<!-- ============ SEARCH EXPANDED ============ -->
+<section>
+  <h2>Search, opened — option B, grouped by document <span class="tag rec">your pick</span></h2>
+  <p class="note">The unit is the <b>document</b>, not the passage. Five near-identical rows become two blocks; the pages become chips you take in at a glance; only the strongest passage from each document shows its text. Gone: the scores, the rank numbers, the pipeline counters, the repeated heading, and the raw filter names.</p>
+  <div class="stage">
+    <div class="bubble">
+      <div class="tc">
+        <div class="tc-head">
+          <svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2.4" class="tc-g"><circle cx="11" cy="11" r="7"/><path d="m21 21-4.3-4.3"/></svg>
+          <span class="tc-t"><b>Searched</b> for <span class="q">“State Aviation Fund balance FY2025”</span></span>
+          <svg viewBox="0 0 10 6" width="10" height="6" class="tc-c open"><path d="M1 1l4 4 4-4" stroke="currentColor" stroke-width="1.6" fill="none" stroke-linecap="round"/></svg>
+        </div>
+        <div class="exp">
+          <p class="did">Looked in <b>Annual Financial Reports</b> from <b>FY 2025</b>. Found <b>5 passages</b> across <b>2 documents</b>.</p>
+          <div class="b-doc">
+            <div class="b-head"><span class="src">FY 2025 Annual Financial Report</span><span class="chip">Auditor General</span><span class="chip">FY 2025</span></div>
+            <div class="snip">STATE OF ARIZONA · STATEMENT OF REVENUES, EXPENDITURES AND CHANGES IN FUND BALANCE — Aviation Fund (2005). Fund balance, June 30 2025 … 60,092,781.04</div>
+            <div class="b-pages"><span class="meta">4 passages —</span><span class="chip on">p. 162</span><span class="chip">p. 163</span><span class="chip">p. 164</span><span class="chip">p. 171</span></div>
+          </div>
+          <div class="b-doc">
+            <div class="b-head"><span class="src">FY 2026 Baseline — Transportation</span><span class="chip">JLBC</span><span class="chip">FY 2026</span></div>
+            <div class="snip">The Aviation Fund receives revenue from the state aircraft licence tax, flight property tax and aviation fuel tax…</div>
+            <div class="b-pages"><span class="meta">1 passage —</span><span class="chip on">p. 4</span></div>
+          </div>
+        </div>
+      </div>
+      <p style="margin:0"><strong>Quick lookup:</strong> The State Aviation Fund (fund 2005, administered by the…</p>
+    </div>
+  </div>
+</section>
+
+<!-- ============ STYLE GUIDE ============ -->
+<section>
+  <h2>Check style guide — the unstyled one <span class="tag no">raw JSON today</span></h2>
+  <p class="note">This runs before the assistant writes you a memo, so it appears in exactly the conversations that end in a document you are going to send. Today it is a blank square and a wall of escaped JSON.</p>
+  <div class="stage">
+    <p class="cap">Today</p>
+    <div class="bubble"><div class="tc">
+      <div class="tc-head">
+        <svg viewBox="0 0 12 12" width="12" height="12" class="tc-g"><rect x="2" y="2" width="8" height="8" fill="currentColor"/></svg>
+        <span class="tc-t"><b>Check style guide</b> <span class="q">↳ research-memo</span></span>
+        <svg viewBox="0 0 10 6" width="10" height="6" class="tc-c open"><path d="M1 1l4 4 4-4" stroke="currentColor" stroke-width="1.6" fill="none" stroke-linecap="round"/></svg>
+      </div>
+      <div class="exp"><div class="raw">{"report_type":"research-memo","guide":"## Numbers\n\nRound to one decimal place in the document body ($6.0 million), and keep the source's own precision in a chat answer ($6,043,200). Never build a total by summing the rows of a table you…</div></div>
+    </div></div>
+  </div>
+  <div class="stage">
+    <p class="cap">Proposed</p>
+    <div class="bubble"><div class="tc">
+      <div class="tc-head">
+        <svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2.2" class="tc-g"><path d="M4 4.5A2.5 2.5 0 0 1 6.5 2H19v18H6.5A2.5 2.5 0 0 0 4 22z"/><path d="M9 7h6"/></svg>
+        <span class="tc-t"><b>Checked</b> the house style <span class="q">for a research memo</span></span>
+        <svg viewBox="0 0 10 6" width="10" height="6" class="tc-c open"><path d="M1 1l4 4 4-4" stroke="currentColor" stroke-width="1.6" fill="none" stroke-linecap="round"/></svg>
+      </div>
+      <div class="exp">
+        <p class="did">Read JLBC's writing rules for a <b>research memo</b> before drafting. These are the rules it was given — <b>advice, not enforcement</b>: nothing checks the document against them afterwards.</p>
+        <div class="b-doc">
+          <div class="snip"><b>Numbers.</b> Round to one decimal place in the document body ($6.0 million). Keep the source's own precision in a chat answer ($6,043,200). Never build a total by summing the rows of a table.</div>
+        </div>
+        <div class="b-doc">
+          <div class="snip"><b>Shape.</b> Issue, background, analysis, options. Lead with the fiscal impact. Use bullets, never numbered lists.</div>
+        </div>
+        <button class="more">Show the full guide</button>
+      </div>
+    </div></div>
+  </div>
+</section>
+
+<!-- ============ BROWSE FILTERS ============ -->
+<section>
+  <h2>Browse filters — the codes leak</h2>
+  <div class="stage">
+    <p class="cap">Today</p>
+    <div class="bubble"><div class="tc">
+      <div class="tc-head">
+        <svg viewBox="0 0 12 12" width="12" height="12" class="tc-g"><rect x="1" y="2" width="10" height="2" fill="currentColor"/><rect x="2" y="5" width="8" height="2" fill="currentColor"/><rect x="3" y="8" width="6" height="2" fill="currentColor"/></svg>
+        <span class="tc-t"><b>Browse filters</b> <span class="q">↳ agency_canonical_id</span></span>
+        <svg viewBox="0 0 10 6" width="10" height="6" class="tc-c open"><path d="M1 1l4 4 4-4" stroke="currentColor" stroke-width="1.6" fill="none" stroke-linecap="round"/></svg>
+      </div>
+      <div class="exp">
+        <div class="meta" style="margin-bottom:7px"><span class="strike">Field</span> <span class="chip on strike">agency_canonical_id</span> <span class="strike">157 values</span></div>
+        <div class="meta"><span class="strike">agency:ahcccs — 4,812 chunks</span><br><span class="strike">agency:ade — 3,109 chunks</span><br><span class="strike">agency:adoa — 2,744 chunks</span></div>
+      </div>
+    </div></div>
+  </div>
+  <div class="stage">
+    <p class="cap">Proposed</p>
+    <div class="bubble"><div class="tc">
+      <div class="tc-head">
+        <svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2.2" class="tc-g"><path d="M3 5h18l-7 8v6l-4 2v-8z"/></svg>
+        <span class="tc-t"><b>Checked</b> <span class="q">which agencies the corpus covers</span></span>
+        <svg viewBox="0 0 10 6" width="10" height="6" class="tc-c open"><path d="M1 1l4 4 4-4" stroke="currentColor" stroke-width="1.6" fill="none" stroke-linecap="round"/></svg>
+      </div>
+      <div class="exp">
+        <p class="did"><b>157 agencies</b> appear in the budget documents. The largest by amount of material:</p>
+        <div class="b-pages" style="margin-top:0">
+          <span class="chip on">AHCCCS</span><span class="chip on">Education</span><span class="chip on">Administration</span><span class="chip">Corrections</span><span class="chip">Economic Security</span><span class="chip">Transportation</span><span class="chip">Public Safety</span>
+        </div>
+        <button class="more">Show all 157</button>
+      </div>
+    </div></div>
+  </div>
+</section>
+
+<!-- ============ ICONS ============ -->
+<section>
+  <h2>The icon set</h2>
+  <p class="note">Today's icons are hand-built from tiny rectangles on a 12&times;12 grid. At real size the magnifier's ring closes into a blob, and “Check style guide” has no icon at all — it gets the fallback square. The proposed set is drawn in the same line style as the magnifier the app <b>already uses</b> on Home and Budget Documents, so the whole app has one icon language.</p>
+  <div class="stage">
+    <p class="cap">Today — shown large, then at the size you actually see</p>
+    <div class="iconrow">
+      <div class="icell"><div class="big"><svg viewBox="0 0 12 12" width="46" height="46"><g><rect x="3" y="1" width="4" height="1" fill="currentColor"/><rect x="3" y="6" width="4" height="1" fill="currentColor"/><rect x="1" y="2" width="1" height="4" fill="currentColor"/><rect x="7" y="2" width="1" height="4" fill="currentColor"/><rect x="8" y="7" width="1" height="2" fill="currentColor"/><rect x="9" y="8" width="2" height="1" fill="currentColor"/></g></svg></div><div class="sm"><svg viewBox="0 0 12 12" width="12" height="12"><g><rect x="3" y="1" width="4" height="1" fill="currentColor"/><rect x="3" y="6" width="4" height="1" fill="currentColor"/><rect x="1" y="2" width="1" height="4" fill="currentColor"/><rect x="7" y="2" width="1" height="4" fill="currentColor"/><rect x="8" y="7" width="1" height="2" fill="currentColor"/><rect x="9" y="8" width="2" height="1" fill="currentColor"/></g></svg></div><div class="nm">search</div></div>
+      <div class="icell"><div class="big"><svg viewBox="0 0 12 12" width="46" height="46"><rect x="1" y="2" width="10" height="2" fill="currentColor"/><rect x="2" y="5" width="8" height="2" fill="currentColor"/><rect x="3" y="8" width="6" height="2" fill="currentColor"/></svg></div><div class="sm"><svg viewBox="0 0 12 12" width="12" height="12"><rect x="1" y="2" width="10" height="2" fill="currentColor"/><rect x="2" y="5" width="8" height="2" fill="currentColor"/><rect x="3" y="8" width="6" height="2" fill="currentColor"/></svg></div><div class="nm">filters</div></div>
+      <div class="icell"><div class="big"><svg viewBox="0 0 12 12" width="46" height="46"><rect x="5" y="1" width="2" height="6" fill="currentColor"/><rect x="3" y="5" width="2" height="2" fill="currentColor"/><rect x="7" y="5" width="2" height="2" fill="currentColor"/><rect x="1" y="9" width="10" height="2" fill="currentColor"/></svg></div><div class="sm"><svg viewBox="0 0 12 12" width="12" height="12"><rect x="5" y="1" width="2" height="6" fill="currentColor"/><rect x="3" y="5" width="2" height="2" fill="currentColor"/><rect x="7" y="5" width="2" height="2" fill="currentColor"/><rect x="1" y="9" width="10" height="2" fill="currentColor"/></svg></div><div class="nm">document</div></div>
+      <div class="icell" style="border-color:var(--danger)"><div class="big" style="color:var(--danger)"><svg viewBox="0 0 12 12" width="46" height="46"><rect x="2" y="2" width="8" height="8" fill="currentColor"/></svg></div><div class="sm" style="color:var(--danger)"><svg viewBox="0 0 12 12" width="12" height="12"><rect x="2" y="2" width="8" height="8" fill="currentColor"/></svg></div><div class="nm" style="color:var(--danger)">style guide</div></div>
+    </div>
+  </div>
+  <div class="stage">
+    <p class="cap">Proposed — the app's own line style</p>
+    <div class="iconrow">
+      <div class="icell"><div class="big"><svg viewBox="0 0 24 24" width="42" height="42" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="7"/><path d="m21 21-4.3-4.3"/></svg></div><div class="sm"><svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2.4"><circle cx="11" cy="11" r="7"/><path d="m21 21-4.3-4.3"/></svg></div><div class="nm">search</div></div>
+      <div class="icell"><div class="big"><svg viewBox="0 0 24 24" width="42" height="42" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"><path d="M3 5h18l-7 8v6l-4 2v-8z"/></svg></div><div class="sm"><svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linejoin="round"><path d="M3 5h18l-7 8v6l-4 2v-8z"/></svg></div><div class="nm">filters</div></div>
+      <div class="icell"><div class="big"><svg viewBox="0 0 24 24" width="42" height="42" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"><path d="M6 3h8l4 4v14H6z"/><path d="M14 3v4h4"/><path d="M9 12h6M9 16h6"/></svg></div><div class="sm"><svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linejoin="round"><path d="M6 3h8l4 4v14H6z"/><path d="M14 3v4h4"/><path d="M9 12h6M9 16h6"/></svg></div><div class="nm">document</div></div>
+      <div class="icell"><div class="big"><svg viewBox="0 0 24 24" width="42" height="42" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"><path d="M4 4.5A2.5 2.5 0 0 1 6.5 2H19v18H6.5A2.5 2.5 0 0 0 4 22z"/><path d="M9 7h6"/></svg></div><div class="sm"><svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linejoin="round"><path d="M4 4.5A2.5 2.5 0 0 1 6.5 2H19v18H6.5A2.5 2.5 0 0 0 4 22z"/><path d="M9 7h6"/></svg></div><div class="nm">style guide</div></div>
+    </div>
+  </div>
+  <p class="note" style="margin-top:16px"><b>The one judgement call.</b> The current icons are pixel art, matching the mascot. That is a real house style and I am proposing to break it here — because these rows are chrome, the rest of the app's chrome is already drawn in lines, and the pixel style is precisely what made the magnifier unreadable at this size. If you would rather keep pixel art, the alternative is redrawing the magnifier larger; say so and I will mock that instead.</p>
+</section>
+
+</div>
+</body>
+</html>
