@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 from chunking.agency_catalog import id_to_name, load_agency_catalog
+from identity.validator import validate_name
 
 
 def test_loads_157_agencies_with_ids():
@@ -106,3 +107,41 @@ def test_no_variant_is_a_bare_organisational_fragment():
         if text.strip().lower().rstrip(":").strip() in generic
     ]
     assert offenders == [], f"generic fragments would match anything: {offenders}"
+
+
+def test_no_catalogued_name_fails_the_identity_validator():
+    """`list_filter_values` hands `canonical_name` straight to the model in
+    production (see `harness/tools.py`) — the catalog's own display name IS
+    what the LLM reads. `identity.validator.validate_name` is the one place
+    this codebase already knows how to recognise a corrupted TOC-scrape name
+    (dot leaders, an embedded page number, a doubled space where two printed
+    columns got glued together) — see that module's docstring for the
+    dot-leader / embedded-page-number cases it was built to catch.
+
+    Found by running the validator over the file rather than eyeballing it
+    (2026-08-16): 3 canonical_name values and 30 names_observed_jlbc keys
+    failed. All 33 are repaired in samples/entity-catalog.yaml — each
+    offender had a clean sibling entry already recorded for the same
+    agency, so every repair is a MERGE of a corrupted key's years onto the
+    clean key, never an invented string. This test is what stops a future
+    harvest re-introducing the same shape and it going unnoticed, the way
+    the original 33 did.
+
+    Deliberately checks BOTH canonical_name and every name_variants string —
+    a variant is not directly on the `list_filter_values` response today,
+    but `identity.repair`'s title composer reads name_variants too (see
+    `chunking/agency_catalog.py::_name_variants`), so a corrupted variant is
+    one code path away from reappearing in a document title, not just in the
+    filter-values answer.
+    """
+    cat = load_agency_catalog()
+    offenders = []
+    for entry in cat.values():
+        verdict = validate_name(entry.canonical_name)
+        if not verdict.ok:
+            offenders.append((entry.canonical_id, "canonical_name", entry.canonical_name, verdict.reason))
+        for variant in entry.name_variants:
+            verdict = validate_name(variant)
+            if not verdict.ok:
+                offenders.append((entry.canonical_id, "name_variant", variant, verdict.reason))
+    assert offenders == [], f"catalog names the identity validator rejects: {offenders}"
