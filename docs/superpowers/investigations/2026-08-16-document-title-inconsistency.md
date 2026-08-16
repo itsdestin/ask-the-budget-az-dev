@@ -3,6 +3,17 @@
 **Found 2026-08-16** by Destin searching `ahcccs` on Budget Documents and
 reading the result list. NOT found by any test. Not fixed yet.
 
+> **⏭ SUPERSEDED AS A PLAN OF ACTION — read the spec, not this document's
+> "What a fix looks like" section.** This turned out to be the smallest
+> member of a family of six defects sharing one cause. The corpus-wide
+> evidence is in
+> [`2026-08-16-identity-consistency-audit.md`](2026-08-16-identity-consistency-audit.md)
+> and the approved design is
+> [`../specs/2026-08-16-corpus-identity-consistency-design.md`](../specs/2026-08-16-corpus-identity-consistency-design.md)
+> (I1–I14). **This file remains accurate as the record of how the title
+> problem was found and narrowed** — including the first diagnosis, which
+> blamed the wrong file.
+
 ## The symptom
 
 One agency, one publisher, six consecutive years, three naming formats:

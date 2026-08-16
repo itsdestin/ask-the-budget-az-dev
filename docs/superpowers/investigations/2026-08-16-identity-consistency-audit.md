@@ -1,5 +1,14 @@
 # Identity consistency audit — how the same thing gets named more than one way
 
+> **STATUS: this is the EVIDENCE. The approved design is
+> [`../specs/2026-08-16-corpus-identity-consistency-design.md`](../specs/2026-08-16-corpus-identity-consistency-design.md)**
+> (I1–I14, seven phases, approved 2026-08-16). No implementation plan
+> exists yet and nothing is built. Where this document's closing "The fix"
+> section and the spec differ, **the spec wins** — two decisions moved
+> after Destin reviewed it: split agency ids are merged in the DATA rather
+> than grouped at read time, and the 22 contradictory doc_ids are RENAMED
+> with the eval re-pointed rather than read around.
+
 **Measured 2026-08-16** against the live corpus: 7,566 documents,
 83,016 budget chunks, the 157-agency catalog. Prompted by the title
 inconsistency in

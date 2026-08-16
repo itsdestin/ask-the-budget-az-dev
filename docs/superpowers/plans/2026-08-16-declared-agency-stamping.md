@@ -4,6 +4,19 @@
 any code is written. Written 2026-08-16, off the back of the upload page's
 new agency picker (merge `039c3ad`).
 
+> **⚠ SEQUENCING — do this AFTER the identity spec's Phase 2, not before.**
+> [`../specs/2026-08-16-corpus-identity-consistency-design.md`](../specs/2026-08-16-corpus-identity-consistency-design.md)
+> repairs three poisoned catalog names and re-stamps the corpus, and it
+> touches the same `chunking/entity_stamper.py` ladder this document adds a
+> Rule 0 to. Two facts below are also refined by it: the stamper's weakness
+> is not only the 103-of-157 alias gap but **three canonical names that are
+> table-of-contents rows**, one of which mis-stamps 721 documents; and
+> Decision 2's "office ids cannot be rendered" is sharpened by the identity
+> spec's I9, which merges duplicate ids in the data. **Nothing here is
+> withdrawn** — declared-agency stamping is still the right fix for the
+> ~78 incoming budget requests, and its "do it before they land" argument
+> is unchanged.
+
 ## The one sentence
 
 The upload page now asks which agency a budget request belongs to, and

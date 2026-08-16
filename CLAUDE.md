@@ -63,6 +63,10 @@ This is the part of the workflow that most often goes wrong, and every rule here
 
 **A guard that fires twice is telling you the design is wrong.** Two exemptions is the signal to measure the policy, not to add a third exemption.
 
+**A per-item check cannot find a cross-item defect.** ~2,900 passing tests missed 721 documents stamped as an agency they never mention and 218 carrying a *different* agency's name, because every check asks "is this item correct?" and nothing asks "do these items agree with each other?". When a field has more than one producer, the test that matters compares the producers' output — not each producer against its own spec. See `docs/superpowers/investigations/2026-08-16-identity-consistency-audit.md`.
+
+**A "fixed" claim in STATUS.md is a hypothesis until you check the data.** *"Catalog debris removed"* was true of the query resolver and false of the corpus, which is where the damage was; *"six documents would mint a different id"* was 22 once every year was checked instead of two. Both had shipped, both read as closed, and both were wrong in the direction that costs you a day.
+
 ## Testing conventions
 
 **Mechanism goes in pytest; quality goes in the eval.** Pipeline tests monkeypatch the two Lance search legs and inject fake embedder/reranker (see `tests/test_pipeline.py`) — nothing in `tests/` may open a real LanceDB directory or load ONNX weights, or the suite stops running on a fresh clone. "Does this query return the right documents?" is a *quality* question and belongs in `eval/`, measured against a baseline.
