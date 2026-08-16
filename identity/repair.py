@@ -55,6 +55,42 @@ Five defects, each with its own guard below:
    document's FINAL title (composed if it's changing, current if it is
    not) — see the collision pass below.
 
+CORRECTION 2, 2026-08-16 (same day, after the corpus was re-labelled and a
+fresh dry run — with the corpus's own labels now good, 962 -> 171 wrong
+labels — proposed 733 changes). Two more defects, see "Label-selection fix"
+in `.superpowers/sdd/task-7-report.md` for the full record:
+
+6. **A minority label could outrank the document's own URL slug.**
+   `jlbc-baseline-fy2021-nav` carries `agency:nav` ("Navigable Stream
+   Adjudication Commission, Arizona") on 7 of its passages and `agency:wat`
+   ("Water Resources, Department of") on 1 — and its own filename,
+   `nav.pdf`, names `agency:nav` directly. The old multi-stamp rule trusted
+   whichever single stamp `mentions_agency` happened to corroborate, and a
+   generic 2-word agency name corroborates far more easily (1 word needed)
+   than a specific 3-word one (2 of 3 needed) — so a single incidental
+   "water" mention beat the document's own majority label and its own
+   filename. `_resolve_trusted_stamp` now ranks candidates BEFORE asking
+   `mentions_agency` anything: the document's own URL slug first (it is
+   JLBC's own filename for the page — the strongest witness in the whole
+   system), then the label carried by strictly more passages than every
+   other, and only skips (never guesses) when neither breaks the tie. The
+   textual-corroboration guard still runs, unchanged, downstream in
+   `resolve_supplier_disagreement` — it decides whether the resolved stamp
+   may override a SUPPLIED title, which is a different question from which
+   stamp is the document's own.
+7. **A legacy `JLBC FY<year> — ` prefix was kept and a house-format suffix
+   added on top of it**, doubling the year and leaving the original stray
+   bullet/dot-leaders in place: `jlbc-baseline-fy2027-s1` composed to
+   `"JLBC FY2027 — • Statement of General Fund Revenues and Expenditures —
+   FY 2027 Baseline"`. ~375 documents carry this older format, which puts
+   the book/year FIRST — `_parse_title` only recognises the house format
+   (book/year LAST), so on a legacy title the whole string, prefix
+   included, became the "name" being composed from. `_strip_legacy_prefix`
+   removes the prefix before the name reaches `validate_name` at all; the
+   bullet-strip and dot-leader-strip it already does then apply exactly as
+   they do for any other name — verified directly, not assumed, before
+   this fix shipped.
+
 `repair_titles()` is a pure function of its arguments plus, when
 `dry_run=False`, two file writes: the repaired `documents.json` (via
 `store.config.write_documents_sidecar`, which already does tmp+`os.replace`)
@@ -118,6 +154,26 @@ _DOC_ID_TAIL = re.compile(r"fy\d{4}-(.+)$")
 # title IS the section name, and a stamp is never evidence for what to call
 # it — matched against `_doc_id_slug(doc_id)`.
 _SECTION_DOC_SLUG = re.compile(r"^(?:[a-z]{1,3}\d+|\d+)$")
+
+# The older title format (~375 live documents) puts the book/year FIRST —
+# "JLBC FY2025 — African-American Affairs, Arizona Commission of" — where
+# the house format (`_TITLE_FORMAT` above) puts it LAST. `_parse_title`
+# only recognises the house shape, so on a legacy title the whole string
+# became the "name" `compose_title` was asked to build from, doubling the
+# year and keeping the stray glyph. Stripped BEFORE `validate_name` ever
+# sees the name — `validate_name`'s own leading-glyph and trailing-decoration
+# strips then apply to what is left, unchanged (verified 2026-08-16 against
+# `jlbc-baseline-fy2027-s1`'s real title, not assumed): "JLBC FY2027 — •
+# Statement of General Fund Revenues and Expenditures ......... S-1"
+# -> (this strip) -> "• Statement of General Fund Revenues and
+# Expenditures ......... S-1" -> (validate_name) -> "Statement of General
+# Fund Revenues and Expenditures". Matches en dash, em dash and a plain
+# hyphen — JLBC's own scrape used all three across different editions.
+_LEGACY_PREFIX = re.compile(r"^JLBC\s+FY\d{4}\s*[—–-]\s*", re.IGNORECASE)
+
+
+def _strip_legacy_prefix(name: str) -> str:
+    return _LEGACY_PREFIX.sub("", name, count=1).strip()
 
 
 @dataclass
@@ -204,9 +260,8 @@ def _stamp_genuinely_disagrees(
 def _resolve_trusted_stamp(
     *,
     doc_id: str,
-    stamps: list[str],
-    agency_names: Mapping[str, str],
-    doc_text: str,
+    stamp_counts: Mapping[str, int],
+    slug_agency_id: str | None,
     is_section_doc: bool,
 ) -> tuple[str | None, str | None]:
     """Which stamp, if any, may be composed into a title.
@@ -219,24 +274,48 @@ def _resolve_trusted_stamp(
     skip rather than a partial fix; an untrustworthy stamp here is the same
     shape of problem.
 
-    Fix #4, two rules, both measured 2026-08-16 against the first dry run:
+    `stamp_counts` is `{agency_id: passages that stamp carries}` — not a
+    plain set. Fix #4 (module docstring), rule 1: a SECTION document — its
+    slug is a printed page code (`bd2`, `s12`) or a bare page number
+    (`531`), matched by `_SECTION_DOC_SLUG` — is a chapter of a book, not
+    an agency. Its own title IS the section name. Never compose a name from
+    a stamp for one, full stop. A table chunk inside a section like this
+    often lists dozens of agencies, and the original pass took `stamps[0]`
+    — an arbitrary pick, since stamps arrive from a `set` with no
+    meaningful order — and renamed 706 such documents to whichever agency
+    happened to come out first.
 
-    1. A SECTION document — its slug is a printed page code (`bd2`, `s12`)
-       or a bare page number (`531`), matched by `_SECTION_DOC_SLUG` — is a
-       chapter of a book, not an agency. Its own title IS the section name.
-       Never compose a name from a stamp for one, full stop. A table chunk
-       inside a section like this often lists dozens of agencies, and the
-       original pass took `stamps[0]` — an arbitrary pick, since stamps
-       arrive from a `set` with no meaningful order — and renamed 706 such
-       documents to whichever agency happened to come out first.
-    2. More generally, an arbitrary pick from a MULTI-agency stamp list is
-       never evidence, section document or not. A stamp is trusted only
-       when it is the single stamp on the document, or when it is the ONE
-       stamp — among several — that the document's own text corroborates.
-       Two or more corroborated stamps, or none, means no stamp on this
-       document is more trustworthy than any other, so none is used.
+    For an ordinary (non-section) document carrying MORE THAN ONE stamp,
+    fix #6 (CORRECTION 2 in the module docstring) replaced the old
+    "the one stamp `mentions_agency` corroborates" rule with two STRONGER,
+    ranked witnesses — because that rule itself mis-ranked a real document:
+    `jlbc-baseline-fy2021-nav` carries `agency:nav` on 7 passages and
+    `agency:wat` on 1, and `mentions_agency`'s corroboration is not a fair
+    contest between them — `agency:wat`'s 2-word name ("Water Resources,
+    Department of") needs only 1 word present where `agency:nav`'s 3-word
+    name needs 2, so one incidental "water" mention outweighs the
+    document's own 7-passage majority AND its own filename (`nav.pdf`).
+
+    1. The document's own URL slug is the strongest witness in the whole
+       system — it is JLBC's own filename for the page. If it resolves to
+       an agency that is among this document's stamps, that is the
+       document's agency, full stop.
+    2. Otherwise, the stamp carried by STRICTLY more passages than every
+       other wins — more of the document's own pages agree with it than
+       with anything else.
+    3. Otherwise (a genuine tie, or no slug evidence at all) there is no
+       unambiguous agency. An arbitrary pick from a tie is exactly the
+       mistake that previously renamed 706 summary chapters to whichever
+       agency happened to be listed first in a table — skip, don't guess.
+
+    The textual-corroboration guard (`mentions_agency`, spec I1's "two
+    witnesses") is deliberately NOT consulted here. It still runs,
+    unchanged, downstream in `resolve_supplier_disagreement` — it decides
+    whether the stamp this function resolves may override a document's
+    SUPPLIED title, which is a different question from which stamp is the
+    document's own.
     """
-    if not stamps:
+    if not stamp_counts:
         return None, None
     if is_section_doc:
         return None, (
@@ -245,19 +324,18 @@ def _resolve_trusted_stamp(
             "own title is already the section name, and an agency stamp is "
             "never evidence for what to rename a section to"
         )
-    if len(stamps) == 1:
-        return stamps[0], None
-    corroborated = [
-        s for s in stamps
-        if agency_names.get(s) and mentions_agency(doc_text, agency_names[s])
-    ]
-    if len(corroborated) == 1:
-        return corroborated[0], None
+    if len(stamp_counts) == 1:
+        return next(iter(stamp_counts)), None
+    if slug_agency_id is not None and slug_agency_id in stamp_counts:
+        return slug_agency_id, None
+    ranked = sorted(stamp_counts.items(), key=lambda kv: kv[1], reverse=True)
+    if ranked[0][1] > ranked[1][1]:
+        return ranked[0][0], None
     return None, (
-        f"document carries {len(stamps)} agency stamps and "
-        f"{len(corroborated)} of them are corroborated by its own text — "
-        "an arbitrary pick from a multi-agency stamp list is never "
-        "evidence, so no stamp was trusted here"
+        f"document carries {len(stamp_counts)} agency stamps, none named by "
+        "the document's own URL slug, and no stamp is carried by strictly "
+        "more passages than every other — an arbitrary pick from a tie is "
+        "never evidence, so no stamp was trusted here"
     )
 
 
@@ -267,9 +345,19 @@ def repair_titles(
     chunks_by_doc: Mapping[str, Iterable[str]],
     agency_names: Mapping[str, str],
     stamps_by_doc: Mapping[str, Iterable[str]],
+    agency_slugs: Mapping[str, str] | None = None,
     dry_run: bool = True,
 ) -> RepairResult:
     result = RepairResult()
+    # Fix #6 (module docstring, CORRECTION 2): `slug_from_jlbc_url` is a
+    # pure regex function — no catalog, no DB, no model — so importing it
+    # here costs nothing and stays consistent with this file's existing
+    # rule that `chunking`/`store` imports live inside functions, never at
+    # module scope (see the module docstring on `_load_live_inputs`).
+    # `agency_slugs` defaults to None so every pre-existing caller/test that
+    # doesn't pass it keeps today's behaviour exactly (no slug evidence
+    # available means step 1 of `_resolve_trusted_stamp` never fires).
+    from chunking.entity_stamper import slug_from_jlbc_url
     # Deep copy: `documents` is caller-owned (the CLI hands it a fresh
     # `load_documents()` result, but tests reuse one module-level fixture
     # dict across several test functions) — mutating it in place would leak
@@ -309,14 +397,31 @@ def repair_titles(
     for doc_id, meta in budget_documents.items():
         title = str((meta or {}).get("title") or "").strip()
         fiscal_year = (meta or {}).get("fiscal_year")
+        # One entry per PASSAGE that carries this stamp (not deduplicated) —
+        # `_load_live_inputs` below appends once per row, so a `Counter`
+        # over this list is the passage count fix #6 ranks candidates on.
+        # Pre-existing tests pass each stamp once, which just means every
+        # count is 1 — a tie, exactly as it read before this fix.
         stamps = list(stamps_by_doc.get(doc_id, ()) or ())
         doc_text = " \n".join(chunks_by_doc.get(doc_id, ()) or ())
+
+        # Fix #6: the document's own filename, when it resolves to one of
+        # this document's own stamps, is the strongest witness available —
+        # see `_resolve_trusted_stamp`.
+        slug = slug_from_jlbc_url(str((meta or {}).get("source_url") or ""))
+        slug_agency_id = (
+            agency_slugs.get(slug) if (slug and agency_slugs) else None
+        )
 
         parsed = _parse_title(title)
         if parsed:
             supplied_name, book = parsed
         else:
             supplied_name, book = title, None
+        # Fix #7: strip a legacy "JLBC FY<year> — " prefix BEFORE the name
+        # ever reaches `validate_name` — see `_strip_legacy_prefix`. A no-op
+        # on every house-format or already-clean title.
+        supplied_name = _strip_legacy_prefix(supplied_name)
         if book is None:
             book = _book_from_doc_id(doc_id)
 
@@ -375,8 +480,8 @@ def repair_titles(
         # this pass — see `_resolve_trusted_stamp`.
         is_section_doc = bool(_SECTION_DOC_SLUG.match(_doc_id_slug(doc_id)))
         stamp_id, veto_reason = _resolve_trusted_stamp(
-            doc_id=doc_id, stamps=stamps, agency_names=agency_names,
-            doc_text=doc_text, is_section_doc=is_section_doc,
+            doc_id=doc_id, stamp_counts=Counter(stamps),
+            slug_agency_id=slug_agency_id, is_section_doc=is_section_doc,
         )
         if veto_reason is not None:
             result.skipped.append({
@@ -535,22 +640,39 @@ def _load_live_inputs():
     thing the CLAUDE.md test rule protects is exactly this: `tests/` may
     never end up loading a real database just because it imported this file.
     """
-    from chunking.agency_catalog import id_to_name
+    from chunking.agency_catalog import id_to_name, load_agency_catalog
     from store.chunk_store import ChunkStore
     from store.documents import load_documents
 
     documents = load_documents()
     chunk_store = ChunkStore()
     chunks_by_doc: dict[str, list[str]] = defaultdict(list)
-    stamps_by_doc: dict[str, set[str]] = defaultdict(set)
+    # Fix #6: one entry per PASSAGE that carries the stamp, not a
+    # deduplicated set — `repair_titles` needs passage COUNTS to rank
+    # multiple stamps on one document, which a set structurally cannot
+    # carry. Deduplicated per ROW first (`dict.fromkeys`) so a single
+    # passage naming the same agency twice in its own
+    # `agency_canonical_ids` still counts as ONE passage, not two.
+    stamps_by_doc: dict[str, list[str]] = defaultdict(list)
     for row in chunk_store.scan(
         "budget_chunks", ["doc_id", "text", "agency_canonical_ids"]
     ):
         chunks_by_doc[row["doc_id"]].append(row.get("text") or "")
-        for agency_id in row.get("agency_canonical_ids") or []:
-            stamps_by_doc[row["doc_id"]].add(agency_id)
+        for agency_id in dict.fromkeys(row.get("agency_canonical_ids") or []):
+            stamps_by_doc[row["doc_id"]].append(agency_id)
 
-    return documents, chunks_by_doc, id_to_name(), stamps_by_doc
+    # Fix #6: the same slug->id mapping `EntityStamper` builds internally
+    # (`chunking/entity_stamper.py`, `_load_catalog`), reconstructed here
+    # from the same public loader rather than by instantiating the full
+    # stamper — building one also loads the alias map, the fund catalog and
+    # the fuzzy-match indexes, none of which a title repair needs.
+    agency_slugs = {
+        entry.slug.lower(): canonical_id
+        for canonical_id, entry in load_agency_catalog().items()
+        if entry.slug
+    }
+
+    return documents, chunks_by_doc, id_to_name(), stamps_by_doc, agency_slugs
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -577,11 +699,13 @@ def main(argv: list[str] | None = None) -> int:
     if args.data_dir is not None:
         os.environ["JLBC_DATA_DIR"] = str(args.data_dir)
 
-    documents, chunks_by_doc, agency_names, stamps_by_doc = _load_live_inputs()
+    documents, chunks_by_doc, agency_names, stamps_by_doc, agency_slugs = (
+        _load_live_inputs()
+    )
     result = repair_titles(
         documents=documents, chunks_by_doc=chunks_by_doc,
         agency_names=agency_names, stamps_by_doc=stamps_by_doc,
-        dry_run=not args.apply,
+        agency_slugs=agency_slugs, dry_run=not args.apply,
     )
 
     if args.out is not None:
