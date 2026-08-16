@@ -124,6 +124,56 @@ Funds Summary by Agency"). Full write-up: `.superpowers/sdd/task-7-report.md`,
    reason — a corrupt name is a question with an answer, not something to
    guess at. See the "Fix #8" branch inside `repair_titles`'s main loop.
 
+CORRECTION 4, 2026-08-16 (found by opening the running app and searching
+"barbers" after Corrections 1-3 were applied to the live corpus). Applying
+the repair renamed SEVEN whole-book documents to an agency that is not
+theirs: three Governor's Executive Budgets and four AGAO Annual Financial
+Reports. Example: `governor-governors-budget-fy2025` went from "FY 2025
+State Agency Detail — Arizona Executive Budget" to "Transportation,
+Department of — FY 2025 Executive Budget". Full write-up:
+`.superpowers/sdd/task-7-report.md`, "Whole-book documents renamed to an
+agency".
+
+9. **A document covering EVERY agency in the state has no agency of its
+   own, and the section-slug test (fix #4) cannot see that.** The Governor's
+   Executive Budget and the AGAO Annual Financial Report are whole-book
+   documents — their passages carry roughly 100 different agency labels,
+   one per agency's own chapter — but their doc_ids (`governor-governors-
+   budget-fy2025`, `agao-afr-fy2024`) are ordinary slugs, not a printed page
+   code or a bare number, so `is_section_document` says no and
+   `_resolve_trusted_stamp`'s step 2 ("the stamp carried by strictly more
+   passages than every other wins") happily hands the title to whichever
+   agency's chapter happens to be a page or two longer than the runner-up.
+
+   The fix is NOT a statistical guard bolted onto the stamp logic — a first
+   pass tried that (a "dominance floor": veto any stamp that does not cover
+   at least half a document's passages) and it was the wrong layer. These
+   documents don't need a BETTER guess; they need never to be guessed at,
+   because their name is not a fact about their content at all.
+   `data/document-types.yaml` already DECLARES which document types are
+   one-per-publisher-per-year whole-book publications (`one_per_year: true`
+   — `afr`, `governors-budget`, plus `approps-report` / `baseline-book`,
+   which are redirect-only registry rows no real ingested document's
+   `doc_type` ever carries — `ingest/doc_types.py::is_one_per_year()` reads
+   the flag, defaulting an unrecognised type to False, the safe direction).
+   `ingest/lance_writer.py::build_title()` already computes their name FROM
+   THAT DECLARATION with no content inspection at all —
+   `build_title(publisher="governor", doc_type="governors-budget",
+   fiscal_year=2025, user_title="", agency_name=None)` returns
+   `"FY 2025 Executive Budget"` deterministically, every time, for every
+   FY2025 Executive Budget there will ever be. A document like this is
+   never "about" one agency, so no stamp on it — however dominant, however
+   corroborated — is ever evidence for its name; the only question worth
+   asking is "what type of document is this, and for what year", and the
+   registry already answers that. Naming these from `build_title` instead
+   of from any stamp also means this repair pass can never again disagree
+   with what a fresh ingest of the exact same file would call it — ONE
+   source of truth, not two that can drift apart. It also means a doc type
+   the office adds later is covered by flipping one flag in the registry,
+   not by editing this module. See the `is_one_per_year` branch at the very
+   top of `repair_titles`'s main loop, which returns before any stamp,
+   slug, or section logic ever runs for one of these four document types.
+
 `repair_titles()` is a pure function of its arguments plus, when
 `dry_run=False`, two file writes: the repaired `documents.json` (via
 `store.config.write_documents_sidecar`, which already does tmp+`os.replace`)
@@ -394,6 +444,14 @@ def repair_titles(
     # doesn't pass it keeps today's behaviour exactly (no slug evidence
     # available means step 1 of `_resolve_trusted_stamp` never fires).
     from chunking.entity_stamper import slug_from_jlbc_url
+    # Fix #9 (module docstring, CORRECTION 4): same reasoning as the
+    # `slug_from_jlbc_url` import above — `ingest.doc_types` is a pure YAML
+    # reader (no DB, no model) and `ingest.lance_writer.build_title` is a
+    # pure string function, but it transitively imports `store.chunk_store`
+    # / `store.documents`, so both stay inside this function rather than at
+    # module scope, matching this file's existing rule.
+    from ingest.doc_types import is_one_per_year
+    from ingest.lance_writer import build_title
     # Deep copy: `documents` is caller-owned (the CLI hands it a fresh
     # `load_documents()` result, but tests reuse one module-level fixture
     # dict across several test functions) — mutating it in place would leak
@@ -433,6 +491,53 @@ def repair_titles(
     for doc_id, meta in budget_documents.items():
         title = str((meta or {}).get("title") or "").strip()
         fiscal_year = (meta or {}).get("fiscal_year")
+        doc_type = (meta or {}).get("doc_type")
+
+        # Fix #9 (module docstring, CORRECTION 4): a ONE-PER-YEAR document
+        # type (`data/document-types.yaml`'s `one_per_year: true` —  `afr`,
+        # `governors-budget`) is a single whole-book publication covering
+        # every agency in the state. There is no agency stamp on it that
+        # could ever be evidence for its NAME — the document is not "about"
+        # one agency — so this branch returns BEFORE any of the stamp,
+        # slug, or section logic below ever runs for one of these. The name
+        # comes from `ingest.lance_writer.build_title`, the exact function a
+        # fresh ingest of this same file would call, so this pass can never
+        # again disagree with what ingest itself would produce. This is
+        # what stops the live defect that motivated this fix: a Governor's
+        # Executive Budget was renamed "Transportation, Department of — FY
+        # 2025 Executive Budget" because that agency's chapter happened to
+        # carry a few more passages than the next-largest chapter in a book
+        # that names roughly 100 agencies — a plurality, not evidence.
+        if is_one_per_year(doc_type):
+            if not isinstance(fiscal_year, int):
+                result.skipped.append({
+                    "doc_id": doc_id, "field": "title",
+                    "reason": (
+                        "no fiscal_year on record to compose a title with"
+                    ),
+                })
+                continue
+            correct_title = build_title(
+                publisher=str((meta or {}).get("publisher") or ""),
+                doc_type=doc_type, fiscal_year=fiscal_year,
+                user_title="", agency_name=None,
+            )
+            if correct_title == title:
+                continue  # already correct — nothing to change or explain
+            result.changes.append({
+                "doc_id": doc_id, "field": "title",
+                "before": title, "after": correct_title,
+                "reason": (
+                    f"doc_type {doc_type!r} is a one-per-year whole-book "
+                    "publication (data/document-types.yaml) — its name is "
+                    "determined by the type and fiscal year alone, exactly "
+                    "the way a fresh ingest computes it, and is never taken "
+                    "from an agency stamp on its passages"
+                ),
+            })
+            updated[doc_id]["title"] = correct_title
+            continue
+
         # One entry per PASSAGE that carries this stamp (not deduplicated) —
         # `_load_live_inputs` below appends once per row, so a `Counter`
         # over this list is the passage count fix #6 ranks candidates on.

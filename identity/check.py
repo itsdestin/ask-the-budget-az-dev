@@ -38,6 +38,11 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Iterable, Mapping
 
+# WHY the registry rather than a heuristic: `data/document-types.yaml`
+# already declares which types are one-per-year whole-book publications,
+# and a type the office registers later is covered by declaring it rather
+# than by editing this module.
+from ingest.doc_types import is_one_per_year
 from identity.validator import (
     distinctive_words,
     is_section_document,
@@ -166,9 +171,23 @@ def check_corpus(
         if is_section:
             report.section_documents += 1
 
+        # A whole-book publication does NOT wear the per-agency format, and
+        # counting it as a defect makes this metric unreachable. The four
+        # `one_per_year` document types -- Annual Financial Report,
+        # Executive Budget, Appropriations Report, Baseline Book -- are one
+        # per publisher per year, so their names are deterministic and are
+        # produced by `ingest.lance_writer.build_title`: "FY 2025 Executive
+        # Budget". There is no {Name} to put in front of the dash, because
+        # the book covers every agency in the state.
+        #
+        # Measured 2026-08-16: repairing those 8 documents to their correct
+        # names moved this metric 17 -> 25. The titles got better and the
+        # number got worse, which is the signature of a metric measuring the
+        # wrong population.
+        whole_book = is_one_per_year(str(meta.get("doc_type") or ""))
         if _SLUG_TITLE_RE.match(title):
             report.uninformative_titles += 1
-        elif title and not _FORMAT_RE.search(title):
+        elif title and not whole_book and not _FORMAT_RE.search(title):
             report.titles_outside_format += 1
             report.findings.append(
                 {"doc_id": doc_id, "kind": "title-format", "title": title}

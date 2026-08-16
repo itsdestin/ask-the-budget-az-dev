@@ -557,6 +557,176 @@ def test_fix7_a_legacy_book_year_first_title_is_not_double_dated():
     )
 
 
+def test_fix9_a_whole_book_documents_title_never_comes_from_an_agency_stamp():
+    """Regression for the live defect (CORRECTION 4, module docstring):
+    applying Corrections 1-3 to the real corpus renamed
+    `governor-governors-budget-fy2025` from "FY 2025 State Agency Detail —
+    Arizona Executive Budget" to "Transportation, Department of — FY 2025
+    Executive Budget" — an agency name on a document that covers every
+    agency in the state, because that agency's chapter happened to carry a
+    few more passages than any other single agency's chapter in a ~100-way
+    split. `governors-budget` is registered `one_per_year: true` in
+    `data/document-types.yaml`, so the fix must never even LOOK at the
+    stamps below — the title comes from `ingest.lance_writer.build_title`,
+    the exact function a fresh ingest of this file would call."""
+    docs = {
+        "governor-governors-budget-fy2025": {
+            "title": "FY 2025 State Agency Detail — Arizona Executive Budget",
+            "fiscal_year": 2025,
+            "doc_type": "governors-budget",
+            "publisher": "governor",
+            "source_url": "https://azgovernor.gov/fy2025-state-agency-detail.pdf",
+        },
+    }
+    # ~100 agencies, each with its own chapter — Transportation's chapter is
+    # the largest but is nowhere near a majority of the book, the real shape
+    # that let a plurality-wins rule hand the title to the wrong agency.
+    agency_names = {f"agency:a{i:03d}": f"Agency Number {i}" for i in range(98)}
+    agency_names["agency:adot"] = "Transportation, Department of"
+    stamps = ["agency:adot"] * 8
+    chunks = ["Department of Transportation road funding detail"] * 8
+    for i in range(98):
+        stamps.append(f"agency:a{i:03d}")
+        chunks.append(f"Agency Number {i} General Fund appropriation detail")
+    result = repair_titles(
+        documents=docs, chunks_by_doc={"governor-governors-budget-fy2025": chunks},
+        agency_names=agency_names,
+        stamps_by_doc={"governor-governors-budget-fy2025": stamps},
+        dry_run=True,
+    )
+    assert result.skipped == []
+    changed = {c["doc_id"]: c for c in result.changes}
+    assert set(changed) == {"governor-governors-budget-fy2025"}
+    after = changed["governor-governors-budget-fy2025"]["after"]
+    assert after == "FY 2025 Executive Budget"
+    assert "Transportation" not in after
+
+
+def test_fix9_the_afr_case_is_repaired_to_the_registry_name_not_left_wrong():
+    """Regression for the actual damage found live: `agao-afr-fy2024` was
+    renamed to "ADOA - Automation Projects Fund — FY 2024 Annual Financial
+    Report" by the pre-fix code. `afr` is `one_per_year: true`, so the
+    repair must now overwrite that wrong title with the deterministic
+    registry name — never leave a whole-book document titled after an
+    agency, and never guess a different agency name either."""
+    docs = {
+        "agao-afr-fy2024": {
+            "title": (
+                "ADOA - Automation Projects Fund — FY 2024 Annual "
+                "Financial Report"
+            ),
+            "fiscal_year": 2024,
+            "doc_type": "afr",
+            "publisher": "agao",
+            "source_url": "https://gao.az.gov/sites/default/files/afr-fy24.pdf",
+        },
+    }
+    chunks = [
+        "ADOA - Automation Projects Fund   Balance: 1,204,000",
+    ] * 3 + [
+        "General Fund revenue detail by agency" for _ in range(97)
+    ]
+    stamps = ["agency:adoa-apf"] * 3 + ["agency:other"] * 2
+    result = repair_titles(
+        documents=docs, chunks_by_doc={"agao-afr-fy2024": chunks},
+        agency_names={
+            "agency:adoa-apf": "ADOA - Automation Projects Fund",
+            "agency:other": "Some Other Agency",
+        },
+        stamps_by_doc={"agao-afr-fy2024": stamps},
+        dry_run=True,
+    )
+    assert result.skipped == []
+    changed = {c["doc_id"]: c for c in result.changes}
+    assert set(changed) == {"agao-afr-fy2024"}
+    after = changed["agao-afr-fy2024"]["after"]
+    assert after == "FY 2024 Annual Financial Report"
+    assert "ADOA" not in after
+    assert "Automation" not in after
+
+
+def test_fix9_a_genuine_per_agency_page_is_still_renamed():
+    """The case the whole pass exists for must not regress: an ORDINARY
+    per-agency book page (`approps-per-agency`, `one_per_year: false` — many
+    of these exist in one book/year) is unaffected by fix #9's registry
+    check and still gets its agency name from the corroborated stamp, same
+    as before this fix. Real doc_id, real wrong title, same as the very
+    first test in this file — repeated here with an explicit `doc_type` to
+    prove the one-per-year gate correctly says "no" for this type rather
+    than accidentally swallowing every JLBC document."""
+    docs = {
+        "jlbc-approps-fy2005-bar": {
+            "title": "Agriculture, Arizona Department of — FY 2005 Appropriations Report",
+            "fiscal_year": 2005,
+            "doc_type": "approps-per-agency",
+            "publisher": "jlbc",
+            "source_url": "https://www.azjlbc.gov/05app/bar.pdf",
+        },
+    }
+    chunks = {
+        "jlbc-approps-fy2005-bar": ["Board of Barbers  Executive Director: M. Herrera"],
+    }
+    result = repair_titles(
+        documents=docs, chunks_by_doc=chunks,
+        agency_names={"agency:bar": "Board of Barbers"},
+        stamps_by_doc={"jlbc-approps-fy2005-bar": ["agency:bar"]},
+        dry_run=True,
+    )
+    changed = {c["doc_id"]: c for c in result.changes}
+    assert set(changed) == {"jlbc-approps-fy2005-bar"}
+    assert changed["jlbc-approps-fy2005-bar"]["after"] == (
+        "Board of Barbers — FY 2005 Appropriations Report"
+    )
+
+
+def test_fix9_a_book_section_with_a_registered_doc_type_still_gets_format_only_repair():
+    """A JLBC summary chapter carries a real section `doc_type`
+    (`bd-pdf`/`bh-pdf`/`s-pdf`/… — all `one_per_year: false` in the
+    registry), not one of the four whole-book types, so fix #9 must not
+    touch it: it still runs the existing section path (fix #8) — no agency
+    name from its table of agencies, format-only cleanup of its own
+    existing name. This is the same shape as
+    `test_fix4_a_book_section_is_never_named_from_its_table_of_agencies`,
+    repeated with an explicit `doc_type` set so a future change to the
+    one-per-year gate can't silently start swallowing section documents
+    too."""
+    docs = {
+        "jlbc-baseline-fy2020-531": {
+            "title": "LONG TERM GENERAL FUND ESTIMATES",
+            "fiscal_year": 2020,
+            "doc_type": "s-pdf",
+            "publisher": "jlbc",
+            "source_url": "https://www.azjlbc.gov/20baseline/531.pdf",
+        },
+    }
+    chunks = {
+        "jlbc-baseline-fy2020-531": [
+            "Governor, Office of the   12,345,000\n"
+            "Agriculture, Arizona Department of   6,789,000\n"
+            "Board of Barbers   150,000",
+        ],
+    }
+    stamps = {
+        "jlbc-baseline-fy2020-531": ["agency:gov", "agency:agr", "agency:bar"],
+    }
+    result = repair_titles(
+        documents=docs, chunks_by_doc=chunks,
+        agency_names={
+            "agency:gov": "Governor, Office of the",
+            "agency:agr": "Agriculture, Arizona Department of",
+            "agency:bar": "Board of Barbers",
+        },
+        stamps_by_doc=stamps, dry_run=True,
+    )
+    assert result.skipped == []
+    changed = {c["doc_id"]: c for c in result.changes}
+    assert set(changed) == {"jlbc-baseline-fy2020-531"}
+    after = changed["jlbc-baseline-fy2020-531"]["after"]
+    assert after == "LONG TERM GENERAL FUND ESTIMATES — FY 2020 Baseline"
+    for agency in ("Governor", "Agriculture", "Barbers"):
+        assert agency not in after
+
+
 def test_writing_is_atomic_and_only_touches_the_title(tmp_path, monkeypatch):
     monkeypatch.setenv("JLBC_DATA_DIR", str(tmp_path))
     from store.documents import reset_documents_cache
