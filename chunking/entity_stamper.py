@@ -35,12 +35,25 @@ _DEFAULT_FUND_CATALOG = Path(__file__).resolve().parent.parent / "data" / "fund-
 # Mirror of `_TOPIC_SLUGS` in ingest/discovery.py.
 _TOPIC_SLUGS = frozenset({"capitaloutlay", "agencyindex", "crr", "tobacco", "csbg"})
 
-# JLBC URL slug-extraction patterns. Two host families per url_conventions.py:
+# JLBC URL slug-extraction patterns. Four azjlbc.gov directory conventions
+# plus the legacy azleg.gov host:
 #   https://www.azjlbc.gov/<YY>baseline/<slug>.pdf       (FY23+ baselines)
 #   https://www.azjlbc.gov/<YY>ar/<slug>.pdf             (FY23+ approps)
+#   https://www.azjlbc.gov/<YY>app/<slug>.pdf            (older approps)
+#   https://www.azjlbc.gov/<YY>book<N>/<slug>.pdf        (older baselines)
 #   http://www.azleg.gov/jlbc/<YY>AR/<slug>.pdf          (FY15-FY22 approps)
+#
+# WHY these four directories and not two (2026-08-16): JLBC published agency
+# pages under `/NNapp/` (~1,294 live documents) and `/NNbookN/` (~141) as
+# well as the `/NNbaseline/` and `/NNar/` this rule started with. Those
+# ~1,448 documents therefore reached the fuzzy text rung with no slug at
+# all -- and ~965 of them have a slug that IS a catalogued agency. That is
+# the strongest witness in the ladder, discarded, on exactly the FY2005-2012
+# era where the mis-labels concentrate. `store/book_family.py::_BOOK_DIR`
+# already knew all four; the two modules disagreed and this is the one that
+# assigned labels. Do not narrow this back to two directories.
 _JLBC_URL_RE = re.compile(
-    r"^https?://(?:www\.azjlbc\.gov/(?:\d{2}baseline|\d{2}ar)/"
+    r"^https?://(?:www\.azjlbc\.gov/\d{2}(?:baseline|book\d*|ar|app)/"
     r"|www\.azleg\.gov/jlbc/\d{2}AR/)([a-z0-9_\-]+)\.pdf$",
     re.IGNORECASE,
 )

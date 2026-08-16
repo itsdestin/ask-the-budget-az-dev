@@ -55,6 +55,35 @@ def test_slug_from_jlbc_url_returns_none_for_topic_files():
     assert slug_from_jlbc_url("https://www.azjlbc.gov/27baseline/capitaloutlay.pdf") is None
 
 
+def test_the_url_rung_knows_every_directory_jlbc_actually_published_under():
+    """~1,448 JLBC-hosted documents got no slug at all, and ~965 of them have
+    a slug that IS a catalogued agency -- the strongest witness in the ladder,
+    discarded, on exactly the FY2005-2012 era where the mis-labels concentrate.
+
+    `store/book_family.py:55` in this same repo already parses
+    `\\d{2}(baseline|book\\d*|ar|app)`. The two modules disagreed about JLBC's
+    own URL vocabulary; this is the module that mattered."""
+    assert slug_from_jlbc_url("https://www.azjlbc.gov/05app/bar.pdf") == "bar"
+    assert slug_from_jlbc_url("https://www.azjlbc.gov/12book1/des.pdf") == "des"
+    # the two that already worked must keep working. NOTE: the brief's own
+    # example used "crr.pdf" here, but "crr" is a cross-cutting topic slug
+    # (see _TOPIC_SLUGS) that slug_from_jlbc_url deliberately returns None
+    # for -- asserting it resolves to "crr" would pin the wrong behaviour.
+    # Swapped for "axs", the same per-agency slug the pre-existing baseline
+    # test already uses.
+    assert slug_from_jlbc_url("https://www.azjlbc.gov/26baseline/axs.pdf") == "axs"
+    assert slug_from_jlbc_url("https://www.azjlbc.gov/26ar/ost.pdf") == "ost"
+    assert slug_from_jlbc_url("http://www.azleg.gov/jlbc/15AR/adc.pdf") == "adc"
+
+
+def test_a_url_that_is_not_a_jlbc_book_still_yields_no_slug():
+    """The rung must stay a JLBC-book rule. A governor's-budget or AFR URL
+    has no agency slug in it and must not be coerced into one."""
+    assert slug_from_jlbc_url("https://azgovernor.gov/fy2027-detail.pdf") is None
+    assert slug_from_jlbc_url("https://gao.az.gov/afr-fy2024.pdf") is None
+    assert slug_from_jlbc_url("https://www.azjlbc.gov/notes/hb2172.pdf") is None
+
+
 # --- Direct slug match ------------------------------------------------------
 
 
