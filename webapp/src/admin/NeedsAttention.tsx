@@ -1,5 +1,6 @@
 import { useState } from "react";
 import * as api from "../api";
+import { extractorLabel, pct } from "./extractionDisplay";
 
 // Documents the extraction ladder could not save (Plan B Task 7 / spec T8).
 //
@@ -21,31 +22,9 @@ import * as api from "../api";
 // than one rebuilt here, so there is exactly one place in the whole system
 // that has to get that wording right.
 
-// Display names for the ladder's rungs (`ingest/ladder.py::_PDF_LADDER`).
-// A name this map doesn't know (a rung added later) falls back to the raw
-// slug rather than disappearing — an unfamiliar name beats a blank one.
-const EXTRACTOR_LABELS: Record<string, string> = {
-  opendataloader: "OpenDataLoader",
-  mineru: "MinerU",
-  "mineru-ocr": "MinerU (OCR)",
-};
-
-function extractorLabel(name: string): string {
-  return EXTRACTOR_LABELS[name] ?? name;
-}
-
-/** A coverage ratio as a percentage. Never capped at 100% — a ratio above
- *  1.0 is a real, normal reading for some document shapes (healthy AFRs
- *  score 278–286%, because their text layer undercounts against the
- *  denominator; see ingest/coverage.py) and rendering it honestly is the
- *  whole point of showing a raw measurement instead of a verdict. `null`
- *  (a rung that crashed, or whose source coverage could not be measured)
- *  reads as "not measured" — never as 0%, which would claim a worse
- *  reading than was actually taken. */
-function pct(value: number | null | undefined): string {
-  if (value === null || value === undefined) return "not measured";
-  return `${Math.round(value * 100)}%`;
-}
+// `extractorLabel` and `pct` moved to ./extractionDisplay when the third
+// extraction panel arrived — they were byte-identical copies here and in
+// ExtractionChanges, and a third would have made drift inevitable.
 
 export function NeedsAttention({
   documents,

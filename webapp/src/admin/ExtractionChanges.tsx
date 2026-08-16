@@ -1,4 +1,5 @@
 import * as api from "../api";
+import { extractorLabel, pct } from "./extractionDisplay";
 
 // Documents where the extraction ladder kept a LATER method than the one
 // it started with (spec X7).
@@ -12,23 +13,10 @@ import * as api from "../api";
 // numbers detects one failure shape and certifies nothing. A passage
 // scoring a perfect 0% has been observed carrying a units label wrong by a
 // factor of 1,000.
-const EXTRACTOR_LABELS: Record<string, string> = {
-  opendataloader: "OpenDataLoader",
-  mineru: "MinerU",
-  "mineru-ocr": "MinerU (OCR)",
-};
-
-function extractorLabel(name: string): string {
-  return EXTRACTOR_LABELS[name] ?? name;
-}
-
-/** A ratio as a percentage. Never capped at 100% — a coverage above 1.0 is
- *  a real, normal reading (healthy AFRs score 278–286%). `null`/undefined
- *  reads as "not measured", never as 0%. */
-function pct(value: number | null | undefined): string {
-  if (value === null || value === undefined) return "not measured";
-  return `${Math.round(value * 100)}%`;
-}
+//
+// `extractorLabel` and `pct` moved to ./extractionDisplay when the third
+// extraction panel arrived — they were byte-identical copies here and in
+// NeedsAttention, and a third would have made drift inevitable.
 
 export function ExtractionChanges({
   documents,

@@ -154,6 +154,7 @@ function mockAll(over: {
   notices?: api.Notice[];
   attention?: api.AttentionDocument[];
   swapped?: api.SwappedDocument[];
+  degraded?: api.DegradedDocument[];
   me?: Partial<api.Me>;
   aliases?: api.AdminAliases;
   guidance?: api.AdminGuidance;
@@ -172,6 +173,7 @@ function mockAll(over: {
   vi.spyOn(api, "adminAttention").mockResolvedValue({
     documents: over.attention ?? [],
     swapped: over.swapped ?? [],
+    degraded: over.degraded ?? [],
   });
   vi.spyOn(api, "aiStatus").mockResolvedValue(AI_STATUS);
   // The three E6 panels fetch for themselves rather than riding the page's
@@ -765,6 +767,115 @@ describe("extraction method changed", () => {
     // second -- a stale union would still pass a "contains the new title"
     // assertion.
     expect(screen.queryByText("JLBC Baseline FY2026 — AHCCCS")).toBeNull();
+  });
+});
+
+describe("in search, but badly read", () => {
+  // The page reads `a.degraded` off the SAME `adminAttention()` response as
+  // `a.documents` and threads it into `setDegraded`. `PoorlyRead.test.tsx`
+  // covers the component in isolation against a fake prop, so it cannot see
+  // whether the page ever calls `setDegraded` at all — which is exactly the
+  // gap that shipped an entirely unwired panel once before on this page.
+
+  function bad(over: Partial<api.DegradedDocument> = {}): api.DegradedDocument {
+    return {
+      job_id: "job-bad-1",
+      title: "FY 2026 budget bill",
+      kept: "docx",
+      unlabelled: 0.44,
+      coverage: 0.88,
+      ...over,
+    };
+  }
+
+  it("renders a document that was saved despite reading badly", async () => {
+    mockAll({ degraded: [bad()] });
+    await renderAdmin();
+
+    expect(screen.getByTestId("adm-poorly-read")).toHaveTextContent(
+      "FY 2026 budget bill",
+    );
+  });
+
+  it("renders nothing when no document is over the ceiling", async () => {
+    mockAll({ degraded: [] });
+    await renderAdmin();
+
+    expect(screen.queryByTestId("adm-poorly-read")).toBeNull();
+  });
+
+  it("refreshes the list after a retry, not just on initial load", async () => {
+    // `setDegraded(a.degraded ?? [])` has TWO call sites — the initial-load
+    // effect and `attentionAction`'s post-retry refetch. Two DIFFERENT
+    // non-empty lists, so deleting either site fails: a before/after
+    // content change is the only way through.
+    const heldBack: api.AttentionDocument = {
+      job_id: "job-afr24",
+      title: "AGAO Annual Financial Report FY2024",
+      message: "Held out of search — only 2% of this document's text "
+        + "produced any content, after 3 extraction methods were tried.",
+      best_coverage: 0.02,
+      attempts: [{ extractor: "opendataloader", coverage: 0.02 }],
+    };
+    mockAll({ attention: [heldBack] });
+    vi.spyOn(api, "retryJob").mockResolvedValue({
+      job: {
+        job_id: "job-afr24", doc_id: "d", title: "t", corpus: "budget",
+        state: "queued", pct: 0, stage_detail: "", error: null,
+        machine: "m", user: "u", created_at: "", updated_at: "",
+      },
+    });
+    const attentionSpy = vi.spyOn(api, "adminAttention");
+    attentionSpy.mockResolvedValueOnce({
+      documents: [heldBack], swapped: [], degraded: [bad()],
+    });
+    await renderAdmin();
+
+    expect(screen.getByTestId("adm-poorly-read")).toHaveTextContent(
+      "FY 2026 budget bill",
+    );
+
+    attentionSpy.mockResolvedValueOnce({
+      documents: [], swapped: [],
+      degraded: [bad({ job_id: "job-bad-2", title: "FY 2019 Annual Financial Report" })],
+    });
+
+    fireEvent.click(within(screen.getByTestId("admin-attention")).getByRole(
+      "button", { name: "Try again" },
+    ));
+
+    await waitFor(() =>
+      expect(screen.getByTestId("adm-poorly-read")).toHaveTextContent(
+        "FY 2019 Annual Financial Report",
+      ),
+    );
+    // The first response's document must be GONE, not merely joined by the
+    // second — a stale union would still pass a "contains the new title"
+    // assertion.
+    expect(screen.queryByText("FY 2026 budget bill")).toBeNull();
+  });
+
+  it("sits inside Needs attention, below the held-out panel", async () => {
+    // Placement is a decision, not a detail: a document held OUT of search
+    // is content an analyst cannot reach at all, which outranks one they
+    // can reach but should not fully trust. And it belongs in the alert
+    // group rather than beside the swap RECORD below it.
+    const heldBack: api.AttentionDocument = {
+      job_id: "job-afr24",
+      title: "AGAO Annual Financial Report FY2024",
+      message: "Held out of search — only 2% of this document's text "
+        + "produced any content, after 3 extraction methods were tried.",
+      best_coverage: 0.02,
+      attempts: [{ extractor: "opendataloader", coverage: 0.02 }],
+    };
+    mockAll({ attention: [heldBack], degraded: [bad()] });
+    await renderAdmin();
+
+    const held = screen.getByTestId("admin-attention");
+    const poor = screen.getByTestId("adm-poorly-read");
+    expect(
+      held.compareDocumentPosition(poor) & Node.DOCUMENT_POSITION_FOLLOWING,
+    ).toBeTruthy();
   });
 });
 
