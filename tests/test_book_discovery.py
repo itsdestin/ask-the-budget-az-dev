@@ -244,6 +244,92 @@ def test_an_unconfirmable_rolling_index_says_so_instead_of_guessing(monkeypatch)
     assert any("could not be confirmed" in n for n in plan.notes)
 
 
+# --- title composition on the probe ladder (spec I6) -------------------------
+#
+# The brief for this task assumed helper names `_document_from_agency_entry`
+# / `_document_from_section_entry` taking `_AgencyEntry` / `_SectionEntry`
+# constructors — those constructor names do not exist in this module. The
+# real per-agency entry type is `AgencyIndexEntry` (slug, name, url,
+# page_in_doc) and the real section entry types are `ApproprsTOCEntry` /
+# `BaselineLinksEntry` (title, filename, url, section_kind, page_in_doc),
+# both from `ingest.discovery`. The `_agency` / `_section` fixture builders
+# already defined below (used throughout this file) build exactly those, so
+# these tests reuse them rather than inventing new ones.
+
+
+def test_the_probe_ladder_composes_the_house_title_format():
+    """The 2026-08-16 defect (spec I6).
+
+    The CATALOG path hands over an already-composed website title, which is
+    why it produced 4,950 good names. The PROBE ladder handed over
+    `entry.name` raw, which is why the same downstream code produced 131
+    titles with no suffix — "Medical Board, Arizona" instead of "Medical
+    Board, Arizona — FY 2027 Appropriations Report". The names were never
+    the problem; the composition was.
+    """
+    from ingest.book_discovery import _document_from_agency_entry
+
+    doc = _document_from_agency_entry(
+        _agency("med", "Medical Board, Arizona",
+                "https://www.azjlbc.gov/27ar/med.pdf"),
+        fiscal_year=2027,
+        family="approps",
+    )
+    assert doc.title == "Medical Board, Arizona — FY 2027 Appropriations Report"
+
+
+def test_a_bulleted_section_name_keeps_its_words():
+    """A summary section has no agency, so quarantining it would leave the
+    composer with nothing. The bullet and the printed page code are
+    decorations and strip deterministically (identity.compose /
+    identity.validator)."""
+    from ingest.book_discovery import _document_from_section_entry
+
+    doc = _document_from_section_entry(
+        _section("372.pdf", "• Summary of Rent Charges ...............372",
+                  "https://www.azjlbc.gov/27ar/372.pdf", "detailed-list"),
+        fiscal_year=2027,
+        family="approps",
+    )
+    assert doc.title == "Summary of Rent Charges — FY 2027 Appropriations Report"
+
+
+def test_an_uncomposable_name_falls_back_instead_of_blocking_the_document():
+    """I4: a bad name must never block the document. The FY2024 AFR sat
+    invisible for weeks because a HELD document looks exactly like a
+    missing one — a name problem does not make the content wrong. A name
+    with inner dot leaders (CORRUPTION, not decoration, per
+    identity.validator) cannot be composed; the raw scraped name is kept
+    and an advisory note is recorded rather than the document being
+    dropped."""
+    from ingest.book_discovery import _document_from_agency_entry
+
+    notes: list[str] = []
+    doc = _document_from_agency_entry(
+        _agency("xyz", "Arizona ... 342 Board of",
+                "https://www.azjlbc.gov/27ar/xyz.pdf"),
+        fiscal_year=2027,
+        family="approps",
+        notes=notes,
+    )
+    assert doc.title == "Arizona ... 342 Board of"
+    assert notes
+
+
+def test_notes_is_optional_and_a_fallback_does_not_crash_without_it():
+    """`notes=None` (the default) must be a safe no-op — a caller that
+    doesn't want advisory tracking should not be forced to supply a list."""
+    from ingest.book_discovery import _document_from_agency_entry
+
+    doc = _document_from_agency_entry(
+        _agency("xyz", "Arizona ... 342 Board of",
+                "https://www.azjlbc.gov/27ar/xyz.pdf"),
+        fiscal_year=2027,
+        family="approps",
+    )
+    assert doc.title == "Arizona ... 342 Board of"
+
+
 # --- fixtures ---------------------------------------------------------------
 
 

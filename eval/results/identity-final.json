@@ -1,0 +1,1061 @@
+{
+ "title_names_wrong_agency": 4,
+ "documents_never_mentioning_stamp": 171,
+ "validator_failures": 13,
+ "titles_outside_format": 17,
+ "duplicate_titles": 0,
+ "doc_id_family_contradicts_url": 0,
+ "uninformative_titles": 59,
+ "distinct_agency_slugs": 147,
+ "catalogued_agencies": 157,
+ "fiscal_notes_excluded": 2104,
+ "section_documents": 652,
+ "findings": [
+  {
+   "doc_id": "jlbc-approps-fy2005-doass",
+   "kind": "stamp-unmentioned",
+   "agency": "agency:doa"
+  },
+  {
+   "doc_id": "jlbc-approps-fy2005-dotadmn",
+   "kind": "stamp-unmentioned",
+   "agency": "agency:dot"
+  },
+  {
+   "doc_id": "jlbc-approps-fy2005-dotaero",
+   "kind": "stamp-unmentioned",
+   "agency": "agency:dot"
+  },
+  {
+   "doc_id": "jlbc-approps-fy2006-dotadmn",
+   "kind": "stamp-unmentioned",
+   "agency": "agency:dot"
+  },
+  {
+   "doc_id": "jlbc-approps-fy2006-riskmgmt",
+   "kind": "title-wrong-agency",
+   "title": "Summary of Risk Management Charges \u2014 FY 2006 Appropriations Report",
+   "stamped": "agency:djc",
+   "titled": "agency:for"
+  },
+  {
+   "doc_id": "jlbc-approps-fy2007-doass",
+   "kind": "stamp-unmentioned",
+   "agency": "agency:doa"
+  },
+  {
+   "doc_id": "jlbc-approps-fy2007-dotadmn",
+   "kind": "stamp-unmentioned",
+   "agency": "agency:dot"
+  },
+  {
+   "doc_id": "jlbc-approps-fy2007-dotaero",
+   "kind": "stamp-unmentioned",
+   "agency": "agency:dot"
+  },
+  {
+   "doc_id": "jlbc-approps-fy2008-doafm",
+   "kind": "stamp-unmentioned",
+   "agency": "agency:doa"
+  },
+  {
+   "doc_id": "jlbc-approps-fy2008-doaits",
+   "kind": "stamp-unmentioned",
+   "agency": "agency:doa"
+  },
+  {
+   "doc_id": "jlbc-approps-fy2008-doarisk",
+   "kind": "stamp-unmentioned",
+   "agency": "agency:doa"
+  },
+  {
+   "doc_id": "jlbc-approps-fy2008-dotadmn",
+   "kind": "stamp-unmentioned",
+   "agency": "agency:dot"
+  },
+  {
+   "doc_id": "jlbc-approps-fy2008-dotaero",
+   "kind": "stamp-unmentioned",
+   "agency": "agency:dot"
+  },
+  {
+   "doc_id": "jlbc-approps-fy2008-hea",
+   "kind": "stamp-unmentioned",
+   "agency": "agency:hea"
+  },
+  {
+   "doc_id": "jlbc-approps-fy2008-oah",
+   "kind": "stamp-unmentioned",
+   "agency": "agency:oah"
+  },
+  {
+   "doc_id": "jlbc-approps-fy2009-doafm",
+   "kind": "stamp-unmentioned",
+   "agency": "agency:doa"
+  },
+  {
+   "doc_id": "jlbc-approps-fy2009-doafs",
+   "kind": "stamp-unmentioned",
+   "agency": "agency:doa"
+  },
+  {
+   "doc_id": "jlbc-approps-fy2009-doahum",
+   "kind": "stamp-unmentioned",
+   "agency": "agency:doa"
+  },
+  {
+   "doc_id": "jlbc-approps-fy2009-doarisk",
+   "kind": "stamp-unmentioned",
+   "agency": "agency:doa"
+  },
+  {
+   "doc_id": "jlbc-approps-fy2009-doass",
+   "kind": "stamp-unmentioned",
+   "agency": "agency:doa"
+  },
+  {
+   "doc_id": "jlbc-approps-fy2009-dotadmn",
+   "kind": "stamp-unmentioned",
+   "agency": "agency:dot"
+  },
+  {
+   "doc_id": "jlbc-approps-fy2009-dotaero",
+   "kind": "stamp-unmentioned",
+   "agency": "agency:dot"
+  },
+  {
+   "doc_id": "jlbc-approps-fy2009-leghou",
+   "kind": "stamp-unmentioned",
+   "agency": "agency:leghou"
+  },
+  {
+   "doc_id": "jlbc-approps-fy2009-legjlbc",
+   "kind": "stamp-unmentioned",
+   "agency": "agency:legjlbc"
+  },
+  {
+   "doc_id": "jlbc-approps-fy2009-nav",
+   "kind": "stamp-unmentioned",
+   "agency": "agency:nav"
+  },
+  {
+   "doc_id": "jlbc-approps-fy2009-osp",
+   "kind": "stamp-unmentioned",
+   "agency": "agency:osp"
+  },
+  {
+   "doc_id": "jlbc-approps-fy2010-adeadmn",
+   "kind": "stamp-unmentioned",
+   "agency": "agency:ade"
+  },
+  {
+   "doc_id": "jlbc-approps-fy2010-desadmn",
+   "kind": "stamp-unmentioned",
+   "agency": "agency:des"
+  },
+  {
+   "doc_id": "jlbc-approps-fy2010-desbene",
+   "kind": "stamp-unmentioned",
+   "agency": "agency:des"
+  },
+  {
+   "doc_id": "jlbc-approps-fy2010-descs",
+   "kind": "stamp-unmentioned",
+   "agency": "agency:des"
+  },
+  {
+   "doc_id": "jlbc-approps-fy2010-doafs",
+   "kind": "stamp-unmentioned",
+   "agency": "agency:doa"
+  },
+  {
+   "doc_id": "jlbc-approps-fy2010-doahum",
+   "kind": "stamp-unmentioned",
+   "agency": "agency:doa"
+  },
+  {
+   "doc_id": "jlbc-approps-fy2010-doarisk",
+   "kind": "stamp-unmentioned",
+   "agency": "agency:doa"
+  },
+  {
+   "doc_id": "jlbc-approps-fy2010-doass",
+   "kind": "stamp-unmentioned",
+   "agency": "agency:doa"
+  },
+  {
+   "doc_id": "jlbc-approps-fy2010-dotadmn",
+   "kind": "stamp-unmentioned",
+   "agency": "agency:dot"
+  },
+  {
+   "doc_id": "jlbc-approps-fy2010-dotaero",
+   "kind": "stamp-unmentioned",
+   "agency": "agency:dot"
+  },
+  {
+   "doc_id": "jlbc-approps-fy2010-osp",
+   "kind": "stamp-unmentioned",
+   "agency": "agency:osp"
+  },
+  {
+   "doc_id": "jlbc-approps-fy2011-adeadmn",
+   "kind": "stamp-unmentioned",
+   "agency": "agency:ade"
+  },
+  {
+   "doc_id": "jlbc-approps-fy2011-bh20",
+   "kind": "stamp-unmentioned",
+   "agency": "agency:for"
+  },
+  {
+   "doc_id": "jlbc-approps-fy2011-desbene",
+   "kind": "stamp-unmentioned",
+   "agency": "agency:des"
+  },
+  {
+   "doc_id": "jlbc-approps-fy2011-descs",
+   "kind": "stamp-unmentioned",
+   "agency": "agency:des"
+  },
+  {
+   "doc_id": "jlbc-approps-fy2011-for",
+   "kind": "stamp-unmentioned",
+   "agency": "agency:for"
+  },
+  {
+   "doc_id": "jlbc-approps-fy2011-hea",
+   "kind": "stamp-unmentioned",
+   "agency": "agency:hea"
+  },
+  {
+   "doc_id": "jlbc-approps-fy2012-282",
+   "kind": "stamp-unmentioned",
+   "agency": "agency:for"
+  },
+  {
+   "doc_id": "jlbc-approps-fy2012-apc",
+   "kind": "stamp-unmentioned",
+   "agency": "agency:apc"
+  },
+  {
+   "doc_id": "jlbc-approps-fy2012-for",
+   "kind": "stamp-unmentioned",
+   "agency": "agency:for"
+  },
+  {
+   "doc_id": "jlbc-approps-fy2012-oeo",
+   "kind": "stamp-unmentioned",
+   "agency": "agency:oeo"
+  },
+  {
+   "doc_id": "jlbc-approps-fy2012-unibor",
+   "kind": "stamp-unmentioned",
+   "agency": "agency:unibor"
+  },
+  {
+   "doc_id": "jlbc-approps-fy2012-wei",
+   "kind": "stamp-unmentioned",
+   "agency": "agency:wei"
+  },
+  {
+   "doc_id": "jlbc-approps-fy2013-apc",
+   "kind": "stamp-unmentioned",
+   "agency": "agency:apc"
+  },
+  {
+   "doc_id": "jlbc-approps-fy2013-bd10",
+   "kind": "stamp-unmentioned",
+   "agency": "agency:for"
+  },
+  {
+   "doc_id": "jlbc-approps-fy2013-cia",
+   "kind": "stamp-unmentioned",
+   "agency": "agency:cia"
+  },
+  {
+   "doc_id": "jlbc-approps-fy2013-djc",
+   "kind": "stamp-unmentioned",
+   "agency": "agency:djc"
+  },
+  {
+   "doc_id": "jlbc-approps-fy2013-for",
+   "kind": "stamp-unmentioned",
+   "agency": "agency:for"
+  },
+  {
+   "doc_id": "jlbc-approps-fy2013-psp",
+   "kind": "stamp-unmentioned",
+   "agency": "agency:psp"
+  },
+  {
+   "doc_id": "jlbc-approps-fy2013-unibor",
+   "kind": "stamp-unmentioned",
+   "agency": "agency:unibor"
+  },
+  {
+   "doc_id": "jlbc-approps-fy2014-298",
+   "kind": "stamp-unmentioned",
+   "agency": "agency:for"
+  },
+  {
+   "doc_id": "jlbc-approps-fy2014-323",
+   "kind": "stamp-unmentioned",
+   "agency": "agency:for"
+  },
+  {
+   "doc_id": "jlbc-approps-fy2014-apc",
+   "kind": "stamp-unmentioned",
+   "agency": "agency:apc"
+  },
+  {
+   "doc_id": "jlbc-approps-fy2014-bd10",
+   "kind": "stamp-unmentioned",
+   "agency": "agency:for"
+  },
+  {
+   "doc_id": "jlbc-approps-fy2014-exe",
+   "kind": "stamp-unmentioned",
+   "agency": "agency:exe"
+  },
+  {
+   "doc_id": "jlbc-approps-fy2014-ins",
+   "kind": "stamp-unmentioned",
+   "agency": "agency:ins"
+  },
+  {
+   "doc_id": "jlbc-approps-fy2014-nav",
+   "kind": "stamp-unmentioned",
+   "agency": "agency:nav"
+  },
+  {
+   "doc_id": "jlbc-approps-fy2014-psp",
+   "kind": "stamp-unmentioned",
+   "agency": "agency:psp"
+  },
+  {
+   "doc_id": "jlbc-approps-fy2014-unibor",
+   "kind": "stamp-unmentioned",
+   "agency": "agency:unibor"
+  },
+  {
+   "doc_id": "jlbc-approps-fy2015-344",
+   "kind": "stamp-unmentioned",
+   "agency": "agency:for"
+  },
+  {
+   "doc_id": "jlbc-approps-fy2015-apc",
+   "kind": "stamp-unmentioned",
+   "agency": "agency:apc"
+  },
+  {
+   "doc_id": "jlbc-approps-fy2015-bd11",
+   "kind": "stamp-unmentioned",
+   "agency": "agency:for"
+  },
+  {
+   "doc_id": "jlbc-approps-fy2015-unibor",
+   "kind": "stamp-unmentioned",
+   "agency": "agency:unibor"
+  },
+  {
+   "doc_id": "jlbc-approps-fy2015-wei",
+   "kind": "stamp-unmentioned",
+   "agency": "agency:wei"
+  },
+  {
+   "doc_id": "jlbc-approps-fy2016-387",
+   "kind": "stamp-unmentioned",
+   "agency": "agency:for"
+  },
+  {
+   "doc_id": "jlbc-approps-fy2016-apc",
+   "kind": "stamp-unmentioned",
+   "agency": "agency:apc"
+  },
+  {
+   "doc_id": "jlbc-approps-fy2016-bd10",
+   "kind": "stamp-unmentioned",
+   "agency": "agency:for"
+  },
+  {
+   "doc_id": "jlbc-approps-fy2016-exe",
+   "kind": "stamp-unmentioned",
+   "agency": "agency:exe"
+  },
+  {
+   "doc_id": "jlbc-approps-fy2016-legleg",
+   "kind": "stamp-unmentioned",
+   "agency": "agency:legleg"
+  },
+  {
+   "doc_id": "jlbc-approps-fy2016-legleg",
+   "kind": "title-wrong-agency",
+   "title": "Legislative Council \u2014 FY 2016 Appropriations Report",
+   "stamped": "agency:legomb",
+   "titled": "agency:legjlbc"
+  },
+  {
+   "doc_id": "jlbc-approps-fy2016-oeo",
+   "kind": "stamp-unmentioned",
+   "agency": "agency:oeo"
+  },
+  {
+   "doc_id": "jlbc-approps-fy2016-psp",
+   "kind": "stamp-unmentioned",
+   "agency": "agency:psp"
+  },
+  {
+   "doc_id": "jlbc-approps-fy2017-exe",
+   "kind": "stamp-unmentioned",
+   "agency": "agency:exe"
+  },
+  {
+   "doc_id": "jlbc-approps-fy2017-ins",
+   "kind": "stamp-unmentioned",
+   "agency": "agency:ins"
+  },
+  {
+   "doc_id": "jlbc-approps-fy2017-oeo",
+   "kind": "stamp-unmentioned",
+   "agency": "agency:oeo"
+  },
+  {
+   "doc_id": "jlbc-approps-fy2017-psp",
+   "kind": "stamp-unmentioned",
+   "agency": "agency:psp"
+  },
+  {
+   "doc_id": "jlbc-approps-fy2018-aam",
+   "kind": "stamp-unmentioned",
+   "agency": "agency:aam"
+  },
+  {
+   "doc_id": "jlbc-approps-fy2018-exe",
+   "kind": "stamp-unmentioned",
+   "agency": "agency:exe"
+  },
+  {
+   "doc_id": "jlbc-approps-fy2018-legleg",
+   "kind": "stamp-unmentioned",
+   "agency": "agency:legleg"
+  },
+  {
+   "doc_id": "jlbc-approps-fy2018-legleg",
+   "kind": "title-wrong-agency",
+   "title": "Legislative Council \u2014 FY 2018 Appropriations Report",
+   "stamped": "agency:legomb",
+   "titled": "agency:legjlbc"
+  },
+  {
+   "doc_id": "jlbc-approps-fy2018-otr",
+   "kind": "stamp-unmentioned",
+   "agency": "agency:otr"
+  },
+  {
+   "doc_id": "jlbc-approps-fy2018-psp",
+   "kind": "stamp-unmentioned",
+   "agency": "agency:psp"
+  },
+  {
+   "doc_id": "jlbc-approps-fy2019-exe",
+   "kind": "stamp-unmentioned",
+   "agency": "agency:exe"
+  },
+  {
+   "doc_id": "jlbc-approps-fy2019-otr",
+   "kind": "stamp-unmentioned",
+   "agency": "agency:otr"
+  },
+  {
+   "doc_id": "jlbc-approps-fy2019-psp",
+   "kind": "stamp-unmentioned",
+   "agency": "agency:psp"
+  },
+  {
+   "doc_id": "jlbc-approps-fy2019-tax",
+   "kind": "stamp-unmentioned",
+   "agency": "agency:tax"
+  },
+  {
+   "doc_id": "jlbc-approps-fy2019-unibor",
+   "kind": "stamp-unmentioned",
+   "agency": "agency:unibor"
+  },
+  {
+   "doc_id": "jlbc-approps-fy2020-apc",
+   "kind": "stamp-unmentioned",
+   "agency": "agency:apc"
+  },
+  {
+   "doc_id": "jlbc-approps-fy2020-hea",
+   "kind": "stamp-unmentioned",
+   "agency": "agency:hea"
+  },
+  {
+   "doc_id": "jlbc-approps-fy2020-oeo",
+   "kind": "stamp-unmentioned",
+   "agency": "agency:oeo"
+  },
+  {
+   "doc_id": "jlbc-approps-fy2020-otr",
+   "kind": "stamp-unmentioned",
+   "agency": "agency:otr"
+  },
+  {
+   "doc_id": "jlbc-approps-fy2021-aam",
+   "kind": "stamp-unmentioned",
+   "agency": "agency:aam"
+  },
+  {
+   "doc_id": "jlbc-approps-fy2021-apc",
+   "kind": "stamp-unmentioned",
+   "agency": "agency:apc"
+  },
+  {
+   "doc_id": "jlbc-approps-fy2021-ind",
+   "kind": "stamp-unmentioned",
+   "agency": "agency:ind"
+  },
+  {
+   "doc_id": "jlbc-approps-fy2021-oeo",
+   "kind": "stamp-unmentioned",
+   "agency": "agency:oeo"
+  },
+  {
+   "doc_id": "jlbc-approps-fy2021-otr",
+   "kind": "stamp-unmentioned",
+   "agency": "agency:otr"
+  },
+  {
+   "doc_id": "jlbc-approps-fy2022-apc",
+   "kind": "stamp-unmentioned",
+   "agency": "agency:apc"
+  },
+  {
+   "doc_id": "jlbc-approps-fy2022-oeo",
+   "kind": "stamp-unmentioned",
+   "agency": "agency:oeo"
+  },
+  {
+   "doc_id": "jlbc-approps-fy2022-otr",
+   "kind": "stamp-unmentioned",
+   "agency": "agency:otr"
+  },
+  {
+   "doc_id": "jlbc-approps-fy2023-aam",
+   "kind": "stamp-unmentioned",
+   "agency": "agency:aam"
+  },
+  {
+   "doc_id": "jlbc-approps-fy2023-apc",
+   "kind": "stamp-unmentioned",
+   "agency": "agency:apc"
+  },
+  {
+   "doc_id": "jlbc-approps-fy2023-equ",
+   "kind": "stamp-unmentioned",
+   "agency": "agency:equ"
+  },
+  {
+   "doc_id": "jlbc-approps-fy2023-gov",
+   "kind": "stamp-unmentioned",
+   "agency": "agency:gov"
+  },
+  {
+   "doc_id": "jlbc-approps-fy2023-oeo",
+   "kind": "stamp-unmentioned",
+   "agency": "agency:oeo"
+  },
+  {
+   "doc_id": "jlbc-approps-fy2023-otr",
+   "kind": "stamp-unmentioned",
+   "agency": "agency:otr"
+  },
+  {
+   "doc_id": "jlbc-approps-fy2024-azh",
+   "kind": "stamp-unmentioned",
+   "agency": "agency:azh"
+  },
+  {
+   "doc_id": "jlbc-approps-fy2024-equ",
+   "kind": "stamp-unmentioned",
+   "agency": "agency:equ"
+  },
+  {
+   "doc_id": "jlbc-approps-fy2024-oeo",
+   "kind": "stamp-unmentioned",
+   "agency": "agency:oeo"
+  },
+  {
+   "doc_id": "jlbc-approps-fy2024-otr",
+   "kind": "stamp-unmentioned",
+   "agency": "agency:otr"
+  },
+  {
+   "doc_id": "jlbc-approps-fy2025-aam",
+   "kind": "stamp-unmentioned",
+   "agency": "agency:aam"
+  },
+  {
+   "doc_id": "jlbc-approps-fy2025-equ",
+   "kind": "stamp-unmentioned",
+   "agency": "agency:equ"
+  },
+  {
+   "doc_id": "jlbc-approps-fy2025-hea",
+   "kind": "stamp-unmentioned",
+   "agency": "agency:hea"
+  },
+  {
+   "doc_id": "jlbc-approps-fy2025-leghou",
+   "kind": "stamp-unmentioned",
+   "agency": "agency:leghou"
+  },
+  {
+   "doc_id": "jlbc-approps-fy2025-legleg",
+   "kind": "stamp-unmentioned",
+   "agency": "agency:legleg"
+  },
+  {
+   "doc_id": "jlbc-approps-fy2025-legsen",
+   "kind": "stamp-unmentioned",
+   "agency": "agency:legsen"
+  },
+  {
+   "doc_id": "jlbc-approps-fy2025-nav",
+   "kind": "stamp-unmentioned",
+   "agency": "agency:nav"
+  },
+  {
+   "doc_id": "jlbc-approps-fy2025-nci",
+   "kind": "title-format",
+   "title": "JLBC FY2025 \u2014 Nursing Care Institution Administrators and Assisted Living   338  Facility Managers, Board of Examiners of ...................."
+  },
+  {
+   "doc_id": "jlbc-approps-fy2025-nci",
+   "kind": "invalid-name",
+   "title": "JLBC FY2025 \u2014 Nursing Care Institution Administrators and Assisted Living   338  Facility Managers, Board of Examiners of ....................",
+   "reason": "contains an embedded page number"
+  },
+  {
+   "doc_id": "jlbc-approps-fy2025-oeo",
+   "kind": "stamp-unmentioned",
+   "agency": "agency:oeo"
+  },
+  {
+   "doc_id": "jlbc-approps-fy2025-ost",
+   "kind": "title-format",
+   "title": "JLBC FY2025 \u2014 Osteopathic Examiners in Medicine and Surgery, Arizona ...   342  Board of........................................................................"
+  },
+  {
+   "doc_id": "jlbc-approps-fy2025-ost",
+   "kind": "invalid-name",
+   "title": "JLBC FY2025 \u2014 Osteopathic Examiners in Medicine and Surgery, Arizona ...   342  Board of........................................................................",
+   "reason": "contains dot leaders"
+  },
+  {
+   "doc_id": "jlbc-approps-fy2025-otr",
+   "kind": "stamp-unmentioned",
+   "agency": "agency:otr"
+  },
+  {
+   "doc_id": "jlbc-approps-fy2025-paz",
+   "kind": "stamp-unmentioned",
+   "agency": "agency:paz"
+  },
+  {
+   "doc_id": "jlbc-approps-fy2025-tax",
+   "kind": "stamp-unmentioned",
+   "agency": "agency:tax"
+  },
+  {
+   "doc_id": "jlbc-approps-fy2026-449",
+   "kind": "title-format",
+   "title": "JLBC FY2026 \u2014 \u2022  Salary Adjustments for State Employees Since FY 2015 and Salary Adjustments for Elected Officials"
+  },
+  {
+   "doc_id": "jlbc-approps-fy2026-449",
+   "kind": "invalid-name",
+   "title": "JLBC FY2026 \u2014 \u2022  Salary Adjustments for State Employees Since FY 2015 and Salary Adjustments for Elected Officials",
+   "reason": "contains a doubled space"
+  },
+  {
+   "doc_id": "jlbc-approps-fy2026-471",
+   "kind": "title-format",
+   "title": "JLBC FY2026 \u2014 \u2022  FY 2026 General Fund Crosswalk of General Appropriation Act to Appropriations Report Totals"
+  },
+  {
+   "doc_id": "jlbc-approps-fy2026-471",
+   "kind": "invalid-name",
+   "title": "JLBC FY2026 \u2014 \u2022  FY 2026 General Fund Crosswalk of General Appropriation Act to Appropriations Report Totals",
+   "reason": "contains a doubled space"
+  },
+  {
+   "doc_id": "jlbc-approps-fy2026-crr",
+   "kind": "title-format",
+   "title": "JLBC FY2026 \u2014 CONSOLIDATED RETIREMENT REPORT"
+  },
+  {
+   "doc_id": "jlbc-approps-fy2026-gov",
+   "kind": "stamp-unmentioned",
+   "agency": "agency:gov"
+  },
+  {
+   "doc_id": "jlbc-approps-fy2026-legleg",
+   "kind": "stamp-unmentioned",
+   "agency": "agency:legleg"
+  },
+  {
+   "doc_id": "jlbc-approps-fy2026-nav",
+   "kind": "stamp-unmentioned",
+   "agency": "agency:nav"
+  },
+  {
+   "doc_id": "jlbc-approps-fy2026-oeo",
+   "kind": "stamp-unmentioned",
+   "agency": "agency:oeo"
+  },
+  {
+   "doc_id": "jlbc-approps-fy2026-otr",
+   "kind": "stamp-unmentioned",
+   "agency": "agency:otr"
+  },
+  {
+   "doc_id": "jlbc-approps-fy2027-425",
+   "kind": "title-format",
+   "title": "\u2022 Salary Adjustments for State Employees Since FY 2017 and Salary Adjustments for Elected Officials"
+  },
+  {
+   "doc_id": "jlbc-approps-fy2027-425",
+   "kind": "invalid-name",
+   "title": "\u2022 Salary Adjustments for State Employees Since FY 2017 and Salary Adjustments for Elected Officials",
+   "reason": "too long (> 90 chars)"
+  },
+  {
+   "doc_id": "jlbc-approps-fy2027-461",
+   "kind": "title-format",
+   "title": "\u2022 FY 2027 General Fund Crosswalk of General Appropriations Act to Appropriations Report Totals"
+  },
+  {
+   "doc_id": "jlbc-approps-fy2027-461",
+   "kind": "invalid-name",
+   "title": "\u2022 FY 2027 General Fund Crosswalk of General Appropriations Act to Appropriations Report Totals",
+   "reason": "too long (> 90 chars)"
+  },
+  {
+   "doc_id": "jlbc-approps-fy2027-463",
+   "kind": "title-format",
+   "title": "\u2022 FY 2027 Other Funds Crosswalk of General Appropriations Act to Appropriations Report Totals"
+  },
+  {
+   "doc_id": "jlbc-approps-fy2027-463",
+   "kind": "invalid-name",
+   "title": "\u2022 FY 2027 Other Funds Crosswalk of General Appropriations Act to Appropriations Report Totals",
+   "reason": "too long (> 90 chars)"
+  },
+  {
+   "doc_id": "jlbc-approps-fy2027-crr",
+   "kind": "title-format",
+   "title": "CONSOLIDATED RETIREMENT REPORT"
+  },
+  {
+   "doc_id": "jlbc-approps-fy2027-gov",
+   "kind": "stamp-unmentioned",
+   "agency": "agency:gov"
+  },
+  {
+   "doc_id": "jlbc-approps-fy2027-leghou",
+   "kind": "stamp-unmentioned",
+   "agency": "agency:leghou"
+  },
+  {
+   "doc_id": "jlbc-approps-fy2027-legjlbc",
+   "kind": "stamp-unmentioned",
+   "agency": "agency:legjlbc"
+  },
+  {
+   "doc_id": "jlbc-approps-fy2027-legleg",
+   "kind": "stamp-unmentioned",
+   "agency": "agency:legleg"
+  },
+  {
+   "doc_id": "jlbc-approps-fy2027-legsen",
+   "kind": "stamp-unmentioned",
+   "agency": "agency:legsen"
+  },
+  {
+   "doc_id": "jlbc-approps-fy2027-nci",
+   "kind": "title-format",
+   "title": "Nursing Care Institution Administrators and Assisted Living  Facility Managers, Board of Examiners of"
+  },
+  {
+   "doc_id": "jlbc-approps-fy2027-nci",
+   "kind": "invalid-name",
+   "title": "Nursing Care Institution Administrators and Assisted Living  Facility Managers, Board of Examiners of",
+   "reason": "contains a doubled space"
+  },
+  {
+   "doc_id": "jlbc-approps-fy2027-oeo",
+   "kind": "stamp-unmentioned",
+   "agency": "agency:oeo"
+  },
+  {
+   "doc_id": "jlbc-approps-fy2027-osp",
+   "kind": "stamp-unmentioned",
+   "agency": "agency:osp"
+  },
+  {
+   "doc_id": "jlbc-approps-fy2027-ost",
+   "kind": "title-format",
+   "title": "Osteopathic Examiners in Medicine and Surgery, Arizona  Board of"
+  },
+  {
+   "doc_id": "jlbc-approps-fy2027-ost",
+   "kind": "invalid-name",
+   "title": "Osteopathic Examiners in Medicine and Surgery, Arizona  Board of",
+   "reason": "contains a doubled space"
+  },
+  {
+   "doc_id": "jlbc-approps-fy2027-otr",
+   "kind": "stamp-unmentioned",
+   "agency": "agency:otr"
+  },
+  {
+   "doc_id": "jlbc-approps-fy2027-tax",
+   "kind": "stamp-unmentioned",
+   "agency": "agency:tax"
+  },
+  {
+   "doc_id": "jlbc-baseline-fy2012-oeo",
+   "kind": "stamp-unmentioned",
+   "agency": "agency:oeo"
+  },
+  {
+   "doc_id": "jlbc-baseline-fy2012-s7",
+   "kind": "stamp-unmentioned",
+   "agency": "agency:for"
+  },
+  {
+   "doc_id": "jlbc-baseline-fy2012-s9",
+   "kind": "stamp-unmentioned",
+   "agency": "agency:for"
+  },
+  {
+   "doc_id": "jlbc-baseline-fy2012-wei",
+   "kind": "stamp-unmentioned",
+   "agency": "agency:wei"
+  },
+  {
+   "doc_id": "jlbc-baseline-fy2013-wei",
+   "kind": "stamp-unmentioned",
+   "agency": "agency:wei"
+  },
+  {
+   "doc_id": "jlbc-baseline-fy2014-s11",
+   "kind": "stamp-unmentioned",
+   "agency": "agency:for"
+  },
+  {
+   "doc_id": "jlbc-baseline-fy2016-s11",
+   "kind": "stamp-unmentioned",
+   "agency": "agency:for"
+  },
+  {
+   "doc_id": "jlbc-baseline-fy2017-549",
+   "kind": "stamp-unmentioned",
+   "agency": "agency:for"
+  },
+  {
+   "doc_id": "jlbc-baseline-fy2017-legjlbc",
+   "kind": "stamp-unmentioned",
+   "agency": "agency:legjlbc"
+  },
+  {
+   "doc_id": "jlbc-baseline-fy2017-s13",
+   "kind": "stamp-unmentioned",
+   "agency": "agency:for"
+  },
+  {
+   "doc_id": "jlbc-baseline-fy2018-legjlbc",
+   "kind": "stamp-unmentioned",
+   "agency": "agency:legjlbc"
+  },
+  {
+   "doc_id": "jlbc-baseline-fy2018-otr",
+   "kind": "stamp-unmentioned",
+   "agency": "agency:otr"
+  },
+  {
+   "doc_id": "jlbc-baseline-fy2018-otr",
+   "kind": "title-wrong-agency",
+   "title": "Tribal Relations, Governor's Office on \u2014 FY 2018 Baseline",
+   "stamped": "agency:otr",
+   "titled": "agency:gov"
+  },
+  {
+   "doc_id": "jlbc-baseline-fy2019-judcoa",
+   "kind": "stamp-unmentioned",
+   "agency": "agency:judcoa"
+  },
+  {
+   "doc_id": "jlbc-baseline-fy2019-legjlbc",
+   "kind": "stamp-unmentioned",
+   "agency": "agency:legjlbc"
+  },
+  {
+   "doc_id": "jlbc-baseline-fy2019-legsen",
+   "kind": "stamp-unmentioned",
+   "agency": "agency:legsen"
+  },
+  {
+   "doc_id": "jlbc-baseline-fy2020-oeo",
+   "kind": "stamp-unmentioned",
+   "agency": "agency:oeo"
+  },
+  {
+   "doc_id": "jlbc-baseline-fy2021-nav",
+   "kind": "stamp-unmentioned",
+   "agency": "agency:nav"
+  },
+  {
+   "doc_id": "jlbc-baseline-fy2021-oeo",
+   "kind": "stamp-unmentioned",
+   "agency": "agency:oeo"
+  },
+  {
+   "doc_id": "jlbc-baseline-fy2024-nav",
+   "kind": "stamp-unmentioned",
+   "agency": "agency:nav"
+  },
+  {
+   "doc_id": "jlbc-baseline-fy2026-cet",
+   "kind": "stamp-unmentioned",
+   "agency": "agency:cet"
+  },
+  {
+   "doc_id": "jlbc-baseline-fy2026-equ",
+   "kind": "stamp-unmentioned",
+   "agency": "agency:equ"
+  },
+  {
+   "doc_id": "jlbc-baseline-fy2026-leghou",
+   "kind": "stamp-unmentioned",
+   "agency": "agency:leghou"
+  },
+  {
+   "doc_id": "jlbc-baseline-fy2026-legjlbc",
+   "kind": "stamp-unmentioned",
+   "agency": "agency:legjlbc"
+  },
+  {
+   "doc_id": "jlbc-baseline-fy2026-legsen",
+   "kind": "stamp-unmentioned",
+   "agency": "agency:legsen"
+  },
+  {
+   "doc_id": "jlbc-baseline-fy2026-nav",
+   "kind": "stamp-unmentioned",
+   "agency": "agency:nav"
+  },
+  {
+   "doc_id": "jlbc-baseline-fy2026-nci",
+   "kind": "title-format",
+   "title": "JLBC FY2026 \u2014 Nursing Care Institution Administrators and Assisted Living   338  Facility Managers, Board of Examiners of ...................."
+  },
+  {
+   "doc_id": "jlbc-baseline-fy2026-nci",
+   "kind": "invalid-name",
+   "title": "JLBC FY2026 \u2014 Nursing Care Institution Administrators and Assisted Living   338  Facility Managers, Board of Examiners of ....................",
+   "reason": "contains an embedded page number"
+  },
+  {
+   "doc_id": "jlbc-baseline-fy2026-osp",
+   "kind": "stamp-unmentioned",
+   "agency": "agency:osp"
+  },
+  {
+   "doc_id": "jlbc-baseline-fy2026-ost",
+   "kind": "title-format",
+   "title": "JLBC FY2026 \u2014 Osteopathic Examiners in Medicine and Surgery, Arizona ...   342  Board of........................................................................"
+  },
+  {
+   "doc_id": "jlbc-baseline-fy2026-ost",
+   "kind": "invalid-name",
+   "title": "JLBC FY2026 \u2014 Osteopathic Examiners in Medicine and Surgery, Arizona ...   342  Board of........................................................................",
+   "reason": "contains dot leaders"
+  },
+  {
+   "doc_id": "jlbc-baseline-fy2026-tax",
+   "kind": "stamp-unmentioned",
+   "agency": "agency:tax"
+  },
+  {
+   "doc_id": "jlbc-baseline-fy2027-crr",
+   "kind": "title-format",
+   "title": "JLBC FY2027 \u2014 CONSOLIDATED RETIREMENT REPORT"
+  },
+  {
+   "doc_id": "jlbc-baseline-fy2027-equ",
+   "kind": "stamp-unmentioned",
+   "agency": "agency:equ"
+  },
+  {
+   "doc_id": "jlbc-baseline-fy2027-leghou",
+   "kind": "stamp-unmentioned",
+   "agency": "agency:leghou"
+  },
+  {
+   "doc_id": "jlbc-baseline-fy2027-legjlbc",
+   "kind": "stamp-unmentioned",
+   "agency": "agency:legjlbc"
+  },
+  {
+   "doc_id": "jlbc-baseline-fy2027-legsen",
+   "kind": "stamp-unmentioned",
+   "agency": "agency:legsen"
+  },
+  {
+   "doc_id": "jlbc-baseline-fy2027-nav",
+   "kind": "stamp-unmentioned",
+   "agency": "agency:nav"
+  },
+  {
+   "doc_id": "jlbc-baseline-fy2027-nci",
+   "kind": "title-format",
+   "title": "JLBC FY2027 \u2014 Nursing Care Institution Administrators and Assisted Living   338  Facility Managers, Board of Examiners of ...................."
+  },
+  {
+   "doc_id": "jlbc-baseline-fy2027-nci",
+   "kind": "invalid-name",
+   "title": "JLBC FY2027 \u2014 Nursing Care Institution Administrators and Assisted Living   338  Facility Managers, Board of Examiners of ....................",
+   "reason": "contains an embedded page number"
+  },
+  {
+   "doc_id": "jlbc-baseline-fy2027-osp",
+   "kind": "stamp-unmentioned",
+   "agency": "agency:osp"
+  },
+  {
+   "doc_id": "jlbc-baseline-fy2027-ost",
+   "kind": "title-format",
+   "title": "JLBC FY2027 \u2014 Osteopathic Examiners in Medicine and Surgery, Arizona ...   342  Board of........................................................................"
+  },
+  {
+   "doc_id": "jlbc-baseline-fy2027-ost",
+   "kind": "invalid-name",
+   "title": "JLBC FY2027 \u2014 Osteopathic Examiners in Medicine and Surgery, Arizona ...   342  Board of........................................................................",
+   "reason": "contains dot leaders"
+  },
+  {
+   "doc_id": "jlbc-baseline-fy2027-tax",
+   "kind": "stamp-unmentioned",
+   "agency": "agency:tax"
+  },
+  {
+   "doc_id": "legislature-budget-bill-fy2026-sb1735-2025",
+   "kind": "title-format",
+   "title": "LEGISLATURE FY2026 2025"
+  }
+ ]
+}

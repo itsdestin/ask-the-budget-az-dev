@@ -119,15 +119,15 @@ def document_listing() -> list[dict]:
     Restricted to the budget corpus via `budget_doc_ids()` — the sidecar
     itself cannot tell the two corpora apart. See that function for why.
 
-    Titles come from `store.documents.title_for` with its DEFAULT gate —
-    not the search page's `require_ingested=True`. The gate exists because
-    the search page has the vendored mockup index as a better title source
-    to fall back to; this listing has no third source, so gating would
+    Titles come from `identity.resolve_title` — the one ladder every surface
+    shares (spec I12). It carries no `ingested_at` gate: gating it would
     replace ~378 real migration-era titles ("JLBC FY2025 — African-American
-    Affairs, Arizona Commission of") with humanized doc-id slugs. See
-    `title_for`'s own docstring — it names this exact case.
+    Affairs, Arizona Commission of") with humanized doc-id slugs, and this
+    listing has no third source (unlike the search page's now-demoted
+    mockup-index rung) to fall back to first anyway.
     """
-    from store.documents import load_documents, title_for
+    from identity.resolve import resolve_title
+    from store.documents import load_documents
     from store.office_aliases import load_office_aliases
 
     from app.search_terms import load_agency_catalog_by_slug, search_terms
@@ -218,7 +218,7 @@ def document_listing() -> list[dict]:
     rows = [
         {
             "doc_id": doc_id,
-            "title": title_for(doc_id),
+            "title": resolve_title(doc_id),
             "publisher": meta.get("publisher"),
             "doc_type": meta.get("doc_type"),
             "fiscal_year": meta.get("fiscal_year"),

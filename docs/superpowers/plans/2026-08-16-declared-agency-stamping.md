@@ -4,18 +4,30 @@
 any code is written. Written 2026-08-16, off the back of the upload page's
 new agency picker (merge `039c3ad`).
 
-> **⚠ SEQUENCING — do this AFTER the identity spec's Phase 2, not before.**
+> **⚠ SEQUENCING — do this AFTER the identity spec's "fix the labels", not before.**
 > [`../specs/2026-08-16-corpus-identity-consistency-design.md`](../specs/2026-08-16-corpus-identity-consistency-design.md)
-> repairs three poisoned catalog names and re-stamps the corpus, and it
-> touches the same `chunking/entity_stamper.py` ladder this document adds a
-> Rule 0 to. Two facts below are also refined by it: the stamper's weakness
-> is not only the 103-of-157 alias gap but **three canonical names that are
-> table-of-contents rows**, one of which mis-stamps 721 documents; and
-> Decision 2's "office ids cannot be rendered" is sharpened by the identity
-> spec's I9, which merges duplicate ids in the data. **Nothing here is
-> withdrawn** — declared-agency stamping is still the right fix for the
-> ~78 incoming budget requests, and its "do it before they land" argument
-> is unchanged.
+> re-stamps the corpus and it touches the same
+> `chunking/entity_stamper.py` ladder this document adds a Rule 0 to.
+> (The spec's phases were renumbered on review, 2026-08-16: what this note
+> originally called "Phase 2" is now **C1 + C2**.) Decision 2's "office ids
+> cannot be rendered" is sharpened by the identity spec's I9, which merges
+> duplicate ids in the data. **Nothing here is withdrawn** —
+> declared-agency stamping is still the right fix for the ~78 incoming
+> budget requests, and its "do it before they land" argument is unchanged.
+>
+> **🔴 One fact in this document was measured and is WRONG.** The note used
+> to say the stamper's weakness is *"three canonical names that are
+> table-of-contents rows, one of which mis-stamps 721 documents."* Measured
+> 2026-08-16: there is **no bare `Board of` entry** in the catalog — the
+> shortest key in it is `ahcccs` — and the corrupted string is not what
+> over-matches. The operative defect is `_resolve`'s fuzzy fallback
+> (`entity_stamper.py:344`), which scores with `token_set_ratio` at cutoff
+> 85, so **any candidate line whose tokens are a subset of a catalog name
+> scores 100** — the single word `Arizona` scores 100 against the
+> Osteopathic entry, and repairing that entry raises `Board of` from
+> **76.9 to 100**. `extractOne` then breaks the resulting tie by catalog
+> order rather than by evidence. See spec I2. The 103-of-157 alias gap is
+> still real and is still this document's argument.
 
 ## The one sentence
 

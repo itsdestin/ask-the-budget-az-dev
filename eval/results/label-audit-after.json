@@ -1,0 +1,770 @@
+{
+ "total_unmentioned": 171,
+ "per_agency": {
+  "agency:vsc": {
+   "documents": 357,
+   "unmentioned": 0,
+   "rate": 0.0
+  },
+  "agency:bmt": {
+   "documents": 169,
+   "unmentioned": 0,
+   "rate": 0.0
+  },
+  "agency:otr": {
+   "documents": 143,
+   "unmentioned": 11,
+   "rate": 0.07692307692307693
+  },
+  "agency:bcb": {
+   "documents": 56,
+   "unmentioned": 0,
+   "rate": 0.0
+  },
+  "agency:deq": {
+   "documents": 454,
+   "unmentioned": 0,
+   "rate": 0.0
+  },
+  "agency:ret": {
+   "documents": 297,
+   "unmentioned": 0,
+   "rate": 0.0
+  },
+  "agency:wif": {
+   "documents": 85,
+   "unmentioned": 0,
+   "rate": 0.0
+  },
+  "agency:djc": {
+   "documents": 383,
+   "unmentioned": 1,
+   "rate": 0.0026109660574412533
+  },
+  "agency:bat": {
+   "documents": 177,
+   "unmentioned": 0,
+   "rate": 0.0
+  },
+  "agency:uninau": {
+   "documents": 341,
+   "unmentioned": 0,
+   "rate": 0.0
+  },
+  "agency:cs": {
+   "documents": 273,
+   "unmentioned": 0,
+   "rate": 0.0
+  },
+  "agency:gov:highway-safety-governor-s-office-of": {
+   "documents": 11,
+   "unmentioned": 0,
+   "rate": 0.0
+  },
+  "agency:des": {
+   "documents": 481,
+   "unmentioned": 5,
+   "rate": 0.010395010395010396
+  },
+  "agency:cor": {
+   "documents": 369,
+   "unmentioned": 0,
+   "rate": 0.0
+  },
+  "agency:lan": {
+   "documents": 342,
+   "unmentioned": 0,
+   "rate": 0.0
+  },
+  "agency:phy": {
+   "documents": 216,
+   "unmentioned": 0,
+   "rate": 0.0
+  },
+  "agency:liq": {
+   "documents": 251,
+   "unmentioned": 0,
+   "rate": 0.0
+  },
+  "agency:legjlbc": {
+   "documents": 195,
+   "unmentioned": 7,
+   "rate": 0.035897435897435895
+  },
+  "agency:res": {
+   "documents": 248,
+   "unmentioned": 0,
+   "rate": 0.0
+  },
+  "agency:gov:local-government": {
+   "documents": 105,
+   "unmentioned": 0,
+   "rate": 0.0
+  },
+  "agency:roc": {
+   "documents": 288,
+   "unmentioned": 0,
+   "rate": 0.0
+  },
+  "agency:agr": {
+   "documents": 226,
+   "unmentioned": 0,
+   "rate": 0.0
+  },
+  "agency:gov:fingerprinting-board-of": {
+   "documents": 31,
+   "unmentioned": 0,
+   "rate": 0.0
+  },
+  "agency:judcoa": {
+   "documents": 236,
+   "unmentioned": 1,
+   "rate": 0.00423728813559322
+  },
+  "agency:leghou": {
+   "documents": 199,
+   "unmentioned": 5,
+   "rate": 0.02512562814070352
+  },
+  "agency:oec": {
+   "documents": 151,
+   "unmentioned": 0,
+   "rate": 0.0
+  },
+  "agency:ema": {
+   "documents": 257,
+   "unmentioned": 0,
+   "rate": 0.0
+  },
+  "agency:tou": {
+   "documents": 285,
+   "unmentioned": 0,
+   "rate": 0.0
+  },
+  "agency:pio": {
+   "documents": 232,
+   "unmentioned": 0,
+   "rate": 0.0
+  },
+  "agency:doh": {
+   "documents": 123,
+   "unmentioned": 0,
+   "rate": 0.0
+  },
+  "agency:psp": {
+   "documents": 214,
+   "unmentioned": 6,
+   "rate": 0.028037383177570093
+  },
+  "agency:ata": {
+   "documents": 255,
+   "unmentioned": 0,
+   "rate": 0.0
+  },
+  "agency:aam": {
+   "documents": 112,
+   "unmentioned": 4,
+   "rate": 0.03571428571428571
+  },
+  "agency:nat": {
+   "documents": 238,
+   "unmentioned": 0,
+   "rate": 0.0
+  },
+  "agency:dot": {
+   "documents": 428,
+   "unmentioned": 11,
+   "rate": 0.02570093457943925
+  },
+  "agency:gov:osteopathic-examiners-board-of": {
+   "documents": 137,
+   "unmentioned": 0,
+   "rate": 0.0
+  },
+  "agency:ruc": {
+   "documents": 236,
+   "unmentioned": 0,
+   "rate": 0.0
+  },
+  "agency:wat": {
+   "documents": 380,
+   "unmentioned": 0,
+   "rate": 0.0
+  },
+  "agency:sfb": {
+   "documents": 318,
+   "unmentioned": 0,
+   "rate": 0.0
+  },
+  "agency:bhe": {
+   "documents": 235,
+   "unmentioned": 0,
+   "rate": 0.0
+  },
+  "agency:cet": {
+   "documents": 65,
+   "unmentioned": 1,
+   "rate": 0.015384615384615385
+  },
+  "agency:legleg": {
+   "documents": 240,
+   "unmentioned": 5,
+   "rate": 0.020833333333333332
+  },
+  "agency:legsen": {
+   "documents": 209,
+   "unmentioned": 5,
+   "rate": 0.023923444976076555
+  },
+  "agency:judsup": {
+   "documents": 274,
+   "unmentioned": 0,
+   "rate": 0.0
+  },
+  "agency:sos": {
+   "documents": 101,
+   "unmentioned": 0,
+   "rate": 0.0
+  },
+  "agency:oah": {
+   "documents": 372,
+   "unmentioned": 1,
+   "rate": 0.002688172043010753
+  },
+  "agency:cha": {
+   "documents": 280,
+   "unmentioned": 0,
+   "rate": 0.0
+  },
+  "agency:judspa": {
+   "documents": 369,
+   "unmentioned": 0,
+   "rate": 0.0
+  },
+  "agency:uniasu": {
+   "documents": 277,
+   "unmentioned": 0,
+   "rate": 0.0
+  },
+  "agency:gam": {
+   "documents": 426,
+   "unmentioned": 0,
+   "rate": 0.0
+  },
+  "agency:tre": {
+   "documents": 470,
+   "unmentioned": 0,
+   "rate": 0.0
+  },
+  "agency:bae": {
+   "documents": 232,
+   "unmentioned": 0,
+   "rate": 0.0
+  },
+  "agency:geo": {
+   "documents": 158,
+   "unmentioned": 0,
+   "rate": 0.0
+  },
+  "agency:dps": {
+   "documents": 494,
+   "unmentioned": 0,
+   "rate": 0.0
+  },
+  "agency:doa-apf": {
+   "documents": 191,
+   "unmentioned": 0,
+   "rate": 0.0
+  },
+  "agency:med": {
+   "documents": 238,
+   "unmentioned": 0,
+   "rate": 0.0
+  },
+  "agency:ade": {
+   "documents": 548,
+   "unmentioned": 2,
+   "rate": 0.0036496350364963502
+  },
+  "agency:axs": {
+   "documents": 470,
+   "unmentioned": 0,
+   "rate": 0.0
+  },
+  "agency:irc": {
+   "documents": 165,
+   "unmentioned": 0,
+   "rate": 0.0
+  },
+  "agency:exe": {
+   "documents": 282,
+   "unmentioned": 5,
+   "rate": 0.01773049645390071
+  },
+  "agency:dif": {
+   "documents": 113,
+   "unmentioned": 0,
+   "rate": 0.0
+  },
+  "agency:occ": {
+   "documents": 214,
+   "unmentioned": 0,
+   "rate": 0.0
+  },
+  "agency:pha": {
+   "documents": 196,
+   "unmentioned": 0,
+   "rate": 0.0
+  },
+  "agency:gov:capital-projects": {
+   "documents": 57,
+   "unmentioned": 0,
+   "rate": 0.0
+  },
+  "agency:adc": {
+   "documents": 344,
+   "unmentioned": 0,
+   "rate": 0.0
+  },
+  "agency:azh": {
+   "documents": 309,
+   "unmentioned": 1,
+   "rate": 0.003236245954692557
+  },
+  "agency:doa": {
+   "documents": 461,
+   "unmentioned": 14,
+   "rate": 0.03036876355748373
+  },
+  "agency:dhs": {
+   "documents": 499,
+   "unmentioned": 0,
+   "rate": 0.0
+  },
+  "agency:dor": {
+   "documents": 417,
+   "unmentioned": 0,
+   "rate": 0.0
+  },
+  "agency:aca": {
+   "documents": 262,
+   "unmentioned": 0,
+   "rate": 0.0
+  },
+  "agency:legaud": {
+   "documents": 316,
+   "unmentioned": 0,
+   "rate": 0.0
+  },
+  "agency:hea": {
+   "documents": 186,
+   "unmentioned": 4,
+   "rate": 0.021505376344086023
+  },
+  "agency:ico": {
+   "documents": 4,
+   "unmentioned": 0,
+   "rate": 0.0
+  },
+  "agency:hla": {
+   "documents": 94,
+   "unmentioned": 0,
+   "rate": 0.0
+  },
+  "agency:sdb": {
+   "documents": 205,
+   "unmentioned": 0,
+   "rate": 0.0
+  },
+  "agency:gov:statewide-and-large-automation-projects": {
+   "documents": 3,
+   "unmentioned": 0,
+   "rate": 0.0
+  },
+  "agency:nrc": {
+   "documents": 29,
+   "unmentioned": 0,
+   "rate": 0.0
+  },
+  "agency:tec": {
+   "documents": 263,
+   "unmentioned": 0,
+   "rate": 0.0
+  },
+  "agency:apa": {
+   "documents": 97,
+   "unmentioned": 0,
+   "rate": 0.0
+  },
+  "agency:col": {
+   "documents": 197,
+   "unmentioned": 0,
+   "rate": 0.0
+  },
+  "agency:ecdb": {
+   "documents": 77,
+   "unmentioned": 0,
+   "rate": 0.0
+  },
+  "agency:jus": {
+   "documents": 318,
+   "unmentioned": 0,
+   "rate": 0.0
+  },
+  "agency:lot": {
+   "documents": 261,
+   "unmentioned": 0,
+   "rate": 0.0
+  },
+  "agency:pos": {
+   "documents": 220,
+   "unmentioned": 0,
+   "rate": 0.0
+  },
+  "agency:gov:real-estate-department-of": {
+   "documents": 22,
+   "unmentioned": 0,
+   "rate": 0.0
+  },
+  "agency:gov": {
+   "documents": 253,
+   "unmentioned": 3,
+   "rate": 0.011857707509881422
+  },
+  "agency:att": {
+   "documents": 287,
+   "unmentioned": 0,
+   "rate": 0.0
+  },
+  "agency:gov:judicial-branch": {
+   "documents": 4,
+   "unmentioned": 0,
+   "rate": 0.0
+  },
+  "agency:nci": {
+   "documents": 63,
+   "unmentioned": 0,
+   "rate": 0.0
+  },
+  "agency:osp": {
+   "documents": 139,
+   "unmentioned": 5,
+   "rate": 0.03597122302158273
+  },
+  "agency:den": {
+   "documents": 196,
+   "unmentioned": 0,
+   "rate": 0.0
+  },
+  "agency:cce": {
+   "documents": 147,
+   "unmentioned": 0,
+   "rate": 0.0
+  },
+  "agency:nur": {
+   "documents": 252,
+   "unmentioned": 0,
+   "rate": 0.0
+  },
+  "agency:for": {
+   "documents": 203,
+   "unmentioned": 19,
+   "rate": 0.09359605911330049
+  },
+  "agency:equ": {
+   "documents": 283,
+   "unmentioned": 5,
+   "rate": 0.0176678445229682
+  },
+  "agency:oco": {
+   "documents": 201,
+   "unmentioned": 0,
+   "rate": 0.0
+  },
+  "agency:min": {
+   "documents": 319,
+   "unmentioned": 0,
+   "rate": 0.0
+  },
+  "agency:gov:legislative-branch": {
+   "documents": 2,
+   "unmentioned": 0,
+   "rate": 0.0
+  },
+  "agency:gov:homeopathic-medical-examiners-board-of": {
+   "documents": 26,
+   "unmentioned": 0,
+   "rate": 0.0
+  },
+  "agency:gov:arizona-health-care-cost-containment-system": {
+   "documents": 62,
+   "unmentioned": 0,
+   "rate": 0.0
+  },
+  "agency:uniumain": {
+   "documents": 203,
+   "unmentioned": 0,
+   "rate": 0.0
+  },
+  "agency:psy": {
+   "documents": 257,
+   "unmentioned": 0,
+   "rate": 0.0
+  },
+  "agency:per": {
+   "documents": 167,
+   "unmentioned": 0,
+   "rate": 0.0
+  },
+  "agency:bce": {
+   "documents": 228,
+   "unmentioned": 0,
+   "rate": 0.0
+  },
+  "agency:pod": {
+   "documents": 263,
+   "unmentioned": 0,
+   "rate": 0.0
+  },
+  "agency:dis": {
+   "documents": 249,
+   "unmentioned": 0,
+   "rate": 0.0
+  },
+  "agency:nav": {
+   "documents": 118,
+   "unmentioned": 8,
+   "rate": 0.06779661016949153
+  },
+  "agency:boe": {
+   "documents": 175,
+   "unmentioned": 0,
+   "rate": 0.0
+  },
+  "agency:pri": {
+   "documents": 120,
+   "unmentioned": 0,
+   "rate": 0.0
+  },
+  "agency:uniuhsc": {
+   "documents": 184,
+   "unmentioned": 0,
+   "rate": 0.0
+  },
+  "agency:opt": {
+   "documents": 263,
+   "unmentioned": 0,
+   "rate": 0.0
+  },
+  "agency:fis": {
+   "documents": 225,
+   "unmentioned": 0,
+   "rate": 0.0
+  },
+  "agency:tax": {
+   "documents": 258,
+   "unmentioned": 5,
+   "rate": 0.01937984496124031
+  },
+  "agency:art": {
+   "documents": 214,
+   "unmentioned": 0,
+   "rate": 0.0
+  },
+  "agency:ind": {
+   "documents": 184,
+   "unmentioned": 1,
+   "rate": 0.005434782608695652
+  },
+  "agency:gov:nursing-care-institution-administration-examiners": {
+   "documents": 3,
+   "unmentioned": 0,
+   "rate": 0.0
+  },
+  "agency:acc": {
+   "documents": 205,
+   "unmentioned": 0,
+   "rate": 0.0
+  },
+  "agency:spb": {
+   "documents": 342,
+   "unmentioned": 0,
+   "rate": 0.0
+  },
+  "agency:ins": {
+   "documents": 283,
+   "unmentioned": 2,
+   "rate": 0.007067137809187279
+  },
+  "agency:unibor": {
+   "documents": 187,
+   "unmentioned": 5,
+   "rate": 0.026737967914438502
+  },
+  "agency:cf": {
+   "documents": 138,
+   "unmentioned": 0,
+   "rate": 0.0
+  },
+  "agency:dcs": {
+   "documents": 24,
+   "unmentioned": 0,
+   "rate": 0.0
+  },
+  "agency:doa-sfd": {
+   "documents": 68,
+   "unmentioned": 0,
+   "rate": 0.0
+  },
+  "agency:emb": {
+   "documents": 129,
+   "unmentioned": 0,
+   "rate": 0.0
+  },
+  "agency:hom": {
+   "documents": 57,
+   "unmentioned": 0,
+   "rate": 0.0
+  },
+  "agency:legomb": {
+   "documents": 57,
+   "unmentioned": 0,
+   "rate": 0.0
+  },
+  "agency:oeo": {
+   "documents": 38,
+   "unmentioned": 14,
+   "rate": 0.3684210526315789
+  },
+  "agency:ost": {
+   "documents": 117,
+   "unmentioned": 0,
+   "rate": 0.0
+  },
+  "agency:paz": {
+   "documents": 97,
+   "unmentioned": 1,
+   "rate": 0.010309278350515464
+  },
+  "agency:rea": {
+   "documents": 269,
+   "unmentioned": 0,
+   "rate": 0.0
+  },
+  "agency:sba": {
+   "documents": 84,
+   "unmentioned": 0,
+   "rate": 0.0
+  },
+  "agency:vme": {
+   "documents": 82,
+   "unmentioned": 0,
+   "rate": 0.0
+  },
+  "agency:wifa": {
+   "documents": 7,
+   "unmentioned": 0,
+   "rate": 0.0
+  },
+  "agency:ban": {
+   "documents": 175,
+   "unmentioned": 0,
+   "rate": 0.0
+  },
+  "agency:bar": {
+   "documents": 228,
+   "unmentioned": 0,
+   "rate": 0.0
+  },
+  "agency:cos": {
+   "documents": 195,
+   "unmentioned": 0,
+   "rate": 0.0
+  },
+  "agency:apc": {
+   "documents": 28,
+   "unmentioned": 9,
+   "rate": 0.32142857142857145
+  },
+  "agency:dmb": {
+   "documents": 11,
+   "unmentioned": 0,
+   "rate": 0.0
+  },
+  "agency:app": {
+   "documents": 116,
+   "unmentioned": 0,
+   "rate": 0.0
+  },
+  "agency:bfs": {
+   "documents": 99,
+   "unmentioned": 0,
+   "rate": 0.0
+  },
+  "agency:osh": {
+   "documents": 25,
+   "unmentioned": 0,
+   "rate": 0.0
+  },
+  "agency:rad": {
+   "documents": 194,
+   "unmentioned": 0,
+   "rate": 0.0
+  },
+  "agency:cia": {
+   "documents": 57,
+   "unmentioned": 1,
+   "rate": 0.017543859649122806
+  },
+  "agency:rac": {
+   "documents": 140,
+   "unmentioned": 0,
+   "rate": 0.0
+  },
+  "agency:usl": {
+   "documents": 38,
+   "unmentioned": 0,
+   "rate": 0.0
+  },
+  "agency:sbo": {
+   "documents": 117,
+   "unmentioned": 0,
+   "rate": 0.0
+  },
+  "agency:uniasue": {
+   "documents": 89,
+   "unmentioned": 0,
+   "rate": 0.0
+  },
+  "agency:wei": {
+   "documents": 111,
+   "unmentioned": 4,
+   "rate": 0.036036036036036036
+  },
+  "agency:uniasuw": {
+   "documents": 97,
+   "unmentioned": 0,
+   "rate": 0.0
+  },
+  "agency:pes": {
+   "documents": 125,
+   "unmentioned": 0,
+   "rate": 0.0
+  },
+  "agency:uniasum": {
+   "documents": 74,
+   "unmentioned": 0,
+   "rate": 0.0
+  },
+  "agency:cna": {
+   "documents": 17,
+   "unmentioned": 0,
+   "rate": 0.0
+  },
+  "agency:doa-csf": {
+   "documents": 4,
+   "unmentioned": 0,
+   "rate": 0.0
+  }
+ }
+}

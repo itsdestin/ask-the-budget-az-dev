@@ -1,5 +1,24 @@
 """Build data/jlbc-book-catalog.json from the vendored URL harvest.
 
+⚠ **If you re-run this and commit the result, re-run
+`scripts/repair_supplier_titles.py` immediately afterwards.**
+
+This script reproduces the harvest's titles faithfully, and **the harvest's
+titles are wrong for 430 rows**. It scraped JLBC's index page and, where a
+row had no link text, picked up the *previous* row's label: `05app/bar.pdf`
+is the Board of Barbers and the harvest records it as *"Agriculture, Arizona
+Department of"*. That name then became the document's title in the corpus
+and the name shown beside a citation — provenance naming the wrong source.
+
+The committed catalog therefore has titles from TWO layers: this builder,
+then `repair_supplier_titles.py`, which overwrites them from the corpus's
+own content-derived `documents.json`. `test_the_builder_reproduces_the_
+committed_catalog` excludes `title` for exactly that reason and still checks
+every other field, so a hand-edited URL fails it as before. The regression
+guard for the defect itself is `test_no_edition_has_two_agencies_sharing_a_
+title` — the harvest's signature is two rows in one edition carrying one
+title, and that test fails if this builder's output is committed unrepaired.
+
 The catalog answers one question the ingest UI has to answer before it can
 offer anything: *which JLBC books exist, and where do their pieces live?*
 

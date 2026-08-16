@@ -34,8 +34,12 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Callable, Iterable, Protocol
 
+from identity.compose import compose_title
 from ingest.cache import DownloadCache
 from ingest.discovery import (
+    AgencyIndexEntry,
+    ApproprsTOCEntry,
+    BaselineLinksEntry,
     walk_agency_index,
     walk_approps_toc,
     walk_baseline_links,
@@ -46,6 +50,12 @@ from scripts.build_book_catalog import edition_key, normalize_url
 CATALOG_PATH = Path(__file__).resolve().parent.parent / "data" / "jlbc-book-catalog.json"
 
 FAMILIES = ("approps", "baseline")
+
+# Book label as it appears in the house title format `{Name} — FY {year}
+# {Book}`. Used only on the PROBE path (see `_document_from_agency_entry` /
+# `_document_from_section_entry`) — the catalog path already hands over a
+# fully-composed website title and needs no label of its own.
+_BOOK_LABEL = {"approps": "Appropriations Report", "baseline": "Baseline"}
 
 
 class Prober(Protocol):
@@ -267,23 +277,20 @@ def walk_edition(
         return plan
 
     cache = cache or DownloadCache(Path("data/cached-pdfs"), fetcher=prober.get)
-    per_agency_type = f"{plan.family}-per-agency"
 
     if plan.agency_index_url:
         for entry in walk_agency_index(plan.agency_index_url, cache=cache):
-            plan.documents.append(DiscoveredDoc(
-                url=normalize_url(entry.url), title=entry.name or entry.slug,
-                doc_type=per_agency_type, fiscal_year=plan.fiscal_year,
-                code=entry.slug,
+            plan.documents.append(_document_from_agency_entry(
+                entry, fiscal_year=plan.fiscal_year, family=plan.family,
+                notes=plan.notes,
             ))
 
     if plan.linked_toc_url:
         walker = walk_approps_toc if plan.family == "approps" else walk_baseline_links
         for entry in walker(plan.linked_toc_url, cache=cache):
-            plan.documents.append(DiscoveredDoc(
-                url=normalize_url(entry.url), title=entry.title or entry.filename,
-                doc_type=SECTION_KIND_TO_DOC_TYPE.get(entry.section_kind, "topic-pdf"),
-                fiscal_year=plan.fiscal_year, code=Path(entry.filename).stem,
+            plan.documents.append(_document_from_section_entry(
+                entry, fiscal_year=plan.fiscal_year, family=plan.family,
+                notes=plan.notes,
             ))
 
     _apply_rolling_guard(plan)
@@ -346,6 +353,85 @@ def _verify_children(plan: EditionPlan, prober: Prober) -> None:
 
 
 # --- helpers ----------------------------------------------------------------
+
+
+def _document_from_agency_entry(
+    entry: AgencyIndexEntry,
+    *,
+    fiscal_year: int,
+    family: str,
+    notes: list[str] | None = None,
+) -> DiscoveredDoc:
+    """Build the DiscoveredDoc for one per-agency probe-ladder link.
+
+    WHY compose here and not in `build_title` (2026-08-16): the CATALOG path
+    (`_plan_from_catalog`, above) already hands `DiscoveredDoc` a
+    fully-composed website title, which is why it produced 4,950 correct
+    document names. This PROBE path used to hand over `entry.name` raw,
+    which is why the same downstream code produced 131 titles with no
+    suffix at all ("Medical Board, Arizona" instead of "Medical Board,
+    Arizona — FY 2027 Appropriations Report"). The route, the job and
+    `build_title` are all correct — see spec I6, and note the chain runs
+    books.py:152 -> job.user_title -> ingest/worker.py:1154 -> build_title.
+
+    A composition failure never blocks the document (I4): the alternative,
+    holding it back, is what happened to the FY2024 AFR, which sat invisible
+    for weeks because a HELD document looks exactly like a missing one — a
+    bad NAME does not make the CONTENT wrong.
+    """
+    raw_title = entry.name or entry.slug
+    try:
+        title = compose_title(
+            name=raw_title, fiscal_year=fiscal_year, book=_BOOK_LABEL[family],
+        )
+    except ValueError as exc:
+        title = raw_title
+        if notes is not None:
+            notes.append(
+                f"Could not compose a house-format title for agency "
+                f"{entry.slug!r} ({exc}); kept the raw scraped name instead."
+            )
+    return DiscoveredDoc(
+        url=normalize_url(entry.url), title=title,
+        doc_type=f"{family}-per-agency", fiscal_year=fiscal_year,
+        code=entry.slug,
+    )
+
+
+def _document_from_section_entry(
+    entry: ApproprsTOCEntry | BaselineLinksEntry,
+    *,
+    fiscal_year: int,
+    family: str,
+    notes: list[str] | None = None,
+) -> DiscoveredDoc:
+    """Build the DiscoveredDoc for one summary-section probe-ladder link.
+
+    Same defect and same fix as `_document_from_agency_entry` above — see
+    its docstring and spec I6. A summary section has no agency name, so
+    `compose_title` (via `identity.validator`) strips a leading bullet and a
+    trailing dot-leader/page-code as DECORATION before composing — a raw TOC
+    string like "• Summary of Rent Charges ...............372" needs no
+    pre-cleaning here.
+    """
+    raw_title = entry.title or entry.filename
+    try:
+        title = compose_title(
+            name=raw_title, fiscal_year=fiscal_year, book=_BOOK_LABEL[family],
+        )
+    except ValueError as exc:
+        title = raw_title
+        if notes is not None:
+            notes.append(
+                f"Could not compose a house-format title for section "
+                f"{entry.filename!r} ({exc}); kept the raw scraped name "
+                "instead."
+            )
+    return DiscoveredDoc(
+        url=normalize_url(entry.url), title=title,
+        doc_type=SECTION_KIND_TO_DOC_TYPE.get(entry.section_kind, "topic-pdf"),
+        fiscal_year=fiscal_year, code=Path(entry.filename).stem,
+    )
 
 
 def _section_doc_type(name: str) -> str:

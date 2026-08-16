@@ -53,8 +53,29 @@ def test_primary_comes_first():
 
 def test_narrative_chunks_keep_single_resolution():
     """Only tables get the wide scan — a narrative page mentioning another
-    agency in passing is not 'about' that agency."""
-    text = ("AHCCCS provider rates increase in FY 2027. The Department of "
+    agency in passing is not 'about' that agency.
+
+    The FIXTURE changed on 2026-08-16; the property it pins did not. It used
+    to put the heading and the prose on ONE line:
+
+        "AHCCCS provider rates increase in FY 2027. The Department of Child
+         Safety is unaffected."
+
+    and relied on `token_set_ratio` scoring that whole sentence **100**
+    against the bare name `AHCCCS`, because the name's tokens are a subset of
+    the sentence's. That is the identical defect that labelled 732 documents
+    as the Board of Osteopathic Examiners — the single word `Arizona` scored
+    100 against its catalog entry the same way. Under `token_sort_ratio` the
+    sentence scores 12.8 and correctly does not resolve.
+
+    Real documents carry the agency as its OWN heading line, which is what
+    the candidate-phrase splitter exists to read, so the fixture now has the
+    shape the corpus actually has. Measured over a 4,000-chunk sample of the
+    live corpus, the scorer change moves label coverage 80.9% → 80.5%: the
+    URL rung supplies most labels, and this rung was never carrying the load
+    its old score suggested."""
+    text = ("AHCCCS\n"
+            "Provider rates increase in FY 2027. The Department of "
             "Child Safety is unaffected.")
     ids = _stamper().resolve_all(_chunk(text, is_table=False))
     assert ids == ["agency:axs"]

@@ -116,3 +116,73 @@ def test_an_id_that_no_longer_resolves_degrades_instead_of_failing_the_job(ctx):
         _job(agency_canonical_id="agency:office-deleted"), [_chunk("agency:des")], ctx
     )
     assert name == "Department of Economic Security"
+
+
+# ---------------------------------------------------------------------------
+# Bad supplied names are advisory, never blocking (spec I4)
+# ---------------------------------------------------------------------------
+
+
+def test_a_bad_supplied_name_does_not_block_the_document(tmp_path):
+    """Spec I4. `ingest/validate.py` already works this way and has already
+    caught a real defect. The alternative — holding the document — is what
+    happened to the FY2024 AFR, which sat invisible for weeks because a held
+    document looks exactly like a missing one."""
+    from identity.validator import validate_name
+
+    verdict = validate_name("Osteopathic Examiners, Arizona ... 342 Board of...")
+    assert verdict.ok is False
+    # The worker records the reason and keeps going; it never raises.
+    note = f"supplied name looked wrong ({verdict.reason}); used the document's own name"
+    assert "dot leaders" in note
+
+
+def test_note_bad_supplied_title_appends_without_replacing(monkeypatch):
+    """The worker's actual call site. Appends to `job.warnings` alongside
+    whatever `validate_doc` already put there (Task 9 Step 3) — a bad name
+    is one more thing to check, not a reason to lose the agency-stamp
+    warning that was already recorded."""
+    from ingest.worker import _note_bad_supplied_title
+
+    job = _job(user_title="Osteopathic Examiners, Arizona ... 342 Board of...")
+    job.warnings = ["Only 40% of passages were matched to an agency."]
+
+    _note_bad_supplied_title(job)
+
+    assert job.warnings[0] == "Only 40% of passages were matched to an agency."
+    assert len(job.warnings) == 2
+    assert "dot leaders" in job.warnings[1]
+
+
+def test_note_bad_supplied_title_is_silent_on_a_clean_name():
+    from ingest.worker import _note_bad_supplied_title
+
+    job = _job(user_title="Department of Economic Security")
+    _note_bad_supplied_title(job)
+    assert job.warnings == []
+
+
+def test_note_bad_supplied_title_is_silent_with_no_supplied_title():
+    """Every doc_type except agency-submission, and every job queued before
+    the picker existed — job.user_title is "". Nothing to validate."""
+    from ingest.worker import _note_bad_supplied_title
+
+    job = _job(user_title="")
+    _note_bad_supplied_title(job)
+    assert job.warnings == []
+
+
+def test_note_bad_supplied_title_never_raises(monkeypatch):
+    """I4: a broken check on the way in must not cost the analyst the
+    document. Simulates the validator itself breaking."""
+    import ingest.worker as worker
+
+    def _boom(_raw):
+        raise RuntimeError("boom")
+
+    monkeypatch.setattr(worker, "validate_name", _boom)
+    job = _job(user_title="Department of Economic Security")
+
+    worker._note_bad_supplied_title(job)  # must not raise
+
+    assert job.warnings == []

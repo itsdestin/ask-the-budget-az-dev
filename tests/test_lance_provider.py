@@ -90,12 +90,18 @@ def test_provider_maps_retrieval_result_to_contract(monkeypatch, tmp_path):
     )
 
     # The frozen contract's row fields, mapped from the chunk + the mockup
-    # index join (title and meta are the WEBSITE MOCKUP'S own strings).
+    # index join. Re-pointed 2026-08-16 (spec I12, Task 3): `doc_title` used
+    # to be the WEBSITE MOCKUP'S own title unconditionally — that rung is
+    # gone, because it is the supplier of 218 wrong names
+    # (`05app/bar.pdf` -> "Agriculture, Arizona Department of" for the Board
+    # of Barbers). This fixture's sidecar entry carries no `title`, so the
+    # real behaviour is now the humanizer; `doc_meta` still comes from the
+    # mockup join, which was never wrong.
     assert out.rows == [
         {
             "chunk_id": "c1",
             "doc_id": "jlbc-baseline-fy2027-ahcccs",
-            "doc_title": "Health Care Cost Containment System, Arizona — FY 2027 Baseline",
+            "doc_title": "JLBC Baseline FY 2027 Ahcccs",
             "snippet": "provider rate increases of $58.1 million from the General Fund",
             # Additive 2026-08-13: the fiscal-note result card prints the
             # INNERMOST heading as its excerpt legend, and until now the only
@@ -254,13 +260,23 @@ def test_ingest_written_titles_beat_the_slug_humanizer(tmp_path, monkeypatch):
         "FY 2027 Baseline — Industrial Commission of Arizona"
 
 
-def test_migration_era_titles_do_not_beat_the_humanizer(tmp_path, monkeypatch):
-    """The migration's doc-id-derived titles ('AGAO FY2025 fy2025') are worse
-    than the humanizer; only ingest-written entries are trusted."""
+def test_a_migration_era_title_with_no_ingested_at_still_wins(tmp_path, monkeypatch):
+    """Re-pointed 2026-08-16 (spec I12, Task 3) — this test used to assert
+    the OPPOSITE and was encoding the defect. `_info` used to gate the
+    sidecar title on `ingested_at` as a tiebreak against the mockup index;
+    with the mockup index demoted, `identity.resolve_title` has no such gate
+    (see its docstring) because the live corpus holds 378 migration-era
+    entries whose titles are mostly fine, and gating them would swap real
+    agency names for doc-id slugs. This particular fixture title ('AGAO
+    FY2025 fy2025') happens to be an ugly one, but the RULE this test pins
+    is "the sidecar wins when it has a title", not "this string is pretty" —
+    see `test_a_migration_era_title_with_no_ingested_at_is_STILL_used` in
+    `tests/test_identity_resolve.py` for the same rule at the resolver
+    itself."""
     p = _provider_with_sidecar(tmp_path, monkeypatch, {
         "agao-afr-fy2025": {"title": "AGAO FY2025 fy2025", "source_url": None},
     })
-    assert p._info("agao-afr-fy2025")["title"] is None
+    assert p._info("agao-afr-fy2025")["title"] == "AGAO FY2025 fy2025"
 
 
 def test_a_document_ingested_mid_session_gets_its_real_title(tmp_path, monkeypatch):

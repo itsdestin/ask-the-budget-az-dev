@@ -9,7 +9,6 @@ from __future__ import annotations
 
 import json
 from dataclasses import dataclass, field
-from functools import partial
 from pathlib import Path
 from typing import Any, Protocol
 
@@ -20,11 +19,11 @@ from retrieval import FUSED_TOP_K, RetrievalRequest, retrieve
 
 from app.book_sections import section_of
 from app.fixtures.search_fixtures import FISCAL_NOTE_FIXTURE_ROWS, FIXTURE_ROWS
+from identity.resolve import resolve_title
 from store.documents import (
     humanize_doc_id,
     load_documents,
     sidecar_stamp as _sidecar_stamp,
-    sidecar_title,
 )
 
 
@@ -118,27 +117,31 @@ class StubSearchProvider:
         return SearchOutcome(rows=out[:top_k])
 
 
-# Title precedence on this page is: mockup index → the sidecar's own title
-# → the doc-id humanizer. The middle step is GATED on `ingested_at`
-# (`require_ingested=True`), which is what keeps the migration's doc-id
-# derived junk ("AGAO FY2025 fy2025") from beating the humanizer on the 9
-# documents the mockup index never matched.
+# `_title_from_doc_id` is the humanizer fallback for the one case
+# `identity.resolve_title` can't reach: a retrieved chunk whose doc_id isn't
+# a key in documents.json at all (`_info`'s own default return, below, is
+# what produces that gap — never observed live, but defended anyway).
 #
-# That gate is this page's rule, NOT a global one — see
-# `store.documents.title_for` for why the harness must not adopt it.
-# Both the gate and the humanizer moved to `store/documents.py` in Plan 5
-# Task 19; these aliases keep the call sites below reading the same.
-_ingest_title = partial(sidecar_title, require_ingested=True)
+# WHY there is no more `_ingest_title` / `require_ingested=True` gate here
+# (2026-08-16): it existed only to keep migration-era junk titles from
+# beating the mockup index. Now that the mockup index is no longer the
+# title source (see `_info` below), `identity.resolve_title` is the single
+# ladder and it already carries its own fallback — a second, page-local gate
+# would just be a second copy of the same decision. See spec I12.
 _title_from_doc_id = humanize_doc_id
 
 
 # The vendored website mockup's own document index (webapp/reference/…/
-# index-lite.js, `window.JLBC_DOCS=[…];`). It is the source of the mockup's
-# display titles ("Corrections, State Department of — FY 2025 Appropriations
-# Report") and meta lines — Destin: search result titles must be THE SAME as
-# the mockup's. Joined to our corpus by exact source URL (case-insensitive),
-# never fuzzily: the sidecar records the URL each doc was ingested FROM, and
-# 373/382 corpus docs match a mockup index entry exactly.
+# index-lite.js, `window.JLBC_DOCS=[…];`). It supplies this page's
+# "category · doc_type · FY" meta line and the URL join that lets a result
+# row link back to its source PDF. It is NO LONGER the title source (see
+# `_info` below) — Destin's original ask was that search titles match the
+# mockup's, but the mockup is a scrape of JLBC's own index page and is the
+# supplier of 218 wrong names (`05app/bar.pdf`, the Board of Barbers, records
+# as "Agriculture, Arizona Department of"). Joined to our corpus by exact
+# source URL (case-insensitive), never fuzzily: the sidecar records the URL
+# each doc was ingested FROM, and 373/382 corpus docs match a mockup index
+# entry exactly.
 MOCKUP_INDEX_PATH = (
     Path(__file__).resolve().parent.parent
     / "webapp" / "reference" / "assets" / "search" / "index-lite.js"
@@ -179,11 +182,11 @@ class LanceSearchProvider:
     def _info(self, doc_id: str) -> dict:
         """{url, title, meta} for a doc — url/title/meta None when unknown.
 
-        The join is what makes result rows read EXACTLY like the website
-        mockup's: its index entry supplies the display title and the
-        "category · doc_type · FY" meta line, and the sidecar supplies the
-        link target. Docs the mockup never indexed (9 of 382) fall back to
-        the slug humanizer and a null meta."""
+        `title` comes from `identity.resolve_title` — the one ladder every
+        surface shares (spec I12). The mockup index still supplies the
+        "category · doc_type · FY" meta line and the sidecar supplies the
+        link target; docs the mockup never indexed (9 of 382) get a null
+        meta but still get a real title."""
         if self._doc_info is None or self._sidecar_changed():
             try:
                 self._doc_info_sig = _sidecar_stamp()
@@ -196,10 +199,16 @@ class LanceSearchProvider:
                     fy = entry.get("fiscal_year") if entry else None
                     info[did] = {
                         "url": url,
-                        "title": (
-                            entry.get("title") if entry
-                            else _ingest_title(meta)
-                        ),
+                        # WHY the harvest is no longer rung 1 (2026-08-16):
+                        # `index-lite.js` is a scrape of JLBC's index page and
+                        # is the SUPPLIER of the 218 wrong names — it records
+                        # `05app/bar.pdf` as "Agriculture, Arizona Department
+                        # of" for the Board of Barbers. It won unconditionally
+                        # here, so repairing the corpus changed nothing on this
+                        # page while the audit script read documents.json and
+                        # reported zero errors. The harvest still supplies the
+                        # meta line, which was never wrong.
+                        "title": resolve_title(did),
                         # The mockup docRow's own meta recipe:
                         # [category, doc_type, 'FY '+fy], joined with ·
                         "meta": " · ".join(
@@ -286,8 +295,10 @@ class LanceSearchProvider:
             {
                 "chunk_id": c.chunk_id,
                 "doc_id": c.doc_id,
-                # The mockup index's own display title when the URL join has
-                # one; the slug humanizer only as fallback (9 of 382 docs).
+                # `identity.resolve_title`, via `_info`'s cached join (spec
+                # I12). The `or _title_from_doc_id(...)` fallback is for a
+                # chunk whose doc_id isn't in documents.json at all — `_info`
+                # then can't call resolve_title and returns title=None.
                 "doc_title": (info := self._info(c.doc_id))["title"]
                 or _title_from_doc_id(c.doc_id),
                 "snippet": c.text[:280],

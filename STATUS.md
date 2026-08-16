@@ -40,6 +40,7 @@ source. When something ships, update only this file.
 | Query understanding | ✓ Shipped (2026-08-03) | Agency / doc-type / JLBC-shorthand parsing. recall@5 73.81% → 88.10%, recall@15 and @20 100%. Agency is a PREFERENCE, not a filter — a measured deviation from spec Q2 |
 | Budget Documents highlighting + book sections | ✓ **Shipped (2026-08-11)**, one browser check outstanding | Query highlighting marked NOTHING (measured 0 of 200 cards); now 96.5%. 647 documents rendering under raw slugs (`s-pdf`, `bd-pdf`) fold into the books they are sections of. See the section below |
 | AI Mode chat history | ✓ Shipped (2026-08-03), **reviewed and hardened 2026-08-11** | Per-device transcripts, browse/search/resume past chats, auto-naming, collapsible rail. Local disk only — never the share. A second review found ELEVEN defects, four of them silent data loss; all fixed. See the section below |
+| **Corpus identity — names + agency labels** | ✅ **Shipped 2026-08-16**, one browser check outstanding | Titles naming a different agency 284 → 4; duplicate titles 218 → 0; doc_ids contradicting their source 22 → 0; documents labelled with an agency they never mention 1,072 → 171. Layer 1 eval unchanged through all four corpus passes. The audit's stated root cause was wrong — see the section below |
 | JLBC memo formatting for generated reports | ✓ **Shipped (2026-08-13)**, unverified in real Word | `create_document` renders a JLBC memo — letterhead, DATE/TO/FROM/SUBJECT block, house typography — instead of Word's stock styling. Nine plan-code defects found during execution, two of them tests that proved nothing. See the section below |
 | AI Mode persistent conversation | ✓ **Shipped, browser-tested, merged `28567f0`** (2026-08-11) | "+ New chat" shows a row at once; the conversation survives a tab switch and keeps streaming. 742 vitest / `tsc -b` clean. Destin tested and accepted; browser testing found a two-rows-look-selected defect, fixed. Four Minors carried, and P5 (close-tab-still-aborts) is still unwatched. See the section below |
 | **Plan C — book panel + queue (T10/T13) + the upload-page rework** | 🟡 **BUILT AND BROWSER-APPROVED, NOT MERGED** (2026-08-16) | ⚠ the earlier "Shipped 2026-08-13" was wrong twice over — it is **not on master**, and the browser pass it called outstanding **has happened**. Queue shows outstanding work, not 7,104 rows of history (**3.13 MB → 0.008 MB per poll, 391×**, 7,118 file reads → 14). Book panel offers only missing editions (62 offered / **0** addable → 1 offered / 1 addable). Then three rounds of UI rework with Destin at the screen, the title field removed, an agency picker added, and an ingest-switch bypass fixed. **22 commits, 25 behind master, 7 files changed on both sides.** See the section below |
@@ -47,113 +48,31 @@ source. When something ships, update only this file.
 | Document guide for generated reports | ✓ **Shipped (2026-08-13)**, merged `f91b68f` | A sixth tool, `document_guide(report_type)`, hands the model JLBC's house style and one of three report shapes only when it is about to write a document. **Advisory and unenforced** — nothing validates what the model then writes. Five plan-code defects found during execution, two of them tests that proved nothing. **Nobody has watched a real document produced under it.** See the section below |
 | **Admin extensions** (E1–E3, E6) | ✓ **Merged `b108d13`, gates green, NOT yet browser-verified** (2026-08-13) | Admin-editable alias overlay for search, admin-authored office guidance in the AI prompt, a read-only "See System Guidance" window over the shipped instructions, analyst issue reports with an admin inbox, `/admin` regrouped. 2660 pytest / 834 vitest / `tsc -b` / `npm run build` all clean; E1 eval gate passed with the overlay proven live. Destin opened the app and approved the merge, but three surfaces are still unwitnessed — see the section below |
 | **Plan B — resilient processing** (T5–T8, T12) | ✓ **Shipped** (2026-08-13) | A document that extracts to almost nothing is now detected, retried with another extractor, and held out of search if every method fails — instead of being written and reported `live`. Coverage floor **calibrated at 0.10 across all 7,434 documents**. 2798 pytest / 859 vitest / `tsc -b` clean, Layer 1 eval unmoved. **The acceptance run did NOT go as planned and found two real things — read the section below before building on this** |
-| **🔴 Corpus identity consistency** (I1–I14) | **SPEC APPROVED 2026-08-16, NOT BUILT** | 721 documents stamped as an agency they never mention · 218 carrying a DIFFERENT agency's name · 137 named by a bullet or a bare slug · 3 corrupted names in the shipped catalog · 6 agencies split across up to 4 ids · 22 doc_ids contradicting their own URL. One cause. **A repair needs NO re-ingest — verified.** See the section below |
+| ⬛ Corpus identity consistency (I1–I14) | **SUPERSEDED — it is BUILT** | This row described the problem before the work. See the phase row above and the shipped section below. Two of its figures were measured WRONG: the 721 mis-labels were a fuzzy-matcher defect, not the three corrupted catalog names; and only 25 of the 137 titles carried a bullet |
 | FY2027 Appropriations Report ingest | ✓ **Done + verified (2026-08-16)** | 140/140 live, 0 failures, 2,336 passages, 0 duplicate ids corpus-wide, 4.61 chunks/page. Corpus now **83,016 budget chunks / 7,566 documents**. Its titles are wrong — that is the identity defect above, not an ingest failure |
 
-## 🔴 Corpus identity consistency — SPEC APPROVED, NOT BUILT (2026-08-16)
+## ⬛ Corpus identity consistency — this section is SUPERSEDED (2026-08-16)
 
-Spec: [`docs/superpowers/specs/2026-08-16-corpus-identity-consistency-design.md`](docs/superpowers/specs/2026-08-16-corpus-identity-consistency-design.md)
-(I1–I14, seven phases). Evidence:
-[`…/investigations/2026-08-16-identity-consistency-audit.md`](docs/superpowers/investigations/2026-08-16-identity-consistency-audit.md)
-and [`…/2026-08-16-document-title-inconsistency.md`](docs/superpowers/investigations/2026-08-16-document-title-inconsistency.md).
-**No implementation plan yet.** Found by Destin searching `ahcccs` on
-Budget Documents and reading the result list — not by any test.
-
-**One cause, measured against the live corpus (7,566 documents / 83,016
-budget chunks):** an identity string — an agency's name, a document's
-title, its type — is accepted from **somebody else's rendering of a PDF**
-and never checked against the document itself, which is the one witness
-that always knows.
-
-| | count | |
-|---|---|---|
-| Documents stamped as an agency they never mention | **721** | `agency:ost` is **72.7% wrong across 992 documents** — more documents than AHCCCS or Education |
-| Documents carrying a DIFFERENT agency's name | **218** | Board of Barbers titled "Agriculture", Racing titled "Pioneers' Home", every year they appear |
-| Documents named by a bullet or a bare slug | **137** | 131 created 2026-08-16; `• Summary of Rent Charges`, `Gaming, Department of` |
-| Corrupted names in the shipped catalog | **3** canonical + **31** variants | dot leaders and page numbers saved as names |
-| Agencies split across live ids | **6** | Child Safety across 4 |
-| doc_ids contradicting their own `source_url` | **22** | recorded elsewhere as 6 — see the correction below |
-| Documents filed under a page prefix, not a type | **669** | `s-pdf`, `bd-pdf`, `bh-pdf` |
-
-**Ruled out first, so nobody re-audits:** 0 documents duplicated by content
-hash, 0 by `source_url`, 0 by (book, year, agency). **Ingest
-de-duplication works.** Every finding is about what things are *called*.
-
-### 🔴 It is already reaching the model, in production
-
-A committed agent-eval transcript
-(`eval/results/agent/2026-08-02T0900Z-0b08221/lk-k12-basic-aid-fy2026-r1.jsonl`)
-shows `list_filter_values` returning to the model:
-
-```json
-{"canonical_id": "agency:ost", "chunk_count": 2277,
- "name": "Osteopathic Examiners … Arizona ...   342  Board of.........",
- "sample_doc_title": "FY 2026 State Agency Detail — Arizona Executive Budget"}
-```
-
-Sixth-largest agency in the corpus, above Public Safety, corrupted name, a
-sample document that is not osteopathic. **Not a projected risk.**
-
-### ✅ Repairing this needs NO re-ingest — verified, not assumed
-
-The single fact that decided the design's shape:
-
-1. `ChunkStore.upsert_chunks` is keyed on `chunk_id` and replaces rows
-   wholesale → **passage ids survive, and eval ground truth with them**.
-2. `EntityStamper.resolve_all()` reads the chunk's stored text →
-   **no MinerU, no re-download, no re-chunk**.
-3. `vector` is an ordinary projectable column → **no re-embedding**.
-
-Minutes of CPU, not days. **🔴 Hazard:** `upsert_chunks` is a delete plus
-an add in two commits, so an interrupted pass loses those chunk_ids. It
-runs under `IngestLock`, takes a snapshot, and is gated on an unchanged
-chunk count.
-
-### The core decision (I1): a name is a claim needing two witnesses
-
-Every JLBC document states what it is three independent ways — its **URL
-slug**, its **own first page**, and the **external index**. Each is
-trusted alone today, in a different part of the app. Requiring **two of
-three to agree** resolves every defect above: Barbers is 2-to-1 against
-the index; Osteopathic becomes ONE catalog problem instead of 721 document
-problems; today's 131 compose from the two witnesses that exist.
-
-### Destin's two calls, both recorded with the case against them
-
-- **Split agency ids are MERGED in the data**, not grouped at read time.
-  Irreversible, and it asserts a predecessor unit and its successor
-  department are one agency. Bounded by a committed merge map, a snapshot,
-  and a per-change reversal record.
-- **The 22 doc_ids are RENAMED and the eval re-pointed**, not read around —
-  *"if the eval is pinning a broken thing, we should fix the eval."* Safe
-  because the rename is deterministic (`chunk_id = f"{doc_id}-{idx:04d}"`)
-  and every re-pointed entry is verified against its own `anchor_text` —
-  the surviving repair path since `eval/refresh_chunk_ids.py` was deleted.
-
-### 🔴 Why ~2,900 passing tests missed all of it
-
-**Every check is per-item and correct; nothing compares items to each
-other.** That is why Phase 1 is the audit script and not ceremony, and why
-the gate is the **ERROR rate, never coverage** — the lesson the citation
-work already paid for.
-
-### This invalidates one existing measurement, in a good direction
-
-STATUS.md records that a hard agency filter LOST to a preference (88.10% →
-83.33% recall@5) and names *"any re-ingest that improves agency stamping"*
-as the condition to re-measure. **Phase 2 is that condition.** Re-measuring
-is deliberately out of scope in the identity spec, but **the old number
-stops being trustworthy the moment Phase 2 lands.**
-
-### Out of scope, deliberately
-
-Fiscal-note version markers (158 notes share a title with no way to tell
-introduced from amended — Destin's call), the FY2005–2011 slug titles
-(`AXSACUTE` — the harvest's own fault, a different repair), renaming
-`doc_type` values, and the 39 surplus agency slugs (JLBC's own
-sub-programme splits — collapsing them would destroy real information).
-
----
+> **It used to say "SPEC APPROVED, NOT BUILT" and describe the problem. It is
+> BUILT.** See **"Corpus identity — names and agency labels repaired
+> (2026-08-16)"** further down for what shipped, the measured before/after,
+> and the follow-ups.
+>
+> **Two figures it stated were WRONG and were corrected by measurement.**
+> Kept here only so a future session that half-remembers them does not
+> re-derive the same mistakes:
+>
+> - It blamed 721 mis-labelled documents on three corrupted catalog names,
+>   on the theory that a bare `Board of` phrase had become a name for
+>   `agency:ost`. **No such entry exists** — the shortest key in the whole
+>   catalog is `ahcccs` — and repairing those strings changes labelling by
+>   **zero**. The defect was `rapidfuzz.token_set_ratio`, which scores 100
+>   for any candidate whose tokens are a subset of a catalog name, so the
+>   single word `Arizona` matched perfectly.
+> - It described the 137 bad new titles as "named by a bullet or a bare
+>   slug". **Only 25 carried a bullet**; the rest were correct agency names
+>   missing the format suffix, which no name validator can detect. And 375
+>   documents sat in a third title format, not the 6 it recorded.
 
 ## Plan B — resilient processing — SHIPPED (2026-08-13)
 
@@ -658,6 +577,199 @@ adjacent territory. **This file already records a cross-branch defect
 neither side could see, where git merged cleanly and both suites stayed
 green** — assume the same shape here and check behaviour, not just conflict
 markers.
+
+---
+
+## Corpus identity — names and agency labels repaired (2026-08-16)
+
+Spec: `docs/superpowers/specs/2026-08-16-corpus-identity-consistency-design.md`
+(I1–I15). Plans:
+`docs/superpowers/plans/2026-08-16-corpus-identity-measure-and-fix-titles.md`
+(10 tasks) and
+`docs/superpowers/plans/2026-08-16-corpus-identity-fixing-the-labels.md`
+(13 tasks). Branch `identity-consistency`.
+
+**An identity string — a document's title, an agency's name — was accepted
+from somebody else's rendering of a PDF and never checked against the
+document itself.** Three suppliers (JLBC's website index, the harvested book
+catalog, PDF table-of-contents extraction) emit strings that look like names
+and sometimes are not. The corpus is now repaired and the suppliers with it.
+
+### Measured, start → end
+
+| | start | end |
+|---|---|---|
+| a title naming a **different agency** than the document | 284 | **4** |
+| two documents sharing one title | 218 | **0** |
+| doc_ids contradicting their own `source_url` | 22 | **0** |
+| titles outside `{Name} — FY {year} {Book}` | 523 | **17** |
+| documents no chunk of which mentions their agency label | 1,072 | **171** |
+| identity strings failing the validator | 35 | **13** |
+| distinct agency slugs (duplicate ids merged) | 153 | **147** |
+| uninformative (raw-slug) titles | 230 | 59 |
+
+**Layer 1 eval is UNCHANGED through all four corpus passes** — recall@5
+85.71%, @15 97.62%, @20 100.00%, refusal precision 60%, measured as a
+CONTROL immediately before the first write and again after the last. Gate G1
+passes. Agency is a retrieval **preference, not a filter**, which is what
+makes a label change structurally unable to delete an answer.
+Suite 3,145 passed / 5 skipped.
+
+### 🔴 The audit's stated root cause was WRONG, and the real one is worth knowing
+
+The audit blamed a corrupted catalog entry — `agency:ost`'s `canonical_name`
+is a table-of-contents row — for 732 mis-labelled documents, on the theory
+that the standalone phrase `Board of` became a name for that agency.
+**There is no bare `Board of` entry**; the shortest key in the whole catalog
+is `ahcccs`. Repairing the corrupted strings changes labelling by **zero**.
+
+The operative defect was `_resolve`'s fuzzy fallback, which scored with
+`rapidfuzz.token_set_ratio` at cutoff 85. That compares token **sets**, so
+**any candidate whose tokens are a subset of a catalog name scores 100**
+regardless of coverage:
+
+| candidate | `token_set_ratio` | `token_sort_ratio` |
+|---|---|---|
+| `Arizona` vs the Osteopathic entry | **100** | 14 |
+| `Medicine` vs the Osteopathic entry | **100** | 16 |
+| `Board of Barbers` vs `Barbers, Board of` | 97 | **97** |
+| `DEPARTMENT OF CORRECTIONS` vs `Corrections, State Department of` | 88 | **88** |
+
+`extractOne` then broke the resulting 100-way tie by **catalog order**.
+Fixed by scoring with `token_sort_ratio` (perfect separation at the
+unchanged floor of 85) and refusing ties outright. **Repairing the catalog
+string makes `Board of` score HIGHER (76.9 → 100)** — do not re-file the
+catalog repair as the labelling fix.
+
+Second half of the fix: `_JLBC_URL_RE` recognised only two of the four
+directories JLBC has published under, so ~1,448 documents lost their
+strongest witness. `store/book_family.py::_BOOK_DIR` already knew all four.
+Third: sub-programme slugs (`axsacute`, `dhsbehav`, `desage`) are not
+catalogued, so they now resolve to the longest catalogued prefix — 35 slugs,
+with `appropveto` denied by name because it is the appropriation-vetoes
+summary, not that agency's page.
+
+### 🔴 Every automated gate here was insufficient on its own
+
+Recorded because the pattern recurred four times in one session:
+
+- **An error-rate gate is blind to a matcher that stops matching.** "How many
+  labels are wrong" scores a perfect zero if nothing is labelled. Coverage
+  was measured separately before committing (80.9% → 80.5% on a 4,000-chunk
+  sample; retention 94.1% corpus-wide).
+- **A coverage gate is blind to 195 documents.** Hand-reading the dry run
+  found an AHCCCS Acute Care document losing its label and gaining nothing.
+  195 against 83,197 is noise in any aggregate.
+- **A chunk COUNT is blind to a dropped column.** The re-label rewrites
+  `agency_canonical_ids`; a bug dropping `doc_type` leaves the count
+  identical. Chunk-id SETS and a per-column sample are what verify it.
+- **A per-agency gate is blind to what the analyst reads.** `search_provider`
+  preferred a vendored scrape over the repaired title, so a corpus repair
+  would have left the page unchanged while the audit script reported zero
+  errors. **`identity/resolve.py` shipped BEFORE any repair for this reason.**
+
+### 🔴 Two of the controller's own safety rules were wrong, and both are recorded
+
+1. **"No agency's error count may rise."** Nine rose, net **+12** against
+   **−823**. The rule existed to stop fixing one agency by breaking a clean
+   one; no clean agency moved. Accepted, deviation recorded.
+2. **"Merge two agency ids only if they never share a fiscal year."** This
+   rejected 5 of 9 merges. Measuring the names showed all seven distinct
+   pairs carry a **byte-identical canonical name** — one agency recorded
+   twice, so both ids are stamped in the same year *by construction*.
+   Co-occurrence is the symptom, not a reason to refuse. The primary gate is
+   now the same-name test (sorted token multiset); co-occurrence remains the
+   fallback where names DIFFER, which is the rename-vs-parallel-units case it
+   was built for. **University of Arizona Main Campus / Health Sciences
+   Center have different names, run in parallel, fail both, and stay
+   separate** — kept as a test so the guard is proven to still guard.
+
+### What shipped
+
+- **`identity/`** — `validator.py` (is this a name? decorations strip,
+  corruption quarantines), `compose.py`, `resolve.py` (the ONE read-path
+  title ladder), `check.py`, `label_audit.py`, `repair.py`, `relabel.py`,
+  `merge_map.py`, `merge_agencies.py`, `rename_docs.py`,
+  `history_migrate.py`.
+- **One title ladder for three surfaces.** Search results, the browse listing
+  and AI Mode each resolved titles differently. `tests/test_identity_resolve.py`
+  asserts all three agree (gate G-I4).
+- **Invariant 7 held.** `identity` joined the harness import allowlist, and a
+  NEW guard pins that only the READ side may be reached — `identity/repair.py`
+  imports `os`/`pathlib` and rewrites `documents.json`, so allowing the
+  package alone would admit them by the back door.
+- **`eval/identity_check.py`** runs after every ingest; findings surface in
+  the admin **Needs attention** group. The corpus scanner lives in
+  `identity/check.py` because **shipped code may not import `eval/`** — it is
+  excluded from the Windows bundle, so the import raises on every office
+  install and is silently swallowed.
+- **Reversal records for every corpus pass**, at `<data_dir>/`:
+  `label-reversal-*`, `agency-merge-reversal-*`, `doc-rename-reversal-*`.
+  Saved conversations were backed up to
+  `~/.local/share/JLBC-Insight/conversations-backup-2026-08-16T2140Z`.
+
+### Saved conversations were migrated, not broken
+
+Renaming the 22 doc_ids changes their chunk_ids. Transcripts persist chunk
+ids in **two** independent places — the figure annotation from
+`citation/annotate.py`, and the verbatim `retrieve()` JSON in `tool`
+messages, which `harness/history.py` explicitly refuses to prune. Without a
+migration those citations 404 and read "Source no longer available", a hard
+visible break. 20 transcripts inspected, 3 rewritten, 73 ids changed, 0
+corrupt. **This is the first thing the `version: 1` transcript stamp has
+ever been used for.**
+
+### ⏸ OUTSTANDING — nobody has opened the app
+
+Every number above is data and logic. **The rendering is unverified**, and
+this repo has shipped green under thousands of passing tests twice before.
+The checks, in `docs/superpowers/plans/2026-08-16-corpus-identity-fixing-the-labels.md`
+Task 13: search `barbers` and confirm the FY2005 result reads *Barbers,
+Board of*; open the same document in the browse listing and confirm the two
+agree; filter the agency facet to Osteopathic Examiners and confirm a
+handful of documents rather than ~992; ask AI Mode a question that retrieves
+a repaired FY2005 document and confirm the name in the answer matches;
+open a saved chat citing one of the 22 renamed documents and confirm the
+citation still opens; and `/admin` → Needs attention renders the identity
+findings as a plain sentence. **`uvicorn` runs without `--reload`, so Python
+changes need a server restart** — only the SPA picks up a rebuild.
+
+### Follow-ups this work created or leaves open
+
+- **171 documents still carry a label no chunk of them mentions** (was
+  1,072). Some are false positives of the metric — a per-agency page whose
+  boilerplate chunk does not repeat the agency name. A long tail, not a
+  systemic fault. Re-read a sample before spending on it.
+- **59 uninformative titles remain** (`AXSACUTE — FY 2005 Appropriations
+  Report`). The FORMAT is right and the NAME is uninformative rather than
+  wrong; the wrong name is in the harvested catalog itself. Explicitly out of
+  scope in the spec — it needs a slug→agency lookup, a different repair.
+- **4 titles still name a different agency**, and **17 remain outside the
+  format**. Small enough to read individually; nobody has.
+- **The sub-programme distinguisher is a raw slug.** A repaired title reads
+  `AHCCCS (axsacute) — FY 2010 Appropriations Report`. It is unique and
+  better than `AXSACUTE`, but `AHCCCS — Acute Care` would be better still and
+  needs a slug→readable-name table.
+- **Fiscal-note version markers** — 158 notes share a title with another
+  note, with no way to tell introduced from amended. Destin's call: excluded,
+  needs its own spec.
+- **`book_family` / `doc_kind`** (spec I11) was WITHDRAWN from this work and
+  deserves its own spec. Recording `book_family` at write time WOULD retire
+  real workarounds — `store/book_family.py` and its four call sites, the
+  `FUSED_TOP_K` over-fetch that exists only to feed the post-rank family
+  filter, `ingest/driver.py`'s doc_type→family map, and `sectionSlugsFrom` in
+  the webapp. But `doc_kind` is a rename touching the extractor routing
+  table, the document-type registry, query understanding, the AI-mode tool
+  enum and 9 pinned eval dimensions, and no analyst can perceive either.
+- **`docs/superpowers/plans/2026-08-16-declared-agency-stamping.md` is
+  UNBLOCKED.** It was sequenced after this work because both touch the same
+  stamping ladder. Its own note about the cause of the mis-labelling has been
+  corrected in place.
+- **The agency-filter-vs-preference decision was measured on poisoned data.**
+  STATUS.md records a hard agency filter losing to a preference (88.10% →
+  83.33% recall@5) and names *"any re-ingest that improves agency stamping"*
+  as the condition to re-measure. **This is that condition.** Re-measuring is
+  a separate change with its own eval and is NOT done here.
 
 ---
 

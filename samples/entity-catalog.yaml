@@ -11,6 +11,24 @@ _meta:
     draft_candidates_total: 84
     draft_candidates_matched: 70
     draft_candidates_unmatched: 14
+# 2026-08-16 identity-consistency repair: 3 canonical_name values and 30
+# names_observed_jlbc keys were TOC-scrape corruption (dot leaders, an
+# embedded page number, or a doubled space glued between two columns —
+# e.g. "Page No.  Accountancy, ..." is the printed "Page No." column header
+# fused onto the real name). Found with identity.validator.validate_name,
+# not by eye. Every offender here had a CLEAN sibling key already present
+# for the same agency (the corrupted row is just one more year's harvest
+# of a name already recorded correctly), so the fix is a MERGE — the
+# corrupted key's document-year list moves onto the clean key and the
+# corrupted key is deleted, never guessed at. This does NOT touch how
+# documents get labelled: `identity.validator`/`identity.repair` do that
+# from the corpus's own text, and a fuzzy-match check on these same 33
+# strings scored identically or higher after cleanup. It fixes what
+# `list_filter_values` hands the model — that tool returns
+# `canonical_name` verbatim, and it was returning dot-leader strings like
+# "Osteopathic Examiners in Medicine and Surgery, Arizona ...   342  Board
+# of........................................................................"
+# to production.
 agencies:
 - canonical_name: Accountancy, Arizona State Board of
   canonical_id: agency:sba
@@ -20,8 +38,10 @@ agencies:
     - approps-fy2015
     - approps-fy2016
     - approps-fy2017
+    - approps-fy2018
     - approps-fy2019
     - approps-fy2020
+    - approps-fy2021
     - approps-fy2022
     - approps-fy2023
     - approps-fy2024
@@ -32,9 +52,6 @@ agencies:
     - baseline-fy2025
     - baseline-fy2026
     - baseline-fy2027
-    Page No.  Accountancy, Arizona State Board of:
-    - approps-fy2018
-    - approps-fy2021
   indexes:
     approps-fy2015:
       page: 1
@@ -110,11 +127,10 @@ agencies:
     - approps-fy2025
     - approps-fy2026
     - baseline-fy2023
+    - baseline-fy2024
     - baseline-fy2025
     - baseline-fy2026
     - baseline-fy2027
-    Acupuncture Board of Examiners .........................................   2  f:
-    - baseline-fy2024
   indexes:
     approps-fy2015:
       page: 2
@@ -1471,6 +1487,7 @@ agencies:
     - approps-fy2019
     - approps-fy2020
     - approps-fy2021
+    - approps-fy2022
     - approps-fy2023
     - approps-fy2024
     - approps-fy2025
@@ -1480,8 +1497,6 @@ agencies:
     - baseline-fy2025
     - baseline-fy2026
     - baseline-fy2027
-    Charter Schools, State Board for ..........................................  59  h ld f f:
-    - approps-fy2022
   indexes:
     approps-fy2015:
       page: 57
@@ -2136,6 +2151,7 @@ agencies:
     - approps-fy2019
     - approps-fy2020
     - approps-fy2021
+    - approps-fy2022
     - approps-fy2023
     - approps-fy2024
     - approps-fy2025
@@ -2145,8 +2161,6 @@ agencies:
     - baseline-fy2025
     - baseline-fy2026
     - baseline-fy2027
-    Corporation Commission ......................................................  94  f:
-    - approps-fy2022
   indexes:
     approps-fy2015:
       page: 86
@@ -2761,6 +2775,7 @@ agencies:
     - approps-fy2019
     - approps-fy2020
     - approps-fy2021
+    - approps-fy2022
     - approps-fy2023
     - approps-fy2024
     - approps-fy2025
@@ -2770,8 +2785,6 @@ agencies:
     - baseline-fy2025
     - baseline-fy2026
     - baseline-fy2027
-    Dental Examiners, State Board of .........................................  121  D h Mi i i B d 122:
-    - approps-fy2022
   indexes:
     approps-fy2015:
       page: 103
@@ -2901,9 +2914,8 @@ agencies:
   canonical_id: agency:ecdb
   slug: ecdb
   names_observed_jlbc:
-    Early Childhood Development and Health Board, Arizona .   104:
-    - approps-fy2015
     Early Childhood Development and Health Board, Arizona:
+    - approps-fy2015
     - approps-fy2016
     - approps-fy2017
     - approps-fy2018
@@ -4465,13 +4477,12 @@ agencies:
     - approps-fy2023
     - approps-fy2024
     - approps-fy2025
+    - approps-fy2026
     - baseline-fy2023
     - baseline-fy2024
     - baseline-fy2025
     - baseline-fy2026
     - baseline-fy2027
-    Historical Society of Arizona, Prescott .................................  222  H l d S i A i f 223:
-    - approps-fy2026
   indexes:
     approps-fy2015:
       page: 180
@@ -5250,6 +5261,7 @@ agencies:
     - approps-fy2016
     - approps-fy2017
     - approps-fy2018
+    - approps-fy2019
     - approps-fy2020
     - approps-fy2021
     - approps-fy2022
@@ -5262,8 +5274,6 @@ agencies:
     - baseline-fy2025
     - baseline-fy2026
     - baseline-fy2027
-    Page No. Joint Legislative Budget Committee .....................................   247  d:
-    - approps-fy2019
   indexes:
     approps-fy2015:
       page: 206
@@ -6266,38 +6276,58 @@ agencies:
   name_gov_alias: Nursing Care Institution Administration Examiners
   page_in_gov_fy27: 302
   observed_in_sample: []
-- canonical_name: Nursing Care Institution Administrators and Assisted Living   338  Facility Managers, Board of Examiners
-    of ....................
+- canonical_name: Nursing Care Institution Administrators and Assisted Living
+  # WHY the canonical_name isn't the full title (2026-08-16): the true,
+  # non-corrupted name is "Nursing Care Institution Administrators and
+  # Assisted Living Facility Managers, Board of Examiners of" (100 chars,
+  # following this file's own alphabetized "X, Board of Y" convention —
+  # see agency:sba, agency:den for the same pattern) — but that exceeds
+  # identity.validator.MAX_NAME_CHARS (90), which exists to catch
+  # corruption, not to cap a genuinely long real name. Rather than
+  # inventing an abbreviation nobody printed, this uses the shorter form
+  # JLBC itself already prints in baseline-fy2025/26 (below) — real,
+  # attested, and the current one. The full name's second half survives
+  # as its own name_variants entry, "Facility Managers, Board of
+  # Examiners of", so the stamper still matches on it.
   canonical_id: agency:nci
   slug: nci
   names_observed_jlbc:
-    Nursing Care Institution Administrators and Assisted Living      Facility Managers, Board of Examiners of:
+    Nursing Care Institution Administrators and Assisted Living:
     - approps-fy2015
-    Nursing Care Institution Administrators and Assisted Living     Facility Managers, Board of Examiners of:
     - approps-fy2016
     - approps-fy2017
     - approps-fy2018
-    - approps-fy2025
-    Nursing Care Institution Administrators and Assisted Living   Facility Managers, Board of Examiners of:
     - approps-fy2019
     - approps-fy2020
+    - approps-fy2021
     - approps-fy2022
     - approps-fy2023
     - approps-fy2024
+    - approps-fy2025
     - approps-fy2026
-    Nursing Care Institution Administrators and Assisted Living  Facility Managers, Board of Examiners of:
-    - approps-fy2021
     - baseline-fy2023
-    Nursing Care Institution Administrators and Assisted Living    Facility Managers, Board of Examiners of:
     - baseline-fy2024
-    Nursing Care Institution Administrators and Assisted Living:
     - baseline-fy2025
     - baseline-fy2026
+    - baseline-fy2027
     Facility Managers, Board of Examiners of:
+    - approps-fy2015
+    - approps-fy2016
+    - approps-fy2017
+    - approps-fy2018
+    - approps-fy2019
+    - approps-fy2020
+    - approps-fy2021
+    - approps-fy2022
+    - approps-fy2023
+    - approps-fy2024
+    - approps-fy2025
+    - approps-fy2026
+    - baseline-fy2023
+    - baseline-fy2024
     - baseline-fy2025
     - baseline-fy2026
-    ? Nursing Care Institution Administrators and Assisted Living   338  Facility Managers, Board of Examiners of ....................
-    : - baseline-fy2027
+    - baseline-fy2027
   indexes:
     approps-fy2015:
       page: 225
@@ -6742,35 +6772,31 @@ agencies:
   name_gov_alias: Optometry, Board of
   page_in_gov_fy27: 316
   observed_in_sample: []
-- canonical_name: Osteopathic Examiners in Medicine and Surgery, Arizona ...   342  Board of........................................................................
+- canonical_name: Osteopathic Examiners in Medicine and Surgery, Arizona Board of
   canonical_id: agency:ost
   slug: ost
   names_observed_jlbc:
     Osteopathic Examiners, Arizona Board of:
     - approps-fy2015
     - approps-fy2016
-    Osteopathic Examiners in Medicine and Surgery, AZ Bd. of .   295:
+    Osteopathic Examiners in Medicine and Surgery, AZ Bd. of:
     - approps-fy2017
-    Osteopathic Examiners in Medicine and Surgery, AZ Bd. of   271:
     - approps-fy2018
-    Osteopathic Examiners in Medicine and Surgery, Arizona  Board of:
+    Osteopathic Examiners in Medicine and Surgery, Arizona Board of:
     - approps-fy2019
     - approps-fy2020
     - approps-fy2021
     - approps-fy2022
     - approps-fy2023
     - approps-fy2024
+    - approps-fy2025
     - approps-fy2026
     - baseline-fy2023
-    Osteopathic Examiners in Medicine and Surgery, Arizona    Board of:
-    - approps-fy2025
-    Osteopathic Examiners in Medicine and Surgery, Arizona     Board of:
     - baseline-fy2024
+    - baseline-fy2027
     Osteopathic Examiners in Medicine and Surgery, Arizona:
     - baseline-fy2025
     - baseline-fy2026
-    ? Osteopathic Examiners in Medicine and Surgery, Arizona ...   342  Board of........................................................................
-    : - baseline-fy2027
   indexes:
     approps-fy2015:
       page: 230
@@ -6838,27 +6864,20 @@ agencies:
   name_gov_alias: Osteopathic Examiners, Board of
   page_in_gov_fy27: 319
   observed_in_sample: []
-- canonical_name: Parents Comm. on Drug Education and Prevention, Arizona  286
+- canonical_name: Parents Comm. on Drug Education and Prevention, Arizona
   canonical_id: agency:apc
   slug: apc
   names_observed_jlbc:
-    Parents Comm. on Drug Education & Prevention, Arizona .   231:
-    - approps-fy2015
     Parents Comm. on Drug Education & Prevention, Arizona:
+    - approps-fy2015
     - approps-fy2016
-    Parents Comm. on Drug Education and Prevention, Arizona  297:
+    Parents Comm. on Drug Education and Prevention, Arizona:
     - approps-fy2017
-    Parents Comm. on Drug Education and Prevention, Arizona  272:
     - approps-fy2018
-    Parents Comm. on Drug Education and Prevention, Arizona  273:
     - approps-fy2019
-    Parents Comm. on Drug Education and Prevention, Arizona  276:
     - approps-fy2020
-    Parents Comm. on Drug Education and Prevention, Arizona  247:
     - approps-fy2021
-    Parents Comm. on Drug Education and Prevention, Arizona  294:
     - approps-fy2022
-    Parents Comm. on Drug Education and Prevention, Arizona  286:
     - approps-fy2023
     Parents Comm. on Drug Education and Prevention, Arizona 317:
     - baseline-fy2023
@@ -6914,13 +6933,12 @@ agencies:
     - approps-fy2023
     - approps-fy2024
     - approps-fy2025
+    - approps-fy2026
     - baseline-fy2023
     - baseline-fy2024
     - baseline-fy2025
     - baseline-fy2026
     - baseline-fy2027
-    Board of ........................................................................  283  Parks Board, Arizona State:
-    - approps-fy2026
   indexes:
     approps-fy2015:
       page: 232
@@ -9141,6 +9159,7 @@ agencies:
     - approps-fy2015
     - approps-fy2016
     - approps-fy2017
+    - approps-fy2018
     - approps-fy2019
     - approps-fy2020
     - approps-fy2021
@@ -9154,8 +9173,6 @@ agencies:
     - baseline-fy2025
     - baseline-fy2026
     - baseline-fy2027
-    Treasurer, State ....................................................................   341  b l l ’ ff:
-    - approps-fy2018
   indexes:
     approps-fy2015:
       page: 286

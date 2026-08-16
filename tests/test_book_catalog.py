@@ -6,6 +6,7 @@ changed, and that's a fact worth failing a build over.
 """
 from __future__ import annotations
 
+import copy
 import json
 import re
 from collections import Counter
@@ -44,10 +45,38 @@ def test_committed_catalog_has_the_pinned_edition_counts(editions):
     assert _by_family(editions) == {"approps": 41, "baseline": 21}
 
 
+def _without_row_titles(editions: dict) -> dict:
+    """Deep-copy `editions` with every per_agency/summary_sections `title`
+    blanked out, so a title-only difference from the harvest doesn't fail
+    the comparison below."""
+    out = copy.deepcopy(editions)
+    for entry in out.values():
+        for key in ("per_agency", "summary_sections"):
+            for row in entry.get(key, []):
+                row.pop("title", None)
+    return out
+
+
 def test_the_builder_reproduces_the_committed_catalog(editions):
     """The generated file must be exactly what the script produces — otherwise
-    a hand-edit could ship URLs the harvest never verified."""
-    assert build_catalog()["editions"] == editions
+    a hand-edit could ship URLs the harvest never verified.
+
+    WHY `title` is excluded from this comparison (2026-08-16): titles now
+    have TWO legitimate sources layered on top of each other. `build_catalog()`
+    still reproduces the raw harvest's title for every row — necessarily,
+    since it has no access to the corpus — but the COMMITTED file's titles
+    are then corrected by `scripts/repair_supplier_titles.py`, which
+    overwrites them from the corpus's own (content-derived, already-repaired)
+    `documents.json`. That script is what fixed the harvest's actual defect:
+    `05app/bar.pdf` (the Board of Barbers) was recorded under the title of
+    the row above it, "Agriculture, Arizona Department of" —
+    `tests/test_book_catalog.py::test_no_edition_has_two_agencies_sharing_a_title`
+    is the regression guard for that. This test's own remaining job — no
+    hand-edited URL, code, era_note, or any other harvest field ships
+    unverified — is unweakened, because only `title` is stripped before the
+    comparison below; a hand-edited URL still fails it exactly as before.
+    """
+    assert _without_row_titles(build_catalog()["editions"]) == _without_row_titles(editions)
 
 
 def test_edition_keys_and_shape(editions):
@@ -189,3 +218,32 @@ def test_rolling_budget_editions_are_flagged_not_trusted(editions):
 def test_rolling_editions_say_so_in_plain_language(editions):
     entry = editions["approps-fy2023"]
     assert "repurposes each cycle" in entry["era_note"]
+
+
+# --- per-agency titles are supplier data, and were WRONG ------------------
+
+
+def test_no_edition_has_two_agencies_sharing_a_title(editions):
+    """The exact shape of the off-by-one harvest defect: `data/jlbc-book-
+    catalog.json` is a scrape of JLBC's own agency-index page, and it once
+    recorded `05app/bar.pdf` (the Board of Barbers) under the title
+    "Agriculture, Arizona Department of" — the row above it in the index —
+    because the harvest read one row's label against a neighbouring row's
+    URL. Two distinct agency codes in the same book edition can never
+    legitimately share a display title (every agency gets its own page), so
+    a duplicate title within one edition IS the defect signature. Fixed by
+    `scripts/repair_supplier_titles.py`, which rewrites this file's titles
+    from the corpus's own (content-derived, already-repaired)
+    `documents.json`, joined by source_url exactly the way
+    `app/search_provider.py::_info` does. Before that repair ran, 33 of the
+    62 editions had at least one duplicate pair — this test failed against
+    the pre-repair file, which is how it was confirmed to catch the real
+    defect rather than pass vacuously.
+    """
+    offenders = {}
+    for key, entry in editions.items():
+        titles = Counter(row["title"] for row in entry.get("per_agency", []))
+        dupes = {title: count for title, count in titles.items() if count > 1}
+        if dupes:
+            offenders[key] = dupes
+    assert offenders == {}, f"editions with two agencies sharing a title: {offenders}"

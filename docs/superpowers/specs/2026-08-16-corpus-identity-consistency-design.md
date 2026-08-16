@@ -1,6 +1,11 @@
 # Corpus identity consistency — design
 
-**Status: SPEC. Approved 2026-08-16. Revised 2026-08-16 after review. Not implemented.**
+**Status: BUILT AND APPLIED 2026-08-16.** Approved, then revised the same day
+after review (four claims did not survive measurement — see the corrections
+block below), then implemented across two plans. What actually shipped, with
+the measured before/after and the follow-ups, is in `STATUS.md` under
+"Corpus identity — names and agency labels repaired (2026-08-16)".
+**I11 was WITHDRAWN** from scope. One browser check remains outstanding.
 
 Evidence: [`docs/superpowers/investigations/2026-08-16-identity-consistency-audit.md`](../investigations/2026-08-16-identity-consistency-audit.md)
 and [`…-document-title-inconsistency.md`](../investigations/2026-08-16-document-title-inconsistency.md).
@@ -549,7 +554,7 @@ Three units, each independently useful and independently revertible. The
 first draft's seven phases are collapsed; the two that had no user-visible
 effect are gone (old Phase 6) or merged.
 
-### Unit A — see it, and stop it recurring
+### Group 1 — MEASURE IT (see the problem, and stop it recurring)
 
 | # | phase | fixes | gate |
 |---|---|---|---|
@@ -563,14 +568,14 @@ items to each other**. A1 is that missing instrument, and every later phase
 is gated on numbers it produces. **A2 before any repair**, because
 otherwise the repairs are invisible (I6/R2).
 
-### Unit B — the names
+### Group 2 — FIX THE TITLES
 
 | # | phase | fixes | gate |
 |---|---|---|---|
 | **B1** | Probe-ladder suffix fix (I6) + `identity/compose.py` (I5) | new ingests | a fresh book edition produces 0 titles outside the format |
 | **B2** | Title repair pass — sidecar only, no lock, no snapshot (I7) | **218 + 131 + 375** | 0 titles naming a different agency **on the page**; 0 outside the format; 0 new duplicates |
 
-### Unit C — the data mutations
+### Group 3 — FIX THE LABELS (the data mutations)
 
 Each takes `IngestLock`, a verified snapshot, and an I8 reversal record.
 

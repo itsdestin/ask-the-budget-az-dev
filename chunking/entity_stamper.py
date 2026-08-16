@@ -35,18 +35,45 @@ _DEFAULT_FUND_CATALOG = Path(__file__).resolve().parent.parent / "data" / "fund-
 # Mirror of `_TOPIC_SLUGS` in ingest/discovery.py.
 _TOPIC_SLUGS = frozenset({"capitaloutlay", "agencyindex", "crr", "tobacco", "csbg"})
 
-# JLBC URL slug-extraction patterns. Two host families per url_conventions.py:
+# JLBC URL slug-extraction patterns. Four azjlbc.gov directory conventions
+# plus the legacy azleg.gov host:
 #   https://www.azjlbc.gov/<YY>baseline/<slug>.pdf       (FY23+ baselines)
 #   https://www.azjlbc.gov/<YY>ar/<slug>.pdf             (FY23+ approps)
+#   https://www.azjlbc.gov/<YY>app/<slug>.pdf            (older approps)
+#   https://www.azjlbc.gov/<YY>book<N>/<slug>.pdf        (older baselines)
 #   http://www.azleg.gov/jlbc/<YY>AR/<slug>.pdf          (FY15-FY22 approps)
+#
+# WHY these four directories and not two (2026-08-16): JLBC published agency
+# pages under `/NNapp/` (~1,294 live documents) and `/NNbookN/` (~141) as
+# well as the `/NNbaseline/` and `/NNar/` this rule started with. Those
+# ~1,448 documents therefore reached the fuzzy text rung with no slug at
+# all -- and ~965 of them have a slug that IS a catalogued agency. That is
+# the strongest witness in the ladder, discarded, on exactly the FY2005-2012
+# era where the mis-labels concentrate. `store/book_family.py::_BOOK_DIR`
+# already knew all four; the two modules disagreed and this is the one that
+# assigned labels. Do not narrow this back to two directories.
 _JLBC_URL_RE = re.compile(
-    r"^https?://(?:www\.azjlbc\.gov/(?:\d{2}baseline|\d{2}ar)/"
+    r"^https?://(?:www\.azjlbc\.gov/\d{2}(?:baseline|book\d*|ar|app)/"
     r"|www\.azleg\.gov/jlbc/\d{2}AR/)([a-z0-9_\-]+)\.pdf$",
     re.IGNORECASE,
 )
 
 # Fuzzy-match floor — rapidfuzz token_set_ratio. Plan: ≥ 85.
 _FUZZY_THRESHOLD = 85
+
+# Sub-programme slug prefix fallback (2026-08-16) — see the WHY block on
+# _prefix_slug_match below for the measurement behind this rung.
+_MIN_PREFIX_SLUG_LEN = 3
+
+# The one measured false positive out of the 36 slugs the prefix rung
+# recovers against the live corpus: 'appropveto' is JLBC's "Appropriation
+# Vetoes" summary chapter (a legislative-process document), not a document
+# about the agency slugged 'app' (the Legislature's budget-bill index). The
+# two share their first 3 letters by coincidence only — measured, read by
+# hand, and confirmed not an agency page. Add to this set only after the
+# same hand-check; the whole point of the set is that these are exceptions,
+# not a place to route around a bad measurement.
+_PREFIX_MATCH_DENYLIST = frozenset({"appropveto"})
 
 
 def slug_from_jlbc_url(url: str | None) -> str | None:
@@ -75,6 +102,11 @@ class EntityStamper:
         fund_catalog_path: Path | str | None = None,
     ) -> None:
         self._slug_to_id: dict[str, str] = {}
+        # Catalogued slugs eligible to anchor a sub-programme prefix match
+        # (>= _MIN_PREFIX_SLUG_LEN chars), longest-first so the longest
+        # catalogued prefix wins — see _prefix_slug_match. Populated at the
+        # end of _load_catalog, once every slug is known.
+        self._prefix_slugs_longest_first: list[str] = []
         self._name_to_id: dict[str, str] = {}
         self._all_names: list[str] = []  # for fuzzy match
         self._alias_to_canonical_slug: dict[str, str] = {}
@@ -152,6 +184,12 @@ class EntityStamper:
         # 5 characters.
         self._agency_scan_names = sorted(
             (k for k in self._name_to_id if len(k) >= _MIN_SCAN_NAME_LEN),
+            key=len,
+            reverse=True,
+        )
+
+        self._prefix_slugs_longest_first = sorted(
+            (s for s in self._slug_to_id if len(s) >= _MIN_PREFIX_SLUG_LEN),
             key=len,
             reverse=True,
         )
@@ -307,6 +345,16 @@ class EntityStamper:
             canonical_id = self._slug_to_id.get(canonical_slug)
             if canonical_id:
                 return canonical_id, alias_chain
+
+            # Rung 1b: sub-programme slug prefix fallback. See the WHY block
+            # on _prefix_slug_match — measured to recover 36/195 real
+            # documents from older (~FY2005-2012) editions where JLBC split
+            # a large agency into several sub-programme PDFs whose slugs
+            # ('axsacute', 'dhsbehav', ...) were never added to the catalog.
+            prefix_id = self._prefix_slug_match(canonical_slug)
+            if prefix_id:
+                return prefix_id, alias_chain
+
             # Fall through: slug looked JLBC-shaped but isn't in the catalog.
             # Try names anyway.
 
@@ -329,9 +377,45 @@ class EntityStamper:
             if key and key in self._name_to_id:
                 return self._name_to_id[key], []
 
-        # Fuzzy fallback: rapidfuzz token_set_ratio against canonical_names.
-        # The processor is load-bearing on TWO axes:
-        #   1. Casefold — rapidfuzz's token_set_ratio is case-sensitive in 3.x
+        # Fuzzy fallback: rapidfuzz token_sort_ratio against canonical_names.
+        #
+        # WHY token_sort_ratio and not token_set_ratio (2026-08-16 — this is
+        # the defect that mis-labelled 732 of the 992 documents stamped
+        # 'agency:ost', making one small regulatory board the largest agency
+        # in the corpus, above Corrections and AHCCCS): token_set_ratio
+        # compares token SETS, so a candidate whose tokens are a SUBSET of a
+        # catalog name scores 100 no matter how little of the name it
+        # covers. Measured against the real Osteopathic catalog entry:
+        #
+        #     candidate                    token_set_ratio  token_sort_ratio
+        #     'Arizona'                              100                14
+        #     'Medicine'                             100                16
+        #     'Board of'                              77                16
+        #     'Board of Barbers' vs                   97                97
+        #       'Barbers, Board of'
+        #     'DEPARTMENT OF CORRECTIONS' vs          88                88
+        #       'Corrections, State Department of'
+        #
+        # The candidates are the first ten non-blank lines of a chunk plus
+        # its section_path, so a page whose header merely says "Arizona"
+        # reached a 100-way tie under token_set_ratio — and extractOne broke
+        # that tie by CATALOG ORDER, not by evidence.
+        #
+        # token_sort_ratio separates the two classes completely at the
+        # existing floor of 85. It sorts tokens before comparing, so it
+        # still handles the reordered-name case the scorer was originally
+        # chosen for ('Board of Barbers' vs 'Barbers, Board of' both stay at
+        # 97), while penalising the length mismatch token_set_ratio ignores.
+        # Switching costs NOTHING on candidates carrying extra words —
+        # 'Board of Barbers   Executive Director: Mario J. Herrera' scores
+        # 64 under token_set_ratio and 46 under token_sort_ratio, both
+        # already below the 85 floor. The fuzzy rung only ever fires on
+        # short, clean candidate lines, which is exactly where the defect
+        # lived.
+        #
+        # The processor is load-bearing on TWO axes, unrelated to the scorer
+        # choice above:
+        #   1. Casefold — rapidfuzz's ratio scorers are case-sensitive in 3.x
         #      without an explicit processor, so 'DEPARTMENT OF CORRECTIONS'
         #      vs 'Department of Corrections' scored ~19, far below the 85
         #      floor.
@@ -341,22 +425,88 @@ class EntityStamper:
         #      'Sec.\xa025.\xa0\xa0DEPARTMENT' fuses with the section number
         #      and never matches the catalog. Replacing \xa0 with regular
         #      space restores normal whitespace tokenization.
+        #
+        # Ties are refused, not broken by catalog order. `process.extract`
+        # (plural) is used instead of `extractOne` so every name at the top
+        # score is visible; if two or more of them map to DIFFERENT
+        # canonical ids, that candidate line is not evidence for any one of
+        # them and is skipped. This is deliberately per-CANDIDATE, not
+        # whole-chunk: a later, cleaner line can still resolve even if an
+        # earlier one was ambiguous. An unlabelled chunk costs only a
+        # ranking preference (agency is a PREFERENCE, not a filter — see
+        # CLAUDE.md), while a wrong guess costs a wrong agency facet, which
+        # is what 732 mis-labelled documents look like.
         for cand in candidates:
-            best = process.extractOne(
+            matches = process.extract(
                 cand,
                 self._all_names,
-                scorer=fuzz.token_set_ratio,
+                scorer=fuzz.token_sort_ratio,
                 processor=_fuzzy_processor,
                 score_cutoff=_FUZZY_THRESHOLD,
+                limit=5,
             )
-            if best is not None:
-                matched_name = best[0]
-                key = _normalize_for_match(matched_name)
-                canonical_id = self._name_to_id.get(key)
-                if canonical_id:
-                    return canonical_id, []
+            if not matches:
+                continue
+            top_score = matches[0][1]
+            top_ids = {
+                self._name_to_id[key]
+                for name, score, _idx in matches
+                if score == top_score
+                for key in [_normalize_for_match(name)]
+                if key in self._name_to_id
+            }
+            if len(top_ids) == 1:
+                return next(iter(top_ids)), []
+            # len(top_ids) == 0: matched name(s) not in the index (shouldn't
+            # happen, _all_names is built from indexed names) — treat as no
+            # match. len(top_ids) > 1: a genuine tie between distinct
+            # agencies — refuse rather than guess, per the WHY above.
 
         return None, []
+
+    def _prefix_slug_match(self, slug: str) -> str | None:
+        """Sub-programme slug fallback for rung 1 (2026-08-16).
+
+        WHAT this recovers: in older JLBC editions (roughly FY2005-2012),
+        several large agencies were published as multiple sub-programme
+        documents instead of one per-agency file — e.g. AHCCCS Acute Care
+        as 'axsacute.pdf', AHCCCS Administration as 'axsadmn.pdf', neither
+        of which is the catalogued 'axs' slug. The agency catalog only
+        knows the whole-agency slug, so the direct lookup above always
+        misses these, and (correctly, since the fuzzy text rung was just
+        tightened to stop guessing from a single shared word) the text
+        rung refuses them too — before this fallback they lost their
+        AHCCCS label entirely.
+
+        MEASURED (controller, live corpus, 2026-08-16): "does the
+        catalogued slug is-a-prefix-of the uncatalogued URL slug" recovers
+        36 slugs / 195 documents, 35 of them unambiguously correct — see
+        _SUB_PROGRAMME_SLUG_TO_AGENCY in tests/test_entity_stamper.py for
+        the full pinned list (ade/axs/des/dhs/doa/dot sub-programmes plus
+        judsuperior -> judsup). Everything else uncatalogued is JLBC's
+        numbered summary chapters ('302', '341-353', ...) — no catalogued
+        slug is ever a prefix of those, so they correctly stay unresolved.
+
+        The one measured false positive, 'appropveto' -> 'app', is refused
+        via _PREFIX_MATCH_DENYLIST rather than by tightening the length
+        floor (which would have thrown away real recoveries like the
+        3-char 'axs' and 'des' groups).
+
+        Longest catalogued prefix wins (`_prefix_slugs_longest_first` is
+        pre-sorted): 'judsuperior' must resolve via the 6-char 'judsup',
+        not stop at some shorter accidental match. A floor of
+        `_MIN_PREFIX_SLUG_LEN = 3` keeps 2-character catalogued slugs (the
+        real catalog has 'cf', 'cs') from ever anchoring a match — at that
+        length they would fire inside unrelated slugs across the corpus,
+        the same over-eager-substring failure mode the fuzzy rung was just
+        fixed for.
+        """
+        if slug in _PREFIX_MATCH_DENYLIST:
+            return None
+        for catalog_slug in self._prefix_slugs_longest_first:
+            if slug.startswith(catalog_slug):
+                return self._slug_to_id.get(catalog_slug)
+        return None
 
     # --- fund resolution ----------------------------------------------------
 
