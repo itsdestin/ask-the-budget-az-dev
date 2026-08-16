@@ -48,57 +48,110 @@ its own neighbours**, which is the part nobody had looked at.
 
 ### 3. `AHCCCS` — 🔴 TODAY'S INGEST, and a regression
 
-`app/routes/books.py:148` passes `user_title=doc.title`, where `doc.title`
-is the **link text scraped off JLBC's index page** — literally the word
-"AHCCCS". `ingest/lance_writer.py::build_title` opens with:
+**Narrowed 2026-08-16 after the first write-up.** The original diagnosis —
+"the books route passes a scraped title and defeats `build_title`" — was
+half right and pointed at the wrong file. `build_title` is fine and the
+books route is fine. **The defect is in `ingest/book_discovery.py`, and it
+is a difference between two discovery paths that both feed the same route.**
 
-```python
-if user_title and user_title.strip():
-    base = user_title.strip()
+`app/routes/books.py:148` passes `user_title=doc.title`, and
+`ingest/lance_writer.py::build_title` honours it verbatim —
+*"a title the uploader typed wins verbatim"*. That is correct, because
+**for most of the corpus `doc.title` is the JLBC website's own display
+title.** `data/jlbc-book-catalog.json` (built from the 2026-06-16 harvest)
+carries it already composed:
+
+```json
+{"code": "axsacute", "title": "AXSACUTE — FY 2005 Appropriations Report", ...}
 ```
 
-*"A title the uploader typed wins verbatim — they know what the document is
-and we don't."* That reasoning is right for a person filling in a form and
-wrong for a scraper: nobody typed anything, and the scraper knows less than
-`build_title` does. So the automatic naming is defeated on every document
-added by the book tool.
+So the 4,946 well-named documents got their names through exactly the same
+line that produced today's bad ones. **`discover_documents()` returns the
+catalog roster untouched when it has one** (`book_discovery.py:265`).
 
-It has not been visible until now because every earlier edition ALSO had a
-mockup-index entry, which outranks the sidecar. The FY2027 Appropriations
-Report is the first book ingested that the 2026-06-16 harvest never saw —
-it is the edition the T10 panel correctly reported as missing — so it is
-the first to fall through to rung 2 and show what rung 2 has always
-produced.
+The probe ladder — the fallback for an edition the harvest never saw —
+composes nothing:
 
-**126 documents were created in this shape today.**
+```python
+title=entry.name or entry.slug,          # agency index  (line 275)
+title=entry.title or entry.filename,     # linked TOC    (line 284)
+```
+
+`entry.name` is the raw link text off the index PDF. For an agency page
+that is the bare agency name (`Gaming, Department of`); for a summary
+section it is the table-of-contents line **including its bullet and dot
+leaders** (`• Summary of One-Time General Fund Adjustments ..........`).
+
+It has never been visible because until today every edition ingested came
+from the catalog. The FY2027 Appropriations Report is the **first edition
+ever ingested through the probe ladder** — it is the edition the T10 panel
+correctly reported as missing — so it is the first to show what that path
+has always produced.
+
+**131 documents were created in this shape today.**
+
+## How big the problem actually is
+
+Measured against the live sidecar, 7,565 documents:
+
+| title shape | count | verdict |
+|---|---|---|
+| `X — FY nnnn Book` (catalog / website) | **4,946** | correct, the target format |
+| `Fiscal Note - SB nnnn: …` | 2,104 | correct — a different corpus with its own format |
+| `JLBC FYnnnn — X` (migration-era) | 369 | ugly and inconsistent, but parseable |
+| **bare link text (JLBC books)** | **137** | 🔴 the defect — **131 created today** |
+| AFR / Governor / bill singletons | 9 | correct |
+
+The 137 are the only genuinely broken ones. Of the 6 that predate today,
+all six are the same smaller bug in a different place — `JLBC FY2025 apf`,
+where a hyphenated sub-slug (`doa-apf`) defeated the agency lookup.
 
 ## What a fix looks like
 
-**One rule for JLBC book documents: `{Agency} — FY {year} {Book}`** — the
-mockup index's own format, since that is both the best of the three and the
-one the majority of the corpus already uses.
+**One rule for JLBC book documents: `{Name} — FY {year} {Book}`** — the
+website's own format, because it is both the best of the shapes and the one
+4,946 documents already use. Adopting anything else means re-titling the
+majority to match a minority.
 
-1. **Stop the books route passing scraped link text as `user_title`**
-   (`app/routes/books.py:148`). It is the only caller that supplies a title
-   nobody typed. `build_title` already produces the right shape from
-   doc_type + fiscal_year + agency.
-2. **Re-title the affected documents.** This appears to be **metadata only
-   — no re-ingest** (`doc_title` is not a column in `store/schema.py`; the
-   browse page composes the title at query time from documents.json). ⚠
-   VERIFY THAT before relying on it, because STATUS.md says elsewhere that
-   "doc_title rides on every retrieved chunk" for AI Mode's
-   Engrossed-supersedes-Introduced rule. If AI Mode reads a stored title,
-   the two paths need checking separately.
-3. **Decide about the ~378 migration-era documents.** They have no
-   `ingested_at`, which is why the sidecar's title is distrusted for them.
-   Re-titling them is the same metadata operation.
+1. **Compose the suffix in the probe ladder** (`ingest/book_discovery.py`,
+   the two `title=` lines), so both discovery paths hand the route the same
+   shape. Strip the leading bullet and trailing dot leaders while there —
+   the harvest's own titles have neither. **Roughly five lines**, and it
+   touches neither `books.py` nor `build_title`, both of which are correct.
+2. **Re-title the 137 affected documents.** ✅ **VERIFIED metadata-only —
+   no re-ingest.** `doc_title` is not a column in `store/schema.py`; both
+   readers compose it at query time from `documents.json`
+   (`app/search_provider.py:236` for the browse page,
+   `harness/tools.py:1035` → `store.documents.titles_for` for AI Mode).
+   STATUS.md's "doc_title rides on every retrieved chunk" describes the
+   retrieve() *payload*, not stored data.
+3. **Decide separately about the 369 migration-era documents.** Same
+   metadata operation, older problem, not caused by this work.
+
+### ⚠ A second finding, from checking (2): the two surfaces disagree
+
+The browse page and AI Mode do **not** use the same precedence.
+
+| | browse page (`search_provider.py`) | AI Mode (`harness/tools.py`) |
+|---|---|---|
+| mockup index | ✅ first | **never consulted** |
+| sidecar title | gated on `ingested_at` | ungated, and the only source |
+| humanized doc_id | last | last |
+
+Both gaps are deliberate and documented at the code, and today they happen
+to agree on the six AHCCCS documents because the sidecar already holds the
+website title. But **a document can be named one thing on screen and
+another inside an answer**, and re-titling must therefore be checked on
+both surfaces, not one.
 
 ## Two smaller things the same query exposed
 
 - **FY2005–FY2011 AHCCCS reads as raw slugs**: `AXSACUTE — FY 2005
   Appropriations Report`, `AXSADMN`, `AXSLTC`. JLBC split AHCCCS into three
-  documents in those years and the website index named them by slug. Older,
-  separate, lower priority — but it is the same class of problem.
+  documents in those years, and **the harvested catalog itself carries those
+  slugs as the titles** — confirmed in `data/jlbc-book-catalog.json`. So the
+  format is right and the name is wrong, which is a different repair
+  (a slug→agency lookup) from the 137 above. Lower priority.
 - The `ingested_at` gate was introduced (Plan 5 Task 19) to stop migration
   junk titles beating the humanizer. It is doing its job. The defect is
   that there are three producers at all, not that the gate is wrong.
