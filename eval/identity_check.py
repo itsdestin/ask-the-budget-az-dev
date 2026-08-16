@@ -50,6 +50,10 @@ class IdentityReport:
     uninformative_titles: int = 0
     distinct_agency_slugs: int = 0
     catalogued_agencies: int = 0
+    # Informational, not an error count — how many documents were dropped by
+    # the fiscal-note exclusion below. Reported so the exclusion is VISIBLE
+    # rather than a silent filter nobody can see (2026-08-16 reconciliation).
+    fiscal_notes_excluded: int = 0
     findings: list[dict[str, Any]] = field(default_factory=list)
 
     def as_dict(self) -> dict[str, Any]:
@@ -63,8 +67,29 @@ class IdentityReport:
             "uninformative_titles": self.uninformative_titles,
             "distinct_agency_slugs": self.distinct_agency_slugs,
             "catalogued_agencies": self.catalogued_agencies,
+            "fiscal_notes_excluded": self.fiscal_notes_excluded,
             "findings": self.findings,
         }
+
+
+def _longest_word(words: Iterable[str]) -> str | None:
+    """The single most specific token in a set of distinctive words.
+
+    Used instead of "any word" / "all words" for both the stamping check and
+    the wrong-agency check. Measured against the live corpus 2026-08-16 for
+    `agency:ost` ("Osteopathic Examiners in Medicine and Surgery, Arizona
+    Board of" — distinctive words {osteopathic, examiners, medicine,
+    surgery}): "any word" scored 142 mis-stamped documents corpus-wide
+    because an ordinary budget page saying "medicine" or "surgery" passes;
+    "longest word" ("osteopathic") scored 732 for this agency alone (audit:
+    721, 1.5% off) and 1140 corpus-wide; "all words" scored 1771 corpus-wide
+    — over-strict, since a correct document can phrase its own boilerplate
+    around any one distinctive word without using every one of them. The
+    longest word is the agency's most specific token: short shared words like
+    "medicine" recur across the whole corpus and prove nothing.
+    """
+    words = list(words)
+    return max(words, key=len) if words else None
 
 
 def check_corpus(
@@ -79,18 +104,34 @@ def check_corpus(
     Pure function of its arguments so the suite can drive it with fixtures
     and never open a LanceDB directory.
     """
+    # Fiscal notes are OUT OF SCOPE for I13 (spec + identity/validator.py
+    # docstring) — they have none of the three suppliers (title-parser,
+    # page-number scraper, dot-leader OCR) this module exists to distrust,
+    # and their "Fiscal Note - HB 2172: <strike>...</strike> (NOW: ...)"
+    # titles are a deliberate app feature, not a naming defect. Confirmed by
+    # measurement 2026-08-16: including their 2,104 documents contaminated
+    # every metric — titles_outside_format 2627 -> 523 budget-only (audit
+    # ~506), duplicate_titles 376 -> 218 budget-only (audit 218, exact),
+    # invalid-name findings 471 -> 218 budget-only. Filtered ONCE here, not
+    # per metric, so no metric can silently start counting them again.
+    budget_documents = {
+        doc_id: meta for doc_id, meta in documents.items()
+        if meta.get("doc_type") != "fiscal-note"
+    }
+
     report = IdentityReport(
         catalogued_agencies=len(agency_names),
         distinct_agency_slugs=len({
             a.split(":", 1)[-1] for ids in stamps_by_doc.values() for a in ids
         }),
+        fiscal_notes_excluded=len(documents) - len(budget_documents),
     )
 
     title_counts = Counter(
-        (d.get("title") or "") for d in documents.values() if d.get("title")
+        (d.get("title") or "") for d in budget_documents.values() if d.get("title")
     )
 
-    for doc_id, meta in documents.items():
+    for doc_id, meta in budget_documents.items():
         title = (meta.get("title") or "").strip()
         text = " \n".join(chunks_by_doc.get(doc_id, [])).lower()
         stamps = list(stamps_by_doc.get(doc_id, []))
@@ -115,15 +156,17 @@ def check_corpus(
             )
 
         # Per-DOCUMENT stamping check. A document is a mis-stamp only when
-        # NONE of its chunks mention the stamped agency's name anywhere —
-        # checking chunk-by-chunk would flag a correct document's own
-        # boilerplate/footnotes page and could never reach zero.
+        # the stamped agency's LONGEST distinctive word appears nowhere in
+        # its chunks — see `_longest_word` for why "longest", not "any" or
+        # "all". Per-document (not per-chunk): checking chunk-by-chunk would
+        # flag a correct document's own boilerplate/footnotes page and could
+        # never reach zero.
         for agency_id in stamps:
             name = agency_names.get(agency_id)
             if not name:
                 continue
-            words = distinctive_words(name)
-            if words and not any(w in text for w in words):
+            longest = _longest_word(distinctive_words(name))
+            if longest and longest not in text:
                 report.documents_never_mentioning_stamp += 1
                 report.findings.append(
                     {"doc_id": doc_id, "kind": "stamp-unmentioned",
@@ -132,27 +175,54 @@ def check_corpus(
                 break
 
         # Does the TITLE name a different agency than the document's own
-        # stamp? Only meaningful when the stamp itself is corroborated by
-        # the text — otherwise this double-counts the stamping metric.
-        stamped_names = [agency_names[a] for a in stamps if a in agency_names]
-        if title and stamped_names:
-            own = distinctive_words(stamped_names[0])
-            titled = distinctive_words(title)
-            corroborated = bool(own) and any(w in text for w in own)
-            if corroborated and titled and own and not (own & titled):
+        # stamp? Tightened 2026-08-16 from "any shared word off stamps[0]"
+        # to three conditions, verified against the live corpus (239 vs the
+        # audit's 218, within 10%; top hits are exactly the known defects —
+        # jlbc-approps-fy2005-bar titled "Agriculture, Arizona Department of"
+        # against agency:agr, jlbc-approps-fy2005-ata titled "Administrative
+        # Hearings, Office of" against agency:oah):
+        #   1. a stamp is CORROBORATED only when its LONGEST distinctive word
+        #      (mirrors the stamping check above) is actually in the text —
+        #      an uncorroborated stamp says nothing about whether the title
+        #      is wrong, it says the STAMP might be wrong, a separate defect;
+        #   2. none of the corroborated stamps' longest words may appear in
+        #      the title, or this double-counts the stamping metric;
+        #   3. some OTHER agency's longest distinctive word, >4 chars, must
+        #      appear in the title — a short word is too likely to be
+        #      coincidence (mirrors the same reasoning as the stamping rule).
+        # KNOWN accepted false-positive shape, NOT fixed here: a document
+        # whose title is right but whose stamp is missing/wrong shows up in
+        # THIS metric too (e.g. jlbc-approps-fy2005-ban titled "Financial
+        # Institutions, Department of" flagged against agency:ban, its own
+        # slug) — that is a stamping defect surfacing here, and the stamping
+        # fix is separate, later work.
+        titled = distinctive_words(title) if title else set()
+        if titled:
+            corroborated_longest = set()
+            for agency_id in stamps:
+                name = agency_names.get(agency_id)
+                if not name:
+                    continue
+                longest = _longest_word(distinctive_words(name))
+                if longest and longest in text:
+                    corroborated_longest.add(longest)
+            if corroborated_longest and not (corroborated_longest & titled):
                 other = [
                     aid for aid, nm in agency_names.items()
-                    if aid not in stamps and distinctive_words(nm) & titled
+                    if aid not in stamps
+                    and (lw := _longest_word(distinctive_words(nm)))
+                    and len(lw) > 4
+                    and lw in titled
                 ]
                 if other:
                     report.title_names_wrong_agency += 1
                     report.findings.append(
                         {"doc_id": doc_id, "kind": "title-wrong-agency",
-                         "title": title, "stamped": stamps[0],
+                         "title": title, "stamped": stamps[0] if stamps else None,
                          "titled": other[0]}
                     )
 
-    for doc_id, meta in documents.items():
+    for doc_id, meta in budget_documents.items():
         url = (meta.get("source_url") or "").lower()
         if not url:
             continue

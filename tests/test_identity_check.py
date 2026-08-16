@@ -15,8 +15,9 @@ from __future__ import annotations
 from eval.identity_check import check_corpus
 
 
-def _doc(title, url=None, fy=2005, book="Appropriations Report"):
-    return {"title": title, "source_url": url, "fiscal_year": fy, "book": book}
+def _doc(title, url=None, fy=2005, book="Appropriations Report", doc_type=None):
+    return {"title": title, "source_url": url, "fiscal_year": fy, "book": book,
+            "doc_type": doc_type}
 
 
 def test_a_title_names_a_different_agency_than_the_text_is_counted():
@@ -103,6 +104,79 @@ def test_a_slug_title_is_REPORTED_and_never_counted_as_a_failure():
     assert report.uninformative_titles == 1
     assert report.titles_outside_format == 0
     assert report.validator_failures == 0
+
+
+def test_a_fiscal_note_document_is_excluded_from_the_budget_metrics():
+    """Fiscal notes are out of scope for I13 (spec + identity/validator.py
+    docstring) — their titles are a deliberate app feature
+    ('Fiscal Note - HB 2172: <strike>...</strike> (NOW: ...)'), not a naming
+    defect, and none of the three suppliers this module distrusts apply to
+    them. Measured 2026-08-16: including them inflated titles_outside_format
+    2627 -> 523 budget-only and duplicate_titles 376 -> 218 budget-only
+    (audit: 218, exact)."""
+    fiscal_note_title = (
+        "Fiscal Note - HB 2172: <strike>technology transfer</strike> "
+        "(NOW: solar device; tax credit)"
+    )
+    report = check_corpus(
+        documents={
+            "fn-hb2172": _doc(fiscal_note_title, doc_type="fiscal-note"),
+        },
+        chunks_by_doc={"fn-hb2172": [""]},
+        agency_names={},
+        stamps_by_doc={},
+    )
+    assert report.titles_outside_format == 0
+    assert report.uninformative_titles == 0
+    assert report.validator_failures == 0
+    assert report.duplicate_titles == 0
+    assert report.fiscal_notes_excluded == 1
+
+
+def test_a_document_mentioning_only_a_SHORT_shared_word_of_its_agency_still_counts_as_not_mentioning_it():
+    """agency:ost measured 2026-08-16: "any distinctive word" let ordinary
+    shared words like "medicine" or "surgery" pass a document that never
+    actually discusses the Board of Osteopathic Examiners — 142 mis-stamps
+    found corpus-wide vs the audit's 721 for this one agency alone. The
+    LONGEST distinctive word ("osteopathic") is the agency's own specific
+    token; a document that only says a short shared word must still count as
+    not mentioning its stamp."""
+    report = check_corpus(
+        documents={"jlbc-approps-fy2026-x": _doc(
+            "Some Other Title — FY 2026 Appropriations Report")},
+        chunks_by_doc={"jlbc-approps-fy2026-x": [
+            "General surgery and medicine funding increased this year.",
+        ]},
+        agency_names={
+            "agency:ost": "Osteopathic Examiners in Medicine and Surgery, "
+                          "Arizona Board of",
+        },
+        stamps_by_doc={"jlbc-approps-fy2026-x": ["agency:ost"]},
+    )
+    assert report.documents_never_mentioning_stamp == 1
+
+
+def test_the_wrong_agency_rule_does_NOT_fire_when_the_stamp_is_uncorroborated():
+    """Corroboration now requires the stamp's LONGEST distinctive word
+    (mirrors the stamping-check tightening) rather than 'any' word. A
+    document mentioning only the shorter word "financial" without
+    "institutions" is not corroborated, so a differing title must not be
+    flagged as a wrong-agency defect — an uncorroborated stamp is a stamping
+    problem (separate, later work; see the KNOWN false-positive comment in
+    the source), not evidence the TITLE is wrong."""
+    report = check_corpus(
+        documents={"jlbc-approps-fy2005-x": _doc(
+            "Agriculture, Arizona Department of — FY 2005 Appropriations Report")},
+        chunks_by_doc={"jlbc-approps-fy2005-x": [
+            "This page references financial matters only, nothing else.",
+        ]},
+        agency_names={
+            "agency:ban": "Financial Institutions, Department of",
+            "agency:agr": "Agriculture, Arizona Department of",
+        },
+        stamps_by_doc={"jlbc-approps-fy2005-x": ["agency:ban"]},
+    )
+    assert report.title_names_wrong_agency == 0
 
 
 def test_the_report_never_carries_a_production_count():
