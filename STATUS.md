@@ -50,7 +50,7 @@ source. When something ships, update only this file.
 | **Plan B — resilient processing** (T5–T8, T12) | ✓ **Shipped** (2026-08-13) | A document that extracts to almost nothing is now detected, retried with another extractor, and held out of search if every method fails — instead of being written and reported `live`. Coverage floor **calibrated at 0.10 across all 7,434 documents**. 2798 pytest / 859 vitest / `tsc -b` clean, Layer 1 eval unmoved. **The acceptance run did NOT go as planned and found two real things — read the section below before building on this** |
 | ⬛ Corpus identity consistency (I1–I14) | **SUPERSEDED — it is BUILT** | This row described the problem before the work. See the phase row above and the shipped section below. Two of its figures were measured WRONG: the 721 mis-labels were a fuzzy-matcher defect, not the three corrupted catalog names; and only 25 of the 137 titles carried a bullet |
 | FY2027 Appropriations Report ingest | ✓ **Done + verified (2026-08-16)** | 140/140 live, 0 failures, 2,336 passages, 0 duplicate ids corpus-wide, 4.61 chunks/page. Corpus now **83,016 budget chunks / 7,566 documents**. Its titles are wrong — that is the identity defect above, not an ingest failure |
-| **Whole-report links become data + an admin approval screen** | ✓ **Shipped (2026-08-16)**, acceptance walk RUN, rendering unwitnessed | R1–R13. The 39-edition "Full report" URL table moves out of the JS bundle into `data/report-formats.json` merged with an admin overlay on the share; three admin routes scan the corpus for unanswered editions, probe candidates live and approve them. **Adding a fiscal year is now a click, not a rebuild.** The plan's own code was wrong three times, each caught by measurement — a refactor that would have downloaded whole PDFs on a 404, an offline branch that was dead code, and an offline check that poisoned a 12-hour cache. 3219 pytest / 1021 vitest. See the section below |
+| **Whole-report links become data + an admin approval screen** | ✓ **Shipped (2026-08-16)**, acceptance walk RUN, **rendering seen in a browser** | R1–R13. The 39-edition "Full report" URL table moves out of the JS bundle into `data/report-formats.json` merged with an admin overlay on the share; three admin routes scan the corpus for unanswered editions, probe candidates live and approve them. **Adding a fiscal year is now a click, not a rebuild.** The plan's own code was wrong three times, each caught by measurement — a refactor that would have downloaded whole PDFs on a 404, an offline branch that was dead code, and an offline check that poisoned a 12-hour cache. 3219 pytest / 1021 vitest. See the section below |
 | **Tool cards — placement, then legibility** (TC1–TC22) | ✓ **Shipped 2026-08-16**, browser-approved | A run of tool calls moved out of the space above an answer and INTO the bubble that follows it, then its contents were rewritten for an analyst who does not know what a "chunk" is. **A tool that had never been styled at all was found in the audit.** 1063 vitest / 3151 pytest / build clean, **no eval** (nothing on the retrieval, ingest, chunking, citation or prompt path). Review caught a card that stated a **falsehood** on screen. See the section below |
 
 ## Tool cards — placement, then legibility (2026-08-16)
@@ -1129,19 +1129,32 @@ was touched.
 
 ### ⏸ OUTSTANDING and known limits
 
-- **NOBODY HAS OPENED THE ADMIN CARD OR THE BROWSE PAGE IN A BROWSER.** Every
-  check above is data, logic, or a live HTTP request; **jsdom applies no
-  stylesheet**, and this repo has shipped green under thousands of passing
-  tests three times. Worth eyes: the card's `.adm-card` nested three deep
-  inside `.adm-panel` (a depth this stylesheet has not been used at before)
-  and the correction editor living inside an `<li>` styled for one-line rows;
-  the blank-address warning; and that a "Full report" button still appears on
-  `/search` for a curated edition. **Newly unwitnessed: the healthy collapsed
-  line**, which is a bare `.adm-card` sitting directly in a `.adm-group` rather
-  than inside a panel — a position this stylesheet had no rule for, so one was
-  added for its bottom margin. It is what an admin sees every day and nobody
-  has seen it once. ⚠ `uvicorn` runs without `--reload`, so **Python changes
-  need a server restart**; only the SPA picks up a rebuild.
+- ✅ **IT HAS BEEN LOOKED AT — in a real browser, after the merge.** Driven in
+  headless Chrome 150 against the real corpus, with `Appropriations Report:2027`
+  temporarily removed from a copy of the table so exactly one edition was
+  waiting. Screenshots were read, not inferred. What renders correctly:
+  - **the pending card**, first in "Needs attention" — both formats named in
+    English (*Single File PDF*, *Linked Table of Contents*) with their real
+    sizes (**43.9 MB** and **0.4 MB**), an *Open to check ↗* link each, *Use a
+    different link* / *None published*, and one **Approve** button;
+  - **the healthy collapsed line** — *"Full report links · 39 editions
+    answered · Show"* — one quiet row, no `<h2>`, none of the alert styling its
+    neighbours use, visibly lighter than the "Issue reports" card beneath it.
+    **This is Destin's deviation from R7 and it renders as intended;**
+  - **the expanded correction list** — all 39 editions, each offering *Change
+    the links for FY {year}*, the most recently approved at the top;
+  - **the payoff on `/search`** — after approving on `/admin`, the **FY 2027
+    Appropriations Report** row shows a **Full report** button beside the
+    FY 2027 Baseline. That row is exactly the one that had no button before.
+
+  ⚠ Two caveats on that: it was **headless Chrome, not a human's eye**, so
+  nothing here judges whether the three per-format actions read as a *choice*
+  rather than a row of similar links, and the browser was the only viewport
+  tested (1400px wide). ⚠ `uvicorn` runs without `--reload`, so **Python
+  changes need a server restart**; only the SPA picks up a rebuild.
+- **Still unwitnessed:** the blank-address warning, the offline banner and the
+  stale-Check reset are pinned by specs only — each needs a state the
+  screenshot run did not drive.
 - **An approve-without-looking is still possible, by design (R9).** The
   mitigation is the size, the HTTP status and the year warning on the card —
   a 0.2 MB "book" or a 47 MB "table of contents" is visibly wrong. Nothing
