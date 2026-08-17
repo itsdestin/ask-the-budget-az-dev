@@ -176,7 +176,7 @@ function publisherName(p: string): string {
 // safety property: a type added to the registry reads as its own code here,
 // never as a wrong name and never as a crash. Nothing functional keys off this
 // map -- it is words on a page.
-const DOC_TYPE_NAMES: Record<string, string> = {
+export const DOC_TYPE_NAMES: Record<string, string> = {
   "baseline-book": "Baseline Books",
   "approps-report": "Appropriations Reports",
   afr: "Annual Financial Reports",
@@ -228,11 +228,16 @@ function describeFilters(filters: Record<string, unknown> | undefined): string {
 
   const types = valuesOf(filters, "doc_type").map(docTypeName);
   const pubs = valuesOf(filters, "publisher").map(publisherName);
+  // A slug is a code, not a name -- "agency:ahcccs" reads as a database
+  // value. Most JLBC agency slugs are acronyms, so uppercasing the stripped
+  // remainder ("AHCCCS") reads correctly; a non-acronym slug still reads as a
+  // deliberate short code rather than a raw value, which is the best
+  // available without an agency-name lookup this view does not have.
   const agencies = valuesOf(filters, "agency_canonical_id").map((a) =>
-    a.replace(/^agency:/, ""),
+    a.replace(/^agency:/, "").toUpperCase(),
   );
   const funds = valuesOf(filters, "fund_canonical_id").map((f) =>
-    f.replace(/^fund:/, ""),
+    f.replace(/^fund:/, "").toUpperCase(),
   );
   const years = valuesOf(filters, "fiscal_year").map((y) => `FY ${y}`);
   const isTable = filters["is_table"];
@@ -308,7 +313,14 @@ export default function RetrieveView({ tool }: { tool: ToolBlock }) {
             // Where in the document the strongest passage sits. Rendered ONCE,
             // here -- stripLeadingHeading takes the same words back out of the
             // passage text below.
-            <div className="chat-doc-path">{g.best.section_path.join(" › ")}</div>
+            //
+            // TC18: the breadcrumb reduces to the LEAF heading only -- the full
+            // ancestor chain ("Note 1. — Summary › Note 3. — Statement of
+            // Expenditures") is the noise this element exists to delete, not
+            // information worth keeping at this size.
+            <div className="chat-doc-path">
+              {g.best.section_path[g.best.section_path.length - 1]}
+            </div>
           )}
           <div className="chat-doc-text">
             {preview(stripLeadingHeading(g.best.text, g.best.section_path))}

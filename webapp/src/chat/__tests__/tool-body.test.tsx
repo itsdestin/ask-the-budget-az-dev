@@ -19,6 +19,9 @@
 // but that lives on the CARD, not in ToolBody, so it is out of this file's
 // reach — tool-card.test.tsx picks the coverage back up at that level.
 
+import { readFileSync } from "node:fs";
+import { resolve } from "node:path";
+
 import { describe, expect, it } from "vitest";
 import { renderToString } from "react-dom/server";
 import { render, screen } from "@testing-library/react";
@@ -32,6 +35,7 @@ import {
 } from "../tool-views/primitives.js";
 import ToolBody from "../tool-views/ToolBody.js";
 import { downloadUrl } from "../tool-views/CreateDocumentView.js";
+import { DOC_TYPE_NAMES } from "../tool-views/RetrieveView.js";
 import type { AssistantBlock } from "../chat-types.js";
 
 type ToolBlock = Extract<AssistantBlock, { kind: "tool" }>;
@@ -442,12 +446,62 @@ describe("RetrieveView — grouped by document", () => {
     ).toBe(-1);
   });
 
-  it("describes the filters in English", () => {
+  it("reduces the breadcrumb to the leaf heading, not the full ancestor chain", () => {
+    // TC18, verbatim: "The breadcrumb itself reduces to the leaf heading;
+    // the full ancestor path is noise at this size." The fixture's
+    // section_path carries two entries -- the ancestor ("Note 1. — Summary")
+    // must not appear in the breadcrumb, and the leaf ("Note 3. — Statement
+    // of Expenditures") must.
     const { container } = render(<ToolBody tool={retrieveTool([chunk()])} />);
-    const text = container.textContent ?? "";
-    expect(text).not.toContain("doc_type");
-    expect(text).not.toContain("fiscal_year");
-    expect(text).toMatch(/2025/);
+    const path = container.querySelector(".chat-doc-path")!.textContent ?? "";
+    expect(path).not.toContain("Note 1");
+    expect(path).not.toContain("Summary");
+    expect(path).toBe("Note 3. — Statement of Expenditures");
+  });
+
+  it("describes the filters in English, in the summary sentence", () => {
+    const { container } = render(<ToolBody tool={retrieveTool([chunk()])} />);
+    const summary = container.querySelector(".chat-search-summary")!.textContent ?? "";
+    expect(summary).not.toContain("doc_type");
+    expect(summary).not.toContain("fiscal_year");
+    expect(summary).toMatch(/2025/);
+  });
+
+  it("translates a filtered doc_type code to its display name, in the summary sentence", () => {
+    // Pins that DOC_TYPE_NAMES actually drives the sentence, not just that a
+    // map with this shape exists somewhere. `describeFilters` must be doing
+    // real work here: `retrieveTool` filters on doc_type "afr", and a
+    // passthrough (`docTypeName = (t) => t`) would print "afr" instead of
+    // this phrase.
+    const { container } = render(<ToolBody tool={retrieveTool([chunk()])} />);
+    const summary = container.querySelector(".chat-search-summary")!.textContent ?? "";
+    expect(summary).toContain(DOC_TYPE_NAMES.afr);
+    expect(summary).not.toMatch(/\bafr\b/);
+  });
+
+  it("renders an agency or fund filter as an uppercased word, never the raw slug", () => {
+    // A slug is a code ("agency:ahcccs"), not a name -- the prefix must be
+    // gone and the remainder must read as a word, not a lowercase database
+    // value.
+    const tool = {
+      kind: "tool", toolUseId: "r1", toolName: "retrieve",
+      input: {
+        query: "AHCCCS spending",
+        filters: { agency_canonical_id: "agency:ahcccs", fund_canonical_id: "fund:2005" },
+      },
+      status: "complete",
+      output: JSON.stringify({
+        chunks: [chunk()], top_score: 1.26, retrieval_id: "x",
+        bm25_count: 1, dense_count: 1, fused_count: 1,
+      }),
+    } as unknown as ToolBlock;
+    const { container } = render(<ToolBody tool={tool} />);
+    const summary = container.querySelector(".chat-search-summary")!.textContent ?? "";
+    expect(summary).toContain("AHCCCS");
+    expect(summary).toContain("2005");
+    expect(summary).not.toContain("agency:");
+    expect(summary).not.toContain("fund:");
+    expect(summary).not.toContain("ahcccs");
   });
 
   it("says plainly what it found", () => {
@@ -462,5 +516,38 @@ describe("RetrieveView — grouped by document", () => {
     const { container } = render(<ToolBody tool={retrieveTool([])} />);
     expect(container.textContent).toMatch(/nothing|no passages/i);
     expect(container.textContent).not.toMatch(/threshold|refusal/i);
+  });
+});
+
+describe("DOC_TYPE_NAMES — no drift from the registry", () => {
+  // The map is a second copy of data/document-types.yaml, a shape that has
+  // shipped real bugs twice in this repo: harness/tools.py's _DOC_TYPES
+  // silently drifted to 11 entries against a registry of 15, and Upload.tsx
+  // hand-maintained a doc_type→publisher map that defeated the registry's
+  // own acceptance test. Same extraction approach as
+  // webapp/src/pages/Upload.test.tsx's "holds no hardcoded doc_type strings
+  // of its own" -- a regex over the raw YAML, no parser dependency needed.
+  const registry = readFileSync(
+    resolve(process.cwd(), "../data/document-types.yaml"),
+    "utf-8",
+  );
+  const registrySlugs = [...registry.matchAll(/-\s*key:\s*(\S+)/g)].map((m) => m[1]);
+
+  it("extracted a sane number of keys from the registry (extraction sanity check)", () => {
+    // If this regex silently matched nothing, every assertion below would be
+    // vacuously true.
+    expect(registrySlugs.length).toBeGreaterThanOrEqual(15);
+    expect(registrySlugs).toContain("afr");
+  });
+
+  it("every DOC_TYPE_NAMES key names a real registry type", () => {
+    // Deliberately one-directional: the map is display-only, and a NEW
+    // registry type appearing with no friendly label yet must not fail this
+    // suite -- it degrades legibly to its own code. What must never happen is
+    // this map naming a type that does not exist.
+    for (const key of Object.keys(DOC_TYPE_NAMES)) {
+      expect(registrySlugs, `DOC_TYPE_NAMES has "${key}", which is not in the registry`)
+        .toContain(key);
+    }
   });
 });
