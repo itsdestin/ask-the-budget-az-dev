@@ -712,7 +712,15 @@
     Legislature this year, and say which one leans hardest on state tax
     dollars versus its own revenue.
   corpus: budget
-  tier: deep_research
+  # WHY standard and not deep_research (Task 9 review, Critical): this query
+  # was re-homed from the Deep family to the `quick` set because it does NOT
+  # fit the Deep shape, but it originally kept tier: deep_research — which
+  # would have run it on the Deep Research model (~44x Standard cost) in every
+  # cheap --sets quick run AND refused to start on a Standard-only install.
+  # Selection is by `set`, but the session factory routes by `tier`, so a
+  # quick-set query MUST be tier: standard. The danger is real: this is the
+  # documented Finding-1 failure class the re-tag exists to prevent.
+  tier: standard
   shape: comparison
   set: quick
   key_facts:

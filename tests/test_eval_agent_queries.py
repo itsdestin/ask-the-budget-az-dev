@@ -78,10 +78,21 @@ def test_multi_queries_pin_correct_response_docs():
 
 
 def test_standard_tier_is_not_polluted_by_deep():
-    # Port of the old Finding-1 guard, restated for sets: deep queries are
-    # selected out of cheap runs by set selection itself.
-    deeps = [q.id for q in QUERIES if q.set == "deep"]
-    assert all(q.tier == "deep_research" for q in QUERIES if q.id in deeps)
+    # Port of the old Finding-1 guard, restated for sets, made TWO-DIRECTIONAL:
+    # a deep-research-tier query must appear in `set: deep` AND ONLY there.
+    # The one-directional version let cm-university-funding-dr sit in `quick`
+    # on tier: deep_research (Task 9 review, Critical) — cheap --sets quick
+    # runs would have spent ~44x Standard cost routing it to the Deep model.
+    # Selection is by `set`, but the session factory routes by `tier`, so the
+    # ONLY safe state is a tier/value bijection for deep_research.
+    dr_tiered = [q.id for q in QUERIES if q.tier == "deep_research"]
+    assert dr_tiered, "expected at least one deep_research-tier query"
+    for qid in dr_tiered:
+        q = next(q for q in QUERIES if q.id == qid)
+        assert q.set == "deep", (
+            f"{qid}: deep_research tier outside `set: deep` ({q.set}) — it "
+            f"would run on the Deep model in cheap runs and refuse to start "
+            f"on a Standard-only install (Finding-1 class).")
 
 
 def test_refusal_queries_have_no_key_facts():
