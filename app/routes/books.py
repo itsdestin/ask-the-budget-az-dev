@@ -34,6 +34,22 @@ class EditionBody(BaseModel):
     fiscal_year: int = Field(ge=1970, le=2100)
 
 
+def _content_size(headers) -> int | None:
+    """How big is this file, per the server's own headers?
+
+    `Content-Range: bytes 0-0/49312768` carries the WHOLE file's size and is
+    what a ranged request answers with; `Content-Length` on that same reply is
+    `1`. Preferring the range total is therefore the difference between "47 MB"
+    and "1 byte" on the admin's card.
+    """
+    raw_range = headers.get("Content-Range") or ""
+    total = raw_range.rpartition("/")[2].strip()
+    if total.isdigit():
+        return int(total)
+    raw_len = headers.get("Content-Length")
+    return int(raw_len) if raw_len and str(raw_len).strip().isdigit() else None
+
+
 class HttpProber:
     """Real network seam: HEAD to verify, GET to download.
 
@@ -60,6 +76,43 @@ class HttpProber:
             return r.status_code < 400
         except requests.RequestException:
             return False
+
+    def head_info(self, url: str) -> tuple[int | None, int | None]:
+        """(HTTP status, size in bytes). `(None, None)` when the host never answered.
+
+        WHY THIS IS A SECOND REQUEST PATH AND NOT A REFACTOR OF `head()`.
+        The obvious tidy-up — have `head()` call this and fall back to a GET on
+        any status >= 400 — was rejected on measured grounds. `head()` falls
+        back only on a literal **405**, the one status IIS uses to say "I don't
+        do HEAD", and its fallback GET asks for `Range: bytes=0-0`, i.e. one
+        byte. Widening that to >= 400 would turn every **404** into a full,
+        unranged GET: adding one book edition performs ~130 of these checks
+        against files that are megabytes each, so a single missing 47 MB report
+        would be downloaded in its entirety just to learn it is missing.
+        Nothing in `tests/` drives `head()`'s real network path (every caller
+        injects a fake), so that regression would have shipped green. Two small
+        methods with one rule each is cheaper than one method with a footnote.
+
+        The size is read from `Content-Range`'s total FIRST. The 405 fallback
+        asks for a single byte, so its `Content-Length` is `1`; a card reporting
+        a whole Appropriations Report as "1 byte" would fire exactly the
+        "this is visibly the wrong file" alarm that spec R9 reserves for real
+        trouble. `None` when the server states no size at all — an unknown size
+        must read as unknown, never as zero.
+        """
+        import requests
+
+        try:
+            r = requests.head(url, timeout=self._timeout_s, allow_redirects=True)
+            if r.status_code == 405:
+                r = requests.get(
+                    url, timeout=self._timeout_s, stream=True,
+                    headers={"Range": "bytes=0-0"},
+                )
+                r.close()
+            return r.status_code, _content_size(r.headers)
+        except requests.RequestException:
+            return None, None
 
     def get(self, url: str) -> bytes:
         import requests

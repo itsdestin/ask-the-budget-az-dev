@@ -23,6 +23,7 @@ from pydantic import BaseModel
 from app.routes.admin import router as admin_router
 from app.routes.books import router as books_router
 from app.routes.agencies import router as agencies_router
+from app.routes.book_formats import router as book_formats_router
 from app.routes.books_missing import router as books_missing_router
 from app.routes.corpus import router as corpus_router
 from app.routes.conversations import (
@@ -251,6 +252,11 @@ def create_app(
     app.include_router(jobs_router)
     app.include_router(books_router)
     app.include_router(books_missing_router)
+    # The admin's whole-report ("Full report") link table. Gated by
+    # `Depends(require_admin)` on every route, and registered here — above
+    # the `/{path:path}` catch-all — for the reason stated at the top of
+    # this block.
+    app.include_router(book_formats_router)
     # The upload page's agency picker (ungated read) plus the admin's
     # add/remove for agencies the shipped catalog does not carry.
     app.include_router(agencies_router)
