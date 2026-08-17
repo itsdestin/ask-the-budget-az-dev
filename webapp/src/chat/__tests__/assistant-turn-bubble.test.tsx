@@ -233,8 +233,18 @@ describe("AssistantTurnBubble — tool blocks", () => {
     for (const bubble of bubbles) {
       expect(bubble.querySelectorAll(".chat-tool-group")).toHaveLength(1);
     }
-    expect(bubbles[0]!.textContent).toContain("Searched");
-    expect(bubbles[1]!.textContent).toContain("Searched ×2");
+    // Which bubble got WHICH run is the property under test, so the two
+    // assertions have to tell them apart. Bubble 0's run is one search and
+    // bubble 1's is two, and only a multi-call run says "and N more" — so this
+    // fails if the runs are swapped, if both land in one bubble, or if the
+    // second bubble's run is dropped.
+    //
+    // Updated 2026-08-16 from `Searched ×2`, the Part 1 header format, which
+    // Part 2 (TC13) replaced with a sentence. No lane owned this file, so the
+    // merge is where it surfaced.
+    expect(bubbles[0]!.textContent).toContain("Searched for");
+    expect(bubbles[0]!.textContent).not.toContain("and 1 more");
+    expect(bubbles[1]!.textContent).toContain("and 1 more");
     // Nothing floats between or above the bubbles.
     expect(
       container.querySelectorAll(".chat-turn > .chat-tool-group"),
