@@ -209,12 +209,12 @@ export function toolHeaderSentence(
     case "create_document":
       return {
         verb: running ? "Writing" : "Wrote",
-        rest: summary ? ` the document ${q(summary)}${more}${tail}${then}` : ` a document${tail}${then}`,
+        rest: summary ? ` the document ${q(summary)}${more}${tail}${then}` : ` a document${more}${tail}${then}`,
       };
     case "document_guide":
       return {
         verb: running ? "Checking" : "Checked",
-        rest: ` the house style for a ${reportTypeName(summary)}${tail}${then}`,
+        rest: ` the house style for a ${reportTypeName(summary)}${more}${tail}${then}`,
       };
     case "list_filter_values":
       return {

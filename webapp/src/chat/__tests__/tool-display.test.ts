@@ -277,6 +277,49 @@ describe("toolHeaderSentence", () => {
     expect(whole).not.toMatch(/canonical_id|doc_type|Budget Documents|Fiscal Notes/);
   });
 
+  it("keeps the count for retrieve when the leading call has no query", () => {
+    // Regression guard for the "and N more" count silently vanishing when the
+    // leading call's summary is empty. retrieve's no-summary branch was
+    // always correct; pinned here so it can't be broken while fixing the two
+    // branches below.
+    const s = toolHeaderSentence(
+      [{ toolName: "retrieve", input: {} }, { toolName: "retrieve", input: {} }],
+      "past",
+    );
+    expect(s.verb).toBe("Searched");
+    expect(s.rest).toBe(" and 1 more");
+  });
+
+  it("keeps the count for create_document when the leading call has no title", () => {
+    // The no-summary fallback used to omit ${more} entirely, so a run of two
+    // untitled create_document calls rendered as "Wrote a document" — a
+    // silent undercount of real work.
+    const s = toolHeaderSentence(
+      [
+        { toolName: "create_document", input: {} },
+        { toolName: "create_document", input: {} },
+      ],
+      "past",
+    );
+    expect(s.verb).toBe("Wrote");
+    expect(s.rest).toBe(" a document and 1 more");
+  });
+
+  it("keeps the count for document_guide across multiple calls", () => {
+    // document_guide's branch never interpolated ${more} at all, so two
+    // calls rendered identically to one: "Checked the house style for a
+    // document".
+    const s = toolHeaderSentence(
+      [
+        { toolName: "document_guide", input: {} },
+        { toolName: "document_guide", input: {} },
+      ],
+      "past",
+    );
+    expect(s.verb).toBe("Checked");
+    expect(s.rest).toBe(" the house style for a document and 1 more");
+  });
+
   it("degrades legibly for an unregistered tool", () => {
     const s = toolHeaderSentence([{ toolName: "some_future_tool", input: { thing: "x" } }], "past");
     expect(s.verb).toBe("some_future_tool");
