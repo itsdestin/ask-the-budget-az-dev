@@ -130,6 +130,26 @@ def main() -> int:
     tmp.write_text(json.dumps(scores, indent=2, ensure_ascii=False), encoding="utf-8")
     tmp.replace(args.run_dir / "scores.json")
     (args.run_dir / "scores.md").write_text(_md(scores, args.run_dir), encoding="utf-8")
+    # Over-time append only when a manifest exists (live runs always have
+    # one; synthetic test dirs may not — archiving a manifest-less run would
+    # write trend rows with no comparability keys, the exact thing segments()
+    # exists to police).
+    if (args.run_dir / "manifest.json").exists():
+        from eval.over_time import append_run, render_trend_md
+        # archive lives at eval/results/over-time/ — a fixed repo-relative
+        # root (not derived from --results-dir, which tests and ad-hoc runs
+        # override; the ONE trend must live in ONE place).
+        # NOTE: score_agent_run's parser has NO --note flag (plan review
+        # finding 4 caught `args.note` here — it would AttributeError on the
+        # first live scored run and stop the orchestrator before the judge).
+        # The run's own manifest carries the note; profile here records what
+        # the ARCHIVER knows, which is the queries file it scored against.
+        over_root = Path("eval/results")
+        append_run(over_root, args.run_dir,
+                   profile={"queries_file": args.queries_file})
+        rows = [json.loads(l) for l in (over_root / "over-time" / "metrics.jsonl")
+                .read_text(encoding="utf-8").splitlines() if l.strip()]
+        (over_root / "over-time" / "trend.md").write_text(render_trend_md(rows), encoding="utf-8")
     # Task 6: errors.json via the same tmp-rename pattern as scores.json, plus
     # a small errors.md (kind table + per-query lines).
     etmp = (args.run_dir / "errors.json").with_suffix(".json.tmp")
