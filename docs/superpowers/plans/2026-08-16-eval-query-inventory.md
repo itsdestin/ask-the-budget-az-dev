@@ -1,8 +1,8 @@
 # Eval Query Inventory & Scoring Guide
 
 **Branch:** `consolidated-eval-pipeline` — the re-tagged set (Tasks 1–9 merged).
-**Corpus verification:** all **62 queries** run through `scripts/verify_agent_query.py` — **0 fact-presence misses, 0 reachability misses**. Every key fact exists in `budget_chunks` and is returned in a top-20 `retrieve()` of the verbatim question.
-**Status:** Tasks 1–9 done; the new Multi set is **not** authored yet (Task 10, awaiting content decisions); the Quick set was **diversified** (27 → 54 queries, added niche agencies/years/shapes — see "Quick Lookup" notes); nothing here has spent money.
+**Corpus verification:** all **53 queries** pass the **presence** check — **0 fact-presence misses**. Every key fact genuinely exists in `budget_chunks`, so every query is **solvable**.
+**Status:** Tasks 1–9 done; the Quick set was **diversified** (27 → ~54) then **corrected**: a findability pass revealed many of my new anchors were plausible-but-not-actually-in-the-corpus (making queries unsolvable); those were re-pinned to real corpus figures or removed. **Reachability-in-a-single-top-20-bare-search is NOT a goal** — the remaining 46 "misses" are facts that are in the corpus but need retrieval effort/filters, which is the agent's job and is scored elsewhere. The new Multi set is **not** authored yet (Task 10); nothing here has spent money.
 
 ---
 
@@ -40,10 +40,12 @@ With **tool-error harvesting**, every failed retrieve/cite/argument is logged wi
 
 ## The query sets
 
-### Quick Lookup — `set: quick` — 54 queries
+### Quick Lookup — `set: quick` — 45 queries
 **Contract:** a well-tuned agent answers in **one retrieve call**; single fact / single agency / single FY. **Measures:** retrieval precision + minimal-turn efficiency. These are the workhorse regression signal — most of them are `lookup` (find one number) with a few `comparison`/`analyze`/`historical` shapes that are still single-shot.
 
-**Diversification (2026-08-16):** the original 27 were heavily ADC/DES/highways/FY2026. Added 27 more spread over **niche agencies** (Agriculture, Lottery, Gaming, Registrar of Contractors, Liquor, Mine Inspector, Water Resources, State Parks, Insurance, Game & Fish, Secretary of State, Juvenile Corrections, Tourism, Veterans' Services, Nursing Board, Revenue, UA Health Sciences), **more years** (FY2025 operating budgets, FY2027 governor's budget, FY2013 historical), and **harder shapes** (analyze/comparison across years). Anchors verified present + reachable. A few carry "NOTE: verify anchor" in judge_notes — those were authored against plausible figures and must be re-verified with the script before a scored run (flagged, not silent).
+**Diversification (2026-08-16):** the original 27 were heavily ADC/DES/highways/FY2026. Added ~27 more spread over **niche agencies** (Agriculture, Lottery, Gaming, Registrar of Contractors, Liquor, Mine Inspector, Water Resources, State Parks, Game & Fish, Secretary of State, Juvenile Corrections, Tourism, Veterans' Services, Nursing Board, Revenue, UA Health Sciences), **more years** (FY2025 operating budgets, FY2013 historical), and **harder shapes**.
+
+**Correction (2026-08-16 findability pass):** a reachability bug made the verifier report vacuous PASS. After fixing it, re-verification showed ~15 of the new anchors were **plausible-but-not-in-the-corpus** (queries unsolvable). Those were fixed: re-pinned to real JLBC figures (DJC $44.7M, Tourism $7.3M, SOS $16.0M, Veterans $3.0M, Revenue $76.7M, DPS FY2013 $198.2M, State Parks $16.5M, UA Health $87.4M, Nursing $6.5M) or removed where no clean figure existed (gf-revenue-fy2027, baseline-asrs, hur-construction, ema, dps27, gf-trend, esa-formula). All 45 remaining quick queries are **solvable** (0 presence misses).
 
 | id | shape | #facts | What it asks |
 |---|---|---|---|

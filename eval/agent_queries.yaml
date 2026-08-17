@@ -772,56 +772,11 @@
   set: quick
   key_facts:
     - kind: currency
-      value: "$14,000,000"
+      value: "$16,525,300"
   judge_notes: >-
-    FY 2025 Arizona State Parks operating budget. NOTE: anchor not yet
-    corpus-verified — verify with scripts/verify_agent_query.py before
-    relying on the exact figure; adjust judge_notes to the verified number.
-
-- id: lk-gf-revenue-fy2027
-  question: >-
-    In the state budget the Governor proposed for FY 2027, what is the
-    projected General Fund revenue, and is that above or below the FY 2026
-    adjusted figure?
-  corpus: budget
-  shape: analyze
-  set: quick
-  key_facts:
-    - kind: currency
-      value: "$18,600,000,000"
-  judge_notes: >-
-    Governor's FY 2027 executive budget General Fund revenue projection.
-    NOTE: simplify/verify anchor before scoring; check whether the corpus
-    expresses it as $18.6B.
-
-- id: lk-baseline-asrs-fy2026
-  question: >-
-    What does the Baseline assume about the state's required contribution
-    to the ASRS pension system in FY 2026, and how does the increased rate
-    flow through agency budgets?
-  corpus: budget
-  shape: analyze
-  set: quick
-  key_facts:
-    - kind: currency
-      value: "$382,000,000"
-  judge_notes: >-
-    Baseline FY 2026 ASRS contribution. NOTE: verify anchor before relying;
-    adjust if corpus expresses differently.
-
-- id: lk-hur-construction-fy2025
-  question: >-
-    How much of the Highway User Revenue Fund goes to construction for
-    FY 2025, versus the amount going to maintenance?
-  corpus: budget
-  shape: comparison
-  set: quick
-  key_facts:
-    - kind: currency
-      value: "$1,400,000,000"
-  judge_notes: >-
-    FY 2025 HURF construction vs maintenance split. NOTE: verify anchor;
-    the split may be expressed as separate figures.
+    FY 2025 Arizona State Parks operating budget per JLBC approps-fy2025-spb:
+    $16,525,300 and 131.2 FTE. Re-pinned from bogus $14M (2026-08-16
+    findability pass; anchor not in corpus). Verified present.
 
 - id: lk-uhsc-arizona-health-fy2026
   question: >-
@@ -832,10 +787,11 @@
   set: quick
   key_facts:
     - kind: currency
-      value: "$498,000,000"
+      value: "$87,356,100"
   judge_notes: >-
-    UA Health Sciences FY 2026 General Fund. NOTE: verify anchor before
-    relying; adjust to the corpus figure.
+    UA Health Sciences FY 2026 operating budget per JLBC approps-fy2026-uniuhsc:
+    $87,356,100 and 730.4 FTE. Re-pinned from bogus $498M (2026-08-16
+    findability pass; anchor not in corpus). Verified present.
 
 - id: lk-dps-historical-operating-fy2013
   question: >-
@@ -847,38 +803,11 @@
   set: quick
   key_facts:
     - kind: currency
-      value: "$381,000,000"
+      value: "$198,153,300"
   judge_notes: >-
-    DPS FY 2013 operating budget (historical year). NOTE: verify anchor
-    against corpus before scoring; adjust to the actual figure.
-
-- id: lk-ema-military-affairs-fy2026
-  question: >-
-    What does the Department of Emergency and Military Affairs get in FY 2026,
-    and how is it split between state funding and federal pass-throughs?
-  corpus: budget
-  shape: analyze
-  set: quick
-  key_facts:
-    - kind: currency
-      value: "$25,000,000"
-  judge_notes: >-
-    DEMA FY 2026. NOTE: verify anchor; adjust to the corpus figure.
-
-- id: lk-ins-insurance-dept-fy2025
-  question: >-
-    What's the Department of Insurance's FY 2025 operating budget?
-  corpus: budget
-  shape: lookup
-  set: quick
-  key_facts:
-    - kind: currency
-      value: "$18,500,000"
-  judge_notes: >-
-    FY 2025 Arizona Department of Insurance operating budget. NOTE: this
-    anchor is NOT yet verified (the corpus showed FY2013 $5.17M for
-    insurance); treat as a search-for-and-pin candidate via the verification
-    script before relying.
+    DPS FY 2013 operating budget per JLBC approps-fy2013-dps: $198,153,300
+    and 1,766.9 FTE. Re-pinned from bogus $381M (2026-08-16 findability
+    pass; anchor not in corpus). Verified present.
 
 - id: lk-fis-game-and-fish-fy2025
   question: >-
@@ -901,10 +830,11 @@
   set: quick
   key_facts:
     - kind: currency
-      value: "$20,000,000"
+      value: "$16,010,800"
   judge_notes: >-
-    FY 2025 Secretary of State operating budget. NOTE: verify anchor; the
-    corpus has SOS chunks but the exact operating figure is not yet pinned.
+    FY 2025 Secretary of State operating budget per JLBC approps-fy2025-sos:
+    $16,010,800 and 143.1 FTE. Re-pinned from bogus $20M (2026-08-16
+    findability pass; anchor not in corpus). Verified present.
 
 - id: lk-djc-juvenile-corrections-fy2025
   question: >-
@@ -914,10 +844,12 @@
   set: quick
   key_facts:
     - kind: currency
-      value: "$99,000,000"
+      value: "$44,674,700"
   judge_notes: >-
-    FY 2025 ADJC operating budget. NOTE: verify anchor; adjust to the
-    corpus figure.
+    FY 2025 ADJC operating budget per JLBC approps-fy2025-djc: $44,674,700
+    and 738.5 FTE. Re-pinned from the bogus $99M placeholder (2026-08-16
+    findability pass; anchor was NOT in corpus and made the query
+    unsolvable). Verified present.
 
 - id: lk-tou-tourism-fy2026
   question: >-
@@ -927,10 +859,11 @@
   set: quick
   key_facts:
     - kind: currency
-      value: "$2,000,000"
+      value: "$7,283,700"
   judge_notes: >-
-    FY 2026 Office of Tourism. NOTE: verify anchor; adjust to the corpus
-    figure.
+    FY 2026 Office of Tourism operating budget per JLBC approps-fy2026-tou:
+    $7,283,700 and 31 FTE. Re-pinned from bogus $2M (2026-08-16 findability
+    pass; anchor not in corpus). Verified present.
 
 - id: lk-vsc-veterans-services-fy2025
   question: >-
@@ -940,10 +873,11 @@
   set: quick
   key_facts:
     - kind: currency
-      value: "$50,000,000"
+      value: "$3,029,900"
   judge_notes: >-
-    FY 2025 Veterans' Services operating budget. NOTE: verify anchor; adjust
-    to the corpus figure.
+    FY 2025 Veterans' Services operating budget per JLBC approps-fy2025-vsc:
+    $3,029,900 and 46.8 FTE. Re-pinned from bogus $50M placeholder
+    (2026-08-16 findability pass; anchor not in corpus). Verified present.
 
 - id: lk-agr-horse-liaison-fy2025
   question: >-
@@ -959,65 +893,6 @@
     FY 2025 Agriculture "Reduce Horse Liaison to Part-Time Position" cut of
     $25,300 (0.5 FTE). Niche line-item detail; verified present.
 
-- id: lk-dps-highway-patrol-fy2027
-  question: >-
-    In the Governor's FY 2027 budget proposal, what is the Department of
-    Public Safety's total request?
-  corpus: budget
-  shape: lookup
-  set: quick
-  key_facts:
-    - kind: currency
-      value: "$420,000,000"
-  judge_notes: >-
-    Governor's FY 2027 DPS total. NOTE: verify anchor; adjust to the
-    corpus figure.
-
-- id: lk-gf-revenue-recent-trend
-  question: >-
-    Looking at the FY 2025 and FY 2026 General Fund revenue figures, how
-    much did the projected revenue grow year over year?
-  corpus: budget
-  shape: comparison
-  set: quick
-  key_facts:
-    - kind: currency
-      value: "$1,700,000,000"
-  judge_notes: >-
-    FY25->FY26 GF revenue growth. NOTE: verify anchor; adjust to the
-    corpus figure.
-
-- id: lk-esa-funding-formula-fy2026
-  question: >-
-    In FY 2026, how is the Empowerment Scholarship Account funding formula
-    structured — what base amount does the state put behind each student,
-    adjusted for the way the formula treats full-time versus part-time
-    scholarship students?
-  corpus: budget
-  shape: analyze
-  set: quick
-  key_facts:
-    - kind: currency
-      value: "$8,500,000,000"
-  judge_notes: >-
-    FY 2026 ESA funding formula base/program total. NOTE: verify anchor;
-    adjust to the corpus figure (ESA is a flagship topic; the agent should
-    find it).
-
-- id: lk-ahcccs-enrollment-history
-  question: >-
-    How has AHCCCS enrollment changed between FY 2019 and FY 2026 — and
-    what drove the biggest single-year jump?
-  corpus: budget
-  shape: analyze
-  set: quick
-  key_facts:
-    - kind: currency
-      value: "$2,100,000,000"
-  judge_notes: >-
-    AHCCCS enrollment history + GF cost driver. NOTE: verify anchor;
-    adjust to the corpus figure.
-
 - id: lk-nursing-board-operating-fy2025
   question: >-
     What's the Arizona State Board of Nursing's FY 2025 operating budget?
@@ -1026,10 +901,11 @@
   set: quick
   key_facts:
     - kind: currency
-      value: "$7,000,000"
+      value: "$6,468,600"
   judge_notes: >-
-    FY 2025 State Board of Nursing operating budget (agency:nur). NOTE:
-    verify anchor; adjust to the corpus figure.
+    FY 2025 State Board of Nursing operating budget per JLBC approps-fy2025-nur:
+    $6,468,600 and 63 FTE from the Board of Nursing Fund. Re-pinned from
+    bogus $7M (2026-08-16 findability pass). Verified present.
 
 - id: lk-dor-revenue-operating-fy2025
   question: >-
@@ -1040,10 +916,11 @@
   set: quick
   key_facts:
     - kind: currency
-      value: "$88,000,000"
+      value: "$76,730,000"
   judge_notes: >-
-    FY 2025 Department of Revenue operating budget. NOTE: verify anchor;
-    adjust to the corpus figure.
+    FY 2025 Department of Revenue operating budget per JLBC approps-fy2025-rev:
+    $76,730,000 and 820.8 FTE. Re-pinned from bogus $88M (2026-08-16
+    findability pass; anchor not in corpus). Verified present.
 
 - id: cm-adc-3yr-dr
   question: >-
