@@ -94,7 +94,13 @@ describe("downloadUrl", () => {
 });
 
 describe("ToolBody dispatcher", () => {
-  it("renders retrieve chunks with title, page and score", () => {
+  // RETARGETED (Part 2, Task 3). This used to assert `3.125` and the literal
+  // `fiscal_year` were on the page. Both are now deliberately gone — the score
+  // is a raw cross-encoder logit that reads as a confidence next to a dollar
+  // figure, and a field name tells the analyst about our database rather than
+  // their question. The assertions were inverted rather than deleted, so the
+  // removal stays pinned instead of merely stopping being checked.
+  it("renders retrieve passages with title and page, and never the score", () => {
     const tool = block({
       toolName: "retrieve",
       input: { query: "Aviation Fund", filters: { fiscal_year: 2025 } },
@@ -124,10 +130,12 @@ describe("ToolBody dispatcher", () => {
     const html = renderToString(<ToolBody tool={tool} />);
     expect(html).toContain("JLBC Baseline Book");
     expect(html).toContain("p. 47");
-    expect(html).toContain("3.125");
+    expect(html).not.toContain("3.125");
     expect(html).toContain("Aviation Fund balance was");
-    // Filters are the most decision-shaping input the model chose.
-    expect(html).toContain("fiscal_year");
+    // Filters are the most decision-shaping input the model chose — said in
+    // English now, never as the field name.
+    expect(html).not.toContain("fiscal_year");
+    expect(html).toContain("FY 2025");
   });
 
   it("renders retrieve's empty result honestly rather than as a blank card", () => {
@@ -144,7 +152,12 @@ describe("ToolBody dispatcher", () => {
       }),
     });
     const html = renderToString(<ToolBody tool={tool} />);
-    expect(html).toContain("No chunks returned");
+    // RETARGETED (Part 2, Task 3): was "No chunks returned (top_score below
+    // the refusal threshold or no matches)". "chunk" is not the analyst's
+    // word, and naming the threshold explained our machinery instead of the
+    // result. The honesty this test exists for is unchanged — an empty search
+    // still says so rather than rendering a blank card.
+    expect(html).toContain("Found nothing");
   });
 
   it("renders cite source metadata without echoing the claim on success", () => {
@@ -346,5 +359,108 @@ describe("ToolBody dispatcher", () => {
     // test here would still pass, since none of them check the tint.
     const html = renderToString(<ErrorBlock error="store unreachable" />);
     expect(html).toContain("is-danger");
+  });
+});
+
+describe("RetrieveView — grouped by document", () => {
+  const chunk = (over: Record<string, unknown> = {}) => ({
+    chunk_id: "c1", doc_id: "agao-afr-fy2025",
+    doc_title: "FY 2025 Annual Financial Report",
+    publisher: "agao", fiscal_year: 2025, doc_type: "afr",
+    section_path: ["Note 1. — Summary", "Note 3. — Statement of Expenditures"],
+    page_start: 162, page_end: null,
+    text: "Note 1. — Summary > Note 3. — Statement of Expenditures\nSTATE OF ARIZONA\nFund balance, June 30 2025 … 60,092,781.04",
+    score: 1.26, ...over,
+  });
+  const retrieveTool = (chunks: unknown[]) =>
+    ({
+      kind: "tool", toolUseId: "r1", toolName: "retrieve",
+      input: { query: "Aviation Fund", filters: { doc_type: "afr", fiscal_year: 2025 } },
+      status: "complete",
+      output: JSON.stringify({
+        chunks, top_score: 1.26, retrieval_id: "x",
+        bm25_count: 131, dense_count: 100, fused_count: 20,
+      }),
+    }) as ToolBlock;
+
+  it("shows one block per DOCUMENT, not one per passage", () => {
+    const { container } = render(
+      <ToolBody tool={retrieveTool([
+        chunk({ chunk_id: "a", page_start: 162 }),
+        chunk({ chunk_id: "b", page_start: 163 }),
+        chunk({ chunk_id: "c", page_start: 164 }),
+        chunk({ chunk_id: "d", doc_id: "jlbc-baseline-fy2026-tra",
+                doc_title: "FY 2026 Baseline — Transportation", publisher: "jlbc",
+                fiscal_year: 2026, page_start: 4, section_path: ["Aviation Fund"],
+                text: "The Aviation Fund receives revenue from the aircraft licence tax." }),
+      ])} />,
+    );
+    expect(container.querySelectorAll(".chat-doc-group")).toHaveLength(2);
+    // Three passages from one document must not print its title three times.
+    const titles = [...container.querySelectorAll(".chat-doc-head")]
+      .map((n) => n.textContent ?? "")
+      .filter((t) => t.includes("Annual Financial Report"));
+    expect(titles).toHaveLength(1);
+  });
+
+  it("lists every page of a document it grouped", () => {
+    const { container } = render(
+      <ToolBody tool={retrieveTool([
+        chunk({ chunk_id: "a", page_start: 162 }),
+        chunk({ chunk_id: "b", page_start: 163 }),
+      ])} />,
+    );
+    const pages = container.querySelector(".chat-doc-pages")!.textContent ?? "";
+    expect(pages).toContain("162");
+    expect(pages).toContain("163");
+  });
+
+  it("shows no score, no rank number and no pipeline counters", () => {
+    // A raw cross-encoder logit beside a dollar figure invites reading it as a
+    // confidence. Budget Documents removed its relevance number for the same
+    // reason; order carries the ranking.
+    const { container } = render(<ToolBody tool={retrieveTool([chunk()])} />);
+    const text = container.textContent ?? "";
+    expect(text).not.toMatch(/score/i);
+    expect(text).not.toMatch(/bm25|dense|fused/i);
+    expect(text).not.toMatch(/#1/);
+    expect(text).not.toMatch(/chunk/i);
+    expect(text).not.toContain("1.26");
+  });
+
+  it("does not print the section heading twice", () => {
+    // The stored passage text BEGINS with its own heading, and the view also
+    // renders that heading, so ~3 lines of every result were the line above it
+    // repeated.
+    const { container } = render(<ToolBody tool={retrieveTool([chunk()])} />);
+    const text = container.textContent ?? "";
+    const first = text.indexOf("Note 3. — Statement of Expenditures");
+    expect(first).toBeGreaterThanOrEqual(0);
+    expect(
+      text.indexOf("Note 3. — Statement of Expenditures", first + 1),
+      "the heading must appear once, not once as a breadcrumb and again inside the passage",
+    ).toBe(-1);
+  });
+
+  it("describes the filters in English", () => {
+    const { container } = render(<ToolBody tool={retrieveTool([chunk()])} />);
+    const text = container.textContent ?? "";
+    expect(text).not.toContain("doc_type");
+    expect(text).not.toContain("fiscal_year");
+    expect(text).toMatch(/2025/);
+  });
+
+  it("says plainly what it found", () => {
+    const { container } = render(
+      <ToolBody tool={retrieveTool([chunk({ chunk_id: "a" }), chunk({ chunk_id: "b", page_start: 163 })])} />,
+    );
+    expect(container.querySelector(".chat-search-summary")!.textContent)
+      .toMatch(/2 passages.*1 document/);
+  });
+
+  it("says so when it found nothing", () => {
+    const { container } = render(<ToolBody tool={retrieveTool([])} />);
+    expect(container.textContent).toMatch(/nothing|no passages/i);
+    expect(container.textContent).not.toMatch(/threshold|refusal/i);
   });
 });
