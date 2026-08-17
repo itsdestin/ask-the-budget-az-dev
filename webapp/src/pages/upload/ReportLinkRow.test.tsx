@@ -1,6 +1,7 @@
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import { useState } from "react";
 import { afterEach, expect, test, vi } from "vitest";
 import * as api from "../../api";
 import { ReportLinkRow } from "./ReportLinkRow";
@@ -61,6 +62,12 @@ const APPROVED: api.ApprovedEdition = {
   fiscal_year: 2026,
   single_file: "https://www.azjlbc.gov/26ar/fy2026approprpt.pdf",
   linked_toc: "https://www.azjlbc.gov/26ar/apprpttoc.pdf",
+  // 🔴 The server's year check on what it has STORED. It arrives with every
+  // approved row precisely so the wrong-year warning is a property of the DATA
+  // and cannot be lost to a remount — which is what used to happen, because
+  // the warning was remembered from the PUT's reply in component state and
+  // every book card unmounts the instant another card is clicked.
+  names_its_year: { single_file: true, linked_toc: true },
 };
 
 const CLEAN_SAVE = {
@@ -68,15 +75,46 @@ const CLEAN_SAVE = {
   names_its_year: { single_file: true, linked_toc: true },
 };
 
+/** The table the PAGE would be holding. Set by `stub()`, read by `open()`. */
+let fixture: api.BookFormats = {
+  pending: [], approved: [], online: true, reason: null, problems: [],
+};
+let lookAgainCalls = 0;
+
 function stub(over: Partial<api.BookFormats> = {}) {
-  vi.spyOn(api, "bookFormats").mockResolvedValue({
+  fixture = {
     pending: [PENDING],
     approved: [],
     online: true,
     reason: null,
     problems: [],
     ...over,
-  });
+  };
+}
+
+/** Stands in for `Upload.tsx`, which owns the link table now.
+ *
+ *  🔴 THE ROW NO LONGER FETCHES, and that is the fix these specs moved for:
+ *  when it owned the fetch, the state lived two components BELOW the card
+ *  header that has to report it, so the header read "up to date" over a row
+ *  reading "FY 2027 needs one" and a closed card said nothing at all. The page
+ *  holds it, hands it down, and takes edits back through `onChange` — which is
+ *  what this host reproduces, state and all, rather than a stub setter that
+ *  would let an approval "succeed" without the list ever changing. */
+function Host({ family, error }: { family: string; error: string | null }) {
+  const [formats, setFormats] = useState<api.BookFormats | null>(fixture);
+  return (
+    <ReportLinkRow
+      family={family}
+      formats={formats}
+      error={error}
+      refreshing={false}
+      onLookAgain={() => {
+        lookAgainCalls += 1;
+      }}
+      onChange={setFormats}
+    />
+  );
 }
 
 /** One pending edition with one candidate replaced. */
@@ -91,10 +129,10 @@ function withSingleFile(over: Partial<api.BookFormatCandidate> | null): api.Pend
 }
 
 /** Renders the row and opens it, which is what every spec about its CONTENTS
- *  needs first. `findByTestId` because the row's own fetch has to land before
- *  there is anything inside to assert about. */
+ *  needs first — a `<details>` keeps its children in the DOM when closed, so
+ *  asserting without opening would pass for content no reader can see. */
 async function open(family = "approps") {
-  const out = render(<ReportLinkRow family={family} />);
+  const out = render(<Host family={family} error={null} />);
   const details = await screen.findByTestId("report-links");
   fireEvent.click(details.querySelector("summary")!);
   expect(details.getAttribute("open")).not.toBeNull();
@@ -108,7 +146,10 @@ function openSection(testId: string) {
   return details;
 }
 
-afterEach(() => vi.restoreAllMocks());
+afterEach(() => {
+  vi.restoreAllMocks();
+  lookAgainCalls = 0;
+});
 
 // --- the vocabulary trap -----------------------------------------------------
 
@@ -142,7 +183,22 @@ test("a Baseline card never lists an Appropriations Report edition", async () =>
   stub({
     pending: [
       PENDING,
-      { family: "Baseline", fiscal_year: 2029, candidates: { single_file: null, linked_toc: null } },
+      {
+        family: "Baseline",
+        fiscal_year: 2029,
+        // 🔴 REAL candidates, not two nulls. With both fixtures empty the
+        // "no other family's address is on screen" assertion below could not
+        // fail — there was no address in either row to find — so it was a line
+        // that read like a guard and guarded nothing. Now dropping the family
+        // filter puts `28ar` on a Baseline card and the spec goes red.
+        candidates: {
+          single_file: {
+            url: "https://www.azjlbc.gov/29baseline/29baselinesinglefile.pdf",
+            status: 200, bytes: 48_000_000, names_its_year: true,
+          },
+          linked_toc: null,
+        },
+      },
     ],
     approved: [APPROVED],
   });
@@ -150,7 +206,11 @@ test("a Baseline card never lists an Appropriations Report edition", async () =>
 
   const cards = screen.getAllByTestId("report-links-pending-card");
   expect(cards).toHaveLength(1);
-  // The Baseline edition's own address line is the one on screen.
+  // The Baseline edition's own address line is the one on screen, and the
+  // Appropriations Report's is not.
+  expect(screen.getByTestId("report-links-single_file-url")).toHaveTextContent(
+    "29baseline/29baselinesinglefile.pdf",
+  );
   expect(screen.getByTestId("report-links").textContent).not.toContain("28ar");
   // And the other family's ANSWERED edition is not in this card's list either.
   expect(screen.queryByTestId("report-links-approved-row")).toBeNull();
@@ -180,7 +240,7 @@ test("a waiting edition is named on the row, before anything is opened", async (
   // scanned without opening it. Asserted against the SUMMARY, which is what is
   // on screen with nothing clicked.
   stub();
-  render(<ReportLinkRow family="approps" />);
+  render(<Host family="approps" error={null} />);
   const details = await screen.findByTestId("report-links");
   await waitFor(() =>
     expect(details.querySelector("summary")!.textContent).toMatch(/FY 2028 needs one/),
@@ -192,7 +252,7 @@ test("an ordinary day states how many editions are set, and is NOT amber", async
   // `is-need` is the only colour in this card's body. Spending it on a row
   // with nothing to do is how an admin learns to ignore it.
   stub({ pending: [], approved: [APPROVED, { ...APPROVED, fiscal_year: 2025 }] });
-  render(<ReportLinkRow family="approps" />);
+  render(<Host family="approps" error={null} />);
   const details = await screen.findByTestId("report-links");
   // The count is read off `approved`, not a constant and not the committed
   // table's 39 — an overlay the admin has added to is a different number.
@@ -211,7 +271,7 @@ test("with nothing waiting and nothing answered the row claims nothing", async (
   // looked and found none — and this row cannot tell that apart from a family
   // nobody has ever answered.
   stub({ pending: [], approved: [] });
-  render(<ReportLinkRow family="approps" />);
+  render(<Host family="approps" error={null} />);
   const details = await screen.findByTestId("report-links");
   await waitFor(() => expect(screen.queryByTestId("report-links-loading")).toBeNull());
   expect(details.querySelector("summary")!.textContent).toBe("Full report link");
@@ -222,7 +282,7 @@ test("more than one waiting edition is counted rather than named", async () => {
   stub({
     pending: [PENDING, { ...PENDING, fiscal_year: 2029 }],
   });
-  render(<ReportLinkRow family="approps" />);
+  render(<Host family="approps" error={null} />);
   const details = await screen.findByTestId("report-links");
   await waitFor(() =>
     expect(details.querySelector("summary")!.textContent).toMatch(/2 editions need one/),
@@ -296,14 +356,51 @@ test("an approved edition stored as never-published reopens on that answer", asy
 
 // --- the three facts about an address ---------------------------------------
 
-test("a waiting edition shows both addresses as openable links", async () => {
+test("a waiting edition shows both addresses as openable links, each named for its format", async () => {
+  // 🔴 THE TWO LINKS USED TO BE CALLED THE SAME THING. Both announced as plain
+  // "open", so a screen-reader user heard "open, open" and could not tell the
+  // whole book from its table of contents — on the one control that lets
+  // anybody check a file BEFORE approving it, which is the whole of R9's
+  // "approve without looking" mitigation.
+  //
+  // Worse, the ambiguity was GUARDED IN: this spec used to match `/^open$/i`,
+  // so giving the links distinct names would have failed the suite. It now
+  // asserts they are DIFFERENT, which is the property that matters.
   stub();
   await open();
-  const links = screen.getAllByRole("link", { name: /^open$/i });
+  const links = screen.getAllByRole("link", { name: /^open the /i });
+  expect(links).toHaveLength(2);
+  expect(links[0]).toHaveAccessibleName("open the Single File PDF");
   expect(links[0]).toHaveAttribute("href", SINGLE_URL);
   expect(links[0]).toHaveAttribute("target", "_blank");
   expect(links[0]).toHaveAttribute("rel", expect.stringContaining("noopener"));
+  expect(links[1]).toHaveAccessibleName("open the Linked Table of Contents");
   expect(links[1]).toHaveAttribute("href", TOC_URL);
+  // The names come from the FORMAT, so no two links on one edition can share
+  // one — asserted rather than eyeballed from the two strings above.
+  expect(new Set(links.map((l) => l.getAttribute("aria-label"))).size).toBe(2);
+});
+
+test("a checked replacement's opener is named too, though its line carries no visible label", async () => {
+  // The just-checked line deliberately shows no format name — the address box
+  // directly above it already says which format this is, and repeating it
+  // would read as a second one. That is exactly where a bare "open" comes
+  // back, so the accessible name is passed separately from the visible one.
+  stub();
+  vi.spyOn(api, "checkBookFormatUrl").mockResolvedValue({
+    ok: true, status: 200, bytes: 123_000, names_its_year: true, reason: null,
+  });
+  await open();
+  const row = screen.getByTestId("report-links-format-single_file");
+  fireEvent.click(within(row).getByRole("button", { name: /^change$/i }));
+  fireEvent.change(within(row).getByLabelText(/web address/i), {
+    target: { value: "https://www.azjlbc.gov/28ar/other.pdf" },
+  });
+  fireEvent.click(within(row).getByRole("button", { name: /^check$/i }));
+  const checked = await screen.findByTestId("report-links-single_file-checked-address");
+  expect(within(checked).getByRole("link")).toHaveAccessibleName(
+    "open the Single File PDF",
+  );
 });
 
 test("the address is shown by filename, with the whole address one click away", async () => {
@@ -427,7 +524,7 @@ test("approve is refused, with a reason on screen, when neither format has a lin
 test("an emptied address box blocks Approve instead of claiming JLBC published none", async () => {
   // 🔴 `urlFor` maps an empty typed box to `null`, and `null` on the wire is
   // the POSITIVE claim "JLBC published no such format" (spec R1). Reproduced
-  // end to end: reopen an approved edition, clear the Whole book box, press
+  // end to end: reopen an approved edition, clear the Single File PDF box, press
   // Approve — a good link deleted AND replaced by a claim about JLBC, on one
   // keystroke, with nothing on screen. `{typed, ""}` and `{none}` are different
   // intentions and must not collapse.
@@ -441,10 +538,12 @@ test("an emptied address box blocks Approve instead of claiming JLBC published n
   const single = within(editor).getByTestId("report-links-format-single_file");
   fireEvent.change(within(single).getByLabelText(/web address/i), { target: { value: "  " } });
 
-  // Named in the words the row uses for it. The panel said "Single File PDF";
-  // the row says "Whole book", and a warning naming a control that is not on
-  // screen is a warning an admin cannot act on.
-  expect(screen.getByTestId("report-links-blank")).toHaveTextContent(/Whole book/);
+  // Named in the words the row uses for it — and those are now the ANALYST's
+  // words, the ones `ReportChooser` prints on the "Full report" chooser, so
+  // the admin approving a link and the reader opening it are not shown two
+  // names for one document. A warning naming a control that is not on screen
+  // is a warning an admin cannot act on.
+  expect(screen.getByTestId("report-links-blank")).toHaveTextContent(/Single File PDF/);
   // And it names the way to say "there isn't one", so the block is a route
   // forward rather than a dead end.
   expect(screen.getByTestId("report-links-blank")).toHaveTextContent(/none published/i);
@@ -485,8 +584,43 @@ test("the save's own year check warns even when Check was never pressed", async 
   await open();
   fireEvent.click(screen.getByTestId("report-links-approve"));
   const warn = await screen.findByTestId("report-links-saved-warn");
-  expect(warn).toHaveTextContent(/Whole book/);
+  expect(warn).toHaveTextContent(/Single File PDF/);
   expect(warn).toHaveTextContent(/doesn’t mention FY 2028/i);
+});
+
+test("a stored wrong-year address warns with nothing saved this session", async () => {
+  // 🔴 THE DEFECT THIS FIXES. The warning used to be component state written
+  // from the reply to the PUT — and every book card unmounts the moment
+  // another card is clicked, so an admin who approved a wrong-year address,
+  // then clicked the Baseline card to check something, came back to a row
+  // reading "24 editions set", not amber, with no warning anywhere. Reopening
+  // the edition under "Already answered" showed nothing either, because a
+  // stored edition carried no year check at all.
+  //
+  // It is DERIVED from the stored table now, so a fresh render — which is what
+  // a remount, a reload or a different machine all are — still says so.
+  stub({
+    pending: [],
+    approved: [{ ...APPROVED, names_its_year: { single_file: false, linked_toc: true } }],
+  });
+  const { details } = await open();
+  const warn = screen.getByTestId("report-links-saved-warn");
+  expect(warn).toHaveTextContent(/Single File PDF/);
+  expect(warn).toHaveTextContent(/doesn’t mention FY 2026/i);
+  // And the COLLAPSED row says there is something to look at, so it is
+  // findable without opening anything.
+  expect(details.querySelector("summary")!.textContent).toMatch(/needs a look/);
+  expect(details.className).toContain("is-need");
+});
+
+test("a stored address that names its year warns about nothing", async () => {
+  // The other half: if every stored edition raised a warning the colour would
+  // mean nothing, and "needs a look" would be the permanent state of the row.
+  stub({ pending: [], approved: [APPROVED] });
+  const { details } = await open();
+  expect(screen.queryByTestId("report-links-saved-warn")).toBeNull();
+  expect(details.querySelector("summary")!.textContent).toMatch(/1 edition set/);
+  expect(details.className).not.toContain("is-need");
 });
 
 test("correcting a flagged edition clears its warning rather than stacking another", async () => {
@@ -707,9 +841,9 @@ test("a problem with the saved file is shown to the admin", async () => {
 test("a failed lookup says so on the row rather than reading as a clean sweep", async () => {
   // The row's whole job is saying what still needs a link. A fetch that failed
   // must not render as "nothing to do here", which is what an empty list would
-  // look like.
-  vi.spyOn(api, "bookFormats").mockRejectedValue(new Error("whole-report links: admin only"));
-  render(<ReportLinkRow family="approps" />);
+  // look like. The fetch belongs to the page now, so the failure arrives as a
+  // prop — but what it must produce on screen is unchanged.
+  render(<Host family="approps" error="whole-report links: admin only" />);
   const details = await screen.findByTestId("report-links");
   await waitFor(() =>
     expect(details.querySelector("summary")!.textContent).toMatch(/couldn’t check/),
@@ -718,24 +852,32 @@ test("a failed lookup says so on the row rather than reading as a clean sweep", 
   expect(screen.getByTestId("report-links-error")).toHaveTextContent(/admin only/);
 });
 
-test("Look again asks the server to ignore its 12-hour cache", async () => {
+test("Look again asks the page to ignore the server's 12-hour cache", async () => {
   // Without this an edition published an hour after the last look is invisible
-  // until tomorrow, with nothing on screen saying why.
+  // until tomorrow, with nothing on screen saying why. The page makes the
+  // request (it owns the table); this asserts the row asks for it.
+  // `Upload.test.tsx` pins the other half — that the page passes `true`.
   stub();
   await open();
   fireEvent.click(screen.getByRole("button", { name: /look again/i }));
-  await waitFor(() => expect(api.bookFormats).toHaveBeenCalledWith(true));
+  expect(lookAgainCalls).toBe(1);
 });
 
-test("'not now' closes the row without deciding anything", async () => {
-  // From the approved mockup. After scrolling past two address lines the row's
-  // own caret is off screen, so there is a way out beside the Approve button —
-  // and it must not send anything, which is what tells it apart from the
-  // "None published" answer sitting a few pixels away.
+test("the row's own caret closes it without deciding anything", async () => {
+  // 🔴 RE-POINTED, not deleted. This used to drive a "not now" button beside
+  // Approve; that button is GONE (Destin, 2026-08-16) because it sat inches
+  // from "None published" and the two mean opposite things — "not today"
+  // against the positive claim "JLBC published no such format" — so the quiet
+  // one read as *reject*.
+  //
+  // The property it was really protecting survives and is what is asserted
+  // here: there is a way OUT of this row that writes nothing. That is the
+  // caret, the same gesture every other section on the page uses.
   stub();
   const save = vi.spyOn(api, "saveBookFormat").mockResolvedValue(CLEAN_SAVE);
   const { details } = await open();
-  fireEvent.click(screen.getByRole("button", { name: /not now/i }));
+  expect(screen.queryByRole("button", { name: /not now/i })).toBeNull();
+  fireEvent.click(details.querySelector("summary")!);
   expect(details.getAttribute("open")).toBeNull();
   expect(save).not.toHaveBeenCalled();
 });

@@ -428,6 +428,63 @@ def test_an_already_approved_edition_can_be_corrected(tmp_path, monkeypatch):
     assert row["linked_toc"] is None
 
 
+def test_an_approved_edition_reports_whether_its_stored_links_name_their_year(
+    tmp_path, monkeypatch
+):
+    # 🔴 THE WRONG-YEAR WARNING HAS TO BE DERIVABLE, NOT REMEMBERED. The card
+    # used to learn this in exactly one place: the reply to the PUT that saved
+    # the address, held in browser state. Every book card on /upload unmounts
+    # the moment another card is clicked, so the warning died on the next click
+    # -- and reopening the edition under "Already answered" showed nothing
+    # either, because a stored edition carried no year check at all. The admin
+    # was left looking at "24 editions set", not amber, over a live
+    # downloadable WRONG-year report behind a button labelled "Full report".
+    #
+    # That is the one defect a 200 OK cannot detect, and R6 flags rather than
+    # refuses it, so this warning is the whole mitigation -- and a mitigation
+    # one unrelated click erases is not one. Sending it with every row makes it
+    # a property of the DATA, so it survives a remount, a reload and a
+    # different machine.
+    overlay = tmp_path / "report-formats.json"
+    docs = {"d1": {"source_url": "https://www.azjlbc.gov/28ar/axs.pdf"}}
+    client = _client(tmp_path, monkeypatch, documents=docs, overlay=overlay)
+    assert client.put("/api/admin/book-formats", json={
+        "family": "Appropriations Report", "fiscal_year": 2028,
+        # A real FY2026 report saved under FY2028 -- a copy-paste slip that
+        # downloads perfectly and is the wrong book.
+        "single_file": "https://www.azjlbc.gov/26ar/fy2026approprpt.pdf",
+        "linked_toc": None,
+    }).status_code == 200
+    row = next(
+        a for a in client.get("/api/admin/book-formats").json()["approved"]
+        if a["fiscal_year"] == 2028 and a["family"] == "Appropriations Report"
+    )
+    assert row["names_its_year"]["single_file"] is False
+    # None, not False, for a format recorded as never published: there is no
+    # address to judge and `false` would read as a complaint about one.
+    assert row["names_its_year"]["linked_toc"] is None
+
+
+def test_a_correct_approved_edition_reports_no_year_complaint(tmp_path, monkeypatch):
+    # The other half. If every stored edition came back flagged, the card would
+    # be permanently amber and the warning would stop meaning anything --
+    # which is the same failure as never warning at all, arrived at from the
+    # other side.
+    overlay = tmp_path / "report-formats.json"
+    docs = {"d1": {"source_url": "https://www.azjlbc.gov/28ar/axs.pdf"}}
+    client = _client(tmp_path, monkeypatch, documents=docs, overlay=overlay)
+    assert client.put("/api/admin/book-formats", json={
+        "family": "Appropriations Report", "fiscal_year": 2028,
+        "single_file": "https://www.azjlbc.gov/28ar/fy2028approprpt.pdf",
+        "linked_toc": "https://www.azjlbc.gov/28ar/apprpttoc28.pdf",
+    }).status_code == 200
+    row = next(
+        a for a in client.get("/api/admin/book-formats").json()["approved"]
+        if a["fiscal_year"] == 2028 and a["family"] == "Appropriations Report"
+    )
+    assert row["names_its_year"] == {"single_file": True, "linked_toc": True}
+
+
 def test_marking_one_format_as_never_published_is_accepted(tmp_path, monkeypatch):
     # Appropriations Reports before FY2011 genuinely have no single file. The
     # row must then link straight to the table of contents with no chooser.

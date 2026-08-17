@@ -1,7 +1,9 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import * as api from "../api";
 import { BookFamilyPanel } from "./upload/BookFamilyPanel";
+import { Chevron } from "./upload/Chevron";
 import { QueuePanel } from "./upload/QueuePanel";
+import { pendingLinkCount } from "./upload/ReportLinkRow";
 
 // The upload surface. Two jobs: get a document into the queue with correct
 // metadata, and be honest about what happens next.
@@ -99,6 +101,46 @@ export function Upload() {
     };
   }, []);
 
+  // 🔴 THE WHOLE-REPORT LINK TABLE, FETCHED HERE AND NOT INSIDE THE ROW THAT
+  // SHOWS IT. This moved up on 2026-08-16 to fix a real hole: the collapsed
+  // book card counted only MISSING DOCUMENTS, so it read "up to date" while
+  // the "Full report link" row two components below it read "FY 2027 needs
+  // one" — and with the card shut there was no signal at all. The failure that
+  // matters: JLBC publishes FY2028, an admin adds its documents, the chip
+  // flips to "up to date", and the waiting link becomes invisible until
+  // somebody opens that card for an unrelated reason. That is exactly the
+  // "second half you forget" this whole feature exists to prevent, arriving by
+  // a new route.
+  //
+  // It also REMOVES fetches rather than adding one: the answer covers both
+  // families in a single round-trip, and a card's body is unmounted when it
+  // closes, so opening Baseline, then Approps, then Baseline again used to
+  // issue three identical requests. The cost is one request for an admin who
+  // never opens a book card.
+  //
+  // Gated on `isAdmin`, because the route is admin-gated server-side and every
+  // analyst in the office can open this page — an ungated fetch would be a 403
+  // per page load, per person, for a control they cannot see.
+  const [formats, setFormats] = useState<api.BookFormats | null>(null);
+  const [formatsError, setFormatsError] = useState<string | null>(null);
+  const [formatsRefreshing, setFormatsRefreshing] = useState(false);
+
+  const loadFormats = useCallback(async (refresh: boolean) => {
+    setFormatsRefreshing(refresh);
+    try {
+      setFormats(await api.bookFormats(refresh));
+      setFormatsError(null);
+    } catch (e) {
+      setFormatsError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setFormatsRefreshing(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    if (isAdmin) void loadFormats(false);
+  }, [isAdmin, loadFormats]);
+
   const loadCheck = useCallback(async (refresh: boolean) => {
     setChecking(true);
     setCheckError("");
@@ -180,7 +222,29 @@ export function Upload() {
               key={row.key}
               row={row}
               open={openKey === row.key}
-              status={bookStatus(row, check, checking)}
+              status={bookStatus(
+                row,
+                check,
+                checking,
+                // Null, not 0, when the viewer is not an admin: they cannot
+                // act on a link and never caused the fetch, so their chip must
+                // read exactly as it did before this feature existed.
+                //
+                // ⚠ HONESTY NOTE, measured rather than assumed: this
+                // `isAdmin &&` is a SECOND line of defence and no test can
+                // currently tell it apart from its absence. Removing it was
+                // run as a mutation and the whole suite stayed green, because
+                // the load-bearing gate is on the FETCH above — a non-admin
+                // never has a table to count, so the count is 0 either way.
+                // It is kept anyway: if anyone ever ungates that fetch, this
+                // is what stops an analyst being shown work they cannot do.
+                // What IS pinned is the fetch gate (Upload.test.tsx: "says
+                // nothing about links to a non-admin", which also asserts the
+                // request is never made). Do not read this line as guarded.
+                isAdmin && row.redirect
+                  ? pendingLinkCount(formats, row.redirect.family)
+                  : null,
+              )}
               // Clicking the open card closes it — the header is a toggle,
               // not a one-way selector, so there is always a way back to
               // "nothing open" without picking something you don't want.
@@ -191,6 +255,11 @@ export function Upload() {
               checking={checking}
               checkError={checkError}
               isAdmin={isAdmin}
+              formats={formats}
+              formatsError={formatsError}
+              formatsRefreshing={formatsRefreshing}
+              onLookAgainFormats={() => void loadFormats(true)}
+              onFormatsChange={setFormats}
               onRecheck={() => void loadCheck(true)}
               onQueued={() => void refreshJobs()}
             />
@@ -209,15 +278,31 @@ export function Upload() {
  *
  *  This is the whole reason the check is fetched at page level: it answers
  *  the only question anyone has about a book card — is there anything to
- *  add? — without opening it. The other four types have no equivalent (the
+ *  do? — without opening it. The other four types have no equivalent (the
  *  app cannot know whether the Auditor General has published this year's
  *  AFR until somebody looks), and inventing a filler state for them would
  *  be four labels that say nothing.
+ *
+ *  🔴 IT COUNTS TWO KINDS OF OUTSTANDING WORK, NOT ONE. It used to count
+ *  missing DOCUMENTS only, while a waiting "Full report" LINK lived in state
+ *  owned two components below — so the header said "up to date" over a row
+ *  saying "FY 2027 needs one", and a shut card said nothing at all. Publishing
+ *  an edition is one event with two halves, and the half that vanished from
+ *  the outside of the card is the half that gets forgotten.
+ *
+ *  Documents win when both are outstanding, deliberately: the edition is not
+ *  really in the corpus yet, so that is the bigger and earlier job, and the
+ *  chip flips to the link the moment the documents land. There is no state in
+ *  which both are outstanding and the chip is silent.
  */
 function bookStatus(
   row: api.DocTypeCard,
   check: api.BookCheck | null,
   checking: boolean,
+  /** How many of this family's editions are waiting for a whole-report link.
+   *  NULL means "nobody asked" — a non-admin, or the fetch still in flight —
+   *  and must render as it did before this existed, never as zero. */
+  pendingLinks: number | null,
 ): { text: string; tone: string } | null {
   if (!row.redirect) return null;
   if (!check) return checking ? { text: "checking…", tone: "wait" } : null;
@@ -226,9 +311,15 @@ function bookStatus(
   // whose job is telling you what is missing.
   if (!check.online) return { text: "can’t check", tone: "warn" };
   const n = check.missing.filter((m) => m.family === row.redirect?.family).length;
-  return n > 0
-    ? { text: `${n} to add`, tone: "act" }
-    : { text: "up to date", tone: "ok" };
+  if (n > 0) return { text: `${n} to add`, tone: "act" };
+  if (pendingLinks && pendingLinks > 0)
+    return {
+      // The approved mockup's wording and its amber `.chip.need`.
+      text:
+        pendingLinks === 1 ? "1 needs a link" : `${pendingLinks} need links`,
+      tone: "need",
+    };
+  return { text: "up to date", tone: "ok" };
 }
 
 /** One expandable row of the document-type list.
@@ -264,6 +355,11 @@ function DocTypeCard({
   checking,
   checkError,
   isAdmin,
+  formats,
+  formatsError,
+  formatsRefreshing,
+  onLookAgainFormats,
+  onFormatsChange,
   onRecheck,
   onQueued,
 }: {
@@ -277,6 +373,15 @@ function DocTypeCard({
   /** Passed straight through to the book panel, which hides its admin-only
    *  "Full report link" row when false. Resolved once by the page. */
   isAdmin: boolean;
+  /** The whole-report link table and its controls, all owned by the page for
+   *  the reasons at the state declaration above — chiefly that the COLLAPSED
+   *  header has to be able to say a link is waiting. Passed through untouched;
+   *  this component only decides whether a book panel exists to receive them. */
+  formats: api.BookFormats | null;
+  formatsError: string | null;
+  formatsRefreshing: boolean;
+  onLookAgainFormats: () => void;
+  onFormatsChange: React.Dispatch<React.SetStateAction<api.BookFormats | null>>;
   onRecheck: () => void;
   onQueued: () => void;
 }) {
@@ -332,6 +437,11 @@ function DocTypeCard({
               checking={checking}
               checkError={checkError}
               isAdmin={isAdmin}
+              formats={formats}
+              formatsError={formatsError}
+              formatsRefreshing={formatsRefreshing}
+              onLookAgainFormats={onLookAgainFormats}
+              onFormatsChange={onFormatsChange}
               onRecheck={onRecheck}
               onQueued={onQueued}
             />
@@ -380,23 +490,11 @@ function UploadGlyph() {
   );
 }
 
-/** The disclosure caret. Rotated by CSS on `.is-open` rather than swapped
- *  for a second glyph, so the two states are one shape in motion — the same
- *  treatment the Budget Documents year cards already use. */
-function Chevron() {
-  return (
-    <svg className="up-card-caret" viewBox="0 0 16 16" aria-hidden="true" focusable="false">
-      <path
-        d="M4 6l4 4 4-4"
-        fill="none"
-        stroke="currentColor"
-        strokeWidth="2"
-        strokeLinecap="round"
-        strokeLinejoin="round"
-      />
-    </svg>
-  );
-}
+// The disclosure caret used to be declared here. It moved to
+// `./upload/Chevron.tsx` when the section rows inside a book card were found
+// drawing a DIFFERENT caret (a CSS border-triangle) — one page, two caret
+// shapes, against the "one caret shape throughout" decision STATUS.md records
+// from Plan C's browser pass. One module, one shape, no copy to drift.
 
 // --- the form, for whichever type is selected --------------------------------
 

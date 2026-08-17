@@ -285,6 +285,47 @@ def _candidates_for(label: str, family_slug: str, year: int, prober, cache: dict
     return _Probe(candidates=found, probed=True)
 
 
+def _approved_row(key: str, row) -> dict:
+    """One already-answered edition, INCLUDING the year check on what is stored.
+
+    🔴 `names_its_year` IS HERE SO THE WARNING CAN BE DERIVED RATHER THAN
+    REMEMBERED, and that is a fix for a real defect. The card used to learn a
+    stored address had the wrong year in exactly one way: from the reply to the
+    PUT that saved it, held in component state. Every book card on /upload
+    unmounts the instant another card is clicked, so the warning died on the
+    next click -- and reopening the edition under "Already answered" showed
+    nothing either, because a stored edition carried no year check at all. The
+    admin was left with a row reading "24 editions set", not amber, over a live
+    downloadable WRONG-year report behind a button labelled "Full report".
+
+    That is the ONE defect a `200 OK` cannot detect, and R6 deliberately flags
+    it rather than refusing it (`budget/apprpttoc.pdf` genuinely IS the FY2023
+    report), so this warning is the whole mitigation. A mitigation that a
+    single unrelated click erases is not one. Sending the check with the row
+    makes it a property of the DATA, so it survives any remount and any reload.
+
+    `None` for a format recorded as never published: there is no address to
+    judge, and `False` there would read as a complaint about one. Same shape as
+    `write_edition`'s reply, deliberately -- the card reads the two through one
+    code path.
+    """
+    year = int(key.rpartition(":")[2])
+    return {
+        "family": key.rpartition(":")[0],
+        "fiscal_year": year,
+        "single_file": row.single_file,
+        "linked_toc": row.linked_toc,
+        "names_its_year": {
+            "single_file": (
+                names_its_year(row.single_file, year) if row.single_file else None
+            ),
+            "linked_toc": (
+                names_its_year(row.linked_toc, year) if row.linked_toc else None
+            ),
+        },
+    }
+
+
 def pending_editions(prober, *, refresh: bool = False) -> dict:
     """Every book edition in the corpus that the link table does not answer."""
     table, problems = load()
@@ -336,25 +377,23 @@ def pending_editions(prober, *, refresh: bool = False) -> dict:
         #
         # ITS REACH, stated because it has been wrong here before: the list IS
         # reachable in the healthy, nothing-pending state, as of 2026-08-16.
-        # `webapp/src/admin/ReportLinksPanel.tsx` renders one collapsed line —
-        # "Full report links — N editions answered" — whenever this list is
-        # non-empty and nothing is waiting, and opening it reaches this same
-        # correction editor. Until that change the whole card was hidden in the
-        # healthy state, so approving a wrong URL (which MAKES the state
-        # healthy) hid the only repair; that was reproduced in review, and
-        # Destin overrode spec R7's render-nothing rule for this panel because
-        # of it. If the panel ever goes silent when healthy again, this comment
-        # is a lie and a wrong link becomes unfixable outside a text editor.
+        # `webapp/src/pages/upload/ReportLinkRow.tsx` renders it as the
+        # "Already answered" section of the "Full report link" row inside the
+        # Baseline Book / Appropriations Report cards on /upload, and opening an
+        # edition there reaches this same correction editor. That row is on the
+        # page every day whether or not anything is waiting.
+        #
+        # (This comment used to name `webapp/src/admin/ReportLinksPanel.tsx`,
+        # which was DELETED when the panel moved off /admin — a load-bearing
+        # safety comment pointing at nothing. Re-pointed 2026-08-16.)
+        #
+        # Before the move the whole card was hidden in the healthy state, so
+        # approving a wrong URL (which MAKES the state healthy) hid the only
+        # repair; that was reproduced in review. If this list ever stops being
+        # reachable when nothing is pending, this comment is a lie and a wrong
+        # link becomes unfixable outside a text editor.
         "approved": sorted(
-            (
-                {
-                    "family": key.rpartition(":")[0],
-                    "fiscal_year": int(key.rpartition(":")[2]),
-                    "single_file": row.single_file,
-                    "linked_toc": row.linked_toc,
-                }
-                for key, row in table.items()
-            ),
+            (_approved_row(key, row) for key, row in table.items()),
             key=lambda a: (-a["fiscal_year"], a["family"]),
         ),
     }

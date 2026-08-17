@@ -1,3 +1,4 @@
+import type React from "react";
 import { useState } from "react";
 import * as api from "../../api";
 import { ReportLinkRow } from "./ReportLinkRow";
@@ -92,6 +93,11 @@ export function BookFamilyPanel({
   checking,
   checkError,
   isAdmin,
+  formats,
+  formatsError,
+  formatsRefreshing,
+  onLookAgainFormats,
+  onFormatsChange,
   onRecheck,
   onQueued,
 }: {
@@ -125,6 +131,18 @@ export function BookFamilyPanel({
    *  Presentation, not protection: the routes behind it are admin-gated
    *  server-side, the same soft gate (spec S11) the Admin nav pill uses. */
   isAdmin: boolean;
+  /** The whole-report link table, owned by the PAGE for exactly the reasons
+   *  `check` above is: one round-trip answers for both families, and the
+   *  COLLAPSED card header has to report what is waiting in here. When this
+   *  row owned its own fetch the header counted documents only, so it read
+   *  "up to date" while the row two components below it read "FY 2027 needs
+   *  one" — and with the card shut there was no signal at all. Null for a
+   *  non-admin, who never causes the fetch. */
+  formats: api.BookFormats | null;
+  formatsError: string | null;
+  formatsRefreshing: boolean;
+  onLookAgainFormats: () => void;
+  onFormatsChange: React.Dispatch<React.SetStateAction<api.BookFormats | null>>;
   onRecheck: () => void;
   onQueued: () => void;
 }) {
@@ -249,10 +267,15 @@ export function BookFamilyPanel({
 
       {check && (
         <p className="up-note up-book-checked">
-          Checked azjlbc.gov {agoLabel(check.checked_at)} ·{" "}
+          Checked azjlbc.gov {agoLabel(check.checked_at)}{" "}
+          {/* A chip, not a bare underlined blue link (Destin, 2026-08-16 — the
+              hyperlink look is out). It reuses `.fchip`, the small secondary
+              pill this page already owns for Preview, rather than a new
+              recipe, and stays subordinate to the filled navy Approve and Add
+              buttons that are the only controls here that write anything. */}
           <button
             type="button"
-            className="linkish"
+            className="fchip up-rl-mini"
             disabled={checking}
             onClick={onRecheck}
           >
@@ -335,7 +358,16 @@ export function BookFamilyPanel({
           on /admin. Publishing an edition is ONE event — add its documents to
           search, set its whole-report link — and it was two pages, so the
           second half was the half you forgot. Admins only; see `isAdmin`. */}
-      {isAdmin && <ReportLinkRow family={family} />}
+      {isAdmin && (
+        <ReportLinkRow
+          family={family}
+          formats={formats}
+          error={formatsError}
+          refreshing={formatsRefreshing}
+          onLookAgain={onLookAgainFormats}
+          onChange={onFormatsChange}
+        />
+      )}
 
       {/* Everything from here down EXPLAINS rather than answers, so it is
           behind a row that says what is inside it. */}
@@ -351,7 +383,15 @@ export function BookFamilyPanel({
         testId="book-older"
       >
         <div className="up-book-manual">
-          <button type="button" className="linkish" onClick={() => setManualOpen((v) => !v)}>
+          {/* Also a chip rather than a link, for the same reason as "Check
+              again" above: one page, one treatment for a small secondary
+              control. Leaving this one underlined-blue would have kept the
+              look the owner asked to remove, on the same card. */}
+          <button
+            type="button"
+            className="fchip up-rl-mini"
+            onClick={() => setManualOpen((v) => !v)}
+          >
             Add a specific year
           </button>
           {manualOpen && (

@@ -103,9 +103,12 @@ test("updateIssue surfaces the backend's error detail", async () => {
 
 // --- whole-report links -----------------------------------------------------
 //
-// WHY these six exist: ReportLinksPanel.test.tsx mocks all three of these
-// functions outright, so NOTHING was checking what goes over the wire. Both of
-// these mutations left the whole suite green before they were written:
+// WHY these six exist: the row's own suite
+// (`pages/upload/ReportLinkRow.test.tsx`, which replaced the deleted
+// `admin/ReportLinksPanel.test.tsx` when the panel moved onto the book card)
+// mocks all three of these functions outright, so NOTHING was checking what
+// goes over the wire. Both of these mutations left the whole suite green
+// before they were written:
 //
 //   * typo the PUT path to `/api/admin/book-format-TYPO`
 //   * replace `fail(r, "saving the whole-report links")` with a bare

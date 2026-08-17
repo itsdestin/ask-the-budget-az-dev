@@ -82,10 +82,18 @@ function renderPanel(
       checking={false}
       checkError=""
       // The default is a NON-admin, because that is what almost everyone who
-      // opens /upload is, and because the "Full report link" row fetches for
-      // itself — defaulting it on would make every spec in this file depend on
-      // an api mock it does not care about.
+      // opens /upload is, and because the "Full report link" row is a whole
+      // feature of its own — defaulting it on would make every spec in this
+      // file depend on a fixture it does not care about.
       isAdmin={false}
+      // Like `check` above, the link table is a PROP the page owns: it answers
+      // for both families in one round-trip AND the collapsed card header has
+      // to count it, which is why the row below stopped fetching for itself.
+      formats={null}
+      formatsError={null}
+      formatsRefreshing={false}
+      onLookAgainFormats={() => {}}
+      onFormatsChange={() => {}}
       onRecheck={() => {}}
       onQueued={() => {}}
       {...props}
@@ -104,6 +112,27 @@ function openSection(testId: "book-older" | "book-about") {
 }
 
 afterEach(() => vi.restoreAllMocks());
+
+describe("the card's disclosure rows", () => {
+  it("draw the SAME caret as the card header above them", () => {
+    // 🔴 One page, one caret. These rows used to draw a CSS border-triangle
+    // (`.up-disclose-mark`) that pointed sideways and rotated 90°, while the
+    // card header above them drew the stroked `<Chevron/>` SVG — two shapes
+    // for one idea on one card, against the "one caret shape throughout"
+    // decision recorded from Plan C's browser pass. Both render `<Chevron/>`
+    // from one module now.
+    //
+    // jsdom applies no stylesheet, so this can only assert WHICH GLYPH is in
+    // the markup, never that the two look alike on screen. That is still the
+    // thing that regressed: the shapes differed because the elements did.
+    renderPanel();
+    for (const testId of ["book-older", "book-about"]) {
+      const summary = screen.getByTestId(testId).querySelector("summary")!;
+      expect(summary.querySelector(".up-card-caret")).toBeTruthy();
+      expect(summary.querySelector(".up-disclose-mark")).toBeNull();
+    }
+  });
+});
 
 describe("a book row offers only what its own family is missing", () => {
   it("offers an edition the corpus lacks", () => {
@@ -469,20 +498,25 @@ describe("the 'Full report link' row is mounted, and only for an admin", () => {
   // specs below were verified RED against the mutation they exist to catch.
 
   it("renders the row for an admin, and lets it answer for its own family", async () => {
-    vi.spyOn(api, "bookFormats").mockResolvedValue({
-      pending: [
-        {
-          family: "Appropriations Report",
-          fiscal_year: 2028,
-          candidates: { single_file: null, linked_toc: null },
-        },
-      ],
-      approved: [],
-      online: true,
-      reason: null,
-      problems: [],
+    // The table is handed DOWN now (the page owns it, so the collapsed card
+    // header can count it too) — so this passes it as a prop rather than
+    // mocking a fetch the row no longer makes.
+    renderPanel({
+      isAdmin: true,
+      formats: {
+        pending: [
+          {
+            family: "Appropriations Report",
+            fiscal_year: 2028,
+            candidates: { single_file: null, linked_toc: null },
+          },
+        ],
+        approved: [],
+        online: true,
+        reason: null,
+        problems: [],
+      },
     });
-    renderPanel({ isAdmin: true });
 
     const row = await screen.findByTestId("report-links");
     // Not merely present: it has resolved THIS family's slice, which is the
@@ -498,13 +532,27 @@ describe("the 'Full report link' row is mounted, and only for an admin", () => {
     // "Full report" button downloads. A non-admin's card must look exactly as
     // it did. An ABSENCE test, not an assumption — and it also pins that no
     // admin-only request is made, since a 403 in the console is how a
-    // "hidden" control announces itself.
-    const formats = vi.spyOn(api, "bookFormats");
-    renderPanel({ isAdmin: false });
+    // "hidden" control announces itself. That request now belongs to the page
+    // and `Upload.test.tsx` pins that IT does not make it for a non-admin;
+    // what this panel owes is the absence of the row.
+    renderPanel({
+      isAdmin: false,
+      // Even handed the answer, it must render nothing — so the absence is a
+      // decision about the reader, not an accident of empty data.
+      formats: {
+        pending: [
+          {
+            family: "Appropriations Report",
+            fiscal_year: 2028,
+            candidates: { single_file: null, linked_toc: null },
+          },
+        ],
+        approved: [], online: true, reason: null, problems: [],
+      },
+    });
 
     expect(screen.queryByTestId("report-links")).toBeNull();
     expect(screen.queryByText(/full report link/i)).toBeNull();
     await waitFor(() => expect(screen.getByTestId("book-about")).toBeTruthy());
-    expect(formats).not.toHaveBeenCalled();
   });
 });
