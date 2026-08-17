@@ -27,6 +27,7 @@ import {
   coalesceActionLabels,
   toolActionLabel,
   toolDisplayLabel,
+  toolHeaderSentence,
   toolHeaderSummary,
 } from "../tool-display.js";
 
@@ -217,5 +218,115 @@ describe("coalesceActionLabels", () => {
 
   it("returns an empty string for an empty run", () => {
     expect(coalesceActionLabels([], "past")).toBe("");
+  });
+});
+
+describe("toolHeaderSentence", () => {
+  const search = (query: string) => ({ toolName: "retrieve", input: { query } });
+
+  it("reads as a sentence for a single search", () => {
+    const s = toolHeaderSentence([search("State Aviation Fund balance FY2025")], "past");
+    expect(s.verb).toBe("Searched");
+    expect(s.rest).toBe(' for “State Aviation Fund balance FY2025”');
+  });
+
+  it("keeps the first query visible however many searches ran", () => {
+    // The rejected alternative led with the count, which pushes the one
+    // informative part of the row toward the ellipsis.
+    const s = toolHeaderSentence(
+      [search("State Aviation Fund balance FY2025"), search("b"), search("c")],
+      "past",
+    );
+    expect(s.verb).toBe("Searched");
+    expect(s.rest).toBe(' for “State Aviation Fund balance FY2025” and 2 more');
+  });
+
+  it("uses the present participle while a call is in flight", () => {
+    const s = toolHeaderSentence([search("aviation fund")], "present");
+    expect(s.verb).toBe("Searching");
+    expect(s.rest).toBe(' for “aviation fund”…');
+  });
+
+  it("names each tool with its own preposition", () => {
+    expect(
+      toolHeaderSentence([{ toolName: "create_document", input: { title: "AHCCCS FY24-26" } }], "past"),
+    ).toEqual({ verb: "Wrote", rest: ' the document “AHCCCS FY24-26”' });
+    expect(
+      toolHeaderSentence([{ toolName: "document_guide", input: { report_type: "research-memo" } }], "past"),
+    ).toEqual({ verb: "Checked", rest: " the house style for a research memo" });
+    expect(
+      toolHeaderSentence([{ toolName: "list_filter_values", input: { field: "agency_canonical_id" } }], "past"),
+    ).toEqual({ verb: "Checked", rest: " which agencies the corpus covers" });
+  });
+
+  it("appends a second kind of work rather than dropping the query", () => {
+    const s = toolHeaderSentence(
+      [search("AHCCCS General Fund FY2026"), search("b"), search("c"),
+       { toolName: "create_document", input: { title: "Memo" } }],
+      "past",
+    );
+    expect(s.rest).toBe(' for “AHCCCS General Fund FY2026” and 2 more, then wrote a document');
+  });
+
+  it("never leaks a raw field name or a corpus name", () => {
+    const s = toolHeaderSentence(
+      [{ toolName: "list_filter_values", input: { field: "agency_canonical_id" } }],
+      "past",
+    );
+    const whole = s.verb + s.rest;
+    expect(whole).not.toMatch(/canonical_id|doc_type|Budget Documents|Fiscal Notes/);
+  });
+
+  it("keeps the count for retrieve when the leading call has no query", () => {
+    // Regression guard for the "and N more" count silently vanishing when the
+    // leading call's summary is empty. retrieve's no-summary branch was
+    // always correct; pinned here so it can't be broken while fixing the two
+    // branches below.
+    const s = toolHeaderSentence(
+      [{ toolName: "retrieve", input: {} }, { toolName: "retrieve", input: {} }],
+      "past",
+    );
+    expect(s.verb).toBe("Searched");
+    expect(s.rest).toBe(" and 1 more");
+  });
+
+  it("keeps the count for create_document when the leading call has no title", () => {
+    // The no-summary fallback used to omit ${more} entirely, so a run of two
+    // untitled create_document calls rendered as "Wrote a document" — a
+    // silent undercount of real work.
+    const s = toolHeaderSentence(
+      [
+        { toolName: "create_document", input: {} },
+        { toolName: "create_document", input: {} },
+      ],
+      "past",
+    );
+    expect(s.verb).toBe("Wrote");
+    expect(s.rest).toBe(" a document and 1 more");
+  });
+
+  it("keeps the count for document_guide across multiple calls", () => {
+    // document_guide's branch never interpolated ${more} at all, so two
+    // calls rendered identically to one: "Checked the house style for a
+    // document".
+    const s = toolHeaderSentence(
+      [
+        { toolName: "document_guide", input: {} },
+        { toolName: "document_guide", input: {} },
+      ],
+      "past",
+    );
+    expect(s.verb).toBe("Checked");
+    expect(s.rest).toBe(" the house style for a document and 1 more");
+  });
+
+  it("degrades legibly for an unregistered tool", () => {
+    const s = toolHeaderSentence([{ toolName: "some_future_tool", input: { thing: "x" } }], "past");
+    expect(s.verb).toBe("some_future_tool");
+    expect(s.rest).toContain("x");
+  });
+
+  it("returns an empty sentence for an empty run", () => {
+    expect(toolHeaderSentence([], "past")).toEqual({ verb: "", rest: "" });
   });
 });

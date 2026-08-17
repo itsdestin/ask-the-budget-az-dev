@@ -9,7 +9,7 @@
 
 import { useState } from "react";
 
-import { coalesceActionLabels, toolHeaderSummary } from "./tool-display.js";
+import { toolHeaderSentence } from "./tool-display.js";
 import type { AssistantBlock } from "./chat-types.js";
 import ToolCard from "./ToolCard.js";
 import ToolBody from "./tool-views/ToolBody.js";
@@ -28,25 +28,20 @@ export default function ToolGroup({ tools }: Props) {
   if (!first) return null;
 
   const running = tools.some((t) => t.status === "running");
-  const label = coalesceActionLabels(tools, running ? "present" : "past");
 
   // n = 1 always shows the call's own summary — the query — in both states.
-  // A multi-call run shows progress while it is in flight and NOTHING once it
-  // settles: "all complete" would be a false positive claim while a failure is
-  // suppressed, and silence claims nothing (TC3, TC9).
+  // A multi-call run reads as one sentence (TC13) and settles into silence
+  // about individual outcomes: "all complete" would be a false positive claim
+  // while a failure is suppressed, and silence claims nothing (TC3, TC9).
   const single = tools.length === 1;
-  const settled = tools.filter((t) => t.status !== "running").length;
-  const detail = single
-    ? toolHeaderSummary(first.toolName, first.input)
-    : running
-      ? `${settled} of ${tools.length} done`
-      : null;
 
-  // The accessible name tracks the visible text EXACTLY. A screen-reader user
-  // must not be told about a transient failure the sighted user is
-  // deliberately not being alarmed by, or the suppression is only cosmetic
-  // (TC12).
-  const ariaLabel = detail ? `${label}, ${detail}` : label;
+  // The header sentence, split so the verb can render bold while the rest
+  // stays normal weight (TC13/TC14). The accessible name tracks the visible
+  // text EXACTLY — a screen-reader user must not be told about a transient
+  // failure the sighted user is deliberately not being alarmed by, or the
+  // suppression is only cosmetic (TC12).
+  const sentence = toolHeaderSentence(tools, running ? "present" : "past");
+  const ariaLabel = `${sentence.verb}${sentence.rest}`;
 
   // Only consulted inside the expansion — never in the collapsed header, where
   // TC9 forbids any failure signal at all.
@@ -75,8 +70,10 @@ export default function ToolGroup({ tools }: Props) {
         >
           {toolGlyph(first.toolName)}
         </svg>
-        <span className="chat-tool-label">{label}</span>
-        {detail && <span className="chat-tool-summary">{detail}</span>}
+        <span className="chat-tool-sentence">
+          <b className="chat-tool-verb">{sentence.verb}</b>
+          {sentence.rest}
+        </span>
         <svg
           viewBox="0 0 10 6"
           width={10}

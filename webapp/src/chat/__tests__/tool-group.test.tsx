@@ -44,15 +44,21 @@ const retrieveRunning = block({
 
 describe("ToolGroup", () => {
   it("coalesces a multi-call run into one past-tense summary row", () => {
+    // 2026-08-16 — TC13 replaced the coalesced "Searched ×2, browsed filters"
+    // label with a sentence naming the FIRST query, then the second kind of
+    // work. This is the header-sentence version of the same property: one
+    // row, past tense, everything the run did is represented.
     render(
       <ToolGroup
         tools={[retrieveComplete, retrieveComplete2, listFiltersComplete]}
       />,
     );
     const head = screen.getByRole("button", {
-      name: /Searched ×2, browsed filters/,
+      name: /Searched for “Aviation Fund” and 1 more, then browsed filters/,
     });
-    expect(head).toHaveTextContent("Searched ×2, browsed filters");
+    expect(head).toHaveTextContent(
+      "Searched for “Aviation Fund” and 1 more, then browsed filters",
+    );
   });
 
   it("renders a run of ONE, carrying that call's own summary", () => {
@@ -80,7 +86,9 @@ describe("ToolGroup", () => {
       <ToolGroup tools={[retrieveComplete, listFiltersComplete]} />,
     );
     fireEvent.click(
-      screen.getByRole("button", { name: /Searched, browsed filters/ }),
+      screen.getByRole("button", {
+        name: /Searched for “Aviation Fund”, then browsed filters/,
+      }),
     );
     expect(container.querySelectorAll(".chat-tool.is-inset")).toHaveLength(2);
   });
@@ -93,7 +101,9 @@ describe("ToolGroup", () => {
       <ToolGroup tools={[retrieveComplete, listFiltersComplete]} />,
     );
     fireEvent.click(
-      screen.getByRole("button", { name: /Searched, browsed filters/ }),
+      screen.getByRole("button", {
+        name: /Searched for “Aviation Fund”, then browsed filters/,
+      }),
     );
     const expansion = container.querySelector(".chat-tool-group-expansion")!;
     expect(expansion, "the expansion must have its capped wrapper").not.toBeNull();
@@ -104,34 +114,45 @@ describe("ToolGroup", () => {
 describe("ToolGroup tense and progress", () => {
   it("uses the present participle while any call is still in flight", () => {
     // "Searched" over a call that has not finished is a false statement about
-    // a live process (TC4).
+    // a live process (TC4). 2026-08-16 — TC13 folds the count into "and N
+    // more" rather than a trailing "×2".
     render(<ToolGroup tools={[retrieveRunning, retrieveComplete]} />);
-    const head = screen.getByRole("button", { name: /Searching/ });
-    expect(head).toHaveTextContent("Searching ×2");
+    const head = screen.getByRole("button", {
+      name: /Searching for “Aviation Fund” and 1 more…/,
+    });
+    expect(head).toHaveTextContent("Searching for “Aviation Fund” and 1 more…");
     expect(head).not.toHaveTextContent("Searched");
   });
 
   it("reports progress while a multi-call run is in flight", () => {
+    // 2026-08-16 — TC13 dropped the "N of M done" tally in favour of the
+    // trailing ellipsis plus "and N more": the sentence itself is the
+    // in-flight signal now, not a separate counter.
     render(<ToolGroup tools={[retrieveRunning, retrieveComplete]} />);
-    expect(
-      screen.getByRole("button", { name: /Searching/ }),
-    ).toHaveTextContent("1 of 2 done");
+    const head = screen.getByRole("button", { name: /Searching/ });
+    expect(head).toHaveTextContent("and 1 more");
+    expect(head).toHaveTextContent("…");
+    expect(head).not.toHaveTextContent(/\d+ of \d+ done/);
   });
 
-  it("shows NO detail line once a multi-call run has settled", () => {
-    // "all complete" is deleted, not kept. Asserting it while suppressing
-    // "1 failed" would make the card claim a clean run it cannot vouch for;
-    // silence claims nothing (TC3).
+  it("shows NO per-call completion count once a multi-call run has settled", () => {
+    // "all complete" is deleted, not kept, and so is any "N of M done" tally.
+    // Asserting one while suppressing "1 failed" would make the card claim a
+    // clean run it cannot vouch for; silence claims nothing (TC3).
     const { container } = render(
       <ToolGroup tools={[retrieveComplete, retrieveComplete2]} />,
     );
-    expect(container.querySelector(".chat-tool-summary")).toBeNull();
+    expect(container.textContent).not.toMatch(/\d+ of \d+ done/);
     expect(container.textContent).not.toContain("all complete");
+    // The trailing ellipsis is an in-flight marker only.
+    expect(container.textContent).not.toContain("…");
   });
 
   it("still shows the query on a settled run of one", () => {
     const { container } = render(<ToolGroup tools={[retrieveComplete]} />);
-    expect(container.querySelector(".chat-tool-summary")).not.toBeNull();
+    const sentence = container.querySelector(".chat-tool-sentence");
+    expect(sentence).not.toBeNull();
+    expect(sentence!.textContent).toContain("Aviation Fund");
   });
 
   it("wraps a single call's expansion in the capped container too", () => {
@@ -262,5 +283,35 @@ describe("ToolGroup failure handling", () => {
     fireEvent.click(container.querySelector(".chat-tool-head") as HTMLElement);
     expect(container.querySelector(".is-failed")).toBeNull();
     expect(container.textContent).not.toMatch(/fail/i);
+  });
+});
+
+describe("ToolGroup header sentence", () => {
+  it("renders the verb bold and the rest normal", () => {
+    const { container } = render(<ToolGroup tools={[retrieveComplete]} />);
+    const verb = container.querySelector(".chat-tool-verb")!;
+    expect(verb, "the verb must be its own element so it can be bold").not.toBeNull();
+    expect(verb.textContent).toBe("Searched");
+    expect(container.querySelector(".chat-tool-head")!.textContent).toContain(
+      "for “Aviation Fund”",
+    );
+  });
+
+  it("still carries NO failure word when a call failed (TC9 survives Part 2)", () => {
+    // Part 1's whole failure decision must not be undone by rewording.
+    const { container } = render(
+      <ToolGroup tools={[retrieveComplete, retrieveFailed]} />,
+    );
+    const head = container.querySelector(".chat-tool-head")!;
+    expect(head.textContent).not.toMatch(/fail/i);
+    expect(head.getAttribute("aria-label")).not.toMatch(/fail/i);
+    expect(container.querySelector(".is-failed")).toBeNull();
+  });
+
+  it("the accessible name is the whole sentence", () => {
+    const { container } = render(<ToolGroup tools={[retrieveComplete]} />);
+    expect(
+      container.querySelector(".chat-tool-head")!.getAttribute("aria-label"),
+    ).toBe("Searched for “Aviation Fund”");
   });
 });

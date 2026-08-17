@@ -161,3 +161,101 @@ export function coalesceActionLabels(
     })
     .join(", ");
 }
+
+/** The collapsed card's header, split so the caller can weight the two parts
+ *  differently: the verb renders bold and keeps the row scannable down a long
+ *  conversation, the rest reads as ordinary prose (spec TC13).
+ *
+ *  Each tool needs its own preposition, which is exactly why this lives here
+ *  and not in the component — "Searched for X", "Wrote the document X",
+ *  "Checked the house style for X" share no grammar. */
+export function toolHeaderSentence(
+  tools: { toolName: string; input: Record<string, unknown> }[],
+  tense: LabelTense,
+): { verb: string; rest: string } {
+  const first = tools[0];
+  if (!first) return { verb: "", rest: "" };
+
+  const running = tense === "present";
+  const tail = running ? "…" : "";
+
+  // How many calls share the LEADING tool's name. Counted on the leading run
+  // only: the sentence names what it started doing, then appends anything of a
+  // different kind after it.
+  let sameKind = 0;
+  while (sameKind < tools.length && tools[sameKind]!.toolName === first.toolName) {
+    sameKind += 1;
+  }
+  const more = sameKind > 1 ? ` and ${sameKind - 1} more` : "";
+
+  // Anything after the leading run, described in one clause. Deliberately not
+  // recursive: the row is a single truncating line, and a nested sentence would
+  // be cut off before it read as one.
+  const remainder = tools.slice(sameKind);
+  const then =
+    remainder.length > 0
+      ? `, then ${lowerFirst(coalesceActionLabels(remainder, tense))}`
+      : "";
+
+  const q = (s: string) => `“${s}”`;
+  const summary = toolHeaderSummary(first.toolName, first.input);
+
+  switch (first.toolName) {
+    case "retrieve":
+      return {
+        verb: running ? "Searching" : "Searched",
+        rest: summary ? ` for ${q(summary)}${more}${tail}${then}` : `${more}${tail}${then}`,
+      };
+    case "create_document":
+      return {
+        verb: running ? "Writing" : "Wrote",
+        rest: summary ? ` the document ${q(summary)}${more}${tail}${then}` : ` a document${more}${tail}${then}`,
+      };
+    case "document_guide":
+      return {
+        verb: running ? "Checking" : "Checked",
+        rest: ` the house style for a ${reportTypeName(summary)}${more}${tail}${then}`,
+      };
+    case "list_filter_values":
+      return {
+        verb: running ? "Checking" : "Checked",
+        rest: ` which ${filterFieldName(summary)} the corpus covers${tail}${then}`,
+      };
+    default: {
+      // Unregistered tool: the bare name plus its first string argument, which
+      // is a legible degradation rather than a blank row.
+      return {
+        verb: first.toolName,
+        rest: summary ? ` ${summary}${more}${tail}${then}` : `${more}${tail}${then}`,
+      };
+    }
+  }
+}
+
+function lowerFirst(s: string): string {
+  return s.length > 0 ? s.charAt(0).toLowerCase() + s.slice(1) : s;
+}
+
+/** "research-memo" -> "research memo". The tool's own default is applied
+ *  server-side, so a null here means the model asked for no particular shape;
+ *  naming one would show a choice it never made. */
+function reportTypeName(reportType: string | null): string {
+  if (!reportType) return "document";
+  return reportType.replace(/[-_]/g, " ");
+}
+
+/** The filter FIELD as a plain noun. Raw column names never reach an analyst. */
+function filterFieldName(field: string | null): string {
+  switch (field) {
+    case "agency_canonical_id":
+      return "agencies";
+    case "doc_type":
+      return "kinds of document";
+    case "fiscal_year":
+      return "years";
+    case "publisher":
+      return "publishers";
+    default:
+      return "values";
+  }
+}
