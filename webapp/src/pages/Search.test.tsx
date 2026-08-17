@@ -36,8 +36,8 @@ const DOCS: api.CorpusDocument[] = [
   // report count from 5 to 6; see "the status line counts reports" below.
   { doc_id: "misc26", title: "FY 2026 Special Program Review", publisher: "jlbc", doc_type: "program-review", fiscal_year: 2026, doc_url: "https://x/pr26.pdf", section_of: null, terms: [] },
   // The SECOND program-review document, and the only reason it exists: it
-  // makes "program-review" FY 2026 a MULTI-DOCUMENT family with no curated
-  // REPORT_FORMATS entry, which is the fixture the CRITICAL 2026-08-10
+  // makes "program-review" FY 2026 a MULTI-DOCUMENT family with no entry in
+  // FIXTURE_FORMATS below, which is the fixture the CRITICAL 2026-08-10
   // docs[0]-fallback guard needs (see "full-report actions appear only where a
   // hand-verified URL exists" below). That guard used to lean on FY 2026
   // Appropriations Report being uncurated; it is curated as of 2026-08-16, and
@@ -151,13 +151,14 @@ test("full-report actions appear only where a hand-verified URL exists", async (
   const bill = screen.getByText("FY 2026 Budget Bill").closest(".doc")!;
   expect(bill).not.toHaveTextContent(/full report/i);
   expect(bill).toHaveClass("doc-unlinked");
-  // CRITICAL, 2026-08-10: a family with no curated REPORT_FORMATS entry AND
-  // more than one document must NOT fall back to docs[0]?.doc_url, or the pill
-  // silently links to whichever section happens to sort first (demonstrated
-  // pre-fix on FY 2026 Appropriations Report: the AHCCCS section PDF, labeled
-  // "Full report"). The fixture is now "program-review" — a raw-slug family,
-  // which by construction can never gain a curated entry — because every JLBC
-  // book year DID gain one on 2026-08-16.
+  // CRITICAL, 2026-08-10: a family with no entry in the server's
+  // report-formats table AND more than one document must NOT fall back to
+  // docs[0]?.doc_url, or the pill silently links to whichever section happens
+  // to sort first (demonstrated pre-fix on FY 2026 Appropriations Report: the
+  // AHCCCS section PDF, labeled "Full report"). The fixture is now
+  // "program-review" — a raw-slug family, which by construction can never
+  // gain a table entry — because every JLBC book year DID gain one on
+  // 2026-08-16.
   const multi = screen.getByText("FY 2026 program-review").closest(".doc")!;
   expect(multi).not.toHaveTextContent(/full report/i);
   expect(multi).toHaveClass("doc-unlinked");
@@ -180,6 +181,28 @@ test("an edition absent from the server's table renders no Full report control",
   // A multi-document family with nothing to open renders UNLINKED, never as a
   // dead href — the same three-way rule, arrived at from the server's silence
   // instead of from a missing constant.
+  expect(row).toHaveClass("doc-unlinked");
+});
+
+test("a response missing report_formats entirely renders the listing, not a crash", async () => {
+  // Minor 2, review 2026-08-16: api.ts types `report_formats` REQUIRED, but
+  // the wire is not the type checker — an older `app/` serving a newer
+  // bundle, or any proxy in between, can genuinely omit the key. Without a
+  // defensive default, `table[key]` inside `reportFormats()` throws on
+  // `undefined`, white-screening the whole Budget Documents page over what
+  // should just be a missing button. Cast is required because the TYPE
+  // forbids this shape — the real wire carries no such promise.
+  vi.spyOn(api, "corpusDocuments").mockResolvedValue({
+    documents: DOCS,
+  } as unknown as Awaited<ReturnType<typeof api.corpusDocuments>>);
+  render(
+    <MemoryRouter initialEntries={["/search"]}>
+      <Search />
+    </MemoryRouter>,
+  );
+  await screen.findByRole("button", { name: /Fiscal Year 2027:/i });
+  const row = screen.getByText("FY 2027 Baseline").closest(".doc")!;
+  expect(row).not.toHaveTextContent(/full report/i);
   expect(row).toHaveClass("doc-unlinked");
 });
 
@@ -336,7 +359,7 @@ test("Full report sits before the N more matches toggle in the row", async () =>
 test("a search match with ONE format links straight to it — no chooser", async () => {
   mount();
   await screen.findByRole("button", { name: /Fiscal Year 2027:/i });
-  // The AFR has no curated REPORT_FORMATS entry, so ReportRow's own fallback
+  // The AFR has no entry in FIXTURE_FORMATS, so ReportRow's own fallback
   // (docs[0]?.doc_url) is what supplies its one link — same rule here.
   fireEvent.change(screen.getByLabelText(/filter documents by agency or keyword/i), {
     target: { value: "annual" },

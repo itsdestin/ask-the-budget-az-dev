@@ -284,8 +284,8 @@ function resolveFullReportAction(
   // happened to sort first for EVERY uncurated family, including
   // multi-document ones — a gold "Full report" pill pointing at one agency's
   // section PDF (CRITICAL, 2026-08-10; demonstrated on FY 2026 Appropriations
-  // Report: ar26-ahcccs + ar26-edu, no REPORT_FORMATS entry, docs[0] happened
-  // to be the AHCCCS section).
+  // Report: ar26-ahcccs + ar26-edu, no entry in the server's report-formats
+  // table, docs[0] happened to be the AHCCCS section).
   const href = singleFile ?? linkedToc ?? (docs.length === 1 ? (docs[0]?.doc_url ?? null) : null);
   return href ? { kind: "link", href } : { kind: "none" };
 }
@@ -856,7 +856,16 @@ export function Search() {
           // Set only on success. The error branch renders no document rows at
           // all, so there is nothing for a table to answer for — and clearing
           // it there would churn the value for no visible difference.
-          setReportFormatTable(data.report_formats);
+          //
+          // `?? {}` even though the TS type says `report_formats` is REQUIRED
+          // (api.ts): the wire is not the type checker. An older `app/`
+          // serving a newer bundle, or any proxy in between, can genuinely
+          // omit the key, and `table[key]` on `undefined` throws inside
+          // render — white-screening the whole Budget Documents page over a
+          // missing "Full report" button. `{}` is the same honest "no button"
+          // state this whole feature already renders for an edition the table
+          // simply doesn't answer for.
+          setReportFormatTable(data.report_formats ?? {});
         }
       },
       (err: unknown) => {
