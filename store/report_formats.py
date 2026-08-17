@@ -94,11 +94,25 @@ def names_its_year(url: str, fiscal_year: int) -> bool:
     fy2019approprpt.pdf` yields the runs {"19", "2019"}, which answers FY2019
     and refuses FY2020.
 
-    The host is stripped first: "azjlbc" contains no digits today, but a future
-    host or a query string could contribute a stray "27" and quietly make this
-    guard always true.
+    The host is stripped first: "azjlbc" contains no digits today, so it
+    cannot contribute a stray run on its own. The QUERY STRING AND FRAGMENT
+    are stripped too, and that part is not hypothetical -- it was measured
+    wrong on 2026-08-16:
+
+        names_its_year("https://www.azjlbc.gov/05app/apprpttoc.pdf?v=2027", 2027)  -> True
+        names_its_year("https://www.azjlbc.gov/05app/apprpttoc.pdf#2027", 2027)    -> True
+
+    Both answered True on a path that names no such year -- the "2027" arrived
+    from the query string / fragment, not the filename. Harmless for the
+    COMMITTED table today, because its own separate guard
+    (`test_every_url_is_a_jlbc_pdf`, a `\\S+\\.pdf` fullmatch) rejects any URL
+    carrying a "?" or "#" outright. But `save_edition()` runs no URL shape
+    check at all, and the admin form this table exists for relies on
+    `names_its_year` as the ONLY defence between a copy-paste slip and a live,
+    downloadable, wrong-year report behind a button labelled "Full report".
     """
     path = url.lower().split("://", 1)[-1].partition("/")[2]
+    path = path.split("?", 1)[0].split("#", 1)[0]
     runs = set(_DIGIT_RUN.findall(path))
     return str(fiscal_year) in runs or f"{fiscal_year % 100:02d}" in runs
 
@@ -141,9 +155,23 @@ def _parse(raw: object, *, strict: bool) -> tuple[dict[str, EditionFormats], lis
     out: dict[str, EditionFormats] = {}
     if not isinstance(raw, dict):
         raise ValueError(f"expected an object, got {type(raw).__name__}")
-    editions = raw.get("editions") or {}
-    if not isinstance(editions, dict):
-        raise ValueError("`editions` is not an object")
+    # `raw.get("editions") or {}` used to collapse "key absent" (normal -- a
+    # fresh overlay has no editions yet) and "key present but falsy" (a real
+    # problem) into the same silent {}. Measured 2026-08-16:
+    # {"editions": []}, {"editions": null} and {"editions": 0} all produced
+    # ZERO rows and ZERO problem sentences -- every one of the admin's saved
+    # approvals would vanish from the page with nothing on screen saying why,
+    # while {"editions": 5} correctly produced one sentence. Checking presence
+    # first keeps the silent case silent and makes the falsy-but-present case
+    # loud, matching every other malformed shape below.
+    if "editions" in raw:
+        editions = raw["editions"]
+        if not isinstance(editions, dict):
+            raise ValueError(
+                f"`editions` is not an object (got {type(editions).__name__})"
+            )
+    else:
+        editions = {}
     for key, row in editions.items():
         try:
             if not isinstance(row, dict):

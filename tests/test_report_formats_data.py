@@ -16,8 +16,15 @@ from store.report_formats import (
 
 
 def test_every_key_is_a_known_family_and_a_four_digit_year():
-    # A typo'd family produces a button that never appears, which is
-    # indistinguishable from an uncurated year.
+    # WHY this can never fail as written: `load_shipped()` calls
+    # `_parse(..., strict=True)`, which raises ValueError on exactly this
+    # shape (an unknown family or a non-four-digit year) before returning --
+    # see test_a_malformed_row_in_the_SHIPPED_file_raises_instead_of_being_dropped
+    # in test_report_formats_store.py, which pins that raise directly. The
+    # real enforcement is `_parse`'s strict mode; this loop is left in place
+    # as a readable restatement of that rule for whoever reads this file
+    # without also reading report_formats.py, not deleted, because a reader
+    # here should not have to take the enforcement on faith.
     for key in load_shipped():
         family, _, year = key.rpartition(":")
         assert family in BOOK_FAMILIES, key
@@ -47,6 +54,12 @@ def test_every_url_is_a_jlbc_pdf():
 def test_every_edition_offers_at_least_one_format():
     # {single_file: null, linked_toc: null} is indistinguishable from having no
     # entry, so such a row is dead weight that reads as coverage.
+    #
+    # WHY this can never fail as written: `_parse(..., strict=True)` -- what
+    # `load_shipped()` calls -- already raises ValueError on a both-null row
+    # ("neither format is set, so there is nothing to link") before this
+    # function ever sees it. Left in place as a readable restatement of that
+    # rule, not deleted; the real guard is `_parse`'s strict mode.
     for key, formats in load_shipped().items():
         assert formats.single_file or formats.linked_toc, key
 
