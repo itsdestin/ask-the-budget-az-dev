@@ -18,8 +18,11 @@ import { ReportLinksPanel } from "./ReportLinksPanel";
 //  4. Offline still lists every edition that needs a link. Telling an offline
 //     admin that fewer books need attention than really do is worse than
 //     telling them nothing.
-//  5. The panel is SILENT on a healthy install, however long the
-//     already-answered list is.
+//  5. On a healthy install the panel is ONE collapsed line, not silence and
+//     not an alarm — Destin's call, 2026-08-16, deviating from spec R7. The
+//     correction editor is the only repair for a wrong approval short of
+//     hand-editing JSON on the share, and approving a wrong link is exactly
+//     what makes the panel healthy.
 
 const SINGLE_URL = "https://www.azjlbc.gov/28ar/fy2028approprpt.pdf";
 const TOC_URL = "https://www.azjlbc.gov/budget/apprpttoc.pdf";
@@ -71,15 +74,69 @@ function withSingleFile(over: Partial<api.BookFormatCandidate> | null): api.Pend
 
 afterEach(() => vi.restoreAllMocks());
 
-test("renders nothing at all when no edition is waiting", async () => {
-  // Same rule as NoticesPanel and NeedsAttention directly above it: a box on
-  // screen every day teaches an admin to scroll past it. `approved` is
-  // populated here on purpose — the already-answered list must not be what
-  // keeps the panel on screen.
-  stub({ pending: [], approved: [APPROVED] });
+test("renders nothing at all when nothing is waiting and nothing is answered", async () => {
+  // The one remaining silence, and it is silence because there is genuinely
+  // nothing to correct: the collapsed line below exists to open the
+  // already-answered list, and here that list is empty.
+  stub({ pending: [], approved: [] });
   const { container } = render(<ReportLinksPanel />);
   await waitFor(() => expect(api.bookFormats).toHaveBeenCalled());
   expect(container).toBeEmptyDOMElement();
+});
+
+test("a healthy install is ONE collapsed line carrying the count", async () => {
+  // 🔴 THE RECOVERY PATH. Destin's call, 2026-08-16, overriding spec R7's
+  // "render nothing when healthy". Reproduced before the change: approve an
+  // edition with the wrong year's URL pasted in — one that names the right two
+  // digits, so nothing flags it — and the panel goes healthy and DISAPPEARS on
+  // that same click, taking the only correction editor with it. "Full report"
+  // then downloads the wrong report until somebody hand-edits JSON on the
+  // share, which is the chore this whole feature exists to abolish.
+  stub({ pending: [], approved: [APPROVED, { ...APPROVED, fiscal_year: 2025 }] });
+  render(<ReportLinksPanel />);
+
+  const card = await screen.findByTestId("admin-report-links-answered");
+  // The count is read off `approved`, not a constant and not the committed
+  // table's 39 — an overlay the admin has added to is a different number.
+  expect(card).toHaveTextContent(/full report links/i);
+  expect(card).toHaveTextContent(/2 editions answered/i);
+  // Collapsed: the list is genuinely not in the DOM until asked for.
+  expect(screen.queryByTestId("report-links-approved-row")).toBeNull();
+});
+
+test("the collapsed line opens onto the same correction editor", async () => {
+  // The whole point of keeping it on screen. Not just "a list renders" — a
+  // named edition has to reach the control that reopens its addresses.
+  stub({ pending: [], approved: [APPROVED] });
+  render(<ReportLinksPanel />);
+
+  fireEvent.click(
+    within(await screen.findByTestId("admin-report-links-answered")).getByRole("button", {
+      name: /full report links/i,
+    }),
+  );
+  fireEvent.click(screen.getByRole("button", { name: /change the links for FY 2026/i }));
+
+  const editor = screen.getByTestId("report-links-edit");
+  expect(
+    within(editor).getByTestId("report-links-format-single_file"),
+  ).toBeInTheDocument();
+  expect(within(editor).getByTestId("report-links-approve-correction")).toBeInTheDocument();
+});
+
+test("the healthy line is not dressed as an alarm", async () => {
+  // It sits in "Needs attention" beside panels that render nothing when
+  // healthy. A red-ruled panel with a red <h2> saying everything is fine is
+  // how an admin learns to ignore the group. It must also carry no <h2> at
+  // all: Admin.test.tsx reads the page's level-2 headings to pin section
+  // order, and a heading appearing on every ordinary day would move it.
+  stub({ pending: [], approved: [APPROVED] });
+  const { container } = render(<ReportLinksPanel />);
+
+  await screen.findByTestId("admin-report-links-answered");
+  expect(container.querySelector(".adm-panel-alert")).toBeNull();
+  expect(screen.queryByTestId("admin-report-links")).toBeNull();
+  expect(screen.queryByRole("heading", { level: 2 })).toBeNull();
 });
 
 test("a waiting edition shows both addresses as openable links", async () => {

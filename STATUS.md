@@ -790,7 +790,7 @@ that gains two rows every year forever. It is now data with an approval screen.
 |---|---|---|
 | where the URL table lives | a constant in the JS bundle | `data/report-formats.json` + an admin overlay on the share |
 | adding a fiscal year | edit TypeScript, rebuild, redeploy | click **Approve** on `/admin` |
-| correcting a wrong link | edit TypeScript, rebuild, redeploy | reopen it under **Already answered** |
+| correcting a wrong link | edit TypeScript, rebuild, redeploy | reopen it under **Already answered**, reachable every day |
 | who can do it | a developer | the administrator |
 
 `data/report-formats.json` was **generated from the shipped TypeScript, never
@@ -915,11 +915,50 @@ copy of the table so exactly one edition was waiting.
 Hiding the committed table makes it FAIL loudly rather than report a clean
 sweep (verified by mutation).
 
+### 🔴 The admin card stays on screen when healthy — a DELIBERATE deviation from spec R7
+
+Spec R7 said the panel renders nothing when nothing is waiting, "however many
+editions are in `approved`", on the reasoning that a box on screen every day
+teaches an admin to scroll past it — the rule `NoticesPanel`, `NeedsAttention`
+and `PoorlyRead` all follow. **Destin overrode it for this panel on
+2026-08-16**, after the final review reproduced what the rule costs.
+
+**Approving a WRONG link is what makes the panel healthy.** JLBC publishes the
+FY2028 Appropriations Report; the admin approves it but pastes the FY2028
+**Baseline** URL, which contains "28", so the year rule sees nothing wrong. The
+panel went healthy and vanished **on that click**, taking the already-answered
+list — the only correction editor — with it, and never came back. "Full report"
+on that row then downloaded the Baseline, a false provenance claim, and the
+only repair was hand-editing `report-formats.json` on the share: **the exact
+chore this feature exists to abolish.**
+
+As shipped, the healthy state is **one collapsed line** — *"Full report links —
+39 editions answered"* — opening onto the same list, the same editor and the
+same PUT. It carries no `<h2>` and none of the alert styling its neighbours use,
+so it neither moves the page's heading order nor reads as an alarm. The count
+comes from `approved.length`, never a constant. Two silences remain: while the
+first fetch is in flight (a loading box and an empty panel look identical, so it
+would flash on every admin page open) and when nothing has been approved yet.
+
+Rejected, and why: **staying visible only for the rest of the session** after a
+save leaves a problem reported next week facing the same vanished panel;
+**shipping the limitation and documenting it** makes the documented repair the
+hand-edit. Accepted cost: one quiet line on `/admin` every day.
+
+The `Already answered` list is now one component shared by both shapes — two
+copies would be two correction paths, and the quiet one is the copy nobody looks
+at, so it is the copy that would rot. `Admin.test.tsx`'s `mockAll()` default
+moved from `approved: []` to a healthy install with an edition answered, because
+the old default was a page shape no admin ever sees; **its heading-order
+assertion did not move and still passes.**
+
 ### Gates
 
-**pytest 3219 / 5 skipped · vitest 1021 (89 files) · `tsc -b` 0 ·
+**pytest 3226 / 5 skipped · vitest 1025 (89 files) · `tsc -b` 0 ·
 `npm run build` 0.** Roughly 45 mutations were run across the six tasks and
-their fix passes; every one turned its intended guard red.
+their fix passes; every one turned its intended guard red. The always-visible
+card is a net **+4 specs**, verified by making the healthy state `return null`
+again — four went red, then reverted.
 
 **No eval run, and the rule does not ask for one** — nothing under
 `retrieval/`, `ingest/`, `chunking/`, `citation/` or `harness/system-prompt.md`
@@ -934,8 +973,12 @@ was touched.
   inside `.adm-panel` (a depth this stylesheet has not been used at before)
   and the correction editor living inside an `<li>` styled for one-line rows;
   the blank-address warning; and that a "Full report" button still appears on
-  `/search` for a curated edition. ⚠ `uvicorn` runs without `--reload`, so
-  **Python changes need a server restart**; only the SPA picks up a rebuild.
+  `/search` for a curated edition. **Newly unwitnessed: the healthy collapsed
+  line**, which is a bare `.adm-card` sitting directly in a `.adm-group` rather
+  than inside a panel — a position this stylesheet had no rule for, so one was
+  added for its bottom margin. It is what an admin sees every day and nobody
+  has seen it once. ⚠ `uvicorn` runs without `--reload`, so **Python changes
+  need a server restart**; only the SPA picks up a rebuild.
 - **An approve-without-looking is still possible, by design (R9).** The
   mitigation is the size, the HTTP status and the year warning on the card —
   a 0.2 MB "book" or a 47 MB "table of contents" is visibly wrong. Nothing

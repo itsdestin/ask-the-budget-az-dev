@@ -334,17 +334,17 @@ def pending_editions(prober, *, refresh: bool = False) -> dict:
         # same PUT: the card lists the editions already answered and lets the
         # admin re-open one, instead of hand-editing JSON on the share.
         #
-        # 🔴 BE HONEST ABOUT ITS REACH. This list is NOT reachable in the
-        # healthy, nothing-pending state. `webapp/src/admin/ReportLinksPanel.tsx`
-        # renders the whole card — the already-answered disclosure included —
-        # only when something else has put it on screen: a pending edition, a
-        # problem sentence, an offline probe, or a year warning from a save just
-        # made. So on a fully answered corpus a wrong link stays wrong until one
-        # of those happens. An earlier version of this comment claimed the
-        # opposite; it was reproduced as false in review, and this repo has
-        # already shipped four WHY comments that measurement contradicted.
-        # Whether the card should stay on screen for corrections is an open
-        # product question, deliberately not decided here.
+        # ITS REACH, stated because it has been wrong here before: the list IS
+        # reachable in the healthy, nothing-pending state, as of 2026-08-16.
+        # `webapp/src/admin/ReportLinksPanel.tsx` renders one collapsed line —
+        # "Full report links — N editions answered" — whenever this list is
+        # non-empty and nothing is waiting, and opening it reaches this same
+        # correction editor. Until that change the whole card was hidden in the
+        # healthy state, so approving a wrong URL (which MAKES the state
+        # healthy) hid the only repair; that was reproduced in review, and
+        # Destin overrode spec R7's render-nothing rule for this panel because
+        # of it. If the panel ever goes silent when healthy again, this comment
+        # is a lie and a wrong link becomes unfixable outside a text editor.
         "approved": sorted(
             (
                 {

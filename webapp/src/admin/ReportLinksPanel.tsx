@@ -11,17 +11,31 @@ import { CollapsibleCard } from "./Card";
 // for a list that gains two rows a year forever. This card is the replacement:
 // the app finds the candidate addresses and checks them, the admin approves.
 //
-// It renders NOTHING when nothing is waiting — the same rule as NoticesPanel
-// and NeedsAttention directly above it, and the same reason: a box on screen
-// every day teaches an admin to scroll past it. On a healthy install every
-// edition is already answered, so silence is the normal state. Note that the
-// already-answered list is NOT a reason to stay on screen; it is a reference
-// for fixing a wrong approval, reachable only once something else has put the
-// card there.
+// TWO SHAPES, and the quiet one is a DELIBERATE DEVIATION from spec R7.
 //
-// There is deliberately no loading box either: an empty panel and a loading
-// panel look identical, so a loading box would flash on every admin page open
-// for a feature that says nothing almost always.
+//  * Something waiting (a pending edition, a problem, an offline probe, or a
+//    year warning from a save just made) → the full alert panel below.
+//  * Everything answered → ONE collapsed line, "Full report links — N editions
+//    answered", opening onto the same correction editor.
+//
+// Spec R7 says this panel renders nothing at all when healthy, "however many
+// editions are in `approved`", on the reasoning that a box on screen every day
+// teaches an admin to scroll past it — the rule NoticesPanel, NeedsAttention
+// and PoorlyRead all follow. Destin overrode it for THIS panel on 2026-08-16,
+// and the reason is that the recovery path has to be reachable: approving an
+// edition with the wrong URL pasted in (a Baseline address on an
+// Appropriations Report row, which contains the right two digits so the year
+// rule sees nothing wrong) makes the panel healthy, so the silent rule made
+// the panel vanish on the very click that created the mistake. From then on
+// "Full report" downloaded the wrong report — a false provenance claim — and
+// the only repair was hand-editing report-formats.json on the share, the exact
+// chore this feature exists to abolish. One quiet line every day is the price
+// of a permanent undo. Do NOT "fix" this back to matching its siblings.
+//
+// Two silences remain, because there is genuinely nothing to say and nothing
+// to correct: while the first fetch is in flight (an empty panel and a loading
+// panel look identical, so a loading box would flash on every admin page open)
+// and when nothing has been approved yet.
 
 type Format = "single_file" | "linked_toc";
 
@@ -401,6 +415,99 @@ function ApproveRow({
   );
 }
 
+/** The editions already answered, each reopenable onto the same editor and the
+ *  same PUT.
+ *
+ *  Module level, and shared by BOTH shapes of this panel — the alert one and
+ *  the quiet collapsed one. Two copies of this list would be two correction
+ *  paths, and the quiet one is the copy nobody looks at, so it is the copy that
+ *  would rot. */
+function ApprovedList({
+  approved,
+  decisions,
+  checks,
+  openEdits,
+  busyEdition,
+  saveErrors,
+  onToggleEdit,
+  onChoose,
+  onCheck,
+  onApprove,
+}: {
+  approved: api.ApprovedEdition[];
+  decisions: Decisions;
+  checks: Record<string, CheckState>;
+  openEdits: string[];
+  busyEdition: string | null;
+  saveErrors: Record<string, string>;
+  onToggleEdit: (key: string) => void;
+  onChoose: (family: string, year: number, format: Format, choice: Choice) => void;
+  onCheck: (family: string, year: number, format: Format, url: string) => void;
+  onApprove: (family: string, year: number, urls: EditionUrls) => void;
+}) {
+  return (
+    <ul className="adm-rows">
+      {approved.map((a) => {
+        const key = editionKey(a.family, a.fiscal_year);
+        const open = openEdits.includes(key);
+        const choices = FORMATS.map(
+          (f) => decisions[formatKey(a.family, a.fiscal_year, f)] ?? storedChoice(a[f]),
+        );
+        // No candidates on this side: an already-answered edition is not
+        // probed, so the editor opens on what is STORED.
+        const urls = urlsFor(choices, { single_file: null, linked_toc: null });
+        // This side is where an emptied box costs the most: every format
+        // reopens as a typed box holding a STORED address, so clearing one
+        // deletes a link that is already working.
+        const blank = FORMATS.filter((_, i) => isBlankTyped(choices[i])).map(
+          (f) => FORMAT_LABELS[f],
+        );
+        return (
+          <li key={key} data-testid="report-links-approved-row">
+            <span>
+              FY {a.fiscal_year} {a.family}
+            </span>
+            <button type="button" className="adm-link" onClick={() => onToggleEdit(key)}>
+              {open
+                ? `Leave FY ${a.fiscal_year} as it is`
+                : `Change the links for FY ${a.fiscal_year}`}
+            </button>
+            {open ? (
+              <div data-testid="report-links-edit">
+                {FORMATS.map((format, i) => (
+                  <FormatRow
+                    key={format}
+                    family={a.family}
+                    year={a.fiscal_year}
+                    format={format}
+                    // No candidate here on purpose: this edition was answered,
+                    // so it is not probed and there is no suggestion to offer.
+                    // The editor opens on what is STORED, which is the thing
+                    // being corrected.
+                    candidate={null}
+                    choice={choices[i]}
+                    checked={checks[formatKey(a.family, a.fiscal_year, format)]}
+                    onChoose={(c) => onChoose(a.family, a.fiscal_year, format, c)}
+                    onCheck={(url) => onCheck(a.family, a.fiscal_year, format, url)}
+                  />
+                ))}
+                <ApproveRow
+                  urls={urls}
+                  blank={blank}
+                  busy={busyEdition === key}
+                  error={saveErrors[key]}
+                  onApprove={() => onApprove(a.family, a.fiscal_year, urls)}
+                  testId="report-links-approve-correction"
+                />
+              </div>
+            ) : null}
+          </li>
+        );
+      })}
+    </ul>
+  );
+}
+
 export function ReportLinksPanel() {
   const [state, setState] = useState<api.BookFormats | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -539,20 +646,36 @@ export function ReportLinksPanel() {
     }
   }
 
-  // Render NOTHING until there is something to say. `approved` is deliberately
-  // absent from this test: on a healthy corpus every edition is in it, and a
-  // reference list is not a reason to occupy the page.
-  if (!state && !error) return null;
-  if (
-    state &&
-    !error &&
+  /** Everything the panel could tell the admin to DO is already done. */
+  const nothingWaiting =
+    state !== null &&
+    error === null &&
     state.online &&
     state.pending.length === 0 &&
     state.problems.length === 0 &&
-    Object.keys(savedWarnings).length === 0
-  ) {
-    return null;
-  }
+    Object.keys(savedWarnings).length === 0;
+
+  const approvedList =
+    state === null ? null : (
+      <ApprovedList
+        approved={state.approved}
+        decisions={decisions}
+        checks={checks}
+        openEdits={openEdits}
+        busyEdition={busyEdition}
+        saveErrors={saveErrors}
+        onToggleEdit={(key) =>
+          setOpenEdits((o) => (o.includes(key) ? o.filter((k) => k !== key) : [...o, key]))
+        }
+        onChoose={setChoice}
+        onCheck={(family, year, format, url) => void check(family, year, format, url)}
+        onApprove={(family, year, urls) => void approve(family, year, urls)}
+      />
+    );
+
+  // Nothing at all while the first fetch is in flight — see the header note on
+  // why there is no loading box.
+  if (!state && !error) return null;
 
   // A load failure renders as a bare sentence rather than a titled section.
   // Deliberate: Admin.tsx's own specs read the order of the page's <h2>s to
@@ -564,6 +687,33 @@ export function ReportLinksPanel() {
       <p className="adm-warn" role="alert" data-testid="admin-report-links-error">
         {error}
       </p>
+    );
+  }
+
+  // 🔴 THE VISIBILITY RULE, and it deviates from spec R7 on purpose — the full
+  // reasoning is in this file's header note. Healthy is ONE collapsed line, not
+  // silence, because a wrong link approved a moment ago makes the panel healthy
+  // and its correction editor is the only repair short of hand-editing JSON on
+  // the share. It carries no <h2> and no `adm-panel-alert`, so it neither
+  // reshuffles the page's heading order nor reads as an alarm.
+  if (nothingWaiting) {
+    // Genuinely nothing to correct: no edition has been answered yet, so the
+    // list this line exists to open would be empty.
+    if (state.approved.length === 0) return null;
+    return (
+      <CollapsibleCard
+        title="Full report links"
+        hint={`${state.approved.length} ${
+          state.approved.length === 1 ? "edition" : "editions"
+        } answered`}
+        testId="admin-report-links-answered"
+      >
+        <p className="adm-hint">
+          Every book edition in search opens as a whole report. Open one to
+          change which addresses its "Full report" button uses.
+        </p>
+        {approvedList}
+      </CollapsibleCard>
     );
   }
 
@@ -683,10 +833,11 @@ export function ReportLinksPanel() {
         );
       })}
 
-      {/* Behind a disclosure, and only ever on screen once something else has
-          put this panel there. Without it an approved MISTAKE is unfixable
-          from the app and the admin is back to hand-editing JSON on the share
-          — the exact step this feature exists to remove. */}
+      {/* Behind a disclosure. The quiet shape of this panel opens onto the
+          SAME list — see the header note — because without a reachable
+          correction editor an approved MISTAKE is unfixable from the app and
+          the admin is back to hand-editing JSON on the share, the exact step
+          this feature exists to remove. */}
       {state.approved.length > 0 ? (
         <CollapsibleCard
           title="Already answered"
@@ -695,74 +846,7 @@ export function ReportLinksPanel() {
           }`}
           testId="report-links-approved"
         >
-          <ul className="adm-rows">
-            {state.approved.map((a) => {
-              const key = editionKey(a.family, a.fiscal_year);
-              const open = openEdits.includes(key);
-              const choices = FORMATS.map(
-                (f) =>
-                  decisions[formatKey(a.family, a.fiscal_year, f)] ?? storedChoice(a[f]),
-              );
-              // No candidates on this side: an already-answered edition is not
-              // probed, so the editor opens on what is STORED.
-              const urls = urlsFor(choices, { single_file: null, linked_toc: null });
-              // This side is where an emptied box costs the most: every format
-              // reopens as a typed box holding a STORED address, so clearing
-              // one deletes a link that is already working.
-              const blank = FORMATS.filter((_, i) => isBlankTyped(choices[i])).map(
-                (f) => FORMAT_LABELS[f],
-              );
-              return (
-                <li key={key} data-testid="report-links-approved-row">
-                  <span>
-                    FY {a.fiscal_year} {a.family}
-                  </span>
-                  <button
-                    type="button"
-                    className="adm-link"
-                    onClick={() =>
-                      setOpenEdits((o) =>
-                        o.includes(key) ? o.filter((k) => k !== key) : [...o, key],
-                      )
-                    }
-                  >
-                    {open
-                      ? `Leave FY ${a.fiscal_year} as it is`
-                      : `Change the links for FY ${a.fiscal_year}`}
-                  </button>
-                  {open ? (
-                    <div data-testid="report-links-edit">
-                      {FORMATS.map((format, i) => (
-                        <FormatRow
-                          key={format}
-                          family={a.family}
-                          year={a.fiscal_year}
-                          format={format}
-                          // No candidate here on purpose: this edition was
-                          // answered, so it is not probed and there is no
-                          // suggestion to offer. The editor opens on what is
-                          // STORED, which is the thing being corrected.
-                          candidate={null}
-                          choice={choices[i]}
-                          checked={checks[formatKey(a.family, a.fiscal_year, format)]}
-                          onChoose={(c) => setChoice(a.family, a.fiscal_year, format, c)}
-                          onCheck={(url) => void check(a.family, a.fiscal_year, format, url)}
-                        />
-                      ))}
-                      <ApproveRow
-                        urls={urls}
-                        blank={blank}
-                        busy={busyEdition === key}
-                        error={saveErrors[key]}
-                        onApprove={() => void approve(a.family, a.fiscal_year, urls)}
-                        testId="report-links-approve-correction"
-                      />
-                    </div>
-                  ) : null}
-                </li>
-              );
-            })}
-          </ul>
+          {approvedList}
         </CollapsibleCard>
       ) : null}
     </section>

@@ -195,13 +195,25 @@ function mockAll(over: {
   // in every spec in this file — 69 of them — each failing and rendering a
   // `role="alert"` reading "Failed to parse URL from /api/admin/book-formats".
   // That guaranteed the panel was INVISIBLE in every Admin spec, so no
-  // assertion here could ever have noticed it was mounted or not. The default
-  // is the SILENT state (nothing waiting), which is the normal state on a
-  // healthy install and leaves every existing spec's page shape unchanged.
+  // assertion here could ever have noticed it was mounted or not.
+  //
+  // The default is the HEALTHY state — nothing waiting, editions already
+  // answered — because that is what /admin looks like on an ordinary day, and
+  // since 2026-08-16 that state renders one collapsed line rather than
+  // nothing (Destin's call; see ReportLinksPanel.tsx's header note). An
+  // `approved: []` default would have been silent, and every spec in this file
+  // would then be asserting about a page shape no admin ever sees.
   vi.spyOn(api, "bookFormats").mockResolvedValue(
     over.bookFormats ?? {
       pending: [],
-      approved: [],
+      approved: [
+        {
+          family: "Appropriations Report",
+          fiscal_year: 2027,
+          single_file: "https://www.azjlbc.gov/27ar/fy2027approprpt.pdf",
+          linked_toc: "https://www.azjlbc.gov/27ar/apprpttoc.pdf",
+        },
+      ],
       online: true,
       reason: null,
       problems: [],
@@ -1155,6 +1167,21 @@ describe("the page's shape", () => {
       /full report/i,
     );
     expect(within(panel).getByText(/FY 2028 Appropriations Report/)).toBeInTheDocument();
+  });
+
+  it("keeps one collapsed line for the report links on an ordinary day", async () => {
+    // The daily shape, and the reason spec R7 was overridden for this panel
+    // (Destin, 2026-08-16): a wrong approval MAKES the panel healthy, so the
+    // correction editor has to survive being healthy or the only repair is
+    // hand-editing JSON on the share. `mockAll`'s default is that healthy
+    // state — nothing waiting, one edition answered.
+    mockAll();
+    await renderAdmin();
+
+    const card = await screen.findByTestId("admin-report-links-answered");
+    expect(card).toHaveTextContent(/full report links/i);
+    // And it is the quiet shape, not the alert panel.
+    expect(screen.queryByTestId("admin-report-links")).toBeNull();
   });
 
   it("labels multi-panel groups, in the order an admin needs them, and drops the label from single-panel groups", async () => {
