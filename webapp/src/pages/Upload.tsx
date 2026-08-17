@@ -3,7 +3,7 @@ import * as api from "../api";
 import { BookFamilyPanel } from "./upload/BookFamilyPanel";
 import { Chevron } from "./upload/Chevron";
 import { QueuePanel } from "./upload/QueuePanel";
-import { pendingLinkCount } from "./upload/ReportLinkRow";
+import { linkAttention, type LinkAttention } from "./upload/ReportLinkRow";
 
 // The upload surface. Two jobs: get a document into the queue with correct
 // metadata, and be honest about what happens next.
@@ -226,23 +226,25 @@ export function Upload() {
                 row,
                 check,
                 checking,
-                // Null, not 0, when the viewer is not an admin: they cannot
-                // act on a link and never caused the fetch, so their chip must
-                // read exactly as it did before this feature existed.
+                // Null, not "nothing waiting", when the viewer is not an
+                // admin: they cannot act on a link and never caused the fetch,
+                // so their chip must read exactly as it did before this
+                // feature existed.
                 //
                 // ⚠ HONESTY NOTE, measured rather than assumed: this
                 // `isAdmin &&` is a SECOND line of defence and no test can
                 // currently tell it apart from its absence. Removing it was
                 // run as a mutation and the whole suite stayed green, because
                 // the load-bearing gate is on the FETCH above — a non-admin
-                // never has a table to count, so the count is 0 either way.
-                // It is kept anyway: if anyone ever ungates that fetch, this
-                // is what stops an analyst being shown work they cannot do.
-                // What IS pinned is the fetch gate (Upload.test.tsx: "says
-                // nothing about links to a non-admin", which also asserts the
-                // request is never made). Do not read this line as guarded.
+                // has neither a table nor a fetch error, so the answer is
+                // null either way. It is kept anyway: if anyone ever ungates
+                // that fetch, this is what stops an analyst being shown work
+                // they cannot do. What IS pinned is the fetch gate
+                // (Upload.test.tsx: "says nothing about links to a
+                // non-admin", which also asserts the request is never made).
+                // Do not read this line as guarded.
                 isAdmin && row.redirect
-                  ? pendingLinkCount(formats, row.redirect.family)
+                  ? linkAttention(formats, row.redirect.family, formatsError)
                   : null,
               )}
               // Clicking the open card closes it — the header is a toggle,
@@ -294,15 +296,22 @@ export function Upload() {
  *  really in the corpus yet, so that is the bigger and earlier job, and the
  *  chip flips to the link the moment the documents land. There is no state in
  *  which both are outstanding and the chip is silent.
+ *
+ *  🔴 AND EVERY LINK STATE THE ROW CALLS OUTSTANDING REACHES IT, not just the
+ *  waiting ones. The first version counted `pending` alone, so approving
+ *  FY2028 with a WRONG-YEAR address turned the row amber and this chip green
+ *  on the same click, burying the one defect a 200 OK cannot detect behind two
+ *  shut disclosures. `linkAttention` is the single answer both read.
  */
 function bookStatus(
   row: api.DocTypeCard,
   check: api.BookCheck | null,
   checking: boolean,
-  /** How many of this family's editions are waiting for a whole-report link.
-   *  NULL means "nobody asked" — a non-admin, or the fetch still in flight —
-   *  and must render as it did before this existed, never as zero. */
-  pendingLinks: number | null,
+  /** What this family's whole-report links need, from the same function the
+   *  row inside the card uses. NULL means either "nothing does" or "nobody
+   *  asked" — a non-admin, or the fetch still in flight — and both must render
+   *  as this chip did before the links reached it. */
+  links: LinkAttention | null,
 ): { text: string; tone: string } | null {
   if (!row.redirect) return null;
   if (!check) return checking ? { text: "checking…", tone: "wait" } : null;
@@ -312,13 +321,21 @@ function bookStatus(
   if (!check.online) return { text: "can’t check", tone: "warn" };
   const n = check.missing.filter((m) => m.family === row.redirect?.family).length;
   if (n > 0) return { text: `${n} to add`, tone: "act" };
-  if (pendingLinks && pendingLinks > 0)
+  if (links?.kind === "pending")
     return {
       // The approved mockup's wording and its amber `.chip.need`.
-      text:
-        pendingLinks === 1 ? "1 needs a link" : `${pendingLinks} need links`,
+      text: links.count === 1 ? "1 needs a link" : `${links.count} need links`,
       tone: "need",
     };
+  // A stored link that contradicts its own fiscal year, or a saved row the app
+  // could not parse. Amber, like a waiting link: it is work, and the row says
+  // the same two words when you open the card.
+  if (links?.kind === "needsLook") return { text: "needs a look", tone: "need" };
+  // The link table could not be read at all, so "up to date" would be a
+  // confident wrong answer over a table nobody looked at — the same reason
+  // `!check.online` is a state above. Named "links" so it is not confused with
+  // that one, which is about azjlbc.gov and the DOCUMENTS.
+  if (links?.kind === "cantCheck") return { text: "can’t check links", tone: "warn" };
   return { text: "up to date", tone: "ok" };
 }
 

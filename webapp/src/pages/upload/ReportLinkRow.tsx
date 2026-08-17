@@ -83,18 +83,59 @@ export const FAMILY_LABELS: Record<string, string> = {
   baseline: "Baseline",
 };
 
-/** How many of this family's editions are still waiting for a link.
+/** What, if anything, this family's whole-report links need from an admin.
  *
- *  Lives here rather than in `Upload.tsx` because it is the slug→label
- *  translation above wearing a different hat, and a second hand-written
- *  `p.family === family` comparison up there is precisely how the card header
- *  would come to disagree with the row inside it. */
-export function pendingLinkCount(
+ *  `null` means nothing does.
+ *
+ *  🔴 ONE ANSWER FOR THE ROW AND FOR THE CARD HEADER ABOVE IT. This started as
+ *  `pendingLinkCount`, which counted `formats.pending` and nothing else — while
+ *  the row below treated THREE more states as outstanding (a stored address
+ *  that doesn't mention its own year, a malformed row on the share, and a
+ *  failed fetch). So an admin who approved FY2028 with a wrong-year address
+ *  turned the row amber and the card header green on the SAME click, and the
+ *  contradiction was then hidden behind two shut disclosures.
+ *
+ *  That matters more here than anywhere else on the page: a wrong-year address
+ *  is the one defect an HTTP 200 cannot detect — a live, downloadable, WRONG
+ *  report behind a button labelled "Full report" — so this warning is the
+ *  entire mitigation, and a mitigation nobody can see is not one. (The admin
+ *  panel this row replaced counted year warnings in its own health check for
+ *  exactly this reason; counting only `pending` was a regression against it.)
+ *
+ *  Both callers derive their state from this function, so they cannot disagree
+ *  about whether there is work in here. What they say about it differs — the
+ *  header names a family, the row names an edition — and that is fine.
+ *
+ *  It also carries the slug→label translation above: a second hand-written
+ *  `p.family === family` comparison in `Upload.tsx` is precisely how the two
+ *  would drift apart again. */
+export type LinkAttention =
+  | { kind: "pending"; count: number }
+  | { kind: "needsLook" }
+  | { kind: "cantCheck" };
+
+export function linkAttention(
   formats: api.BookFormats | null,
   familySlug: string,
-): number {
+  /** The page's fetch failed. Checked FIRST, and it wins over a stale table:
+   *  a count derived from an answer we could not refresh must not be presented
+   *  as the current one. */
+  error: string | null,
+): LinkAttention | null {
+  if (error) return { kind: "cantCheck" };
+  if (!formats) return null; // still in flight, or nobody asked
   const label = FAMILY_LABELS[familySlug] ?? familySlug;
-  return (formats?.pending ?? []).filter((p) => p.family === label).length;
+  const waiting = formats.pending.filter((p) => p.family === label).length;
+  if (waiting > 0) return { kind: "pending", count: waiting };
+  // A stored address that does not mention its own fiscal year, and a saved
+  // row the app could not parse. Problems belong to NO family (the thing that
+  // failed to parse IS the family name), so both cards report them — seeing a
+  // real problem twice is cheaper than never seeing it.
+  const wrongYear = formats.approved.some(
+    (a) => a.family === label && FORMATS.some((f) => a.names_its_year?.[f] === false),
+  );
+  if (wrongYear || (formats.problems ?? []).length > 0) return { kind: "needsLook" };
+  return null;
 }
 
 type Format = "single_file" | "linked_toc";
@@ -836,17 +877,24 @@ export function ReportLinkRow({
   // real problem, and seeing it twice is cheaper than never seeing it.
   const problems = formats?.problems ?? [];
 
-  const needs =
-    pending.length > 0 || problems.length > 0 || yearWarnings.length > 0 || error !== null;
+  // 🔴 THE SAME FUNCTION THE CARD HEADER USES. Not a parallel calculation:
+  // this row and the chip above it disagreeing is the defect the whole hoist
+  // exists to remove, and a second copy of "is there work in here?" is how it
+  // came back once already.
+  const attention = linkAttention(formats, family, error);
+  const needs = attention !== null;
 
   /** The right-hand text on the collapsed row — what the card can be scanned
    *  for without opening anything. Derived, never a constant: the committed
    *  table's 39 is not the number an admin who has added to the overlay has. */
   let outstanding: string | undefined;
-  if (error) outstanding = "couldn’t check";
-  else if (pending.length === 1) outstanding = `FY ${pending[0].fiscal_year} needs one`;
-  else if (pending.length > 1) outstanding = `${pending.length} editions need one`;
-  else if (problems.length > 0 || yearWarnings.length > 0) outstanding = "needs a look";
+  if (attention?.kind === "cantCheck") outstanding = "couldn’t check";
+  else if (attention?.kind === "pending")
+    outstanding =
+      attention.count === 1
+        ? `FY ${pending[0].fiscal_year} needs one`
+        : `${attention.count} editions need one`;
+  else if (attention?.kind === "needsLook") outstanding = "needs a look";
   else if (approved.length > 0)
     outstanding = `${approved.length} ${
       approved.length === 1 ? "edition" : "editions"
@@ -982,7 +1030,12 @@ export function ReportLinkRow({
         </Section>
       ) : null}
 
-      {formats ? (
+      {/* 🔴 `formats || error`, NOT `formats`. When the FIRST fetch fails there
+          is no table at all, so gating on `formats` alone left the row as one
+          red sentence with no way to retry — the admin's only recourse was
+          reloading the whole page, on the state where a retry is most likely
+          to help. */}
+      {formats || error ? (
         <p className="up-note up-rl-again">
           <button
             type="button"

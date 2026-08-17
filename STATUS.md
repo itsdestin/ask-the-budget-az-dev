@@ -50,7 +50,7 @@ source. When something ships, update only this file.
 | **Plan B — resilient processing** (T5–T8, T12) | ✓ **Shipped** (2026-08-13) | A document that extracts to almost nothing is now detected, retried with another extractor, and held out of search if every method fails — instead of being written and reported `live`. Coverage floor **calibrated at 0.10 across all 7,434 documents**. 2798 pytest / 859 vitest / `tsc -b` clean, Layer 1 eval unmoved. **The acceptance run did NOT go as planned and found two real things — read the section below before building on this** |
 | ⬛ Corpus identity consistency (I1–I14) | **SUPERSEDED — it is BUILT** | This row described the problem before the work. See the phase row above and the shipped section below. Two of its figures were measured WRONG: the 721 mis-labels were a fuzzy-matcher defect, not the three corrupted catalog names; and only 25 of the 137 titles carried a bullet |
 | FY2027 Appropriations Report ingest | ✓ **Done + verified (2026-08-16)** | 140/140 live, 0 failures, 2,336 passages, 0 duplicate ids corpus-wide, 4.61 chunks/page. Corpus now **83,016 budget chunks / 7,566 documents**. Its titles are wrong — that is the identity defect above, not an ingest failure |
-| **Whole-report links become data + an admin approval screen** | ✓ **Shipped (2026-08-16)**, acceptance walk RUN, **rendering seen in a browser** | R1–R13. The 39-edition "Full report" URL table moves out of the JS bundle into `data/report-formats.json` merged with an admin overlay on the share; three admin routes scan the corpus for unanswered editions, probe candidates live and approve them. **Adding a fiscal year is now a click, not a rebuild.** **Moved 2026-08-16: the approval screen is no longer on `/admin`** — it is a "Full report link" row inside the two JLBC book cards on the Upload page, admin-only, which resolves the R7 deviation. The plan's own code was wrong three times, each caught by measurement — a refactor that would have downloaded whole PDFs on a 404, an offline branch that was dead code, and an offline check that poisoned a 12-hour cache. 3226 pytest / 1120 vitest. See the section below |
+| **Whole-report links become data + an admin approval screen** | ✓ **Shipped (2026-08-16)**, acceptance walk RUN, **rendering seen in a browser** | R1–R13. The 39-edition "Full report" URL table moves out of the JS bundle into `data/report-formats.json` merged with an admin overlay on the share; three admin routes scan the corpus for unanswered editions, probe candidates live and approve them. **Adding a fiscal year is now a click, not a rebuild.** **Moved 2026-08-16: the approval screen is no longer on `/admin`** — it is a "Full report link" row inside the two JLBC book cards on the Upload page, admin-only, which resolves the R7 deviation. The plan's own code was wrong three times, each caught by measurement — a refactor that would have downloaded whole PDFs on a 404, an offline branch that was dead code, and an offline check that poisoned a 12-hour cache. The moved row's chip then had to learn to report EVERY outstanding link state, not just the waiting ones. 3232 pytest / 1142 vitest. **Nobody has seen the moved row in a browser.** See the section below |
 | **Tool cards — placement, then legibility** (TC1–TC22) | ✓ **Shipped 2026-08-16**, browser-approved | A run of tool calls moved out of the space above an answer and INTO the bubble that follows it, then its contents were rewritten for an analyst who does not know what a "chunk" is. **A tool that had never been styled at all was found in the audit.** 1063 vitest / 3151 pytest / build clean, **no eval** (nothing on the retrieval, ingest, chunking, citation or prompt path). Review caught a card that stated a **falsehood** on screen. See the section below |
 
 ## Tool cards — placement, then legibility (2026-08-16)
@@ -1110,13 +1110,43 @@ non-admin's card renders no row **and makes no request**; `Upload.tsx` resolves
 already uses for the Admin pill.
 
 **The copy was cut for the move, from a rendered mockup Destin approved**
-(`.superpowers/sdd/mockup.html`). "Single File PDF — The complete report as one
-document." became **Whole book**; "Linked Table of Contents — An index page
-where each agency and section opens its own PDF." became **Contents page**; the
-26-word leading explanation is gone (the row's name and its status say it); the
-full web address became the **filename** (`27ar/apprpttoc.pdf`), with the whole
-address on the `open ↗` link and the line's `title`; "Use a different link"
-became **change**.
+(`.superpowers/sdd/mockup.html`). The 26-word leading explanation is gone (the
+row's name and its status say it); the full web address became the **filename**
+(`27ar/apprpttoc.pdf`), with the whole address on the `open ↗` link and the
+line's `title`; "Use a different link" became **change**; the per-format hint
+sentences are gone.
+
+### Owner decisions, so nobody re-litigates them
+
+All three are Destin's, 2026-08-16, and each reversed something an earlier
+commit on this branch had already done.
+
+1. **The format names stay the ANALYST'S words: "Single File PDF" and "Linked
+   Table of Contents".** A mid-branch commit shortened them to *Whole book* and
+   *Contents page*; that was **reverted**. `webapp/src/components/ReportChooser.tsx`
+   — what an analyst sees when they press "Full report" on Budget Documents —
+   prints exactly those two long names, and an admin approving a "Whole book"
+   that every reader then opens as a "Single File PDF" is two names for one
+   file across two screens, reconciled by the one person who cannot see both at
+   once. If they are ever re-worded, **re-word the chooser first and match
+   these to it**, never the other way round.
+   - The cost is a layout one, and it was measured rather than argued: the book
+     card has ~586px of row against ~465px of content, so "Linked Table of
+     Contents" cannot share a line with a filename, a size, an opener and two
+     controls at any workable column width. The name therefore takes its **own
+     full-width line** (`.up-rl-k{flex:1 0 100%}`) instead of sitting in a
+     fixed-width column, and cannot wrap.
+2. **"not now" is DELETED.** It sat inches from "None published", and the two
+   mean opposite things — "not today" against the positive claim *JLBC
+   published no such format* — so the quiet one read as **reject**. The
+   property it was protecting (a way out of the row that writes nothing) is the
+   caret, which every other section on the page already uses, and the spec that
+   drove the button is re-pointed at the caret rather than deleted.
+3. **No bare blue hyperlink styling.** The address-line actions wear the page's
+   existing `.fchip` pill; **Approve** is the filled navy primary, scoped to its
+   own row so Add and Preview stay secondary. Two links per edition also no
+   longer share the accessible name "open" — the spec that had guarded that
+   ambiguity *in* now asserts the names differ.
 
 **Nothing that catches a wrong approval was touched.** The file size, the
 wrong-year warning (*"That address doesn't mention FY 2028. Open it before
@@ -1145,16 +1175,99 @@ file, so hiding it behind "change" would make the correct answer for six
 editions a two-click path. And a lone waiting edition gets no `FY 2028` heading
 above its two format lines, because the row above already names the year.
 
-**Gates: vitest 1120 (90 files) · pytest 3226 / 5 skipped · `tsc -b` 0 ·
-`npm run build` 0.** Five mutations, each reverted separately: deleting the
-mount (2 red), removing the admin gate (3 red), filtering on the slug instead
-of the label (13 red), deleting the wrong-year warning (2 red), and re-mounting
-the panel on `/admin` (1 red). **No eval run, and the rule does not ask for
-one** — `webapp/` only.
+### 🔴 The CLOSED card had to learn to report a link, and then to report ALL of them
 
-**⏸ Nobody has looked at it.** jsdom applies no stylesheet, so the row's amber
-`is-need` state, the address line's fixed-width name column and ellipsised
-filename, and the nested "Already answered" disclosure are all unverified.
+Two rounds, and the second is the one worth remembering.
+
+**Round one — the chip counted DOCUMENTS only.** `bookStatus` looked at missing
+documents while the link state lived inside a self-fetching `ReportLinkRow` two
+components below it, so the header said *"up to date"* over a row saying
+*"FY 2027 needs one"*, and a shut card said nothing at all. `api.bookFormats()`
+is hoisted to `Upload.tsx`, the row takes the table as a prop, and the chip
+reads *"1 needs a link"* in the mockup's amber. It **removes** fetches: one
+round-trip answers for both families, and a card body unmounts when it closes,
+so three card-opens used to be three identical requests.
+
+**Round two — that chip still contradicted the row it summarises.** It counted
+`pending` alone, while the row treats three more states as outstanding: a
+stored wrong-year address, a malformed row on the share, and a failed fetch. So
+an admin approving FY2028 with a wrong-year address turned the row amber and
+the header green **on the same click**, hiding the contradiction behind two
+shut disclosures — and a failed fetch read *"up to date"* over a table nobody
+could read. There is now one exported `linkAttention(formats, slug, error)`
+that both the row and the chip derive from, returning `pending` /
+`needsLook` / `cantCheck`; the chip gained a **"needs a look"** (amber) and a
+**"can't check links"** (red) state. Two copies of "is there work in here?" is
+exactly how the disagreement came back after round one removed it.
+
+This also restores a property the deleted `/admin` panel had: it counted year
+warnings in its own health check, so counting only `pending` was a regression
+against it.
+
+### The wrong-year warning is DERIVED, not remembered
+
+The largest behavioural change on the branch. It used to be component state
+written from the PUT's reply — and every book card unmounts the instant another
+card is clicked, so an admin who approved a wrong-year address and then clicked
+the other card came back to a row reading "24 editions set", not amber, with
+the warning gone; reopening the edition under "Already answered" showed nothing
+either. A live, downloadable, WRONG-year report behind a "Full report" button,
+and the only thing that had ever said so erased by an unrelated click.
+
+`GET /api/admin/book-formats` now reports `names_its_year` for every stored
+edition, so it is a property of the DATA: it survives a remount, a reload and a
+different machine, and clears itself when the address is corrected.
+
+### The FY2023 contents page stopped raising a permanent false alarm
+
+`budget/apprpttoc.pdf` — the one address in `YEARLESS_BY_DESIGN`, published out
+of JLBC's undated directory, and genuinely the FY2023 Appropriations Report —
+was flagged wrong-year on **every** visit to the book card, above a *different*
+edition's approval controls. Always-on and always-wrong teaches a reader to
+scroll past the one treatment the real warning wears.
+
+The exemption lives in a new `_stored_year_check()` used **only** by
+`_approved_row`, the derived warning above. `names_its_year()` is unchanged, so
+`/check`, the PUT echo and a pending edition's candidates all still warn —
+pasting that address for any other year really is a wrong-year report behind a
+"Full report" button. Live route: approved rows flagged 1 → **0**, the FY2023
+row still present and still carrying its address.
+
+### Gates on this work
+
+**pytest 3232 / 5 skipped · vitest 1142 (91 files) · `tsc -b` 0 ·
+`npm run build` 0.** **No eval run, and the rule does not ask for one** —
+`webapp/` plus one admin route; nothing under `retrieval/`, `ingest/`,
+`chunking/`, `citation/` or `harness/system-prompt.md`.
+
+Mutations, each reverted separately. The move: deleting the mount (2 red),
+removing the admin gate (3 red), filtering on the slug instead of the label
+(13 red), deleting the wrong-year warning (2 red), re-mounting the panel on
+`/admin` (1 red). The chip round: nine more, of which **eight turned their
+guard red and one SURVIVED** — removing the chip's own `isAdmin` gate, which
+the fetch gate makes unreachable; that is recorded as a comment at the code
+rather than left looking guarded. The FY2023 exemption: deleting it turns its
+two positive specs red and leaves the two not-exempt ones green. The
+`linkAttention` round: four, all red — dropping the chip's `needsLook` branch
+(2), dropping its `cantCheck` branch (1), reverting the retry gate to
+`{formats ? …}` (1), and dropping `needsLook` inside `linkAttention` itself,
+which turns **both** the row's spec and the chip's red, which is the point of
+there being one function.
+
+### ⏸ Nobody has looked at it
+
+jsdom applies no stylesheet. Unverified, and worth a human's eye:
+
+- **The stacked full-width format name.** "Linked Table of Contents" on its own
+  line above its filename is a layout nobody has seen; the ~586px-vs-~465px
+  measurement says it must stack, not that the result reads well.
+- **Chip density on the closed card.** The chip can now say *"1 needs a link"*,
+  *"needs a look"* or *"can't check links"*, in two colours. Whether that reads
+  as useful at a glance or as noise on a page of six cards is a judgement no
+  test makes.
+- The amber `is-need` state, the ellipsised filename, the nested "Already
+  answered" disclosure, the `.fchip` pills, the filled-navy Approve, and the
+  hairline suppression above a `FY 2028` heading.
 
 ### Gates
 
@@ -1175,9 +1288,10 @@ was touched.
   sizes, the 39-edition correction list, and the "Full report" button appearing
   on `/search` after an approval — all of which the Upload row inherits
   unchanged. What it says about layout and copy is superseded: the panel is now
-  a row on the book card, the format names are *Whole book* / *Contents page*,
-  and "Use a different link" is *change*. **The moved row has not been seen by
-  anybody.** Driven in headless Chrome 150 against the real corpus, with
+  a row on the book card and "Use a different link" is *change*. (The format
+  names were shortened to *Whole book* / *Contents page* mid-branch and then
+  **reverted** — see the owner decisions above.) **The moved row has not been
+  seen by anybody.** Driven in headless Chrome 150 against the real corpus, with
   `Appropriations Report:2027` temporarily removed from a copy of the table so
   exactly one edition was waiting. Screenshots were read, not inferred. What
   rendered correctly:

@@ -2064,7 +2064,13 @@ nav.primary{position:relative;padding-right:44px;}
    the name can never be a fraction of a pixel from wrapping again. */
 .page-upload .up-rl-row{display:grid;gap:4px;}
 .page-upload .up-rl-fmt{display:flex;flex-wrap:wrap;align-items:center;gap:6px 10px;padding:8px 0;border-top:1px dashed var(--line);font-size:13px;}
-.page-upload .up-rl-row:first-child>.up-rl-fmt:first-child{border-top:0;}
+/* No hairline above the FIRST address in a card. Two selectors because there
+   are two shapes: one waiting edition (the `.up-rl-row` really is the first
+   child) and more than one (a `FY 2028` heading is, and `:first-child` then
+   misses — which drew a dashed rule directly under that heading). CSS has no
+   "first element of this class", so the heading case is named explicitly. */
+.page-upload .up-rl-row:first-child>.up-rl-fmt:first-child,
+.page-upload .up-rl-pending-head+.up-rl-row>.up-rl-fmt:first-child{border-top:0;}
 .page-upload .up-rl-k{flex:1 0 100%;white-space:nowrap;font-weight:800;color:var(--navy);}
 .page-upload .up-rl-f{flex:1 1 180px;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-family:ui-monospace,Menlo,Consolas,monospace;font-size:12px;color:var(--ink-2);}
 .page-upload .up-rl-f.is-empty{font-family:inherit;font-size:12.5px;color:var(--ink-3);white-space:normal;}

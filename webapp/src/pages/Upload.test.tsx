@@ -1176,7 +1176,15 @@ describe("a book card's chip counts whole-report links too", () => {
   // somebody opens that card for an unrelated reason. That is exactly the
   // "second half you forget" the move onto this card exists to prevent.
 
-  function cards(over: { missing?: api.BookCheck["missing"]; pending?: api.PendingEdition[] } = {}) {
+  function cards(
+    over: {
+      missing?: api.BookCheck["missing"];
+      pending?: api.PendingEdition[];
+      approved?: api.ApprovedEdition[];
+      problems?: string[];
+      formatsFails?: string;
+    } = {},
+  ) {
     vi.spyOn(api, "documentTypes").mockResolvedValue([ROWS[0]]);
     vi.spyOn(api, "me").mockResolvedValue({
       user: "DMOSS", is_admin: true, admin_username: "DMOSS",
@@ -1186,9 +1194,23 @@ describe("a book card's chip counts whole-report links too", () => {
       checked_at: new Date().toISOString(), online: true, reason: null,
       missing: over.missing ?? [], present: [], unavailable: [],
     });
-    vi.spyOn(api, "bookFormats").mockResolvedValue({
-      pending: over.pending ?? [], approved: [], online: true, reason: null, problems: [],
-    });
+    const formats = vi.spyOn(api, "bookFormats");
+    if (over.formatsFails) formats.mockRejectedValue(new Error(over.formatsFails));
+    else
+      formats.mockResolvedValue({
+        pending: over.pending ?? [], approved: over.approved ?? [],
+        online: true, reason: null, problems: over.problems ?? [],
+      });
+  }
+
+  function approved(family: string, year: number, namesItsYear: boolean): api.ApprovedEdition {
+    return {
+      family,
+      fiscal_year: year,
+      single_file: `https://www.azjlbc.gov/${String(year).slice(2)}ar/report.pdf`,
+      linked_toc: null,
+      names_its_year: { single_file: namesItsYear, linked_toc: true },
+    };
   }
 
   function pending(family: string, year: number): api.PendingEdition {
@@ -1225,6 +1247,65 @@ describe("a book card's chip counts whole-report links too", () => {
     const card = await screen.findByTestId("doc-type-card");
     await waitFor(() => expect(within(card).getByText("up to date")).toBeInTheDocument());
     expect(within(card).queryByText(/needs a link/)).toBeNull();
+  });
+
+  it("says a STORED wrong-year address needs a look, on the closed card", async () => {
+    // 🔴 THE DEFECT THIS FIXES, and the worst one this chip can carry. The
+    // chip counted `pending` only, while the row treated a stored wrong-year
+    // address as outstanding too. So: an admin approves FY2028 with the wrong
+    // address, the server flags it, the row turns amber — and on that same
+    // click the header flips to green "up to date", hiding the contradiction
+    // behind TWO shut disclosures.
+    //
+    // A wrong-year address is the one defect an HTTP 200 cannot detect: a
+    // live, downloadable, WRONG report behind a button labelled "Full report".
+    // The warning is the entire mitigation, so it has to reach the outside of
+    // the card. (The admin panel this replaced counted year warnings in its
+    // own health check; counting only `pending` was a regression against it.)
+    cards({ approved: [approved("Baseline", 2028, false)] });
+    render(<Upload />);
+    const card = await screen.findByTestId("doc-type-card");
+    expect(await within(card).findByText("needs a look")).toBeInTheDocument();
+    expect(card.querySelector(".up-card-state")!.className).toContain("up-tone-need");
+    expect(within(card).queryByText("up to date")).toBeNull();
+    // Nothing was opened, which is the point.
+    expect(within(card).getByRole("button").getAttribute("aria-expanded")).toBe("false");
+  });
+
+  it("says a saved row the app cannot parse needs a look", async () => {
+    // A malformed row on the share belongs to no family — the thing that
+    // failed to parse IS the family name — so both cards report it. The row
+    // has always shown it; the header said "up to date" over the top of it.
+    cards({ problems: ["Ignoring the saved links for Bogus:2028: unknown report family."] });
+    render(<Upload />);
+    const card = await screen.findByTestId("doc-type-card");
+    expect(await within(card).findByText("needs a look")).toBeInTheDocument();
+  });
+
+  it("says it cannot check the LINKS when their fetch failed, rather than up to date", async () => {
+    // 🔴 The cheap version of the same shape. The fetch fails, `formats` stays
+    // null, a count of `pending` is 0, and the chip read "up to date" — a
+    // confident wrong answer over a table that could not be read at all. It is
+    // the exact reason the `!check.online` branch above it exists.
+    //
+    // Worded "can't check LINKS" so it is not confused with that branch, which
+    // is about azjlbc.gov and the DOCUMENTS.
+    cards({ formatsFails: "whole-report links: admin only" });
+    render(<Upload />);
+    const card = await screen.findByTestId("doc-type-card");
+    expect(await within(card).findByText("can’t check links")).toBeInTheDocument();
+    expect(card.querySelector(".up-card-state")!.className).toContain("up-tone-warn");
+    expect(within(card).queryByText("up to date")).toBeNull();
+  });
+
+  it("a stored address that names its year leaves the card up to date", async () => {
+    // The other half of the wrong-year spec: if every stored edition raised
+    // "needs a look" the state would be permanent and the amber would stop
+    // meaning anything.
+    cards({ approved: [approved("Baseline", 2027, true)] });
+    render(<Upload />);
+    const card = await screen.findByTestId("doc-type-card");
+    expect(await within(card).findByText("up to date")).toBeInTheDocument();
   });
 
   it("shows the documents first when BOTH are outstanding", async () => {

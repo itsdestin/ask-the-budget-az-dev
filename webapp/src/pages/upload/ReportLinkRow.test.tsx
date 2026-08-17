@@ -852,6 +852,34 @@ test("a failed lookup says so on the row rather than reading as a clean sweep", 
   expect(screen.getByTestId("report-links-error")).toHaveTextContent(/admin only/);
 });
 
+test("a FIRST fetch that failed still offers Look again", async () => {
+  // 🔴 The retry rendered only `{formats ? …}`. On an INITIAL failure there is
+  // no table at all, so the row was one red sentence with NO retry and the
+  // admin's only recourse was reloading the whole page — on precisely the
+  // state where a retry is most likely to help.
+  //
+  // Nothing could see it: `Host` always supplies a table, so every other spec
+  // renders the refresh-failed shape (a stale table plus an error) and never
+  // this one. Rendered directly, without one.
+  render(
+    <ReportLinkRow
+      family="approps"
+      formats={null}
+      error="whole-report links: the share could not be read"
+      refreshing={false}
+      onLookAgain={() => {
+        lookAgainCalls += 1;
+      }}
+      onChange={() => {}}
+    />,
+  );
+  const details = await screen.findByTestId("report-links");
+  fireEvent.click(details.querySelector("summary")!);
+  expect(screen.getByTestId("report-links-error")).toHaveTextContent(/share could not be read/);
+  fireEvent.click(screen.getByRole("button", { name: /look again/i }));
+  expect(lookAgainCalls).toBe(1);
+});
+
 test("Look again asks the page to ignore the server's 12-hour cache", async () => {
   // Without this an edition published an hour after the last look is invisible
   // until tomorrow, with nothing on screen saying why. The page makes the

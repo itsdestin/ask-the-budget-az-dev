@@ -16,10 +16,16 @@ import { Chevron } from "./Chevron";
  *  "Full report" link, sits on the row, where it used to be the summary text
  *  of a disclosure you had to notice first.
  *
- *  `needs` colours that right-hand text amber. It is the ONLY colour in the
- *  card's body, so it is spent on one thing: there is outstanding work in
+ *  `needs` colours that right-hand text amber (`--warn`). That amber is the
+ *  card body's only colour AND its only meaning: there is outstanding work in
  *  here. A row that is merely informative ("5 can't be added", "23 editions
  *  set") must not use it, or the colour stops meaning anything.
+ *
+ *  (Corrected 2026-08-16: this used to claim it was the ONLY colour in the
+ *  card's body, which is literally false — `.up-rl-warn`, the wrong-year and
+ *  malformed-row sentences inside ReportLinkRow, is the same `--warn`. That is
+ *  the design working, not an exception: one colour, one meaning, wherever it
+ *  appears. The sentence is fixed rather than the CSS.)
  *
  *  Lives in its own module rather than inside BookFamilyPanel because
  *  ReportLinkRow renders one too, and two copies of a disclosure row is how
