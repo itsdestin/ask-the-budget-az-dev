@@ -211,6 +211,46 @@ def test_an_unreachable_host_is_not_mistaken_for_an_unpublished_edition(tmp_path
     assert body["online"] is False
 
 
+def test_a_catalogued_edition_on_a_dead_network_reports_offline_and_caches_nothing(
+    tmp_path, monkeypatch
+):
+    """🔴 The exact shape that shipped broken, reproduced.
+
+    A CATALOGUED edition (FY2003 approps is in the committed catalog) plus a
+    SILENT prober — the production shape, since `HttpProber.head` never raises,
+    it returns `False`. `plan_edition` answers a catalogued edition with zero
+    network calls, so at the moment the old code tested `watch.unreachable`,
+    nothing had been asked yet and the offline branch could never trip. The
+    confirm requests then came back `(None, None)` and the reply read
+    `online: true` with `{"status": null, "bytes": null}` — a perfectly good
+    link reported as "didn't respond".
+
+    Worse, that null was WRITTEN TO THE CACHE, so it stayed wrong for twelve
+    hours after the network came back, unless the admin happened to know about
+    `?refresh=true`. Hence the second assertion: an offline look must leave no
+    trace at all.
+    """
+    class Silent:
+        def head(self, url):
+            return False
+
+        def head_info(self, url):
+            return None, None
+
+    docs = {"d1": {"source_url": "https://www.azjlbc.gov/03app/260.pdf"}}
+    body = _client(tmp_path, monkeypatch, documents=docs, prober=Silent()).get(
+        "/api/admin/book-formats"
+    ).json()
+
+    assert body["online"] is False
+    assert body["reason"] and "azjlbc.gov" in body["reason"]
+    row = next(p for p in body["pending"] if p["fiscal_year"] == 2003)
+    assert row["candidates"] == {"single_file": None, "linked_toc": None}
+    # Nothing learned, so nothing remembered. A cached `null` outlives the
+    # outage that produced it.
+    assert not (tmp_path / "probe.json").exists()
+
+
 def test_an_edition_jlbc_never_published_is_pending_without_claiming_we_are_offline(
     tmp_path, monkeypatch
 ):
@@ -228,6 +268,34 @@ def test_an_edition_jlbc_never_published_is_pending_without_claiming_we_are_offl
     assert body["online"] is True
     row = next(p for p in body["pending"] if p["fiscal_year"] == 2028)
     assert row["candidates"] == {"single_file": None, "linked_toc": None}
+
+
+def test_a_bug_in_the_lookup_degrades_the_edition_without_caching_the_damage(
+    tmp_path, monkeypatch
+):
+    """The wide `except Exception` stays — but it must not persist its silence.
+
+    This is a READ path, so one edition hitting a bug must not blank the panel
+    for every other edition (R10). What it must NOT do is write the resulting
+    empty answer into the 12-hour cache, where it would look like a finished
+    measurement: a deployed fix would then appear not to work for the rest of
+    the day. Asking again on the next page load is the whole point.
+    """
+    import app.routes.book_formats as bf
+
+    def boom(*a, **k):
+        raise RuntimeError("a real bug, not a missing edition")
+
+    docs = {"d1": {"source_url": "https://www.azjlbc.gov/28ar/axs.pdf"}}
+    client = _client(tmp_path, monkeypatch, documents=docs)
+    monkeypatch.setattr(bf, "plan_edition", boom)
+    body = client.get("/api/admin/book-formats").json()
+
+    # The page still answers, and still says this edition needs a link.
+    assert body["online"] is True
+    row = next(p for p in body["pending"] if p["fiscal_year"] == 2028)
+    assert row["candidates"] == {"single_file": None, "linked_toc": None}
+    assert not (tmp_path / "probe.json").exists()
 
 
 def test_the_probe_answer_is_cached_so_opening_the_page_twice_costs_one_look(tmp_path, monkeypatch):
@@ -388,6 +456,55 @@ def test_marking_BOTH_formats_as_never_published_is_refused_in_plain_english(tmp
     assert "at least one" in r.json()["detail"].lower()
 
 
+def test_an_impossible_fiscal_year_is_refused_rather_than_saved_and_dropped(
+    tmp_path, monkeypatch
+):
+    """🔴 Reproduced before the bound existed: `fiscal_year: 99` returned
+    `200 {"ok": true}` and wrote `Baseline:99` into the overlay — which the
+    store's four-digit rule then dropped on EVERY later read, leaving a
+    `problems` sentence and no link. A write that reports success and never
+    takes effect is the shape R10 exists to forbid.
+    """
+    overlay = tmp_path / "report-formats.json"
+    docs = {"d1": {"source_url": "https://www.azjlbc.gov/28ar/axs.pdf"}}
+    client = _client(tmp_path, monkeypatch, documents=docs, overlay=overlay)
+    r = client.put("/api/admin/book-formats", json={
+        "family": "Baseline", "fiscal_year": 99,
+        "single_file": "https://www.azjlbc.gov/99baseline/x.pdf", "linked_toc": None,
+    })
+    assert 400 <= r.status_code < 500
+    # Refused means untouched: no overlay was created, so nothing has to be
+    # unpicked by hand on the share afterwards.
+    assert not overlay.exists()
+
+
+def test_saving_echoes_whether_each_address_names_its_year(tmp_path, monkeypatch):
+    """R6 flags a year mismatch and never refuses it — but until this echo the
+    flag existed only on the Check route, so an admin who typed an address and
+    pressed Approve was never told. The save still succeeds; the card warns.
+    """
+    overlay = tmp_path / "report-formats.json"
+    docs = {"d1": {"source_url": "https://www.azjlbc.gov/28ar/axs.pdf"}}
+    client = _client(tmp_path, monkeypatch, documents=docs, overlay=overlay)
+    r = client.put("/api/admin/book-formats", json={
+        "family": "Appropriations Report", "fiscal_year": 2028,
+        "single_file": "https://www.azjlbc.gov/28ar/fy2028approprpt.pdf",
+        "linked_toc": "https://www.azjlbc.gov/budget/apprpttoc.pdf",
+    })
+    assert r.status_code == 200 and r.json()["ok"] is True
+    assert r.json()["names_its_year"] == {"single_file": True, "linked_toc": False}
+
+    # A format marked "never published" has no address to judge, so it reports
+    # None. `false` there would read as a complaint about a link that is absent
+    # on purpose.
+    r = client.put("/api/admin/book-formats", json={
+        "family": "Appropriations Report", "fiscal_year": 2028,
+        "single_file": None,
+        "linked_toc": "https://www.azjlbc.gov/28ar/apprpttoc.pdf",
+    })
+    assert r.json()["names_its_year"] == {"single_file": None, "linked_toc": True}
+
+
 def test_an_unknown_family_is_refused(tmp_path, monkeypatch):
     docs = {"d1": {"source_url": "https://www.azjlbc.gov/28ar/axs.pdf"}}
     client = _client(tmp_path, monkeypatch, documents=docs)
@@ -451,7 +568,14 @@ def test_a_typed_url_that_does_not_respond_says_so(tmp_path, monkeypatch):
         "url": "https://www.azjlbc.gov/28ar/nope.pdf", "fiscal_year": 2028,
     }).json()
     assert r["ok"] is False and r["status"] == 404
-    assert r["reason"]
+    # 🔴 The two failures must READ differently, not merely both carry a
+    # sentence. "That address answered 404" sends the admin to the URL; "we
+    # couldn't reach anything" sends them to the network. An earlier version of
+    # this test asserted only that `reason` was truthy, so collapsing the two
+    # onto one wording — and having an admin edit a correct address while the
+    # WiFi was off — would have stayed green.
+    assert "answered 404" in r["reason"]
+    assert "didn't respond" not in r["reason"]
 
 
 def test_a_typed_url_on_a_dead_network_reports_the_network_not_a_404(tmp_path, monkeypatch):
@@ -473,6 +597,9 @@ def test_a_typed_url_on_a_dead_network_reports_the_network_not_a_404(tmp_path, m
     assert r["ok"] is False
     assert r["status"] is None
     assert "didn't respond" in r["reason"]
+    # The other half of the same pin: an unreachable host must never be
+    # described with a status code it never sent.
+    assert "answered" not in r["reason"]
 
 
 # --- HttpProber.head_info --------------------------------------------------
@@ -535,4 +662,56 @@ def test_head_falls_back_to_a_ranged_get_only_on_405(monkeypatch):
 
     calls.clear()
     assert HttpProber().head("https://x/iis.pdf") is True
+    assert calls == ["head", "get"]
+
+
+def test_head_info_falls_back_to_a_ranged_get_only_on_405(monkeypatch):
+    """🔴 The same rule, pinned on the OTHER method — it was unguarded.
+
+    A reviewer mutated `head_info`'s `if r.status_code == 405:` to `>= 400:`
+    and the whole suite stayed green (3192 passed, 5 skipped). Neither existing
+    spec reaches here: one drives `head()`, the other calls `_content_size()` in
+    isolation. So nothing asserted that `head_info` keeps the 405-only rule —
+    which is the entire justification for it existing beside `head()` instead of
+    replacing it. Widening it turns every 404 into a full unranged GET: ~130
+    checks per book edition against files that are megabytes each.
+    """
+    import requests
+
+    from app.routes.books import HttpProber
+
+    calls: list[str] = []
+
+    class Reply:
+        def __init__(self, status, headers=None):
+            self.status_code = status
+            self.headers = headers or {}
+
+        def close(self):
+            pass
+
+    def fake_head(url, **kw):
+        calls.append("head")
+        return Reply(404 if "missing" in url else 405)
+
+    def fake_get(url, **kw):
+        calls.append("get")
+        assert kw.get("headers", {}).get("Range") == "bytes=0-0", (
+            "the fallback must ask for one byte, not a whole book"
+        )
+        return Reply(200, {"Content-Range": "bytes 0-0/49312768", "Content-Length": "1"})
+
+    monkeypatch.setattr(requests, "head", fake_head)
+    monkeypatch.setattr(requests, "get", fake_get)
+
+    # A 404 costs EXACTLY ONE request. No body is ever fetched to learn that a
+    # file is missing.
+    assert HttpProber().head_info("https://x/missing.pdf") == (404, None)
+    assert calls == ["head"]
+
+    # A 405 — IIS saying "I don't do HEAD" — costs a second, RANGED request, and
+    # the size comes off the range total rather than the one-byte
+    # Content-Length, so the card cannot report a 47 MB report as "1 byte".
+    calls.clear()
+    assert HttpProber().head_info("https://x/iis.pdf") == (200, 49_312_768)
     assert calls == ["head", "get"]

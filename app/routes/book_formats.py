@@ -29,7 +29,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 from fastapi import APIRouter, Depends, HTTPException, Request
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 from app.routes.admin import require_admin
 from app.routes.books_missing import FAMILY_LABELS, corpus_editions
@@ -59,7 +59,13 @@ def _cache_path() -> Path:
 
 
 def _read_cache() -> dict:
-    """{edition_key: {"checked_at": iso, "single_file": {...}|None, ...}}."""
+    """{format_key: {"checked_at": iso, "single_file": {...}|None, ...}}.
+
+    `format_key` -- "Appropriations Report:2027" -- and NOT `edition_key`, which
+    is `ingest.book_discovery`'s "approps-fy2027". Two vocabularies for two
+    tables; `format_key`'s own docstring warns about exactly this mix-up, and
+    this line used to make it.
+    """
     try:
         raw = json.loads(_cache_path().read_text(encoding="utf-8"))
     except (OSError, ValueError):
@@ -198,6 +204,7 @@ def _candidates_for(label: str, family_slug: str, year: int, prober, cache: dict
         )
 
     watch = _NetworkWatch(prober)
+    broke = False
     try:
         plan = plan_edition(family_slug, year, prober=watch)
     except DiscoveryError:
@@ -206,21 +213,45 @@ def _candidates_for(label: str, family_slug: str, year: int, prober, cache: dict
         # normal answer, not an error.
         plan = None
     except Exception:  # noqa: BLE001 — a prober that raises past _first_live
+        # 🔴 THE CATCH STAYS WIDE, THE CACHE DOES NOT. Narrowing this to
+        # DiscoveryError was considered and rejected: this is a READ path, and
+        # R10 says reads degrade -- one edition hitting a bug must not blank the
+        # whole panel for every other edition. But a bug is not a measurement,
+        # so `broke` stops the empty result being written to the cache, where it
+        # would have masqueraded as a finished answer for the next twelve hours.
+        # Next page load asks again, which is how a fixed bug becomes visible.
         plan = None
+        broke = True
+
+    # 🔴 THE CONFIRM REQUESTS HAPPEN FIRST, THEN THE OFFLINE TEST. This order is
+    # the whole fix, and getting it backwards shipped once. `plan_edition` is
+    # CATALOG-FIRST: for an edition `data/jlbc-book-catalog.json` names, it
+    # returns URLs having made no network call at all. So a test placed before
+    # this block reads `unreachable == 0 and answered == 0` and can never trip,
+    # and the run continues with `_candidate` collecting `(None, None)` from a
+    # dead host. Reproduced on a catalogued FY2003 approps with a silent prober:
+    # `online: true`, `reason: null`, and `{"status": null, "bytes": null}`
+    # against a perfectly good address -- then cached for 12 hours, so it stayed
+    # wrong for the rest of the day after the network came back.
+    found = {
+        "single_file": _candidate(getattr(plan, "single_file_url", None), year, watch),
+        "linked_toc": _candidate(getattr(plan, "linked_toc_url", None), year, watch),
+    }
 
     if watch.unreachable and not watch.answered:
         # Every request for THIS edition went unanswered. Report it as a network
         # failure rather than as an edition with no links, and stop asking.
+        # `probed=False` AND no cache write: an outage must leave no trace, or
+        # it outlives itself.
         return _Probe(
             candidates={"single_file": None, "linked_toc": None},
             probed=False,
             offline=True,
         )
 
-    found = {
-        "single_file": _candidate(getattr(plan, "single_file_url", None), year, watch),
-        "linked_toc": _candidate(getattr(plan, "linked_toc_url", None), year, watch),
-    }
+    if broke:
+        return _Probe(candidates={"single_file": None, "linked_toc": None}, probed=False)
+
     source = getattr(plan, "source", None)
     cache[key] = {
         "checked_at": datetime.now(timezone.utc).isoformat(),
@@ -312,7 +343,15 @@ def book_formats(request: Request, refresh: bool = False, _s=Depends(require_adm
 
 class EditionWrite(BaseModel):
     family: str
-    fiscal_year: int
+    # 🔴 BOUNDED, because the store's own validator is not a substitute for it.
+    # Reproduced: `PUT {"fiscal_year": 99}` returned `200 {"ok": true}` and wrote
+    # `Baseline:99` into the overlay -- which `store.report_formats._parse` then
+    # DROPPED on every later read, because it demands four digits, leaving only
+    # a `problems` sentence behind. That is a write reporting success and not
+    # taking effect, the one thing R10 forbids. The range is copied from the
+    # sibling model in this package (`app/routes/books.py::EditionBody`) rather
+    # than invented, so the app states one idea of a plausible year.
+    fiscal_year: int = Field(ge=1970, le=2100)
     single_file: str | None = None
     linked_toc: str | None = None
 
@@ -331,12 +370,33 @@ def write_edition(body: EditionWrite, _s=Depends(require_admin)) -> dict:
     written for a reader, and rewriting it here would give the office two
     wordings for one refusal. Anything else is a real failure and is allowed to
     500 — a save that did not happen must never report success (R10).
+
+    THE REPLY ECHOES `names_its_year` PER SAVED FORMAT, and that is defence in
+    depth rather than decoration. A year mismatch is deliberately flagged and
+    never refused (R6, because `budget/apprpttoc.pdf` genuinely IS the FY2023
+    book), but this route accepted an address it never once looked at — so the
+    entire mitigation rested on the admin having pressed **Check** first, which
+    nothing makes them do. Now the card can warn on a save either way. `None`
+    for a format the admin marked as never published: there is no address to
+    judge, and `false` would read as a complaint about one.
     """
     try:
         save_edition(body.family, body.fiscal_year, body.single_file, body.linked_toc)
     except ValueError as err:
         raise HTTPException(status_code=400, detail=str(err)) from err
-    return {"ok": True}
+    return {
+        "ok": True,
+        "names_its_year": {
+            "single_file": (
+                names_its_year(body.single_file, body.fiscal_year)
+                if body.single_file else None
+            ),
+            "linked_toc": (
+                names_its_year(body.linked_toc, body.fiscal_year)
+                if body.linked_toc else None
+            ),
+        },
+    }
 
 
 class UrlCheck(BaseModel):
