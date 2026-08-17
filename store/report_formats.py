@@ -106,15 +106,42 @@ def names_its_year(url: str, fiscal_year: int) -> bool:
     from the query string / fragment, not the filename. Harmless for the
     COMMITTED table today, because its own separate guard
     (`test_every_url_is_a_jlbc_pdf`, a `\\S+\\.pdf` fullmatch) rejects any URL
-    carrying a "?" or "#" outright. But `save_edition()` runs no URL shape
-    check at all, and the admin form this table exists for relies on
-    `names_its_year` as the ONLY defence between a copy-paste slip and a live,
-    downloadable, wrong-year report behind a button labelled "Full report".
+    carrying a "?" or "#" outright. `save_edition()` runs only a SCHEME check
+    (see `require_web_url`) and deliberately nothing more, so it accepts an
+    address with a query string — which means this function's own stripping is
+    what stands between a copy-paste slip and a live, downloadable, wrong-year
+    report behind a button labelled "Full report".
     """
     path = url.lower().split("://", 1)[-1].partition("/")[2]
     path = path.split("?", 1)[0].split("#", 1)[0]
     runs = set(_DIGIT_RUN.findall(path))
     return str(fiscal_year) in runs or f"{fiscal_year % 100:02d}" in runs
+
+
+def require_web_url(url: str) -> None:
+    """Refuse anything that is not an http(s) web address. RAISES ValueError.
+
+    🔴 THE ONLY SHAPE RULE ON A SAVED LINK, AND IT IS DELIBERATELY THIN. The
+    committed table is pinned by test to `https://www.azjlbc.gov/...pdf`; the
+    admin's overlay accepted ANY string, including `javascript:...`, which the
+    Budget Documents page renders straight into a link the analyst clicks. It
+    also narrows what `app/routes/book_formats.py::check_url` will fetch, since
+    that route fetches whatever address it is handed.
+
+    WHY IT STOPS AT THE SCHEME. Demanding the azjlbc.gov host or a `.pdf`
+    ending was considered and rejected. This overlay exists precisely so an
+    administrator can correct an edge case the app got wrong, and the one real
+    edge case already on record — `budget/apprpttoc.pdf`, a genuinely year-less
+    address that IS the FY2023 report — is why `names_its_year` flags and never
+    refuses. A stricter rule here would recreate the same trap one level down:
+    the one edition needing a hand correction becomes the one edition nobody
+    can correct. A scheme check costs that nothing.
+    """
+    if not isinstance(url, str) or not re.match(r"(?i)https?://\S", url.strip()):
+        raise ValueError(
+            "A link must be a web address starting with http:// or https:// "
+            f"(got {str(url)[:60]!r})."
+        )
 
 
 def shipped_path() -> Path:
@@ -186,6 +213,15 @@ def _parse(raw: object, *, strict: bool) -> tuple[dict[str, EditionFormats], lis
             for url in (single, toc):
                 if url is not None and not isinstance(url, str):
                     raise ValueError("a link must be a web address or empty")
+                # The same scheme rule the save path enforces, applied on READ
+                # too — the overlay is a hand-editable file on a shared drive,
+                # so a row can reach the page without ever passing through
+                # save_edition(). A refused row is DROPPED with a sentence in
+                # `problems`, which the admin card shows, and the edition goes
+                # back to reading as unanswered. That is the existing behaviour
+                # for every other malformed row here.
+                if url:
+                    require_web_url(url)
             if not single and not toc:
                 raise ValueError("neither format is set, so there is nothing to link")
             out[str(key)] = EditionFormats(
@@ -281,6 +317,9 @@ def save_edition(
     """Write one edition into the overlay. RAISES on any failure."""
     if family not in BOOK_FAMILIES:
         raise ValueError(f"Unknown report family {family!r}.")
+    for url in (single_file, linked_toc):
+        if url:
+            require_web_url(url)
     if not single_file and not linked_toc:
         # Refused because it is indistinguishable from having no entry, so the
         # edition would silently re-appear as unanswered forever.

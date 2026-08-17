@@ -26,6 +26,10 @@ WHY IT IS A SCRIPT AND NOT A TEST. It needs the public internet and downloads
 disconnected office machine and on every fresh clone, which is worse than no
 test at all.
 
+EVERY MODE RE-RUNS THE YEAR RULE FIRST, offline and free — see
+`year_mismatches`. Reachability is not the dangerous failure; a live report for
+the wrong fiscal year is, and it is the one an HTTP 200 cannot see.
+
 Default mode checks reachability and type only (HEAD, cheap, ~40 requests).
 `--full` downloads each PDF and reads its first pages, printing the page count
 and opening text so a human can confirm the file is the report it claims to
@@ -47,7 +51,11 @@ import requests
 # same way scripts/build_book_catalog.py is imported by ingest/book_discovery.
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-from store.report_formats import load  # noqa: E402  (after the path insert)
+from store.report_formats import (  # noqa: E402  (after the path insert)
+    YEARLESS_BY_DESIGN,
+    load,
+    names_its_year,
+)
 
 # The same browser User-Agent `ingest/cache.py` sends, and for the same
 # measured reason: azjlbc.gov's WAF rejects `python-requests` outright.
@@ -81,6 +89,36 @@ def rows() -> list[tuple[str, str, str]]:
     return out
 
 
+def year_mismatches(targets: list[tuple[str, str, str]]) -> list[tuple[str, str, str]]:
+    """Every row whose address does not name the fiscal year it is filed under.
+
+    🔴 THE ONE DEFECT A `200 OK` CANNOT DETECT. A copied row with the year in
+    the key bumped and the URL left alone gives a live, downloadable, WRONG
+    report behind a button labelled "Full report" — a false provenance claim
+    (Invariant 1). `tests/test_report_formats_data.py` runs this rule over the
+    COMMITTED file, but it cannot see the administrator's approvals, which are
+    a file on a shared drive that no test on any machine reads. Before this,
+    an approved wrong-year link was warned about once on the save screen and
+    then never re-checked by anything, ever.
+
+    It runs BEFORE the network check and needs no network at all, so it still
+    reports on a disconnected machine — which is when a verifier is most likely
+    to be run and least likely to finish.
+
+    `YEARLESS_BY_DESIGN` is honoured: exactly one published address carries no
+    year (JLBC put the FY2023 Appropriations Report in the undated /budget/
+    directory) and it is verified by download.
+    """
+    out = []
+    for key, kind, url in targets:
+        year = key.rpartition(":")[2]
+        if not year.isdigit() or url in YEARLESS_BY_DESIGN:
+            continue
+        if not names_its_year(url, int(year)):
+            out.append((key, kind, url))
+    return out
+
+
 def main() -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument(
@@ -101,6 +139,19 @@ def main() -> int:
         return 2
 
     print(f"{len(targets)} curated URLs in {SOURCE}\n")
+
+    wrong_year = year_mismatches(targets)
+    if wrong_year:
+        print(f"{len(wrong_year)} address(es) do NOT name the year they are filed under:")
+        for key, kind, url in wrong_year:
+            print(f"WRONG-YEAR {key:32s} {kind:6s} {url}")
+        print(
+            "  Each of those would download a real report for a DIFFERENT year "
+            "behind that edition's Full report button.\n"
+        )
+    else:
+        print("every address names its own fiscal year\n")
+
     bad = 0
     for key, kind, url in targets:
         try:
@@ -128,8 +179,14 @@ def main() -> int:
         if not ok:
             print(f"       {url}")
 
-    print(f"\n{len(targets) - bad} ok, {bad} failed")
-    return 1 if bad else 0
+    print(
+        f"\n{len(targets) - bad} ok, {bad} failed, "
+        f"{len(wrong_year)} wrong-year"
+    )
+    # A wrong-year row fails the run exactly as a dead one does. It is the more
+    # dangerous of the two: a dead link is visibly broken to the analyst, while
+    # a wrong-year link downloads cleanly and reads as authoritative.
+    return 1 if (bad or wrong_year) else 0
 
 
 if __name__ == "__main__":

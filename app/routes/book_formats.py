@@ -35,7 +35,13 @@ from app.routes.admin import require_admin
 from app.routes.books_missing import FAMILY_LABELS, corpus_editions
 from ingest.book_discovery import DiscoveryError, plan_edition
 from store.config import data_dir
-from store.report_formats import format_key, load, names_its_year, save_edition
+from store.report_formats import (
+    format_key,
+    load,
+    names_its_year,
+    require_web_url,
+    save_edition,
+)
 
 router = APIRouter()
 
@@ -160,10 +166,17 @@ class _NetworkWatch:
 
 @dataclass
 class _Probe:
-    """One edition's lookup: what was found, and how it went."""
+    """One edition's lookup: what was found, and how it went.
+
+    There is deliberately no `source` field. The route used to compute, cache
+    and send `plan.source` — the string "catalog" or "probed", saying which way
+    the address was found. Nothing renders it: `webapp/src/api.ts` declines to
+    declare it and no component reads it, because that is mechanism vocabulary
+    on a page whose own copy rules ban jargon. A field that is stored and never
+    read is a field that silently goes wrong, so it is gone.
+    """
 
     candidates: dict = field(default_factory=dict)
-    source: str | None = None
     probed: bool = False       # did this cost network? (only then rewrite cache)
     offline: bool = False      # nothing on azjlbc.gov answered at all
 
@@ -200,7 +213,6 @@ def _candidates_for(label: str, family_slug: str, year: int, prober, cache: dict
                 "single_file": hit.get("single_file"),
                 "linked_toc": hit.get("linked_toc"),
             },
-            source=hit.get("source"),
         )
 
     watch = _NetworkWatch(prober)
@@ -252,13 +264,25 @@ def _candidates_for(label: str, family_slug: str, year: int, prober, cache: dict
     if broke:
         return _Probe(candidates={"single_file": None, "linked_toc": None}, probed=False)
 
-    source = getattr(plan, "source", None)
+    # 🔴 A PARTIAL OUTAGE MUST NOT BE CACHED EITHER, for the same reason the
+    # whole-outage branch three lines above is not. If the ladder answered but
+    # ONE confirm request timed out, `watch.answered` is above zero, so the
+    # offline test does not fire — and a candidate carrying `"status": null`
+    # would be written into a cache that is trusted for twelve hours. The card
+    # would show a real, probably perfectly good address looking dead, all day,
+    # after the network came back. The candidates are still RETURNED, because
+    # the address itself may well be fine and the card says so; they are simply
+    # not remembered. Next page load asks again, which costs one request.
+    if any(
+        isinstance(c, dict) and c.get("status") is None for c in found.values()
+    ):
+        return _Probe(candidates=found, probed=False)
+
     cache[key] = {
         "checked_at": datetime.now(timezone.utc).isoformat(),
-        "source": source,
         **found,
     }
-    return _Probe(candidates=found, source=source, probed=True)
+    return _Probe(candidates=found, probed=True)
 
 
 def pending_editions(prober, *, refresh: bool = False) -> dict:
@@ -296,7 +320,6 @@ def pending_editions(prober, *, refresh: bool = False) -> dict:
                 "family": label,
                 "fiscal_year": year,
                 "candidates": probe.candidates,
-                "source": probe.source,
             })
 
     if dirty and online:
@@ -307,10 +330,21 @@ def pending_editions(prober, *, refresh: bool = False) -> dict:
         "reason": reason,
         "problems": problems,
         "pending": sorted(pending, key=lambda p: (-p["fiscal_year"], p["family"])),
-        # `approved` is not decoration. Without it the panel can only show
-        # editions nobody has answered, so approving a WRONG link would be
-        # unfixable from the app and the admin would be back to hand-editing
-        # JSON on the share — the exact thing this feature exists to abolish.
+        # `approved` is what makes a WRONG approval correctable through this
+        # same PUT: the card lists the editions already answered and lets the
+        # admin re-open one, instead of hand-editing JSON on the share.
+        #
+        # 🔴 BE HONEST ABOUT ITS REACH. This list is NOT reachable in the
+        # healthy, nothing-pending state. `webapp/src/admin/ReportLinksPanel.tsx`
+        # renders the whole card — the already-answered disclosure included —
+        # only when something else has put it on screen: a pending edition, a
+        # problem sentence, an offline probe, or a year warning from a save just
+        # made. So on a fully answered corpus a wrong link stays wrong until one
+        # of those happens. An earlier version of this comment claimed the
+        # opposite; it was reproduced as false in review, and this repo has
+        # already shipped four WHY comments that measurement contradicted.
+        # Whether the card should stay on screen for corrections is an open
+        # product question, deliberately not decided here.
         "approved": sorted(
             (
                 {
@@ -420,7 +454,24 @@ def check_url(body: UrlCheck, request: Request, _s=Depends(require_admin)) -> di
     undated directory. Refusing it would make the one edition that needs a hand
     correction the one edition the admin cannot correct. So this reports the
     fact and Task 5's card warns on it; the admin decides.
+
+    The SCHEME, by contrast, is refused outright and before any request — the
+    same one rule `store.report_formats.save_edition` applies, checked here too
+    so the two answers agree and so this route never fetches an address the
+    admin could not save anyway. A refusal comes back in the ordinary `reason`
+    field rather than as an error, because to the admin it is the same kind of
+    news as "that address didn't respond".
     """
+    try:
+        require_web_url(body.url)
+    except ValueError as err:
+        return {
+            "ok": False,
+            "status": None,
+            "bytes": None,
+            "names_its_year": False,
+            "reason": str(err),
+        }
     try:
         status, size = _probe_with(request).head_info(body.url)
     except Exception:  # noqa: BLE001 — offline is an answer, not a 500

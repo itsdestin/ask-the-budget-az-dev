@@ -214,3 +214,63 @@ def test_a_corrupt_overlay_is_replaced_rather_than_blocking_every_future_save(tm
 )
 def test_names_its_year(url, year, expected):
     assert names_its_year(url, year) is expected
+
+
+def test_save_edition_refuses_anything_that_is_not_a_web_address(tmp_path):
+    """The overlay used to accept any string, including `javascript:`.
+
+    That string reaches the analyst's browser as the href behind a button
+    labelled "Full report" on the Budget Documents page. It takes an
+    administrator acting against their own office to get there, and anyone with
+    write access to the share can hand-edit the same file — so this is not a
+    privilege boundary. It is a one-line check that removes a foot-gun and
+    narrows what the Check button will fetch on the server's behalf.
+    """
+    overlay = tmp_path / "report-formats.json"
+    for bad in ("javascript:alert(1)", "file:///etc/passwd", "www.azjlbc.gov/x.pdf", ""):
+        with pytest.raises(ValueError) as err:
+            save_edition("Baseline", 2028, bad or None, "not-a-url" if not bad else None,
+                            path=overlay)
+        assert "http" in str(err.value)
+    assert not overlay.exists()
+
+
+def test_save_edition_still_accepts_an_address_the_committed_table_never_would(tmp_path):
+    """🔴 THE RULE STOPS AT THE SCHEME ON PURPOSE.
+
+    The committed file is pinned to `https://www.azjlbc.gov/....pdf`. Demanding
+    the same of the overlay would recreate the trap the year rule was written to
+    avoid: the one edition that needs a hand correction becomes the one edition
+    nobody can correct. If JLBC ever moves a report to another host or serves it
+    without a `.pdf` ending, the administrator must still be able to fix it.
+    """
+    overlay = tmp_path / "report-formats.json"
+    save_edition("Baseline", 2028, "http://example.org/somewhere", None, path=overlay)
+    table, problems = load_overlay(overlay)
+    assert problems == []
+    assert table["Baseline:2028"].single_file == "http://example.org/somewhere"
+
+
+def test_a_hand_edited_row_with_a_bad_scheme_is_dropped_with_a_sentence(tmp_path):
+    """The overlay is a hand-editable file on a shared drive.
+
+    A row can therefore reach the page without ever passing through
+    save_edition(), so the same rule runs on read. A refused row is dropped and
+    explained — the existing behaviour for every other malformed row — which
+    puts the edition back on the admin card as unanswered rather than leaving a
+    bad link behind a button.
+    """
+    overlay = tmp_path / "report-formats.json"
+    overlay.write_text(json.dumps({
+        "version": 1,
+        "editions": {
+            "Baseline:2028": {"single_file": "javascript:alert(1)", "linked_toc": None},
+            "Baseline:2029": {"single_file": "https://www.azjlbc.gov/29baseline/x.pdf"},
+        },
+    }))
+    table, problems = load_overlay(overlay)
+    assert "Baseline:2028" not in table
+    assert any("Baseline:2028" in p for p in problems)
+    # The good row beside it is untouched — one bad row costs itself and nothing
+    # else (R10).
+    assert "Baseline:2029" in table

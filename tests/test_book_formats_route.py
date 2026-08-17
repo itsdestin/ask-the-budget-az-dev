@@ -715,3 +715,134 @@ def test_head_info_falls_back_to_a_ranged_get_only_on_405(monkeypatch):
     calls.clear()
     assert HttpProber().head_info("https://x/iis.pdf") == (200, 49_312_768)
     assert calls == ["head", "get"]
+
+
+def test_a_partly_unanswered_probe_is_shown_but_never_cached(tmp_path, monkeypatch):
+    """🔴 A PARTIAL OUTAGE MUST NOT LEAVE A DEAD-LOOKING LINK BEHIND FOR 12 h.
+
+    The whole-outage branch above already refuses to cache. This is the half of
+    it that shipped missing: if the discovery ladder answers but ONE confirm
+    request times out, `watch.answered` is above zero, the offline test does not
+    fire, and a candidate carrying `"status": null` used to be written into a
+    cache trusted for twelve hours — so a perfectly good address went on looking
+    dead all day after the network came back.
+
+    THE PLAN IS STUBBED HERE, deliberately, and that is worth explaining because
+    every other test in this file uses real fixtures. This shape needs ONE
+    edition offering TWO addresses where one answers and the other does not, and
+    the committed catalog contains no such edition outside the shipped link
+    table: every catalogued edition that is still pending (FY1984-FY2004
+    approps, FY2007-FY2011 baseline) publishes exactly one format. And it
+    cannot be reproduced through the probe ladder either, because there a rung
+    that does not answer simply yields no address at all. Stubbing the plan
+    reproduces the catalog-first shape — URLs known with no network, then
+    confirmed one by one — which is where this really happens in production.
+    """
+    import app.routes.book_formats as bf
+
+    class Plan:
+        single_file_url = "https://www.azjlbc.gov/28ar/fy2028approprpt.pdf"
+        linked_toc_url = "https://www.azjlbc.gov/28ar/apprpttoc.pdf"
+
+    class HalfDead:
+        """Answers about the single file, never answers about the contents."""
+
+        def head(self, url):
+            return "fy2028approprpt" in url
+
+        def head_info(self, url):
+            if "fy2028approprpt" in url:
+                return 200, 47_000_000
+            return None, None
+
+    monkeypatch.setattr(bf, "plan_edition", lambda *a, **k: Plan())
+    docs = {"d1": {"source_url": "https://www.azjlbc.gov/28ar/axs.pdf"}}
+    body = _client(tmp_path, monkeypatch, documents=docs, prober=HalfDead()).get(
+        "/api/admin/book-formats"
+    ).json()
+
+    # Not an outage: something answered, so the page must not claim the network
+    # is down and hide every suggested address.
+    assert body["online"] is True
+    row = next(p for p in body["pending"] if p["fiscal_year"] == 2028)
+    # The good address is still offered, and the unanswered one is still shown
+    # as unanswered — the card's own copy says the address itself may be fine.
+    assert row["candidates"]["single_file"]["status"] == 200
+    assert row["candidates"]["linked_toc"]["status"] is None
+    # But nothing is remembered. Next page load asks again, which costs one
+    # request and is how a recovered network becomes visible.
+    assert not (tmp_path / "probe.json").exists()
+
+
+def test_the_reply_carries_no_source_field(tmp_path, monkeypatch):
+    """"catalog" / "probed" is mechanism vocabulary, and nothing rendered it.
+
+    The route used to compute, cache and send how each address was found.
+    `webapp/src/api.ts` declines to declare the field and no component reads it.
+    A value that is stored and never read is one that silently goes wrong, so
+    this pins its absence rather than leaving it to be re-added by habit.
+    """
+    docs = {"d1": {"source_url": "https://www.azjlbc.gov/28ar/axs.pdf"}}
+    prober = FakeProber(live={"https://www.azjlbc.gov/28ar/fy2028approprpt.pdf"})
+    body = _client(tmp_path, monkeypatch, documents=docs, prober=prober).get(
+        "/api/admin/book-formats"
+    ).json()
+    row = next(p for p in body["pending"] if p["fiscal_year"] == 2028)
+    assert "source" not in row
+    cached = json.loads((tmp_path / "probe.json").read_text())
+    assert all("source" not in entry for entry in cached.values())
+
+
+def test_a_link_that_is_not_a_web_address_is_refused_with_a_readable_sentence(
+    tmp_path, monkeypatch
+):
+    """`javascript:` in an href is what this stops, and the browse page uses one.
+
+    Not a privilege boundary — anyone who can write the overlay on the share can
+    already edit it by hand — but the check is one line and it also narrows what
+    the Check button below will fetch on the server's behalf.
+    """
+    docs = {"d1": {"source_url": "https://www.azjlbc.gov/28ar/axs.pdf"}}
+    client = _client(tmp_path, monkeypatch, documents=docs, overlay=tmp_path / "ov.json")
+    r = client.put(
+        "/api/admin/book-formats",
+        json={
+            "family": "Appropriations Report",
+            "fiscal_year": 2028,
+            "single_file": "javascript:alert(1)",
+        },
+    )
+    assert r.status_code == 400
+    assert "http" in r.json()["detail"]
+    # A refused save must leave NOTHING behind — the one thing R10 forbids is a
+    # write that reports one thing and does another.
+    assert not (tmp_path / "ov.json").exists()
+
+    # And the host/extension are deliberately NOT policed: this overlay exists
+    # so an administrator can correct an edge case the app got wrong.
+    ok = client.put(
+        "/api/admin/book-formats",
+        json={
+            "family": "Appropriations Report",
+            "fiscal_year": 2028,
+            "single_file": "http://example.org/whatever",
+        },
+    )
+    assert ok.status_code == 200
+
+
+def test_the_check_button_refuses_a_non_web_address_without_fetching_it(
+    tmp_path, monkeypatch
+):
+    docs = {"d1": {"source_url": "https://www.azjlbc.gov/28ar/axs.pdf"}}
+    prober = FakeProber()
+    r = _client(tmp_path, monkeypatch, documents=docs, prober=prober).post(
+        "/api/admin/book-formats/check",
+        json={"url": "file:///etc/passwd", "fiscal_year": 2028},
+    )
+    body = r.json()
+    assert r.status_code == 200          # an answer, not an error
+    assert body["ok"] is False
+    assert "http" in body["reason"]
+    # The point of checking before fetching: the server never went looking.
+    assert prober.asked == []
