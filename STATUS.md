@@ -30,9 +30,9 @@ source. When something ships, update only this file.
 | Standalone consolidation — Plan 3 (ingest) | ✓ Shipped (2026-07-31) | GUI upload → background queue → LanceDB; fiscal-note refresh; Add-a-JLBC-book. Postgres/Docker now needed for NOTHING. See the section below |
 | Standalone consolidation — Plan 4 (AI Mode) | ✓ Shipped (2026-07-31) | In-process OpenRouter tool loop; MCP and YouCoded dropped. Cited chat + PDF viewer on both corpora, Standard/Deep-Research tiers, per-user spend ledger. See the section below |
 | Standalone consolidation — Plan 5 (admin + packaging + deletion) | 🟡 **Tracks 1–4 done, 5–6 open** (2026-08-01) | 20 of 27 tasks. Tracks 1–2 (1–13, Session A): admin identity + gate, settings API, OpenRouter catalog, model fallback, corpus health/restore, Admin + Settings pages, per-machine data dir, health ladder, lockout recovery. Track 3 (14–17, Session B): the Windows bundle. **Track 4 (18–20) shipped 2026-08-01** — `web/`, `mcp-server/`, `db/` and the dead `retrieval/` modules are DELETED (~36,000 lines), one `documents.json` reader, four ingest defects fixed, and all three of Session B's orphaned app-side asks built. **Track 5 (handbook, 21–23) and Track 6 (gates, 24–27) remain.** See the Track 4 section below |
-| Standalone consolidation — Plan 6 (document types) | ⬛ **Superseded 2026-08-11** by the document-types re-scope | Plan 6's scope was replaced by a new spec (T1–T14) split into Plans A/B/C. **Plan A shipped 2026-08-11** — see the section below. Plans B and C are not written |
-| Document types — **Plan A** (registry + upload rows) | ✓ Backend shipped (2026-08-11); 🔴 **its UI is REJECTED and awaiting redesign** | T1/T2/T3/T4/T9. One YAML registry is now the single source of truth for extraction, doc_id identity, the upload API, the model's filter enum and the upload UI. Two new types; found a collision that would have left 1 document of 78. **The Upload page's shape is NOT accepted — see "The Upload UI is unfinished" below.** Do not treat it as done |
-| Document types — Plan **C** | 🔴 **Not started; handoff written** | C = upload-page surfaces (T10 book panel, T13 queue bounding). Runbook: [`PROMPT-plan-c.md`](PROMPT-plan-c.md). Needs no API key and spends nothing. Plan **B shipped 2026-08-13** — see its own row and section |
+| Standalone consolidation — Plan 6 (document types) | ⬛ **Superseded 2026-08-11** by the document-types re-scope | Plan 6's scope was replaced by a new spec (T1–T14) split into Plans A/B/C (see the rows below). **Plan A shipped 2026-08-11**, **Plan B shipped 2026-08-13**, **Plan C merged `ed59c29` 2026-08-16** — all three written and built |
+| Document types — **Plan A** (registry + upload rows) | ✓ **Backend shipped 2026-08-11; upload UI reworked + browser-approved in Plan C (`ed59c29`, 2026-08-16)** | T1/T2/T3/T4/T9. One YAML registry is now the single source of truth for extraction, doc_id identity, the upload API, the model's filter enum and the upload UI. Two new types; found a collision that would have left 1 document of 78. The Upload page's original shape was rejected and subsequently redesigned by Destin in Plan C's browser pass — see the historical note below and the Plan C section |
+| Document types — Plan **C** (book panel T10 + queue T13 + upload-page rework) | ✅ **Merged `ed59c29`, 2026-08-16** | C = upload-page surfaces (T10 book panel, T13 queue bounding). See the **Plan C** row below and its section. Plan **B shipped 2026-08-13** — see its own row and section |
 | Standalone consolidation — Plan 7 (batch extraction) | ✓ Shipped (2026-08-02) | Batch MinerU (~4x), the backfill, recency re-calibration. Three defect fixes not in any plan. See the Plan 7 section below |
 | Citation linking (post-hoc linker) | ⬛ **Superseded 2026-08-11** by attested linking | Shipped 2026-08-02, then found to overclaim: 34.2% of linked figures matched >1 document and were resolved by document authority. That ranking is now DELETED. Section kept as the historical record of the defect |
 | **Attested citation linking** | ✅ **Shipped and VERIFIED LIVE** (2026-08-11) | The model tags each figure, the system verifies the tag. False-link rate down 13–15×; 100% coverage on a captured live turn, 44 figures linked by tag. Six defects found by browser testing — see the section below. The 31-query Layer 2 baseline still has not been run |
@@ -43,7 +43,7 @@ source. When something ships, update only this file.
 | **Corpus identity — names + agency labels** | ✅ **Shipped 2026-08-16**, one browser check outstanding | Titles naming a different agency 284 → 4; duplicate titles 218 → 0; doc_ids contradicting their source 22 → 0; documents labelled with an agency they never mention 1,072 → 171. Layer 1 eval unchanged through all four corpus passes. The audit's stated root cause was wrong — see the section below |
 | JLBC memo formatting for generated reports | ✓ **Shipped (2026-08-13)**, unverified in real Word | `create_document` renders a JLBC memo — letterhead, DATE/TO/FROM/SUBJECT block, house typography — instead of Word's stock styling. Nine plan-code defects found during execution, two of them tests that proved nothing. See the section below |
 | AI Mode persistent conversation | ✓ **Shipped, browser-tested, merged `28567f0`** (2026-08-11) | "+ New chat" shows a row at once; the conversation survives a tab switch and keeps streaming. 742 vitest / `tsc -b` clean. Destin tested and accepted; browser testing found a two-rows-look-selected defect, fixed. Four Minors carried, and P5 (close-tab-still-aborts) is still unwatched. See the section below |
-| **Plan C — book panel + queue (T10/T13) + the upload-page rework** | 🟡 **BUILT AND BROWSER-APPROVED, NOT MERGED** (2026-08-16) | ⚠ the earlier "Shipped 2026-08-13" was wrong twice over — it is **not on master**, and the browser pass it called outstanding **has happened**. Queue shows outstanding work, not 7,104 rows of history (**3.13 MB → 0.008 MB per poll, 391×**, 7,118 file reads → 14). Book panel offers only missing editions (62 offered / **0** addable → 1 offered / 1 addable). Then three rounds of UI rework with Destin at the screen, the title field removed, an agency picker added, and an ingest-switch bypass fixed. **22 commits, 25 behind master, 7 files changed on both sides.** See the section below |
+| **Plan C — book panel + queue (T10/T13) + the upload-page rework** | ✅ **MERGED `ed59c29`, 2026-08-16** | The panel shows only what is missing, not 7,104 rows of history (**3.13 MB → 0.008 MB per poll, 391×**, 7,118 file reads → 14). Book panel offers only missing editions (62 offered / **0** addable → 1 offered / 1 addable). Three rounds of UI rework with Destin at the screen (title field removed, agency picker added, ingest-switch bypass fixed). Merged `ed59c29` — the merge itself found and fixed two cross-branch defects a clean merge hid (see `707b890`). See "Plan C" below |
 | **Corpus navigation** (map, spread, coverage, echo) | ✓ **Shipped, both gates passed, merged `2dc295f`** (2026-08-12) | N1–N7 + N11. A corpus inventory in the prompt, `spread` retrieval, `year_coverage`, inferred-filter echo. **G-N1: Layer 1 identical to a same-hour control. G-N2: `key_fact_rate` 0.463 → 0.685 against a real control**, every citation metric up, input tokens down 41%. Full 31-query run not yet run. See the section below |
 | Document guide for generated reports | ✓ **Shipped (2026-08-13)**, merged `f91b68f` | A sixth tool, `document_guide(report_type)`, hands the model JLBC's house style and one of three report shapes only when it is about to write a document. **Advisory and unenforced** — nothing validates what the model then writes. Five plan-code defects found during execution, two of them tests that proved nothing. **Nobody has watched a real document produced under it.** See the section below |
 | **Admin extensions** (E1–E3, E6) | ✓ **Merged `b108d13`, gates green, NOT yet browser-verified** (2026-08-13) | Admin-editable alias overlay for search, admin-authored office guidance in the AI prompt, a read-only "See System Guidance" window over the shipped instructions, analyst issue reports with an admin inbox, `/admin` regrouped. 2660 pytest / 834 vitest / `tsc -b` / `npm run build` all clean; E1 eval gate passed with the overlay proven live. Destin opened the app and approved the merge, but three surfaces are still unwitnessed — see the section below |
@@ -171,9 +171,11 @@ was built, worded and tested server-side and rendered nowhere**, because Task
 
 ### Still open
 
-- **The FY2024 AFR remains in its OpenDataLoader state** — best of the three by
-  coverage, worst by structure. Deliberately not hand-forced to MinerU: the
-  principled fix is to rank on structure, which is a spec change.
+- **The FY2024 AFR got re-minted to MinerU in the 2026-08-16 structural
+  acceptance run** (`639f0cf`), but not because ranking on structure landed —
+  see below. It is no longer in its OpenDataLoader state; the principled fix
+  (rank on structure as the ladder's tie-break) remains unbuilt and a spec
+  change.
 - **Ranking on structure is unscheduled work.** Neither shipped approach
   catches this: S26 inspects the input (the two AFRs are indistinguishable, and
   FY2024 *is* tagged, so S26 routes it exactly where it already goes), and T6
@@ -561,22 +563,29 @@ rows. Two implementations of "is the queue stalled?" would eventually
 disagree, and the way it shows up is the worst kind — the admin page saying
 all is well while an analyst watches a stuck upload.
 
-### Gates and state
+### Gates and state — MERGED `ed59c29` (2026-08-16)
 
-**pytest 2909 / 5 skipped · vitest 958 · `tsc -b` 0 · `npm run build` 0.**
 ~40 mutations run against the new specs, all caught. Layer 1 eval run
 2026-08-16 after the FY2027 ingest: **G1 passes**, and the recall@5
 movement is the corpus, not this branch — see "What's next".
 
-**NOT MERGED.** 22 commits, **25 behind master**, and **7 files changed on
-both sides** (`ingest/worker.py`, `ingest/jobs.py`, `app/routes/admin.py`,
+**Merged `ed59c29`** ("merge: upload-page rework, T10/T13, ingest-switch
+fix, and the identity spec"), 2026-08-16. **The merge of master into the
+plan-c branch found two defects a clean merge hid — see `707b890`** — so the
+cross-branch concern recorded here did manifest (two defects), and was
+handled *in the merge commit itself* rather than surviving into master.
+Content merge: 7 files changed on both sides
+(`ingest/worker.py`, `ingest/jobs.py`, `app/routes/admin.py`,
 `webapp/src/api.ts`, `webapp/src/pages/Admin.tsx`,
-`webapp/src/styles/app.css`, `tests/test_admin_attention_route.py`).
-Master's *"surface documents that are IN search and were read badly"* is
-adjacent territory. **This file already records a cross-branch defect
-neither side could see, where git merged cleanly and both suites stayed
-green** — assume the same shape here and check behaviour, not just conflict
-markers.
+`webapp/src/styles/app.css`, `tests/test_admin_attention_route.py`) were the
+conflict points and are resolved in the merged tree. **Master's
+*"surface documents that are IN search and were read badly"* is adjacent
+territory — check that master-side behaviour did not change the book-panel
+merge (the two could interact).**
+
+**Gates on the merged tree (per the merge commit): pytest 2978 / 5 skipped ·
+vitest 980 · `tsc -b` 0 · `npm run build` 0 · Layer 1 eval G1 passing.**
+(The 2909 / 958 figures in this block were the pre-merge branch state.)
 
 ---
 
@@ -864,26 +873,39 @@ on a slow connection.
 
 ## Corpus — what is ingested and what is NOT (2026-08-01)
 
-**The corpus is MVP-complete for recent years. It is NOT finished.** Recorded
-here because the deferral previously existed only as a comment in
-`~/backfill-scripts/orchestrate.py`, which is not in this repo.
+> ⬛ **HISTORICAL SNAPSHOT — superseded by the 2026-08-02 S20 backfill.** This
+> section was written the day before the backfill finished and records a
+> pre-backfill corpus. Its counts (24,841 budget chunks / 3,527 documents) and
+> its "Remaining work" table are **stale**: the 27 pre-FY2022 book editions were
+> all ingested 2026-08-02, `agency-budget-request` / `agency-submission` are now
+> registered doc_types (Plan A), and the corpus stands at **83,016 budget chunks
+> / 7,566 documents** as of the FY2027 Approps ingest (2026-08-16). The AFRs
+> FY2021–FY2025 are all in the corpus (see the structural-extraction section).
+> The still-true core of this section — that some publish-process gaps are
+> MANUAL steps (AFRs, bot-blocked agency requests) and that budget-bill is
+> DOCX-only by design — is kept below.
+>
+> Recorded here because the deferral previously existed only as a comment in
+> `~/backfill-scripts/orchestrate.py`, which is not in this repo.
 
-**In the corpus:** 24,841 budget chunks + 13,278 fiscal-note chunks / 3,527
-documents. JLBC Baselines FY2022–2027 and Approps FY2022–2026 (11 editions),
-the complete fiscal-note back catalogue (2,104 notes, sessions 2026→1999),
-and exactly **three** other documents — one AFR (FY2025), one executive budget
-(FY2027), one budget bill (FY2026).
+**In the corpus (at 2026-08-01):** 24,841 budget chunks + 13,278 fiscal-note
+chunks / 3,527 documents. JLBC Baselines FY2022–2027 and Approps FY2022–2026
+(11 editions), the complete fiscal-note back catalogue (2,104 notes, sessions
+2026→1999), and exactly **three** other documents — one AFR (FY2025), one
+executive budget (FY2027), one budget bill (FY2026).
 
-| Remaining work | Count | Blocked by |
+| Remaining work (at 2026-08-01) | Count | Blocked by |
 |---|---|---|
-| **JLBC books, pre-FY2022** | **27 editions** (Baselines FY2012–2021, Approps FY2005–2021) | Nothing — deferred by Destin's MVP call 2026-07-31. Run with `JLBC_BACKFILL_UNITS=books` |
-| **Annual Financial Reports** | 3 (FY2022–24) | **`gao.az.gov` is behind Cloudflare bot management** — see below. Needs a human with a browser |
+| **JLBC books, pre-FY2022** | **27 editions** (Baselines FY2012–2021, Approps FY2005–2021) | ~~Nothing — deferred by Destin's MVP call 2026-07-31~~ **ALL INGESTED 2026-08-02** |
+| **Annual Financial Reports** | 3 (FY2022–24) | ~~**`gao.az.gov` is behind Cloudflare bot management**~~ **ALL INGESTED** (FY2021–2025 now in corpus) |
 | **Executive budgets** | ~~2~~ **0 — INGESTED 2026-08-01** | done (FY2025 + FY2026 now live) |
 | **Budget bills** | 7 (FY2022–2027) | S24 — the harvest holds **PDFs**, and budget-bill is **DOCX-only** by design. Word versions come from JLBC internally |
-| **Agency budget requests** | 78 (FY2027 only) | **Plan 6 Track 1** — `agency-budget-request` is not a registered doc_type. 60 reachable, **18 behind bot protection** needing a human with a browser |
+| **Agency budget requests** | 78 (FY2027 only) | ~~**Plan 6 Track 1** — `agency-budget-request` is not a registered doc_type~~ **now a registered doc_type (Plan A)**. 60 reachable, **18 behind bot protection** needing a human with a browser |
 
-**So: 5 documents can be ingested with no new code; 85 need Plan 6's registry;
-27 book editions are a deliberate deferral, not an oversight.**
+**So (at 2026-08-01): 5 documents can be ingested with no new code; 85 need
+Plan 6's registry; 27 book editions are a deliberate deferral, not an
+oversight.** — the registry need and the 27-edition deferral are both since
+closed by the backfill + Plan A.
 
 **The AFRs cannot be fetched automatically (2026-08-01).** All four failed with
 HTTP 403. Two distinct causes, found in that order:
@@ -1217,10 +1239,16 @@ boost has the same blind spot.
 
 </details>
 
-## 🔴 The Upload UI is unfinished — Destin is redesigning it after Plans B and C
+## ⬛ The Upload UI — original shape was REJECTED, then REDESIGNED and APPROVED in Plan C (2026-08-11 → 08-16)
 
-**Do not treat the Upload page as delivered, and do not polish it in the
-meantime.** Plan A's backend is done and reviewed; its UI is not accepted.
+> **This section is now the historical record.** It was written after Plan A's
+> original six-card upload UI was rejected, before the Plan C browser rework.
+> That rework then happened and merged with `ed59c29` (2026-08-16): the page
+> was rebuilt three times against Destin at the screen, the title field was
+> removed, an agency picker added, text cut 214→39 words, and Destin
+> browser-approved it. See the Plan C section's "browser pass HAPPENED". The
+> specific "do not polish" instruction below is **resolved**; the still-useful
+> part is the "agree the shape before building" lesson and the behaviour-notes.
 
 What happened, recorded so the redesign starts from the right place and the
 mistake is not repeated:
@@ -1715,10 +1743,11 @@ Recorded because they are the kind of thing that gets copied forward:
   rest of packaging** — it also carries the split-distribution fallback if a
   MinerU-inclusive bundle proves impractical. The AI-Mode hardening that used
   to sit here (S22 + S23) shipped 2026-07-31 — see the section below.
-- **Z13 backfill + recency calibration (S20/S21)** — historical-year corpus
-  backfill and recency-ranking calibration on the Z13 Linux machine.
-  Runbook: [`PROMPT-z13-backfill.md`](PROMPT-z13-backfill.md) (the only
-  active handoff). Recency plan:
+- ~~**Z13 backfill + recency calibration (S20/S21)**~~ **DONE 2026-08-02** —
+  historical-year corpus backfill and recency-ranking calibration on the Z13
+  Linux machine. Runbook:
+  [`PROMPT-z13-backfill.md`](PROMPT-z13-backfill.md) (~~the only active
+  handoff~~ **COMPLETE — do not execute**). Recency plan:
   [`docs/superpowers/plans/2026-07-31-standalone-plan-recency-ranking.md`](docs/superpowers/plans/2026-07-31-standalone-plan-recency-ranking.md).
 - **Layer 2 agent-loop eval — BUILT, first smoke baseline COMMITTED
   2026-08-01** (`eval/results/agent/2026-08-01T1157Z-25399b1/`, 11 queries,
@@ -3856,10 +3885,14 @@ reference tool used alongside a dozen research tabs, not a program you live insi
   `python -m app.machine_config`, which `install.cmd` now calls instead of
   emitting JSON by hand. See the Track 4 section above.
 
-## Z13 backfill — IN PROGRESS (2026-07-31)
+## Z13 backfill — COMPLETE (2026-07-31 → 2026-08-02)
 
 Runbook: [`PROMPT-z13-backfill.md`](PROMPT-z13-backfill.md). Spec: S20 (scope),
-S21 (recency). This section is the live record; update it as phases land.
+S21 (recency). **Historical live-run record — the run is COMPLETE.** The
+backfill itself finished **2026-08-02** and the recency re-calibration
+(Phase D) landed the same day; see the phase summary's "Volume ingest / S20
+backfill" row and the Plan 7 section for the finished state and the shipped
+`RECENCY_BOOST_PER_YEAR 0.85` / `REFUSAL_THRESHOLD 1.46`.
 
 **Machine:** Ryzen AI MAX+ 395, 32 threads, 121 GB RAM, Linux. Repo at
 `~/YouCoded/Projects/ask-the-budget-az-dev`, corpus at `data/insight-data/`.
@@ -3868,9 +3901,9 @@ S21 (recency). This section is the live record; update it as phases land.
 |---|---|
 | A — setup + parity gate | ✅ **PASSED**, exact reproduction of the Windows baseline: recall@5 72.41 / @15 96.55 / @20 100.00, refusal precision 40.00. Latency p95 **821 ms vs 3,187 ms** on the office box (3.9× faster). Results committed. |
 | B — recency machinery (S21) | ✅ **MERGED** (`4c75f2c`). Year-parser hard filter + `inferred_fiscal_years` + recency boost shipped OFF (0.0) + prompt guidance. **Eval improved to recall@5 82.76% (+10.35pp) and refusal precision 60% (+20pp)** from the year filter alone. |
-| C — the backfill | 🔵 **RUNNING.** Fiscal notes ~65% (1,384 of 2,126 docs, sessions 2026→2008); 38 book editions not started. ~6 h remaining. |
-| D — calibration | ⬜ **BLOCKED on C.** Author `eval/queries_historical.yaml` against the finished corpus, run `eval/calibrate_recency.py`, set `RECENCY_BOOST_PER_YEAR`, re-run `calibrate_refusal.py`, then the three-set eval that proves old books don't swamp no-year queries. |
-| E — wrap | ⬜ Final counts, canonical corpus declared, this section closed. |
+| C — the backfill | ✅ **DONE (2026-08-02).** Every ingestable JLBC book edition is in the corpus — 38 editions, 7 failures all azjlbc.gov 404s. (The "~65% fiscal notes, books not started" text that used to sit here was the mid-run snapshot.) |
+| D — calibration | ✅ **DONE (2026-08-02).** `RECENCY_BOOST_PER_YEAR` 2.064 → **0.85**, `REFUSAL_THRESHOLD` 1.04 → **1.46**; sweep + eval committed under `eval/results/recency-sweep-2026-08-02T1101Z-*` and `eval/results/2026-08-02T1109Z-*`. Recall@5 up 7.1 points on the same corpus. See Plan 7 Task 6. |
+| E — wrap | ✅ Canonical corpus declared; this run is recorded and closed. |
 
 **Corpus right now:** `budget_chunks` 7,808 · `fiscal_note_chunks` 8,438 ·
 1,770 documents (was 382 / 7,755 / 0 notes at the start).
@@ -5283,7 +5316,7 @@ Current architecture first:
 - [docs/superpowers/plans/2026-07-31-standalone-plan-recency-ranking.md](docs/superpowers/plans/2026-07-31-standalone-plan-recency-ranking.md) — recency-ranking plan (S21; pending)
 - [docs/superpowers/specs/2026-08-12-admin-extensions-design.md](docs/superpowers/specs/2026-08-12-admin-extensions-design.md) — admin extensions design (E1–E6; E4 and E5 are future direction, nothing was built for them)
 - [docs/superpowers/plans/2026-08-12-admin-extensions.md](docs/superpowers/plans/2026-08-12-admin-extensions.md) — admin extensions plan, 14 tasks (shipped 2026-08-13, merge `b108d13`). Its task checkboxes were never ticked and its code blocks are sketches — several were wrong about this codebase and were corrected during execution. **Read the STATUS section above for what actually shipped**, not this plan
-- [PROMPT-z13-backfill.md](PROMPT-z13-backfill.md) — **the only active handoff** — Z13 backfill + recency calibration runbook
+- [PROMPT-z13-backfill.md](PROMPT-z13-backfill.md) — ~~the only active handoff~~ **COMPLETE — historical runbook** (backfill + recency calibration finished 2026-08-02)
 - [README.md](README.md) — how to run it, links
 - [STATUS.md](STATUS.md) — this file (current state)
 - [CLAUDE.md](CLAUDE.md) — workspace conventions for Claude Code sessions
