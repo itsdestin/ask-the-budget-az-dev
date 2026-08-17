@@ -721,7 +721,35 @@ describe("chat CSS containment contract", () => {
   it("the standalone card keeps its own prose measure", () => {
     // A supporting artifact must never be wider than the answer it supports,
     // and mid-search there is no bubble to inherit that from.
-    expect(bareRule(".chat-tool-group")).toMatch(/max-width:\s*65ch/);
+    // UPDATED 2026-08-16 for TC22 below: a bare `65ch` here is the bug TC22
+    // fixes (it resolves against the DOCUMENT's inherited font-size, a bigger
+    // unit than the bubble's own 14px) — the property this test protects is
+    // now stated as "the bubble's own measure", not the literal `65ch` text.
+    expect(bareRule(".chat-tool-group")).toMatch(
+      /max-width:\s*calc\(65ch\s*-\s*34px\)/,
+    );
+  });
+
+  // ------------------------------------------------------------------
+  // 2026-08-16 — TC22. The card must be the SAME WIDTH standalone and nested.
+  // It was not, and the gap was large: `.chat-bubble` sets `font-size: 14px`
+  // and `max-width: 65ch`, so its `ch` resolves at 14px AND a nested card
+  // loses a further 32px of padding plus 2px of border — while the standalone
+  // `.chat-tool-group` also said `65ch` but inherited the document's 16px, a
+  // BIGGER unit. The standalone card was ~100px wider and shrank the instant
+  // an answer arrived and it moved inside the bubble.
+  //
+  // This asserts the mechanism that makes them equal; the real acceptance
+  // test is measuring both in a browser, which jsdom cannot do.
+  it("the standalone card states the bubble's own measure, not a wider one", () => {
+    const rule = bareRule(".chat-tool-group");
+    expect(rule).toMatch(/font-size:\s*14px/);
+    expect(rule).toMatch(/max-width:\s*calc\(65ch\s*-\s*34px\)/);
+    // And the bubble it must match is still 65ch at 14px.
+    const bubble = bareRule(".chat-bubble");
+    expect(bubble).toMatch(/font-size:\s*14px/);
+    expect(bubble).toMatch(/max-width:\s*65ch/);
+    expect(bubble).toMatch(/padding:\s*10px 16px/);
   });
 
   it("the card's expansion is capped and scrolls", () => {

@@ -1293,7 +1293,32 @@ nav.primary{position:relative;padding-right:44px;}
 /* ----- tool group ------------------------------------------------------------
    Same row geometry as a single tool; the body has no background of its own so
    header+children read as one surface, children lifted by is-inset. */
-.chat-tool-group { border-radius: var(--r-sm); border: 1px solid var(--line); background: var(--card); max-width: 65ch; overflow: hidden; }
+/* ONE measure in both contexts (spec TC22, 2026-08-16). `.chat-bubble` is
+   `65ch` at its own `font-size: 14px`, and a card nested inside it loses a
+   further 32px of side padding and 2px of border — so the standalone card must
+   state that same number itself. It used to say a bare `65ch` while inheriting
+   the document's 16px, which makes `ch` a BIGGER unit: the standalone card was
+   about 100px wider and visibly shrank the moment an answer arrived and it
+   moved inside the bubble. Declaring `font-size: 14px` here is what makes the
+   `ch` units comparable; it changes nothing visible, because `.chat-tool-head`
+   sets its own 12.5px (verified against the live rule directly above this
+   block before writing this comment — still true). 34px re-derived against the
+   live `.chat-bubble` rule at the time of this change: `padding: 10px 16px` is
+   32px of left+right padding, `border: 1px solid` is 2px of left+right
+   border, 32 + 2 = 34. Re-derive this number again if either rule changes. */
+.chat-tool-group { font-size: 14px; border-radius: var(--r-sm); border: 1px solid var(--line); background: var(--card); max-width: calc(65ch - 34px); overflow: hidden; }
+/* The header used to be a label + a muted "↳ detail" pair (.chat-tool-label /
+   .chat-tool-summary, still used by the n>=2 child rows below); TC13 replaces
+   that for the GROUP header with one sentence a person would say ("Searched
+   for "..." and 2 more"). Truncation moved here from .chat-tool-summary for
+   the same reason it existed there — without it a long query wraps the row to
+   two lines and the card stops being a scannable one-line header. */
+.chat-tool-sentence { min-width: 0; flex: 1 1 auto; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+/* Bold only the verb, so a long run of rows stays scannable at a glance
+   (TC13). Already bold via the <b> tag this class sits on; stated explicitly
+   so a future reset (e.g. a `b { font-weight: normal }` rule) cannot silently
+   un-bold the one word doing that work. */
+.chat-tool-verb { font-weight: 800; }
 /* NO group-level failure treatment, deliberately (spec TC9, 2026-08-16). A
    failed tool call no longer reddens this card or reports itself in the
    collapsed row. The model retries a failed call itself, so a red row usually
@@ -1410,7 +1435,72 @@ nav.primary{position:relative;padding-right:44px;}
 .chat-chunk-path { font-size: 10px; color: var(--ink-3); margin-bottom: 4px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .chat-chunk-text { color: var(--ink-2); white-space: pre-wrap; }
 
+/* ----- retrieve view, rebuilt (spec TC16-TC19, 2026-08-16) --------------------
+   The unit is now the DOCUMENT (RetrieveView.tsx's groupByDocument), so the
+   `.chat-chunk*` rules above are dead for this view — kept in place rather
+   than deleted because .chat-chunk-title is still used by CreateDocumentView
+   (see that view's Chip row) and this task's file list is app.css + the test
+   file only, not a dead-CSS sweep. */
+.chat-search-summary, .chat-guide-note { font-size: 12.5px; color: var(--ink-2); line-height: 1.55; margin: 0; }
+.chat-guide-note strong { color: var(--ink); font-weight: 800; }
+/* One box per document (mockup's .b-doc), a sibling of the search-summary
+   paragraph inside the same `.chat-stack` — the stack's own `gap: 8px`
+   spaces the boxes, so no margin-bottom belongs here (adding one would just
+   double the gap between every pair). --card rather than --canvas: this box
+   must read as a distinct object whether the tool card is standalone
+   (background --card, so a --canvas box would recede) or nested inside an
+   answer bubble (background --canvas, per TC2/TC10 below — nesting is now
+   the common case, per ToolGroup.tsx's own "normally the first child of an
+   answer bubble" comment), and --card is the one value that contrasts with
+   the more common of the two ancestors. Same reasoning `.chat-refusal-chunk`
+   already uses for its own sub-boxes, a few hundred lines up. */
+.chat-doc-group { border: 1px solid var(--line); border-radius: var(--r-sm); background: var(--card); padding: 9px 11px; }
+.chat-doc-head { display: flex; align-items: baseline; gap: 8px; flex-wrap: wrap; margin-bottom: 4px; }
+.chat-doc-title { font-size: 12.5px; font-weight: 800; color: var(--ink); }
+/* The leaf-heading breadcrumb (TC18 — full ancestor chains are the noise this
+   element exists to remove, so only the last segment ever reaches here).
+   Single-line ellipsis: a long section path must not push the snippet below
+   it further down the card than the snippet itself deserves. */
+.chat-doc-path { font-size: 11px; color: var(--ink-3); margin: 0 0 4px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.chat-doc-text { font-size: 12.5px; color: var(--ink-2); line-height: 1.55; }
+/* font-size stated here (not just on the chip/muted children) because
+   `.chat-muted` sets colour only — without an ancestor size the "N passages —"
+   text would fall back to whatever this box inherits, which varies with
+   nesting depth. */
+.chat-doc-pages { display: flex; align-items: center; gap: 5px; flex-wrap: wrap; margin-top: 7px; font-size: 12.5px; }
+
+/* ----- document_guide view (spec TC20, 2026-08-16) -----------------------------
+   Never styled before this — it fell through to the raw-JSON fallback. The
+   honesty line (.chat-guide-note) shares its type with .chat-search-summary
+   above; the rule box below is new because MarkdownContent renders bare
+   h1-h6/p/ul/li/strong with NO className of its own (see MarkdownContent.tsx —
+   `.chat-md` is a wrapper class CreateDocumentView adds, and DocumentGuideView
+   does not add it), so the raw tags need their own descendant rules or they
+   render at the browser's default sizes inside a 12.5px card. Scaled down from
+   `.chat-md`'s rules rather than reusing them: `.chat-md` is sized for full
+   14px answer prose, and this card is meant to read as an annotation below
+   it, same as every other tool-view class in this file. */
+.chat-guide-rule { border: 1px solid var(--line); border-radius: var(--r-sm); background: var(--card); padding: 9px 11px; font-size: 12.5px; color: var(--ink-2); line-height: 1.55; }
+.chat-guide-rule h1, .chat-guide-rule h2 { font-size: 12.5px; font-weight: 800; color: var(--ink); margin: 12px 0 4px; }
+.chat-guide-rule h1:first-child, .chat-guide-rule h2:first-child { margin-top: 0; }
+.chat-guide-rule h3 { font-size: 12.5px; font-weight: 800; color: var(--ink-2); margin: 10px 0 3px; }
+.chat-guide-rule p { margin: 0 0 8px; }
+.chat-guide-rule p:last-child { margin-bottom: 0; }
+.chat-guide-rule ul, .chat-guide-rule ol { margin: 0 0 8px; padding-left: 18px; }
+.chat-guide-rule li { margin-bottom: 3px; }
+.chat-guide-rule li:last-child { margin-bottom: 0; }
+.chat-guide-rule strong { font-weight: 800; color: var(--ink); }
+.chat-guide-rule em { font-style: italic; color: var(--ink-2); }
+.chat-guide-rule code { font-family: var(--chat-mono); font-size: 11.5px; color: var(--copper); background: var(--canvas); border: 1px solid var(--line); border-radius: 4px; padding: 0 4px; }
+
 /* ----- list_filter_values view ------------------------------------------------ */
+/* TC21: names, not codes — a wrapped row of plain .chat-chip spans, exactly
+   the .chat-note label above it in the same `.chat-stack` (spacing comes from
+   the stack's own gap, same reasoning as .chat-doc-group above). The
+   .chat-table* rules below this comment predate the rebuild and are now dead
+   for this view (see the retrieve-view comment above for why they are not
+   swept in this task). */
+.chat-filter-values { display: flex; flex-wrap: wrap; gap: 5px; }
 .chat-table-wrap { border-radius: var(--r-sm); border: 1px solid var(--line); background: var(--canvas); overflow: hidden; }
 .chat-table { width: 100%; font-size: 12px; border-collapse: collapse; }
 .chat-table th { font-size: 11px; font-weight: 800; text-transform: uppercase; letter-spacing: .08em; color: var(--ink-3); border-bottom: 1px solid var(--line); padding: 4px 8px; text-align: left; }
