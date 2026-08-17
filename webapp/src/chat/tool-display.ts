@@ -217,9 +217,13 @@ export function toolHeaderSentence(
         rest: ` the house style for a ${reportTypeName(summary)}${more}${tail}${then}`,
       };
     case "list_filter_values":
+      // ${more} matches every sibling branch. Without it three filter checks
+      // rendered identically to one — a silent undercount of real work, the
+      // same defect 3433779 fixed for create_document and document_guide and
+      // missed here.
       return {
         verb: running ? "Checking" : "Checked",
-        rest: ` which ${filterFieldName(summary)} the corpus covers${tail}${then}`,
+        rest: ` which ${filterFieldName(summary)} the corpus covers${more}${tail}${then}`,
       };
     default: {
       // Unregistered tool: the bare name plus its first string argument, which
@@ -244,18 +248,25 @@ function reportTypeName(reportType: string | null): string {
   return reportType.replace(/[-_]/g, " ");
 }
 
-/** The filter FIELD as a plain noun. Raw column names never reach an analyst. */
+/** The filter FIELD as a plain noun. Raw column names never reach an analyst.
+ *
+ *  KEYED ON `list_filter_values`'s OWN vocabulary — `agency | fund | doc_type
+ *  | publisher`, the enum in harness/tools.py, which raises on anything else.
+ *  This was first keyed on `retrieve`'s FILTER vocabulary
+ *  (`agency_canonical_id`, `fiscal_year`) — values this tool can never emit —
+ *  so the real input "agency" hit `default` and the header read "Checked which
+ *  values the corpus covers" instead of TC14's "agencies". Every test fixture
+ *  pinned the impossible input too, which is how it shipped green through
+ *  three reviews. Exported so the suite can pin this key set against the tool
+ *  file itself. */
+export const FILTER_FIELD_NAMES: Record<string, string> = {
+  agency: "agencies",
+  fund: "funds",
+  doc_type: "kinds of document",
+  publisher: "publishers",
+};
+
 function filterFieldName(field: string | null): string {
-  switch (field) {
-    case "agency_canonical_id":
-      return "agencies";
-    case "doc_type":
-      return "kinds of document";
-    case "fiscal_year":
-      return "years";
-    case "publisher":
-      return "publishers";
-    default:
-      return "values";
-  }
+  if (!field) return "values";
+  return FILTER_FIELD_NAMES[field] ?? "values";
 }

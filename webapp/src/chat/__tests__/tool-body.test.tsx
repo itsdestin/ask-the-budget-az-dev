@@ -35,7 +35,7 @@ import {
 } from "../tool-views/primitives.js";
 import ToolBody from "../tool-views/ToolBody.js";
 import { downloadUrl } from "../tool-views/CreateDocumentView.js";
-import { DOC_TYPE_NAMES } from "../tool-views/RetrieveView.js";
+import { DOC_TYPE_NAMES, PUBLISHER_NAMES } from "../tool-views/RetrieveView.js";
 import type { AssistantBlock } from "../chat-types.js";
 
 type ToolBlock = Extract<AssistantBlock, { kind: "tool" }>;
@@ -227,8 +227,8 @@ describe("ToolBody dispatcher", () => {
   it("renders list_filter_values as readable names, not a code/count table", () => {
     // UPDATED for TC20/TC21 (2026-08-16): the view used to print the raw
     // canonical_id and chunk_count as a table — database plumbing, not
-    // something an analyst can act on. It now shows only the value's
-    // readable name, taken from sample_doc_title.
+    // something an analyst can act on. It now shows the value's readable
+    // name, which for an agency is the CATALOG name the tool attaches.
     const tool = block({
       toolName: "list_filter_values",
       input: { field: "agency" },
@@ -236,15 +236,16 @@ describe("ToolBody dispatcher", () => {
         field: "agency",
         values: [
           {
-            canonical_id: "adot",
+            canonical_id: "agency:adot",
             chunk_count: 214,
             sample_doc_title: "ADOT FY2026 Baseline",
+            name: "Transportation, Department of",
           },
         ],
       }),
     });
     const html = renderToString(<ToolBody tool={tool} />);
-    expect(html).toContain("ADOT FY2026 Baseline");
+    expect(html).toContain("Transportation, Department of");
     expect(html).not.toContain("214");
   });
 
@@ -419,22 +420,36 @@ describe("DocumentGuideView", () => {
 });
 
 describe("ListFilterValuesView — names, not codes", () => {
-  const filterTool = () =>
+  // `field` is the tool's own vocabulary — agency | fund | doc_type |
+  // publisher. These fixtures said `agency_canonical_id`, which is
+  // `retrieve`'s FILTER vocabulary and an input this tool cannot produce
+  // (harness/tools.py raises on it). Pinning an impossible input is how the
+  // "What the corpus covers" label shipped green through three reviews.
+  const values = (field: string, vals: Record<string, unknown>[], id = "f1") =>
     ({
       kind: "tool",
-      toolUseId: "f1",
+      toolUseId: id,
       toolName: "list_filter_values",
-      input: { field: "agency_canonical_id" },
+      input: { field },
       status: "complete",
-      output: JSON.stringify({
-        field: "agency_canonical_id",
-        values: [
-          { canonical_id: "agency:ahcccs", chunk_count: 4812, sample_doc_title: "AHCCCS — FY 2026 Baseline" },
-          { canonical_id: "agency:ade", chunk_count: 3109, sample_doc_title: "Education, Department of — FY 2026 Baseline" },
-        ],
-      }),
-      ...{},
+      output: JSON.stringify({ field, values: vals }),
     }) as ToolBlock;
+
+  const filterTool = () =>
+    values("agency", [
+      {
+        canonical_id: "agency:ahcccs",
+        chunk_count: 4812,
+        sample_doc_title: "AHCCCS — FY 2026 Baseline",
+        name: "AHCCCS",
+      },
+      {
+        canonical_id: "agency:ade",
+        chunk_count: 3109,
+        sample_doc_title: "Education, Department of — FY 2026 Baseline",
+        name: "Education, Department of",
+      },
+    ]);
 
   it("shows no field codes, no slugs and no chunk counts", () => {
     const { container } = render(<ToolBody tool={filterTool()} />);
@@ -453,26 +468,110 @@ describe("ListFilterValuesView — names, not codes", () => {
     expect(container.textContent).toContain("AHCCCS");
   });
 
+  it("labels an agency listing 'Agencies the corpus covers'", () => {
+    // TC21. The real input is "agency"; keyed on retrieve's vocabulary this
+    // fell through the `??` and read "What the corpus covers".
+    const { container } = render(<ToolBody tool={filterTool()} />);
+    expect(container.textContent).toContain("Agencies the corpus covers");
+    expect(container.textContent).not.toContain("What the corpus covers");
+  });
+
+  it("names an agency from the CATALOG name, never from the sample title", () => {
+    // 🔴 The critical one. `sample_doc_title` is an EXAMPLE DOCUMENT; the
+    // catalog `name` is the authority, and harness/tools.py attaches it for
+    // exactly this reason. Where the two disagree the catalog must win.
+    const tool = values("agency", [
+      {
+        canonical_id: "agency:ost",
+        chunk_count: 12,
+        sample_doc_title: "AHCCCS — FY 2026 Baseline",
+        name: "Osteopathic Examiners, Board of",
+      },
+    ]);
+    const { container } = render(<ToolBody tool={tool} />);
+    expect(container.textContent).toContain("Osteopathic Examiners, Board of");
+    expect(container.textContent).not.toContain("AHCCCS");
+  });
+
+  it("names a doc_type in DOCUMENT vocabulary, never an agency name", () => {
+    // 🔴 The falsehood this fix exists for: derived from sample_doc_title the
+    // card read "Kinds of document the corpus covers: AHCCCS, ADOA".
+    const tool = values("doc_type", [
+      {
+        canonical_id: "afr",
+        chunk_count: 900,
+        sample_doc_title: "AHCCCS — FY 2026 Annual Financial Report",
+      },
+      {
+        canonical_id: "baseline-book",
+        chunk_count: 400,
+        sample_doc_title: "ADOA — FY 2026 Baseline",
+      },
+    ]);
+    const { container } = render(<ToolBody tool={tool} />);
+    const text = container.textContent ?? "";
+    expect(text).toContain("Kinds of document the corpus covers");
+    expect(text).toContain(DOC_TYPE_NAMES.afr);
+    expect(text).toContain(DOC_TYPE_NAMES["baseline-book"]);
+    // No agency name may appear under a non-agency dimension.
+    expect(text).not.toContain("AHCCCS");
+    expect(text).not.toContain("ADOA");
+  });
+
+  it("names a publisher in PUBLISHER vocabulary, never an agency name", () => {
+    const tool = values("publisher", [
+      {
+        canonical_id: "agao",
+        chunk_count: 900,
+        sample_doc_title: "AHCCCS — FY 2026 Annual Financial Report",
+      },
+      {
+        canonical_id: "jlbc",
+        chunk_count: 400,
+        sample_doc_title: "ADOA — FY 2026 Baseline",
+      },
+    ]);
+    const { container } = render(<ToolBody tool={tool} />);
+    const text = container.textContent ?? "";
+    expect(text).toContain("Publishers the corpus covers");
+    expect(text).toContain(PUBLISHER_NAMES.agao);
+    expect(text).toContain(PUBLISHER_NAMES.jlbc);
+    expect(text).not.toContain("AHCCCS");
+    expect(text).not.toContain("ADOA");
+  });
+
+  it("shows a fund as its own id rather than inventing a name for it", () => {
+    // No catalog name and no display table exists for funds, so the raw id is
+    // the last resort — and the RIGHT answer. A code is visibly a code; a
+    // wrong name is not, which is why there is no sample_doc_title rung.
+    const tool = values("fund", [
+      {
+        canonical_id: "fund:2005",
+        chunk_count: 120,
+        sample_doc_title: "AHCCCS — FY 2026 Baseline",
+      },
+    ]);
+    const { container } = render(<ToolBody tool={tool} />);
+    const text = container.textContent ?? "";
+    expect(text).toContain("Funds the corpus covers");
+    expect(text).toContain("fund:2005");
+    expect(text).not.toContain("AHCCCS");
+  });
+
   it("does not de-duplicate two catalog ids that share a display name", () => {
     // Two catalog ids resolving to the same displayed name — e.g. two rows
     // both reading "Child Safety" — are a real, recorded corpus defect
     // (duplicate agency ids; see STATUS.md's "Corpus identity" sections).
     // Collapsing them here would hide the exact symptom that makes the
     // defect visible, so this must render TWO rows, not one.
-    const tool = {
-      kind: "tool",
-      toolUseId: "f2",
-      toolName: "list_filter_values",
-      input: { field: "agency_canonical_id" },
-      status: "complete",
-      output: JSON.stringify({
-        field: "agency_canonical_id",
-        values: [
-          { canonical_id: "agency:cs", chunk_count: 520, sample_doc_title: "Child Safety — FY 2026 Baseline" },
-          { canonical_id: "agency:dcs", chunk_count: 1595, sample_doc_title: "Child Safety — FY 2026 Baseline" },
-        ],
-      }),
-    } as ToolBlock;
+    const tool = values(
+      "agency",
+      [
+        { canonical_id: "agency:cs", chunk_count: 520, name: "Child Safety" },
+        { canonical_id: "agency:dcs", chunk_count: 1595, name: "Child Safety" },
+      ],
+      "f2",
+    );
     const { container } = render(<ToolBody tool={tool} />);
     const chips = container.querySelectorAll(".chat-chip");
     expect(chips).toHaveLength(2);

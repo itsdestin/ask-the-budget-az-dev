@@ -21,15 +21,20 @@
 // byte-identical to the original and shouldn't be diffed as if it were.
 // create_document and cite_batch have new coverage.
 
+import { readFileSync } from "node:fs";
+import { resolve } from "node:path";
+
 import { describe, expect, it } from "vitest";
 
 import {
   coalesceActionLabels,
+  FILTER_FIELD_NAMES,
   toolActionLabel,
   toolDisplayLabel,
   toolHeaderSentence,
   toolHeaderSummary,
 } from "../tool-display.js";
+import { FIELD_LABEL } from "../tool-views/ListFilterValuesView.js";
 
 describe("toolDisplayLabel", () => {
   it("renames the budget tools to human-readable labels", () => {
@@ -255,7 +260,7 @@ describe("toolHeaderSentence", () => {
       toolHeaderSentence([{ toolName: "document_guide", input: { report_type: "research-memo" } }], "past"),
     ).toEqual({ verb: "Checked", rest: " the house style for a research memo" });
     expect(
-      toolHeaderSentence([{ toolName: "list_filter_values", input: { field: "agency_canonical_id" } }], "past"),
+      toolHeaderSentence([{ toolName: "list_filter_values", input: { field: "agency" } }], "past"),
     ).toEqual({ verb: "Checked", rest: " which agencies the corpus covers" });
   });
 
@@ -270,7 +275,7 @@ describe("toolHeaderSentence", () => {
 
   it("never leaks a raw field name or a corpus name", () => {
     const s = toolHeaderSentence(
-      [{ toolName: "list_filter_values", input: { field: "agency_canonical_id" } }],
+      [{ toolName: "list_filter_values", input: { field: "agency" } }],
       "past",
     );
     const whole = s.verb + s.rest;
@@ -320,6 +325,23 @@ describe("toolHeaderSentence", () => {
     expect(s.rest).toBe(" the house style for a document and 1 more");
   });
 
+  it("keeps the count for list_filter_values across multiple calls", () => {
+    // The last branch that never interpolated ${more}: three filter checks
+    // rendered identically to one, silently undercounting real work. 3433779
+    // fixed create_document and document_guide and missed this one, and its
+    // three regression tests skipped it.
+    const s = toolHeaderSentence(
+      [
+        { toolName: "list_filter_values", input: { field: "agency" } },
+        { toolName: "list_filter_values", input: { field: "fund" } },
+        { toolName: "list_filter_values", input: { field: "doc_type" } },
+      ],
+      "past",
+    );
+    expect(s.verb).toBe("Checked");
+    expect(s.rest).toBe(" which agencies the corpus covers and 2 more");
+  });
+
   it("degrades legibly for an unregistered tool", () => {
     const s = toolHeaderSentence([{ toolName: "some_future_tool", input: { thing: "x" } }], "past");
     expect(s.verb).toBe("some_future_tool");
@@ -328,5 +350,62 @@ describe("toolHeaderSentence", () => {
 
   it("returns an empty sentence for an empty run", () => {
     expect(toolHeaderSentence([], "past")).toEqual({ verb: "", rest: "" });
+  });
+});
+
+describe("filter-field copy tables — no drift from harness/tools.py", () => {
+  // 🔴 THE GUARD THIS DISPATCH EXISTS FOR. Both copy tables were keyed on
+  // `retrieve`'s FILTER vocabulary (`agency_canonical_id`, `fiscal_year`) —
+  // values `list_filter_values` can never emit — and neither had `fund`. So
+  // the real input "agency" hit both defaults: the header read "Checked which
+  // values the corpus covers" (TC14 requires "agencies") and the body read
+  // "What the corpus covers" (TC21 requires "Agencies the corpus covers").
+  //
+  // It shipped green through three reviews because every fixture pinned the
+  // impossible input too. A test that supplies its own vocabulary cannot
+  // catch a vocabulary mismatch, so this one reads the vocabulary from
+  // harness/tools.py — the file that defines and enforces it. Same approach
+  // as tool-body.test.tsx's DOC_TYPE_NAMES registry check.
+  const toolsPy = readFileSync(resolve(process.cwd(), "../harness/tools.py"), "utf-8");
+
+  // The schema enum the model is constrained by.
+  const schemaBlock = toolsPy.slice(toolsPy.indexOf("_LIST_FILTER_VALUES_SCHEMA"));
+  const schemaEnum = [
+    ...(schemaBlock.match(/"enum":\s*\[([^\]]*)\]/)?.[1] ?? "").matchAll(/"([^"]+)"/g),
+  ].map((m) => m[1]!);
+
+  // The runtime check that actually raises, in _list_filter_values.
+  const runtimeEnum = [
+    ...(toolsPy.match(/if field not in \(([^)]*)\)/)?.[1] ?? "").matchAll(/"([^"]+)"/g),
+  ].map((m) => m[1]!);
+
+  const sorted = (xs: string[]) => [...xs].sort();
+
+  it("extracted a sane field list from harness/tools.py (extraction sanity check)", () => {
+    // Without this, a regex that silently matched nothing would make every
+    // assertion below vacuously true — the shape that let the original defect
+    // through.
+    expect(schemaEnum).toContain("agency");
+    expect(schemaEnum.length).toBe(4);
+    expect(sorted(runtimeEnum)).toEqual(sorted(schemaEnum));
+  });
+
+  it("tool-display.ts's header table names exactly the tool's fields", () => {
+    expect(sorted(Object.keys(FILTER_FIELD_NAMES))).toEqual(sorted(schemaEnum));
+  });
+
+  it("the view's body-label table names exactly the tool's fields", () => {
+    expect(sorted(Object.keys(FIELD_LABEL))).toEqual(sorted(schemaEnum));
+  });
+
+  it("no accepted field falls through to either table's default", () => {
+    // The key-set assertions above would still pass if a table were keyed
+    // correctly and consulted wrongly, so this checks the rendered output.
+    for (const field of schemaEnum) {
+      const s = toolHeaderSentence([{ toolName: "list_filter_values", input: { field } }], "past");
+      expect(s.rest, `header falls through to "values" for field "${field}"`)
+        .not.toContain("which values the corpus covers");
+      expect(FIELD_LABEL[field], `no body label for field "${field}"`).toBeTruthy();
+    }
   });
 });

@@ -156,7 +156,11 @@ function preview(text: string): string {
 // Display-only names for the publisher codes carried on every chunk. An
 // unknown code falls through to itself rather than being hidden, so a new
 // publisher reads as its code instead of vanishing.
-const PUBLISHER_NAMES: Record<string, string> = {
+// Exported so ListFilterValuesView can name a `publisher` filter value from
+// the SAME table this view names a chunk's publisher from. A second copy is
+// the shape that has already shipped two real drift defects in this repo
+// (harness/tools.py's _DOC_TYPES, Upload.tsx's doc_type→publisher map).
+export const PUBLISHER_NAMES: Record<string, string> = {
   agao: "Auditor General",
   jlbc: "JLBC",
   governor: "Governor's Office",
