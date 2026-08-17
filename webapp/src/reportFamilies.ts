@@ -101,100 +101,48 @@ export interface ReportFormats {
   linkedToc: string | null;
 }
 
-/** Curated map: family + fiscal year → both whole-report format URLs.
- *
- *  VERIFIED BY DOWNLOAD, not by title match. Every URL below was fetched and
- *  its first pages READ (2026-08-16): the trailing comment on each row is that
- *  file's real page count and size, and the three FY2017–2019 Baseline single
- *  files carry no text layer at all, so their cover pages were rendered to
- *  images and read by eye. A wrong PDF behind a button labelled "Full report"
- *  is a false provenance claim (Invariant 1), and the two cheaper sources both
- *  fail in ways only a download exposes:
- *
- *  - The vendored site index (webapp/reference/assets/search/index-lite.js)
- *    files SLIDESHOWS and single sections under the bare report title —
- *    "FY 2021 Appropriations Report" is also `21H-Sfullappropspres.pdf`, and
- *    "FY 2014 Appropriations Report" is also `14AR/384.pdf`. Title matching
- *    alone would have put a presentation behind six of these buttons.
- *  - `data/jlbc-book-catalog.json` (the ingest side's edition catalog) is
- *    clean but is built for a probe ladder that TOLERATES a 404, so it carries
- *    unverified URLs: its FY2027 Baseline `linked_toc_url` is a different path
- *    from the one shipped here, and `budget/fy2027approprpt.pdf` — the shape
- *    its convention implies — is a 404. The real FY2027 Appropriations Report
- *    is `27ar/...`, and it is in NO committed catalog, because that edition
- *    was published after the 2026-06-16 harvest snapshot.
- *
- *  So this list stays hand-owned rather than derived from either. Re-check it
- *  with `uv run python scripts/verify_report_formats.py`, and extend it the
- *  same way — download the candidate and look at it — when a new edition is
- *  ingested. `reportFamilies.test.ts` holds the offline half of that guard.
- *
- *  Two shapes worth knowing before editing:
- *
- *  - Approps FY2005–FY2010 have a linked TOC and NO single file; JLBC did not
- *    publish one until FY2011 (`both_formats_from` in the book catalog agrees).
- *    One format means the row links straight to it with no chooser, which is
- *    the intended behaviour, not a gap to fill with a guess.
- *  - `Baseline:2014`'s single file is 229 MB — roughly five times its
- *    siblings. It is the right document (cover reads "FY 2014 Baseline Book,
- *    January 2013"); JLBC simply published that one un-optimised.
- *
- *  Years absent here get no button, which is the honest state: a family whose
- *  documents are all sections of a book has nothing safe to fall back to.
- *
- *  Exported ONLY so reportFamilies.test.ts can walk every row. Nothing else
- *  may read it — `reportFormats()` below is the lookup, and it is what applies
- *  the null-year rule. */
-export const REPORT_FORMATS: Record<string, ReportFormats> = {
-  // ---- Baseline ----
-  "Baseline:2027": { singleFile: "https://www.azjlbc.gov/budget/27baselinesinglefile.pdf", linkedToc: "https://www.azjlbc.gov/budget/27baselinelinks.pdf" }, // 620pp/48.0MB, toc 1pp
-  "Baseline:2026": { singleFile: "https://www.azjlbc.gov/26baseline/26baselinesinglefile.pdf", linkedToc: "https://www.azjlbc.gov/26baseline/26baselinelinks.pdf" }, // 572pp/43.8MB, toc 1pp
-  "Baseline:2025": { singleFile: "https://www.azjlbc.gov/25Baseline/25baselinesinglefile.pdf", linkedToc: "https://www.azjlbc.gov/25Baseline/25baselinelinks.pdf" }, // 600pp/45.4MB, toc 1pp
-  "Baseline:2024": { singleFile: "https://www.azjlbc.gov/24baseline/24baselinesinglefile.pdf", linkedToc: "https://www.azjlbc.gov/budget/24baselinelinks.pdf" }, // 591pp/41.2MB, toc 1pp
-  "Baseline:2023": { singleFile: "https://www.azjlbc.gov/23baseline/23baselinesinglefile.pdf", linkedToc: "https://www.azjlbc.gov/budget/23baselinelinks.pdf" }, // 547pp/37.6MB, toc 1pp
-  "Baseline:2022": { singleFile: "https://www.azjlbc.gov/22baseline/22baselinesinglefile.pdf", linkedToc: "https://www.azjlbc.gov/22baseline/22baselinelinks.pdf" }, // 623pp/49.2MB, toc 2pp
-  "Baseline:2021": { singleFile: "https://www.azjlbc.gov/21baseline/21BaselineSingleFile.pdf", linkedToc: "https://www.azjlbc.gov/21baseline/21BaselineLinks.pdf" }, // 584pp/45.2MB, toc 2pp
-  "Baseline:2020": { singleFile: "https://www.azjlbc.gov/20baseline/20BaselineSingleFile.pdf", linkedToc: "https://www.azjlbc.gov/20baseline/20BaselineLinks.pdf" }, // 612pp/46.4MB, toc 2pp
-  "Baseline:2019": { singleFile: "https://www.azjlbc.gov/19baseline/19BaselineSingleFile.pdf", linkedToc: "https://www.azjlbc.gov/19baseline/19BaselineLinks.pdf" }, // 617pp/42.3MB, toc 2pp
-  "Baseline:2018": { singleFile: "https://www.azjlbc.gov/18baseline/18BaselineSingleFile.pdf", linkedToc: "https://www.azjlbc.gov/18baseline/18BaselineLinks.pdf" }, // 624pp/43.4MB, toc 2pp
-  "Baseline:2017": { singleFile: "https://www.azjlbc.gov/17baseline/17BaselineSingleFile.pdf", linkedToc: "https://www.azjlbc.gov/17baseline/17BaselineLinks.pdf" }, // 630pp/43.7MB, toc 2pp
-  "Baseline:2016": { singleFile: "https://www.azjlbc.gov/16baseline/16BaselineSingleFile.pdf", linkedToc: "https://www.azjlbc.gov/16baseline/16BaselineLinks.pdf" }, // 547pp/34.5MB, toc 2pp
-  "Baseline:2015": { singleFile: "https://www.azjlbc.gov/15baseline/15BaselineSingleFile.pdf", linkedToc: "https://www.azjlbc.gov/15baseline/15BaselineLinks.pdf" }, // 509pp/38.4MB, toc 2pp
-  "Baseline:2014": { singleFile: "https://www.azjlbc.gov/14baseline/14BaselineSingleFile.pdf", linkedToc: "https://www.azjlbc.gov/14baseline/14BaselineLinks.pdf" }, // 508pp/229.4MB, toc 3pp
-  "Baseline:2013": { singleFile: "https://www.azjlbc.gov/13baseline/13BaselineSingleFile.pdf", linkedToc: "https://www.azjlbc.gov/13baseline/13BaselineLinks.pdf" }, // 466pp/3.7MB, toc 3pp
-  "Baseline:2012": { singleFile: "https://www.azjlbc.gov/12book1/12BaselineSingleFile.pdf", linkedToc: "https://www.azjlbc.gov/12book1/12BaselineLinks.pdf" }, // 453pp/3.3MB, toc 3pp
-
-  // ---- Appropriations Report ----
-  "Appropriations Report:2027": { singleFile: "https://www.azjlbc.gov/27ar/fy2027approprpt.pdf", linkedToc: "https://www.azjlbc.gov/27ar/apprpttoc.pdf" }, // 550pp/43.9MB, toc 1pp
-  "Appropriations Report:2026": { singleFile: "https://www.azjlbc.gov/26ar/fy2026approprpt.pdf", linkedToc: "https://www.azjlbc.gov/26ar/apprpttoc.pdf" }, // 569pp/48.0MB, toc 1pp
-  "Appropriations Report:2025": { singleFile: "https://www.azjlbc.gov/25ar/fy2025approprpt.pdf", linkedToc: "https://www.azjlbc.gov/25ar/apprpttoc.pdf" }, // 573pp/47.0MB, toc 1pp
-  "Appropriations Report:2024": { singleFile: "https://www.azjlbc.gov/24ar/fy2024approprpt.pdf", linkedToc: "https://www.azjlbc.gov/24ar/apprpttoc.pdf" }, // 585pp/44.9MB, toc 1pp
-  "Appropriations Report:2023": { singleFile: "https://www.azjlbc.gov/budget/fy2023approprpt.pdf", linkedToc: "https://www.azjlbc.gov/budget/apprpttoc.pdf" }, // 586pp/47.8MB, toc 1pp
-  "Appropriations Report:2022": { singleFile: "https://www.azjlbc.gov/22ar/fy2022approprpt.pdf", linkedToc: "https://www.azjlbc.gov/22ar/apprpttoc.pdf" }, // 646pp/51.0MB, toc 1pp
-  "Appropriations Report:2021": { singleFile: "https://www.azjlbc.gov/21AR/FY2021AppropRpt.pdf", linkedToc: "https://www.azjlbc.gov/21AR/apprpttoc.pdf" }, // 508pp/38.5MB, toc 1pp
-  "Appropriations Report:2020": { singleFile: "https://www.azjlbc.gov/20AR/FY2020AppropRpt.pdf", linkedToc: "https://www.azjlbc.gov/20AR/apprpttoc.pdf" }, // 580pp/30.9MB, toc 1pp
-  "Appropriations Report:2019": { singleFile: "https://www.azjlbc.gov/19AR/FY2019AppropRpt.pdf", linkedToc: "https://www.azjlbc.gov/19AR/apprpttoc.pdf" }, // 566pp/29.3MB, toc 1pp
-  "Appropriations Report:2018": { singleFile: "https://www.azjlbc.gov/18AR/FY2018AppropRpt.pdf", linkedToc: "https://www.azjlbc.gov/18AR/apprpttoc.pdf" }, // 570pp/30.6MB, toc 1pp
-  "Appropriations Report:2017": { singleFile: "https://www.azjlbc.gov/17AR/FY2017AppropRpt.pdf", linkedToc: "https://www.azjlbc.gov/17AR/apprpttoc.pdf" }, // 606pp/33.2MB, toc 1pp
-  "Appropriations Report:2016": { singleFile: "https://www.azjlbc.gov/16AR/FY2016AppropRpt.pdf", linkedToc: "https://www.azjlbc.gov/16AR/apprpttoc.pdf" }, // 531pp/27.5MB, toc 1pp
-  "Appropriations Report:2015": { singleFile: "https://www.azjlbc.gov/15AR/FY2015AppropRpt.pdf", linkedToc: "https://www.azjlbc.gov/15AR/apprpttoc.pdf" }, // 470pp/27.9MB, toc 1pp
-  "Appropriations Report:2014": { singleFile: "https://www.azjlbc.gov/14AR/FY2014AppropRpt.pdf", linkedToc: "https://www.azjlbc.gov/14AR/apprpttoc.pdf" }, // 448pp/36.3MB, toc 1pp
-  "Appropriations Report:2013": { singleFile: "https://www.azjlbc.gov/13AR/FY2013AppropRpt.pdf", linkedToc: "https://www.azjlbc.gov/13AR/apprpttoc.pdf" }, // 414pp/3.9MB, toc 1pp
-  "Appropriations Report:2012": { singleFile: "https://www.azjlbc.gov/12app/FY2012AppropRpt.pdf", linkedToc: "https://www.azjlbc.gov/12app/apprpttoc.pdf" }, // 416pp/3.5MB, toc 1pp
-  "Appropriations Report:2011": { singleFile: "https://www.azjlbc.gov/11app/FY2011AppropRpt.pdf", linkedToc: "https://www.azjlbc.gov/11app/apprpttoc.pdf" }, // 528pp/4.3MB, toc 1pp
-  "Appropriations Report:2010": { singleFile: null, linkedToc: "https://www.azjlbc.gov/10app/apprpttoc.pdf" }, // toc 4pp
-  "Appropriations Report:2009": { singleFile: null, linkedToc: "https://www.azjlbc.gov/09app/apprpttoc.pdf" }, // toc 4pp
-  "Appropriations Report:2008": { singleFile: null, linkedToc: "https://www.azjlbc.gov/08app/apprpttoc.pdf" }, // toc 4pp
-  "Appropriations Report:2007": { singleFile: null, linkedToc: "https://www.azjlbc.gov/07app/apprpttoc.pdf" }, // toc 4pp
-  "Appropriations Report:2006": { singleFile: null, linkedToc: "https://www.azjlbc.gov/06app/apprpttoc.pdf" }, // toc 1pp
-  "Appropriations Report:2005": { singleFile: null, linkedToc: "https://www.azjlbc.gov/05app/apprpttoc.pdf" }, // toc 1pp
-};
+/** The table as the server sends it on `GET /api/corpus/documents`
+ *  (snake_case, because it is the wire shape and is not re-cased anywhere). */
+export type ReportFormatTable = Record<
+  string,
+  { single_file: string | null; linked_toc: string | null }
+>;
 
 const NO_FORMATS: ReportFormats = { singleFile: null, linkedToc: null };
 
-export function reportFormats(family: string, fiscalYear: number | null): ReportFormats {
+/** Both whole-report format URLs for one edition, or neither.
+ *
+ *  The 39-row URL table that used to live here MOVED OUT on 2026-08-16 (spec
+ *  R1). It is now `data/report-formats.json` merged with the admin's approvals
+ *  on the shared drive, because adding a fiscal year meant editing this file
+ *  and rebuilding the app — a step the non-developer who inherits this app
+ *  cannot perform, for a list that gains two rows a year forever.
+ *
+ *  The table arrives as a PROP, threaded from the page's own corpus fetch. It
+ *  is deliberately NOT a module-level variable a setter fills in: a module
+ *  global is invisible to the component tests, which would then pass whether
+ *  or not the wiring works. This project has shipped exactly that shape twice
+ *  (a citation annotation that never reached the UI, an availability probe
+ *  with no cache) and both times every test stayed green.
+ *
+ *  An edition missing from the table returns neither format, which renders as
+ *  no button. That is the honest state: the app has nothing verified to open.
+ *  Do NOT add a fallback that guesses a URL from the year — JLBC has used four
+ *  different naming conventions, and a wrong PDF behind a button labelled
+ *  "Full report" is a false provenance claim (Invariant 1). */
+export function reportFormats(
+  family: string,
+  fiscalYear: number | null,
+  table: ReportFormatTable,
+): ReportFormats {
   if (fiscalYear === null) return NO_FORMATS;
-  return REPORT_FORMATS[`${family}:${fiscalYear}`] ?? NO_FORMATS;
+  const row = table[`${family}:${fiscalYear}`];
+  if (!row) return NO_FORMATS;
+  // `?? null` rather than passing the fields straight through: the server may
+  // one day omit a key it currently sends as null, and `undefined` reads the
+  // same as null to the `singleFile && linkedToc` branch today but stops doing
+  // so the moment anything checks for the key's presence.
+  return { singleFile: row.single_file ?? null, linkedToc: row.linked_toc ?? null };
 }
 
 // FILTER_BUCKETS was here — the curated chip strip's doc_type buckets, read

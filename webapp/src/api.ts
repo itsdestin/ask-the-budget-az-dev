@@ -2,6 +2,15 @@
 // relative so one build works both behind the vite dev proxy (vite.config.ts)
 // and when FastAPI serves webapp/dist directly.
 
+import type { ReportFormatTable } from "./reportFamilies";
+
+// Re-exported so consumers can write `api.ReportFormatTable` alongside every
+// other wire type they use, instead of importing the same concept from two
+// modules. The type is DEFINED in reportFamilies.ts because that is where the
+// lookup that consumes it lives; defining it here instead would make api.ts
+// import reportFamilies and reportFamilies import api.
+export type { ReportFormatTable };
+
 export interface SearchResult {
   chunk_id: string;
   doc_id: string;
@@ -211,7 +220,19 @@ export interface CorpusDocument {
  *  Documents page. Fetched once on mount; the page filters, groups and
  *  searches it client-side, so there is no request per keystroke. Not
  *  admin-gated — it's the same corpus catalog the counts endpoint sizes. */
-export async function corpusDocuments(): Promise<{ documents: CorpusDocument[] }> {
+export async function corpusDocuments(): Promise<{
+  documents: CorpusDocument[];
+  /** family + fiscal year → the whole-report PDF URLs for that edition.
+   *
+   *  REQUIRED, never `report_formats?`. Optional would compile instantly
+   *  against every existing mock and then hand each one no table at all —
+   *  which removes every "Full report" button on the page with the whole
+   *  suite green. The compiler errors are the work item, not an obstacle to
+   *  it. The table used to be a constant compiled into this bundle; it moved
+   *  server-side on 2026-08-16 (spec R1) so an administrator can add a
+   *  fiscal year without a developer rebuilding the app. */
+  report_formats: ReportFormatTable;
+}> {
   const r = await fetch("/api/corpus/documents");
   if (!r.ok) await fail(r, "corpus documents");
   return r.json();
