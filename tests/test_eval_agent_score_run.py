@@ -50,12 +50,12 @@ def cite_call(ok=True, error=None, quote="$1,391,157,700"):
 
 
 def make_transcript(tool_calls, final="ADC received $1,391,157,700.",
-                    citations=None, steps=2):
+                    citations=None, steps=2, usage=None):
     frame = {"type": "_done", "stopReason": "end_turn", "finalAnswer": final,
              "incompleteNote": None, "citations": citations or [],
              "retrievedChunkIds": [], "toolCalls": tool_calls,
-             "usage": {"inputTokens": 1000, "outputTokens": 100,
-                       "cacheReadTokens": 400, "cacheCreationTokens": 0, "cost": 0.005}}
+             "usage": usage or {"inputTokens": 1000, "outputTokens": 100,
+                                "cacheReadTokens": 400, "cacheCreationTokens": 0, "cost": 0.005}}
     events = [{"type": "assistant_thinking", "uuid": f"u{i}"} for i in range(steps)]
     return Transcript(meta={"query_id": "aq-001", "repeat": 1},
                       events=events, terminal={"frame": frame, "wall_ms": 30000})
@@ -460,11 +460,22 @@ def test_headline_aggregates_only_over_accurate_rows():
     q = make_query(set="quick")
     good = score_transcript(q, _clean_transcript())          # accurate
     good2 = score_transcript(q, _clean_transcript())         # accurate
+    # WHY (2026-08 review finding): the shared make_transcript helper hashes
+    # the SAME usage (input 1000 + output 100 + cached 400 = 1500) into every
+    # row, so `tokens_to_accurate_mean == good["total_tokens"]` used to pass
+    # even if the WRONG row were included — the assertion was vacuous. Give the
+    # wrong row a distinct total_tokens so inclusion-vs-exclusion is actually
+    # observable; do not collapse this back by giving every row one usage.
     wrong = score_transcript(
         q, make_transcript([retrieve_call([chunk("c-1", "irrelevant")])],
-                           citations=[ok_citation("c-1")], final="ADC received $999."))
+                           citations=[ok_citation("c-1")], final="ADC received $999.",
+                           usage={"inputTokens": 1, "outputTokens": 1,
+                                  "cacheReadTokens": 1, "cacheCreationTokens": 0,
+                                  "cost": 0.0001}))
     s = aggregate([good, good2, wrong])
     assert s["accurate_n"] == 2
+    # wrong row's total_tokens is 3 (≠ both good rows' 1500), so this can only
+    # hold if the inaccurate row is genuinely excluded from the headline.
     assert s["tokens_to_accurate_mean"] == good["total_tokens"]  # wrong row excluded
     assert s["accurate_headline_by_set"]["quick"]["n"] == 2
 
