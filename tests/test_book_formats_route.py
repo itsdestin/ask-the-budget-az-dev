@@ -485,6 +485,115 @@ def test_a_correct_approved_edition_reports_no_year_complaint(tmp_path, monkeypa
     assert row["names_its_year"] == {"single_file": True, "linked_toc": True}
 
 
+def test_the_one_yearless_by_design_address_raises_no_warning_once_approved(
+    tmp_path, monkeypatch
+):
+    """🔴 A PERMANENT, UNACTIONABLE, WRONG WARNING IS WORSE THAN NO WARNING.
+
+    Found by opening the rendered page. Every visit to the Appropriations
+    Report card showed, above the controls for the edition actually waiting to
+    be approved:
+
+        The FY 2023 Appropriations Report address for the Linked Table of
+        Contents doesn't mention FY 2023. Open it and make sure it is the
+        right year.
+
+    That address is `budget/apprpttoc.pdf` — the single documented exemption in
+    the whole system. JLBC published that edition's table of contents out of
+    its undated `/budget/` folder; it was downloaded on 2026-08-16 and it is
+    the real FY2023 book. It is correct, it is not fixable, and it appeared
+    above a DIFFERENT edition's approval controls, so it read as a complaint
+    about the thing being approved. Always-on and always-wrong trains the
+    reader to scroll past the one warning that matters.
+    """
+    from store.report_formats import YEARLESS_BY_DESIGN
+
+    (yearless,) = YEARLESS_BY_DESIGN     # one entry, and the store says keep it so
+    overlay = tmp_path / "report-formats.json"
+    docs = {"d1": {"source_url": "https://www.azjlbc.gov/28ar/axs.pdf"}}
+    client = _client(tmp_path, monkeypatch, documents=docs, overlay=overlay)
+    assert client.put("/api/admin/book-formats", json={
+        "family": "Appropriations Report", "fiscal_year": 2023,
+        "single_file": "https://www.azjlbc.gov/budget/fy2023approprpt.pdf",
+        "linked_toc": yearless,
+    }).status_code == 200
+    row = next(
+        a for a in client.get("/api/admin/book-formats").json()["approved"]
+        if a["fiscal_year"] == 2023 and a["family"] == "Appropriations Report"
+    )
+    # `True`, never `False`: the card warns on `False`, and `None` would claim
+    # there is no address here when there is one and it works.
+    assert row["names_its_year"] == {"single_file": True, "linked_toc": True}
+
+
+def test_the_committed_fy2023_report_is_not_flagged_on_a_default_install(
+    tmp_path, monkeypatch
+):
+    """The same defect as it actually reached the screen — through the
+    COMMITTED table, with no overlay and nobody having approved anything. This
+    is what every administrator sees on an ordinary install, so it is the
+    version worth pinning separately.
+    """
+    docs = {"d1": {"source_url": "https://www.azjlbc.gov/28ar/axs.pdf"}}
+    client = _client(tmp_path, monkeypatch, documents=docs)
+    body = client.get("/api/admin/book-formats").json()
+    flagged = [
+        a for a in body["approved"]
+        if any(v is False for v in (a["names_its_year"] or {}).values())
+    ]
+    assert flagged == [], flagged
+    # And the row is still THERE, still carrying its address — silencing the
+    # warning must not have silenced the edition.
+    row = next(
+        a for a in body["approved"]
+        if a["fiscal_year"] == 2023 and a["family"] == "Appropriations Report"
+    )
+    assert row["linked_toc"] == "https://www.azjlbc.gov/budget/apprpttoc.pdf"
+
+
+def test_the_yearless_exemption_is_NOT_applied_to_a_typed_address(
+    tmp_path, monkeypatch
+):
+    """🔴 THE EXEMPTION MUST NEVER WIDEN. `budget/apprpttoc.pdf` serves the
+    FY2023 book, so an administrator typing it under any OTHER year genuinely
+    should be warned — that is a live, downloadable, wrong-year report behind a
+    button labelled "Full report", the one defect a successful download cannot
+    detect. Exempting it here would turn the single documented special case
+    into a hole.
+    """
+    from store.report_formats import YEARLESS_BY_DESIGN
+
+    (yearless,) = YEARLESS_BY_DESIGN
+    docs = {"d1": {"source_url": "https://www.azjlbc.gov/28ar/axs.pdf"}}
+    client = _client(tmp_path, monkeypatch, documents=docs,
+                     prober=FakeProber(live={yearless}))
+    r = client.post("/api/admin/book-formats/check",
+                    json={"url": yearless, "fiscal_year": 2028})
+    assert r.status_code == 200
+    assert r.json()["names_its_year"] is False
+    assert r.json()["ok"] is True     # it downloads fine; that is the point
+
+
+def test_the_yearless_exemption_is_NOT_applied_to_the_save_reply(
+    tmp_path, monkeypatch
+):
+    """Same rule, second door. The PUT's echo is what warns an administrator
+    who never pressed Check, so it has to judge the address on its own terms.
+    """
+    from store.report_formats import YEARLESS_BY_DESIGN
+
+    (yearless,) = YEARLESS_BY_DESIGN
+    overlay = tmp_path / "report-formats.json"
+    docs = {"d1": {"source_url": "https://www.azjlbc.gov/28ar/axs.pdf"}}
+    client = _client(tmp_path, monkeypatch, documents=docs, overlay=overlay)
+    r = client.put("/api/admin/book-formats", json={
+        "family": "Appropriations Report", "fiscal_year": 2028,
+        "single_file": None, "linked_toc": yearless,
+    })
+    assert r.status_code == 200
+    assert r.json()["names_its_year"]["linked_toc"] is False
+
+
 def test_marking_one_format_as_never_published_is_accepted(tmp_path, monkeypatch):
     # Appropriations Reports before FY2011 genuinely have no single file. The
     # row must then link straight to the table of contents with no chooser.

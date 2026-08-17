@@ -36,6 +36,7 @@ from app.routes.books_missing import FAMILY_LABELS, corpus_editions
 from ingest.book_discovery import DiscoveryError, plan_edition
 from store.config import data_dir
 from store.report_formats import (
+    YEARLESS_BY_DESIGN,
     format_key,
     load,
     names_its_year,
@@ -285,6 +286,57 @@ def _candidates_for(label: str, family_slug: str, year: int, prober, cache: dict
     return _Probe(candidates=found, probed=True)
 
 
+def _stored_year_check(url: str | None, year: int) -> bool | None:
+    """The year verdict shown for an address ALREADY SAVED. `None` = no address.
+
+    🔴 IT EXISTS ONLY TO SILENCE ONE PERMANENT, UNFIXABLE FALSE ALARM. JLBC
+    published the FY2023 Appropriations Report's table of contents out of its
+    undated `/budget/` folder, so its web address is
+    `https://www.azjlbc.gov/budget/apprpttoc.pdf` — an address with no year
+    anywhere in it. It was downloaded and read on 2026-08-16 and it really is
+    the FY2023 book. It is correct, it cannot be made to name its year, and no
+    administrator can do anything about it. `store.report_formats` records that
+    one address in `YEARLESS_BY_DESIGN` for exactly this reason.
+
+    Without this, opening the Appropriations Report card showed an amber
+    warning about FY2023 EVERY TIME, above the controls for whichever edition
+    was actually waiting to be approved — so it read as a complaint about the
+    thing the administrator was being asked to approve. A warning that is
+    always on screen and always wrong is worse than no warning at all: it
+    teaches the reader to scroll past warnings, and the only other warning
+    wearing this exact treatment is the real one — a live, downloadable,
+    WRONG-year report behind a button labelled "Full report", which is the one
+    defect a successful download cannot detect.
+
+    WHY HERE AND NOT INSIDE `names_its_year`. That function answers a narrow,
+    literal question — "do the digits of this year appear in this address?" —
+    and every caller decides for itself whether the one exemption applies. The
+    two callers that already existed do it this way
+    (`tests/test_report_formats_data.py::test_every_url_names_its_own_fiscal_year`
+    and `scripts/verify_report_formats.py::year_mismatches`), and the callers
+    that must NOT be exempt are the reason the shape is right:
+
+      * `POST /api/admin/book-formats/check` — if an administrator pastes this
+        address for FY2028 they genuinely SHOULD be warned, because it serves
+        the FY2023 book;
+      * the `PUT` reply's `names_its_year` echo, for the same reason;
+      * a PENDING edition's suggested addresses (`_candidate` above).
+
+    Only the derived warning for an edition ALREADY APPROVED is exempt, and
+    that is this function's whole reach.
+
+    KNOWN, PRE-EXISTING LIMIT, recorded rather than fixed here: the exemption
+    is keyed on the address string alone, so it would also stay quiet if
+    someone copied the FY2023 row onto FY2024 and left the address unchanged.
+    A previous review already flagged that; narrowing it is its own change.
+    """
+    if not url:
+        return None
+    if url in YEARLESS_BY_DESIGN:
+        return True
+    return names_its_year(url, year)
+
+
 def _approved_row(key: str, row) -> dict:
     """One already-answered edition, INCLUDING the year check on what is stored.
 
@@ -308,6 +360,10 @@ def _approved_row(key: str, row) -> dict:
     judge, and `False` there would read as a complaint about one. Same shape as
     `write_edition`'s reply, deliberately -- the card reads the two through one
     code path.
+
+    The verdict comes from `_stored_year_check`, NOT straight from
+    `names_its_year`, and the difference is one documented exemption. Read that
+    function before changing this one.
     """
     year = int(key.rpartition(":")[2])
     return {
@@ -316,12 +372,8 @@ def _approved_row(key: str, row) -> dict:
         "single_file": row.single_file,
         "linked_toc": row.linked_toc,
         "names_its_year": {
-            "single_file": (
-                names_its_year(row.single_file, year) if row.single_file else None
-            ),
-            "linked_toc": (
-                names_its_year(row.linked_toc, year) if row.linked_toc else None
-            ),
+            "single_file": _stored_year_check(row.single_file, year),
+            "linked_toc": _stored_year_check(row.linked_toc, year),
         },
     }
 
