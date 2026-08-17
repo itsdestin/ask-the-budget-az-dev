@@ -431,3 +431,15 @@ def test_a_malformed_cite_batch_slot_scores_as_a_failure_instead_of_crashing():
     assert row["cite_attempts"] == 2
     assert row["cite_failures"] == 1
     assert row["cite_pass_rate"] == pytest.approx(0.5)
+
+
+def test_wall_clock_is_not_reported_anywhere():
+    # Two transcripts with wildly different wall times (30000 baked into the
+    # fake; vary via terminal). Summary must carry NO wall keys.
+    t1 = make_transcript([retrieve_call([chunk("c-1", "ADC $1,391,157,700")])],
+                         citations=[ok_citation("c-1")])
+    row1 = score_transcript(make_query(), t1)
+    s = aggregate([row1])
+    assert "wall_p50_ms" not in s and "wall_p95_ms" not in s
+    # per-query rows keep the forensic stamp
+    assert row1["wall_ms"] == 30000

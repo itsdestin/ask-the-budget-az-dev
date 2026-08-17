@@ -434,7 +434,12 @@ def _mean(vals: list[float]) -> float | None:
 
 def aggregate(rows: list[dict[str, Any]]) -> dict[str, Any]:
     ok_rows = [r for r in rows if r["ok"]]
-    walls = sorted(r["wall_ms"] for r in ok_rows if r["wall_ms"] is not None)
+    # WHY wall_p50_ms/wall_p95_ms were DELETED (2026-08-16 consolidation,
+    # Destin's call): wall time is dominated by provider network latency and
+    # machine load (~70% absolute swings on this box, CLAUDE.md), so no
+    # comparison survives a different session. tokens_to_accurate /
+    # turns_to_accurate are the cost metrics. Per-query wall_ms survives in
+    # the row for forensics — never aggregate it again.
     attempts = sum(r["cite_attempts"] for r in ok_rows)
     failures = sum(r["cite_failures"] for r in ok_rows)
     targets = sum(r["cite_targets"] for r in ok_rows)
@@ -482,8 +487,6 @@ def aggregate(rows: list[dict[str, Any]]) -> dict[str, Any]:
         "total_cost_usd": sum(r["cost_usd"] or 0 for r in rows),
         "cost_missing_queries": sum(1 for r in rows if r["cost_usd"] is None),
         "cost_mean_usd": _mean([r["cost_usd"] for r in ok_rows]),
-        "wall_p50_ms": walls[len(walls) // 2] if walls else None,
-        "wall_p95_ms": walls[min(len(walls) - 1, int(len(walls) * 0.95))] if walls else None,
         "key_fact_rate_mean": _mean([r["key_fact_rate"] for r in ok_rows]),
         # Figure coverage replaces citation VOLUME as the citation-quality
         # signal. Both means skip figureless answers rather than scoring

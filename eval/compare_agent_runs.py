@@ -21,7 +21,7 @@ _HIGHER_IS_BETTER = {
 }
 _LOWER_IS_BETTER = {
     "steps_mean", "retrieve_calls_mean", "input_tokens_mean", "output_tokens_mean",
-    "total_cost_usd", "cost_mean_usd", "wall_p50_ms", "wall_p95_ms",
+    "total_cost_usd", "cost_mean_usd",
     "retrieves_after_sufficient_mean", "retries_per_citation", "errors",
     "false_refusals", "narration_hit_queries", "token_leaks",
     "internal_vocab_queries", "cost_missing_queries", "unverified_rate",
