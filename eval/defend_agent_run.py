@@ -181,9 +181,11 @@ def build_defense_query(query: AgentQuery, answer: str, feedback: str) -> AgentQ
     """A defense is a new, unscored query carrying the defense prompt.
 
     key_facts is deliberately empty (a defense is not mechanically
-    scored against the original facts), subsets is its own tag, and
-    corpus/tier/shape carry over so the defense runs on the same stack
-    the original did.
+    scored against the original facts), set is "defend" — its own tag in
+    the QUERY_SETS literal, never in a scored --sets run — and corpus/tier/
+    shape carry over so the defense runs on the same stack the original did.
+    Task 9: this was `subsets=["defend"]`; extra="forbid" on AgentQuery
+    means a missed rename here would crash at runtime (plan review finding 2).
     """
     return AgentQuery(
         id=f"{query.id}-defend",
@@ -191,7 +193,7 @@ def build_defense_query(query: AgentQuery, answer: str, feedback: str) -> AgentQ
         corpus=query.corpus,
         tier=query.tier,
         shape="analyze",
-        subsets=["defend"],
+        set="defend",
         should_refuse=False,
         key_facts=[],
         judge_notes="defense of a poorly-scored answer; read the rationale, do not re-score.",

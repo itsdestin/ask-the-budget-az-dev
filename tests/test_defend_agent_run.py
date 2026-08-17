@@ -19,7 +19,8 @@ from eval import defend_agent_run as defend
 
 
 def q(id="aq-001", **kw):
-    defaults = dict(question="ADC FY2025 General Fund?", shape="lookup")
+    defaults = dict(question="ADC FY2025 General Fund?", shape="lookup",
+                    set="quick")  # Task 9: set has no default — supply one
     defaults.update(kw)
     return AgentQuery(id=id, **defaults)
 
@@ -117,7 +118,7 @@ def test_select_targets_by_id(tmp_path):
     run_dir = make_run(tmp_path, None, None)
     queries_file = tmp_path / "queries.yaml"
     queries_file.write_text(
-        "- id: aq-001\n  question: ADC?\n  shape: lookup\n", encoding="utf-8")
+        "- id: aq-001\n  question: ADC?\n  shape: lookup\n  set: quick\n", encoding="utf-8")
     picked = defend.select_targets(run_dir, str(queries_file),
                                    query_ids=["aq-001"], all_poorly=False)
     assert [x.id for x in picked] == ["aq-001"]
@@ -127,7 +128,7 @@ def test_select_targets_requires_a_selector(tmp_path, monkeypatch):
     run_dir = make_run(tmp_path, None, None)
     queries_file = tmp_path / "queries.yaml"
     queries_file.write_text(
-        "- id: aq-001\n  question: ADC?\n  shape: lookup\n", encoding="utf-8")
+        "- id: aq-001\n  question: ADC?\n  shape: lookup\n  set: quick\n", encoding="utf-8")
     with pytest.raises(ValueError):
         defend.select_targets(run_dir, str(queries_file), query_ids=[],
                               all_poorly=False)
@@ -137,7 +138,7 @@ def test_select_targets_errors_on_unknown_id(tmp_path):
     run_dir = make_run(tmp_path, None, None)
     queries_file = tmp_path / "queries.yaml"
     queries_file.write_text(
-        "- id: aq-001\n  question: ADC?\n  shape: lookup\n", encoding="utf-8")
+        "- id: aq-001\n  question: ADC?\n  shape: lookup\n  set: quick\n", encoding="utf-8")
     with pytest.raises(ValueError):
         defend.select_targets(run_dir, str(queries_file),
                               query_ids=["nosech-id"], all_poorly=False)
@@ -168,9 +169,9 @@ def test_select_targets_all_poorly_picks_weak_queries(tmp_path):
     ]}), encoding="utf-8")
     queries_file = tmp_path / "queries.yaml"
     queries_file.write_text(
-        "- id: aq-001\n  question: Q1?\n  shape: lookup\n"
-        "- id: aq-002\n  question: Q2?\n  shape: lookup\n"
-        "- id: aq-003\n  question: Q3?\n  shape: lookup\n", encoding="utf-8")
+        "- id: aq-001\n  question: Q1?\n  shape: lookup\n  set: quick\n"
+        "- id: aq-002\n  question: Q2?\n  shape: lookup\n  set: quick\n"
+        "- id: aq-003\n  question: Q3?\n  shape: lookup\n  set: quick\n", encoding="utf-8")
     picked = defend.select_targets(run_dir, str(queries_file), query_ids=[],
                                    all_poorly=True)
     ids = [x.id for x in picked]
@@ -189,7 +190,7 @@ def test_build_defense_set_composes_feedback_from_source_scores(tmp_path):
         tmp_path, {"key_facts_total": 2, "key_facts_matched": 1}, None)
     queries_file = tmp_path / "queries.yaml"
     queries_file.write_text(
-        "- id: aq-001\n  question: ADC?\n  shape: lookup\n", encoding="utf-8")
+        "- id: aq-001\n  question: ADC?\n  shape: lookup\n  set: quick\n", encoding="utf-8")
     targets = defend.select_targets(source, str(queries_file),
                                     query_ids=["aq-001"], all_poorly=False)
     defenses = defend.build_defense_set(source, targets)
@@ -216,7 +217,7 @@ def test_run_defenses_writes_a_transcript_per_target(tmp_path, monkeypatch):
                           None)
     queries_file = tmp_path / "queries.yaml"
     queries_file.write_text(
-        "- id: aq-001\n  question: ADC?\n  shape: lookup\n", encoding="utf-8")
+        "- id: aq-001\n  question: ADC?\n  shape: lookup\n  set: quick\n", encoding="utf-8")
     target = defend.select_targets(source_dir, str(queries_file),
                                    query_ids=["aq-001"], all_poorly=False)[0]
     defense = defend.build_defense_set(source_dir, [target])[0]

@@ -16,7 +16,7 @@ VALID = """
   corpus: budget
   tier: standard
   shape: lookup
-  subsets: [smoke, full]
+  set: quick
   should_refuse: false
   key_facts:
     - kind: currency
@@ -49,11 +49,24 @@ def test_defaults_applied(tmp_path):
 - id: aq-002
   question: Is out of scope?
   shape: refusal
+  set: refusal
   should_refuse: true
 """
     q = load_agent_queries(_write(tmp_path, minimal))[0]
     assert q.corpus == "budget" and q.tier == "standard"
-    assert q.subsets == ["full"] and q.key_facts == [] and q.judge_notes == ""
+    assert q.set == "refusal" and q.key_facts == [] and q.judge_notes == ""
+
+
+def test_set_is_required(tmp_path):
+    # Task 9: the `set` field has no default — every real query names its set
+    # explicitly. A query author who forgets it must fail loudly at load.
+    no_set = """
+- id: aq-003
+  question: Forgot the set?
+  shape: lookup
+"""
+    with pytest.raises(ValidationError):
+        load_agent_queries(_write(tmp_path, no_set))
 
 
 def test_unknown_corpus_rejected(tmp_path):
@@ -92,5 +105,5 @@ def test_query_set_field_accepts_all_sets_and_rejects_others():
 
 
 def test_correct_response_docs_default_empty():
-    q = AgentQuery(id="t", question="q", shape="lookup")
+    q = AgentQuery(id="t", question="q", shape="lookup", set="quick")
     assert q.correct_response_docs == []

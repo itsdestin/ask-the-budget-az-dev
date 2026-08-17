@@ -51,14 +51,16 @@ class AgentQuery(BaseModel):
     question: str
     corpus: Literal["budget", "fiscal_notes"] = "budget"
     tier: Literal["standard", "deep_research"] = "standard"
-    # The consolidated pipeline's selection axis (2026-08-16 spec). Replaces
-    # the subsets: list as the selection mechanism in Task 9; default "quick"
-    # is a migration crutch ONLY — every real query names its set explicitly
-    # in the YAML, and Task 9 drops this default once they all do.
-    # "defend" is reserved for defend_agent_run.py's ad-hoc defense queries
-    # (never in a scored --sets run); extra="forbid" means its builder at
-    # defend_agent_run.py:194 would crash at Task 9 without this value.
-    set: Literal["quick", "multi", "deep", "refusal", "defend"] = "quick"
+    # The pipeline's selection axis (2026-08-16 consolidated-eval spec; the
+    # `subsets:` list is retired in Task 9). REQUIRED, no default: every real
+    # query must name its set explicitly in the YAML — a query without a set
+    # would silently default into a run rather than fail the load. "defend"
+    # is reserved for defend_agent_run.py's ad-hoc defense queries (never in
+    # a scored --sets run) but lives in the same literal so its builder keeps
+    # working. WHY no default (2026-08-16 plan review): with a default, a
+    # hand-authored query omitting `set:` loads fine and lands in the wrong
+    # run; extra="forbid" + required set turns that into a loud load error.
+    set: Literal["quick", "multi", "deep", "refusal", "defend"]
     # Document ids a correct answer MUST cite (Multi set). Hand-pinned by the
     # analyst during the approval task — the identity-consistency audit
     # (docs/superpowers/investigations/2026-08-16-identity-consistency-audit.md)
@@ -66,9 +68,6 @@ class AgentQuery(BaseModel):
     correct_response_docs: list[str] = Field(default_factory=list)
     # shape drives authoring quotas and per-shape score breakdowns.
     shape: Literal["lookup", "comparison", "analyze", "memo", "refusal", "historical"]
-    # subset tags select what a run includes: smoke (~10), full (all
-    # standard-tier), dr-probe (the 4 deep_research queries).
-    subsets: list[str] = Field(default_factory=lambda: ["full"])
     should_refuse: bool = False
     key_facts: list[KeyFact] = Field(default_factory=list)
     judge_notes: str = ""

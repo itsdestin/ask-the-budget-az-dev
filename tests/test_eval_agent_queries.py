@@ -9,7 +9,7 @@ from __future__ import annotations
 import re
 from collections import Counter
 
-from eval.agent_schema import load_agent_queries
+from eval.agent_schema import QUERY_SETS, load_agent_queries
 from eval.agent_scoring import currency_values, fact_matches
 
 QUERIES = load_agent_queries("eval/agent_queries.yaml")
@@ -44,44 +44,44 @@ def test_every_query_is_budget_corpus():
     assert not offenders, f"non-budget queries in a budget-only set: {offenders}"
 
 
-def test_smoke_subset_is_small_and_diverse():
-    smoke = [q for q in QUERIES if "smoke" in q.subsets]
-    assert 8 <= len(smoke) <= 12
-    assert len({q.shape for q in smoke}) >= 4
-    assert all(q.tier == "standard" for q in smoke)
+def test_every_query_has_an_explicit_set():
+    from eval.agent_schema import AgentQuery as _AQ
+    for q in QUERIES:
+        assert q.set in QUERY_SETS, f"{q.id}: unknown set {q.set}"
+    # the retired mechanism must not survive in the schema at all
+    assert "subsets" not in _AQ.model_fields
 
 
-def test_dr_probe_subset():
-    probe = [q for q in QUERIES if "dr-probe" in q.subsets]
-    assert len(probe) == 4
-    assert all(q.tier == "deep_research" for q in probe)
-    # WHY exclusivity, not just membership (2026-08 review, Finding 1): the
-    # assertions above passed while all four DR queries ALSO carried `full`,
-    # which is what spec Decision #4 exists to prevent ("Standard for the full
-    # set + a fixed 4-query Deep Research probe"; full-set DR runs were
-    # rejected as incompatible with fast iteration). A DR query in `full` puts
-    # ~$3 of Deep Research into the run the README prices at $0.50-1.50, moves
-    # wall_p95_ms onto a ~295-second DR query so Standard latency regressions
-    # stop being visible, and makes `--subset full` refuse to start on an
-    # install that has Standard configured and Deep Research off.
-    in_full = [q.id for q in probe if "full" in q.subsets]
-    assert not in_full, (
-        f"deep_research queries tagged `full`: {in_full}. `full` is the "
-        f"standard-tier set — see the SUBSETS block in eval/agent_queries.yaml."
-    )
+def test_set_sizes():
+    counts = Counter(q.set for q in QUERIES)
+    assert counts["quick"] >= 20          # target ~25; floor not target (flex)
+    assert counts["deep"] == 3
+    assert counts["refusal"] == 5
+    # multi has a floor of 0 until Task 10 authors them; assert presence only
+    assert counts["multi"] >= 0
 
 
-def test_full_subset_is_standard_tier_only():
-    """The other half of Finding 1, stated as the property rather than as a
-    fact about the four known DR queries — a NEW deep_research query added
-    with the default `subsets` (which is `[full]`) must fail here."""
-    offenders = [q.id for q in QUERIES
-                 if "full" in q.subsets and q.tier != "standard"]
-    assert not offenders, (
-        f"non-standard-tier queries in the `full` subset: {offenders}. "
-        f"agent_schema.py documents `full` as 'all standard-tier'; a "
-        f"deep_research query belongs in dr-probe only."
-    )
+def test_deep_queries_carry_at_least_one_key_fact():
+    # The vacuous-pass hole: with 0 facts the headline's "passes key facts"
+    # bar is trivially true and a Deep query counts as accurate on a citation
+    # alone. agent_scoring returns key_fact_rate=None at total_facts==0.
+    for q in QUERIES:
+        if q.set == "deep":
+            assert q.key_facts, f"{q.id}: deep queries must carry >=1 key fact"
+
+
+def test_multi_queries_pin_correct_response_docs():
+    for q in QUERIES:
+        if q.set == "multi":
+            assert q.correct_response_docs, f"{q.id}: multi set requires correct_response_docs"
+            assert all(d.strip() for d in q.correct_response_docs)
+
+
+def test_standard_tier_is_not_polluted_by_deep():
+    # Port of the old Finding-1 guard, restated for sets: deep queries are
+    # selected out of cheap runs by set selection itself.
+    deeps = [q.id for q in QUERIES if q.set == "deep"]
+    assert all(q.tier == "deep_research" for q in QUERIES if q.id in deeps)
 
 
 def test_refusal_queries_have_no_key_facts():

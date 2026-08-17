@@ -20,6 +20,7 @@ FIXTURE = Path(__file__).parent / "fixtures" / "agent_transcript_sample.jsonl"
 
 def make_query(**kw):
     defaults = dict(id="aq-001", question="ADC FY2025?", shape="lookup",
+                    set="quick",  # Task 9: set has no default — supply one
                     key_facts=[KeyFact(kind="currency", value="$1,391,157,700")])
     defaults.update(kw)
     return AgentQuery(**defaults)
@@ -300,7 +301,7 @@ def test_scores_md_cost_column_has_enough_precision(tmp_path):
     shutil.copy(FIXTURE, run_dir / "aq-001-r1.jsonl")
     qfile = tmp_path / "queries.yaml"
     qfile.write_text(
-        "- id: aq-001\n  question: ADC?\n  shape: lookup\n"
+        "- id: aq-001\n  question: ADC?\n  shape: lookup\n  set: quick\n"
         "  key_facts:\n    - kind: currency\n      value: \"$1,391,157,700\"\n",
         encoding="utf-8")
     argv = sys.argv
@@ -395,7 +396,7 @@ def test_score_run_cli_writes_outputs(tmp_path):
     shutil.copy(FIXTURE, run_dir / "aq-001-r1.jsonl")
     qfile = tmp_path / "queries.yaml"
     qfile.write_text(
-        "- id: aq-001\n  question: ADC?\n  shape: lookup\n"
+        "- id: aq-001\n  question: ADC?\n  shape: lookup\n  set: quick\n"
         "  key_facts:\n    - kind: currency\n      value: \"$1,391,157,700\"\n",
         encoding="utf-8")
     scores = score_run(run_dir, str(qfile))

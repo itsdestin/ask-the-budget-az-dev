@@ -38,7 +38,7 @@ def _call_main(monkeypatch, argv, *, fail_step=None):
 
 def test_orchestrator_runs_run_score_judge_in_order(monkeypatch):
     rc, calls = _call_main(
-        monkeypatch, ["--subset", "smoke", "--workers", "4"])
+        monkeypatch, ["--sets", "smoke", "--workers", "4"])
     assert rc == 0
     assert len(calls) == 3
     # 1) run, 2) score, 3) judge — in that order.
@@ -56,7 +56,7 @@ def test_orchestrator_runs_run_score_judge_in_order(monkeypatch):
 
 
 def test_orchestrator_skip_judge_runs_run_and_score_only(monkeypatch):
-    rc, calls = _call_main(monkeypatch, ["--skip-judge", "--subset", "smoke"])
+    rc, calls = _call_main(monkeypatch, ["--skip-judge", "--sets", "smoke"])
     assert rc == 0
     assert len(calls) == 2
     assert "eval.run_agent_eval" in calls[0]
@@ -66,36 +66,27 @@ def test_orchestrator_skip_judge_runs_run_and_score_only(monkeypatch):
 
 def test_orchestrator_stops_on_run_failure(monkeypatch):
     # The live agent run exits non-zero -> the wrapper stops, no score/judge.
-    rc, calls = _call_main(monkeypatch, ["--subset", "full"], fail_step="run_agent_eval")
+    rc, calls = _call_main(monkeypatch, ["--sets", "full"], fail_step="run_agent_eval")
     assert rc == 2
     assert len(calls) == 1  # only the failed run step fired
     assert "eval.run_agent_eval" in calls[0]
 
 
-def test_orchestrator_sets_replaces_subset_in_the_run_passthrough(monkeypatch):
-    # 2026-08-16 consolidation: when --sets is given it is forwarded INSTEAD
-    # of --subset — run_agent_eval then ignores --subset entirely, so sending
-    # both would only record a misleading subset value next to the sets that
-    # actually selected the queries.
+def test_orchestrator_sets_is_forwarded_to_the_run(monkeypatch):
+    # 2026-08-16 consolidation: --sets is the only selection axis forwarded
+    # to run_agent_eval (the retired --subset flag is gone entirely).
     rc, calls = _call_main(
-        monkeypatch, ["--sets", "quick,multi", "--subset", "full"])
+        monkeypatch, ["--sets", "quick,multi"])
     assert rc == 0
     run_argv = calls[0]
     assert run_argv[run_argv.index("--sets") + 1] == "quick,multi"
     assert "--subset" not in run_argv
 
-    # And the legacy invocation keeps passing --subset through unchanged.
-    rc, calls = _call_main(monkeypatch, ["--subset", "smoke"])
-    assert rc == 0
-    run_argv = calls[0]
-    assert run_argv[run_argv.index("--subset") + 1] == "smoke"
-    assert "--sets" not in run_argv
-
 
 def test_orchestrator_forwards_model_and_judge_model(monkeypatch):
     rc, calls = _call_main(
         monkeypatch,
-        ["--subset", "smoke", "--model", "m1", "--judge-model", "m2",
+        ["--sets", "smoke", "--model", "m1", "--judge-model", "m2",
          "--no-reasoning"])
     assert rc == 0
     run_argv = calls[0]

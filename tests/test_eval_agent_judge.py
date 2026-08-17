@@ -46,6 +46,7 @@ def make_query(**overrides) -> AgentQuery:
         id="aq-001",
         question="What was ADC's FY 2025 General Fund appropriation?",
         shape="lookup",
+        set="quick",  # Task 9: set has no default — supply one
         judge_notes="Look for the ADC agency line in the FY 2025 Approps Report.",
     )
     defaults.update(overrides)
@@ -366,7 +367,7 @@ def _run_main(tmp_path, monkeypatch, reply_content: str) -> dict:
     queries_file.write_text(
         "- id: aq-001\n"
         "  question: What was ADC's FY 2025 General Fund appropriation?\n"
-        "  shape: lookup\n", encoding="utf-8")
+        "  shape: lookup\n  set: quick\n", encoding="utf-8")
 
     def handler(request):
         return httpx.Response(200, json={"choices": [{"message": {"content": reply_content}}]})
@@ -416,7 +417,7 @@ def test_main_survives_a_row_that_raises_outside_the_model_call(tmp_path, monkey
     shutil.copy(FIXTURE, run_dir / "aq-001-r1.jsonl")
     shutil.copy(FIXTURE, run_dir / "aq-001-r2.jsonl")
     queries_file = tmp_path / "queries.yaml"
-    queries_file.write_text("- id: aq-001\n  question: q1\n  shape: lookup\n",
+    queries_file.write_text("- id: aq-001\n  question: q1\n  shape: lookup\n  set: quick\n",
                             encoding="utf-8")
 
     real_build = judge_agent_run.build_judge_payload
@@ -468,8 +469,8 @@ def test_main_judges_transcripts_in_parallel_workers(tmp_path, monkeypatch):
                               "wall_ms": 1})
     queries_file = tmp_path / "queries.yaml"
     queries_file.write_text(
-        "- id: aq-001\n  question: ADC? \n  shape: lookup\n"
-        "- id: aq-002\n  question: DEMA?  \n  shape: lookup\n",
+        "- id: aq-001\n  question: ADC? \n  shape: lookup\n  set: quick\n"
+        "- id: aq-002\n  question: DEMA?  \n  shape: lookup\n  set: quick\n",
         encoding="utf-8")
 
     def handler(request):

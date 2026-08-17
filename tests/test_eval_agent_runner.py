@@ -15,7 +15,6 @@ from eval.run_agent_eval import (
     build_manifest,
     query_set_sha256,
     run_suite,
-    select_queries,
 )
 from harness.session import HarnessSession
 from tests.test_harness_session import (
@@ -32,7 +31,7 @@ from tests.test_harness_session import (
 
 def q(id="aq-001", **kw):
     defaults = dict(question="ADC FY2025 General Fund?", shape="lookup",
-                    subsets=["smoke", "full"])
+                    set="quick")
     defaults.update(kw)
     return AgentQuery(id=id, **defaults)
 
@@ -230,18 +229,9 @@ def test_write_transcript_failure_does_not_abort_run(tmp_path, capsys, monkeypat
     assert "OSError" in err
 
 
-def test_select_queries_by_subset_and_ids():
-    qs = [q("a", subsets=["smoke", "full"]), q("b", subsets=["full"]),
-          q("c", subsets=["dr-probe"], tier="deep_research")]
-    assert [x.id for x in select_queries(qs, "smoke", None)] == ["a"]
-    assert [x.id for x in select_queries(qs, "full", None)] == ["a", "b"]
-    assert [x.id for x in select_queries(qs, "dr-probe", None)] == ["c"]
-    assert [x.id for x in select_queries(qs, "full", ["b"])] == ["b"]
-
-
 def test_manifest_redacts_key_and_records_models(tmp_path):
     settings = make_settings()
-    manifest = build_manifest(settings, [q()], subset="smoke", repeats=1)
+    manifest = build_manifest(settings, [q()], sets=["quick"], repeats=1)
     blob = json.dumps(manifest)
     assert "sk-test" not in blob  # the fake key from make_settings()
     assert manifest["api_key_set"] is True
@@ -258,13 +248,13 @@ def test_manifest_hashes_the_query_set_content_not_just_the_ids():
     original = q(key_facts=[KeyFact(kind="currency", value="$1,391,157,700")])
     edited = q(key_facts=[KeyFact(kind="currency", value="$1,400,000,000")])
 
-    a = build_manifest(settings, [original], subset="full", repeats=1)
-    b = build_manifest(settings, [edited], subset="full", repeats=1)
+    a = build_manifest(settings, [original], sets=["quick"], repeats=1)
+    b = build_manifest(settings, [edited], sets=["quick"], repeats=1)
     assert a["queries"] == b["queries"]          # the old signal: identical
     assert a["queries_sha256"] != b["queries_sha256"]  # the new one: differs
 
     same = build_manifest(settings, [q(key_facts=list(original.key_facts))],
-                          subset="full", repeats=1)
+                          sets=["quick"], repeats=1)
     assert a["queries_sha256"] == same["queries_sha256"]
 
 
@@ -397,17 +387,20 @@ def test_select_by_sets_unknown_name_raises():
         select_by_sets([], ["quick", "extended_quick"])
 
 
-def test_main_rejects_sets_combined_with_queries(monkeypatch, capsys):
-    """--queries filters only the legacy --subset path; combining it with
-    --sets would silently ignore the ids and run the whole set. The guard
-    fires in main() before settings or queries are loaded, so no money,
-    disk, or corpus is involved."""
+def test_main_rejects_query_id_outside_the_chosen_sets(monkeypatch, capsys):
+    """--queries now filters WITHIN the chosen sets (Task 9 retired the old
+    --subset axis). A named id that lives in no selected set is a hard error
+    rather than a silent no-op. The guard fires before settings/corpus load,
+    so no money or disk is involved."""
     import sys
     import eval.run_agent_eval as runner
 
+    # aq-002 is a quick query (see q()'s set="quick" default) but there is no
+    # real 35-query YAML involvement here — main() loads the REAL
+    # eval/agent_queries.yaml, so pick an id that is genuinely NOT in "quick".
     monkeypatch.setattr(sys, "argv", ["run_agent_eval", "--sets", "quick",
-                                      "--queries", "aq-001"])
+                                      "--queries", "rf-federal-budget"])
     with pytest.raises(SystemExit) as exc:
         runner.main()
     assert exc.value.code == 2
-    assert "--sets and --queries" in capsys.readouterr().err
+    assert "not in the selected sets" in capsys.readouterr().err

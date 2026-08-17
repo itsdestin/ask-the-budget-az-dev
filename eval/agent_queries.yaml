@@ -154,29 +154,39 @@
 # try. Do NOT "fix" these by rewording questions toward chunk phrasing;
 # that inflates the score without improving the agent.
 #
-# SUBSETS:
-#   full     every STANDARD-TIER query (the default tag). It is deliberately
-#            NOT "every query": the four deep_research queries below carry
-#            ONLY the dr-probe tag. Spec Decision #4 is "Standard for the
-#            full set + a fixed 4-query Deep Research probe", and it rejected
-#            full-set DR runs outright. Tagging the DR queries `full` too
-#            (the state before the 2026-08 review, Finding 1) broke that
-#            three ways: it put ~$3 of Deep Research into a run documented at
-#            $0.50-1.50; it moved wall_p95_ms onto a ~295-second DR query so
-#            a Standard latency regression became invisible; and it made the
-#            documented pre-merge run refuse to start at all on an install
-#            where an admin wired up Standard and left Deep Research off,
-#            which harness/settings.py explicitly allows.
-#            tests/test_eval_agent_queries.py::test_dr_probe_subset pins this.
-#   smoke    8-12 standard-tier queries across >=4 shapes — the cheap
-#            pre-merge run. Currently 11, covering ALL SIX shapes. The
-#            memo query (mm-adc-briefing) was added 2026-08-01: memo is
-#            the shape with a measured run-to-run citation-discipline
-#            failure, so the subset people actually run before merging is
-#            the last place it should have been missing. See that query.
-#   dr-probe exactly 4 deep_research queries (2 comparison, 2 analyze) —
-#            the only place the Deep Research tier is exercised, because
-#            it costs ~44x Standard and takes ~5 minutes per query
+# SETS (2026-08-16 consolidated-eval-pipeline spec; replaces smoke/full/
+# dr-probe subsets in Task 9, the atomic re-tag).
+# Actual re-tag counts (35 queries): 27 quick / 0 multi / 3 deep / 5 refusal.
+#   quick    27 — the single-fact, single-agency/FY lookups and narrower
+#                 comparisons/analyzes (including cm-university-funding-dr,
+#                 re-homed here from dr-probe, see its entry).
+#   multi     0 — Task 10 authors them; do NOT force a lookup in to fill a quota.
+#   deep      3 — cm-adc-3yr-dr, an-gf-structural-dr, an-taxcut-package-dr.
+#                 dr-probe's 4th (cm-university-funding-dr) was RE-HOMED to
+#                 quick, not dropped: it is single-FY and reachable by ONE
+#                 reformulation (its judge_notes document this), so it does
+#                 not fit the Deep "wide time span / multi-agency synthesis"
+#                 family — see its entry.
+#   refusal   5 — the should_refuse: true queries, as a tag.
+# Authoring contracts per the spec (Task 9):
+#   quick    ~25. A well-tuned model/retrieval tool should answer in ONE
+#            retrieve call. Single fact, single agency/FY. This is the
+#            re-tag home of most of the old `full`/`smoke` lookups.
+#   multi    ~10 (Task 10 authors them; 0 here by design). Spans 2-3 narrow
+#            agencies x 2-3 fiscal years. Each carries a hand-pinned
+#            `correct_response_docs` — the document(s) a correct answer MUST
+#            cite. Do NOT force a lookup into multi to fill a quota.
+#   deep     3. Extremely broad scope over wide time spans. Each carries at
+#            least one key fact (never zero — agent_scoring returns
+#            key_fact_rate=None at total_facts==0, which would make the
+#            headline's "accurate" bar vacuously true on a citation alone).
+#   refusal  a TAG, not a headline set (spec): the 5 `should_refuse: true`
+#            queries. `set: refusal` exists so `--sets` can select/exclude
+#            them. Refusal correctness is scored by the existing pass.
+# `--sets quick,multi,deep,refusal` is the default run; `deep` is excludable
+# per profile so a cheap iteration need not pay for it. The retired
+# `subsets` mechanism must not survive anywhere — tests/test_eval_agent_queries.py
+# asserts `"subsets" not in AgentQuery.model_fields`.
 
 # ---------------------------------------------------------------------
 # LOOKUP — a single figure, agency, or rate. The bread-and-butter ask.
@@ -189,7 +199,7 @@
     sources?
   corpus: budget
   shape: lookup
-  subsets: [full, smoke]
+  set: quick
   key_facts:
     # Basis corrected 2026-08-03: the pinned total was the SB 1735 General
     # Appropriation Act figure ($1,600,697,200). "All told" for the state
@@ -225,7 +235,7 @@
     actually passed for FY 2026?
   corpus: budget
   shape: lookup
-  subsets: [full, smoke]
+  set: quick
   key_facts:
     - kind: currency
       value: "$7,623,574,500"
@@ -247,7 +257,7 @@
     year end?
   corpus: budget
   shape: lookup
-  subsets: [full]
+  set: quick
   key_facts:
     - kind: currency
       value: "$17.77 billion"
@@ -269,7 +279,7 @@
     programs?
   corpus: budget
   shape: lookup
-  subsets: [full, smoke]
+  set: quick
   key_facts:
     - kind: currency
       value: "$389,947,400"
@@ -296,7 +306,7 @@
     university's own collections?
   corpus: budget
   shape: lookup
-  subsets: [full]
+  set: quick
   key_facts:
     - kind: currency
       value: "$1,218,177,000"
@@ -318,7 +328,7 @@
     out?
   corpus: budget
   shape: lookup
-  subsets: [full]
+  set: quick
   key_facts:
     - kind: currency
       value: "$17,075,300"
@@ -341,7 +351,7 @@
     costs. What's the yearly amount and how is it divided up?
   corpus: budget
   shape: lookup
-  subsets: [full]
+  set: quick
   key_facts:
     - kind: currency
       value: "$3,000,000"
@@ -362,7 +372,7 @@
     retirement system this year, and is that going up or down?
   corpus: budget
   shape: lookup
-  subsets: [full]
+  set: quick
   key_facts:
     # Regex loosened 2026-08-03: the original \b24\.0\s*% and \b12\.0\s*%
     # only matched "24.0%"/"12.0%", but the corpus renders these values
@@ -397,7 +407,7 @@
     What does Arizona pay its Chief Justice, and did that change recently?
   corpus: budget
   shape: lookup
-  subsets: [full]
+  set: quick
   key_facts:
     - kind: currency
       value: "$222,000"
@@ -418,7 +428,7 @@
     How much does Arizona have banked in its rainy day fund right now?
   corpus: budget
   shape: lookup
-  subsets: [full]
+  set: quick
   key_facts:
     # Multi-basis 2026-08-03: the judge_notes below have always said "either
     # may be cited so long as the answer says which it is", but the key_facts
@@ -459,7 +469,7 @@
     year, and is it still running?
   corpus: budget
   shape: lookup
-  subsets: [full, smoke]
+  set: quick
   key_facts:
     - kind: currency
       value: "$285,626,000"
@@ -488,7 +498,7 @@
     they live in?
   corpus: budget
   shape: lookup
-  subsets: [full]
+  set: quick
   key_facts:
     - kind: regex
       value: '\b30\.5\s*%'
@@ -527,7 +537,7 @@
     three budget cycles. Is it climbing, and roughly how fast?
   corpus: budget
   shape: comparison
-  subsets: [full, smoke]
+  set: quick
   key_facts:
     - kind: currency
       value: "$7,288,548,000"
@@ -555,7 +565,7 @@
     fund spending been rising, and what's behind it?
   corpus: budget
   shape: comparison
-  subsets: [full, smoke]
+  set: quick
   key_facts:
     - kind: currency
       value: "$133,115,400"
@@ -585,7 +595,7 @@
     holding steady the last few years?
   corpus: budget
   shape: comparison
-  subsets: [full]
+  set: quick
   key_facts:
     # Multi-basis 2026-08-03: the pinned figures are the recurring Capital
     # Outlay Act State Highway Fund construction appropriations (FY 2024
@@ -626,7 +636,7 @@
     extra money mid-year, and what did that come to?
   corpus: budget
   shape: comparison
-  subsets: [full]
+  set: quick
   key_facts:
     # Multi-basis 2026-08-03: accept EITHER the FY 2026 General Fund
     # supplemental estimates (FY 2027 Baseline's "FY 2026 adjustments") OR
@@ -666,7 +676,7 @@
   corpus: budget
   tier: deep_research
   shape: comparison
-  subsets: [dr-probe]
+  set: deep
   key_facts:
     # Basis corrected 2026-08-03 for consistency with lk-adc-total-fy2026 and
     # mm-adc-briefing: the FY 2026 anchors were the SB 1735 GAA figures.
@@ -704,7 +714,7 @@
   corpus: budget
   tier: deep_research
   shape: comparison
-  subsets: [dr-probe]
+  set: quick
   key_facts:
     - kind: currency
       value: "$1,218,177,000"
@@ -748,7 +758,7 @@
     numbers?
   corpus: budget
   shape: analyze
-  subsets: [full]
+  set: quick
   key_facts:
     - kind: currency
       value: "$55,575,200"
@@ -774,7 +784,7 @@
     costs jumped. How does that arithmetic actually work out?
   corpus: budget
   shape: analyze
-  subsets: [full, smoke]
+  set: quick
   key_facts:
     - kind: currency
       value: "$36,140,500"
@@ -799,7 +809,7 @@
     and did the state's enrollment guesses turn out to be right?
   corpus: budget
   shape: analyze
-  subsets: [full]
+  set: quick
   key_facts:
     # MULTI-BASIS FACTS — see the "REVISED FIGURES" note in the file header.
     # Each of these is ONE fact listing every legitimate basis for the same
@@ -862,7 +872,7 @@
   corpus: budget
   tier: deep_research
   shape: analyze
-  subsets: [dr-probe]
+  set: deep
   key_facts:
     - kind: currency
       value: "$18.5 billion"
@@ -893,7 +903,7 @@
   corpus: budget
   tier: deep_research
   shape: analyze
-  subsets: [dr-probe]
+  set: deep
   key_facts:
     - kind: currency
       value: "$12.8 billion"
@@ -957,7 +967,7 @@
   # (rather than mm-esa-memo) because its facts ARE single-shot retrievable,
   # so a smoke failure here points at citation discipline rather than at
   # retrieval difficulty — which is the whole reason it is in smoke.
-  subsets: [full, smoke]
+  set: quick
   key_facts:
     # Basis corrected 2026-08-03: the pinned total was the SB 1735 General
     # Appropriation Act figure ($1,600,697,200). A committee memo over the
@@ -1006,7 +1016,7 @@
     the school funding formula have moved over the last two budgets and why.
   corpus: budget
   shape: memo
-  subsets: [full]
+  set: quick
   key_facts:
     # Multi-basis, for the same reason as an-esa-growth — see that query's
     # comment and the "REVISED FIGURES" note in the file header. The FY 2026
@@ -1056,7 +1066,7 @@
     Affairs in federal fiscal year 2025?
   corpus: budget
   shape: refusal
-  subsets: [full, smoke]
+  set: refusal
   should_refuse: true
   judge_notes: >-
     Wrong jurisdiction — this corpus holds Arizona STATE budget documents and
@@ -1078,7 +1088,7 @@
     year?
   corpus: budget
   shape: refusal
-  subsets: [full, smoke]
+  set: refusal
   should_refuse: true
   judge_notes: >-
     Wrong state. Nothing in the corpus covers Nevada's budget. FAILURE MODE,
@@ -1095,7 +1105,7 @@
     How much did the City of Tucson budget for police overtime this year?
   corpus: budget
   shape: refusal
-  subsets: [full]
+  set: refusal
   should_refuse: true
   judge_notes: >-
     Wrong level of government — municipal budgets are not in this corpus.
@@ -1114,7 +1124,7 @@
     What did the Governor propose in the FY 2029 executive budget?
   corpus: budget
   shape: refusal
-  subsets: [full]
+  set: refusal
   should_refuse: true
   judge_notes: >-
     Outside the corpus in TIME. Executive budgets in the corpus run through
@@ -1152,7 +1162,7 @@
     fiscal year?
   corpus: budget
   shape: refusal
-  subsets: [full]
+  set: refusal
   should_refuse: true
   judge_notes: >-
     Wrong level of government again, and deliberately a HARDER refusal than
@@ -1191,7 +1201,7 @@
     big was that required General Fund reduction to Basic State Aid?
   corpus: budget
   shape: historical
-  subsets: [full, smoke]
+  set: quick
   key_facts:
     - kind: currency
       value: "$472,114,000"
@@ -1223,7 +1233,7 @@
     need to raise for the General Fund?
   corpus: budget
   shape: historical
-  subsets: [full]
+  set: quick
   key_facts:
     - kind: currency
       value: "$735,419,300"
@@ -1255,7 +1265,7 @@
     was transferred to the General Fund that year?
   corpus: budget
   shape: historical
-  subsets: [full]
+  set: quick
   key_facts:
     - kind: currency
       value: "$487,000,000"
@@ -1290,7 +1300,7 @@
     for classroom instruction?
   corpus: budget
   shape: historical
-  subsets: [full]
+  set: quick
   key_facts:
     - kind: currency
       value: "$21,000,000"
@@ -1324,7 +1334,7 @@
     rely on?
   corpus: budget
   shape: historical
-  subsets: [full]
+  set: quick
   key_facts:
     - kind: currency
       value: "$1,104,000,000 or $1,510,000,000"

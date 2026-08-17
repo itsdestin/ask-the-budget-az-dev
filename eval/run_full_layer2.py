@@ -69,14 +69,11 @@ def main() -> int:
         description="Run Layer 2 end-to-end: live agent run, then score, then judge.",
     )
     parser.add_argument("--queries-file", default="eval/agent_queries.yaml")
-    parser.add_argument("--subset", default="full",
-                        choices=("full", "smoke", "dr-probe"))
-    parser.add_argument("--sets", default=None,
-                        help="comma-separated new-style sets "
-                             "(quick,multi,deep,refusal); takes precedence "
-                             "over --subset. --subset is retired by the "
-                             "2026-08-16 consolidation once the YAML re-tag "
-                             "lands.")
+    parser.add_argument("--sets", default="quick,multi,deep,refusal",
+                        help="comma-separated sets to run "
+                             "(quick,multi,deep,refusal; deep excludes for "
+                             "cheap iterations). The retired --subset flag is "
+                             "gone (2026-08-16 re-tag).")
     parser.add_argument("--queries", nargs="*", default=None,
                         help="restrict to these query ids (passed through)")
     parser.add_argument("--repeats", type=int, default=1)
@@ -106,17 +103,10 @@ def main() -> int:
         f"{datetime.now(timezone.utc).strftime('%Y-%m-%dT%H%MZ')}-{_git_sha()}"
     )
 
-    # --sets replaces --subset in the passthrough when given: run_agent_eval
-    # then ignores --subset entirely, so sending both would only record a
-    # misleading subset value next to the sets that actually selected.
-    if args.sets:
-        selection = ["--sets", args.sets]
-    else:
-        selection = ["--subset", args.subset]
     run_argv = [
         *base, "eval.run_agent_eval",
         "--queries-file", args.queries_file,
-        *selection,
+        "--sets", args.sets,
         "--results-dir", args.results_dir,
         "--run-dir", run_dir.name,
         "--workers", str(args.workers),
