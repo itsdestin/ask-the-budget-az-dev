@@ -384,12 +384,20 @@ describe("DocumentGuideView", () => {
     expect(container.textContent).not.toContain("research-memo");
   });
 
-  it("states that the guidance is advice, not enforcement", () => {
-    // Nothing validates the finished document against these rules. A card
-    // that showed house rules without saying so would imply a check that does
-    // not exist.
+  it("names the guidance as advice", () => {
     const { container } = render(<ToolBody tool={guideTool()} />);
-    expect(container.textContent).toMatch(/nothing checks|not enforced|advice/i);
+    expect(container.textContent).toMatch(/advice/i);
+  });
+
+  it("states that nothing checks the finished document against the guidance", () => {
+    // This is the half that matters: the design deliberately never rewrites
+    // the model's numbers, because that would mean editing figures an
+    // analyst is about to send under their own name. A card that showed
+    // house rules without saying so would imply a check that does not
+    // exist. Pinned separately from the "advice" wording above so a rewrite
+    // that keeps the word "advice" but drops this clause cannot pass.
+    const { container } = render(<ToolBody tool={guideTool()} />);
+    expect(container.textContent).toMatch(/nothing checks|not enforced/i);
   });
 });
 
@@ -416,13 +424,45 @@ describe("ListFilterValuesView — names, not codes", () => {
     const text = container.textContent ?? "";
     expect(text).not.toContain("agency_canonical_id");
     expect(text).not.toContain("agency:ahcccs");
-    expect(text).not.toContain("4,812");
+    // Unformatted, not "4,812": {v.chunk_count} rendered raw would produce
+    // "4812" with no thousands separator, and a comma-formatted assertion
+    // never catches that — verified by mutation (see the report).
+    expect(text).not.toContain("4812");
     expect(text).not.toMatch(/chunk/i);
   });
 
   it("shows the agencies themselves", () => {
     const { container } = render(<ToolBody tool={filterTool()} />);
     expect(container.textContent).toContain("AHCCCS");
+  });
+
+  it("does not de-duplicate two catalog ids that share a display name", () => {
+    // Two catalog ids resolving to the same displayed name — e.g. two rows
+    // both reading "Child Safety" — are a real, recorded corpus defect
+    // (duplicate agency ids; see STATUS.md's "Corpus identity" sections).
+    // Collapsing them here would hide the exact symptom that makes the
+    // defect visible, so this must render TWO rows, not one.
+    const tool = {
+      kind: "tool",
+      toolUseId: "f2",
+      toolName: "list_filter_values",
+      input: { field: "agency_canonical_id" },
+      status: "complete",
+      output: JSON.stringify({
+        field: "agency_canonical_id",
+        values: [
+          { canonical_id: "agency:cs", chunk_count: 520, sample_doc_title: "Child Safety — FY 2026 Baseline" },
+          { canonical_id: "agency:dcs", chunk_count: 1595, sample_doc_title: "Child Safety — FY 2026 Baseline" },
+        ],
+      }),
+    } as ToolBlock;
+    const { container } = render(<ToolBody tool={tool} />);
+    const chips = container.querySelectorAll(".chat-chip");
+    expect(chips).toHaveLength(2);
+    expect(Array.from(chips).map((c) => c.textContent)).toEqual([
+      "Child Safety",
+      "Child Safety",
+    ]);
   });
 });
 
