@@ -159,7 +159,6 @@ function mockAll(over: {
   aliases?: api.AdminAliases;
   guidance?: api.AdminGuidance;
   issues?: api.IssuesResponse;
-  bookFormats?: api.BookFormats;
 } = {}) {
   vi.spyOn(api, "me").mockResolvedValue({
     user: "Destin", is_admin: true, admin_username: "Destin",
@@ -191,34 +190,10 @@ function mockAll(over: {
   vi.spyOn(api, "issues").mockResolvedValue(
     over.issues ?? { reports: [] },
   );
-  // ReportLinksPanel fetches for itself too. Unmocked it made a real request
-  // in every spec in this file — 69 of them — each failing and rendering a
-  // `role="alert"` reading "Failed to parse URL from /api/admin/book-formats".
-  // That guaranteed the panel was INVISIBLE in every Admin spec, so no
-  // assertion here could ever have noticed it was mounted or not.
-  //
-  // The default is the HEALTHY state — nothing waiting, editions already
-  // answered — because that is what /admin looks like on an ordinary day, and
-  // since 2026-08-16 that state renders one collapsed line rather than
-  // nothing (Destin's call; see ReportLinksPanel.tsx's header note). An
-  // `approved: []` default would have been silent, and every spec in this file
-  // would then be asserting about a page shape no admin ever sees.
-  vi.spyOn(api, "bookFormats").mockResolvedValue(
-    over.bookFormats ?? {
-      pending: [],
-      approved: [
-        {
-          family: "Appropriations Report",
-          fiscal_year: 2027,
-          single_file: "https://www.azjlbc.gov/27ar/fy2027approprpt.pdf",
-          linked_toc: "https://www.azjlbc.gov/27ar/apprpttoc.pdf",
-        },
-      ],
-      online: true,
-      reason: null,
-      problems: [],
-    },
-  );
+  // NOTE: `api.bookFormats` is deliberately NOT mocked here. The whole-report
+  // links panel MOVED to the Upload page on 2026-08-16, so /admin must not
+  // call it at all — pinned by "does not fetch the whole-report links any
+  // more" below. A mock here would make that spec unfalsifiable.
 }
 
 afterEach(() => vi.restoreAllMocks());
@@ -1130,58 +1105,26 @@ describe("the page's shape", () => {
     expect(headings[1]).toHaveTextContent(/needs a look/i);
   });
 
-  it("puts a book with no 'Full report' link on the page", async () => {
-    // 🔴 THE MOUNT ITSELF. Deleting `<ReportLinksPanel />` from Admin.tsx left
-    // the entire suite green — 89 files, 1008 tests — because the panel's own
-    // specs render the component directly and this file never rendered it at
-    // all. That is the "annotation that never reached the UI" class this repo
-    // has shipped before: a finished, well-tested feature nobody can see.
+  it("does not fetch the whole-report links any more — that row moved to /upload", async () => {
+    // 🔴 THE REMOVAL, pinned. This replaces two specs that asserted the panel
+    // was MOUNTED here; it moved to the book card on the Upload page on
+    // 2026-08-16, and its behaviour is now pinned in
+    // `pages/upload/ReportLinkRow.test.tsx`.
     //
-    // The panel's own behaviour is pinned in ReportLinksPanel.test.tsx; this
-    // asserts only that the page mounts it and that its output reaches the
-    // rendered document.
-    mockAll({
-      bookFormats: {
-        pending: [
-          {
-            family: "Appropriations Report",
-            fiscal_year: 2028,
-            candidates: { single_file: null, linked_toc: null },
-          },
-        ],
-        approved: [],
-        online: true,
-        reason: null,
-        problems: [],
-      },
-    });
-    await renderAdmin();
-
-    const panel = await screen.findByTestId("admin-report-links");
-    // Scoped to the panel deliberately. Its <h2> lands between PoorlyRead and
-    // NoticesPanel, so a page-wide `getAllByRole("heading", {level: 2})[1]`
-    // here would be asserting about the page's heading ORDER — which the
-    // "puts problems first" spec above already owns, and which this spec
-    // would then be free to break.
-    expect(within(panel).getByRole("heading", { level: 2 })).toHaveTextContent(
-      /full report/i,
-    );
-    expect(within(panel).getByText(/FY 2028 Appropriations Report/)).toBeInTheDocument();
-  });
-
-  it("keeps one collapsed line for the report links on an ordinary day", async () => {
-    // The daily shape, and the reason spec R7 was overridden for this panel
-    // (Destin, 2026-08-16): a wrong approval MAKES the panel healthy, so the
-    // correction editor has to survive being healthy or the only repair is
-    // hand-editing JSON on the share. `mockAll`'s default is that healthy
-    // state — nothing waiting, one edition answered.
+    // Asserted as "the page never asks", not as "the panel is absent". An
+    // absence assertion passes for a panel that is mounted and merely failed
+    // to render, which is exactly what happened here before: `bookFormats`
+    // was unmocked, every one of these specs made a real failing request, and
+    // the panel was invisible in all of them — so no assertion in this file
+    // could see whether it was mounted at all. `mockAll` deliberately no
+    // longer mocks it, so re-adding `<ReportLinksPanel />` turns this red.
+    const formats = vi.spyOn(api, "bookFormats");
     mockAll();
     await renderAdmin();
 
-    const card = await screen.findByTestId("admin-report-links-answered");
-    expect(card).toHaveTextContent(/full report links/i);
-    // And it is the quiet shape, not the alert panel.
+    expect(formats).not.toHaveBeenCalled();
     expect(screen.queryByTestId("admin-report-links")).toBeNull();
+    expect(screen.queryByTestId("admin-report-links-answered")).toBeNull();
   });
 
   it("labels multi-panel groups, in the order an admin needs them, and drops the label from single-panel groups", async () => {

@@ -1078,3 +1078,284 @@ describe("the queue", () => {
 
 // --- Add a JLBC book --------------------------------------------------------
 
+
+// --- who may set a "Full report" link ---------------------------------------
+
+describe("the 'Full report link' row on a book card", () => {
+  // The page resolves WHO IS LOOKING once and hands it to both book cards.
+  // /upload is open to the whole office; approving a whole-report address
+  // changes what every analyst's "Full report" button downloads, so the row
+  // is admin-only (Destin's call, 2026-08-16, over showing it read-only).
+  //
+  // 🔴 This is the WIRE, and it has been the silent failure twice on this
+  // feature: the panel this replaces was once deleted from its page with
+  // 1008 of 1008 specs green, and its api layer was once entirely unpinned.
+  // The row's own behaviour lives in `upload/ReportLinkRow.test.tsx`; these
+  // two specs assert only that the page decides, and that the decision
+  // arrives.
+
+  function bookRows(isAdmin: boolean) {
+    vi.spyOn(api, "documentTypes").mockResolvedValue([ROWS[0]]);
+    vi.spyOn(api, "me").mockResolvedValue({
+      user: "DMOSS",
+      is_admin: isAdmin,
+      admin_username: isAdmin ? "DMOSS" : "SOMEONEELSE",
+      admin_claimable: false,
+      admin_reset_pending: false,
+    });
+    vi.spyOn(api, "bookFormats").mockResolvedValue({
+      pending: [],
+      approved: [
+        {
+          family: "Baseline",
+          fiscal_year: 2027,
+          single_file: "https://www.azjlbc.gov/27baseline/fy2027baseline.pdf",
+          linked_toc: "https://www.azjlbc.gov/27baseline/baselinetoc.pdf",
+          names_its_year: { single_file: true, linked_toc: true },
+        },
+      ],
+      online: true,
+      reason: null,
+      problems: [],
+    });
+  }
+
+  it("reaches an admin's book card", async () => {
+    bookRows(true);
+    render(<Upload />);
+    await selectType(/baseline book/i);
+    const row = await screen.findByTestId("report-links");
+    // Not merely mounted: it resolved this card's own family, which is the
+    // half of the wire the slug-vs-label trap breaks silently.
+    await waitFor(() =>
+      expect(row.querySelector("summary")!.textContent).toMatch(/1 edition set/),
+    );
+  });
+
+  it("is absent for everyone else, and asks the server nothing", async () => {
+    bookRows(false);
+    render(<Upload />);
+    await selectType(/baseline book/i);
+    // The card is open and fully rendered — asserted through a control that
+    // is always there — so this is a real absence, not a not-yet-rendered one.
+    expect(await screen.findByTestId("book-about")).toBeTruthy();
+    expect(screen.queryByTestId("report-links")).toBeNull();
+    expect(api.bookFormats).not.toHaveBeenCalled();
+  });
+
+  it("asks the server ONCE for both families, not once per card opened", async () => {
+    // The whole reason the fetch is on the page: the answer covers both
+    // families in a single round-trip, and a card's body is UNMOUNTED when it
+    // closes — so a row that fetched for itself issued an identical request
+    // every time an admin opened a book card. Three opens, three calls.
+    bookRows(true);
+    vi.spyOn(api, "documentTypes").mockResolvedValue([
+      ROWS[0],
+      { ...ROWS[0], key: "approps-row", label: "Appropriations Report",
+        redirect: { action: "add-jlbc-book", family: "approps",
+                    detail: "Stored as one document per agency." } },
+    ]);
+    render(<Upload />);
+    await selectType(/baseline book/i);
+    await selectType(/appropriations report/i);
+    await selectType(/baseline book/i);
+    await waitFor(() => expect(api.bookFormats).toHaveBeenCalledTimes(1));
+  });
+});
+
+// --- the collapsed card says a LINK is waiting, not just a document ---------
+
+describe("a book card's chip counts whole-report links too", () => {
+  // 🔴 THE DEFECT. `bookStatus` counted MISSING DOCUMENTS only, while the
+  // waiting-link state lived inside the self-fetching row two components
+  // below it. So the header rendered "up to date" while the row inside it read
+  // "FY 2028 needs one" — and with the card SHUT there was no signal at all.
+  //
+  // What that costs: JLBC publishes FY2028, an admin adds its documents, the
+  // chip flips to "up to date", and the waiting link is invisible until
+  // somebody opens that card for an unrelated reason. That is exactly the
+  // "second half you forget" the move onto this card exists to prevent.
+
+  function cards(
+    over: {
+      missing?: api.BookCheck["missing"];
+      pending?: api.PendingEdition[];
+      approved?: api.ApprovedEdition[];
+      problems?: string[];
+      formatsFails?: string;
+    } = {},
+  ) {
+    vi.spyOn(api, "documentTypes").mockResolvedValue([ROWS[0]]);
+    vi.spyOn(api, "me").mockResolvedValue({
+      user: "DMOSS", is_admin: true, admin_username: "DMOSS",
+      admin_claimable: false, admin_reset_pending: false,
+    });
+    vi.spyOn(api, "booksMissing").mockResolvedValue({
+      checked_at: new Date().toISOString(), online: true, reason: null,
+      missing: over.missing ?? [], present: [], unavailable: [],
+    });
+    const formats = vi.spyOn(api, "bookFormats");
+    if (over.formatsFails) formats.mockRejectedValue(new Error(over.formatsFails));
+    else
+      formats.mockResolvedValue({
+        pending: over.pending ?? [], approved: over.approved ?? [],
+        online: true, reason: null, problems: over.problems ?? [],
+      });
+  }
+
+  function approved(family: string, year: number, namesItsYear: boolean): api.ApprovedEdition {
+    return {
+      family,
+      fiscal_year: year,
+      single_file: `https://www.azjlbc.gov/${String(year).slice(2)}ar/report.pdf`,
+      linked_toc: null,
+      names_its_year: { single_file: namesItsYear, linked_toc: true },
+    };
+  }
+
+  function pending(family: string, year: number): api.PendingEdition {
+    return {
+      family, fiscal_year: year,
+      candidates: { single_file: null, linked_toc: null },
+    };
+  }
+
+  it("says a link is waiting on the CLOSED card", async () => {
+    cards({ pending: [pending("Baseline", 2028)] });
+    render(<Upload />);
+    const card = await screen.findByTestId("doc-type-card");
+    // The mockup's own words, and its amber chip.
+    expect(await within(card).findByText("1 needs a link")).toBeInTheDocument();
+    expect(card.querySelector(".up-card-state")!.className).toContain("up-tone-need");
+    // Nothing was opened — which is the entire point.
+    expect(within(card).getByRole("button").getAttribute("aria-expanded")).toBe("false");
+  });
+
+  it("counts more than one, in plural English", async () => {
+    cards({ pending: [pending("Baseline", 2028), pending("Baseline", 2029)] });
+    render(<Upload />);
+    expect(await screen.findByText("2 need links")).toBeInTheDocument();
+  });
+
+  it("counts only ITS OWN family's waiting links", async () => {
+    // Same slug-vs-label trap the row itself carries: this card is "baseline"
+    // and the table says "Baseline". Counting the other family's editions
+    // would put a chip on a card with nothing to do — and counting NEITHER
+    // (the failure a wrong comparison really produces) is the silent one.
+    cards({ pending: [pending("Appropriations Report", 2028)] });
+    render(<Upload />);
+    const card = await screen.findByTestId("doc-type-card");
+    await waitFor(() => expect(within(card).getByText("up to date")).toBeInTheDocument());
+    expect(within(card).queryByText(/needs a link/)).toBeNull();
+  });
+
+  it("says a STORED wrong-year address needs a look, on the closed card", async () => {
+    // 🔴 THE DEFECT THIS FIXES, and the worst one this chip can carry. The
+    // chip counted `pending` only, while the row treated a stored wrong-year
+    // address as outstanding too. So: an admin approves FY2028 with the wrong
+    // address, the server flags it, the row turns amber — and on that same
+    // click the header flips to green "up to date", hiding the contradiction
+    // behind TWO shut disclosures.
+    //
+    // A wrong-year address is the one defect an HTTP 200 cannot detect: a
+    // live, downloadable, WRONG report behind a button labelled "Full report".
+    // The warning is the entire mitigation, so it has to reach the outside of
+    // the card. (The admin panel this replaced counted year warnings in its
+    // own health check; counting only `pending` was a regression against it.)
+    cards({ approved: [approved("Baseline", 2028, false)] });
+    render(<Upload />);
+    const card = await screen.findByTestId("doc-type-card");
+    expect(await within(card).findByText("needs a look")).toBeInTheDocument();
+    expect(card.querySelector(".up-card-state")!.className).toContain("up-tone-need");
+    expect(within(card).queryByText("up to date")).toBeNull();
+    // Nothing was opened, which is the point.
+    expect(within(card).getByRole("button").getAttribute("aria-expanded")).toBe("false");
+  });
+
+  it("says a saved row the app cannot parse needs a look", async () => {
+    // A malformed row on the share belongs to no family — the thing that
+    // failed to parse IS the family name — so both cards report it. The row
+    // has always shown it; the header said "up to date" over the top of it.
+    cards({ problems: ["Ignoring the saved links for Bogus:2028: unknown report family."] });
+    render(<Upload />);
+    const card = await screen.findByTestId("doc-type-card");
+    expect(await within(card).findByText("needs a look")).toBeInTheDocument();
+  });
+
+  it("says it cannot check the LINKS when their fetch failed, rather than up to date", async () => {
+    // 🔴 The cheap version of the same shape. The fetch fails, `formats` stays
+    // null, a count of `pending` is 0, and the chip read "up to date" — a
+    // confident wrong answer over a table that could not be read at all. It is
+    // the exact reason the `!check.online` branch above it exists.
+    //
+    // Worded "can't check LINKS" so it is not confused with that branch, which
+    // is about azjlbc.gov and the DOCUMENTS.
+    cards({ formatsFails: "whole-report links: admin only" });
+    render(<Upload />);
+    const card = await screen.findByTestId("doc-type-card");
+    expect(await within(card).findByText("can’t check links")).toBeInTheDocument();
+    expect(card.querySelector(".up-card-state")!.className).toContain("up-tone-warn");
+    expect(within(card).queryByText("up to date")).toBeNull();
+  });
+
+  it("a stored address that names its year leaves the card up to date", async () => {
+    // The other half of the wrong-year spec: if every stored edition raised
+    // "needs a look" the state would be permanent and the amber would stop
+    // meaning anything.
+    cards({ approved: [approved("Baseline", 2027, true)] });
+    render(<Upload />);
+    const card = await screen.findByTestId("doc-type-card");
+    expect(await within(card).findByText("up to date")).toBeInTheDocument();
+  });
+
+  it("shows the documents first when BOTH are outstanding", async () => {
+    // Deliberate order: an edition whose documents are missing is not really
+    // in the corpus yet, so that is the bigger, earlier job — and the chip
+    // flips to the link the moment the documents land. There is no state where
+    // both are outstanding and the chip is silent.
+    cards({
+      missing: [{ family: "baseline", fiscal_year: 2028, document_count: 110, source: "catalog" }],
+      pending: [pending("Baseline", 2028)],
+    });
+    render(<Upload />);
+    expect(await screen.findByText("1 to add")).toBeInTheDocument();
+    expect(screen.queryByText(/needs a link/)).toBeNull();
+  });
+
+  it("says nothing about links to a non-admin", async () => {
+    // 🔴 A non-admin cannot act on a link, never causes the fetch, and must
+    // see exactly the chip they saw before this feature existed. A chip
+    // reporting work they cannot do is noise they learn to ignore — and the
+    // count would have to come from a request the server refuses anyway.
+    vi.spyOn(api, "documentTypes").mockResolvedValue([ROWS[0]]);
+    vi.spyOn(api, "me").mockResolvedValue({
+      user: "ANALYST", is_admin: false, admin_username: "DMOSS",
+      admin_claimable: false, admin_reset_pending: false,
+    });
+    vi.spyOn(api, "booksMissing").mockResolvedValue({
+      checked_at: new Date().toISOString(), online: true, reason: null,
+      missing: [], present: [], unavailable: [],
+    });
+    vi.spyOn(api, "bookFormats").mockResolvedValue({
+      pending: [pending("Baseline", 2028)], approved: [], online: true,
+      reason: null, problems: [],
+    });
+    render(<Upload />);
+    expect(await screen.findByText("up to date")).toBeInTheDocument();
+    expect(screen.queryByText(/needs a link/)).toBeNull();
+    expect(api.bookFormats).not.toHaveBeenCalled();
+  });
+
+  it("asks the server to skip its cache when the row says Look again", async () => {
+    // The row's half is pinned in ReportLinkRow.test.tsx; this is the page's:
+    // the request that actually goes out carries `refresh`. Without it an
+    // edition published an hour ago stays invisible until tomorrow.
+    cards({ pending: [pending("Baseline", 2028)] });
+    render(<Upload />);
+    await selectType(/baseline book/i);
+    const row = await screen.findByTestId("report-links");
+    fireEvent.click(row.querySelector("summary")!);
+    fireEvent.click(screen.getByRole("button", { name: /look again/i }));
+    await waitFor(() => expect(api.bookFormats).toHaveBeenCalledWith(true));
+  });
+});

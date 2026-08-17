@@ -1768,7 +1768,10 @@ nav.primary{position:relative;padding-right:44px;}
    is already understood, and the words were competing with the rule itself,
    which is the only thing on that line anyone must read. */
 .page-upload .up-notice .up-card-caret{color:var(--warn);}
-.page-upload .up-notice[open] .up-card-caret{transform:rotate(180deg);}
+/* The notice's own open-rotation rule was deleted here: it also carries
+   `up-disclose`, so the ONE generic rule further down
+   (`.up-disclose[open]>summary .up-card-caret`) now turns every caret on this
+   page, which is the point of there being one caret. */
 /* The browser's own focus ring was showing as a black rectangle around the
    summary (visible in the 2026-08-16 screenshot). Same inset navy ring the
    type rows use. */
@@ -1828,6 +1831,14 @@ nav.primary{position:relative;padding-right:44px;}
 .page-upload .up-tone-act{color:var(--az-gold-d);background:var(--az-gold-100);}
 .page-upload .up-tone-ok{color:var(--ink-3);background:var(--canvas);}
 .page-upload .up-tone-warn{color:var(--az-red);background:var(--az-red-100);}
+/* "1 needs a link" — a whole-report link is waiting for this family.
+   AMBER, matching the approved mockup's `.chip.need` (#fdf1e3 behind
+   `--warn`), and deliberately NOT `up-tone-warn`: that one is spent on
+   "can't check", a FAILURE, and it is painted in `--az-red`, which this
+   palette remaps to a blue. Work waiting and a check that broke are two
+   different messages and must not share a colour. `--warn` (#b45309) was
+   chosen at 5.9:1 for exactly this kind of use. */
+.page-upload .up-tone-need{color:var(--warn);background:#fdf1e3;}
 .page-upload .up-tone-wait{color:var(--ink-3);background:transparent;}
 
 .page-upload .up-card-caret{flex:0 0 auto;width:18px;height:18px;color:var(--ink-3);transition:transform .18s;}
@@ -1893,8 +1904,17 @@ nav.primary{position:relative;padding-right:44px;}
 .page-upload .up-disclose>summary{display:flex;align-items:center;gap:8px;cursor:pointer;list-style:none;font-size:12.5px;font-weight:800;color:var(--az-gold-d);}
 .page-upload .up-disclose>summary::-webkit-details-marker{display:none;}
 .page-upload .up-disclose>summary:hover{color:var(--navy);}
-.page-upload .up-disclose-mark{flex:none;width:0;height:0;border-left:5px solid currentColor;border-top:4px solid transparent;border-bottom:4px solid transparent;transition:transform .15s;}
-.page-upload .up-disclose[open]>summary .up-disclose-mark{transform:rotate(90deg);}
+/* 🔴 ONE CARET SHAPE ON THIS PAGE. `.up-disclose-mark` — a CSS
+   border-triangle that pointed sideways and rotated 90° — used to live here
+   and was drawn by the section rows inside a book card, while every card
+   header drew the stroked `<Chevron/>` SVG. Two shapes for one idea on one
+   card, which is the thing Plan C's browser pass fixed once already ("one
+   caret shape throughout"). Both now render `<Chevron/>`, so this rule is all
+   that is left: rotate whatever the open disclosure's caret is. */
+.page-upload .up-disclose[open]>summary .up-card-caret{transform:rotate(180deg);}
+/* Slightly smaller inside a 12.5px section row than on an 15.5px card head,
+   so the caret matches the text it sits beside rather than the one above. */
+.page-upload .up-book-sec>summary .up-card-caret{width:15px;height:15px;}
 
 .page-upload .up-expect{font-size:12.5px;font-weight:700;color:var(--ink-3);}
 /* The "nobody is processing uploads" warning. Bordered rather than a bare
@@ -1953,6 +1973,13 @@ nav.primary{position:relative;padding-right:44px;}
    missing edition is a bordered row on the card's own tint, matching the
    `.up-drop` recipe directly above it, so the two things a book card can
    show you sit at the same visual weight. */
+/* STATE -> ACTIONS -> EXPLANATION (2026-08-16). Measured before it: 102
+   words visible on opening a Baseline Book card, with the answer the FOURTH
+   thing you read, and every line at the same size and colour so nothing told
+   the eye where to land. The state line is now the only heavy text in the
+   body — that contrast IS the hierarchy, so do not promote anything else to
+   `--ink` at 800 here. */
+.page-upload .up-book-state{margin:0;font-size:14px;font-weight:800;color:var(--ink);}
 .page-upload .up-book-why{margin:0;}
 .page-upload .up-book-missing{list-style:none;margin:12px 0 0;padding:0;display:grid;gap:8px;}
 .page-upload .up-book-item{border:1px solid var(--line);border-radius:var(--r-md);padding:12px 14px;background:#fafbff;}
@@ -1963,16 +1990,137 @@ nav.primary{position:relative;padding-right:44px;}
 .page-upload .up-book-acts{display:flex;align-items:center;gap:8px;margin-left:auto;}
 .page-upload .up-book-plan{margin-top:10px;padding-top:10px;border-top:1px solid var(--line);}
 .page-upload .up-book-bad{list-style:none;margin:6px 0 0;padding:0;display:grid;gap:4px;font-size:12px;color:var(--ink-3);word-break:break-all;}
-.page-upload .up-book-checked{margin-top:10px;}
+/* Directly under the state line, and deliberately small and quiet: it
+   qualifies the answer above it rather than being one. */
+.page-upload .up-book-checked{margin:3px 0 0;}
+
+/* A section row. Same `<details>` idiom as `.up-disclose` everywhere else on
+   this page (so the caret, the keyboard behaviour and the colour are one
+   implementation), re-laid-out as a full-width row: name left, what is
+   outstanding inside it right, caret last. The separators are what let the
+   rows be counted at a glance without a box around each one. */
+.page-upload .up-book-sec{margin-top:0;border-top:1px solid var(--line);}
+.page-upload .up-book-sec:first-of-type{margin-top:14px;}
+.page-upload .up-book-sec>summary{padding:11px 0;color:var(--ink-3);}
+.page-upload .up-book-sec-name{flex:1;min-width:0;font-size:13.5px;font-weight:800;color:var(--navy);}
+.page-upload .up-book-sec-out{font-size:12.5px;font-weight:700;color:var(--ink-3);}
+.page-upload .up-book-sec>summary:hover .up-book-sec-name{color:var(--az-gold-d);}
+.page-upload .up-book-sec-body{padding:2px 0 14px;display:grid;gap:8px;}
+
 /* Un-addable editions: dimmed, and with NO action of any kind beside them
    (spec T10). The dimming is the second signal after the missing Add
    button — an eye scanning the list should not have to read each row to
    learn there is nothing to do with it. */
-.page-upload .up-book-unavailable ul{list-style:none;margin:8px 0 0;padding:0;display:grid;gap:7px;}
+.page-upload .up-book-unavailable{list-style:none;margin:0;padding:0;display:grid;gap:7px;}
 .page-upload .up-book-dim{display:grid;gap:1px;opacity:.72;}
 .page-upload .up-book-manual{margin-top:12px;}
+/* The section body already spaces its children, so the standalone margin
+   would double the gap between the by-hand link and the list under it. */
+.page-upload .up-book-sec-body>.up-book-manual{margin-top:0;}
+.page-upload .up-book-sec-body>.up-where{margin-bottom:0;}
 .page-upload .up-book-manual .up-book-row{margin-top:8px;align-items:end;}
 .page-upload .up-book-manual .up-field{flex:0 0 130px;}
+
+/* ----- the "Full report link" row (moved off /admin, 2026-08-16) -----
+ *
+ * A section row like the two beside it, so it costs the card no new visual
+ * idea. `is-need` is the ONE colour in this card's body and it is spent on one
+ * meaning: there is outstanding work in here. A row that is merely
+ * informative ("23 editions set") must not use it, or the colour stops
+ * meaning anything.
+ *
+ * Every class below is `.up-*` and therefore SCOPED under `.page-upload` — the
+ * convention this stylesheet documents. `.adm-*` is unscoped and would have
+ * painted here unchanged, which is why the admin panel's markup could have
+ * been dropped in as-is; it is deliberately not, because this row now lives on
+ * a page with its own button, chip and field primitives and should wear them.
+ */
+.page-upload .up-book-sec.is-need .up-book-sec-out{color:var(--warn);}
+
+/* One format's line: its NAME on its own line, then the filename, the size,
+   an opener and the controls on the line below it.
+   The filename is the only part that identifies the file — the scheme and
+   host are identical on all 72 of these — so it takes the flexible column and
+   ellipsises rather than wrapping.
+
+   🔴 WHY THE NAME GETS ITS OWN LINE (2026-08-16). It was a fixed 96px column
+   beside everything else, and reported as wrapping onto two ragged lines. The
+   first fix was to widen it to the mockup's 120px — and then the two formats
+   were renamed to the ANALYST-facing words the "Full report" chooser already
+   shows a reader ("Single File PDF", "Linked Table of Contents"), so that the
+   admin approving a link and the analyst opening it are not shown two names
+   for one thing. "Linked Table of Contents" measures ~168px at 13px/800.
+
+   MEASURED, because the alternative was guessing: a `.up-rl-fmt` inside a
+   book card has about 586px to work with (an 820px page wrap, less the
+   Uploads card's 32px, less the type card's 48px, less the body's 136px left
+   inset and 18px right). A 170px name column leaves ~406px for a filename
+   (180 minimum), a size (~50), an opener and two controls (~150 together)
+   plus four gaps — roughly 465px of content in 406px, so the row could not
+   hold one line at any column width. Stacking the name is the honest answer;
+   letting it wrap raggedly is what was already being complained about.
+
+   `flex:1 0 100%` forces the break with no extra markup, and `nowrap` means
+   the name can never be a fraction of a pixel from wrapping again. */
+.page-upload .up-rl-row{display:grid;gap:4px;}
+.page-upload .up-rl-fmt{display:flex;flex-wrap:wrap;align-items:center;gap:6px 10px;padding:8px 0;border-top:1px dashed var(--line);font-size:13px;}
+/* No hairline above the FIRST address in a card. Two selectors because there
+   are two shapes: one waiting edition (the `.up-rl-row` really is the first
+   child) and more than one (a `FY 2028` heading is, and `:first-child` then
+   misses — which drew a dashed rule directly under that heading). CSS has no
+   "first element of this class", so the heading case is named explicitly. */
+.page-upload .up-rl-row:first-child>.up-rl-fmt:first-child,
+.page-upload .up-rl-pending-head+.up-rl-row>.up-rl-fmt:first-child{border-top:0;}
+.page-upload .up-rl-k{flex:1 0 100%;white-space:nowrap;font-weight:800;color:var(--navy);}
+.page-upload .up-rl-f{flex:1 1 180px;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-family:ui-monospace,Menlo,Consolas,monospace;font-size:12px;color:var(--ink-2);}
+.page-upload .up-rl-f.is-empty{font-family:inherit;font-size:12.5px;color:var(--ink-3);white-space:normal;}
+.page-upload .up-rl-sz{flex:none;font-size:12px;font-weight:700;color:var(--ink-3);}
+/* 🔴 ONE RIGHT-ALIGNED CLUSTER for the opener and the mini controls. Reported
+   defect: "None published" dropped onto a line of its own under every address,
+   making each format two rows tall — the controls were direct flex children,
+   so a long filename could split them. `margin-left:auto` also pins them to
+   the right edge, so the eye finds them in the same place on every row.
+   The deviation they exist for is deliberate and stays: "None published" is
+   visible rather than hidden behind "change", because six Appropriations
+   Report editions genuinely have no single file and burying the right answer
+   two clicks deep is worse than a slightly busier line. */
+.page-upload .up-rl-ctl{flex:none;margin-left:auto;display:flex;align-items:center;gap:8px;}
+/* `open ↗` is a real <a> to another site and keeps target/rel and its own
+   per-format accessible name — only its LOOK is a chip, copied from `.fchip`
+   above rather than re-derived, because the owner asked for the bare blue
+   underlined-link treatment to go. */
+.page-upload .up-rl-open{flex:none;font-family:inherit;font-size:12px;font-weight:700;color:var(--ink-2);background:var(--canvas);border:1.5px solid var(--line);border-radius:var(--r-pill);padding:4px 11px;text-decoration:none;transition:background .13s,border-color .13s,color .13s;}
+.page-upload .up-rl-open:hover{border-color:var(--az-gold);color:var(--az-gold-d);text-decoration:none;}
+/* The mini controls ARE `.fchip` now (see the buttons' className) — this only
+   trims them a touch, so they read as subordinate to the Preview/Add chips on
+   the card above and, above all, to the one filled Approve below. */
+.page-upload .up-rl-mini{flex:none;font-size:12px;padding:4px 11px;}
+.page-upload .up-rl-input{flex:1 1 220px;min-width:0;}
+
+/* 🔴 The wrong-year warning wears this, and it is the ONE defect a 200 OK
+   cannot detect. Amber and bold on purpose — it must not read as a hint. */
+.page-upload .up-rl-warn{margin:0;font-size:12.5px;font-weight:700;color:var(--warn);}
+.page-upload .up-rl-notes{list-style:none;margin:0;padding:0;display:grid;gap:6px;}
+.page-upload .up-rl-pending{display:grid;gap:4px;}
+.page-upload .up-rl-pending-head{margin:6px 0 0;font-size:13px;font-weight:800;color:var(--navy);}
+.page-upload .up-rl-acts{display:flex;justify-content:flex-end;align-items:center;gap:14px;padding-top:10px;}
+/* 🔴 APPROVE IS THE FILLED NAVY PRIMARY, and it is scoped to THIS row on
+   purpose. The shared `.page-upload .allbtn` is a white pill with a gold
+   border, which is right for `Add` and `Preview` on the card above — those are
+   secondary to reading what is missing — but wrong here: Approve was rendering
+   LIGHTER than the plain text controls beside it, on the one control in this
+   row that writes to the share and changes what every analyst's "Full report"
+   button downloads. The approved mockup draws it `background:var(--navy)`
+   with white text, and this is that, reusing the page's own token rather than
+   a new colour. Do NOT lift it onto `.allbtn` — that would repaint Add and
+   Preview and undo the hierarchy this fixes. */
+.page-upload .up-rl-acts .allbtn{color:#fff;background:var(--navy);border-color:var(--navy);}
+.page-upload .up-rl-acts .allbtn:hover{color:#fff;background:var(--navy-900);border-color:var(--navy-900);}
+.page-upload .up-rl-acts .allbtn:disabled:hover{background:var(--navy);border-color:var(--navy);}
+.page-upload .up-rl-approved{list-style:none;margin:0;padding:0;display:grid;gap:6px;}
+.page-upload .up-rl-approved-head{display:flex;align-items:center;gap:12px;font-size:13px;}
+.page-upload .up-rl-approved-head>span{flex:0 0 96px;font-weight:800;color:var(--navy);}
+.page-upload .up-rl-again{margin:2px 0 0;}
 
 /* ===== AI Mode ===== (Plan 4 Task 12 — the toggle, the tier control, the panel)
  *
@@ -2741,10 +2889,12 @@ fieldset.adm-field{border:0;padding:0;}
 .adm-group{margin-bottom:calc(var(--gap) * 1.5);}
 .adm-group-title{font-size:11.5px;font-weight:800;text-transform:uppercase;letter-spacing:.06em;color:var(--ink-3);margin:0 0 8px 4px;}
 .adm-group>.adm-panel:last-child{margin-bottom:0;}
-/* A card sitting DIRECTLY in a group rather than inside a panel — currently
-   only ReportLinksPanel's healthy shape, one collapsed line instead of a full
-   alert panel. `.adm-card` carries margin-top for stacking inside a panel and
-   no margin-bottom, so without this it sits flush against the next panel. */
+/* A card sitting DIRECTLY in a group rather than inside a panel. Nothing uses
+   it today — the whole-report links panel, which did, moved to the Upload page
+   on 2026-08-16. Kept because `.adm-card` carries margin-top for stacking
+   inside a panel and no margin-bottom, so the next card placed this way would
+   sit flush against the following panel and the shape would look broken for a
+   reason nobody could find. */
 .adm-group>.adm-card{margin-bottom:var(--gap);}
 .adm-group>.adm-card:last-child{margin-bottom:0;}
 

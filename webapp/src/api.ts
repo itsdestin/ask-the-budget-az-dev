@@ -1389,6 +1389,18 @@ export interface ApprovedEdition {
    *  not the same as the edition being unanswered (spec R1). */
   single_file: string | null;
   linked_toc: string | null;
+  /** 🔴 The server's year check on what it has STORED, so the wrong-year
+   *  warning is DERIVED rather than remembered.
+   *
+   *  It used to be learned only from the reply to the PUT that saved the
+   *  address, and held in component state — which the book card destroys on
+   *  the next click, because opening any other card unmounts this one. The
+   *  warning therefore lasted until the admin looked at anything else, and
+   *  reopening the edition afterwards showed nothing. A wrong-year address is
+   *  the one defect a 200 OK cannot detect, and it is flagged rather than
+   *  refused, so this warning is the whole mitigation. Carried with the row,
+   *  it cannot be lost by a remount or a reload. */
+  names_its_year: SavedYearCheck;
 }
 
 export interface BookFormats {

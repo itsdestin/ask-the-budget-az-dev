@@ -36,6 +36,7 @@ from app.routes.books_missing import FAMILY_LABELS, corpus_editions
 from ingest.book_discovery import DiscoveryError, plan_edition
 from store.config import data_dir
 from store.report_formats import (
+    YEARLESS_BY_DESIGN,
     format_key,
     load,
     names_its_year,
@@ -285,6 +286,98 @@ def _candidates_for(label: str, family_slug: str, year: int, prober, cache: dict
     return _Probe(candidates=found, probed=True)
 
 
+def _stored_year_check(url: str | None, year: int) -> bool | None:
+    """The year verdict shown for an address ALREADY SAVED. `None` = no address.
+
+    🔴 IT EXISTS ONLY TO SILENCE ONE PERMANENT, UNFIXABLE FALSE ALARM. JLBC
+    published the FY2023 Appropriations Report's table of contents out of its
+    undated `/budget/` folder, so its web address is
+    `https://www.azjlbc.gov/budget/apprpttoc.pdf` — an address with no year
+    anywhere in it. It was downloaded and read on 2026-08-16 and it really is
+    the FY2023 book. It is correct, it cannot be made to name its year, and no
+    administrator can do anything about it. `store.report_formats` records that
+    one address in `YEARLESS_BY_DESIGN` for exactly this reason.
+
+    Without this, opening the Appropriations Report card showed an amber
+    warning about FY2023 EVERY TIME, above the controls for whichever edition
+    was actually waiting to be approved — so it read as a complaint about the
+    thing the administrator was being asked to approve. A warning that is
+    always on screen and always wrong is worse than no warning at all: it
+    teaches the reader to scroll past warnings, and the only other warning
+    wearing this exact treatment is the real one — a live, downloadable,
+    WRONG-year report behind a button labelled "Full report", which is the one
+    defect a successful download cannot detect.
+
+    WHY HERE AND NOT INSIDE `names_its_year`. That function answers a narrow,
+    literal question — "do the digits of this year appear in this address?" —
+    and every caller decides for itself whether the one exemption applies. The
+    two callers that already existed do it this way
+    (`tests/test_report_formats_data.py::test_every_url_names_its_own_fiscal_year`
+    and `scripts/verify_report_formats.py::year_mismatches`), and the callers
+    that must NOT be exempt are the reason the shape is right:
+
+      * `POST /api/admin/book-formats/check` — if an administrator pastes this
+        address for FY2028 they genuinely SHOULD be warned, because it serves
+        the FY2023 book;
+      * the `PUT` reply's `names_its_year` echo, for the same reason;
+      * a PENDING edition's suggested addresses (`_candidate` above).
+
+    Only the derived warning for an edition ALREADY APPROVED is exempt, and
+    that is this function's whole reach.
+
+    KNOWN, PRE-EXISTING LIMIT, recorded rather than fixed here: the exemption
+    is keyed on the address string alone, so it would also stay quiet if
+    someone copied the FY2023 row onto FY2024 and left the address unchanged.
+    A previous review already flagged that; narrowing it is its own change.
+    """
+    if not url:
+        return None
+    if url in YEARLESS_BY_DESIGN:
+        return True
+    return names_its_year(url, year)
+
+
+def _approved_row(key: str, row) -> dict:
+    """One already-answered edition, INCLUDING the year check on what is stored.
+
+    🔴 `names_its_year` IS HERE SO THE WARNING CAN BE DERIVED RATHER THAN
+    REMEMBERED, and that is a fix for a real defect. The card used to learn a
+    stored address had the wrong year in exactly one way: from the reply to the
+    PUT that saved it, held in component state. Every book card on /upload
+    unmounts the instant another card is clicked, so the warning died on the
+    next click -- and reopening the edition under "Already answered" showed
+    nothing either, because a stored edition carried no year check at all. The
+    admin was left with a row reading "24 editions set", not amber, over a live
+    downloadable WRONG-year report behind a button labelled "Full report".
+
+    That is the ONE defect a `200 OK` cannot detect, and R6 deliberately flags
+    it rather than refusing it (`budget/apprpttoc.pdf` genuinely IS the FY2023
+    report), so this warning is the whole mitigation. A mitigation that a
+    single unrelated click erases is not one. Sending the check with the row
+    makes it a property of the DATA, so it survives any remount and any reload.
+
+    `None` for a format recorded as never published: there is no address to
+    judge, and `False` there would read as a complaint about one. Same shape as
+    `write_edition`'s reply, deliberately -- the card reads the two through one
+    code path.
+
+    The verdict comes from `_stored_year_check`, NOT straight from
+    `names_its_year`, and the difference is one documented exemption. Read that
+    function before changing this one.
+    """
+    year = int(key.rpartition(":")[2])
+    return {
+        "family": key.rpartition(":")[0],
+        "fiscal_year": year,
+        "single_file": row.single_file,
+        "linked_toc": row.linked_toc,
+        "names_its_year": {
+            "single_file": _stored_year_check(row.single_file, year),
+            "linked_toc": _stored_year_check(row.linked_toc, year),
+        },
+    }
+
+
 def pending_editions(prober, *, refresh: bool = False) -> dict:
     """Every book edition in the corpus that the link table does not answer."""
     table, problems = load()
@@ -336,25 +429,23 @@ def pending_editions(prober, *, refresh: bool = False) -> dict:
         #
         # ITS REACH, stated because it has been wrong here before: the list IS
         # reachable in the healthy, nothing-pending state, as of 2026-08-16.
-        # `webapp/src/admin/ReportLinksPanel.tsx` renders one collapsed line —
-        # "Full report links — N editions answered" — whenever this list is
-        # non-empty and nothing is waiting, and opening it reaches this same
-        # correction editor. Until that change the whole card was hidden in the
-        # healthy state, so approving a wrong URL (which MAKES the state
-        # healthy) hid the only repair; that was reproduced in review, and
-        # Destin overrode spec R7's render-nothing rule for this panel because
-        # of it. If the panel ever goes silent when healthy again, this comment
-        # is a lie and a wrong link becomes unfixable outside a text editor.
+        # `webapp/src/pages/upload/ReportLinkRow.tsx` renders it as the
+        # "Already answered" section of the "Full report link" row inside the
+        # Baseline Book / Appropriations Report cards on /upload, and opening an
+        # edition there reaches this same correction editor. That row is on the
+        # page every day whether or not anything is waiting.
+        #
+        # (This comment used to name `webapp/src/admin/ReportLinksPanel.tsx`,
+        # which was DELETED when the panel moved off /admin — a load-bearing
+        # safety comment pointing at nothing. Re-pointed 2026-08-16.)
+        #
+        # Before the move the whole card was hidden in the healthy state, so
+        # approving a wrong URL (which MAKES the state healthy) hid the only
+        # repair; that was reproduced in review. If this list ever stops being
+        # reachable when nothing is pending, this comment is a lie and a wrong
+        # link becomes unfixable outside a text editor.
         "approved": sorted(
-            (
-                {
-                    "family": key.rpartition(":")[0],
-                    "fiscal_year": int(key.rpartition(":")[2]),
-                    "single_file": row.single_file,
-                    "linked_toc": row.linked_toc,
-                }
-                for key, row in table.items()
-            ),
+            (_approved_row(key, row) for key, row in table.items()),
             key=lambda a: (-a["fiscal_year"], a["family"]),
         ),
     }
