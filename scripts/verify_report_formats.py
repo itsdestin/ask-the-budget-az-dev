@@ -1,8 +1,19 @@
-"""Re-check every whole-report URL in webapp/src/reportFamilies.ts.
+"""Re-check every whole-report URL the app actually serves.
 
     uv run python scripts/verify_report_formats.py [--full]
 
-WHY THIS EXISTS. `REPORT_FORMATS` is what puts a link behind the "Full report"
+WHAT IT READS, AND WHY THAT CHANGED. Until 2026-08-16 this script parsed a
+`REPORT_FORMATS` constant out of `webapp/src/reportFamilies.ts` with a regex.
+That constant is gone: the table is now `data/report-formats.json` merged with
+the administrator's approvals at `<data_dir>/report-formats.json`, and this
+script reads the MERGED result through `store.report_formats.load`. That
+matters — an edition approved on the Admin page is exactly the kind that has
+never been checked by anyone but the person who approved it, so a verifier
+blind to the overlay would report a clean sweep over only the rows that
+shipped. Any row the overlay could not read is printed before the check rather
+than silently skipped.
+
+WHY THIS EXISTS. This table is what puts a link behind the "Full report"
 button on the Budget Documents page. A wrong or dead URL there is a false
 provenance claim (Invariant 1), and nothing else in the repo would notice: the
 webapp suite runs in jsdom with no network, and the ingest side's own edition
@@ -27,11 +38,16 @@ from __future__ import annotations
 
 import argparse
 import io
-import re
 import sys
 from pathlib import Path
 
 import requests
+
+# Importable because this script runs from the repo root under `uv run`, the
+# same way scripts/build_book_catalog.py is imported by ingest/book_discovery.
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+
+from store.report_formats import load  # noqa: E402  (after the path insert)
 
 # The same browser User-Agent `ingest/cache.py` sends, and for the same
 # measured reason: azjlbc.gov's WAF rejects `python-requests` outright.
@@ -42,26 +58,26 @@ UA = {
     )
 }
 
-SOURCE = Path(__file__).resolve().parent.parent / "webapp" / "src" / "reportFamilies.ts"
-
-# One row per curated edition, e.g.
-#   "Baseline:2019": { singleFile: "https://…", linkedToc: "https://…" },
-ROW = re.compile(
-    r'"(?P<key>[^"]+:\d{4})":\s*\{\s*'
-    r'singleFile:\s*(?P<single>"[^"]*"|null),\s*'
-    r'linkedToc:\s*(?P<toc>"[^"]*"|null)'
-)
+SOURCE = "the shipped table plus the administrator's approvals"
 
 
 def rows() -> list[tuple[str, str, str]]:
-    """(edition key, format name, url) for every curated URL, in file order."""
-    text = SOURCE.read_text(encoding="utf-8")
+    """(edition key, format name, url) for every curated URL, sorted by key.
+
+    Reads the MERGED table, so this checks what the app actually serves rather
+    than only what shipped in the bundle. Problems with the administrator's
+    file are printed rather than swallowed: a row this script cannot read is a
+    row it also cannot check, and reporting "all ok" over a table that quietly
+    lost entries is the silent-success shape this repo keeps getting bitten by.
+    """
+    table, problems = load()
+    for problem in problems:
+        print(f"note: {problem}")
     out: list[tuple[str, str, str]] = []
-    for m in ROW.finditer(text):
-        for kind in ("single", "toc"):
-            raw = m.group(kind)
-            if raw != "null":
-                out.append((m.group("key"), kind, raw.strip('"')))
+    for key, formats in sorted(table.items()):
+        for kind, url in (("single", formats.single_file), ("toc", formats.linked_toc)):
+            if url:
+                out.append((key, kind, url))
     return out
 
 
@@ -76,14 +92,15 @@ def main() -> int:
 
     targets = rows()
     if not targets:
-        # A parse that finds nothing must FAIL, not report a clean sweep — the
-        # regex is pinned to a formatting convention this file could be
-        # reflowed out of, and "0 URLs, 0 problems" is the silent-success shape
-        # this repo keeps getting bitten by.
-        print(f"FAIL: parsed no URLs out of {SOURCE} — has the map's shape changed?")
+        # A read that finds nothing must FAIL, not report a clean sweep. The
+        # committed table can no longer be reflowed out of a regex's shape, but
+        # it can still go missing — it is a data file, and `load()` degrades to
+        # an empty table rather than raising, by design. "0 URLs, 0 problems"
+        # is the silent-success shape this repo keeps getting bitten by.
+        print(f"FAIL: read no URLs out of {SOURCE} — is data/report-formats.json there?")
         return 2
 
-    print(f"{len(targets)} curated URLs in {SOURCE.name}\n")
+    print(f"{len(targets)} curated URLs in {SOURCE}\n")
     bad = 0
     for key, kind, url in targets:
         try:
