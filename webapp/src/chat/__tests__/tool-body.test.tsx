@@ -207,7 +207,11 @@ describe("ToolBody dispatcher", () => {
     expect(html).toContain("The Aviation Fund held");
   });
 
-  it("renders list_filter_values as a scannable table", () => {
+  it("renders list_filter_values as readable names, not a code/count table", () => {
+    // UPDATED for TC20/TC21 (2026-08-16): the view used to print the raw
+    // canonical_id and chunk_count as a table — database plumbing, not
+    // something an analyst can act on. It now shows only the value's
+    // readable name, taken from sample_doc_title.
     const tool = block({
       toolName: "list_filter_values",
       input: { field: "agency" },
@@ -223,9 +227,8 @@ describe("ToolBody dispatcher", () => {
       }),
     });
     const html = renderToString(<ToolBody tool={tool} />);
-    expect(html).toContain("adot");
-    expect(html).toContain("214");
     expect(html).toContain("ADOT FY2026 Baseline");
+    expect(html).not.toContain("214");
   });
 
   it("turns a create_document token into a real download link", () => {
@@ -348,3 +351,119 @@ describe("ToolBody dispatcher", () => {
     expect(html).toContain("is-danger");
   });
 });
+
+// ===== Task 2 additions (TC15, TC20, TC21) — start =====
+
+describe("DocumentGuideView", () => {
+  const guideTool = (overrides = {}) =>
+    ({
+      kind: "tool",
+      toolUseId: "g1",
+      toolName: "document_guide",
+      input: { report_type: "research-memo" },
+      status: "complete",
+      output: JSON.stringify({
+        report_type: "research-memo",
+        guide:
+          "## Numbers\n\nRound to one decimal place in the document body.\n\n## Shape\n\nIssue, background, analysis, options.",
+      }),
+      ...overrides,
+    }) as ToolBlock;
+
+  it("renders the guide as readable text, not raw JSON", () => {
+    const { container } = render(<ToolBody tool={guideTool()} />);
+    expect(container.textContent).toContain("Round to one decimal place");
+    // The raw payload's own punctuation must not survive to the screen.
+    expect(container.textContent).not.toContain('"report_type"');
+    expect(container.textContent).not.toContain("\\n");
+  });
+
+  it("names the report type in plain English", () => {
+    const { container } = render(<ToolBody tool={guideTool()} />);
+    expect(container.textContent).toContain("research memo");
+    expect(container.textContent).not.toContain("research-memo");
+  });
+
+  it("names the guidance as advice", () => {
+    const { container } = render(<ToolBody tool={guideTool()} />);
+    expect(container.textContent).toMatch(/advice/i);
+  });
+
+  it("states that nothing checks the finished document against the guidance", () => {
+    // This is the half that matters: the design deliberately never rewrites
+    // the model's numbers, because that would mean editing figures an
+    // analyst is about to send under their own name. A card that showed
+    // house rules without saying so would imply a check that does not
+    // exist. Pinned separately from the "advice" wording above so a rewrite
+    // that keeps the word "advice" but drops this clause cannot pass.
+    const { container } = render(<ToolBody tool={guideTool()} />);
+    expect(container.textContent).toMatch(/nothing checks|not enforced/i);
+  });
+});
+
+describe("ListFilterValuesView — names, not codes", () => {
+  const filterTool = () =>
+    ({
+      kind: "tool",
+      toolUseId: "f1",
+      toolName: "list_filter_values",
+      input: { field: "agency_canonical_id" },
+      status: "complete",
+      output: JSON.stringify({
+        field: "agency_canonical_id",
+        values: [
+          { canonical_id: "agency:ahcccs", chunk_count: 4812, sample_doc_title: "AHCCCS — FY 2026 Baseline" },
+          { canonical_id: "agency:ade", chunk_count: 3109, sample_doc_title: "Education, Department of — FY 2026 Baseline" },
+        ],
+      }),
+      ...{},
+    }) as ToolBlock;
+
+  it("shows no field codes, no slugs and no chunk counts", () => {
+    const { container } = render(<ToolBody tool={filterTool()} />);
+    const text = container.textContent ?? "";
+    expect(text).not.toContain("agency_canonical_id");
+    expect(text).not.toContain("agency:ahcccs");
+    // Unformatted, not "4,812": {v.chunk_count} rendered raw would produce
+    // "4812" with no thousands separator, and a comma-formatted assertion
+    // never catches that — verified by mutation (see the report).
+    expect(text).not.toContain("4812");
+    expect(text).not.toMatch(/chunk/i);
+  });
+
+  it("shows the agencies themselves", () => {
+    const { container } = render(<ToolBody tool={filterTool()} />);
+    expect(container.textContent).toContain("AHCCCS");
+  });
+
+  it("does not de-duplicate two catalog ids that share a display name", () => {
+    // Two catalog ids resolving to the same displayed name — e.g. two rows
+    // both reading "Child Safety" — are a real, recorded corpus defect
+    // (duplicate agency ids; see STATUS.md's "Corpus identity" sections).
+    // Collapsing them here would hide the exact symptom that makes the
+    // defect visible, so this must render TWO rows, not one.
+    const tool = {
+      kind: "tool",
+      toolUseId: "f2",
+      toolName: "list_filter_values",
+      input: { field: "agency_canonical_id" },
+      status: "complete",
+      output: JSON.stringify({
+        field: "agency_canonical_id",
+        values: [
+          { canonical_id: "agency:cs", chunk_count: 520, sample_doc_title: "Child Safety — FY 2026 Baseline" },
+          { canonical_id: "agency:dcs", chunk_count: 1595, sample_doc_title: "Child Safety — FY 2026 Baseline" },
+        ],
+      }),
+    } as ToolBlock;
+    const { container } = render(<ToolBody tool={tool} />);
+    const chips = container.querySelectorAll(".chat-chip");
+    expect(chips).toHaveLength(2);
+    expect(Array.from(chips).map((c) => c.textContent)).toEqual([
+      "Child Safety",
+      "Child Safety",
+    ]);
+  });
+});
+
+// ===== Task 2 additions — end =====

@@ -50,9 +50,14 @@ export default function ToolCard({ tool, inGroup = false }: Props) {
             keeps a color, because failure is the state worth shouting about
             (Core Invariant 3). Tinting moved from inline style to CSS. */}
         <svg
-          viewBox="0 0 12 12"
-          width={12}
-          height={12}
+          viewBox="0 0 24 24"
+          width={13}
+          height={13}
+          fill="none"
+          stroke="currentColor"
+          strokeWidth="2.2"
+          strokeLinejoin="round"
+          strokeLinecap="round"
           className={
             "chat-tool-glyph" + (tool.status === "running" ? " chat-pulse" : "")
           }
