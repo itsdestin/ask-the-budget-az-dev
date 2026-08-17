@@ -13,7 +13,7 @@ import { toolHeaderSentence } from "./tool-display.js";
 import type { AssistantBlock } from "./chat-types.js";
 import ToolCard from "./ToolCard.js";
 import ToolBody from "./tool-views/ToolBody.js";
-import { toolGlyph } from "./tool-views/primitives.js";
+import { ToolGlyph } from "./tool-views/primitives.js";
 
 type ToolBlock = Extract<AssistantBlock, { kind: "tool" }>;
 
@@ -59,17 +59,9 @@ export default function ToolGroup({ tools }: Props) {
       >
         {/* The run's leading tool supplies the glyph. Neutral in every state —
             failure spends no colour here (TC9) — and it pulses while work is
-            in flight. aria-hidden because the button's own aria-label is its
-            accessible name. */}
-        <svg
-          viewBox="0 0 12 12"
-          width={12}
-          height={12}
-          className={"chat-tool-glyph" + (running ? " chat-pulse" : "")}
-          aria-hidden="true"
-        >
-          {toolGlyph(first.toolName)}
-        </svg>
+            in flight. No `label` is passed, so ToolGlyph renders
+            aria-hidden: the button's own aria-label is its accessible name. */}
+        <ToolGlyph tool={first.toolName} running={running} />
         <span className="chat-tool-sentence">
           <b className="chat-tool-verb">{sentence.verb}</b>
           {sentence.rest}

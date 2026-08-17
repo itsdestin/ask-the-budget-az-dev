@@ -315,3 +315,34 @@ describe("ToolGroup header sentence", () => {
     ).toBe("Searched for “Aviation Fund”");
   });
 });
+
+// 2026-08-16 — this is the guard for the cross-lane defect: this file's own
+// glyph was left on the RETIRED 12x12 viewBox with no stroke/fill while
+// ToolCard.tsx (a sibling worktree, merged with no conflict) moved to the
+// 24x24 stroked set. Nothing above this line would have failed — every one
+// of them asserts text content or aria-label, none looks at the glyph's own
+// SVG attributes. Mirrors `tool-card.test.tsx`'s "draws the glyphs as
+// strokes on a 24x24 grid" spec so the two callers cannot drift again
+// without a test noticing.
+describe("ToolGroup glyph", () => {
+  it("draws the glyph as a stroke on a 24x24 grid, matching ToolCard's", () => {
+    const { container } = render(<ToolGroup tools={[retrieveComplete]} />);
+    const svg = container.querySelector(".chat-tool-glyph")!;
+    expect(svg.getAttribute("viewBox")).toBe("0 0 24 24");
+    expect(svg.getAttribute("stroke")).toBe("currentColor");
+    expect(svg.getAttribute("fill")).toBe("none");
+  });
+
+  it("stays aria-hidden — the button's own aria-label is the accessible name", () => {
+    const { container } = render(<ToolGroup tools={[retrieveComplete]} />);
+    const svg = container.querySelector(".chat-tool-glyph")!;
+    expect(svg.getAttribute("aria-hidden")).toBe("true");
+    expect(svg.getAttribute("role")).not.toBe("img");
+  });
+
+  it("carries no colour-bearing class in the failed single-call case (TC9)", () => {
+    const { container } = render(<ToolGroup tools={[retrieveFailed]} />);
+    const svg = container.querySelector(".chat-tool-glyph")!;
+    expect(svg.getAttribute("class")).not.toContain("is-failed");
+  });
+});

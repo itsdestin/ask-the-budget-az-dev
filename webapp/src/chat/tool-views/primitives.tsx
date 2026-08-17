@@ -26,18 +26,29 @@
 
 import { useState, type ReactNode } from "react";
 
-// Stroked line icons on a 24x24 grid, returned as a <g> for the caller to wrap
-// in <svg viewBox="0 0 24 24" fill="none" stroke="currentColor">.
+// Stroked line icons on a 24x24 grid, returned as a bare <g>.
 //
-// WHY these replaced the pixel-art set (spec TC15, 2026-08-16): the old
-// magnifier was six rects approximating a ring on a 12x12 grid, and at the
-// ~13px these render at, the ring closed into an illegible blob — the product
-// owner reported it as "the icon thing". The app ALREADY owns a magnifier,
-// components/SearchIcon.tsx, taken from the approved design mockup and used in
-// four places on Home and Budget Documents; the tool row was the only place in
-// the app drawing a second one. The mascot keeps its pixel art: that is
-// character art, this is chrome, and the rest of the app's chrome is lines.
-export function toolGlyph(toolName: string): ReactNode {
+// NOT exported. This is the exact shape of the defect this file's callers
+// hit on 2026-08-16: the glyph set was redrawn from 12x12 filled rects to
+// 24x24 stroked paths, and TWO callers (ToolCard.tsx, ToolGroup.tsx) each
+// hand-rolled their own <svg viewBox=...> wrapper around this function's
+// return value. One caller's wrapper was updated to match; the other
+// (ToolGroup.tsx) was edited in a parallel worktree that never touched this
+// file, so git merged both branches clean and every suite stayed green while
+// ToolGroup rendered a cropped quarter of each icon on the wrong grid — on
+// the single most visible icon in the chat, the collapsed tool card.
+//
+// The fix is not "remember to update both wrappers" — it is that there is
+// now only ONE wrapper. `ToolGlyph` below is the only way to render one of
+// these shapes; a caller that wants a tool's icon renders `<ToolGlyph .../>`
+// and can no longer choose a viewBox at all, correct or otherwise. Keeping
+// this function private is what makes that structural rather than a
+// convention — an un-exported binding cannot be imported into ToolCard.tsx
+// or ToolGroup.tsx or any future third caller, so `tsc -b` refuses a
+// reintroduction of the old shape before any test has to catch it.
+// `tool-glyph-contract.test.ts` pins the property anyway, in case a later
+// change re-exports this function without reading this comment.
+function toolGlyph(toolName: string): ReactNode {
   switch (toolName) {
     case "retrieve":
       // The app's own magnifier, verbatim from components/SearchIcon.tsx.
@@ -83,6 +94,59 @@ export function toolGlyph(toolName: string): ReactNode {
       // Unknown tool — a neutral square outline.
       return <rect x="4" y="4" width="16" height="16" rx="2" />;
   }
+}
+
+interface ToolGlyphProps {
+  /** The tool call name, e.g. tool.toolName / first.toolName. */
+  tool: string;
+  /** Pulses the glyph while the call is in flight. Deliberately the only
+   *  status this component reads: ToolGroup's shipped decision (TC9) is that
+   *  the collapsed header spends no COLOUR on failure, so there is no
+   *  "failed" variant here to accidentally wire up. ToolCard's own failure
+   *  tint lives on `.chat-tool.is-failed` in the card shell, not the glyph. */
+  running?: boolean;
+  /** Accessible name for this glyph. Pass the status word (ToolCard: the
+   *  button carries no aria-label of its own, so the glyph IS the accessible
+   *  name). Omit it — the default — to render `aria-hidden="true"` instead,
+   *  for a caller whose own button already carries the full aria-label
+   *  (ToolGroup's header sentence). Do not pass an empty string meaning to
+   *  label it: `label=""` renders `role="img" aria-label=""`, which is a
+   *  worse accessible name than aria-hidden — omit the prop instead. */
+  label?: string;
+  /** Both current callers render at 13px; kept a prop rather than a fixed
+   *  constant only because a size is a legitimate per-caller choice and a
+   *  fixed constant would invite exactly the copy-paste this component
+   *  exists to prevent. */
+  size?: number;
+}
+
+// The ONE place a tool glyph is wrapped in an <svg>. See the WHY comment on
+// `toolGlyph` above — this component existing at all is the fix.
+export function ToolGlyph({
+  tool,
+  running = false,
+  label,
+  size = 13,
+}: ToolGlyphProps) {
+  const a11yProps = label
+    ? { role: "img" as const, "aria-label": label }
+    : { "aria-hidden": "true" as const };
+  return (
+    <svg
+      viewBox="0 0 24 24"
+      width={size}
+      height={size}
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2.2"
+      strokeLinejoin="round"
+      strokeLinecap="round"
+      className={"chat-tool-glyph" + (running ? " chat-pulse" : "")}
+      {...a11yProps}
+    >
+      {toolGlyph(tool)}
+    </svg>
+  );
 }
 
 export function basename(fp: string): string {

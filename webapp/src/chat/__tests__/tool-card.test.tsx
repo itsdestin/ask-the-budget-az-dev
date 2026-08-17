@@ -11,7 +11,7 @@ import { render } from "@testing-library/react";
 import { renderToString } from "react-dom/server";
 import ToolCard from "../ToolCard.js";
 import type { AssistantBlock } from "../chat-types.js";
-import { toolGlyph } from "../tool-views/primitives.js";
+import { ToolGlyph } from "../tool-views/primitives.js";
 
 type ToolBlock = Extract<AssistantBlock, { kind: "tool" }>;
 
@@ -26,23 +26,39 @@ function block(overrides: Partial<ToolBlock>): ToolBlock {
   } as ToolBlock;
 }
 
-describe("toolGlyph", () => {
+describe("ToolGlyph", () => {
+  // The shape table (`toolGlyph`, in primitives.tsx) is not exported — only
+  // this component is. Render it, the same way both real callers do, rather
+  // than importing the table directly.
   it("returns a distinct glyph element for each known tool", () => {
-    const retrieve = renderToString(<svg>{toolGlyph("retrieve")}</svg>);
-    const cite = renderToString(<svg>{toolGlyph("cite")}</svg>);
+    const retrieve = renderToString(<ToolGlyph tool="retrieve" />);
+    const cite = renderToString(<ToolGlyph tool="cite" />);
     expect(retrieve).not.toEqual(cite);
   });
 
   it("falls back for an unknown tool without throwing", () => {
     expect(() =>
-      renderToString(<svg>{toolGlyph("mystery_tool")}</svg>),
+      renderToString(<ToolGlyph tool="mystery_tool" />),
     ).not.toThrow();
   });
 
   it("gives create_document its own glyph, not the fallback square", () => {
-    const created = renderToString(<svg>{toolGlyph("create_document")}</svg>);
-    const fallback = renderToString(<svg>{toolGlyph("mystery_tool")}</svg>);
+    const created = renderToString(<ToolGlyph tool="create_document" />);
+    const fallback = renderToString(<ToolGlyph tool="mystery_tool" />);
     expect(created).not.toEqual(fallback);
+  });
+
+  it("omitting label renders aria-hidden instead of an accessible name", () => {
+    const html = renderToString(<ToolGlyph tool="retrieve" />);
+    expect(html).toContain('aria-hidden="true"');
+    expect(html).not.toContain("role=\"img\"");
+  });
+
+  it("passing label renders role=img with that name, not aria-hidden", () => {
+    const html = renderToString(<ToolGlyph tool="retrieve" label="running" />);
+    expect(html).toContain('role="img"');
+    expect(html).toContain('aria-label="running"');
+    expect(html).not.toContain("aria-hidden");
   });
 });
 
