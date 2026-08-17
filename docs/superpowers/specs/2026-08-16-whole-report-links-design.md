@@ -267,7 +267,7 @@ their buttons.
 |---|---|
 | `store/report_formats.py` | load, merge, validate, save. mtime-stamped cache, same shape as `store/office_aliases.py` |
 | `app/routes/book_formats.py` | the pending scan, the probe cache, the two admin routes |
-| `webapp/src/admin/ReportLinksPanel.tsx` | the card, under **Needs attention** |
+| `webapp/src/pages/upload/ReportLinkRow.tsx` | the "Full report link" row inside the Baseline Book and Appropriations Report cards on `/upload`, admin-only. World-changed 2026-08-16: this moved out of `/admin` (the `webapp/src/admin/ReportLinksPanel.tsx` card is deleted), because JLBC publishes FY2028 in one sitting with adding documents — two pages for one event was the half you forgot. See STATUS.md "The R7 deviation is RESOLVED — the whole thing moved to `/upload`" |
 | `webapp/src/reportFamilies.ts` | loses `REPORT_FORMATS`; `reportFormats()` becomes a lookup into API-supplied data |
 
 ---
@@ -293,8 +293,9 @@ All 39 editions in the corpus are already answered, so a healthy install shows
 **nothing**, which is also what a completely broken feature shows. Acceptance
 therefore requires, in a scratch data dir symlinking the corpus read-only:
 
-1. remove one edition from the merged table, reload `/admin`, and confirm the
-   card appears with that edition's real candidate URLs;
+1. remove one edition from the merged table, reload the book card on `/upload`
+   (admin session), and confirm the "Full report link" row appears with that
+   edition's real candidate URLs;
 2. press **Approve**, and confirm the button appears on the Budget Documents
    page for that edition and opens the chooser at the right two files;
 3. use **"use a different link"** with a deliberately wrong-year URL and confirm
