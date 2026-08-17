@@ -14,6 +14,12 @@ from typing import Literal
 from pydantic import BaseModel, ConfigDict, Field
 from ruamel.yaml import YAML
 
+# The selection-axis values AgentQuery.set accepts. "defend" is
+# infrastructure-only (defend_agent_run.py's ad-hoc defense queries;
+# never in a scored --sets run) but lives in the same literal so its
+# builder keeps working after Task 9.
+QUERY_SETS = ("quick", "multi", "deep", "refusal", "defend")
+
 
 class KeyFact(BaseModel):
     """One mechanically checkable fact a correct answer must contain.
@@ -45,6 +51,19 @@ class AgentQuery(BaseModel):
     question: str
     corpus: Literal["budget", "fiscal_notes"] = "budget"
     tier: Literal["standard", "deep_research"] = "standard"
+    # The consolidated pipeline's selection axis (2026-08-16 spec). Replaces
+    # the subsets: list as the selection mechanism in Task 9; default "quick"
+    # is a migration crutch ONLY — every real query names its set explicitly
+    # in the YAML, and Task 9 drops this default once they all do.
+    # "defend" is reserved for defend_agent_run.py's ad-hoc defense queries
+    # (never in a scored --sets run); extra="forbid" means its builder at
+    # defend_agent_run.py:194 would crash at Task 9 without this value.
+    set: Literal["quick", "multi", "deep", "refusal", "defend"] = "quick"
+    # Document ids a correct answer MUST cite (Multi set). Hand-pinned by the
+    # analyst during the approval task — the identity-consistency audit
+    # (docs/superpowers/investigations/2026-08-16-identity-consistency-audit.md)
+    # is why a mechanical guess was never considered.
+    correct_response_docs: list[str] = Field(default_factory=list)
     # shape drives authoring quotas and per-shape score breakdowns.
     shape: Literal["lookup", "comparison", "analyze", "memo", "refusal", "historical"]
     # subset tags select what a run includes: smoke (~10), full (all
