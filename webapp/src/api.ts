@@ -1336,3 +1336,127 @@ export async function removeAgency(canonicalId: string): Promise<void> {
   });
   if (!r.ok) await fail(r, "remove agency");
 }
+
+// --- whole-report links (spec R3-R6, R9, R10) -------------------------------
+//
+// The admin side of the "Full report" button. `data/report-formats.json` ships
+// with the app and an overlay on the shared drive holds what an admin has
+// since approved; these three calls are how an edition gets from "the corpus
+// has this book but nothing opens it" to an approved pair of addresses.
+
+/** One address the app found for one format, described by a REAL request.
+ *
+ *  Every field here is a measurement, not an assumption: `plan_edition` answers
+ *  a catalogued edition with no network call at all, and that catalog is built
+ *  to tolerate a 404 (STATUS.md records `budget/fy2027approprpt.pdf` sitting in
+ *  it as a live 404), so "the app suggested it" is not evidence it exists. */
+export interface BookFormatCandidate {
+  url: string;
+  /** The HTTP status a real request came back with. NULL means the host never
+   *  answered — a different state from 404, and it sends the admin somewhere
+   *  different (check the network vs. edit the address). */
+  status: number | null;
+  /** Size in bytes, from the server's own Content-Length. NULL when the server
+   *  declined to state one — show NOTHING, never a "0 MB", because an invented
+   *  zero beside a 600-page book reads as a broken link. */
+  bytes: number | null;
+  /** False when the address does not mention this edition's fiscal year (spec
+   *  R6). Flagged and never refused, because exactly one genuinely year-less
+   *  address exists (`budget/apprpttoc.pdf` really is the FY2023 report). */
+  names_its_year: boolean;
+}
+
+export interface PendingEdition {
+  family: string;
+  fiscal_year: number;
+  candidates: {
+    single_file: BookFormatCandidate | null;
+    linked_toc: BookFormatCandidate | null;
+  };
+  /** Where the suggestion came from ("catalog", "probe", …), or null. */
+  source: string | null;
+}
+
+export interface ApprovedEdition {
+  family: string;
+  fiscal_year: number;
+  /** NULL means "JLBC published no such format", which is a real answer and
+   *  not the same as the edition being unanswered (spec R1). */
+  single_file: string | null;
+  linked_toc: string | null;
+}
+
+export interface BookFormats {
+  pending: PendingEdition[];
+  approved: ApprovedEdition[];
+  /** False when azjlbc.gov could not be reached. `pending` is STILL a full
+   *  list in that case — which editions need a link is knowable with no
+   *  network at all — with every candidate null. */
+  online: boolean;
+  reason: string | null;
+  /** One plain sentence per row the server dropped from the saved file on the
+   *  share. */
+  problems: string[];
+}
+
+export async function bookFormats(refresh = false): Promise<BookFormats> {
+  const r = await fetch(`/api/admin/book-formats${refresh ? "?refresh=true" : ""}`);
+  if (!r.ok) await fail(r, "whole-report links");
+  return r.json();
+}
+
+/** What the save route says about the addresses it just stored.
+ *
+ *  NULL for a format the admin marked as never published: there is no address
+ *  to judge, and `false` there would read as a complaint about one. */
+export interface SavedYearCheck {
+  single_file: boolean | null;
+  linked_toc: boolean | null;
+}
+
+/** Record one edition's links. Returns the server's own year check on what it
+ *  stored — defence in depth, because nothing forces an admin to press Check
+ *  first and a wrong-year address is the one defect a 200 OK cannot detect. */
+export async function saveBookFormat(
+  family: string,
+  fiscalYear: number,
+  singleFile: string | null,
+  linkedToc: string | null,
+): Promise<{ ok: boolean; names_its_year: SavedYearCheck }> {
+  const r = await fetch("/api/admin/book-formats", {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      family,
+      fiscal_year: fiscalYear,
+      single_file: singleFile,
+      linked_toc: linkedToc,
+    }),
+  });
+  // `fail` carries FastAPI's `detail` through, which is what puts the store's
+  // own refusal sentence on screen. Without it "At least one of the two
+  // formats must have a link" becomes "Request failed".
+  if (!r.ok) await fail(r, "saving the whole-report links");
+  return r.json();
+}
+
+export interface UrlCheckResult {
+  ok: boolean;
+  status: number | null;
+  bytes: number | null;
+  names_its_year: boolean;
+  reason: string | null;
+}
+
+export async function checkBookFormatUrl(
+  url: string,
+  fiscalYear: number,
+): Promise<UrlCheckResult> {
+  const r = await fetch("/api/admin/book-formats/check", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ url, fiscal_year: fiscalYear }),
+  });
+  if (!r.ok) await fail(r, "checking that address");
+  return r.json();
+}

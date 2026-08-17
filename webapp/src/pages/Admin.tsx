@@ -10,6 +10,7 @@ import { GuidancePanel } from "../admin/GuidancePanel";
 import { IssuesPanel } from "../admin/IssuesPanel";
 import { NeedsAttention } from "../admin/NeedsAttention";
 import { PoorlyRead } from "../admin/PoorlyRead";
+import { ReportLinksPanel } from "../admin/ReportLinksPanel";
 import { NoticesPanel } from "../admin/NoticesPanel";
 import { ProviderPanel } from "../admin/ProviderPanel";
 import { SaveBar } from "../admin/SaveBar";
@@ -378,6 +379,14 @@ export function Admin() {
               record — a swap is a success with a trace, this is a document
               still wrong. Renders nothing at all when the list is empty. */}
           <PoorlyRead documents={degraded} />
+          {/* Third: a book with no "Full report" link is content an analyst
+              CAN read — every section of it is in search — they just cannot
+              open the whole thing, so it ranks below both panels above.
+              It fetches for itself, like AliasesPanel and IssuesPanel, so a
+              slow azjlbc.gov lookup cannot hold up the rest of this page.
+              Renders nothing at all when every edition is already
+              answered, which is the normal state. */}
+          <ReportLinksPanel />
           <NoticesPanel notices={notices} />
           <IssuesPanel />
         </Group>
