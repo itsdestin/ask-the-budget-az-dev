@@ -1153,9 +1153,16 @@ git commit -m "tool card: containment inside the bubble + the expansion cap (TC2
 - [ ] **Step 1: Full webapp suite**
 
 Run: `cd webapp && npm test`
-Expected: exit 0. Baseline before this work is **958 passing**; the count
-should rise. Any failure outside the files this plan names is a real
-regression — investigate rather than update the test.
+Expected: exit 0. Baseline **measured on this branch's first commit, in this
+worktree, on 2026-08-16: 984 passing across 88 files.** (The 958 figure
+written when this plan was drafted was already stale — master gained tests
+between drafting and execution. Compare against the 984, and if you are
+reading this later, re-measure rather than trusting either number: this repo
+has a recorded incident where a corpus change read exactly like a code
+regression because a remembered baseline was used instead of a control.)
+
+Any failure outside the files this plan names is a real regression —
+investigate rather than update the test.
 
 - [ ] **Step 2: Type-check and production build**
 

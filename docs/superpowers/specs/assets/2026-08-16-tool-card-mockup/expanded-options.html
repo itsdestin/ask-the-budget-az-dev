@@ -1,0 +1,290 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Expanded tool card — options</title>
+<style>
+:root{
+  --navy:#2b2f63; --navy-700:#232752; --navy-900:#181b3d; --navy-100:#e7e8f2;
+  --ink:#21243f; --ink-2:#4a4e6a; --ink-3:#757895;
+  --line:#e6e6ef; --canvas:#f5f5fa; --card:#fff;
+  --r-lg:22px; --r-md:16px; --r-sm:12px; --r-pill:999px;
+  --shadow-sm:0 1px 2px rgba(27,27,61,.06),0 3px 10px rgba(27,27,61,.05);
+  --font:"Nunito","Segoe UI",system-ui,-apple-system,sans-serif;
+  --chat-mono:"Cascadia Mono","Fira Code",Consolas,Menlo,monospace;
+  --chat-danger:#b3261e; --chat-danger-tint:#fbe9e7;
+  --ai-col:768px;
+}
+*{box-sizing:border-box}
+body{margin:0;background:var(--canvas);color:var(--ink);font-family:var(--font);line-height:1.6;-webkit-font-smoothing:antialiased}
+.page{max-width:1000px;margin:0 auto;padding:32px 22px 90px}
+h1{font-size:24px;font-weight:800;margin:0 0 6px}
+.lede{color:var(--ink-2);font-size:14px;margin:0 0 32px;max-width:74ch}
+section{margin:0 0 38px;background:var(--card);border:1px solid var(--line);border-radius:var(--r-lg);padding:22px 24px 26px;box-shadow:var(--shadow-sm)}
+h2{font-size:15px;font-weight:800;margin:0 0 4px;display:flex;align-items:center;gap:9px;flex-wrap:wrap}
+.tag{font-size:10.5px;font-weight:800;text-transform:uppercase;letter-spacing:.08em;padding:2px 9px;border-radius:var(--r-pill);border:1px solid var(--line);color:var(--ink-3);background:var(--canvas)}
+.tag.rec{color:#fff;background:var(--navy);border-color:var(--navy)}
+.tag.no{color:var(--chat-danger);background:var(--chat-danger-tint);border-color:var(--chat-danger)}
+.note{color:var(--ink-2);font-size:13px;margin:0 0 16px;max-width:76ch}
+.note b{color:var(--ink);font-weight:800}
+.note code{font-family:var(--chat-mono);font-size:12px;background:var(--canvas);border:1px solid var(--line);border-radius:5px;padding:1px 5px}
+.stage{background:var(--canvas);border:1px dashed var(--line);border-radius:var(--r-md);padding:20px 18px}
+.cap{font-size:11px;font-weight:800;text-transform:uppercase;letter-spacing:.08em;color:var(--ink-3);margin:0 0 10px}
+ul.pts{margin:0 0 16px;padding-left:20px;font-size:13px;color:var(--ink-2)}
+ul.pts li{margin-bottom:5px}
+ul.pts b{color:var(--ink)}
+
+/* ---- real chat geometry ---- */
+.bubble{background:var(--card);border:1px solid var(--line);border-radius:var(--r-md);padding:10px 16px;font-size:14px;max-width:65ch}
+.card{border-radius:var(--r-sm);border:1px solid var(--line);background:var(--canvas);overflow:hidden;margin-bottom:10px}
+.head{width:100%;display:flex;align-items:center;gap:8px;padding:6px 12px;font-size:12.5px;color:var(--ink-2);text-align:left}
+.glyph{flex-shrink:0;color:var(--ink-3)}
+.lbl{font-weight:700;color:var(--ink-2);flex-shrink:0}
+.sum{color:var(--ink-3);font-size:12px;min-width:0;flex:1 1 auto;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.sum::before{content:"↳ "}
+.chev{margin-left:auto;flex-shrink:0;color:var(--ink-3);transform:rotate(180deg)}
+.exp{border-top:1px solid var(--line);padding:10px 12px;max-height:50vh;overflow-y:auto;background:var(--card)}
+
+/* ---- shared pieces ---- */
+.did{font-size:12.5px;color:var(--ink-2);margin:0 0 10px;line-height:1.55}
+.did b{color:var(--ink);font-weight:800}
+.did .q{font-style:italic;color:var(--ink)}
+.chip{display:inline-flex;align-items:center;font-size:11px;font-weight:800;border-radius:var(--r-pill);padding:1px 9px;border:1px solid var(--line);background:var(--canvas);color:var(--ink-3);white-space:nowrap}
+.chip.on{background:var(--navy-100);border-color:#c9cce4;color:var(--navy)}
+.src{font-size:12.5px;font-weight:800;color:var(--ink)}
+.meta{font-size:11.5px;color:var(--ink-3)}
+.snip{font-size:12.5px;color:var(--ink-2);line-height:1.55;margin-top:5px}
+.leaf{font-size:11.5px;color:var(--ink-3);margin-top:2px}
+.more{margin-top:8px;font-size:11.5px;font-weight:800;color:var(--navy);background:none;border:none;padding:0;cursor:pointer;text-decoration:underline}
+
+/* ---- CURRENT (for contrast) ---- */
+.cur-row{font-size:12px;color:var(--ink-3);display:flex;gap:8px;flex-wrap:wrap;margin-bottom:8px}
+.cur-item{border-bottom:1px dashed var(--line);padding-bottom:10px;margin-bottom:10px}
+.cur-head{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
+.cur-rank{font-family:var(--chat-mono);font-size:11px;color:var(--ink-3)}
+.cur-score{margin-left:auto;font-size:11.5px;color:var(--ink-3)}
+.cur-path{font-size:11.5px;color:var(--ink-3);margin-top:6px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.cur-text{font-size:12.5px;color:var(--ink-2);margin-top:4px}
+.strike{text-decoration:line-through;text-decoration-color:var(--chat-danger);text-decoration-thickness:2px}
+
+/* ---- A: decluttered list ---- */
+.a-item{padding:8px 0;border-top:1px solid var(--line)}
+.a-item:first-of-type{border-top:none;padding-top:0}
+.a-head{display:flex;align-items:baseline;gap:8px;flex-wrap:wrap}
+
+/* ---- B: grouped by document ---- */
+.b-doc{border:1px solid var(--line);border-radius:10px;padding:9px 11px;margin-bottom:8px;background:var(--card)}
+.b-doc:last-of-type{margin-bottom:0}
+.b-head{display:flex;align-items:baseline;gap:8px;flex-wrap:wrap;margin-bottom:5px}
+.b-pages{display:flex;gap:5px;flex-wrap:wrap;margin:6px 0 0}
+
+/* ---- C: evidence-first ---- */
+.c-item{margin-bottom:12px;padding-left:11px;border-left:3px solid var(--navy-100)}
+.c-item:last-of-type{margin-bottom:0}
+.c-quote{font-size:13px;color:var(--ink);line-height:1.55}
+.c-attr{font-size:11.5px;color:var(--ink-3);margin-top:4px}
+.c-attr b{color:var(--ink-2);font-weight:800}
+
+/* ---- icon comparison ---- */
+.icons{display:flex;gap:26px;flex-wrap:wrap;align-items:flex-start}
+.icon-cell{text-align:center}
+.icon-box{background:var(--card);border:1px solid var(--line);border-radius:10px;padding:14px 18px;display:flex;align-items:center;justify-content:center;gap:10px}
+.icon-cap{font-size:11px;font-weight:800;color:var(--ink-3);margin-top:7px;text-transform:uppercase;letter-spacing:.06em}
+.icon-row{display:flex;align-items:center;gap:8px;font-size:12.5px;color:var(--ink-2)}
+.zoom{transform:scale(4);transform-origin:center;image-rendering:pixelated}
+</style>
+</head>
+<body>
+<div class="page">
+
+<h1>Expanded tool card — what the assistant did, and what it found</h1>
+<p class="lede">Three ways to rebuild the expanded card, plus a fix for the magnifier. Everything is drawn with the app's real colours, type sizes and spacing, using the actual data the card already receives — nothing here needs new information from the server.</p>
+
+<!-- ================= ICON ================= -->
+<section>
+  <h2>First, the magnifier <span class="tag no">broken today</span></h2>
+  <p class="note">The tool card draws its own hand-made magnifier out of six tiny rectangles on a 12&times;12 grid. At actual size the ring closes into a blob — that smudge in your screenshot is the icon. Meanwhile <b>the app already has a magnifier</b>, used in four places on Home and Budget Documents, and it is the one from the approved design mockup. The tool card is the only place in the app drawing a different one.</p>
+  <div class="stage">
+    <div class="icons">
+      <div class="icon-cell">
+        <div class="icon-box">
+          <svg viewBox="0 0 12 12" width="12" height="12" style="color:#757895"><g><rect x="3" y="1" width="4" height="1" fill="currentColor"/><rect x="3" y="6" width="4" height="1" fill="currentColor"/><rect x="1" y="2" width="1" height="4" fill="currentColor"/><rect x="7" y="2" width="1" height="4" fill="currentColor"/><rect x="8" y="7" width="1" height="2" fill="currentColor"/><rect x="9" y="8" width="2" height="1" fill="currentColor"/></g></svg>
+          <span class="zoom" style="display:inline-block;width:12px;height:12px;margin-left:26px">
+            <svg viewBox="0 0 12 12" width="12" height="12" style="color:#757895"><g><rect x="3" y="1" width="4" height="1" fill="currentColor"/><rect x="3" y="6" width="4" height="1" fill="currentColor"/><rect x="1" y="2" width="1" height="4" fill="currentColor"/><rect x="7" y="2" width="1" height="4" fill="currentColor"/><rect x="8" y="7" width="1" height="2" fill="currentColor"/><rect x="9" y="8" width="2" height="1" fill="currentColor"/></g></svg>
+          </span>
+        </div>
+        <div class="icon-cap">today — actual size, then &times;4</div>
+      </div>
+      <div class="icon-cell">
+        <div class="icon-box">
+          <svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2.4" style="color:#757895"><circle cx="11" cy="11" r="7"/><path d="m21 21-4.3-4.3"/></svg>
+          <span style="display:inline-block;margin-left:26px">
+            <svg viewBox="0 0 24 24" width="48" height="48" fill="none" stroke="currentColor" stroke-width="2.4" style="color:#757895"><circle cx="11" cy="11" r="7"/><path d="m21 21-4.3-4.3"/></svg>
+          </span>
+        </div>
+        <div class="icon-cap">the app's own glyph — recommended</div>
+      </div>
+    </div>
+    <div style="margin-top:16px;display:flex;flex-direction:column;gap:7px">
+      <div class="icon-row"><svg viewBox="0 0 12 12" width="12" height="12" style="color:#757895;flex:0 0 auto"><g><rect x="3" y="1" width="4" height="1" fill="currentColor"/><rect x="3" y="6" width="4" height="1" fill="currentColor"/><rect x="1" y="2" width="1" height="4" fill="currentColor"/><rect x="7" y="2" width="1" height="4" fill="currentColor"/><rect x="8" y="7" width="1" height="2" fill="currentColor"/><rect x="9" y="8" width="2" height="1" fill="currentColor"/></g></svg><b style="font-weight:700">Searched</b> <span style="color:#757895">↳ State Aviation Fund balance FY2025</span></div>
+      <div class="icon-row"><svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2.4" style="color:#757895;flex:0 0 auto"><circle cx="11" cy="11" r="7"/><path d="m21 21-4.3-4.3"/></svg><b style="font-weight:700">Searched</b> <span style="color:#757895">↳ State Aviation Fund balance FY2025</span></div>
+    </div>
+  </div>
+</section>
+
+<!-- ================= CURRENT ================= -->
+<section>
+  <h2>What the card shows today <span class="tag">current</span></h2>
+  <p class="note">Struck-through items below are things a fiscal analyst can neither use nor act on.</p>
+  <ul class="pts">
+    <li><b>Nothing says what happened or why.</b> The card opens straight into machinery.</li>
+    <li><b>The numbers are meaningless and quietly misleading.</b> <code>score 1.260</code> is a raw model score on a roughly &minus;10 to 10 scale — not a percentage, not a confidence. Budget Documents already removed its relevance number and bar for exactly this reason; the ranking is carried by the order.</li>
+    <li><b>The same text appears twice per result.</b> The grey breadcrumb and the first two lines of the passage are the same words, so ~3 lines of every result are a repeat.</li>
+    <li><b>The two results look identical.</b> Same document, same section, same opening lines — only the page number differs, and it is the least prominent thing on the row.</li>
+    <li><b>Raw field names leak.</b> <code>DOC_TYPE: AFR</code>, <code>chunks</code>, <code>bm25 / dense / fused</code>.</li>
+  </ul>
+  <div class="stage">
+    <div class="bubble">
+      <div class="card">
+        <div class="head">
+          <svg viewBox="0 0 12 12" width="12" height="12" class="glyph"><g><rect x="3" y="1" width="4" height="1" fill="currentColor"/><rect x="3" y="6" width="4" height="1" fill="currentColor"/><rect x="1" y="2" width="1" height="4" fill="currentColor"/><rect x="7" y="2" width="1" height="4" fill="currentColor"/><rect x="8" y="7" width="1" height="2" fill="currentColor"/><rect x="9" y="8" width="2" height="1" fill="currentColor"/></g></svg>
+          <span class="lbl">Searched</span><span class="sum">State Aviation Fund balance FY2025</span>
+          <svg viewBox="0 0 10 6" width="10" height="6" class="chev"><path d="M1 1l4 4 4-4" stroke="currentColor" stroke-width="1.6" fill="none" stroke-linecap="round"/></svg>
+        </div>
+        <div class="exp">
+          <div class="cur-row"><span class="strike">FILTERS</span> <span class="chip on strike">DOC_TYPE: AFR</span> <span class="chip on strike">FISCAL_YEAR: 2025</span></div>
+          <div class="cur-row"><span class="strike">5 chunks · top score 1.26 (131 bm25 / 100 dense / 20 fused)</span></div>
+          <div class="cur-item">
+            <div class="cur-head"><span class="cur-rank strike">#1</span><span class="src">FY 2025 Annual Financial Report</span><span class="chip">P. 162</span><span class="chip">FY2025</span><span class="chip on">AGAO</span><span class="cur-score strike">score 1.260</span></div>
+            <div class="cur-path strike">Note 1. – Summary of Significant Accounting Policies › Note 3. – Statement of Expenditures – …</div>
+            <div class="cur-text"><span class="strike">Note 1. – Summary of Significant Accounting Policies &gt; Note 3. – Statement of Expenditures – Appropriation (Budget) to Actual – Description of Selected Columns</span><br>STATE OF ARIZONA<br>STATEMENT OF REVENUES, EXPENDITURES AND CHANGES IN FUND BALANCE…</div>
+          </div>
+          <div class="cur-item" style="border-bottom:none;margin-bottom:0">
+            <div class="cur-head"><span class="cur-rank strike">#2</span><span class="src">FY 2025 Annual Financial Report</span><span class="chip">P. 163</span><span class="chip">FY2025</span><span class="chip on">AGAO</span><span class="cur-score strike">score 1.024</span></div>
+            <div class="cur-path strike">Note 1. – Summary of Significant Accounting Policies › Note 3. – Statement of Expenditures – …</div>
+            <div class="cur-text"><span class="strike">Note 1. – Summary of Significant Accounting Policies &gt; Note 3. – Statement of Expenditures – Appropriation (Budget) to Actual – Description of Selected Columns</span><br>STATE OF ARIZONA<br>STATEMENT OF REVENUES, EXPENDITURES AND CHANGES IN FUND BALANCE…</div>
+          </div>
+        </div>
+      </div>
+      <p style="margin:0"><strong>Quick lookup:</strong> The State Aviation Fund (fund 2005, administered by the…</p>
+    </div>
+  </div>
+</section>
+
+<!-- ================= A ================= -->
+<section>
+  <h2>A — Same list, decluttered <span class="tag">lowest risk</span></h2>
+  <p class="note">Keeps one row per passage. Removes the scores, the rank numbers and the pipeline counters; translates the filters into English; strips the repeated heading out of the passage text; shows only the <b>last</b> part of the section path instead of the whole breadcrumb. One plain sentence at the top says what was done.</p>
+  <div class="stage">
+    <div class="bubble">
+      <div class="card">
+        <div class="head">
+          <svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2.4" class="glyph"><circle cx="11" cy="11" r="7"/><path d="m21 21-4.3-4.3"/></svg>
+          <span class="lbl">Searched</span><span class="sum">State Aviation Fund balance FY2025</span>
+          <svg viewBox="0 0 10 6" width="10" height="6" class="chev"><path d="M1 1l4 4 4-4" stroke="currentColor" stroke-width="1.6" fill="none" stroke-linecap="round"/></svg>
+        </div>
+        <div class="exp">
+          <p class="did">Looked for <span class="q">“State Aviation Fund balance FY2025”</span> in <b>Annual Financial Reports</b> from <b>FY 2025</b>. Found <b>5 passages</b> across <b>2 documents</b>.</p>
+          <div class="a-item">
+            <div class="a-head"><span class="src">FY 2025 Annual Financial Report</span><span class="chip">p. 162</span><span class="chip">Auditor General</span></div>
+            <div class="leaf">Statement of Expenditures — Description of Selected Columns</div>
+            <div class="snip">STATE OF ARIZONA · STATEMENT OF REVENUES, EXPENDITURES AND CHANGES IN FUND BALANCE — Aviation Fund (2005). Fund balance, June 30, 2025 … 60,092,781.04</div>
+          </div>
+          <div class="a-item">
+            <div class="a-head"><span class="src">FY 2025 Annual Financial Report</span><span class="chip">p. 163</span><span class="chip">Auditor General</span></div>
+            <div class="leaf">Statement of Expenditures — Description of Selected Columns</div>
+            <div class="snip">Revenues and transfers in … 27,362,036.72. Expenditures and transfers out … 46,259,862.96. Net change in fund balance …</div>
+          </div>
+          <div class="a-item">
+            <div class="a-head"><span class="src">FY 2026 Baseline — Transportation</span><span class="chip">p. 4</span><span class="chip">JLBC</span></div>
+            <div class="leaf">Aviation Fund</div>
+            <div class="snip">The Aviation Fund receives revenue from the state aircraft licence tax, flight property tax and aviation fuel tax…</div>
+          </div>
+          <button class="more">Show the other 2 passages</button>
+        </div>
+      </div>
+      <p style="margin:0"><strong>Quick lookup:</strong> The State Aviation Fund (fund 2005, administered by the…</p>
+    </div>
+  </div>
+</section>
+
+<!-- ================= B ================= -->
+<section>
+  <h2>B — Grouped by document <span class="tag rec">recommended</span></h2>
+  <p class="note">The unit becomes the <b>document</b>, not the passage — which is how an analyst thinks about a source. Five near-identical rows collapse into two blocks; the pages become chips you can see at a glance, and only the best passage from each document shows its text. This is the option that actually answers <i>“what did it look at?”</i> in one glance.</p>
+  <div class="stage">
+    <div class="bubble">
+      <div class="card">
+        <div class="head">
+          <svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2.4" class="glyph"><circle cx="11" cy="11" r="7"/><path d="m21 21-4.3-4.3"/></svg>
+          <span class="lbl">Searched</span><span class="sum">State Aviation Fund balance FY2025</span>
+          <svg viewBox="0 0 10 6" width="10" height="6" class="chev"><path d="M1 1l4 4 4-4" stroke="currentColor" stroke-width="1.6" fill="none" stroke-linecap="round"/></svg>
+        </div>
+        <div class="exp">
+          <p class="did">Looked for <span class="q">“State Aviation Fund balance FY2025”</span> in <b>Annual Financial Reports</b> from <b>FY 2025</b>. Found <b>5 passages</b> across <b>2 documents</b>.</p>
+          <div class="b-doc">
+            <div class="b-head"><span class="src">FY 2025 Annual Financial Report</span><span class="chip">Auditor General</span><span class="chip">FY 2025</span></div>
+            <div class="snip">STATE OF ARIZONA · STATEMENT OF REVENUES, EXPENDITURES AND CHANGES IN FUND BALANCE — Aviation Fund (2005). Fund balance, June 30, 2025 … 60,092,781.04</div>
+            <div class="b-pages"><span class="meta" style="margin-right:2px">4 passages:</span><span class="chip on">p. 162</span><span class="chip">p. 163</span><span class="chip">p. 164</span><span class="chip">p. 171</span></div>
+          </div>
+          <div class="b-doc">
+            <div class="b-head"><span class="src">FY 2026 Baseline — Transportation</span><span class="chip">JLBC</span><span class="chip">FY 2026</span></div>
+            <div class="snip">The Aviation Fund receives revenue from the state aircraft licence tax, flight property tax and aviation fuel tax…</div>
+            <div class="b-pages"><span class="meta" style="margin-right:2px">1 passage:</span><span class="chip on">p. 4</span></div>
+          </div>
+        </div>
+      </div>
+      <p style="margin:0"><strong>Quick lookup:</strong> The State Aviation Fund (fund 2005, administered by the…</p>
+    </div>
+  </div>
+</section>
+
+<!-- ================= C ================= -->
+<section>
+  <h2>C — Evidence first <span class="tag">most readable, least scannable</span></h2>
+  <p class="note">Leads with the passage text, since that is the only part an analyst actually reads, and puts the source underneath as an attribution line — the shape of a quotation. The section breadcrumb disappears entirely. Reads beautifully for one or two results and gets long fast for five.</p>
+  <div class="stage">
+    <div class="bubble">
+      <div class="card">
+        <div class="head">
+          <svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2.4" class="glyph"><circle cx="11" cy="11" r="7"/><path d="m21 21-4.3-4.3"/></svg>
+          <span class="lbl">Searched</span><span class="sum">State Aviation Fund balance FY2025</span>
+          <svg viewBox="0 0 10 6" width="10" height="6" class="chev"><path d="M1 1l4 4 4-4" stroke="currentColor" stroke-width="1.6" fill="none" stroke-linecap="round"/></svg>
+        </div>
+        <div class="exp">
+          <p class="did">Looked for <span class="q">“State Aviation Fund balance FY2025”</span> in <b>Annual Financial Reports</b> from <b>FY 2025</b>. Found <b>5 passages</b> across <b>2 documents</b>.</p>
+          <div class="c-item">
+            <div class="c-quote">STATE OF ARIZONA · STATEMENT OF REVENUES, EXPENDITURES AND CHANGES IN FUND BALANCE — Aviation Fund (2005). Fund balance, June 30, 2025 … 60,092,781.04</div>
+            <div class="c-attr"><b>FY 2025 Annual Financial Report</b> · p. 162 · Auditor General</div>
+          </div>
+          <div class="c-item">
+            <div class="c-quote">Revenues and transfers in … 27,362,036.72. Expenditures and transfers out … 46,259,862.96. Net change in fund balance …</div>
+            <div class="c-attr"><b>FY 2025 Annual Financial Report</b> · p. 163 · Auditor General</div>
+          </div>
+          <div class="c-item">
+            <div class="c-quote">The Aviation Fund receives revenue from the state aircraft licence tax, flight property tax and aviation fuel tax…</div>
+            <div class="c-attr"><b>FY 2026 Baseline — Transportation</b> · p. 4 · JLBC</div>
+          </div>
+          <button class="more">Show the other 2 passages</button>
+        </div>
+      </div>
+      <p style="margin:0"><strong>Quick lookup:</strong> The State Aviation Fund (fund 2005, administered by the…</p>
+    </div>
+  </div>
+</section>
+
+<section>
+  <h2>What each one costs to build</h2>
+  <ul class="pts">
+    <li><b>All three</b> are changes inside one file, <code>RetrieveView.tsx</code>, plus a few style rules. None needs anything new from the server — every field shown already arrives with the result.</li>
+    <li><b>The repeated-heading fix is the same work in all three:</b> the passage text begins with its own section heading, so strip that prefix when it matches. Worth doing whichever option you pick.</li>
+    <li><b>Turning <code>DOC_TYPE: AFR</code> into “Annual Financial Reports”</b> needs a small lookup. The app already publishes one at <code>/api/document-types</code>, so this is wiring, not new data.</li>
+    <li><b>B additionally</b> groups passages by document and picks the best one per document to show — about fifteen lines of grouping.</li>
+    <li><b>Dropping the scores</b> follows what Budget Documents already did. The order still carries the ranking.</li>
+  </ul>
+</section>
+
+</div>
+</body>
+</html>

@@ -12,7 +12,7 @@ import { useState } from "react";
 import { toolDisplayLabel, toolHeaderSummary } from "./tool-display.js";
 import type { AssistantBlock } from "./chat-types.js";
 import ToolBody from "./tool-views/ToolBody.js";
-import { toolGlyph } from "./tool-views/primitives.js";
+import { ToolGlyph } from "./tool-views/primitives.js";
 
 type ToolBlock = Extract<AssistantBlock, { kind: "tool" }>;
 
@@ -49,18 +49,11 @@ export default function ToolCard({ tool, inGroup = false }: Props) {
             neutral so a run of successful tools reads quiet. Only failure
             keeps a color, because failure is the state worth shouting about
             (Core Invariant 3). Tinting moved from inline style to CSS. */}
-        <svg
-          viewBox="0 0 12 12"
-          width={12}
-          height={12}
-          className={
-            "chat-tool-glyph" + (tool.status === "running" ? " chat-pulse" : "")
-          }
-          role="img"
-          aria-label={STATUS_LABEL[tool.status]}
-        >
-          {toolGlyph(tool.toolName)}
-        </svg>
+        <ToolGlyph
+          tool={tool.toolName}
+          running={tool.status === "running"}
+          label={STATUS_LABEL[tool.status]}
+        />
         <span className="chat-tool-label">{label}</span>
         {summary && <span className="chat-tool-summary">{summary}</span>}
         <svg

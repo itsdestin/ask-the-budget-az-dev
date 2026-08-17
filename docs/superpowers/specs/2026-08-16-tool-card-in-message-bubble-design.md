@@ -335,8 +335,172 @@ implementation, the server needs a restart.
 ## Out of scope
 
 - The corpus name anywhere in the card (TC3).
-- Any change to what a tool's expanded body shows — `RetrieveView` and
-  friends are untouched.
 - Any change to citation chips, the figure annotation, or the PDF panel.
 - The `AiModePanel` corpus prop being threaded down to `ChatThread`; nothing
   in this design needs it.
+
+> **⚠ AMENDED 2026-08-16.** "Any change to what a tool's expanded body shows"
+> was out of scope and is now IN scope — see Part 2 below. The product owner
+> opened the finished card, found the expanded body unreadable, and asked for
+> it before merge. TC1–TC12 are unaffected.
+
+---
+
+# Part 2 — what the card SAYS (TC13–TC22)
+
+Added 2026-08-16 after the product owner reviewed the built card. Part 1 moved
+the card to the right place; this part makes its contents legible to a fiscal
+analyst who does not know what a "chunk" is.
+
+Approved from a rendered comparison:
+[`assets/2026-08-16-tool-card-mockup/tool-cards-v2.html`](assets/2026-08-16-tool-card-mockup/tool-cards-v2.html).
+
+## The audit that scoped this
+
+Six tools are registered; **two never draw a card** — `cite` and `cite_batch`
+are suppressed by TC7 because the citation chips are their surface. So four
+reach an analyst:
+
+| Tool | Icon today | Expanded body today |
+|---|---|---|
+| `retrieve` | hand-built magnifier that closes into a blob at 12px | scores, rank numbers, pipeline counters,every result printing its own heading twice |
+| `list_filter_values` | three stacked bars — fine | works, but labelled `agency_canonical_id` and lists raw slugs with chunk counts |
+| `create_document` | download tray | **genuinely fine** — title, download link, markdown preview |
+| `document_guide` | **none — the fallback square** | **none — `RawFallbackView`, i.e. raw JSON** |
+
+`document_guide` had never been styled at all. It runs immediately before the
+assistant writes a document, so it appears in exactly the conversations that
+end in a memo the analyst sends under their own name.
+
+## Decisions
+
+### TC13 — the collapsed card reads as a sentence
+
+`Searched for "State Aviation Fund balance FY2025"`, not `Searched ↳ query`.
+The verb stays **bold** so the row is still scannable down a long
+conversation; the rest is normal weight. The row keeps its existing
+single-line ellipsis truncation, so length is not a risk.
+
+| case | header |
+|---|---|
+| one search | `Searched for “…”` |
+| three searches | `Searched for “…” and 2 more` |
+| in flight | `Searching for “…”…` |
+| searches + a document | `Searched for “…” and 2 more, then wrote a document` |
+
+**The first query stays visible at every run size.** The rejected alternative
+led with the count (`Searched 3 times, starting with “…”`), which pushes the
+one informative part toward the truncation.
+
+TC3's rules survive unchanged underneath this: no corpus name, past tense once
+settled and present participle while running (TC4), and **no failure signal**
+(TC9) — a failed call changes no word of this header.
+
+### TC14 — per-tool phrasing lives in `tool-display.ts`
+
+Each tool needs its own preposition; the component must not assemble English.
+
+| tool | phrase |
+|---|---|
+| `retrieve` | Searched for *“{query}”* |
+| `list_filter_values` | Checked *which agencies the corpus covers* (per field) |
+| `create_document` | Wrote the document *“{title}”* |
+| `document_guide` | Checked the house style *for a research memo* |
+
+An unregistered tool falls back to the bare name plus its first string
+argument, as today — a legible degradation, not a blank row.
+
+### TC15 — one line-drawn icon set, and `document_guide` gets one
+
+The tool glyphs are currently pixel art on a 12×12 grid, matching the mascot.
+**That is deliberately abandoned for these rows**, on this evidence: the
+magnifier's ring closes into an illegible blob at rendered size, and the app
+already owns a magnifier — `components/SearchIcon.tsx`, drawn from the
+approved design mockup and used in four places on Home and Budget Documents.
+The tool row was the only place in the app drawing a second one.
+
+So: four icons, drawn in that same stroked style — magnifier, funnel, page,
+book. `document_guide` gains the book and stops falling through to the square.
+The mascot keeps its pixel art; this is chrome, and the rest of the app's
+chrome is already lines.
+
+### TC16 — search results group by DOCUMENT, not by passage
+
+The unit becomes the document, which is how an analyst thinks about a source.
+Each document shows its title, publisher, fiscal year, one snippet from its
+strongest passage, and its pages as chips. Measured on the reported screenshot:
+five near-identical rows become two blocks.
+
+### TC17 — no scores, no rank numbers, no pipeline counters
+
+`score 1.260` is a raw cross-encoder logit on roughly a −10..10 scale. It is
+not a percentage and not a confidence, and rendering it beside a dollar figure
+invites reading it as one. **Budget Documents already removed its relevance
+number and bar for exactly this reason**; order carries the ranking. The
+`N chunks · top score · (bm25 / dense / fused)` line goes with them.
+
+### TC18 — strip the repeated heading out of the passage text
+
+A passage's stored text begins with its own section heading, and the view also
+renders that heading above it as a breadcrumb, so ~3 lines of every result are
+the line above it repeated. Strip the prefix when it matches. The breadcrumb
+itself reduces to the **leaf** heading; the full ancestor path is noise at this
+size.
+
+### TC19 — filters read as English
+
+`DOC_TYPE: AFR` becomes *Annual Financial Reports*. The app already publishes
+the mapping at `GET /api/document-types`, so this is wiring, not new data. A
+value with no known label falls back to the raw string rather than vanishing.
+
+### TC20 — `document_guide` gets a real view, and it must not overclaim
+
+A plain sentence naming the report type, then the rules in readable form.
+
+**It must state that the guidance is advice, not enforcement.** Nothing
+validates the finished document against the guide (spec
+`2026-08-13-document-guide-design.md` G6 — no code rewrites the model's
+numbers, deliberately, because that would be editing figures the analyst is
+about to send). A card that displayed house rules without saying so would
+imply a check that does not exist.
+
+### TC21 — `list_filter_values` shows names, not codes
+
+`agency:ahcccs — 4,812 chunks` becomes `AHCCCS`. The field label becomes a
+sentence (*which agencies the corpus covers*) rather than the column name.
+Chunk counts are dropped from the analyst-facing list — they are a corpus
+statistic, not an answer.
+
+> ⚠ Known upstream defect, NOT fixed here: STATUS.md records that
+> `list_filter_values` emits raw ids with no logical grouping, so duplicate
+> catalog ids for one agency (Child Safety is 4 live ids) appear as separate
+> agencies. Displaying names instead of codes makes that duplication **more**
+> visible, not less — two rows both reading "Child Safety". That is a corpus
+> fix with its own spec, and this work must not paper over it by silently
+> de-duplicating names.
+
+### TC22 — the card is the SAME WIDTH standalone and nested
+
+Today it is not, and the jump is large. Measured on the shipped stylesheet:
+
+- `.chat-bubble` sets `font-size: 14px` and `max-width: 65ch`, so its `ch`
+  resolves at 14px, and a card nested inside it loses a further 32px of side
+  padding plus 2px of border.
+- `.chat-tool-group` standalone also says `max-width: 65ch`, but it inherits
+  the document's 16px, so its `ch` is a **larger unit**.
+
+The standalone card is therefore roughly 100px wider, and it visibly shrinks
+the instant an answer arrives and it moves inside the bubble — on top of the
+remount already recorded in Part 1. Both forms must state the same measure and
+render at the same pixel width; the mechanism is the implementer's, but the
+acceptance test is a browser measurement of the two, not a reading of the CSS.
+
+## Out of scope for Part 2
+
+- `create_document`'s expanded view, which is already good. It gets the new
+  icon and the new header sentence and nothing else.
+- The card's open-state reset when a standalone card becomes nested (Part 1's
+  carried Minor). Still a separate decision.
+- Grouping duplicate agency ids — see the warning under TC21.
+- Any change to what `retrieve` returns. Every field these views show already
+  arrives with the result.
