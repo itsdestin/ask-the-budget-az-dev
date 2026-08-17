@@ -1953,6 +1953,13 @@ nav.primary{position:relative;padding-right:44px;}
    missing edition is a bordered row on the card's own tint, matching the
    `.up-drop` recipe directly above it, so the two things a book card can
    show you sit at the same visual weight. */
+/* STATE -> ACTIONS -> EXPLANATION (2026-08-16). Measured before it: 102
+   words visible on opening a Baseline Book card, with the answer the FOURTH
+   thing you read, and every line at the same size and colour so nothing told
+   the eye where to land. The state line is now the only heavy text in the
+   body — that contrast IS the hierarchy, so do not promote anything else to
+   `--ink` at 800 here. */
+.page-upload .up-book-state{margin:0;font-size:14px;font-weight:800;color:var(--ink);}
 .page-upload .up-book-why{margin:0;}
 .page-upload .up-book-missing{list-style:none;margin:12px 0 0;padding:0;display:grid;gap:8px;}
 .page-upload .up-book-item{border:1px solid var(--line);border-radius:var(--r-md);padding:12px 14px;background:#fafbff;}
@@ -1963,14 +1970,34 @@ nav.primary{position:relative;padding-right:44px;}
 .page-upload .up-book-acts{display:flex;align-items:center;gap:8px;margin-left:auto;}
 .page-upload .up-book-plan{margin-top:10px;padding-top:10px;border-top:1px solid var(--line);}
 .page-upload .up-book-bad{list-style:none;margin:6px 0 0;padding:0;display:grid;gap:4px;font-size:12px;color:var(--ink-3);word-break:break-all;}
-.page-upload .up-book-checked{margin-top:10px;}
+/* Directly under the state line, and deliberately small and quiet: it
+   qualifies the answer above it rather than being one. */
+.page-upload .up-book-checked{margin:3px 0 0;}
+
+/* A section row. Same `<details>` idiom as `.up-disclose` everywhere else on
+   this page (so the caret, the keyboard behaviour and the colour are one
+   implementation), re-laid-out as a full-width row: name left, what is
+   outstanding inside it right, caret last. The separators are what let the
+   rows be counted at a glance without a box around each one. */
+.page-upload .up-book-sec{margin-top:0;border-top:1px solid var(--line);}
+.page-upload .up-book-sec:first-of-type{margin-top:14px;}
+.page-upload .up-book-sec>summary{padding:11px 0;color:var(--ink-3);}
+.page-upload .up-book-sec-name{flex:1;min-width:0;font-size:13.5px;font-weight:800;color:var(--navy);}
+.page-upload .up-book-sec-out{font-size:12.5px;font-weight:700;color:var(--ink-3);}
+.page-upload .up-book-sec>summary:hover .up-book-sec-name{color:var(--az-gold-d);}
+.page-upload .up-book-sec-body{padding:2px 0 14px;display:grid;gap:8px;}
+
 /* Un-addable editions: dimmed, and with NO action of any kind beside them
    (spec T10). The dimming is the second signal after the missing Add
    button — an eye scanning the list should not have to read each row to
    learn there is nothing to do with it. */
-.page-upload .up-book-unavailable ul{list-style:none;margin:8px 0 0;padding:0;display:grid;gap:7px;}
+.page-upload .up-book-unavailable{list-style:none;margin:0;padding:0;display:grid;gap:7px;}
 .page-upload .up-book-dim{display:grid;gap:1px;opacity:.72;}
 .page-upload .up-book-manual{margin-top:12px;}
+/* The section body already spaces its children, so the standalone margin
+   would double the gap between the by-hand link and the list under it. */
+.page-upload .up-book-sec-body>.up-book-manual{margin-top:0;}
+.page-upload .up-book-sec-body>.up-where{margin-bottom:0;}
 .page-upload .up-book-manual .up-book-row{margin-top:8px;align-items:end;}
 .page-upload .up-book-manual .up-field{flex:0 0 130px;}
 

@@ -17,8 +17,21 @@ import { BookFamilyPanel } from "./BookFamilyPanel";
 // are about that scoping — a Baseline Book row offering an Appropriations
 // Report would be exactly the noise T10 removed, arriving by a new route.
 //
+// Third change, 2026-08-16: STATE -> ACTIONS -> EXPLANATION. Measured before
+// it, 102 words were visible on opening a Baseline Book card and the answer
+// ("Every published Baseline Book is already here.") was the FOURTH thing you
+// read, 54 words in. The card now opens with that answer, in one line naming
+// the newest year present, and the three explanatory paragraphs moved behind
+// two disclosure rows that each carry what is outstanding inside them.
+//
+// So several specs below OPEN a section before asserting its contents. That
+// is deliberate and is not ceremony: a `getByText` that finds prose inside a
+// closed <details> would pass for text no reader can see, which is exactly
+// the property this change is about.
+//
 // jsdom applies no stylesheet, so nothing here says anything about how the
-// panel looks — including whether the "can't be added" rows read as greyed.
+// panel looks — including whether the "can't be added" rows read as greyed,
+// and including the type-size contrast that IS the new hierarchy.
 
 function check(over: Partial<api.BookCheck> = {}): api.BookCheck {
   return {
@@ -75,6 +88,16 @@ function renderPanel(
   );
 }
 
+/** Open one of the card's disclosure rows, the way a reader does. Asserting
+ *  against a closed section's contents would be asserting against text
+ *  nobody can see. */
+function openSection(testId: "book-older" | "book-about") {
+  const details = screen.getByTestId(testId);
+  fireEvent.click(details.querySelector("summary")!);
+  expect(details.getAttribute("open")).not.toBeNull();
+  return details;
+}
+
 afterEach(() => vi.restoreAllMocks());
 
 describe("a book row offers only what its own family is missing", () => {
@@ -110,10 +133,13 @@ describe("a book row offers only what its own family is missing", () => {
       }),
     });
 
+    openSection("book-older");
     const rows = screen.getAllByTestId("unavailable-edition");
     expect(rows).toHaveLength(1);
     expect(rows[0].textContent).toContain("FY 1984");
-    expect(screen.getByText(/1 older editions/)).toBeTruthy();
+    // The count is the row's OWN family's, and it is on the row rather than
+    // only inside it — see "each row states what is outstanding" below.
+    expect(screen.getByText("1 can’t be added")).toBeTruthy();
   });
 
   it("names an edition with the row's OWN label, not a name of its own", () => {
@@ -131,26 +157,125 @@ describe("a book row offers only what its own family is missing", () => {
     expect(row.textContent).toContain("110 documents");
   });
 
-  it("renders the registry's own two sentences about this type", () => {
+  it("keeps the registry's own two sentences, inside About this book", () => {
     // Both moved INSIDE when the collapsed row was cut back to a name — see
-    // Upload.tsx's header comment for the measurement. They are guidance for
-    // the moment you act, and they must still be somewhere.
+    // Upload.tsx's header comment for the measurement — and moved again into
+    // this section when the body was reordered. They explain rather than
+    // answer, so they are behind a disclosure; but they must still be
+    // somewhere, and they must be REACHABLE, which is why this opens it.
     renderPanel();
-    expect(screen.getByText("Stored as one document per agency.")).toBeTruthy();
+    const about = openSection("book-about");
+    expect(within(about).getByText("Stored as one document per agency.")).toBeTruthy();
     expect(
-      screen.getByText("Published by JLBC after the session at azjlbc.gov."),
+      within(about).getByText("Published by JLBC after the session at azjlbc.gov."),
     ).toBeTruthy();
   });
 
-  it("says so plainly when there is nothing to add", () => {
-    // The state the live corpus is in for every edition but one. The old
-    // panel showed 62 rows here and gave no way to tell.
-    renderPanel({ check: check({ missing: [] }) });
+  it("opens with the answer, naming the newest year it has", () => {
+    // The state the live corpus is in for every edition but one, and the
+    // whole point of the reorder: the card's first line is what you opened
+    // it to find out. The YEAR is derived from the check's own `present`
+    // list — a hardcoded one becomes a lie the January JLBC publishes the
+    // next edition.
+    const first = renderPanel({
+      check: check({
+        missing: [],
+        present: [
+          { family: "approps", fiscal_year: 2025 },
+          { family: "approps", fiscal_year: 2027 },
+          // The other family's newer edition must not be borrowed.
+          { family: "baseline", fiscal_year: 2028 },
+        ],
+      }),
+    });
 
-    expect(
-      screen.getByText("Every published Appropriations Report is already here."),
-    ).toBeTruthy();
+    expect(screen.getByTestId("book-state").textContent).toBe(
+      "Every edition through FY 2027 is here.",
+    );
     expect(screen.queryByTestId("missing-edition")).toBeNull();
+
+    // Asserted TWICE against different data, so a year written into the
+    // sentence cannot satisfy it. This card is read every January, in the
+    // week the number changes.
+    first.unmount();
+    renderPanel({
+      check: check({ missing: [], present: [{ family: "approps", fiscal_year: 2031 }] }),
+    });
+    expect(screen.getByTestId("book-state").textContent).toBe(
+      "Every edition through FY 2031 is here.",
+    );
+  });
+
+  it("says what is missing, in the same first line, when something is", () => {
+    // The answer is an answer in both directions. One missing edition names
+    // its year; several report a count, because the list right underneath
+    // names them all anyway.
+    renderPanel({ check: check({ missing: [FY2027_APPROPS] }) });
+    expect(screen.getByTestId("book-state").textContent).toBe("FY 2027 is missing.");
+  });
+
+  it("counts several missing editions rather than listing them twice", () => {
+    renderPanel({
+      check: check({
+        missing: [FY2027_APPROPS, { ...FY2027_APPROPS, fiscal_year: 2026 }],
+      }),
+    });
+    expect(screen.getByTestId("book-state").textContent).toBe("2 editions are missing.");
+  });
+
+  it("puts the answer FIRST and the explanation behind a row", () => {
+    // The measured defect this reorder fixed: opening the card used to put
+    // the answer FOURTH, 54 words in, behind the publisher line and four
+    // lines of chunking rationale. Asserting document order rather than mere
+    // presence is what pins that — every piece was "present" before too.
+    renderPanel({
+      check: check({ missing: [], present: [{ family: "approps", fiscal_year: 2027 }] }),
+    });
+
+    const panel = screen.getByTestId("book-panel");
+    const state = screen.getByTestId("book-state");
+    expect(panel.firstElementChild).toBe(state);
+    // Node.DOCUMENT_POSITION_FOLLOWING === 4: every disclosure comes after it.
+    for (const section of ["book-older", "book-about"] as const) {
+      expect(state.compareDocumentPosition(screen.getByTestId(section)) & 4).toBe(4);
+    }
+    // And the registry prose is inside a section, not loose in the body.
+    expect(
+      screen.getByText("Stored as one document per agency.").closest("details"),
+    ).toBe(screen.getByTestId("book-about"));
+  });
+
+  it("keeps an edition to add OUT of a disclosure", () => {
+    // Outstanding work is the one thing this card exists for. Filing it
+    // behind a row you have to open would be the defect this change fixed,
+    // arriving by the new structure's own door.
+    renderPanel({ check: check({ missing: [FY2027_APPROPS] }) });
+    expect(screen.getByTestId("missing-edition").closest("details")).toBeNull();
+  });
+
+  it("states what is outstanding on each row, without opening it", () => {
+    // The card is scannable: the counts sit on the closed rows.
+    renderPanel({
+      check: check({
+        unavailable: [
+          { family: "approps", fiscal_year: 1984, era_note: "Era note." },
+          { family: "approps", fiscal_year: 1985, era_note: "Era note." },
+        ],
+      }),
+    });
+
+    expect(screen.getByTestId("book-older").getAttribute("open")).toBeNull();
+    expect(within(screen.getByTestId("book-older")).getByText("2 can’t be added"))
+      .toBeTruthy();
+    expect(within(screen.getByTestId("book-about")).getByText("how it’s stored, timing"))
+      .toBeTruthy();
+  });
+
+  it("says nothing about un-addable editions when there are none", () => {
+    // An empty count on the row would be a claim about a number, and there
+    // is no number. Silence is the honest state.
+    renderPanel({ check: check({ unavailable: [] }) });
+    expect(screen.getByTestId("book-older").textContent).not.toMatch(/can’t be added/);
   });
 
   it("shows an un-addable edition's reason and offers NO Add button", () => {
@@ -164,6 +289,7 @@ describe("a book row offers only what its own family is missing", () => {
       }),
     });
 
+    openSection("book-older");
     const row = screen.getByTestId("unavailable-edition");
     expect(row.textContent).toContain("FY 1984 Appropriations Report");
     expect(row.textContent).toContain(note);
@@ -183,9 +309,9 @@ describe("a book row offers only what its own family is missing", () => {
     });
 
     expect(screen.getByText(/Couldn't reach azjlbc\.gov/)).toBeTruthy();
-    expect(
-      screen.queryByText("Every published Appropriations Report is already here."),
-    ).toBeNull();
+    // No state line at all, in either direction. "Every edition ... is here"
+    // would be the wrong answer; so would "nothing is missing".
+    expect(screen.queryByTestId("book-state")).toBeNull();
   });
 
   it("surfaces the page's own check failure rather than saying nothing", () => {
@@ -301,6 +427,7 @@ describe("adding and previewing", () => {
       check: check({ missing: [] }),
     });
 
+    openSection("book-older");
     fireEvent.click(screen.getByRole("button", { name: /add a specific year/i }));
     fireEvent.change(screen.getByLabelText("Fiscal year"), { target: { value: "2014" } });
     fireEvent.click(within(screen.getByTestId("manual-edition")).getByRole("button"));
@@ -309,10 +436,17 @@ describe("adding and previewing", () => {
   });
 
   it("states the overnight cost without softening it", () => {
+    // Moved into About this book, not softened and not dropped: an analyst
+    // who expects a book in five minutes concludes the app is broken. The
+    // public-record clause travels with it — it is why this panel has no
+    // Invariant 8 checkbox, which is the spec below.
     renderPanel();
+    const about = openSection("book-about");
     expect(
-      screen.getByText(/A full book takes overnight on office computers/),
+      within(about).getByText(/A full book takes overnight on office computers/),
     ).toBeTruthy();
+    expect(within(about).getByText(/Public record, so no confirmation is needed/))
+      .toBeTruthy();
   });
 
   it("has no Invariant 8 checkbox — JLBC reports are public record", () => {

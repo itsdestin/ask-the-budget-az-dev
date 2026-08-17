@@ -1,3 +1,4 @@
+import type React from "react";
 import { useState } from "react";
 import * as api from "../../api";
 
@@ -22,10 +23,33 @@ import * as api from "../../api";
 //    tool below that re-states both families together. That redirect
 //    button, and the scroll it performed, are deleted.
 //
-// Discovery itself is untouched by either. `ingest/book_discovery.py` is
-// catalog-first with a HEAD-verified probe ladder that on 2026-07-31 found
-// the FY2027 Appropriations Report the harvest had recorded as unpublished,
-// walking 139 documents with 0 unreachable. This is presentation.
+// 3. STATE -> ACTIONS -> EXPLANATION (2026-08-16, at the product owner's
+//    direction: the cards have "too much text and feel poorly visually
+//    styled without an easy/intuitive visual hierarchy").
+//
+//    Measured on the Baseline Book card before this change: **102 words**
+//    were visible on opening it, and THE ANSWER WAS THE FOURTH THING YOU
+//    READ. The reading order was (1) where it is published, (2) four lines
+//    explaining why the tool fetches per-agency pages instead of the
+//    single-file PDF, (3) "Every published Baseline Book is already here."
+//    — the thing you opened the card to find out, 54 words in — then (4)
+//    the actions, then (5) three more lines about public record and
+//    overnight processing. Every line was the same size and colour, so
+//    nothing told the eye where to land.
+//
+//    The card now OPENS with the answer, in one line, naming the year the
+//    reader wants ("Every edition through FY 2027 is here."). Under it sits
+//    the only action that can be outstanding — an edition to add. Everything
+//    that explains rather than answers moved behind two disclosure rows that
+//    each carry, on the right, what is outstanding inside them — so the card
+//    can be scanned without opening anything. Nothing was deleted; the
+//    three explanatory paragraphs live inside "About this book".
+//
+// Discovery itself is untouched by any of them. `ingest/book_discovery.py`
+// is catalog-first with a HEAD-verified probe ladder that on 2026-07-31
+// found the FY2027 Appropriations Report the harvest had recorded as
+// unpublished, walking 139 documents with 0 unreachable. This is
+// presentation.
 //
 // NO Invariant 8 checkbox here, and that is deliberate: everything this
 // panel can reach is a JLBC-published report, which is public record by
@@ -52,6 +76,37 @@ function agoLabel(iso: string | null): string {
   if (hours < 36) return `${hours} hour${hours === 1 ? "" : "s"} ago`;
   const days = Math.round(hours / 24);
   return `${days} day${days === 1 ? "" : "s"} ago`;
+}
+
+/** One collapsed section of the card: a name, what is outstanding inside it,
+ *  and a caret. `<details>/<summary>` rather than a hand-rolled disclosure
+ *  because the page already owns that idiom (`.up-disclose`) and it is
+ *  keyboard- and screen-reader-correct without any code here.
+ *
+ *  `outstanding` is what lets the card be SCANNED without opening anything —
+ *  the count of editions that can't be added sits on the row, where it used
+ *  to be the summary text of a disclosure you had to notice first. */
+function Section({
+  name,
+  outstanding,
+  testId,
+  children,
+}: {
+  name: string;
+  outstanding?: string;
+  testId: string;
+  children: React.ReactNode;
+}) {
+  return (
+    <details className="up-disclose up-book-sec" data-testid={testId}>
+      <summary>
+        <span className="up-book-sec-name">{name}</span>
+        {outstanding && <span className="up-book-sec-out">{outstanding}</span>}
+        <span className="up-disclose-mark" aria-hidden="true" />
+      </summary>
+      <div className="up-book-sec-body">{children}</div>
+    </details>
+  );
 }
 
 export function BookFamilyPanel({
@@ -154,12 +209,31 @@ export function BookFamilyPanel({
   // cards share the fetch and each shows only its own rows.
   const missing = (check?.missing ?? []).filter((m) => m.family === family);
   const unavailable = (check?.unavailable ?? []).filter((u) => u.family === family);
+  const present = (check?.present ?? []).filter((p) => p.family === family);
+
+  // The one-line answer the card opens with. It names the year rather than
+  // the document type — "Every edition through FY 2027 is here." tells you
+  // the thing you came to find out, where "Every published Baseline Book is
+  // already here." repeats the card's own title back at you and leaves you
+  // to work out which years that covers. The year is DERIVED from the
+  // check's own `present` list, never written down here: a hardcoded year
+  // becomes a lie the January JLBC publishes the next edition.
+  const newestPresent = present.length
+    ? Math.max(...present.map((p) => p.fiscal_year))
+    : null;
+  let state = "";
+  if (check && check.online) {
+    if (missing.length === 1) state = `FY ${missing[0].fiscal_year} is missing.`;
+    else if (missing.length > 1) state = `${missing.length} editions are missing.`;
+    else if (newestPresent !== null)
+      state = `Every edition through FY ${newestPresent} is here.`;
+    // No `present` rows means the check cannot name a year — say the true
+    // thing without one rather than inventing a year to fill the sentence.
+    else state = "Every published edition is here.";
+  }
 
   return (
     <div className="up-book" data-testid="book-panel" data-family={family}>
-      {wherePublished && <p className="up-where">{wherePublished}</p>}
-      <p className="up-book-why">{detail}</p>
-
       {(error || checkError) && (
         <p className="up-note">
           <span className="err">{error || checkError}</span>
@@ -180,6 +254,32 @@ export function BookFamilyPanel({
         </p>
       )}
 
+      {/* THE ANSWER, FIRST. Everything above it is a failure state that
+          replaces it; everything below it is either the action it implies
+          or an explanation you asked for. */}
+      {state && (
+        <p className="up-book-state" data-testid="book-state">
+          {state}
+        </p>
+      )}
+
+      {check && (
+        <p className="up-note up-book-checked">
+          Checked azjlbc.gov {agoLabel(check.checked_at)} ·{" "}
+          <button
+            type="button"
+            className="linkish"
+            disabled={checking}
+            onClick={onRecheck}
+          >
+            {checking ? "Checking…" : "Check again"}
+          </button>
+        </p>
+      )}
+
+      {/* An edition to add stays TOP-LEVEL, never behind a disclosure: it is
+          the one thing this card exists to let you do, and it is outstanding
+          work. Task 2's "Full report link" row goes below here. */}
       {check && missing.length > 0 && (
         <ul className="up-book-missing" data-testid="missing-editions">
           {missing.map((m) => {
@@ -243,39 +343,55 @@ export function BookFamilyPanel({
         </ul>
       )}
 
-      {check && check.online && missing.length === 0 && (
-        <p className="up-note">Every published {label} is already here.</p>
-      )}
-
-      {check && (
-        <p className="up-note up-book-checked">
-          Checked azjlbc.gov {agoLabel(check.checked_at)}.{" "}
-          <button
-            type="button"
-            className="linkish"
-            disabled={checking}
-            onClick={onRecheck}
-          >
-            {checking ? "Checking…" : "Check again"}
-          </button>
-        </p>
-      )}
-
       <p className="up-status" role="status">
         {message}
       </p>
 
-      {/* Editions JLBC never published in a form this app can ingest. Stated
-          rather than hidden -- "FY 1984 was never published as per-agency
-          PDFs" is a fact worth having -- but NO Add button, because there is
-          nothing to add. Spec T10 is explicit that these are not selectable. */}
-      {unavailable.length > 0 && (
-        <details className="up-disclose up-book-unavailable">
-          <summary>
-            <span className="up-disclose-mark" aria-hidden="true" />
-            {unavailable.length} older editions can’t be added
-          </summary>
-          <ul>
+      {/* Everything from here down EXPLAINS rather than answers, so it is
+          behind a row that says what is inside it. */}
+
+      <Section
+        name="Add an older edition"
+        // What is outstanding inside: editions JLBC never published in a form
+        // this app can ingest. Stated on the row rather than only inside,
+        // because "5 can't be added" is the whole of what most people need
+        // from this section and it used to be the summary text of a
+        // disclosure you had to notice before you could learn it.
+        outstanding={unavailable.length ? `${unavailable.length} can’t be added` : undefined}
+        testId="book-older"
+      >
+        <div className="up-book-manual">
+          <button type="button" className="linkish" onClick={() => setManualOpen((v) => !v)}>
+            Add a specific year
+          </button>
+          {manualOpen && (
+            <div className="up-book-row" data-testid="manual-edition">
+              <label className="up-field">
+                Fiscal year
+                <input
+                  type="text"
+                  aria-label="Fiscal year"
+                  inputMode="numeric"
+                  value={manualYear}
+                  onChange={(e) => setManualYear(e.target.value)}
+                />
+              </label>
+              <button
+                type="button"
+                className="allbtn"
+                disabled={!/^\d{4}$/.test(manualYear) || busyKey !== ""}
+                onClick={() => void add(Number(manualYear))}
+              >
+                Add
+              </button>
+            </div>
+          )}
+        </div>
+
+        {/* NO Add button on any of these, because there is nothing to add.
+            Spec T10 is explicit that they are not selectable. */}
+        {unavailable.length > 0 && (
+          <ul className="up-book-unavailable">
             {unavailable.map((u) => (
               <li key={u.fiscal_year} className="up-book-dim" data-testid="unavailable-edition">
                 <span className="up-book-name">{editionName(u.fiscal_year)}</span>
@@ -283,45 +399,22 @@ export function BookFamilyPanel({
               </li>
             ))}
           </ul>
-        </details>
-      )}
-
-      <div className="up-book-manual">
-        <button type="button" className="linkish" onClick={() => setManualOpen((v) => !v)}>
-          Need an older edition? Add a specific year
-        </button>
-        {manualOpen && (
-          <div className="up-book-row" data-testid="manual-edition">
-            <label className="up-field">
-              Fiscal year
-              <input
-                type="text"
-                aria-label="Fiscal year"
-                inputMode="numeric"
-                value={manualYear}
-                onChange={(e) => setManualYear(e.target.value)}
-              />
-            </label>
-            <button
-              type="button"
-              className="allbtn"
-              disabled={!/^\d{4}$/.test(manualYear) || busyKey !== ""}
-              onClick={() => void add(Number(manualYear))}
-            >
-              Add
-            </button>
-          </div>
         )}
-      </div>
+      </Section>
 
-      {/* Unsoftened on purpose, and carried over verbatim from the panel this
-          replaces: an analyst who expects a book in five minutes concludes the
-          app is broken. */}
-      <p className="up-expect">
-        JLBC-published reports are public record, so no confirmation is needed. A
-        full book takes overnight on office computers. Historical backfills are
-        best run one book at a time.
-      </p>
+      <Section name="About this book" outstanding="how it’s stored, timing" testId="book-about">
+        {wherePublished && <p className="up-where">{wherePublished}</p>}
+        <p className="up-book-why">{detail}</p>
+        {/* Unsoftened on purpose: an analyst who expects a book in five
+            minutes concludes the app is broken. The third sentence this used
+            to carry ("Historical backfills are best run one book at a time")
+            is folded into the second — it was a second sentence saying the
+            same thing the overnight cost already implies. */}
+        <p className="up-expect">
+          Public record, so no confirmation is needed. A full book takes overnight
+          on office computers, so add one at a time.
+        </p>
+      </Section>
     </div>
   );
 }
