@@ -1,6 +1,7 @@
-import type React from "react";
 import { useState } from "react";
 import * as api from "../../api";
+import { ReportLinkRow } from "./ReportLinkRow";
+import { Section } from "./Section";
 
 // The JLBC-book flow for ONE family, rendered inside that family's own
 // document-type card on the upload page (spec T10).
@@ -78,36 +79,9 @@ function agoLabel(iso: string | null): string {
   return `${days} day${days === 1 ? "" : "s"} ago`;
 }
 
-/** One collapsed section of the card: a name, what is outstanding inside it,
- *  and a caret. `<details>/<summary>` rather than a hand-rolled disclosure
- *  because the page already owns that idiom (`.up-disclose`) and it is
- *  keyboard- and screen-reader-correct without any code here.
- *
- *  `outstanding` is what lets the card be SCANNED without opening anything —
- *  the count of editions that can't be added sits on the row, where it used
- *  to be the summary text of a disclosure you had to notice first. */
-function Section({
-  name,
-  outstanding,
-  testId,
-  children,
-}: {
-  name: string;
-  outstanding?: string;
-  testId: string;
-  children: React.ReactNode;
-}) {
-  return (
-    <details className="up-disclose up-book-sec" data-testid={testId}>
-      <summary>
-        <span className="up-book-sec-name">{name}</span>
-        {outstanding && <span className="up-book-sec-out">{outstanding}</span>}
-        <span className="up-disclose-mark" aria-hidden="true" />
-      </summary>
-      <div className="up-book-sec-body">{children}</div>
-    </details>
-  );
-}
+// `Section` — the disclosure row this card's body is built from — moved to
+// `./Section.tsx` when ReportLinkRow started rendering one too. Two copies of
+// a disclosure row is how one of them quietly acquires a different caret.
 
 export function BookFamilyPanel({
   family,
@@ -117,6 +91,7 @@ export function BookFamilyPanel({
   check,
   checking,
   checkError,
+  isAdmin,
   onRecheck,
   onQueued,
 }: {
@@ -141,6 +116,15 @@ export function BookFamilyPanel({
   check: api.BookCheck | null;
   checking: boolean;
   checkError: string;
+  /** Whether the "Full report link" row renders AT ALL.
+   *
+   *  /upload is open to the whole office and that row's controls are not:
+   *  approving an address changes what every analyst's "Full report" button
+   *  downloads. Destin's call, 2026-08-16, over showing it read-only — a
+   *  non-admin's card must look exactly as it did, with no row and no fetch.
+   *  Presentation, not protection: the routes behind it are admin-gated
+   *  server-side, the same soft gate (spec S11) the Admin nav pill uses. */
+  isAdmin: boolean;
   onRecheck: () => void;
   onQueued: () => void;
 }) {
@@ -346,6 +330,12 @@ export function BookFamilyPanel({
       <p className="up-status" role="status">
         {message}
       </p>
+
+      {/* THE "FULL REPORT LINK" ROW (2026-08-16). It used to be its own panel
+          on /admin. Publishing an edition is ONE event — add its documents to
+          search, set its whole-report link — and it was two pages, so the
+          second half was the half you forgot. Admins only; see `isAdmin`. */}
+      {isAdmin && <ReportLinkRow family={family} />}
 
       {/* Everything from here down EXPLAINS rather than answers, so it is
           behind a row that says what is inside it. */}

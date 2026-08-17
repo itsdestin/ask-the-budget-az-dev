@@ -1078,3 +1078,67 @@ describe("the queue", () => {
 
 // --- Add a JLBC book --------------------------------------------------------
 
+
+// --- who may set a "Full report" link ---------------------------------------
+
+describe("the 'Full report link' row on a book card", () => {
+  // The page resolves WHO IS LOOKING once and hands it to both book cards.
+  // /upload is open to the whole office; approving a whole-report address
+  // changes what every analyst's "Full report" button downloads, so the row
+  // is admin-only (Destin's call, 2026-08-16, over showing it read-only).
+  //
+  // 🔴 This is the WIRE, and it has been the silent failure twice on this
+  // feature: the panel this replaces was once deleted from its page with
+  // 1008 of 1008 specs green, and its api layer was once entirely unpinned.
+  // The row's own behaviour lives in `upload/ReportLinkRow.test.tsx`; these
+  // two specs assert only that the page decides, and that the decision
+  // arrives.
+
+  function bookRows(isAdmin: boolean) {
+    vi.spyOn(api, "documentTypes").mockResolvedValue([ROWS[0]]);
+    vi.spyOn(api, "me").mockResolvedValue({
+      user: "DMOSS",
+      is_admin: isAdmin,
+      admin_username: isAdmin ? "DMOSS" : "SOMEONEELSE",
+      admin_claimable: false,
+      admin_reset_pending: false,
+    });
+    vi.spyOn(api, "bookFormats").mockResolvedValue({
+      pending: [],
+      approved: [
+        {
+          family: "Baseline",
+          fiscal_year: 2027,
+          single_file: "https://www.azjlbc.gov/27baseline/fy2027baseline.pdf",
+          linked_toc: "https://www.azjlbc.gov/27baseline/baselinetoc.pdf",
+        },
+      ],
+      online: true,
+      reason: null,
+      problems: [],
+    });
+  }
+
+  it("reaches an admin's book card", async () => {
+    bookRows(true);
+    render(<Upload />);
+    await selectType(/baseline book/i);
+    const row = await screen.findByTestId("report-links");
+    // Not merely mounted: it resolved this card's own family, which is the
+    // half of the wire the slug-vs-label trap breaks silently.
+    await waitFor(() =>
+      expect(row.querySelector("summary")!.textContent).toMatch(/1 edition set/),
+    );
+  });
+
+  it("is absent for everyone else, and asks the server nothing", async () => {
+    bookRows(false);
+    render(<Upload />);
+    await selectType(/baseline book/i);
+    // The card is open and fully rendered — asserted through a control that
+    // is always there — so this is a real absence, not a not-yet-rendered one.
+    expect(await screen.findByTestId("book-about")).toBeTruthy();
+    expect(screen.queryByTestId("report-links")).toBeNull();
+    expect(api.bookFormats).not.toHaveBeenCalled();
+  });
+});

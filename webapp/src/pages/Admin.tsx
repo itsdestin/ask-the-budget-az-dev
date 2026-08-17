@@ -10,7 +10,6 @@ import { GuidancePanel } from "../admin/GuidancePanel";
 import { IssuesPanel } from "../admin/IssuesPanel";
 import { NeedsAttention } from "../admin/NeedsAttention";
 import { PoorlyRead } from "../admin/PoorlyRead";
-import { ReportLinksPanel } from "../admin/ReportLinksPanel";
 import { NoticesPanel } from "../admin/NoticesPanel";
 import { ProviderPanel } from "../admin/ProviderPanel";
 import { SaveBar } from "../admin/SaveBar";
@@ -379,14 +378,14 @@ export function Admin() {
               record — a swap is a success with a trace, this is a document
               still wrong. Renders nothing at all when the list is empty. */}
           <PoorlyRead documents={degraded} />
-          {/* Third: a book with no "Full report" link is content an analyst
-              CAN read — every section of it is in search — they just cannot
-              open the whole thing, so it ranks below both panels above.
-              It fetches for itself, like AliasesPanel and IssuesPanel, so a
-              slow azjlbc.gov lookup cannot hold up the rest of this page.
-              Renders nothing at all when every edition is already
-              answered, which is the normal state. */}
-          <ReportLinksPanel />
+          {/* The "Books with no 'Full report' link" panel used to sit here. It
+              MOVED to the Upload page on 2026-08-16 (Destin: "'full report
+              links' should be an option under the baseline book/approps report
+              upload cards, not its own top line menu item"), because
+              publishing an edition is ONE event — add its documents to search,
+              set its whole-report link — and splitting it across two pages made
+              the second half the half you forget. See
+              `webapp/src/pages/upload/ReportLinkRow.tsx`. */}
           <NoticesPanel notices={notices} />
           <IssuesPanel />
         </Group>

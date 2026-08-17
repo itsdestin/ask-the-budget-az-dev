@@ -81,6 +81,11 @@ function renderPanel(
       check={check()}
       checking={false}
       checkError=""
+      // The default is a NON-admin, because that is what almost everyone who
+      // opens /upload is, and because the "Full report link" row fetches for
+      // itself — defaulting it on would make every spec in this file depend on
+      // an api mock it does not care about.
+      isAdmin={false}
       onRecheck={() => {}}
       onQueued={() => {}}
       {...props}
@@ -453,5 +458,53 @@ describe("adding and previewing", () => {
     renderPanel({ check: check({ missing: [FY2027_APPROPS] }) });
     expect(screen.getByTestId("missing-edition")).toBeTruthy();
     expect(screen.queryByRole("checkbox")).toBeNull();
+  });
+});
+
+describe("the 'Full report link' row is mounted, and only for an admin", () => {
+  // 🔴 THE MOUNT ITSELF. This feature has already shipped twice with nothing
+  // pinning that it reaches a page: the panel it replaces was once deleted
+  // from Admin.tsx with 1008 of 1008 specs still green, and before that a
+  // citation annotation was produced correctly and rendered nowhere. Both
+  // specs below were verified RED against the mutation they exist to catch.
+
+  it("renders the row for an admin, and lets it answer for its own family", async () => {
+    vi.spyOn(api, "bookFormats").mockResolvedValue({
+      pending: [
+        {
+          family: "Appropriations Report",
+          fiscal_year: 2028,
+          candidates: { single_file: null, linked_toc: null },
+        },
+      ],
+      approved: [],
+      online: true,
+      reason: null,
+      problems: [],
+    });
+    renderPanel({ isAdmin: true });
+
+    const row = await screen.findByTestId("report-links");
+    // Not merely present: it has resolved THIS family's slice, which is the
+    // half of the mount that the slug-vs-label trap can break silently.
+    await waitFor(() =>
+      expect(row.querySelector("summary")!.textContent).toMatch(/FY 2028 needs one/),
+    );
+  });
+
+  it("shows a non-admin NO row at all, and asks the server nothing", async () => {
+    // Destin's call, 2026-08-16, over showing it read-only: /upload is open to
+    // the whole office and approving an address changes what every analyst's
+    // "Full report" button downloads. A non-admin's card must look exactly as
+    // it did. An ABSENCE test, not an assumption — and it also pins that no
+    // admin-only request is made, since a 403 in the console is how a
+    // "hidden" control announces itself.
+    const formats = vi.spyOn(api, "bookFormats");
+    renderPanel({ isAdmin: false });
+
+    expect(screen.queryByTestId("report-links")).toBeNull();
+    expect(screen.queryByText(/full report link/i)).toBeNull();
+    await waitFor(() => expect(screen.getByTestId("book-about")).toBeTruthy());
+    expect(formats).not.toHaveBeenCalled();
   });
 });

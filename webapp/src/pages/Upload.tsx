@@ -78,6 +78,27 @@ export function Upload() {
   const [checking, setChecking] = useState(true);
   const [checkError, setCheckError] = useState("");
 
+  // Who is looking. The two JLBC-book cards carry a "Full report link" row
+  // that only an admin may use (Destin's call, 2026-08-16), and everyone in
+  // the office can open this page.
+  //
+  // Fetched ONCE here rather than inside each book card, for the same reason
+  // the check above is: two cards asking the same question is two calls for
+  // one answer. A failure means no row, which is the right default — better a
+  // missing control than one that 403s. Same idiom as `Header`, which decides
+  // the Admin pill this way.
+  const [isAdmin, setIsAdmin] = useState(false);
+  useEffect(() => {
+    let cancelled = false;
+    api
+      .me()
+      .then((m) => !cancelled && setIsAdmin(m.is_admin))
+      .catch(() => {});
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
   const loadCheck = useCallback(async (refresh: boolean) => {
     setChecking(true);
     setCheckError("");
@@ -169,6 +190,7 @@ export function Upload() {
               check={check}
               checking={checking}
               checkError={checkError}
+              isAdmin={isAdmin}
               onRecheck={() => void loadCheck(true)}
               onQueued={() => void refreshJobs()}
             />
@@ -241,6 +263,7 @@ function DocTypeCard({
   check,
   checking,
   checkError,
+  isAdmin,
   onRecheck,
   onQueued,
 }: {
@@ -251,6 +274,9 @@ function DocTypeCard({
   check: api.BookCheck | null;
   checking: boolean;
   checkError: string;
+  /** Passed straight through to the book panel, which hides its admin-only
+   *  "Full report link" row when false. Resolved once by the page. */
+  isAdmin: boolean;
   onRecheck: () => void;
   onQueued: () => void;
 }) {
@@ -305,6 +331,7 @@ function DocTypeCard({
               check={check}
               checking={checking}
               checkError={checkError}
+              isAdmin={isAdmin}
               onRecheck={onRecheck}
               onQueued={onQueued}
             />
