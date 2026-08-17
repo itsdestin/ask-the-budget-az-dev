@@ -237,7 +237,7 @@ this directory. When that lands, expect Layer 1's role to shift to
 | `chronological.py` | The newest-first order metric (`newest_first_rate`, `mean_fiscal_year_at_k`) |
 | `sweep_recency.py` | S21 weight sweep — recall AND chronological order, at every weight |
 | `results/` | Git-tracked result files (one JSON + one MD per run) |
-| `agent_queries.yaml` | Layer 2 ground truth — open-ended questions + key_facts + shape/subset tags |
+| `agent_queries.yaml` | Layer 2 ground truth — open-ended questions + key_facts + shape + set tags |
 | `agent_schema.py` | Layer 2 query schema (`AgentQuery`, `KeyFact`) — `extra="forbid"` |
 | `run_agent_eval.py` | Layer 2 runner — drives real `HarnessSession`s, spends money, writes transcripts. `--workers N` runs queries concurrently |
 | `run_full_layer2.py` | One-shot orchestrator — run → score → judge in one command, one pinned run dir |
@@ -268,6 +268,19 @@ passes verification, how often it passes on the FIRST try, and how many
 retries each citation cost), search efficiency including which filters
 the agent chose, and output hygiene (meta-
 narration leaks, internal-vocabulary leaks, a leaked download token).
+
+**Headline metric (2026-08-16 consolidation).** The headline is
+**cost-to-accurate**: `tokens_to_accurate` and `turns_to_accurate`,
+computed ONLY over responses that pass all their key facts AND produce
+≥1 verified citation (fast-but-wrong and fast-but-uncited are excluded).
+**Wall-clock time is deliberately NOT a metric** — it is network- and
+machine-load dominated, so no comparison survives a different session;
+tokens and turns are load-invariant and are what trend in the over-time
+archive. The `document_correctness` axis (Multi set) measures doc-type
+understanding: share of verified citations pointing at a
+`correct_response_doc`. Tool-error harvesting logs every failed
+retrieve/cite/argument with the turn it cost.
+
 Layer 1 stays the free, fast inner loop for retrieval-only changes;
 Layer 2 is the paid outer loop for anything that touches the harness
 loop or the system prompt. **Their numbers are not comparable to each
@@ -277,36 +290,40 @@ things over different query sets.
 **This layer costs real money — every run calls a real model through
 OpenRouter.** Rough guide:
 
-| subset | what's in it | rough cost |
-|---|---|---|
-| `smoke` | 11 Standard-tier queries | $0.15–0.30 |
-| `full` | **all 31 Standard-tier queries — no Deep Research** | $0.50–1.50 |
-| `dr-probe` | the 4 Deep Research queries, and only those | $2–3 |
+Queries are organized into **sets** (`set:` in the YAML). The default
+selection is `quick,multi,deep,refusal`; use `--sets` to control cost
+(Deep is excludable for cheap iteration):
 
-**`full` is deliberately Standard-only** (spec Decision #4: "Standard for
-the full set + a fixed 4-query Deep Research probe"). Deep Research costs
-~44× Standard per query and takes ~5 minutes, so tagging even four DR
-queries into `full` would triple the run's price, push `wall_p95_ms` onto
-a ~295-second DR answer (hiding any Standard latency regression), and make
-the documented pre-merge run refuse to start on an install where an admin
-configured Standard and left Deep Research off — which `harness/settings.py`
-explicitly allows. Run `--subset dr-probe` separately, on demand or before
-a release. The LLM judge (`judge_agent_run.py`) is a second, separate charge
-on top of a run — budget for it only when running `full`.
+| set | what's in it | rough cost |
+|---|---|---|
+| `quick` | 45 single-shot Standard-tier queries (lookup/comparison/analyze/memo/historical) | ~$0.30–0.60 |
+| `multi` | (not yet authored — follow-up) | — |
+| `deep` | the 3 Deep Research queries | ~$6–9 |
+| `refusal` | the 5 should-refuse queries | negligible (they should refuse) |
+
+**Deep Research is deliberately excludable** (spec Decision #2): it costs
+~44× Standard per query and takes ~5 minutes, so shipping it in every
+cheap iteration would multiply cost and bury Standard latency regressions.
+Run `--sets quick,multi,refusal` for fast iteration; add `deep` only when
+you want the worst-case synthesis numbers. The LLM judge
+(`judge_agent_run.py`) is a second, separate charge on top of a run —
+budget for it only when running the full set.
 
 Query authoring lives in `agent_queries.yaml`, validated by
 `agent_schema.py` (`AgentQuery` / `KeyFact`, both `extra="forbid"` so a
 typo'd field name fails the load instead of silently vanishing). Each
 query pins a `shape` (lookup / comparison / analyze / memo / refusal /
 historical), a `corpus`, a `tier`, zero or more `key_facts` (currency /
-string / regex, mechanically checkable in the final answer), and which
-`subsets` it belongs to (`smoke`, `full`, `dr-probe`).
+string / regex, mechanically checkable in the final answer), and a `set`
+(`quick` / `multi` / `deep` / `refusal`) — one of the four selection sets.
+The retired `subsets: [smoke/full/dr-probe]` mechanism is gone
+(2026-08-16 consolidation).
 
 Workflow:
 
 ```bash
-uv run python -m eval.run_agent_eval --subset smoke --workers 8   # live run, spends money
-uv run python -m eval.run_full_layer2 --subset smoke --workers 8  # run + score + judge, one command
+uv run python -m eval.run_agent_eval --sets quick,multi,refusal --workers 8   # live run, spends money
+uv run python -m eval.run_full_layer2 --sets quick,multi,refusal --workers 8  # run + score + judge, one command
 uv run python -m eval.score_agent_run eval/results/agent/<run>    # free, re-runnable
 uv run python -m eval.judge_agent_run eval/results/agent/<run> --workers 8  # money — full runs only
 uv run python -m eval.compare_agent_runs <baseline-dir> <candidate-dir>  # free
@@ -316,11 +333,12 @@ uv run python -m eval.compare_agent_runs <baseline-dir> <candidate-dir>  # free
 and `run_full_layer2 --workers N` all fan their paid OpenRouter calls out
 across N concurrent worker threads. The Layer 2 runner is dominated by
 waiting on model latency, not CPU, so issuing several queries at once
-overlaps that latency instead of stacking it — a `full` run (31 Standard
-queries) that took ~10 minutes serially can drop to roughly a third at
-`--workers 8` when the provider keeps up. The default is **1 (serial)**,
-preserving the historical behaviour and guarding against accidentally
-hammering OpenRouter; pass `--workers` explicitly when you want speed.
+overlaps that latency instead of stacking it — a full quick run (45
+Standard queries) that took ~15 minutes serially can drop to roughly a
+third at `--workers 8` when the provider keeps up. The default is **1
+(serial)**, preserving the historical behaviour and guarding against
+accidentally hammering OpenRouter; pass `--workers` explicitly when you
+want speed.
 The judge is inherently network-latency-bound too, and gets the same
 treatment. Both are thread-based (not process) because the paid work is
 I/O — the two ONNX models are shared singletons already used concurrently
@@ -346,6 +364,14 @@ says so loudly whenever either side has `repeats: 1`. `--model` pins the
 Standard-tier model for the run without touching `settings.json`.
 `--queries` restricts to specific query ids for a quick check on one
 failing case.
+
+**Over-time archive.** Every scored run with a manifest also appends one
+row to `eval/results/over-time/metrics.jsonl` (headline metrics + the
+comparability keys: `queries_sha256`, corpus counts, profile) and updates
+`index.json`. Trend lines split into segments at every query-set or
+corpus change, so editing the query set starts a new labeled segment
+instead of a misleading continuous line. The archive is committed (like
+scores/judge), so change-over-time travels with the repo.
 
 **The runner writes its OWN ledger, isolated from the office.** Every
 eval query runs with `check_limit` stubbed to always-allow and
@@ -439,11 +465,11 @@ Experiment loop for a change to `harness/`, `retrieval/citations.py`, or
 
 1. Cheap layer first — Layer 1 `run_eval.py`, and re-score any old
    agent-eval transcripts for free if only the scorer changed.
-2. A live `--subset smoke` run against the same query ids as your
-   baseline; `compare_agent_runs.py` the two.
-3. Before merging: a `--subset full` run plus `judge_agent_run.py`,
-   then commit the compare report alongside the code change so the
-   regression record travels with the diff.
+2. A live `--sets quick,multi,refusal` run against the same query ids as
+   your baseline; `compare_agent_runs.py` the two.
+3. Before merging: a full run (`--sets quick,multi,deep,refusal`) plus
+   `judge_agent_run.py`, then commit the compare report alongside the code
+   change so the regression record travels with the diff.
 
 **Results-committing policy.** Raw transcripts embed full retrieved
 chunk text — large, and derived from the corpus rather than from the

@@ -3,7 +3,7 @@
 This is the easy re-runnable entry point the workflow has been wanting:
 instead of remembering three commands in README order, run:
 
-    uv run python -m eval.run_full_layer2 --subset full
+    uv run python -m eval.run_full_layer2 --sets quick,multi,refusal
 
 and it drives the SAME tools the README documents (run_agent_eval,
 score_agent_run, judge_agent_run) as subprocesses, so the on-disk
