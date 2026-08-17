@@ -433,6 +433,42 @@ def test_a_malformed_cite_batch_slot_scores_as_a_failure_instead_of_crashing():
     assert row["cite_pass_rate"] == pytest.approx(0.5)
 
 
+def _clean_transcript():
+    """Passes its one currency fact and carries one verified cite."""
+    return make_transcript([retrieve_call([chunk("c-1", "ADC $1,391,157,700")])],
+                           citations=[ok_citation("c-1")])
+
+
+def test_accurate_requires_facts_passing_and_a_verified_citation():
+    assert score_transcript(make_query(set="quick"), _clean_transcript())["accurate"] is True
+    # facts pass but zero verified cites -> NOT accurate (fast-but-uncited)
+    t = make_transcript([retrieve_call([chunk("c-1", "ADC $1,391,157,700")])],
+                        citations=[])
+    assert score_transcript(make_query(set="quick"), t)["accurate"] is False
+    # cite present but the fact failed -> NOT accurate (fast-but-wrong)
+    t = make_transcript([retrieve_call([chunk("c-1", "irrelevant")])],
+                        citations=[ok_citation("c-1")], final="ADC received $999.")
+    assert score_transcript(make_query(set="quick"), t)["accurate"] is False
+    # zero key facts (refusal query) -> never accurate, even with a cite
+    t = make_transcript([retrieve_call([chunk("c-1", "x")])],
+                        citations=[ok_citation("c-1")], final="I cannot answer that.")
+    refusal_q = make_query(key_facts=[], shape="refusal", should_refuse=True, set="refusal")
+    assert score_transcript(refusal_q, t)["accurate"] is False
+
+
+def test_headline_aggregates_only_over_accurate_rows():
+    q = make_query(set="quick")
+    good = score_transcript(q, _clean_transcript())          # accurate
+    good2 = score_transcript(q, _clean_transcript())         # accurate
+    wrong = score_transcript(
+        q, make_transcript([retrieve_call([chunk("c-1", "irrelevant")])],
+                           citations=[ok_citation("c-1")], final="ADC received $999."))
+    s = aggregate([good, good2, wrong])
+    assert s["accurate_n"] == 2
+    assert s["tokens_to_accurate_mean"] == good["total_tokens"]  # wrong row excluded
+    assert s["accurate_headline_by_set"]["quick"]["n"] == 2
+
+
 def test_wall_clock_is_not_reported_anywhere():
     # Two transcripts with wildly different wall times (30000 baked into the
     # fake; vary via terminal). Summary must carry NO wall keys.

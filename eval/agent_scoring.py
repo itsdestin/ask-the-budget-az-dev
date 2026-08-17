@@ -201,7 +201,8 @@ def _facts_covered(query: AgentQuery, text: str) -> int:
 def score_transcript(query: AgentQuery, t: Transcript) -> dict[str, Any]:
     frame_type = (t.terminal.get("frame") or {}).get("type")
     row: dict[str, Any] = {
-        "query_id": query.id, "shape": query.shape, "repeat": t.meta.get("repeat", 1),
+        "query_id": query.id, "shape": query.shape, "set": query.set,
+        "repeat": t.meta.get("repeat", 1),
         "ok": frame_type == "_done",
         "error": (t.terminal.get("frame") or {}).get("message") if frame_type != "_done" else None,
         "wall_ms": wall_ms(t),
@@ -225,6 +226,17 @@ def score_transcript(query: AgentQuery, t: Transcript) -> dict[str, Any]:
     verified = [c for c in citations(t) if c.get("ok")]
     row["verified_citations"] = len(verified)
     row["emitted_citations"] = len(citations(t))
+
+    # Headline eligibility (2026-08-16 consolidation): an "accurate" response
+    # passes ALL its key facts AND produces >=1 verified citation. Refusal
+    # queries (0 key facts) are never "accurate" — their quality lives in
+    # refusal_correct_rate, and counting them here would inflate the headline
+    # with cheap refuses (the vacuous-pass hole the spec explicitly closes).
+    row["accurate"] = bool(
+        frame_type == "_done" and total_facts
+        and matched == total_facts and row["verified_citations"] >= 1
+    )
+    row["total_tokens"] = row["input_tokens"] + row["output_tokens"] + row["cached_tokens"]
 
     attempts = cite_attempts(t)
     failures = [a for a in attempts if not _attempt_passed(a)]
@@ -434,6 +446,19 @@ def _mean(vals: list[float]) -> float | None:
 
 def aggregate(rows: list[dict[str, Any]]) -> dict[str, Any]:
     ok_rows = [r for r in rows if r["ok"]]
+    acc = [r for r in ok_rows if r["accurate"]]
+    # WHY the headline excludes rather than zeroes inaccurate rows: a
+    # regression that trades correctness for speed must show as accurate_rate
+    # dropping while the headline counts FEWER queries — not as a faster
+    # average. Zeroing would reward exactly the failure mode.
+    headline_by_set: dict[str, dict] = {}
+    for sname in sorted({r.get("set") for r in acc if r.get("set")}):
+        sub = [r for r in acc if r.get("set") == sname]
+        headline_by_set[sname] = {
+            "n": len(sub),
+            "tokens_mean": _mean([r["total_tokens"] for r in sub]),
+            "turns_mean": _mean([r["steps"] for r in sub]),
+        }
     # WHY wall_p50_ms/wall_p95_ms were DELETED (2026-08-16 consolidation,
     # Destin's call): wall time is dominated by provider network latency and
     # machine load (~70% absolute swings on this box, CLAUDE.md), so no
@@ -469,6 +494,11 @@ def aggregate(rows: list[dict[str, Any]]) -> dict[str, Any]:
     return {
         "n": len(rows),
         "errors": len(rows) - len(ok_rows),
+        "accurate_n": len(acc),
+        "accurate_rate": (len(acc) / len(ok_rows)) if ok_rows else None,
+        "tokens_to_accurate_mean": _mean([r["total_tokens"] for r in acc]),
+        "turns_to_accurate_mean": _mean([r["steps"] for r in acc]),
+        "accurate_headline_by_set": headline_by_set,
         "steps_mean": _mean([r["steps"] for r in ok_rows]),
         "retrieve_calls_mean": _mean([r["retrieve_call_count"] for r in ok_rows]),
         "input_tokens_mean": _mean([r["input_tokens"] for r in ok_rows]),
