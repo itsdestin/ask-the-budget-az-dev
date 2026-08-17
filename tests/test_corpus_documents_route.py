@@ -500,3 +500,16 @@ def test_a_broken_overlay_still_serves_the_documents(client, tmp_path, monkeypat
 
     assert isinstance(body["documents"], list)
     assert "Appropriations Report:2027" in body["report_formats"]  # shipped table survived
+
+    # The overlay above is torn, so `load()` returned a problem sentence about
+    # it — and that sentence must NOT come out here. This route is ungated: an
+    # analyst reads it, can do nothing about a malformed file on the shared
+    # drive, and would only be alarmed by it. The sentence belongs on the admin
+    # panel, which is the one screen whose reader can fix the file.
+    #
+    # Pinned as the whole key SET rather than `"problems" not in body`, because
+    # three sibling tests in this file had to give up their whole-response `==`
+    # assertions when `report_formats` started riding along — this is where that
+    # "nothing else is in the response" guarantee is recovered. Verified by
+    # mutation: adding `"problems": _problems` to the handler turns this red.
+    assert set(body) == {"documents", "report_formats"}
