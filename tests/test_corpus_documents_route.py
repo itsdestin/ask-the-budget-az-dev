@@ -82,10 +82,16 @@ def _write(tmp_path, docs):
 
 
 def test_an_empty_sidecar_lists_no_documents(client):
-    """Fresh install: zero rows, not a 500 — the page shows its empty state."""
+    """Fresh install: zero rows, not a 500 — the page shows its empty state.
+
+    Narrowed from a whole-body `==` to the `documents` key alone: the body
+    now also carries `report_formats` (see the tests below), which holds the
+    39-entry shipped table regardless of the sidecar — asserting the whole
+    dict here would make this test about that table's exact contents rather
+    than about an empty sidecar."""
     body = client.get("/api/corpus/documents").json()
 
-    assert body == {"documents": []}
+    assert body["documents"] == []
 
 
 def test_every_document_is_listed_with_the_fields_the_page_needs(client, tmp_path):
@@ -185,7 +191,9 @@ def test_a_corrupt_sidecar_reads_as_empty_rather_than_500ing(client, tmp_path):
     response = client.get("/api/corpus/documents")
 
     assert response.status_code == 200
-    assert response.json() == {"documents": []}
+    # Narrowed from a whole-body `==`, same reasoning as the empty-sidecar
+    # test above: `report_formats` is unrelated to the sidecar's corruption.
+    assert response.json()["documents"] == []
 
 
 def test_non_dict_entries_are_skipped_not_raised_on(client, tmp_path):
@@ -266,7 +274,8 @@ def test_an_unreadable_chunk_table_lists_nothing_rather_than_leaking(client, tmp
         store.chunk_store.ChunkStore.scan = original
 
     assert response.status_code == 200
-    assert response.json() == {"documents": []}
+    # Narrowed from a whole-body `==`, same reasoning as the two tests above.
+    assert response.json()["documents"] == []
 
 
 def test_the_listing_carries_each_documents_search_terms(client, tmp_path):
@@ -446,3 +455,61 @@ def test_a_degraded_catalog_logs_once_per_page_load_not_once_per_row(
         "expected exactly one degraded-catalog log line for this page load, "
         f"got:\n{stderr}"
     )
+
+
+def test_the_listing_carries_the_whole_report_link_table(client):
+    """The browse page needs documents and their "Full report" links
+    together. A second endpoint would let the rows render one frame before
+    their buttons, which reads as a flash of missing controls on every load.
+
+    `store.report_formats.shipped_path()` resolves to the real, committed
+    `data/report-formats.json` regardless of `JLBC_DATA_DIR` (it is not
+    data-dir relative — see that module), so the shipped 39-edition table is
+    present here even though this test's sidecar is empty.
+    """
+    body = client.get("/api/corpus/documents").json()
+
+    assert "report_formats" in body
+    entry = body["report_formats"]["Appropriations Report:2027"]
+    assert entry["single_file"] == "https://www.azjlbc.gov/27ar/fy2027approprpt.pdf"
+    assert entry["linked_toc"] == "https://www.azjlbc.gov/27ar/apprpttoc.pdf"
+
+
+def test_a_broken_overlay_still_serves_the_documents(client, tmp_path, monkeypatch):
+    """An unreadable file on the share must cost the links, never the
+    listing. This is store.report_formats.load's own degrade-on-read
+    contract (R10) — without it, json.loads on the torn overlay below raises
+    JSONDecodeError (a ValueError), which nothing in this route catches, and
+    the request 500s. Confirmed directly: `json.loads("{ torn")` raises
+    `JSONDecodeError`, and `load_overlay` is the only caller that would see
+    it (`load`'s try/except wraps `load_shipped` only).
+
+    Patched at `store.report_formats.overlay_path` — the binding site inside
+    `store/report_formats.py`, which is what `load()` actually calls, not
+    where `overlay_path` is merely defined (this plan's own notes flag that
+    exact mistake).
+    """
+    import store.report_formats as rf
+
+    bad = tmp_path / "report-formats.json"
+    bad.write_text("{ torn", encoding="utf-8")
+    monkeypatch.setattr(rf, "overlay_path", lambda: bad)
+    rf.reset_cache()
+
+    body = client.get("/api/corpus/documents").json()
+
+    assert isinstance(body["documents"], list)
+    assert "Appropriations Report:2027" in body["report_formats"]  # shipped table survived
+
+    # The overlay above is torn, so `load()` returned a problem sentence about
+    # it — and that sentence must NOT come out here. This route is ungated: an
+    # analyst reads it, can do nothing about a malformed file on the shared
+    # drive, and would only be alarmed by it. The sentence belongs on the admin
+    # panel, which is the one screen whose reader can fix the file.
+    #
+    # Pinned as the whole key SET rather than `"problems" not in body`, because
+    # three sibling tests in this file had to give up their whole-response `==`
+    # assertions when `report_formats` started riding along — this is where that
+    # "nothing else is in the response" guarantee is recovered. Verified by
+    # mutation: adding `"problems": _problems` to the handler turns this red.
+    assert set(body) == {"documents", "report_formats"}

@@ -44,7 +44,10 @@ function findPassageQuote() {
 }
 
 function mount() {
-  vi.spyOn(api, "corpusDocuments").mockResolvedValue({ documents: DOCS });
+  // `report_formats: {}` — the whole-report link table now comes off the wire
+  // (spec R1, 2026-08-16). Empty because nothing in this file asserts a "Full
+  // report" control; an empty table renders none, which is the honest state.
+  vi.spyOn(api, "corpusDocuments").mockResolvedValue({ documents: DOCS, report_formats: {} });
   vi.spyOn(api, "search").mockResolvedValue({ results: HITS, total: 1, provider: "test" });
   vi.spyOn(api, "chunk").mockResolvedValue({
     chunk_id: "chunk-142", doc_id: "b27", page: 142, bbox: null,

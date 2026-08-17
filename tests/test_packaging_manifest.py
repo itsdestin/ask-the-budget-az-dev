@@ -156,6 +156,11 @@ def test_source_files_ships_the_live_application():
         "samples/entity-catalog.yaml",
         "samples/agency-slug-aliases.yaml",
         "data/fund-catalog.yaml",
+        # The whole-report ("Full report") link table. If the bundle dropped
+        # it, every office install would silently lose all 39 curated editions
+        # and every "Full report" button, with no error anywhere — the table is
+        # read at runtime by store/report_formats.py, not baked into the SPA.
+        "data/report-formats.json",
         "app/data/fiscal-notes-snapshot.json",
     ):
         assert needed in files, f"{needed} is loaded at runtime but would not ship"

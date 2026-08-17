@@ -18,6 +18,7 @@ from __future__ import annotations
 from fastapi import APIRouter
 
 from app.book_sections import section_of
+from store.report_formats import load as load_report_formats
 
 router = APIRouter()
 
@@ -267,5 +268,22 @@ def corpus_documents() -> dict:
     own rule), as does an unreadable chunk table (see `budget_doc_ids`) —
     either way the page renders its empty state instead of a 500. That state
     must NOT name a cause: an empty list here means "nothing to show", and
-    this route cannot tell an un-ingested corpus from a broken one."""
-    return {"documents": document_listing()}
+    this route cannot tell an un-ingested corpus from a broken one.
+
+    `report_formats` rides along rather than living at its own endpoint: the
+    page needs both together, and a separate call would let document rows
+    paint a frame before their "Full report" buttons appear — a flash of
+    missing controls on every load. Overlay problems (a torn admin file on
+    the share) are NOT reported here — this route is ungated and an analyst
+    can do nothing about it; `store.report_formats.load`'s own read path
+    already degrades a bad overlay to the shipped table alone (R10), so the
+    listing never 500s over it, and the problem sentences surface on the
+    admin panel instead."""
+    table, _problems = load_report_formats()
+    return {
+        "documents": document_listing(),
+        "report_formats": {
+            key: {"single_file": fmt.single_file, "linked_toc": fmt.linked_toc}
+            for key, fmt in table.items()
+        },
+    }

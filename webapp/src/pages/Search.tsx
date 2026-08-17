@@ -268,8 +268,15 @@ function resolveFullReportAction(
   year: number,
   docs: api.CorpusDocument[],
   onChoose: () => void,
+  // The server's table, threaded down from the page's corpus fetch (spec R1,
+  // 2026-08-16). It used to be a constant this module imported directly; an
+  // administrator can now add a fiscal year without a developer rebuilding
+  // the app. Passed rather than read from a module global so the component
+  // tests can see whether the wiring works — a global would let them pass
+  // either way.
+  formats: api.ReportFormatTable,
 ): FullReportAction {
-  const { singleFile, linkedToc } = reportFormats(family, year === 0 ? null : year);
+  const { singleFile, linkedToc } = reportFormats(family, year === 0 ? null : year, formats);
   if (singleFile && linkedToc) return { kind: "choose", onClick: onChoose };
   // The lone-document fallback (this function's own comment above, and spec
   // D9) only applies when the family genuinely has exactly one document.
@@ -277,8 +284,8 @@ function resolveFullReportAction(
   // happened to sort first for EVERY uncurated family, including
   // multi-document ones — a gold "Full report" pill pointing at one agency's
   // section PDF (CRITICAL, 2026-08-10; demonstrated on FY 2026 Appropriations
-  // Report: ar26-ahcccs + ar26-edu, no REPORT_FORMATS entry, docs[0] happened
-  // to be the AHCCCS section).
+  // Report: ar26-ahcccs + ar26-edu, no entry in the server's report-formats
+  // table, docs[0] happened to be the AHCCCS section).
   const href = singleFile ?? linkedToc ?? (docs.length === 1 ? (docs[0]?.doc_url ?? null) : null);
   return href ? { kind: "link", href } : { kind: "none" };
 }
@@ -302,17 +309,19 @@ function ReportRow({
   family,
   docs,
   onChoose,
+  formats,
 }: {
   year: number;
   family: string;
   docs: api.CorpusDocument[];
   onChoose: () => void;
+  formats: api.ReportFormatTable;
 }) {
   const title = familyTitle(family, year === 0 ? null : year);
   // A report family's documents share one publisher in this corpus, so the
   // chip reads the first document's — same posture as the mockup.
   const publisher = docs[0]?.publisher ?? "";
-  const action = resolveFullReportAction(family, year, docs, onChoose);
+  const action = resolveFullReportAction(family, year, docs, onChoose, formats);
   const body = (
     <>
       <PubChip publisher={publisher} />
@@ -362,6 +371,7 @@ function FamilyCard({
   trayOpen,
   onToggleTray,
   onChoose,
+  formats,
 }: {
   year: number;
   group: FamilyGroup;
@@ -369,6 +379,7 @@ function FamilyCard({
   trayOpen: boolean;
   onToggleTray: () => void;
   onChoose: () => void;
+  formats: api.ReportFormatTable;
 }) {
   const searching = query !== "";
   const title = familyTitle(group.family, year === 0 ? null : year);
@@ -381,13 +392,25 @@ function FamilyCard({
     if (docs.length === 1) {
       return (
         <article className="grp">
-          <ReportRow year={year} family={group.family} docs={docs} onChoose={onChoose} />
+          <ReportRow
+            year={year}
+            family={group.family}
+            docs={docs}
+            onChoose={onChoose}
+            formats={formats}
+          />
         </article>
       );
     }
     return (
       <article className="grp">
-        <ReportRow year={year} family={group.family} docs={docs} onChoose={onChoose} />
+        <ReportRow
+          year={year}
+          family={group.family}
+          docs={docs}
+          onChoose={onChoose}
+          formats={formats}
+        />
         <div className="ctx">
           <div className="ctx-row">
             <span className="badge">
@@ -473,7 +496,7 @@ function FamilyCard({
   // the AFR-style single-document fallback agrees with what the browse view
   // would show for this exact family/year, not with whichever doc happened
   // to match the query.
-  const fullReport = resolveFullReportAction(group.family, year, group.docs, onChoose);
+  const fullReport = resolveFullReportAction(group.family, year, group.docs, onChoose, formats);
   return (
     <article className="grp">
       <DocRow doc={featured} />
@@ -544,6 +567,7 @@ const YearCard = memo(function YearCard({
   openTrays,
   onToggleTray,
   onChoose,
+  formats,
 }: {
   year: number;
   families: FamilyGroup[];
@@ -553,6 +577,7 @@ const YearCard = memo(function YearCard({
   openTrays: ReadonlySet<string>;
   onToggleTray: (key: string) => void;
   onChoose: (year: number, family: string) => void;
+  formats: api.ReportFormatTable;
 }) {
   const yearLabel = year === 0 ? "Fiscal year unknown" : `Fiscal Year ${year}`;
   return (
@@ -587,6 +612,7 @@ const YearCard = memo(function YearCard({
             trayOpen={openTrays.has(`${year}|${f.family}`)}
             onToggleTray={() => onToggleTray(`${year}|${f.family}`)}
             onChoose={() => onChoose(year, f.family)}
+            formats={formats}
           />
         ))}
       </div>
@@ -713,6 +739,21 @@ export function Search() {
   const [contentAttempt, setContentAttempt] = useState(0);
 
   const [phase, setPhase] = useState<Phase>({ kind: "loading" });
+  // The server's whole-report link table, which rides along on the same
+  // corpus response (spec R1, 2026-08-16).
+  //
+  // WHY its own state rather than a field on the `Phase` union: `Phase` models
+  // what the page is SHOWING — loading / error / ready are mutually exclusive
+  // display states, and no rendering branch turns on whether the link table
+  // arrived. Reading it out of the union would also mean writing
+  // `phase.kind === "ready" ? phase.report_formats : {}` at the render site,
+  // which mints a FRESH empty object on every render and would defeat the
+  // `memo` on YearCard — a per-keystroke re-render of every year card.
+  //
+  // Defaults to `{}`, so a page that has not loaded yet renders no "Full
+  // report" buttons rather than crashing. No button is the honest state: the
+  // app has nothing verified to open yet.
+  const [reportFormatTable, setReportFormatTable] = useState<api.ReportFormatTable>({});
   const [attempt, setAttempt] = useState(0);
   const [types, setTypes] = useState<ReadonlySet<string>>(new Set());
   const [years, setYears] = useState<ReadonlySet<number>>(new Set());
@@ -810,7 +851,22 @@ export function Search() {
     setPhase({ kind: "loading" });
     api.corpusDocuments().then(
       (data) => {
-        if (!ignore) setPhase({ kind: "ready", docs: data.documents });
+        if (!ignore) {
+          setPhase({ kind: "ready", docs: data.documents });
+          // Set only on success. The error branch renders no document rows at
+          // all, so there is nothing for a table to answer for — and clearing
+          // it there would churn the value for no visible difference.
+          //
+          // `?? {}` even though the TS type says `report_formats` is REQUIRED
+          // (api.ts): the wire is not the type checker. An older `app/`
+          // serving a newer bundle, or any proxy in between, can genuinely
+          // omit the key, and `table[key]` on `undefined` throws inside
+          // render — white-screening the whole Budget Documents page over a
+          // missing "Full report" button. `{}` is the same honest "no button"
+          // state this whole feature already renders for an edition the table
+          // simply doesn't answer for.
+          setReportFormatTable(data.report_formats ?? {});
+        }
       },
       (err: unknown) => {
         if (!ignore)
@@ -1291,6 +1347,7 @@ export function Search() {
                         trayOpen={openTrays.has(`${year}|${family.family}`)}
                         onToggleTray={() => toggleTray(`${year}|${family.family}`)}
                         onChoose={() => setChooser({ year, family: family.family })}
+                        formats={reportFormatTable}
                       />
                     ))
                   )}
@@ -1390,6 +1447,7 @@ export function Search() {
                   openTrays={openTrays}
                   onToggleTray={toggleTray}
                   onChoose={(y, family) => setChooser({ year: y, family })}
+                  formats={reportFormatTable}
                 />
               ))
             )}
@@ -1422,7 +1480,11 @@ export function Search() {
       {chooser && (
         <ReportChooser
           title={familyTitle(chooser.family, chooser.year === 0 ? null : chooser.year)}
-          formats={reportFormats(chooser.family, chooser.year === 0 ? null : chooser.year)}
+          formats={reportFormats(
+            chooser.family,
+            chooser.year === 0 ? null : chooser.year,
+            reportFormatTable,
+          )}
           onClose={() => setChooser(null)}
         />
       )}

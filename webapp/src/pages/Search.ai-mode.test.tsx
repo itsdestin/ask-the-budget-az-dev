@@ -28,7 +28,10 @@ const DOCS: realApi.CorpusDocument[] = [
 ];
 
 function mount() {
-  vi.spyOn(realApi, "corpusDocuments").mockResolvedValue({ documents: DOCS });
+  // `report_formats: {}` — the whole-report link table now comes off the wire
+  // (spec R1, 2026-08-16). Empty because nothing in this file asserts a "Full
+  // report" control; an empty table renders none, which is the honest state.
+  vi.spyOn(realApi, "corpusDocuments").mockResolvedValue({ documents: DOCS, report_formats: {} });
   // Still stubbed even though this page never probes: if someone reintroduces
   // a status probe here, the assertions below should fail, not hit a real fetch.
   vi.spyOn(realApi, "aiStatus").mockResolvedValue(AI_STATUS);

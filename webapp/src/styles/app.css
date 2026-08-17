@@ -2741,6 +2741,12 @@ fieldset.adm-field{border:0;padding:0;}
 .adm-group{margin-bottom:calc(var(--gap) * 1.5);}
 .adm-group-title{font-size:11.5px;font-weight:800;text-transform:uppercase;letter-spacing:.06em;color:var(--ink-3);margin:0 0 8px 4px;}
 .adm-group>.adm-panel:last-child{margin-bottom:0;}
+/* A card sitting DIRECTLY in a group rather than inside a panel — currently
+   only ReportLinksPanel's healthy shape, one collapsed line instead of a full
+   alert panel. `.adm-card` carries margin-top for stacking inside a panel and
+   no margin-bottom, so without this it sits flush against the next panel. */
+.adm-group>.adm-card{margin-bottom:var(--gap);}
+.adm-group>.adm-card:last-child{margin-bottom:0;}
 
 /* A run of buttons under a form. `<p>` so it inherits the block rhythm. */
 .adm-actions{display:flex;align-items:center;gap:14px;flex-wrap:wrap;margin:14px 0 0;}

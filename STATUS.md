@@ -50,6 +50,7 @@ source. When something ships, update only this file.
 | **Plan B — resilient processing** (T5–T8, T12) | ✓ **Shipped** (2026-08-13) | A document that extracts to almost nothing is now detected, retried with another extractor, and held out of search if every method fails — instead of being written and reported `live`. Coverage floor **calibrated at 0.10 across all 7,434 documents**. 2798 pytest / 859 vitest / `tsc -b` clean, Layer 1 eval unmoved. **The acceptance run did NOT go as planned and found two real things — read the section below before building on this** |
 | ⬛ Corpus identity consistency (I1–I14) | **SUPERSEDED — it is BUILT** | This row described the problem before the work. See the phase row above and the shipped section below. Two of its figures were measured WRONG: the 721 mis-labels were a fuzzy-matcher defect, not the three corrupted catalog names; and only 25 of the 137 titles carried a bullet |
 | FY2027 Appropriations Report ingest | ✓ **Done + verified (2026-08-16)** | 140/140 live, 0 failures, 2,336 passages, 0 duplicate ids corpus-wide, 4.61 chunks/page. Corpus now **83,016 budget chunks / 7,566 documents**. Its titles are wrong — that is the identity defect above, not an ingest failure |
+| **Whole-report links become data + an admin approval screen** | ✓ **Shipped (2026-08-16)**, acceptance walk RUN, rendering unwitnessed | R1–R13. The 39-edition "Full report" URL table moves out of the JS bundle into `data/report-formats.json` merged with an admin overlay on the share; three admin routes scan the corpus for unanswered editions, probe candidates live and approve them. **Adding a fiscal year is now a click, not a rebuild.** The plan's own code was wrong three times, each caught by measurement — a refactor that would have downloaded whole PDFs on a 404, an offline branch that was dead code, and an offline check that poisoned a 12-hour cache. 3219 pytest / 1021 vitest. See the section below |
 | **Tool cards — placement, then legibility** (TC1–TC22) | ✓ **Shipped 2026-08-16**, browser-approved | A run of tool calls moved out of the space above an answer and INTO the bubble that follows it, then its contents were rewritten for an analyst who does not know what a "chunk" is. **A tool that had never been styled at all was found in the audit.** 1063 vitest / 3151 pytest / build clean, **no eval** (nothing on the retrieval, ingest, chunking, citation or prompt path). Review caught a card that stated a **falsehood** on screen. See the section below |
 
 ## Tool cards — placement, then legibility (2026-08-16)
@@ -933,6 +934,241 @@ changes need a server restart** — only the SPA picks up a rebuild.
   83.33% recall@5) and names *"any re-ingest that improves agency stamping"*
   as the condition to re-measure. **This is that condition.** Re-measuring is
   a separate change with its own eval and is NOT done here.
+
+---
+
+## Whole-report links are DATA now, and a new edition is approved from /admin (2026-08-16)
+
+Spec: `docs/superpowers/specs/2026-08-16-whole-report-links-design.md` (R1–R13).
+Plan: `docs/superpowers/plans/2026-08-16-whole-report-links.md` (6 tasks).
+Branch `whole-report-links`.
+
+**The section immediately below this one curated 39 editions by hand-editing
+TypeScript.** That fixed the symptom and left the cause: adding a fiscal year
+meant editing `webapp/src/reportFamilies.ts` and rebuilding the app — a step
+the non-technical successor who inherits this tool cannot perform, for a list
+that gains two rows every year forever. It is now data with an approval screen.
+
+| | before | after |
+|---|---|---|
+| where the URL table lives | a constant in the JS bundle | `data/report-formats.json` + an admin overlay on the share |
+| adding a fiscal year | edit TypeScript, rebuild, redeploy | click **Approve** on `/admin` |
+| correcting a wrong link | edit TypeScript, rebuild, redeploy | reopen it under **Already answered**, reachable every day |
+| who can do it | a developer | the administrator |
+
+`data/report-formats.json` was **generated from the shipped TypeScript, never
+retyped** — verified byte-identical, 39 editions / 72 URLs, no value changed.
+
+### What shipped
+
+| Piece | Where |
+|---|---|
+| The committed table + the merge with the admin overlay | `store/report_formats.py`, `data/report-formats.json` |
+| The merged table on the browse endpoint | `app/routes/corpus.py` (`report_formats` on `GET /api/corpus/documents`) |
+| The TypeScript table DELETED; the page reads the server's | `webapp/src/reportFamilies.ts`, `webapp/src/pages/Search.tsx` |
+| Pending-edition scan + approve/correct/check | `app/routes/book_formats.py` (3 admin routes) |
+| `HttpProber.head_info` — status + size from a real request | `app/routes/books.py` |
+| The approval card | `webapp/src/admin/ReportLinksPanel.tsx` |
+| The verifier reads the merged table, not TypeScript | `scripts/verify_report_formats.py` |
+
+### 🔴 The plan's own code was wrong in three ways that mattered, and measurement caught each
+
+The sixth consecutive feature where **the plan's prose held and its example
+code did not.** All three were found by running it, not by reading it:
+
+1. **The `head()` refactor the plan asked for would have downloaded whole
+   PDFs to learn they are missing.** `head()` falls back to GET only on a
+   literal `405` (what IIS sends for "I don't do HEAD") and asks for one byte
+   via `Range`. The plan's `head_info` sketch fell back on any `>= 400` with
+   no Range. Delegating would turn **every 404 into a full unranged GET** —
+   ~130 per book edition, of files that are tens of megabytes. **`grep -rn
+   HttpProber tests/` returns nothing**, so no test drives that path and it
+   would have shipped green. `head_info` was added alongside instead, and the
+   405-only rule is now pinned in both methods.
+   A consequence the sketch missed: the 405 fallback asks for one byte, so its
+   `Content-Length` is **1**. Reporting a 600-page book as "1 byte" would fire
+   the exact "this is visibly the wrong file" alarm the size display exists
+   for, every time IIS refuses a HEAD. Size now reads `Content-Range`'s total
+   first, and an absent size is `None` — never `0`.
+2. **The plan's offline branch was DEAD CODE, and its own offline test would
+   have passed against code with no offline handling at all.**
+   `book_discovery._first_live` catches every exception per rung, and
+   `HttpProber.head` swallows `RequestException` and returns `False`. So with
+   the WiFi off the real prober reports every candidate as "not there" and an
+   `except Exception:` branch never fires — **an offline administrator would
+   be told "nothing needs a link"**, a confident wrong answer produced by a
+   network failure, on an app verified to cold-start offline. Rebuilt around a
+   `_NetworkWatch` that tells `(None, None)` "the host never answered" from
+   `(404, None)` "the host said no", and the replacement test reproduces the
+   PRODUCTION shape (a prober that returns `False`, not one that raises).
+3. **The offline check ran BEFORE the confirm requests, so it also poisoned
+   the cache.** `plan_edition` is catalog-first and answers a catalogued
+   edition with zero network calls, so the offline test saw nothing and passed;
+   `_candidate` then issued the confirms, got nothing, and the nulls were
+   **written into a 12-hour cache**. An administrator with the share up and the
+   internet down would see no banner, a perfectly good link marked "didn't
+   respond", and it would **stay wrong for the rest of the day after the
+   network came back**. The check moved after the confirms and no longer
+   writes the cache when it trips.
+
+### 🔴 Four more defects, each of the class this repo keeps shipping
+
+- **The year guard had a query-string hole.** `names_its_year` stripped only
+  the scheme and host, so `…/26ar/fy2026approprpt.pdf?y=2027` answered **True**
+  for FY2027 — and a WHY comment claimed the strip existed to prevent exactly
+  that. Since a hand-typed URL is never checked at save time, that warning is
+  the only thing between a copy-paste slip and a live, downloadable, wrong-year
+  report behind a button labelled "Full report". Query and fragment are
+  stripped now, and both cases are pinned.
+- **The admin card was mounted and pinned by nothing.** Deleting the
+  `<ReportLinksPanel />` line left **1008 of 1008 specs green**, and `tsc -b`
+  complained only about an unused import. Compounding it, `Admin.test.tsx` was
+  making 69 real failing fetches that guaranteed the panel was invisible in
+  every Admin spec, so no assertion there could ever have seen it. Same class
+  as the citation annotation that never reached the UI.
+- **The whole `api.ts` wire layer was unpinned.** Typo'ing the PUT endpoint,
+  and replacing the error helper that carries the server's own sentence with a
+  generic `"Request failed"`, each left 1008/1008 green. Method, path and body
+  keys are pinned now.
+- **A stale Check verdict survived editing the address**, so the card could
+  show a new URL beside the old file's size and no year warning while Approve
+  sent the new one — the precise failure the card exists to prevent. And an
+  emptied address box silently collapsed into "JLBC published no such format",
+  so one wrong keystroke deleted a good link and recorded a positive claim.
+
+### The load-bearing guard, and why the obvious version is wrong
+
+`test_every_url_names_its_own_fiscal_year` is what stops a copied row keeping
+last year's URL — a live, downloadable, WRONG report that no `200 OK` can
+detect. The obvious implementation (`str(fy) in path or f"{fy%100:02d}" in
+path`) was measured against the real 71 URLs and **accepted 32 wrong
+year/URL pairs**, because `"20"` sits inside every `fy20xx` filename JLBC
+publishes: under `Appropriations Report:2020` it accepted SIXTEEN other
+editions' reports. Comparing whole digit runs separates perfectly — **0 real
+URLs wrongly rejected, 0 wrong pairs accepted** — and the three parametrised
+rows that pin it are the only rows in the suite that can see the difference.
+Do not delete them; the hole comes back invisibly.
+
+**One documented exemption, and it must stay at one:** FY2023's table of
+contents genuinely lives at `budget/apprpttoc.pdf`, out of JLBC's undated
+directory. That is also why a year mismatch is **flagged and never refused** —
+refusing year-less URLs would make the one edition that needs a hand
+correction the one edition nobody can correct.
+
+### ✅ The acceptance walk was RUN, against a live server on the real corpus
+
+Not reasoned about — executed, on a scratch data dir symlinking the 14 GB
+corpus read-only, with `Appropriations Report:2027` temporarily removed from a
+copy of the table so exactly one edition was waiting.
+
+| step | result |
+|---|---|
+| the pending card's data | FY2027 Approps, **probed live**: `27ar/fy2027approprpt.pdf` **43.9 MB / 200**, `27ar/apprpttoc.pdf` **438 KB / 200**, both naming their year |
+| Approve | overlay written to the share; the card cleared **on an ordinary reload**, no `?refresh` |
+| the browse endpoint | table back to 39, FY2027 present, response keys exactly `{documents, report_formats}` — the overlay's problems do NOT leak onto the ungated route |
+| correct an approved edition | applied, and the PUT **echoed `names_its_year: false`** for the wrong-year URL, so the warning fires even when Check was skipped |
+| a real, live, WRONG-year file | `ok: true` (it really downloads, 48 MB) with `names_its_year: false` — flagged, not refused |
+| the same file with `?y=2027` | also `names_its_year: false` — the hardened guard holds against a live request |
+| an address that does not exist | `404`, `bytes: null`, and its own plain sentence |
+| **None published** on the single file | `single_file: null` preserved through to the browse page — one format, so the row is a plain link with no chooser |
+| both formats null | **400**, carrying the server's own sentence verbatim |
+| **network blackholed** | `online: false` with a reason naming azjlbc.gov, **the waiting edition still listed**, and **nothing written to the probe cache** |
+
+`scripts/verify_report_formats.py` against the live site: **72 ok, 0 failed**.
+Hiding the committed table makes it FAIL loudly rather than report a clean
+sweep (verified by mutation).
+
+### 🔴 The admin card stays on screen when healthy — a DELIBERATE deviation from spec R7
+
+Spec R7 said the panel renders nothing when nothing is waiting, "however many
+editions are in `approved`", on the reasoning that a box on screen every day
+teaches an admin to scroll past it — the rule `NoticesPanel`, `NeedsAttention`
+and `PoorlyRead` all follow. **Destin overrode it for this panel on
+2026-08-16**, after the final review reproduced what the rule costs.
+
+**Approving a WRONG link is what makes the panel healthy.** JLBC publishes the
+FY2028 Appropriations Report; the admin approves it but pastes the FY2028
+**Baseline** URL, which contains "28", so the year rule sees nothing wrong. The
+panel went healthy and vanished **on that click**, taking the already-answered
+list — the only correction editor — with it, and never came back. "Full report"
+on that row then downloaded the Baseline, a false provenance claim, and the
+only repair was hand-editing `report-formats.json` on the share: **the exact
+chore this feature exists to abolish.**
+
+As shipped, the healthy state is **one collapsed line** — *"Full report links —
+39 editions answered"* — opening onto the same list, the same editor and the
+same PUT. It carries no `<h2>` and none of the alert styling its neighbours use,
+so it neither moves the page's heading order nor reads as an alarm. The count
+comes from `approved.length`, never a constant. Two silences remain: while the
+first fetch is in flight (a loading box and an empty panel look identical, so it
+would flash on every admin page open) and when nothing has been approved yet.
+
+Rejected, and why: **staying visible only for the rest of the session** after a
+save leaves a problem reported next week facing the same vanished panel;
+**shipping the limitation and documenting it** makes the documented repair the
+hand-edit. Accepted cost: one quiet line on `/admin` every day.
+
+The `Already answered` list is now one component shared by both shapes — two
+copies would be two correction paths, and the quiet one is the copy nobody looks
+at, so it is the copy that would rot. `Admin.test.tsx`'s `mockAll()` default
+moved from `approved: []` to a healthy install with an edition answered, because
+the old default was a page shape no admin ever sees; **its heading-order
+assertion did not move and still passes.**
+
+### Gates
+
+**pytest 3226 / 5 skipped · vitest 1025 (89 files) · `tsc -b` 0 ·
+`npm run build` 0.** Roughly 45 mutations were run across the six tasks and
+their fix passes; every one turned its intended guard red. The always-visible
+card is a net **+4 specs**, verified by making the healthy state `return null`
+again — four went red, then reverted.
+
+**No eval run, and the rule does not ask for one** — nothing under
+`retrieval/`, `ingest/`, `chunking/`, `citation/` or `harness/system-prompt.md`
+was touched.
+
+### ⏸ OUTSTANDING and known limits
+
+- **NOBODY HAS OPENED THE ADMIN CARD OR THE BROWSE PAGE IN A BROWSER.** Every
+  check above is data, logic, or a live HTTP request; **jsdom applies no
+  stylesheet**, and this repo has shipped green under thousands of passing
+  tests three times. Worth eyes: the card's `.adm-card` nested three deep
+  inside `.adm-panel` (a depth this stylesheet has not been used at before)
+  and the correction editor living inside an `<li>` styled for one-line rows;
+  the blank-address warning; and that a "Full report" button still appears on
+  `/search` for a curated edition. **Newly unwitnessed: the healthy collapsed
+  line**, which is a bare `.adm-card` sitting directly in a `.adm-group` rather
+  than inside a panel — a position this stylesheet had no rule for, so one was
+  added for its bottom margin. It is what an admin sees every day and nobody
+  has seen it once. ⚠ `uvicorn` runs without `--reload`, so **Python changes
+  need a server restart**; only the SPA picks up a rebuild.
+- **An approve-without-looking is still possible, by design (R9).** The
+  mitigation is the size, the HTTP status and the year warning on the card —
+  a 0.2 MB "book" or a 47 MB "table of contents" is visibly wrong. Nothing
+  forces the administrator to press **Check** or open the link first.
+- **Breakage of an ALREADY-approved link is not detected by the app** (R13).
+  `scripts/verify_report_formats.py` is what catches it, and it must be run by
+  a human — it needs the public internet, so a test reaching azjlbc.gov would
+  fail on every disconnected office machine.
+- **Known derivation limit.** The pending scan reuses
+  `books_missing.corpus_editions()`, which reads the `{yy}ar|app|baseline|book1/`
+  directory out of each document's `source_url`. Measured over all 7,574
+  documents on 2026-08-16 that agrees **exactly** with the browse page's own
+  rule (`section_of` then `doc_type`) — 39 editions, zero disagreement either
+  way. But a book document with **no azjlbc `{yy}dir/` address** — a hand
+  upload through the Upload page, or a fifth JLBC directory convention — would
+  group under a family on the browse page and be **invisible to this scan**,
+  so it could never become pending and would silently never get a button. If a
+  hand-uploaded book section ever appears, that is the trigger to move
+  `FAMILY_OF_DOC_TYPE` server-side.
+- **`app/routes/books_missing.py` has the identical dead-offline-branch hole**
+  found in item 2 above — its "Add a JLBC book" panel will report an empty gap
+  it never measured when the network is down. Out of scope here; it deserves
+  its own fix.
+- **The page-count/size provenance comments were dropped.** The TypeScript
+  rows carried `// 620pp/48.0MB, toc 1pp` recording what was downloaded on
+  2026-08-16; JSON has no comments and the schema has no field for them, so
+  that survives only in git history and in the verifier's `--full` output.
 
 ---
 
