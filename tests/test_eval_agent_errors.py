@@ -21,6 +21,24 @@ def test_cite_failures_are_harvested_with_their_turn():
     fails = [r for r in rows if r["kind"] == "cite_failure"]
     assert len(fails) == 1
     assert fails[0]["query_id"] == "q1" and isinstance(fails[0]["turn"], int)
+    # WHY (2026-08 review finding): the cite call's error payload
+    # ({"ok": False, "error": "quote not found"}) used to ALSO emit an
+    # argument_error row, double-counting every cite failure. Cite failures
+    # must come ONLY from the dedicated cite_attempts pass — a failing cite
+    # must not produce any argument_error for this query.
+    assert [r for r in rows if r["kind"] == "argument_error"] == []
+
+
+def test_non_cite_tool_error_is_harvested_as_argument_error():
+    # a genuine arg-error tool (non-retrieve, non-cite) still produces an
+    # argument_error row — the cite carve-out must not hide real argument errors
+    bad_tool = {"toolUseId": "t-x", "toolName": "some_other_tool",
+                "input": {"x": 1},
+                "output": json.dumps({"error": "bad argument"}),
+                "isError": True}
+    t = make_transcript([bad_tool])
+    errs = [r for r in harvest_errors(t, Q) if r["kind"] == "argument_error"]
+    assert len(errs) == 1 and errs[0]["tool"] == "some_other_tool"
 
 
 def test_retrieve_tool_error_is_harvested():

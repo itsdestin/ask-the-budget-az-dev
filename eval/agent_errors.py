@@ -32,10 +32,22 @@ def harvest_errors(t: Transcript, query: AgentQuery) -> list[dict]:
         name = call.get("toolName") or ""
         out = parsed_output(call)
         detail = ""
+        # WHY (2026-08 review finding): a failing cite/cite_batch call ALSO
+        # carries an error payload ({"ok": False, "error": "quote not found"}),
+        # so naively flagging every truthy "error" as argument_error double-
+        # counted every cite failure — one argument_error row here PLUS the
+        # correct cite_failure row from the dedicated cite_attempts pass below.
+        # Cite failures must come ONLY from that single pass, so a cite call
+        # (even a malformed one) never becomes an argument_error here.
         if out and out.get("error"):
-            rows.append({"kind": "retrieve_error" if name == "retrieve" else "argument_error",
-                         "tool": name, "turn": i, "query_id": query.id,
-                         "detail": str(out["error"])[:200]})
+            if name == "retrieve":
+                rows.append({"kind": "retrieve_error", "tool": name,
+                             "turn": i, "query_id": query.id,
+                             "detail": str(out["error"])[:200]})
+            elif name not in ("cite", "cite_batch"):
+                rows.append({"kind": "argument_error", "tool": name,
+                             "turn": i, "query_id": query.id,
+                             "detail": str(out["error"])[:200]})
     # cite/cite_batch attempts are harvested ONCE (not per call in the loop
     # above, which would double-count): agent_scoring's cite_attempts already
     # flattens cite_batch slots. Re-use ITS pass/fail logic — do NOT re-derive
