@@ -542,3 +542,55 @@ def test_document_correctness_aggregate_over_multi_rows_with_a_value():
     summary = aggregate(rows)
     assert summary["document_correctness_mean"] == pytest.approx(0.5)  # 1.0 & 0.0; None excluded
     assert summary["multi_unanswered_n"] == 1
+
+
+def test_md_contains_headline_by_set_and_error_ledger(tmp_path):
+    """Task 8, part 1: the consolidated scores.md gains a per-set headline
+    table (accurate queries only) and a tool-error ledger section, between
+    the existing Summary and Per-query sections, without disturbing the
+    cost-column precision that test_scores_md_cost_column pins."""
+    from eval.score_agent_run import _md
+    scores = {
+        "summary": {
+            "accurate_headline_by_set": {
+                "quick": {"n": 2, "tokens_mean": 200.0, "turns_mean": 3.0},
+                "multi": {"n": 1, "tokens_mean": 1400.0, "turns_mean": 7.0},
+            }
+        },
+        "per_query": [{"query_id": "a", "shape": "lookup", "ok": True,
+                       "key_fact_rate": 1.0, "verified_citations": 1,
+                       "cite_pass_rate": 1.0, "first_try_cite_rate": 1.0,
+                       "retrieval_efficiency": 1.0, "steps": 3, "cost_usd": 0.003}],
+        "skipped": [],
+        "errors": [{"kind": "cite_failure", "query_id": "a", "turn": 3,
+                    "tool": "cite", "detail": "no match"},
+                   {"kind": "retrieve_error", "query_id": "b", "turn": 1,
+                    "tool": "retrieve", "detail": "boom"}],
+    }
+    md = _md(scores, tmp_path)
+    assert "Headline by set" in md
+    assert "| quick | 2 | 200 | 3.0 |" in md
+    assert "| multi | 1 | 1400 | 7.0 |" in md
+    assert "Tool-error ledger" in md
+    assert "| cite_failure | 1 | a |" in md
+    assert "| retrieve_error | 1 | b |" in md
+
+
+def test_md_skips_both_new_sections_when_absent(tmp_path):
+    """The new sections are additive: a run with no headline data and no tool
+    errors must render the legacy Summary + Per-query sections exactly as
+    before — guards against the insertion breaking existing reports."""
+    from eval.score_agent_run import _md
+    scores = {
+        "summary": {"key_fact_rate_mean": 0.5},
+        "per_query": [{"query_id": "a", "shape": "lookup", "ok": True,
+                       "key_fact_rate": 0.5, "verified_citations": 1,
+                       "cite_pass_rate": 1.0, "first_try_cite_rate": 1.0,
+                       "retrieval_efficiency": 1.0, "steps": 3, "cost_usd": 0.003}],
+        "skipped": [],
+        "errors": [],
+    }
+    md = _md(scores, tmp_path)
+    assert "Headline by set" not in md
+    assert "Tool-error ledger" not in md
+    assert "## Summary" in md and "## Per query" in md

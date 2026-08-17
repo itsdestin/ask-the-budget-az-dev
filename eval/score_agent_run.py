@@ -47,6 +47,29 @@ def _md(scores: dict, run_dir: Path) -> str:
     for key, val in s.items():
         shown = f"{val:.4g}" if isinstance(val, float) else val
         lines.append(f"- **{key}**: {shown}")
+    # Task 8, part 1: a per-set headline table. The three summary-level
+    # headline means (accurate_rate / tokens_to_accurate / turns_to_accurate)
+    # average over ALL accurate rows, but a run mixes quick/multi/deep sets
+    # whose cost profiles differ by an order of magnitude — a single mean
+    # hides which set is cheap-and-fast and which is slow. This table breaks
+    # the same headline numbers down per set, so a reader can see where
+    # tokens/turns actually go. "Accurate queries only" matches how
+    # aggregate() builds accurate_headline_by_set (it includes only rows that
+    # passed all key facts AND issued a verified citation).
+    hs = s.get("accurate_headline_by_set") or {}
+    if hs:
+        lines += ["", "## Headline by set (accurate queries only)", "",
+                  "| set | n | tokens_to_accurate | turns_to_accurate |",
+                  "|---|---|---|---|"]
+        for name, d in sorted(hs.items()):
+            lines.append(f"| {name} | {d['n']} | {d['tokens_mean']:.0f} "
+                         f"| {d['turns_mean']:.1f} |")
+    errs = scores.get("errors") or []
+    if errs:
+        lines += ["", "## Tool-error ledger", "",
+                  "| kind | count | queries |", "|---|---|---|"]
+        for kind, d in summarize_errors(errs).items():
+            lines.append(f"| {kind} | {d['count']} | {', '.join(d['queries'])} |")
     # Column names say exactly what they hold (2026-08 review, Finding 5):
     # "cite pass" is the pass rate over every attempt, "1st-try" is the share
     # of intended citations that landed on the first attempt. The old single

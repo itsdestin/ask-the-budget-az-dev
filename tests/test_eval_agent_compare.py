@@ -159,6 +159,114 @@ def test_arrow_unclassified_metric_renders_with_no_arrow():
     assert "▼" not in row
 
 
+# --- Task 8, part 3: headline keys get the right arrow direction ----------
+
+def test_arrow_lower_is_better_tokens_to_accurate_fell_is_improvement():
+    md = compare(_run({"tokens_to_accurate_mean": 2000, "accurate_n": 3}),
+                 _run({"tokens_to_accurate_mean": 1500, "accurate_n": 3}))
+    row = _row_for(md, "tokens_to_accurate_mean")
+    assert "▲" in row and "▼" not in row
+
+
+def test_arrow_lower_is_better_turns_to_accurate_rose_is_regression():
+    md = compare(_run({"turns_to_accurate_mean": 3.0, "accurate_n": 3}),
+                 _run({"turns_to_accurate_mean": 6.0, "accurate_n": 3}))
+    row = _row_for(md, "turns_to_accurate_mean")
+    assert "▼" in row and "▲" not in row
+
+
+def test_arrow_higher_is_better_accurate_rate_rose_is_improvement():
+    md = compare(_run({"accurate_rate": 0.5}), _run({"accurate_rate": 0.9}))
+    row = _row_for(md, "accurate_rate")
+    assert "▲" in row and "▼" not in row
+
+
+def test_arrow_higher_is_better_document_correctness_rose_is_improvement():
+    md = compare(_run({"document_correctness_mean": 0.4}),
+                 _run({"document_correctness_mean": 0.8}))
+    row = _row_for(md, "document_correctness_mean")
+    assert "▲" in row and "▼" not in row
+
+
+def test_arrow_higher_is_better_chunk_relevance_fell_is_regression():
+    md = compare(_run({"chunk_relevance_mean": 0.9}),
+                 _run({"chunk_relevance_mean": 0.4}))
+    row = _row_for(md, "chunk_relevance_mean")
+    assert "▼" in row and "▲" not in row
+
+
+# --- Task 8, part 3: no arrow when the accurate population moved ----------
+
+def test_no_arrow_when_accurate_population_moved():
+    """The accurate-population guard, same shape as retrieves_after_sufficient:
+    tokens/turns_to_accurate average over only the ACCURATE queries, so a
+    population that grew (more queries became accurate, including slower ones)
+    can legitimately raise the mean — the ▼ would report an improvement as a
+    regression. Withhold the verdict when accurate_n differs."""
+    md = compare(
+        _run({"tokens_to_accurate_mean": 1500, "turns_to_accurate_mean": 3.0,
+              "accurate_n": 5}),
+        _run({"tokens_to_accurate_mean": 1800, "turns_to_accurate_mean": 4.0,
+              "accurate_n": 20}))
+    for key in ("tokens_to_accurate_mean", "turns_to_accurate_mean"):
+        row = _row_for(md, key)
+        assert "▲" not in row and "▼" not in row
+        assert "⚠" in row
+    assert "not a like-for-like comparison" in md
+
+
+def test_arrow_kept_when_accurate_population_unchanged():
+    md = compare(
+        _run({"tokens_to_accurate_mean": 2000, "turns_to_accurate_mean": 5.0,
+              "accurate_n": 3}),
+        _run({"tokens_to_accurate_mean": 1500, "turns_to_accurate_mean": 3.0,
+              "accurate_n": 3}))
+    row = _row_for(md, "tokens_to_accurate_mean")
+    assert "▲" in row
+    assert "not a like-for-like comparison" not in md
+
+
+# --- Task 8, part 3: Comparability banner when archive rows exist ---------
+
+def _archive(path_tmp_path, rows):
+    """Write an over-time metrics.jsonl archive with the given rows."""
+    metrics = path_tmp_path / "over-time" / "metrics.jsonl"
+    metrics.parent.mkdir(parents=True, exist_ok=True)
+    metrics.write_text("\n".join(json.dumps(r) for r in rows) + "\n", encoding="utf-8")
+    return metrics
+
+
+def test_comparability_banner_links_each_sides_archive_row(tmp_path):
+    """Both runs have an over-time archive row — the report must print each
+    side's row (run_dir + queries_sha256 + corpus_counts) under a
+    Comparability banner, so a reader can see WHICH prior rows are being
+    compared instead of trusting remembered numbers."""
+    archive = _archive(tmp_path, [
+        {"run_dir": "runA", "queries_sha256": "aaa111", "corpus_counts": {"budget_chunks": 100}},
+        {"run_dir": "runB", "queries_sha256": "aaa111", "corpus_counts": {"budget_chunks": 100}},
+    ])
+    a = _run({"n": 10})
+    a["name"] = "runA"
+    b = _run({"n": 12})
+    b["name"] = "runB"
+    md = compare(a, b, archive_path=archive)
+    assert "Comparability" in md
+    assert "runA" in md and "runB" in md
+    assert "aaa111" in md
+    assert "budget_chunks" in md
+
+
+def test_comparability_banner_omitted_when_archive_missing(tmp_path):
+    """No archive rows for a run -> no banner, no crash (the banner is a
+    legibility aid, not a hard gate)."""
+    a = _run({"n": 10})
+    a["name"] = "runA"
+    b = _run({"n": 12})
+    b["name"] = "runB"
+    md = compare(a, b, archive_path=tmp_path / "nonexistent.jsonl")
+    assert "Comparability" not in md
+
+
 # --- Finding 2: query-set guard -----------------------------------------
 #
 # Verified before the fix: a 1-query smoke run compared against a fabricated

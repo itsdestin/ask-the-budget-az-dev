@@ -511,6 +511,93 @@ def test_reasoning_model_that_returns_null_content_gives_a_clear_error():
     assert "no content" in result["judge_error"].lower()
 
 
+def test_judge_payload_includes_retrieved_chunk_provenance():
+    """Task 8, part 1: the judge payload must carry the retrieved chunks
+    (chunk_id + doc_id + preview) so the judge can score whether what was
+    retrieved actually matches what the query is asking — the signal
+    chunk-id recall cannot give. The shared fixture's retrieve chunk carries
+    a doc_id (c-1 / d-1), so the existing file pattern (read_transcript +
+    this file's own make_query) is enough."""
+    t = read_transcript(FIXTURE)
+    payload = build_judge_payload(make_query(), t)
+    assert "retrieved_chunks" in payload
+    assert len(payload["retrieved_chunks"]) >= 1
+    assert all(set(c) >= {"chunk_id", "doc_id"} for c in payload["retrieved_chunks"])
+    rc = payload["retrieved_chunks"][0]
+    assert rc["chunk_id"] == "c-1"
+    assert rc["doc_id"] == "d-1"
+    # the one-line preview is a real snippet, capped at 160 chars
+    assert "1,391,157,700" in rc["preview"]
+    assert len(rc["preview"]) <= 160
+
+
+def test_judge_payload_retrieved_chunks_capped_at_30():
+    """The payload is capped at 30 chunks so a chatty retrieve history can't
+    blow the judge's context window — the tail (most recently retrieved) is
+    what matters for judging, so take the first 30 in retrieval order."""
+    t = read_transcript(FIXTURE)
+    base_call = t.terminal["frame"]["toolCalls"][0]
+    # build a transcript with 3 retrieve calls of 20 chunks each = 60 chunks
+    import copy
+    calls = []
+    for i in range(3):
+        call = copy.deepcopy(base_call)
+        chunks = []
+        for j in range(20):
+            c = copy.deepcopy(json.loads(call["output"])["chunks"][0])
+            c["chunk_id"] = f"c-{i}-{j}"
+            c["doc_id"] = f"d-{i}-{j}"
+            c["text"] = f"text {i}-{j}"
+            chunks.append(c)
+        call["output"] = json.dumps({"top_score": 4.2, "chunks": chunks})
+        calls.append(call)
+    # splice the extra retrieve calls in front of the two existing tool calls
+    t.terminal["frame"]["toolCalls"] = calls + t.terminal["frame"]["toolCalls"]
+    payload = build_judge_payload(make_query(), t)
+    assert len(payload["retrieved_chunks"]) == 30
+    # the preview truncates long text to 160 chars
+    assert all(len(c["preview"]) <= 160 for c in payload["retrieved_chunks"])
+
+
+# ---- Task 8, part 2: chunk_relevance is parsed, stored, and aggregated ----
+
+def test_parse_judge_json_carries_chunk_relevance():
+    parsed = parse_judge_json(json.dumps(dict(JUDGE_REPLY, chunk_relevance=0.8,
+                                              chunk_relevance_rationale="matches")))
+    assert parsed["chunk_relevance"] == 0.8
+    assert parsed["chunk_relevance_rationale"] == "matches"
+
+
+def test_parse_judge_json_abnormal_chunk_relevance_becomes_none():
+    """Finding 7: a malformed/absent chunk_relevance must become None (so the
+    row survives and is excluded from the mean), not crash the parse or be
+    silently counted."""
+    for bad in ("high", True, 17, -0.5, ["x"], {"v": 0.5}, float("nan")):
+        parsed = parse_judge_json(json.dumps({"load_bearing_claims": [], "holistic": 2,
+                                              "chunk_relevance": bad}))
+        assert parsed["chunk_relevance"] is None, bad
+    parsed = parse_judge_json(json.dumps({"load_bearing_claims": []}))
+    assert parsed["chunk_relevance"] is None
+
+
+def test_main_stores_chunk_relevance_per_query_and_summary_mean(tmp_path, monkeypatch):
+    """Finding 7, end to end: asking the judge for chunk_relevance and NOT
+    persisting it buys nothing — it must be stored in judge.json's per-query
+    row and aggregated into a chunk_relevance_mean over the graded queries."""
+    out = _run_main(tmp_path, monkeypatch, json.dumps(dict(JUDGE_REPLY, chunk_relevance=0.8)))
+    assert out["summary"]["chunk_relevance_mean"] == 0.8
+    assert out["per_query"][0]["chunk_relevance"] == 0.8
+
+
+def test_main_chunk_relevance_mean_survives_a_malformed_value(tmp_path, monkeypatch):
+    """The mean skips queries whose chunk_relevance failed to normalize, and
+    the run still writes judge.json — the existing 'never lose what you paid
+    for' guarantee extended to the new field."""
+    out = _run_main(tmp_path, monkeypatch, json.dumps(dict(JUDGE_REPLY, chunk_relevance="4/5")))
+    assert out["summary"]["chunk_relevance_mean"] is None
+    assert out["per_query"][0]["chunk_relevance"] is None
+
+
 def test_request_sets_max_tokens_so_a_reasoning_model_can_finish():
     """Without max_tokens a reasoning model is cut off mid-thought and
     never emits its answer. The budget must leave room for reasoning AND

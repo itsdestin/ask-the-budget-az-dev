@@ -17,7 +17,8 @@ from typing import Any
 _HIGHER_IS_BETTER = {
     "key_fact_rate_mean", "cite_pass_rate", "first_try_cite_rate",
     "retrieval_efficiency_mean", "refusal_correct_rate", "cached_tokens_mean",
-    "figure_coverage_mean",
+    "figure_coverage_mean", "accurate_rate", "document_correctness_mean",
+    "chunk_relevance_mean",
 }
 _LOWER_IS_BETTER = {
     "steps_mean", "retrieve_calls_mean", "input_tokens_mean", "output_tokens_mean",
@@ -25,6 +26,7 @@ _LOWER_IS_BETTER = {
     "retrieves_after_sufficient_mean", "retries_per_citation", "errors",
     "false_refusals", "narration_hit_queries", "token_leaks",
     "internal_vocab_queries", "cost_missing_queries", "unverified_rate",
+    "tokens_to_accurate_mean", "turns_to_accurate_mean",
 }
 # Metrics whose value is taken over a population the run itself decides, keyed
 # to the summary field that reports that population's size. When the two runs
@@ -55,6 +57,14 @@ _LOWER_IS_BETTER = {
 _POPULATION_DEPENDENT = {
     "retrieves_after_sufficient_mean": "retrieves_after_sufficient_n",
     "total_cost_usd": "cost_missing_queries",
+    # Task 8, part 3: tokens/turns_to_accurate average over the ACCURATE
+    # population (aggregate()'s `acc`). A bigger accurate population — a
+    # genuine improvement that turns more queries accurate, including slower
+    # ones that needed more tokens/turns — legitimately raises the mean, so
+    # a ▼ would report an improvement as a regression. Same shape as the
+    # retrieves_after_sufficient guard: 'accurate_n' is the population key.
+    "tokens_to_accurate_mean": "accurate_n",
+    "turns_to_accurate_mean": "accurate_n",
 }
 
 # Per-metric explanation of WHY its population can move, keyed the same as
@@ -78,6 +88,22 @@ _POPULATION_DEPENDENT_NOTES = {
         "of such queries MOVED between these runs ({pop}), so a lower total "
         "can mean 'more queries crashed silently', not 'cheaper' — no "
         "better/worse arrow is shown. `ledger.jsonl` is the real spend record."
+    ),
+    "tokens_to_accurate_mean": (
+        "is averaged over only the queries that were ACCURATE (all key facts "
+        "passed AND a verified citation issued), and that population MOVED "
+        "between these runs ({pop}). A larger accurate population can "
+        "legitimately raise how many tokens the average accurate answer used, "
+        "so no better/worse arrow is shown — the Δ is not a like-for-like "
+        "comparison. `turns_to_accurate_mean` is withheld for the same reason."
+    ),
+    "turns_to_accurate_mean": (
+        "is averaged over only the queries that were ACCURATE, and that "
+        "population MOVED between these runs ({pop}). A larger accurate "
+        "population can legitimately raise how many turns the average "
+        "accurate answer took, so no better/worse arrow is shown — the Δ is "
+        "not a like-for-like comparison. `tokens_to_accurate_mean` is withheld "
+        "for the same reason."
     ),
 }
 _JUDGE_METRICS = ("claim_coverage_precision_mean", "claim_coverage_recall_mean",
@@ -142,7 +168,24 @@ def _delta_row(key: str, av: Any, bv: Any, *, arrow_ok: bool = True) -> str:
     return f"| {key} | {_fmt(av)} | {_fmt(bv)} | {delta}{arrow} |"
 
 
-def compare(baseline: dict[str, Any], candidate: dict[str, Any]) -> str:
+def _archive_row(archive_path: Path | None, run_name: str) -> dict[str, Any] | None:
+    """The over-time archive row for a run (matched by run_dir name), or None
+    when the run has no archived row or the archive is absent. The banner it
+    feeds is about NOT trusting remembered numbers, so a missing row simply
+    means no banner — never a crash."""
+    if not archive_path or not archive_path.exists():
+        return None
+    for line in archive_path.read_text(encoding="utf-8").splitlines():
+        if not line.strip():
+            continue
+        row = json.loads(line)
+        if row.get("run_dir") == run_name:
+            return row
+    return None
+
+
+def compare(baseline: dict[str, Any], candidate: dict[str, Any],
+            archive_path: Path | None = None) -> str:
     am, bm = baseline["manifest"], candidate["manifest"]
     asum, bsum = baseline["scores"]["summary"], candidate["scores"]["summary"]
     lines = [f"# Agent-eval compare — {baseline['name']} → {candidate['name']}", ""]
@@ -151,6 +194,26 @@ def compare(baseline: dict[str, Any], candidate: dict[str, Any]) -> str:
     for key in ("git_sha", "subset", "repeats", "prompt_sha256",
                 "queries_sha256", "tier_models", "note"):
         lines.append(f"| {key} | {_fmt(am.get(key))} | {_fmt(bm.get(key))} |")
+    # Task 8, part 3, control linkage: when BOTH runs have an over-time
+    # archive row, print each side's metrics.jsonl line (run_dir + queries
+    # hash + corpus counts) under a Comparability banner, so a reader can see
+    # WHICH prior rows are being compared instead of trusting remembered
+    # numbers. Each side's own "What differed" row already carries its
+    # queries_sha256 and corpus_counts are pinned by the (default-refusing)
+    # corpus guard, but the banner makes the linkage to the archive explicit.
+    bao = _archive_row(archive_path, baseline["name"])
+    bco = _archive_row(archive_path, candidate["name"])
+    if bao and bco:
+        lines += ["", "## Comparability", "",
+                  "Both runs have over-time archive rows — confirm you are "
+                  "comparing the rows you think you are:", "",
+                  "| | run_dir | queries_sha256 | corpus_counts |",
+                  "|---|---|---|---|"]
+        for label, rowa in (("baseline", bao), ("candidate", bco)):
+            lines.append(
+                f"| {label} | {rowa.get('run_dir')} | "
+                f"{str(rowa.get('queries_sha256'))[:12]} | "
+                f"{_fmt(rowa.get('corpus_counts'))} |")
     # WHY this banner exists even though main() refuses by default: --force
     # gets used, and a forced report must carry the reason it needed forcing
     # into the artifact somebody reads later. Same shape as the noise warning.
@@ -261,7 +324,7 @@ def main() -> int:
         print(f"  baseline:  {a['manifest'].get('corpus_counts')}", file=sys.stderr)
         print(f"  candidate: {b['manifest'].get('corpus_counts')}", file=sys.stderr)
         return 2
-    md = compare(a, b)
+    md = compare(a, b, archive_path=Path("eval/results/over-time/metrics.jsonl"))
     out = args.out or (args.candidate.parent / f"compare-{a['name']}-vs-{b['name']}.md")
     out.write_text(md, encoding="utf-8")
     print(f"wrote {out}")

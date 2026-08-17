@@ -31,6 +31,8 @@ Return ONLY a JSON object, no prose, no code fences:
     "meta_narration": true|false,
     "answered_wrong_question": true|false
   },
+  "chunk_relevance": 0.8,
+  "chunk_relevance_rationale": "<one line>",
   "rationale": "<= 2 sentences"
 }
 
@@ -52,4 +54,10 @@ Rules:
   and `placement_ok: true` — there is nothing to cover or misplace.
 - meta_narration: true if the answer narrates its own process
   ("let me search...", "I have what I need").
+- chunk_relevance: a plain JSON number from 0 to 1 — how well the
+  `retrieved_chunks` actually match what the question is asking, regardless
+  of whether the answer used them. Write `0.8`, never `"0.8"` or `"high"`.
+  1 = every retrieved chunk is on-topic and useful; 0 = none of them help.
+  If the answer corrects course by retrieving better chunks later, score the
+  retrieved pool as a whole.
 - If the payload's answer is empty, return holistic 1 and no claims.
