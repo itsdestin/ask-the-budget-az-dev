@@ -400,6 +400,35 @@ def score_transcript(query: AgentQuery, t: Transcript) -> dict[str, Any]:
         else:
             row["false_refusal"] = refused
 
+    # Doc-type relationship axis (2026-08-16 consolidation, priority 3): the
+    # "cited the Baseline when it should have cited the Appropriations
+    # Report" test. Purely transcript-mechanical — chunk_id -> doc_id resolves
+    # from this run's own retrieve outputs (harness/tools.py:1405), so no
+    # corpus access is needed. Unresolvable chunk ids (cite without a prior
+    # retrieve in transcript) count against the share AND are loud: they mean
+    # a transcript invariant broke, which is an error-ledger matter.
+    #
+    # WHY the citation side reads "chunkId" (harness casing) and not the
+    # brief's sketch's "chunk_id": the harness records citations with the
+    # camelCase key (harness/session.py:1979) and the score_transcript above
+    # already reads cited chunk ids that way (line 307). Skimming the brief's
+    # sketch literally would make every verified citation resolve to None
+    # here; measurement wins.
+    row["document_correctness"] = None
+    row["multi_unanswered"] = False
+    if query.set == "multi" and query.correct_response_docs:
+        id_to_doc = {c["chunk_id"]: c.get("doc_id")
+                     for c in _retrieved_chunks(t) if c.get("doc_id")}
+        verified = [c for c in citations(t) if c.get("ok")]
+        if not verified:
+            # Cited nothing != cited the wrong doc-type; key facts still say
+            # whether the answer was right. Reported distinctly, never as 0.
+            row["multi_unanswered"] = True
+        else:
+            targets = [id_to_doc.get(c.get("chunkId")) for c in verified]
+            hits = sum(1 for d in targets if d in query.correct_response_docs)
+            row["document_correctness"] = hits / len(verified)
+
     lower = answer.lower()
     row["narration_hits"] = sum(1 for m in NARRATION_MARKERS if m in lower)
     row["internal_vocab_hits"] = sum(1 for v in INTERNAL_VOCAB if v in lower)
@@ -580,4 +609,13 @@ def aggregate(rows: list[dict[str, Any]]) -> dict[str, Any]:
         "narration_hit_queries": sum(1 for r in ok_rows if r["narration_hits"]),
         "token_leaks": sum(1 for r in ok_rows if r["token_leak"]),
         "internal_vocab_queries": sum(1 for r in ok_rows if r["internal_vocab_hits"]),
+        # Document-type correctness is only defined over Multi-set queries
+        # that actually verified at least one citation (see the WHY in
+        # score_transcript); the mean skips rows where it's None the way
+        # every other None-aware mean here does, and multi_unanswered_n counts
+        # the Multi rows that cited nothing at all.
+        "document_correctness_mean": _mean(
+            [r["document_correctness"] for r in ok_rows
+             if r["document_correctness"] is not None]),
+        "multi_unanswered_n": sum(1 for r in ok_rows if r["multi_unanswered"]),
     }

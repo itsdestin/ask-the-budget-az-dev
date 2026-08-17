@@ -33,8 +33,8 @@ def retrieve_call(chunks, tool_use_id="t-r"):
             "isError": False}
 
 
-def chunk(cid, text):
-    return {"chunk_id": cid, "doc_id": "d", "doc_title": "T", "publisher": "jlbc",
+def chunk(cid, text, doc_id="d"):
+    return {"chunk_id": cid, "doc_id": doc_id, "doc_title": "T", "publisher": "jlbc",
             "fiscal_year": 2025, "doc_type": "afr", "section_path": "", "page_start": 1,
             "page_end": 1, "bbox": None, "text": text, "text_length": len(text), "score": 4.0}
 
@@ -490,3 +490,55 @@ def test_wall_clock_is_not_reported_anywhere():
     assert "wall_p50_ms" not in s and "wall_p95_ms" not in s
     # per-query rows keep the forensic stamp
     assert row1["wall_ms"] == 30000
+
+
+def _multi_query(id="m-001"):
+    return make_query(id=id, set="multi",
+                      correct_response_docs=["jlbc-approps-2024"])
+
+
+def test_document_correctness_share_over_verified_cites():
+    # 2 verified cites: c-1 on the correct doc, c-2 on a wrong doc
+    t = make_transcript([retrieve_call([chunk("c-1", "ADC $1,391,157,700",
+                                              doc_id="jlbc-approps-2024"),
+                                        chunk("c-2", "ADC $1,391,157,700",
+                                              doc_id="jlbc-baseline-2024")])],
+                        citations=[ok_citation(cid="c-1"), ok_citation(cid="c-2")])
+    row = score_transcript(_multi_query(), t)
+    assert row["document_correctness"] == 0.5
+    assert row["multi_unanswered"] is False
+
+
+def test_document_correctness_none_and_unanswered_when_no_citations():
+    t = make_transcript([retrieve_call([chunk("c-1", "ADC $1,391,157,700",
+                                              doc_id="jlbc-approps-2024")])],
+                        citations=[])
+    row = score_transcript(_multi_query(), t)
+    assert row["document_correctness"] is None
+    assert row["multi_unanswered"] is True
+
+
+def test_document_correctness_not_computed_off_multi_set():
+    row = score_transcript(make_query(set="quick"), _clean_transcript())
+    assert row["document_correctness"] is None and row["multi_unanswered"] is False
+
+
+def test_document_correctness_aggregate_over_multi_rows_with_a_value():
+    # c-1 on the correct doc -> 1.0
+    right = make_transcript([retrieve_call([chunk("c-1", "ADC $1,391,157,700",
+                                                  doc_id="jlbc-approps-2024")])],
+                            citations=[ok_citation(cid="c-1")])
+    # c-1 on the wrong doc -> 0.0 (document_correctness is a value, so it counts)
+    wrong = make_transcript([retrieve_call([chunk("c-1", "ADC $1,391,157,700",
+                                                  doc_id="jlbc-baseline-2024")])],
+                            citations=[ok_citation(cid="c-1")])
+    # c-1 on the right doc but NO citations -> unanswered, no value
+    silent = make_transcript([retrieve_call([chunk("c-1", "ADC $1,391,157,700",
+                                                   doc_id="jlbc-approps-2024")])],
+                             citations=[])
+    rows = [score_transcript(_multi_query(), right),
+            score_transcript(_multi_query(id="m-002"), wrong),
+            score_transcript(_multi_query(id="m-003"), silent)]
+    summary = aggregate(rows)
+    assert summary["document_correctness_mean"] == pytest.approx(0.5)  # 1.0 & 0.0; None excluded
+    assert summary["multi_unanswered_n"] == 1
