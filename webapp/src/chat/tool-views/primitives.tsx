@@ -26,70 +26,127 @@
 
 import { useState, type ReactNode } from "react";
 
-// Pixel-art SVG glyphs for tool cards. Each glyph is drawn on a
-// 0 0 12 12 coordinate space and returned as a <g> element so the
-// caller can wrap it in <svg viewBox="0 0 12 12" width=12 height=12>.
-// Rects use fill="currentColor" so the caller can tint via CSS color
-// (accent normally, danger on error state).
-export function toolGlyph(toolName: string): ReactNode {
+// Stroked line icons on a 24x24 grid, returned as a bare <g>.
+//
+// NOT exported. This is the exact shape of the defect this file's callers
+// hit on 2026-08-16: the glyph set was redrawn from 12x12 filled rects to
+// 24x24 stroked paths, and TWO callers (ToolCard.tsx, ToolGroup.tsx) each
+// hand-rolled their own <svg viewBox=...> wrapper around this function's
+// return value. One caller's wrapper was updated to match; the other
+// (ToolGroup.tsx) was edited in a parallel worktree that never touched this
+// file, so git merged both branches clean and every suite stayed green while
+// ToolGroup rendered a cropped quarter of each icon on the wrong grid — on
+// the single most visible icon in the chat, the collapsed tool card.
+//
+// The fix is not "remember to update both wrappers" — it is that there is
+// now only ONE wrapper. `ToolGlyph` below is the only way to render one of
+// these shapes; a caller that wants a tool's icon renders `<ToolGlyph .../>`
+// and can no longer choose a viewBox at all, correct or otherwise. Keeping
+// this function private is what makes that structural rather than a
+// convention — an un-exported binding cannot be imported into ToolCard.tsx
+// or ToolGroup.tsx or any future third caller, so `tsc -b` refuses a
+// reintroduction of the old shape before any test has to catch it.
+// `tool-glyph-contract.test.ts` pins the property anyway, in case a later
+// change re-exports this function without reading this comment.
+function toolGlyph(toolName: string): ReactNode {
   switch (toolName) {
     case "retrieve":
-      // Magnifier: ring outline (four rects forming the circle) + diagonal handle.
+      // The app's own magnifier, verbatim from components/SearchIcon.tsx.
       return (
         <g>
-          {/* Ring — top, bottom, left, right arcs approximated as rects */}
-          <rect x="3" y="1" width="4" height="1" fill="currentColor" />
-          <rect x="3" y="6" width="4" height="1" fill="currentColor" />
-          <rect x="1" y="2" width="1" height="4" fill="currentColor" />
-          <rect x="7" y="2" width="1" height="4" fill="currentColor" />
-          {/* Handle — stepped diagonal going bottom-right */}
-          <rect x="8" y="7" width="1" height="2" fill="currentColor" />
-          <rect x="9" y="8" width="2" height="1" fill="currentColor" />
+          <circle cx="11" cy="11" r="7" />
+          <path d="m21 21-4.3-4.3" />
         </g>
       );
     case "cite":
     case "cite_batch":
-      // Bookmark/page: a rect page with a triangular notch cut from the bottom
-      // by leaving a gap — two stacked rects make the bookmark shape.
+      // Never rendered — cite blocks are suppressed (TC7) — but kept so the
+      // set is total and a future caller cannot fall through to nothing.
       return (
         <g>
-          {/* Page body */}
-          <rect x="2" y="1" width="8" height="1" fill="currentColor" />
-          <rect x="2" y="2" width="1" height="8" fill="currentColor" />
-          <rect x="9" y="2" width="1" height="8" fill="currentColor" />
-          {/* Bottom — two segments with a notch in the middle for bookmark shape */}
-          <rect x="2" y="10" width="3" height="1" fill="currentColor" />
-          <rect x="7" y="10" width="3" height="1" fill="currentColor" />
-          {/* Folded corner mark on page */}
-          <rect x="5" y="4" width="3" height="1" fill="currentColor" />
-          <rect x="5" y="6" width="3" height="1" fill="currentColor" />
+          <path d="M6 3h12v18l-6-4-6 4z" />
         </g>
       );
     case "list_filter_values":
-      // Three stacked horizontal lines — classic list/filter icon.
       return (
         <g>
-          <rect x="1" y="2" width="10" height="2" fill="currentColor" />
-          <rect x="2" y="5" width="8" height="2" fill="currentColor" />
-          <rect x="3" y="8" width="6" height="2" fill="currentColor" />
+          <path d="M3 5h18l-7 8v6l-4 2v-8z" />
         </g>
       );
     case "create_document":
-      // Down-arrow into a tray — the download idiom, since what this tool
-      // produces is a file the analyst clicks to save.
       return (
         <g>
-          <rect x="5" y="1" width="2" height="5" fill="currentColor" />
-          <rect x="3" y="5" width="6" height="1" fill="currentColor" />
-          <rect x="4" y="6" width="4" height="1" fill="currentColor" />
-          <rect x="5" y="7" width="2" height="1" fill="currentColor" />
-          <rect x="1" y="9" width="10" height="2" fill="currentColor" />
+          <path d="M6 3h8l4 4v14H6z" />
+          <path d="M14 3v4h4" />
+          <path d="M9 12h6M9 16h6" />
+        </g>
+      );
+    case "document_guide":
+      // An open book. This tool had NO case at all and fell through to the
+      // square below, which is what left it iconless in the UI.
+      return (
+        <g>
+          <path d="M4 4.5A2.5 2.5 0 0 1 6.5 2H19v18H6.5A2.5 2.5 0 0 0 4 22z" />
+          <path d="M9 7h6" />
         </g>
       );
     default:
-      // Unknown tool — single filled square as a neutral fallback.
-      return <rect x="2" y="2" width="8" height="8" fill="currentColor" />;
+      // Unknown tool — a neutral square outline.
+      return <rect x="4" y="4" width="16" height="16" rx="2" />;
   }
+}
+
+interface ToolGlyphProps {
+  /** The tool call name, e.g. tool.toolName / first.toolName. */
+  tool: string;
+  /** Pulses the glyph while the call is in flight. Deliberately the only
+   *  status this component reads: ToolGroup's shipped decision (TC9) is that
+   *  the collapsed header spends no COLOUR on failure, so there is no
+   *  "failed" variant here to accidentally wire up. ToolCard's own failure
+   *  tint lives on `.chat-tool.is-failed` in the card shell, not the glyph. */
+  running?: boolean;
+  /** Accessible name for this glyph. Pass the status word (ToolCard: the
+   *  button carries no aria-label of its own, so the glyph IS the accessible
+   *  name). Omit it — the default — to render `aria-hidden="true"` instead,
+   *  for a caller whose own button already carries the full aria-label
+   *  (ToolGroup's header sentence). Do not pass an empty string meaning to
+   *  label it: `label=""` renders `role="img" aria-label=""`, which is a
+   *  worse accessible name than aria-hidden — omit the prop instead. */
+  label?: string;
+  /** Both current callers render at 13px; kept a prop rather than a fixed
+   *  constant only because a size is a legitimate per-caller choice and a
+   *  fixed constant would invite exactly the copy-paste this component
+   *  exists to prevent. */
+  size?: number;
+}
+
+// The ONE place a tool glyph is wrapped in an <svg>. See the WHY comment on
+// `toolGlyph` above — this component existing at all is the fix.
+export function ToolGlyph({
+  tool,
+  running = false,
+  label,
+  size = 13,
+}: ToolGlyphProps) {
+  const a11yProps = label
+    ? { role: "img" as const, "aria-label": label }
+    : { "aria-hidden": "true" as const };
+  return (
+    <svg
+      viewBox="0 0 24 24"
+      width={size}
+      height={size}
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2.2"
+      strokeLinejoin="round"
+      strokeLinecap="round"
+      className={"chat-tool-glyph" + (running ? " chat-pulse" : "")}
+      {...a11yProps}
+    >
+      {toolGlyph(tool)}
+    </svg>
+  );
 }
 
 export function basename(fp: string): string {

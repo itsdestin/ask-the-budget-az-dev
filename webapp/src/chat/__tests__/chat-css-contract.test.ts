@@ -424,20 +424,19 @@ describe("chat CSS containment contract", () => {
   });
 
   // ------------------------------------------------------------------
-  // FINAL REVIEW — IMPORTANT 3. `.chat-tool-group.is-failed .chat-tool-label`
-  // was a DESCENDANT selector, so expanding a group in which one call failed
-  // painted the labels of its SUCCESSFUL children red too. That is the mirror
-  // image of the failed-citation-hover bug fixed above (there: failure dressed
-  // as success; here: success dressed as failure) and it misinforms the
-  // analyst about WHICH call actually failed. The group header keeps the
-  // summary tint; each child row's own `.chat-tool.is-failed` rule is left to
-  // speak for itself. Child combinator, so it can never reach into the body.
-  it("the failed-group tint stops at the group's own header row", () => {
-    expect(bare).not.toMatch(
-      /\.chat-tool-group\.is-failed\s+\.chat-tool-label\s*\{/,
-    );
+  // 2026-08-16 — TC9. This REPLACES a pin that required the failed-group tint
+  // to exist and be scoped with a child combinator. There is no group-level
+  // failure tint any more, so the defect that pin guarded — a descendant
+  // selector reddening a successful child's label — is now structurally
+  // impossible rather than merely tested for.
+  //
+  // The second assertion is what keeps this non-vacuous: the CHILD row's own
+  // failed treatment must survive, or "no red on the card" would be satisfied
+  // by a stylesheet that had stopped marking failures anywhere at all.
+  it("the card header never carries a failure tint in any state", () => {
+    expect(bare).not.toMatch(/\.chat-tool-group\.is-failed/);
     expect(bare).toMatch(
-      /\.chat-tool-group\.is-failed\s*>\s*\.chat-tool-head[^{]*\{/,
+      /\.chat-tool\.is-failed\s*\{[^}]*border-color:\s*var\(--chat-danger\)/,
     );
   });
 
@@ -700,5 +699,66 @@ describe("chat CSS containment contract", () => {
         ".history-rail-list:hover .history-rail-item.is-active:not(:hover) .history-rail-chat-title",
       ),
     ).toMatch(/color:\s*var\(--ink\)/);
+  });
+
+  // ------------------------------------------------------------------
+  // 2026-08-16 — TC2/TC10. The card is nested by DOM POSITION, so the
+  // containment styling hangs off a child selector rather than a prop. If that
+  // selector is ever renamed without the component moving with it, the card
+  // silently reverts to looking like a standalone row inside a white bubble —
+  // a change no render test can see, because jsdom applies no stylesheet.
+  it("a card inside a bubble takes the inset fill and the bubble's full width", () => {
+    const rule = bareRule(".chat-bubble > .chat-tool-group");
+    expect(rule, "the nested-card rule must exist").toBeTruthy();
+    expect(rule).toMatch(/background:\s*var\(--canvas\)/);
+    // 65ch is right for a standalone row and wrong here: the parent bubble
+    // already enforces the prose measure, so leaving it on would stop the card
+    // short of the bubble's right edge for no reason.
+    expect(rule).toMatch(/max-width:\s*none/);
+    expect(rule).toMatch(/width:\s*100%/);
+  });
+
+  it("the standalone card keeps its own prose measure", () => {
+    // A supporting artifact must never be wider than the answer it supports,
+    // and mid-search there is no bubble to inherit that from.
+    // UPDATED 2026-08-16 for TC22 below: a bare `65ch` here is the bug TC22
+    // fixes (it resolves against the DOCUMENT's inherited font-size, a bigger
+    // unit than the bubble's own 14px) — the property this test protects is
+    // now stated as "the bubble's own measure", not the literal `65ch` text.
+    expect(bareRule(".chat-tool-group")).toMatch(
+      /max-width:\s*calc\(65ch\s*-\s*34px\)/,
+    );
+  });
+
+  // ------------------------------------------------------------------
+  // 2026-08-16 — TC22. The card must be the SAME WIDTH standalone and nested.
+  // It was not, and the gap was large: `.chat-bubble` sets `font-size: 14px`
+  // and `max-width: 65ch`, so its `ch` resolves at 14px AND a nested card
+  // loses a further 32px of padding plus 2px of border — while the standalone
+  // `.chat-tool-group` also said `65ch` but inherited the document's 16px, a
+  // BIGGER unit. The standalone card was ~100px wider and shrank the instant
+  // an answer arrived and it moved inside the bubble.
+  //
+  // This asserts the mechanism that makes them equal; the real acceptance
+  // test is measuring both in a browser, which jsdom cannot do.
+  it("the standalone card states the bubble's own measure, not a wider one", () => {
+    const rule = bareRule(".chat-tool-group");
+    expect(rule).toMatch(/font-size:\s*14px/);
+    expect(rule).toMatch(/max-width:\s*calc\(65ch\s*-\s*34px\)/);
+    // And the bubble it must match is still 65ch at 14px.
+    const bubble = bareRule(".chat-bubble");
+    expect(bubble).toMatch(/font-size:\s*14px/);
+    expect(bubble).toMatch(/max-width:\s*65ch/);
+    expect(bubble).toMatch(/padding:\s*10px 16px/);
+  });
+
+  it("the card's expansion is capped and scrolls", () => {
+    // TC8. Without this, opening a search that returned 15 passages pushes the
+    // answer far down the page — the analyst opens a card to check a source
+    // and loses what they were reading.
+    const rule = bareRule(".chat-tool-group-expansion");
+    expect(rule, "the expansion cap rule must exist").toBeTruthy();
+    expect(rule).toMatch(/max-height:\s*50vh/);
+    expect(rule).toMatch(/overflow-y:\s*auto/);
   });
 });

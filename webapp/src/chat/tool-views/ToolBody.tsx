@@ -11,11 +11,15 @@
 // takes a path-shaped argument. A view for a tool the model cannot call is
 // not dead code so much as a claim that the tool exists.
 //
-// The five that remain map 1:1 onto TOOL_NAMES in harness/tools.py.
+// A sixth, document_guide, joined TOOL_NAMES later (the document-guide
+// design) and is dispatched below to DocumentGuideView — it had NO case at
+// all until then and fell through to RawFallbackView, dumping escaped JSON
+// right before the assistant writes a memo.
 
 import type { AssistantBlock } from "../chat-types.js";
 import CiteView from "./CiteView.js";
 import CreateDocumentView from "./CreateDocumentView.js";
+import DocumentGuideView from "./DocumentGuideView.js";
 import ListFilterValuesView from "./ListFilterValuesView.js";
 import RetrieveView from "./RetrieveView.js";
 import { CollapsibleBlock, ErrorBlock, unescapeForDisplay } from "./primitives.js";
@@ -85,6 +89,8 @@ export default function ToolBody({ tool }: { tool: ToolBlock }) {
         return <ListFilterValuesView tool={tool} />;
       case "create_document":
         return <CreateDocumentView tool={tool} />;
+      case "document_guide":
+        return <DocumentGuideView tool={tool} />;
       default:
         return <RawFallbackView tool={tool} />;
     }

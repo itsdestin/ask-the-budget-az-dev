@@ -101,6 +101,17 @@ describe("AssistantTurnBubble — tool blocks", () => {
               input: { chunk_id: "c1", confidence: "verbatim" },
               status: "complete",
             },
+            // FINAL REVIEW — MINOR 3. `cite_batch` is the other half of TC7's
+            // suppression and was untested. PAST_ACTION maps both names to
+            // "Cited", so the existing assertion below covers it with no new
+            // one: suppress only `cite` and this block leaks that word.
+            {
+              kind: "tool",
+              toolUseId: "t1b",
+              toolName: "cite_batch",
+              input: { citations: [{ chunk_id: "c2" }] },
+              status: "complete",
+            },
             {
               kind: "tool",
               toolUseId: "t2",
@@ -112,12 +123,32 @@ describe("AssistantTurnBubble — tool blocks", () => {
         })}
       />,
     );
+    // "Cite claim" is ToolCard's label and only renders inside an OPENED
+    // expansion (see the comment below) — renderToString here renders the
+    // card closed, so this assertion is true whether or not cite suppression
+    // works at all. Verified by mutation: with `!isCiteToolBlock(block)`
+    // changed to `true` in AssistantTurnBubble.tsx, this line stayed green.
+    // Kept anyway because it is still a correct (if inert) statement.
     expect(html).not.toContain("Cite claim");
-    expect(html).toContain("Search corpus");
+    // The load-bearing check: a suppressed `cite` block never reaches
+    // ToolGroup, so its collapsed header never carries the past-tense action
+    // label "Cited" (tool-display.ts's PAST_ACTION["cite"]). Under the
+    // same mutation above, this assertion goes red — proven by running it.
+    expect(html).not.toContain("Cited");
+    // Task 5 removed the bare-ToolCard special case for a lone tool call, so
+    // a single retrieve now renders through ToolGroup's collapsed header —
+    // action label + the call's own summary — rather than ToolCard's
+    // "Search corpus" label, which only appears inside the (here, unopened)
+    // expansion.
+    expect(html).toContain("Searched");
+    expect(html).toContain("Aviation Fund");
   });
 
-  it("groups consecutive tool calls but leaves a lone one bare", () => {
-    // blocks: text, tool, tool, text, tool  ->  one group of 2, one bare card
+  it("attaches each run of tool calls to the bubble that FOLLOWS it", () => {
+    // blocks: text, tool, tool, text, tool
+    //   -> bubble u1 with no card (nothing preceded it)
+    //   -> bubble u2 carrying the run of 2
+    //   -> a standalone card for the trailing call, which has no bubble after it
     const { container } = render(
       <AssistantTurnBubble
         turn={turn({
@@ -149,12 +180,101 @@ describe("AssistantTurnBubble — tool blocks", () => {
         })}
       />,
     );
-    expect(container.querySelectorAll(".chat-tool-group")).toHaveLength(1);
+
+    const bubbles = [...container.querySelectorAll(".chat-bubble")];
+    expect(bubbles).toHaveLength(2);
+    expect(bubbles[0]!.querySelector(".chat-tool-group")).toBeNull();
+    expect(bubbles[1]!.querySelector(".chat-tool-group")).not.toBeNull();
+
+    // TC6 — the trailing run has nowhere to nest and must still be visible.
     expect(
-      container.querySelectorAll(
-        ":not(.chat-tool-group) > .chat-tool:not(.is-inset)",
-      ),
+      container.querySelectorAll(".chat-turn > .chat-tool-group"),
     ).toHaveLength(1);
+  });
+
+  it("never hoists a run to the top of the turn", () => {
+    // Two rounds of work. Reading order is the whole point of TC1: the card
+    // sits above the text it produced, not above text that came before it.
+    const { container } = render(
+      <AssistantTurnBubble
+        turn={turn({
+          blocks: [
+            {
+              kind: "tool",
+              toolUseId: "toolA",
+              toolName: "retrieve",
+              input: { query: "FY2025" },
+              status: "complete",
+            },
+            { kind: "text", uuid: "u1", text: "The FY 2025 figure." },
+            {
+              kind: "tool",
+              toolUseId: "toolB",
+              toolName: "retrieve",
+              input: { query: "FY2024" },
+              status: "complete",
+            },
+            {
+              kind: "tool",
+              toolUseId: "toolC",
+              toolName: "retrieve",
+              input: { query: "FY2024 detail" },
+              status: "complete",
+            },
+            { kind: "text", uuid: "u2", text: "And the year before." },
+          ],
+        })}
+      />,
+    );
+
+    const bubbles = [...container.querySelectorAll(".chat-bubble")];
+    expect(bubbles).toHaveLength(2);
+    // One card in each bubble — not two in the first and none in the second.
+    for (const bubble of bubbles) {
+      expect(bubble.querySelectorAll(".chat-tool-group")).toHaveLength(1);
+    }
+    // Which bubble got WHICH run is the property under test, so the two
+    // assertions have to tell them apart. Bubble 0's run is one search and
+    // bubble 1's is two, and only a multi-call run says "and N more" — so this
+    // fails if the runs are swapped, if both land in one bubble, or if the
+    // second bubble's run is dropped.
+    //
+    // Updated 2026-08-16 from `Searched ×2`, the Part 1 header format, which
+    // Part 2 (TC13) replaced with a sentence. No lane owned this file, so the
+    // merge is where it surfaced.
+    expect(bubbles[0]!.textContent).toContain("Searched for");
+    expect(bubbles[0]!.textContent).not.toContain("and 1 more");
+    expect(bubbles[1]!.textContent).toContain("and 1 more");
+    // Nothing floats between or above the bubbles.
+    expect(
+      container.querySelectorAll(".chat-turn > .chat-tool-group"),
+    ).toHaveLength(0);
+  });
+
+  it("renders a run standalone while no answer text exists yet", () => {
+    // Mid-search: there is no text block to nest inside, and withholding the
+    // card would leave the analyst watching a blank screen through a
+    // multi-second search (TC6).
+    const { container } = render(
+      <AssistantTurnBubble
+        turn={turn({
+          blocks: [
+            {
+              kind: "tool",
+              toolUseId: "toolA",
+              toolName: "retrieve",
+              input: { query: "Aviation Fund" },
+              status: "running",
+            },
+          ],
+        })}
+      />,
+    );
+    expect(container.querySelectorAll(".chat-bubble")).toHaveLength(0);
+    expect(
+      container.querySelectorAll(".chat-turn > .chat-tool-group"),
+    ).toHaveLength(1);
+    expect(container.textContent).toContain("Searching");
   });
 
   it("keeps a run intact across an interleaved cite call (cite is invisible to grouping)", () => {
