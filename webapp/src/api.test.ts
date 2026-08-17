@@ -1,9 +1,12 @@
 import {
   adminAliases,
   adminGuidance,
+  bookFormats,
+  checkBookFormatUrl,
   issues,
   saveAdminAliases,
   saveAdminGuidance,
+  saveBookFormat,
   search,
   submitIssue,
   updateIssue,
@@ -96,4 +99,114 @@ test("submitIssue surfaces the backend's error detail", async () => {
 test("updateIssue surfaces the backend's error detail", async () => {
   vi.stubGlobal("fetch", failJson(404, "No such report"));
   await expect(updateIssue("abc", { status: "resolved" })).rejects.toThrow("No such report");
+});
+
+// --- whole-report links -----------------------------------------------------
+//
+// WHY these six exist: ReportLinksPanel.test.tsx mocks all three of these
+// functions outright, so NOTHING was checking what goes over the wire. Both of
+// these mutations left the whole suite green before they were written:
+//
+//   * typo the PUT path to `/api/admin/book-format-TYPO`
+//   * replace `fail(r, "saving the whole-report links")` with a bare
+//     `throw new Error("Request failed")`
+//
+// The first means every approval fails against the real server with the suite
+// still green. The second silently deletes the store's own refusal sentence,
+// which spec R10 and `write_edition`'s docstring both require to reach the
+// admin VERBATIM — and the panel spec that looks like it covers that is
+// asserting against a hand-written `mockRejectedValue` string, never against
+// `fail()`. The `fiscal_year` / `single_file` / `linked_toc` body keys are
+// pinned for the same reason: FastAPI's `EditionWrite` rejects a renamed key,
+// and TypeScript cannot see across the wire.
+
+test("bookFormats GETs /api/admin/book-formats, and skips the cache only when asked", async () => {
+  const fetchMock = okJson({
+    pending: [],
+    approved: [],
+    online: true,
+    reason: null,
+    problems: [],
+  });
+  vi.stubGlobal("fetch", fetchMock);
+
+  await bookFormats();
+  expect(fetchMock.mock.calls[0][0]).toBe("/api/admin/book-formats");
+
+  // "Look again" exists because an edition published an hour ago is otherwise
+  // invisible for 12 hours. If this parameter stops being sent, the button
+  // still appears to work and simply serves the cached answer forever.
+  await bookFormats(true);
+  expect(fetchMock.mock.calls[1][0]).toBe("/api/admin/book-formats?refresh=true");
+});
+
+test("bookFormats surfaces the backend's error detail", async () => {
+  vi.stubGlobal("fetch", failJson(403, "admin only"));
+  await expect(bookFormats()).rejects.toThrow("admin only");
+});
+
+test("saveBookFormat PUTs exactly {family, fiscal_year, single_file, linked_toc}", async () => {
+  const fetchMock = okJson({
+    ok: true,
+    names_its_year: { single_file: true, linked_toc: null },
+  });
+  vi.stubGlobal("fetch", fetchMock);
+
+  await saveBookFormat(
+    "Appropriations Report",
+    2028,
+    "https://www.azjlbc.gov/28ar/fy2028approprpt.pdf",
+    null,
+  );
+
+  const [url, init] = fetchMock.mock.calls[0] as [string, RequestInit];
+  expect(url).toBe("/api/admin/book-formats");
+  expect(init.method).toBe("PUT");
+  // toEqual (not objectContaining): an EXTRA key is a contract break too, and
+  // `null` for "JLBC published no such format" must survive JSON.stringify
+  // rather than being dropped the way `undefined` would be.
+  expect(JSON.parse(init.body as string)).toEqual({
+    family: "Appropriations Report",
+    fiscal_year: 2028,
+    single_file: "https://www.azjlbc.gov/28ar/fy2028approprpt.pdf",
+    linked_toc: null,
+  });
+});
+
+test("saveBookFormat surfaces the store's refusal verbatim", async () => {
+  vi.stubGlobal(
+    "fetch",
+    failJson(400, "At least one of the two formats must have a link."),
+  );
+  await expect(saveBookFormat("Baseline", 2028, null, null)).rejects.toThrow(
+    "At least one of the two formats must have a link.",
+  );
+});
+
+test("checkBookFormatUrl POSTs exactly {url, fiscal_year} to the check route", async () => {
+  const fetchMock = okJson({
+    ok: true,
+    status: 200,
+    bytes: 123,
+    names_its_year: true,
+    reason: null,
+  });
+  vi.stubGlobal("fetch", fetchMock);
+
+  await checkBookFormatUrl("https://www.azjlbc.gov/28ar/other.pdf", 2028);
+
+  const [url, init] = fetchMock.mock.calls[0] as [string, RequestInit];
+  expect(url).toBe("/api/admin/book-formats/check");
+  expect(init.method).toBe("POST");
+  expect(JSON.parse(init.body as string)).toEqual({
+    url: "https://www.azjlbc.gov/28ar/other.pdf",
+    fiscal_year: 2028,
+  });
+});
+
+test("checkBookFormatUrl surfaces the backend's error detail", async () => {
+  vi.stubGlobal("fetch", failJson(403, "admin only"));
+  await expect(checkBookFormatUrl("https://x.test/a.pdf", 2028)).rejects.toThrow(
+    "admin only",
+  );
 });

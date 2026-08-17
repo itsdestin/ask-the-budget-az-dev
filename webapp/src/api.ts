@@ -1373,8 +1373,13 @@ export interface PendingEdition {
     single_file: BookFormatCandidate | null;
     linked_toc: BookFormatCandidate | null;
   };
-  /** Where the suggestion came from ("catalog", "probe", …), or null. */
-  source: string | null;
+  // The route also sends `source` ("catalog", "probed", …). It is deliberately
+  // NOT declared here: nothing rendered it, and a declared-but-unrendered field
+  // reads as a promise the UI keeps. It is also not a fact an admin can act on
+  // — the three facts that decide an approval are the status, the size and the
+  // year, all of which are measurements of the address itself, and where the
+  // suggestion came from changes none of them. Extra JSON keys are ignored, so
+  // the server needs no change; declare it again if something renders it.
 }
 
 export interface ApprovedEdition {

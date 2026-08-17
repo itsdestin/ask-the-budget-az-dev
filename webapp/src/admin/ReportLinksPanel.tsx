@@ -80,6 +80,20 @@ function urlFor(choice: Choice, candidate: api.BookFormatCandidate | null): stri
   return candidate?.url ?? null;
 }
 
+/** An address box the admin emptied and did not answer.
+ *
+ *  🔴 This exists because `urlFor` maps an empty typed box to `null`, and
+ *  `null` on the wire is the POSITIVE claim "JLBC published no such format"
+ *  (spec R1) — not "no answer yet". Reproduced end to end before this guard:
+ *  reopen an approved edition, clear the Single File box, press Approve, and a
+ *  good link is deleted AND replaced by a claim about JLBC, on one keystroke,
+ *  with nothing on screen. `{kind:"typed", url:""}` and `{kind:"none"}` are
+ *  different intentions and must not collapse into each other — which is the
+ *  whole reason `Choice` is one value rather than two flags. */
+function isBlankTyped(choice: Choice): boolean {
+  return choice.kind === "typed" && choice.url.trim() === "";
+}
+
 /** What Approve would send for one edition. Built ONCE per card and read by
  *  BOTH the disabled-check and the save.
  *
@@ -129,6 +143,7 @@ function AddressFacts({
   namesItsYear,
   year,
   idPrefix,
+  reason = null,
 }: {
   url: string;
   status: number | null;
@@ -136,6 +151,13 @@ function AddressFacts({
   namesItsYear: boolean;
   year: number;
   idPrefix: string;
+  /** The check route's own sentence about why an address did not work, when it
+   *  wrote one. Preferred over the two below it wherever it exists: the route
+   *  already words this failure for this reader, and two wordings for one fact
+   *  is the duplication `write_edition`'s docstring forbids for the 400. The
+   *  fallbacks stay because a CANDIDATE carries no reason — the listing route
+   *  reports the three measurements and no prose. */
+  reason?: string | null;
 }) {
   const size = sizeLabel(bytes);
   return (
@@ -160,12 +182,12 @@ function AddressFacts({
           off. */}
       {status === null ? (
         <p className="adm-warn" data-testid={`${idPrefix}-unreachable`}>
-          azjlbc.gov didn't answer at all, so this address could not be checked.
-          The address itself may be fine.
+          {reason ??
+            "azjlbc.gov didn't answer at all, so this address could not be checked. The address itself may be fine."}
         </p>
       ) : status >= 400 ? (
         <p className="adm-warn" data-testid={`${idPrefix}-dead`}>
-          This address didn't respond ({status}). Nothing would download.
+          {reason ?? `This address didn't respond (${status}). Nothing would download.`}
         </p>
       ) : null}
 
@@ -279,6 +301,7 @@ function FormatRow({
                 namesItsYear={checked.result.names_its_year}
                 year={year}
                 idPrefix={`report-links-${format}-checked`}
+                reason={checked.result.reason}
               />
             ) : null}
           </>
@@ -324,12 +347,16 @@ function FormatRow({
  *  to keep in step with this one. */
 function ApproveRow({
   urls,
+  blank,
   busy,
   error,
   onApprove,
   testId,
 }: {
   urls: EditionUrls;
+  /** The FORMAT LABELS of any address box the admin emptied without answering
+   *  it. Non-empty blocks the save outright — see `isBlankTyped`. */
+  blank: string[];
   busy: boolean;
   error: string | undefined;
   onApprove: () => void;
@@ -340,7 +367,13 @@ function ApproveRow({
     <>
       {/* The reason is on screen, not implied by a greyed-out button: a
           silently dead button reads as the page being broken. */}
-      {nothingToSave ? (
+      {blank.length > 0 ? (
+        <p className="adm-warn" data-testid="report-links-blank">
+          The address for the {blank.join(" and the ")} is empty. Type an
+          address, or press "None published" — recording that JLBC never
+          published it is a real answer, and an empty box is not.
+        </p>
+      ) : nothingToSave ? (
         <p className="adm-warn" data-testid="report-links-blocked">
           At least one of the two formats needs a link. If JLBC published
           neither, this edition has nothing to open and there is nothing to
@@ -359,7 +392,7 @@ function ApproveRow({
         type="button"
         className="adm-btn"
         data-testid={testId}
-        disabled={nothingToSave || busy}
+        disabled={blank.length > 0 || nothingToSave || busy}
         onClick={onApprove}
       >
         Approve
@@ -375,7 +408,13 @@ export function ReportLinksPanel() {
   const [checks, setChecks] = useState<Record<string, CheckState>>({});
   const [openEdits, setOpenEdits] = useState<string[]>([]);
   const [saveErrors, setSaveErrors] = useState<Record<string, string>>({});
-  const [savedWarnings, setSavedWarnings] = useState<string[]>([]);
+  /** Keyed by EDITION, not appended to a list. A list keyed on its own sentence
+   *  meant correcting the same edition twice produced two rows saying the same
+   *  thing under a duplicate React key, and a correction that FIXED the year
+   *  left the old complaint on screen forever — a stale warning about an
+   *  address that is no longer stored. One entry per edition, replaced or
+   *  deleted by that edition's next save. */
+  const [savedWarnings, setSavedWarnings] = useState<Record<string, string>>({});
   const [busyEdition, setBusyEdition] = useState<string | null>(null);
   const [refreshing, setRefreshing] = useState(false);
 
@@ -406,7 +445,21 @@ export function ReportLinksPanel() {
   }
 
   function setChoice(family: string, year: number, format: Format, choice: Choice) {
-    setDecisions((d) => ({ ...d, [formatKey(family, year, format)]: choice }));
+    const key = formatKey(family, year, format);
+    setDecisions((d) => ({ ...d, [key]: choice }));
+    // 🔴 A verdict belongs to the address it was gathered about. Reproduced:
+    // check a good FY2028 address, then edit the box to the rolling `/budget/`
+    // one WITHOUT pressing Check again — the card showed the NEW address beside
+    // the OLD 47.0 MB size and no year warning, and Approve sent the new one.
+    // That is exactly the wrong-year approval this card exists to prevent,
+    // committed while the screen displays evidence about a different file. An
+    // edited address now has no verdict at all until it is checked again.
+    setChecks((c) => {
+      if (!(key in c)) return c; // typing is per-keystroke; don't churn state
+      const next = { ...c };
+      delete next[key];
+      return next;
+    });
   }
 
   async function check(family: string, year: number, format: Format, url: string) {
@@ -442,14 +495,23 @@ export function ReportLinksPanel() {
       const wrong = FORMATS.filter((f) => saved.names_its_year[f] === false).map(
         (f) => FORMAT_LABELS[f],
       );
-      if (wrong.length > 0) {
-        setSavedWarnings((w) => [
+      setSavedWarnings((w) => {
+        // A clean save DELETES this edition's warning. Without that, correcting
+        // a wrong-year address leaves the complaint about the old one on screen
+        // and the admin has no way to tell they fixed it.
+        if (wrong.length === 0) {
+          if (!(key in w)) return w;
+          const next = { ...w };
+          delete next[key];
+          return next;
+        }
+        return {
           ...w,
-          `Saved FY ${year} ${family}, but the address for the ${wrong.join(
+          [key]: `Saved FY ${year} ${family}, but the address for the ${wrong.join(
             " and the ",
           )} doesn't mention FY ${year}. Open it and make sure it is the right year.`,
-        ]);
-      }
+        };
+      });
       // The edition moves out of "waiting" locally rather than by re-fetching:
       // the save succeeded, so its answer is known, and a re-fetch would
       // re-probe every OTHER pending edition to learn one thing we already
@@ -487,7 +549,7 @@ export function ReportLinksPanel() {
     state.online &&
     state.pending.length === 0 &&
     state.problems.length === 0 &&
-    savedWarnings.length === 0
+    Object.keys(savedWarnings).length === 0
   ) {
     return null;
   }
@@ -539,9 +601,17 @@ export function ReportLinksPanel() {
           below is still complete — which editions are unanswered is knowable
           with no network at all — so the rows stay and only the suggested
           addresses are missing. */}
-      {!state.online && state.reason ? (
+      {/* The fallback is not dead code being defensive for its own sake: this
+          panel is on screen BECAUSE `online` is false, and with a null reason
+          it would otherwise be a heading, a subtitle and nothing — a section
+          that says something is wrong and declines to say what. The route
+          always sets a reason today, so the fallback should never be read;
+          the point is that it cannot render an unexplained alert if that ever
+          stops being true. */}
+      {!state.online ? (
         <p className="adm-warn" data-testid="report-links-offline">
-          {state.reason}
+          {state.reason ??
+            "Couldn't reach azjlbc.gov, so no addresses could be looked up. The editions below still need a link."}
         </p>
       ) : null}
 
@@ -555,10 +625,10 @@ export function ReportLinksPanel() {
         </ul>
       ) : null}
 
-      {savedWarnings.length > 0 ? (
+      {Object.keys(savedWarnings).length > 0 ? (
         <ul className="adm-rows" data-testid="report-links-saved-warnings">
-          {savedWarnings.map((w) => (
-            <li key={w} className="adm-warn" data-testid="report-links-saved-warn">
+          {Object.entries(savedWarnings).map(([k, w]) => (
+            <li key={k} className="adm-warn" data-testid="report-links-saved-warn">
               {w}
             </li>
           ))}
@@ -573,6 +643,9 @@ export function ReportLinksPanel() {
             ({ kind: "candidate" } as Choice),
         );
         const urls = urlsFor(choices, edition.candidates);
+        const blank = FORMATS.filter((_, i) => isBlankTyped(choices[i])).map(
+          (f) => FORMAT_LABELS[f],
+        );
         return (
           <div key={key} className="adm-card" data-testid="report-links-pending-card">
             <div className="adm-card-head">
@@ -599,6 +672,7 @@ export function ReportLinksPanel() {
               ))}
               <ApproveRow
                 urls={urls}
+                blank={blank}
                 busy={busyEdition === key}
                 error={saveErrors[key]}
                 onApprove={() => void approve(edition.family, edition.fiscal_year, urls)}
@@ -632,6 +706,12 @@ export function ReportLinksPanel() {
               // No candidates on this side: an already-answered edition is not
               // probed, so the editor opens on what is STORED.
               const urls = urlsFor(choices, { single_file: null, linked_toc: null });
+              // This side is where an emptied box costs the most: every format
+              // reopens as a typed box holding a STORED address, so clearing
+              // one deletes a link that is already working.
+              const blank = FORMATS.filter((_, i) => isBlankTyped(choices[i])).map(
+                (f) => FORMAT_LABELS[f],
+              );
               return (
                 <li key={key} data-testid="report-links-approved-row">
                   <span>
@@ -671,6 +751,7 @@ export function ReportLinksPanel() {
                       ))}
                       <ApproveRow
                         urls={urls}
+                        blank={blank}
                         busy={busyEdition === key}
                         error={saveErrors[key]}
                         onApprove={() => void approve(a.family, a.fiscal_year, urls)}

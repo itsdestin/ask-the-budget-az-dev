@@ -33,7 +33,6 @@ const PENDING: api.PendingEdition = {
     // returns a live 200 for a year that does not exist yet.
     linked_toc: { url: TOC_URL, status: 200, bytes: 200_000, names_its_year: false },
   },
-  source: "probed",
 };
 
 const APPROVED: api.ApprovedEdition = {
@@ -195,7 +194,13 @@ test("approve is refused, with a reason on screen, when neither format has a lin
   expect(save).not.toHaveBeenCalled();
 });
 
-test("a typed replacement is checked before it can be approved", async () => {
+// Named for what it asserts, not for a rule the app does not enforce. It used
+// to be called "a typed replacement is checked before it can be approved" —
+// NOTHING requires Check before Approve, and the save's own year echo (pinned
+// further down) is the real control. This repo has shipped four comments that
+// measurement contradicted; a test NAME making a false claim about the system
+// is the same defect wearing a green tick.
+test("a typed replacement is described by the same three facts as an offered one", async () => {
   stub();
   const check = vi
     .spyOn(api, "checkBookFormatUrl")
@@ -234,6 +239,104 @@ test("a typed replacement that does not name the year is flagged too", async () 
   ).toHaveTextContent(/doesn't mention FY 2028/i);
 });
 
+test("editing the address throws away the verdict about the OLD one", async () => {
+  // 🔴 Reproduced before this guard: check a good FY2028 address, then edit the
+  // box to the rolling /budget/ one without pressing Check again. The card
+  // showed the NEW address beside the OLD 47.0 MB size and NO year warning,
+  // and Approve sent the new one. That is the wrong-year approval this whole
+  // card exists to prevent, committed while the screen displays evidence
+  // gathered about a different file.
+  stub();
+  vi.spyOn(api, "checkBookFormatUrl").mockResolvedValue({
+    ok: true, status: 200, bytes: 47_000_000, names_its_year: true, reason: null,
+  });
+  render(<ReportLinksPanel />);
+  const row = await screen.findByTestId("report-links-format-single_file");
+  fireEvent.click(within(row).getByRole("button", { name: /use a different link/i }));
+  fireEvent.change(within(row).getByLabelText(/web address/i), {
+    target: { value: "https://www.azjlbc.gov/28ar/fy2028approprpt.pdf" },
+  });
+  fireEvent.click(within(row).getByRole("button", { name: /^check$/i }));
+  await screen.findByTestId("report-links-single_file-checked-size");
+
+  fireEvent.change(within(row).getByLabelText(/web address/i), {
+    target: { value: "https://www.azjlbc.gov/budget/apprpttoc.pdf" },
+  });
+  // No verdict at all now — not a stale one shown beside a new address.
+  expect(screen.queryByTestId("report-links-single_file-checked-size")).toBeNull();
+  expect(screen.queryByTestId("report-links-single_file-checked-address")).toBeNull();
+});
+
+test("an emptied address box blocks Approve instead of claiming JLBC published none", async () => {
+  // 🔴 `urlFor` maps an empty typed box to `null`, and `null` on the wire is
+  // the POSITIVE claim "JLBC published no such format" (spec R1). Reproduced
+  // end to end: reopen an approved edition, clear the Single File box, press
+  // Approve — a good link deleted AND replaced by a claim about JLBC, on one
+  // keystroke, with nothing on screen. `{typed, ""}` and `{none}` are different
+  // intentions and must not collapse.
+  stub({ approved: [APPROVED] });
+  const save = vi.spyOn(api, "saveBookFormat").mockResolvedValue(CLEAN_SAVE);
+  render(<ReportLinksPanel />);
+  fireEvent.click(await screen.findByRole("button", { name: /already answered/i }));
+  fireEvent.click(screen.getByRole("button", { name: /change the links for FY 2026/i }));
+
+  const editor = screen.getByTestId("report-links-edit");
+  const single = within(editor).getByTestId("report-links-format-single_file");
+  fireEvent.change(within(single).getByLabelText(/web address/i), { target: { value: "  " } });
+
+  expect(screen.getByTestId("report-links-blank")).toHaveTextContent(/Single File PDF/);
+  // And it names the way to say "there isn't one", so the block is a route
+  // forward rather than a dead end.
+  expect(screen.getByTestId("report-links-blank")).toHaveTextContent(/none published/i);
+  const approve = within(editor).getByTestId("report-links-approve-correction");
+  expect(approve).toBeDisabled();
+  fireEvent.click(approve);
+  expect(save).not.toHaveBeenCalled();
+});
+
+test("Approve cannot be pressed twice while the first save is in flight", async () => {
+  // One approval, one write. Without the busy guard a double click sends the
+  // same PUT twice and the second lands on an edition the first already moved
+  // out of the pending list.
+  stub();
+  let release!: (v: typeof CLEAN_SAVE) => void;
+  const save = vi
+    .spyOn(api, "saveBookFormat")
+    .mockReturnValue(new Promise((r) => { release = r; }));
+  render(<ReportLinksPanel />);
+  const approve = await screen.findByTestId("report-links-approve");
+  fireEvent.click(approve);
+  await waitFor(() => expect(approve).toBeDisabled());
+  fireEvent.click(approve);
+  expect(save).toHaveBeenCalledTimes(1);
+  release(CLEAN_SAVE);
+  await waitFor(() => expect(screen.queryByTestId("report-links-pending-card")).toBeNull());
+});
+
+test("a checked address that failed is explained in the check route's own words", async () => {
+  // The route already writes this sentence for this reader. Re-deriving it
+  // here would give the office two wordings for one fact — the same
+  // duplication `write_edition`'s docstring forbids for the 400.
+  stub();
+  vi.spyOn(api, "checkBookFormatUrl").mockResolvedValue({
+    ok: false,
+    status: 404,
+    bytes: null,
+    names_its_year: true,
+    reason: "That address answered 404, so nothing would download.",
+  });
+  render(<ReportLinksPanel />);
+  const row = await screen.findByTestId("report-links-format-single_file");
+  fireEvent.click(within(row).getByRole("button", { name: /use a different link/i }));
+  fireEvent.change(within(row).getByLabelText(/web address/i), {
+    target: { value: "https://www.azjlbc.gov/28ar/gone.pdf" },
+  });
+  fireEvent.click(within(row).getByRole("button", { name: /^check$/i }));
+  expect(await screen.findByTestId("report-links-single_file-checked-dead")).toHaveTextContent(
+    "That address answered 404, so nothing would download.",
+  );
+});
+
 test("the save's own year check warns even when Check was never pressed", async () => {
   // Defence in depth. Nothing forces an admin to press Check first, so the
   // whole R6 mitigation would otherwise rest on a step they can skip. The
@@ -248,6 +351,38 @@ test("the save's own year check warns even when Check was never pressed", async 
   const warn = await screen.findByTestId("report-links-saved-warn");
   expect(warn).toHaveTextContent(/Single File PDF/);
   expect(warn).toHaveTextContent(/doesn't mention FY 2028/i);
+});
+
+test("correcting a flagged edition clears its warning rather than stacking another", async () => {
+  // The warnings used to be a list keyed on their own sentence: correcting the
+  // same edition twice produced two identical rows under a DUPLICATE React
+  // key, and a correction that FIXED the year left the old complaint on screen
+  // forever — telling an admin a stored address is wrong when it no longer is.
+  stub({ pending: [withSingleFile({ names_its_year: true })] });
+  const save = vi.spyOn(api, "saveBookFormat").mockResolvedValue({
+    ok: true,
+    names_its_year: { single_file: false, linked_toc: true },
+  });
+  render(<ReportLinksPanel />);
+  fireEvent.click(await screen.findByTestId("report-links-approve"));
+  expect(await screen.findByTestId("report-links-saved-warn")).toBeInTheDocument();
+
+  // Now correct it, and let the save come back clean.
+  save.mockResolvedValue(CLEAN_SAVE);
+  fireEvent.click(screen.getByRole("button", { name: /already answered/i }));
+  fireEvent.click(screen.getByRole("button", { name: /change the links for FY 2028/i }));
+  const editor = screen.getByTestId("report-links-edit");
+  fireEvent.change(
+    within(within(editor).getByTestId("report-links-format-single_file")).getByLabelText(
+      /web address/i,
+    ),
+    { target: { value: "https://www.azjlbc.gov/28ar/fy2028approprpt.pdf" } },
+  );
+  fireEvent.click(within(editor).getByTestId("report-links-approve-correction"));
+
+  await waitFor(() =>
+    expect(screen.queryByTestId("report-links-saved-warn")).toBeNull(),
+  );
 });
 
 test("a refusal from the server is shown in the server's own words", async () => {
@@ -291,6 +426,18 @@ test("an offline check says so instead of showing an empty list", async () => {
   );
 });
 
+test("an offline check with no stated reason still explains itself", async () => {
+  // Latent today — the route always writes a reason — but `online: false` is
+  // what puts this panel on screen, so a null reason rendered a heading, a
+  // subtitle and nothing: a section announcing that something is wrong and
+  // declining to say what.
+  stub({ pending: [], online: false, reason: null });
+  render(<ReportLinksPanel />);
+  expect(await screen.findByTestId("report-links-offline")).toHaveTextContent(
+    /couldn't reach azjlbc\.gov/i,
+  );
+});
+
 test("an offline check still lists every edition that needs a link", async () => {
   // The route ships a FULL pending list when it is offline, with every
   // candidate null — which editions are unanswered needs no network at all.
@@ -298,8 +445,8 @@ test("an offline check still lists every edition that needs a link", async () =>
   // attention than really do.
   stub({
     pending: [
-      { family: "Appropriations Report", fiscal_year: 2028, candidates: { single_file: null, linked_toc: null }, source: null },
-      { family: "Baseline", fiscal_year: 2028, candidates: { single_file: null, linked_toc: null }, source: null },
+      { family: "Appropriations Report", fiscal_year: 2028, candidates: { single_file: null, linked_toc: null } },
+      { family: "Baseline", fiscal_year: 2028, candidates: { single_file: null, linked_toc: null } },
     ],
     online: false,
     reason: "Couldn't reach azjlbc.gov to look up the links.",

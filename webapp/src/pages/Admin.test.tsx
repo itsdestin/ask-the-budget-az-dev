@@ -159,6 +159,7 @@ function mockAll(over: {
   aliases?: api.AdminAliases;
   guidance?: api.AdminGuidance;
   issues?: api.IssuesResponse;
+  bookFormats?: api.BookFormats;
 } = {}) {
   vi.spyOn(api, "me").mockResolvedValue({
     user: "Destin", is_admin: true, admin_username: "Destin",
@@ -189,6 +190,22 @@ function mockAll(over: {
   );
   vi.spyOn(api, "issues").mockResolvedValue(
     over.issues ?? { reports: [] },
+  );
+  // ReportLinksPanel fetches for itself too. Unmocked it made a real request
+  // in every spec in this file — 69 of them — each failing and rendering a
+  // `role="alert"` reading "Failed to parse URL from /api/admin/book-formats".
+  // That guaranteed the panel was INVISIBLE in every Admin spec, so no
+  // assertion here could ever have noticed it was mounted or not. The default
+  // is the SILENT state (nothing waiting), which is the normal state on a
+  // healthy install and leaves every existing spec's page shape unchanged.
+  vi.spyOn(api, "bookFormats").mockResolvedValue(
+    over.bookFormats ?? {
+      pending: [],
+      approved: [],
+      online: true,
+      reason: null,
+      problems: [],
+    },
   );
 }
 
@@ -1099,6 +1116,45 @@ describe("the page's shape", () => {
     const headings = within(main).getAllByRole("heading", { level: 2 });
     expect(headings[0]).toHaveTextContent(/needs attention/i);
     expect(headings[1]).toHaveTextContent(/needs a look/i);
+  });
+
+  it("puts a book with no 'Full report' link on the page", async () => {
+    // 🔴 THE MOUNT ITSELF. Deleting `<ReportLinksPanel />` from Admin.tsx left
+    // the entire suite green — 89 files, 1008 tests — because the panel's own
+    // specs render the component directly and this file never rendered it at
+    // all. That is the "annotation that never reached the UI" class this repo
+    // has shipped before: a finished, well-tested feature nobody can see.
+    //
+    // The panel's own behaviour is pinned in ReportLinksPanel.test.tsx; this
+    // asserts only that the page mounts it and that its output reaches the
+    // rendered document.
+    mockAll({
+      bookFormats: {
+        pending: [
+          {
+            family: "Appropriations Report",
+            fiscal_year: 2028,
+            candidates: { single_file: null, linked_toc: null },
+          },
+        ],
+        approved: [],
+        online: true,
+        reason: null,
+        problems: [],
+      },
+    });
+    await renderAdmin();
+
+    const panel = await screen.findByTestId("admin-report-links");
+    // Scoped to the panel deliberately. Its <h2> lands between PoorlyRead and
+    // NoticesPanel, so a page-wide `getAllByRole("heading", {level: 2})[1]`
+    // here would be asserting about the page's heading ORDER — which the
+    // "puts problems first" spec above already owns, and which this spec
+    // would then be free to break.
+    expect(within(panel).getByRole("heading", { level: 2 })).toHaveTextContent(
+      /full report/i,
+    );
+    expect(within(panel).getByText(/FY 2028 Appropriations Report/)).toBeInTheDocument();
   });
 
   it("labels multi-panel groups, in the order an admin needs them, and drops the label from single-panel groups", async () => {
