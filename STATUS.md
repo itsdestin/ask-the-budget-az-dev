@@ -50,6 +50,160 @@ source. When something ships, update only this file.
 | **Plan B — resilient processing** (T5–T8, T12) | ✓ **Shipped** (2026-08-13) | A document that extracts to almost nothing is now detected, retried with another extractor, and held out of search if every method fails — instead of being written and reported `live`. Coverage floor **calibrated at 0.10 across all 7,434 documents**. 2798 pytest / 859 vitest / `tsc -b` clean, Layer 1 eval unmoved. **The acceptance run did NOT go as planned and found two real things — read the section below before building on this** |
 | ⬛ Corpus identity consistency (I1–I14) | **SUPERSEDED — it is BUILT** | This row described the problem before the work. See the phase row above and the shipped section below. Two of its figures were measured WRONG: the 721 mis-labels were a fuzzy-matcher defect, not the three corrupted catalog names; and only 25 of the 137 titles carried a bullet |
 | FY2027 Appropriations Report ingest | ✓ **Done + verified (2026-08-16)** | 140/140 live, 0 failures, 2,336 passages, 0 duplicate ids corpus-wide, 4.61 chunks/page. Corpus now **83,016 budget chunks / 7,566 documents**. Its titles are wrong — that is the identity defect above, not an ingest failure |
+| **Tool cards — placement, then legibility** (TC1–TC22) | ✓ **Shipped 2026-08-16**, browser-approved | A run of tool calls moved out of the space above an answer and INTO the bubble that follows it, then its contents were rewritten for an analyst who does not know what a "chunk" is. **A tool that had never been styled at all was found in the audit.** 1063 vitest / 3151 pytest / build clean, **no eval** (nothing on the retrieval, ingest, chunking, citation or prompt path). Review caught a card that stated a **falsehood** on screen. See the section below |
+
+## Tool cards — placement, then legibility (2026-08-16)
+
+Spec: `docs/superpowers/specs/2026-08-16-tool-card-in-message-bubble-design.md`
+(**Part 1 = TC1–TC12, placement; Part 2 = TC13–TC22, contents**). Plans:
+`docs/superpowers/plans/2026-08-16-tool-card-in-message-bubble.md` (7 tasks)
+and `docs/superpowers/plans/2026-08-16-tool-card-part-2.md` (5 tasks, 3 in
+parallel lanes). **Both containment and wording decisions were approved from
+rendered mockups, committed at
+`docs/superpowers/specs/assets/2026-08-16-tool-card-mockup/`** — a visual
+decision needs visual evidence of what was agreed, and prose is not that.
+
+**Part 1.** A run of tool calls was a sibling floating above the answer, and
+grouping only fired on ADJACENT calls — so a turn that searched, wrote a
+sentence, then searched again produced two lone rows ("searched, searched")
+that the existing grouping structurally could not reach. A run now attaches
+**downward**, rendering as the first child inside the bubble that follows it.
+Reading order is preserved: a two-round answer gets a card above each round's
+prose, never one card at the top claiming all the work.
+
+**Part 2.** The expanded card was then found unreadable and its scope was
+amended in. The header reads as a sentence (`Searched for “…” and 2 more`),
+search results group by **document** rather than passage, and the icon set was
+redrawn.
+
+### 🔴 The audit found something worse than the reported defect
+
+`document_guide` had **never been styled at all** — no icon (it fell through
+to a generic filled square) and no view (`RawFallbackView`, i.e. raw JSON). It
+runs immediately before the assistant writes a document, so it appears in
+exactly the conversations that end in a memo the analyst sends under their own
+name.
+
+### 🔴 A card was stating a FALSEHOOD, and the fixtures are why it survived
+
+Found by the Part 2 whole-branch review, after three lane reviews passed it.
+
+`ListFilterValuesView` derived every displayed name from `sample_doc_title` —
+which is only an **example document**, so its leading name is an *agency*
+whatever dimension was listed. Asked what kinds of document the corpus holds,
+the card answered **"Kinds of document the corpus covers: AHCCCS, ADOA"**.
+
+`harness/tools.py` already attaches an authoritative catalog `name`, and the
+view discarded it — `interface FilterValue` did not even declare the field.
+The server's own comment reads *"the sample title only implies what an id
+means; the catalog states it."*
+
+**Why nothing caught it:** `list_filter_values` accepts
+`agency | fund | doc_type | publisher` and RAISES on anything else, but both
+new copy tables were keyed on `retrieve`'s **filter** vocabulary
+(`agency_canonical_id`, `fiscal_year`) — values this tool can never emit —
+**and the test fixtures pinned that impossible input.** Every assertion passed
+against a value that never occurs. Fixed, fixtures re-pointed, and an
+anti-drift guard added that reads the accepted enum out of `harness/tools.py`
+at test time (conventional here — `tool-display.test.ts` already cross-checks
+that file).
+
+### Decisions worth not re-litigating
+
+- **No relevance number, rank index or pipeline counter** (TC17). `score 1.260`
+  is a raw cross-encoder logit on roughly −10..10 — not a percentage, not a
+  confidence — and printing it beside a dollar figure invites reading it as
+  one. Budget Documents removed its relevance number and bar for the same
+  reason; order carries the ranking.
+- **The collapsed card carries NO failure signal** (TC9) — no red, no count, no
+  word "failed", in the visible text or the accessible name. The model retries
+  a failed call itself, so a red row usually marks a transient step in work
+  that then succeeded, and alarming an analyst about a self-correcting event
+  spends the trust every other warning needs. **Demoted, not deleted:** the
+  failure keeps its full treatment inside the expansion.
+  - Consequence the request did not ask for: the settled detail line
+    `all complete` had to go too. Claiming a clean run while suppressing
+    `1 failed` is a false positive claim, which is worse than the noise it
+    removed. Silence claims nothing.
+  - **Citation failure is untouched and stays loud.** `cite`/`cite_batch` never
+    render as tool rows at all; a failed citation is still a red-X chip with
+    the server's reason. Core Invariant 2 lives there — verified in the diff,
+    not assumed.
+- **Pixel-art glyphs abandoned for these rows** (TC15). The magnifier's ring
+  closed into an illegible blob at rendered size, and the app already owned a
+  magnifier (`components/SearchIcon.tsx`, from the approved mockup, used in
+  four places). The tool row was the only place drawing a second one. The
+  mascot keeps its pixel art — that is character art, this is chrome.
+- **The style-guide card states its rules are advice with nothing checking the
+  finished document against them** (TC20). True: the design that added the tool
+  refused a server-side rewrite because it would mean editing figures an
+  analyst is about to send. A card showing house rules without saying so
+  implies a check that does not exist.
+- **Agency names are NOT de-duplicated** (TC21). Duplicate catalog ids for one
+  agency are a real corpus defect with its own spec; two rows reading "Child
+  Safety" is correct output, and collapsing them here would bury it.
+
+### 🔴 TC22 — one width, and the reported gap was bigger than it looked
+
+Destin reported the card changing size. Measuring found two causes, not one:
+`.chat-bubble` sets `font-size: 14px` so its `65ch` resolves at 14px **and** a
+nested card loses a further 34px to padding and border, while the standalone
+`.chat-tool-group` also said `65ch` but inherited the document's 16px — a
+*bigger* unit. The standalone card was ~100px wider and shrank the instant an
+answer arrived. Both now state the same measure.
+
+### What the reviews caught that ~1,000 passing tests did not
+
+**Six tests that could not fail**, including: a guard whose regex was an OR, so
+deleting the load-bearing half of TC20's sentence stayed green; an assertion
+pinning `"4,812"`, a comma-formatted string the code never emits; and one
+asserting a string that only renders in a state the test never enters. Two of
+the six were the *plan's own* example code.
+
+**Three defects invisible to any single lane.** The plan's example code
+silently dropped the `and N more` count on two of four tools. A Part 1 test
+still asserted the Part 1 header format, which no Part 2 lane owned. And
+`toolGlyph` moved to a 24×24 viewBox in one lane while its second caller lived
+in another lane forbidden to touch it — **git merged cleanly, every suite
+stayed green, and the merged tree really was rendering a cropped quarter-icon.**
+That last one is the third recorded instance of this shape on this project.
+
+**The glyph fix is structural, not a patch.** `toolGlyph` is now module-private
+and a `ToolGlyph` component owns its own `<svg>`, viewBox and stroke, so `tsc`
+itself refuses a future caller from getting it wrong. Both a per-caller
+assertion and a source-level guard were added anyway.
+
+**One genuinely good result:** the final review ran **59 in-place mutations and
+could not find a single un-failable test.** Every honesty guard died to the
+mutation that mattered.
+
+### Also fixed on the way
+
+- A lone **failed** call was DELETED rather than demoted: the n=1 branch
+  renders `ToolBody` directly (TC5's one-click rule) and so bypassed the only
+  code applying the failed treatment. A lone failed retrieve expanded to an
+  **empty box** — and `history-rehydrate.ts` marks a torn mid-search block
+  failed with no error text, so reopening a stored interrupted chat showed a
+  card claiming a completed search that never returned.
+- `.chat-tool-sentence` replaced `.chat-tool-summary` and lost all five
+  truncation declarations, so the header **wrapped** instead of truncating.
+  jsdom applies no stylesheet; nothing caught it.
+
+### ⏸ Still open
+
+- **Funds render as raw ids** (`fund:2005`). No catalog name and no display
+  table exists for that dimension, so it is the honest last resort — but it is
+  still a code on screen. Needs a fund-name lookup.
+- **A card expanded mid-search snaps shut when the answer arrives.** The card
+  physically moves into the bubble, so React remounts it and its open state
+  resets. Not data loss; one click reopens. The fix hoists the open state and
+  is a deliberate deferral, not an oversight.
+- **The doc-type anti-drift guard is one-directional by design** — the map can
+  silently LOSE an entry (a missing label degrades to the raw code). Defensible;
+  the code comment justifies only the other direction.
+- The full 31-query Layer 2 run is unaffected by this work and still unrun.
+
+---
 
 ## ⬛ Corpus identity consistency — this section is SUPERSEDED (2026-08-16)
 
