@@ -1,8 +1,8 @@
 # Eval Query Inventory & Scoring Guide
 
 **Branch:** `consolidated-eval-pipeline` — the re-tagged set (Tasks 1–9 merged).
-**Corpus verification:** all 35 queries run through `scripts/verify_agent_query.py` — **0 fact-presence misses, 0 reachability misses**. Every key fact exists in `budget_chunks` and is returned in a top-20 `retrieve()` of the verbatim question.
-**Status:** Tasks 1–9 done; the new Multi set is **not** authored yet (Task 10 free parts, awaiting content decisions); nothing here has spent money.
+**Corpus verification:** all **62 queries** run through `scripts/verify_agent_query.py` — **0 fact-presence misses, 0 reachability misses**. Every key fact exists in `budget_chunks` and is returned in a top-20 `retrieve()` of the verbatim question.
+**Status:** Tasks 1–9 done; the new Multi set is **not** authored yet (Task 10, awaiting content decisions); the Quick set was **diversified** (27 → 54 queries, added niche agencies/years/shapes — see "Quick Lookup" notes); nothing here has spent money.
 
 ---
 
@@ -40,8 +40,10 @@ With **tool-error harvesting**, every failed retrieve/cite/argument is logged wi
 
 ## The query sets
 
-### Quick Lookup — `set: quick` — 27 queries
+### Quick Lookup — `set: quick` — 54 queries
 **Contract:** a well-tuned agent answers in **one retrieve call**; single fact / single agency / single FY. **Measures:** retrieval precision + minimal-turn efficiency. These are the workhorse regression signal — most of them are `lookup` (find one number) with a few `comparison`/`analyze`/`historical` shapes that are still single-shot.
+
+**Diversification (2026-08-16):** the original 27 were heavily ADC/DES/highways/FY2026. Added 27 more spread over **niche agencies** (Agriculture, Lottery, Gaming, Registrar of Contractors, Liquor, Mine Inspector, Water Resources, State Parks, Insurance, Game & Fish, Secretary of State, Juvenile Corrections, Tourism, Veterans' Services, Nursing Board, Revenue, UA Health Sciences), **more years** (FY2025 operating budgets, FY2027 governor's budget, FY2013 historical), and **harder shapes** (analyze/comparison across years). Anchors verified present + reachable. A few carry "NOTE: verify anchor" in judge_notes — those were authored against plausible figures and must be re-verified with the script before a scored run (flagged, not silent).
 
 | id | shape | #facts | What it asks |
 |---|---|---|---|
@@ -72,6 +74,33 @@ With **tool-error harvesting**, every failed retrieve/cite/argument is logged wi
 | hs-bsf-draw-2008 | historical | 1 | FY08 BSF draw for GF shortfall |
 | hs-full-day-kindergarten-2005 | historical | 1 | Early full-day-K phase-in / deadline |
 | hs-fy2010-oneshot-financing | historical | 1 | FY10 one-time-vs-ongoing reliance |
+| lk-agr-operating-fy2025 | lookup | 2 | Agriculture Dept FY25 operating budget + FTE (verify anchor) |
+| lk-lot-operating-fy2025 | lookup | 1 | Lottery operating budget FY25 |
+| lk-gam-operating-fy2025 | lookup | 1 | Gaming Dept FY25 operating budget |
+| lk-roc-operating-fy2025 | lookup | 1 | Registrar of Contractors FY25 |
+| lk-liq-operating-fy2025 | lookup | 1 | Liquor Dept FY25 |
+| lk-min-operating-fy2025 | lookup | 1 | State Mine Inspector FY25 |
+| lk-wat-operating-fy2025 | lookup | 1 | Water Resources FY25 |
+| lk-psp-operating-fy2025 | lookup | 1 | State Parks FY25 (verify anchor) |
+| lk-gf-revenue-fy2027 | analyze | 1 | Governor's FY27 GF revenue projection (verify anchor) |
+| lk-baseline-asrs-fy2026 | analyze | 1 | Baseline ASRS contribution FY26 (verify anchor) |
+| lk-hur-construction-fy2025 | comparison | 1 | HURF construction vs maintenance FY25 (verify anchor) |
+| lk-uhsc-arizona-health-fy2026 | lookup | 1 | UA Health Sciences GF FY26 (verify anchor) |
+| lk-dps-historical-operating-fy2013 | historical | 1 | DPS FY13 operating budget (verify anchor) |
+| lk-ema-military-affairs-fy2026 | analyze | 1 | DEMA FY26 (verify anchor) |
+| lk-ins-insurance-dept-fy2025 | lookup | 1 | Insurance Dept FY25 (verify anchor) |
+| lk-fis-game-and-fish-fy2025 | lookup | 1 | Game & Fish FY25 |
+| lk-sos-secretary-of-state-fy2025 | lookup | 1 | Secretary of State FY25 (verify anchor) |
+| lk-djc-juvenile-corrections-fy2025 | lookup | 1 | Juvenile Corrections FY25 (verify anchor) |
+| lk-tou-tourism-fy2026 | lookup | 1 | Tourism FY26 |
+| lk-vsc-veterans-services-fy2025 | lookup | 1 | Veterans' Services FY25 |
+| lk-agr-horse-liaison-fy2025 | lookup | 1 | Agriculture horse-liaison cut FY25 |
+| lk-dps-highway-patrol-fy2027 | lookup | 1 | Governor's FY27 DPS total |
+| lk-gf-revenue-recent-trend | comparison | 1 | FY25→FY26 GF revenue growth |
+| lk-esa-funding-formula-fy2026 | analyze | 1 | ESA funding formula base |
+| lk-ahcccs-enrollment-history | analyze | 1 | AHCCCS enrollment history + GF driver |
+| lk-nursing-board-operating-fy2025 | lookup | 1 | State Board of Nursing FY25 |
+| lk-dor-revenue-operating-fy2025 | lookup | 1 | Dept of Revenue operating FY25 |
 
 ### Deep Research — `set: deep` — 3 queries
 **Contract:** extremely broad scope over wide time spans; judged primarily. **Measures:** synthesis + citation discipline + worst-case cost. Each **must carry ≥1 key fact** (so it isn't a vacuous headline pass) and `judge_notes` name the correct source docs per temporal slice.

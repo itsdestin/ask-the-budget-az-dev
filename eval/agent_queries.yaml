@@ -668,6 +668,383 @@
     a defensible alternate basis and should be graded on its own figures,
     not failed for "wrong year".
 
+- id: lk-agr-operating-fy2025
+  question: >-
+    What's the Agriculture Department's total operating budget for FY 2025,
+    and how many full-time-equivalent positions does it fund?
+  corpus: budget
+  shape: lookup
+  set: quick
+  key_facts:
+    - kind: currency
+      value: "$16,679,800"
+    - kind: regex
+      value: "209\\.4"
+  judge_notes: >-
+    FY 2025 Arizona Department of Agriculture operating budget per the JLBC
+    per-agency page: $16,679,800 and 209.4 FTE. Niche agency (agriculture);
+    verified present in corpus and reachable at rank via verbatim question.
+
+- id: lk-lot-operating-fy2025
+  question: >-
+    What's the Arizona Lottery's own operating budget for FY 2025, separate
+    from the prizes and jackpots it pays out?
+  corpus: budget
+  shape: lookup
+  set: quick
+  key_facts:
+    - kind: currency
+      value: "$10,195,900"
+  judge_notes: >-
+    FY 2025 Lottery Commission operating budget $10,195,900, 98.8 FTE, from
+    the State Lottery Fund. Niche agency; verified in corpus.
+
+- id: lk-gam-operating-fy2025
+  question: >-
+    What is the Department of Gaming's FY 2025 operating budget?
+  corpus: budget
+  shape: lookup
+  set: quick
+  key_facts:
+    - kind: currency
+      value: "$13,740,100"
+  judge_notes: >-
+    FY 2025 Department of Gaming operating budget $13,740,100, 82.3 FTE.
+    Niche; verified in corpus.
+
+- id: lk-roc-operating-fy2025
+  question: >-
+    How much does the Registrar of Contractors cost to run in FY 2025?
+  corpus: budget
+  shape: lookup
+  set: quick
+  key_facts:
+    - kind: currency
+      value: "$12,908,000"
+  judge_notes: >-
+    FY 2025 Registrar of Contractors operating budget $12,908,000, 105.6
+    FTE. Niche; verified in corpus.
+
+- id: lk-liq-operating-fy2025
+  question: >-
+    What's the Department of Liquor's FY 2025 operating budget?
+  corpus: budget
+  shape: lookup
+  set: quick
+  key_facts:
+    - kind: currency
+      value: "$6,126,800"
+  judge_notes: >-
+    FY 2025 Department of Liquor Licenses and Control operating budget
+    $6,126,800, 58.2 FTE. Niche; verified.
+
+- id: lk-min-operating-fy2025
+  question: >-
+    How much does the State Mine Inspector's office cost to run in FY 2025?
+  corpus: budget
+  shape: lookup
+  set: quick
+  key_facts:
+    - kind: currency
+      value: "$1,468,600"
+  judge_notes: >-
+    FY 2025 State Mine Inspector operating budget $1,468,600, 16 FTE from
+    the General Fund. Very small niche agency; verified.
+
+- id: lk-wat-operating-fy2025
+  question: >-
+    What's the Department of Water Resources' FY 2025 operating budget?
+  corpus: budget
+  shape: lookup
+  set: quick
+  key_facts:
+    - kind: currency
+      value: "$15,270,300"
+  judge_notes: >-
+    FY 2025 Department of Water Resources operating budget $15,270,300, 105
+    FTE. Niche; verified.
+
+- id: lk-psp-operating-fy2025
+  question: >-
+    What is the Arizona State Parks operating budget for FY 2025?
+  corpus: budget
+  shape: lookup
+  set: quick
+  key_facts:
+    - kind: currency
+      value: "$14,000,000"
+  judge_notes: >-
+    FY 2025 Arizona State Parks operating budget. NOTE: anchor not yet
+    corpus-verified — verify with scripts/verify_agent_query.py before
+    relying on the exact figure; adjust judge_notes to the verified number.
+
+- id: lk-gf-revenue-fy2027
+  question: >-
+    In the state budget the Governor proposed for FY 2027, what is the
+    projected General Fund revenue, and is that above or below the FY 2026
+    adjusted figure?
+  corpus: budget
+  shape: analyze
+  set: quick
+  key_facts:
+    - kind: currency
+      value: "$18,600,000,000"
+  judge_notes: >-
+    Governor's FY 2027 executive budget General Fund revenue projection.
+    NOTE: simplify/verify anchor before scoring; check whether the corpus
+    expresses it as $18.6B.
+
+- id: lk-baseline-asrs-fy2026
+  question: >-
+    What does the Baseline assume about the state's required contribution
+    to the ASRS pension system in FY 2026, and how does the increased rate
+    flow through agency budgets?
+  corpus: budget
+  shape: analyze
+  set: quick
+  key_facts:
+    - kind: currency
+      value: "$382,000,000"
+  judge_notes: >-
+    Baseline FY 2026 ASRS contribution. NOTE: verify anchor before relying;
+    adjust if corpus expresses differently.
+
+- id: lk-hur-construction-fy2025
+  question: >-
+    How much of the Highway User Revenue Fund goes to construction for
+    FY 2025, versus the amount going to maintenance?
+  corpus: budget
+  shape: comparison
+  set: quick
+  key_facts:
+    - kind: currency
+      value: "$1,400,000,000"
+  judge_notes: >-
+    FY 2025 HURF construction vs maintenance split. NOTE: verify anchor;
+    the split may be expressed as separate figures.
+
+- id: lk-uhsc-arizona-health-fy2026
+  question: >-
+    How much state general fund support does the University of Arizona
+    Health Sciences center get in FY 2026?
+  corpus: budget
+  shape: lookup
+  set: quick
+  key_facts:
+    - kind: currency
+      value: "$498,000,000"
+  judge_notes: >-
+    UA Health Sciences FY 2026 General Fund. NOTE: verify anchor before
+    relying; adjust to the corpus figure.
+
+- id: lk-dps-historical-operating-fy2013
+  question: >-
+    How big was the Department of Public Safety's operating budget back in
+    fiscal 2013, in today's terms — not just the number, but how it compared
+    to last year's?
+  corpus: budget
+  shape: historical
+  set: quick
+  key_facts:
+    - kind: currency
+      value: "$381,000,000"
+  judge_notes: >-
+    DPS FY 2013 operating budget (historical year). NOTE: verify anchor
+    against corpus before scoring; adjust to the actual figure.
+
+- id: lk-ema-military-affairs-fy2026
+  question: >-
+    What does the Department of Emergency and Military Affairs get in FY 2026,
+    and how is it split between state funding and federal pass-throughs?
+  corpus: budget
+  shape: analyze
+  set: quick
+  key_facts:
+    - kind: currency
+      value: "$25,000,000"
+  judge_notes: >-
+    DEMA FY 2026. NOTE: verify anchor; adjust to the corpus figure.
+
+- id: lk-ins-insurance-dept-fy2025
+  question: >-
+    What's the Department of Insurance's FY 2025 operating budget?
+  corpus: budget
+  shape: lookup
+  set: quick
+  key_facts:
+    - kind: currency
+      value: "$18,500,000"
+  judge_notes: >-
+    FY 2025 Arizona Department of Insurance operating budget. NOTE: this
+    anchor is NOT yet verified (the corpus showed FY2013 $5.17M for
+    insurance); treat as a search-for-and-pin candidate via the verification
+    script before relying.
+
+- id: lk-fis-game-and-fish-fy2025
+  question: >-
+    What's the Game and Fish Department's FY 2025 operating budget?
+  corpus: budget
+  shape: lookup
+  set: quick
+  key_facts:
+    - kind: currency
+      value: "$1,001,200"
+  judge_notes: >-
+    FY 2025 Game and Fish operating budget per corpus: Capital Improvement
+    Fund $1,001,200. Verified present.
+
+- id: lk-sos-secretary-of-state-fy2025
+  question: >-
+    How much does the Secretary of State's office get to run on in FY 2025?
+  corpus: budget
+  shape: lookup
+  set: quick
+  key_facts:
+    - kind: currency
+      value: "$20,000,000"
+  judge_notes: >-
+    FY 2025 Secretary of State operating budget. NOTE: verify anchor; the
+    corpus has SOS chunks but the exact operating figure is not yet pinned.
+
+- id: lk-djc-juvenile-corrections-fy2025
+  question: >-
+    What's the Department of Juvenile Corrections' FY 2025 operating budget?
+  corpus: budget
+  shape: lookup
+  set: quick
+  key_facts:
+    - kind: currency
+      value: "$99,000,000"
+  judge_notes: >-
+    FY 2025 ADJC operating budget. NOTE: verify anchor; adjust to the
+    corpus figure.
+
+- id: lk-tou-tourism-fy2026
+  question: >-
+    How much does Arizona's tourism office get in FY 2026?
+  corpus: budget
+  shape: lookup
+  set: quick
+  key_facts:
+    - kind: currency
+      value: "$2,000,000"
+  judge_notes: >-
+    FY 2026 Office of Tourism. NOTE: verify anchor; adjust to the corpus
+    figure.
+
+- id: lk-vsc-veterans-services-fy2025
+  question: >-
+    What's the Department of Veterans' Services FY 2025 operating budget?
+  corpus: budget
+  shape: lookup
+  set: quick
+  key_facts:
+    - kind: currency
+      value: "$50,000,000"
+  judge_notes: >-
+    FY 2025 Veterans' Services operating budget. NOTE: verify anchor; adjust
+    to the corpus figure.
+
+- id: lk-agr-horse-liaison-fy2025
+  question: >-
+    The Agriculture Department budget for FY 2025 included a cut to a horse
+    liaison position. How much was that cut?
+  corpus: budget
+  shape: lookup
+  set: quick
+  key_facts:
+    - kind: currency
+      value: "$25,300"
+  judge_notes: >-
+    FY 2025 Agriculture "Reduce Horse Liaison to Part-Time Position" cut of
+    $25,300 (0.5 FTE). Niche line-item detail; verified present.
+
+- id: lk-dps-highway-patrol-fy2027
+  question: >-
+    In the Governor's FY 2027 budget proposal, what is the Department of
+    Public Safety's total request?
+  corpus: budget
+  shape: lookup
+  set: quick
+  key_facts:
+    - kind: currency
+      value: "$420,000,000"
+  judge_notes: >-
+    Governor's FY 2027 DPS total. NOTE: verify anchor; adjust to the
+    corpus figure.
+
+- id: lk-gf-revenue-recent-trend
+  question: >-
+    Looking at the FY 2025 and FY 2026 General Fund revenue figures, how
+    much did the projected revenue grow year over year?
+  corpus: budget
+  shape: comparison
+  set: quick
+  key_facts:
+    - kind: currency
+      value: "$1,700,000,000"
+  judge_notes: >-
+    FY25->FY26 GF revenue growth. NOTE: verify anchor; adjust to the
+    corpus figure.
+
+- id: lk-esa-funding-formula-fy2026
+  question: >-
+    In FY 2026, how is the Empowerment Scholarship Account funding formula
+    structured — what base amount does the state put behind each student,
+    adjusted for the way the formula treats full-time versus part-time
+    scholarship students?
+  corpus: budget
+  shape: analyze
+  set: quick
+  key_facts:
+    - kind: currency
+      value: "$8,500,000,000"
+  judge_notes: >-
+    FY 2026 ESA funding formula base/program total. NOTE: verify anchor;
+    adjust to the corpus figure (ESA is a flagship topic; the agent should
+    find it).
+
+- id: lk-ahcccs-enrollment-history
+  question: >-
+    How has AHCCCS enrollment changed between FY 2019 and FY 2026 — and
+    what drove the biggest single-year jump?
+  corpus: budget
+  shape: analyze
+  set: quick
+  key_facts:
+    - kind: currency
+      value: "$2,100,000,000"
+  judge_notes: >-
+    AHCCCS enrollment history + GF cost driver. NOTE: verify anchor;
+    adjust to the corpus figure.
+
+- id: lk-nursing-board-operating-fy2025
+  question: >-
+    What's the Arizona State Board of Nursing's FY 2025 operating budget?
+  corpus: budget
+  shape: lookup
+  set: quick
+  key_facts:
+    - kind: currency
+      value: "$7,000,000"
+  judge_notes: >-
+    FY 2025 State Board of Nursing operating budget (agency:nur). NOTE:
+    verify anchor; adjust to the corpus figure.
+
+- id: lk-dor-revenue-operating-fy2025
+  question: >-
+    How much does the Department of Revenue's own agency operation cost in
+    FY 2025 — separate from the tax revenue it collects?
+  corpus: budget
+  shape: lookup
+  set: quick
+  key_facts:
+    - kind: currency
+      value: "$88,000,000"
+  judge_notes: >-
+    FY 2025 Department of Revenue operating budget. NOTE: verify anchor;
+    adjust to the corpus figure.
+
 - id: cm-adc-3yr-dr
   question: >-
     Put together a three-year picture of prison system funding through FY
