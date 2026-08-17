@@ -10,6 +10,7 @@ import json
 import sys
 from pathlib import Path
 
+from eval.agent_errors import harvest_errors, summarize_errors
 from eval.agent_schema import load_agent_queries
 from eval.agent_scoring import aggregate, score_transcript
 from eval.agent_transcript import read_transcript
@@ -21,6 +22,7 @@ def score_run(run_dir: Path, queries_file: str = DEFAULT_QUERIES) -> dict:
     queries = {q.id: q for q in load_agent_queries(queries_file)}
     rows = []
     skipped = []
+    error_rows = []
     # The glob is `*-r*.jsonl` (one transcript per query+repeat); "ledger.jsonl"
     # cannot match it, so the explicit skip that used to sit here was dead code
     # pretending to guard something. Removed 2026-08 review, Finding 8.
@@ -31,7 +33,12 @@ def score_run(run_dir: Path, queries_file: str = DEFAULT_QUERIES) -> dict:
             skipped.append(path.name)  # query removed since the run — say so
             continue
         rows.append(score_transcript(queries[qid], t))
-    return {"summary": aggregate(rows), "per_query": rows, "skipped": skipped}
+        # Task 6: harvest every tool-call error tied to its turn, per query,
+        # alongside the mechanical score row.
+        error_rows.extend(harvest_errors(t, queries[qid]))
+    return {"summary": aggregate(rows), "per_query": rows,
+            "errors": error_rows, "error_summary": summarize_errors(error_rows),
+            "skipped": skipped}
 
 
 def _md(scores: dict, run_dir: Path) -> str:
@@ -85,6 +92,29 @@ def _md(scores: dict, run_dir: Path) -> str:
     return "\n".join(lines) + "\n"
 
 
+def _errors_md(scores: dict, run_dir: Path) -> str:
+    # Task 6: small human-readable error ledger — kind table plus one line per
+    # query that had at least one error, so a reader can see WHERE errors burn
+    # turns without digging into errors.json.
+    lines = [f"# Agent-eval tool errors — {run_dir.name}", ""]
+    if not scores["errors"]:
+        lines += ["No tool errors recorded.", ""]
+        return "\n".join(lines)
+    lines += ["## By kind", "", "| kind | count | queries |",
+              "|---|---|---|"]
+    for kind, info in scores["error_summary"].items():
+        lines.append(f"| {kind} | {info['count']} | {', '.join(info['queries'])} |")
+    lines += ["", "## Per query", ""]
+    by_q: dict[str, list] = {}
+    for row in scores["errors"]:
+        by_q.setdefault(row["query_id"], []).append(row)
+    for qid in sorted(by_q):
+        for row in by_q[qid]:
+            lines.append(f"- {qid} turn {row['turn']}: {row['kind']}"
+                         f" ({row['tool']}) — {row['detail']}")
+    return "\n".join(lines) + "\n"
+
+
 def main() -> int:
     try:
         sys.stdout.reconfigure(encoding="utf-8")
@@ -100,6 +130,14 @@ def main() -> int:
     tmp.write_text(json.dumps(scores, indent=2, ensure_ascii=False), encoding="utf-8")
     tmp.replace(args.run_dir / "scores.json")
     (args.run_dir / "scores.md").write_text(_md(scores, args.run_dir), encoding="utf-8")
+    # Task 6: errors.json via the same tmp-rename pattern as scores.json, plus
+    # a small errors.md (kind table + per-query lines).
+    etmp = (args.run_dir / "errors.json").with_suffix(".json.tmp")
+    etmp.write_text(json.dumps(scores["errors"], indent=2, ensure_ascii=False),
+                    encoding="utf-8")
+    etmp.replace(args.run_dir / "errors.json")
+    (args.run_dir / "errors.md").write_text(_errors_md(scores, args.run_dir),
+                                            encoding="utf-8")
     print(json.dumps(scores["summary"], indent=2))
     return 0
 
