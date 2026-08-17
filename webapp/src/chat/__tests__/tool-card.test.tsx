@@ -102,3 +102,48 @@ describe("ToolCard status", () => {
     );
   });
 });
+
+// ===== Task 2 additions (TC15) — start =====
+
+describe("tool glyphs", () => {
+  it("gives every tool that reaches an analyst its own icon", () => {
+    // `document_guide` had no case and fell through to the generic filled
+    // square — and it is the tool that runs right before a memo is written.
+    //
+    // The fallback shape is computed here, dynamically, from an unregistered
+    // tool name rather than pinned as a literal string. A hardcoded string
+    // pins the OLD 12x12 fallback's exact markup; primitives.tsx's 24x24
+    // rewrite changed that markup's attributes (no more inline
+    // fill="currentColor" per shape, rx="2" added), so a literal copy of the
+    // old string can never equal ANY current shape and the assertion below
+    // would pass even with the document_guide case deleted — verified by
+    // deleting it and watching the literal-string version stay green.
+    const shapes = new Map<string, string>();
+    for (const name of ["retrieve", "list_filter_values", "create_document", "document_guide"]) {
+      const { container } = render(
+        <ToolCard tool={block({ toolName: name, toolUseId: name })} />,
+      );
+      const svg = container.querySelector(".chat-tool-glyph")!;
+      shapes.set(name, svg.innerHTML);
+    }
+    const { container: fallbackContainer } = render(
+      <ToolCard tool={block({ toolName: "__unregistered_tool__", toolUseId: "u1" })} />,
+    );
+    const fallbackHtml = fallbackContainer.querySelector(".chat-tool-glyph")!.innerHTML;
+
+    expect(new Set(shapes.values()).size, "each tool needs a distinct glyph").toBe(4);
+    for (const [name, html] of shapes) {
+      expect(html, `${name} must not be the fallback square`).not.toBe(fallbackHtml);
+    }
+  });
+
+  it("draws the glyphs as strokes on a 24x24 grid, matching the app's own icons", () => {
+    const { container } = render(<ToolCard tool={block({ toolName: "retrieve" })} />);
+    const svg = container.querySelector(".chat-tool-glyph")!;
+    expect(svg.getAttribute("viewBox")).toBe("0 0 24 24");
+    expect(svg.getAttribute("stroke")).toBe("currentColor");
+    expect(svg.getAttribute("fill")).toBe("none");
+  });
+});
+
+// ===== Task 2 additions — end =====
