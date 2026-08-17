@@ -48,8 +48,30 @@ const DOCS: api.CorpusDocument[] = [
   { doc_id: "misc26b", title: "FY 2026 Special Program Review — Volume 2", publisher: "jlbc", doc_type: "program-review", fiscal_year: 2026, doc_url: "https://x/pr26b.pdf", section_of: null, terms: [] },
 ];
 
-function mount(docs = DOCS, entry = "/search") {
-  vi.spyOn(api, "corpusDocuments").mockResolvedValue({ documents: docs });
+// The whole-report link table now arrives from the SERVER on the same corpus
+// response (spec R1, 2026-08-16) instead of being a constant compiled into the
+// bundle, so this file has to state which editions it expects a "Full report"
+// control for. These are exactly the two the assertions below depend on.
+//
+// The third family the tests exercise, "program-review", is deliberately
+// ABSENT — it is the fixture for the CRITICAL docs[0]-fallback guard and must
+// stay unanswered.
+const FIXTURE_FORMATS: api.ReportFormatTable = {
+  "Baseline:2027": {
+    single_file: "https://www.azjlbc.gov/budget/27baselinesinglefile.pdf",
+    linked_toc: "https://www.azjlbc.gov/budget/27baselinelinks.pdf",
+  },
+  "Appropriations Report:2026": {
+    single_file: "https://www.azjlbc.gov/26ar/fy2026approprpt.pdf",
+    linked_toc: "https://www.azjlbc.gov/26ar/apprpttoc.pdf",
+  },
+};
+
+function mount(docs = DOCS, entry = "/search", formats: api.ReportFormatTable = FIXTURE_FORMATS) {
+  vi.spyOn(api, "corpusDocuments").mockResolvedValue({
+    documents: docs,
+    report_formats: formats,
+  });
   return render(
     <MemoryRouter initialEntries={[entry]}>
       <Search />
@@ -144,6 +166,21 @@ test("full-report actions appear only where a hand-verified URL exists", async (
   const ar = screen.getByText("FY 2026 Appropriations Report").closest(".doc")!;
   expect(ar).toHaveTextContent(/full report/i);
   expect(ar.tagName).toBe("BUTTON");
+});
+
+test("an edition absent from the server's table renders no Full report control", async () => {
+  // The whole point of Task 3: the page has no built-in URLs left. If this
+  // passes with an EMPTY table while the test above passes with a populated
+  // one, the data is genuinely coming off the wire — the same page, the same
+  // fixture documents, and the only difference is what the server sent.
+  mount(DOCS, "/search", {});
+  await screen.findByRole("button", { name: /Fiscal Year 2027:/i });
+  const row = screen.getByText("FY 2027 Baseline").closest(".doc")!;
+  expect(row).not.toHaveTextContent(/full report/i);
+  // A multi-document family with nothing to open renders UNLINKED, never as a
+  // dead href — the same three-way rule, arrived at from the server's silence
+  // instead of from a missing constant.
+  expect(row).toHaveClass("doc-unlinked");
 });
 
 test("the report row's own action is Full report, not a generic Open", async () => {

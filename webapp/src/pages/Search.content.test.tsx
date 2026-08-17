@@ -77,7 +77,10 @@ function deferred<T>() {
 const flush = () => new Promise((resolve) => setTimeout(resolve, 0));
 
 function mount(entry = "/search", hits = HITS) {
-  vi.spyOn(api, "corpusDocuments").mockResolvedValue({ documents: DOCS });
+  // `report_formats: {}` — the whole-report link table now comes off the wire
+  // (spec R1, 2026-08-16). Empty because nothing in this file asserts a "Full
+  // report" control; an empty table renders none, which is the honest state.
+  vi.spyOn(api, "corpusDocuments").mockResolvedValue({ documents: DOCS, report_formats: {} });
   const search = vi.spyOn(api, "search").mockResolvedValue({
     results: hits, total: hits.length, provider: "test",
   });
@@ -200,7 +203,7 @@ test("a query arriving via the URL, not the box, still escalates after a prior s
   // path (setSearchParams from a second consumer, not fireEvent.change on the
   // box) so this exercises the exact gap the fix closed.
   vi.useFakeTimers();
-  vi.spyOn(api, "corpusDocuments").mockResolvedValue({ documents: DOCS });
+  vi.spyOn(api, "corpusDocuments").mockResolvedValue({ documents: DOCS, report_formats: {} });
   const search = vi.spyOn(api, "search").mockResolvedValue({
     results: HITS, total: HITS.length, provider: "test",
   });
@@ -269,7 +272,7 @@ function UrlProbe() {
 }
 
 test("the box writes ?q= so a search can be linked", async () => {
-  vi.spyOn(api, "corpusDocuments").mockResolvedValue({ documents: DOCS });
+  vi.spyOn(api, "corpusDocuments").mockResolvedValue({ documents: DOCS, report_formats: {} });
   vi.spyOn(api, "search").mockResolvedValue({ results: HITS, total: HITS.length, provider: "test" });
   render(
     <MemoryRouter initialEntries={["/search"]}>
@@ -283,7 +286,7 @@ test("the box writes ?q= so a search can be linked", async () => {
 });
 
 test("a failed content search surfaces the backend's own detail", async () => {
-  vi.spyOn(api, "corpusDocuments").mockResolvedValue({ documents: DOCS });
+  vi.spyOn(api, "corpusDocuments").mockResolvedValue({ documents: DOCS, report_formats: {} });
   vi.spyOn(api, "search").mockRejectedValue(new Error("search: query is empty"));
   render(
     <MemoryRouter initialEntries={["/search?q=zzz&in=contents"]}>
@@ -361,7 +364,7 @@ test("no count is claimed while the content request is still loading", async () 
   // the search was still running. `.docstatus` already got this right
   // (renders "" unless ready); the header's own count must follow the same
   // rule.
-  vi.spyOn(api, "corpusDocuments").mockResolvedValue({ documents: DOCS });
+  vi.spyOn(api, "corpusDocuments").mockResolvedValue({ documents: DOCS, report_formats: {} });
   vi.spyOn(api, "search").mockReturnValue(new Promise(() => {})); // never settles
   render(
     <MemoryRouter initialEntries={["/search?q=child%20care&in=contents"]}>
@@ -374,7 +377,7 @@ test("no count is claimed while the content request is still loading", async () 
 });
 
 test("the toggle is hidden while the request is in flight", async () => {
-  vi.spyOn(api, "corpusDocuments").mockResolvedValue({ documents: DOCS });
+  vi.spyOn(api, "corpusDocuments").mockResolvedValue({ documents: DOCS, report_formats: {} });
   vi.spyOn(api, "search").mockReturnValue(new Promise(() => {})); // never settles
   render(
     <MemoryRouter initialEntries={["/search?q=child%20care&in=contents"]}>
@@ -425,7 +428,7 @@ test("More from this document tray closes again on a second click", async () => 
 // two requests are never actually in flight together, so none of them can
 // tell a working guard from a deleted one. These two do.
 test("a stale response from an older request is discarded, not painted over the newer one", async () => {
-  vi.spyOn(api, "corpusDocuments").mockResolvedValue({ documents: DOCS });
+  vi.spyOn(api, "corpusDocuments").mockResolvedValue({ documents: DOCS, report_formats: {} });
   const older = deferred<api.SearchResponse>();
   const newer = deferred<api.SearchResponse>();
   const search = vi
@@ -465,7 +468,7 @@ test("a stale response from an older request is discarded, not painted over the 
 });
 
 test("no state update fires after the content-search component unmounts mid-request", async () => {
-  vi.spyOn(api, "corpusDocuments").mockResolvedValue({ documents: DOCS });
+  vi.spyOn(api, "corpusDocuments").mockResolvedValue({ documents: DOCS, report_formats: {} });
   const pending = deferred<api.SearchResponse>();
   vi.spyOn(api, "search").mockReturnValue(pending.promise);
   // React logs unmounted-state-update warnings (and any other renderer
