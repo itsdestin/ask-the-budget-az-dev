@@ -83,10 +83,16 @@ def _reachability(query, presence) -> dict[str, bool | None]:
     """Run the verbatim question through retrieve() and check each fact's
     value appears in some returned chunk's text. Compares within the
     retrieved set regardless of fact kind (currency values are strings here)."""
-    from retrieval.pipeline import retrieve  # local import — heavy
+    from retrieval.pipeline import retrieve, RetrievalRequest  # local import — heavy
     out: dict[str, bool | None] = {}
     try:
-        result = retrieve(query.question)
+        # WHY wrapper not a bare string: retrieve() requires a RetrievalRequest
+        # (it reads `req.query.strip()`), so passing the raw question string
+        # raised AttributeError inside this try, set every fact to None, and
+        # reported a vacuous PASS for all 62 queries — the script's reachability
+        # check had silently never run (found 2026-08-16 authoring the Multi set;
+        # all currency facts' reachability was unverified up to that point).
+        result = retrieve(RetrievalRequest(query=query.question))
         chunks = result.chunks if hasattr(result, "chunks") else []
         text = "\n".join((c.text or "") for c in chunks)
         for f in query.key_facts:
