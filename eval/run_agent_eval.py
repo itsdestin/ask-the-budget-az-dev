@@ -126,6 +126,20 @@ def select_queries(queries: list[AgentQuery], subset: str,
     return picked
 
 
+def select_by_sets(queries: list[AgentQuery], sets: list[str]) -> list[AgentQuery]:
+    # Unknown set names are a hard error, not a silent empty run: a typo'd
+    # --sets flag that matched zero queries would otherwise produce a
+    # zero-query run dir that LOOKS successful (0 failures) and gets archived.
+    from eval.agent_schema import QUERY_SETS
+    unknown = [s for s in sets if s not in QUERY_SETS]
+    if unknown:
+        raise ValueError(
+            f"unknown sets {unknown!r} — valid sets are {list(QUERY_SETS)}. "
+            f"Note: extended_quick was folded into quick (2026-08-16 spec).")
+    wanted = set(sets)
+    return [q for q in queries if q.set in wanted]
+
+
 def query_set_sha256(queries: list[AgentQuery]) -> str:
     """Content hash of the queries this run actually asked.
 
@@ -148,7 +162,8 @@ def query_set_sha256(queries: list[AgentQuery]) -> str:
 
 
 def build_manifest(settings: Settings, queries: list[AgentQuery], *,
-                   subset: str, repeats: int, results_note: str = "") -> dict[str, Any]:
+                   subset: str, repeats: int, results_note: str = "",
+                   sets: list[str] | None = None) -> dict[str, Any]:
     """Everything needed to know what a run measured. The spec's rule:
     no two runs are ever compared without knowing what differed."""
     prompt_path = Path(__file__).resolve().parent.parent / "harness" / "system-prompt.md"
@@ -169,6 +184,9 @@ def build_manifest(settings: Settings, queries: list[AgentQuery], *,
         "timestamp": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H%MZ"),
         "git_sha": _git_sha(),
         "subset": subset,
+        # New-style selection axis (2026-08-16 consolidation). Legacy
+        # --subset runs pass nothing and record []; Task 9 retires subset.
+        "sets": sets or [],
         "repeats": repeats,
         "queries": [q.id for q in queries],
         "queries_sha256": query_set_sha256(queries),
@@ -326,6 +344,12 @@ def main() -> int:
     parser = argparse.ArgumentParser(description="Layer 2 agent-loop eval runner (spends real money)")
     parser.add_argument("--queries-file", default=DEFAULT_QUERIES)
     parser.add_argument("--subset", default="smoke", choices=("smoke", "full", "dr-probe"))
+    parser.add_argument("--sets", default=None,
+                        help="comma-separated new-style sets "
+                             "(quick,multi,deep,refusal); takes precedence "
+                             "over --subset. --subset is retired by the "
+                             "2026-08-16 consolidation once the YAML re-tag "
+                             "lands.")
     parser.add_argument("--queries", nargs="*", default=None, help="restrict to these query ids")
     parser.add_argument("--repeats", type=int, default=1)
     parser.add_argument("--model", default=None,
@@ -345,6 +369,15 @@ def main() -> int:
     parser.add_argument("--note", default="", help="free-text note recorded in the manifest")
     args = parser.parse_args()
 
+    # Same reasoning as select_by_sets' unknown-name error: --queries only
+    # filters the legacy --subset path, so combining it with --sets would
+    # silently ignore the ids and run the WHOLE set — a run that looks like
+    # it respected the command line but didn't. Hard error instead.
+    if args.sets and args.queries:
+        parser.error("--sets and --queries cannot be combined: --queries "
+                     "filters only the legacy --subset path. Select by set "
+                     "names, or by ids, not both.")
+
     settings = load_settings()
     if args.model:
         # Frozen dataclass — build a modified copy, never touch disk.
@@ -352,8 +385,14 @@ def main() -> int:
         tiers["standard"] = TierConfig(model=args.model, enabled=True)
         settings = dataclasses.replace(settings, tiers=tiers)
 
-    queries = select_queries(load_agent_queries(args.queries_file),
-                             args.subset, args.queries)
+    loaded = load_agent_queries(args.queries_file)
+    if args.sets:
+        # --sets takes precedence over --subset (2026-08-16 consolidation);
+        # the legacy select_queries path stays the default until the YAML
+        # re-tag lands and Task 9 removes it.
+        queries = select_by_sets(loaded, args.sets.split(","))
+    else:
+        queries = select_queries(loaded, args.subset, args.queries)
     if not queries:
         print("no queries selected", file=sys.stderr)
         return 2
@@ -371,7 +410,8 @@ def main() -> int:
     )
     run_dir.mkdir(parents=True, exist_ok=True)
     manifest = build_manifest(settings, queries, subset=args.subset,
-                              repeats=args.repeats, results_note=args.note)
+                              repeats=args.repeats, results_note=args.note,
+                              sets=args.sets.split(",") if args.sets else None)
     tmp = (run_dir / "manifest.json").with_suffix(".json.tmp")
     tmp.write_text(json.dumps(manifest, indent=2, ensure_ascii=False), encoding="utf-8")
     tmp.replace(run_dir / "manifest.json")

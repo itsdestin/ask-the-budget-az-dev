@@ -375,3 +375,39 @@ def test_a_refusal_shaped_run_scores_as_a_refusal_through_the_real_seam(tmp_path
     assert row["ok"] is True
     assert row["refused"] is True
     assert row["refusal_correct"] is True
+
+
+from eval.agent_schema import AgentQuery
+from eval.run_agent_eval import select_by_sets
+
+
+def _q(id, set):
+    return AgentQuery(id=id, question="q", shape="lookup", set=set)
+
+
+def test_select_by_sets_union_and_order():
+    qs = [_q("a", "quick"), _q("b", "deep"), _q("c", "quick"), _q("d", "refusal")]
+    picked = select_by_sets(qs, ["quick", "deep"])
+    assert [q.id for q in picked] == ["a", "b", "c"]  # file order preserved
+
+
+def test_select_by_sets_unknown_name_raises():
+    import pytest
+    with pytest.raises(ValueError, match="extended_quick"):
+        select_by_sets([], ["quick", "extended_quick"])
+
+
+def test_main_rejects_sets_combined_with_queries(monkeypatch, capsys):
+    """--queries filters only the legacy --subset path; combining it with
+    --sets would silently ignore the ids and run the whole set. The guard
+    fires in main() before settings or queries are loaded, so no money,
+    disk, or corpus is involved."""
+    import sys
+    import eval.run_agent_eval as runner
+
+    monkeypatch.setattr(sys, "argv", ["run_agent_eval", "--sets", "quick",
+                                      "--queries", "aq-001"])
+    with pytest.raises(SystemExit) as exc:
+        runner.main()
+    assert exc.value.code == 2
+    assert "--sets and --queries" in capsys.readouterr().err

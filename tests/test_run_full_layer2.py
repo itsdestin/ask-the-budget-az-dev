@@ -72,6 +72,26 @@ def test_orchestrator_stops_on_run_failure(monkeypatch):
     assert "eval.run_agent_eval" in calls[0]
 
 
+def test_orchestrator_sets_replaces_subset_in_the_run_passthrough(monkeypatch):
+    # 2026-08-16 consolidation: when --sets is given it is forwarded INSTEAD
+    # of --subset — run_agent_eval then ignores --subset entirely, so sending
+    # both would only record a misleading subset value next to the sets that
+    # actually selected the queries.
+    rc, calls = _call_main(
+        monkeypatch, ["--sets", "quick,multi", "--subset", "full"])
+    assert rc == 0
+    run_argv = calls[0]
+    assert run_argv[run_argv.index("--sets") + 1] == "quick,multi"
+    assert "--subset" not in run_argv
+
+    # And the legacy invocation keeps passing --subset through unchanged.
+    rc, calls = _call_main(monkeypatch, ["--subset", "smoke"])
+    assert rc == 0
+    run_argv = calls[0]
+    assert run_argv[run_argv.index("--subset") + 1] == "smoke"
+    assert "--sets" not in run_argv
+
+
 def test_orchestrator_forwards_model_and_judge_model(monkeypatch):
     rc, calls = _call_main(
         monkeypatch,
