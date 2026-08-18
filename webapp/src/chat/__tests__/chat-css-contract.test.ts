@@ -131,7 +131,8 @@ describe("chat CSS containment contract", () => {
       css.slice(chatStart, chatEnd) + css.slice(aiStart, aiEnd);
     const literals = region.match(/max-width:\s*768px/g) ?? [];
     expect(literals).toHaveLength(0);
-    expect(css).toMatch(/--ai-col:\s*768px/);
+    // WIDENED 2026-08-17: --ai-col is 960px after the chat-width expansion.
+    expect(css).toMatch(/--ai-col:\s*960px/);
   });
 
   it("the scroller pads for the floating chrome and the welcome state has no second scroller", () => {
@@ -330,17 +331,16 @@ describe("chat CSS containment contract", () => {
     expect(bare).not.toMatch(/@container/);
   });
 
-  // The shipped 1040px was a rounded guess ("--ai-col + the widest scene +
-  // gutters") that turned out too low for ALL THREE scenes — a real number
-  // pinned here so a future edit to something obviously wrong (say, 100px)
-  // fails loudly instead of silently reopening the clip bug.
+  // WIDENED 2026-08-17: the derivation below changed because --ai-col moved
+  // 768 -> 960 (chat-width-expansion-design). 1276 is the new smallest
+  // threshold that clips NO scene; the user accepted the mascot hiding more
+  // often on mid-size windows.
   //
-  // The number and its derivation are UNCHANGED by the final review; only
-  // WHO measures moved (a CSS @container -> ChatThread.tsx's ResizeObserver,
-  // because container-type re-clipped the citation tooltip). A
-  // ResizeObserver's `contentRect.width` is the observed element's CONTENT
-  // box — the exact same quantity `@container … (inline-size)` reported —
-  // so the threshold carries over verbatim rather than needing a re-derive.
+  // The number and its derivation are UNCHANGED in METHOD by the final
+  // review; only WHO measures moved (a CSS @container -> ChatThread.tsx's
+  // ResizeObserver, because container-type re-clipped the citation tooltip).
+  // A ResizeObserver's `contentRect.width` is the observed element's CONTENT
+  // box — the exact same quantity `@container … (inline-size)` reported.
   //
   // Derivation (re-derive this yourself before ever touching the number):
   //   .chat-mascot-slot sits in .chat-thread-anchor, inside
@@ -355,23 +355,22 @@ describe("chat CSS containment contract", () => {
   //   Each scene's `transform: translate(tx, _)` shifts that right edge
   //   right by tx, and the div's shrink-to-fit width equals the rendered
   //   scene width (sceneWidth). No clipping requires:
-  //     A >= 800 + 2 * (sceneWidth - tx)
-  //   where 800 = 2 * (384 + 16) (half the 768px column, doubled, plus the
-  //   16px gap doubled).
+  //     A >= 2*(--ai-col/2 + 16) + 2 * (sceneWidth - tx)
+  //   with --ai-col = 960: 2*(480 + 16) = 992
   //   Per scene, reading tx straight from the .is-* rules below and
   //   sceneWidth from each component's actual rendered size:
-  //     idle:       Mascot size="small"          = 120w,  tx=5  -> 1030
-  //     thinking:   MascotTyping  (360x410 vB @ 210px tall) ≈184.4w, tx=54 -> ~1061
-  //     presenting: MascotPresenting (320x400 vB @ 210px tall) = 168w, tx=26 -> 1084
+  //     idle:       Mascot size="small"          = 120w,  tx=5  -> 1222
+  //     thinking:   MascotTyping  (360x410 vB @ 210px tall) ≈184.4w, tx=54 -> ~1253
+  //     presenting: MascotPresenting (320x400 vB @ 210px tall) = 168w, tx=26 -> 1276
   //   presenting BINDS despite not being the widest scene, because its
-  //   translate offset is the smallest of the three. 1084 is therefore the
+  //   translate offset is the smallest of the three. 1276 is therefore the
   //   smallest threshold that clips NO scene; anything lower reopens the
   //   exact bug this test exists to catch.
-  it("the dock threshold is the real per-scene no-clip requirement (1084px, presenting binds)", () => {
+  it("the dock threshold is the real per-scene no-clip requirement (1276px, presenting binds)", () => {
     expect(
       chatThreadSrc,
-      "threshold must be exactly 1084px — see the derivation comment above this test",
-    ).toMatch(/MASCOT_DOCK_PX\s*=\s*1084/);
+      "threshold must be exactly 1276px — see the derivation comment above this test",
+    ).toMatch(/MASCOT_DOCK_PX\s*=\s*1276/);
   });
 
   // Mascot/MascotTyping/MascotPresenting's role="img" aria-label ("JLBC
@@ -726,7 +725,7 @@ describe("chat CSS containment contract", () => {
     // unit than the bubble's own 14px) — the property this test protects is
     // now stated as "the bubble's own measure", not the literal `65ch` text.
     expect(bareRule(".chat-tool-group")).toMatch(
-      /max-width:\s*calc\(65ch\s*-\s*34px\)/,
+      /max-width:\s*calc\(90ch\s*-\s*34px\)/,
     );
   });
 
@@ -744,11 +743,12 @@ describe("chat CSS containment contract", () => {
   it("the standalone card states the bubble's own measure, not a wider one", () => {
     const rule = bareRule(".chat-tool-group");
     expect(rule).toMatch(/font-size:\s*14px/);
-    expect(rule).toMatch(/max-width:\s*calc\(65ch\s*-\s*34px\)/);
-    // And the bubble it must match is still 65ch at 14px.
+    expect(rule).toMatch(/max-width:\s*calc\(90ch\s*-\s*34px\)/);
+    // And the bubble it must match is still 90ch at 14px (was 65ch until the
+    // 2026-08-17 width expansion — see chat-width-expansion-design).
     const bubble = bareRule(".chat-bubble");
     expect(bubble).toMatch(/font-size:\s*14px/);
-    expect(bubble).toMatch(/max-width:\s*65ch/);
+    expect(bubble).toMatch(/max-width:\s*min\(90ch,\s*100%\)/);
     expect(bubble).toMatch(/padding:\s*10px 16px/);
   });
 

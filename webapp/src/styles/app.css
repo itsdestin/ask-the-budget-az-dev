@@ -955,8 +955,21 @@ nav.primary{position:relative;padding-right:44px;}
      every banner and the band's own content all read this one number — that
      is what makes the page share a single left edge instead of the three
      unaligned grids it shipped with (band at 1140, stage full-bleed, thread
-     at a private 768). Layout constant, not palette — S12 unaffected. */
-  --ai-col: 768px;
+     at a private 768). Layout constant, not palette — S12 unaffected.
+
+     WIDENED 768 -> 960 (2026-08-17, spec:
+     docs/superpowers/specs/2026-08-17-chat-width-expansion-design.md). The
+     chat area felt cramped on wide monitors: the column was the limiter and
+     both bubble types stopped well short of it. 960 is a conservative
+     widening below .wrap's 1140px cap so the column still fits beside the
+     rail on a typical 1440px window. KEPT at 960 (NOT widened to 1240): the
+     user confirmed the OVERALL chat view was already wide enough — the
+     complaint was that the BUBBLES inside it stayed narrow (capped at 65/72ch
+     while the column gave them ~960px). The width fix lives on the bubble
+     measures (90ch/82ch, see below), NOT on the column. The mascot dock
+     threshold (MASCOT_DOCK_PX) is DERIVED from this number in ChatThread.tsx
+     and pinned in chat-css-contract.test.ts — change one, change all. */
+  --ai-col: 960px;
 
   /* Mascot palette. These are the hex values from the committed reference art
      (specs/assets/2026-05-15-mascot-reference/); the SVG components read them
@@ -1042,10 +1055,12 @@ nav.primary{position:relative;padding-right:44px;}
 .chat-mascot-slot.is-thinking   { transform: translate(54px, 8px); }
 .chat-mascot-slot.is-presenting { transform: translate(26px, 14px); }
 /* Docked state, applied by ChatThread.tsx when the scroller's measured
-   content-box width drops below MASCOT_DOCK_PX (1084) — i.e. when the column
-   is too narrow to fit the content measure PLUS the mascot beside it (the
-   source panel open, or a narrow window). Without it the figure clips
-   mid-body against the column edge.
+   content-box width drops below MASCOT_DOCK_PX (1276 as of 2026-08-17, when
+   --ai-col went 768 -> 960 — see ChatThread.tsx for the derivation) — i.e.
+   when the column is too narrow to fit the content measure PLUS the mascot
+   beside it (the source panel open, a narrow window, or a mid-size window
+   with the rail open). Without it the figure clips mid-body against the
+   column edge.
    Hides via the visually-hidden clip recipe, NOT display:none:
    Mascot/MascotTyping/MascotPresenting's role="img" aria-label is the ONLY
    place a screen reader learns the assistant is searching/presenting
@@ -1068,7 +1083,7 @@ nav.primary{position:relative;padding-right:44px;}
    below in history) hung 9px outside the bubble, which is what forced the
    mascot translate() dance and read as clip-art next to the mockup's card
    grammar; a squared corner reads as "this one's newest" without either. */
-.chat-bubble { position: relative; background: var(--card); border: 1px solid var(--line); border-radius: var(--r-md); padding: 10px 16px; color: var(--ink); font-size: 14px; max-width: 65ch; }
+.chat-bubble { position: relative; background: var(--card); border: 1px solid var(--line); border-radius: var(--r-md); padding: 10px 16px; color: var(--ink); font-size: 14px; max-width: min(90ch, 100%); }
 .chat-bubble.has-tail { border-bottom-left-radius: 4px; }
 
 .chat-user-row { display: flex; justify-content: flex-end; }
@@ -1078,7 +1093,7 @@ nav.primary{position:relative;padding-right:44px;}
    accent-as-user-message colour and the only place outside citations/CTAs
    that colour was doing double duty as both "action" and "the user" (Task 13).
    Mirrors the assistant bubble's squared tail corner on the opposite side. */
-.chat-user-bubble { background: var(--navy); color: #fff; border-radius: var(--r-md); border-bottom-right-radius: 4px; padding: 10px 16px; max-width: 78%; font-size: 14px; line-height: 1.6; white-space: pre-wrap; }
+.chat-user-bubble { background: var(--navy); color: #fff; border-radius: var(--r-md); border-bottom-right-radius: 4px; padding: 10px 16px; max-width: min(82ch, 100%); font-size: 14px; line-height: 1.6; white-space: pre-wrap; }
 .chat-user-bubble.is-pending { opacity: .7; }
 
 /* Quiet one-liner for ordinary non-"end_turn" stop reasons. */
@@ -1270,11 +1285,10 @@ nav.primary{position:relative;padding-right:44px;}
    measure — so no `.chat-tool` is ever a top-level element of the thread.
    TC10's "the standalone form keeps its max-width" now refers to
    `.chat-tool-group`, and the CSS-contract test pins it there.
-   NOT deleted: this stylesheet has a recorded incident where a block removed
-   by line range silently took an unrelated block's rules with it and no test
-   failed (see STATUS.md, the AI Mode UI redesign's `.chat-welcome` loss). The
-   rest of this declaration is live. */
-.chat-tool { border-radius: var(--r-sm); border: 1px solid var(--line); background: var(--card); max-width: 65ch; overflow: hidden; }
+   UPDATED 2026-08-17: the bubble's measure went 65ch -> 90ch
+   (chat-width-expansion-design), so this UNREACHABLE rule follows to 90ch
+   to stay consistent. */
+.chat-tool { border-radius: var(--r-sm); border: 1px solid var(--line); background: var(--card); max-width: 90ch; overflow: hidden; }
 .chat-tool.is-failed { border-color: var(--chat-danger); }
 .chat-tool.is-inset { background: var(--canvas); }
 .chat-tool-head { width: 100%; display: flex; align-items: center; gap: 8px; padding: 6px 12px; font-size: 12.5px; color: var(--ink-2); background: none; border: none; cursor: pointer; text-align: left; transition: background .15s; }
@@ -1294,19 +1308,20 @@ nav.primary{position:relative;padding-right:44px;}
    Same row geometry as a single tool; the body has no background of its own so
    header+children read as one surface, children lifted by is-inset. */
 /* ONE measure in both contexts (spec TC22, 2026-08-16). `.chat-bubble` is
-   `65ch` at its own `font-size: 14px`, and a card nested inside it loses a
-   further 32px of side padding and 2px of border — so the standalone card must
-   state that same number itself. It used to say a bare `65ch` while inheriting
-   the document's 16px, which makes `ch` a BIGGER unit: the standalone card was
-   about 100px wider and visibly shrank the moment an answer arrived and it
-   moved inside the bubble. Declaring `font-size: 14px` here is what makes the
-   `ch` units comparable; it changes nothing visible, because `.chat-tool-head`
-   sets its own 12.5px (verified against the live rule directly above this
-   block before writing this comment — still true). 34px re-derived against the
-   live `.chat-bubble` rule at the time of this change: `padding: 10px 16px` is
-   32px of left+right padding, `border: 1px solid` is 2px of left+right
-   border, 32 + 2 = 34. Re-derive this number again if either rule changes. */
-.chat-tool-group { font-size: 14px; border-radius: var(--r-sm); border: 1px solid var(--line); background: var(--card); max-width: calc(65ch - 34px); overflow: hidden; }
+   `min(90ch, 100%)` at its own `font-size: 14px`, and a card nested inside it
+   loses a further 32px of side padding and 2px of border — so the standalone
+   card must state that same number itself. It used to say a bare `65ch` while
+   inheriting the document's 16px, which makes `ch` a BIGGER unit: the
+   standalone card was about 100px wider and visibly shrank the moment an
+   answer arrived and it moved inside the bubble. Declaring `font-size: 14px`
+   here is what makes the `ch` units comparable; it changes nothing visible,
+   because `.chat-tool-head` sets its own 12.5px. 34px re-derived against the
+   live `.chat-bubble` rule at the time of this change: `padding: 10px 16px`
+   is 32px of left+right padding, `border: 1px solid` is 2px, 32 + 2 = 34.
+   Re-derive this number again if either rule changes. (WIDENED 2026-08-17
+   with the bubble: 65ch -> 72ch -> 90ch, spec
+   docs/superpowers/specs/2026-08-17-chat-width-expansion-design.md.) */
+.chat-tool-group { font-size: 14px; border-radius: var(--r-sm); border: 1px solid var(--line); background: var(--card); max-width: calc(90ch - 34px); overflow: hidden; }
 /* The header used to be a label + a muted "↳ detail" pair (.chat-tool-label /
    .chat-tool-summary, still used by the n>=2 child rows below); TC13 replaces
    that for the GROUP header with one sentence a person would say ("Searched

@@ -134,8 +134,9 @@ it("docks the mascot when the scroller is too narrow for the column plus the fig
   const { container, observer } = renderThreadWithStubObserver();
   expect(observer, "the scroller's own width must be observed").toBeDefined();
 
-  // 1083 is one pixel under the derived 1084px no-clip requirement.
-  act(() => observer.emit(1083));
+  // 1275 is one pixel under the derived 1276px no-clip requirement
+  // (re-derived 2026-08-17 when --ai-col went 768 -> 960).
+  act(() => observer.emit(1275));
   expect(
     container.querySelector(".chat-mascot-slot")!.className,
   ).toContain("is-cramped");
@@ -143,8 +144,8 @@ it("docks the mascot when the scroller is too narrow for the column plus the fig
 
 it("undocks again once the column is wide enough, and never leaves the a11y tree", () => {
   const { container, observer } = renderThreadWithStubObserver();
-  act(() => observer.emit(1083));
-  act(() => observer.emit(1084));
+  act(() => observer.emit(1275));
+  act(() => observer.emit(1276));
   const slot = container.querySelector(".chat-mascot-slot")!;
   expect(slot.className).not.toContain("is-cramped");
   // Docked or not, the mascot's role="img" label is the only status the

@@ -21,8 +21,19 @@ import MascotPresenting from "./mascot/MascotPresenting.js";
  *  measure (--ai-col) PLUS the mascot standing beside it, so the mascot docks
  *  off rather than clipping mid-body against the column edge.
  *
- *  1084 is DERIVED, not eyeballed — the full per-scene derivation lives in
- *  chat-css-contract.test.ts, which also pins this constant.
+ *  WIDENED 1084 -> 1276 (2026-08-17, spec:
+ *  docs/superpowers/specs/2026-08-17-chat-width-expansion-design.md) because
+ *  --ai-col moved 768 -> 960px. The column stays 960 (NOT 1240) — the user
+ *  confirmed the overall chat view was already wide enough; the bubble-width
+ *  fix lives on the bubble measures, not the column — so the threshold stays
+ *  at 1276. Derivation, per scene (verified in chat-css-contract.test.ts,
+ *  same algebra as before):
+ *    no-clip:  A >= 2*(--ai-col/2 + 16) + 2*(sceneWidth - tx)
+ *    with --ai-col 960: 2*(480 + 16) = 992
+ *    idle 120w, tx 5   -> 992 + 2*(120-5)   = 1222
+ *    thinking ≈184.4w, tx 54 -> 992 + 2*(184.4-54) ≈ 1253
+ *    presenting 168w, tx 26 -> 992 + 2*(168-26) = 1276  ← BINDS
+ *  The user accepted the mascot hiding more often on mid-size windows.
  *
  *  WHY this is measured in JavaScript and not with a CSS container query:
  *  `container-type` applies layout containment, and a layout-contained element
@@ -33,7 +44,7 @@ import MascotPresenting from "./mascot/MascotPresenting.js";
  *  `container-type` on the scroller (or any ancestor) silently re-clips it.
  *  A ResizeObserver reports the same content-box width a container query
  *  would have, with no containment side effect. */
-const MASCOT_DOCK_PX = 1084;
+const MASCOT_DOCK_PX = 1276;
 
 interface Props {
   state: ChatState;
