@@ -1,6 +1,6 @@
 # Project Status
 
-**Last updated:** 2026-08-16
+**Last updated:** 2026-08-18
 
 This file is the single source of truth for what's shipped, what's
 open, and what's blocked. The phase plans under `docs/superpowers/`
@@ -52,6 +52,7 @@ source. When something ships, update only this file.
 | FY2027 Appropriations Report ingest | ✓ **Done + verified (2026-08-16)** | 140/140 live, 0 failures, 2,336 passages, 0 duplicate ids corpus-wide, 4.61 chunks/page. Corpus now **83,016 budget chunks / 7,566 documents**. Its titles are wrong — that is the identity defect above, not an ingest failure |
 | **Whole-report links become data + an admin approval screen** | ✓ **Shipped (2026-08-16)**, acceptance walk RUN, **rendering seen in a browser** | R1–R13. The 39-edition "Full report" URL table moves out of the JS bundle into `data/report-formats.json` merged with an admin overlay on the share; three admin routes scan the corpus for unanswered editions, probe candidates live and approve them. **Adding a fiscal year is now a click, not a rebuild.** **Moved 2026-08-16: the approval screen is no longer on `/admin`** — it is a "Full report link" row inside the two JLBC book cards on the Upload page, admin-only, which resolves the R7 deviation. The plan's own code was wrong three times, each caught by measurement — a refactor that would have downloaded whole PDFs on a 404, an offline branch that was dead code, and an offline check that poisoned a 12-hour cache. The moved row's chip then had to learn to report EVERY outstanding link state, not just the waiting ones. 3232 pytest / 1142 vitest. **Nobody has seen the moved row in a browser.** See the section below |
 | **Tool cards — placement, then legibility** (TC1–TC22) | ✓ **Shipped 2026-08-16**, browser-approved | A run of tool calls moved out of the space above an answer and INTO the bubble that follows it, then its contents were rewritten for an analyst who does not know what a "chunk" is. **A tool that had never been styled at all was found in the audit.** 1063 vitest / 3151 pytest / build clean, **no eval** (nothing on the retrieval, ingest, chunking, citation or prompt path). Review caught a card that stated a **falsehood** on screen. See the section below |
+| **Citation highlight locate** (spec L1–L4) | ✓ **Shipped 2026-08-18**, live-verified, browser check outstanding | 44% of correctly linked figure chips rendered "couldn't pinpoint" or the wrong page (measured on a live run). Narrative chunks now store a union bbox + per-paragraph line map; a locate endpoint resolves a cited value to exact PDF rects at click time; the viewer trusts it and falls back to the old chain otherwise; load failures are a recoverable panel with Open document + Retry. See the section below |
 | **Consolidated eval pipeline** | ✅ **Shipped — merged to master (2026-08-18), 3265 pytest green** | Replaced the smoke/full/dr-probe Layer-2 organization with three `set:`s (quick 45 / deep 3 / refusal 5; **multi deferred**), a tokens/turns-to-accurate headline (wall-clock dropped), a `document_correctness` doc-type axis, a tool-error ledger, an over-time archive, a free corpus-verification script, and a **resumable judge** (partial writes + resume-skip). 53 queries, all **solvable** (0 presence misses). **deepseek-v4-flash-0731 full-45 quick rerun: 0.711 accurate (32/45), $0.21 — beats glm-5.2 (0.667) at ~1/10 cost.** Report bundle auto-opens at end of every run. See "Consolidated eval pipeline" below |
 
 ## Tool cards — placement, then legibility (2026-08-16)
@@ -204,6 +205,79 @@ mutation that mattered.
   silently LOSE an entry (a missing label degrades to the raw code). Defensible;
   the code comment justifies only the other direction.
 - The full 31-query Layer 2 run is unaffected by this work and still unrun.
+
+---
+
+## Citation highlight locate — SHIPPED 2026-08-18, browser check outstanding
+
+Spec: `docs/superpowers/specs/2026-08-18-citation-highlight-locate-design.md`
+(L1–L4). Merges `167839c` (python lane) + `0a3f913` (webapp lane). This is
+the deferred **A7 coordmap** from the attested-citation spec, delivered as a
+**read-time lookup** instead of an ingest artifact — no re-ingest, no schema
+migration, and the existing 83k chunks are fixed immediately.
+
+### The problem, as measured
+
+Replayed every linked figure chip from the live run
+`eval/results/agent/2026-08-17T2324Z-88f90b3` (137 figures) against the real
+PDFs, simulating the viewer's exact chain: 71 highlighted correctly; **46
+sat outside the stored bbox** (a merged narrative chunk stored only its
+FIRST paragraph's rectangle — verified on live rows, e.g.
+`jlbc-baseline-fy2024-ade-0087`'s bbox ends at y=334 while its own second
+bullet sits at y≈350–390); **7 on a different page** than the stored one;
+**7 defeated by accounting-paren drift** (PDF prints `$(546,838,600)`, stored
+source text carries `(546,838,600)`); 4 DOCX (no page image by design); 2
+genuinely absent. 44% of *correctly linked* citations rendered as a miss;
+2 of the 60 misses are honest.
+
+### What shipped
+
+- **L1 (ingest, new docs only):** `narrative_chunk.py` stores the union bbox
+  of same-page member paragraphs and per-paragraph `(text, page, bbox)`
+  lines in `source_anchor` (existing JSON column). Chunk ids and text are
+  byte-identical to before — eval ground truth untouched.
+- **L2 (server):** `GET /api/chunks/{id}/locate?text=…` — PyMuPDF search,
+  first success wins: anchor line → stored page (clipped) → whole-doc scan;
+  paren-swapped + numeric-core candidates; MinerU-0-1000 autodetect shared
+  with the viewer. Returns `{page, rects, basis}`; **any failure is
+  `basis: "none"` and the viewer's existing chain runs unchanged** — locate
+  can only add precision. Measured 0.04–0.25 s per document incl. the
+  191-page AFR; open docs cached in a closing LRU (the share-handle lesson).
+- **L3 (viewer):** the click-time check fetches locate with the source-side
+  rendering (figure chips) or the cited slice (prose cites); when `basis` is
+  not none, `PdfPage` draws exactly those rects and skips the text-layer
+  strategy, and `SourceView` shows the locate page. The same fetch hydrates
+  the cited-text panel for figure chips (their annotation carries no chunk
+  body by design — the panel used to say "unavailable" on exactly the chips
+  that have a source).
+- **L4 (failure surfaces):** a PDF load failure is now a plain-language
+  panel — "Couldn't open this page", the verbatim passage is still below,
+  **Open document ↗** (the raw file link, always accurate — Destin's ask),
+  Retry, and the raw error demoted to a detail line. DOCX sources keep the
+  cited-text-forward panel, no Open button (there is no PDF; 415 by design).
+
+### Gates
+
+pytest 3299 / vitest 1148 / `tsc -b` / `npm run build` all green on the
+merged tree; Layer 1 eval **identical to the recorded baseline** (recall@5
+85.71%, @15 97.62%, @20 100%, refusal 60% — results committed as
+`eval/results/2026-08-18T1101Z-718a47d.*`), G1 passes. bbox/page are
+display-only: verified nothing in ranking, refusal, or eval reads them.
+Live-verified against the real corpus: the measured miss above now returns
+`basis: "scan", page 17` with the value's exact rect (y≈362, outside the old
+bbox).
+
+### ⏸ OUTSTANDING
+
+- **Nobody has clicked a chip in a browser since the merge.** Check: a
+  figure chip whose value sat outside the old bbox (any ADE baseline page-17
+  figure) now highlights the number itself; a chip on a multi-page section
+  lands on the right page; WiFi-off / share-blip shows the new panel with a
+  working Open document link; a DOCX bill chip still shows the text panel.
+  `uvicorn` runs without `--reload` — Python changes need a server restart.
+- The A7 ingest-time coordmap backfill remains the right shape for a future
+  re-ingest and is NOT built; the locate endpoint makes it optional rather
+  than load-bearing.
 
 ---
 
