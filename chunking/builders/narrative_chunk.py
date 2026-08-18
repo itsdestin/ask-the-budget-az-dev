@@ -39,7 +39,7 @@ from chunking.readers.types import (
     OutlineNode,
     Paragraph,
 )
-from chunking.types import Chunk, ChunkProvenance
+from chunking.types import Chunk, ChunkProvenance, ProvenanceLine
 
 log = logging.getLogger(__name__)
 
@@ -61,7 +61,13 @@ def build_narrative_chunks(
     chunks: list[Chunk] = []
     next_index = start_index
 
-    def emit(text: str, *, section_path: list[str], first_para: Paragraph) -> None:
+    def emit(
+        text: str,
+        *,
+        section_path: list[str],
+        first_para: Paragraph,
+        member_paras: list[Paragraph],
+    ) -> None:
         nonlocal next_index
         token_count = count_tokens(text)
         if token_count > NARRATIVE_MAX_TOKENS:
@@ -73,11 +79,46 @@ def build_narrative_chunks(
                 f"{doc_meta.doc_id}-{next_index:04d}",
                 section_path,
             )
-        bbox = (
-            [first_para.bbox.x0, first_para.bbox.y0, first_para.bbox.x1, first_para.bbox.y1]
-            if first_para.bbox
-            else None
-        )
+        # WHY union, not first-paragraph bbox: the stored bbox is the strict
+        # search region the PDF viewer highlights inside, and a merged chunk
+        # cites values from ANY member paragraph. Measured 2026-08-18 on a
+        # live run: 46/137 correctly linked figures sat outside the stored
+        # (first-paragraph-only) bbox. Unioning same-page members makes the
+        # region cover the chunk's own text. Other-page members contribute
+        # NOTHING to the rectangle — a bbox is a region on ONE page and a
+        # cross-page union would be a nonsense rectangle; the per-paragraph
+        # `lines` below carry those pages for the locate endpoint.
+        same_page = [
+            p for p in member_paras if p.bbox and p.page == first_para.page
+        ]
+        if same_page:
+            bbox = [
+                min(p.bbox.x0 for p in same_page),
+                min(p.bbox.y0 for p in same_page),
+                max(p.bbox.x1 for p in same_page),
+                max(p.bbox.y1 for p in same_page),
+            ]
+        elif first_para.bbox:
+            bbox = [
+                first_para.bbox.x0,
+                first_para.bbox.y0,
+                first_para.bbox.x1,
+                first_para.bbox.y1,
+            ]
+        else:
+            bbox = None
+        # Per-paragraph locators for the locate endpoint (spec L1). Only
+        # paragraphs carrying a bbox are useful as search regions; a line
+        # without one would just re-state the chunk's page.
+        lines = [
+            ProvenanceLine(
+                text=p.text,
+                page=p.page,
+                bbox=[p.bbox.x0, p.bbox.y0, p.bbox.x1, p.bbox.y1],
+            )
+            for p in member_paras
+            if p.bbox
+        ] or None
         chunks.append(
             Chunk(
                 chunk_id=f"{doc_meta.doc_id}-{next_index:04d}",
@@ -89,6 +130,7 @@ def build_narrative_chunks(
                 provenance=ChunkProvenance(
                     page=first_para.page,
                     bbox=bbox,
+                    lines=lines,
                 ),
                 fiscal_year=doc_meta.fiscal_year,
                 doc_type=doc_meta.doc_type,
@@ -254,7 +296,12 @@ def _flush_section_into_chunks(
         if not buffer_paragraphs:
             return
         text = section_header + "\n\n" + "\n\n".join(buffer_text_parts) if section_header else "\n\n".join(buffer_text_parts)
-        emit(text, section_path=section_path, first_para=buffer_paragraphs[0])
+        emit(
+            text,
+            section_path=section_path,
+            first_para=buffer_paragraphs[0],
+            member_paras=list(buffer_paragraphs),
+        )
         buffer_paragraphs = []
         buffer_text_parts = []
         buffer_tokens = count_tokens(section_header) if section_header else 0
@@ -271,6 +318,7 @@ def _flush_section_into_chunks(
                 (section_header + "\n\n" + para.text) if section_header else para.text,
                 section_path=section_path,
                 first_para=para,
+                member_paras=[para],
             )
             continue
 

@@ -44,6 +44,31 @@ class DocMeta:
     source_url: str | None = None
 
 
+class ProvenanceLine(BaseModel):
+    """One member paragraph's locator inside a merged narrative chunk.
+
+    WHY this exists: a narrative chunk merges several paragraphs, but the
+    stored `bbox`/`page` used to describe only the FIRST one — measured on a
+    live AI-Mode run (2026-08-18, 137 linked figures), 46/137 correctly
+    linked citations fell outside the stored bbox and 7 sat on a different
+    page, because the cited value was in paragraph 2+. The strict-bbox
+    viewer search then cannot see the chunk's own text. `lines` carries the
+    per-paragraph (text, page, bbox) tuples the locate endpoint
+    (`GET /api/chunks/{id}/locate`) resolves a cited value against, so the
+    highlight is the value's own span without re-ingesting anything.
+
+    `text` is the paragraph's own text (a substring of the chunk text by
+    construction), so matching a cited slice to a line needs no
+    normalization — only whitespace-collapsed containment.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    text: str
+    page: int
+    bbox: list[float]
+
+
 class ChunkProvenance(BaseModel):
     """Where this chunk came from in its source document.
 
@@ -58,6 +83,10 @@ class ChunkProvenance(BaseModel):
     bbox: list[float] | None = None
     paragraph_id: str | None = None
     table_cell_id: str | None = None
+    # Per-paragraph locators for merged narrative chunks (see ProvenanceLine).
+    # None everywhere it has never been written — table chunks and old rows
+    # simply lack it, and the locate endpoint falls back to page+bbox+scan.
+    lines: list[ProvenanceLine] | None = None
 
     @model_validator(mode="after")
     def _at_least_one_provenance(self) -> "ChunkProvenance":
