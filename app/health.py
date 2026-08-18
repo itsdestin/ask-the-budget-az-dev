@@ -149,10 +149,26 @@ def _check_corpus(root: Path) -> tuple[bool, str, str | None]:
 
         count = ChunkStore().count("budget_chunks")
     except Exception as err:  # noqa: BLE001
+        # A bare "ValueError" means nothing to the person who can fix this.
+        # The two realistic causes for a fresh install are a HALF-COPIED
+        # corpus (the copy to the share was still running, or dropped) and a
+        # table written on another machine with a different embedding model
+        # (dimension mismatch). Name the likely one; never leak a traceback.
+        hint = ""
+        msg = str(err)
+        if "dim" in (msg + str(type(err).__name__)).lower():
+            hint = " This usually happens when the shared folder holds an "
+            "older or differently-embedded index — check the copy came from "
+            "this build's corpus, then re-copy it."
+        else:
+            hint = " The most likely cause is that the copy to the shared "
+            "folder is incomplete or still running. Re-copy the corpus "
+            "folder (lancedb/ and its files) and try again."
         return (
             False,
-            f"The search index is there but could not be opened ({type(err).__name__}).",
-            "Restore a recent snapshot from the Admin page, or ask whoever "
+            "The search index is there but could not be opened "
+            f"({type(err).__name__}).{hint}",
+            "Re-copy the corpus into the shared folder, or ask whoever "
             "maintains the app.",
         )
     if count <= 0:
