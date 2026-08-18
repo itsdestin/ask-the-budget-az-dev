@@ -14,6 +14,12 @@ from typing import Literal
 from pydantic import BaseModel, ConfigDict, Field
 from ruamel.yaml import YAML
 
+# The selection-axis values AgentQuery.set accepts. "defend" is
+# infrastructure-only (defend_agent_run.py's ad-hoc defense queries;
+# never in a scored --sets run) but lives in the same literal so its
+# builder keeps working after Task 9.
+QUERY_SETS = ("quick", "multi", "deep", "refusal", "defend")
+
 
 class KeyFact(BaseModel):
     """One mechanically checkable fact a correct answer must contain.
@@ -45,11 +51,23 @@ class AgentQuery(BaseModel):
     question: str
     corpus: Literal["budget", "fiscal_notes"] = "budget"
     tier: Literal["standard", "deep_research"] = "standard"
+    # The pipeline's selection axis (2026-08-16 consolidated-eval spec; the
+    # `subsets:` list is retired in Task 9). REQUIRED, no default: every real
+    # query must name its set explicitly in the YAML — a query without a set
+    # would silently default into a run rather than fail the load. "defend"
+    # is reserved for defend_agent_run.py's ad-hoc defense queries (never in
+    # a scored --sets run) but lives in the same literal so its builder keeps
+    # working. WHY no default (2026-08-16 plan review): with a default, a
+    # hand-authored query omitting `set:` loads fine and lands in the wrong
+    # run; extra="forbid" + required set turns that into a loud load error.
+    set: Literal["quick", "multi", "deep", "refusal", "defend"]
+    # Document ids a correct answer MUST cite (Multi set). Hand-pinned by the
+    # analyst during the approval task — the identity-consistency audit
+    # (docs/superpowers/investigations/2026-08-16-identity-consistency-audit.md)
+    # is why a mechanical guess was never considered.
+    correct_response_docs: list[str] = Field(default_factory=list)
     # shape drives authoring quotas and per-shape score breakdowns.
     shape: Literal["lookup", "comparison", "analyze", "memo", "refusal", "historical"]
-    # subset tags select what a run includes: smoke (~10), full (all
-    # standard-tier), dr-probe (the 4 deep_research queries).
-    subsets: list[str] = Field(default_factory=lambda: ["full"])
     should_refuse: bool = False
     key_facts: list[KeyFact] = Field(default_factory=list)
     judge_notes: str = ""

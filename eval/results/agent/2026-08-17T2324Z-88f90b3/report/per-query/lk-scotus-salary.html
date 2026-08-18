@@ -1,0 +1,346 @@
+<!doctype html><html><head><meta charset="utf-8">
+<title>lk-scotus-salary — eval report</title><style>
+:root { --bg:#f6f8fb; --card:#fff; --ink:#161b26; --muted:#5c6775;
+        --accent:#2563eb; --ok:#0e9f5b; --warn:#d97706; --bad:#dc2626;
+        --line:#e5eaf1; --tool:#f1f5f9; --tool-edge:#93c5fd;
+        --user-bubble:#eaf1ff; --assistant-bubble:#fff; --chip:#eef1f6;
+        /* app design tokens, ported from webapp/src/styles/tokens.css so the
+           transcript renders with the app's own palette */
+        --navy:#2b2f63; --navy-700:#232752; --navy-900:#181b3d; --navy-100:#e7e8f2;
+        --az-gold:#1b6fc4; --az-gold-d:#145aa6; --az-gold-100:#dceaf7;
+        --ink-2:#4a4e6a; --ink-3:#757895; --r-md:16px; --r-sm:12px; --r-pill:999px;
+        --chat-danger:#c0392b; --chat-danger-tint:#fdecea; }
+* { box-sizing:border-box; }
+html { scroll-behavior:smooth; }
+body { margin:0; font:15px/1.6 -apple-system,"Segoe UI",Roboto,sans-serif;
+       background:var(--bg); color:var(--ink); overflow-x:hidden; }
+header { background:linear-gradient(120deg,#17233c 0%,#1d4ed8 60%,#2563eb 100%);
+         color:#fff; padding:28px 44px; box-shadow:0 2px 12px rgba(20,30,60,.25); }
+header h1 { margin:0; font-size:23px; font-weight:700; letter-spacing:.2px; }
+header .sub { opacity:.9; margin-top:5px; font-size:13px; }
+.wrap { max-width:1280px; margin:0 auto; padding:28px 44px 60px; }
+h2 { margin-top:40px; font-size:20px; font-weight:700; color:#0f244f;
+     border-bottom:2px solid var(--line); padding-bottom:8px; }
+h2 .count { color:var(--muted); font-weight:500; font-size:14px; margin-left:8px; }
+h3 { font-size:16px; font-weight:600; margin:22px 0 10px; color:#17305f; }
+table { border-collapse:separate; border-spacing:0; width:100%; margin:14px 0;
+        background:var(--card); box-shadow:0 1px 4px rgba(20,30,60,.08);
+        border-radius:10px; overflow:hidden; }
+/* A table must not stretch the page: .table-scroll clips wide tables so the
+   page itself never scrolls horizontally; the table scrolls inside its own
+   block. whole-page horizontal scroll is disabled on body. */
+.table-scroll { overflow-x:auto; -webkit-overflow-scrolling:touch; margin:14px 0; }
+.table-scroll table { margin:0; }
+.table-scroll th { position:sticky; top:0; }
+th,td { padding:9px 12px; text-align:left; border-bottom:1px solid var(--line);
+        font-size:13.5px; white-space:nowrap; }
+th { background:#eef2f9; font-weight:700; color:#23334f; cursor:pointer;
+     user-select:none; position:sticky; top:0; z-index:1; }
+th:hover { background:#e2e9f5; }
+th .sort { font-size:10px; color:var(--muted); margin-left:4px; }
+tr:last-child td { border-bottom:none; }
+tbody tr:hover td { background:#f6f9ff; }
+td.num { text-align:right; font-variant-numeric:tabular-nums; }
+.good { color:var(--ok); font-weight:700; }
+.warn { color:var(--warn); font-weight:700; }
+.bad { color:var(--bad); font-weight:700; }
+.muted { color:var(--muted); }
+.badge { display:inline-block; font-size:12px; font-weight:700; border-radius:20px;
+         padding:2px 10px; }
+.badge.good { background:#e6f6ee; color:var(--ok); }
+.badge.warn { background:#fdf1e0; color:var(--warn); }
+.badge.bad { background:#fdeaea; color:var(--bad); }
+.metric-grid { display:grid; grid-template-columns:repeat(auto-fill,minmax(158px,1fr));
+               gap:12px; margin:16px 0; }
+.metric { background:var(--card); border:1px solid var(--line); border-radius:10px;
+          padding:12px 16px; box-shadow:0 1px 3px rgba(20,30,60,.05); }
+.metric .k { font-size:11px; text-transform:uppercase; letter-spacing:.05em;
+             color:var(--muted); font-weight:600; }
+.metric .v { font-size:19px; font-weight:700; margin-top:3px; font-variant-numeric:tabular-nums; }
+.metric .v.good { color:var(--ok); } .metric .v.warn { color:var(--warn); }
+.metric .v.bad { color:var(--bad); }
+/* consolidated metric grid: labeled groups, so the per-query page reads in
+   three scannable bands instead of one undifferentiated wall of cards. */
+.metric-group { margin:14px 0 6px; }
+.metric-group h3 { margin:0 0 8px; font-size:13px; text-transform:uppercase;
+                   letter-spacing:.05em; color:var(--muted); }
+.chat { border:1px solid var(--line); border-radius:12px; overflow:hidden;
+        box-shadow:0 1px 4px rgba(20,30,60,.06); margin:16px 0; }
+.msg { padding:14px 20px; }
+.msg.user { background:var(--user-bubble); }
+.msg.assistant { background:var(--assistant-bubble); border-top:1px solid var(--line); }
+.msg .who { font-size:11px; font-weight:800; text-transform:uppercase;
+            letter-spacing:.06em; color:var(--muted); margin-bottom:5px; }
+.msg .body { white-space:pre-wrap; }
+/* client-side markdown rendering of message bodies */
+.msg .body p { margin:0 0 8px; }
+.msg .body p:last-child { margin-bottom:0; }
+.msg .body table { font-size:12.5px; margin:6px 0; }
+.msg .body code { background:var(--chip); padding:1px 5px; border-radius:4px;
+                  font-size:12.5px; font-family:ui-monospace,Menlo,monospace; }
+.msg .body pre { background:#0f1b2e; color:#d9e3f5; padding:10px 14px; border-radius:8px;
+                 overflow:auto; }
+.msg .body pre code { background:none; color:inherit; padding:0; }
+.msg .body blockquote { margin:6px 0; padding:4px 12px; border-left:3px solid var(--accent);
+                        color:var(--muted); }
+.msg .body h1,.msg .body h2 { font-size:15px; margin:10px 0 6px; color:#17305f; }
+.msg .body ul,.msg .body ol { margin:6px 0; padding-left:22px; }
+.tool { background:var(--tool); border-left:4px solid var(--tool-edge); padding:10px 16px;
+        margin:10px 16px; border-radius:8px; font-size:13px; box-shadow:0 1px 2px rgba(20,30,60,.05); }
+.tool .tname { font-weight:800; font-size:12.5px; text-transform:uppercase;
+               letter-spacing:.04em; color:#1d4ed8; }
+.tool .tinput { margin-top:6px; font-family:ui-monospace,Menlo,monospace; font-size:12.5px;
+                white-space:pre-wrap; color:#2b3a57; background:#fff; padding:8px 10px;
+                border-radius:6px; border:1px solid var(--line); }
+.tool .tresult { margin-top:6px; color:var(--muted); font-size:12.5px; white-space:pre-wrap;
+                 font-family:ui-monospace,Menlo,monospace; background:#fbfcfe; padding:8px 10px;
+                 border-radius:6px; }
+.back { display:inline-block; margin:0 0 14px; color:var(--accent); text-decoration:none;
+        font-weight:700; font-size:14px; }
+.back:hover { text-decoration:underline; }
+.err { color:var(--bad); }
+.claims { list-style:none; padding:0; margin:8px 0; }
+.claims li { margin:5px 0; padding:6px 10px; background:var(--card);
+             border:1px solid var(--line); border-radius:8px; font-size:13.5px; }
+.claims .ok { color:var(--ok); font-weight:800; }
+.claims .bad { color:var(--bad); font-weight:800; }
+a { color:var(--accent); }
+
+/* ---- nav bar across pages ---- */
+.nav { display:flex; gap:6px; flex-wrap:wrap; margin-bottom:22px; }
+.nav a { display:inline-block; padding:7px 14px; border-radius:999px;
+         font-size:13px; font-weight:700; color:var(--ink-2);
+         background:var(--card); border:1px solid var(--line);
+         text-decoration:none; }
+.nav a:hover { background:#eef2f9; }
+.nav a.active { background:var(--navy); color:#fff; border-color:var(--navy); }
+
+/* ---- tabs (historical page) ---- */
+.tabs { display:flex; gap:4px; margin:0 0 18px; border-bottom:2px solid var(--line); }
+.tabs a { display:inline-block; padding:9px 18px; font-size:14px; font-weight:700;
+          color:var(--muted); text-decoration:none; border-bottom:3px solid transparent;
+          margin-bottom:-2px; }
+.tabs a.active { color:var(--navy); border-bottom-color:var(--navy); }
+.tabs a:hover { color:var(--accent); }
+
+/* ---- tooltips (hoverable stat descriptions + query previews) ----
+   A JS-driven tooltip (see below) renders the tip in a FIXED element
+   appended to <body>, so it is NOT clipped by .table-scroll's overflow
+   or any other container. The [data-tip] hint underline stays in CSS. */
+[data-tip] { cursor:help; border-bottom:1px dotted var(--muted); }
+#evtip { position:fixed; z-index:10000; max-width:min(340px, 90vw);
+         background:#101a2c; color:#e7edf8; padding:8px 12px; border-radius:8px;
+         font-size:12.5px; font-weight:400; line-height:1.45; white-space:normal;
+         box-shadow:0 4px 14px rgba(10,18,35,.35); text-align:left;
+         pointer-events:none; display:none; }
+/* ---- app chat transcript (ported from webapp/src/styles/app.css) ----
+   The eval transcript renders with the LIVE app's own classes + tokens so
+   it looks like the real conversation, not a bespoke viewer. */
+.chat-turn { display:flex; flex-direction:column; gap:8px; margin:18px 0; }
+.chat-bubble { position:relative; background:var(--card); border:1px solid var(--line);
+               border-radius:var(--r-md); padding:10px 16px; color:var(--ink);
+               font-size:14px; max-width:65ch; }
+.chat-bubble.has-tail { border-bottom-left-radius:4px; }
+.chat-user-row { display:flex; justify-content:flex-end; }
+.chat-user-bubble { background:var(--navy); color:#fff; border-radius:var(--r-md);
+                    border-bottom-right-radius:4px; padding:10px 16px; max-width:78%;
+                    font-size:14px; line-height:1.6; white-space:pre-wrap; }
+.chat-stop-note { font-size:12px; color:var(--ink-3); font-style:italic; padding:0 4px; }
+/* tool card + group, the app's own geometry */
+.chat-tool { border-radius:var(--r-sm); border:1px solid var(--line);
+             background:var(--card); max-width:65ch; overflow:hidden; margin:8px 0; }
+.chat-tool.is-failed { border-color:var(--chat-danger); }
+.chat-tool.is-inset { background:var(--canvas, #f5f5fa); }
+.chat-tool-head { width:100%; display:flex; align-items:center; gap:8px; padding:6px 12px;
+                  font-size:12.5px; color:var(--ink-2); }
+.chat-tool-glyph { flex-shrink:0; color:var(--ink-3); }
+.chat-tool.is-failed .chat-tool-glyph, .chat-tool.is-failed .chat-tool-label { color:var(--chat-danger); }
+.chat-tool-label { font-weight:700; color:var(--ink-2); flex-shrink:0; }
+.chat-tool-summary { color:var(--ink-3); font-size:12px; min-width:0; flex:1 1 auto;
+                     overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.chat-tool-summary::before { content:"↳ "; }
+.chat-tool-body { border-top:1px solid var(--line); padding:8px 12px;
+                  font-size:13px; color:var(--ink); }
+.chat-tool-body pre { margin:4px 0; white-space:pre-wrap; font-size:12px;
+                      font-family:ui-monospace,Menlo,monospace; color:var(--ink-2); }
+.chat-tool-body .chip-row { display:flex; flex-wrap:wrap; gap:6px; }
+.chat-chip { display:inline-flex; align-items:center; gap:4px; padding:1px 8px;
+             font-size:11px; font-weight:700; border-radius:var(--r-pill);
+             border:1px solid var(--line); background:var(--navy-100); color:var(--ink-2); }
+.chat-chip.is-good { background:var(--az-gold-100); color:var(--az-gold-d); border-color:var(--az-gold); }
+.chat-chip.is-bad { background:var(--chat-danger-tint); color:var(--chat-danger); border-color:var(--chat-danger); }
+/* citation pills, the app's cite state language */
+.chat-cite-pill { display:inline-flex; align-items:center; gap:4px; padding:1px 6px;
+                  font-size:10px; font-weight:700; border-radius:4px; border:1px solid;
+                  font-family:var(--font); cursor:pointer; }
+.chat-cite-pill.is-verbatim { background:var(--az-gold-100); color:var(--az-gold-d); border-color:var(--az-gold); }
+.chat-cite-pill.is-paraphrase { background:var(--navy-100); color:var(--ink-2); border-color:var(--line); }
+.chat-cite-pill.is-failed { background:var(--chat-danger-tint); color:var(--chat-danger); border-color:var(--chat-danger); }
+/* tool calls, app-like */
+.tool { display:flex; align-items:flex-start; gap:8px; background:var(--tool);
+        border:1px solid var(--line); border-left:4px solid var(--accent);
+        padding:7px 12px; margin:8px 0; border-radius:8px; font-size:13px; }
+.tool .tname { font-weight:800; font-size:12px; text-transform:uppercase;
+               letter-spacing:.05em; color:#1d4ed8; white-space:nowrap; flex:none; }
+.tool .tdetail { color:#2b3a57; overflow-wrap:anywhere; }
+.tool .targs { color:var(--muted); font-family:ui-monospace,Menlo,monospace;
+               font-size:12px; white-space:nowrap; }
+.tool.retrieve { border-left-color:#2563eb; }
+.tool.cite { border-left-color:#0e9f5b; }
+.tool.result { border-left-color:#93c5fd; background:#f6f9ff; margin:2px 0 10px 28px;
+               border-left-style:dashed; }
+.tool.result.error { border-left-color:var(--bad); }
+/* header + summary prettier */
+header .runid { font-family:ui-monospace,Menlo,monospace; font-size:12px;
+                opacity:.85; margin-top:8px; }
+.summary-card { background:linear-gradient(180deg,#fff,#f7fafd); border:1px solid var(--line);
+                border-radius:14px; padding:18px 22px; margin-top:18px;
+                box-shadow:0 2px 10px rgba(20,30,60,.06); }
+.summary-card h2 { margin-top:0; border:none; padding-bottom:0; font-size:17px; }
+.hint { color:var(--muted); font-size:12.5px; margin:2px 0 0; }
+.query-chip { display:inline-block; max-width:240px; overflow:hidden; text-overflow:ellipsis;
+              white-space:nowrap; vertical-align:middle; }
+/* The JS tooltip above handles rendering; the wrapper only needs to not
+   clip the query-chip's ellipsis. */
+.tooltip-wrap { display:inline-block; }
+</style></head><body>
+<header><h1>lk-scotus-salary — eval report</h1></header>
+<script>
+// Client-side markdown renderer for message bodies (limited, safe subset:
+// the content is model prose with tables/bold/lists/code — we render those
+// and escape everything else). No server dependency keeps the bundle a
+// single static folder.
+function md(text) {
+  text = text.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+  // fenced code
+  text = text.replace(/```([\s\S]*?)```/g, "<pre><code>$1</code></pre>");
+  // headings h2/h3 and bold
+  text = text.replace(/^####[ \t]*(.+)$/gm, "<h2>$1</h2>");
+  text = text.replace(/^###[ \t]*(.+)$/gm, "<h3>$1</h3>");
+  text = text.replace(/\*\*(.+?)\*\*/g, "<strong>$1</strong>");
+  text = text.replace(/\*(.+?)\*/g, "<em>$1</em>");
+  text = text.replace(/`([^`]+)`/g, "<code>$1</code>");
+  // tables: line groups starting with | -> render <table>
+  var lines = text.split("\n"), html = [], i = 0, inT = false;
+  while (i < lines.length) {
+    var l = lines[i];
+    if (l.trim().startsWith("|") && i + 1 < lines.length && lines[i+1].trim().startsWith("|")) {
+      if (!inT) { html.push("<table>"); inT = true; }
+      var cells = l.trim().split("|").slice(1, -1).map(function(c){ return c.trim(); });
+      var tag = (i === 0 || /^\s*:?-+:?\s*$/.test(l.trim().replace(/[^|:|\-\s]/g, ""))) ? "th" : "td";
+      // detect the header separator row (----) and skip rendering it as data
+      if (inT && /^[\s:|\-]+$/.test(l.trim())) { i++; continue; }
+      html.push("<tr><" + tag + ">" + cells.join("</" + tag + "><" + tag + ">") + "</" + tag + "></tr>");
+    } else {
+      if (inT) { html.push("</table>"); inT = false; }
+      if (l.trim() !== "") html.push("<p>" + l + "</p>");
+    }
+    i++;
+  }
+  if (inT) html.push("</table>");
+  // join and wrap
+  return html.join("");
+}
+document.addEventListener("DOMContentLoaded", function () {
+  // render message bodies
+  document.querySelectorAll(".chat-bubble").forEach(function (b) {
+    b.innerHTML = md(b.textContent);
+  });
+  // historical page tabs: show the tab named by ?tab= (default topline)
+  function showTab(name) {
+    document.querySelectorAll(".tabs a").forEach(function (a) {
+      var on = a.getAttribute("data-tab") === name;
+      a.classList.toggle("active", on);
+    });
+    document.querySelectorAll("[id^='tab-']").forEach(function (d) {
+      d.style.display = d.id === "tab-" + name ? "" : "none";
+    });
+  }
+  document.querySelectorAll(".tabs a").forEach(function (a) {
+    a.addEventListener("click", function (e) {
+      var name = a.getAttribute("data-tab");
+      showTab(name);
+      history.replaceState(null, "", "historical.html?tab=" + name);
+      e.preventDefault();
+    });
+  });
+  var m = location.search.match(/[?&]tab=([^&]+)/);
+  if (m) showTab(m[1]);
+  // ---- JS tooltip: renders [data-tip] in a FIXED element on <body> so the
+  // tip is never clipped by .table-scroll or any other overflow container.
+  var tip = document.createElement("div");
+  tip.id = "evtip";
+  document.body.appendChild(tip);
+  function tipShow(el) {
+    tip.textContent = el.getAttribute("data-tip");
+    tip.style.display = "block";
+    tipPos(el);
+  }
+  function tipPos(el) {
+    var r = el.getBoundingClientRect();
+    var tw = tip.offsetWidth, th = tip.offsetHeight;
+    var x = r.left + r.width / 2 - tw / 2;
+    // clamp horizontally so the tip never goes off the right/left viewport edge
+    x = Math.max(8, Math.min(x, window.innerWidth - tw - 8));
+    var y = r.top - th - 10;            // above the element
+    var flip = y < 8;                    // not enough room above -> below
+    if (flip) y = r.bottom + 10;
+    if (y + th > window.innerHeight - 8) y = window.innerHeight - th - 8;
+    tip.style.left = x + "px";
+    tip.style.top = y + "px";
+    tip.style.transform = flip ? "translateY(-4px)" : "translateY(4px)";
+  }
+  document.querySelectorAll("[data-tip]").forEach(function (el) {
+    el.addEventListener("mouseenter", function () { tipShow(el); });
+    el.addEventListener("mousemove", function (e) {
+      // follow horizontally only; vertical clamp stays anchored to the element
+      var r = el.getBoundingClientRect(), tw = tip.offsetWidth;
+      var x = Math.max(8, Math.min(e.clientX - tw / 2, window.innerWidth - tw - 8));
+      tip.style.left = x + "px";
+    });
+    el.addEventListener("mouseleave", function () {
+      tip.style.display = "none";
+    });
+  });
+  // sortable tables: click a header to sort asc/desc
+  document.querySelectorAll("table.sortable th").forEach(function (th, idx) {
+    th.addEventListener("click", function () {
+      var t = th.closest("table"), tbody = t.querySelector("tbody"), rows = Array.from(tbody.rows);
+      var dir = t.getAttribute("data-dir") === "asc" ? "desc" : "asc";
+      t.setAttribute("data-dir", dir);
+      rows.sort(function (a, b) {
+        var av = a.cells[idx].textContent.trim(), bv = b.cells[idx].textContent.trim();
+        var an = parseFloat(av.replace(/[$,\s]/g, "")), bn = parseFloat(bv.replace(/[$,\s]/g, ""));
+        var cmp = !isNaN(an) && !isNaN(bn) ? an - bn : av.localeCompare(bv);
+        return dir === "asc" ? cmp : -cmp;
+      });
+      rows.forEach(function (r) { tbody.appendChild(r); });
+      th.querySelector(".sort").textContent = dir === "asc" ? "▲" : "▼";
+    });
+  });
+});
+</script>
+<div class="wrap"><nav class='nav'><a href='index.html'>Latest Run Metrics</a><a href='index.html#per-query' class='active'>Per-Query</a><a href='historical.html'>Historical</a></nav><a class="back" href="../index.html">← back to summary</a><div class='metric-group'><h3>Accuracy</h3><div class='metric-grid'><div class='metric' data-tip="Met the headline bar: all key facts + ≥1 verified citation."><div class='k'>accurate</div><div class='v'>✓</div></div><div class='metric' data-tip="Share of the query&#x27;s pinned key facts present in the final answer. 1.0 = all."><div class='k'>fact rate</div><div class='v good'>1</div></div><div class='metric'><div class='k'>ok</div><div class='v'>✓</div></div><div class='metric' data-tip="Verified citations in the final answer."><div class='k'>cites ok</div><div class='v'>2</div></div><div class='metric' data-tip="Passing citation attempts ÷ all attempts."><div class='k'>cite pass</div><div class='v good'>1</div></div><div class='metric' data-tip="Share of the answer&#x27;s figures that were linked to a verified citation."><div class='k'>fig cov</div><div class='v bad'>0.6667</div></div></div></div>
+<div class='metric-group'><h3>Cost</h3><div class='metric-grid'><div class='metric' data-tip="Model spend for this query."><div class='k'>cost</div><div class='v good'>0.01546</div></div><div class='metric' data-tip="Total tokens (input+output+cached) spent on this query."><div class='k'>tokens</div><div class='v'>110,826</div></div></div></div>
+<div class='metric-group'><h3>Efficiency</h3><div class='metric-grid'><div class='metric' data-tip="Agent steps taken to answer this query."><div class='k'>turns</div><div class='v'>3</div></div><div class='metric' data-tip="Retrieve tool calls issued for this query."><div class='k'>retrieves</div><div class='v'>1</div></div><div class='metric' data-tip="Used chunks ÷ retrieved chunks. 1.0 = every retrieved chunk was used."><div class='k'>retr eff</div><div class='v good'>1</div></div><div class='metric' data-tip="Share of citations that passed on the FIRST attempt (no retry)."><div class='k'>1st-try</div><div class='v good'>1</div></div></div></div>
+<span class='badge good'>✓ accurate</span>
+<p class='hint'>Most recent run: <code>2026-08-17T2324Z-88f90b3</code> · 2026-08-17</p>
+<h2>Judge review</h2>
+<div class='metric-grid'>
+<div class='metric'><div class='k'>holistic</div><div class='v'>4</div></div>
+<div class='metric'><div class='k'>chunk_relevance</div><div class='v'>0.9</div></div>
+<div class='metric'><div class='k'>claim_coverage_precision</div><div class='v'>1</div></div>
+<div class='metric'><div class='k'>claim_coverage_recall</div><div class='v'>1</div></div>
+<div class='metric'><div class='k'>figure_coverage_ok</div><div class='v'>✗</div></div>
+<div class='metric'><div class='k'>placement_ok</div><div class='v'>✗</div></div>
+</div>
+<p><strong>chunk relevance:</strong> All retrieved chunks are directly about judicial salary increases and contain the relevant figures.</p>
+<p><strong>rationale:</strong> The answer is factually correct and complete, giving the current salary, the two-step phase-in, and the upcoming FY 2027 increase, all backed by verified citations. However, $212,000 and $222,000 are marked [UNCITED] even though the chunk cited for $232,000 (citation 3) contains all three figures — a placement defect rather than a missing source.</p>
+<ul class='claims'>
+<li><span class='ok'>✓</span> Current Chief Justice salary is $232,000</li>
+<li><span class='ok'>✓</span> FY 2025 Act raised salary from $212,000 to $222,000 on Jan 1, 2025, then to $232,000 on Jan 1, 2026</li>
+<li><span class='ok'>✓</span> FY 2027 Act raises Chief Justice salary to $242,000 on Jan 1, 2027</li>
+</ul>
+<h2>Conversation</h2>
+<p class='muted'>no transcript</p>
+<p class='muted'>raw transcript: <code>per-query/lk-scotus-salary.jsonl</code> · <a href='historical.html'>history for this query</a></p></div></body></html>

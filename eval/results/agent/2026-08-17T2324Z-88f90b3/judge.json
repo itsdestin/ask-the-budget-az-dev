@@ -1,0 +1,568 @@
+{
+  "judge_model": "z-ai/glm-5.2",
+  "judge_reasoning": true,
+  "judge_prompt_sha256": "26923f724c1329dbbe5222927ce59afb01827001e42da5963da896767056ee09",
+  "summary": {
+    "n": 15,
+    "errors": 0,
+    "claim_coverage_precision_mean": 0.5708567484965,
+    "claim_coverage_recall_mean": 0.704047619047619,
+    "holistic_mean": 3.4,
+    "chunk_relevance_mean": 0.7833333333333333
+  },
+  "per_query": [
+    {
+      "query_id": "an-ahcccs-enrollment",
+      "repeat": 1,
+      "load_bearing_claims": [
+        {
+          "claim": "Medicaid unwinding after the PHE drove enrollment below budgeted levels",
+          "cited_verified": true
+        },
+        {
+          "claim": "FY 2024 base adjustment of $(126,626,500) state match and $(546,838,600) Total Funds carried into FY 2025",
+          "cited_verified": false
+        },
+        {
+          "claim": "FY 2025 caseload savings of $(55,329,900) state match and $(281,593,800) Total Funds",
+          "cited_verified": false
+        },
+        {
+          "claim": "FY 2026 caseload savings of $(186,401,300) state match and $(127,391,800) Total Funds",
+          "cited_verified": true
+        },
+        {
+          "claim": "FY 2024 state match savings of $(353,509,900) and Total Funds savings of $(2,390,722,400)",
+          "cited_verified": false
+        }
+      ],
+      "holistic": 2,
+      "figure_coverage_ok": false,
+      "placement_ok": true,
+      "flags": {
+        "hedging": false,
+        "meta_narration": true,
+        "answered_wrong_question": true
+      },
+      "chunk_relevance": 0.5,
+      "chunk_relevance_rationale": "Several retrieved chunks cover the unwinding/annualization story but many are from unrelated fiscal years (FY2013, FY2016, FY2027); none contain the specific 1.58M vs 1.77M enrollment figures or capitation rate adjustments the question targets.",
+      "rationale": "The answer provides useful background on the unwinding and annualization mechanism but misses the question's core: the specific 1.58M vs 1.77M enrollment shortfall and, critically, the offsetting capitation rate adjustments ($55,575,200 General Fund) that the judge notes require. Multiple figures are uncited, and the summary table introduces two large figures not found in any chunk.",
+      "claim_coverage_precision": 0.2222222222222222,
+      "claim_coverage_recall": 0.4
+    },
+    {
+      "query_id": "an-esa-growth",
+      "repeat": 1,
+      "load_bearing_claims": [
+        {
+          "claim": "ESA costs grew from ~$145M in FY2021 to over $1.2B projected in FY2027, an 8× increase",
+          "cited_verified": true
+        },
+        {
+          "claim": "FY2023 actual ESA enrollment of 56,912 was more than 4× the budgeted 13,200",
+          "cited_verified": true
+        },
+        {
+          "claim": "FY2024 enacted budget assumed 68,380 ESA enrollees",
+          "cited_verified": true
+        },
+        {
+          "claim": "FY2025 enacted ESA awards total $824,530,600 for 82,452 enrollees",
+          "cited_verified": true
+        },
+        {
+          "claim": "FY2026 enacted ESA awards total $1,001,720,000 for 97,905 enrollees",
+          "cited_verified": false
+        },
+        {
+          "claim": "JLBC described all ESA projections as 'highly speculative'",
+          "cited_verified": true
+        },
+        {
+          "claim": "Public school enrollment declined (1.0)% in FY2024 vs expected 0.2% growth, possibly due to ESA switchers",
+          "cited_verified": true
+        },
+        {
+          "claim": "FY2025 budget assumed 48% switcher rate vs ADE's actual ~61%",
+          "cited_verified": true
+        }
+      ],
+      "holistic": 4,
+      "figure_coverage_ok": false,
+      "placement_ok": false,
+      "flags": {
+        "hedging": false,
+        "meta_narration": true,
+        "answered_wrong_question": false
+      },
+      "chunk_relevance": 0.95,
+      "chunk_relevance_rationale": "Retrieved chunks comprehensively cover ESA cost trajectories, enrollment projection misses, switcher assumptions, and public school enrollment impacts across multiple fiscal years.",
+      "rationale": "The answer is comprehensive, accurate, and directly addresses both parts of the question with strong narrative connecting ESA growth to public school decline. However, 7 figures are marked [UNCITED] despite appearing in cited chunks (placement failures), the $1,001,720,000 FY2026 figure doesn't match any verified citation, and the closing meta-narration ('Want me to draft this as a memo…') is unnecessary.",
+      "claim_coverage_precision": 0.5,
+      "claim_coverage_recall": 0.875
+    },
+    {
+      "query_id": "cm-highway-construction",
+      "repeat": 1,
+      "load_bearing_claims": [
+        {
+          "claim": "Highway construction SHF capital outlay held steady at ~$430M–$470M from FY 2023 to FY 2027",
+          "cited_verified": false
+        },
+        {
+          "claim": "Highway maintenance appropriation rose from ~$161M (FY 2024) to ~$201M (FY 2027)",
+          "cited_verified": false
+        },
+        {
+          "claim": "FY 2026 included $15,793,300 increase for maintenance backlog of lane miles in fair or poor condition",
+          "cited_verified": true
+        },
+        {
+          "claim": "FY 2027 included $5.2M ongoing and $10.2M one-time for highway maintenance",
+          "cited_verified": true
+        }
+      ],
+      "holistic": 4,
+      "figure_coverage_ok": true,
+      "placement_ok": true,
+      "flags": {
+        "hedging": false,
+        "meta_narration": true,
+        "answered_wrong_question": false
+      },
+      "chunk_relevance": 0.7,
+      "chunk_relevance_rationale": "Retrieved chunks cover capital outlay, maintenance appropriations, and governor's budget items, but many are tangential fund descriptions rather than the specific footnote figures needed.",
+      "rationale": "The answer directly addresses both building and maintaining, provides correct multi-year construction figures matching the pinned series, and supports the maintenance narrative with verified citations. Core table figures lack verified citations in the provided array, and the closing meta-narration is a minor defect.",
+      "claim_coverage_precision": 0.2857142857142857,
+      "claim_coverage_recall": 0.5
+    },
+    {
+      "query_id": "cm-supplementals-fy2026",
+      "repeat": 1,
+      "load_bearing_claims": [
+        {
+          "claim": "AHCCCS FY 2026 enacted General Fund supplemental of $104,728,400",
+          "cited_verified": true
+        },
+        {
+          "claim": "DES-DDD FY 2026 enacted General Fund supplemental of $82,800,000",
+          "cited_verified": true
+        },
+        {
+          "claim": "JLBC Baseline projected AHCCCS GF shortfall of $64,528,400 plus $340,175,800 expenditure authority",
+          "cited_verified": true
+        },
+        {
+          "claim": "JLBC Baseline projected DES-DDD supplemental of $96,800,000",
+          "cited_verified": true
+        },
+        {
+          "claim": "Governor's Executive Budget recommended $128,100,000 for DES-DDD",
+          "cited_verified": true
+        },
+        {
+          "claim": "All other agencies combined received ~$11.9 million in FY 2026 supplementals",
+          "cited_verified": false
+        }
+      ],
+      "holistic": 3,
+      "figure_coverage_ok": false,
+      "placement_ok": false,
+      "flags": {
+        "hedging": false,
+        "meta_narration": true,
+        "answered_wrong_question": false
+      },
+      "chunk_relevance": 0.7,
+      "chunk_relevance_rationale": "Most chunks cover FY 2026 supplementals on-topic, but several retrieved chunks are FY 2025 supplementals and the ADE formula supplemental is entirely missing from the pool.",
+      "rationale": "The answer is thorough and well-sourced for AHCCCS and DES-DDD, correctly distinguishing General Fund from expenditure authority, but it omits ADE's $47.2M formula supplemental entirely, leaves 10 figures uncited (including the key $104.7M enacted figure despite a verified citation existing for it), and includes meta-narration.",
+      "claim_coverage_precision": 0.21739130434782608,
+      "claim_coverage_recall": 0.8333333333333334
+    },
+    {
+      "query_id": "cm-university-funding-dr",
+      "repeat": 1,
+      "load_bearing_claims": [
+        {
+          "claim": "NAU leans hardest on state tax dollars — GF is 14.4% of all-sources and 48.6% of appropriated funds",
+          "cited_verified": false
+        },
+        {
+          "claim": "ASU leans least on state tax dollars — GF is 8.3% of all-sources and 32.5% of appropriated funds",
+          "cited_verified": false
+        },
+        {
+          "claim": "ASU total all-sources budget is $5.0B, UA Main $3.2B, NAU $864M",
+          "cited_verified": false
+        },
+        {
+          "claim": "General Fund appropriations: ASU $412,671,200, UA Main $289,867,500, NAU $124,707,700",
+          "cited_verified": false
+        }
+      ],
+      "holistic": 3,
+      "figure_coverage_ok": true,
+      "placement_ok": true,
+      "flags": {
+        "hedging": false,
+        "meta_narration": true,
+        "answered_wrong_question": false
+      },
+      "chunk_relevance": 0.8,
+      "chunk_relevance_rationale": "Retrieved JLBC appropriations-report chunks for all three universities contain the operating budget tables and GF summaries, but the question targets budget-bill section totals, not all-sources JLBC report figures.",
+      "rationale": "The answer correctly identifies NAU as most state-dependent and ASU as least, matching the expected comparative direction, but it uses JLBC all-sources totals and adjusted GF figures rather than the budget-bill section appropriations the question implies, yielding different dollar amounts and percentages than expected. Heavy meta-narration throughout detracts from usability.",
+      "claim_coverage_precision": 0.0,
+      "claim_coverage_recall": 0.0
+    },
+    {
+      "query_id": "hs-arra-k12-stabilization-2010",
+      "repeat": 1,
+      "load_bearing_claims": [
+        {
+          "claim": "The required General Fund reduction to Basic State Aid (and Additional State Aid) in FY 2010 was $472,114,000, contingent on ARRA federal stabilization monies.",
+          "cited_verified": true
+        },
+        {
+          "claim": "A separate provision (Laws 2009, Chapter 12, Section 50) would have set a smaller reduction of $222,114,000 but was line-item vetoed.",
+          "cited_verified": true
+        }
+      ],
+      "holistic": 3,
+      "figure_coverage_ok": false,
+      "placement_ok": false,
+      "flags": {
+        "hedging": false,
+        "meta_narration": true,
+        "answered_wrong_question": false
+      },
+      "chunk_relevance": 0.9,
+      "chunk_relevance_rationale": "Retrieved chunks directly contain the FY 2010 ARRA $472,114,000 reduction figure and supporting legislative context.",
+      "rationale": "The core figure ($472,114,000) is correct and supported by verified citations, but the answer is duplicated verbatim and the primary figure is marked [UNCITED] while later mentions carry the citation markers, creating poor placement and coverage friction.",
+      "claim_coverage_precision": 0.4,
+      "claim_coverage_recall": 1.0
+    },
+    {
+      "query_id": "hs-bsf-draw-2008",
+      "repeat": 1,
+      "load_bearing_claims": [
+        {
+          "claim": "$487.0 million was transferred from the BSF to the General Fund in FY 2008 per Laws 2008, Chapter 53",
+          "cited_verified": true
+        },
+        {
+          "claim": "An additional $100.0 million supplemental BSF transfer was projected due to an estimated $(99.0) million shortfall",
+          "cited_verified": false
+        },
+        {
+          "claim": "An estimated $118.0 million would remain in the BSF at the start of FY 2009",
+          "cited_verified": true
+        }
+      ],
+      "holistic": 4,
+      "figure_coverage_ok": false,
+      "placement_ok": false,
+      "flags": {
+        "hedging": false,
+        "meta_narration": false,
+        "answered_wrong_question": false
+      },
+      "chunk_relevance": 0.6,
+      "chunk_relevance_rationale": "One chunk directly answers the question; the other four concern unrelated agency fund transfers.",
+      "rationale": "The answer correctly identifies the $487.0M headline figure and provides useful context without falling into the noted traps. However, three figures ($1.0M, $(99.0)M, $100.0M) are marked [UNCITED] even though citation [2]'s chunk text supports them, indicating a placement/coverage defect.",
+      "claim_coverage_precision": 1.0,
+      "claim_coverage_recall": 0.6666666666666666
+    },
+    {
+      "query_id": "lk-adc-officer-stipend-fy2026",
+      "repeat": 1,
+      "load_bearing_claims": [
+        {
+          "claim": "Total one-time correctional officer stipend appropriation across three pieces: $21,384,700",
+          "cited_verified": true
+        },
+        {
+          "claim": "ADC appropriation: $17,075,300",
+          "cited_verified": true
+        },
+        {
+          "claim": "Private prison per diem line: $3,767,200",
+          "cited_verified": true
+        },
+        {
+          "claim": "DJC appropriation: $542,200",
+          "cited_verified": true
+        },
+        {
+          "claim": "Stipend equals 4% of each officer's annual salary, distributed evenly across pay periods",
+          "cited_verified": true
+        },
+        {
+          "claim": "Stipend limited to employees employed from and after July 4, 2025",
+          "cited_verified": true
+        },
+        {
+          "claim": "Private-prison officers receive equivalent stipend via contract amendment to per-diem rates",
+          "cited_verified": true
+        }
+      ],
+      "holistic": 4,
+      "figure_coverage_ok": false,
+      "placement_ok": true,
+      "flags": {
+        "hedging": false,
+        "meta_narration": true,
+        "answered_wrong_question": false
+      },
+      "chunk_relevance": 1.0,
+      "chunk_relevance_rationale": "All five retrieved chunks directly address the stipend amounts, the 4% salary mechanism, the July 4 2025 eligibility, and the private-prison pass-through.",
+      "rationale": "The answer correctly identifies all three appropriation pieces, explains the per-officer mechanism as 4% of salary, and avoids the trap of reporting only one figure. Two illustrative figures ($55,000 and $2,200) are marked [UNCITED], which is a minor defect, and there is light meta-narration (\"Quick lookup,\" \"All set\").",
+      "claim_coverage_precision": 1.0,
+      "claim_coverage_recall": 1.0
+    },
+    {
+      "query_id": "lk-asrs-rate-fy2026",
+      "repeat": 1,
+      "load_bearing_claims": [
+        {
+          "claim": "ASRS employee and employer each pay 11.98% in FY 2027, down from 12.00% in FY 2026",
+          "cited_verified": true
+        },
+        {
+          "claim": "Combined ASRS rate is 23.96% in FY 2027, down from 24.00% in FY 2026",
+          "cited_verified": true
+        },
+        {
+          "claim": "FY 2025 combined ASRS rate was 24.54%",
+          "cited_verified": false
+        },
+        {
+          "claim": "PSPRS employer rate 45.79% unchanged; CORP 14.38%→12.70%; EORP 70.70%→70.44%",
+          "cited_verified": false
+        },
+        {
+          "claim": "ASRS total employer cost $490,475,500 in FY 2027, down from $499,148,100 in FY 2026",
+          "cited_verified": false
+        },
+        {
+          "claim": "Total employer cost across all five systems $663,771,600 in FY 2027, up from $660,760,500 in FY 2026",
+          "cited_verified": false
+        }
+      ],
+      "holistic": 2,
+      "figure_coverage_ok": false,
+      "placement_ok": true,
+      "flags": {
+        "hedging": false,
+        "meta_narration": true,
+        "answered_wrong_question": true
+      },
+      "chunk_relevance": 0.5,
+      "chunk_relevance_rationale": "Pool includes several stale FY 2020–2024 retirement chunks alongside the relevant FY 2026/FY 2027 chunks; roughly half are off-topic.",
+      "rationale": "The answer leads with FY 2027 rates when the question pins 'this year' to FY 2026, though FY 2026 values (12.00% each, 24.00% combined) do appear and are correct. Heavy meta-narration and multiple uncited dollar figures and non-ASRS rates drag it down further.",
+      "claim_coverage_precision": 0.6666666666666666,
+      "claim_coverage_recall": 0.3333333333333333
+    },
+    {
+      "query_id": "lk-eorp-offset",
+      "repeat": 1,
+      "load_bearing_claims": [
+        {
+          "claim": "$3,000,000 from the General Fund each year for the EORP Offset",
+          "cited_verified": true
+        },
+        {
+          "claim": "Divided equally among 12 counties with population under 300,000 per 2020 Decennial Census, $250,000 each",
+          "cited_verified": true
+        },
+        {
+          "claim": "Amount unchanged since at least FY 2025",
+          "cited_verified": true
+        }
+      ],
+      "holistic": 3,
+      "figure_coverage_ok": false,
+      "placement_ok": false,
+      "flags": {
+        "hedging": false,
+        "meta_narration": false,
+        "answered_wrong_question": false
+      },
+      "chunk_relevance": 0.95,
+      "chunk_relevance_rationale": "All five retrieved chunks directly address the EORP Offset amount and allocation rule, fully on-topic.",
+      "rationale": "The answer correctly states the $3M amount, equal-share allocation to 12 small counties, and $250K per county, all supported by verified chunks. However, $3,000,000 and the 12-county figure are marked [UNCITED] in the annotated answer despite valid citations existing, and 'Pima' is erroneously listed twice among the ineligible larger counties.",
+      "claim_coverage_precision": 1.0,
+      "claim_coverage_recall": 1.0
+    },
+    {
+      "query_id": "lk-gf-revenue-fy2026",
+      "repeat": 1,
+      "load_bearing_claims": [
+        {
+          "claim": "FY 2026 enacted budget assumed $17,771.0 million in General Fund revenue",
+          "cited_verified": true
+        },
+        {
+          "claim": "FY 2026 enacted budget assumed $17,571.2 million in spending",
+          "cited_verified": true
+        },
+        {
+          "claim": "FY 2026 projected ending cash balance was $199.8 million",
+          "cited_verified": true
+        }
+      ],
+      "holistic": 4,
+      "figure_coverage_ok": false,
+      "placement_ok": false,
+      "flags": {
+        "hedging": false,
+        "meta_narration": true,
+        "answered_wrong_question": false
+      },
+      "chunk_relevance": 0.7,
+      "chunk_relevance_rationale": "Several retrieved chunks are directly on-topic (bh3-0004, bh28-0001, bh3-0002, bh3-0005, 444-0008, sb1735-0133), but many baseline and line-item chunks are irrelevant to the enacted-budget revenue/balance question.",
+      "rationale": "The answer correctly and directly answers the question with verified citations for all three load-bearing figures. It loses points for meta-narration throughout and for three uncited supplementary figures ($1.09B, $17.35B, $32.6M) that actually appear in already-cited chunks — a placement defect rather than missing evidence.",
+      "claim_coverage_precision": 0.3,
+      "claim_coverage_recall": 1.0
+    },
+    {
+      "query_id": "lk-k12-basic-aid-fy2026",
+      "repeat": 1,
+      "load_bearing_claims": [
+        {
+          "claim": "Enacted FY 2026 total K-12 formula funding (equalization base) is $10,316,913,300",
+          "cited_verified": true
+        },
+        {
+          "claim": "State-appropriated Basic State Aid portion is $7,623,574,500 (GF $7,400,931,000 + PSSF $72,263,000 + Education Sales Tax $150,380,500)",
+          "cited_verified": true
+        },
+        {
+          "claim": "Local property taxes of $2,693,338,800 are non-appropriated and excluded from appropriated totals",
+          "cited_verified": true
+        }
+      ],
+      "holistic": 4,
+      "figure_coverage_ok": true,
+      "placement_ok": true,
+      "flags": {
+        "hedging": false,
+        "meta_narration": true,
+        "answered_wrong_question": false
+      },
+      "chunk_relevance": 0.75,
+      "chunk_relevance_rationale": "Core chunks (0018, 0003, 0118) directly answer the question; several retrieved chunks about retirement systems and DOA portals are off-topic.",
+      "rationale": "Answer correctly uses the enacted Appropriations Report figures (not the Baseline), presents both the total formula funding and the state-appropriated Basic State Aid, and flags local property taxes as non-appropriated. Minor meta-narration ('Quick lookup', closing offer) prevents a perfect score.",
+      "claim_coverage_precision": 1.0,
+      "claim_coverage_recall": 1.0
+    },
+    {
+      "query_id": "lk-lot-operating-fy2025",
+      "repeat": 1,
+      "load_bearing_claims": [
+        {
+          "claim": "FY 2025 Lottery operating budget appropriation is $10,195,900 and 98.8 FTEs (Appropriations Report)",
+          "cited_verified": true
+        },
+        {
+          "claim": "FY 2025 Lottery operating budget appropriation is $10,475,200 and 98.8 FTEs (Baseline)",
+          "cited_verified": true
+        },
+        {
+          "claim": "Total operating expenditure forecast is ~$202.0M (Baseline) / ~$201.7M (Appropriations Report)",
+          "cited_verified": false
+        }
+      ],
+      "holistic": 3,
+      "figure_coverage_ok": false,
+      "placement_ok": true,
+      "flags": {
+        "hedging": false,
+        "meta_narration": false,
+        "answered_wrong_question": false
+      },
+      "chunk_relevance": 0.9,
+      "chunk_relevance_rationale": "All retrieved chunks directly address the Lottery's FY 2025 operating budget from both the appropriation and revenue-distribution perspectives.",
+      "rationale": "The answer correctly identifies the key $10,195,900 figure but duplicates its entire content verbatim and leaves the $1,117.9M prize figure uncited, creating significant friction for the reader.",
+      "claim_coverage_precision": 0.4,
+      "claim_coverage_recall": 0.6666666666666666
+    },
+    {
+      "query_id": "lk-scotus-salary",
+      "repeat": 1,
+      "load_bearing_claims": [
+        {
+          "claim": "Current Chief Justice salary is $232,000",
+          "cited_verified": true
+        },
+        {
+          "claim": "FY 2025 Act raised salary from $212,000 to $222,000 on Jan 1, 2025, then to $232,000 on Jan 1, 2026",
+          "cited_verified": true
+        },
+        {
+          "claim": "FY 2027 Act raises Chief Justice salary to $242,000 on Jan 1, 2027",
+          "cited_verified": true
+        }
+      ],
+      "holistic": 4,
+      "figure_coverage_ok": false,
+      "placement_ok": false,
+      "flags": {
+        "hedging": false,
+        "meta_narration": false,
+        "answered_wrong_question": false
+      },
+      "chunk_relevance": 0.9,
+      "chunk_relevance_rationale": "All retrieved chunks are directly about judicial salary increases and contain the relevant figures.",
+      "rationale": "The answer is factually correct and complete, giving the current salary, the two-step phase-in, and the upcoming FY 2027 increase, all backed by verified citations. However, $212,000 and $222,000 are marked [UNCITED] even though the chunk cited for $232,000 (citation 3) contains all three figures — a placement defect rather than a missing source.",
+      "claim_coverage_precision": 1.0,
+      "claim_coverage_recall": 1.0
+    },
+    {
+      "query_id": "lk-sos-secretary-of-state-fy2025",
+      "repeat": 1,
+      "load_bearing_claims": [
+        {
+          "claim": "Secretary of State FY 2025 operating subtotal is $16,010,800",
+          "cited_verified": true
+        },
+        {
+          "claim": "FY 2025 FTE count is 146.1",
+          "cited_verified": true
+        },
+        {
+          "claim": "Agency total (operating + special line items) is $25,298,100",
+          "cited_verified": false
+        },
+        {
+          "claim": "General Fund amount is $22,993,900",
+          "cited_verified": false
+        },
+        {
+          "claim": "Total All Sources is $32,746,500",
+          "cited_verified": false
+        },
+        {
+          "claim": "Election Services special line item is $7,900,000",
+          "cited_verified": false
+        },
+        {
+          "claim": "Electronic Records Repository special line item is $520,000",
+          "cited_verified": false
+        }
+      ],
+      "holistic": 4,
+      "figure_coverage_ok": true,
+      "placement_ok": true,
+      "flags": {
+        "hedging": false,
+        "meta_narration": true,
+        "answered_wrong_question": false
+      },
+      "chunk_relevance": 0.9,
+      "chunk_relevance_rationale": "Retrieved chunks are directly from the JLBC SOS FY2025 appropriations document and contain the operating budget table and footnotes with the key figures.",
+      "rationale": "The answer correctly identifies the $16,010,800 operating budget and 146.1 FTEs (matching the FY 2025 Approved column in the retrieved chunk), and provides useful context with additional figures. The citations array is empty so several context figures cannot be verified against chunk text, and the 'Quick lookup' prefix is mild meta-narration.",
+      "claim_coverage_precision": null,
+      "claim_coverage_recall": 0.2857142857142857
+    }
+  ]
+}

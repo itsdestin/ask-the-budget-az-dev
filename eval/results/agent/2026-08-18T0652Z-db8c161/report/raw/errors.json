@@ -1,0 +1,191 @@
+[
+  {
+    "kind": "cite_failure",
+    "tool": "cite",
+    "turn": 5,
+    "query_id": "an-ahcccs-gf-drivers",
+    "detail": "{'ok': False, 'error': \"quote not found in chunk.text — the substring you supplied as `quote` does not appear verbatim in the chunk. Pick text that exists in the chunk (read the retrieve() result's `t"
+  },
+  {
+    "kind": "retrieve_error",
+    "tool": "retrieve",
+    "turn": 1,
+    "query_id": "cm-basic-aid-3yr",
+    "detail": "spread cannot be combined with intent — spread already decides how many passages come back (groups x per_group). Drop the other argument."
+  },
+  {
+    "kind": "retrieve_error",
+    "tool": "retrieve",
+    "turn": 3,
+    "query_id": "cm-des-gf-growth",
+    "detail": "filters has unknown key(s) ['page_start']. Valid keys: fiscal_year, doc_type, publisher, agency_canonical_id, fund_canonical_id, is_table."
+  },
+  {
+    "kind": "cite_failure",
+    "tool": "cite",
+    "turn": 11,
+    "query_id": "cm-des-gf-growth",
+    "detail": "{'ok': False, 'error': \"quote appears multiple times in chunk.text (positions: 589, 785). Extend the quote with more surrounding context so it's unique within this chunk.\", 'chunk_text_length': 866}"
+  },
+  {
+    "kind": "cite_failure",
+    "tool": "cite",
+    "turn": 11,
+    "query_id": "cm-des-gf-growth",
+    "detail": "{'ok': False, 'error': \"quote appears multiple times in chunk.text (positions: 370, 701). Extend the quote with more surrounding context so it's unique within this chunk.\", 'chunk_text_length': 834}"
+  },
+  {
+    "kind": "cite_failure",
+    "tool": "cite",
+    "turn": 2,
+    "query_id": "lk-adc-total-fy2026",
+    "detail": "{'ok': False, 'error': \"quote not found in chunk.text — the substring you supplied as `quote` does not appear verbatim in the chunk. Pick text that exists in the chunk (read the retrieve() result's `t"
+  },
+  {
+    "kind": "cite_failure",
+    "tool": "cite",
+    "turn": 4,
+    "query_id": "lk-agr-operating-fy2025",
+    "detail": "{'ok': False, 'error': \"quote not found in chunk.text — the substring you supplied as `quote` does not appear verbatim in the chunk. Pick text that exists in the chunk (read the retrieve() result's `t"
+  },
+  {
+    "kind": "cite_failure",
+    "tool": "cite",
+    "turn": 4,
+    "query_id": "lk-asu-operating-fy2026",
+    "detail": "{'ok': False, 'error': \"quote not found in chunk.text — the substring you supplied as `quote` does not appear verbatim in the chunk. Pick text that exists in the chunk (read the retrieve() result's `t"
+  },
+  {
+    "kind": "cite_failure",
+    "tool": "cite",
+    "turn": 3,
+    "query_id": "lk-bsf-balance-fy2026",
+    "detail": "{'ok': False, 'error': \"quote not found in chunk.text — the substring you supplied as `quote` does not appear verbatim in the chunk. Pick text that exists in the chunk (read the retrieve() result's `t"
+  },
+  {
+    "kind": "cite_failure",
+    "tool": "cite",
+    "turn": 3,
+    "query_id": "lk-bsf-balance-fy2026",
+    "detail": "{'ok': False, 'error': \"quote not found in chunk.text — the substring you supplied as `quote` does not appear verbatim in the chunk. Pick text that exists in the chunk (read the retrieve() result's `t"
+  },
+  {
+    "kind": "cite_failure",
+    "tool": "cite",
+    "turn": 3,
+    "query_id": "lk-bsf-balance-fy2026",
+    "detail": "{'ok': False, 'error': \"quote not found in chunk.text — the substring you supplied as `quote` does not appear verbatim in the chunk. Pick text that exists in the chunk (read the retrieve() result's `t"
+  },
+  {
+    "kind": "cite_failure",
+    "tool": "cite",
+    "turn": 3,
+    "query_id": "lk-bsf-balance-fy2026",
+    "detail": "{'ok': False, 'error': \"quote not found in chunk.text — the substring you supplied as `quote` does not appear verbatim in the chunk. Pick text that exists in the chunk (read the retrieve() result's `t"
+  },
+  {
+    "kind": "cite_failure",
+    "tool": "cite",
+    "turn": 2,
+    "query_id": "lk-djc-juvenile-corrections-fy2025",
+    "detail": "{'ok': False, 'error': \"quote not found in chunk.text — the substring you supplied as `quote` does not appear verbatim in the chunk. Pick text that exists in the chunk (read the retrieve() result's `t"
+  },
+  {
+    "kind": "cite_failure",
+    "tool": "cite",
+    "turn": 2,
+    "query_id": "lk-djc-juvenile-corrections-fy2025",
+    "detail": "{'ok': False, 'error': \"quote appears multiple times in chunk.text (positions: 285, 953, 1416). Extend the quote with more surrounding context so it's unique within this chunk.\", 'chunk_text_length': "
+  },
+  {
+    "kind": "retrieve_error",
+    "tool": "retrieve",
+    "turn": 0,
+    "query_id": "lk-dps-historical-operating-fy2013",
+    "detail": "arguments were not valid JSON (Expecting ',' delimiter: line 1 column 190 (char 189)). Send the arguments again as a complete JSON object."
+  },
+  {
+    "kind": "cite_failure",
+    "tool": "cite",
+    "turn": 3,
+    "query_id": "lk-dps-historical-operating-fy2013",
+    "detail": "{'ok': False, 'error': \"quote not found in chunk.text — the substring you supplied as `quote` does not appear verbatim in the chunk. Pick text that exists in the chunk (read the retrieve() result's `t"
+  },
+  {
+    "kind": "cite_failure",
+    "tool": "cite",
+    "turn": 1,
+    "query_id": "lk-gf-revenue-fy2026",
+    "detail": "{'ok': False, 'error': \"quote not found in chunk.text — the substring you supplied as `quote` does not appear verbatim in the chunk. Pick text that exists in the chunk (read the retrieve() result's `t"
+  },
+  {
+    "kind": "cite_failure",
+    "tool": "cite",
+    "turn": 1,
+    "query_id": "lk-gf-revenue-fy2026",
+    "detail": "{'ok': False, 'error': \"quote not found in chunk.text — the substring you supplied as `quote` does not appear verbatim in the chunk. Pick text that exists in the chunk (read the retrieve() result's `t"
+  },
+  {
+    "kind": "cite_failure",
+    "tool": "cite",
+    "turn": 2,
+    "query_id": "lk-k12-basic-aid-fy2026",
+    "detail": "{'ok': False, 'error': \"quote not found in chunk.text — the substring you supplied as `quote` does not appear verbatim in the chunk. Pick text that exists in the chunk (read the retrieve() result's `t"
+  },
+  {
+    "kind": "cite_failure",
+    "tool": "cite",
+    "turn": 2,
+    "query_id": "lk-k12-basic-aid-fy2026",
+    "detail": "{'ok': False, 'error': \"quote not found in chunk.text — the substring you supplied as `quote` does not appear verbatim in the chunk. Pick text that exists in the chunk (read the retrieve() result's `t"
+  },
+  {
+    "kind": "cite_failure",
+    "tool": "cite",
+    "turn": 2,
+    "query_id": "lk-k12-basic-aid-fy2026",
+    "detail": "{'ok': False, 'error': \"quote not found in chunk.text — the substring you supplied as `quote` does not appear verbatim in the chunk. Pick text that exists in the chunk (read the retrieve() result's `t"
+  },
+  {
+    "kind": "cite_failure",
+    "tool": "cite",
+    "turn": 2,
+    "query_id": "lk-k12-basic-aid-fy2026",
+    "detail": "{'ok': False, 'error': \"quote not found in chunk.text — the substring you supplied as `quote` does not appear verbatim in the chunk. Pick text that exists in the chunk (read the retrieve() result's `t"
+  },
+  {
+    "kind": "cite_failure",
+    "tool": "cite",
+    "turn": 2,
+    "query_id": "lk-k12-basic-aid-fy2026",
+    "detail": "{'ok': False, 'error': \"quote not found in chunk.text — the substring you supplied as `quote` does not appear verbatim in the chunk. Pick text that exists in the chunk (read the retrieve() result's `t"
+  },
+  {
+    "kind": "cite_failure",
+    "tool": "cite",
+    "turn": 2,
+    "query_id": "lk-k12-basic-aid-fy2026",
+    "detail": "{'ok': False, 'error': \"quote appears multiple times in chunk.text (positions: 233, 416). Extend the quote with more surrounding context so it's unique within this chunk.\", 'chunk_text_length': 496}"
+  },
+  {
+    "kind": "cite_failure",
+    "tool": "cite",
+    "turn": 2,
+    "query_id": "lk-psp-operating-fy2025",
+    "detail": "{'ok': False, 'error': \"quote not found in chunk.text — the substring you supplied as `quote` does not appear verbatim in the chunk. Pick text that exists in the chunk (read the retrieve() result's `t"
+  },
+  {
+    "kind": "cite_failure",
+    "tool": "cite",
+    "turn": 2,
+    "query_id": "lk-vsc-veterans-services-fy2025",
+    "detail": "{'ok': False, 'error': \"quote appears multiple times in chunk.text (positions: 482, 1235, 1671). Extend the quote with more surrounding context so it's unique within this chunk.\", 'chunk_text_length':"
+  },
+  {
+    "kind": "cite_failure",
+    "tool": "cite",
+    "turn": 4,
+    "query_id": "mm-adc-briefing",
+    "detail": "{'ok': False, 'error': \"quote not found in chunk.text — the substring you supplied as `quote` does not appear verbatim in the chunk. Pick text that exists in the chunk (read the retrieve() result's `t"
+  }
+]

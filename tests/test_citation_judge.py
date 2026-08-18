@@ -65,7 +65,7 @@ def test_payload_carries_the_annotated_answer_and_figure_counts():
     t = Transcript(meta={}, events=[], terminal={"frame": {
         "type": "_done", "finalAnswer": ANSWER, "citations": [],
         "toolCalls": [], "annotation": ANNOTATION}})
-    q = AgentQuery(id="q1", question="how much?", shape="lookup")
+    q = AgentQuery(id="q1", question="how much?", shape="lookup", set="quick")
     payload = build_judge_payload(q, t)
     assert "[UNCITED]" in payload["annotated_answer"]
     assert payload["figure_counts"] == {
@@ -79,7 +79,7 @@ def test_a_transcript_from_before_linking_shipped_still_builds_a_payload():
     t = Transcript(meta={}, events=[], terminal={"frame": {
         "type": "_done", "finalAnswer": ANSWER, "citations": [],
         "toolCalls": []}})
-    payload = build_judge_payload(AgentQuery(id="q1", question="?", shape="lookup"), t)
+    payload = build_judge_payload(AgentQuery(id="q1", question="?", shape="lookup", set="quick"), t)
     assert payload["annotated_answer"] == ANSWER
     assert payload["figure_counts"] == {
         "linked": 0, "derived": 0, "unverified": 0}

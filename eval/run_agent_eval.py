@@ -117,13 +117,18 @@ def make_session_factory(settings: Settings, run_dir: Path):
     return factory
 
 
-def select_queries(queries: list[AgentQuery], subset: str,
-                   ids: list[str] | None) -> list[AgentQuery]:
-    picked = [q for q in queries if subset in q.subsets]
-    if ids:
-        wanted = set(ids)
-        picked = [q for q in picked if q.id in wanted]
-    return picked
+def select_by_sets(queries: list[AgentQuery], sets: list[str]) -> list[AgentQuery]:
+    # Unknown set names are a hard error, not a silent empty run: a typo'd
+    # --sets flag that matched zero queries would otherwise produce a
+    # zero-query run dir that LOOKS successful (0 failures) and gets archived.
+    from eval.agent_schema import QUERY_SETS
+    unknown = [s for s in sets if s not in QUERY_SETS]
+    if unknown:
+        raise ValueError(
+            f"unknown sets {unknown!r} — valid sets are {list(QUERY_SETS)}. "
+            f"Note: extended_quick was folded into quick (2026-08-16 spec).")
+    wanted = set(sets)
+    return [q for q in queries if q.set in wanted]
 
 
 def query_set_sha256(queries: list[AgentQuery]) -> str:
@@ -148,9 +153,15 @@ def query_set_sha256(queries: list[AgentQuery]) -> str:
 
 
 def build_manifest(settings: Settings, queries: list[AgentQuery], *,
-                   subset: str, repeats: int, results_note: str = "") -> dict[str, Any]:
+                   sets: list[str], repeats: int,
+                   results_note: str = "") -> dict[str, Any]:
     """Everything needed to know what a run measured. The spec's rule:
-    no two runs are ever compared without knowing what differed."""
+    no two runs are ever compared without knowing what differed.
+
+    `sets` is now REQUIRED (not optional): the old `subset` axis is retired
+    in Task 9 and every run selects by set(s). A manifest with no sets would
+    say nothing about how the queries were chosen.
+    """
     prompt_path = Path(__file__).resolve().parent.parent / "harness" / "system-prompt.md"
     try:
         prompt_sha = hashlib.sha256(prompt_path.read_bytes()).hexdigest()
@@ -168,7 +179,7 @@ def build_manifest(settings: Settings, queries: list[AgentQuery], *,
     return {
         "timestamp": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H%MZ"),
         "git_sha": _git_sha(),
-        "subset": subset,
+        "sets": sets,
         "repeats": repeats,
         "queries": [q.id for q in queries],
         "queries_sha256": query_set_sha256(queries),
@@ -325,7 +336,11 @@ def main() -> int:
         pass
     parser = argparse.ArgumentParser(description="Layer 2 agent-loop eval runner (spends real money)")
     parser.add_argument("--queries-file", default=DEFAULT_QUERIES)
-    parser.add_argument("--subset", default="smoke", choices=("smoke", "full", "dr-probe"))
+    parser.add_argument("--sets", default="quick,multi,deep,refusal",
+                        help="comma-separated sets to run "
+                             "(quick,multi,deep,refusal; any subset, deep is "
+                             "excludable to control cost). The retired "
+                             "--subset flag is gone (2026-08-16 re-tag).")
     parser.add_argument("--queries", nargs="*", default=None, help="restrict to these query ids")
     parser.add_argument("--repeats", type=int, default=1)
     parser.add_argument("--model", default=None,
@@ -352,8 +367,18 @@ def main() -> int:
         tiers["standard"] = TierConfig(model=args.model, enabled=True)
         settings = dataclasses.replace(settings, tiers=tiers)
 
-    queries = select_queries(load_agent_queries(args.queries_file),
-                             args.subset, args.queries)
+    loaded = load_agent_queries(args.queries_file)
+    queries = select_by_sets(loaded, args.sets.split(","))
+    if args.queries:
+        # --queries is an id filter applied AFTER set selection (the retired
+        # --subset axis is gone, so there is no second axis to conflict with).
+        # A named id not in the chosen sets is a hard error, not a silent no-op.
+        wanted = set(args.queries)
+        missing = [i for i in sorted(wanted) if i not in {q.id for q in queries}]
+        if missing:
+            parser.error(f"--queries id(s) not in the selected sets "
+                         f"{args.sets!r}: {missing}")
+        queries = [q for q in queries if q.id in wanted]
     if not queries:
         print("no queries selected", file=sys.stderr)
         return 2
@@ -370,7 +395,7 @@ def main() -> int:
         Path(args.results_dir) / f"{datetime.now(timezone.utc).strftime('%Y-%m-%dT%H%MZ')}-{_git_sha()}"
     )
     run_dir.mkdir(parents=True, exist_ok=True)
-    manifest = build_manifest(settings, queries, subset=args.subset,
+    manifest = build_manifest(settings, queries, sets=args.sets.split(","),
                               repeats=args.repeats, results_note=args.note)
     tmp = (run_dir / "manifest.json").with_suffix(".json.tmp")
     tmp.write_text(json.dumps(manifest, indent=2, ensure_ascii=False), encoding="utf-8")

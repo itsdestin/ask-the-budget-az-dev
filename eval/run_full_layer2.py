@@ -3,7 +3,7 @@
 This is the easy re-runnable entry point the workflow has been wanting:
 instead of remembering three commands in README order, run:
 
-    uv run python -m eval.run_full_layer2 --subset full
+    uv run python -m eval.run_full_layer2 --sets quick,multi,refusal
 
 and it drives the SAME tools the README documents (run_agent_eval,
 score_agent_run, judge_agent_run) as subprocesses, so the on-disk
@@ -69,8 +69,11 @@ def main() -> int:
         description="Run Layer 2 end-to-end: live agent run, then score, then judge.",
     )
     parser.add_argument("--queries-file", default="eval/agent_queries.yaml")
-    parser.add_argument("--subset", default="full",
-                        choices=("full", "smoke", "dr-probe"))
+    parser.add_argument("--sets", default="quick,multi,deep,refusal",
+                        help="comma-separated sets to run "
+                             "(quick,multi,deep,refusal; deep excludes for "
+                             "cheap iterations). The retired --subset flag is "
+                             "gone (2026-08-16 re-tag).")
     parser.add_argument("--queries", nargs="*", default=None,
                         help="restrict to these query ids (passed through)")
     parser.add_argument("--repeats", type=int, default=1)
@@ -103,7 +106,7 @@ def main() -> int:
     run_argv = [
         *base, "eval.run_agent_eval",
         "--queries-file", args.queries_file,
-        "--subset", args.subset,
+        "--sets", args.sets,
         "--results-dir", args.results_dir,
         "--run-dir", run_dir.name,
         "--workers", str(args.workers),
@@ -140,6 +143,14 @@ def main() -> int:
         rc = _run_step("judge (spends money)", judge_argv)
         if rc != 0:
             return rc
+
+    # Report bundle (free): build the reviewable HTML report and launch it in
+    # the browser, so every run ends with a navigable summary Destin can open.
+    # Runs last so a judge failure doesn't hide it; non-fatal if it fails.
+    rc = _run_step("report (free, opens in browser)",
+                   [*base, "eval.report_bundle", str(run_dir)])
+    if rc != 0:
+        print("WARNING: report bundle failed (run itself succeeded)", file=sys.stderr)
 
     print(f"\nDone. Reports report/scores in {run_dir}", flush=True)
     return 0

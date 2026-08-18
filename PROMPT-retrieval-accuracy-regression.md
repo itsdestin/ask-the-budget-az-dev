@@ -124,7 +124,7 @@ corpus/prompt/query set.
   when this was written. If it is incomplete, re-run it:
 
 ```bash
-uv run python -m eval.run_agent_eval --subset full \
+uv run python -m eval.run_agent_eval --sets quick,multi,deep,refusal \
     --model deepseek/deepseek-v4-flash-0731 --note "head-to-head"
 uv run python -m eval.score_agent_run  <run_dir>
 uv run python -m eval.judge_agent_run  <run_dir>          # glm-5.2 by default

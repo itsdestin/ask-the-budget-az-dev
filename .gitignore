@@ -118,3 +118,6 @@ dist/
 # Layer 2 agent-eval raw transcripts (full chunk text; scores/judge/compare ARE committed)
 eval/results/agent/*/*-r*.jsonl
 eval/results/agent/*/ledger.jsonl
+# Copied raw transcripts inside the generated HTML report — same content as
+# the originals above; committing would duplicate every transcript.
+eval/results/agent/*/report/per-query/*.jsonl

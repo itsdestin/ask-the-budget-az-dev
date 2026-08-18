@@ -30,7 +30,7 @@ def fig(verdict, index=1):
             "derived_from": []}
 
 
-QUERY = AgentQuery(id="q1", question="how much?", shape="lookup")
+QUERY = AgentQuery(id="q1", question="how much?", shape="lookup", set="quick")
 
 
 def test_full_coverage():

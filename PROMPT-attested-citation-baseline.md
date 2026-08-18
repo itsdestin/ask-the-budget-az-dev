@@ -79,14 +79,14 @@ and ask:
 ## 2. Layer 2 — smoke, then full
 
 ```bash
-uv run python -m eval.run_full_layer2 --subset smoke --workers 4
+uv run python -m eval.run_full_layer2 --sets quick,multi,refusal --workers 4
 ```
 
 Read `marker_coverage_mean` and `tag_accuracy_mean` FIRST — see §3. If
 they clear the bar, proceed:
 
 ```bash
-uv run python -m eval.run_full_layer2 --subset full --workers 4
+uv run python -m eval.run_full_layer2 --sets quick,multi,deep,refusal --workers 4
 uv run python -m eval.compare_agent_runs \
     eval/results/agent/2026-08-02T0900Z-0b08221 \
     eval/results/agent/<new-run>

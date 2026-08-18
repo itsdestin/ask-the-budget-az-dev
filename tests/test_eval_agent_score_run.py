@@ -20,6 +20,7 @@ FIXTURE = Path(__file__).parent / "fixtures" / "agent_transcript_sample.jsonl"
 
 def make_query(**kw):
     defaults = dict(id="aq-001", question="ADC FY2025?", shape="lookup",
+                    set="quick",  # Task 9: set has no default — supply one
                     key_facts=[KeyFact(kind="currency", value="$1,391,157,700")])
     defaults.update(kw)
     return AgentQuery(**defaults)
@@ -33,8 +34,8 @@ def retrieve_call(chunks, tool_use_id="t-r"):
             "isError": False}
 
 
-def chunk(cid, text):
-    return {"chunk_id": cid, "doc_id": "d", "doc_title": "T", "publisher": "jlbc",
+def chunk(cid, text, doc_id="d"):
+    return {"chunk_id": cid, "doc_id": doc_id, "doc_title": "T", "publisher": "jlbc",
             "fiscal_year": 2025, "doc_type": "afr", "section_path": "", "page_start": 1,
             "page_end": 1, "bbox": None, "text": text, "text_length": len(text), "score": 4.0}
 
@@ -50,12 +51,12 @@ def cite_call(ok=True, error=None, quote="$1,391,157,700"):
 
 
 def make_transcript(tool_calls, final="ADC received $1,391,157,700.",
-                    citations=None, steps=2):
+                    citations=None, steps=2, usage=None):
     frame = {"type": "_done", "stopReason": "end_turn", "finalAnswer": final,
              "incompleteNote": None, "citations": citations or [],
              "retrievedChunkIds": [], "toolCalls": tool_calls,
-             "usage": {"inputTokens": 1000, "outputTokens": 100,
-                       "cacheReadTokens": 400, "cacheCreationTokens": 0, "cost": 0.005}}
+             "usage": usage or {"inputTokens": 1000, "outputTokens": 100,
+                                "cacheReadTokens": 400, "cacheCreationTokens": 0, "cost": 0.005}}
     events = [{"type": "assistant_thinking", "uuid": f"u{i}"} for i in range(steps)]
     return Transcript(meta={"query_id": "aq-001", "repeat": 1},
                       events=events, terminal={"frame": frame, "wall_ms": 30000})
@@ -300,7 +301,7 @@ def test_scores_md_cost_column_has_enough_precision(tmp_path):
     shutil.copy(FIXTURE, run_dir / "aq-001-r1.jsonl")
     qfile = tmp_path / "queries.yaml"
     qfile.write_text(
-        "- id: aq-001\n  question: ADC?\n  shape: lookup\n"
+        "- id: aq-001\n  question: ADC?\n  shape: lookup\n  set: quick\n"
         "  key_facts:\n    - kind: currency\n      value: \"$1,391,157,700\"\n",
         encoding="utf-8")
     argv = sys.argv
@@ -395,7 +396,7 @@ def test_score_run_cli_writes_outputs(tmp_path):
     shutil.copy(FIXTURE, run_dir / "aq-001-r1.jsonl")
     qfile = tmp_path / "queries.yaml"
     qfile.write_text(
-        "- id: aq-001\n  question: ADC?\n  shape: lookup\n"
+        "- id: aq-001\n  question: ADC?\n  shape: lookup\n  set: quick\n"
         "  key_facts:\n    - kind: currency\n      value: \"$1,391,157,700\"\n",
         encoding="utf-8")
     scores = score_run(run_dir, str(qfile))
@@ -431,3 +432,166 @@ def test_a_malformed_cite_batch_slot_scores_as_a_failure_instead_of_crashing():
     assert row["cite_attempts"] == 2
     assert row["cite_failures"] == 1
     assert row["cite_pass_rate"] == pytest.approx(0.5)
+
+
+def _clean_transcript():
+    """Passes its one currency fact and carries one verified cite."""
+    return make_transcript([retrieve_call([chunk("c-1", "ADC $1,391,157,700")])],
+                           citations=[ok_citation("c-1")])
+
+
+def test_accurate_requires_facts_passing_and_a_verified_citation():
+    assert score_transcript(make_query(set="quick"), _clean_transcript())["accurate"] is True
+    # facts pass but zero verified cites -> NOT accurate (fast-but-uncited)
+    t = make_transcript([retrieve_call([chunk("c-1", "ADC $1,391,157,700")])],
+                        citations=[])
+    assert score_transcript(make_query(set="quick"), t)["accurate"] is False
+    # cite present but the fact failed -> NOT accurate (fast-but-wrong)
+    t = make_transcript([retrieve_call([chunk("c-1", "irrelevant")])],
+                        citations=[ok_citation("c-1")], final="ADC received $999.")
+    assert score_transcript(make_query(set="quick"), t)["accurate"] is False
+    # zero key facts (refusal query) -> never accurate, even with a cite
+    t = make_transcript([retrieve_call([chunk("c-1", "x")])],
+                        citations=[ok_citation("c-1")], final="I cannot answer that.")
+    refusal_q = make_query(key_facts=[], shape="refusal", should_refuse=True, set="refusal")
+    assert score_transcript(refusal_q, t)["accurate"] is False
+
+
+def test_headline_aggregates_only_over_accurate_rows():
+    q = make_query(set="quick")
+    good = score_transcript(q, _clean_transcript())          # accurate
+    good2 = score_transcript(q, _clean_transcript())         # accurate
+    # WHY (2026-08 review finding): the shared make_transcript helper hashes
+    # the SAME usage (input 1000 + output 100 + cached 400 = 1500) into every
+    # row, so `tokens_to_accurate_mean == good["total_tokens"]` used to pass
+    # even if the WRONG row were included — the assertion was vacuous. Give the
+    # wrong row a distinct total_tokens so inclusion-vs-exclusion is actually
+    # observable; do not collapse this back by giving every row one usage.
+    wrong = score_transcript(
+        q, make_transcript([retrieve_call([chunk("c-1", "irrelevant")])],
+                           citations=[ok_citation("c-1")], final="ADC received $999.",
+                           usage={"inputTokens": 1, "outputTokens": 1,
+                                  "cacheReadTokens": 1, "cacheCreationTokens": 0,
+                                  "cost": 0.0001}))
+    s = aggregate([good, good2, wrong])
+    assert s["accurate_n"] == 2
+    # wrong row's total_tokens is 3 (≠ both good rows' 1500), so this can only
+    # hold if the inaccurate row is genuinely excluded from the headline.
+    assert s["tokens_to_accurate_mean"] == good["total_tokens"]  # wrong row excluded
+    assert s["accurate_headline_by_set"]["quick"]["n"] == 2
+
+
+def test_wall_clock_is_not_reported_anywhere():
+    # Two transcripts with wildly different wall times (30000 baked into the
+    # fake; vary via terminal). Summary must carry NO wall keys.
+    t1 = make_transcript([retrieve_call([chunk("c-1", "ADC $1,391,157,700")])],
+                         citations=[ok_citation("c-1")])
+    row1 = score_transcript(make_query(), t1)
+    s = aggregate([row1])
+    assert "wall_p50_ms" not in s and "wall_p95_ms" not in s
+    # per-query rows keep the forensic stamp
+    assert row1["wall_ms"] == 30000
+
+
+def _multi_query(id="m-001"):
+    return make_query(id=id, set="multi",
+                      correct_response_docs=["jlbc-approps-2024"])
+
+
+def test_document_correctness_share_over_verified_cites():
+    # 2 verified cites: c-1 on the correct doc, c-2 on a wrong doc
+    t = make_transcript([retrieve_call([chunk("c-1", "ADC $1,391,157,700",
+                                              doc_id="jlbc-approps-2024"),
+                                        chunk("c-2", "ADC $1,391,157,700",
+                                              doc_id="jlbc-baseline-2024")])],
+                        citations=[ok_citation(cid="c-1"), ok_citation(cid="c-2")])
+    row = score_transcript(_multi_query(), t)
+    assert row["document_correctness"] == 0.5
+    assert row["multi_unanswered"] is False
+
+
+def test_document_correctness_none_and_unanswered_when_no_citations():
+    t = make_transcript([retrieve_call([chunk("c-1", "ADC $1,391,157,700",
+                                              doc_id="jlbc-approps-2024")])],
+                        citations=[])
+    row = score_transcript(_multi_query(), t)
+    assert row["document_correctness"] is None
+    assert row["multi_unanswered"] is True
+
+
+def test_document_correctness_not_computed_off_multi_set():
+    row = score_transcript(make_query(set="quick"), _clean_transcript())
+    assert row["document_correctness"] is None and row["multi_unanswered"] is False
+
+
+def test_document_correctness_aggregate_over_multi_rows_with_a_value():
+    # c-1 on the correct doc -> 1.0
+    right = make_transcript([retrieve_call([chunk("c-1", "ADC $1,391,157,700",
+                                                  doc_id="jlbc-approps-2024")])],
+                            citations=[ok_citation(cid="c-1")])
+    # c-1 on the wrong doc -> 0.0 (document_correctness is a value, so it counts)
+    wrong = make_transcript([retrieve_call([chunk("c-1", "ADC $1,391,157,700",
+                                                  doc_id="jlbc-baseline-2024")])],
+                            citations=[ok_citation(cid="c-1")])
+    # c-1 on the right doc but NO citations -> unanswered, no value
+    silent = make_transcript([retrieve_call([chunk("c-1", "ADC $1,391,157,700",
+                                                   doc_id="jlbc-approps-2024")])],
+                             citations=[])
+    rows = [score_transcript(_multi_query(), right),
+            score_transcript(_multi_query(id="m-002"), wrong),
+            score_transcript(_multi_query(id="m-003"), silent)]
+    summary = aggregate(rows)
+    assert summary["document_correctness_mean"] == pytest.approx(0.5)  # 1.0 & 0.0; None excluded
+    assert summary["multi_unanswered_n"] == 1
+
+
+def test_md_contains_headline_by_set_and_error_ledger(tmp_path):
+    """Task 8, part 1: the consolidated scores.md gains a per-set headline
+    table (accurate queries only) and a tool-error ledger section, between
+    the existing Summary and Per-query sections, without disturbing the
+    cost-column precision that test_scores_md_cost_column pins."""
+    from eval.score_agent_run import _md
+    scores = {
+        "summary": {
+            "accurate_headline_by_set": {
+                "quick": {"n": 2, "tokens_mean": 200.0, "turns_mean": 3.0},
+                "multi": {"n": 1, "tokens_mean": 1400.0, "turns_mean": 7.0},
+            }
+        },
+        "per_query": [{"query_id": "a", "shape": "lookup", "ok": True,
+                       "key_fact_rate": 1.0, "verified_citations": 1,
+                       "cite_pass_rate": 1.0, "first_try_cite_rate": 1.0,
+                       "retrieval_efficiency": 1.0, "steps": 3, "cost_usd": 0.003}],
+        "skipped": [],
+        "errors": [{"kind": "cite_failure", "query_id": "a", "turn": 3,
+                    "tool": "cite", "detail": "no match"},
+                   {"kind": "retrieve_error", "query_id": "b", "turn": 1,
+                    "tool": "retrieve", "detail": "boom"}],
+    }
+    md = _md(scores, tmp_path)
+    assert "Headline by set" in md
+    assert "| quick | 2 | 200 | 3.0 |" in md
+    assert "| multi | 1 | 1400 | 7.0 |" in md
+    assert "Tool-error ledger" in md
+    assert "| cite_failure | 1 | a |" in md
+    assert "| retrieve_error | 1 | b |" in md
+
+
+def test_md_skips_both_new_sections_when_absent(tmp_path):
+    """The new sections are additive: a run with no headline data and no tool
+    errors must render the legacy Summary + Per-query sections exactly as
+    before — guards against the insertion breaking existing reports."""
+    from eval.score_agent_run import _md
+    scores = {
+        "summary": {"key_fact_rate_mean": 0.5},
+        "per_query": [{"query_id": "a", "shape": "lookup", "ok": True,
+                       "key_fact_rate": 0.5, "verified_citations": 1,
+                       "cite_pass_rate": 1.0, "first_try_cite_rate": 1.0,
+                       "retrieval_efficiency": 1.0, "steps": 3, "cost_usd": 0.003}],
+        "skipped": [],
+        "errors": [],
+    }
+    md = _md(scores, tmp_path)
+    assert "Headline by set" not in md
+    assert "Tool-error ledger" not in md
+    assert "## Summary" in md and "## Per query" in md

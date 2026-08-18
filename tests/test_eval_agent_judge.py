@@ -46,6 +46,7 @@ def make_query(**overrides) -> AgentQuery:
         id="aq-001",
         question="What was ADC's FY 2025 General Fund appropriation?",
         shape="lookup",
+        set="quick",  # Task 9: set has no default — supply one
         judge_notes="Look for the ADC agency line in the FY 2025 Approps Report.",
     )
     defaults.update(overrides)
@@ -366,7 +367,7 @@ def _run_main(tmp_path, monkeypatch, reply_content: str) -> dict:
     queries_file.write_text(
         "- id: aq-001\n"
         "  question: What was ADC's FY 2025 General Fund appropriation?\n"
-        "  shape: lookup\n", encoding="utf-8")
+        "  shape: lookup\n  set: quick\n", encoding="utf-8")
 
     def handler(request):
         return httpx.Response(200, json={"choices": [{"message": {"content": reply_content}}]})
@@ -416,7 +417,7 @@ def test_main_survives_a_row_that_raises_outside_the_model_call(tmp_path, monkey
     shutil.copy(FIXTURE, run_dir / "aq-001-r1.jsonl")
     shutil.copy(FIXTURE, run_dir / "aq-001-r2.jsonl")
     queries_file = tmp_path / "queries.yaml"
-    queries_file.write_text("- id: aq-001\n  question: q1\n  shape: lookup\n",
+    queries_file.write_text("- id: aq-001\n  question: q1\n  shape: lookup\n  set: quick\n",
                             encoding="utf-8")
 
     real_build = judge_agent_run.build_judge_payload
@@ -468,8 +469,8 @@ def test_main_judges_transcripts_in_parallel_workers(tmp_path, monkeypatch):
                               "wall_ms": 1})
     queries_file = tmp_path / "queries.yaml"
     queries_file.write_text(
-        "- id: aq-001\n  question: ADC? \n  shape: lookup\n"
-        "- id: aq-002\n  question: DEMA?  \n  shape: lookup\n",
+        "- id: aq-001\n  question: ADC? \n  shape: lookup\n  set: quick\n"
+        "- id: aq-002\n  question: DEMA?  \n  shape: lookup\n  set: quick\n",
         encoding="utf-8")
 
     def handler(request):
@@ -492,6 +493,62 @@ def test_main_judges_transcripts_in_parallel_workers(tmp_path, monkeypatch):
     assert all(r.get("holistic") == 4 for r in out["per_query"])
 
 
+def test_main_resumes_from_existing_judge_json_and_does_not_repay(tmp_path, monkeypatch):
+    """A rerun after an interruption must NOT re-grade (and re-pay) rows
+    already in judge.json. Here aq-001 is pre-seeded as already judged; the
+    rerun must grade only aq-002 and merge rather than overwrite aq-001."""
+    run_dir = tmp_path / "run"
+    run_dir.mkdir()
+    from eval.agent_transcript import write_transcript
+    base = Transcript(meta={"query_id": "x"}, terminal={"frame": {"type": "_done"}})
+    for qid in ("aq-001", "aq-002"):
+        meta = dict(base.meta, query_id=qid, repeat=1)
+        write_transcript(run_dir / f"{qid}-r1.jsonl", meta,
+                         [], {"frame": {"type": "_done", "finalAnswer": "x",
+                                        "citations": [], "toolCalls": [],
+                                        "annotation": {"figures": []}},
+                              "wall_ms": 1})
+    queries_file = tmp_path / "queries.yaml"
+    queries_file.write_text(
+        "- id: aq-001\n  question: ADC? \n  shape: lookup\n  set: quick\n"
+        "- id: aq-002\n  question: DEMA?  \n  shape: lookup\n  set: quick\n",
+        encoding="utf-8")
+    # Pre-seed judge.json exactly as a partial interrupted run would leave it:
+    # aq-001 already graded, aq-002 not yet done.
+    seed = {
+        "judge_model": "m", "judge_reasoning": True,
+        "judge_prompt_sha256": "x" * 64, "partial": True,
+        "summary": {"n": 1, "errors": 0, "holistic_mean": 4},
+        "per_query": [{"query_id": "aq-001", "repeat": 1, "holistic": 4,
+                       "load_bearing_claims": [], "chunk_relevance": 0.9}],
+    }
+    (run_dir / "judge.json").write_text(json.dumps(seed), encoding="utf-8")
+
+    calls = []
+    def handler(request):
+        calls.append(request.url.path)
+        return httpx.Response(200, json={"choices": [
+            {"message": {"content": json.dumps(JUDGE_REPLY)}}]})
+
+    real_client = httpx.Client
+    monkeypatch.setattr(judge_agent_run.httpx, "Client",
+                        lambda *a, **k: real_client(transport=httpx.MockTransport(handler)))
+    monkeypatch.setattr(judge_agent_run, "load_settings", lambda: _FakeSettings())
+    monkeypatch.setattr(sys, "argv",
+                        ["judge", str(run_dir), "--queries-file", str(queries_file),
+                         "--workers", "2"])
+    assert main() == 0
+    out = json.loads((run_dir / "judge.json").read_text(encoding="utf-8"))
+    # Only aq-002 was newly graded: exactly one paid model call, not two.
+    assert len(calls) == 1
+    # The resumed run kept the pre-seeded row and added the new one.
+    assert out["summary"]["n"] == 2
+    qids = [r["query_id"] for r in out["per_query"]]
+    assert qids == ["aq-001", "aq-002"]
+    # Complete run, not marked partial.
+    assert out.get("partial") is False
+
+
 def test_reasoning_model_that_returns_null_content_gives_a_clear_error():
     """Observed live 2026-08-02 with deepseek-v4-flash-0731: a reasoning
     model spends its completion budget thinking, hits finish_reason
@@ -509,6 +566,93 @@ def test_reasoning_model_that_returns_null_content_gives_a_clear_error():
     result = judge_one(client, "https://x.test/api/v1", "sk-x", "m", "sys", {"q": 1})
     assert "judge_error" in result
     assert "no content" in result["judge_error"].lower()
+
+
+def test_judge_payload_includes_retrieved_chunk_provenance():
+    """Task 8, part 1: the judge payload must carry the retrieved chunks
+    (chunk_id + doc_id + preview) so the judge can score whether what was
+    retrieved actually matches what the query is asking — the signal
+    chunk-id recall cannot give. The shared fixture's retrieve chunk carries
+    a doc_id (c-1 / d-1), so the existing file pattern (read_transcript +
+    this file's own make_query) is enough."""
+    t = read_transcript(FIXTURE)
+    payload = build_judge_payload(make_query(), t)
+    assert "retrieved_chunks" in payload
+    assert len(payload["retrieved_chunks"]) >= 1
+    assert all(set(c) >= {"chunk_id", "doc_id"} for c in payload["retrieved_chunks"])
+    rc = payload["retrieved_chunks"][0]
+    assert rc["chunk_id"] == "c-1"
+    assert rc["doc_id"] == "d-1"
+    # the one-line preview is a real snippet, capped at 160 chars
+    assert "1,391,157,700" in rc["preview"]
+    assert len(rc["preview"]) <= 160
+
+
+def test_judge_payload_retrieved_chunks_capped_at_30():
+    """The payload is capped at 30 chunks so a chatty retrieve history can't
+    blow the judge's context window — the tail (most recently retrieved) is
+    what matters for judging, so take the first 30 in retrieval order."""
+    t = read_transcript(FIXTURE)
+    base_call = t.terminal["frame"]["toolCalls"][0]
+    # build a transcript with 3 retrieve calls of 20 chunks each = 60 chunks
+    import copy
+    calls = []
+    for i in range(3):
+        call = copy.deepcopy(base_call)
+        chunks = []
+        for j in range(20):
+            c = copy.deepcopy(json.loads(call["output"])["chunks"][0])
+            c["chunk_id"] = f"c-{i}-{j}"
+            c["doc_id"] = f"d-{i}-{j}"
+            c["text"] = f"text {i}-{j}"
+            chunks.append(c)
+        call["output"] = json.dumps({"top_score": 4.2, "chunks": chunks})
+        calls.append(call)
+    # splice the extra retrieve calls in front of the two existing tool calls
+    t.terminal["frame"]["toolCalls"] = calls + t.terminal["frame"]["toolCalls"]
+    payload = build_judge_payload(make_query(), t)
+    assert len(payload["retrieved_chunks"]) == 30
+    # the preview truncates long text to 160 chars
+    assert all(len(c["preview"]) <= 160 for c in payload["retrieved_chunks"])
+
+
+# ---- Task 8, part 2: chunk_relevance is parsed, stored, and aggregated ----
+
+def test_parse_judge_json_carries_chunk_relevance():
+    parsed = parse_judge_json(json.dumps(dict(JUDGE_REPLY, chunk_relevance=0.8,
+                                              chunk_relevance_rationale="matches")))
+    assert parsed["chunk_relevance"] == 0.8
+    assert parsed["chunk_relevance_rationale"] == "matches"
+
+
+def test_parse_judge_json_abnormal_chunk_relevance_becomes_none():
+    """Finding 7: a malformed/absent chunk_relevance must become None (so the
+    row survives and is excluded from the mean), not crash the parse or be
+    silently counted."""
+    for bad in ("high", True, 17, -0.5, ["x"], {"v": 0.5}, float("nan")):
+        parsed = parse_judge_json(json.dumps({"load_bearing_claims": [], "holistic": 2,
+                                              "chunk_relevance": bad}))
+        assert parsed["chunk_relevance"] is None, bad
+    parsed = parse_judge_json(json.dumps({"load_bearing_claims": []}))
+    assert parsed["chunk_relevance"] is None
+
+
+def test_main_stores_chunk_relevance_per_query_and_summary_mean(tmp_path, monkeypatch):
+    """Finding 7, end to end: asking the judge for chunk_relevance and NOT
+    persisting it buys nothing — it must be stored in judge.json's per-query
+    row and aggregated into a chunk_relevance_mean over the graded queries."""
+    out = _run_main(tmp_path, monkeypatch, json.dumps(dict(JUDGE_REPLY, chunk_relevance=0.8)))
+    assert out["summary"]["chunk_relevance_mean"] == 0.8
+    assert out["per_query"][0]["chunk_relevance"] == 0.8
+
+
+def test_main_chunk_relevance_mean_survives_a_malformed_value(tmp_path, monkeypatch):
+    """The mean skips queries whose chunk_relevance failed to normalize, and
+    the run still writes judge.json — the existing 'never lose what you paid
+    for' guarantee extended to the new field."""
+    out = _run_main(tmp_path, monkeypatch, json.dumps(dict(JUDGE_REPLY, chunk_relevance="4/5")))
+    assert out["summary"]["chunk_relevance_mean"] is None
+    assert out["per_query"][0]["chunk_relevance"] is None
 
 
 def test_request_sets_max_tokens_so_a_reasoning_model_can_finish():

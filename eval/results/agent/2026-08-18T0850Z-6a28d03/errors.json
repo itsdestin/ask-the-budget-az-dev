@@ -1,0 +1,51 @@
+[
+  {
+    "kind": "retrieve_error",
+    "tool": "retrieve",
+    "turn": 0,
+    "query_id": "cm-basic-aid-3yr",
+    "detail": "spread cannot be combined with intent — spread already decides how many passages come back (groups x per_group). Drop the other argument."
+  },
+  {
+    "kind": "cite_failure",
+    "tool": "cite",
+    "turn": 6,
+    "query_id": "cm-basic-aid-3yr",
+    "detail": "{'ok': False, 'error': \"quote not found in chunk.text — the substring you supplied as `quote` does not appear verbatim in the chunk. Pick text that exists in the chunk (read the retrieve() result's `t"
+  },
+  {
+    "kind": "cite_failure",
+    "tool": "cite",
+    "turn": 6,
+    "query_id": "cm-basic-aid-3yr",
+    "detail": "{'ok': False, 'error': \"quote not found in chunk.text — the substring you supplied as `quote` does not appear verbatim in the chunk. Pick text that exists in the chunk (read the retrieve() result's `t"
+  },
+  {
+    "kind": "cite_failure",
+    "tool": "cite",
+    "turn": 3,
+    "query_id": "lk-agr-operating-fy2025",
+    "detail": "{'ok': False, 'error': \"quote not found in chunk.text — the substring you supplied as `quote` does not appear verbatim in the chunk. Pick text that exists in the chunk (read the retrieve() result's `t"
+  },
+  {
+    "kind": "cite_failure",
+    "tool": "cite",
+    "turn": 2,
+    "query_id": "mm-adc-briefing",
+    "detail": "{'ok': False, 'error': \"quote not found in chunk.text — the substring you supplied as `quote` does not appear verbatim in the chunk. Pick text that exists in the chunk (read the retrieve() result's `t"
+  },
+  {
+    "kind": "cite_failure",
+    "tool": "cite",
+    "turn": 2,
+    "query_id": "mm-adc-briefing",
+    "detail": "{'ok': False, 'error': \"quote not found in chunk.text — the substring you supplied as `quote` does not appear verbatim in the chunk. Pick text that exists in the chunk (read the retrieve() result's `t"
+  },
+  {
+    "kind": "cite_failure",
+    "tool": "cite",
+    "turn": 4,
+    "query_id": "mm-esa-memo",
+    "detail": "{'ok': False, 'error': \"quote not found in chunk.text — the substring you supplied as `quote` does not appear verbatim in the chunk. Pick text that exists in the chunk (read the retrieve() result's `t"
+  }
+]

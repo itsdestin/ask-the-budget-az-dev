@@ -1,0 +1,34 @@
+{
+  "timestamp": "2026-08-18T0747Z",
+  "git_sha": "db8c161",
+  "sets": [
+    "quick"
+  ],
+  "repeats": 1,
+  "queries": [
+    "an-ahcccs-enrollment",
+    "an-ahcccs-gf-drivers",
+    "an-esa-growth",
+    "mm-adc-briefing",
+    "mm-esa-memo",
+    "hs-arra-k12-stabilization-2010",
+    "hs-leaseback-prisons-2010",
+    "hs-bsf-draw-2008",
+    "hs-full-day-kindergarten-2005",
+    "hs-fy2010-oneshot-financing"
+  ],
+  "queries_sha256": "18481d5e1c9464da192d466a076d39977667541d19d7c511b755ca268d3754f2",
+  "tier_models": {
+    "standard": "deepseek/deepseek-v4-flash-0731",
+    "deep_research": "moonshotai/kimi-k3"
+  },
+  "provider": "openrouter",
+  "base_url": "https://openrouter.ai/api/v1",
+  "api_key_set": true,
+  "prompt_sha256": "8bd3a2938bbb6106335ff9e519b5d842242c33b0b3a1b7a83ac36cbbd3e3e7ca",
+  "corpus_counts": {
+    "budget_chunks": 83197,
+    "fiscal_note_chunks": 14161
+  },
+  "note": "rerun 10 x 403-contaminated quick queries (Destin 2026-08-18)"
+}

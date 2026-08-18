@@ -154,6 +154,11 @@ EXCLUDED_NAMES = (
     "retrieval/api.py",
     "scripts/embed_corpus.py", "scripts/load_slice.py",
     "scripts/redownload_cached_pdfs.py",
+    # Dev-only query verifier against the live corpus: imports eval/ (dev-only
+    # tree, excluded above), so it must not ship to the office bundle. Same
+    # exclusion pattern as the other dev-only scripts.
+    # Caught by test_every_first_party_import_resolves.
+    "scripts/verify_agent_query.py",
 )
 
 # Entries the launcher cannot start without. Asserted by
