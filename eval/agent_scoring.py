@@ -198,13 +198,44 @@ def _facts_covered(query: AgentQuery, text: str) -> int:
     return sum(1 for f in query.key_facts if fact_matches(f, text))
 
 
+_PROVIDER_ERROR_MARKERS = (
+    "403", "401", "429", "500", "502", "503", "504",
+    "key limit", "rate limit", "provider returned an error",
+    "quota", "temporarily unavailable", "timed out", "timeout",
+)
+
+
+def _is_provider_error(error: str | None) -> bool:
+    """True when a non-completed transcript failed for a PROVIDER/transport
+    reason (OpenRouter 403 key limit, rate limit, 5xx, network timeout) rather
+    than the model genuinely refusing or an authoring/internal fault.
+
+    WHY this matters (2026-08-18, deepseek-v4-flash audit): an OpenRouter
+    "Key limit exceeded (total limit)" 403 struck MID-run and killed 10 of 45
+    queries. Each wrote an `_error` terminal frame, and the scorer -- which
+    treats every `_error` the same -- counted them as model failures, dragging
+    accurate_rate to 0.23 and hiding the fact that deepseek never got to act
+    on those queries. A provider outage is not a model defect; it must be
+    reported separately and excluded from the model's accuracy denominator."""
+    if not error:
+        return False
+    low = error.lower()
+    return any(m in low for m in _PROVIDER_ERROR_MARKERS)
+
+
 def score_transcript(query: AgentQuery, t: Transcript) -> dict[str, Any]:
     frame_type = (t.terminal.get("frame") or {}).get("type")
+    err_msg = (t.terminal.get("frame") or {}).get("message") if frame_type != "_done" else None
     row: dict[str, Any] = {
         "query_id": query.id, "shape": query.shape, "set": query.set,
         "repeat": t.meta.get("repeat", 1),
         "ok": frame_type == "_done",
-        "error": (t.terminal.get("frame") or {}).get("message") if frame_type != "_done" else None,
+        "error": err_msg,
+        # Provider outages (403 key-limit, rate limit, 5xx, timeout) are NOT
+        # the model's failures. Classicified here, reported separately, and
+        # excluded from the accuracy denominator in aggregate() — see
+        # _is_provider_error for the full rationale.
+        "provider_error": not (frame_type == "_done") and _is_provider_error(err_msg),
         "wall_ms": wall_ms(t),
     }
     u = usage(t)
@@ -227,6 +258,24 @@ def score_transcript(query: AgentQuery, t: Transcript) -> dict[str, Any]:
     row["verified_citations"] = len(verified)
     row["emitted_citations"] = len(citations(t))
 
+    # Figure annotation (the harness's tag-derived citation mechanism).
+    # Compute it HERE, before `accurate`, so the accurate bar below can
+    # credit it; the figure-coverage block later reuses these values instead
+    # of recomputing them.
+    _ann_figures = annotation(t).get("figures") or []
+    _figures_tag_linked = sum(
+        1 for e in _ann_figures if e.get("link_basis") == "tag"
+        and e.get("primary"))
+    # A tag-linked figure resolves to a real retrieved chunk (its `primary`),
+    # so it is a VERIFIED citation — the same thing the analyst sees as a
+    # citation chip in the UI. Count it toward the headline bar. (2026-08-18:
+    # deepseek-v4-flash-0731 emitted legitimate [[cN]] tags that the harness
+    # consumed into verified figure annotations, but the accurate bar only
+    # counted `cite`-tool calls and marked these correct answers "not
+    # accurate". The tag->annotation path is the app's real citation system;
+    # ignoring it mis-scored the model.)
+    _has_verified_citation = row["verified_citations"] >= 1 or _figures_tag_linked >= 1
+
     # Headline eligibility (2026-08-16 consolidation): an "accurate" response
     # passes ALL its key facts AND produces >=1 verified citation. Refusal
     # queries (0 key facts) are never "accurate" — their quality lives in
@@ -234,7 +283,7 @@ def score_transcript(query: AgentQuery, t: Transcript) -> dict[str, Any]:
     # with cheap refuses (the vacuous-pass hole the spec explicitly closes).
     row["accurate"] = bool(
         frame_type == "_done" and total_facts
-        and matched == total_facts and row["verified_citations"] >= 1
+        and matched == total_facts and _has_verified_citation
     )
     row["total_tokens"] = row["input_tokens"] + row["output_tokens"] + row["cached_tokens"]
 
@@ -438,7 +487,7 @@ def score_transcript(query: AgentQuery, t: Transcript) -> dict[str, Any]:
     # citation-quality signal: many citations are fine, missing ones are
     # not. `None` when the answer states no figures — that is not a
     # coverage failure and must not average in as a zero.
-    ann_figures = annotation(t).get("figures") or []
+    ann_figures = _ann_figures  # computed above, before `accurate`
     counts = {"linked": 0, "derived": 0, "unverified": 0}
     for entry in ann_figures:
         verdict = entry.get("verdict")
@@ -465,6 +514,12 @@ def score_transcript(query: AgentQuery, t: Transcript) -> dict[str, Any]:
         1 for e in ann_figures if e.get("attested_chunk_ids"))
     row["figures_tag_linked"] = sum(
         1 for e in ann_figures if e.get("link_basis") == "tag")
+    # Verified figure citations: tag-linked figures that resolve to a real
+    # chunk (their `primary`). This is the count the accurate bar credits —
+    # the harness's real citation mechanism. Kept separately from
+    # figures_tag_linked (which counts link_basis==tag regardless of primary)
+    # so the two can disagree and the difference is visible.
+    row["verified_figure_citations"] = _figures_tag_linked
     return row
 
 
@@ -474,7 +529,14 @@ def _mean(vals: list[float]) -> float | None:
 
 
 def aggregate(rows: list[dict[str, Any]]) -> dict[str, Any]:
-    ok_rows = [r for r in rows if r["ok"]]
+    # Provider failures (403 key-limit, rate limit, 5xx, network) never gave
+    # the model a chance to answer, so they are NOT model failures: pull them
+    # out of both the accuracy denominator and the "errors" crash count, and
+    # report them under their own key. A query that ran to `_done` is never a
+    # provider_error, so ok_rows is unchanged in that direction.
+    provider_rows = [r for r in rows if r.get("provider_error")]
+    model_rows = [r for r in rows if not r.get("provider_error")]
+    ok_rows = [r for r in model_rows if r["ok"]]
     acc = [r for r in ok_rows if r["accurate"]]
     # WHY the headline excludes rather than zeroes inaccurate rows: a
     # regression that trades correctness for speed must show as accurate_rate
@@ -522,7 +584,11 @@ def aggregate(rows: list[dict[str, Any]]) -> dict[str, Any]:
     quote_meds = [r["median_quote_len"] for r in ok_rows if r["median_quote_len"] is not None]
     return {
         "n": len(rows),
-        "errors": len(rows) - len(ok_rows),
+        # "errors" now counts only genuine (non-provider) crashes; provider
+        # outages get their own item so they cannot masquerade as model
+        # failures (2026-08-18, deepseek 403-key-limit incident).
+        "errors": len(model_rows) - len(ok_rows),
+        "provider_errors": len(provider_rows),
         "accurate_n": len(acc),
         "accurate_rate": (len(acc) / len(ok_rows)) if ok_rows else None,
         "tokens_to_accurate_mean": _mean([r["total_tokens"] for r in acc]),

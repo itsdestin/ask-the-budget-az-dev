@@ -1495,6 +1495,35 @@ class ToolExecutor:
                 f"search returned {FIRST_CALL_TOP_K_CAP} passages. Read them, "
                 "then search again with a sharper query for more."
             )
+        # A hard citation reminder rides on EVERY retrieve result, not just the
+        # system prompt. Prompt-level "you must cite" instructions fade over a
+        # long tool loop (measured: deepseek-v4-flash-0731 returned correct
+        # figures with high figure-coverage yet zero cite/tag emissions on
+        # every lookup — 2026-08-18). Stamping the reminder onto each result
+        # re-surfaces it at the exact moment the model is about to write its
+        # answer, with the concrete aliases from THIS result in hand.
+        response["cite_reminder"] = (
+            "Cite what you use: tag every figure you state with its passage's "
+            "alias in double brackets (e.g. [[c1]]), and register each "
+            "non-numeric claim with a cite/cite_batch call using a chunk_id "
+            f"from this result. Use these aliases now: "
+            + ", ".join(f"[[{self._alias_by_chunk[c.chunk_id]}]]={c.chunk_id}"
+                        for c in result.chunks[:8])
+            + ". If there is nothing to cite, you have not answered from "
+            "the corpus — retrieve again."
+        )
+        # A narrowing nudge riders on EVERY retrieve result too. Same reasoning
+        # as the cite reminder above: a "filter for what you need" instruction
+        # in the system prompt fades over a long loop. Deepseek in particular
+        # took imprecise first searches and answered from them instead of
+        # sharpening — stamping the affordance (fiscal year / doc type / agency
+        # filters) onto each result re-cues it with the concrete filter tool.
+        response["filter_hint"] = (
+            "Not what you were looking for? Narrow the search by passing "
+            "`filters.fiscal_year`, `filters.doc_type`, or "
+            "`filters.agency_canonical_id` on the next retrieve(), or see "
+            "`list_filter_values` for the exact values in this corpus."
+        )
         return response
 
     # -- cite / cite_batch -------------------------------------------------
