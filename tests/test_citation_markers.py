@@ -21,6 +21,69 @@ def test_multi_alias_marker():
     assert tags[0].aliases == ("c3", "c12")
 
 
+def test_bracket_wrapped_multi_alias_marker_does_not_leak():
+    # Real models sometimes wrap each alias in its own brackets
+    # ([[c3],[c4]]) instead of the documented [[c3,c4]]. The old
+    # malformed-marker regex stopped at the FIRST `]`, stripping
+    # only "[[c3]" and leaking ", [c4]]" into the rendered answer —
+    # a P1 UI bug (report: "revenue of $18.33 billion ,[c4]]").
+    stripped, tags = parse_markers(
+        "revenue of $18.33 billion [[c3],[c4]]. Here's the next sentence"
+    )
+    assert stripped == "revenue of $18.33 billion . Here's the next sentence"
+    assert stripped.find("[") == -1
+    assert stripped.find("]") == -1
+    # Aliases are cleaned of their wrapping brackets.
+    assert tags[0].aliases == ("c3", "c4")
+    # Longer chains and spaces between bracket pairs parse too.
+    stripped2, tags2 = parse_markers("x [[c3], [c4], [c12]] y")
+    assert stripped2 == "x y"
+    assert tags2[0].aliases == ("c3", "c4", "c12")
+
+
+def test_bracket_wrapped_marker_offset_indexes_stripped_text():
+    stripped, tags = parse_markers("grew [[c1],[c2]] fast")
+    assert stripped == "grew fast"
+    # The marker starts right after "grew ".
+    assert stripped[: tags[0].at].endswith("grew ")
+    assert tags[0].aliases == ("c1", "c2")
+
+
+def test_unterminated_bracket_wrapped_chain_strips_without_leak():
+    # A final answer cut by max_tokens, or a streaming frame, can end
+    # mid-marker. The whole marker-like span must go, tail included.
+    for raw in (
+        "x [[c3],",        # stopped right after the comma
+        "x [[c3],[c4",     # stopped mid-second-alias
+        "x [[c3],[c",      # stopped mid-alias-name (no digits yet)
+    ):
+        stripped, tags = parse_markers(raw)
+        assert "[[" not in stripped, raw
+        assert "]" not in stripped, raw
+        assert stripped == "x "
+        assert tags == []
+
+
+def test_closed_bracket_wrapped_chain_at_eof_is_well_formed():
+    # The same shape CLOSED is a legitimate multi-alias marker: it parses
+    # into cleaned aliases rather than being treated as malformed junk.
+    stripped, tags = parse_markers("x [[c3],[c4]]")
+    assert stripped == "x "
+    assert tags[0].aliases == ("c3", "c4")
+
+
+def test_strip_for_stream_holds_back_unterminated_bracket_wrapped_chain():
+    # Same hold-back contract as the plain partial: an unterminated
+    # bracket-wrapped marker must not flash its tail on screen.
+    assert strip_for_stream("grew to $8.2M [[c3],") == "grew to $8.2M "
+    assert strip_for_stream("grew to $8.2M [[c3],[c4") == "grew to $8.2M "
+    # Once the marker completes, the held-back characters are gone for good.
+    assert (
+        strip_for_stream("grew to $8.2M [[c3],[c4]] and")
+        == "grew to $8.2M and"
+    )
+
+
 def test_multiple_markers_offsets_all_index_stripped_text():
     raw = "A [[c1]] then B [[c2]] end"
     stripped, tags = parse_markers(raw)
