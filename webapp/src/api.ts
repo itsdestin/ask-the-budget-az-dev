@@ -144,10 +144,51 @@ export interface ChunkSource {
   bbox: number[] | null;
   /** Verbatim chunk text — the highlight target AND the cited-text panel. */
   text: string;
+  /** Per-paragraph locators for merged narrative chunks (spec L1), written
+   *  at ingest. Null on rows written before the locate work; the viewer
+   *  passes `lines` back to /locate but never renders them itself. */
+  source_anchor?: {
+    page?: number | null;
+    lines?: Array<{ text: string; page: number; bbox: number[] }>;
+  } | null;
   source_format: string | null;
   /** Non-null when this source has no page image (DOCX bills, fiscal notes).
    *  The string is the backend's own 415 wording; render it, don't rewrite it. */
   pdf_unavailable_reason: string | null;
+}
+
+/** The locate endpoint's answer (spec L2): exact PDF rects for a cited
+ *  value, in PDF user-space points — the space PdfPage's bbox math already
+ *  speaks. `basis` says which rung found it; "none" means the viewer runs
+ *  its existing text-layer chain unchanged. */
+export interface ChunkLocate {
+  chunk_id: string;
+  page: number | null;
+  rects: number[][];
+  basis: "anchor" | "stored-page" | "scan" | "none";
+}
+
+/** Resolve a cited value to exact PDF rects. Returns null on ANY failure —
+ *  a locate failure must degrade to the viewer's existing fallback chain,
+ *  never error the provenance surface (spec L2's "nothing gets worse"). */
+export async function chunkLocate(
+  chunkId: string,
+  text: string,
+  corpus = "budget",
+): Promise<ChunkLocate | null> {
+  if (!text) return null;
+  try {
+    const r = await fetch(
+      `/api/chunks/${encodeURIComponent(chunkId)}/locate` +
+        `?corpus=${encodeURIComponent(corpus)}&text=${encodeURIComponent(text)}`,
+    );
+    if (!r.ok) return null;
+    const body = (await r.json()) as ChunkLocate;
+    if (!Array.isArray(body.rects)) return null;
+    return body;
+  } catch {
+    return null;
+  }
 }
 
 /** Fetch one chunk by id. Used by the search page's source panel, where a

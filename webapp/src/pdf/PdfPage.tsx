@@ -92,6 +92,12 @@ interface Props {
   /** Optional per-chunk coord map from a future #57 ingest pipeline.
    *  Today: always undefined. */
   coordMap?: ChunkCoordMap;
+  /** Exact highlight rects from the server-side locate endpoint
+   *  (spec L2), each [x0,y0,x1,y1] in PDF user-space points. When
+   *  non-empty these ARE the ground truth — PyMuPDF found the cited
+   *  value on the real page — so the client text-layer strategy is
+   *  skipped entirely. Empty/undefined runs today's chain unchanged. */
+  serverRects?: number[][];
   /** Optional strategy override — tests pass a fake; production uses
    *  TextLayerSearchStrategy. */
   strategy?: HighlightStrategy;
@@ -140,6 +146,7 @@ export default function PdfPage({
   containerWidth,
   zoomLevel = 1,
   coordMap,
+  serverRects,
   strategy,
 }: Props) {
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
@@ -158,6 +165,10 @@ export default function PdfPage({
   // badge instead so the user knows we located the page but not the
   // exact text.
   const [notLocated, setNotLocated] = useState(false);
+  // Bumped by the Retry button on the load-failure panel (spec L4): a
+  // share blip used to be a red dead end until the analyst re-clicked
+  // the chip; Retry re-runs this effect against the same doc/page.
+  const [retryNonce, setRetryNonce] = useState(0);
 
   useEffect(() => {
     let cancelled = false;
@@ -227,29 +238,59 @@ export default function PdfPage({
         await renderTask.promise;
         if (cancelled) return;
 
-        // Highlight strategy. Default is TextLayerSearchStrategy
-        // (text-layer search restricted to the chunk's bbox if any);
-        // tests + the future #57 path can pass a different strategy.
-        // Strict bbox: when a chunk has a stored bbox, the strategy
-        // does NOT fall back to whole-page search on miss — we want
-        // an honest "couldn't pinpoint" badge instead of a yellow
-        // rectangle on the wrong text.
-        const activeStrategy = strategy ?? new TextLayerSearchStrategy();
-        const restrictRect =
-          bbox && bbox.length >= 4
-            ? bboxToViewportRect(bbox, naturalViewport, renderScale)
-            : null;
-        const quote = (searchTexts ?? [])[0] ?? "";
-        const fullChunkText = (searchTexts ?? [])[1] ?? "";
-        const computed = await activeStrategy.resolve({
-          page,
-          viewport,
-          quote,
-          sourceText,
-          fullChunkText,
-          bbox: restrictRect,
-          coordMap,
-        });
+        // Server-side locate first (spec L2): when the locate endpoint
+        // found the cited value, its rects are the ground truth —
+        // PyMuPDF searched the REAL page — and the client text-layer
+        // strategy is skipped entirely. Measured 2026-08-18: the client
+        // chain missed 44% of correctly linked figures (stored bbox
+        // covered only the chunk's first paragraph, values on later
+        // pages, accounting-paren drift); the server answer fixes all
+        // three without loosening the strict-bbox rule that exists to
+        // prevent wrong-number highlights.
+        const server = (serverRects ?? [])
+          .filter((r) => Array.isArray(r) && r.length >= 4)
+          .map((r) => {
+            const [vx1, vy1, vx2, vy2] = viewport.convertToViewportRectangle([
+              r[0]!,
+              r[1]!,
+              r[2]!,
+              r[3]!,
+            ]);
+            return {
+              left: Math.min(vx1, vx2),
+              top: Math.min(vy1, vy2),
+              width: Math.max(1, Math.abs(vx2 - vx1)),
+              height: Math.max(1, Math.abs(vy2 - vy1)),
+            };
+          });
+        let computed: HighlightRect[];
+        if (server.length > 0) {
+          computed = server;
+        } else {
+          // Highlight strategy. Default is TextLayerSearchStrategy
+          // (text-layer search restricted to the chunk's bbox if any);
+          // tests + the future #57 path can pass a different strategy.
+          // Strict bbox: when a chunk has a stored bbox, the strategy
+          // does NOT fall back to whole-page search on miss — we want
+          // an honest "couldn't pinpoint" badge instead of a yellow
+          // rectangle on the wrong text.
+          const activeStrategy = strategy ?? new TextLayerSearchStrategy();
+          const restrictRect =
+            bbox && bbox.length >= 4
+              ? bboxToViewportRect(bbox, naturalViewport, renderScale)
+              : null;
+          const quote = (searchTexts ?? [])[0] ?? "";
+          const fullChunkText = (searchTexts ?? [])[1] ?? "";
+          computed = await activeStrategy.resolve({
+            page,
+            viewport,
+            quote,
+            sourceText,
+            fullChunkText,
+            bbox: restrictRect,
+            coordMap,
+          });
+        }
         if (cancelled) return;
         if (computed.length === 0) setNotLocated(true);
         setHighlights(computed);
@@ -287,6 +328,8 @@ export default function PdfPage({
     containerWidth,
     zoomLevel,
     coordMap,
+    JSON.stringify(serverRects ?? []),
+    retryNonce,
     strategy,
   ]);
 
@@ -308,8 +351,36 @@ export default function PdfPage({
       ))}
       {loading && !error && <div className="pdf-page-overlay">Loading page…</div>}
       {error && (
-        <div className="pdf-page-overlay pdf-page-error">
-          Couldn&rsquo;t load page {pageNumber}: {error}
+        // Spec L4 (Destin 2026-08-18): a PDF load failure used to be a
+        // red overlay with a raw exception and no way out. The raw file
+        // link is ALWAYS accurate — it is the document itself — so the
+        // failure surface leads with it, says the verbatim passage is
+        // still below, and offers Retry for the transient-share case.
+        <div className="pdf-load-failed" role="alert">
+          <h3>Couldn&rsquo;t open this page</h3>
+          <p>
+            The source file didn&rsquo;t load. The cited text below is
+            still the verbatim passage from the document.
+          </p>
+          <div className="pdf-load-failed-actions">
+            <a
+              href={`/api/pdf/${encodeURIComponent(docId)}#page=${pageNumber}`}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="pdf-open-original"
+              title="Open the full PDF in a new browser tab"
+            >
+              Open document ↗
+            </a>
+            <button
+              type="button"
+              className="pdf-retry-btn"
+              onClick={() => setRetryNonce((n) => n + 1)}
+            >
+              Retry
+            </button>
+          </div>
+          <p className="pdf-load-failed-detail">page {pageNumber}: {error}</p>
         </div>
       )}
       {notLocated && !loading && !error && (
