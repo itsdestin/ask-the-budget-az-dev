@@ -1,0 +1,182 @@
+{
+  "judge_model": "z-ai/glm-5.2",
+  "judge_reasoning": true,
+  "judge_prompt_sha256": "26923f724c1329dbbe5222927ce59afb01827001e42da5963da896767056ee09",
+  "summary": {
+    "n": 5,
+    "errors": 0,
+    "claim_coverage_precision_mean": 0.7272727272727273,
+    "claim_coverage_recall_mean": 0.6,
+    "holistic_mean": 3.2,
+    "chunk_relevance_mean": 0.66
+  },
+  "per_query": [
+    {
+      "query_id": "an-ahcccs-enrollment",
+      "repeat": 1,
+      "load_bearing_claims": [
+        {
+          "claim": "AHCCCS enrollment fell well below budget assumptions (FY 2026: 1.65M actual vs 1.86M budgeted, 190K fewer)",
+          "cited_verified": true
+        },
+        {
+          "claim": "Combined capitation rate increases of 14.1% generated $169,757,700 in General Fund costs, swamping caseload savings",
+          "cited_verified": true
+        },
+        {
+          "claim": "FY 2026 required a supplemental of $104,728,400 GF and $471,741,800 expenditure authority for the formula funding shortfall",
+          "cited_verified": true
+        },
+        {
+          "claim": "FY 2027 removes the one-time supplemental, builds continued enrollment declines into formulas, and backfills Hospital Assessment and Prescription Drug Rebate fund shifts",
+          "cited_verified": true
+        },
+        {
+          "claim": "FY 2027 AHCCCS General Fund spending still increases $202.2M (7.4%) because capitation growth and backfills outweigh caseload savings",
+          "cited_verified": true
+        }
+      ],
+      "holistic": 3,
+      "figure_coverage_ok": false,
+      "placement_ok": true,
+      "flags": {
+        "hedging": false,
+        "meta_narration": true,
+        "answered_wrong_question": true
+      },
+      "chunk_relevance": 0.8,
+      "chunk_relevance_rationale": "Most retrieved chunks are on-topic for AHCCCS enrollment and budget adjustments, though several are tangential formula-adjustment line items.",
+      "rationale": "The answer thoroughly explains both directions (caseload down, rates up) with strong citation support, but it focuses on the FY 2026 shortfall rippling into FY 2027 rather than the FY 2025 scenario the judge notes describe (1.58M vs 1.77M, $55,575,200 rate adjustment for 1-20 age group), and five figures are marked [UNCITED] including two backfill amounts that have verified supporting citations. Meta-narration in the opening and closing lines adds friction.",
+      "claim_coverage_precision": 0.45454545454545453,
+      "claim_coverage_recall": 1.0
+    },
+    {
+      "query_id": "hs-bsf-draw-2008",
+      "repeat": 1,
+      "load_bearing_claims": [
+        {
+          "claim": "Laws 2008, Chapter 53 authorized a $487.0 million BSF transfer to the General Fund in FY 2008",
+          "cited_verified": true
+        },
+        {
+          "claim": "An additional estimated $100.0 million transfer was required due to a projected $(99.0) million FY 2008 General Fund shortfall",
+          "cited_verified": true
+        }
+      ],
+      "holistic": 3,
+      "figure_coverage_ok": false,
+      "placement_ok": false,
+      "flags": {
+        "hedging": false,
+        "meta_narration": true,
+        "answered_wrong_question": false
+      },
+      "chunk_relevance": 0.3,
+      "chunk_relevance_rationale": "Only 2 of 14 retrieved chunks (both from FY2009 BSF section) are on-topic; the rest are unrelated FY2008 agency budget pages.",
+      "rationale": "The answer correctly identifies the pinned $487.0M figure and properly contextualizes the additional $100.0M, but the entire response is duplicated and several figures ($(99.0)M, $1.0M, $100.0M) are marked [UNCITED] despite a verified citation covering them, indicating poor citation placement.",
+      "claim_coverage_precision": 1.0,
+      "claim_coverage_recall": 1.0
+    },
+    {
+      "query_id": "lk-adc-total-fy2026",
+      "repeat": 1,
+      "load_bearing_claims": [
+        {
+          "claim": "Total FY 2026 ADC spending all sources is $1,774,153,700",
+          "cited_verified": false
+        },
+        {
+          "claim": "General Fund share is $1,574,113,200",
+          "cited_verified": false
+        },
+        {
+          "claim": "Other appropriated funds are $63,451,500",
+          "cited_verified": false
+        }
+      ],
+      "holistic": 2,
+      "figure_coverage_ok": false,
+      "placement_ok": true,
+      "flags": {
+        "hedging": true,
+        "meta_narration": true,
+        "answered_wrong_question": false
+      },
+      "chunk_relevance": 0.5,
+      "chunk_relevance_rationale": "Chunks are from the right documents but focus on operating detail and line items, not the all-sources summary total the question requires.",
+      "rationale": "The General Fund and other appropriated fund figures match the judge's expected values, but the total ($1,774,153,700) is wrong — the correct all-told total is $1,637,564,700, and the assistant incorrectly layers on non-appropriated and federal funds. No citations verified, two figures are uncited, and the answer is laced with meta-narration.",
+      "claim_coverage_precision": null,
+      "claim_coverage_recall": 0.0
+    },
+    {
+      "query_id": "lk-k12-basic-aid-fy2026",
+      "repeat": 1,
+      "load_bearing_claims": [
+        {
+          "claim": "Basic State Aid for FY 2026 (enacted) = $7,623,574,500",
+          "cited_verified": true
+        },
+        {
+          "claim": "General Fund component = $7,400,931,000",
+          "cited_verified": true
+        },
+        {
+          "claim": "Permanent State School Fund component = $72,263,000",
+          "cited_verified": true
+        },
+        {
+          "claim": "Education Sales Tax – Basic State Aid component = $150,380,500",
+          "cited_verified": true
+        },
+        {
+          "claim": "Total excludes local property taxes, which are non-appropriated",
+          "cited_verified": true
+        }
+      ],
+      "holistic": 4,
+      "figure_coverage_ok": false,
+      "placement_ok": true,
+      "flags": {
+        "hedging": false,
+        "meta_narration": false,
+        "answered_wrong_question": false
+      },
+      "chunk_relevance": 0.8,
+      "chunk_relevance_rationale": "Key chunk (0018) directly states the enacted Basic State Aid total and breakdown; baseline chunks are present but appropriately not used for the final figure.",
+      "rationale": "Answer correctly identifies the enacted $7,623,574,500 figure from the Appropriations Report rather than the JLBC baseline, and properly notes exclusion of local property taxes. The $2.69 billion local-property-tax figure is uncited, which is a coverage defect, and the $10.32 billion total is marked as linked rather than derived.",
+      "claim_coverage_precision": null,
+      "claim_coverage_recall": 1.0
+    },
+    {
+      "query_id": "lk-roc-operating-fy2025",
+      "repeat": 1,
+      "load_bearing_claims": [
+        {
+          "claim": "FY 2025 operating budget is $12,908,000 with 105.6 FTE",
+          "cited_verified": false
+        },
+        {
+          "claim": "Appropriated total from Registrar of Contractors Fund is $13,925,600",
+          "cited_verified": false
+        },
+        {
+          "claim": "Total all sources including non-appropriated funds is $18,592,400",
+          "cited_verified": false
+        }
+      ],
+      "holistic": 4,
+      "figure_coverage_ok": true,
+      "placement_ok": true,
+      "flags": {
+        "hedging": false,
+        "meta_narration": true,
+        "answered_wrong_question": false
+      },
+      "chunk_relevance": 0.9,
+      "chunk_relevance_rationale": "Retrieved chunks directly cover operating budget, OAH costs, statewide adjustments, and non-appropriated funds for the Registrar of Contractors FY 2025.",
+      "rationale": "The answer is substantively correct and comprehensive, matching judge notes, with all figures marked linked or derived in the annotated answer. However, the citations array is empty so no claims can be formally verified, and the answer includes meta-narration about its own lookup process.",
+      "claim_coverage_precision": null,
+      "claim_coverage_recall": 0.0
+    }
+  ]
+}

@@ -1,0 +1,16 @@
+[
+  {
+    "kind": "cite_failure",
+    "tool": "cite",
+    "turn": 2,
+    "query_id": "an-ahcccs-enrollment",
+    "detail": "{'ok': False, 'error': \"quote not found in chunk.text — the substring you supplied as `quote` does not appear verbatim in the chunk. Pick text that exists in the chunk (read the retrieve() result's `t"
+  },
+  {
+    "kind": "cite_failure",
+    "tool": "cite",
+    "turn": 3,
+    "query_id": "mm-adc-briefing",
+    "detail": "{'ok': False, 'error': \"quote not found in chunk.text — the substring you supplied as `quote` does not appear verbatim in the chunk. Pick text that exists in the chunk (read the retrieve() result's `t"
+  }
+]

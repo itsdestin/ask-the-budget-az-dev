@@ -1,0 +1,343 @@
+{
+  "judge_model": "z-ai/glm-5.2",
+  "judge_reasoning": true,
+  "judge_prompt_sha256": "26923f724c1329dbbe5222927ce59afb01827001e42da5963da896767056ee09",
+  "summary": {
+    "n": 10,
+    "errors": 1,
+    "claim_coverage_precision_mean": 0.5812950937950938,
+    "claim_coverage_recall_mean": 0.5527777777777777,
+    "holistic_mean": 3.2222222222222223,
+    "chunk_relevance_mean": 0.7333333333333333
+  },
+  "per_query": [
+    {
+      "query_id": "an-ahcccs-enrollment",
+      "repeat": 1,
+      "load_bearing_claims": [
+        {
+          "claim": "Through June 2025, AHCCCS capitated enrollment was 1.58 million, 190,000 below the enacted budget assumption of 1.77 million",
+          "cited_verified": true
+        },
+        {
+          "claim": "Capitation rate adjustments in October 2024 and April 2025 pushed General Fund costs $55,575,200 above the enacted budget",
+          "cited_verified": true
+        },
+        {
+          "claim": "FY 2025 base adjustment reduced state match by $(102,214,900) and Total Funds by $(305,138,400) in FY 2026",
+          "cited_verified": true
+        },
+        {
+          "claim": "FY 2025 ex-appropriation of $(94,051,600) was backfilled into FY 2026",
+          "cited_verified": true
+        },
+        {
+          "claim": "One-time federal match rate revision added $(29,700,000) to FY 2025 General Fund surplus, excluded from base adjustment",
+          "cited_verified": true
+        }
+      ],
+      "holistic": 4,
+      "figure_coverage_ok": false,
+      "placement_ok": true,
+      "flags": {
+        "hedging": false,
+        "meta_narration": true,
+        "answered_wrong_question": false
+      },
+      "chunk_relevance": 0.6,
+      "chunk_relevance_rationale": "About 5 of 21 retrieved chunks directly address the FY 2025 enrollment shortfall and FY 2026 ripple; the rest are older-year or general AHCCCS descriptions.",
+      "rationale": "The answer comprehensively explains both directions (caseload down, rates up) and traces the ripple into FY 2026 with verified citations, but two enrollment-count figures are marked [UNCITED] and the closing paragraphs contain meta-narration.",
+      "claim_coverage_precision": 0.4166666666666667,
+      "claim_coverage_recall": 1.0
+    },
+    {
+      "query_id": "an-ahcccs-gf-drivers",
+      "repeat": 1,
+      "load_bearing_claims": [
+        {
+          "claim": "AHCCCS FY 2026 General Fund spending rose $36,140,500 or 1.4%",
+          "cited_verified": true
+        },
+        {
+          "claim": "$150M shift of Medicaid services costs to PDRF-State offsets most of the formula growth",
+          "cited_verified": true
+        },
+        {
+          "claim": "Caseload line was a $186M decrease due to annualized FY 2025 caseload declines",
+          "cited_verified": true
+        },
+        {
+          "claim": "Net formula increase to General Fund is about $86M after non-GF match offsets",
+          "cited_verified": true
+        },
+        {
+          "claim": "$94M backfill of FY 2025 ex-appropriation is layered on top of formula changes",
+          "cited_verified": true
+        }
+      ],
+      "holistic": 4,
+      "figure_coverage_ok": false,
+      "placement_ok": true,
+      "flags": {
+        "hedging": false,
+        "meta_narration": true,
+        "answered_wrong_question": false
+      },
+      "chunk_relevance": 0.9,
+      "chunk_relevance_rationale": "Retrieved chunks cover the summary, Table 1 reconciliation, formula adjustments, FMAP changes, and backfill — all directly on-topic.",
+      "rationale": "The answer correctly identifies the PDRF shift as the key mechanism and provides a thorough reconciliation table, which is exactly what the question demands. Two figures (190,000 and $171.5M) are marked [UNCITED] in the annotated answer despite supporting citations existing, and the opening meta-narration lines should have been stripped.",
+      "claim_coverage_precision": 0.7142857142857143,
+      "claim_coverage_recall": 1.0
+    },
+    {
+      "query_id": "an-esa-growth",
+      "repeat": 1,
+      "load_bearing_claims": [
+        {
+          "claim": "ESAs are funded with Basic State Aid monies that districts/charters would otherwise receive",
+          "cited_verified": true
+        },
+        {
+          "claim": "Laws 2022, Chapter 388 made ESA program universal, opening it to students with no prior public school presence",
+          "cited_verified": true
+        },
+        {
+          "claim": "Award formula changed to 90% of charter school amount, adding ~$1,700 per pupil starting FY 2014",
+          "cited_verified": true
+        },
+        {
+          "claim": "FY 2024 budget assumed 68,380 ESA enrollees / $625.2M awards; actual was 76,427 / $717.6M",
+          "cited_verified": true
+        },
+        {
+          "claim": "FY 2024 budget assumed +0.4% public school ADM growth; actual ADM was 1.0% below FY 2023",
+          "cited_verified": true
+        },
+        {
+          "claim": "FY 2025 budget assumed 48% switchers; ADE data showed ~61% of new ESA entrants came from public schools",
+          "cited_verified": true
+        },
+        {
+          "claim": "JLBC labels all ESA projections 'highly speculative' until steady-state enrollment",
+          "cited_verified": true
+        },
+        {
+          "claim": "FY 2025 actual ESA enrollment was 87,602 with $872.2M in awards",
+          "cited_verified": false
+        }
+      ],
+      "holistic": 3,
+      "figure_coverage_ok": false,
+      "placement_ok": false,
+      "flags": {
+        "hedging": false,
+        "meta_narration": false,
+        "answered_wrong_question": false
+      },
+      "chunk_relevance": 0.7,
+      "chunk_relevance_rationale": "Most chunks are on-topic ESA/formula passages, but the key chunk holding the revised FY 2025/FY 2026 formula-cost figures (jlbc-baseline-fy2026-ade-0027) was not retrieved, and several older historical chunks add limited value.",
+      "rationale": "The answer is analytically strong — it connects ESA growth to formula mechanics, forecast misses, and the switcher problem with well-verified citations for the core claims — but 14 figures are marked [UNCITED] and two linked figures (87,602 enrollees, $872.2M awards) do not appear in any cited chunk, creating real verification gaps. It also never states the headline $822M→$1B+ formula-cost trajectory the question implicitly targets.",
+      "claim_coverage_precision": 0.875,
+      "claim_coverage_recall": 0.875
+    },
+    {
+      "query_id": "hs-arra-k12-stabilization-2010",
+      "repeat": 1,
+      "load_bearing_claims": [
+        {
+          "claim": "Required FY 2010 General Fund reduction to K-12 formula aid was $472,114,000",
+          "cited_verified": true
+        },
+        {
+          "claim": "Reduction applied to combined Basic State Aid and Additional State Aid General Fund appropriation",
+          "cited_verified": true
+        },
+        {
+          "claim": "Reduction was conditional on receipt of ARRA federal education stabilization fund monies under Laws 2009, 3rd Special Session, Chapter 11",
+          "cited_verified": true
+        }
+      ],
+      "holistic": 4,
+      "figure_coverage_ok": false,
+      "placement_ok": true,
+      "flags": {
+        "hedging": false,
+        "meta_narration": true,
+        "answered_wrong_question": false
+      },
+      "chunk_relevance": 0.9,
+      "chunk_relevance_rationale": "FY2010 ADE ARRA chunk directly answers the question; FY2011 and Basic State Aid chunks provide useful context.",
+      "rationale": "The core figure of $472,114,000 is correctly identified, well-cited from the verified FY2010 chunk, and properly contextualized. The [UNCITED] $(92,800,000) in the follow-up offer and the meta-narration closing are minor defects.",
+      "claim_coverage_precision": 1.0,
+      "claim_coverage_recall": 1.0
+    },
+    {
+      "query_id": "hs-bsf-draw-2008",
+      "repeat": 1,
+      "load_bearing_claims": [
+        {
+          "claim": "$487.0 million was transferred from the Budget Stabilization Fund to the General Fund in FY 2008",
+          "cited_verified": false
+        },
+        {
+          "claim": "The transfer was authorized by Laws 2008, Chapter 53",
+          "cited_verified": false
+        }
+      ],
+      "holistic": 3,
+      "figure_coverage_ok": false,
+      "placement_ok": true,
+      "flags": {
+        "hedging": false,
+        "meta_narration": true,
+        "answered_wrong_question": false
+      },
+      "chunk_relevance": 0.15,
+      "chunk_relevance_rationale": "Only one of ~28 retrieved chunks touches the Budget Stabilization Fund; the rest are per-agency line items unrelated to the BSF transfer.",
+      "rationale": "The answer correctly identifies the $487.0 million Chapter 53 BSF transfer and provides useful context, but it is burdened by extensive meta-narration and four uncited figures. No citations passed verification, so the load-bearing claims cannot be confirmed as cited.",
+      "claim_coverage_precision": null,
+      "claim_coverage_recall": 0.0
+    },
+    {
+      "query_id": "hs-full-day-kindergarten-2005",
+      "repeat": 1,
+      "judge_error": "ValueError: judge returned no content (finish_reason='length') — a reasoning model likely exhausted max_tokens before answering"
+    },
+    {
+      "query_id": "hs-fy2010-oneshot-financing",
+      "repeat": 1,
+      "load_bearing_claims": [
+        {
+          "claim": "FY 2010 budget relied on roughly $1.51 billion in one-time financing",
+          "cited_verified": false
+        },
+        {
+          "claim": "Largest component was $1,485.4 million from State Asset Leaseback/Lottery",
+          "cited_verified": false
+        },
+        {
+          "claim": "General Fund balance forward deficit was $(480.7) million",
+          "cited_verified": false
+        }
+      ],
+      "holistic": 3,
+      "figure_coverage_ok": true,
+      "placement_ok": true,
+      "flags": {
+        "hedging": false,
+        "meta_narration": false,
+        "answered_wrong_question": false
+      },
+      "chunk_relevance": 0.9,
+      "chunk_relevance_rationale": "Retrieved chunks directly contain the $1.51 billion FY 2010 one-time financing total and the supporting table, matching the question precisely.",
+      "rationale": "The answer correctly reports the acceptable revised $1.51 billion figure and breaks down its components, but the citations array is empty so no claim can be verified despite the annotated answer showing citation markers. Content is right; verification is impossible.",
+      "claim_coverage_precision": null,
+      "claim_coverage_recall": 0.0
+    },
+    {
+      "query_id": "hs-leaseback-prisons-2010",
+      "repeat": 1,
+      "load_bearing_claims": [
+        {
+          "claim": "The FY 2010 sale-and-leaseback was required to raise $735,419,300 in proceeds to the General Fund",
+          "cited_verified": false
+        },
+        {
+          "claim": "No more than $250,000,000 of the proceeds could be collected before December 31, 2009",
+          "cited_verified": false
+        },
+        {
+          "claim": "A second round (Laws 2010, 6th Special Session, Chapter 4) authorized an additional $300,000,000 sale/lease-back",
+          "cited_verified": false
+        }
+      ],
+      "holistic": 3,
+      "figure_coverage_ok": false,
+      "placement_ok": true,
+      "flags": {
+        "hedging": false,
+        "meta_narration": true,
+        "answered_wrong_question": false
+      },
+      "chunk_relevance": 0.9,
+      "chunk_relevance_rationale": "Retrieved chunks directly cover the sale-and-leaseback legislation, the $735,419,300 figure, and the $1,035,419,300 aggregate, all on-topic for the question.",
+      "rationale": "The answer correctly identifies $735,419,300 as the required proceeds and accurately describes the enabling legislation, but the citations array is empty so no figures are verified, and $300,000,000 is marked [UNCITED]. The content is substantively correct but lacks verifiable citation support.",
+      "claim_coverage_precision": null,
+      "claim_coverage_recall": 0.0
+    },
+    {
+      "query_id": "mm-adc-briefing",
+      "repeat": 1,
+      "load_bearing_claims": [
+        {
+          "claim": "Total appropriated funds for ADC FY 2026 = $1,637,564,700",
+          "cited_verified": false
+        },
+        {
+          "claim": "General Fund share = $1,574,113,200",
+          "cited_verified": false
+        },
+        {
+          "claim": "One-time correctional officer stipend = $3,767,200 General Fund (4% of salary)",
+          "cited_verified": true
+        },
+        {
+          "claim": "Private prison per diem = $55,283,500 labeled one-time through FY 2027",
+          "cited_verified": true
+        }
+      ],
+      "holistic": 3,
+      "figure_coverage_ok": false,
+      "placement_ok": false,
+      "flags": {
+        "hedging": true,
+        "meta_narration": true,
+        "answered_wrong_question": false
+      },
+      "chunk_relevance": 0.7,
+      "chunk_relevance_rationale": "Chunks cover one-time items and long-term impacts well but none contain the Summary of Appropriated Funds totals the question hinges on.",
+      "rationale": "The answer states the correct total and GF figures and names multiple specific one-time items with verified citations, clearing the pass/fail bar of verified_citations > 0. However, the two most important dollar figures are not supported by any cited chunk, 9 figures are marked [UNCITED], and citation markers appear misaligned with the figures they annotate.",
+      "claim_coverage_precision": 0.18181818181818182,
+      "claim_coverage_recall": 0.5
+    },
+    {
+      "query_id": "mm-esa-memo",
+      "repeat": 1,
+      "load_bearing_claims": [
+        {
+          "claim": "FY 2025 total ESA awards ~$824.5M",
+          "cited_verified": false
+        },
+        {
+          "claim": "FY 2026 total ESA awards ~$1,001.7M",
+          "cited_verified": true
+        },
+        {
+          "claim": "FY 2027 total ESA awards ~$1,215.7M",
+          "cited_verified": false
+        },
+        {
+          "claim": "Universal eligibility (Laws 2022, Ch. 338) is the main cost driver",
+          "cited_verified": true
+        },
+        {
+          "claim": "ESA growth is partly self-offsetting by public school ADM declines",
+          "cited_verified": true
+        }
+      ],
+      "holistic": 2,
+      "figure_coverage_ok": false,
+      "placement_ok": false,
+      "flags": {
+        "hedging": false,
+        "meta_narration": true,
+        "answered_wrong_question": false
+      },
+      "chunk_relevance": 0.85,
+      "chunk_relevance_rationale": "Retrieved chunks include ESA growth narratives for FY 2025–2027 from both JLBC baseline and appropriations reports plus governor's budget proposals — directly on-topic.",
+      "rationale": "The substantive content is largely correct and the 'why' section is well-cited, but 25 figures are uncited (many available in retrieved chunks) and several citation markers are misplaced — e.g., [2] sits on the FY 2026 award total but citation 2's chunk contains the FY 2025 figure instead. Heavy meta-narration throughout further degrades usability.",
+      "claim_coverage_precision": 0.3,
+      "claim_coverage_recall": 0.6
+    }
+  ]
+}

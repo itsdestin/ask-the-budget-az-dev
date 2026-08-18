@@ -1,0 +1,399 @@
+<!doctype html><html><head><meta charset="utf-8">
+<title>mm-esa-memo — eval report</title><style>
+:root { --bg:#f6f8fb; --card:#fff; --ink:#161b26; --muted:#5c6775;
+        --accent:#2563eb; --ok:#0e9f5b; --warn:#d97706; --bad:#dc2626;
+        --line:#e5eaf1; --tool:#f1f5f9; --tool-edge:#93c5fd;
+        --user-bubble:#eaf1ff; --assistant-bubble:#fff; --chip:#eef1f6;
+        /* app design tokens, ported from webapp/src/styles/tokens.css so the
+           transcript renders with the app's own palette */
+        --navy:#2b2f63; --navy-700:#232752; --navy-900:#181b3d; --navy-100:#e7e8f2;
+        --az-gold:#1b6fc4; --az-gold-d:#145aa6; --az-gold-100:#dceaf7;
+        --ink-2:#4a4e6a; --ink-3:#757895; --r-md:16px; --r-sm:12px; --r-pill:999px;
+        --chat-danger:#c0392b; --chat-danger-tint:#fdecea; }
+* { box-sizing:border-box; }
+html { scroll-behavior:smooth; }
+body { margin:0; font:15px/1.6 -apple-system,"Segoe UI",Roboto,sans-serif;
+       background:var(--bg); color:var(--ink); overflow-x:hidden; }
+header { background:linear-gradient(120deg,#17233c 0%,#1d4ed8 60%,#2563eb 100%);
+         color:#fff; padding:28px 44px; box-shadow:0 2px 12px rgba(20,30,60,.25); }
+header h1 { margin:0; font-size:23px; font-weight:700; letter-spacing:.2px; }
+header .sub { opacity:.9; margin-top:5px; font-size:13px; }
+.wrap { max-width:1280px; margin:0 auto; padding:28px 44px 60px; }
+h2 { margin-top:40px; font-size:20px; font-weight:700; color:#0f244f;
+     border-bottom:2px solid var(--line); padding-bottom:8px; }
+h2 .count { color:var(--muted); font-weight:500; font-size:14px; margin-left:8px; }
+h3 { font-size:16px; font-weight:600; margin:22px 0 10px; color:#17305f; }
+table { border-collapse:separate; border-spacing:0; width:100%; margin:14px 0;
+        background:var(--card); box-shadow:0 1px 4px rgba(20,30,60,.08);
+        border-radius:10px; overflow:hidden; }
+/* A table must not stretch the page: .table-scroll clips wide tables so the
+   page itself never scrolls horizontally; the table scrolls inside its own
+   block. whole-page horizontal scroll is disabled on body. */
+.table-scroll { overflow-x:auto; -webkit-overflow-scrolling:touch; margin:14px 0; }
+.table-scroll table { margin:0; }
+.table-scroll th { position:sticky; top:0; }
+th,td { padding:9px 12px; text-align:left; border-bottom:1px solid var(--line);
+        font-size:13.5px; white-space:nowrap; }
+th { background:#eef2f9; font-weight:700; color:#23334f; cursor:pointer;
+     user-select:none; position:sticky; top:0; z-index:1; }
+th:hover { background:#e2e9f5; }
+th .sort { font-size:10px; color:var(--muted); margin-left:4px; }
+tr:last-child td { border-bottom:none; }
+tbody tr:hover td { background:#f6f9ff; }
+td.num { text-align:right; font-variant-numeric:tabular-nums; }
+.good { color:var(--ok); font-weight:700; }
+.warn { color:var(--warn); font-weight:700; }
+.bad { color:var(--bad); font-weight:700; }
+.muted { color:var(--muted); }
+.badge { display:inline-block; font-size:12px; font-weight:700; border-radius:20px;
+         padding:2px 10px; }
+.badge.good { background:#e6f6ee; color:var(--ok); }
+.badge.warn { background:#fdf1e0; color:var(--warn); }
+.badge.bad { background:#fdeaea; color:var(--bad); }
+.metric-grid { display:grid; grid-template-columns:repeat(auto-fill,minmax(158px,1fr));
+               gap:12px; margin:16px 0; }
+.metric { background:var(--card); border:1px solid var(--line); border-radius:10px;
+          padding:12px 16px; box-shadow:0 1px 3px rgba(20,30,60,.05); }
+.metric .k { font-size:11px; text-transform:uppercase; letter-spacing:.05em;
+             color:var(--muted); font-weight:600; }
+.metric .v { font-size:19px; font-weight:700; margin-top:3px; font-variant-numeric:tabular-nums; }
+.metric .v.good { color:var(--ok); } .metric .v.warn { color:var(--warn); }
+.metric .v.bad { color:var(--bad); }
+/* consolidated metric grid: labeled groups, so the per-query page reads in
+   three scannable bands instead of one undifferentiated wall of cards. */
+.metric-group { margin:14px 0 6px; }
+.metric-group h3 { margin:0 0 8px; font-size:13px; text-transform:uppercase;
+                   letter-spacing:.05em; color:var(--muted); }
+.chat { border:1px solid var(--line); border-radius:12px; overflow:hidden;
+        box-shadow:0 1px 4px rgba(20,30,60,.06); margin:16px 0; }
+.msg { padding:14px 20px; }
+.msg.user { background:var(--user-bubble); }
+.msg.assistant { background:var(--assistant-bubble); border-top:1px solid var(--line); }
+.msg .who { font-size:11px; font-weight:800; text-transform:uppercase;
+            letter-spacing:.06em; color:var(--muted); margin-bottom:5px; }
+.msg .body { white-space:pre-wrap; }
+/* client-side markdown rendering of message bodies */
+.msg .body p { margin:0 0 8px; }
+.msg .body p:last-child { margin-bottom:0; }
+.msg .body table { font-size:12.5px; margin:6px 0; }
+.msg .body code { background:var(--chip); padding:1px 5px; border-radius:4px;
+                  font-size:12.5px; font-family:ui-monospace,Menlo,monospace; }
+.msg .body pre { background:#0f1b2e; color:#d9e3f5; padding:10px 14px; border-radius:8px;
+                 overflow:auto; }
+.msg .body pre code { background:none; color:inherit; padding:0; }
+.msg .body blockquote { margin:6px 0; padding:4px 12px; border-left:3px solid var(--accent);
+                        color:var(--muted); }
+.msg .body h1,.msg .body h2 { font-size:15px; margin:10px 0 6px; color:#17305f; }
+.msg .body ul,.msg .body ol { margin:6px 0; padding-left:22px; }
+.tool { background:var(--tool); border-left:4px solid var(--tool-edge); padding:10px 16px;
+        margin:10px 16px; border-radius:8px; font-size:13px; box-shadow:0 1px 2px rgba(20,30,60,.05); }
+.tool .tname { font-weight:800; font-size:12.5px; text-transform:uppercase;
+               letter-spacing:.04em; color:#1d4ed8; }
+.tool .tinput { margin-top:6px; font-family:ui-monospace,Menlo,monospace; font-size:12.5px;
+                white-space:pre-wrap; color:#2b3a57; background:#fff; padding:8px 10px;
+                border-radius:6px; border:1px solid var(--line); }
+.tool .tresult { margin-top:6px; color:var(--muted); font-size:12.5px; white-space:pre-wrap;
+                 font-family:ui-monospace,Menlo,monospace; background:#fbfcfe; padding:8px 10px;
+                 border-radius:6px; }
+.back { display:inline-block; margin:0 0 14px; color:var(--accent); text-decoration:none;
+        font-weight:700; font-size:14px; }
+.back:hover { text-decoration:underline; }
+.err { color:var(--bad); }
+.claims { list-style:none; padding:0; margin:8px 0; }
+.claims li { margin:5px 0; padding:6px 10px; background:var(--card);
+             border:1px solid var(--line); border-radius:8px; font-size:13.5px; }
+.claims .ok { color:var(--ok); font-weight:800; }
+.claims .bad { color:var(--bad); font-weight:800; }
+a { color:var(--accent); }
+
+/* ---- nav bar across pages ---- */
+.nav { display:flex; gap:6px; flex-wrap:wrap; margin-bottom:22px; }
+.nav a { display:inline-block; padding:7px 14px; border-radius:999px;
+         font-size:13px; font-weight:700; color:var(--ink-2);
+         background:var(--card); border:1px solid var(--line);
+         text-decoration:none; }
+.nav a:hover { background:#eef2f9; }
+.nav a.active { background:var(--navy); color:#fff; border-color:var(--navy); }
+
+/* ---- tabs (historical page) ---- */
+.tabs { display:flex; gap:4px; margin:0 0 18px; border-bottom:2px solid var(--line); }
+.tabs a { display:inline-block; padding:9px 18px; font-size:14px; font-weight:700;
+          color:var(--muted); text-decoration:none; border-bottom:3px solid transparent;
+          margin-bottom:-2px; }
+.tabs a.active { color:var(--navy); border-bottom-color:var(--navy); }
+.tabs a:hover { color:var(--accent); }
+
+/* ---- tooltips (hoverable stat descriptions + query previews) ----
+   A JS-driven tooltip (see below) renders the tip in a FIXED element
+   appended to <body>, so it is NOT clipped by .table-scroll's overflow
+   or any other container. The [data-tip] hint underline stays in CSS. */
+[data-tip] { cursor:help; border-bottom:1px dotted var(--muted); }
+#evtip { position:fixed; z-index:10000; max-width:min(340px, 90vw);
+         background:#101a2c; color:#e7edf8; padding:8px 12px; border-radius:8px;
+         font-size:12.5px; font-weight:400; line-height:1.45; white-space:normal;
+         box-shadow:0 4px 14px rgba(10,18,35,.35); text-align:left;
+         pointer-events:none; display:none; }
+/* ---- app chat transcript (ported from webapp/src/styles/app.css) ----
+   The eval transcript renders with the LIVE app's own classes + tokens so
+   it looks like the real conversation, not a bespoke viewer. */
+.chat-turn { display:flex; flex-direction:column; gap:8px; margin:18px 0; }
+.chat-bubble { position:relative; background:var(--card); border:1px solid var(--line);
+               border-radius:var(--r-md); padding:10px 16px; color:var(--ink);
+               font-size:14px; max-width:65ch; }
+.chat-bubble.has-tail { border-bottom-left-radius:4px; }
+.chat-user-row { display:flex; justify-content:flex-end; }
+.chat-user-bubble { background:var(--navy); color:#fff; border-radius:var(--r-md);
+                    border-bottom-right-radius:4px; padding:10px 16px; max-width:78%;
+                    font-size:14px; line-height:1.6; white-space:pre-wrap; }
+.chat-stop-note { font-size:12px; color:var(--ink-3); font-style:italic; padding:0 4px; }
+/* tool card + group, the app's own geometry */
+.chat-tool { border-radius:var(--r-sm); border:1px solid var(--line);
+             background:var(--card); max-width:65ch; overflow:hidden; margin:8px 0; }
+.chat-tool.is-failed { border-color:var(--chat-danger); }
+.chat-tool.is-inset { background:var(--canvas, #f5f5fa); }
+.chat-tool-head { width:100%; display:flex; align-items:center; gap:8px; padding:6px 12px;
+                  font-size:12.5px; color:var(--ink-2); }
+.chat-tool-glyph { flex-shrink:0; color:var(--ink-3); }
+.chat-tool.is-failed .chat-tool-glyph, .chat-tool.is-failed .chat-tool-label { color:var(--chat-danger); }
+.chat-tool-label { font-weight:700; color:var(--ink-2); flex-shrink:0; }
+.chat-tool-summary { color:var(--ink-3); font-size:12px; min-width:0; flex:1 1 auto;
+                     overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.chat-tool-summary::before { content:"↳ "; }
+.chat-tool-body { border-top:1px solid var(--line); padding:8px 12px;
+                  font-size:13px; color:var(--ink); }
+.chat-tool-body pre { margin:4px 0; white-space:pre-wrap; font-size:12px;
+                      font-family:ui-monospace,Menlo,monospace; color:var(--ink-2); }
+.chat-tool-body .chip-row { display:flex; flex-wrap:wrap; gap:6px; }
+.chat-chip { display:inline-flex; align-items:center; gap:4px; padding:1px 8px;
+             font-size:11px; font-weight:700; border-radius:var(--r-pill);
+             border:1px solid var(--line); background:var(--navy-100); color:var(--ink-2); }
+.chat-chip.is-good { background:var(--az-gold-100); color:var(--az-gold-d); border-color:var(--az-gold); }
+.chat-chip.is-bad { background:var(--chat-danger-tint); color:var(--chat-danger); border-color:var(--chat-danger); }
+/* citation pills, the app's cite state language */
+.chat-cite-pill { display:inline-flex; align-items:center; gap:4px; padding:1px 6px;
+                  font-size:10px; font-weight:700; border-radius:4px; border:1px solid;
+                  font-family:var(--font); cursor:pointer; }
+.chat-cite-pill.is-verbatim { background:var(--az-gold-100); color:var(--az-gold-d); border-color:var(--az-gold); }
+.chat-cite-pill.is-paraphrase { background:var(--navy-100); color:var(--ink-2); border-color:var(--line); }
+.chat-cite-pill.is-failed { background:var(--chat-danger-tint); color:var(--chat-danger); border-color:var(--chat-danger); }
+/* tool calls, app-like */
+.tool { display:flex; align-items:flex-start; gap:8px; background:var(--tool);
+        border:1px solid var(--line); border-left:4px solid var(--accent);
+        padding:7px 12px; margin:8px 0; border-radius:8px; font-size:13px; }
+.tool .tname { font-weight:800; font-size:12px; text-transform:uppercase;
+               letter-spacing:.05em; color:#1d4ed8; white-space:nowrap; flex:none; }
+.tool .tdetail { color:#2b3a57; overflow-wrap:anywhere; }
+.tool .targs { color:var(--muted); font-family:ui-monospace,Menlo,monospace;
+               font-size:12px; white-space:nowrap; }
+.tool.retrieve { border-left-color:#2563eb; }
+.tool.cite { border-left-color:#0e9f5b; }
+.tool.result { border-left-color:#93c5fd; background:#f6f9ff; margin:2px 0 10px 28px;
+               border-left-style:dashed; }
+.tool.result.error { border-left-color:var(--bad); }
+/* header + summary prettier */
+header .runid { font-family:ui-monospace,Menlo,monospace; font-size:12px;
+                opacity:.85; margin-top:8px; }
+.summary-card { background:linear-gradient(180deg,#fff,#f7fafd); border:1px solid var(--line);
+                border-radius:14px; padding:18px 22px; margin-top:18px;
+                box-shadow:0 2px 10px rgba(20,30,60,.06); }
+.summary-card h2 { margin-top:0; border:none; padding-bottom:0; font-size:17px; }
+.hint { color:var(--muted); font-size:12.5px; margin:2px 0 0; }
+.query-chip { display:inline-block; max-width:240px; overflow:hidden; text-overflow:ellipsis;
+              white-space:nowrap; vertical-align:middle; }
+/* The JS tooltip above handles rendering; the wrapper only needs to not
+   clip the query-chip's ellipsis. */
+.tooltip-wrap { display:inline-block; }
+</style></head><body>
+<header><h1>mm-esa-memo — eval report</h1></header>
+<script>
+// Client-side markdown renderer for message bodies (limited, safe subset:
+// the content is model prose with tables/bold/lists/code — we render those
+// and escape everything else). No server dependency keeps the bundle a
+// single static folder.
+function md(text) {
+  text = text.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+  // fenced code
+  text = text.replace(/```([\s\S]*?)```/g, "<pre><code>$1</code></pre>");
+  // headings h2/h3 and bold
+  text = text.replace(/^####[ \t]*(.+)$/gm, "<h2>$1</h2>");
+  text = text.replace(/^###[ \t]*(.+)$/gm, "<h3>$1</h3>");
+  text = text.replace(/\*\*(.+?)\*\*/g, "<strong>$1</strong>");
+  text = text.replace(/\*(.+?)\*/g, "<em>$1</em>");
+  text = text.replace(/`([^`]+)`/g, "<code>$1</code>");
+  // tables: line groups starting with | -> render <table>
+  var lines = text.split("\n"), html = [], i = 0, inT = false;
+  while (i < lines.length) {
+    var l = lines[i];
+    if (l.trim().startsWith("|") && i + 1 < lines.length && lines[i+1].trim().startsWith("|")) {
+      if (!inT) { html.push("<table>"); inT = true; }
+      var cells = l.trim().split("|").slice(1, -1).map(function(c){ return c.trim(); });
+      var tag = (i === 0 || /^\s*:?-+:?\s*$/.test(l.trim().replace(/[^|:|\-\s]/g, ""))) ? "th" : "td";
+      // detect the header separator row (----) and skip rendering it as data
+      if (inT && /^[\s:|\-]+$/.test(l.trim())) { i++; continue; }
+      html.push("<tr><" + tag + ">" + cells.join("</" + tag + "><" + tag + ">") + "</" + tag + "></tr>");
+    } else {
+      if (inT) { html.push("</table>"); inT = false; }
+      if (l.trim() !== "") html.push("<p>" + l + "</p>");
+    }
+    i++;
+  }
+  if (inT) html.push("</table>");
+  // join and wrap
+  return html.join("");
+}
+document.addEventListener("DOMContentLoaded", function () {
+  // render message bodies
+  document.querySelectorAll(".chat-bubble").forEach(function (b) {
+    b.innerHTML = md(b.textContent);
+  });
+  // historical page tabs: show the tab named by ?tab= (default topline)
+  function showTab(name) {
+    document.querySelectorAll(".tabs a").forEach(function (a) {
+      var on = a.getAttribute("data-tab") === name;
+      a.classList.toggle("active", on);
+    });
+    document.querySelectorAll("[id^='tab-']").forEach(function (d) {
+      d.style.display = d.id === "tab-" + name ? "" : "none";
+    });
+  }
+  document.querySelectorAll(".tabs a").forEach(function (a) {
+    a.addEventListener("click", function (e) {
+      var name = a.getAttribute("data-tab");
+      showTab(name);
+      history.replaceState(null, "", "historical.html?tab=" + name);
+      e.preventDefault();
+    });
+  });
+  var m = location.search.match(/[?&]tab=([^&]+)/);
+  if (m) showTab(m[1]);
+  // ---- JS tooltip: renders [data-tip] in a FIXED element on <body> so the
+  // tip is never clipped by .table-scroll or any other overflow container.
+  var tip = document.createElement("div");
+  tip.id = "evtip";
+  document.body.appendChild(tip);
+  function tipShow(el) {
+    tip.textContent = el.getAttribute("data-tip");
+    tip.style.display = "block";
+    tipPos(el);
+  }
+  function tipPos(el) {
+    var r = el.getBoundingClientRect();
+    var tw = tip.offsetWidth, th = tip.offsetHeight;
+    var x = r.left + r.width / 2 - tw / 2;
+    // clamp horizontally so the tip never goes off the right/left viewport edge
+    x = Math.max(8, Math.min(x, window.innerWidth - tw - 8));
+    var y = r.top - th - 10;            // above the element
+    var flip = y < 8;                    // not enough room above -> below
+    if (flip) y = r.bottom + 10;
+    if (y + th > window.innerHeight - 8) y = window.innerHeight - th - 8;
+    tip.style.left = x + "px";
+    tip.style.top = y + "px";
+    tip.style.transform = flip ? "translateY(-4px)" : "translateY(4px)";
+  }
+  document.querySelectorAll("[data-tip]").forEach(function (el) {
+    el.addEventListener("mouseenter", function () { tipShow(el); });
+    el.addEventListener("mousemove", function (e) {
+      // follow horizontally only; vertical clamp stays anchored to the element
+      var r = el.getBoundingClientRect(), tw = tip.offsetWidth;
+      var x = Math.max(8, Math.min(e.clientX - tw / 2, window.innerWidth - tw - 8));
+      tip.style.left = x + "px";
+    });
+    el.addEventListener("mouseleave", function () {
+      tip.style.display = "none";
+    });
+  });
+  // sortable tables: click a header to sort asc/desc
+  document.querySelectorAll("table.sortable th").forEach(function (th, idx) {
+    th.addEventListener("click", function () {
+      var t = th.closest("table"), tbody = t.querySelector("tbody"), rows = Array.from(tbody.rows);
+      var dir = t.getAttribute("data-dir") === "asc" ? "desc" : "asc";
+      t.setAttribute("data-dir", dir);
+      rows.sort(function (a, b) {
+        var av = a.cells[idx].textContent.trim(), bv = b.cells[idx].textContent.trim();
+        var an = parseFloat(av.replace(/[$,\s]/g, "")), bn = parseFloat(bv.replace(/[$,\s]/g, ""));
+        var cmp = !isNaN(an) && !isNaN(bn) ? an - bn : av.localeCompare(bv);
+        return dir === "asc" ? cmp : -cmp;
+      });
+      rows.forEach(function (r) { tbody.appendChild(r); });
+      th.querySelector(".sort").textContent = dir === "asc" ? "▲" : "▼";
+    });
+  });
+});
+</script>
+<div class="wrap"><nav class='nav'><a href='index.html'>Latest Run Metrics</a><a href='index.html#per-query' class='active'>Per-Query</a><a href='historical.html'>Historical</a></nav><a class="back" href="../index.html">← back to summary</a><div class='metric-group'><h3>Accuracy</h3><div class='metric-grid'><div class='metric' data-tip="Met the headline bar: all key facts + ≥1 verified citation."><div class='k'>accurate</div><div class='v'>✓</div></div><div class='metric' data-tip="Share of the query&#x27;s pinned key facts present in the final answer. 1.0 = all."><div class='k'>fact rate</div><div class='v good'>1</div></div><div class='metric'><div class='k'>ok</div><div class='v'>✓</div></div><div class='metric' data-tip="Verified citations in the final answer."><div class='k'>cites ok</div><div class='v'>10</div></div><div class='metric' data-tip="Passing citation attempts ÷ all attempts."><div class='k'>cite pass</div><div class='v good'>1</div></div><div class='metric' data-tip="Share of the answer&#x27;s figures that were linked to a verified citation."><div class='k'>fig cov</div><div class='v bad'>0.2188</div></div></div></div>
+<div class='metric-group'><h3>Cost</h3><div class='metric-grid'><div class='metric' data-tip="Model spend for this query."><div class='k'>cost</div><div class='v good'>0.01102</div></div><div class='metric' data-tip="Total tokens (input+output+cached) spent on this query."><div class='k'>tokens</div><div class='v'>329,409</div></div></div></div>
+<div class='metric-group'><h3>Efficiency</h3><div class='metric-grid'><div class='metric' data-tip="Agent steps taken to answer this query."><div class='k'>turns</div><div class='v'>6</div></div><div class='metric' data-tip="Retrieve tool calls issued for this query."><div class='k'>retrieves</div><div class='v'>4</div></div><div class='metric' data-tip="Used chunks ÷ retrieved chunks. 1.0 = every retrieved chunk was used."><div class='k'>retr eff</div><div class='v bad'>0.1957</div></div><div class='metric' data-tip="Share of citations that passed on the FIRST attempt (no retry)."><div class='k'>1st-try</div><div class='v good'>1</div></div></div></div>
+<span class='badge good'>✓ accurate</span>
+<p class='hint'>Most recent run: <code>2026-08-18T0747Z-db8c161</code> · 2026-08-18</p>
+<h2>Judge review</h2>
+<div class='metric-grid'>
+<div class='metric'><div class='k'>holistic</div><div class='v'>2</div></div>
+<div class='metric'><div class='k'>chunk_relevance</div><div class='v'>0.85</div></div>
+<div class='metric'><div class='k'>claim_coverage_precision</div><div class='v'>0.3</div></div>
+<div class='metric'><div class='k'>claim_coverage_recall</div><div class='v'>0.6</div></div>
+<div class='metric'><div class='k'>figure_coverage_ok</div><div class='v'>✗</div></div>
+<div class='metric'><div class='k'>placement_ok</div><div class='v'>✗</div></div>
+</div>
+<p><strong>chunk relevance:</strong> Retrieved chunks include ESA growth narratives for FY 2025–2027 from both JLBC baseline and appropriations reports plus governor&#x27;s budget proposals — directly on-topic.</p>
+<p><strong>rationale:</strong> The substantive content is largely correct and the &#x27;why&#x27; section is well-cited, but 25 figures are uncited (many available in retrieved chunks) and several citation markers are misplaced — e.g., [2] sits on the FY 2026 award total but citation 2&#x27;s chunk contains the FY 2025 figure instead. Heavy meta-narration throughout further degrades usability.</p>
+<p><span class='err'>flags: meta_narration</span></p>
+<ul class='claims'>
+<li><span class='bad'>✗</span> FY 2025 total ESA awards ~$824.5M</li>
+<li><span class='ok'>✓</span> FY 2026 total ESA awards ~$1,001.7M</li>
+<li><span class='bad'>✗</span> FY 2027 total ESA awards ~$1,215.7M</li>
+<li><span class='ok'>✓</span> Universal eligibility (Laws 2022, Ch. 338) is the main cost driver</li>
+<li><span class='ok'>✓</span> ESA growth is partly self-offsetting by public school ADM declines</li>
+</ul>
+<h2>Conversation</h2>
+<div class='chat-turn'><div class='chat-user-row'><div class='chat-user-bubble'>Put together a one-pager for a member explaining how voucher costs inside the school funding formula have moved over the last two budgets and why.</div></div></div>
+<div class='chat-tool'><div class='chat-tool-head'><span class='chat-tool-glyph'></span><span class='chat-tool-label'>🔍 retrieve</span><span class='chat-tool-summary'>“Empowerment Scholarship Accounts ESA voucher costs school funding formula”</span></div><div class='chat-tool-body'><pre>{&quot;query&quot;: &quot;Empowerment Scholarship Accounts ESA voucher costs school funding formula&quot;, &quot;intent&quot;: &quot;analyze&quot;}</pre></div></div>
+<div class='chat-tool is-inset'><div class='chat-tool-head'><span class='chat-tool-label'>→ ok</span><span class='chat-tool-summary'>{&quot;chunks&quot;: [{&quot;chunk_id&quot;: &quot;jlbc-baseline-fy2021-ade-0041&quot;, &quot;alias&quot;: &quot;c1&quot;, &quot;doc_id&quot;: &quot;jlbc-baseline-fy…</span></div></div>
+<div class='chat-tool'><div class='chat-tool-head'><span class='chat-tool-glyph'></span><span class='chat-tool-label'>🔍 retrieve</span><span class='chat-tool-summary'>“Empowerment Scholarship Accounts ESA voucher costs Basic State Aid increase”</span></div><div class='chat-tool-body'><pre>{&quot;query&quot;: &quot;Empowerment Scholarship Accounts ESA voucher costs Basic State Aid increase&quot;, &quot;spread&quot;: {&quot;by&quot;: &quot;fiscal_year&quot;, &quot;groups&quot;: [2025, 2026, 2027], &quot;per_group&quot;: 3}}</pre></div></div>
+<div class='chat-tool is-inset'><div class='chat-tool-head'><span class='chat-tool-label'>→ ok</span><span class='chat-tool-summary'>{&quot;chunks&quot;: [{&quot;chunk_id&quot;: &quot;governor-governors-budget-fy2025-0377&quot;, &quot;alias&quot;: &quot;c6&quot;, &quot;doc_id&quot;: &quot;governor…</span></div></div>
+<div class='chat-tool'><div class='chat-tool-head'><span class='chat-tool-glyph'></span><span class='chat-tool-label'>🛠 document_guide</span><span class='chat-tool-summary'></span></div><div class='chat-tool-body'><pre>{&quot;report_type&quot;: &quot;comparison&quot;}</pre></div></div>
+<div class='chat-tool is-inset'><div class='chat-tool-head'><span class='chat-tool-label'>→ ok</span><span class='chat-tool-summary'>{&quot;ok&quot;: true, &quot;report_type&quot;: &quot;comparison&quot;, &quot;guide&quot;: &quot;# Comparison — two or more years, agencies, or f…</span></div></div>
+<div class='chat-tool'><div class='chat-tool-head'><span class='chat-tool-glyph'></span><span class='chat-tool-label'>🔍 retrieve</span><span class='chat-tool-summary'>“Empowerment Scholarship Account enrollment growth universal ESA expansion Laws 2022 voucher”</span></div><div class='chat-tool-body'><pre>{&quot;query&quot;: &quot;Empowerment Scholarship Account enrollment growth universal ESA expansion Laws 2022 voucher&quot;, &quot;filters&quot;: {&quot;fiscal_year&quot;: [2025], &quot;doc_type&quot;: [&quot;approps-per-agency&quot;, &quot;baseline-per-agency&quot;], &quot;agency_canonical_id&quot;: [&quot;agency:ade&quot;]}, &quot;intent&quot;: &quot;analyze&quot;}</pre></div></div>
+<div class='chat-tool is-inset'><div class='chat-tool-head'><span class='chat-tool-label'>→ ok</span><span class='chat-tool-summary'>{&quot;chunks&quot;: [{&quot;chunk_id&quot;: &quot;jlbc-approps-fy2025-ade-0027&quot;, &quot;alias&quot;: &quot;c15&quot;, &quot;doc_id&quot;: &quot;jlbc-approps-fy2…</span></div></div>
+<div class='chat-tool'><div class='chat-tool-head'><span class='chat-tool-glyph'></span><span class='chat-tool-label'>🔍 retrieve</span><span class='chat-tool-summary'>“Empowerment Scholarship Account universal eligibility every student eligible program expansion”</span></div><div class='chat-tool-body'><pre>{&quot;query&quot;: &quot;Empowerment Scholarship Account universal eligibility every student eligible program expansion&quot;, &quot;filters&quot;: {&quot;fiscal_year&quot;: [2026, 2027]}, &quot;intent&quot;: &quot;analyze&quot;}</pre></div></div>
+<div class='chat-tool is-inset'><div class='chat-tool-head'><span class='chat-tool-label'>→ ok</span><span class='chat-tool-summary'>{&quot;chunks&quot;: [{&quot;chunk_id&quot;: &quot;governor-governors-budget-fy2026-1528&quot;, &quot;alias&quot;: &quot;c32&quot;, &quot;doc_id&quot;: &quot;governo…</span></div></div>
+<div class='chat-turn'><div class='chat-bubble has-tail'>**Analysis:** I read &quot;the last two budgets&quot; as the FY 2026 and FY 2027 enacted budgets, with FY 2025 as the reference point. ESA voucher costs sit inside the Basic State Aid formula at the Department of Education (ADE), alongside district and charter funding.
+
+**The enacted numbers (General Fund)**
+
+| | FY 2025 | FY 2026 | FY 2027 |
+|---|---|---|---|
+| GF increase for ESA enrollment growth | $106,910,400 | $129,564,000 | $154,170,300 |
+| Assumed ESA enrollment | 82,452 | 97,905 | 113,602 |
+| Total ESA awards | $824,530,600 | $1,001,720,000 | $1,215,678,900 |
+
+Total awards rose $179,689,400 from the original FY 2025 budget to FY 2026, and by $213,958,900 from FY 2026 to FY 2027 (computed from the enacted figures above).
+
+**Why costs moved**
+
+- **Universal eligibility is the main driver.** Laws 2022, Chapter 338 made the program universal; ADE opened universal ESA applications in late September 2022, making FY 2024 the first full year of availability. ESA enrollment jumped from 12,049 in FY 2022 to 53,364 in FY 2023 and 76,427 in FY 2024, before reaching the 82,452 assumed in FY 2025.
+- **Awards are formula-driven.** ESA award amounts are based on the Basic State Aid per-pupil base level and Charter Additional Assistance, so each year&#x27;s statutory 2% inflation adjustment raises the cost per award.
+- **Growth is partly self-offsetting.** ESAs are funded primarily with Basic State Aid monies that a district or charter school would otherwise have received, so students who switch to ESAs reduce public school ADM and district/charter BSA. In the FY 2027 baseline, the $154,170,300 ESA growth line is partially offset by a $(63.3) million decrease for public school enrollment declines.
+- **The projections are speculative.** JLBC cautions that until the program reaches a more &quot;steady state&quot; of enrollment, all ESA projections remain highly speculative.
+- **The Executive has proposed cost controls.** The FY 2026 Executive Budget proposed a scaled income cap for universal ESA recipients, estimating $149.5 million in savings; the FY 2027 Executive Budget proposed an income cutoff at $250,000, estimating $89.3 million in savings. The enacted budgets as reported in the JLBC Appropriations Reports fund continued enrollment growth — $129,564,000 in FY 2026 and $154,170,300 in FY 2027 — with no comparable savings line.
+
+Want this as the one-pager? I&#x27;ll format it as a JLBC memo below.</div></div>
+<div class='chat-tool'><div class='chat-tool-head'><span class='chat-tool-glyph'></span><span class='chat-tool-label'>📎 cite batch</span><span class='chat-tool-summary'>jlbc-approps-fy2025-ade-0023 · “combined General Fund Basic State Aid formula expenses for school districts, charter schoo…”</span></div><div class='chat-tool-body'><span class='chat-cite-pill is-verbatim'>jlbc-approps-f</span><span class='chat-cite-pill is-verbatim'>jlbc-baseline-</span><span class='chat-cite-pill is-verbatim'>governor-gover</span><span class='chat-cite-pill is-verbatim'>jlbc-baseline-</span><span class='chat-cite-pill is-verbatim'>jlbc-baseline-</span><span class='chat-cite-pill is-verbatim'>jlbc-baseline-</span></div></div>
+<div class='chat-tool is-inset'><div class='chat-tool-head'><span class='chat-tool-label'>→ ok</span><span class='chat-tool-summary'>{&quot;citations&quot;: [{&quot;ok&quot;: true, &quot;citation_id&quot;: &quot;9a0866b9-1794-4f24-ba2e-d6d7314bfb7a&quot;, &quot;resolved_span_st…</span></div></div>
+<div class='chat-tool'><div class='chat-tool-head'><span class='chat-tool-glyph'></span><span class='chat-tool-label'>🛠 create_document</span><span class='chat-tool-summary'></span></div><div class='chat-tool-body'><pre>{&quot;title&quot;: &quot;ESA Costs in the K-12 Funding Formula — FY 2026 and FY 2027&quot;, &quot;body_markdown&quot;: &quot;## Bottom line\n\nTotal Empowerment Scholarship Account (ESA) awards funded through the K-12 Basic State Aid formula grew from $824.5 million in FY 2025 to $1,001.7 million in FY 2026 and $1,215.7 million in FY 2027. The two most recent enacted budgets each added General Fund (GF) money for ESA enrollment gr</pre></div></div>
+<div class='chat-tool is-inset'><div class='chat-tool-head'><span class='chat-tool-label'>→ ok</span><span class='chat-tool-summary'>{&quot;ok&quot;: true, &quot;download_token&quot;: &quot;7ZiBMHnbo6M1JZNciaRk8RGVuW99I4bJ73T2pU0KaTQ&quot;, &quot;filename&quot;: &quot;ESA-Costs…</span></div></div>
+<div class='chat-turn'><div class='chat-bubble has-tail'>The one-pager is ready — here&#x27;s the answer, and the downloadable memo version is linked above.
+
+**Summary for the member**
+
+Total ESA voucher costs inside the school funding formula (Basic State Aid at the Department of Education) have risen in every recent budget:
+
+- **FY 2025:** $824.5 million in total ESA awards, up $106.9 million from the prior-year base
+- **FY 2026:** $1,001.7 million, up $129.6 million
+- **FY 2027:** $1,215.7 million, up $154.2 million
+
+That&#x27;s roughly **$180 million** added between FY 2025 and FY 2026, and **$214 million** added between FY 2026 and FY 2027, driven almost entirely by enrollment growth (82,452 → 97,905 → 113,602 assumed recipients).
+
+**Why:** universal eligibility (Laws 2022, Chapter 338) opened the program to all students, and every annual 2% inflation adjustment to the per-pupil base level raises the award amount. Two partial offsets: students switching out of public schools reduce district/charter Basic State Aid, and the Governor&#x27;s Executive Budgets have proposed income caps (scaled caps in FY 2026, a $250,000 cutoff in FY 2027) that the enacted budgets did not adopt. JLBC flags that all ESA projections remain highly speculative until enrollment reaches a &quot;steady state.&quot;
+
+The full one-pager (formatted as a JLBC memo, with a &quot;What to verify&quot; section flagging the FY 2026 award-total discrepancy between Baseline and Appropriations Report figures) is available as a downloadable Word file. Want me to adjust the period covered, or add a note on the FY 2028 outlook?</div></div>
+<p class='muted'>raw transcript: <code>per-query/mm-esa-memo.jsonl</code> · <a href='historical.html'>history for this query</a></p></div></body></html>

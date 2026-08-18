@@ -1,0 +1,174 @@
+{
+  "judge_model": "z-ai/glm-5.2",
+  "judge_reasoning": true,
+  "judge_prompt_sha256": "26923f724c1329dbbe5222927ce59afb01827001e42da5963da896767056ee09",
+  "summary": {
+    "n": 5,
+    "errors": 0,
+    "claim_coverage_precision_mean": null,
+    "claim_coverage_recall_mean": 0.0,
+    "holistic_mean": 2.2,
+    "chunk_relevance_mean": 0.49000000000000005
+  },
+  "per_query": [
+    {
+      "query_id": "an-ahcccs-enrollment",
+      "repeat": 1,
+      "load_bearing_claims": [
+        {
+          "claim": "FY 2025 formula assumed a (1.1)% enrollment decline",
+          "cited_verified": false
+        },
+        {
+          "claim": "FY 2026 formula assumed 1.2% enrollment growth",
+          "cited_verified": false
+        },
+        {
+          "claim": "FY 2025 General Fund savings of $(55,329,900)",
+          "cited_verified": false
+        },
+        {
+          "claim": "FY 2026 General Fund savings of $(186,401,300)",
+          "cited_verified": false
+        },
+        {
+          "claim": "JLBC FY 2026 baseline forecast only $(7,846,700) in General Fund savings",
+          "cited_verified": false
+        }
+      ],
+      "holistic": 2,
+      "figure_coverage_ok": true,
+      "placement_ok": true,
+      "flags": {
+        "hedging": false,
+        "meta_narration": true,
+        "answered_wrong_question": false
+      },
+      "chunk_relevance": 0.4,
+      "chunk_relevance_rationale": "A few chunks cover FY 2025/FY 2026 AHCCCS caseload adjustments, but many retrieved chunks are from unrelated years (FY 2012–FY 2014, DES, etc.).",
+      "rationale": "The answer explains the caseload-decline side and annualization into FY 2026 but omits the specific enrollment shortfall (1.58M vs 1.77M) and entirely misses the offsetting capitation rate adjustments ($55,575,200) that the judge notes require for a complete answer. No citation text is available to verify any figure.",
+      "claim_coverage_precision": null,
+      "claim_coverage_recall": 0.0
+    },
+    {
+      "query_id": "hs-bsf-draw-2008",
+      "repeat": 1,
+      "load_bearing_claims": [
+        {
+          "claim": "$487.0 million transferred from BSF to General Fund in FY 2008 per Laws 2008, Chapter 53",
+          "cited_verified": false
+        }
+      ],
+      "holistic": 3,
+      "figure_coverage_ok": false,
+      "placement_ok": true,
+      "flags": {
+        "hedging": false,
+        "meta_narration": true,
+        "answered_wrong_question": false
+      },
+      "chunk_relevance": 0.35,
+      "chunk_relevance_rationale": "Only one of ~20 retrieved chunks directly states the $487.0M BSF transfer; the rest are unrelated agency fund transfers and operating budgets.",
+      "rationale": "The answer correctly identifies the $487.0M headline figure and attributes it to Laws 2008, Chapter 53, but issues no verified citations and includes heavy meta-narration; three secondary figures remain uncited.",
+      "claim_coverage_precision": null,
+      "claim_coverage_recall": 0.0
+    },
+    {
+      "query_id": "lk-adc-total-fy2026",
+      "repeat": 1,
+      "load_bearing_claims": [
+        {
+          "claim": "Total FY 2026 prison system spending authority is $1,720,518,500",
+          "cited_verified": false
+        },
+        {
+          "claim": "General Fund share is $1,527,944,500 (~89%)",
+          "cited_verified": false
+        },
+        {
+          "claim": "Remaining $192,574,000 (~11%) comes from other appropriated funds, non-appropriated funds, and federal funds",
+          "cited_verified": false
+        }
+      ],
+      "holistic": 1,
+      "figure_coverage_ok": true,
+      "placement_ok": true,
+      "flags": {
+        "hedging": true,
+        "meta_narration": true,
+        "answered_wrong_question": true
+      },
+      "chunk_relevance": 0.3,
+      "chunk_relevance_rationale": "Chunks are from the JLBC baseline document, not the Appropriations Report the question requires; they cover ADC operating budget details but not the full 'all told' appropriation.",
+      "rationale": "The answer quotes JLBC baseline figures ($1.72B total, $1.53B GF) instead of the enacted Appropriations Report figures ($1,637,564,700 total, $1,574,113,200 GF), falling into the trap the judge notes explicitly warn about. No citations passed verification, and the answer opens with meta-narration.",
+      "claim_coverage_precision": null,
+      "claim_coverage_recall": 0.0
+    },
+    {
+      "query_id": "lk-k12-basic-aid-fy2026",
+      "repeat": 1,
+      "load_bearing_claims": [
+        {
+          "claim": "Basic State Aid was appropriated at $7,623,574,500 for FY 2026 in the enacted budget",
+          "cited_verified": false
+        },
+        {
+          "claim": "The JLBC baseline for FY 2026 Basic State Aid was $7,594,705,000",
+          "cited_verified": false
+        },
+        {
+          "claim": "The enacted figure excludes local property taxes, which are non-appropriated",
+          "cited_verified": false
+        }
+      ],
+      "holistic": 3,
+      "figure_coverage_ok": false,
+      "placement_ok": true,
+      "flags": {
+        "hedging": false,
+        "meta_narration": false,
+        "answered_wrong_question": false
+      },
+      "chunk_relevance": 0.6,
+      "chunk_relevance_rationale": "First chunk directly answers the enacted figure; baseline chunk provides useful contrast; remaining chunks are tangential.",
+      "rationale": "The answer is substantively correct — it gives the right enacted number, distinguishes it from the baseline, and notes property-tax exclusion — but two component figures are [UNCITED] and the citations array is empty, so no claim has a verified citation.",
+      "claim_coverage_precision": null,
+      "claim_coverage_recall": 0.0
+    },
+    {
+      "query_id": "lk-roc-operating-fy2025",
+      "repeat": 1,
+      "load_bearing_claims": [
+        {
+          "claim": "Total all sources cost to run Registrar of Contractors FY 2025: $21,434.6 thousand",
+          "cited_verified": false
+        },
+        {
+          "claim": "Appropriated funds (Registrar of Contractors Fund): $14,067,800",
+          "cited_verified": false
+        },
+        {
+          "claim": "Operating lump-sum appropriation: $13,050,200",
+          "cited_verified": false
+        },
+        {
+          "claim": "Non-appropriated funds (Residential Contractors' Recovery Fund): $7,366.8 thousand",
+          "cited_verified": false
+        }
+      ],
+      "holistic": 2,
+      "figure_coverage_ok": true,
+      "placement_ok": true,
+      "flags": {
+        "hedging": true,
+        "meta_narration": false,
+        "answered_wrong_question": false
+      },
+      "chunk_relevance": 0.8,
+      "chunk_relevance_rationale": "Retrieved chunks are directly from the Registrar of Contractors budget pages and AFR, but the answer surfaces different figures than the expected $12,908,000 operating budget.",
+      "rationale": "The answer provides a detailed breakdown of Registrar of Contractors costs but omits the expected operating budget figure of $12,908,000, instead citing $13,050,200 as the operating lump-sum. No citations were actually issued (empty citations array), so none of the figures can be verified.",
+      "claim_coverage_precision": null,
+      "claim_coverage_recall": 0.0
+    }
+  ]
+}

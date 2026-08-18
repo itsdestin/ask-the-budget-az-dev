@@ -1,0 +1,29 @@
+{
+  "timestamp": "2026-08-18T0813Z",
+  "git_sha": "db8c161",
+  "sets": [
+    "quick"
+  ],
+  "repeats": 1,
+  "queries": [
+    "lk-adc-total-fy2026",
+    "lk-k12-basic-aid-fy2026",
+    "lk-roc-operating-fy2025",
+    "an-ahcccs-enrollment",
+    "hs-bsf-draw-2008"
+  ],
+  "queries_sha256": "f84df0162b04907a263637f071bc5bae11007d75f78f9c478d60c0c4e4962d3e",
+  "tier_models": {
+    "standard": "deepseek/deepseek-v4-flash-0731",
+    "deep_research": "moonshotai/kimi-k3"
+  },
+  "provider": "openrouter",
+  "base_url": "https://openrouter.ai/api/v1",
+  "api_key_set": true,
+  "prompt_sha256": "01c389fbafb7e2a8b3b4d2e0bc7794ff1b91c907cbc022de1f090ca80ef54804",
+  "corpus_counts": {
+    "budget_chunks": 83197,
+    "fiscal_note_chunks": 14161
+  },
+  "note": "5-q subset, IMPROVED prompt+harness (Destin 2026-08-18)"
+}

@@ -1,0 +1,107 @@
+[
+  {
+    "kind": "crashed_query",
+    "tool": "",
+    "turn": -1,
+    "query_id": "an-ahcccs-enrollment",
+    "detail": "terminal frame not _done"
+  },
+  {
+    "kind": "crashed_query",
+    "tool": "",
+    "turn": -1,
+    "query_id": "an-ahcccs-gf-drivers",
+    "detail": "terminal frame not _done"
+  },
+  {
+    "kind": "crashed_query",
+    "tool": "",
+    "turn": -1,
+    "query_id": "an-esa-growth",
+    "detail": "terminal frame not _done"
+  },
+  {
+    "kind": "retrieve_error",
+    "tool": "retrieve",
+    "turn": 0,
+    "query_id": "cm-basic-aid-3yr",
+    "detail": "spread cannot be combined with intent — spread already decides how many passages come back (groups x per_group). Drop the other argument."
+  },
+  {
+    "kind": "retrieve_error",
+    "tool": "retrieve",
+    "turn": 1,
+    "query_id": "cm-highway-construction",
+    "detail": "spread cannot be combined with intent — spread already decides how many passages come back (groups x per_group). Drop the other argument."
+  },
+  {
+    "kind": "cite_failure",
+    "tool": "cite",
+    "turn": 4,
+    "query_id": "cm-supplementals-fy2026",
+    "detail": "{'ok': False, 'error': \"quote not found in chunk.text — the substring you supplied as `quote` does not appear verbatim in the chunk. Pick text that exists in the chunk (read the retrieve() result's `t"
+  },
+  {
+    "kind": "crashed_query",
+    "tool": "",
+    "turn": -1,
+    "query_id": "hs-arra-k12-stabilization-2010",
+    "detail": "terminal frame not _done"
+  },
+  {
+    "kind": "crashed_query",
+    "tool": "",
+    "turn": -1,
+    "query_id": "hs-bsf-draw-2008",
+    "detail": "terminal frame not _done"
+  },
+  {
+    "kind": "crashed_query",
+    "tool": "",
+    "turn": -1,
+    "query_id": "hs-full-day-kindergarten-2005",
+    "detail": "terminal frame not _done"
+  },
+  {
+    "kind": "crashed_query",
+    "tool": "",
+    "turn": -1,
+    "query_id": "hs-fy2010-oneshot-financing",
+    "detail": "terminal frame not _done"
+  },
+  {
+    "kind": "crashed_query",
+    "tool": "",
+    "turn": -1,
+    "query_id": "hs-leaseback-prisons-2010",
+    "detail": "terminal frame not _done"
+  },
+  {
+    "kind": "cite_failure",
+    "tool": "cite",
+    "turn": 1,
+    "query_id": "lk-asrs-rate-fy2026",
+    "detail": "{'ok': False, 'error': \"quote not found in chunk.text — the substring you supplied as `quote` does not appear verbatim in the chunk. Pick text that exists in the chunk (read the retrieve() result's `t"
+  },
+  {
+    "kind": "cite_failure",
+    "tool": "cite",
+    "turn": 1,
+    "query_id": "lk-dps-historical-operating-fy2013",
+    "detail": "{'ok': False, 'error': \"quote appears multiple times in chunk.text (positions: 535, 700). Extend the quote with more surrounding context so it's unique within this chunk.\", 'chunk_text_length': 865}"
+  },
+  {
+    "kind": "crashed_query",
+    "tool": "",
+    "turn": -1,
+    "query_id": "mm-adc-briefing",
+    "detail": "terminal frame not _done"
+  },
+  {
+    "kind": "crashed_query",
+    "tool": "",
+    "turn": -1,
+    "query_id": "mm-esa-memo",
+    "detail": "terminal frame not _done"
+  }
+]
