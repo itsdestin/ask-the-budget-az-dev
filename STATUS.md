@@ -2488,10 +2488,12 @@ two regressions (`cm-basic-aid-3yr` 0.667→0.333, `lk-dps-operating-fy2026`
 
 ### Still outstanding
 
-- **The full 31-query Layer 2 run + judge** (`eval.run_full_layer2 --subset
-  full`, ~$1.50–3). It would establish the canonical baseline for the current
-  query set — which, per the `0e32df3` finding above, **no committed run
-  holds today**, for this work or any other.
+- **The full 31-query Layer 2 run + judge** (historical — use today's
+  `--sets quick,multi,deep,refusal`; the set is now 45 quick / 3 deep / 5
+  refusal, not 31, and `--subset` is retired). It would establish the
+  canonical baseline for the current query set — which, per the `0e32df3`
+  finding above, **no committed run holds today**, for this work or any
+  other.
 - **Nobody has watched a spread answer render in a browser.** The chunks mint
   aliases and tag normally (pinned by test, and `tag_accuracy` rose), but the
   per-chunk `group` field has never been seen on screen.
@@ -3331,8 +3333,10 @@ browser checks.
 1. **The live reproduction** of *"what are the biggest agencies by
    budget"*. The offline end-to-end test covers its shape, but nobody has
    watched a real model answer under the new prompt.
-2. **The Layer 2 re-baseline** (`--subset full`, ~$0.50–1.50, plus the
-   judge as a separate charge), then `compare_agent_runs.py` against
+2. **The Layer 2 re-baseline** (`--sets quick,multi,deep,refusal` — the
+   retired `--subset full` is gone; ~$1.50–3 now that quick is 45 queries,
+   plus the judge as a separate charge), then `compare_agent_runs.py`
+   against
    `eval/results/agent/2026-08-02T0900Z-0b08221`. Expected direction:
    `figure_coverage_mean` high, `unverified_rate` low, `steps_mean` and
    `input_tokens_mean` DOWN (cite round-trips removed), `cite_pass_rate`
@@ -5701,12 +5705,13 @@ handling, the comparison tool's corpus-count and query-set refusals, and
 a runner→scorer seam test that drives the REAL `HarnessSession` over a
 fake transport and then scores the transcript it produced) but nobody
 has pointed it at a real OpenRouter key. `eval/agent_queries.yaml` — the
-query set itself, 35 queries across the lookup / comparison / analyze /
-memo / refusal / historical shapes, all on the BUDGET corpus, with
-machine-checked key facts — is committed. **The acceptance step for
-whoever has a key next:** run `--subset smoke`, score it, and commit the
-result as the first baseline — every later `compare_agent_runs.py` call
-needs one to diff against.
+query set itself (now 53 queries under the consolidated `set:` tags:
+45 quick / 3 deep / 5 refusal, all on the BUDGET corpus, with
+machine-checked key facts) — is committed. **The acceptance step for
+whoever has a key next:** run `--sets quick,multi,refusal` (the retired
+`--subset smoke` from this historical note is gone), score it, and commit
+the result as the first baseline — every later `compare_agent_runs.py`
+call needs one to diff against.
 
 ---
 
