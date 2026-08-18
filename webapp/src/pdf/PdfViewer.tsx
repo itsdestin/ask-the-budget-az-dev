@@ -22,6 +22,8 @@
 
 import { useRef, useState } from "react";
 
+import * as api from "../api";
+import type { ChunkLocate } from "../api";
 import type { Citation } from "../chat/citation-extract";
 import { formatCopyCitation, normalizeForMatch } from "../chat/citation-extract";
 import { spanKeyOf, useCitationBus, useCitationSelected } from "../chat/citation-context";
@@ -56,6 +58,13 @@ export default function PdfViewer({ onClose, corpus = "budget" }: PdfViewerProps
   const [unresolvedClick, setUnresolvedClick] = useState<Citation | null>(null);
   // H5: a citation whose source no longer resolves (gone or moved).
   const [staleCitation, setStaleCitation] = useState<{ citation: Citation; reason: "gone" | "moved" } | null>(null);
+  // Spec L2/L3: the locate endpoint's answer for the selected citation,
+  // plus the chunk text the click-time check already fetched (figure
+  // chips carry no chunk body in their annotation, so without this the
+  // cited-text panel would say "unavailable" on exactly the chips that
+  // have a source). Both ride the same staleness guard as the check.
+  const [locate, setLocate] = useState<ChunkLocate | null>(null);
+  const [fetchedText, setFetchedText] = useState("");
 
   const bus = useCitationBus();
 
@@ -77,6 +86,8 @@ export default function PdfViewer({ onClose, corpus = "budget" }: PdfViewerProps
     }
     setUnresolvedClick(null);
     setStaleCitation(null);
+    setLocate(null);
+    setFetchedText("");
     setSelected(citation);
 
     // H5: check at click time whether the chunk still resolves. Nothing
@@ -139,6 +150,30 @@ export default function PdfViewer({ onClose, corpus = "budget" }: PdfViewerProps
         // the citation we actually re-checked, and NOT on a sibling into the
         // same chunk whose own quote really is gone.
         bus.markUnresolvable(citation.chunkId, "resolved", spanKeyOf(citation));
+
+        // Spec L2/L3: the click-time check has the chunk body in hand
+        // anyway, so keep it for the cited-text panel (figure chips'
+        // annotations carry no chunk text by design), and ask the locate
+        // endpoint where the cited value sits on the page. The search
+        // text is the source-side rendering when the chip has one
+        // (figure chips), else the cited slice of the stored chunk text
+        // (prose cites). A null/none answer leaves today's chain intact.
+        setFetchedText(typeof chunk.text === "string" ? chunk.text : "");
+        const locateText =
+          citation.sourceText ??
+          (citation.resolved?.text
+            ? citation.resolved.text.slice(
+                Math.max(0, citation.spanStart),
+                Math.min(citation.resolved.text.length, citation.spanEnd),
+              )
+            : "");
+        const located = await api.chunkLocate(
+          citation.chunkId,
+          locateText,
+          corpus,
+        );
+        if (seq !== checkSeqRef.current) return; // a later click won
+        setLocate(located);
       } catch {
         if (seq !== checkSeqRef.current) return;
         // Network error — NOT a stale citation. Same posture as a 503:
@@ -149,7 +184,15 @@ export default function PdfViewer({ onClose, corpus = "budget" }: PdfViewerProps
 
   if (staleCitation)
     return <StaleState citation={staleCitation.citation} reason={staleCitation.reason} onClose={onClose} />;
-  if (selected) return <Loaded citation={selected} onClose={onClose} />;
+  if (selected)
+    return (
+      <Loaded
+        citation={selected}
+        locate={locate}
+        fetchedText={fetchedText}
+        onClose={onClose}
+      />
+    );
   if (unresolvedClick)
     return <UnresolvedState citation={unresolvedClick} onClose={onClose} />;
   return <EmptyState onClose={onClose} />;
@@ -283,21 +326,33 @@ function StaleState({
 
 function Loaded({
   citation,
+  locate,
+  fetchedText,
   onClose,
 }: {
   citation: Citation;
+  locate: ChunkLocate | null;
+  fetchedText: string;
   onClose?: () => void;
 }) {
   const r = citation.resolved!;
+  // A locate answer only overrides the stored page/rects when it actually
+  // FOUND the value; basis "none" keeps today's chain exactly as is.
+  const found = locate && locate.basis !== "none" ? locate : null;
   return (
     <SourceView
       docId={r.docId}
       page={r.pageStart!}
       bbox={r.bbox}
-      chunkText={r.text ?? ""}
+      // Figure chips carry no chunk body in their annotation (by design);
+      // the click-time check's fetch hydrates the cited-text panel so it
+      // never says "unavailable" on a chip that has a source.
+      chunkText={r.text || fetchedText}
       spanStart={citation.spanStart}
       spanEnd={citation.spanEnd}
       sourceText={citation.sourceText}
+      serverPage={found?.page ?? null}
+      serverRects={found?.rects}
       docTitle={r.docTitle || r.docId}
       fiscalYear={r.fiscalYear}
       sourceLabel={formatCopyCitation(citation)}

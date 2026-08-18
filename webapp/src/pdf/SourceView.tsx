@@ -57,6 +57,14 @@ export interface SourceViewProps {
   /** The figure as the SOURCE renders it, when this view was opened
    *  from a system-linked figure chip. */
   sourceText?: string;
+  /** Page the locate endpoint found the cited value on (spec L2). Wins
+   *  over `page` when set — a merged chunk's stored page is its first
+   *  paragraph's, and 7/137 live figures sat on a later page. */
+  serverPage?: number | null;
+  /** Exact highlight rects from the locate endpoint, PDF user-space
+   *  points. Forwarded to PdfPage, which skips its text-layer search
+   *  when they arrive. */
+  serverRects?: number[][];
   /** Breadcrumb title. */
   docTitle: string;
   fiscalYear?: number | null;
@@ -83,12 +91,18 @@ export function SourceView({
   spanStart,
   spanEnd,
   sourceText,
+  serverPage,
+  serverRects,
   docTitle,
   fiscalYear,
   sourceLabel,
   pdfUnavailable,
   onClose,
 }: SourceViewProps) {
+  // The locate endpoint's page wins when it found the value: the stored
+  // page is the chunk's FIRST paragraph's page, which is the wrong page
+  // for a value cited from a later one (measured 7/137 live figures).
+  const shownPage = serverPage ?? page;
   // The exact source text to highlight, most specific first. cite()
   // emits character offsets (span_start, span_end) into the chunk
   // text — chunk.text[start:end] is what was extracted FROM the
@@ -116,7 +130,7 @@ export function SourceView({
   const [zoom, setZoom] = useState(1);
   useEffect(() => {
     setZoom(1);
-  }, [docId, page]);
+  }, [docId, shownPage]);
 
   // Measure the scrolling container so PdfPage knows what to fit to.
   // ResizeObserver tracks both the side panel resizing and the
@@ -163,7 +177,7 @@ export function SourceView({
   // cited-text panel below still renders — Core Invariant 1.
   const noPageReason =
     pdfUnavailable ||
-    (page == null
+    (shownPage == null
       ? "The corpus records no page number for this passage, so there is no " +
         "page to display. The passage text below is what was indexed."
       : null);
@@ -175,7 +189,7 @@ export function SourceView({
           false whenever there's no page to draw). */}
       <SourceHead
         docTitle={docTitle}
-        page={page}
+        page={shownPage}
         fiscalYear={fiscalYear}
         zoom={zoom}
         onZoomIn={zoomIn}
@@ -195,17 +209,18 @@ export function SourceView({
           <p>{noPageReason}</p>
         </div>
       ) : (
-        // `page!` is safe in this branch: a null page IS a noPageReason
-        // above, so this subtree only renders when one exists.
+        // `shownPage!` is safe in this branch: a null shownPage IS a
+        // noPageReason above, so this subtree only renders when one exists.
         <div ref={scrollerRef} className="pdf-scroller">
           {containerWidth > 0 && (
             <Suspense fallback={<PageSkeleton />}>
               <PdfPage
                 docId={docId}
-                pageNumber={page!}
+                pageNumber={shownPage!}
                 bbox={bbox}
                 searchTexts={searchTexts}
                 sourceText={sourceText}
+                serverRects={serverRects}
                 containerWidth={containerWidth}
                 zoomLevel={zoom}
               />
