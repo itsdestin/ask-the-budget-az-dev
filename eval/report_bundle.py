@@ -69,52 +69,154 @@ JUDGE_KEYS = ["holistic", "chunk_relevance", "claim_coverage_precision",
               "claim_coverage_recall", "figure_coverage_ok", "placement_ok"]
 
 CSS = """
-:root { --bg:#f7f8fa; --card:#fff; --ink:#1c2330; --muted:#5b6675;
-        --accent:#2f6fda; --ok:#1a9d57; --bad:#d64545; --line:#e3e7ee; }
+:root { --bg:#f6f8fb; --card:#fff; --ink:#161b26; --muted:#5c6775;
+        --accent:#2563eb; --ok:#0e9f5b; --warn:#d97706; --bad:#dc2626;
+        --line:#e5eaf1; --tool:#f1f5f9; --tool-edge:#93c5fd;
+        --user-bubble:#eaf1ff; --assistant-bubble:#fff; --chip:#eef1f6; }
 * { box-sizing:border-box; }
-body { margin:0; font:15px/1.55 -apple-system,"Segoe UI",Roboto,sans-serif;
+html { scroll-behavior:smooth; }
+body { margin:0; font:15px/1.6 -apple-system,"Segoe UI",Roboto,sans-serif;
        background:var(--bg); color:var(--ink); }
-header { background:linear-gradient(135deg,#1c2b4a,#2f6fda); color:#fff;
-         padding:26px 42px; }
-header h1 { margin:0; font-size:22px; }
-header .sub { opacity:.85; margin-top:4px; font-size:13px; }
-.wrap { max-width:1200px; margin:0 auto; padding:26px 42px; }
-h2 { margin-top:34px; font-size:19px; border-bottom:2px solid var(--line); padding-bottom:6px; }
-table { border-collapse:collapse; width:100%; margin:14px 0; background:var(--card);
-        box-shadow:0 1px 3px rgba(0,0,0,.06); border-radius:8px; overflow:hidden; }
-th,td { padding:8px 11px; text-align:left; border-bottom:1px solid var(--line);
+header { background:linear-gradient(120deg,#17233c 0%,#1d4ed8 60%,#2563eb 100%);
+         color:#fff; padding:28px 44px; box-shadow:0 2px 12px rgba(20,30,60,.25); }
+header h1 { margin:0; font-size:23px; font-weight:700; letter-spacing:.2px; }
+header .sub { opacity:.9; margin-top:5px; font-size:13px; }
+.wrap { max-width:1280px; margin:0 auto; padding:28px 44px 60px; }
+h2 { margin-top:40px; font-size:20px; font-weight:700; color:#0f244f;
+     border-bottom:2px solid var(--line); padding-bottom:8px; }
+h2 .count { color:var(--muted); font-weight:500; font-size:14px; margin-left:8px; }
+h3 { font-size:16px; font-weight:600; margin:22px 0 10px; color:#17305f; }
+table { border-collapse:separate; border-spacing:0; width:100%; margin:14px 0;
+        background:var(--card); box-shadow:0 1px 4px rgba(20,30,60,.08);
+        border-radius:10px; overflow:hidden; }
+th,td { padding:9px 12px; text-align:left; border-bottom:1px solid var(--line);
         font-size:13.5px; white-space:nowrap; }
-th { background:#eef1f6; font-weight:600; }
-tr:hover td { background:#f4f7fc; }
-.ok { color:var(--ok); font-weight:700; } .bad { color:var(--bad); font-weight:700; }
+th { background:#eef2f9; font-weight:700; color:#23334f; cursor:pointer;
+     user-select:none; position:sticky; top:0; z-index:1; }
+th:hover { background:#e2e9f5; }
+th .sort { font-size:10px; color:var(--muted); margin-left:4px; }
+tr:last-child td { border-bottom:none; }
+tbody tr:hover td { background:#f6f9ff; }
+td.num { text-align:right; font-variant-numeric:tabular-nums; }
+.good { color:var(--ok); font-weight:700; }
+.warn { color:var(--warn); font-weight:700; }
+.bad { color:var(--bad); font-weight:700; }
 .muted { color:var(--muted); }
-.card { background:var(--card); border:1px solid var(--line); border-radius:8px;
-        padding:16px 20px; margin:12px 0; box-shadow:0 1px 3px rgba(0,0,0,.05); }
-.metric-grid { display:grid; grid-template-columns:repeat(auto-fill,minmax(150px,1fr)); gap:10px; }
-.metric { background:var(--card); border:1px solid var(--line); border-radius:8px;
-          padding:10px 14px; }
-.metric .k { font-size:11px; text-transform:uppercase; letter-spacing:.04em;
-             color:var(--muted); }
-.metric .v { font-size:18px; font-weight:700; margin-top:2px; }
-.chat { border:1px solid var(--line); border-radius:10px; overflow:hidden; }
-.msg { padding:12px 18px; border-bottom:1px solid var(--line); }
-.msg.user { background:#eef3ff; }
-.msg.assistant { background:#fff; }
-.msg .who { font-size:11px; font-weight:700; text-transform:uppercase;
-            letter-spacing:.05em; color:var(--muted); margin-bottom:4px; }
+.badge { display:inline-block; font-size:12px; font-weight:700; border-radius:20px;
+         padding:2px 10px; }
+.badge.good { background:#e6f6ee; color:var(--ok); }
+.badge.warn { background:#fdf1e0; color:var(--warn); }
+.badge.bad { background:#fdeaea; color:var(--bad); }
+.metric-grid { display:grid; grid-template-columns:repeat(auto-fill,minmax(158px,1fr));
+               gap:12px; margin:16px 0; }
+.metric { background:var(--card); border:1px solid var(--line); border-radius:10px;
+          padding:12px 16px; box-shadow:0 1px 3px rgba(20,30,60,.05); }
+.metric .k { font-size:11px; text-transform:uppercase; letter-spacing:.05em;
+             color:var(--muted); font-weight:600; }
+.metric .v { font-size:19px; font-weight:700; margin-top:3px; font-variant-numeric:tabular-nums; }
+.metric .v.good { color:var(--ok); } .metric .v.warn { color:var(--warn); }
+.metric .v.bad { color:var(--bad); }
+.chat { border:1px solid var(--line); border-radius:12px; overflow:hidden;
+        box-shadow:0 1px 4px rgba(20,30,60,.06); margin:16px 0; }
+.msg { padding:14px 20px; }
+.msg.user { background:var(--user-bubble); }
+.msg.assistant { background:var(--assistant-bubble); border-top:1px solid var(--line); }
+.msg .who { font-size:11px; font-weight:800; text-transform:uppercase;
+            letter-spacing:.06em; color:var(--muted); margin-bottom:5px; }
 .msg .body { white-space:pre-wrap; }
-.tool { background:#f2f5f9; border-left:3px solid var(--accent); padding:10px 16px;
-        margin:8px 0; font-size:13.5px; }
-.tool .tname { font-weight:700; }
-.tool .tinput { margin-top:4px; font-family:ui-monospace,Monaco,monospace;
-                font-size:12.5px; white-space:pre-wrap; color:#33415c; }
-.tool .tresult { margin-top:4px; color:var(--muted); font-size:12.5px;
-                 white-space:pre-wrap; font-family:ui-monospace,Monaco,monospace; }
-.back { display:inline-block; margin-bottom:10px; color:var(--accent);
-        text-decoration:none; font-weight:600; }
+/* client-side markdown rendering of message bodies */
+.msg .body p { margin:0 0 8px; }
+.msg .body p:last-child { margin-bottom:0; }
+.msg .body table { font-size:12.5px; margin:6px 0; }
+.msg .body code { background:var(--chip); padding:1px 5px; border-radius:4px;
+                  font-size:12.5px; font-family:ui-monospace,Menlo,monospace; }
+.msg .body pre { background:#0f1b2e; color:#d9e3f5; padding:10px 14px; border-radius:8px;
+                 overflow:auto; }
+.msg .body pre code { background:none; color:inherit; padding:0; }
+.msg .body blockquote { margin:6px 0; padding:4px 12px; border-left:3px solid var(--accent);
+                        color:var(--muted); }
+.msg .body h1,.msg .body h2 { font-size:15px; margin:10px 0 6px; color:#17305f; }
+.msg .body ul,.msg .body ol { margin:6px 0; padding-left:22px; }
+.tool { background:var(--tool); border-left:4px solid var(--tool-edge); padding:10px 16px;
+        margin:10px 16px; border-radius:8px; font-size:13px; box-shadow:0 1px 2px rgba(20,30,60,.05); }
+.tool .tname { font-weight:800; font-size:12.5px; text-transform:uppercase;
+               letter-spacing:.04em; color:#1d4ed8; }
+.tool .tinput { margin-top:6px; font-family:ui-monospace,Menlo,monospace; font-size:12.5px;
+                white-space:pre-wrap; color:#2b3a57; background:#fff; padding:8px 10px;
+                border-radius:6px; border:1px solid var(--line); }
+.tool .tresult { margin-top:6px; color:var(--muted); font-size:12.5px; white-space:pre-wrap;
+                 font-family:ui-monospace,Menlo,monospace; background:#fbfcfe; padding:8px 10px;
+                 border-radius:6px; }
+.back { display:inline-block; margin:0 0 14px; color:var(--accent); text-decoration:none;
+        font-weight:700; font-size:14px; }
+.back:hover { text-decoration:underline; }
 .err { color:var(--bad); }
-.claims li { margin:3px 0; }
+.claims { list-style:none; padding:0; margin:8px 0; }
+.claims li { margin:5px 0; padding:6px 10px; background:var(--card);
+             border:1px solid var(--line); border-radius:8px; font-size:13.5px; }
+.claims .ok { color:var(--ok); font-weight:800; }
+.claims .bad { color:var(--bad); font-weight:800; }
 a { color:var(--accent); }
+"""
+
+JS = """
+// Client-side markdown renderer for message bodies (limited, safe subset:
+// the content is model prose with tables/bold/lists/code — we render those
+// and escape everything else). No server dependency keeps the bundle a
+// single static folder.
+function md(text) {
+  text = text.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+  // fenced code
+  text = text.replace(/```([\\s\\S]*?)```/g, "<pre><code>$1</code></pre>");
+  // headings h2/h3 and bold
+  text = text.replace(/^####[ \\t]*(.+)$/gm, "<h2>$1</h2>");
+  text = text.replace(/^###[ \\t]*(.+)$/gm, "<h3>$1</h3>");
+  text = text.replace(/\\*\\*(.+?)\\*\\*/g, "<strong>$1</strong>");
+  text = text.replace(/\\*(.+?)\\*/g, "<em>$1</em>");
+  text = text.replace(/`([^`]+)`/g, "<code>$1</code>");
+  // tables: line groups starting with | -> render <table>
+  var lines = text.split("\\n"), html = [], i = 0, inT = false;
+  while (i < lines.length) {
+    var l = lines[i];
+    if (l.trim().startsWith("|") && i + 1 < lines.length && lines[i+1].trim().startsWith("|")) {
+      if (!inT) { html.push("<table>"); inT = true; }
+      var cells = l.trim().split("|").slice(1, -1).map(function(c){ return c.trim(); });
+      var tag = (i === 0 || /^\\s*:?-+:?\\s*$/.test(l.trim().replace(/[^|:|\\-\\s]/g, ""))) ? "th" : "td";
+      // detect the header separator row (----) and skip rendering it as data
+      if (inT && /^[\\s:|\\-]+$/.test(l.trim())) { i++; continue; }
+      html.push("<tr><" + tag + ">" + cells.join("</" + tag + "><" + tag + ">") + "</" + tag + "></tr>");
+    } else {
+      if (inT) { html.push("</table>"); inT = false; }
+      if (l.trim() !== "") html.push("<p>" + l + "</p>");
+    }
+    i++;
+  }
+  if (inT) html.push("</table>");
+  // join and wrap
+  return html.join("");
+}
+document.addEventListener("DOMContentLoaded", function () {
+  // render message bodies
+  document.querySelectorAll(".msg .body").forEach(function (b) {
+    b.innerHTML = md(b.textContent);
+  });
+  // sortable tables: click a header to sort asc/desc
+  document.querySelectorAll("table.sortable th").forEach(function (th, idx) {
+    th.addEventListener("click", function () {
+      var t = th.closest("table"), tbody = t.querySelector("tbody"), rows = Array.from(tbody.rows);
+      var dir = t.getAttribute("data-dir") === "asc" ? "desc" : "asc";
+      t.setAttribute("data-dir", dir);
+      rows.sort(function (a, b) {
+        var av = a.cells[idx].textContent.trim(), bv = b.cells[idx].textContent.trim();
+        var an = parseFloat(av.replace(/[$,\\s]/g, "")), bn = parseFloat(bv.replace(/[$,\\s]/g, ""));
+        var cmp = !isNaN(an) && !isNaN(bn) ? an - bn : av.localeCompare(bv);
+        return dir === "asc" ? cmp : -cmp;
+      });
+      rows.forEach(function (r) { tbody.appendChild(r); });
+      th.querySelector(".sort").textContent = dir === "asc" ? "▲" : "▼";
+    });
+  });
+});
 """
 
 
@@ -130,6 +232,32 @@ def _fmt(v, digits=4) -> str:
     if isinstance(v, float):
         return f"{v:.{digits}g}"
     return str(v)
+
+
+# Which metrics are "higher (≤1 scale) is better" for color coding.
+HIGHER_BETTER = {
+    "key_fact_rate", "accurate_rate", "cite_pass_rate", "first_try_cite_rate",
+    "retrieval_efficiency", "figure_coverage", "chunk_relevance",
+    "claim_coverage_precision", "claim_coverage_recall", "holistic",
+    "document_correctness",
+}
+# Color a metric value: green for good, red for bad, amber for middling.
+def _metric_class(key: str, v) -> str:
+    if v is None or isinstance(v, bool):
+        return ""
+    try:
+        x = float(v)
+    except (TypeError, ValueError):
+        return ""
+    if key in HIGHER_BETTER:
+        if x >= 0.9: return "good"
+        if x >= 0.7: return "warn"
+        if x >= 0.5: return "warn"
+        return "bad"
+    # lower is better (turns, retrieves, cost, tokens) — only tint extremes
+    if key in ("cost_usd", "total_cost_usd", "cost_mean_usd"):
+        return "good" if x < 0.02 else ("warn" if x < 0.05 else "bad")
+    return ""
 
 
 def _load(run_dir: Path) -> dict:
@@ -272,11 +400,13 @@ def render_judge_html(judge: dict, qid: str) -> str:
 
 # ---------- pages ----------
 
-def page(title: str, body: str, *, back: str | None = None) -> str:
+def page(title: str, body: str, *, back: str | None = None, sub: str = "") -> str:
     backhtml = f'<a class="back" href="{back}">← back to summary</a>' if back else ""
+    subhtml = f'<div class="sub">{esc(sub)}</div>' if sub else ""
     return f"""<!doctype html><html><head><meta charset="utf-8">
 <title>{esc(title)}</title><style>{CSS}</style></head><body>
-<header><h1>{esc(title)}</h1></header>
+<header><h1>{esc(title)}</h1>{subhtml}</header>
+<script>{JS}</script>
 <div class="wrap">{backhtml}{body}</div></body></html>"""
 
 
@@ -289,30 +419,36 @@ def summary_page(run_dir: Path, data: dict) -> str:
     out.append("<div class='metric-grid'>")
     for k, label in SUMMARY_KEYS:
         if k in summary:
+            cls = _metric_class(k, summary[k])
+            cls = f" class='{cls}'" if cls else ""
             out.append(f"<div class='metric'><div class='k'>{esc(label)}</div>"
-                       f"<div class='v'>{_fmt(summary[k])}</div></div>")
+                       f"<div class='v{cls}'>{_fmt(summary[k])}</div></div>")
     for k in ["holistic_mean", "chunk_relevance_mean",
               "claim_coverage_precision_mean", "claim_coverage_recall_mean"]:
         if judge.get("summary", {}).get(k) is not None:
+            cls = _metric_class(k, judge["summary"][k])
+            cls = f" class='{cls}'" if cls else ""
             out.append(f"<div class='metric'><div class='k'>{esc(k)}</div>"
-                       f"<div class='v'>{_fmt(judge['summary'][k])}</div></div>")
+                       f"<div class='v{cls}'>{_fmt(judge['summary'][k])}</div></div>")
     out.append("</div>")
-    out.append("<h2>Per-query</h2><table><thead><tr>")
+    out.append("<h2>Per-query</h2>"
+               "<table class='sortable'><thead><tr>")
     for _, label in COLUMNS:
-        out.append(f"<th>{label}</th>")
+        out.append(f"<th>{label}<span class='sort'></span></th>")
     out.append("</tr></thead><tbody>")
     for r in sorted(scores.get("per_query", []), key=lambda r: r["query_id"]):
         qid = r["query_id"]
         out.append("<tr>")
         for k, _ in COLUMNS:
-            v = _fmt(r.get(k))
+            raw = r.get(k)
+            v = _fmt(raw)
             cls = ""
-            if k == "accurate" and r.get("accurate"):
-                cls = "class='ok'"
-            elif k == "accurate" and r.get("accurate") is False:
+            if k == "accurate":
+                cls = "class='ok'" if raw else "class='bad'"
+            elif k == "ok" and raw is False:
                 cls = "class='bad'"
-            elif k == "ok" and r.get("ok") is False:
-                cls = "class='bad'"
+            elif k == "key_fact_rate" and raw is not None:
+                cls = f"class='{_metric_class(k, raw)}'"
             if k == "query_id":
                 out.append(f'<td><a href="per-query/{esc(qid)}.html">{esc(v)}</a></td>')
             else:
@@ -346,9 +482,15 @@ def query_page(run_dir: Path, data: dict, qid: str) -> str:
     out = ["<div class='metric-grid'>"]
     for k, label in COLUMNS:
         if k in r and k != "query_id":
+            cls = _metric_class(k, r[k])
+            cls = f" class='{cls}'" if cls else ""
             out.append(f"<div class='metric'><div class='k'>{esc(label)}</div>"
-                       f"<div class='v'>{_fmt(r[k])}</div></div>")
+                       f"<div class='v{cls}'>{_fmt(r[k])}</div></div>")
     out.append("</div>")
+    if "accurate" in r and r.get("accurate") is not None:
+        bcls = "good" if r["accurate"] else "bad"
+        out.append(f"<span class='badge {bcls}'>"
+                   f"{'✓ accurate' if r['accurate'] else '✗ NOT accurate'}</span>")
     out.append("<h2>Judge review</h2>")
     out.append(render_judge_html(data.get("judge", {}), qid))
     out.append("<h2>Conversation</h2>")
