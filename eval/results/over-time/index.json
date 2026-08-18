@@ -1,0 +1,12 @@
+[
+  {
+    "run_dir": "2026-08-17T2324Z-88f90b3",
+    "timestamp": "2026-08-17T2324Z",
+    "git_sha": "88f90b3",
+    "profile": {
+      "queries_file": "eval/agent_queries.yaml"
+    },
+    "total_cost_usd": 0.43936520856,
+    "sets": []
+  }
+]

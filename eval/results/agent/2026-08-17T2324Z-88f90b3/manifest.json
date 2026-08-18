@@ -1,0 +1,39 @@
+{
+  "timestamp": "2026-08-17T2324Z",
+  "git_sha": "88f90b3",
+  "sets": [
+    "quick"
+  ],
+  "repeats": 1,
+  "queries": [
+    "lk-k12-basic-aid-fy2026",
+    "lk-gf-revenue-fy2026",
+    "lk-adc-officer-stipend-fy2026",
+    "lk-eorp-offset",
+    "lk-asrs-rate-fy2026",
+    "lk-scotus-salary",
+    "cm-highway-construction",
+    "cm-supplementals-fy2026",
+    "lk-lot-operating-fy2025",
+    "lk-sos-secretary-of-state-fy2025",
+    "cm-university-funding-dr",
+    "an-ahcccs-enrollment",
+    "an-esa-growth",
+    "hs-arra-k12-stabilization-2010",
+    "hs-bsf-draw-2008"
+  ],
+  "queries_sha256": "d2b5d522580978168f1520ea18d9c5dc11ec2a76a6f081abd37c94f40178ae3f",
+  "tier_models": {
+    "standard": "z-ai/glm-5.2",
+    "deep_research": "moonshotai/kimi-k3"
+  },
+  "provider": "openrouter",
+  "base_url": "https://openrouter.ai/api/v1",
+  "api_key_set": true,
+  "prompt_sha256": "8bd3a2938bbb6106335ff9e519b5d842242c33b0b3a1b7a83ac36cbbd3e3e7ca",
+  "corpus_counts": {
+    "budget_chunks": 83197,
+    "fiscal_note_chunks": 14161
+  },
+  "note": "random-15-quick smoke: seed42 (Destin) 2026-08-16"
+}

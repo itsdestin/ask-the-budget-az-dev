@@ -1,0 +1,37 @@
+[
+  {
+    "kind": "cite_failure",
+    "tool": "cite",
+    "turn": 3,
+    "query_id": "cm-highway-construction",
+    "detail": "{'ok': False, 'error': \"quote not found in chunk.text — the substring you supplied as `quote` does not appear verbatim in the chunk. Pick text that exists in the chunk (read the retrieve() result's `t"
+  },
+  {
+    "kind": "cite_failure",
+    "tool": "cite",
+    "turn": 3,
+    "query_id": "cm-highway-construction",
+    "detail": "{'ok': False, 'error': \"quote not found in chunk.text — the substring you supplied as `quote` does not appear verbatim in the chunk. Pick text that exists in the chunk (read the retrieve() result's `t"
+  },
+  {
+    "kind": "cite_failure",
+    "tool": "cite",
+    "turn": 3,
+    "query_id": "cm-highway-construction",
+    "detail": "{'ok': False, 'error': \"quote not found in chunk.text — the substring you supplied as `quote` does not appear verbatim in the chunk. Pick text that exists in the chunk (read the retrieve() result's `t"
+  },
+  {
+    "kind": "cite_failure",
+    "tool": "cite",
+    "turn": 1,
+    "query_id": "lk-lot-operating-fy2025",
+    "detail": "{'ok': False, 'error': \"quote not found in chunk.text — the substring you supplied as `quote` does not appear verbatim in the chunk. Pick text that exists in the chunk (read the retrieve() result's `t"
+  },
+  {
+    "kind": "cite_failure",
+    "tool": "cite",
+    "turn": 1,
+    "query_id": "lk-lot-operating-fy2025",
+    "detail": "{'ok': False, 'error': \"quote not found in chunk.text — the substring you supplied as `quote` does not appear verbatim in the chunk. Pick text that exists in the chunk (read the retrieve() result's `t"
+  }
+]

@@ -365,6 +365,25 @@ Standard-tier model for the run without touching `settings.json`.
 `--queries` restricts to specific query ids for a quick check on one
 failing case.
 
+**Report bundle (auto-launched).** `run_full_layer2` ends with a free
+"report" step that builds `eval/results/agent/<run>/report/` — a styled,
+navigable HTML site — and OPENS `report/index.html` in your browser:
+
+- `index.html` — headline metrics (accurate rate, tokens/turns-to-accurate,
+  cite pass, judge means) + the full per-query table (every output metric),
+  each stat with a hover tooltip explaining it in analyst terms; hover a
+  query id to see its full user message; click a column to sort.
+- `per-query/<id>.html` — per query: metrics, the judge review (holistic,
+  chunk_relevance, load-bearing claims ✓/✗), and the conversation rendered
+  with the LIVE app's chat classes (navy user bubble, white assistant
+  bubbles, tool cards with the app's retrieve/cite/result look).
+
+Regenerate/relaunch any run's report without re-running the model:
+`uv run python -m eval.report_bundle eval/results/agent/<run>`. The
+transcript's streamed deltas are collapsed into clean app-style messages
+(the last delta of a phase carries the full message); a tool call with no
+preceding deltas means the model went straight to the tool.
+
 **Over-time archive.** Every scored run with a manifest also appends one
 row to `eval/results/over-time/metrics.jsonl` (headline metrics + the
 comparability keys: `queries_sha256`, corpus counts, profile) and updates

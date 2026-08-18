@@ -52,7 +52,7 @@ source. When something ships, update only this file.
 | FY2027 Appropriations Report ingest | ✓ **Done + verified (2026-08-16)** | 140/140 live, 0 failures, 2,336 passages, 0 duplicate ids corpus-wide, 4.61 chunks/page. Corpus now **83,016 budget chunks / 7,566 documents**. Its titles are wrong — that is the identity defect above, not an ingest failure |
 | **Whole-report links become data + an admin approval screen** | ✓ **Shipped (2026-08-16)**, acceptance walk RUN, **rendering seen in a browser** | R1–R13. The 39-edition "Full report" URL table moves out of the JS bundle into `data/report-formats.json` merged with an admin overlay on the share; three admin routes scan the corpus for unanswered editions, probe candidates live and approve them. **Adding a fiscal year is now a click, not a rebuild.** **Moved 2026-08-16: the approval screen is no longer on `/admin`** — it is a "Full report link" row inside the two JLBC book cards on the Upload page, admin-only, which resolves the R7 deviation. The plan's own code was wrong three times, each caught by measurement — a refactor that would have downloaded whole PDFs on a 404, an offline branch that was dead code, and an offline check that poisoned a 12-hour cache. The moved row's chip then had to learn to report EVERY outstanding link state, not just the waiting ones. 3232 pytest / 1142 vitest. **Nobody has seen the moved row in a browser.** See the section below |
 | **Tool cards — placement, then legibility** (TC1–TC22) | ✓ **Shipped 2026-08-16**, browser-approved | A run of tool calls moved out of the space above an answer and INTO the bubble that follows it, then its contents were rewritten for an analyst who does not know what a "chunk" is. **A tool that had never been styled at all was found in the audit.** 1063 vitest / 3151 pytest / build clean, **no eval** (nothing on the retrieval, ingest, chunking, citation or prompt path). Review caught a card that stated a **falsehood** on screen. See the section below |
-| **Consolidated eval pipeline** | 🟡 **Built + code-reviewed, UNMERGED (branch `consolidated-eval-pipeline`)** | Replaced the smoke/full/dr-probe Layer-2 organization with three `set:`s (quick 45 / deep 3 / refusal 5; **multi deferred**), a tokens/turns-to-accurate headline (wall-clock dropped), a `document_correctness` doc-type axis, a tool-error ledger, an over-time archive, and a free corpus-verification script. 53 queries, all **solvable** (0 presence misses). **NOT merged to master, no paid run, no eval baselines refreshed.** See "Consolidated eval pipeline" below |
+| **Consolidated eval pipeline** | 🟡 **Built + code-reviewed, UNMERGED (branch `consolidated-eval-pipeline`)** | Replaced the smoke/full/dr-probe Layer-2 organization with three `set:`s (quick 45 / deep 3 / refusal 5; **multi deferred**), a tokens/turns-to-accurate headline (wall-clock dropped), a `document_correctness` doc-type axis, a tool-error ledger, an over-time archive, and a free corpus-verification script. 53 queries, all **solvable** (0 presence misses). **Paid 15-query smoke run done (73.3% accurate, $0.44); report bundle auto-opens at end of every run. NOT merged to master; full 45-query baseline unrun.** See "Consolidated eval pipeline" below |
 
 ## Tool cards — placement, then legibility (2026-08-16)
 
@@ -2208,15 +2208,35 @@ agent-loop eval with one profile-driven pipeline:
 **Review status.** Final whole-branch review: **no Criticals**, only the
 docs gap (now filled). 3259 pytest passing.
 
+**Paid smoke run (2026-08-17/18).** 15 random quick queries ran through
+the full orchestrator (`run_full_layer2 --sets quick --queries <15 ids>
+--workers 4`) — live agent (z-ai/glm-5.2) → score → judge. Result:
+**11/15 accurate (73.3%)**, key_fact_rate 0.83, cite pass 94.6%, holistic
+3.4, chunk_relevance 0.78, **$0.44 total**. The 4 misses are instructive
+(AHCCCS pin, cm-university not converging, cm-supplementals over-citing,
+SOS fact-right-but-uncited — the honesty gate working). See the skills
+run: `eval/results/agent/2026-08-17T2324Z-88f90b3/`.
+
+**Report bundle.** A styled, navigable HTML report is auto-generated and
+auto-opened at the end of every `run_full_layer2` run
+(`eval/results/agent/<run>/report/index.html`): summary table with hover
+tooltips + sort, per-query pages with the judge review and the
+conversation rendered with the live app's chat classes. Regenerate:
+`uv run python -m eval.report_bundle eval/results/agent/<run>`.
+
 **Open / NOT done**
 - ⏸ **Multi set: DEFERRED (follow-up)** — 0 queries authored. Needs
   hand-pinned `correct_response_docs` and care given the findability
   lessons. When authored: `mt-` id prefix + `correct_response_docs` list +
   corpus/verify pass.
-- ⏸ **Not merged to master** — branch sits 17 commits ahead.
-- ⏸ **No paid run** — gated on an OpenRouter key + `JLBC_DATA_DIR`.
-  The 45-question quick baseline, any evaluate of the headline
-  tokens_to_accurate, and the judge run are all unrun.
+- ⏸ **Not merged to master** — branch sits **25 commits** ahead.
+- ⏸ **Full 45-question quick baseline UNRUN** — the smoke proved the
+  pipeline end-to-end (73.3% accurate on 15), but the full-set headline
+  numbers (accurate rate, tokens/turns-to-accurate over all 45) are still
+  unmeasured. Runs ~$1.50 + judge.
+- ⏸ **The ~12 "reachability-not-in-one-bare-retrieve" facts** are fine
+  (documented), but a handful of queries still carry plausible-by-etiquette
+  anchors worth re-confirming before a full baseline is scored on them.
 - ⏸ **Agent-built "findability" filters** — discussed, then NOT built: a
   cheap test showed naive year/doc-type filters change nothing for
   reachability, so the fancy machinery was dropped (see the section below
