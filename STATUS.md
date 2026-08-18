@@ -52,7 +52,7 @@ source. When something ships, update only this file.
 | FY2027 Appropriations Report ingest | ✓ **Done + verified (2026-08-16)** | 140/140 live, 0 failures, 2,336 passages, 0 duplicate ids corpus-wide, 4.61 chunks/page. Corpus now **83,016 budget chunks / 7,566 documents**. Its titles are wrong — that is the identity defect above, not an ingest failure |
 | **Whole-report links become data + an admin approval screen** | ✓ **Shipped (2026-08-16)**, acceptance walk RUN, **rendering seen in a browser** | R1–R13. The 39-edition "Full report" URL table moves out of the JS bundle into `data/report-formats.json` merged with an admin overlay on the share; three admin routes scan the corpus for unanswered editions, probe candidates live and approve them. **Adding a fiscal year is now a click, not a rebuild.** **Moved 2026-08-16: the approval screen is no longer on `/admin`** — it is a "Full report link" row inside the two JLBC book cards on the Upload page, admin-only, which resolves the R7 deviation. The plan's own code was wrong three times, each caught by measurement — a refactor that would have downloaded whole PDFs on a 404, an offline branch that was dead code, and an offline check that poisoned a 12-hour cache. The moved row's chip then had to learn to report EVERY outstanding link state, not just the waiting ones. 3232 pytest / 1142 vitest. **Nobody has seen the moved row in a browser.** See the section below |
 | **Tool cards — placement, then legibility** (TC1–TC22) | ✓ **Shipped 2026-08-16**, browser-approved | A run of tool calls moved out of the space above an answer and INTO the bubble that follows it, then its contents were rewritten for an analyst who does not know what a "chunk" is. **A tool that had never been styled at all was found in the audit.** 1063 vitest / 3151 pytest / build clean, **no eval** (nothing on the retrieval, ingest, chunking, citation or prompt path). Review caught a card that stated a **falsehood** on screen. See the section below |
-| **Citation highlight locate** (spec L1–L4) | ✓ **Shipped 2026-08-18**, live-verified, browser check outstanding | 44% of correctly linked figure chips rendered "couldn't pinpoint" or the wrong page (measured on a live run). Narrative chunks now store a union bbox + per-paragraph line map; a locate endpoint resolves a cited value to exact PDF rects at click time; the viewer trusts it and falls back to the old chain otherwise; load failures are a recoverable panel with Open document + Retry. See the section below |
+| **Citation highlight locate** (spec L1–L4) | ✓ **Shipped + browser-approved 2026-08-18** | 44% of correctly linked figure chips rendered "couldn't pinpoint" or the wrong page (measured on a live run). Narrative chunks now store a union bbox + per-paragraph line map; a locate endpoint resolves a cited value to exact PDF rects at click time; the viewer trusts it and falls back to the old chain otherwise; load failures are a recoverable panel with Open document + Retry. The browser pass caught ONE defect the suite missed — a vertical mirror — fixed in `1423734`. See the section below |
 | **Consolidated eval pipeline** | ✅ **Shipped — merged to master (2026-08-18), 3265 pytest green** | Replaced the smoke/full/dr-probe Layer-2 organization with three `set:`s (quick 45 / deep 3 / refusal 5; **multi deferred**), a tokens/turns-to-accurate headline (wall-clock dropped), a `document_correctness` doc-type axis, a tool-error ledger, an over-time archive, a free corpus-verification script, and a **resumable judge** (partial writes + resume-skip). 53 queries, all **solvable** (0 presence misses). **deepseek-v4-flash-0731 full-45 quick rerun: 0.711 accurate (32/45), $0.21 — beats glm-5.2 (0.667) at ~1/10 cost.** Report bundle auto-opens at end of every run. See "Consolidated eval pipeline" below |
 
 ## Tool cards — placement, then legibility (2026-08-16)
@@ -267,14 +267,25 @@ Live-verified against the real corpus: the measured miss above now returns
 `basis: "scan", page 17` with the value's exact rect (y≈362, outside the old
 bbox).
 
+### 🔴 The browser pass caught what the suite could not
+
+Destin clicked chips on a live server and the highlight boxes were
+**vertically mirrored** — a number near the top of the page drew its box
+near the bottom. Cause: the locate endpoint's rects are TOP-LEFT-origin
+PDF points (PyMuPDF's convention, same as stored bboxes), and the first
+version fed them through pdfjs's `convertToViewportRectangle`, which
+expects BOTTOM-LEFT origin. The correct transform is the plain scale
+multiply `bboxToViewportRect`'s points branch already does. Fixed in
+`1423734`; the test mock now models pdfjs's real bottom-left convention
+and a zoomed test pins the scale multiply, so the mirror class of bug
+fails in tests from now on. Re-checked in the browser after the fix:
+boxes sit exactly on the numbers — approved.
+
 ### ⏸ OUTSTANDING
 
-- **Nobody has clicked a chip in a browser since the merge.** Check: a
-  figure chip whose value sat outside the old bbox (any ADE baseline page-17
-  figure) now highlights the number itself; a chip on a multi-page section
-  lands on the right page; WiFi-off / share-blip shows the new panel with a
-  working Open document link; a DOCX bill chip still shows the text panel.
-  `uvicorn` runs without `--reload` — Python changes need a server restart.
+- Not yet witnessed in a browser: the WiFi-off / share-blip panel with its
+  Open document + Retry buttons, and a DOCX bill chip's cited-text-forward
+  surface (both pinned by vitest, neither seen).
 - The A7 ingest-time coordmap backfill remains the right shape for a future
   re-ingest and is NOT built; the locate endpoint makes it optional rather
   than load-bearing.
