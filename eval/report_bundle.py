@@ -104,7 +104,13 @@ CSS = """
 :root { --bg:#f6f8fb; --card:#fff; --ink:#161b26; --muted:#5c6775;
         --accent:#2563eb; --ok:#0e9f5b; --warn:#d97706; --bad:#dc2626;
         --line:#e5eaf1; --tool:#f1f5f9; --tool-edge:#93c5fd;
-        --user-bubble:#eaf1ff; --assistant-bubble:#fff; --chip:#eef1f6; }
+        --user-bubble:#eaf1ff; --assistant-bubble:#fff; --chip:#eef1f6;
+        /* app design tokens, ported from webapp/src/styles/tokens.css so the
+           transcript renders with the app's own palette */
+        --navy:#2b2f63; --navy-700:#232752; --navy-900:#181b3d; --navy-100:#e7e8f2;
+        --az-gold:#1b6fc4; --az-gold-d:#145aa6; --az-gold-100:#dceaf7;
+        --ink-2:#4a4e6a; --ink-3:#757895; --r-md:16px; --r-sm:12px; --r-pill:999px;
+        --chat-danger:#c0392b; --chat-danger-tint:#fdecea; }
 * { box-sizing:border-box; }
 html { scroll-behavior:smooth; }
 body { margin:0; font:15px/1.6 -apple-system,"Segoe UI",Roboto,sans-serif;
@@ -205,6 +211,49 @@ a { color:var(--accent); }
   content:""; position:absolute; left:50%; bottom:calc(100% + 2px); transform:translateX(-50%);
   border:6px solid transparent; border-top-color:#101a2c; z-index:20; pointer-events:none;
 }
+/* ---- app chat transcript (ported from webapp/src/styles/app.css) ----
+   The eval transcript renders with the LIVE app's own classes + tokens so
+   it looks like the real conversation, not a bespoke viewer. */
+.chat-turn { display:flex; flex-direction:column; gap:8px; margin:18px 0; }
+.chat-bubble { position:relative; background:var(--card); border:1px solid var(--line);
+               border-radius:var(--r-md); padding:10px 16px; color:var(--ink);
+               font-size:14px; max-width:65ch; }
+.chat-bubble.has-tail { border-bottom-left-radius:4px; }
+.chat-user-row { display:flex; justify-content:flex-end; }
+.chat-user-bubble { background:var(--navy); color:#fff; border-radius:var(--r-md);
+                    border-bottom-right-radius:4px; padding:10px 16px; max-width:78%;
+                    font-size:14px; line-height:1.6; white-space:pre-wrap; }
+.chat-stop-note { font-size:12px; color:var(--ink-3); font-style:italic; padding:0 4px; }
+/* tool card + group, the app's own geometry */
+.chat-tool { border-radius:var(--r-sm); border:1px solid var(--line);
+             background:var(--card); max-width:65ch; overflow:hidden; margin:8px 0; }
+.chat-tool.is-failed { border-color:var(--chat-danger); }
+.chat-tool.is-inset { background:var(--canvas, #f5f5fa); }
+.chat-tool-head { width:100%; display:flex; align-items:center; gap:8px; padding:6px 12px;
+                  font-size:12.5px; color:var(--ink-2); }
+.chat-tool-glyph { flex-shrink:0; color:var(--ink-3); }
+.chat-tool.is-failed .chat-tool-glyph, .chat-tool.is-failed .chat-tool-label { color:var(--chat-danger); }
+.chat-tool-label { font-weight:700; color:var(--ink-2); flex-shrink:0; }
+.chat-tool-summary { color:var(--ink-3); font-size:12px; min-width:0; flex:1 1 auto;
+                     overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.chat-tool-summary::before { content:"↳ "; }
+.chat-tool-body { border-top:1px solid var(--line); padding:8px 12px;
+                  font-size:13px; color:var(--ink); }
+.chat-tool-body pre { margin:4px 0; white-space:pre-wrap; font-size:12px;
+                      font-family:ui-monospace,Menlo,monospace; color:var(--ink-2); }
+.chat-tool-body .chip-row { display:flex; flex-wrap:wrap; gap:6px; }
+.chat-chip { display:inline-flex; align-items:center; gap:4px; padding:1px 8px;
+             font-size:11px; font-weight:700; border-radius:var(--r-pill);
+             border:1px solid var(--line); background:var(--navy-100); color:var(--ink-2); }
+.chat-chip.is-good { background:var(--az-gold-100); color:var(--az-gold-d); border-color:var(--az-gold); }
+.chat-chip.is-bad { background:var(--chat-danger-tint); color:var(--chat-danger); border-color:var(--chat-danger); }
+/* citation pills, the app's cite state language */
+.chat-cite-pill { display:inline-flex; align-items:center; gap:4px; padding:1px 6px;
+                  font-size:10px; font-weight:700; border-radius:4px; border:1px solid;
+                  font-family:var(--font); cursor:pointer; }
+.chat-cite-pill.is-verbatim { background:var(--az-gold-100); color:var(--az-gold-d); border-color:var(--az-gold); }
+.chat-cite-pill.is-paraphrase { background:var(--navy-100); color:var(--ink-2); border-color:var(--line); }
+.chat-cite-pill.is-failed { background:var(--chat-danger-tint); color:var(--chat-danger); border-color:var(--chat-danger); }
 /* tool calls, app-like */
 .tool { display:flex; align-items:flex-start; gap:8px; background:var(--tool);
         border:1px solid var(--line); border-left:4px solid var(--accent);
@@ -274,7 +323,7 @@ function md(text) {
 }
 document.addEventListener("DOMContentLoaded", function () {
   // render message bodies
-  document.querySelectorAll(".msg .body").forEach(function (b) {
+  document.querySelectorAll(".chat-bubble").forEach(function (b) {
     b.innerHTML = md(b.textContent);
   });
   // sortable tables: click a header to sort asc/desc
@@ -377,80 +426,98 @@ def _conversation_events(run_dir: Path, qid: str) -> list[dict]:
 def render_chat_html(run_dir: Path, qid: str) -> str:
     """Render the conversation as it appeared in the app.
 
+    Uses the LIVE app's own class structure (ported into CSS above):
+    .chat-turn groups one user row + assistant bubble + tool cards;
+    .chat-user-row/.chat-user-bubble for the question; .chat-bubble for
+    assistant prose; .chat-tool cards for tool calls; .chat-cite-pill for
+    citation attempts. This is the same markup the app renders, so the
+    eval transcript looks like the real conversation.
+
     Reconstruction rule (verified against real transcripts): the assistant
     emits streamed deltas; some models re-emit growing prefixes, so the
     readable message is the LAST delta of a phase (it holds the full
     accumulated text). A tool call with NO preceding deltas means the model
-    went straight to the tool. We therefore group: on user_message start a
-    user bubble; accumulate deltas and, at a tool_use or turn boundary, emit
-    the last delta as the assistant message; tool calls render as attempts.
+    went straight to the tool.
     """
     evs = _conversation_events(run_dir, qid)
     if not evs:
         return "<p class='muted'>no transcript</p>"
-    parts: list[str] = ["""<div class="chat">"""]
+    parts: list[str] = []  # each entry is one .chat-turn
     cur_deltas: list[str] = []
     thinking = ""
-    terminal = None
 
-    def flush_message():
+    def flush_turn():
+        """Close the current turn: assistant bubble from the last delta +
+        thinking; reset accumulators."""
         nonlocal cur_deltas, thinking
-        if cur_deltas:
-            # last delta of the phase carries the full accumulated message
-            text = cur_deltas[-1].strip()
-            if text:
-                parts.append(
-                    f"<div class='msg assistant'><div class='who'>Assistant</div>"
-                    f"<div class='body'>{esc(text)}</div></div>"
-                )
-            cur_deltas = []
+        inner = []
         if thinking:
-            parts.append(f"<div class='msg assistant'><div class='who'>Assistant · "
-                         f"reasoning</div><div class='body muted'>{esc(thinking)}</div></div>")
+            inner.append(f"<div class='chat-bubble'><div class='chat-stop-note'>"
+                         f"reasoning: {esc(thinking[:200])}</div></div>")
             thinking = ""
+        if cur_deltas:
+            text = cur_deltas[-1].strip()  # last delta = full accumulated message
+            cur_deltas = []
+            if text:
+                inner.append(f"<div class='chat-bubble has-tail'>{esc(text)}</div>")
+        if inner:
+            parts.append("<div class='chat-turn'>" + "".join(inner) + "</div>")
 
     for e in evs:
         t = e.get("type")
         if t == "user_message":
-            flush_message()
-            parts.append(f"<div class='msg user'><div class='who'>User</div>"
-                         f"<div class='body'>{esc(e.get('text',''))}</div></div>")
+            flush_turn()
+            parts.append(f"<div class='chat-turn'><div class='chat-user-row'>"
+                         f"<div class='chat-user-bubble'>{esc(e.get('text',''))}</div>"
+                         f"</div></div>")
         elif t == "assistant_thinking":
-            thinking = e.get("text") or thinking
+            thinking = (thinking + "\n" + (e.get("text") or "")).strip()
         elif t == "assistant_text_delta":
             cur_deltas.append(e.get("text", ""))
         elif t == "tool_use":
-            flush_message()
+            flush_turn()
             name = e.get("toolName") or e.get("name") or "tool"
             inp = e.get("input") or {}
-            # Render compact, app-like: name + the args that matter.
             if name == "retrieve":
-                detail = esc((inp.get("query") or "")[:120])
+                label = "🔍 retrieve"
+                summary = f"“{esc((inp.get('query') or '')[:100])}”"
                 extra = []
-                if inp.get("fiscal_year"): extra.append(f"fy={inp['fiscal_year']}")
-                if inp.get("doc_type"): extra.append(f"doc_type={inp['doc_type']}")
-                if inp.get("agency_canonical_id"): extra.append(f"agency={inp['agency_canonical_id']}")
-                tag = f"<span class='targs'>{' · '.join(esc(x) for x in extra)}</span>" if extra else ""
-                parts.append(f"<div class='tool retrieve'><span class='tname'>🔍 retrieve</span> "
-                             f"<span class='tdetail'>{detail}</span>{tag}</div>")
+                if inp.get("fiscal_year"): extra.append(f"fy {inp['fiscal_year']}")
+                if inp.get("doc_type"): extra.append(f"doc_type {inp['doc_type']}")
+                if inp.get("agency_canonical_id"): extra.append(f"{inp['agency_canonical_id']}")
+                body = ("".join(
+                    f"<span class='chat-chip'>{esc(x)}</span>" for x in extra)
+                    + (f"<pre>{esc(json.dumps(inp, ensure_ascii=False)[:800])}</pre>"
+                       if not extra else ""))
             elif name in ("cite", "cite_batch"):
-                cid = inp.get("chunk_id") or (inp.get("citations") or [{}])[0].get("chunk_id") if isinstance(inp.get("citations"), list) and inp.get("citations") else None
-                quote = (inp.get("quote") or (inp.get("citations") or [{}])[0].get("quote") if isinstance(inp.get("citations"), list) and inp.get("citations") else "") or ""
-                parts.append(f"<div class='tool cite'><span class='tname'>📎 cite</span> "
-                             f"<span class='targs'>{esc(str(cid))}</span> "
-                             f"<span class='tdetail'>“{esc(quote[:110])}…”</span></div>")
+                cits = inp.get("citations") if isinstance(inp.get("citations"), list) else None
+                first = (cits[0] if cits else inp)
+                cid = first.get("chunk_id") or ""
+                quote = (first.get("quote") or "")[:90]
+                label = "📎 cite" + (" batch" if name == "cite_batch" else "")
+                summary = f"{esc(str(cid))} · “{esc(quote)}…”"
+                body = "".join(
+                    f"<span class='chat-cite-pill is-verbatim'>{esc(c.get('chunk_id',''))[:14]}</span>"
+                    for c in (cits or [])[:6])
             else:
-                parts.append(f"<div class='tool'><span class='tname'>{esc(name)}</span>"
-                             f"<div class='tinput'>{esc(json.dumps(inp, ensure_ascii=False)[:300])}</div></div>")
+                label = f"🛠 {esc(name)}"
+                summary = ""
+                body = f"<pre>{esc(json.dumps(inp, ensure_ascii=False)[:400])}</pre>"
+            parts.append(f"<div class='chat-tool'><div class='chat-tool-head'>"
+                         f"<span class='chat-tool-glyph'></span>"
+                         f"<span class='chat-tool-label'>{label}</span>"
+                         f"<span class='chat-tool-summary'>{summary}</span>"
+                         f"</div><div class='chat-tool-body'>{body}</div></div>")
         elif t == "tool_result":
             res = e.get("output") or e.get("result") or ""
             s = str(res)
-            # compact: just a "→ ok/err" line + clipped preview
             ok = "ok" if not (isinstance(res, dict) and res.get("error")) else "error"
-            parts.append(f"<div class='tool result {esc(ok)}'><span class='tname'>→ {esc(ok)}</span>"
-                         f"<span class='tdetail'>{esc(s[:140])}{'…' if len(s) > 140 else ''}</span></div>")
-    flush_message()
-    # terminal frame -> final answer
+            parts.append(f"<div class='chat-tool is-inset{' is-failed' if ok=='error' else ''}'>"
+                         f"<div class='chat-tool-head'><span class='chat-tool-label'>→ {esc(ok)}</span>"
+                         f"<span class='chat-tool-summary'>{esc(s[:100])}{'…' if len(s)>100 else ''}</span>"
+                         f"</div></div>")
+    flush_turn()
+    # terminal frame -> final answer (a real assistant bubble with a tail)
     for line in (run_dir / f"{qid}-r1.jsonl").read_text(encoding="utf-8").splitlines():
         try:
             rec = json.loads(line)
@@ -460,11 +527,8 @@ def render_chat_html(run_dir: Path, qid: str) -> str:
             frame = rec.get("frame") or {}
             final = frame.get("finalAnswer")
             if final:
-                parts.append(
-                    f"<div class='msg assistant'><div class='who'>Final answer</div>"
-                    f"<div class='body'>{esc(final)}</div></div>"
-                )
-    parts.append("</div>")
+                parts.append(f"<div class='chat-turn'><div class='chat-bubble has-tail'>"
+                             f"<strong>Final answer</strong><br>{esc(final)}</div></div>")
     return "\n".join(parts)
 
 
