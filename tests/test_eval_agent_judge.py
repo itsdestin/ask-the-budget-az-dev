@@ -493,6 +493,62 @@ def test_main_judges_transcripts_in_parallel_workers(tmp_path, monkeypatch):
     assert all(r.get("holistic") == 4 for r in out["per_query"])
 
 
+def test_main_resumes_from_existing_judge_json_and_does_not_repay(tmp_path, monkeypatch):
+    """A rerun after an interruption must NOT re-grade (and re-pay) rows
+    already in judge.json. Here aq-001 is pre-seeded as already judged; the
+    rerun must grade only aq-002 and merge rather than overwrite aq-001."""
+    run_dir = tmp_path / "run"
+    run_dir.mkdir()
+    from eval.agent_transcript import write_transcript
+    base = Transcript(meta={"query_id": "x"}, terminal={"frame": {"type": "_done"}})
+    for qid in ("aq-001", "aq-002"):
+        meta = dict(base.meta, query_id=qid, repeat=1)
+        write_transcript(run_dir / f"{qid}-r1.jsonl", meta,
+                         [], {"frame": {"type": "_done", "finalAnswer": "x",
+                                        "citations": [], "toolCalls": [],
+                                        "annotation": {"figures": []}},
+                              "wall_ms": 1})
+    queries_file = tmp_path / "queries.yaml"
+    queries_file.write_text(
+        "- id: aq-001\n  question: ADC? \n  shape: lookup\n  set: quick\n"
+        "- id: aq-002\n  question: DEMA?  \n  shape: lookup\n  set: quick\n",
+        encoding="utf-8")
+    # Pre-seed judge.json exactly as a partial interrupted run would leave it:
+    # aq-001 already graded, aq-002 not yet done.
+    seed = {
+        "judge_model": "m", "judge_reasoning": True,
+        "judge_prompt_sha256": "x" * 64, "partial": True,
+        "summary": {"n": 1, "errors": 0, "holistic_mean": 4},
+        "per_query": [{"query_id": "aq-001", "repeat": 1, "holistic": 4,
+                       "load_bearing_claims": [], "chunk_relevance": 0.9}],
+    }
+    (run_dir / "judge.json").write_text(json.dumps(seed), encoding="utf-8")
+
+    calls = []
+    def handler(request):
+        calls.append(request.url.path)
+        return httpx.Response(200, json={"choices": [
+            {"message": {"content": json.dumps(JUDGE_REPLY)}}]})
+
+    real_client = httpx.Client
+    monkeypatch.setattr(judge_agent_run.httpx, "Client",
+                        lambda *a, **k: real_client(transport=httpx.MockTransport(handler)))
+    monkeypatch.setattr(judge_agent_run, "load_settings", lambda: _FakeSettings())
+    monkeypatch.setattr(sys, "argv",
+                        ["judge", str(run_dir), "--queries-file", str(queries_file),
+                         "--workers", "2"])
+    assert main() == 0
+    out = json.loads((run_dir / "judge.json").read_text(encoding="utf-8"))
+    # Only aq-002 was newly graded: exactly one paid model call, not two.
+    assert len(calls) == 1
+    # The resumed run kept the pre-seeded row and added the new one.
+    assert out["summary"]["n"] == 2
+    qids = [r["query_id"] for r in out["per_query"]]
+    assert qids == ["aq-001", "aq-002"]
+    # Complete run, not marked partial.
+    assert out.get("partial") is False
+
+
 def test_reasoning_model_that_returns_null_content_gives_a_clear_error():
     """Observed live 2026-08-02 with deepseek-v4-flash-0731: a reasoning
     model spends its completion budget thinking, hits finish_reason

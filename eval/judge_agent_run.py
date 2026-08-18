@@ -422,6 +422,54 @@ def main() -> int:
     if args.limit:
         paths = paths[: args.limit]
 
+    # ---- Resumability (2026-08-18, deepseek full-45 run) ----
+    # A full judge pass is slow (45 separate paid OpenRouter calls with
+    # reasoning) and a long run can be killed mid-way. judge.json used to be
+    # written ONCE at the very end, so ANY interruption — a crashed session,
+    # a timebox kill (SIGKILL cannot be caught), a hard power event — threw
+    # away every already-paid grade AND re-charged them on the rerun. Two
+    # fixes here:
+    #   * On start, load an existing judge.json and skip transcripts already
+    #     graded, so a rerun resumes instead of re-paying.
+    #   * After every grade, write a partial judge.json, so a kill preserves
+    #     the rows completed so far (which is what the Ctrl-C path already
+    #     aspired to do for the interrupt it can see).
+    resume_file = args.run_dir / "judge.json"
+    graded_keys: set[tuple[str, int]] = set()
+    if resume_file.exists():
+        try:
+            prior = json.loads(resume_file.read_text(encoding="utf-8"))
+            for row in prior.get("per_query", []):
+                per_query.append(row)
+                graded_keys.add((row.get("query_id"), row.get("repeat", 1)))
+            if per_query:
+                print(f"resumed judge.json: {len(per_query)} "
+                      f"previously-graded row(s) loaded (skipping them)",
+                      file=sys.stderr)
+        except (json.JSONDecodeError, OSError) as exc:
+            print(f"WARNING: could not read existing judge.json to resume "
+                  f"({exc}); rejudging from scratch", file=sys.stderr)
+            per_query = []
+
+    def _resume_key_of(path: Path) -> tuple[str, int]:
+        """(query_id, repeat) for a transcript path like <qid>-r1.jsonl."""
+        stem = path.stem  # e.g. 'lk-k12-basic-aid-fy2026-r1'
+        if "-r" in stem:
+            qid, _, rpart = stem.rpartition("-r")
+            try:
+                return (qid, int(rpart))
+            except ValueError:
+                pass
+        return (stem, 1)
+
+    if graded_keys:
+        # Only grade transcripts we have not already judged. Filtering by key
+        # rather than filename keeps resume correct even if filenames shift.
+        before = len(paths)
+        paths = [p for p in paths if _resume_key_of(p) not in graded_keys]
+        print(f"resume: judging {len(paths)} of {before} transcripts "
+              f"({before - len(paths)} already done)", file=sys.stderr)
+
     def _grade_one(path: Path) -> dict[str, Any] | None:
         """Read one transcript, judge it, score it. Runs on a worker
         thread when --workers > 1, so it builds its OWN httpx.Client — a
@@ -457,6 +505,43 @@ def main() -> int:
                    "judge_error": f"{type(exc).__name__}: {exc}"}
         return row
 
+    def _write(partial: bool) -> None:
+        """Write judge.json (atomic tmp+replace). `partial=True` marks an
+        incomplete run so downstream readers can tell a resume is pending."""
+        graded = [r for r in per_query if "judge_error" not in r]
+        def mean(key):
+            # WHY the isinstance check (and not just `is not None`): `holistic`
+            # is supplied by the MODEL, and a non-number there — "4", "4/5", a
+            # list — crashes sum() with a TypeError at the very end of the run,
+            # after every row has been paid for and before judge.json is
+            # written. parse_judge_json already normalizes that field, so this
+            # is defense in depth for any future summary field that isn't
+            # normalized yet. bool is excluded because it would add as 0/1.
+            vals = [r[key] for r in graded
+                    if isinstance(r.get(key), (int, float)) and not isinstance(r.get(key), bool)]
+            return (sum(vals) / len(vals)) if vals else None
+        out = {"judge_model": args.judge_model,
+               "judge_reasoning": not args.no_reasoning,
+               "judge_prompt_sha256": hashlib.sha256(system_prompt.encode()).hexdigest(),
+               "partial": partial,
+               "summary": {"n": len(per_query), "errors": len(per_query) - len(graded),
+                           "claim_coverage_precision_mean": mean("claim_coverage_precision"),
+                           "claim_coverage_recall_mean": mean("claim_coverage_recall"),
+                           "holistic_mean": mean("holistic"),
+                           # Task 8, part 2: the judge's chunk_relevance is stored
+                           # per query above (in the row, via parse_judge_json)
+                           # and aggregated here. Finding 7: asking for a field and
+                           # dropping it on the floor buys nothing — this mean is
+                           # what makes the question "was what it retrieved
+                           # relevant?" trendable. mean() skips None rows, so a
+                           # malformed grade is excluded rather than counted.
+                           "chunk_relevance_mean": mean("chunk_relevance")},
+               "per_query": per_query}
+        tmp = (args.run_dir / "judge.json").with_suffix(".json.tmp")
+        tmp.write_text(json.dumps(out, indent=2, ensure_ascii=False), encoding="utf-8")
+        tmp.replace(args.run_dir / "judge.json")
+        return out
+
     def _run_judge() -> None:
         """Fan the grade calls out. `--workers` is the number of judge
         calls in flight at once; default 1 preserves the historical serial
@@ -470,12 +555,14 @@ def main() -> int:
                 row = _grade_one(path)
                 if row is not None:
                     per_query.append(row)
+                    _write(partial=True)  # preserve progress on a kill
         else:
             # One task per path; map preserves input order on the results.
             with concurrent.futures.ThreadPoolExecutor(max_workers=args.workers) as ex:
                 for path, row in zip(paths, ex.map(_grade_one, paths)):
                     if row is not None:
                         per_query.append(row)
+                        _write(partial=True)  # preserve progress on a kill
 
     try:
         _run_judge()
@@ -490,41 +577,12 @@ def main() -> int:
         print("interrupted — writing the rows graded so far", file=sys.stderr)
         interrupted = True
 
-    graded = [r for r in per_query if "judge_error" not in r]
-    def mean(key):
-        # WHY the isinstance check (and not just `is not None`): `holistic`
-        # is supplied by the MODEL, and a non-number there — "4", "4/5", a
-        # list — crashes sum() with a TypeError at the very end of the run,
-        # after every row has been paid for and before judge.json is
-        # written. parse_judge_json already normalizes that field, so this
-        # is defense in depth for any future summary field that isn't
-        # normalized yet. bool is excluded because it would add as 0/1.
-        vals = [r[key] for r in graded
-                if isinstance(r.get(key), (int, float)) and not isinstance(r.get(key), bool)]
-        return (sum(vals) / len(vals)) if vals else None
-    out = {"judge_model": args.judge_model,
-           "judge_reasoning": not args.no_reasoning,
-           "judge_prompt_sha256": hashlib.sha256(system_prompt.encode()).hexdigest(),
-           "summary": {"n": len(per_query), "errors": len(per_query) - len(graded),
-                       "claim_coverage_precision_mean": mean("claim_coverage_precision"),
-                       "claim_coverage_recall_mean": mean("claim_coverage_recall"),
-                       "holistic_mean": mean("holistic"),
-                       # Task 8, part 2: the judge's chunk_relevance is stored
-                       # per query above (in the row, via parse_judge_json)
-                       # and aggregated here. Finding 7: asking for a field and
-                       # dropping it on the floor buys nothing — this mean is
-                       # what makes the question "was what it retrieved
-                       # relevant?" trendable. mean() skips None rows, so a
-                       # malformed grade is excluded rather than counted.
-                       "chunk_relevance_mean": mean("chunk_relevance")},
-           "per_query": per_query}
-    tmp = (args.run_dir / "judge.json").with_suffix(".json.tmp")
-    tmp.write_text(json.dumps(out, indent=2, ensure_ascii=False), encoding="utf-8")
-    tmp.replace(args.run_dir / "judge.json")
+    out = _write(partial=False)
     print(json.dumps(out["summary"], indent=2))
     # 130 = the shell's conventional "killed by Ctrl-C", so a script driving
     # this can tell a complete run from a partial one. The partial results
-    # are on disk either way.
+    # are on disk either way (and since the resumability work of 2026-08-18,
+    # are reloadable for a resume).
     return 130 if interrupted else 0
 
 
