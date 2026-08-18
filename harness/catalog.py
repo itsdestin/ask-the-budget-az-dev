@@ -87,15 +87,17 @@ class Recommendation:
 # order, so entry 0 of each tier should be the one currently assigned and
 # verified, and the rest should descend by preference.
 #
-# Ship-time picks follow S16: Deep Research gets a cost-effective
-# frontier-class OPEN model, Standard gets the best
-# opus-level-performance-per-dollar OPEN model. First-party flagships
-# (Fable/Opus/GPT-class) are deliberately absent — the whole point is a
-# tool the office can afford to leave switched on, and open weights get
-# most of the quality for a fraction of the per-token price. All eight
-# were confirmed present and tool-capable on OpenRouter on 2026-07-31;
-# the first entry of each tier is what the 2026-07-31 live run actually
-# used end to end.
+# Ship-time picks follow S16: open-weight models first — the whole point
+# is a tool the office can afford to leave switched on, and open weights
+# get most of the quality for a fraction of the per-token price. The
+# original eight were confirmed present and tool-capable on OpenRouter on
+# 2026-07-31; the first entry of each tier is what that live run used.
+#
+# First-party flagships (GPT Luna/Terra/Sol, Claude Opus 5) were added
+# 2026-08-18 at Destin's request: offered in BOTH tiers, after the
+# verified defaults so a runtime fallback still lands on a tested model
+# first. All four were confirmed present, tool-capable and priced on
+# OpenRouter on 2026-08-18.
 RECOMMENDATIONS: tuple[Recommendation, ...] = (
     # --- Standard: quick lookups, ~15 steps, run all day -------------
     Recommendation(
@@ -136,6 +138,53 @@ RECOMMENDATIONS: tuple[Recommendation, ...] = (
             "a second opinion if one vendor is having a bad week."
         ),
     ),
+    # --- First-party flagships, offered in BOTH tiers (2026-08-18) --------
+    # Destin's call: the office wants the Anthropic/OpenAI flagships
+    # available for Standard AND Deep Research, not just the open-weight
+    # shortlist above. All four were verified present, tool-capable and
+    # priced on OpenRouter on 2026-08-18 (see tests/fixtures refresh). They
+    # sit AFTER the verified defaults so a mid-session fallback still lands
+    # on the tested models first; an admin can switch to any of these.
+    Recommendation(
+        id="openai/gpt-5.6-luna",
+        name="GPT Luna",
+        tier_hint="standard",
+        blurb=(
+            "OpenAI's cheapest current GPT — big context (1M+), fine for "
+            "quick lookups, and the least expensive way into the first-party "
+            "GPT line. Slightly weaker on the agentic score than the others."
+        ),
+    ),
+    Recommendation(
+        id="openai/gpt-5.6-terra",
+        name="GPT Terra",
+        tier_hint="standard",
+        blurb=(
+            "OpenAI's mid-tier GPT. A step up in reasoning from Luna at a "
+            "middle price, same very large context. Good everyday default "
+            "if the office wants first-party models."
+        ),
+    ),
+    Recommendation(
+        id="openai/gpt-5.6-sol",
+        name="GPT Sol",
+        tier_hint="standard",
+        blurb=(
+            "OpenAI's strongest GPT in the current line on the intelligence "
+            "and agentic scores. Pricier than Luna/Terra but still a "
+            "fraction of Claude Opus."
+        ),
+    ),
+    Recommendation(
+        id="anthropic/claude-opus-5",
+        name="Claude Opus",
+        tier_hint="standard",
+        blurb=(
+            "Anthropic's frontier flagship and the top of the intelligence "
+            "scale shown here. The most expensive option on the list — use "
+            "it when the answer has to be as strong as possible."
+        ),
+    ),
     # --- Deep Research: multi-year sweeps, ~50 steps, used on purpose --
     Recommendation(
         id="moonshotai/kimi-k3",
@@ -173,6 +222,47 @@ RECOMMENDATIONS: tuple[Recommendation, ...] = (
         blurb=(
             "The previous generation of the default. Kept here as the "
             "safe landing spot if the newer one is ever retired."
+        ),
+    ),
+    # --- First-party flagships, also offered for Deep Research -----------
+    Recommendation(
+        id="openai/gpt-5.6-luna",
+        name="GPT Luna",
+        tier_hint="deep_research",
+        blurb=(
+            "OpenAI's cheapest current model offered for the long sweeps. "
+            "A big budget review will cost less here than on any other "
+            "first-party option, at some depth cost."
+        ),
+    ),
+    Recommendation(
+        id="openai/gpt-5.6-terra",
+        name="GPT Terra",
+        tier_hint="deep_research",
+        blurb=(
+            "OpenAI's middle GPT, offered for deep sweeps when the budget "
+            "rules out Sol/Opus but you still want first-party."
+        ),
+    ),
+    Recommendation(
+        id="openai/gpt-5.6-sol",
+        name="GPT Sol",
+        tier_hint="deep_research",
+        blurb=(
+            "The GPT flagship for the long multi-year question: strong "
+            "agentic score so it follows the longer tool loops, without "
+            "Opus pricing."
+        ),
+    ),
+    Recommendation(
+        id="anthropic/claude-opus-5",
+        name="Claude Opus",
+        tier_hint="deep_research",
+        blurb=(
+            "The top of the intelligence scale — the strongest option for "
+            "the hardest, longest Deep Research questions. Watch the price: "
+            "a deep sweep on Opus is the largest single bill this app can "
+            "produce."
         ),
     ),
 )

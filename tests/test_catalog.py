@@ -1,9 +1,11 @@
 """harness/catalog.py — the OpenRouter model catalog (Plan 5 Task 4, spec S13).
 
 NOTHING HERE TOUCHES THE NETWORK. Every test drives a captured payload
-(`tests/fixtures/openrouter_models.json`, 12 real entries pulled from
-`https://openrouter.ai/api/v1/models` on 2026-07-31) through a fake
-transport, so the suite is as fast and as deterministic offline as on.
+(`tests/fixtures/openrouter_models.json`, 16 real entries — the original
+12 pulled from `https://openrouter.ai/api/v1/models` on 2026-07-31, plus
+the four first-party flagships GPT Luna/Terra/Sol and Claude Opus 5
+added 2026-08-18) through a fake transport, so the suite is as fast and
+as deterministic offline as on.
 
 The properties pinned here are the ones an admin would feel:
 
