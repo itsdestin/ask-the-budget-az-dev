@@ -52,7 +52,7 @@ source. When something ships, update only this file.
 | FY2027 Appropriations Report ingest | ✓ **Done + verified (2026-08-16)** | 140/140 live, 0 failures, 2,336 passages, 0 duplicate ids corpus-wide, 4.61 chunks/page. Corpus now **83,016 budget chunks / 7,566 documents**. Its titles are wrong — that is the identity defect above, not an ingest failure |
 | **Whole-report links become data + an admin approval screen** | ✓ **Shipped (2026-08-16)**, acceptance walk RUN, **rendering seen in a browser** | R1–R13. The 39-edition "Full report" URL table moves out of the JS bundle into `data/report-formats.json` merged with an admin overlay on the share; three admin routes scan the corpus for unanswered editions, probe candidates live and approve them. **Adding a fiscal year is now a click, not a rebuild.** **Moved 2026-08-16: the approval screen is no longer on `/admin`** — it is a "Full report link" row inside the two JLBC book cards on the Upload page, admin-only, which resolves the R7 deviation. The plan's own code was wrong three times, each caught by measurement — a refactor that would have downloaded whole PDFs on a 404, an offline branch that was dead code, and an offline check that poisoned a 12-hour cache. The moved row's chip then had to learn to report EVERY outstanding link state, not just the waiting ones. 3232 pytest / 1142 vitest. **Nobody has seen the moved row in a browser.** See the section below |
 | **Tool cards — placement, then legibility** (TC1–TC22) | ✓ **Shipped 2026-08-16**, browser-approved | A run of tool calls moved out of the space above an answer and INTO the bubble that follows it, then its contents were rewritten for an analyst who does not know what a "chunk" is. **A tool that had never been styled at all was found in the audit.** 1063 vitest / 3151 pytest / build clean, **no eval** (nothing on the retrieval, ingest, chunking, citation or prompt path). Review caught a card that stated a **falsehood** on screen. See the section below |
-| **Consolidated eval pipeline** | 🟡 **Built + code-reviewed, UNMERGED (branch `consolidated-eval-pipeline`)** | Replaced the smoke/full/dr-probe Layer-2 organization with three `set:`s (quick 45 / deep 3 / refusal 5; **multi deferred**), a tokens/turns-to-accurate headline (wall-clock dropped), a `document_correctness` doc-type axis, a tool-error ledger, an over-time archive, and a free corpus-verification script. 53 queries, all **solvable** (0 presence misses). **Paid 15-query smoke run done (73.3% accurate, $0.44); report bundle auto-opens at end of every run. NOT merged to master; full 45-query baseline unrun.** See "Consolidated eval pipeline" below |
+| **Consolidated eval pipeline** | ✅ **Shipped — merged to master (2026-08-18), 3265 pytest green** | Replaced the smoke/full/dr-probe Layer-2 organization with three `set:`s (quick 45 / deep 3 / refusal 5; **multi deferred**), a tokens/turns-to-accurate headline (wall-clock dropped), a `document_correctness` doc-type axis, a tool-error ledger, an over-time archive, a free corpus-verification script, and a **resumable judge** (partial writes + resume-skip). 53 queries, all **solvable** (0 presence misses). **deepseek-v4-flash-0731 full-45 quick rerun: 0.711 accurate (32/45), $0.21 — beats glm-5.2 (0.667) at ~1/10 cost.** Report bundle auto-opens at end of every run. See "Consolidated eval pipeline" below |
 
 ## Tool cards — placement, then legibility (2026-08-16)
 
@@ -2170,10 +2170,12 @@ Recorded because they are the kind of thing that gets copied forward:
 
 </details>
 
-## Consolidated eval pipeline — BUILT + code-reviewed, UNMERGED (2026-08-16)
+## Consolidated eval pipeline — SHIPPED, merged to master (2026-08-18)
 
-On branch `consolidated-eval-pipeline` (17 commits, 27 files, not merged).
-Design: `docs/superpowers/specs/2026-08-16-consolidated-eval-pipeline-design.md`;
+**Merged to master 2026-08-18** (branch `consolidated-eval-pipeline`, 30+ commits,
+was 17). Full suite green on the merged result: **3265 pytest** (3 more than the
+pre-merge 3259, incl. a new judge-resume test). Design:
+`docs/superpowers/specs/2026-08-16-consolidated-eval-pipeline-design.md`;
 plan: `docs/superpowers/plans/2026-08-16-consolidated-eval-pipeline.md`;
 query inventory: `docs/superpowers/plans/2026-08-16-eval-query-inventory.md`.
 
@@ -2224,16 +2226,52 @@ tooltips + sort, per-query pages with the judge review and the
 conversation rendered with the live app's chat classes. Regenerate:
 `uv run python -m eval.report_bundle eval/results/agent/<run>`.
 
+**2026-08-18 deepseek audit + improvements (all merged).** This was the
+first serious measurement on the consolidated pipeline, and it found
+three honest things worth recording because each changed the tooling:
+
+1. **Provider errors must be excluded from model metrics.** An OpenRouter
+   **403 key cap struck mid-run** and killed 10/45 deepseek queries — each
+   wrote an `_error` frame and was mis-scored as a model failure (hu/rate
+   read 0.229). Now `agent_scoring.py` classifies 403/rate-limit/5xx/network
+   outages as `provider_errors` and excludes them from the accuracy
+   denominator.
+2. **The accurate bar was measuring the wrong citation path.** The harness
+   consumes `[[cN]]` figure tags into VERIFIED figure annotations (the real
+   citation chips), but `accurate` only counted `cite()`-tool calls — so a
+   correct, auto-cited answer scored "0 citations." `accurate` now credits
+   tag-linked figures. This alone moved deepseek from 8/45 → 20/35 and glm
+   from 26/45 → 30/45.
+3. **Prompt/harness guidance + judge resumability.** Added a "Conversation
+   rhythm" section, a "MUST emit `[[tag]]`" rule with a worked example,
+   glanceability guidance, and `cite_reminder`/`filter_hint` stamped onto
+   every retrieve result. Three "this year" queries reworded to explicit
+   "FY 2026" (policy: "this year" = FY2027). The judge now writes partial
+   `judge.json` after every grade and resumes without re-paying on rerun.
+
+**Headline result (clean rerun, all improvements).** Full 45-question
+quick set with **deepseek-v4-flash-0731** → `run_dir
+eval/results/agent/2026-08-18T0850Z-6a28d03/`:
+**32/45 accurate (0.711)**, fact rate 0.785, cite pass 0.895, **$0.21**.
+Same set with **glm-5.2** → 30/45 accurate (0.667), $2.20. **deepseek now
+leads glm on accuracy at ~1/10 the cost** — the opposite of the pre-audit
+read (0.229) and a vindication of the scoring + harness fixes. glm was
+judged with glm; both judged by the same glm-5.2 judge.
+
 **Open / NOT done**
 - ⏸ **Multi set: DEFERRED (follow-up)** — 0 queries authored. Needs
   hand-pinned `correct_response_docs` and care given the findability
   lessons. When authored: `mt-` id prefix + `correct_response_docs` list +
   corpus/verify pass.
-- ⏸ **Not merged to master** — branch sits **25 commits** ahead.
-- ⏸ **Full 45-question quick baseline UNRUN** — the smoke proved the
-  pipeline end-to-end (73.3% accurate on 15), but the full-set headline
-  numbers (accurate rate, tokens/turns-to-accurate over all 45) are still
-  unmeasured. Runs ~$1.50 + judge.
+- ⏸ **Clean glm full-45 rerun on the *updated* query wording** (the glm
+  30/45 above is on the pre-reword set; the deepseek 0.711 is on the
+  reworded one — not quite the same population, so the head-to-head is
+  directionally but not exactly apples-to-apples).
+- ⏸ **~13 remaining non-accurate deepseek queries** in the 0850 report —
+  the dominant residual failure is ambiguous "operating budget" targets
+  (e.g. full-sources vs General Fund vs a specific line), i.e. query-spec
+  ambiguity rather than retrieval/citation defects. Worth either tightening
+  wording or adding domain guidance before the next baseline.
 - ⏸ **The ~12 "reachability-not-in-one-bare-retrieve" facts** are fine
   (documented), but a handful of queries still carry plausible-by-etiquette
   anchors worth re-confirming before a full baseline is scored on them.

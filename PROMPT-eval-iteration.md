@@ -1,13 +1,13 @@
 # Handoff — Consolidated Eval Pipeline: iteration on UI/flow, query sets, test runs
 
-**Prepared:** 2026-08-18 · **Branch:** `consolidated-eval-pipeline` (27 commits, **not merged, not pushed**)
+**Prepared:** 2026-08-18 · **Status: MERGED to master (2026-08-18) — historical record**
 **For:** Destin — further iteration on the eval UI/flow, the remaining query sets (multi, quick growth/tuning), and test runs.
 
 ---
 
 ## TL;DR — where things stand
 
-The consolidated eval pipeline is **built, code-reviewed, and works end-to-end**, on a feature branch. A 15-question paid smoke run proved it (73.3% accurate, $0.44). The report auto-opens as a styled HTML site at the end of every run. The remaining work is: **merge the branch**, **author the multi set**, **run the full 45-question baseline**, and **any UI/flow iteration you want on the report**.
+The consolidated eval pipeline is **built, merged to master (2026-08-18), and works end-to-end**. The merge landed the report rework, the deepseek-v4-flash audit fixes, and the resumable judge (see STATUS.md "Consolidated eval pipeline"). The 15-query smoke run proved the pipeline; a **full 45-question deepseek rerun then landed 0.711 accurate ($0.21), beating glm (0.667)**. Most of the original "remaining work" below is done. The still-open items — **author the multi set**, a **clean glm rerun on updated query wording**, and **reviewing the ~13 residual deepseek failures** (mostly ambiguous "operating budget" query targets) — are recorded in STATUS.md and are the natural next steps.
 
 ---
 

@@ -460,6 +460,18 @@ transcript's own citation count — the judge's own arithmetic is never
 trusted. A malformed or non-JSON judge reply becomes one `judge_error`
 row, not a run-ending crash.
 
+**The judge is resumable and writes partial progress (2026-08-18).** A
+full judge pass is slow (45 separate paid OpenRouter calls) and used to
+write `judge.json` only at the very end, so any interruption — a crashed
+session, a timebox kill — discarded every already-paid grade and
+re-charged them on the rerun. Now it writes a partial `judge.json` after
+every grade, and on a rerun it loads the existing `judge.json` and SKIPS
+the transcripts already graded (matched by query_id + repeat), so it never
+re-pays for work already done. Just re-run the same
+`judge_agent_run <run> --workers N` command to resume; a complete run
+ends with `"partial": false` in `judge.json`, an interrupted one leaves
+`"partial": true`.
+
 `compare_agent_runs.py` diffs a baseline run directory against a
 candidate one into a markdown report — what differed (git sha, prompt
 sha, tier models, repeats), every mechanical metric with a
