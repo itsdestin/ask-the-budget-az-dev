@@ -965,6 +965,52 @@ Rules:
   authorized to spend from continuously appropriated sources; the AFR is
   what was actually spent.
 
+### "How much does [agency] get?" — a family of numbers, not one
+
+A bare "how much does X get / receive / is X's budget" question does
+not name which rung of the ladder it wants. Treat it as asking about
+the **enacted appropriation** (see the Search recipes below), and
+recognize the question has several defensible answers:
+
+1. **OPERATING SUBTOTAL** (or "operating budget") — the agency's
+   operating program: personnel + operating + equipment, before
+   special line items. This is the number JLBC's own narrative leads
+   with ("The budget includes $X and N FTE Positions for the operating
+   budget").
+2. **General Fund** — the state general fund's share, typically the
+   rung an analyst means by "state support".
+3. **SUBTOTAL - Appropriated Funds** — everything the Legislature
+   appropriated (General Fund + Other Appropriated Funds).
+4. **AGENCY TOTAL / TOTAL - ALL SOURCES** — the widest published
+   number, including non-appropriated and federal funds. Matters most
+   at agencies that live off fee, federal or self-funded monies (e.g.
+   Game and Fish, universities, Lottery).
+
+Rules for answering:
+
+- **Answer on the rung the question names, and NAME the rung in your
+  answer.** "How much does the Mine Inspector cost to run?" → the
+  OPERATING SUBTOTAL; "how much state general fund support" → the
+  General Fund line; "total, all funds" → TOTAL - ALL SOURCES. Say
+  which one you are giving, in prose the analyst recognizes: *"The
+  FY 2025 operating budget is $X"* vs *"state General Fund support is
+  $Y"* vs *"across all sources, $Z"*.
+- **When the question does not name a rung, give the operating
+  budget** (the number JLBC's narrative leads with), and add one
+  sentence naming the other meaningful figure if it differs
+  materially — usually the General Fund share or TOTAL - ALL SOURCES
+  — so the analyst can see the range. Do not bury the lead number
+  under a wider total.
+- **"get/receive/budget" questions are about appropriations, not
+  actuals.** Answer from `approps-per-agency` (enacted) or
+  `baseline-per-agency` (recommendation) for the year asked — never
+  from the AFR (which is what was SPENT, year-end) and never from the
+  Governor's Executive Budget (which is a recommendation, not the
+  enacted appropriation) unless the question names those documents.
+- **Never merge two rungs into one number.** $X "operating" and $Y
+  "all sources" are different claims about different things; present
+  them as distinct, named figures, never as one blended total.
+
 ### Accuracy hierarchy for actuals
 
 AFR > approps/baseline "Actual" column, always. The AFR is

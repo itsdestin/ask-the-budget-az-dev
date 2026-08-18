@@ -673,7 +673,8 @@
 
 - id: lk-agr-operating-fy2025
   question: >-
-    What's the Agriculture Department's total operating budget for FY 2025,
+    What's the Agriculture Department's operating budget (personnel plus
+    operating and equipment costs, before special line items) for FY 2025,
     and how many full-time-equivalent positions does it fund?
   corpus: budget
   shape: lookup
@@ -687,6 +688,10 @@
     FY 2025 Arizona Department of Agriculture operating budget per the JLBC
     per-agency page: $16,679,800 and 209.4 FTE. Niche agency (agriculture);
     verified present in corpus and reachable at rank via verbatim question.
+    Re-worded 2026-08-18: "total operating budget" read ambiguously and the
+    model answered TOTAL - ALL SOURCES ($47,469,500); the question now names
+    the operating rung explicitly (personnel + operating + equipment, before
+    special line items), matching the pinned OPERATING SUBTOTAL.
 
 - id: lk-lot-operating-fy2025
   question: >-
@@ -790,11 +795,15 @@
   set: quick
   key_facts:
     - kind: currency
-      value: "$87,356,100"
+      value: "$75,978,400"
   judge_notes: >-
-    UA Health Sciences FY 2026 operating budget per JLBC approps-fy2026-uniuhsc:
-    $87,356,100 and 730.4 FTE. Re-pinned from bogus $498M (2026-08-16
-    findability pass; anchor not in corpus). Verified present.
+    UA Health Sciences FY 2026 General Fund support per JLBC approps-fy2026-uniuhsc
+    FUND SOURCES line: $75,978,400 (FY 2026 Approved). Re-pinned 2026-08-18:
+    the previous anchor $87,356,100 was the OPERATING SUBTOTAL (of which only
+    $41,107,600 is General Fund) — the question asks for state general fund
+    support, which is the FUND SOURCES -> General Fund line. The model answered
+    $75,978,400 correctly in the 2026-08-18 run; the anchor was wrong.
+    Verified present in corpus.
 
 - id: lk-dps-historical-operating-fy2013
   question: >-
@@ -820,10 +829,15 @@
   set: quick
   key_facts:
     - kind: currency
-      value: "$1,001,200"
+      value: "$39,494,200"
   judge_notes: >-
-    FY 2025 Game and Fish operating budget per corpus: Capital Improvement
-    Fund $1,001,200. Verified present.
+    FY 2025 Game and Fish operating budget per JLBC approps-fy2025-fis
+    narrative (chunk 0004): "The budget includes $39,494,200 and 273.5 FTE
+    Positions in FY 2025 for the operating budget." Re-pinned 2026-08-18:
+    the previous anchor $1,001,200 was a Capital Improvement Fund sub-line,
+    not the operating budget — the question asks for the operating budget
+    and the model answered it correctly ($39,494,200) in the 2026-08-18 run;
+    the anchor was wrong. Verified present in corpus.
 
 - id: lk-sos-secretary-of-state-fy2025
   question: >-
@@ -1018,9 +1032,9 @@
 
 - id: an-ahcccs-enrollment
   question: >-
-    Medicaid enrollment apparently came in well under what the state budgeted
-    for. What happened, and how did that ripple into the following year's
-    numbers?
+    In FY 2025, Medicaid enrollment apparently came in well under what the
+    state budgeted for. What happened, and how did that ripple into the
+    following year's numbers?
   corpus: budget
   shape: analyze
   set: quick
@@ -1038,6 +1052,11 @@
     has outsized General Fund formula impact), estimated at $55,575,200 of
     General Fund expense. A correct answer explains BOTH directions —
     caseload down, rates up — rather than only the enrollment shortfall.
+    Re-worded 2026-08-18: the original question named no year and the model
+    answered the FY 2026 -> FY 2027 episode (retrieved the FY 2027 baseline)
+    while the pinned facts are the FY 2025 story (1.58M vs 1.77M, $55,575,200
+    rate adjustment, carried into FY 2026). "In FY 2025" now anchors the
+    intended episode. Verified present in corpus (approps-fy2026-axs-0037).
     NOTE: the headline base-adjustment figures in this passage are printed as
     parenthesized negatives, which the currency matcher cannot parse, so the
     pinned facts deliberately use the positive rate-adjustment figure and a

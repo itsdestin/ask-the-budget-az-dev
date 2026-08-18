@@ -235,6 +235,33 @@ def test_expenditure_authority_is_defined_and_not_offered_as_all_funds():
     assert "Never hand-sum columns to make a total" in prompt
 
 
+def test_budget_prompt_names_the_family_of_get_answers_and_sources():
+    """A bare "how much does [agency] get" question has several defensible
+    numbers (operating subtotal, General Fund, total all sources), and the
+    model drifted between them in the 2026-08-18 eval run (gave the
+    TOTAL-ALL-SOURCES where the question implied operating, and reached for
+    Governor's-Budget/AFR chunks first). The prompt must (a) name the rungs,
+    (b) say "get" questions are appropriations-type questions answered from
+    approps/baseline, not AFR or the executive budget, and (c) tell the model
+    to name its basis when the question doesn't."""
+    budget = " ".join(build_system_prompt(corpus="budget",
+                                          tier="standard").split())
+    for phrase in (
+        "OPERATING SUBTOTAL",
+        "General Fund",
+        "SUBTOTAL - Appropriated Funds",
+        "TOTAL - ALL SOURCES",
+        "approps-per-agency",
+        "baseline-per-agency",
+        "never from the AFR",  # "get" is appropriations, not actuals
+        "Governor's Executive Budget",
+    ):
+        assert phrase in budget
+    # And the "get" rule is a budget-concept, not a fiscal-note one.
+    notes = build_system_prompt(corpus="fiscal_notes", tier="standard")
+    assert "How much does [agency] get?" not in notes
+
+
 # ---------------------------------------------------------------------------
 # Corpus scope
 # ---------------------------------------------------------------------------
