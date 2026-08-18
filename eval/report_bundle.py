@@ -517,18 +517,9 @@ def render_chat_html(run_dir: Path, qid: str) -> str:
                          f"<span class='chat-tool-summary'>{esc(s[:100])}{'…' if len(s)>100 else ''}</span>"
                          f"</div></div>")
     flush_turn()
-    # terminal frame -> final answer (a real assistant bubble with a tail)
-    for line in (run_dir / f"{qid}-r1.jsonl").read_text(encoding="utf-8").splitlines():
-        try:
-            rec = json.loads(line)
-        except json.JSONDecodeError:
-            continue
-        if rec.get("kind") == "terminal":
-            frame = rec.get("frame") or {}
-            final = frame.get("finalAnswer")
-            if final:
-                parts.append(f"<div class='chat-turn'><div class='chat-bubble has-tail'>"
-                             f"<strong>Final answer</strong><br>{esc(final)}</div></div>")
+    # NOTE: no separate "final answer" section — the last assistant delta
+    # already carries the full final message, so a second rendering would
+    # duplicate it. The terminal frame is only read for the run's state.
     return "\n".join(parts)
 
 
