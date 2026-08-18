@@ -23,6 +23,7 @@ The Range PARSING is a faithful port, quirks included (`parse_range_header`).
 """
 from __future__ import annotations
 
+import json
 import re
 from pathlib import Path, PurePosixPath
 from typing import Any, Iterator
@@ -370,6 +371,42 @@ def get_chunk(
     provider uses — so serving one here would mean a passage panel whose
     heading contradicts the row that opened it.
     """
+    row, record = _chunk_row(chunk_id, corpus)
+    source_format = str(record.get("source_format") or "") if record else ""
+    bbox = row.get("bbox")
+    page = row.get("page")
+    return {
+        "chunk_id": row.get("chunk_id"),
+        "doc_id": row.get("doc_id"),
+        "page": int(page) if page is not None else None,
+        # LanceDB hands back float32 values (and sometimes a numpy array);
+        # normalize to plain floats so the JSON encoder never chokes on a
+        # numpy scalar and the client always sees four numbers.
+        "bbox": [float(v) for v in bbox] if bbox is not None else None,
+        "text": row.get("text") or "",
+        # Per-paragraph locators for merged narrative chunks (spec L1),
+        # decoded from the JSON column. The viewer passes `lines` back to
+        # /locate; null on rows written before the field existed.
+        "source_anchor": _decode_anchor(row.get("source_anchor")),
+        # "" rather than None when documents.json has no record: the viewer
+        # tests `pdf_unavailable_reason`, and an unknown format is not a
+        # reason to refuse to try the PDF route.
+        "source_format": source_format or None,
+        "pdf_unavailable_reason": (
+            non_pdf_detail(source_format)
+            if source_format and source_format != "pdf"
+            else None
+        ),
+    }
+
+
+def _chunk_row(chunk_id: str, corpus: str) -> tuple[dict[str, Any], dict[str, Any] | None]:
+    """The stored row for one chunk plus its document record.
+
+    Shared by get_chunk and the locate route: both need the identical 404
+    (unknown chunk) and 503 (share offline) posture, and two copies of that
+    error wording would drift.
+    """
     # Imported inside the function for the same reason as _document_record:
     # these modules pull in the retrieval + storage stack, and an app that
     # never opens a passage should not pay to import it.
@@ -399,28 +436,245 @@ def get_chunk(
                 "re-ingested."
             ),
         )
-    row = rows[0]
+    return rows[0], _document_record(str(rows[0].get("doc_id") or ""))
 
-    record = _document_record(str(row.get("doc_id") or ""))
-    source_format = str(record.get("source_format") or "") if record else ""
-    bbox = row.get("bbox")
-    page = row.get("page")
-    return {
-        "chunk_id": row.get("chunk_id"),
-        "doc_id": row.get("doc_id"),
-        "page": int(page) if page is not None else None,
-        # LanceDB hands back float32 values (and sometimes a numpy array);
-        # normalize to plain floats so the JSON encoder never chokes on a
-        # numpy scalar and the client always sees four numbers.
-        "bbox": [float(v) for v in bbox] if bbox is not None else None,
-        "text": row.get("text") or "",
-        # "" rather than None when documents.json has no record: the viewer
-        # tests `pdf_unavailable_reason`, and an unknown format is not a
-        # reason to refuse to try the PDF route.
-        "source_format": source_format or None,
-        "pdf_unavailable_reason": (
-            non_pdf_detail(source_format)
-            if source_format and source_format != "pdf"
-            else None
-        ),
-    }
+
+def _decode_anchor(raw: Any) -> dict[str, Any] | None:
+    """Decode the source_anchor JSON column for a viewer-facing route.
+
+    Unlike retrieval/search_lance.row_to_chunk — which RAISES on malformed
+    anchor JSON so a bad writer is loud at query time — this route must
+    DEGRADE to null: the viewer treats a missing anchor as "no lines" and
+    falls back to page+bbox+scan, while a 500 here would replace the whole
+    provenance surface with an error for a field that is only an
+    optimization. The loud copy stays in row_to_chunk, where retrieval
+    reads the same column for real.
+    """
+    if not raw:
+        return None
+    try:
+        decoded = json.loads(raw)
+    except (TypeError, ValueError):
+        return None
+    return decoded if isinstance(decoded, dict) else None
+
+
+# ---------------------------------------------------------------------------
+# GET /api/chunks/{chunk_id}/locate — the read-time coordinate map (spec L2)
+# ---------------------------------------------------------------------------
+
+# Open PyMuPDF documents, keyed by resolved blob path. PyMuPDF opens are
+# cheap on this corpus (measured 0.00s cold for a 23- and a 28-page book)
+# but a click burst on one document would re-open it per request; the cache
+# bounds that. Evicted docs are CLOSED — the share-handle lesson from
+# _streamed applies: a leaked handle on Windows blocks a re-ingest
+# overwriting the cached PDF.
+_LOCATE_DOC_CACHE_MAX = 8
+_locate_doc_cache: dict[str, Any] = {}
+
+
+def _import_fitz() -> Any | None:
+    """PyMuPDF, lazily. The app server never imports it at startup, and a
+    broken install (damaged Windows bundle) must read as "no locate" —
+    ingest/ladder.py's posture — not as a 500 on a provenance route."""
+    try:
+        import fitz
+
+        return fitz
+    except Exception:
+        return None
+
+
+def _locate_open_doc(fitz: Any, path: Path) -> Any | None:
+    key = str(path)
+    doc = _locate_doc_cache.pop(key, None)
+    if doc is not None:
+        _locate_doc_cache[key] = doc  # refresh LRU order
+        return doc
+    try:
+        doc = fitz.open(path)
+    except Exception:
+        return None
+    while len(_locate_doc_cache) >= _LOCATE_DOC_CACHE_MAX:
+        _, evicted = _locate_doc_cache.popitem(last=False)
+        try:
+            evicted.close()
+        except Exception:
+            pass
+    _locate_doc_cache[key] = doc
+    return doc
+
+
+def _locate_candidates(text: str) -> list[str]:
+    """Search strings for one cited value, in priority order.
+
+    The measured format drift (2026-08-18 probe, 7/137 figures): the PDF
+    text layer prints accounting negatives as `$(546,838,600)` while the
+    linker's stored source_text carries `(546,838,600)`, and vice versa —
+    a RAW text search sees two different strings where normalizeForMatch
+    sees one. So every candidate rides along with its paren-swapped twin.
+    The numeric core (no `$`, no parens) is the third tier: it is what
+    finds a value when BOTH conventions disagree with the stored form.
+    Interior commas/digits are untouched — this is a spelling tolerance,
+    never a value tolerance.
+    """
+
+    def swapped(s: str) -> str | None:
+        if s.startswith("$(") and s.endswith(")"):
+            return s[1:]  # drop the $: $(X) -> (X)
+        if s.startswith("(") and s.endswith(")"):
+            return "$" + s  # (X) -> $(X)
+        return None
+
+    out: list[str] = []
+    for cand in (text, swapped(text)):
+        if cand and cand not in out:
+            out.append(cand)
+    core = re.sub(r"^[$(\s]+|[\s)]+$", "", text)
+    if core and core not in out:
+        out.append(core)
+    return [c for c in out if c]
+
+
+def _clip_rect(fitz: Any, page: Any, bbox: Any) -> Any | None:
+    """A stored bbox as a PyMuPDF clip rect, in the page's point space.
+
+    Mirrors the viewer's bboxToViewportRect autodetect (PdfPage.tsx,
+    verified empirically 2026-05-07): MinerU bboxes are 0–1000 normalized
+    per axis, OpenDataLoader's are PDF points, and the discriminator is
+    whether any value exceeds the page's larger dimension. Clipping with
+    the wrong interpretation would search a postage stamp (normalized
+    read as points) or the whole page (points read as normalized) — the
+    former silently missing the value, which is the defect this route
+    exists to remove.
+    """
+    if bbox is None or len(bbox) != 4:
+        return None
+    try:
+        values = [float(v) for v in bbox]
+    except (TypeError, ValueError):
+        return None
+    r = page.rect
+    if max(values) > max(r.width, r.height):
+        values = [
+            values[0] / 1000 * r.width,
+            values[1] / 1000 * r.height,
+            values[2] / 1000 * r.width,
+            values[3] / 1000 * r.height,
+        ]
+    return r & fitz.Rect(*values)
+
+
+def _search_page(page: Any, candidates: list[str], clip: Any | None) -> list[list[float]] | None:
+    for cand in candidates:
+        try:
+            hits = page.search_for(cand, clip=clip) if clip is not None else page.search_for(cand)
+        except Exception:
+            continue
+        if hits:
+            return [[float(h.x0), float(h.y0), float(h.x1), float(h.y1)] for h in hits]
+    return None
+
+
+@router.get("/api/chunks/{chunk_id}/locate")
+def locate_chunk(
+    chunk_id: str,
+    text: str = Query(""),
+    corpus: str = Query("budget", pattern="^(budget|fiscal_notes)$"),
+):
+    """Resolve a cited value to exact PDF rects — the read-time coordmap.
+
+    Spec L2 (2026-08-18-citation-highlight-locate-design.md). The viewer's
+    client-side text-layer search misses 44% of correctly linked figures
+    (measured on a live run): the stored bbox covered only the chunk's
+    first paragraph, the cited value sat on a later page, or accounting
+    parens differed between chunk text and PDF text layer. This route
+    answers with PyMuPDF's own search — the same ground truth the probe
+    validated — in the PDF user-space points the viewer's
+    `bboxToViewportRect` already speaks.
+
+    First success wins:
+      anchor      a source_anchor.lines entry containing `text` names the
+                  paragraph's page + bbox; search clipped to it.
+      stored-page search the chunk's stored page (clipped to its bbox).
+      scan        every page, first hit (measured 0.04–0.25 s per document,
+                  incl. the 191-page AFR).
+      none        nothing found, no PDF behind the chunk, or fitz/store
+                  unavailable. The viewer then runs its EXISTING chain
+                  unchanged — a locate failure can only add precision,
+                  exactly as spec A7's fallback rule required of the
+                  ingest-time map.
+
+    Rects are in PDF user-space points; `page` is 1-indexed.
+    """
+    text = text.strip()
+    if not text:
+        raise HTTPException(
+            status_code=400,
+            detail="locate needs the cited text to search for (?text=…).",
+        )
+    row, record = _chunk_row(chunk_id, corpus)
+    page_no = row.get("page")
+    page_no = int(page_no) if page_no is not None else None
+    none = {"chunk_id": chunk_id, "page": page_no, "rects": [], "basis": "none"}
+    if not record or str(record.get("source_format") or "") != "pdf":
+        # DOCX bills and fiscal notes have no page image; there is nothing
+        # to search and the viewer already shows the cited-text panel.
+        return none
+    path = _resolve_blob(str(record.get("source_blob_path") or ""))
+    if path is None:
+        return none
+    fitz = _import_fitz()
+    if fitz is None:
+        return none
+    doc = _locate_open_doc(fitz, path)
+    if doc is None:
+        return none
+
+    candidates = _locate_candidates(text)
+    anchor = _decode_anchor(row.get("source_anchor")) or {}
+    lines = anchor.get("lines") if isinstance(anchor.get("lines"), list) else []
+
+    try:
+        # 1. anchor — the line map written at ingest (spec L1). Anchor text
+        #    is a substring of chunk text BY CONSTRUCTION, so a
+        #    whitespace-collapsed containment test is exact; no
+        #    normalization machinery needed.
+        collapsed = re.sub(r"\s+", " ", text).strip()
+        for line in lines:
+            if not isinstance(line, dict):
+                continue
+            line_text = re.sub(r"\s+", " ", str(line.get("text") or "")).strip()
+            if not collapsed or collapsed not in line_text:
+                continue
+            lp = line.get("page")
+            lb = line.get("bbox")
+            if not isinstance(lp, int) or not isinstance(lb, (list, tuple)) or len(lb) != 4:
+                continue
+            if lp < 1 or lp > doc.page_count:
+                continue
+            clip = _clip_rect(fitz, doc[lp - 1], lb)
+            rects = _search_page(doc[lp - 1], candidates, clip)
+            if rects:
+                return {"chunk_id": chunk_id, "page": lp, "rects": rects, "basis": "anchor"}
+
+        # 2. stored page, clipped to the stored bbox when present.
+        if page_no is not None and 1 <= page_no <= doc.page_count:
+            page = doc[page_no - 1]
+            clip = _clip_rect(fitz, page, row.get("bbox"))
+            rects = _search_page(page, candidates, clip)
+            if rects:
+                return {"chunk_id": chunk_id, "page": page_no, "rects": rects, "basis": "stored-page"}
+
+        # 3. scan — first hit anywhere. Fixes the wrong-page cases the
+        #    stored page cannot see.
+        for i in range(doc.page_count):
+            rects = _search_page(doc[i], candidates, None)
+            if rects:
+                return {"chunk_id": chunk_id, "page": i + 1, "rects": rects, "basis": "scan"}
+        return none
+    except Exception:
+        # Any surprise inside fitz (a corrupt page, a search exception on
+        # one glyph run) must read as "none", never as a 500: the viewer's
+        # contract is that locate only ADDS precision.
+        return none

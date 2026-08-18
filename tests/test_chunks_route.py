@@ -98,6 +98,9 @@ def test_returns_the_fields_the_viewer_consumes(store):
         "page": 47,
         "bbox": [10.5, 20.0, 100.25, 40.0],
         "text": "The Aviation Fund got $2,587,400 in FY 2026.",
+        # Absent on rows written before the locate work (spec L1) — null,
+        # not missing, so the client's ChunkSource type stays total.
+        "source_anchor": None,
         "source_format": "pdf",
         "pdf_unavailable_reason": None,
     }
@@ -160,6 +163,30 @@ def test_chunk_whose_document_is_not_in_the_sidecar_still_resolves(store):
     assert body["source_format"] is None
     assert body["pdf_unavailable_reason"] is None
     assert body["text"].startswith("The Aviation Fund")
+
+
+def test_source_anchor_is_decoded_for_the_viewer(store):
+    # Rows written after the locate work (spec L1) carry per-paragraph
+    # lines; the route hands them over decoded, not as the raw JSON string
+    # the Arrow column stores.
+    anchor = {"page": 47, "lines": [
+        {"text": "The Aviation Fund got $2,587,400 in FY 2026.",
+         "page": 47, "bbox": [10.0, 20.0, 100.0, 40.0]}]}
+    store.use(FakeStore([{**CHUNK_ROW, "source_anchor": json.dumps(anchor)}]))
+    body = client().get("/api/chunks/c1").json()
+    assert body["source_anchor"] == anchor
+
+
+def test_malformed_source_anchor_degrades_to_null_not_a_500(store):
+    # A str()'d anchor (the migration-era writer bug) must not take the
+    # provenance surface down: the viewer treats null as "no lines" and
+    # falls back. The LOUD copy of this failure stays in
+    # retrieval/search_lance.row_to_chunk, where retrieval reads the same
+    # column for real.
+    store.use(FakeStore([{**CHUNK_ROW, "source_anchor": "{'page': 47}"}]))
+    r = client().get("/api/chunks/c1")
+    assert r.status_code == 200
+    assert r.json()["source_anchor"] is None
 
 
 def test_store_failure_is_a_json_503_with_the_cause(store):

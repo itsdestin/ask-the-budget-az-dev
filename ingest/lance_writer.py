@@ -106,6 +106,18 @@ def chunk_to_lance_row(
         )
         if value is not None
     }
+    # Per-paragraph locators for merged narrative chunks (spec L1). The
+    # locate endpoint resolves a cited value to its own paragraph's page +
+    # bbox from these; rows written before the field existed simply lack
+    # the key and fall back to page+bbox+scan. Plain dicts, not the pydantic
+    # models, so the JSON shape is exactly what the webapp's ChunkSource
+    # type declares.
+    if p.lines:
+        anchor["lines"] = [
+            {"text": line.text, "page": line.page,
+             "bbox": [float(v) for v in line.bbox]}
+            for line in p.lines
+        ]
     if agency_ids is None:
         agency_ids = [chunk.agency_canonical_id] if chunk.agency_canonical_id else []
 

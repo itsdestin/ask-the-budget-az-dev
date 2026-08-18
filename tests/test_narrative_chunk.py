@@ -285,3 +285,115 @@ def test_orphan_recovery_flushes_at_page_boundaries():
     assert chunks[0].text == "Page one prose, no heading anywhere in this doc."
     assert chunks[1].text == "Page two prose, still before any heading."
     assert chunks[2].text == "Page three prose, still orphaned."
+
+
+# --- Per-paragraph locators (spec L1: union bbox + source_anchor lines) -----
+
+
+def _para(text: str, page: int, bbox: list[float] | None) -> Paragraph:
+    from chunking.readers.types import Bbox
+
+    return Paragraph(
+        text=text,
+        page=page,
+        bbox=Bbox.from_list(bbox),
+    )
+
+
+def _doc_with_section(paragraphs: list[Paragraph]) -> ExtractedDocument:
+    """One heading-anchored section whose body is exactly `paragraphs`,
+    built directly (same rationale as the multi-page orphan test: no
+    fixture can express what we need to vary)."""
+    from chunking.readers.types import Heading, OutlineNode
+
+    pages: dict[int, list] = {}
+    for p in paragraphs:
+        pages.setdefault(p.page, []).append(p)
+    heading = Heading(text="Section", level=1, page=paragraphs[0].page)
+    node = OutlineNode(
+        text="Section",
+        level=1,
+        page=paragraphs[0].page,
+        body_blocks=list(paragraphs),
+    )
+    return ExtractedDocument(
+        source_path=Path("synthetic-union-bbox.json"),
+        extractor="mineru",
+        pages=[
+            # The real readers keep every block in Page.blocks AND in the
+            # outline tree; mirror that so the orphan set-difference sees
+            # the same shape it sees in production.
+            Page(
+                page_number=n,
+                blocks=([heading] if n == paragraphs[0].page else []) + blocks,
+            )
+            for n, blocks in sorted(pages.items())
+        ],
+        outline=[node],
+    )
+
+
+def test_merged_chunk_bbox_is_the_union_of_same_page_member_paragraphs():
+    # The stored bbox is the viewer's strict highlight search region; a
+    # merged chunk used to carry only paragraph #1's rectangle, so a cited
+    # value in paragraph 2 fell outside it (46/137 live figures, measured
+    # 2026-08-18).
+    doc = _doc_with_section([
+        _para("First paragraph with the heading's intro.", 5, [76, 100, 400, 130]),
+        _para("Second paragraph holding 200,168,100.", 5, [76, 350, 446, 390]),
+    ])
+    chunks = build_narrative_chunks(doc, _meta())
+    assert len(chunks) == 1
+    assert chunks[0].provenance.bbox == [76, 100, 446, 390]
+    assert chunks[0].provenance.page == 5
+
+
+def test_merged_chunk_carries_one_line_per_member_paragraph():
+    doc = _doc_with_section([
+        _para("First paragraph with the heading's intro.", 5, [76, 100, 400, 130]),
+        _para("Second paragraph holding 200,168,100.", 5, [76, 350, 446, 390]),
+    ])
+    chunk = build_narrative_chunks(doc, _meta())[0]
+    lines = chunk.provenance.lines
+    assert lines is not None and len(lines) == 2
+    assert lines[0].text == "First paragraph with the heading's intro."
+    assert lines[0].page == 5
+    assert lines[0].bbox == [76, 100, 400, 130]
+    assert lines[1].bbox == [76, 350, 446, 390]
+
+
+def test_cross_page_merge_bbox_covers_only_the_first_page():
+    # A bbox is a region on ONE page; a cross-page union would be a
+    # nonsense rectangle. The later page rides in `lines` instead, which
+    # is what the locate endpoint's anchor step resolves against.
+    doc = _doc_with_section([
+        _para("Intro on page five.", 5, [76, 100, 400, 130]),
+        _para("The cited 155,538,000 sits on page seven.", 7, [76, 200, 400, 230]),
+    ])
+    chunk = build_narrative_chunks(doc, _meta())[0]
+    assert chunk.provenance.page == 5
+    assert chunk.provenance.bbox == [76, 100, 400, 130]
+    assert [line.page for line in chunk.provenance.lines or []] == [5, 7]
+
+
+def test_single_paragraph_chunk_lines_match_its_bbox():
+    doc = _doc_with_section([
+        _para("Only paragraph.", 3, [10, 20, 300, 40]),
+    ])
+    chunk = build_narrative_chunks(doc, _meta())[0]
+    assert chunk.provenance.bbox == [10, 20, 300, 40]
+    assert chunk.provenance.lines is not None
+    assert len(chunk.provenance.lines) == 1
+    assert chunk.provenance.lines[0].bbox == [10, 20, 300, 40]
+
+
+def test_paragraphs_without_bbox_contribute_nothing():
+    # ODL-era rows and some blocks carry no bbox; the union must skip
+    # them rather than crash or widen to a None-derived rectangle.
+    doc = _doc_with_section([
+        _para("No bbox here.", 2, None),
+        _para("Bbox here with 42.", 2, [5, 5, 50, 60]),
+    ])
+    chunk = build_narrative_chunks(doc, _meta())[0]
+    assert chunk.provenance.bbox == [5, 5, 50, 60]
+    assert len(chunk.provenance.lines or []) == 1
