@@ -454,6 +454,7 @@ _GROUPS: tuple[tuple[str, tuple[str, ...]], ...] = (
         (
             "Your role",
             "How much effort this conversation gets",
+            "Conversation rhythm",
             "Route the question first",
         ),
     ),
