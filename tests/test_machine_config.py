@@ -31,7 +31,7 @@ from app.machine_config import (
 from store.config import data_dir
 
 MSG_NO_CORPUS = (
-    "That folder doesn't contain a JLBC Insight corpus (no lancedb folder inside)."
+    "That folder doesn't contain a JLBC Search corpus (no lancedb folder inside)."
 )
 
 
@@ -40,7 +40,7 @@ def _isolated_machine_config(monkeypatch, tmp_path):
     """Point the per-machine file somewhere throwaway.
 
     Without this every test here would read and WRITE the real
-    ~/.config/jlbc-insight/machine.json on the developer's own box — which
+    ~/.config/jlbc-search/machine.json on the developer's own box — which
     would then silently redirect their dev corpus.
     """
     monkeypatch.setenv("JLBC_MACHINE_CONFIG_DIR", str(tmp_path / "machine"))

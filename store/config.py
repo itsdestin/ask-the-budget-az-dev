@@ -2,7 +2,7 @@
 
 One env var controls where ALL shared state lives (LanceDB, pdfs,
 settings, locks): JLBC_DATA_DIR. In production this points at the
-office network share (e.g. \\\\JLBC-share\\...\\jlbc-insight-data).
+office network share (e.g. \\\\JLBC-share\\...\\jlbc-search-data).
 On a dev machine it's unset and falls back to data/insight-data inside
 the repo (gitignored), so tests and dev never touch a share.
 """

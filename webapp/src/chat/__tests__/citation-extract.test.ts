@@ -391,12 +391,12 @@ describe("extractCitations", () => {
     ]);
   });
 
-  it("recognizes mcp__ask-the-budget-az__retrieve / __cite namespaced names", () => {
+  it("recognizes mcp__jlbc-search__retrieve / __cite namespaced names", () => {
     const turn = turnWithBlocks([
       {
         kind: "tool",
         toolUseId: "r1",
-        toolName: "mcp__ask-the-budget-az__retrieve",
+        toolName: "mcp__jlbc-search__retrieve",
         input: { query: "x" },
         status: "complete",
         output: RETRIEVE_OUTPUT_OK,
@@ -405,7 +405,7 @@ describe("extractCitations", () => {
       {
         kind: "tool",
         toolUseId: "c1",
-        toolName: "mcp__ask-the-budget-az__cite",
+        toolName: "mcp__jlbc-search__cite",
         input: {
           chunk_id: "doc-A:p47:s1",
           span_start: 0,
@@ -1292,7 +1292,7 @@ describe("extractCitations — cite_batch tool (2026-05-20)", () => {
       {
         kind: "tool",
         toolUseId: "cb1",
-        toolName: "mcp__ask-the-budget-az__cite_batch",
+        toolName: "mcp__jlbc-search__cite_batch",
         input: {
           citations: [
             {

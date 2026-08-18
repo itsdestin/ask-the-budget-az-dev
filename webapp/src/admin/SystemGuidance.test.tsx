@@ -40,7 +40,7 @@ function section(
 function prompt(over: Partial<api.AdminPrompt> = {}): api.AdminPrompt {
   return {
     corpus: "budget",
-    lead: "# Ask the Budget AZ — assistant instructions",
+    lead: "# JLBC Search — assistant instructions",
     groups: [
       {
         label: "What the assistant is, and how it decides",
@@ -209,7 +209,7 @@ describe("the System guidance window", () => {
     // showing everything it is told.
     await openWindow();
     expect(screen.getByTestId("sysg-lead")).toHaveTextContent(
-      /Ask the Budget AZ — assistant instructions/,
+      /JLBC Search — assistant instructions/,
     );
   });
 

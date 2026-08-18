@@ -13,6 +13,8 @@
 //
 // Ported from web/components/AssistantTurnBubble.tsx. Two changes:
 //   - the `mcp__ask-the-budget-az__cite` alias is gone (no MCP server);
+//     the legacy name is still recognized in citation-extract so saved
+//     transcripts from before the JLBC Search rename keep rendering;
 //   - the stop-reason line was split into a quiet note and a loud SYSTEM
 //     NOTICE — see STOP_NOTE / the max_steps branch below.
 

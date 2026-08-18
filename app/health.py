@@ -119,7 +119,7 @@ def _check_share(root: Path) -> tuple[bool, str, str | None]:
         return (
             False,
             f"The shared folder setting points at a file, not a folder: {root}",
-            "Enter the folder that holds the JLBC Insight data.",
+            "Enter the folder that holds the JLBC Search data.",
         )
     try:
         # Actually touch it — a mapped drive that has gone away often still
@@ -178,7 +178,7 @@ def _check_models() -> tuple[bool, str, str | None]:
             False,
             f"Part of the app is missing: {missing} files aren't installed.",
             "This is an incomplete install rather than something you did — "
-            "reinstall JLBC Insight from the original zip.",
+            "reinstall JLBC Search from the original zip.",
         )
     return True, "The search models are installed on this computer.", None
 
@@ -204,7 +204,7 @@ def health_detail() -> dict[str, Any]:
         ("share", lambda: (
             _check_share(root) if root is not None
             else (False, "The shared folder location could not be worked out.",
-                  "Enter the folder that holds the JLBC Insight data.")
+                  "Enter the folder that holds the JLBC Search data.")
         )),
         ("corpus", lambda: (
             _check_corpus(root) if root is not None

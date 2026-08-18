@@ -79,8 +79,8 @@ CACHE_ROOT = REPO_ROOT / "data" / "cached-pdfs"
 FAILURES_PATH = REPO_ROOT / "data" / "prefetch-failures.json"
 
 USER_AGENT = (
-    "ask-the-budget-az/1.0 (JLBC budget-document research tool; "
-    "one-time corpus pre-fetch; contact: destinj101@gmail.com)"
+    "jlbc-search/1.0 (JLBC budget-document research tool; "
+    "one-time content prefetch; contact: destinj101@gmail.com)"
 )
 
 # Consecutive rejections (429 / connection refused) before we conclude the

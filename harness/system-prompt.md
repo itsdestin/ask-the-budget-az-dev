@@ -1,4 +1,4 @@
-# Ask the Budget AZ — assistant instructions
+# JLBC Search — assistant instructions
 
 {{#when corpus=budget}}
 ## Your role

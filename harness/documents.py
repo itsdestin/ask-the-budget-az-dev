@@ -16,7 +16,7 @@ at once. So:
   supplies content; this module supplies the location. That split is the
   whole invariant.
 * Artifacts land under the per-user, per-machine local app-data folder
-  (`%LOCALAPPDATA%\\JLBC-Insight\\documents\\`) — disposable, private,
+  (`%LOCALAPPDATA%\\JLBC-Search\\documents\\`) — disposable, private,
   and not the share.
 * This module deliberately does NOT import `store.config`, so it has no
   way to learn where the share even is. `tests/test_create_document.py`
@@ -56,7 +56,7 @@ from pathlib import Path
 # these two must never be the same directory (see documents_dir()).
 DOCUMENTS_DIR_ENV = "JLBC_DOCUMENTS_DIR"
 
-_APP_FOLDER = "JLBC-Insight"
+_APP_FOLDER = "JLBC-Search"
 
 DOCX_MEDIA_TYPE = (
     "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
@@ -76,10 +76,10 @@ def documents_dir() -> Path:
 
     Resolution order:
       1. `JLBC_DOCUMENTS_DIR` — tests point this at a tmp dir.
-      2. `%LOCALAPPDATA%\\JLBC-Insight\\documents` on Windows, which is
+      2. `%LOCALAPPDATA%\\JLBC-Search\\documents` on Windows, which is
          the real deployment (spec S7 installs the whole app there).
       3. Non-Windows (CI, a dev Mac) has no LOCALAPPDATA, so fall back to
-         the XDG data location — `~/.local/share/JLBC-Insight/documents`.
+         the XDG data location — `~/.local/share/JLBC-Search/documents`.
          Home-rooted either way, which is what matters: never the share.
 
     NOT validated against the shared data dir, because doing so would

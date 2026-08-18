@@ -26,8 +26,8 @@ def _isolate_chat_history(tmp_path_factory, monkeypatch):
     of history anywhere in the test. Twenty-two test modules touch
     `create_app` or the conversation routes without setting `JLBC_HISTORY_DIR`.
 
-    On this Linux dev box that means `~/.local/share/JLBC-Insight/`. On the
-    deployment target it is `%LOCALAPPDATA%\\JLBC-Insight\\conversations` —
+    On this Linux dev box that means `~/.local/share/JLBC-Search/`. On the
+    deployment target it is `%LOCALAPPDATA%\\JLBC-Search\\conversations` —
     an analyst's own chat list, filled with test chats by anyone who runs the
     suite on a machine that also runs the app.
 

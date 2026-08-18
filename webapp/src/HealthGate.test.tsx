@@ -195,7 +195,7 @@ describe("the repair box", () => {
     // Ground truth 10: handles resolve at startup, so this CANNOT take
     // effect mid-session. Claiming otherwise would produce an app that says
     // it is fixed and then serves errors from stale handles.
-    expect(done).toHaveTextContent(/Close this window and open JLBC Insight again/i);
+    expect(done).toHaveTextContent(/Close this window and open JLBC Search again/i);
     expect(done).toHaveTextContent(/can't switch over while it is running/i);
   });
 
@@ -203,7 +203,7 @@ describe("the repair box", () => {
     vi.spyOn(api, "healthDetail").mockResolvedValue(SHARE_GONE);
     vi.spyOn(api, "setDataDir").mockRejectedValue(
       new Error(
-        "set data folder: That folder doesn't contain a JLBC Insight corpus (no lancedb folder inside).",
+        "set data folder: That folder doesn't contain a JLBC Search corpus (no lancedb folder inside).",
       ),
     );
     render(

@@ -1,4 +1,4 @@
-# JLBC Insight — Quick Start
+# JLBC Search — Quick Start
 
 One page. If you can double-click a file, you can install this. It needs no admin
 rights and nothing already installed on your PC.
@@ -8,21 +8,21 @@ rights and nothing already installed on your PC.
 ## 1. Install it (about 5 minutes)
 
 **The easy way — the one-click installer.** On the USB drive, double-click
-**`Install-JLBC-Insight.cmd`** (it sits next to the zip). It asks for two folders and
+**`Install-JLBC-Search.cmd`** (it sits next to the zip). It asks for two folders and
 does everything else itself:
 
 1. **Install folder** — where the program lives. Press **Enter** to take the
-   recommended spot (`%LOCALAPPDATA%\JLBC-Insight`).
+   recommended spot (`%LOCALAPPDATA%\JLBC-Search`).
 2. **Shared data folder** — where the budget documents live. **Drag the folder into
    the window and press Enter**, or paste its path. This is the folder that has the
    **`lancedb`** folder inside it (the search index). Press Enter alone to set it
    later from inside the app.
 
-When it finishes you have a **JLBC Insight** icon on your Desktop and in the Start
+When it finishes you have a **JLBC Search** icon on your Desktop and in the Start
 Menu.
 
-**The manual way** (if you ever need it): copy `JLBC-Insight-<version>.zip` to your own
-PC, right-click → **Extract All…** → extract to `%LOCALAPPDATA%\JLBC-Insight`, open that
+**The manual way** (if you ever need it): copy `JLBC-Search-<version>.zip` to your own
+PC, right-click → **Extract All…** → extract to `%LOCALAPPDATA%\JLBC-Search`, open that
 folder, and double-click **`install.cmd`**.
 
 > **The one gotcha:** the shared-data path must point at the folder that has the
@@ -38,7 +38,7 @@ folder, and double-click **`install.cmd`**.
 
 ## 2. Start it
 
-Double-click the **JLBC Insight** icon. The first start takes 20–40 seconds while it
+Double-click the **JLBC Search** icon. The first start takes 20–40 seconds while it
 loads its search models; after that it is a few seconds.
 
 You can now **search the budget documents and read fiscal notes**. That works with no
@@ -84,7 +84,7 @@ own spending controls and they are good, but they run on this side of the connec
 the cap on OpenRouter's dashboard is the one that cannot be bypassed by a bug or by
 someone editing a settings file. Set it now, not later.
 
-**c. Put the key in the app.** In JLBC Insight, go to menu → **Admin** → the **AI
+**c. Put the key in the app.** In JLBC Search, go to menu → **Admin** → the **AI
 Mode** section → **Key** → **Add a key**, paste it, then click **Save** in the bar at
 the bottom. Every PC picks it up within a few seconds — no restart needed.
 
@@ -117,9 +117,9 @@ everyone under Admin → **Spending → Who spent what**.
 
 | | |
 |---|---|
-| The app | `%LOCALAPPDATA%\JLBC-Insight` |
+| The app | `%LOCALAPPDATA%\JLBC-Search` |
 | Budget documents, settings, usage records | the shared data folder you entered in step 1 |
-| Log files (send these if something breaks) | `%LOCALAPPDATA%\JLBC-Insight\logs` |
+| Log files (send these if something breaks) | `%LOCALAPPDATA%\JLBC-Search\logs` |
 
 ---
 

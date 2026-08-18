@@ -1,4 +1,4 @@
-"""JLBC Insight launcher (Plan 5, Task 16 — spec S8).
+"""JLBC Search launcher (Plan 5, Task 16 — spec S8).
 
 Run by a Start-Menu or Desktop shortcut as `python\\pythonw.exe launcher.pyw`.
 `.pyw` + `pythonw.exe` means no console window ever appears.
@@ -35,12 +35,12 @@ from datetime import datetime
 from pathlib import Path
 
 INSTALL_DIR = Path(__file__).resolve().parent
-APP_NAME = "JLBC Insight"
+APP_NAME = "JLBC Search"
 
 # Per-machine state: the recorded port and the logs. Kept out of the install
 # directory so a reinstall (delete the folder, unzip the new one) does not
 # destroy the machine's own configuration.
-STATE_DIR = Path(os.environ.get("LOCALAPPDATA", Path.home())) / "JLBC-Insight"
+STATE_DIR = Path(os.environ.get("LOCALAPPDATA", Path.home())) / "JLBC-Search"
 RUNNING_FILE = STATE_DIR / "running.json"
 LOG_DIR = STATE_DIR / "logs"
 

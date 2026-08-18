@@ -536,7 +536,7 @@ def _scan(text: str, level: int) -> tuple[str, list[tuple[str, str]]]:
     EVERY caller must place the lead somewhere. There used to be a
     `_split_by_level` helper that returned `[1]` for "callers with no use
     for it", and the top-level caller used it — which silently dropped
-    `# Ask the Budget AZ — assistant instructions` from a page captioned
+    `# JLBC Search — assistant instructions` from a page captioned
     as showing everything the assistant is told (review, 2026-08-12). The
     helper is gone so that dropping the lead has to be a deliberate `[1]`
     at the call site rather than the convenient default.

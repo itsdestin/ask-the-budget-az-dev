@@ -43,7 +43,7 @@ _TRUTHY = frozenset({"1", "true", "yes", "on"})
 _FALSY = frozenset({"0", "false", "no", "off", ""})
 
 MSG_NO_CORPUS = (
-    "That folder doesn't contain a JLBC Insight corpus (no lancedb folder inside)."
+    "That folder doesn't contain a JLBC Search corpus (no lancedb folder inside)."
 )
 
 def machine_config_dir() -> Path:
@@ -51,7 +51,7 @@ def machine_config_dir() -> Path:
 
     `%LOCALAPPDATA%` on Windows — deliberately NOT the shared drive, which
     is the whole point: this file says where the share IS, so it cannot
-    live on it. `~/.config/jlbc-insight` elsewhere, because the dev
+    live on it. `~/.config/jlbc-search` elsewhere, because the dev
     machines are Linux.
     """
     override = os.environ.get(_DIR_ENV_VAR)
@@ -59,8 +59,8 @@ def machine_config_dir() -> Path:
         return Path(override)
     local_appdata = os.environ.get("LOCALAPPDATA")
     if local_appdata:
-        return Path(local_appdata) / "JLBC-Insight"
-    return Path.home() / ".config" / "jlbc-insight"
+        return Path(local_appdata) / "JLBC-Search"
+    return Path.home() / ".config" / "jlbc-search"
 
 
 def machine_config_path() -> Path:
@@ -202,7 +202,7 @@ def validate_data_dir(path: Path | str) -> str | None:
     otherwise look like a successful repair followed by an empty corpus.
     """
     if not str(path).strip():
-        return "Type the full path to the shared JLBC Insight folder."
+        return "Type the full path to the shared JLBC Search folder."
     candidate = Path(str(path).strip())
     if not candidate.exists():
         return (
@@ -296,7 +296,7 @@ def main(argv: list[str] | None = None) -> int:
 
     parser = argparse.ArgumentParser(
         prog="python -m app.machine_config",
-        description="Configure JLBC Insight for THIS computer.",
+        description="Configure JLBC Search for THIS computer.",
     )
     parser.add_argument("--set-data-dir", metavar="PATH")
     parser.add_argument(

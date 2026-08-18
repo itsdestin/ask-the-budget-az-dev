@@ -130,7 +130,7 @@ export function CorpusPanel({
       {restoreState.restored ? (
         <p className="adm-ok" role="status" data-testid="admin-restore-done">
           Restored.{" "}
-          <strong>Close this window and open JLBC Insight again to finish.</strong>{" "}
+          <strong>Close this window and open JLBC Search again to finish.</strong>{" "}
           It is still using the old documents until it restarts.
         </p>
       ) : null}

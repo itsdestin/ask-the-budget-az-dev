@@ -54,7 +54,7 @@ def test_ingest_is_off_when_nothing_is_configured():
 def test_a_machine_json_without_the_key_is_still_off():
     """install.cmd's file, or one written before this flag existed. Silence
     must not read as consent — that is the twenty-workers case."""
-    _write({"data_dir": "//server/share/JLBC-Insight-Data"})
+    _write({"data_dir": "//server/share/JLBC-Search-Data"})
 
     assert ingest_enabled() is False
 
@@ -124,18 +124,18 @@ def test_setting_the_data_dir_preserves_the_ingest_flag():
     — and the symptom is uploads that never process, days later."""
     set_ingest_enabled(True)
 
-    set_data_dir("//server/share/JLBC-Insight-Data")
+    set_data_dir("//server/share/JLBC-Search-Data")
 
     assert ingest_enabled() is True
-    assert str(read_data_dir()) == "//server/share/JLBC-Insight-Data"
+    assert str(read_data_dir()) == "//server/share/JLBC-Search-Data"
 
 
 def test_setting_the_ingest_flag_preserves_the_data_dir():
-    set_data_dir("//server/share/JLBC-Insight-Data")
+    set_data_dir("//server/share/JLBC-Search-Data")
 
     set_ingest_enabled(True)
 
-    assert str(read_data_dir()) == "//server/share/JLBC-Insight-Data"
+    assert str(read_data_dir()) == "//server/share/JLBC-Search-Data"
 
 
 def test_a_corrupt_file_does_not_stop_the_flag_being_set():

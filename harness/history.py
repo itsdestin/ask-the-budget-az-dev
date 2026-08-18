@@ -23,7 +23,7 @@ from typing import Iterator
 from uuid import uuid4
 
 HISTORY_DIR_ENV = "JLBC_HISTORY_DIR"
-_APP_FOLDER = "JLBC-Insight"
+_APP_FOLDER = "JLBC-Search"
 
 
 # Bump when the stored shape changes in a way a reader must act on. Files

@@ -152,7 +152,7 @@ SNAPSHOT_ENV_VAR = "JLBC_INGEST_SNAPSHOT"
 SNAPSHOT_PER_DOC = "per-doc"     # default: a restore point before every write
 SNAPSHOT_OFF = "off"             # opt-in bulk mode: no per-document snapshot
 SNAPSHOT_SUPPRESSED_MESSAGE = (
-    f"jlbc-insight: corpus snapshot suppressed by {SNAPSHOT_ENV_VAR}={SNAPSHOT_OFF} "
+    f"jlbc-search: corpus snapshot suppressed by {SNAPSHOT_ENV_VAR}={SNAPSHOT_OFF} "
     "— bulk mode; ensure you have an external archive of <data_dir>/lancedb/."
 )
 
@@ -1343,7 +1343,7 @@ def _parallel_announcement(count: int) -> str:
         else ""
     )
     return (
-        f"jlbc-insight: PARALLEL INGEST — {count} workers{clamped}, set by "
+        f"jlbc-search: PARALLEL INGEST — {count} workers{clamped}, set by "
         f"{WORKERS_ENV_VAR}={requested}. Extraction runs concurrently; corpus "
         "writes stay serialized behind the single-writer lock. Expect roughly "
         f"{count} × the RAM MinerU uses (~2-3 GB per concurrent document). "
@@ -1379,7 +1379,7 @@ def _batch_announcement(count: int) -> str:
         else ""
     )
     return (
-        f"jlbc-insight: BATCH EXTRACTION — up to {count} documents per MinerU "
+        f"jlbc-search: BATCH EXTRACTION — up to {count} documents per MinerU "
         f"run{clamped}, set by {BATCH_ENV_VAR}={requested}. Only whole "
         f"documents of {BATCH_MAX_PAGES} pages or fewer are batched; anything "
         "larger keeps the one-document-at-a-time path so a long book still "
@@ -1397,7 +1397,7 @@ def _batch_ignored_announcement(raw: str) -> str:
     because a batch size is far more likely to be typed by hand.
     """
     return (
-        f"jlbc-insight: {BATCH_ENV_VAR}={raw!r} is not a batch size above 1 — "
+        f"jlbc-search: {BATCH_ENV_VAR}={raw!r} is not a batch size above 1 — "
         "ingest is running ONE document per MinerU run (today's behaviour). "
         f"Set {BATCH_ENV_VAR} to a whole number above 1 to batch."
     )
@@ -1464,7 +1464,7 @@ def _should_snapshot(job: JobRecord) -> bool:
         return not _batch_marker_path(job.batch_id).exists()
     except OSError as err:
         print(
-            f"jlbc-insight: couldn't check the batch snapshot marker ({err}) — "
+            f"jlbc-search: couldn't check the batch snapshot marker ({err}) — "
             "taking a snapshot to be safe.",
             file=sys.stderr,
             flush=True,
@@ -1571,7 +1571,7 @@ class IngestWorker:
             requested = os.environ.get(WORKERS_ENV_VAR, "").strip()
             if requested.isdigit() and int(requested) > 1:
                 print(
-                    f"jlbc-insight: ingest running ONE document at a time "
+                    f"jlbc-search: ingest running ONE document at a time "
                     f"(clamped from {requested}; this machine has "
                     f"{os.cpu_count()} CPUs and parallel ingest needs more "
                     f"than {SINGLE_WORKER_MAX_CPUS}). Set "

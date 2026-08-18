@@ -511,7 +511,7 @@ def test_every_rendered_line_reaches_the_page(admin_client, corpus):
     assert not missing, missing
     # And the lead specifically, because it is the one that was missing and
     # a set comparison would go quiet again the moment it is folded in.
-    assert "# Ask the Budget AZ — assistant instructions" in shown
+    assert "# JLBC Search — assistant instructions" in shown
 
 
 def test_an_unmapped_section_is_still_shown_rather_than_swallowed(admin_client):
@@ -711,7 +711,7 @@ def test_split_ignores_headings_inside_a_code_fence():
 
 def test_the_text_above_the_first_heading_is_kept_not_dropped():
     # The defect this pins: `_scan`'s lead was thrown away by the route, so
-    # `# Ask the Budget AZ — assistant instructions` — which the assistant
+    # `# JLBC Search — assistant instructions` — which the assistant
     # really does read — never appeared on a page captioned as showing
     # everything it is told.
     from app.routes.tuning import _scan

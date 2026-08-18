@@ -46,7 +46,7 @@ def fetch(url: str, dest: Path) -> str:
     """Returns 'ok', 'skip-existing', '404', or 'err: <msg>'."""
     if dest.exists() and dest.stat().st_size > 1000:
         return "skip-existing"
-    req = urllib.request.Request(url, headers={"User-Agent": "ask-the-budget-az/0.1"})
+    req = urllib.request.Request(url, headers={"User-Agent": "jlbc-search/0.1"})
     try:
         with urllib.request.urlopen(req, timeout=10) as resp:
             data = resp.read()

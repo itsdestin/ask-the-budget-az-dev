@@ -63,7 +63,7 @@ export function Repair({
     <main className="page-repair" data-testid="repair">
       <div className="wrap">
         <section className="card rep-card">
-          <h1>JLBC Insight can't start</h1>
+          <h1>JLBC Search can't start</h1>
 
           {report.rungs.map((rung) => (
             <RungRow rung={rung} key={rung.name} />
@@ -74,7 +74,7 @@ export function Repair({
               <div className="rep-done" role="status" data-testid="repair-done">
                 <p>
                   <strong>Saved.</strong> Close this window and open JLBC
-                  Insight again from the Start Menu to finish.
+                  Search again from the Start Menu to finish.
                 </p>
                 <p className="rep-fix">
                   The app has to start up again to use the new folder — it

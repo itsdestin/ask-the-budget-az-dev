@@ -1,4 +1,4 @@
-# JLBC Insight — Preview Briefing
+# JLBC Search — Preview Briefing
 
 **For the three-person preview (admin, director, deputy director).** This is the short
 version: install, the one-time admin setup, and how AI Mode spending is capped. It is
@@ -14,20 +14,20 @@ cents per question.
 
 ## 1 · Install (each of the three PCs, once — about 5 minutes)
 
-1. You'll get a zip file, `JLBC-Insight-<version>.zip`. **Copy it onto your own PC
+1. You'll get a zip file, `JLBC-Search-<version>.zip`. **Copy it onto your own PC
    first** (Desktop is fine) — don't unzip it straight off the network drive, it's slow
    and sometimes stops halfway.
 2. Right-click the zip → **Extract All…** → extract to
-   `%LOCALAPPDATA%\JLBC-Insight`
-   (paste that into the location box; it becomes `C:\Users\<you>\AppData\Local\JLBC-Insight`).
+   `%LOCALAPPDATA%\JLBC-Search`
+   (paste that into the location box; it becomes `C:\Users\<you>\AppData\Local\JLBC-Search`).
    Wait for it to finish — it's a large program.
 3. Open that folder and double-click **`install.cmd`**.
 4. When it asks for the **shared folder path**, paste the network path where the office
    corpus lives (your admin will give it to you — it looks like
-   `\\server\share\jlbc-insight-data`). If you're not on the network yet, press Enter
+   `\\server\share\jlbc-search-data`). If you're not on the network yet, press Enter
    to skip — the app will ask for the path on its startup screen the first time you
    open it.
-5. Done. Open **JLBC Insight** from your Desktop or Start Menu.
+5. Done. Open **JLBC Search** from your Desktop or Start Menu.
 
 You do **not** need admin rights, and nothing else (Python, Java) has to be installed —
 it's all inside the folder.
@@ -99,4 +99,4 @@ Admin → **Spending → Who spent what**.
 ---
 
 *Questions or it won't start? Send the newest file in
-`%LOCALAPPDATA%\JLBC-Insight\logs` to whoever supports the app.*
+`%LOCALAPPDATA%\JLBC-Search\logs` to whoever supports the app.*

@@ -57,7 +57,7 @@ export function Home() {
           already contributes via role="search". */}
       <section className="snapshot">
         <div className="wrap">
-          <h1 className="snap-h1">Ask the Budget AZ</h1>
+          <h1 className="snap-h1">JLBC Search</h1>
           <p className="snap-tag">Search Arizona budget documents and fiscal notes</p>
           {/* The mockup's form did a plain GET to its search page; this one hands the
               query to the router so /search owns the fetch. */}

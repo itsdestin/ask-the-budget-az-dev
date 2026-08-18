@@ -227,7 +227,7 @@ class LanceSearchProvider:
                 import sys
 
                 print(
-                    f"jlbc-insight: document metadata unavailable "
+                    f"jlbc-search: document metadata unavailable "
                     f"({type(e).__name__}: {e}) — search rows fall back to "
                     "generated titles without source links.",
                     file=sys.stderr,

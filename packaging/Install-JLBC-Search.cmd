@@ -1,7 +1,7 @@
 @echo off
 setlocal EnableDelayedExpansion
 rem ============================================================================
-rem  JLBC Insight - ONE-CLICK installer (preview run)
+rem  JLBC Search - ONE-CLICK installer (preview run)
 rem
 rem  This sits on the USB drive NEXT TO the bundle zip. Double-clicking it is
 rem  the entire setup: it asks for two folders, extracts the program, fixes up
@@ -17,18 +17,18 @@ if "%USB_DIR:~-1%"=="\" set "USB_DIR=%USB_DIR:~0,-1%"
 
 echo.
 echo   ============================================================
-echo    JLBC Insight - preview setup
+echo    JLBC Search - preview setup
 echo   ============================================================
 echo.
-echo   This will install JLBC Insight on this PC. It asks for two
+echo   This will install JLBC Search on this PC. It asks for two
 echo   folders and does everything else itself.
 echo.
 
 rem --- find the bundle zip sitting next to this script -----------------------
 set "ZIP="
-for %%f in ("%USB_DIR%\JLBC-Insight-*.zip") do set "ZIP=%%f"
+for %%f in ("%USB_DIR%\JLBC-Search-*.zip") do set "ZIP=%%f"
 if not defined ZIP (
-    echo   ERROR: no JLBC-Insight-*.zip found next to this script.
+    echo   ERROR: no JLBC-Search-*.zip found next to this script.
     echo   Put this script in the same folder as the bundle zip and try again.
     echo.
     pause
@@ -38,7 +38,7 @@ echo   Using bundle: %ZIP%
 echo.
 
 rem --- Q1: where to install the program --------------------------------------
-set "INSTALL_DEFAULT=%LOCALAPPDATA%\JLBC-Insight"
+set "INSTALL_DEFAULT=%LOCALAPPDATA%\JLBC-Search"
 echo   Where should the program live?
 echo     Press Enter for the recommended spot:
 echo       %INSTALL_DEFAULT%
@@ -68,7 +68,7 @@ echo   Extracting (this is a large program, please wait)...
 if exist "%INSTALL_DIR%\python\pythonw.exe" (
     echo   A previous install is already here - refreshing it.
 )
-set "EXTRACT_TMP=%TEMP%\jlbc-insight-extract-%RANDOM%%RANDOM%"
+set "EXTRACT_TMP=%TEMP%\jlbc-search-extract-%RANDOM%%RANDOM%"
 mkdir "%EXTRACT_TMP%" 2>nul
 rem tar.exe ships with Windows 10 1803+; bsdtar handles the zip fine.
 tar -xf "%ZIP%" -C "%EXTRACT_TMP%"
@@ -79,9 +79,9 @@ if errorlevel 1 (
     exit /b 1
 )
 
-rem The zip holds one top-level folder (JLBC-Insight-<version>^). Move its
+rem The zip holds one top-level folder (JLBC-Search-<version>^). Move its
 rem CONTENTS into the install folder, then clean up the temp dir.
-for /d %%d in ("%EXTRACT_TMP%\JLBC-Insight-*") do (
+for /d %%d in ("%EXTRACT_TMP%\JLBC-Search-*") do (
     mkdir "%INSTALL_DIR%" 2>nul
     xcopy "%%d\*" "%INSTALL_DIR%\" /E /I /Y /Q >nul
 )
@@ -115,18 +115,18 @@ rem --- make MinerU's model path absolute --------------------------------------
 
 rem --- shortcuts --------------------------------------------------------------
 set "SM_DIR=%APPDATA%\Microsoft\Windows\Start Menu\Programs"
-call :mkshortcut "%SM_DIR%\JLBC Insight.lnk"
-call :mkshortcut "%USERPROFILE%\Desktop\JLBC Insight.lnk"
+call :mkshortcut "%SM_DIR%\JLBC Search.lnk"
+call :mkshortcut "%USERPROFILE%\Desktop\JLBC Search.lnk"
 
 echo.
 echo   ============================================================
 echo    Setup complete.
 echo   ============================================================
 echo.
-echo    Start it from:  the Start Menu, or the JLBC Insight icon on
+echo    Start it from:  the Start Menu, or the JLBC Search icon on
 echo                    your Desktop.
 if defined DATA_DIR echo    Data folder:    %DATA_DIR%
-echo    Log files:      %LOCALAPPDATA%\JLBC-Insight\logs
+echo    Log files:      %LOCALAPPDATA%\JLBC-Search\logs
 echo.
 echo    If it will not start, send the newest file in that logs
 echo    folder to whoever supports the app.
@@ -141,7 +141,7 @@ powershell -NoProfile -ExecutionPolicy Bypass -Command ^
   "$s.Arguments='\"%INSTALL_DIR%\launcher.pyw\"';" ^
   "$s.WorkingDirectory='%INSTALL_DIR%';" ^
   "$s.IconLocation='%INSTALL_DIR%\python\pythonw.exe,0';" ^
-  "$s.Description='JLBC Insight';" ^
+  "$s.Description='JLBC Search';" ^
   "$s.Save()" >nul 2>&1
 if errorlevel 1 (
     echo   WARNING: could not create the shortcut at %~1

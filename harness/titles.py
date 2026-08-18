@@ -111,7 +111,7 @@ def generate_title(
             cost_usd=usage.get("cost"),
         )
     except Exception as exc:                       # noqa: BLE001
-        print(f"jlbc-insight: could not ledger a title call: {exc}",
+        print(f"jlbc-search: could not ledger a title call: {exc}",
               file=sys.stderr, flush=True)
 
     if not text:

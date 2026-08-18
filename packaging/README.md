@@ -1,7 +1,7 @@
 # packaging/ — how the Windows bundle is built
 
-Everything in this folder produces one artefact: `dist/JLBC-Insight-<version>.zip`.
-Unzipping it into `%LOCALAPPDATA%\JLBC-Insight` and double-clicking `install.cmd`
+Everything in this folder produces one artefact: `dist/JLBC-Search-<version>.zip`.
+Unzipping it into `%LOCALAPPDATA%\JLBC-Search` and double-clicking `install.cmd`
 is the entire install — no admin rights, no Python on the machine, no Java on the
 machine, and no downloads the first time it runs.
 
@@ -21,8 +21,8 @@ python packaging/build_bundle.py --version 1.0.0
 
 Takes roughly 10–15 minutes cold, most of it downloading ~1.5 GB of Windows
 wheels; a second run reuses `build/.cache`. Output lands in
-`dist/JLBC-Insight-1.0.0.zip` (~2.1 GB) with the staged tree left in
-`build/JLBC-Insight-1.0.0/` (~3.3 GB) for inspection. Both are gitignored.
+`dist/JLBC-Search-1.0.0.zip` (~2.1 GB) with the staged tree left in
+`build/JLBC-Search-1.0.0/` (~3.3 GB) for inspection. Both are gitignored.
 
 `--plan` prints what would be built without building it. `--skip-zip` stops after
 staging, which is what you want while iterating.

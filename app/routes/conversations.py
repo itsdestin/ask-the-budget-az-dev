@@ -516,7 +516,7 @@ def persist_turn(entry: _Conversation) -> None:
         # reverted a rename made during it.
         history.set_title_if_absent(entry.id, title)
     except Exception as exc:                      # noqa: BLE001
-        print(f"jlbc-insight: could not save chat history: {exc}", file=sys.stderr, flush=True)
+        print(f"jlbc-search: could not save chat history: {exc}", file=sys.stderr, flush=True)
 
 
 # ---------------------------------------------------------------------------

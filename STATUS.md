@@ -54,10 +54,74 @@ source. When something ships, update only this file.
 | **Tool cards — placement, then legibility** (TC1–TC22) | ✓ **Shipped 2026-08-16**, browser-approved | A run of tool calls moved out of the space above an answer and INTO the bubble that follows it, then its contents were rewritten for an analyst who does not know what a "chunk" is. **A tool that had never been styled at all was found in the audit.** 1063 vitest / 3151 pytest / build clean, **no eval** (nothing on the retrieval, ingest, chunking, citation or prompt path). Review caught a card that stated a **falsehood** on screen. See the section below |
 | **Citation highlight locate** (spec L1–L4) | ✓ **Shipped 2026-08-18**, live-verified, browser check outstanding | 44% of correctly linked figure chips rendered "couldn't pinpoint" or the wrong page (measured on a live run). Narrative chunks now store a union bbox + per-paragraph line map; a locate endpoint resolves a cited value to exact PDF rects at click time; the viewer trusts it and falls back to the old chain otherwise; load failures are a recoverable panel with Open document + Retry. See the section below |
 | **Consolidated eval pipeline** | ✅ **Shipped — merged to master (2026-08-18), 3265 pytest green** | Replaced the smoke/full/dr-probe Layer-2 organization with three `set:`s (quick 45 / deep 3 / refusal 5; **multi deferred**), a tokens/turns-to-accurate headline (wall-clock dropped), a `document_correctness` doc-type axis, a tool-error ledger, an over-time archive, a free corpus-verification script, and a **resumable judge** (partial writes + resume-skip). 53 queries, all **solvable** (0 presence misses). **deepseek-v4-flash-0731 full-45 quick rerun: 0.711 accurate (32/45), $0.21 — beats glm-5.2 (0.667) at ~1/10 cost.** Report bundle auto-opens at end of every run. See "Consolidated eval pipeline" below |
+| **Product rename — JLBC Search** | ✅ **Shipped (2026-08-18), all suites + Layer 1 gate green** | Every user-facing and internal reference to "JLBC Insight" / "Ask the Budget AZ" became **JLBC Search** — SPA title, home hero, repair/health screens, launcher, installers, shortcuts, bundle names, state dirs (`%LOCALAPPDATA%\JLBC-Search`), OpenRouter `X-Title`, system-prompt lead, QUICKSTART + PREVIEW-BRIEFING, pyproject/package names. Old MCP-namespaced tool aliases kept in `citation-extract` so saved transcripts still render. Historical docs/plans/specs untouched (record of design intent). 3299 pytest / 1149 vitest / tsc / build green; **Layer 1 eval identical to baseline** (recall@5 85.71%, @15 97.62%, @20 100.00%, refusal 60%). "JLBC Agentic Search" (memo footer) deliberately kept per Destin's call. See "Product rename" section below |
 
-## Tool cards — placement, then legibility (2026-08-16)
+## Product rename — JLBC Search (2026-08-18)
 
-Spec: `docs/superpowers/specs/2026-08-16-tool-card-in-message-bubble-design.md`
+Destin's instruction for the 3-person beta: replace every reference to
+"JLBC Insight" or "Ask the Budget AZ" in any form with **JLBC Search**.
+This section records what changed, what deliberately didn't, and the
+numbers.
+
+### What changed (user-facing and internal)
+
+| Surface | Before | After |
+|---|---|---|
+| SPA `<title>` + home hero | Ask the Budget AZ | JLBC Search |
+| Repair / HealthGate / CorpusPanel copy | JLBC Insight | JLBC Search |
+| FastAPI title + stub HTML | JLBC Insight | JLBC Search |
+| machine_config validation sentences | JLBC Insight | JLBC Search |
+| Launcher `APP_NAME`, message boxes | JLBC Insight | JLBC Search |
+| Start-Menu / Desktop shortcuts | JLBC Insight.lnk | JLBC Search.lnk |
+| Installer echo + descriptions | JLBC Insight | JLBC Search |
+| One-click installer filename | Install-JLBC-Insight.cmd | Install-JLBC-Search.cmd |
+| Bundle zip + staged dir | JLBC-Insight-\<v\>.zip | JLBC-Search-\<v\>.zip |
+| Per-machine state (`%LOCALAPPDATA%`) | JLBC-Insight | JLBC-Search |
+| `~/.config` Linux fallback | jlbc-insight | jlbc-search |
+| OpenRouter `X-Title` (spend ledger) | JLBC Insight | JLBC Search |
+| System-prompt lead + prompt splitter | Ask the Budget AZ — assistant instructions | JLBC Search — assistant instructions |
+| QUICKSTART.md / PREVIEW-BRIEFING.md | JLBC Insight | JLBC Search |
+| pyproject / package names | ask-the-budget-az-dev / -webapp | jlbc-search / jlbc-search-webapp |
+| Worker log tags | jlbc-insight: | jlbc-search: |
+| Script user-agents | ask-the-budget-az/0.1, /1.0 | jlbc-search/0.1, /1.0 |
+
+### What deliberately did NOT change
+
+- **"JLBC Agentic Search"** (memo footer `Generated with …`, Settings FROM
+  line) — explicit Destin call on 2026-08-18, outside the instruction.
+- **Old MCP-namespaced tool aliases** (`mcp__ask-the-budget-az__retrieve` /
+  `cite` / `cite_batch`) stay RECOGNIZED in `citation-extract.ts` and
+  `RefusalBanner.tsx` so pre-rename saved transcripts still render their
+  tool cards; the new `mcp__jlbc-search__*` names are added alongside.
+- **Historical artifacts** — specs, plans, investigations, retired
+  PROMPT-\*.md, mockups, `webapp/reference/`, committed eval result JSONs —
+  are untouched; they are the record of design intent and measurement
+  history. `ingest/cache.py`'s UA measurement table keeps its quoted
+  `JLBC-Insight/1.0` string for the same reason.
+- **`data/insight-data/`** (the gitignored dev corpus dir name) and the
+  `document-types.yaml` / catalog slugs — internal storage names nobody
+  sees, and renaming them would break every machine's `machine.json`.
+- GitHub repo id `ask-the-budget-az-dev` and design-spec filenames —
+  they are URLs/history, not the product name.
+
+### Gates
+
+pytest **3299 passed / 5 skipped** · vitest **1149 passed** · `tsc -b` 0 ·
+`npm run build` 0. **Layer 1 eval identical to the 2026-08-18 baseline** —
+recall@5 85.71%, recall@15 97.62%, recall@20 100.00%, refusal precision
+60% (`eval/results/2026-08-18T1813Z-1423734.*`). The rename touched no
+ranking, ingest, chunking or citation code path — only user strings, state
+paths and log tags — and the eval proves it.
+
+### Beta-bundle consequence to remember
+
+The state-dir rename means a machine that ran the old preview has
+`%LOCALAPPDATA%\JLBC-Insight` left behind; the renamed install is fully
+self-contained under `%LOCALAPPDATA%\JLBC-Search` and needs nothing from
+the old folder. The 3-person beta ships a fresh corpus with a **blanked
+admin and blanked key** (decided 2026-08-18) — configured at the demo.
+
+---
 (**Part 1 = TC1–TC12, placement; Part 2 = TC13–TC22, contents**). Plans:
 `docs/superpowers/plans/2026-08-16-tool-card-in-message-bubble.md` (7 tasks)
 and `docs/superpowers/plans/2026-08-16-tool-card-part-2.md` (5 tasks, 3 in

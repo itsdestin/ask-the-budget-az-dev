@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Ask the Budget AZ — one-shot setup for a fresh clone.
+# JLBC Search — one-shot setup for a fresh clone.
 #
 # What this does:
 #   - Verifies prerequisites (node, uv) are installed

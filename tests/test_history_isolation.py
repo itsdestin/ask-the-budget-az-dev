@@ -44,9 +44,9 @@ def _real_conversations_dir() -> Path:
     """Where history WOULD live with no env override — computed the way
     `conversations_dir()` computes it, but without creating anything."""
     if os.environ.get("LOCALAPPDATA"):
-        return Path(os.environ["LOCALAPPDATA"]) / "JLBC-Insight" / "conversations"
+        return Path(os.environ["LOCALAPPDATA"]) / "JLBC-Search" / "conversations"
     base = os.environ.get("XDG_DATA_HOME") or (Path.home() / ".local" / "share")
-    return Path(base) / "JLBC-Insight" / "conversations"
+    return Path(base) / "JLBC-Search" / "conversations"
 
 
 def test_the_autouse_fixture_redirects_history_away_from_the_real_directory():

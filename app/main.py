@@ -68,7 +68,7 @@ def _default_provider() -> SearchProvider:
     except Exception as e:  # missing table, missing deps, unreadable data dir…
         reason = f"{type(e).__name__}: {e}"
     print(
-        f"jlbc-insight: no usable corpus ({reason}) — serving stub search fixtures. "
+        f"jlbc-search: no usable corpus ({reason}) — serving stub search fixtures. "
         "Set JLBC_DATA_DIR to a migrated data dir for real retrieval.",
         file=sys.stderr,
     )
@@ -92,14 +92,14 @@ def _start_archive_sweep() -> None:
             moved = sweep_archive()
             if moved:
                 print(
-                    f"jlbc-insight: moved {moved} finished job files into "
+                    f"jlbc-search: moved {moved} finished job files into "
                     "jobs/done/ so the queue shows outstanding work.",
                     file=sys.stderr,
                     flush=True,
                 )
         except Exception as e:  # noqa: BLE001
             print(
-                f"jlbc-insight: could not tidy the job queue "
+                f"jlbc-search: could not tidy the job queue "
                 f"({type(e).__name__}: {e}). The queue still works; it will "
                 "just list finished documents too.",
                 file=sys.stderr,
@@ -109,7 +109,7 @@ def _start_archive_sweep() -> None:
     try:
         threading.Thread(target=_run, name="jlbc-archive-sweep", daemon=True).start()
     except Exception as e:  # noqa: BLE001
-        print(f"jlbc-insight: could not start the queue tidy ({e}).",
+        print(f"jlbc-search: could not start the queue tidy ({e}).",
               file=sys.stderr, flush=True)
 
 
@@ -171,7 +171,7 @@ async def _lifespan(app: FastAPI):
     # will actually see it.
     if not ingest_enabled():
         print(
-            "jlbc-insight: this computer is not set to process uploads, so the "
+            "jlbc-search: this computer is not set to process uploads, so the "
             "queue will not run here. Turn on 'Process uploads on this computer' "
             "in Admin -> Corpus if this should be the machine that does it.",
             file=sys.stderr,
@@ -188,7 +188,7 @@ async def _lifespan(app: FastAPI):
         # down the very UI that explains what is wrong. Report the REAL error —
         # a hardcoded guess here would send whoever debugs it down the wrong path.
         print(
-            f"jlbc-insight: the ingest queue did not start ({type(e).__name__}: {e}). "
+            f"jlbc-search: the ingest queue did not start ({type(e).__name__}: {e}). "
             "Search still works; uploads will queue but not run until this is "
             "fixed and the server is restarted.",
             file=sys.stderr,
@@ -220,7 +220,7 @@ def create_app(
     session_factory: Callable[..., object] | None = None,
     ingest_worker: object | None = _MISSING,
 ) -> FastAPI:
-    app = FastAPI(title="JLBC Insight", lifespan=_lifespan)
+    app = FastAPI(title="JLBC Search", lifespan=_lifespan)
     # Explicit None check, not `provider or ...`: an injected provider object
     # could be falsy (e.g. a fake defining __len__/__bool__) and get silently
     # swapped for the default, which would be a baffling test failure.
@@ -359,7 +359,7 @@ def create_app(
                 resolved / "index.html", headers={"Cache-Control": "no-cache"}
             )
         return HTMLResponse(
-            "<h1>JLBC Insight</h1><p>UI not built yet — run: "
+            "<h1>JLBC Search</h1><p>UI not built yet — run: "
             "cd webapp && npm run build</p>"
         )
 

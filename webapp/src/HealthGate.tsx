@@ -33,7 +33,7 @@ export function HealthGate({ children }: { children: React.ReactNode }) {
               name: "server",
               ok: false,
               detail: "The app isn't responding on this computer.",
-              fix: "Close this window and open JLBC Insight again from the Start Menu.",
+              fix: "Close this window and open JLBC Search again from the Start Menu.",
             },
           ],
           data_dir: null,

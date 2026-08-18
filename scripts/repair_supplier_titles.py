@@ -150,7 +150,7 @@ def main() -> int:
     title_by_url = _title_by_url()
     if not title_by_url:
         print(
-            "jlbc-insight: documents.json has no usable (source_url, title) "
+            "jlbc-search: documents.json has no usable (source_url, title) "
             "pairs — check JLBC_DATA_DIR. Nothing written.",
             file=sys.stderr,
         )

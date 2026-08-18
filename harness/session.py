@@ -1137,7 +1137,7 @@ class HarnessSession:
             "Content-Type": "application/json",
             # Shows up as the app name on OpenRouter's activity page, so
             # an admin auditing spend sees what the charges belong to.
-            "X-Title": "JLBC Insight",
+            "X-Title": "JLBC Search",
         }
         client = self._http_client()
         attempts = len(RETRY_BACKOFF_SECONDS) + 1

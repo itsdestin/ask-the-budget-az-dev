@@ -1,7 +1,7 @@
 @echo off
 setlocal EnableDelayedExpansion
 rem ============================================================================
-rem  JLBC Insight installer (Plan 5, Task 16 - spec S7/S8)
+rem  JLBC Search installer (Plan 5, Task 16 - spec S7/S8)
 rem
 rem  Everything here is deliberately something a standard user account can do:
 rem  no admin rights, no PATH edits, no registry writes, no services. It
@@ -9,15 +9,15 @@ rem  creates two shortcuts, records where the shared folder is, and prints
 rem  where the logs live. That is the whole install.
 rem
 rem  Run it by double-clicking, after unzipping the bundle into
-rem  %LOCALAPPDATA%\JLBC-Insight.
+rem  %LOCALAPPDATA%\JLBC-Search.
 rem ============================================================================
 
 set "INSTALL_DIR=%~dp0"
 if "%INSTALL_DIR:~-1%"=="\" set "INSTALL_DIR=%INSTALL_DIR:~0,-1%"
-set "STATE_DIR=%LOCALAPPDATA%\JLBC-Insight"
+set "STATE_DIR=%LOCALAPPDATA%\JLBC-Search"
 
 echo.
-echo   JLBC Insight - setup
+echo   JLBC Search - setup
 echo   ====================
 echo.
 echo   Installing from: %INSTALL_DIR%
@@ -34,7 +34,7 @@ if not exist "%INSTALL_DIR%\models\mineru.json" goto :incomplete
 rem --- 1. where is the shared budget folder? --------------------------------
 echo   The budget documents live in a shared folder on the network.
 echo   Your IT contact or the person who set this up can tell you the path.
-echo   It usually looks like:  \\server\share\JLBC-Insight-Data
+echo   It usually looks like:  \\server\share\JLBC-Search-Data
 echo.
 set "DATA_DIR="
 set /p "DATA_DIR=  Shared folder path (press Enter to decide later): "
@@ -86,13 +86,13 @@ if errorlevel 1 (
 rem --- 3. shortcuts ---------------------------------------------------------
 rem  PowerShell + WScript.Shell is the standard no-admin way to create a .lnk.
 set "SM_DIR=%APPDATA%\Microsoft\Windows\Start Menu\Programs"
-call :mkshortcut "%SM_DIR%\JLBC Insight.lnk"
-call :mkshortcut "%USERPROFILE%\Desktop\JLBC Insight.lnk"
+call :mkshortcut "%SM_DIR%\JLBC Search.lnk"
+call :mkshortcut "%USERPROFILE%\Desktop\JLBC Search.lnk"
 
 echo.
 echo   Setup complete.
 echo.
-echo   Start it from:   the Start Menu, or the JLBC Insight icon on your Desktop
+echo   Start it from:   the Start Menu, or the JLBC Search icon on your Desktop
 echo   Shared folder:   %DATA_DIR%
 echo   Log files:       %STATE_DIR%\logs
 echo.
@@ -109,7 +109,7 @@ powershell -NoProfile -ExecutionPolicy Bypass -Command ^
   "$s.Arguments='\"%INSTALL_DIR%\launcher.pyw\"';" ^
   "$s.WorkingDirectory='%INSTALL_DIR%';" ^
   "$s.IconLocation='%INSTALL_DIR%\python\pythonw.exe,0';" ^
-  "$s.Description='JLBC Insight';" ^
+  "$s.Description='JLBC Search';" ^
   "$s.Save()" >nul 2>&1
 if errorlevel 1 (
     echo   WARNING: could not create the shortcut at %~1

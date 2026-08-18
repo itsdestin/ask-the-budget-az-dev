@@ -898,7 +898,7 @@ describe("which computer processes uploads", () => {
         queue_stalled: true,
         queue_stalled_message:
           "Uploads are waiting and no computer is set to process them. Open " +
-          "JLBC Insight on the computer that should do this work, go to " +
+          "JLBC Search on the computer that should do this work, go to " +
           'Admin → Corpus, and turn on "Process uploads on this computer".',
       }),
     });
@@ -924,7 +924,7 @@ describe("which computer processes uploads", () => {
     mockAll({ corpus: corpus({ ingest_enabled_here: false }) });
     const set = vi.spyOn(api, "adminSetMachineIngest").mockResolvedValue({
       ingest_enabled_here: true,
-      message: "This computer will process uploads after JLBC Insight is restarted here.",
+      message: "This computer will process uploads after JLBC Search is restarted here.",
     });
     await renderAdmin();
 
@@ -1013,7 +1013,7 @@ describe("restore", () => {
     // Ground truth 10: the handles are resolved at startup, so a page that
     // said "done" without this would claim to be fixed and then serve errors.
     const done = await screen.findByTestId("admin-restore-done");
-    expect(done).toHaveTextContent(/open JLBC Insight again/i);
+    expect(done).toHaveTextContent(/open JLBC Search again/i);
   });
 
   it("surfaces the server's refusal when an ingest is running", async () => {

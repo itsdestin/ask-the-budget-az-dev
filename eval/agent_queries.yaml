@@ -1,4 +1,4 @@
-# Layer 2 agent-loop eval query set — Ask the Budget AZ.
+# Layer 2 agent-loop eval query set — JLBC Search.
 #
 # WHAT THIS MEASURES: END-TO-END AGENT BEHAVIOR, NOT RETRIEVAL RECALL.
 # Layer 1 (eval/queries.yaml) pins ground-truth chunk_ids and asks "did

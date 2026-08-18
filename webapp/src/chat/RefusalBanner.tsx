@@ -85,10 +85,13 @@ export type RefusalReason =
   | { kind: "synthesis"; chunks: RefusalChunkPreview[] }
   | { kind: "out_of_scope" };
 
-/** Same set citation-extract recognizes; duplicated (three strings) rather
- *  than exported from there, because that file is owned by Task 9's port. */
+/** Same set as citation-extract recognizes; duplicated rather than
+ *  exported from there, because that file is owned by Task 9's port. The
+ *  `mcp__ask-the-budget-az__retrieve` legacy name stays so old saved
+ *  transcripts still render their refusal banner. */
 const RETRIEVE_TOOL_NAMES = new Set([
   "retrieve",
+  "mcp__jlbc-search__retrieve",
   "mcp__ask-the-budget-az__retrieve",
 ]);
 

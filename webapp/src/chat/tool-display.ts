@@ -12,6 +12,8 @@
 //      down to `cite`, which mattered when an MCP host prefixed every tool
 //      name. Plan 4 deleted the MCP server; harness/tools.py hands the model
 //      bare names and there is no code path that can produce a prefixed one.
+//      The old namespaced string is still a historical record of the MCP
+//      server name, which is why it survives here in the comment.
 //   2. The Claude Code core tools (Bash, Read, Edit, Write, Glob, Grep,
 //      WebFetch, WebSearch, ToolSearch, TodoWrite, Task) are gone for the
 //      same reason — Invariant 7 removed the whole filesystem/shell surface.

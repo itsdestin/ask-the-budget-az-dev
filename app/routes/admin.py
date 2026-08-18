@@ -776,11 +776,11 @@ def set_machine_ingest(
     return {
         "ingest_enabled_here": body.enabled,
         "message": (
-            "This computer will process uploads after JLBC Insight is "
+            "This computer will process uploads after JLBC Search is "
             "restarted here."
             if body.enabled
             else "This computer will stop processing uploads after JLBC "
-                 "Insight is restarted here."
+                 "Search is restarted here."
         ),
     }
 

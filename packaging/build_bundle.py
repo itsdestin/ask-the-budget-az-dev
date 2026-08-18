@@ -1,7 +1,7 @@
 """Build the distributable Windows bundle (Plan 5, Task 15 — spec S7).
 
-Produces `dist/JLBC-Insight-<version>.zip`. Unzipping it into
-`%LOCALAPPDATA%\\JLBC-Insight` and running `install.cmd` is the entire install:
+Produces `dist/JLBC-Search-<version>.zip`. Unzipping it into
+`%LOCALAPPDATA%\\JLBC-Search` and running `install.cmd` is the entire install:
 no admin rights, no Python on the machine, no PATH edits, no registry writes,
 and — the property that matters — **no downloads on first run**.
 
@@ -16,7 +16,7 @@ never had Python.
 Layout produced (paths matter — the app resolves data files relative to its
 own source tree, so this mirrors the repo root):
 
-    JLBC-Insight-<version>/
+    JLBC-Search-<version>/
       python/            embeddable CPython, ._pth patched to see site-packages
       site-packages/     the Windows wheel closure
       jre/               Temurin JRE — opendataloader-pdf shells out to java
@@ -463,7 +463,7 @@ def step_launcher(out: Path, version: str) -> None:
     if quickstart.exists():
         shutil.copy2(quickstart, out / "QUICKSTART.md")
     else:
-        (out / "QUICKSTART.md").write_text("# JLBC Insight — Quick Start\n\n(not yet written)\n")
+        (out / "QUICKSTART.md").write_text("# JLBC Search — Quick Start\n\n(not yet written)\n")
     (out / "VERSION").write_text(version + "\n")
 
 
@@ -491,7 +491,7 @@ def step_manifest(out: Path, version: str) -> list[str]:
 def step_zip(out: Path, version: str) -> Path:
     dist = REPO_ROOT / "dist"
     dist.mkdir(exist_ok=True)
-    zpath = dist / f"JLBC-Insight-{version}.zip"
+    zpath = dist / f"JLBC-Search-{version}.zip"
     root_name = out.name
     with zipfile.ZipFile(zpath, "w", zipfile.ZIP_DEFLATED, compresslevel=6) as zf:
         for p in sorted(out.rglob("*")):
@@ -512,7 +512,7 @@ def main() -> int:
 
     build_root = Path(args.out) if args.out else REPO_ROOT / "build"
     cache = Path(args.cache) if args.cache else build_root / ".cache"
-    out = build_root / f"JLBC-Insight-{args.version}"
+    out = build_root / f"JLBC-Search-{args.version}"
 
     if args.plan:
         files = source_files()
@@ -533,7 +533,7 @@ def main() -> int:
     out.mkdir(parents=True)
     cache.mkdir(parents=True, exist_ok=True)
 
-    print(f"building JLBC-Insight-{args.version} -> {out}")
+    print(f"building JLBC-Search-{args.version} -> {out}")
     step_python(out, cache)
     step_wheels(out, cache)
     step_jre(out, cache)

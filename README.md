@@ -1,4 +1,4 @@
-# Ask the Budget AZ
+# JLBC Search
 
 A Q&A tool over Arizona state budget documents — JLBC Appropriations Reports, Baseline Books, AGAO Annual Financial Reports, and the Governor's Executive Budget proposals.
 

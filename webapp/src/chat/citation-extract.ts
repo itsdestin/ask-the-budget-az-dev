@@ -89,23 +89,28 @@ interface RetrieveOutputShape {
 
 /** Tool names that resolve to the budget retrieve tool. The MCP host
  *  may prefix with `mcp__<server>__`; both bare and namespaced names
- *  are recognized. */
+ *  are recognized. The `mcp__ask-the-budget-az__*` legacy names are kept
+ *  so old saved transcripts (written before the rename to JLBC Search)
+ *  still render their tool cards. */
 const RETRIEVE_TOOL_NAMES = new Set<string>([
   "retrieve",
+  "mcp__jlbc-search__retrieve",
   "mcp__ask-the-budget-az__retrieve",
 ]);
 
 const CITE_TOOL_NAMES = new Set<string>([
   "cite",
+  "mcp__jlbc-search__cite",
   "mcp__ask-the-budget-az__cite",
 ]);
 
-/** Tool names for the batched-citation tool. One tool_use block carries
- *  N citations in input.citations and N parallel responses in
+/** Tool names for the batched-citation tool. One tool_use carries
+ *  N citations in the batch and N parallel responses in
  *  output.citations. Added 2026-05-20 to eliminate per-citation tool
  *  round-trips that were dominating analyze-shaped answer latency. */
 const CITE_BATCH_TOOL_NAMES = new Set<string>([
   "cite_batch",
+  "mcp__jlbc-search__cite_batch",
   "mcp__ask-the-budget-az__cite_batch",
 ]);
 
