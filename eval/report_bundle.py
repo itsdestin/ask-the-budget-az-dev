@@ -191,8 +191,9 @@ td.num { text-align:right; font-variant-numeric:tabular-nums; }
 a { color:var(--accent); }
 
 /* ---- tooltips (hoverable stat descriptions + query previews) ---- */
-[data-tip] { position:relative; cursor:help; border-bottom:1px dotted var(--muted); }
-[data-tip]:hover::after {
+[data-tip], .tooltip-wrap[data-tip] { position:relative; cursor:help;
+  border-bottom:1px dotted var(--muted); }
+[data-tip]:hover::after, .tooltip-wrap[data-tip]:hover::after {
   content:attr(data-tip);
   position:absolute; left:50%; bottom:calc(100% + 8px); transform:translateX(-50%);
   background:#101a2c; color:#e7edf8; padding:8px 12px; border-radius:8px;
@@ -200,7 +201,7 @@ a { color:var(--accent); }
   width:max-content; max-width:320px; z-index:20; box-shadow:0 4px 14px rgba(10,18,35,.35);
   text-align:left; pointer-events:none;
 }
-[data-tip]:hover::before {
+[data-tip]:hover::before, .tooltip-wrap[data-tip]:hover::before {
   content:""; position:absolute; left:50%; bottom:calc(100% + 2px); transform:translateX(-50%);
   border:6px solid transparent; border-top-color:#101a2c; z-index:20; pointer-events:none;
 }
@@ -228,6 +229,11 @@ header .runid { font-family:ui-monospace,Menlo,monospace; font-size:12px;
 .hint { color:var(--muted); font-size:12.5px; margin:2px 0 0; }
 .query-chip { display:inline-block; max-width:240px; overflow:hidden; text-overflow:ellipsis;
               white-space:nowrap; vertical-align:middle; }
+/* The tooltip must NOT live on the clipped element: .query-chip clips its
+   ::after (overflow:hidden), so the hover preview would never show. Put the
+   data-tip on a non-clipping inline wrapper instead. */
+.tooltip-wrap { position:relative; display:inline-block; }
+.tooltip-wrap[data-tip]:hover::after { content:attr(data-tip); }
 """
 
 JS = """
@@ -558,8 +564,9 @@ def summary_page(run_dir: Path, data: dict) -> str:
                 cls = f"class='{_metric_class(k, raw)}'"
             if k == "query_id":
                 tipattr = f' data-tip="{esc(umsg)}"' if umsg else ""
-                out.append(f'<td><a class="query-chip" href="per-query/{esc(qid)}.html"'
-                           f'{tipattr}>{esc(v)}</a></td>')
+                out.append(f'<td><span class="tooltip-wrap"{tipattr}>'
+                           f'<a class="query-chip" href="per-query/{esc(qid)}.html">'
+                           f'{esc(v)}</a></span></td>')
             else:
                 out.append(f"<td {cls}>{esc(v)}</td>")
         out.append("</tr>")
