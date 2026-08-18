@@ -144,6 +144,14 @@ def main() -> int:
         if rc != 0:
             return rc
 
+    # Report bundle (free): build the reviewable HTML report and launch it in
+    # the browser, so every run ends with a navigable summary Destin can open.
+    # Runs last so a judge failure doesn't hide it; non-fatal if it fails.
+    rc = _run_step("report (free, opens in browser)",
+                   [*base, "eval.report_bundle", str(run_dir)])
+    if rc != 0:
+        print("WARNING: report bundle failed (run itself succeeded)", file=sys.stderr)
+
     print(f"\nDone. Reports report/scores in {run_dir}", flush=True)
     return 0
 

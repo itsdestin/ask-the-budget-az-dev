@@ -1,53 +1,58 @@
-"""Assemble a run directory into a reviewable report bundle.
+"""Assemble a run directory into a reviewable HTML report bundle.
 
 Turns eval/results/agent/<run>/ (raw transcripts + scores + judge) into
-eval/results/agent/<run>/report/ with:
+eval/results/agent/<run>/report/ (a self-contained, styled, navigable
+HTML site):
 
-    00-summary.md          the combined per-query table (all output metrics)
-    01-errors.md           the tool-error ledger, readable
-    per-query/<id>.md      one file per query: the full readable transcript
-                           (every turn: what it thought, what it searched,
-                           what it cited) + the judge review + final answer
-    per-query/<id>.jsonl   a copy of the raw transcript for the exact record
-    raw/                   copies of scores.json, judge.json, manifest.json
+    index.html              the summary page: headline metrics + the full
+                            per-query table (every output metric) + error
+                            ledger, with one link per query
+    per-query/<id>.html     one styled page per query: metrics, judge
+                            review, and the conversation as it appeared in
+                            the app (clean user/assistant messages, every
+                            attempted tool call, final answer)
+    per-query/<id>.jsonl    raw transcript copy for the exact record
+    raw/                    copies of scores.json, judge.json, manifest.json
 
-WHY this exists: the run dir holds everything but in raw, scattered forms.
-Destin wants ONE folder he can open and review — a table of every metric,
-the full conversation for each query, and the judge's verdict, in plain
-text he does not need a tool to read.
+WHY styled HTML instead of markdown: Destin wants a report that LAUNCHES
+at the end of a run and that he can navigate in a browser — a table of
+every metric, the conversation per query as the app would have shown it
+(no streaming-delta stutter), and the judge's verdict, readable without
+any tool.
+
+Conversation reconstruction: the transcript records the assistant's
+streamed deltas per turn. Some models re-emit growing prefixes, so the
+READABLE message is the LAST delta of a phase (it holds the full
+accumulated text); a tool call with no preceding deltas means the model
+went straight to a tool. So per turn: if deltas exist, the last delta is
+the assistant message; tool calls render as attempted tool calls in
+between.
 
 Usage:
-    uv run python -m eval.report_bundle <run-dir>            # writes <run-dir>/report/
-    uv run python -m eval.report_bundle <run-dir> --open     # also print the summary to stdout
+    uv run python -m eval.report_bundle <run-dir>          # writes report/ + opens index.html
+    uv run python -m eval.report_bundle <run-dir> --no-open
 
 Free (no model calls) — reads the run dir only.
 """
 from __future__ import annotations
 
 import argparse
+import html
 import json
 import shutil
+import subprocess
 import sys
+import webbrowser
 from collections import Counter
 from pathlib import Path
 
-# Columns for the summary table. Key -> (display label, formatter).
-# Values come from scores.json per_query rows; missing keys render "—".
 COLUMNS: list[tuple[str, str]] = [
-    ("query_id", "query"),
-    ("shape", "shape"),
-    ("set", "set"),
-    ("ok", "ok"),
-    ("key_fact_rate", "fact rate"),
-    ("accurate", "accurate"),
-    ("steps", "turns"),
-    ("retrieve_call_count", "retrieves"),
-    ("retrieval_efficiency", "retr eff"),
-    ("verified_citations", "cites ok"),
-    ("cite_pass_rate", "cite pass"),
-    ("first_try_cite_rate", "1st-try"),
-    ("figure_coverage", "fig cov"),
-    ("total_tokens", "tokens"),
+    ("query_id", "query"), ("shape", "shape"), ("set", "set"), ("ok", "ok"),
+    ("key_fact_rate", "fact rate"), ("accurate", "accurate"),
+    ("steps", "turns"), ("retrieve_call_count", "retrieves"),
+    ("retrieval_efficiency", "retr eff"), ("verified_citations", "cites ok"),
+    ("cite_pass_rate", "cite pass"), ("first_try_cite_rate", "1st-try"),
+    ("figure_coverage", "fig cov"), ("total_tokens", "tokens"),
     ("cost_usd", "cost"),
 ]
 
@@ -62,6 +67,59 @@ SUMMARY_KEYS = [
 
 JUDGE_KEYS = ["holistic", "chunk_relevance", "claim_coverage_precision",
               "claim_coverage_recall", "figure_coverage_ok", "placement_ok"]
+
+CSS = """
+:root { --bg:#f7f8fa; --card:#fff; --ink:#1c2330; --muted:#5b6675;
+        --accent:#2f6fda; --ok:#1a9d57; --bad:#d64545; --line:#e3e7ee; }
+* { box-sizing:border-box; }
+body { margin:0; font:15px/1.55 -apple-system,"Segoe UI",Roboto,sans-serif;
+       background:var(--bg); color:var(--ink); }
+header { background:linear-gradient(135deg,#1c2b4a,#2f6fda); color:#fff;
+         padding:26px 42px; }
+header h1 { margin:0; font-size:22px; }
+header .sub { opacity:.85; margin-top:4px; font-size:13px; }
+.wrap { max-width:1200px; margin:0 auto; padding:26px 42px; }
+h2 { margin-top:34px; font-size:19px; border-bottom:2px solid var(--line); padding-bottom:6px; }
+table { border-collapse:collapse; width:100%; margin:14px 0; background:var(--card);
+        box-shadow:0 1px 3px rgba(0,0,0,.06); border-radius:8px; overflow:hidden; }
+th,td { padding:8px 11px; text-align:left; border-bottom:1px solid var(--line);
+        font-size:13.5px; white-space:nowrap; }
+th { background:#eef1f6; font-weight:600; }
+tr:hover td { background:#f4f7fc; }
+.ok { color:var(--ok); font-weight:700; } .bad { color:var(--bad); font-weight:700; }
+.muted { color:var(--muted); }
+.card { background:var(--card); border:1px solid var(--line); border-radius:8px;
+        padding:16px 20px; margin:12px 0; box-shadow:0 1px 3px rgba(0,0,0,.05); }
+.metric-grid { display:grid; grid-template-columns:repeat(auto-fill,minmax(150px,1fr)); gap:10px; }
+.metric { background:var(--card); border:1px solid var(--line); border-radius:8px;
+          padding:10px 14px; }
+.metric .k { font-size:11px; text-transform:uppercase; letter-spacing:.04em;
+             color:var(--muted); }
+.metric .v { font-size:18px; font-weight:700; margin-top:2px; }
+.chat { border:1px solid var(--line); border-radius:10px; overflow:hidden; }
+.msg { padding:12px 18px; border-bottom:1px solid var(--line); }
+.msg.user { background:#eef3ff; }
+.msg.assistant { background:#fff; }
+.msg .who { font-size:11px; font-weight:700; text-transform:uppercase;
+            letter-spacing:.05em; color:var(--muted); margin-bottom:4px; }
+.msg .body { white-space:pre-wrap; }
+.tool { background:#f2f5f9; border-left:3px solid var(--accent); padding:10px 16px;
+        margin:8px 0; font-size:13.5px; }
+.tool .tname { font-weight:700; }
+.tool .tinput { margin-top:4px; font-family:ui-monospace,Monaco,monospace;
+                font-size:12.5px; white-space:pre-wrap; color:#33415c; }
+.tool .tresult { margin-top:4px; color:var(--muted); font-size:12.5px;
+                 white-space:pre-wrap; font-family:ui-monospace,Monaco,monospace; }
+.back { display:inline-block; margin-bottom:10px; color:var(--accent);
+        text-decoration:none; font-weight:600; }
+.err { color:var(--bad); }
+.claims li { margin:3px 0; }
+a { color:var(--accent); }
+"""
+
+
+def esc(v) -> str:
+    return html.escape(str(v))
 
 
 def _fmt(v, digits=4) -> str:
@@ -79,154 +137,229 @@ def _load(run_dir: Path) -> dict:
     judge = {}
     if (run_dir / "judge.json").exists():
         judge = json.loads((run_dir / "judge.json").read_text(encoding="utf-8"))
-    errors = {}
+    errors = []
     if (run_dir / "errors.json").exists():
         errors = json.loads((run_dir / "errors.json").read_text(encoding="utf-8"))
     return {"scores": scores, "judge": judge, "errors": errors}
 
 
-def render_transcript(run_dir: Path, qid: str) -> str:
-    """Render one transcript JSONL as readable turn-by-turn prose."""
+# ---------- conversation reconstruction ----------
+
+def _conversation_events(run_dir: Path, qid: str) -> list[dict]:
+    """Return the event stream as a list of dicts (type + payload)."""
     path = run_dir / f"{qid}-r1.jsonl"
     if not path.exists():
-        return "_(transcript file missing)_"
-    out: list[str] = []
+        return []
+    out = []
     for line in path.read_text(encoding="utf-8").splitlines():
         try:
             rec = json.loads(line)
         except json.JSONDecodeError:
             continue
-        if rec.get("kind") == "meta":
-            out.append(f"*query {qid} — corpus {rec.get('corpus')} / tier "
-                       f"{rec.get('tier')} / shape {rec.get('shape')}*")
-        elif rec.get("kind") == "event":
-            ev = rec.get("event") or {}
-            t = ev.get("type")
-            if t == "user_message":
-                out.append(f"\n**User:** {ev.get('text','')}")
-            elif t == "assistant_thinking":
-                out.append(f"\n_(thinking, turn {len([l for l in out if l.startswith('**Turn')]) + 1})_")
-            elif t == "assistant_text_delta":
-                # Deltas arrive as streamed fragments; some models re-emit
-                # growing prefixes ("**Quick lookup:** The Secre…" × N), so a
-                # naive join reads as stuttering. Emit each delta on its own
-                # line instead of merging — the readable, authoritative prose
-                # is the FINAL ANSWER from the terminal frame below, not the
-                # stream. This keeps the stream as a faithful record without
-                # pretending it is clean prose.
-                out.append(f"  _{ev.get('text', '')}_")
-            elif t == "tool_use":
-                name = ev.get("toolName")
-                inp = ev.get("input") or {}
-                if name == "retrieve":
-                    q = inp.get("query", "")
-                    fy = inp.get("fiscal_year") or inp.get("year")
-                    dt = inp.get("doc_type") or inp.get("doctype")
-                    ag = inp.get("agency_canonical_id") or inp.get("agency")
-                    out.append(f"\n🔍 **retrieve:** {q}"
-                               + (f"  [fy={fy}]" if fy else "")
-                               + (f" [doc_type={dt}]" if dt else "")
-                               + (f" [agency={ag}]" if ag else ""))
-                elif name in ("cite", "cite_batch"):
-                    out.append(f"\n📎 **{name}:** "
-                               f"{json.dumps(inp, ensure_ascii=False)[:300]}")
-                else:
-                    out.append(f"\n🛠 **{name}:** "
-                               f"{json.dumps(inp, ensure_ascii=False)[:300]}")
-            elif t == "tool_result":
-                # tool_result may carry the parsed output; keep it short
-                res = ev.get("output") or ev.get("result") or ""
-                s = str(res)
-                out.append(f"  _→ tool result: {s[:160]}{'…' if len(s)>160 else ''}_")
-            elif t == "turn_complete":
-                out.append("\n---")
-    # terminal
-    term = None
-    for line in path.read_text(encoding="utf-8").splitlines():
+        if rec.get("kind") == "event":
+            out.append(rec["event"])
+    return out
+
+
+def render_chat_html(run_dir: Path, qid: str) -> str:
+    """Render the conversation as it appeared in the app.
+
+    Reconstruction rule (verified against real transcripts): the assistant
+    emits streamed deltas; some models re-emit growing prefixes, so the
+    readable message is the LAST delta of a phase (it holds the full
+    accumulated text). A tool call with NO preceding deltas means the model
+    went straight to the tool. We therefore group: on user_message start a
+    user bubble; accumulate deltas and, at a tool_use or turn boundary, emit
+    the last delta as the assistant message; tool calls render as attempts.
+    """
+    evs = _conversation_events(run_dir, qid)
+    if not evs:
+        return "<p class='muted'>no transcript</p>"
+    parts: list[str] = ["""<div class="chat">"""]
+    cur_deltas: list[str] = []
+    thinking = ""
+    terminal = None
+
+    def flush_message():
+        nonlocal cur_deltas, thinking
+        if cur_deltas:
+            # last delta of the phase carries the full accumulated message
+            text = cur_deltas[-1].strip()
+            if text:
+                parts.append(
+                    f"<div class='msg assistant'><div class='who'>Assistant</div>"
+                    f"<div class='body'>{esc(text)}</div></div>"
+                )
+            cur_deltas = []
+        if thinking:
+            parts.append(f"<div class='msg assistant'><div class='who'>Assistant · "
+                         f"reasoning</div><div class='body muted'>{esc(thinking)}</div></div>")
+            thinking = ""
+
+    for e in evs:
+        t = e.get("type")
+        if t == "user_message":
+            flush_message()
+            parts.append(f"<div class='msg user'><div class='who'>User</div>"
+                         f"<div class='body'>{esc(e.get('text',''))}</div></div>")
+        elif t == "assistant_thinking":
+            thinking = e.get("text") or thinking
+        elif t == "assistant_text_delta":
+            cur_deltas.append(e.get("text", ""))
+        elif t == "tool_use":
+            flush_message()
+            name = e.get("toolName") or e.get("name") or "tool"
+            inp = e.get("input") or {}
+            parts.append(
+                f"<div class='tool'><span class='tname'>{esc(name)}</span>"
+                f"<div class='tinput'>{esc(json.dumps(inp, ensure_ascii=False, indent=1)[:600])}</div></div>"
+            )
+        elif t == "tool_result":
+            res = e.get("output") or e.get("result") or ""
+            s = str(res)
+            parts.append(f"<div class='tool'><span class='tname'>→ result</span>"
+                         f"<div class='tresult'>{esc(s[:400])}{'…' if len(s) > 400 else ''}</div></div>")
+    flush_message()
+    # terminal frame -> final answer
+    for line in (run_dir / f"{qid}-r1.jsonl").read_text(encoding="utf-8").splitlines():
         try:
             rec = json.loads(line)
         except json.JSONDecodeError:
             continue
         if rec.get("kind") == "terminal":
-            term = rec
-    if term:
-        frame = term.get("frame") or {}
-        out.append(f"\n\n**FINAL ANSWER** (frame {frame.get('type')}):\n\n"
-                   f"{frame.get('finalAnswer','')}")
-    return "\n".join(out)
+            frame = rec.get("frame") or {}
+            final = frame.get("finalAnswer")
+            if final:
+                parts.append(
+                    f"<div class='msg assistant'><div class='who'>Final answer</div>"
+                    f"<div class='body'>{esc(final)}</div></div>"
+                )
+    parts.append("</div>")
+    return "\n".join(parts)
 
 
-def render_judge(judge: dict, qid: str) -> str:
+# ---------- judge ----------
+
+def render_judge_html(judge: dict, qid: str) -> str:
     pq = next((q for q in judge.get("per_query", [])
                if q.get("query_id") == qid), None)
     if not pq:
-        return "_(no judge review for this query)_"
-    out = ["## Judge review", ""]
+        return "<p class='muted'>no judge review</p>"
+    out = [f"<div class='metric-grid'>"]
     for k in JUDGE_KEYS:
         if k in pq:
-            out.append(f"- **{k}**: {_fmt(pq[k])}")
+            out.append(f"<div class='metric'><div class='k'>{esc(k)}</div>"
+                       f"<div class='v'>{_fmt(pq[k])}</div></div>")
+    out.append("</div>")
     if pq.get("chunk_relevance_rationale"):
-        out.append(f"\n**chunk relevance rationale:** {pq['chunk_relevance_rationale']}")
+        out.append(f"<p><strong>chunk relevance:</strong> {esc(pq['chunk_relevance_rationale'])}</p>")
     if pq.get("rationale"):
-        out.append(f"\n**rationale:** {pq['rationale']}")
+        out.append(f"<p><strong>rationale:</strong> {esc(pq['rationale'])}</p>")
     flags = pq.get("flags") or {}
-    if flags:
-        on = [k for k, v in flags.items() if v]
-        if on:
-            out.append(f"\n**flags:** {', '.join(on)}")
+    on = [k for k, v in flags.items() if v]
+    if on:
+        out.append(f"<p><span class='err'>flags: {esc(', '.join(on))}</span></p>")
     claims = pq.get("load_bearing_claims") or []
     if claims:
-        out.append("\n**load-bearing claims** (cited_verified?):")
+        out.append("<ul class='claims'>")
         for c in claims:
             mark = "✓" if c.get("cited_verified") else "✗"
-            out.append(f"- {mark} {c.get('claim','')}")
+            cls = "ok" if c.get("cited_verified") else "bad"
+            out.append(f"<li><span class='{cls}'>{mark}</span> {esc(c.get('claim',''))}</li>")
+        out.append("</ul>")
     return "\n".join(out)
 
 
-def render_summary(run_dir: Path, data: dict) -> str:
+# ---------- pages ----------
+
+def page(title: str, body: str, *, back: str | None = None) -> str:
+    backhtml = f'<a class="back" href="{back}">← back to summary</a>' if back else ""
+    return f"""<!doctype html><html><head><meta charset="utf-8">
+<title>{esc(title)}</title><style>{CSS}</style></head><body>
+<header><h1>{esc(title)}</h1></header>
+<div class="wrap">{backhtml}{body}</div></body></html>"""
+
+
+def summary_page(run_dir: Path, data: dict) -> str:
     scores = data["scores"]
     summary = scores.get("summary", {})
     judge = data.get("judge", {})
-    lines = [f"# Eval report — {run_dir.name}", ""]
+    out = []
     # headline summary
-    lines += ["## Summary", ""]
-    lines.append("| metric | value |")
-    lines.append("|---|---|")
+    out.append("<div class='metric-grid'>")
     for k, label in SUMMARY_KEYS:
         if k in summary:
-            lines.append(f"| {label} | {_fmt(summary[k])} |")
+            out.append(f"<div class='metric'><div class='k'>{esc(label)}</div>"
+                       f"<div class='v'>{_fmt(summary[k])}</div></div>")
     for k in ["holistic_mean", "chunk_relevance_mean",
               "claim_coverage_precision_mean", "claim_coverage_recall_mean"]:
         if judge.get("summary", {}).get(k) is not None:
-            lines.append(f"| {k} | {_fmt(judge['summary'][k])} |")
-    lines += ["", "## Per-query table", "",
-              "| " + " | ".join(label for _, label in COLUMNS) + " |",
-              "|" + "|".join(["---"] * len(COLUMNS)) + "|"]
+            out.append(f"<div class='metric'><div class='k'>{esc(k)}</div>"
+                       f"<div class='v'>{_fmt(judge['summary'][k])}</div></div>")
+    out.append("</div>")
+    out.append("<h2>Per-query</h2><table><thead><tr>")
+    for _, label in COLUMNS:
+        out.append(f"<th>{label}</th>")
+    out.append("</tr></thead><tbody>")
     for r in sorted(scores.get("per_query", []), key=lambda r: r["query_id"]):
-        cells = [_fmt(r.get(k)) for k, _ in COLUMNS]
-        lines.append("| " + " | ".join(cells) + " |")
-    lines += ["", "Per-query detail: see `per-query/<id>.md`.",
-              "Raw artifacts: see `raw/`."]
-    return "\n".join(lines) + "\n"
-
-
-def render_errors(data: dict) -> str:
+        qid = r["query_id"]
+        out.append("<tr>")
+        for k, _ in COLUMNS:
+            v = _fmt(r.get(k))
+            cls = ""
+            if k == "accurate" and r.get("accurate"):
+                cls = "class='ok'"
+            elif k == "accurate" and r.get("accurate") is False:
+                cls = "class='bad'"
+            elif k == "ok" and r.get("ok") is False:
+                cls = "class='bad'"
+            if k == "query_id":
+                out.append(f'<td><a href="per-query/{esc(qid)}.html">{esc(v)}</a></td>')
+            else:
+                out.append(f"<td {cls}>{esc(v)}</td>")
+        out.append("</tr>")
+    out.append("</tbody></table>")
+    # errors
     errs = data.get("errors") or []
+    out.append("<h2>Tool errors</h2>")
     if not errs:
-        return "# Tool-error ledger\n\nNo tool errors in this run.\n"
-    lines = ["# Tool-error ledger", ""]
-    by_kind = Counter((e.get("kind"),) for e in errs)
-    lines += ["| kind | count |", "|---|---|"]
-    for (kind,), n in by_kind.most_common():
-        lines.append(f"| {kind} | {n} |")
-    lines += ["", "## Per query", ""]
-    for e in errs:
-        lines.append(f"- **{e.get('query_id')}** turn {e.get('turn')}: "
-                     f"{e.get('kind')} — {str(e.get('detail'))[:200]}")
-    return "\n".join(lines) + "\n"
+        out.append("<p class='muted'>No tool errors.</p>")
+    else:
+        by = Counter(e.get("kind") for e in errs)
+        out.append("<table><tr><th>kind</th><th>count</th></tr>")
+        for kind, n in by.most_common():
+            out.append(f"<tr><td>{esc(kind)}</td><td>{n}</td></tr>")
+        out.append("</table><ul>")
+        for e in errs:
+            out.append(f"<li><strong>{esc(e.get('query_id'))}</strong> turn "
+                       f"{esc(e.get('turn'))}: {esc(e.get('kind'))} — "
+                       f"{esc(str(e.get('detail'))[:160])}</li>")
+        out.append("</ul>")
+    out.append(f"<p class='muted'>run {esc(run_dir.name)} · "
+               f"report generated {(run_dir / 'scores.json').stat().st_mtime:.0f}</p>")
+    return page(f"Eval report — {run_dir.name}", "\n".join(out))
 
 
-def build(run_dir: Path, *, open_: bool = False) -> Path:
+def query_page(run_dir: Path, data: dict, qid: str) -> str:
+    scores = data["scores"]
+    r = next((x for x in scores.get("per_query", []) if x["query_id"] == qid), {})
+    out = ["<div class='metric-grid'>"]
+    for k, label in COLUMNS:
+        if k in r and k != "query_id":
+            out.append(f"<div class='metric'><div class='k'>{esc(label)}</div>"
+                       f"<div class='v'>{_fmt(r[k])}</div></div>")
+    out.append("</div>")
+    out.append("<h2>Judge review</h2>")
+    out.append(render_judge_html(data.get("judge", {}), qid))
+    out.append("<h2>Conversation</h2>")
+    out.append(render_chat_html(run_dir, qid))
+    out.append("<p class='muted'>raw transcript: "
+               f"<code>per-query/{esc(qid)}.jsonl</code></p>")
+    return page(f"{qid} — eval report", "\n".join(out),
+                back="index.html")
+
+
+def build(run_dir: Path, *, no_open: bool = False) -> Path:
     data = _load(run_dir)
     report = run_dir / "report"
     pq_dir = report / "per-query"
@@ -234,45 +367,35 @@ def build(run_dir: Path, *, open_: bool = False) -> Path:
     pq_dir.mkdir(parents=True, exist_ok=True)
     raw_dir.mkdir(parents=True, exist_ok=True)
 
-    # summary
-    (report / "00-summary.md").write_text(render_summary(run_dir, data), encoding="utf-8")
-    # errors
-    (report / "01-errors.md").write_text(render_errors(data), encoding="utf-8")
-    # per-query
+    (report / "index.html").write_text(summary_page(run_dir, data), encoding="utf-8")
     scores = data["scores"]
-    for r in sorted(scores.get("per_query", []), key=lambda x: x["query_id"]):
+    for r in scores.get("per_query", []):
         qid = r["query_id"]
-        doc = [f"# {qid}", "",
-               "## Metrics",
-               ""]
-        for k, label in COLUMNS:
-            if k in r:
-                doc.append(f"- **{label}**: {_fmt(r[k])}")
-        doc += ["", render_judge(data.get("judge", {}), qid), "",
-                "## Transcript", "", render_transcript(run_dir, qid)]
-        (pq_dir / f"{qid}.md").write_text("\n".join(doc) + "\n", encoding="utf-8")
-        # raw transcript copy
+        (pq_dir / f"{qid}.html").write_text(query_page(run_dir, data, qid),
+                                             encoding="utf-8")
         src = run_dir / f"{qid}-r1.jsonl"
         if src.exists():
             shutil.copy(src, pq_dir / f"{qid}.jsonl")
-    # raw artifacts
     for name in ("scores.json", "judge.json", "manifest.json", "errors.json",
                  "errors.md", "ledger.jsonl", "scores.md"):
         src = run_dir / name
         if src.exists():
             shutil.copy(src, raw_dir / name)
-    if open_:
-        print((report / "00-summary.md").read_text(encoding="utf-8"))
     print(f"report bundle written to {report}/")
+    if not no_open:
+        try:
+            webbrowser.open(f"file://{report / 'index.html'}")
+        except Exception:
+            subprocess.Popen(["xdg-open", str(report / "index.html")])
     return report
 
 
 def main() -> int:
-    ap = argparse.ArgumentParser(description="Assemble a run dir into a review bundle")
+    ap = argparse.ArgumentParser(description="Build + open an HTML eval report bundle")
     ap.add_argument("run_dir", type=Path)
-    ap.add_argument("--open", action="store_true", help="print the summary table too")
+    ap.add_argument("--no-open", action="store_true", help="build without launching a browser")
     args = ap.parse_args()
-    build(args.run_dir, open_=args.open)
+    build(args.run_dir, no_open=args.no_open)
     return 0
 
 
