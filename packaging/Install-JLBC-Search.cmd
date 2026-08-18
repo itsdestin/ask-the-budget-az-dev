@@ -64,28 +64,22 @@ set "DATA_DIR=%DATA_DIR:"=%"
 echo.
 
 rem --- extract the bundle -----------------------------------------------------
-echo   Extracting (this is a large program, please wait)...
-if exist "%INSTALL_DIR%\python\pythonw.exe" (
-    echo   A previous install is already here - refreshing it.
-)
-set "EXTRACT_TMP=%TEMP%\jlbc-search-extract-%RANDOM%%RANDOM%"
-mkdir "%EXTRACT_TMP%" 2>nul
+echo   Extracting straight into the install folder (this can take a few
+echo   minutes for 36,000 files; please wait)...
+mkdir "%INSTALL_DIR%" 2>nul
 rem tar.exe ships with Windows 10 1803+; bsdtar handles the zip fine.
-tar -xf "%ZIP%" -C "%EXTRACT_TMP%"
+rem Extract DIRECTLY into the install folder (no temp dir + xcopy pass) —
+rem the old two-step (temp then xcopy) wrote every file twice, doubling
+rem the time Windows Defender spends scanning the tree.
+rem `--strip-components=1` drops the zip's top-level `JLBC-Search-<version>/`
+rem so the app lands at the install root, exactly like the old xcopy did.
+tar -xf "%ZIP%" -C "%INSTALL_DIR%" --strip-components=1
 if errorlevel 1 (
     echo   ERROR: extraction failed. Try copying the zip to your Desktop and
     echo   running this script from there instead of off the USB drive.
     pause
     exit /b 1
 )
-
-rem The zip holds one top-level folder (JLBC-Search-<version>^). Move its
-rem CONTENTS into the install folder, then clean up the temp dir.
-for /d %%d in ("%EXTRACT_TMP%\JLBC-Search-*") do (
-    mkdir "%INSTALL_DIR%" 2>nul
-    xcopy "%%d\*" "%INSTALL_DIR%\" /E /I /Y /Q >nul
-)
-rd /s /q "%EXTRACT_TMP%" 2>nul
 
 rem --- sanity: refuse to configure a bundle that did not unzip completely ----
 if not exist "%INSTALL_DIR%\python\pythonw.exe"      goto :incomplete
