@@ -301,7 +301,7 @@
 
 - id: lk-asu-operating-fy2026
   question: >-
-    How much state money is Arizona State University getting this budget year,
+    How much state money is Arizona State University getting in FY 2026,
     and how much of it is actually general tax dollars as opposed to the
     university's own collections?
   corpus: budget
@@ -369,7 +369,7 @@
 - id: lk-asrs-rate-fy2026
   question: >-
     What are state employees and their agencies each paying into the state
-    retirement system this year, and is that going up or down?
+    retirement system in FY 2026, and is that going up or down?
   corpus: budget
   shape: lookup
   set: quick
@@ -401,6 +401,9 @@
     answer that leads with FY 2027 rates (23.96%/11.98%) is still a year
     miss on the "this year" framing, but if the FY 2026 values appear in
     the answer they should be credited.
+    REWORDED 2026-08-18: question now says "in FY 2026" explicitly (the
+    "this year" framing was ambiguous — policy is "this year" = FY 2027,
+    so an explicit year is required when FY 2026 is intended).
 
 - id: lk-scotus-salary
   question: >-
@@ -963,7 +966,7 @@
 - id: cm-university-funding-dr
   question: >-
     Compare what the three state universities are each getting from the
-    Legislature this year, and say which one leans hardest on state tax
+    Legislature in FY 2026, and say which one leans hardest on state tax
     dollars versus its own revenue.
   corpus: budget
   # WHY standard and not deep_research (Task 9 review, Critical): this query
