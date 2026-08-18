@@ -68,6 +68,38 @@ SUMMARY_KEYS = [
 JUDGE_KEYS = ["holistic", "chunk_relevance", "claim_coverage_precision",
               "claim_coverage_recall", "figure_coverage_ok", "placement_ok"]
 
+# Hoverable descriptions of each metric, in the analyst's context.
+STAT_HELP = {
+    "queries": "Number of queries in this run.",
+    "crashed": "Queries whose terminal frame was not _done (crash). 0 is good.",
+    "accurate n": "Queries that passed ALL key facts AND produced ≥1 verified citation — the headline bar.",
+    "accurate rate": "Share of queries meeting the accurate bar. This is the headline quality number.",
+    "tokens/acc": "Average tokens (input+output+cached) spent per ACCURATE query. Lower is better.",
+    "turns/acc": "Average agent turns (assistant steps) per ACCURATE query. Lower is better.",
+    "fact rate mean": "Mean fraction of the query's pinned key facts that appear in the final answer.",
+    "turns mean": "Average agent turns across all queries.",
+    "retrieves mean": "Average number of retrieve tool calls per query.",
+    "retr eff mean": "Chunks actually used (cited or fact-bearing) ÷ chunks retrieved. 1.0 = no wasted retrieves.",
+    "cite pass": "Passing citation attempts ÷ all attempts (retries included).",
+    "total cost": "Total spend on the live agent run (model calls).",
+    "cost/query": "Total cost ÷ number of queries.",
+    "holistic_mean": "Judge's 1–5 overall answer quality (1 worst, 5 best).",
+    "chunk_relevance_mean": "Judge-scored relevance of the retrieved chunks to the question (0–1).",
+    "claim_coverage_precision_mean": "Of the judge's load-bearing claims, how many the answer actually covers (0–1).",
+    "claim_coverage_recall_mean": "Of the answer's claims, how many were verified against cited chunks (0–1).",
+    "fact rate": "Share of the query's pinned key facts present in the final answer. 1.0 = all.",
+    "accurate": "Met the headline bar: all key facts + ≥1 verified citation.",
+    "turns": "Agent steps taken to answer this query.",
+    "retrieves": "Retrieve tool calls issued for this query.",
+    "retr eff": "Used chunks ÷ retrieved chunks. 1.0 = every retrieved chunk was used.",
+    "cites ok": "Verified citations in the final answer.",
+    "cite pass": "Passing citation attempts ÷ all attempts.",
+    "1st-try": "Share of citations that passed on the FIRST attempt (no retry).",
+    "fig cov": "Share of the answer's figures that were linked to a verified citation.",
+    "tokens": "Total tokens (input+output+cached) spent on this query.",
+    "cost": "Model spend for this query.",
+}
+
 CSS = """
 :root { --bg:#f6f8fb; --card:#fff; --ink:#161b26; --muted:#5c6775;
         --accent:#2563eb; --ok:#0e9f5b; --warn:#d97706; --bad:#dc2626;
@@ -157,6 +189,45 @@ td.num { text-align:right; font-variant-numeric:tabular-nums; }
 .claims .ok { color:var(--ok); font-weight:800; }
 .claims .bad { color:var(--bad); font-weight:800; }
 a { color:var(--accent); }
+
+/* ---- tooltips (hoverable stat descriptions + query previews) ---- */
+[data-tip] { position:relative; cursor:help; border-bottom:1px dotted var(--muted); }
+[data-tip]:hover::after {
+  content:attr(data-tip);
+  position:absolute; left:50%; bottom:calc(100% + 8px); transform:translateX(-50%);
+  background:#101a2c; color:#e7edf8; padding:8px 12px; border-radius:8px;
+  font-size:12.5px; font-weight:400; line-height:1.45; white-space:normal;
+  width:max-content; max-width:320px; z-index:20; box-shadow:0 4px 14px rgba(10,18,35,.35);
+  text-align:left; pointer-events:none;
+}
+[data-tip]:hover::before {
+  content:""; position:absolute; left:50%; bottom:calc(100% + 2px); transform:translateX(-50%);
+  border:6px solid transparent; border-top-color:#101a2c; z-index:20; pointer-events:none;
+}
+/* tool calls, app-like */
+.tool { display:flex; align-items:flex-start; gap:8px; background:var(--tool);
+        border:1px solid var(--line); border-left:4px solid var(--accent);
+        padding:7px 12px; margin:8px 0; border-radius:8px; font-size:13px; }
+.tool .tname { font-weight:800; font-size:12px; text-transform:uppercase;
+               letter-spacing:.05em; color:#1d4ed8; white-space:nowrap; flex:none; }
+.tool .tdetail { color:#2b3a57; overflow-wrap:anywhere; }
+.tool .targs { color:var(--muted); font-family:ui-monospace,Menlo,monospace;
+               font-size:12px; white-space:nowrap; }
+.tool.retrieve { border-left-color:#2563eb; }
+.tool.cite { border-left-color:#0e9f5b; }
+.tool.result { border-left-color:#93c5fd; background:#f6f9ff; margin:2px 0 10px 28px;
+               border-left-style:dashed; }
+.tool.result.error { border-left-color:var(--bad); }
+/* header + summary prettier */
+header .runid { font-family:ui-monospace,Menlo,monospace; font-size:12px;
+                opacity:.85; margin-top:8px; }
+.summary-card { background:linear-gradient(180deg,#fff,#f7fafd); border:1px solid var(--line);
+                border-radius:14px; padding:18px 22px; margin-top:18px;
+                box-shadow:0 2px 10px rgba(20,30,60,.06); }
+.summary-card h2 { margin-top:0; border:none; padding-bottom:0; font-size:17px; }
+.hint { color:var(--muted); font-size:12.5px; margin:2px 0 0; }
+.query-chip { display:inline-block; max-width:240px; overflow:hidden; text-overflow:ellipsis;
+              white-space:nowrap; vertical-align:middle; }
 """
 
 JS = """
@@ -273,6 +344,14 @@ def _load(run_dir: Path) -> dict:
 
 # ---------- conversation reconstruction ----------
 
+def _user_message(run_dir: Path, qid: str) -> str:
+    """The first user message for a query (drives hover previews)."""
+    for e in _conversation_events(run_dir, qid):
+        if e.get("type") == "user_message":
+            return (e.get("text") or "").strip()
+    return ""
+
+
 def _conversation_events(run_dir: Path, qid: str) -> list[dict]:
     """Return the event stream as a list of dicts (type + payload)."""
     path = run_dir / f"{qid}-r1.jsonl"
@@ -338,15 +417,32 @@ def render_chat_html(run_dir: Path, qid: str) -> str:
             flush_message()
             name = e.get("toolName") or e.get("name") or "tool"
             inp = e.get("input") or {}
-            parts.append(
-                f"<div class='tool'><span class='tname'>{esc(name)}</span>"
-                f"<div class='tinput'>{esc(json.dumps(inp, ensure_ascii=False, indent=1)[:600])}</div></div>"
-            )
+            # Render compact, app-like: name + the args that matter.
+            if name == "retrieve":
+                detail = esc((inp.get("query") or "")[:120])
+                extra = []
+                if inp.get("fiscal_year"): extra.append(f"fy={inp['fiscal_year']}")
+                if inp.get("doc_type"): extra.append(f"doc_type={inp['doc_type']}")
+                if inp.get("agency_canonical_id"): extra.append(f"agency={inp['agency_canonical_id']}")
+                tag = f"<span class='targs'>{' · '.join(esc(x) for x in extra)}</span>" if extra else ""
+                parts.append(f"<div class='tool retrieve'><span class='tname'>🔍 retrieve</span> "
+                             f"<span class='tdetail'>{detail}</span>{tag}</div>")
+            elif name in ("cite", "cite_batch"):
+                cid = inp.get("chunk_id") or (inp.get("citations") or [{}])[0].get("chunk_id") if isinstance(inp.get("citations"), list) and inp.get("citations") else None
+                quote = (inp.get("quote") or (inp.get("citations") or [{}])[0].get("quote") if isinstance(inp.get("citations"), list) and inp.get("citations") else "") or ""
+                parts.append(f"<div class='tool cite'><span class='tname'>📎 cite</span> "
+                             f"<span class='targs'>{esc(str(cid))}</span> "
+                             f"<span class='tdetail'>“{esc(quote[:110])}…”</span></div>")
+            else:
+                parts.append(f"<div class='tool'><span class='tname'>{esc(name)}</span>"
+                             f"<div class='tinput'>{esc(json.dumps(inp, ensure_ascii=False)[:300])}</div></div>")
         elif t == "tool_result":
             res = e.get("output") or e.get("result") or ""
             s = str(res)
-            parts.append(f"<div class='tool'><span class='tname'>→ result</span>"
-                         f"<div class='tresult'>{esc(s[:400])}{'…' if len(s) > 400 else ''}</div></div>")
+            # compact: just a "→ ok/err" line + clipped preview
+            ok = "ok" if not (isinstance(res, dict) and res.get("error")) else "error"
+            parts.append(f"<div class='tool result {esc(ok)}'><span class='tname'>→ {esc(ok)}</span>"
+                         f"<span class='tdetail'>{esc(s[:140])}{'…' if len(s) > 140 else ''}</span></div>")
     flush_message()
     # terminal frame -> final answer
     for line in (run_dir / f"{qid}-r1.jsonl").read_text(encoding="utf-8").splitlines():
@@ -416,28 +512,39 @@ def summary_page(run_dir: Path, data: dict) -> str:
     judge = data.get("judge", {})
     out = []
     # headline summary
-    out.append("<div class='metric-grid'>")
+    out.append("<div class='summary-card'><h2>Headline</h2>"
+           "<div class='metric-grid'>")
     for k, label in SUMMARY_KEYS:
         if k in summary:
             cls = _metric_class(k, summary[k])
             cls = f" class='{cls}'" if cls else ""
-            out.append(f"<div class='metric'><div class='k'>{esc(label)}</div>"
+            tip = STAT_HELP.get(label, "")
+            tipattr = f' data-tip="{esc(tip)}"' if tip else ""
+            out.append(f"<div class='metric'{tipattr}><div class='k'>{esc(label)}</div>"
                        f"<div class='v{cls}'>{_fmt(summary[k])}</div></div>")
     for k in ["holistic_mean", "chunk_relevance_mean",
               "claim_coverage_precision_mean", "claim_coverage_recall_mean"]:
         if judge.get("summary", {}).get(k) is not None:
             cls = _metric_class(k, judge["summary"][k])
             cls = f" class='{cls}'" if cls else ""
-            out.append(f"<div class='metric'><div class='k'>{esc(k)}</div>"
+            tip = STAT_HELP.get(k, STAT_HELP.get(k.replace("_mean", ""), ""))
+            tipattr = f' data-tip="{esc(tip)}"' if tip else ""
+            out.append(f"<div class='metric'{tipattr}><div class='k'>{esc(k)}</div>"
                        f"<div class='v{cls}'>{_fmt(judge['summary'][k])}</div></div>")
-    out.append("</div>")
-    out.append("<h2>Per-query</h2>"
+    out.append("</div><p class='hint'>Hover any stat for what it means. "
+               "Click a column to sort.</p></div>")
+    out.append("<h2>Per-query <span class='count'>hover a query to see its "
+               "full question</span></h2>"
                "<table class='sortable'><thead><tr>")
     for _, label in COLUMNS:
-        out.append(f"<th>{label}<span class='sort'></span></th>")
+        tip = STAT_HELP.get(label, "")
+        tipattr = f' data-tip="{esc(tip)}"' if tip else ""
+        out.append(f"<th{tipattr}>{label}<span class='sort'></span></th>")
     out.append("</tr></thead><tbody>")
     for r in sorted(scores.get("per_query", []), key=lambda r: r["query_id"]):
         qid = r["query_id"]
+        # the user message drives the hover preview of the query link
+        umsg = _user_message(run_dir, qid)
         out.append("<tr>")
         for k, _ in COLUMNS:
             raw = r.get(k)
@@ -450,7 +557,9 @@ def summary_page(run_dir: Path, data: dict) -> str:
             elif k == "key_fact_rate" and raw is not None:
                 cls = f"class='{_metric_class(k, raw)}'"
             if k == "query_id":
-                out.append(f'<td><a href="per-query/{esc(qid)}.html">{esc(v)}</a></td>')
+                tipattr = f' data-tip="{esc(umsg)}"' if umsg else ""
+                out.append(f'<td><a class="query-chip" href="per-query/{esc(qid)}.html"'
+                           f'{tipattr}>{esc(v)}</a></td>')
             else:
                 out.append(f"<td {cls}>{esc(v)}</td>")
         out.append("</tr>")
@@ -498,7 +607,7 @@ def query_page(run_dir: Path, data: dict, qid: str) -> str:
     out.append("<p class='muted'>raw transcript: "
                f"<code>per-query/{esc(qid)}.jsonl</code></p>")
     return page(f"{qid} — eval report", "\n".join(out),
-                back="index.html")
+                back="../index.html")
 
 
 def build(run_dir: Path, *, no_open: bool = False) -> Path:
