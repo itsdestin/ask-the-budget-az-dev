@@ -19,9 +19,17 @@ vi.mock("pdfjs-dist", () => {
       width: 612 * scale,
       height: 792 * scale,
       scale,
-      // Identity for the serverRects path: the rects arrive in PDF
-      // points and the component converts them through this.
-      convertToViewportRectangle: (r: number[]) => r,
+      // pdfjs's REAL convention: BOTTOM-LEFT origin. The stored-bbox
+      // restriction path goes through bboxToViewportRect (pure math), but
+      // keeping the real convention here means any future code that
+      // wrongly feeds a TOP-LEFT rect into this helper visibly flips in
+      // tests instead of in the browser (the 2026-08-18 defect).
+      convertToViewportRectangle: (r: number[]) => [
+        r[0] * scale,
+        (792 - r[3]) * scale,
+        r[2] * scale,
+        (792 - r[1]) * scale,
+      ],
     }),
     render: () => ({ promise: Promise.resolve(), cancel() {} }),
     getTextContent: async () => ({ items: [] }),
@@ -107,6 +115,35 @@ describe("PdfPage serverRects (spec L3)", () => {
     );
     expect(first!.style.left).toBe("390px");
     expect(first!.style.top).toBe("680px");
+  });
+
+  it("scales server rects by the render scale (zoom), top-left origin", async () => {
+    // The rects arrive as TOP-LEFT-origin PDF points; viewport pixels are
+    // a plain multiply by renderScale. At zoom 2 a rect at (390, 680)
+    // must paint at (780, 1360) — NOT flipped through pdfjs's
+    // bottom-left-origin helper, which the 2026-08-18 browser pass caught
+    // mirroring boxes to the wrong half of the page.
+    const view = render(
+      <PdfPage
+        docId="doc-zoom"
+        pageNumber={3}
+        bbox={null}
+        searchTexts={["9,999"]}
+        serverRects={[[390, 680, 560, 710]]}
+        containerWidth={612}
+        zoomLevel={2}
+      />,
+    );
+    await waitFor(() =>
+      expect(view.container.querySelectorAll(".pdf-highlight").length).toBe(1),
+    );
+    const [box] = Array.from(
+      view.container.querySelectorAll<HTMLElement>(".pdf-highlight"),
+    );
+    expect(box!.style.left).toBe("780px");
+    expect(box!.style.top).toBe("1360px");
+    expect(box!.style.width).toBe("340px"); // (560-390) * 2
+    expect(box!.style.height).toBe("60px"); // (710-680) * 2
   });
 
   it("falls through to the strategy when the server found nothing", async () => {

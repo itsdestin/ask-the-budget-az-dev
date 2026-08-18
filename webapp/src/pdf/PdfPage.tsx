@@ -247,22 +247,22 @@ export default function PdfPage({
         // pages, accounting-paren drift); the server answer fixes all
         // three without loosening the strict-bbox rule that exists to
         // prevent wrong-number highlights.
+        // The server's rects are PDF user-space points with a TOP-LEFT
+        // origin (PyMuPDF's convention — the same one the stored bboxes
+        // use, see the notes at the top of this file), so viewport
+        // pixels are a plain multiply by renderScale, exactly like
+        // bboxToViewportRect's points branch. NOT convertToViewportRectangle:
+        // that pdfjs helper expects a BOTTOM-LEFT-origin rect and would
+        // flip every box vertically — the 2026-08-18 browser pass caught
+        // boxes mirrored to the wrong half of the page.
         const server = (serverRects ?? [])
           .filter((r) => Array.isArray(r) && r.length >= 4)
-          .map((r) => {
-            const [vx1, vy1, vx2, vy2] = viewport.convertToViewportRectangle([
-              r[0]!,
-              r[1]!,
-              r[2]!,
-              r[3]!,
-            ]);
-            return {
-              left: Math.min(vx1, vx2),
-              top: Math.min(vy1, vy2),
-              width: Math.max(1, Math.abs(vx2 - vx1)),
-              height: Math.max(1, Math.abs(vy2 - vy1)),
-            };
-          });
+          .map((r) => ({
+            left: Math.min(r[0]!, r[2]!) * renderScale,
+            top: Math.min(r[1]!, r[3]!) * renderScale,
+            width: Math.max(1, Math.abs(r[2]! - r[0]!) * renderScale),
+            height: Math.max(1, Math.abs(r[3]! - r[1]!) * renderScale),
+          }));
         let computed: HighlightRect[];
         if (server.length > 0) {
           computed = server;
