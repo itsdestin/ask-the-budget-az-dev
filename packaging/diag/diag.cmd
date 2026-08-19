@@ -1,15 +1,17 @@
 @echo off
 setlocal EnableDelayedExpansion
 rem ============================================================================
-rem  JLBC Search - one-click diagnostic
-rem  Run this from the USB (or copy it next to the app and run it there).
-rem  It checks why the app cannot start, writes a report to the USB's
-rem  JLBCSearch\diagnostics\ folder, and prints the next step.
+rem  JLBC Search - one-click diagnostic + repair
+rem  Run from the USB (or RUN-DIAGNOSTIC.cmd at the USB root). It:
+rem    1. copies the app's newest server log into JLBCSearch\diagnostics\,
+rem    2. compares the network copy of the corpus against the USB seed,
+rem    3. reports missing / half-copied files in plain terms,
+rem    4. offers to repair the network copy from the USB, then re-checks.
 rem ============================================================================
 
 echo.
 echo   ============================================================
-echo    JLBC Search - run a diagnostic on this PC
+echo    JLBC Search - check why the app won't start
 echo   ============================================================
 echo.
 
@@ -23,39 +25,47 @@ if not defined INSTALL_DIR for /d %%d in ("C:\Users\*") do if exist "%%d\AppData
 
 if not defined INSTALL_DIR (
     echo   Could not find the JLBC Search install (python\pythonw.exe).
-    echo   Steps:
-    echo     - Install it first (run Install-JLBC-Search.cmd),
-    echo     - or copy this script into the same folder as launcher.pyw.
+    echo   The script cannot run the app's own open-check without it, and the
+    echo   log cannot be copied. If the app IS installed it lives at:
+    echo     %LOCALAPPDATA%\JLBC-Search\python\pythonw.exe
+    echo   If that folder does not exist, run Install-JLBC-Search.cmd first.
     echo.
-    pause
-    exit /b 1
 )
-echo   Install found: %INSTALL_DIR%
-echo.
 
-rem --- 2. run the probe with the app's own python --------------------------
+rem --- 2. run the diagnostic with the app's own python ----------------------
 set "PROBE=%~dp0diag.pyw"
-if not exist "%PROBE%" set "PROBE=%INSTALL_DIR%\diagnostics\diag.pyw"
+if not exist "%PROBE%" if defined INSTALL_DIR (
+    if exist "%INSTALL_DIR%\diagnostics\diag.pyw" set "PROBE=%INSTALL_DIR%\diagnostics\diag.pyw"
+)
 if not exist "%PROBE%" (
-    echo   ERROR: diag.pyw not found next to this script or in the install.
-    echo   Copy diag.pyw from the JLBCSearch folder.
+    echo   ERROR: diag.pyw not found next to this script.
+    echo   Copy the whole JLBCSearch folder from the USB drive.
     echo.
     pause
     exit /b 1
 )
 
-echo   Running the diagnostic (takes a few seconds)...
+if defined INSTALL_DIR (
+    set "PY=%INSTALL_DIR%\python\python.exe"
+) else (
+    where python >nul 2>nul
+    if errorlevel 1 (
+        echo   ERROR: no Python found. Install the app first, then run this again.
+        echo.
+        pause
+        exit /b 1
+    )
+    set "PY=python"
+)
+
+echo   Running the diagnostic (copies the log, compares the corpus)...
 echo.
-"%INSTALL_DIR%\python\python.exe" "%PROBE%"
+"%PY%" "%PROBE%" %*
 set "RC=%ERRORLEVEL%"
 echo.
-if "%RC%"=="0" (
-    echo   Done. The report is in the "diagnostics" folder.
-    echo   Send the files in that folder to whoever maintains this app.
-) else (
-    echo   The diagnostic did not finish cleanly (exit %RC%).
-    echo   Send the "diagnostics" folder to whoever maintains this app anyway.
-)
+echo   Done. Files saved in the "diagnostics" folder next to this script.
+echo   If the app still will not start, send that folder to whoever
+echo   supports this app.
 echo.
 pause
 exit /b %RC%
