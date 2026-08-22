@@ -171,3 +171,91 @@ way it does today.
    list catalog-derived missing editions with `online: false`? Current code says
    yes (step 1 needs no network); this spec keeps that, but it has never been
    looked at in a browser.
+
+## Amendments (implementation)
+
+Built 2026-08-22, TDD throughout: for every behavior the test was written and
+run RED against the unfixed code before any implementation line, and the
+mutation checks in the test plan's item 5 were actually executed (edit →
+confirm red → revert) rather than only reasoned about.
+
+- **Hoist chosen, no local-copy fallback needed.** `NetworkWatch` (renamed
+  from `_NetworkWatch`) moved into `app/routes/books.py` verbatim; the
+  53-test `tests/test_book_formats_route.py` suite passed unedited both
+  immediately after the hoist (byte-identical-behavior check) and in the
+  final state — it is the drift guard the spec asked for, and no separate
+  cross-file test was needed since nothing in that file references the class
+  by name. No circular import: verified by direct `import` (`app.routes.books`
+  imports neither sibling; both siblings already import from it either
+  directly or, for `books_missing.py`, now at module level rather than the
+  lazy per-function style `HttpProber`/`_prober` still use there).
+- **The offline reason for the NEW per-year detection path drops the
+  `(ExceptionType)` parenthetical.** The shipped sentence for the
+  pre-existing (dead) `except Exception` branch is
+  `"Couldn't reach azjlbc.gov to check for new editions ({type(exc).__name__}). Showing what we knew last time."`
+  — but the new per-year counter check fires with **no exception object** (it
+  observes `NetworkWatch`'s counters, not a raised error), so there is
+  nothing to substitute into the parenthetical. The new branch reuses the
+  same sentence with that clause omitted:
+  `"Couldn't reach azjlbc.gov to check for new editions. Showing what we knew last time."`
+  Both branches still open with the identical clause and close with the
+  identical clause; no new user-facing wording was invented, and the webapp
+  (per the spec's own evidence) only gates on `online` and renders `reason`
+  verbatim, so neither string is pinned there.
+- **`DiscoveryError` now falls through to `plan = None` rather than an
+  immediate `continue`,** exactly as sketched, so the per-year
+  `unreachable_delta`/`answered_delta` check runs for a year whose ladder
+  raised `DiscoveryError` too (that error is raised for BOTH "not published"
+  and "every rung went unanswered" — only the counters can tell them apart).
+- **Correction (a) test coverage, concretely.** Two tests were added beyond
+  the spec's five items, both in `tests/test_books_missing.py` under a new
+  "ONE watch across the whole lookahead loop" section:
+  1. A `NetworkWatch`-unit-level test pinning the exact memoisation contract
+     the docstring describes (reusing an already-answered URL moves neither
+     counter and costs no second real request).
+  2. An end-to-end `check_missing` test, driven through the REAL ladder,
+     where FY2027's approps TOC ladder finds the rolling
+     `https://www.azjlbc.gov/budget/apprpttoc.pdf` rung live and FY2028
+     reuses the identical URL — proving the reuse is never misread as
+     offline, and that the rung is asked over the real network exactly once
+     across both years.
+  A fully isolated "one whole year contributes (0, 0)" scenario was
+  considered and rejected as untestable through the real ladder without
+  touching `ingest/` (out of scope): only ONE rung in the entire discovery
+  ladder set (`_TOC_LADDERS["approps"]`'s rolling rung) is literally
+  identical across fiscal years, so every other rung in a lookahead year
+  necessarily costs a fresh, real request. The two tests above instead pin
+  the documented dependency directly (the unit test) and its safe use in
+  context (the integration test), which together are what the docstring's
+  claim rests on.
+- **A third cache-condition test beyond the spec's four**, isolating the
+  `and watch.unreachable == 0` clause specifically: one silent rung inside an
+  otherwise-fully-answered fiscal year, so `online` never flips False
+  anywhere in the loop (the per-year rule correctly does not trip — the year
+  had plenty of real answers) yet the watch's cumulative `unreachable` count
+  is still nonzero. `if online:` alone would write this to the cache; the
+  shipped `if online and not watch.unreachable:` does not. This is what
+  actually exercises design step 3's stated caching rule beyond the fully-
+  offline case, which the spec's own item 2/4 tests satisfy trivially (both
+  end with `online is False`, so even the OLD bare `if online:` condition
+  would already have skipped the write).
+- **`_Exploding` kept, extended with `head_info`, repurposed.** It no longer
+  drives the offline-detection test (that shape is the recorded false-pass —
+  see the new header comment at its old location in the test file) but stays
+  as the fixture for the wide `except Exception` catch-all in `check_missing`,
+  which the spec explicitly says stays as a defensive backstop for a prober
+  BUG (as opposed to a network failure, which `NetworkWatch` now normalizes
+  into its own counters before it can ever reach that branch for a
+  production prober).
+- **Mutation checks were executed, not just described**, per the spec's test
+  plan item 5, each confirmed red then reverted before moving on:
+  dropping the per-year rule reddened `test_offline_is_detected_via_the_production_shape`
+  and `test_a_mixed_outage_flips_online_false_partway_and_caches_nothing`;
+  reverting the cache condition to bare `if online` reddened
+  `test_a_partial_outage_that_recovers_still_skips_the_cache_write` only
+  (the four offline/mixed tests all resolve to `online is False`, so the old
+  bare condition already agreed with them — this is exactly why the extra
+  isolating test above was written); deleting the watch wrap (passing raw
+  `prober` instead of `watch` to `plan_edition`) reddened all six of the new
+  offline/cache/memoisation tests while the five pre-existing "online path"
+  tests stayed green, matching the spec's predicted split exactly.
