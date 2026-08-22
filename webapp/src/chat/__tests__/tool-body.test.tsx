@@ -540,21 +540,46 @@ describe("ListFilterValuesView — names, not codes", () => {
     expect(text).not.toContain("ADOA");
   });
 
-  it("shows a fund as its own id rather than inventing a name for it", () => {
-    // No catalog name and no display table exists for funds, so the raw id is
-    // the last resort — and the RIGHT answer. A code is visibly a code; a
-    // wrong name is not, which is why there is no sample_doc_title rung.
+  it("shows a fund by its catalog name when the server attached one", () => {
+    // harness/tools.py::_fund_names() now attaches a real catalog name for
+    // funds it recognises (2026-08-22) — data/fund-catalog.yaml:33 verified
+    // in this worktree: fund:ahcccs -> "AHCCCS Fund". This fixture is one
+    // the tool can actually emit, unlike the old fund:2005 fixture, which
+    // pinned an id the corpus never mints (no numeric fund ids — see the
+    // design's Problem section).
     const tool = values("fund", [
       {
-        canonical_id: "fund:2005",
+        canonical_id: "fund:ahcccs",
         chunk_count: 120,
+        sample_doc_title: "AHCCCS — FY 2026 Baseline",
+        name: "AHCCCS Fund",
+      },
+    ]);
+    const { container } = render(<ToolBody tool={tool} />);
+    const text = container.textContent ?? "";
+    expect(text).toContain("Funds the corpus covers");
+    expect(text).toContain("AHCCCS Fund");
+    expect(text).not.toContain("fund:ahcccs");
+  });
+
+  it("shows a fund as its own id when the catalog has no name for it", () => {
+    // A fund the catalog doesn't recognise (or a run with no catalog
+    // available at all — harness/tools.py::_fund_names() degrades to {} and
+    // never attaches `name`) still shows its code, not a guessed name.
+    // sample_doc_title must NOT leak in as a fallback name — see the file
+    // header's "no sample_doc_title rung" — so a name-shaped string that
+    // only appears there (here, "AHCCCS") must not render.
+    const tool = values("fund", [
+      {
+        canonical_id: "fund:long-term-care-system",
+        chunk_count: 12,
         sample_doc_title: "AHCCCS — FY 2026 Baseline",
       },
     ]);
     const { container } = render(<ToolBody tool={tool} />);
     const text = container.textContent ?? "";
     expect(text).toContain("Funds the corpus covers");
-    expect(text).toContain("fund:2005");
+    expect(text).toContain("fund:long-term-care-system");
     expect(text).not.toContain("AHCCCS");
   });
 

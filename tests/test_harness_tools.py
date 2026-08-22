@@ -809,6 +809,20 @@ def _install_fake_catalog(monkeypatch, attr):
     monkeypatch.setitem(sys.modules, "chunking.agency_catalog", module)
 
 
+def _install_fake_fund_catalog(monkeypatch, attr):
+    """Stand in for funds.names, same shape as _install_fake_catalog above.
+
+    Injecting a fake module into sys.modules — rather than monkeypatching
+    an attribute on the real funds.names — is what lets a single test
+    exercise every failure shape _fund_names() must tolerate (module
+    present but no id_to_name attribute, wrong type, a raising callable),
+    none of which the real committed catalog can produce on its own."""
+    module = ModuleType("funds.names")
+    if attr is not None:
+        module.id_to_name = attr  # type: ignore[attr-defined]
+    monkeypatch.setitem(sys.modules, "funds.names", module)
+
+
 def test_list_filter_values_counts_chunks_per_agency(store, tmp_path):
     _sidecar(tmp_path, {"jlbc-baseline-fy2027-axs": {"title": "JLBC FY2027 — AHCCCS"}})
     ex = ToolExecutor("conv-1", "budget", "standard", store=store)
@@ -852,6 +866,49 @@ def test_a_missing_or_malformed_catalog_degrades_to_raw_ids(store, monkeypatch, 
     ex = ToolExecutor("conv-1", "budget", "standard", store=store)
     out = _run(ex, "list_filter_values", {"field": "agency"})
     assert out["values"]  # still enumerates
+    assert all("name" not in v for v in out["values"])
+
+
+def test_fund_ids_resolve_to_names_when_the_catalog_is_available(store, monkeypatch):
+    _install_fake_fund_catalog(monkeypatch, {"fund:ahcccs": "AHCCCS Fund"})
+    ex = ToolExecutor("conv-1", "budget", "standard", store=store)
+    out = _run(ex, "list_filter_values", {"field": "fund"})
+    names = {v["canonical_id"]: v.get("name") for v in out["values"]}
+    assert names["fund:ahcccs"] == "AHCCCS Fund"
+
+
+def test_a_callable_fund_catalog_is_accepted_too(store, monkeypatch):
+    _install_fake_fund_catalog(monkeypatch, lambda: {"fund:ahcccs": "AHCCCS Fund"})
+    ex = ToolExecutor("conv-1", "budget", "standard", store=store)
+    out = _run(ex, "list_filter_values", {"field": "fund"})
+    names = {v["canonical_id"]: v.get("name") for v in out["values"]}
+    assert names["fund:ahcccs"] == "AHCCCS Fund"
+
+
+@pytest.mark.parametrize(
+    "attr", [None, "not-a-mapping", pytest.param(object(), id="garbage")]
+)
+def test_a_missing_or_malformed_fund_catalog_degrades_to_raw_ids(
+    store, monkeypatch, attr
+):
+    """Same degrade-everywhere contract as the agency catalog above —
+    absent attribute, unexpected type — must degrade, never crash a live
+    conversation."""
+    _install_fake_fund_catalog(monkeypatch, attr)
+    ex = ToolExecutor("conv-1", "budget", "standard", store=store)
+    out = _run(ex, "list_filter_values", {"field": "fund"})
+    assert out["values"]  # still enumerates
+    assert all("name" not in v for v in out["values"])
+
+
+def test_a_raising_fund_catalog_degrades_to_raw_ids(store, monkeypatch):
+    def _raise():
+        raise RuntimeError("boom")
+
+    _install_fake_fund_catalog(monkeypatch, _raise)
+    ex = ToolExecutor("conv-1", "budget", "standard", store=store)
+    out = _run(ex, "list_filter_values", {"field": "fund"})
+    assert out["values"]
     assert all("name" not in v for v in out["values"])
 
 
@@ -1178,6 +1235,14 @@ def test_tools_module_imports_are_allowlisted():
         # directly. See the narrower guard below for why the PACKAGE being
         # allowed is not the same as every module in it being safe.
         "identity",
+        # `funds` joined this list on 2026-08-22, when list_filter_values
+        # started attaching a real catalog name to fund values the same
+        # way it already did for agencies. Read side only, and grants no
+        # filesystem reach beyond one committed YAML (data/fund-catalog.yaml)
+        # — see the narrower guard below for why the PACKAGE being allowed
+        # is not the same as every module in it being safe: funds/catalog.py
+        # is the BUILD side and writes files.
+        "funds",
     }
     tree = ast.parse(TOOLS_SOURCE_PATH.read_text(encoding="utf-8"))
     roots: set[str] = set()
@@ -1215,6 +1280,32 @@ def test_tools_module_reaches_only_the_read_side_of_identity():
                 reached.add(node.module)
     assert reached <= read_side, (
         f"harness/tools.py reaches a write-capable identity module: "
+        f"{sorted(reached - read_side)}"
+    )
+
+
+def test_tools_module_reaches_only_the_read_side_of_funds():
+    """`funds` is allowed as a root package (see the allowlist test above);
+    only ONE module in it is safe to reach. `funds/catalog.py` is the BUILD
+    side (`write_catalog_yaml`) and imports `funds.parser`, which imports
+    `chunking.readers` — MinerU-adjacent extraction machinery this module
+    has no business reaching. Admitting the `funds` package outright would
+    admit that by the back door, exactly the `identity.repair` argument
+    above. So this guard pins the MODULE, mirroring
+    `test_tools_module_reaches_only_the_read_side_of_identity`."""
+    read_side = {"funds.names"}
+    tree = ast.parse(TOOLS_SOURCE_PATH.read_text(encoding="utf-8"))
+    reached: set[str] = set()
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Import):
+            reached.update(
+                a.name for a in node.names if a.name.split(".")[0] == "funds"
+            )
+        elif isinstance(node, ast.ImportFrom) and node.module and node.level == 0:
+            if node.module.split(".")[0] == "funds":
+                reached.add(node.module)
+    assert reached <= read_side, (
+        f"harness/tools.py reaches a write-capable funds module: "
         f"{sorted(reached - read_side)}"
     )
 
