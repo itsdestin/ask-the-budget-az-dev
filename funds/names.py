@@ -28,10 +28,46 @@ not lean on a caller to catch what it can catch itself.
 """
 from __future__ import annotations
 
+import re
 from functools import lru_cache
 from pathlib import Path
 
 import yaml
+
+# Words that mark a complete fund name. Split out so the WHY below can talk
+# about the rule in one place.
+_FUND_WORDS = ("fund",)
+_TAIL_WORDS = ("account", "subaccount")
+
+
+def _looks_like_a_fund_name(name: str) -> bool:
+    """ALLOWLIST, not a denylist — measured 2026-08-22, at Destin's ask.
+
+    The catalog's fund column is polluted: its parser took whatever sat in
+    that column of JLBC's fund schedules, which includes schedule artifacts.
+    Audited against the live corpus (see the fund-names spec's post-ship
+    audit section): of 187 stamped ids, the pollution includes 18 stamped
+    `Total -`/`SUBTOTAL` rows, at least 8 AGENCY names filed as funds
+    ("Department of Juvenile Corrections"), budget-adjustment lines
+    ("FY 2026 Unallocated Salary Adjustments"), and truncations — the worst
+    being the single word "Account", which the ingest stamper then matched
+    as a substring inside "Accounting" onto 5,238 chunks across 143
+    agencies, the most-stamped "fund" in the corpus.
+
+    A denylist needed six leaky rules and still missed classes on each
+    measuring pass. This allowlist — at least two words, and either the
+    word "fund" somewhere or an "account"/"subaccount" tail — was run over
+    all 227 entries and every name it hides was read: each is pollution or
+    a visible mid-phrase truncation, and all four kept names lacking the
+    word "fund" are real funds (e.g. "Consumer Remediation Subaccount").
+    A hidden name renders as its raw `fund:` id — this repo's doctrine is
+    that a visible code beats a plausible wrong name. Cost: 138 of 187
+    stamped ids carry names; the other 49 are the pollution itself.
+    """
+    words = re.findall(r"[a-z0-9']+", name.lower())
+    if len(words) < 2:
+        return False
+    return any(w in words for w in _FUND_WORDS) or words[-1] in _TAIL_WORDS
 
 # Same locate-by-parent-of-package-dir convention as
 # chunking/agency_catalog.py:20-22 and chunking/entity_stamper.py:32.
@@ -71,5 +107,10 @@ def _load_cached(path_str: str) -> dict[str, str]:
         # a blank. Mirrors chunking/agency_catalog.py::_load_cached.
         if not canonical_id:
             continue
-        out[str(canonical_id)] = str(entry.get("canonical_name") or "")
+        name = str(entry.get("canonical_name") or "")
+        # A name that does not read as a complete fund name is withheld, so
+        # the id renders as its honest raw code — see _looks_like_a_fund_name.
+        if not _looks_like_a_fund_name(name):
+            continue
+        out[str(canonical_id)] = name
     return out

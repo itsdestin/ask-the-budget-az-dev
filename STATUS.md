@@ -333,20 +333,27 @@ mutation that mattered.
   read-only `funds/names.py` behind its own Invariant-7 read-side guard.
   An id the catalog doesn't know still degrades to the code.
   **⚠ Name CORRECTNESS was then audited on 2026-08-22 at Destin's ask, and
-  one of the 187 is wrong: `fund:account` displays as "Account"** — a
-  truncated parse in the catalog (its real fund belongs to Respiratory Care
-  Examiners), and the ingest stamper's substring scan matched it inside the
-  word "Account**ing**" ("Summary of Significant Accounting Policies"), so
-  it sits on 5,238 chunks across 1,704 documents and 143 agencies — the
-  most-stamped "fund" in the corpus, and mostly junk. This is a PRE-EXISTING
-  stamping defect (the fund twin of the 2026-08-16 agency mis-labelling,
-  which the query-understanding section already predicted: "fund resolution
-  has the identical gap"); the display change only makes it VISIBLE — a
-  reader now sees a plausible name where they saw an opaque code. The other
-  186 names re-derive their own ids (no crossed wires) and each appears
-  verbatim in its own stamped passages. The real fix is catalog repair +
-  word-boundary/genericity rules in the stamper + a re-stamp pass, the same
-  shape as the agency relabel — its own spec, NOT this branch.
+  the first pass's own headline ("one of 187 is wrong") was itself wrong —
+  the catalog's fund column is systemically polluted.** Reading the names
+  found FOUR defect classes parsed in as "funds": schedule `Total -` /
+  `SUBTOTAL` rows (18 stamped), AGENCY names filed as funds ("Department of
+  Juvenile Corrections"), budget-adjustment lines ("FY 2026 Unallocated
+  Salary Adjustments"), and truncations — worst, the single word "Account",
+  which the ingest stamper's substring scan then matched inside
+  "Account**ing**" onto 5,238 chunks across 143 agencies, the most-stamped
+  "fund" in the corpus. **Destin's call ("fix the branch before merging"):
+  names are now served through an ALLOWLIST** in `funds/names.py` — at
+  least two words, containing the word "fund" or ending in
+  "account"/"subaccount" — measured over all 227 entries with every hidden
+  name read (each is pollution or a visible truncation; all four kept
+  fund-less names are real funds). 138 of 187 stamped ids show verified
+  names; the other 49 keep their honest raw codes, because a visible code
+  beats a plausible wrong name. **Still open, its own spec:** the stamps
+  themselves are the pre-existing fund twin of the 2026-08-16 agency
+  mis-labelling (the query-understanding section predicted it: "fund
+  resolution has the identical gap") — the fix is catalog regeneration +
+  word-boundary/genericity rules in the stamper + a re-stamp pass, NOT
+  display work.
 - ✅ **A card expanded mid-search snaps shut — FIXED 2026-08-22** (easy-wins
   batch). Open state is hoisted into `AssistantTurnBubble`, which survives
   the move into the bubble, keyed by the run's first tool-call id. The

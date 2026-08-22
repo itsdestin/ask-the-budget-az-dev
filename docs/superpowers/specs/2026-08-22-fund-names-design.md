@@ -242,3 +242,29 @@ Three checks were run against the live corpus (read-only):
 chunk that is really about a different fund). Same error class the
 2026-08-16 agency audit measured; needs the same per-id read-the-chunks
 method if it is ever done.
+
+## Amendment 2 (2026-08-22, Destin: "fix the branch before merging")
+
+The post-ship audit above under-called it: check 2's substring
+corroboration passes generic names vacuously, and reading all 227 names
+found FOUR pollution classes in the catalog's fund column, not one entry —
+`Total -`/`SUBTOTAL` schedule rows (18 of them stamped), agency names
+filed as funds, budget-adjustment lines, and mid-phrase truncations
+("Court Appointed Special Advocate and"). A denylist needed six leaky
+rules and still missed classes on each measuring pass.
+
+**Shipped: an allowlist in `funds/names.py::_looks_like_a_fund_name`** —
+a name is served only when it has at least two words and either contains
+the word "fund" or ends in "account"/"subaccount". Measured over all 227
+entries: 160 kept / 67 withheld; every withheld name was read and each is
+pollution or a visible truncation; the four kept names lacking "fund" are
+all real funds. On the stamped population: 138 of 187 ids show names, 49
+show their raw codes (8,294 of 23,628 stamped chunks — dominated by the
+junk-stamp classes themselves). Guarded by red-first tests per pollution
+class plus real-catalog assertions; the policy-off mutation reddens two.
+
+The stamping defect underneath (5,238 chunks stamped from the substring
+"Account" inside "Accounting") is pre-existing ingest damage and is NOT
+fixed here — it needs catalog regeneration, word-boundary/genericity rules
+in `chunking/entity_stamper.py`, and a re-stamp pass: the same shape as
+the 2026-08-16 agency relabel, with its own spec and eval gate.
