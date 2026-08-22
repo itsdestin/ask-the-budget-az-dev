@@ -19,10 +19,36 @@ type ToolBlock = Extract<AssistantBlock, { kind: "tool" }>;
 
 interface Props {
   tools: ToolBlock[];
+  /** Optional controlled open state for the GROUP itself. Falls back to a
+   *  local `useState` when absent, so `tool-group.test.tsx`'s bare fixtures
+   *  keep their own behaviour unmodified. AssistantTurnBubble supplies both
+   *  when a run may later move from a standalone `.chat-turn` child into a
+   *  `.chat-bubble` child (TC1) — the remount that follows would otherwise
+   *  reset this to closed. See
+   *  docs/superpowers/specs/2026-08-22-tool-card-open-state-design.md. */
+  open?: boolean;
+  onToggle?: () => void;
+  /** Per-child open state for the n>=2 expansion's ToolCards, keyed by each
+   *  child's own toolUseId. Both present or both absent together — passed
+   *  straight through from AssistantTurnBubble's single keyed map, so the
+   *  "c:" namespacing that keeps a child's key from colliding with the
+   *  group's own key lives entirely in the caller. */
+  cardOpen?: (toolUseId: string) => boolean;
+  onCardToggle?: (toolUseId: string) => void;
 }
 
-export default function ToolGroup({ tools }: Props) {
-  const [open, setOpen] = useState(false);
+export default function ToolGroup({
+  tools,
+  open: controlledOpen,
+  onToggle: controlledToggle,
+  cardOpen,
+  onCardToggle,
+}: Props) {
+  const [localOpen, setLocalOpen] = useState(false);
+  // `??`, not `||` — a controlled `open={false}` must win over the local
+  // fallback rather than being read as "nothing supplied".
+  const open = controlledOpen ?? localOpen;
+  const toggle = controlledToggle ?? (() => setLocalOpen((v) => !v));
 
   const first = tools[0];
   if (!first) return null;
@@ -53,7 +79,7 @@ export default function ToolGroup({ tools }: Props) {
       <button
         type="button"
         className="chat-tool-head"
-        onClick={() => setOpen((v) => !v)}
+        onClick={toggle}
         aria-expanded={open}
         aria-label={ariaLabel}
       >
@@ -120,7 +146,15 @@ export default function ToolGroup({ tools }: Props) {
           ) : (
             <div className="chat-tool-group-body">
               {tools.map((t) => (
-                <ToolCard key={t.toolUseId} tool={t} inGroup />
+                <ToolCard
+                  key={t.toolUseId}
+                  tool={t}
+                  inGroup
+                  open={cardOpen ? cardOpen(t.toolUseId) : undefined}
+                  onToggle={
+                    onCardToggle ? () => onCardToggle(t.toolUseId) : undefined
+                  }
+                />
               ))}
             </div>
           )}

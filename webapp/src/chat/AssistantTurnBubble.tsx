@@ -18,7 +18,7 @@
 //   - the stop-reason line was split into a quiet note and a loud SYSTEM
 //     NOTICE — see STOP_NOTE / the max_steps branch below.
 
-import { useMemo } from "react";
+import { useMemo, useState } from "react";
 
 import {
   extractCitations,
@@ -150,6 +150,29 @@ export default function AssistantTurnBubble({
 
   const stopReason = turn.isComplete ? turn.stopReason : undefined;
 
+  // Open/closed state for tool-call cards, hoisted here from ToolGroup /
+  // ToolCard's own local `useState`. TC1 moves a run of tool calls from a
+  // standalone `.chat-turn` child (while a search is running, TC6) to a
+  // `.chat-bubble` child once the first answer text block exists — the
+  // parent DOM element genuinely changes, so React unmounts and remounts the
+  // ToolGroup subtree. AssistantTurnBubble is keyed by `turn.id`
+  // (ChatThread.tsx) and stays mounted across that transition, so a map
+  // owned HERE survives where the subtree's own local state cannot.
+  //
+  // Keys are namespaced so a run's identifying tool ("g:" + tools[0]'s
+  // toolUseId) can never collide with that same tool's entry as the first
+  // CHILD card inside an expanded n>=2 group ("c:" + that child's own
+  // toolUseId) — both would otherwise be the same string.
+  //
+  // Not memoized: entries are created only on click (bounded by tool calls a
+  // person actually toggled this turn, freed when the bubble unmounts), and
+  // this component isn't memoized today, so recreating the per-row toggle
+  // closures on every render costs nothing observable. If AssistantTurnBubble
+  // is ever wrapped in React.memo, revisit this.
+  const [openCards, setOpenCards] = useState<Record<string, boolean>>({});
+  const toggleCard = (key: string) =>
+    setOpenCards((m) => ({ ...m, [key]: !m[key] }));
+
   // TC1 — a run of tool calls attaches DOWNWARD, to the bubble that follows
   // it, and renders as that bubble's FIRST CHILD rather than as a sibling
   // above it. Reading order is the point: a turn that searched, wrote a
@@ -180,11 +203,34 @@ export default function AssistantTurnBubble({
   }
   if (pendingTools.length > 0) rows.push({ tools: pendingTools });
 
+  // A run's own open/closed state, keyed off its identifying tool — the
+  // run's FIRST tool's toolUseId — so the same run resolves to the same
+  // entry in `openCards` whether it is currently rendered standalone (TC6)
+  // or nested inside the bubble that follows it (TC1). Built once per row
+  // rather than hoisted to a `useCallback`: it is plain data, not a hook, and
+  // recomputing it per render/row is the cheap, obviously-correct choice
+  // over threading a memoized closure through two render sites.
+  function toolGroupProps(runTools: ToolBlockT[]) {
+    const groupKey = `g:${runTools[0]!.toolUseId}`;
+    return {
+      open: openCards[groupKey] ?? false,
+      onToggle: () => toggleCard(groupKey),
+      cardOpen: (id: string) => openCards[`c:${id}`] ?? false,
+      onCardToggle: (id: string) => toggleCard(`c:${id}`),
+    };
+  }
+
   return (
     <div className="chat-turn">
       {rows.map((row) => {
         if (!row.block) {
-          return <ToolGroup key={row.tools[0]!.toolUseId} tools={row.tools} />;
+          return (
+            <ToolGroup
+              key={row.tools[0]!.toolUseId}
+              tools={row.tools}
+              {...toolGroupProps(row.tools)}
+            />
+          );
         }
         const block = row.block;
         const tool = toolCitationsByBlock.get(block.uuid) ?? [];
@@ -199,7 +245,9 @@ export default function AssistantTurnBubble({
             // mascot. Older turns keep the bubble look without it.
             className={`chat-bubble${isLatest ? " has-tail" : ""}`}
           >
-            {row.tools.length > 0 && <ToolGroup tools={row.tools} />}
+            {row.tools.length > 0 && (
+              <ToolGroup tools={row.tools} {...toolGroupProps(row.tools)} />
+            )}
             <CitedMarkdownContent
               content={renderText}
               citations={blockCitations}

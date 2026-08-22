@@ -145,3 +145,86 @@ no-alarm collapsed treatment (TC9) is untouched.
 - If a future change ever re-orders or re-groups runs mid-turn, `g:` keys
   could attach to a different run; today's grouping (first-id-stable, proven
   above) makes that impossible without a grouping rewrite.
+
+## Amendments (implementation)
+
+Implemented as designed, TDD, in the `easy-wins` worktree. Two review nits
+addressed before writing code:
+
+1. **The evidence line "Same key, different parent" was imprecise and was
+   NOT copied into any comment.** Checked directly: the standalone-run render
+   site (`AssistantTurnBubble.tsx`, the `!row.block` branch) passes
+   `key={row.tools[0]!.toolUseId}` on `<ToolGroup>`; the in-bubble render site
+   (the same run once a text block exists) passes **no `key` at all** on its
+   `<ToolGroup>`. So it's not "same key, different parent" — it's "keyed vs.
+   unkeyed, different parent element". The remount mechanism the design
+   describes (a genuinely different parent DOM node, so React cannot
+   reconcile across the transition regardless of keys) is unaffected by this
+   correction; only the sentence describing the evidence was wrong. No
+   comment in the implementation repeats that sentence.
+2. **The sketch's `getByRole("button", { name: /Searching/ })` was a guess.**
+   Read `tool-display.ts::toolHeaderSentence` for the real computed
+   accessible name of a running single-tool retrieve run with
+   `input: { query: "Aviation Fund" }`: verb `"Searching"`, rest
+   `` ` for “Aviation Fund”…` `` (curly quotes, trailing ellipsis, no `more`/
+   `then` clause for a single call) — so `ariaLabel` is exactly
+   `Searching for “Aviation Fund”…`. The shipped test matches
+   `/Searching for “Aviation Fund”…/`, not the bare `/Searching/` guess.
+
+### What was built, exactly as designed
+
+- `AssistantTurnBubble` owns `const [openCards, setOpenCards] =
+  useState<Record<string, boolean>>({})` and `toggleCard(key)`. A
+  `toolGroupProps(runTools)` helper (plain function, not a hook — recomputed
+  per row per render, deliberately not memoized per the design's "comment-
+  level caution, not work") builds `{ open, onToggle, cardOpen, onCardToggle
+  }` from the run's first tool's `toolUseId`, keyed `` `g:${id}` `` for the
+  group and `` `c:${id}` `` per child — passed via `{...toolGroupProps(...)}`
+  at both `<ToolGroup>` render sites (the standalone TC6 branch and the
+  in-bubble TC1 branch), so the same run resolves to the same map entry on
+  either side of the move.
+- `ToolGroup` gained optional `open?`/`onToggle?` plus a `cardOpen?:
+  (toolUseId: string) => boolean` / `onCardToggle?: (toolUseId: string) =>
+  void` pass-through, threaded to each child `ToolCard` in the n≥2 branch.
+  Falls back to local `useState` when the controlled props are absent (`??`,
+  not `||` — a controlled `open={false}` must win over the fallback).
+- `ToolCard` gained the same optional controlled `open?`/`onToggle?` pair
+  with the identical `??` fallback rule.
+- The n=1 branch needed no separate wiring: `ToolGroup`'s own `open` state
+  gates the whole `.chat-tool-group-expansion` regardless of `single`, so
+  hoisting the group's state alone covers the lone-running-retrieve case
+  (verified by the headline spec, which uses exactly this shape).
+
+### Test plan — delivered as specified, plus what TDD actually showed
+
+- The headline spec matches the sketch's shape (RTL `rerender` from a running
+  n=1 turn to an answered one), corrected per nit 2 above. Run RED first
+  against unmodified code: **all three new specs failed** (the two `rerender`
+  specs on `expected null not to be null`; the third — "still toggles closed
+  on click" — on the moved header having no expansion attached to click
+  closed in the first place, i.e. the pre-fix defect manifesting three
+  different ways). All 10 pre-existing specs in the file stayed green
+  throughout.
+- (a) n≥2 variant: opens the group, opens the FIRST in-group `ToolCard`,
+  moves, asserts both the group's own expansion AND the first child's body
+  survive.
+- (b) re-toggle after the move: opens, moves, clicks the moved header again,
+  asserts the expansion closes — proves the hoisted state is a live toggle,
+  not a one-way sticky flag.
+- (c) collapsed-by-default: not re-tested here: it is exactly what the 10
+  pre-existing specs in this file already pin (e.g. "renders a run standalone
+  while no answer text exists yet" renders unopened), and the design says so.
+- Mutation check: `toolGroupProps` temporarily replaced with a stub
+  returning `{}` (hoist disabled) in `AssistantTurnBubble.tsx` only. Result:
+  the 3 new specs went red (same failure shapes as the pre-implementation RED
+  run); `tool-group.test.tsx`, `tool-card.test.tsx`, and the 10 pre-existing
+  `assistant-turn-bubble.test.tsx` specs all stayed green — confirming the
+  mutation isolates exactly the hoist and nothing else. Reverted by hand
+  (not `git checkout`) back to the real implementation; re-ran green.
+- Full `src/chat` suite (41 files / 446 tests, read-only run, no other test
+  file edited) stayed green, including `tool-body.test.tsx` (owned by
+  another lane) and the pre-existing bare `ToolGroup`/`ToolCard` fixtures
+  with no `open`/`onToggle` props.
+
+No deviations from the design's file list, key scheme, or rejected
+alternatives. No visual, copy, or TC9 change was made.
