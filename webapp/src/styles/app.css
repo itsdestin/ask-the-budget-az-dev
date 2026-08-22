@@ -2932,8 +2932,15 @@ fieldset.adm-field{border:0;padding:0;}
 .adm-hint.is-warn{color:var(--copper);font-weight:800;}
 
 /* An attached conversation inside an issue report. Read as a chat, never as
-   the JSON it arrived in. */
-.adm-convo{list-style:none;margin:6px 0 0;padding:0;}
+   the JSON it arrived in. Bounded, because an analyst can attach a whole
+   AI-Mode conversation and an unbounded list makes the PAGE scroll — wide or
+   tall content scrolls inside its own container here (house rule). 330px is
+   ~5–7 exchange lines at this type size, enough to read a thread's shape
+   before scrolling; the scrollbar itself is the "there is more" affordance,
+   the same as every other plain bounded scroller in this sheet (no fade —
+   mask-image on a scroller is the property class the tooltip-clipping guard
+   warns about). Nothing is truncated: every line stays in the DOM. */
+.adm-convo{list-style:none;margin:6px 0 0;padding:0;max-height:330px;overflow-y:auto;padding-right:2px;}
 .adm-convo li{padding:8px 0;border-bottom:1px solid var(--line);}
 .adm-convo li:last-child{border-bottom:0;}
 .adm-convo-who{font-size:11.5px;font-weight:800;text-transform:uppercase;letter-spacing:.04em;color:var(--ink-3);}
