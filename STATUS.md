@@ -1,6 +1,6 @@
 # Project Status
 
-**Last updated:** 2026-08-18
+**Last updated:** 2026-08-22
 
 This file is the single source of truth for what's shipped, what's
 open, and what's blocked. The phase plans under `docs/superpowers/`
@@ -56,6 +56,72 @@ source. When something ships, update only this file.
 | **Consolidated eval pipeline** | ✅ **Shipped — merged to master (2026-08-18), 3265 pytest green** | Replaced the smoke/full/dr-probe Layer-2 organization with three `set:`s (quick 45 / deep 3 / refusal 5; **multi deferred**), a tokens/turns-to-accurate headline (wall-clock dropped), a `document_correctness` doc-type axis, a tool-error ledger, an over-time archive, a free corpus-verification script, and a **resumable judge** (partial writes + resume-skip). 53 queries, all **solvable** (0 presence misses). **deepseek-v4-flash-0731 full-45 quick rerun: 0.711 accurate (32/45), $0.21 — beats glm-5.2 (0.667) at ~1/10 cost.** Report bundle auto-opens at end of every run. See "Consolidated eval pipeline" below |
 | **Product rename — JLBC Search** | ✅ **Shipped (2026-08-18), all suites + Layer 1 gate green** | Every user-facing and internal reference to "JLBC Insight" / "Ask the Budget AZ" became **JLBC Search** — SPA title, home hero, repair/health screens, launcher, installers, shortcuts, bundle names, state dirs (`%LOCALAPPDATA%\JLBC-Search`), OpenRouter `X-Title`, system-prompt lead, QUICKSTART + PREVIEW-BRIEFING, pyproject/package names. Old MCP-namespaced tool aliases kept in `citation-extract` so saved transcripts still render. Historical docs/plans/specs untouched (record of design intent). 3299 pytest / 1149 vitest / tsc / build green; **Layer 1 eval identical to baseline** (recall@5 85.71%, @15 97.62%, @20 100.00%, refusal 60%). "JLBC Agentic Search" (memo footer) deliberately kept per Destin's call. See "Product rename" section below |
 | **One-click diagnostic → verification + repair** | ✅ **Rewritten (2026-08-18)**, 3304 pytest green | The old USB diagnostic only wrote a REPORT. The replacement (`packaging/diag/diag.pyw` + `diag.cmd` + new `RUN-DIAGNOSTIC.cmd`) copies the server log (redacted), **compares the network/share copy of the corpus against the USB seed** file-by-file (missing + half-copied files, plain-english verdict), then **offers to repair** — copy the missing files from USB and re-verify with the app's own `ChunkStore` open-check (the exact health-ladder rung). Root cause of the flash-and-close also fixed: every `.cmd` in the repo was LF-only; new/rewritten ones are CRLF. Verified end-to-end against the live corpus (7,932-file manifest; repair closed a 7,930-file gap and the open-check then passed at 83,197 passages). Ships on the USB only — `packaging/` is excluded from the bundle by design. `tests/test_diag_tool.py` pins the manifest/compare/copy logic. See the section below |
+| **Easy-wins batch — five small fixes** | ✅ **Built 2026-08-22, all gates green, awaiting Destin's review + browser pass** | Branch `easy-wins`. Five open STATUS items closed: fund names on the filter-values card, tool card survives the answer arriving, the books panel tells offline from nothing-missing (and stops caching the poisoned answer), the chat nickname appears without a click, the issue-inbox transcript is bounded. Plus the uv.lock rename fallout committed. Each item: agent-drafted spec → independent review → implementation → per-task review; final whole-branch review clean. pytest 3323 / vitest 1158 / tsc / build green; no eval owed (nothing on an eval-gated path). See "Easy-wins batch" below |
+
+## Easy-wins batch — five small fixes (2026-08-22)
+
+Branch `easy-wins`, built while Destin was away with instructions to reach a
+mergeable state. Specs (with implementation amendments) at
+`docs/superpowers/specs/2026-08-22-*-design.md`; process: five parallel
+spec-drafting agents → one independent spec review (every spec got
+corrections; none was dropped) → parallel implementation on
+verified-disjoint file sets → per-task reviews (several re-ran the
+implementers' mutations independently) → final whole-branch review (clean).
+
+What each fix is, and where each item's detailed record lives (marked ✅ in
+place at its original STATUS entry):
+
+1. **Fund names** — `list_filter_values` fund values carry their
+   `data/fund-catalog.yaml` name, mirroring the agency branch. New read-only
+   `funds/names.py`; the Invariant-7 allowlist admits it with a narrow guard
+   pinning that `harness/tools.py` reaches ONLY `funds.names` (the catalog
+   module writes files). See the tool-cards "Still open" list.
+2. **Tool card open-state hoist** — expanded state survives the card's move
+   into the answer bubble. See the tool-cards "Still open" list.
+3. **Books-panel offline honesty** — the "Add a JLBC book" panel no longer
+   reports an empty gap it never measured when the network is down, and no
+   longer caches that wrong answer for 12 hours. See the whole-report-links
+   known-limits list.
+4. **Rail reload after the title deadline** — the auto-generated chat name
+   appears on its own ~21 s after an answer (derived from the server's own
+   title timeout, with an anti-drift test), instead of landing unseen. See
+   the persistent-conversation Minors.
+5. **Issue-inbox transcript bounded** — a long attached conversation scrolls
+   inside a 330px container instead of making the card arbitrarily tall. See
+   the admin-extensions standing caveat.
+
+Also: `uv.lock` regenerated for the 2026-08-18 package rename — the stale
+lock made every `uv run` dirty the working tree.
+
+**Gates on the merged branch:** pytest **3323 / 5 skipped** (a solo rerun;
+one health-ladder test flaked once under load during the baseline and passed
+solo both times), vitest **1158 (94 files)**, `tsc -b` 0, `npm run build` 0.
+**No eval run and none owed** — `git diff` against master is empty under
+`retrieval/`, `ingest/`, `chunking/`, `citation/` and
+`harness/system-prompt.md` (verified by the final review, not assumed).
+
+### ⏸ Outstanding — the browser pass (jsdom applies no stylesheet)
+
+1. `/admin` → Issue reports → a report with a long attached conversation:
+   the card stays about a screen tall and the conversation scrolls inside
+   itself; a two-line transcript shows no scrollbar or dead space.
+2. AI Mode: expand a search card while the model is still searching — when
+   the answer starts, the card moves into the bubble STILL OPEN.
+3. AI Mode: ask "what funds can you filter by?" — real names ("AHCCCS
+   Fund"), not `fund:` codes.
+4. New chat, ask, then wait ~25 s without clicking — the sidebar nickname
+   pops in on its own.
+5. WiFi off → Upload: the book cards say they couldn't reach azjlbc.gov and
+   show the last known answer, never "every edition is here"; WiFi back on,
+   the next visit is live (no 12-hour stale claim).
+
+Small accepted residue, recorded in the specs: the fast-title case still
+waits for the ~21 s bump; deeper tool-card view state (a "show all" inside a
+card) still resets on the move; the issue `description`/`expected` fields
+have no length cap; `ToolGroup`/`ToolCard` keep production-dead local-state
+fallbacks for bare test fixtures.
+
+---
 
 ## Product rename — JLBC Search (2026-08-18)
 
@@ -259,13 +325,18 @@ mutation that mattered.
 
 ### ⏸ Still open
 
-- **Funds render as raw ids** (`fund:2005`). No catalog name and no display
-  table exists for that dimension, so it is the honest last resort — but it is
-  still a code on screen. Needs a fund-name lookup.
-- **A card expanded mid-search snaps shut when the answer arrives.** The card
-  physically moves into the bubble, so React remounts it and its open state
-  resets. Not data loss; one click reopens. The fix hoists the open state and
-  is a deliberate deferral, not an oversight.
+- ✅ **Funds render as raw ids — FIXED 2026-08-22** (easy-wins batch, see
+  that section). All 187 corpus fund ids were probed live and every one is
+  in the committed `data/fund-catalog.yaml` (the `fund:2005` example here
+  was stale — real ids are slug-shaped), so `list_filter_values` now
+  attaches the catalog name the way the agency branch does, via a new
+  read-only `funds/names.py` behind its own Invariant-7 read-side guard.
+  An id the catalog doesn't know still degrades to the code.
+- ✅ **A card expanded mid-search snaps shut — FIXED 2026-08-22** (easy-wins
+  batch). Open state is hoisted into `AssistantTurnBubble`, which survives
+  the move into the bubble, keyed by the run's first tool-call id. The
+  deeper per-view state (RetrieveView's "show all", Disclosure) still
+  resets on the move — deliberately out of scope, waiting for a report.
 - **The doc-type anti-drift guard is one-directional by design** — the map can
   silently LOSE an entry (a missing label degrades to the raw code). Defensible;
   the code comment justifies only the other direction.
@@ -667,8 +738,11 @@ merge, but did not report on every surface, and these three were never looked at
 2. **`Your tools` expanded in the System Guidance window.** That section has no `###`
    subsections (~550 lines), so it opens as one block inside a 640px scroller. If it is
    unreadable the fix is splitting it into subsections, not CSS.
-3. **A long attached conversation in the issue inbox.** The transcript viewer has no
-   `max-height`, so it makes an arbitrarily tall card.
+3. ~~**A long attached conversation in the issue inbox.**~~ **Bounded 2026-08-22**
+   (easy-wins batch): the transcript scrolls inside a 330px container, nothing
+   truncated. The browser look is still owed, and the adjacent gap remains: the
+   `description`/`expected` fields have no length cap server-side or display
+   bound, so a very long typed report can still make a tall card.
 
 Also unwitnessed and pinned only by specs: the byte meter, the 148-option agency select,
 and the report form. The "AI Mode" group label still sits directly above the panel headed
@@ -1488,10 +1562,15 @@ was touched.
   so it could never become pending and would silently never get a button. If a
   hand-uploaded book section ever appears, that is the trigger to move
   `FAMILY_OF_DOC_TYPE` server-side.
-- **`app/routes/books_missing.py` has the identical dead-offline-branch hole**
-  found in item 2 above — its "Add a JLBC book" panel will report an empty gap
-  it never measured when the network is down. Out of scope here; it deserves
-  its own fix.
+- ✅ **The `app/routes/books_missing.py` dead-offline-branch hole is FIXED
+  2026-08-22** (easy-wins batch). `NetworkWatch` is hoisted into
+  `app/routes/books.py` (one implementation, book_formats' own suite guards
+  drift); the panel now tells "the host never answered" from "JLBC said no"
+  per lookahead year, serves the last good answer with `online: false` and
+  the shipped reason sentence, and never writes the poisoned answer into
+  the 12-hour cache (`online and not watch.unreachable`). The offline test
+  now drives the real ladder with a prober that returns False — the old one
+  raised OSError from a monkeypatch, a shape production cannot produce.
 - **The page-count/size provenance comments were dropped.** The TypeScript
   rows carried `// 620pp/48.0MB, toc 1pp` recording what was downloaded on
   2026-08-16; JSON has no comments and the schema has no field for them, so
@@ -4232,9 +4311,16 @@ not see it; one minute of pointing at the rail did.
 - **The verdict cache can show a stale definitive "unavailable"** where the old
   code showed "Checking…" — the admin-just-added-a-key case. Self-corrects on
   the round trip.
-- **A turn completing while the analyst is away never bumps the rail's reload
-  token**, so an auto-title can land unseen. This is defect 11 of the
-  2026-08-11 chat-history review re-opening through a new door.
+- ✅ **The unseen auto-title is FIXED 2026-08-22** (easy-wins batch), and the
+  mechanism recorded here was wrong: the away case never needed a fix (the
+  rail refetches on every `/ai` remount — the suggested provider hoist was
+  investigated and is inert). The real gap was a timing race while the panel
+  stays MOUNTED: `persist_turn` plus the blocking auto-title call run after
+  the SSE stream closes, so the one bump always fetched before the title
+  existed. A second bump now fires at `TITLE_GRACE_MS` = 21 s, DERIVED from
+  `harness/titles.py::_TIMEOUT_S` (after which the title is final on every
+  path) with an anti-drift spec reading that Python constant at test time.
+  Known trade: a fast title still appears only at the ~21 s bump.
 
 ---
 
