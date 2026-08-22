@@ -221,77 +221,6 @@ wheels = [
 ]
 
 [[package]]
-name = "ask-the-budget-az-dev"
-version = "0.1.0"
-source = { virtual = "." }
-dependencies = [
-    { name = "anthropic" },
-    { name = "beautifulsoup4" },
-    { name = "fastapi" },
-    { name = "fastembed" },
-    { name = "httpx" },
-    { name = "lancedb" },
-    { name = "mineru", extra = ["pipeline"] },
-    { name = "opendataloader-pdf" },
-    { name = "pgvector" },
-    { name = "psycopg", extra = ["binary", "pool"] },
-    { name = "pydantic" },
-    { name = "python-docx" },
-    { name = "python-dotenv" },
-    { name = "pyyaml" },
-    { name = "rapidfuzz" },
-    { name = "requests" },
-    { name = "ruamel-yaml" },
-    { name = "torch" },
-    { name = "torchvision" },
-    { name = "uvicorn", extra = ["standard"] },
-    { name = "voyageai" },
-]
-
-[package.dev-dependencies]
-dev = [
-    { name = "httpx" },
-    { name = "pillow" },
-    { name = "pymupdf" },
-    { name = "pypdf" },
-    { name = "pytest" },
-]
-
-[package.metadata]
-requires-dist = [
-    { name = "anthropic", specifier = ">=0.40" },
-    { name = "beautifulsoup4", specifier = ">=4.14.0" },
-    { name = "fastapi", specifier = ">=0.115" },
-    { name = "fastembed", specifier = ">=0.8.0" },
-    { name = "httpx", specifier = ">=0.28.1" },
-    { name = "lancedb", specifier = ">=0.36.0" },
-    { name = "mineru", extras = ["pipeline"], specifier = ">=3.1.6" },
-    { name = "opendataloader-pdf", specifier = ">=2.4.1" },
-    { name = "pgvector", specifier = ">=0.3" },
-    { name = "psycopg", extras = ["binary", "pool"], specifier = ">=3.2" },
-    { name = "pydantic", specifier = ">=2.9.0" },
-    { name = "python-docx", specifier = ">=1.2.0" },
-    { name = "python-dotenv", specifier = ">=1.0" },
-    { name = "pyyaml", specifier = ">=6.0.3" },
-    { name = "rapidfuzz", specifier = ">=3.10.0" },
-    { name = "requests", specifier = ">=2.32.0" },
-    { name = "ruamel-yaml", specifier = ">=0.18" },
-    { name = "torch", specifier = ">=2.11.0", index = "https://download.pytorch.org/whl/cu128" },
-    { name = "torchvision", specifier = ">=0.26.0", index = "https://download.pytorch.org/whl/cu128" },
-    { name = "uvicorn", extras = ["standard"], specifier = ">=0.32" },
-    { name = "voyageai", specifier = ">=0.3.4" },
-]
-
-[package.metadata.requires-dev]
-dev = [
-    { name = "httpx", specifier = ">=0.27" },
-    { name = "pillow", specifier = ">=12.2.0" },
-    { name = "pymupdf", specifier = ">=1.27.2.3" },
-    { name = "pypdf", specifier = ">=6.10.2" },
-    { name = "pytest", specifier = ">=9.0.3" },
-]
-
-[[package]]
 name = "attrs"
 version = "26.1.0"
 source = { registry = "https://pypi.org/simple" }
@@ -1203,6 +1132,77 @@ wheels = [
     { url = "https://files.pythonhosted.org/packages/60/cf/a7e19b308bd86bb04776803b1f01a5f9a287a4c55205f4708827ee487fbf/jiter-0.14.0-graalpy312-graalpy250_312_native-macosx_11_0_arm64.whl", hash = "sha256:33a20d838b91ef376b3a56896d5b04e725c7df5bc4864cc6569cf046a8d73b6d", size = 308443, upload-time = "2026-04-10T14:28:36.658Z" },
     { url = "https://files.pythonhosted.org/packages/ca/44/e26ede3f0caeff93f222559cb0cc4ca68579f07d009d7b6010c5b586f9b1/jiter-0.14.0-graalpy312-graalpy250_312_native-manylinux_2_17_aarch64.manylinux2014_aarch64.whl", hash = "sha256:432c4db5255d86a259efde91e55cb4c8d18c0521d844c9e2e7efcce3899fb016", size = 343039, upload-time = "2026-04-10T14:28:38.356Z" },
     { url = "https://files.pythonhosted.org/packages/da/e9/1f9ada30cef7b05e74bb06f52127e7a724976c225f46adb65c37b1dadfb6/jiter-0.14.0-graalpy312-graalpy250_312_native-manylinux_2_17_x86_64.manylinux2014_x86_64.whl", hash = "sha256:67f00d94b281174144d6532a04b66a12cb866cbdc47c3af3bfe2973677f9861a", size = 349613, upload-time = "2026-04-10T14:28:40.066Z" },
+]
+
+[[package]]
+name = "jlbc-search"
+version = "0.1.0"
+source = { virtual = "." }
+dependencies = [
+    { name = "anthropic" },
+    { name = "beautifulsoup4" },
+    { name = "fastapi" },
+    { name = "fastembed" },
+    { name = "httpx" },
+    { name = "lancedb" },
+    { name = "mineru", extra = ["pipeline"] },
+    { name = "opendataloader-pdf" },
+    { name = "pgvector" },
+    { name = "psycopg", extra = ["binary", "pool"] },
+    { name = "pydantic" },
+    { name = "python-docx" },
+    { name = "python-dotenv" },
+    { name = "pyyaml" },
+    { name = "rapidfuzz" },
+    { name = "requests" },
+    { name = "ruamel-yaml" },
+    { name = "torch" },
+    { name = "torchvision" },
+    { name = "uvicorn", extra = ["standard"] },
+    { name = "voyageai" },
+]
+
+[package.dev-dependencies]
+dev = [
+    { name = "httpx" },
+    { name = "pillow" },
+    { name = "pymupdf" },
+    { name = "pypdf" },
+    { name = "pytest" },
+]
+
+[package.metadata]
+requires-dist = [
+    { name = "anthropic", specifier = ">=0.40" },
+    { name = "beautifulsoup4", specifier = ">=4.14.0" },
+    { name = "fastapi", specifier = ">=0.115" },
+    { name = "fastembed", specifier = ">=0.8.0" },
+    { name = "httpx", specifier = ">=0.28.1" },
+    { name = "lancedb", specifier = ">=0.36.0" },
+    { name = "mineru", extras = ["pipeline"], specifier = ">=3.1.6" },
+    { name = "opendataloader-pdf", specifier = ">=2.4.1" },
+    { name = "pgvector", specifier = ">=0.3" },
+    { name = "psycopg", extras = ["binary", "pool"], specifier = ">=3.2" },
+    { name = "pydantic", specifier = ">=2.9.0" },
+    { name = "python-docx", specifier = ">=1.2.0" },
+    { name = "python-dotenv", specifier = ">=1.0" },
+    { name = "pyyaml", specifier = ">=6.0.3" },
+    { name = "rapidfuzz", specifier = ">=3.10.0" },
+    { name = "requests", specifier = ">=2.32.0" },
+    { name = "ruamel-yaml", specifier = ">=0.18" },
+    { name = "torch", specifier = ">=2.11.0", index = "https://download.pytorch.org/whl/cu128" },
+    { name = "torchvision", specifier = ">=0.26.0", index = "https://download.pytorch.org/whl/cu128" },
+    { name = "uvicorn", extras = ["standard"], specifier = ">=0.32" },
+    { name = "voyageai", specifier = ">=0.3.4" },
+]
+
+[package.metadata.requires-dev]
+dev = [
+    { name = "httpx", specifier = ">=0.27" },
+    { name = "pillow", specifier = ">=12.2.0" },
+    { name = "pymupdf", specifier = ">=1.27.2.3" },
+    { name = "pypdf", specifier = ">=6.10.2" },
+    { name = "pytest", specifier = ">=9.0.3" },
 ]
 
 [[package]]
