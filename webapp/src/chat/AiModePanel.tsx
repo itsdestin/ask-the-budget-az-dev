@@ -45,6 +45,28 @@ export const AI_GATED_ACTION = "Contact your administrator to turn it on.";
 export const AI_PROBING_HEADLINE =
   "Checking whether AI answers are available on this server…";
 
+/** The grace delay before the rail's SECOND, unattended reload after a turn
+ *  ends — the one that catches the server-generated title, not just the row.
+ *
+ *  DERIVED, not tuned: `harness/titles.py::_TIMEOUT_S = 20.0` is the hard
+ *  upper bound on the title HTTP call — `generate_title()` returns the
+ *  truncation fallback on every failure path once that clock runs out, so
+ *  the row's title cannot change (by the title call, at least) any later
+ *  than that bound plus the write that follows it. `TITLE_GRACE_MS` below is
+ *  that same number PLUS ONE SECOND of slack for the round trip and
+ *  `persist_turn`'s BackgroundTask queue hop — a number that moves in
+ *  lockstep with the server's own constant, not a guessed "long enough for a
+ *  typical cheap title call". If a server engineer ever raises
+ *  `_TIMEOUT_S`, bump this to match — the anti-drift spec in
+ *  ai-mode-panel-title-grace-drift.test.tsx fails until both sides agree.
+ *
+ *  See docs/superpowers/specs/2026-08-22-rail-reload-background-turn-design.md,
+ *  which shipped this as a fixed ~8s guess; this value REPLACES that guess
+ *  per the independent-review correction recorded in that file's Amendments
+ *  section. */
+const TITLE_SERVER_TIMEOUT_S = 20; // harness/titles.py::_TIMEOUT_S
+export const TITLE_GRACE_MS = (TITLE_SERVER_TIMEOUT_S + 1) * 1000;
+
 /** Corpus options the panel offers in its tools menu. Owned by the page (only
  *  it can act on a change — a corpus switch discards the conversation), passed
  *  down so the menu can name what each corpus contains. */
@@ -115,11 +137,47 @@ function PanelBody({
   // appears, and its server-generated title lands a few seconds later. The
   // rail otherwise fetches on mount only, so neither showed up until
   // something remounted it.
+  //
+  // TWO bumps, not one. The immediate bump (as before) usually catches the
+  // ROW — `persist_turn` runs in a server-side BackgroundTask that races the
+  // client's `busy` flip, so it is not guaranteed, but it is fast when it
+  // lands. The title is a SEPARATE, slower story: it is a blocking LLM call
+  // of up to `harness/titles.py::_TIMEOUT_S` seconds that only starts once
+  // the turn has fully released the conversation, so it is essentially never
+  // ready by the time the immediate bump fires. Without a second, delayed
+  // bump nothing ever re-reads the rail again, and the analyst is stuck
+  // looking at the un-generated fallback title until something UNRELATED
+  // reloads the rail (switching chats, leaving the page and coming back).
+  // See docs/superpowers/specs/2026-08-22-rail-reload-background-turn-design.md.
   const [railReloadToken, setRailReloadToken] = useState(0);
   const wasBusyRef = useRef(false);
+  const titleTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   useEffect(() => {
-    if (wasBusyRef.current && !chat.busy) setRailReloadToken((n) => n + 1);
+    if (wasBusyRef.current && !chat.busy) {
+      setRailReloadToken((n) => n + 1); // the row, as before
+      // Cancel any bump left over from a PRIOR turn — see the PINNED spec in
+      // ai-mode-panel-rail-reload.test.tsx: this is deliberate, not a leak
+      // guard. A rapid follow-up question started before the previous
+      // turn's grace delay elapsed should not fire a stale reload for a
+      // title that (this turn's own row write proves) has already had its
+      // chance; the NEW turn's own end reschedules a fresh one.
+      if (titleTimerRef.current) clearTimeout(titleTimerRef.current);
+      titleTimerRef.current = setTimeout(() => {
+        setRailReloadToken((n) => n + 1); // the title, once it has had its shot
+        titleTimerRef.current = null;
+      }, TITLE_GRACE_MS);
+    }
     wasBusyRef.current = chat.busy;
+    // This cleanup runs on EVERY dependency change (a busy flip in either
+    // direction), not only on unmount — see the PINNED spec above. That is
+    // what makes a rapid follow-up cancel a stale pending bump instead of
+    // firing it mid-way through the next turn.
+    return () => {
+      if (titleTimerRef.current) {
+        clearTimeout(titleTimerRef.current);
+        titleTimerRef.current = null;
+      }
+    };
   }, [chat.busy]);
 
   // The source column is allocated on chip click and closes on its own close
