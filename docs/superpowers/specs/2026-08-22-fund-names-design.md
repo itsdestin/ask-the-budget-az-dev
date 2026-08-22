@@ -217,3 +217,28 @@ No deviations from F3, F4 (beyond the two-test split above), or F5 — F5
 (leave `RetrieveView`'s filter-arg display as-is) required no code and none
 was written. No file outside the "Exact files to change" table plus
 `tests/test_fund_names.py` (already listed there) was touched.
+
+## Post-ship audit (2026-08-22, Destin's ask): are the names RIGHT?
+
+Three checks were run against the live corpus (read-only):
+
+1. **No crossed wires:** all 227 catalog names re-derive their own slug/id
+   through `funds/slug.py` — a name cannot be attached to a different
+   fund's id. 227/227.
+2. **Names are real printed phrases:** for 186 of the 187 stamped ids, the
+   display name appears verbatim in the text of that fund's own stamped
+   passages. Partially self-fulfilling where the stamp was minted by
+   name-matching, but it rules out the agency-catalog failure mode (a
+   table-of-contents row shipped as a name).
+3. **The 187th is WRONG and was confirmed by reading, not counting:**
+   `fund:account` → "Account", a catalog truncation, stamped by substring
+   inside "Accounting" onto 5,238 chunks / 1,704 documents / 143 agencies.
+   Pre-existing ingest defect; this feature only makes it visible. The
+   substring-corroboration check passes it vacuously — a generic
+   single-word name matches everything, which is itself the defect's
+   signature.
+
+**Not measured:** stamping accuracy for the other 186 (a correct name on a
+chunk that is really about a different fund). Same error class the
+2026-08-16 agency audit measured; needs the same per-id read-the-chunks
+method if it is ever done.

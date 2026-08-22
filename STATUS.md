@@ -332,6 +332,21 @@ mutation that mattered.
   attaches the catalog name the way the agency branch does, via a new
   read-only `funds/names.py` behind its own Invariant-7 read-side guard.
   An id the catalog doesn't know still degrades to the code.
+  **⚠ Name CORRECTNESS was then audited on 2026-08-22 at Destin's ask, and
+  one of the 187 is wrong: `fund:account` displays as "Account"** — a
+  truncated parse in the catalog (its real fund belongs to Respiratory Care
+  Examiners), and the ingest stamper's substring scan matched it inside the
+  word "Account**ing**" ("Summary of Significant Accounting Policies"), so
+  it sits on 5,238 chunks across 1,704 documents and 143 agencies — the
+  most-stamped "fund" in the corpus, and mostly junk. This is a PRE-EXISTING
+  stamping defect (the fund twin of the 2026-08-16 agency mis-labelling,
+  which the query-understanding section already predicted: "fund resolution
+  has the identical gap"); the display change only makes it VISIBLE — a
+  reader now sees a plausible name where they saw an opaque code. The other
+  186 names re-derive their own ids (no crossed wires) and each appears
+  verbatim in its own stamped passages. The real fix is catalog repair +
+  word-boundary/genericity rules in the stamper + a re-stamp pass, the same
+  shape as the agency relabel — its own spec, NOT this branch.
 - ✅ **A card expanded mid-search snaps shut — FIXED 2026-08-22** (easy-wins
   batch). Open state is hoisted into `AssistantTurnBubble`, which survives
   the move into the bubble, keyed by the run's first tool-call id. The
