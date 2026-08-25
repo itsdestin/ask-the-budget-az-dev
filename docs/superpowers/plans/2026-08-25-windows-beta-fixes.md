@@ -498,6 +498,7 @@ from app.machine_config import normalize_data_dir
         ("E:/JLBCSearch/", r"E:\JLBCSearch"),
         ('"E:\\JLBCSearch\\"', r"E:\JLBCSearch"),
         ("E:\\", "E:\\"),
+        ("E:", "E:\\"),  # bare drive = "cwd on E:" — never store that
         (r"\\bcpool\JLBCSearch", r"\\bcpool\JLBCSearch"),
         ("  Z:/x/y  ", r"Z:\x\y"),
     ],
@@ -579,8 +580,11 @@ def normalize_data_dir(path: Path | str) -> str:
     """
     cleaned = str(path).strip().strip('"').strip("'").strip()
     stripped = cleaned.rstrip("\\/")
-    # `E:\` -> keep the separator; `E:` is not a folder.
-    cleaned = cleaned[: len(stripped) + 1] if stripped.endswith(":") else stripped
+    # A drive root keeps ONE separator: `E:\` stays, and a bare `E:` becomes
+    # `E:\` — `E:` alone means "current directory on E:" to Windows and
+    # Path("E:").exists() is True, so it would validate and then open LanceDB
+    # relative to wherever the process happens to be.
+    cleaned = stripped + "\\" if stripped.endswith(":") else stripped
     if os.name == "nt":
         cleaned = cleaned.replace("/", "\\")
         if len(cleaned) >= 2 and cleaned[0] == "\\" and cleaned[1] != "\\":
@@ -705,6 +709,16 @@ def test_a_dev_checkout_with_no_pointer_uses_the_repo_default(monkeypatch, tmp_p
     (root / "store").mkdir(parents=True)
     monkeypatch.setattr(config_mod, "_ROOT", root)
     assert resolve_data_dir() == root / "data" / "insight-data"
+
+
+def test_no_bundle_marker_in_a_checkout():
+    """VERSION is untracked and must stay ABSENT from a dev checkout. A
+    forgotten one (the Task 10 checkpoint touches it temporarily) silently
+    turns the checkout into a 'bundle' and the repo-default tests go red
+    with no obvious cause."""
+    assert not (config_mod._ROOT / config_mod._BUNDLE_MARKER).exists(), (
+        "delete the stray VERSION file at the repo root"
+    )
 
 
 def test_the_pointer_still_wins_inside_a_bundle(monkeypatch, tmp_path):
@@ -898,7 +912,13 @@ MSG_CANT_OPEN = (
     "That folder is there, but the search index inside it can't be opened. "
     "Copy the folder's address from File Explorer's address bar and try again."
 )
+MSG_DIFFERENT_INDEX = (
+    "That folder holds a search index made by a different version of the app. "
+    "Ask whoever maintains the shared drive to re-copy the corpus for this build."
+)
 ```
+
+And in `tests/test_machine_config.py`, **delete the local `MSG_NO_CORPUS` literal at lines 33-35** — it shadows the module's constant, and the reword below only survived because the appended import happened to rebind the name. Import it from `app.machine_config` instead.
 
 Replace the tail of `validate_data_dir` (after the `lancedb` `is_dir` check) with:
 
@@ -913,12 +933,19 @@ Replace the tail of `validate_data_dir` (after the `lancedb` `is_dir` check) wit
         from store.chunk_store import ChunkStore
 
         rows = ChunkStore(root=candidate, create=False).count("budget_chunks")
-    except Exception:  # noqa: BLE001 — every engine failure is one sentence
+    except Exception as err:  # noqa: BLE001 — every engine failure is one sentence
+        # `_check_dim` raises ValueError naming the dimension: an index
+        # embedded by another model. Retyping the address cannot fix that —
+        # same discrimination app/health.py::_check_corpus already makes.
+        if "dim" in (str(err) + type(err).__name__).lower():
+            return MSG_DIFFERENT_INDEX
         return MSG_CANT_OPEN
     if rows <= 0:
         return MSG_NO_CORPUS
     return None
 ```
+
+Add a fourth test beside the other three: build `ChunkStore(root=tmp_path, dim=8)` with one 8-dim row and assert `validate_data_dir(tmp_path) == MSG_DIFFERENT_INDEX`.
 
 Update `MSG_NO_CORPUS` text to cover both shapes: *"That folder doesn't contain a JLBC Search corpus (no budget documents in its search index)."* and check `tests/test_machine_config.py::test_validate_rejects_a_folder_with_no_corpus` and the CLI test `test_a_folder_without_a_corpus_still_records` still pass (they compare against the constant, not the literal).
 
@@ -1000,25 +1027,30 @@ def test_a_dev_checkout_with_no_pointer_is_still_fine(client, tmp_path):
     assert rung(report, "machine_config")["ok"] is True
 
 
+def test_a_pointer_file_without_a_data_dir_is_fine_when_a_folder_resolves(client, tmp_path):
+    """machine.json can legitimately hold only `ingest_enabled` (the
+    installer writes it even when the data folder was skipped) or only
+    `display_names` (the Settings page). With JLBC_DATA_DIR set — every
+    dev box and the Z13 — that is NOT a failure. Only 'nothing resolves at
+    all' (DataDirNotConfigured) fails this rung."""
+    machine = tmp_path / "machine"
+    machine.mkdir(parents=True, exist_ok=True)
+    (machine / "machine.json").write_text('{"ingest_enabled": false}', encoding="utf-8")
+    make_corpus(tmp_path)
+    report = client.get("/api/health/detail").json()
+    assert rung(report, "machine_config")["ok"] is True
+
+
 def test_a_lancedb_folder_with_no_tables_fails_the_corpus_rung(client, tmp_path):
     """An empty lancedb/ used to read as 'set up, no documents yet' — the
     same sentence a fresh install gets. Zero ROWS stays OK (the Upload page
     must be reachable); zero TABLES is a wrong folder or a half copy."""
-    make_corpus(tmp_path)
+    (tmp_path / "share" / "lancedb").mkdir(parents=True)  # a folder, NO tables
     report = client.get("/api/health/detail").json()
     corpus = rung(report, "corpus")
     assert corpus["ok"] is False
     assert "holds no search index" in corpus["detail"]
     assert report["can_repair"] is False
-
-
-def test_the_ladder_creates_nothing(client, tmp_path):
-    """Principle 3. Before 2026-08-25 the corpus rung's ChunkStore() mkdir'd
-    <share>/lancedb, so a wrong pointer passed 'share' and failed 'corpus'
-    with can_repair False."""
-    (tmp_path / "share").mkdir(parents=True, exist_ok=True)
-    client.get("/api/health/detail")
-    assert not (tmp_path / "share" / "lancedb").exists()
 ```
 
 Also update `make_corpus` so the healthy fixture has a real (empty) table, since an empty `lancedb/` now fails:
@@ -1029,8 +1061,6 @@ def make_corpus(tmp_path) -> None:
 
     ChunkStore(root=tmp_path / "share").ensure_tables()
 ```
-
-And change `test_a_lancedb_folder_with_no_tables_fails_the_corpus_rung` to create the bare folder itself: replace its `make_corpus(tmp_path)` with `(tmp_path / "share" / "lancedb").mkdir(parents=True)`.
 
 - [ ] **Step 2: Run to verify failure**
 
@@ -1051,47 +1081,47 @@ def _check_machine_config() -> tuple[bool, str, str | None]:
         "below and the app will rewrite this file correctly."
     )
     path = machine_config_path()
-    if not path.exists():
-        # A packaged install with no pointer has NO folder to fall back to
-        # (store/config.py raises). A dev checkout has the repo default and
-        # this stays OK, as before. The laptop incident sat exactly here.
+    if path.exists():
         try:
-            resolve_data_dir()
-        except DataDirNotConfigured:
+            import json
+
+            raw = json.loads(path.read_text(encoding="utf-8"))
+        except (OSError, ValueError):
             return (
                 False,
-                "This computer hasn't been told where the shared budget folder is.",
-                "Type the folder's location below — it's the one that contains "
-                "the 'lancedb' folder.",
+                "This computer has a settings file saying where the shared folder "
+                "is, and it can't be read.",
+                fix_type_below,
             )
-        except OSError:
-            pass  # a reachability problem is the share rung's to report
-        return True, "Using the standard shared-folder setting.", None
+        if not isinstance(raw, dict):
+            return (
+                False,
+                "This computer's shared-folder setting is not in the expected form.",
+                fix_type_below,
+            )
+    # ONE rule for "the pointer names nothing": does anything resolve? A
+    # machine.json holding only `ingest_enabled` or `display_names` is normal
+    # (the installer and the Settings page both write those), and with
+    # JLBC_DATA_DIR set — every dev box, the Z13 — a folder resolves anyway.
+    # Only a packaged install with no env var and no pointer raises
+    # (store/config.py::DataDirNotConfigured). The laptop sat exactly there.
     try:
-        import json
-
-        raw = json.loads(path.read_text(encoding="utf-8"))
-    except (OSError, ValueError):
+        resolve_data_dir()
+    except DataDirNotConfigured:
         return (
             False,
-            "This computer has a settings file saying where the shared folder "
-            "is, and it can't be read.",
-            fix_type_below,
+            "This computer hasn't been told where the shared budget folder is.",
+            "Type the folder's location below — it's the one that contains "
+            "the 'lancedb' folder.",
         )
-    if not isinstance(raw, dict):
-        return (
-            False,
-            "This computer's shared-folder setting is not in the expected form.",
-            fix_type_below,
-        )
-    if read_data_dir() is None:
-        return (
-            False,
-            "This computer's shared-folder setting doesn't name a folder.",
-            "Type the shared folder's location below.",
-        )
-    return True, "This computer's shared-folder setting is readable.", None
+    except OSError:
+        pass  # a reachability problem is the share rung's to report
+    if path.exists():
+        return True, "This computer's shared-folder setting is readable.", None
+    return True, "Using the standard shared-folder setting.", None
 ```
+
+(`read_data_dir` is no longer needed in this function — drop it from the import.)
 
 `_check_corpus` — replace the `try` block:
 
@@ -1179,13 +1209,25 @@ import app.main as main_mod
 from app.main import create_app
 
 
+from app.search_provider import SearchOutcome  # the dataclass the route unpacks
+
+
 class FakeLance:
+    """Stands in for LanceSearchProvider. The route DOES call search() after
+    the swap, so return a real empty outcome (the route turns exceptions into
+    a 503, which would hide a swap that happened)."""
     name = "lance"
 
-    def search(self, *a, **k):  # pragma: no cover — never called here
-        raise AssertionError
+    def search(self, *a, **k):
+        return SearchOutcome(rows=[], inferred_fiscal_years=[], inferred_doc_types=[],
+                             dropped_filters=[])
 
 
+# WHY every test here (and every fake `name = "stub"` provider elsewhere)
+# is safe: tests/conftest.py isolates JLBC_DATA_DIR to a temp dir, so the
+# re-probe's ChunkStore(create=False) raises FileNotFoundError and never
+# touches a real corpus. That autouse fixture is what keeps CLAUDE.md's
+# "nothing in tests/ opens a real LanceDB" rule true for this feature.
 @pytest.fixture(autouse=True)
 def _isolated(monkeypatch, tmp_path):
     monkeypatch.setenv("JLBC_DATA_DIR", str(tmp_path / "share"))
@@ -1235,10 +1277,52 @@ def test_reprobes_are_rate_limited(monkeypatch):
     assert len(calls) == 3
 
 
-def test_a_real_provider_never_reprobes(monkeypatch):
+def test_a_real_provider_never_reprobes_on_its_own(monkeypatch):
     app, calls = _app(monkeypatch, [FakeLance()])
-    app.state.reprobe(force=True)
+    app.state.reprobe()
     assert len(calls) == 1
+
+
+def test_force_rebuilds_even_a_live_provider(monkeypatch):
+    """The repair screen can appear on a machine that booted with a REAL
+    corpus (the share rung fails later). Its provider then holds dead
+    handles; a repair must rebuild it, not skip because it is 'not stub'."""
+    first, second = FakeLance(), FakeLance()
+    app, calls = _app(monkeypatch, [first, second])
+    resets = []
+    monkeypatch.setattr("retrieval.pipeline.reset_default_collaborators", lambda: resets.append(1))
+    app.state.reprobe(force=True)
+    assert app.state.provider is second
+    assert resets == [1]
+
+
+def test_the_probe_creates_nothing(monkeypatch, tmp_path):
+    """Spec principle 3, at the site that actually created the laptop's
+    folder: _default_provider() -> ChunkStore() used to mkdir <share>/lancedb."""
+    monkeypatch.setenv("JLBC_DATA_DIR", str(tmp_path / "share"))
+    (tmp_path / "share").mkdir()
+    assert main_mod._probe_provider() is None
+    assert not (tmp_path / "share" / "lancedb").exists()
+
+
+def test_a_bundle_with_no_pointer_boots_to_the_repair_screen(monkeypatch, tmp_path):
+    """The laptop incident as a test: DEFAULT provider, VERSION at the root,
+    no pointer, no env var, real lifespan. Boot must succeed, /health must
+    answer, and the ladder must offer the box. Nothing else in the suite
+    exercises DataDirNotConfigured propagating out of data_dir() at boot."""
+    import store.config as config_mod
+
+    monkeypatch.delenv("JLBC_DATA_DIR")
+    root = tmp_path / "bundle"
+    root.mkdir()
+    (root / "VERSION").write_text("0.9.2\n", encoding="utf-8")
+    monkeypatch.setattr(config_mod, "_ROOT", root)
+    app = create_app(ingest_worker=None)  # default provider
+    with TestClient(app) as client:
+        assert client.get("/health").json()["provider"] == "stub"
+        report = client.get("/api/health/detail").json()
+        assert report["can_repair"] is True
+        assert next(r for r in report["rungs"] if r["name"] == "machine_config")["ok"] is False
 
 
 def test_saving_the_folder_swaps_at_once_and_resets_the_pipeline(monkeypatch, tmp_path):
@@ -1283,8 +1367,8 @@ def _probe_provider() -> SearchProvider | None:
     except Exception as e:  # noqa: BLE001 — missing folder, unreadable share, engine error
         reason = f"{type(e).__name__}: {e}"
     print(
-        f"jlbc-search: no usable corpus ({reason}) — serving stub search fixtures. "
-        "Open the app: the start-up screen will ask for the shared folder.",
+        f"jlbc-search: no usable corpus ({reason}) — serving stub search fixtures "
+        "until the shared folder can be opened.",
         file=sys.stderr,
     )
     return None
@@ -1307,26 +1391,36 @@ def _install_reprobe(app: FastAPI) -> None:
     last = {"at": float("-inf")}
 
     def reprobe(*, force: bool = False) -> str:
+        """Re-run the corpus probe. Unforced: only while on the stub, at most
+        once per REPROBE_INTERVAL_S. Forced (a repair was just saved): always
+        — the repair screen can appear on a machine that booted with a REAL
+        corpus whose handles are now dead, and skipping it because the
+        provider is 'not stub' would make the repair a no-op."""
         current = app.state.provider
-        if current.name != "stub":
+        if not force and current.name != "stub":
             return current.name
-        with lock:
+        # Non-blocking: lancedb.connect on an unreachable UNC path can block
+        # for the SMB timeout; concurrent searches must not queue behind it
+        # (spec S5). Whoever holds the lock is already probing.
+        if not lock.acquire(blocking=force):
+            return current.name
+        try:
             now = time.monotonic()
-            # Rate-limited: lancedb.connect on an unreachable UNC path can
-            # block for the SMB timeout, and the search page must not pay
-            # that per keystroke (spec S5).
             if not force and now - last["at"] < REPROBE_INTERVAL_S:
                 return current.name
             last["at"] = now
             fresh = _probe_provider()
+            from retrieval.pipeline import reset_default_collaborators
+
             if fresh is not None:
                 app.state.provider = fresh
-                from retrieval.pipeline import reset_default_collaborators
-
+            if fresh is not None or force:
                 # AI Mode caches its own ChunkStore; a pointer that changed
                 # under it must not keep answering from the old folder.
                 reset_default_collaborators()
             return app.state.provider.name
+        finally:
+            lock.release()
 
     app.state.reprobe = reprobe
 ```
@@ -1443,10 +1537,10 @@ In `webapp/src/HealthGate.test.tsx`, replace the `"says plainly that a restart i
   });
 ```
 
-In `webapp/src/pages/Search.test.tsx`, find the existing content-search spec that mocks `api.search` (search for `spyOn(api, "search")`; if none exists, model the new spec on the nearest content-mode spec) and add:
+In `webapp/src/pages/Search.test.tsx` (no spec spies `api.search` today; the file's `mount(docs, entry, formats)` helper at line 70 takes a router entry, and `?in=contents` puts the page straight into content mode so the request fires with no 2 s debounce — see `Search.tsx:1010-1019`), add at the end of the file:
 
 ```tsx
-it("labels stub results as samples, like Fiscal Notes does", async () => {
+test("labels stub results as samples, like Fiscal Notes does", async () => {
   vi.spyOn(api, "search").mockResolvedValue({
     results: [],
     total: 0,
@@ -1455,11 +1549,26 @@ it("labels stub results as samples, like Fiscal Notes does", async () => {
     inferred_doc_types: [],
     dropped_filters: [],
   });
-  // ...render the page in contents mode with a query, as the neighbouring
-  // spec does...
+  mount(DOCS, "/search?q=ahcccs&in=contents");
   expect(await screen.findByRole("note")).toHaveTextContent(/sample results, not a real search/);
 });
+
+test("no sample-results note on a real provider", async () => {
+  vi.spyOn(api, "search").mockResolvedValue({
+    results: [],
+    total: 0,
+    provider: "lance",
+    inferred_fiscal_years: [],
+    inferred_doc_types: [],
+    dropped_filters: [],
+  });
+  mount(DOCS, "/search?q=ahcccs&in=contents");
+  await screen.findByText(/Top 0 passages/);
+  expect(screen.queryByRole("note")).toBeNull();
+});
 ```
+
+(`vi` is already imported in that file; if `screen.findByRole("note")` collides with another `role="note"` on the page, scope it with `screen.findByText(/sample results/)`.)
 
 - [ ] **Step 2: Run to verify failure**
 
@@ -1485,9 +1594,9 @@ Expected: the three new/changed specs FAIL.
 {content.kind === "ready" && content.provider === "stub" && (
   <p className="fnnote fn-fixture" role="note">
     <strong>These are sample results, not a real search.</strong> This computer
-    could not open the shared budget folder, so the same few example passages
-    come back for every question. Open the app again from the Start Menu — the
-    start-up screen will ask for the folder.
+    can't open the shared budget folder, or that folder holds no documents yet,
+    so the same few example passages come back for every question. Ask whoever
+    set up the shared drive.
   </p>
 )}
 ```
@@ -1514,6 +1623,22 @@ The launcher reuses a running server, so the old 'reopen the app' advice
 did nothing. Budget Documents gets the same sample-results note Fiscal
 Notes has had — the laptop served fixtures all day with no label."
 ```
+
+- [ ] **Step 6: CHECKPOINT — render the four screens for Destin. Do not start Task 11 without his reply.**
+
+Everything the analyst can SEE now exists (backend Tasks 5–9, SPA this task). Build the SPA and start a dev server against each broken state, screenshot, and send the four PNGs:
+
+```bash
+bash -c 'cd ~/ask-the-budget-az-worktrees/windows-beta-fixes/webapp && npm run build'
+# 1. corrupt pointer:  JLBC_MACHINE_CONFIG_DIR=/tmp/mc1 (machine.json = "{ not json"), JLBC_DATA_DIR unset
+# 2. bundle, no pointer: touch <worktree>/VERSION, JLBC_MACHINE_CONFIG_DIR=/tmp/mc2 (empty dir), JLBC_DATA_DIR unset
+#    -> DELETE <worktree>/VERSION afterwards; tests/test_store_config.py::test_no_bundle_marker_in_a_checkout fails while it exists
+# 3. empty index:      JLBC_DATA_DIR=/tmp/share3 with an empty lancedb/ inside
+# 4. stub Budget Documents: JLBC_DATA_DIR=/tmp/share4 (nothing inside); open /search?q=ahcccs&in=contents
+# each: uv run uvicorn app.main:create_app --factory --port 93NN, then a headless-Chrome screenshot
+```
+
+Send the screenshots with `SendUserFile`, and paste — verbatim, in the same message — the three Windows-only strings nobody can render here: the launcher's "still starting" box (Task 14 Step 3), the "could not start" box, and the installer's `:incomplete` text and "Stopping the running copy" line (Task 14 Step 5). Ask: *"These are the new screens and messages. Say 'ok' or tell me which words to change."* Wording changes land as one small commit on this branch.
 
 ---
 
@@ -1622,8 +1747,8 @@ dict.popitem(last=False) is a TypeError — the 9th document crashed
 ### Task 12: A transient read error is retried, not cached as empty
 
 **Files:**
-- Modify: `store/documents.py:137-160`, `harness/settings.py:487-501`, `app/search_provider.py:223-237`
-- Test: `tests/test_store_documents.py`, `tests/test_harness_settings.py`, `tests/test_search_provider.py` (or wherever `LanceSearchProvider._info` is tested — grep `_doc_info`)
+- Modify: `store/documents.py:137-160`, `harness/settings.py:487-501`
+- Test: `tests/test_store_documents.py`, `tests/test_harness_settings.py`
 
 - [ ] **Step 1: Write the failing tests**
 
@@ -1650,9 +1775,35 @@ def test_a_transient_read_error_is_retried_next_call(data_dir, monkeypatch):
 
 (Add `from pathlib import Path` to the imports.)
 
-Append to `tests/test_harness_settings.py` (same shape, against `load_settings()` and `settings.json` with an `admin_username` key; assert the second call sees it).
+Append to `tests/test_harness_settings.py`:
 
-For `app/search_provider.py`, add to its test file: write a sidecar + the mockup index path patched to a temp file, make the first `load_documents` raise `OSError` via monkeypatch, assert `_info` returns `{"url": None, ...}` once and the real title on the next call.
+```python
+def test_a_transient_read_error_is_retried_next_call(tmp_path, monkeypatch):
+    """One OSError on settings.json used to cache DEFAULTS under the good
+    file's stamp: AI Mode reported 'no API key configured' until the admin
+    next saved settings."""
+    from pathlib import Path
+
+    (tmp_path / "settings.json").write_text(
+        json.dumps({"admin_username": "dsmith"}), encoding="utf-8"
+    )
+    real = Path.read_text
+    calls = {"n": 0}
+
+    def flaky(self, *a, **k):
+        calls["n"] += 1
+        if calls["n"] == 1 and self.name == "settings.json":
+            raise PermissionError("sharing violation")
+        return real(self, *a, **k)
+
+    monkeypatch.setattr(Path, "read_text", flaky)
+    assert load_settings().admin_username != "dsmith"
+    assert load_settings().admin_username == "dsmith"
+```
+
+(`json`, `load_settings` and the `_isolated_data_dir` autouse fixture are already in that file; the fixture resets the cache between tests — confirm at `tests/test_harness_settings.py:29-40` and call its reset helper at the top of the test if it exposes one.)
+
+`app/search_provider.py` needs **no change**: `_info` already sets `_doc_info_sig = None` on error (`:237`), and `_sidecar_changed()` therefore re-reads on the very next call. (The spec listed it; the review showed the fix was already in place — noted in STATUS, Task 16.)
 
 - [ ] **Step 2: Run to verify failure**
 
@@ -1680,28 +1831,20 @@ Expected: FAIL — second call still returns `{}` / defaults.
 
 `harness/settings.py` — same split in `load_settings`: on `OSError`, `_settings_stamp = None` and return `_settings_cache`; on `ValueError`, keep today's defaults-under-stamp.
 
-`app/search_provider.py::_info` — in the `except Exception` branch, set `self._doc_info_sig = None` (already) **and** leave `self._doc_info` as it was if it is not `None` (only set `{}` when nothing was ever loaded):
-
-```python
-                if self._doc_info is None:
-                    self._doc_info = {}
-                self._doc_info_sig = None
-```
-
 - [ ] **Step 4: Run**
 
-Run: `uv run pytest tests/test_store_documents.py tests/test_harness_settings.py tests/test_search_provider*.py tests/test_lance_provider.py -v`
+Run: `uv run pytest tests/test_store_documents.py tests/test_harness_settings.py -v`
 Expected: all pass.
 
 - [ ] **Step 5: Commit**
 
 ```bash
-git add store/documents.py harness/settings.py app/search_provider.py tests/
+git add store/documents.py harness/settings.py tests/
 git commit -m "caches: a transient read error is retried, not remembered as empty
 
-documents.json, settings.json and the title join cached {} under the
-good file's stamp after one OSError — blank titles and 'no API key'
-until the next ingest."
+documents.json and settings.json cached {} / defaults under the good
+file's stamp after one OSError — blank titles and 'no API key' until
+the next ingest. (search_provider already re-read on the next call.)"
 ```
 
 ---
@@ -1869,7 +2012,7 @@ def unlink_with_retry(path: Path, *, budget_s: float = 0.4) -> bool:
             time.sleep(_SLEEP_S)
 ```
 
-`ingest/archive.py`: delete `unlink_with_retry`, add `from store.fs import unlink_with_retry  # noqa: F401 — re-exported for ingest/jobs.py` and keep the docstring's WHY as a comment. `ingest/jobs.py`: delete `_replace_with_retry`; `from store.fs import replace_with_retry`; call `replace_with_retry(tmp, path, budget_s=0.4)` at the old site (keeps the 400 ms budget for small job files).
+`ingest/archive.py`: delete `unlink_with_retry`, add `from store.fs import unlink_with_retry  # noqa: F401 — re-exported for ingest/jobs.py` and keep the docstring's WHY as a comment. Import direction that matters: `store/fs.py` is stdlib-only and imports nothing from `ingest/`, so `ingest.jobs → store.fs` and `store.config → store.fs` cannot form a cycle. (`store/` already imports one `ingest` module — `store/book_family.py:43` — so "store never imports ingest" is not a rule here; "store.fs imports nothing first-party" is.) `ingest/jobs.py`: delete `_replace_with_retry`; `from store.fs import replace_with_retry`; call `replace_with_retry(tmp, path, budget_s=0.4)` at the old site (keeps the 400 ms budget for small job files).
 
 `store/config.py::write_documents_sidecar`: replace `os.replace(tmp, path)` with `replace_with_retry(tmp, path)` (import at top: `from store.fs import replace_with_retry`). `ingest/fiscal_notes_refresh.py::write_directory`: same.
 
@@ -2057,7 +2200,8 @@ def health_json(port: int, timeout: float = 1.5) -> dict | None:
             body = json.loads(r.read().decode("utf-8"))
     except (urllib.error.URLError, OSError, ValueError):
         return None
-    return body if isinstance(body, dict) and body.get("ok") is True else None
+    # `ok` alone is too common a shape; `provider` is ours (app/main.py /health).
+    return body if isinstance(body, dict) and body.get("ok") is True and "provider" in body else None
 ```
 
 `main()` becomes:
@@ -2072,30 +2216,64 @@ def main() -> int:
         return 1
 
 
+def _pid_alive(pid: int) -> bool:
+    """Is a process with this pid running? Windows: OpenProcess; else kill(0)."""
+    if os.name == "nt":
+        SYNCHRONIZE = 0x00100000
+        h = ctypes.windll.kernel32.OpenProcess(SYNCHRONIZE, False, pid)
+        if not h:
+            return False
+        ctypes.windll.kernel32.CloseHandle(h)
+        return True
+    try:
+        os.kill(pid, 0)
+        return True
+    except OSError:
+        return False
+
+
+def recorded() -> tuple[int, int] | None:
+    """(port, pid) from running.json, or None. A missing or corrupt file
+    means 'no server', not a crash."""
+    try:
+        d = json.loads(RUNNING_FILE.read_text(encoding="utf-8"))
+        return int(d["port"]), int(d["pid"])
+    except (OSError, ValueError, KeyError, TypeError):
+        return None
+
+
 def _main() -> int:
     prepare_environment()
     LOG_DIR.mkdir(parents=True, exist_ok=True)
     log_path = LOG_DIR / f"server-{datetime.now():%Y-%m-%d}.log"
 
-    # Reuse a running instance before doing anything expensive (S8).
-    body = health_json(PREFERRED_PORT)
-    if body is not None:
-        open_window(PREFERRED_PORT)
-        return 0
+    # 1. Reuse a running instance before doing anything expensive (S8) —
+    #    on WHATEVER port it recorded, so a fallback-port server is reused too.
+    rec = recorded()
+    if rec is not None:
+        port, pid = rec
+        if health_json(port) is not None:
+            open_window(port)
+            return 0
+        if _pid_alive(pid):
+            # Our own sibling is mid-start (a second click). Wait for IT —
+            # never for a stranger: a foreign process on the port has a
+            # different pid, or no running.json at all.
+            deadline = time.monotonic() + HEALTH_TIMEOUT_S
+            while time.monotonic() < deadline and _pid_alive(pid):
+                if health_json(port) is not None:
+                    open_window(port)
+                    return 0
+                time.sleep(0.5)
+
+    # 2. Bind 9300 if free; a stranger holding it costs one free_port() call.
     sock = try_bind(PREFERRED_PORT)
     if sock is None:
-        # Held but not answering: a sibling launcher is mid-start. Wait for it.
-        deadline = time.monotonic() + HEALTH_TIMEOUT_S
-        while time.monotonic() < deadline:
-            body = health_json(PREFERRED_PORT)
-            if body is not None:
-                open_window(PREFERRED_PORT)
-                return 0
-            time.sleep(0.5)
-        # Still nothing: a stranger owns 9300. Fall back to any free port.
         port = free_port()
+        print(f"port {PREFERRED_PORT} is held by another program; using {port}",
+              file=sys.stderr)
     else:
-        sock.close()
+        sock.close()  # uvicorn re-binds it a few ms later
         port = PREFERRED_PORT
     record_port(port)
     ... (unchanged: import uvicorn/create_app with the message-box-on-failure,
@@ -2120,7 +2298,30 @@ def _main() -> int:
     return 1
 ```
 
-The pre-log `write_text` in the import-failure branch gains `encoding="utf-8"`. Delete the old `health_ok` and `recorded_port` (nothing else uses them; `record_port` stays for the installer). Update the module docstring's numbered behaviour list to match (port 9300 first; the bind as the lock; 180 s; "still starting").
+The pre-log `write_text` in the import-failure branch gains `encoding="utf-8"`. Delete the old `health_ok` (replaced by `health_json`) and `recorded_port` (replaced by `recorded`); `record_port` stays and keeps writing `port`, `pid` and `started_at` (the spec's "no other state" meant no start-up flag; `started_at` is harmless and useful in a log). Add `import ctypes` if it is not already imported (it is — `message_box` uses it).
+
+Add one more launcher test beside the others:
+
+```python
+def test_health_json_rejects_a_foreign_ok_true(launcher, monkeypatch):
+    """Another local app answering {"ok": true} must not be mistaken for us."""
+    import urllib.request
+
+    class R:
+        status = 200
+
+        def read(self):
+            return b'{"ok": true}'
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *a):
+            return False
+
+    monkeypatch.setattr(urllib.request, "urlopen", lambda *a, **k: R())
+    assert launcher["health_json"](1) is None
+``` Update the module docstring's numbered behaviour list to match (port 9300 first; the bind as the lock; 180 s; "still starting").
 
 - [ ] **Step 4: Run the launcher tests**
 
@@ -2144,6 +2345,15 @@ set /p "INSTALL_DIR=  Install folder [%INSTALL_DEFAULT%]: "
 if not defined INSTALL_DIR set "INSTALL_DIR=%INSTALL_DEFAULT%"
 set "INSTALL_DIR=%INSTALL_DIR:"=%"
 if "%INSTALL_DIR:~-1%"=="\" set "INSTALL_DIR=%INSTALL_DIR:~0,-1%"
+rem  The old QUICKSTART named %ROOT_DIR% itself. Installing the program THERE
+rem  would put it beside the chats/memos/pointer again and make every later
+rem  upgrade dangerous. Refuse it rather than silently reinstalling the 0.9.1 layout.
+if /I "%INSTALL_DIR%"=="%ROOT_DIR%" (
+    echo   ERROR: the program must live in a folder INSIDE %ROOT_DIR%,
+    echo   not in that folder itself. Press Enter next time to take the default.
+    pause
+    exit /b 1
+)
 echo   Installing to: %INSTALL_DIR%
 echo.
 
@@ -2165,23 +2375,34 @@ rem  running.json (written by launcher.pyw) carries the pid; an installed
 rem  Python is always still on disk when it exists. The image name is checked
 rem  so a reused pid never kills a stranger.
 set "RUNNING=%ROOT_DIR%\running.json"
+set "OLDPID="
 if exist "%RUNNING%" (
     set "OLDPY="
     if exist "%INSTALL_DIR%\python\python.exe" set "OLDPY=%INSTALL_DIR%\python\python.exe"
     if exist "%ROOT_DIR%\python\python.exe" set "OLDPY=%ROOT_DIR%\python\python.exe"
+    rem  Write the pid to a temp file rather than parse it inside for /f —
+    rem  nested quotes inside a for /f command are the classic batch trap.
     if defined OLDPY (
-        for /f %%p in ('"!OLDPY!" -c "import json,sys;print(json.load(open(sys.argv[1],encoding='utf-8')).get('pid',''))" "%RUNNING%"') do set "OLDPID=%%p"
+        "!OLDPY!" -c "import json,sys;print(json.load(open(sys.argv[1],encoding='utf-8')).get('pid',''))" "%RUNNING%" > "%TEMP%\jlbc-pid.txt" 2>nul
+        set /p OLDPID=<"%TEMP%\jlbc-pid.txt"
+        del /q "%TEMP%\jlbc-pid.txt" >nul 2>&1
     )
-    if defined OLDPID (
-        tasklist /FI "PID eq !OLDPID!" /FI "IMAGENAME eq pythonw.exe" | find /I "pythonw.exe" >nul
-        if not errorlevel 1 (
-            echo   Stopping the running copy of JLBC Search...
-            taskkill /PID !OLDPID! /T /F >nul 2>&1
-            timeout /t 2 /nobreak >nul
-        )
-    )
-    del /q "%RUNNING%" >nul 2>&1
 )
+if defined OLDPID (
+    tasklist /FI "PID eq %OLDPID%" /FI "IMAGENAME eq pythonw.exe" | find /I "pythonw.exe" >nul
+    if not errorlevel 1 (
+        echo   JLBC Search is running on this PC and must be stopped to upgrade.
+        echo   If THIS computer processes uploads, wait for the queue to finish
+        echo   first ^(Admin -^> Corpus shows it^). Stopping it mid-document is safe
+        echo   for the corpus but the document has to be processed again.
+        echo.
+        pause
+        echo   Stopping the running copy of JLBC Search...
+        taskkill /PID %OLDPID% /T /F >nul 2>&1
+        timeout /t 2 /nobreak >nul
+    )
+)
+if exist "%RUNNING%" del /q "%RUNNING%" >nul 2>&1
 
 rem --- one-time cleanup of the 0.9.1 layout (program files at the root) -------
 if exist "%ROOT_DIR%\python\pythonw.exe" (
@@ -2327,20 +2548,7 @@ git add docs/QUICKSTART.md README.md packaging/README.md
 git commit -m "docs: quickstart for the program\\ layout; README marked developer-only"
 ```
 
-- [ ] **Step 5: CHECKPOINT — render the four screens for Destin. Do not proceed past this step without his reply.**
-
-Build the SPA and start a dev server against each broken state, screenshot, and send the four PNGs:
-
-```bash
-bash -c 'cd ~/ask-the-budget-az-worktrees/windows-beta-fixes/webapp && npm run build'
-# 1. corrupt pointer: JLBC_MACHINE_CONFIG_DIR=/tmp/mc1 with machine.json = "{ not json"
-# 2. bundle, no pointer: touch <worktree>/VERSION (delete it afterwards!), JLBC_MACHINE_CONFIG_DIR=/tmp/mc2 (empty), JLBC_DATA_DIR unset
-# 3. empty index: JLBC_DATA_DIR=/tmp/share3 with an empty lancedb/ inside
-# 4. stub Budget Documents: JLBC_DATA_DIR=/tmp/share4 (nothing inside) — search "ahcccs" in contents mode
-# each: uv run uvicorn app.main:create_app --factory --port 93NN, then a headless-Chrome screenshot of / (1–3) or /search?q=ahcccs&in=contents (4)
-```
-
-Send the screenshots with `SendUserFile` and the sentence: *"These are the four new screens. Say 'ok' or tell me which words to change."* Any wording change lands as a small commit on this branch. **Remove the temporary `VERSION` file before continuing.**
+(The rendered-UI checkpoint is Task 10 Step 6 — it happens BEFORE Tasks 11–14, not here.)
 
 ---
 
@@ -2404,4 +2612,4 @@ bash -c 'cd /home/destin/YouCoded/Projects/ask-the-budget-az-dev && git worktree
 
 - [ ] **Step 4: Tell Destin what to do next**
 
-The acceptance is on his laptop (spec §5): rebuild the bundle (`uv run python packaging/build_bundle.py --version 0.9.2`), copy `dist/JLBC-Search-0.9.2.zip` and `dist/Install-JLBC-Search.cmd` to the USB, run the installer, and walk the §5 list. Report the results in STATUS.
+The acceptance is on his laptop (spec §5): rebuild the bundle (`uv run python packaging/build_bundle.py --version 0.9.2`), copy `dist/JLBC-Search-0.9.2.zip` and `dist/Install-JLBC-Search.cmd` to the USB, then **run the installer TWICE on the laptop before any beta machine sees it** — once over the existing 0.9.1 install (the upgrade path: old layout cleaned, server stopped, chats intact) and once more over the result (the re-install path: `program\` replaced, `machine.json` untouched). Nothing in the batch file can be exercised on Linux; those two runs are the only test it gets. Then walk the §5 list. Report the results in STATUS.

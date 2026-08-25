@@ -205,8 +205,10 @@ and rewrite the STATUS.md row that says the tool ships ("deleted 2026-08-25, D1"
 `app/machine_config.py::normalize_data_dir(path) -> str`:
 
 1. `str(path).strip()`, strip surrounding `"` and `'`, then `.rstrip("\\/")` —
-   **unless** the remainder would end in `:` (`E:\` stays `E:\`; bare `E:` means
-   "current directory on E:" on Windows).
+   and a remainder ending in `:` gets ONE separator back (`E:\` stays `E:\`, bare
+   `E:` becomes `E:\`; `E:` alone means "current directory on E:" and
+   `Path("E:").exists()` is True, so it would validate and then open LanceDB
+   relative to the process cwd).
 2. On `os.name == "nt"`: replace every `/` with `\`; a result beginning with one `\`
    followed by a non-`\` gains a second leading `\` (the `/host/share` form). That
    last rule is a guess — `\JLBCSearch` can also mean `C:\JLBCSearch` — and is
@@ -277,7 +279,8 @@ code can already see, it needs no new contract, and it cannot be undone by a str
 | file absent, bundle (`resolve_data_dir` raises `DataDirNotConfigured`) | ✗ | "This computer hasn't been told where the shared budget folder is." / "Type the folder's location below — it's the one that contains the 'lancedb' folder." |
 | file absent, dev checkout | ✓ | unchanged today's sentence |
 | unreadable JSON | ✗ | fix: "You don't need to edit anything by hand — type the folder's location below and the app will rewrite this file correctly." |
-| not an object / no usable `data_dir` | ✗ | same fix sentence |
+| not an object | ✗ | same fix sentence |
+| file present but with no `data_dir` (only `ingest_enabled` / `display_names`) | ✓ if anything resolves (env var, or a dev checkout's default); ✗ "hasn't been told" only when `resolve_data_dir` raises | — the installer and the Settings page both write such files; on the Z13 and every dev box a folder resolves anyway |
 
 `health_detail`: `"can_repair": first_failure in ("machine_config", "share")`. The
 `corpus` rung stays non-repairable (a damaged index is not fixed by typing a folder;
@@ -296,11 +299,13 @@ never restarts the server — the current `restart_required: True` and the Repai
 screen's *"open JLBC Search again to finish"* copy describe an action that does
 nothing. Replaced:
 
-- `POST /api/config/data-dir`: validate (§2.2) → store → `app.state.reprobe()` (§3.3),
-  which swaps the provider if the probe now succeeds, and
-  `retrieval.pipeline.reset_default_store()` (the existing reset at
-  `pipeline.py:143`) so AI Mode's cached handle is rebuilt against the new folder.
-  Response: `{"path": …}`; `restart_required` is gone.
+- `POST /api/config/data-dir`: validate (§2.2) → store → `app.state.reprobe(force=True)`
+  (§3.3), which re-runs the probe **regardless of the current provider** — the
+  repair screen can appear on a machine that booted with a real corpus whose
+  handles are now dead — swaps it in on success, and always calls
+  `retrieval.pipeline.reset_default_collaborators()` so AI Mode's cached handle is
+  rebuilt against the new folder. Response: `{"path": …}`; `restart_required` is
+  gone.
 - `Repair.tsx` "Saved" copy: *"Saved. Click **Try again** to check."* — the button
   already exists (`Repair.tsx:114`).
 - Placeholder → `\\server\share\jlbc-search-data`.
@@ -323,10 +328,12 @@ valid. `app/main.py`'s lifespan shutdown closes every cached document. **Test:**
 9 distinct paths through `_locate_open_doc` with a fake `fitz`; the first is evicted
 and `close()`d, no exception. Mutating the type back to `dict` turns it red.
 
-### 3.2 Cache-on-error (`store/documents.py`, `harness/settings.py`, `app/search_provider.py`)
+### 3.2 Cache-on-error (`store/documents.py`, `harness/settings.py`)
 
 On `OSError` from the read, the cache keeps its previous good value and the stamp is
-set to `None`, so the next call re-reads. A `ValueError` on a fully read file
+set to `None`, so the next call re-reads. (`app/search_provider.py` was listed here
+originally; the plan review showed it already clears its stamp on error and
+re-reads next call — no change.) A `ValueError` on a fully read file
 (genuinely corrupt content) still caches `{}` under the stamp — re-reading a corrupt
 file every call buys nothing. **Test:** stat succeeds, `read_text` raises
 `PermissionError` once → second call returns the real content.
@@ -416,7 +423,8 @@ small unrelated edits.
 
 **Tier 3 — share file-locking (likely, unproven on Windows).** Admin restore
 `rmtree`s the live corpus (`store/backup.py:104`, route catches only
-`FileNotFoundError`); cancel/timeout orphans MinerU's model-server process and
+`FileNotFoundError`) **and still returns `restart_required: True` with the
+same "reopen the app" semantics §2.4 retires** (`app/routes/admin.py:1213`); cancel/timeout orphans MinerU's model-server process and
 blocks the worker on its stdout pipe (`mineru_runner.py:696`); OpenDataLoader's Java
 child has no `CREATE_NO_WINDOW` and decodes output as cp1252; per-upload snapshot
 zips the whole corpus over SMB with only an env-var off-switch; lock stale-steal
