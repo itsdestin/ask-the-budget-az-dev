@@ -870,17 +870,19 @@ def test_validate_refuses_a_folder_the_engine_cannot_open(tmp_path, monkeypatch)
 
 
 def test_validate_accepts_a_folder_with_rows(tmp_path):
+    """One row is enough — the check is 'has budget passages', not 'how many'.
+    DEFAULT dim (768): validate opens with ChunkStore's default and `_open`
+    checks the table's vector width, so an 8-dim test table would read as
+    'can't be opened'."""
     from store.chunk_store import ChunkStore
+    from tests.test_chunk_store import _row
 
     store = ChunkStore(root=tmp_path)
-    store.ensure_tables()
-    # One row is enough — the check is "has budget passages", not "how many".
-    tbl = store._open_or_create("budget_chunks")
-    tbl.add([_one_row()])
+    store.upsert_chunks("budget_chunks", [_row("c1", "ahcccs", [0.0] * 768)])
     assert validate_data_dir(tmp_path) is None
 ```
 
-`_one_row()` — look at how `tests/test_chunk_store.py` builds a row (it has a helper producing a dict matching `store/schema.py::chunk_schema`); import or copy that helper here. If the existing test file names it differently, use that name.
+(`tests/test_chunk_store.py::_row(cid, text, vec, **over)` already builds a schema-complete row; `tests/` is importable as a package in this suite — if the import fails, copy the 12-line helper into this file.)
 
 - [ ] **Step 2: Run to verify failure**
 
@@ -1490,7 +1492,12 @@ Expected: the three new/changed specs FAIL.
 )}
 ```
 
-(`.fnnote.fn-fixture` already exists in `app.css` for Fiscal Notes; verify it is not scoped under `.page-fn` — if it is, add `.page-docs .fn-fixture` with the same declarations.)
+`webapp/src/styles/app.css:3161-3162` scopes the note under `.page-fiscal-notes`. Add, directly below those two rules, the same two declarations prefixed `.page-docs` (Budget Documents' page class — confirm with `grep -n 'className="page-docs' webapp/src/pages/Search.tsx`) so the note paints identically on both pages:
+
+```css
+.page-docs .fn-fixture{margin:0 0 12px;padding:10px 12px;border:1px solid var(--az-gold);border-radius:var(--r-sm);background:var(--az-gold-100);color:var(--ink-2);font-size:12px;line-height:1.5;}
+.page-docs .fn-fixture strong{color:var(--az-gold-d);}
+```
 
 - [ ] **Step 4: Run**
 
