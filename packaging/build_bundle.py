@@ -134,6 +134,7 @@ EXCLUDED_PREFIXES = (
     "data/jlbc-book-sources/",  # crawl working files
     ".github/",
     "packaging/",               # the builder does not ship inside its own output
+    "mockups/",                 # HTML mockups — design record, not runtime
 )
 EXCLUDED_SUFFIXES = (".pyc",)
 EXCLUDED_NAMES = (
@@ -159,6 +160,16 @@ EXCLUDED_NAMES = (
     # exclusion pattern as the other dev-only scripts.
     # Caught by test_every_first_party_import_resolves.
     "scripts/verify_agent_query.py",
+)
+
+# Files re-admitted despite an EXCLUDED_PREFIXES hit. Each one is READ AT
+# RUNTIME by shipped code — check with `grep -rn "<name>" app store harness`
+# before removing an entry. Pinned by tests/test_packaging_manifest.py.
+INCLUDED_FILES = (
+    # app/search_provider.py::MOCKUP_INDEX_PATH — the vendored site index that
+    # supplies the Budget Documents meta line and the exact-URL join. Missing
+    # from 0.9.1: every row rendered as a humanised doc_id with no Open link.
+    "webapp/reference/assets/search/index-lite.js",
 )
 
 # Entries the launcher cannot start without. Asserted by
@@ -203,7 +214,13 @@ FORBIDDEN_SUBSTRINGS = (
     "__pycache__",
     ".pdf",
     "node_modules/",
+    "site-packages/bin/",   # POSIX console scripts with the dev venv's shebang
+    "mockups/",
 )
+
+# Root-level handoff prompts, matched by prefix: the by-name list rotted
+# (seven newer PROMPT-*.md files were shipping on 0.9.1).
+FORBIDDEN_ROOT_PREFIXES = ("PROMPT-",)
 
 
 def validate_manifest(paths: list[str]) -> list[str]:
@@ -228,6 +245,8 @@ def validate_manifest(paths: list[str]) -> list[str]:
         for bad in FORBIDDEN_SUBSTRINGS:
             if bad in p:
                 problems.append(f"forbidden content in bundle: {p} (matched {bad!r})")
+        if "/" not in p and p.startswith(FORBIDDEN_ROOT_PREFIXES):
+            problems.append(f"forbidden content in bundle: {p} (root handoff prompt)")
     return problems
 
 
@@ -241,11 +260,13 @@ def source_files(repo_root: Path = REPO_ROOT) -> list[str]:
     ).stdout.splitlines()
     keep = []
     for rel in out:
-        if rel.startswith(EXCLUDED_PREFIXES):
+        if rel.startswith(EXCLUDED_PREFIXES) and rel not in INCLUDED_FILES:
             continue
         if rel.endswith(EXCLUDED_SUFFIXES):
             continue
         if rel in EXCLUDED_NAMES:
+            continue
+        if "/" not in rel and rel.startswith(FORBIDDEN_ROOT_PREFIXES):
             continue
         # Dotfiles are dev metadata, never runtime. Caught by
         # tests/test_packaging_manifest.py: `.gitignore` is tracked and was
@@ -355,6 +376,11 @@ def step_wheels(out: Path, cache: Path) -> None:
          "--find-links", str(wheels), *REQUIREMENTS],
         check=True,
     )
+    # uv lays console scripts into site-packages/bin/ with the BUILD machine's
+    # venv shebang (`#!/home/destin/.../.venv/bin/python3`). They cannot run
+    # on Windows and the bundle's own mineru rung is `-m mineru.cli.client`
+    # (ingest/mineru_runner.py), so nothing needs them.
+    shutil.rmtree(target / "bin", ignore_errors=True)
 
 
 def step_jre(out: Path, cache: Path) -> None:
@@ -498,6 +524,15 @@ def step_zip(out: Path, version: str) -> Path:
             if p.is_file():
                 zf.write(p, f"{root_name}/{p.relative_to(out).as_posix()}")
     _log(f"zip     {zpath} ({zpath.stat().st_size / 1024**3:.2f} GB)")
+
+    # The one-click installer sits NEXT TO the zip on the USB and is the file
+    # that flashed-and-closed on 2026-08-18. Copying it here means the USB is
+    # assembled from one place, and the CRLF guard covers the copy.
+    installer = Path(__file__).resolve().parent / "Install-JLBC-Search.cmd"
+    shutil.copy2(installer, dist / installer.name)
+    if b"\r\n" not in (dist / installer.name).read_bytes():
+        raise SystemExit(f"{installer.name} is not CRLF — see tests/test_cmd_line_endings.py")
+    _log(f"copied  {installer.name} beside the zip")
     return zpath
 
 
