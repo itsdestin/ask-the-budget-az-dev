@@ -24,6 +24,7 @@ from pathlib import Path
 
 from fastapi import APIRouter, Request
 
+from app.routes.books import NetworkWatch
 from ingest.book_discovery import (
     DiscoveryError,
     _is_rolling,
@@ -181,6 +182,17 @@ def check_missing(prober, *, refresh: bool = False) -> dict:
     missing: list[dict] = []
     online, reason = True, None
 
+    # ONE watch for the WHOLE lookahead loop below (every family, every
+    # year) -- unlike book_formats.py, which builds a fresh one per edition.
+    # See `NetworkWatch`'s docstring in app/routes/books.py ("HOISTED
+    # 2026-08-22") for why sharing it this widely is still safe: an
+    # UNREACHABLE result is never memoised, so retrying costs nothing, and a
+    # REAL answer being memoised across years only ever contributes (0, 0)
+    # to the per-year counters below -- which the offline rule
+    # (`unreachable_d and not answered_d`) cannot mistake for an outage,
+    # because a rung that answered nothing new also flags nothing wrong.
+    watch = NetworkWatch(prober)
+
     # 1. Catalog editions marked ingestable that the corpus does not hold.
     #    Costs no network at all.
     for entry in catalog:
@@ -209,42 +221,81 @@ def check_missing(prober, *, refresh: bool = False) -> dict:
         for year in range(max(years) + 1, max(years) + 1 + LOOKAHEAD_YEARS):
             if (family, year) in known:
                 continue
+
+            # Snapshot the watch's own counters before this year's confirm
+            # requests, so the delta below reflects only what THIS year cost
+            # -- the confirm requests happen first, exactly the order that
+            # was book_formats.py's whole fix (see NetworkWatch's docstring
+            # in books.py): `plan_edition` is catalog-first, so testing the
+            # counters BEFORE this call would read a permanent (0, 0) for
+            # any catalogued year and never trip.
+            before = (watch.answered, watch.unreachable)
             try:
-                plan = plan_edition(family, year, prober=prober)
-                if not _has_year_specific_url(plan):
-                    # 🔴 FOUND BY RUNNING IT, not by any test. The probe
-                    # ladders include JLBC's ROLLING `/budget/` directory,
-                    # which is reused every publishing cycle -- so a HEAD
-                    # against it succeeds for a year that does not exist yet
-                    # and whose contents are actually a different edition.
-                    # Live on 2026-08-13 the check offered "FY 2028
-                    # Appropriations Report" on the strength of
-                    # /budget/apprpttoc.pdf alone, which at that moment held
-                    # the FY2027 book. FY2027 itself was found properly, on
-                    # three year-specific /27ar/ URLs.
-                    #
-                    # `walk_edition` already checks a rolling directory's
-                    # CONTENTS against the requested year before queuing
-                    # anything, so ingest was never at risk -- but this panel
-                    # offers editions rather than queuing them, and offering
-                    # one that does not exist is exactly the noise T10 removes.
-                    #
-                    # A rolling hit is therefore not evidence an edition
-                    # EXISTS. It stays usable for a year the analyst names by
-                    # hand, where the contents check does the work.
-                    continue
+                plan = plan_edition(family, year, prober=watch)
             except DiscoveryError:
                 # Not published yet. A normal answer, not an error -- most
                 # checks end here, which is what "everything is already
-                # here" looks like from the inside.
-                continue
-            except Exception as exc:  # noqa: BLE001 — network, DNS, timeout
+                # here" looks like from the inside. Fall through to the
+                # per-year network check below rather than `continue`
+                # immediately: a `DiscoveryError` is raised for BOTH "JLBC
+                # never published this" and "every rung went unanswered"
+                # (see `ingest/book_discovery.py::_plan_by_probing`), and
+                # only the counters below can tell those apart.
+                plan = None
+            except Exception as exc:  # noqa: BLE001 — a genuine bug, not a network shape
+                # A prober bug must still degrade, not 500 -- but this is no
+                # longer the load-bearing offline path (see the per-year
+                # check below), because NetworkWatch swallows every real
+                # network exception from `head_info` itself and converts it
+                # to an `unreachable` count. Reaching here means something
+                # OTHER than the network broke.
                 online = False
                 reason = (
                     "Couldn't reach azjlbc.gov to check for new editions "
                     f"({type(exc).__name__}). Showing what we knew last time."
                 )
                 break
+
+            answered_delta = watch.answered - before[0]
+            unreachable_delta = watch.unreachable - before[1]
+            if unreachable_delta and not answered_delta:
+                # This year was never actually measured -- every rung tried
+                # for it went unanswered and NOTHING about it came back real
+                # (not even a 404). `unreachable_delta` alone is not enough:
+                # a rung reused from a prior year via NetworkWatch's own
+                # cache (the rolling `/budget/apprpttoc.pdf` URL is the one
+                # case) contributes (0, 0) to BOTH counters and must never
+                # trip this on its own -- see the "ONE watch across the
+                # whole lookahead loop" tests.
+                online = False
+                reason = (
+                    "Couldn't reach azjlbc.gov to check for new editions. "
+                    "Showing what we knew last time."
+                )
+                break
+
+            if plan is None or not _has_year_specific_url(plan):
+                # 🔴 FOUND BY RUNNING IT, not by any test. The probe
+                # ladders include JLBC's ROLLING `/budget/` directory,
+                # which is reused every publishing cycle -- so a HEAD
+                # against it succeeds for a year that does not exist yet
+                # and whose contents are actually a different edition.
+                # Live on 2026-08-13 the check offered "FY 2028
+                # Appropriations Report" on the strength of
+                # /budget/apprpttoc.pdf alone, which at that moment held
+                # the FY2027 book. FY2027 itself was found properly, on
+                # three year-specific /27ar/ URLs.
+                #
+                # `walk_edition` already checks a rolling directory's
+                # CONTENTS against the requested year before queuing
+                # anything, so ingest was never at risk -- but this panel
+                # offers editions rather than queuing them, and offering
+                # one that does not exist is exactly the noise T10 removes.
+                #
+                # A rolling hit is therefore not evidence an edition
+                # EXISTS. It stays usable for a year the analyst names by
+                # hand, where the contents check does the work.
+                continue
             missing.append(
                 {
                     "family": family,
@@ -284,7 +335,15 @@ def check_missing(prober, *, refresh: bool = False) -> dict:
             unavailable, key=lambda u: (-u["fiscal_year"], u["family"])
         ),
     }
-    if online:
+    if online and not watch.unreachable:
+        # Never cache a payload any part of which went unmeasured. `online`
+        # alone is not enough: a lookahead year can go silent WITHOUT ever
+        # tripping the per-year "offline" rule above (it needs plenty of
+        # other real answers that year to stay under it), which leaves
+        # `online` True while `watch.unreachable` still records that some
+        # rung, somewhere in the whole check, never answered. Writing that
+        # partial picture into a 12-hour cache is the same defect as writing
+        # a fully-offline one -- it just takes longer to notice.
         _write_cache(payload)
     return payload
 

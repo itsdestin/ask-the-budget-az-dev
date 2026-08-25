@@ -188,6 +188,39 @@ def _agency_names() -> dict[str, str]:
 
 
 # ---------------------------------------------------------------------------
+# Fund-name catalog (guarded import — same shape as _agency_names above)
+# ---------------------------------------------------------------------------
+
+
+def _fund_names() -> dict[str, str]:
+    """canonical_id -> human fund name, or {} when unavailable.
+
+    Same degrade-everywhere contract as `_agency_names()` above, and the
+    same reason: a live conversation must never die because a metadata
+    nicety is missing. `funds/names.py::id_to_name()` already degrades to
+    `{}` for its own failure modes (missing file, malformed YAML), but
+    this guard has to tolerate failure shapes THAT loader cannot produce
+    on its own — the module not existing, no `id_to_name` attribute, an
+    unexpected return type, a callable that raises — mirroring
+    `_agency_names()` exactly rather than trusting funds.names alone.
+
+    Only `funds.names` may be reached from here — Invariant 7, same as
+    `identity.resolve` above. `funds/catalog.py` writes YAML files; see
+    `tests/test_harness_tools.py::
+    test_tools_module_reaches_only_the_read_side_of_funds`.
+    """
+    try:
+        from funds.names import id_to_name  # type: ignore[attr-defined]
+
+        mapping = id_to_name() if callable(id_to_name) else id_to_name
+        if not isinstance(mapping, Mapping):
+            return {}
+        return {str(k): str(v) for k, v in mapping.items()}
+    except Exception:
+        return {}
+
+
+# ---------------------------------------------------------------------------
 # Tool schemas (OpenAI function-calling form)
 # ---------------------------------------------------------------------------
 # Plain JSON Schema dicts rather than a generated-from-pydantic shape:
@@ -1642,6 +1675,14 @@ class ToolExecutor:
                 rows,
                 lambda r: [r["fund_canonical_id"]] if r["fund_canonical_id"] else [],
             )
+            # Real names when the catalog is available — same reasoning as
+            # the agency branch above: a code (`fund:ahcccs`) is opaque,
+            # the catalog states what it means.
+            names = _fund_names()
+            for value in values:
+                name = names.get(value["canonical_id"])
+                if name:
+                    value["name"] = name
         else:
             values = _values_by_document(rows, field)
         return {"field": field, "values": values}

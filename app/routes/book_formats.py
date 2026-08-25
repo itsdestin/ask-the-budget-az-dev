@@ -32,6 +32,7 @@ from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel, Field
 
 from app.routes.admin import require_admin
+from app.routes.books import NetworkWatch
 from app.routes.books_missing import FAMILY_LABELS, corpus_editions
 from ingest.book_discovery import DiscoveryError, plan_edition
 from store.config import data_dir
@@ -108,61 +109,14 @@ def _is_stale(checked_at: str | None) -> bool:
     return (datetime.now(timezone.utc) - when).total_seconds() > CACHE_TTL_SECONDS
 
 
-class _NetworkWatch:
-    """Wraps the prober so "offline" is distinguishable from "never published".
-
-    🔴 THIS IS NOT DEFENSIVE PADDING; WITHOUT IT THE OFFLINE BRANCH IS DEAD
-    CODE. Two facts, both read out of the shipped source rather than assumed:
-
-      * `ingest/book_discovery.py::_first_live` catches EVERY exception per
-        rung and moves to the next one, and when no rung answers,
-        `plan_edition` raises `DiscoveryError` -- the very same signal it
-        raises for "JLBC has not published this edition".
-      * `app/routes/books.HttpProber.head` never raises at all; it swallows
-        `requests.RequestException` and returns `False`.
-
-    So with the WiFi off, the real prober reports every candidate as "not
-    there", the ladder raises `DiscoveryError`, and a panel that trusted that
-    would say "nothing needs a link" -- a confident wrong answer manufactured
-    by a network failure, on an app that is verified to cold-start offline.
-
-    The fix costs no extra requests: route every rung through `head_info`,
-    which reports `(None, None)` for "the host never answered" and `(404, None)`
-    for "the host said no". Counting those two apart is the whole mechanism.
-    """
-
-    def __init__(self, inner) -> None:
-        self._inner = inner
-        self.answered = 0
-        self.unreachable = 0
-        # One question per address per edition. The ladder asks about a rung and
-        # then `_candidate` asks about the very rung it returned, so without this
-        # every probed edition costs two identical requests for the same answer.
-        # Scoped to one edition, which is this object's whole lifetime, so it can
-        # never serve a stale answer across a refresh.
-        self._seen: dict[str, tuple[int | None, int | None]] = {}
-
-    def head(self, url: str) -> bool:
-        # `_first_live` calls this. Answering it out of `head_info` keeps the
-        # boolean identical (a status under 400 is live, an unreachable host is
-        # not) while recording WHICH kind of "no" it was.
-        status, _ = self.head_info(url)
-        return status is not None and status < 400
-
-    def head_info(self, url: str) -> tuple[int | None, int | None]:
-        if url in self._seen:
-            return self._seen[url]
-        try:
-            status, size = self._inner.head_info(url)
-        except Exception:  # noqa: BLE001 — DNS, timeout, a fake that raises
-            self.unreachable += 1
-            return None, None      # deliberately NOT memoised: retry is cheap
-        if status is None:
-            self.unreachable += 1
-        else:
-            self.answered += 1
-        self._seen[url] = (status, size)
-        return status, size
+# `NetworkWatch` (offline-vs-not-published detection) moved to
+# `app/routes/books.py` on 2026-08-22, next to the `HttpProber` it decorates,
+# so `app/routes/books_missing.py`'s "Add a JLBC book" panel could share the
+# identical mechanism instead of growing a second, drifting copy. See its
+# docstring there for the full reasoning, INCLUDING the one property that
+# only matters once a caller shares a single watch across more than one
+# edition (`books_missing.py` does; this module still creates one per
+# edition, in `_candidates_for` below).
 
 
 @dataclass
@@ -216,7 +170,7 @@ def _candidates_for(label: str, family_slug: str, year: int, prober, cache: dict
             },
         )
 
-    watch = _NetworkWatch(prober)
+    watch = NetworkWatch(prober)
     broke = False
     try:
         plan = plan_edition(family_slug, year, prober=watch)

@@ -27,7 +27,7 @@ class FakeProber:
 
     def head(self, url: str) -> bool:
         # Part of the prober protocol `ingest/book_discovery.py` expects. The
-        # scan reaches it only through `head_info` (see `_NetworkWatch`), and
+        # scan reaches it only through `head_info` (see `NetworkWatch` in `app/routes/books.py`), and
         # this fake keeps the two consistent ON PURPOSE: the real HttpProber
         # answers both from one request, so a fake in which they disagree would
         # test a state that cannot exist.

@@ -21,6 +21,15 @@ interface Props {
   /** Rendered inside a ToolGroup — takes the recessed tint so the group
    *  header and its children read as one surface with a lifted inner step. */
   inGroup?: boolean;
+  /** Optional controlled open state. When the caller doesn't supply one (the
+   *  n=1 `tool-card.test.tsx` fixtures render this bare), the component falls
+   *  back to its own `useState` — unchanged behaviour for every existing
+   *  caller. AssistantTurnBubble supplies both when rendering an in-group
+   *  ToolCard, so the open/closed state survives the TC1 move into the
+   *  answer bubble instead of resetting on remount — see
+   *  docs/superpowers/specs/2026-08-22-tool-card-open-state-design.md. */
+  open?: boolean;
+  onToggle?: () => void;
 }
 
 const STATUS_LABEL: Record<ToolBlock["status"], string> = {
@@ -29,8 +38,17 @@ const STATUS_LABEL: Record<ToolBlock["status"], string> = {
   failed: "failed",
 };
 
-export default function ToolCard({ tool, inGroup = false }: Props) {
-  const [open, setOpen] = useState(false);
+export default function ToolCard({
+  tool,
+  inGroup = false,
+  open: controlledOpen,
+  onToggle: controlledToggle,
+}: Props) {
+  const [localOpen, setLocalOpen] = useState(false);
+  // `??` (not `||`) is load-bearing: a controlled `open={false}` must win
+  // over the local fallback, not be treated as "no value supplied".
+  const open = controlledOpen ?? localOpen;
+  const toggle = controlledToggle ?? (() => setLocalOpen((v) => !v));
   const label = toolDisplayLabel(tool.toolName);
   const summary = toolHeaderSummary(tool.toolName, tool.input);
   const isFailed = tool.status === "failed";
@@ -42,7 +60,7 @@ export default function ToolCard({ tool, inGroup = false }: Props) {
       <button
         type="button"
         className="chat-tool-head"
-        onClick={() => setOpen((v) => !v)}
+        onClick={toggle}
         aria-expanded={open}
       >
         {/* Status is carried by the glyph's SHAPE plus the pulse — color goes

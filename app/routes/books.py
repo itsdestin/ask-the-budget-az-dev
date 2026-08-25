@@ -127,6 +127,89 @@ def _prober(request: Request):
     return getattr(request.app.state, "book_prober", None) or HttpProber()
 
 
+class NetworkWatch:
+    """Wraps the prober so "offline" is distinguishable from "never published".
+
+    🔴 THIS IS NOT DEFENSIVE PADDING; WITHOUT IT THE OFFLINE BRANCH IS DEAD
+    CODE. Two facts, both read out of the shipped source rather than assumed:
+
+      * `ingest/book_discovery.py::_first_live` catches EVERY exception per
+        rung and moves to the next one, and when no rung answers,
+        `plan_edition` raises `DiscoveryError` -- the very same signal it
+        raises for "JLBC has not published this edition".
+      * `HttpProber.head` (above) never raises at all; it swallows
+        `requests.RequestException` and returns `False`.
+
+    So with the WiFi off, the real prober reports every candidate as "not
+    there", the ladder raises `DiscoveryError`, and a caller that trusted
+    that would say "nothing needs a link" -- a confident wrong answer
+    manufactured by a network failure, on an app that is verified to
+    cold-start offline.
+
+    The fix costs no extra requests: route every rung through `head_info`,
+    which reports `(None, None)` for "the host never answered" and `(404,
+    None)` for "the host said no". Counting those two apart is the whole
+    mechanism.
+
+    HOISTED (2026-08-22) out of `app/routes/book_formats.py`, where it was
+    `_NetworkWatch` and scoped to ONE book edition (a fresh instance per
+    call). `app/routes/books_missing.py` shares ONE instance across its
+    WHOLE lookahead loop -- several editions, several fiscal years -- and
+    that is only safe because of a property this class does not advertise
+    loudly enough on its own: an UNREACHABLE result is deliberately never
+    memoised (below -- "retry is cheap"), but a REAL answer IS memoised, for
+    the life of the watch. `ingest/book_discovery.py`'s approps TOC ladder
+    has exactly one rung that is IDENTICAL across every fiscal year --
+    `https://www.azjlbc.gov/budget/apprpttoc.pdf`, JLBC's rolling directory,
+    with no year anywhere in the path. A caller that shares one watch across
+    years will get that rung back from `_seen` on the second and later years
+    it is tried, with ZERO counter movement for that specific rung -- no
+    request, no `answered` increment, no `unreachable` increment. That is
+    safe PROVIDED a caller's "are we offline" rule is `unreachable and not
+    answered` (an unreachable rung with nothing else to show for the
+    period), never `not answered` alone -- a rung contributing (0, 0)
+    trivially satisfies "not answered" without meaning anything went wrong.
+    Pinned in `tests/test_books_missing.py` (the "ONE watch across the whole
+    lookahead loop" section): a URL answered in year N and reused with zero
+    delta in year N+1 must never read as "the network went down".
+    """
+
+    def __init__(self, inner) -> None:
+        self._inner = inner
+        self.answered = 0
+        self.unreachable = 0
+        # One question per address per edition. The ladder asks about a rung and
+        # then `_candidate` asks about the very rung it returned, so without this
+        # every probed edition costs two identical requests for the same answer.
+        # Scoped to one edition in `book_formats.py` (this object's whole
+        # lifetime there); `books_missing.py` deliberately widens that scope to
+        # the whole lookahead loop -- see the class docstring above for why that
+        # is still safe.
+        self._seen: dict[str, tuple[int | None, int | None]] = {}
+
+    def head(self, url: str) -> bool:
+        # `_first_live` calls this. Answering it out of `head_info` keeps the
+        # boolean identical (a status under 400 is live, an unreachable host is
+        # not) while recording WHICH kind of "no" it was.
+        status, _ = self.head_info(url)
+        return status is not None and status < 400
+
+    def head_info(self, url: str) -> tuple[int | None, int | None]:
+        if url in self._seen:
+            return self._seen[url]
+        try:
+            status, size = self._inner.head_info(url)
+        except Exception:  # noqa: BLE001 — DNS, timeout, a fake that raises
+            self.unreachable += 1
+            return None, None      # deliberately NOT memoised: retry is cheap
+        if status is None:
+            self.unreachable += 1
+        else:
+            self.answered += 1
+        self._seen[url] = (status, size)
+        return status, size
+
+
 def _batch_id_for(family: str, fiscal_year: int) -> str:
     """The batch every document of one book edition shares.
 

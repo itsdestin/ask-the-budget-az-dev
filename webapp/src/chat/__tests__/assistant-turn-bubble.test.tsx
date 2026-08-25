@@ -9,7 +9,7 @@
 // failure mode Core Invariant 3 exists to prevent.
 
 import { describe, expect, it } from "vitest";
-import { render } from "@testing-library/react";
+import { fireEvent, render, screen } from "@testing-library/react";
 import { renderToString } from "react-dom/server";
 
 import AssistantTurnBubble from "../AssistantTurnBubble.js";
@@ -311,5 +311,137 @@ describe("AssistantTurnBubble — tool blocks", () => {
     // doesn't split the run).
     expect(container.querySelectorAll(".chat-tool-group")).toHaveLength(1);
     expect(container.querySelectorAll(".chat-tool.is-inset")).toHaveLength(0);
+  });
+});
+
+// 2026-08-22 — closes the STATUS.md open item: a card expanded mid-search
+// used to snap shut the instant the answer arrived, because TC1 moves the
+// SAME run from a `.chat-turn` child (standalone, TC6) to a `.chat-bubble`
+// child once text exists. The parent element genuinely changes, so React
+// unmounts/remounts ToolGroup and its local `useState(false)` resets. See
+// docs/superpowers/specs/2026-08-22-tool-card-open-state-design.md.
+describe("AssistantTurnBubble — open state survives the move into the bubble", () => {
+  it("keeps an expanded card open when the answer arrives and the card moves into the bubble", () => {
+    const running = {
+      kind: "tool",
+      toolUseId: "toolA",
+      toolName: "retrieve",
+      input: { query: "Aviation Fund" },
+      status: "running",
+    } as const;
+    const { container, rerender } = render(
+      <AssistantTurnBubble turn={turn({ isComplete: false, blocks: [running] })} />,
+    );
+    // The real header sentence for a running single-tool retrieve run, read
+    // from tool-display.ts::toolHeaderSentence — verb "Searching", rest
+    // ` for “Aviation Fund”…` — rather than a guessed /Searching/ pattern.
+    fireEvent.click(screen.getByRole("button", { name: /Searching for “Aviation Fund”…/ }));
+    expect(container.querySelector(".chat-tool-group-expansion")).not.toBeNull();
+
+    rerender(
+      <AssistantTurnBubble
+        turn={turn({
+          blocks: [
+            { ...running, status: "complete" },
+            { kind: "text", uuid: "u1", text: "The Aviation Fund total is…" },
+          ],
+        })}
+      />,
+    );
+    const moved = container.querySelector(".chat-bubble .chat-tool-group");
+    expect(moved).not.toBeNull(); // it DID move (TC1 intact)
+    expect(moved!.querySelector(".chat-tool-group-expansion")).not.toBeNull(); // FAILS today — the move resets `open`
+  });
+
+  it("keeps an expanded in-group ToolCard open across the same move (n>=2)", () => {
+    const runningA = {
+      kind: "tool",
+      toolUseId: "toolA",
+      toolName: "retrieve",
+      input: { query: "Aviation Fund" },
+      status: "running",
+    } as const;
+    const toolB = {
+      kind: "tool",
+      toolUseId: "toolB",
+      toolName: "list_filter_values",
+      input: { field: "agency" },
+      status: "complete",
+    } as const;
+    const { container, rerender } = render(
+      <AssistantTurnBubble
+        turn={turn({ isComplete: false, blocks: [runningA, toolB] })}
+      />,
+    );
+    // Open the group first — the n>=2 branch only renders child ToolCards
+    // once the group itself is expanded.
+    fireEvent.click(screen.getByRole("button", { name: /Searching for “Aviation Fund”/ }));
+    // Then open the first child ToolCard inside the expansion.
+    const childHeaders = container.querySelectorAll(
+      ".chat-tool-group-body > .chat-tool > .chat-tool-head",
+    );
+    expect(childHeaders).toHaveLength(2);
+    fireEvent.click(childHeaders[0]!);
+    expect(
+      container.querySelectorAll(".chat-tool-group-body > .chat-tool")[0]!
+        .querySelector(".chat-tool-body"),
+    ).not.toBeNull();
+
+    rerender(
+      <AssistantTurnBubble
+        turn={turn({
+          blocks: [
+            { ...runningA, status: "complete" },
+            toolB,
+            { kind: "text", uuid: "u1", text: "Both checks are done." },
+          ],
+        })}
+      />,
+    );
+    const movedGroup = container.querySelector(".chat-bubble .chat-tool-group");
+    expect(movedGroup).not.toBeNull();
+    // The group itself is still expanded…
+    expect(movedGroup!.querySelector(".chat-tool-group-expansion")).not.toBeNull();
+    // …and the first child ToolCard is still expanded too.
+    const movedChildren = movedGroup!.querySelectorAll(
+      ".chat-tool-group-body > .chat-tool",
+    );
+    expect(movedChildren).toHaveLength(2);
+    expect(movedChildren[0]!.querySelector(".chat-tool-body")).not.toBeNull();
+  });
+
+  it("still toggles closed on click after the move", () => {
+    const running = {
+      kind: "tool",
+      toolUseId: "toolA",
+      toolName: "retrieve",
+      input: { query: "Aviation Fund" },
+      status: "running",
+    } as const;
+    const { container, rerender } = render(
+      <AssistantTurnBubble turn={turn({ isComplete: false, blocks: [running] })} />,
+    );
+    fireEvent.click(screen.getByRole("button", { name: /Searching for “Aviation Fund”…/ }));
+    expect(container.querySelector(".chat-tool-group-expansion")).not.toBeNull();
+
+    rerender(
+      <AssistantTurnBubble
+        turn={turn({
+          blocks: [
+            { ...running, status: "complete" },
+            { kind: "text", uuid: "u1", text: "The Aviation Fund total is…" },
+          ],
+        })}
+      />,
+    );
+    const movedHeader = container.querySelector(
+      ".chat-bubble .chat-tool-group .chat-tool-head",
+    )!;
+    // It survived the move (open) — clicking it again must still close it;
+    // the hoisted state must remain a live toggle, not a one-way sticky flag.
+    fireEvent.click(movedHeader);
+    expect(
+      container.querySelector(".chat-bubble .chat-tool-group-expansion"),
+    ).toBeNull();
   });
 });

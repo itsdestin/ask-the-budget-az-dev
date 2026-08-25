@@ -22,11 +22,12 @@
 // The authority is already on the wire and was being thrown away:
 // harness/tools.py attaches a catalog `name` to every `agency` value, and its
 // own comment says why — "the sample title only implies what an id means; the
-// catalog states it". So the ladder is: catalog `name` → the display table for
-// that dimension (shared with RetrieveView, never a second copy) → the raw
-// canonical_id. There is deliberately NO `sample_doc_title` rung: a wrong name
-// is worse than a raw code, because a code is visibly a code and a wrong name
-// is not.
+// catalog states it". Since 2026-08-22 it attaches one to `fund` values too
+// (funds/names.py, reading data/fund-catalog.yaml). So the ladder is: catalog
+// `name` → the display table for that dimension (shared with RetrieveView,
+// never a second copy) → the raw canonical_id. There is deliberately NO
+// `sample_doc_title` rung: a wrong name is worse than a raw code, because a
+// code is visibly a code and a wrong name is not.
 //
 // Deliberately NOT de-duplicated (TC21). Two catalog ids resolving to the
 // same displayed name — e.g. two rows both reading "Child Safety" — are a
@@ -46,10 +47,12 @@ interface FilterValue {
   canonical_id: string;
   chunk_count: number;
   sample_doc_title: string;
-  /** The catalog's real name for this id. Present on `agency` values whenever
-   *  the catalog resolved them (harness/tools.py `_list_filter_values`), absent
-   *  on every other dimension. Undeclared until 2026-08-16, which is how the
-   *  view came to invent names out of `sample_doc_title` instead. */
+  /** The catalog's real name for this id. Present on `agency` and `fund`
+   *  values whenever the respective catalog resolved them (harness/tools.py
+   *  `_list_filter_values`), absent on `doc_type` and `publisher`, which have
+   *  no catalog of their own (see DOC_TYPE_NAMES / PUBLISHER_NAMES below
+   *  instead). Undeclared until 2026-08-16, which is how the view came to
+   *  invent names out of `sample_doc_title` instead. */
   name?: string;
 }
 
@@ -111,8 +114,10 @@ function parseOutput(raw: string | undefined): ListFilterValuesOutput | null {
  *  3. the raw canonical_id.
  *
  *  `sample_doc_title` is deliberately NOT a rung — see the file header. A
- *  `fund` id has no table and no catalog name, so it renders as its own code;
- *  that is the honest answer, not a gap to fill with a document title. */
+ *  `fund` id the catalog doesn't recognise (or `doc_type/publisher`, which
+ *  have no catalog `name` at all) falls through to its display table or its
+ *  own raw code; that is the honest degrade, not a gap to fill with a
+ *  document title. */
 export function valueDisplayName(
   v: { canonical_id: string; name?: string },
   field: string,
