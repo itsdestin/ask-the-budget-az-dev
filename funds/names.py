@@ -37,7 +37,7 @@ import yaml
 # Words that mark a complete fund name. Split out so the WHY below can talk
 # about the rule in one place.
 _FUND_WORDS = ("fund",)
-_TAIL_WORDS = ("account", "subaccount")
+_TAIL_WORDS = ("account", "subaccount", "grant")
 
 
 def _looks_like_a_fund_name(name: str) -> bool:
