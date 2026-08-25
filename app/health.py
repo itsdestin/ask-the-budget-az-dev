@@ -10,6 +10,15 @@ actionable `fix`:
 
     server -> machine_config -> share -> corpus -> models
 
+`machine_config` fails a corrupt or unreadable pointer file, AND (2026-08-25)
+a bundle where nothing resolves at all — the laptop's actual failure, where
+`can_repair` used to stay False and the folder box never rendered. A pointer
+holding only `ingest_enabled` or `display_names` is normal and does not fail
+this rung. `corpus` fails a `lancedb/` folder that holds no tables, the same
+"wrong folder or half copy" shape as the missing-folder case above it; zero
+ROWS in an existing table stays OK, since a fresh install must still reach
+Upload.
+
 THE LADDER SHORT-CIRCUITS. Once a rung fails, every rung below it reports
 `ok: null` — "not checked" — rather than running and failing too. This is
 the difference between an admin fixing the right thing and an admin
@@ -81,30 +90,51 @@ def _check_server() -> tuple[bool, str, str | None]:
 
 def _check_machine_config() -> tuple[bool, str, str | None]:
     from app.machine_config import machine_config_path
+    from store.config import DataDirNotConfigured, resolve_data_dir
 
+    fix_type_below = (
+        "You don't need to edit anything by hand — type the folder's location "
+        "below and the app will rewrite this file correctly."
+    )
     path = machine_config_path()
-    if not path.exists():
-        # The overwhelmingly common case, and not a problem: nobody has
-        # needed to relocate the folder on this machine.
-        return True, "Using the standard shared-folder setting.", None
-    try:
-        import json
+    if path.exists():
+        try:
+            import json
 
-        raw = json.loads(path.read_text(encoding="utf-8"))
-    except (OSError, ValueError):
+            raw = json.loads(path.read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            return (
+                False,
+                "This computer has a settings file saying where the shared folder "
+                "is, and it can't be read.",
+                fix_type_below,
+            )
+        if not isinstance(raw, dict):
+            return (
+                False,
+                "This computer's shared-folder setting is not in the expected form.",
+                fix_type_below,
+            )
+    # ONE rule for "the pointer names nothing": does anything resolve? A
+    # machine.json holding only `ingest_enabled` or `display_names` is normal
+    # (the installer and the Settings page both write those), and with
+    # JLBC_DATA_DIR set — every dev box, the Z13 — a folder resolves anyway.
+    # Only a packaged install with no env var and no pointer raises
+    # (store/config.py::DataDirNotConfigured). The laptop sat exactly there.
+    try:
+        resolve_data_dir()
+    except DataDirNotConfigured:
         return (
             False,
-            "This computer has a settings file saying where the shared folder "
-            "is, and it can't be read.",
-            f"Delete this file and reopen the app: {path}",
+            "This computer hasn't been told where the shared budget folder is.",
+            "Type the folder's location below — it's the one that contains "
+            "the 'lancedb' folder.",
         )
-    if not isinstance(raw, dict):
-        return (
-            False,
-            "This computer's shared-folder setting is not in the expected form.",
-            f"Delete this file and reopen the app: {path}",
-        )
-    return True, "This computer's shared-folder setting is readable.", None
+    except OSError:
+        pass  # a reachability problem is the share rung's to report
+    if path.exists():
+        return True, "This computer's shared-folder setting is readable.", None
+    return True, "Using the standard shared-folder setting.", None
 
 
 def _check_share(root: Path) -> tuple[bool, str, str | None]:
@@ -147,7 +177,17 @@ def _check_corpus(root: Path) -> tuple[bool, str, str | None]:
     try:
         from store.chunk_store import ChunkStore
 
-        count = ChunkStore().count("budget_chunks")
+        # create=False: this is a CHECK. Before 2026-08-25 it mkdir'd
+        # <share>/lancedb, so a wrong pointer manufactured its own evidence.
+        store = ChunkStore(root=root, create=False)
+        if "budget_chunks" not in store.table_names():
+            return (
+                False,
+                "The shared folder is there but holds no search index.",
+                "Check you typed the folder that contains 'lancedb', or ask "
+                "whoever set up the shared drive.",
+            )
+        count = store.count("budget_chunks")
     except Exception as err:  # noqa: BLE001
         # A bare "ValueError" means nothing to the person who can fix this.
         # The two realistic causes for a fresh install are a HALF-COPIED
@@ -250,8 +290,9 @@ def health_detail() -> dict[str, Any]:
         "ok": not failed,
         "rungs": rungs,
         "data_dir": str(root) if root is not None else None,
-        # The repair box only helps when the problem IS where the app is
-        # pointed. Offering it for a corrupt corpus would waste an admin's
-        # time on an action that cannot fix their problem.
-        "can_repair": first_failure == "share",
+        # The repair box helps exactly when the problem IS where the app is
+        # pointed: a missing/corrupt pointer, or a pointer at a folder that is
+        # not there. Widened from `== "share"` on 2026-08-25 — the laptop's
+        # first failure was machine_config and the box never rendered.
+        "can_repair": first_failure in ("machine_config", "share"),
     }

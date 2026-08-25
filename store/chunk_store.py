@@ -172,6 +172,15 @@ class ChunkStore:
         for name in CORPUS_TABLES:
             self._open_or_create(name)
 
+    def table_names(self) -> list[str]:
+        """The tables actually present on disk — a read, never a create.
+
+        Used by the health ladder (app/health.py) to tell "a lancedb/ folder
+        with no tables in it" (wrong folder, or a half-finished copy) apart
+        from "a table with zero rows" (a genuinely fresh, healthy install).
+        """
+        return list(self._db.table_names())
+
     def count(self, name: str) -> int:
         tbl = self._open(name)
         return 0 if tbl is None else tbl.count_rows()

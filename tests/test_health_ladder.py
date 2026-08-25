@@ -38,7 +38,9 @@ def client() -> TestClient:
 
 
 def make_corpus(tmp_path) -> None:
-    (tmp_path / "share" / "lancedb").mkdir(parents=True, exist_ok=True)
+    from store.chunk_store import ChunkStore
+
+    ChunkStore(root=tmp_path / "share").ensure_tables()
 
 
 def rung(report: dict, name: str) -> dict:
@@ -203,3 +205,79 @@ def test_health_detail_never_raises(monkeypatch, tmp_path):
     report = health_detail()
     assert report["ok"] is False
     assert any(r["ok"] is False for r in report["rungs"])
+
+
+# ---------------------------------------------------------------------------
+# The pointer failures the laptop actually hit (2026-08-18)
+# ---------------------------------------------------------------------------
+
+
+def test_a_bundle_with_no_pointer_fails_the_config_rung_and_can_repair(
+    client, monkeypatch, tmp_path
+):
+    """The laptop (2026-08-18): first failing rung was machine_config, so
+    can_repair was False, the folder box never rendered, and the only advice
+    was 'delete this file by hand'."""
+    import store.config as config_mod
+
+    monkeypatch.delenv("JLBC_DATA_DIR")
+    root = tmp_path / "bundle"
+    root.mkdir()
+    (root / "VERSION").write_text("0.9.2\n", encoding="utf-8")
+    monkeypatch.setattr(config_mod, "_ROOT", root)
+
+    report = client.get("/api/health/detail").json()
+
+    config = rung(report, "machine_config")
+    assert config["ok"] is False
+    assert "hasn't been told" in config["detail"]
+    assert "below" in config["fix"]
+    assert report["can_repair"] is True
+    assert rung(report, "share")["ok"] is None
+
+
+def test_a_corrupt_pointer_offers_the_box_not_a_hand_edit(client, tmp_path):
+    machine = tmp_path / "machine"
+    machine.mkdir(parents=True, exist_ok=True)
+    (machine / "machine.json").write_text("{ not json", encoding="utf-8")
+    make_corpus(tmp_path)
+
+    report = client.get("/api/health/detail").json()
+
+    config = rung(report, "machine_config")
+    assert "Delete this file" not in config["fix"]
+    assert "below" in config["fix"]
+    assert report["can_repair"] is True
+
+
+def test_a_dev_checkout_with_no_pointer_is_still_fine(client, tmp_path):
+    """Nothing changes for the dev box: no VERSION marker, no failure."""
+    make_corpus(tmp_path)
+    report = client.get("/api/health/detail").json()
+    assert rung(report, "machine_config")["ok"] is True
+
+
+def test_a_pointer_file_without_a_data_dir_is_fine_when_a_folder_resolves(client, tmp_path):
+    """machine.json can legitimately hold only `ingest_enabled` (the
+    installer writes it even when the data folder was skipped) or only
+    `display_names` (the Settings page). With JLBC_DATA_DIR set — every
+    dev box and the Z13 — that is NOT a failure. Only 'nothing resolves at
+    all' (DataDirNotConfigured) fails this rung."""
+    machine = tmp_path / "machine"
+    machine.mkdir(parents=True, exist_ok=True)
+    (machine / "machine.json").write_text('{"ingest_enabled": false}', encoding="utf-8")
+    make_corpus(tmp_path)
+    report = client.get("/api/health/detail").json()
+    assert rung(report, "machine_config")["ok"] is True
+
+
+def test_a_lancedb_folder_with_no_tables_fails_the_corpus_rung(client, tmp_path):
+    """An empty lancedb/ used to read as 'set up, no documents yet' — the
+    same sentence a fresh install gets. Zero ROWS stays OK (the Upload page
+    must be reachable); zero TABLES is a wrong folder or a half copy."""
+    (tmp_path / "share" / "lancedb").mkdir(parents=True)  # a folder, NO tables
+    report = client.get("/api/health/detail").json()
+    corpus = rung(report, "corpus")
+    assert corpus["ok"] is False
+    assert "holds no search index" in corpus["detail"]
+    assert report["can_repair"] is False
