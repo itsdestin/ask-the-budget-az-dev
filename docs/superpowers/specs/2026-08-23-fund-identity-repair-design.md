@@ -1,6 +1,6 @@
 # Fund identity repair — catalog names, ingest stamps, and the surgical unstamp
 
-**Date:** 2026-08-23 · **Status:** DRAFT, for independent review
+**Date:** 2026-08-23 · **Status:** IMPLEMENTED 2026-08-23 (see the implementation record at the end)
 **Follows:** `2026-08-22-fund-names-design.md` (display allowlist, shipped on
 `easy-wins`) · **Shape precedent:** the 2026-08-16 corpus identity repair
 (agency labels), `identity/relabel.py`.
@@ -241,3 +241,25 @@ Charitable 351 chunks; Investment Management 48 chunks). Corrections:
    AI-Mode transcripts are unaffected: retrieve JSON carries no
    `fund_canonical_id`; an old `list_filter_values` card keeps whatever it
    captured.
+
+## Implementation record (2026-08-23)
+
+- **Species read:** all 16 corroborated `fund:species` chunks are Game & Fish
+  material printing "Game, **Non-Game**, Fish and Endangered Species Fund"
+  (the hyphen is why the first regex missed the full name). Decision:
+  DELETE `fund:species` (pinned; 18 stamps nulled), RENAME
+  `fund:game-nongame-fish-and-endangered` to the statutory name with the
+  hyphenated printed form as a variant. Rename ran before the delete rule.
+- **Catalog:** 227 → 177 (17 renamed, 50 deleted: 48 by rule + 2 pinned).
+  The delete list was printed and read line by line before `--apply`.
+- **Corpus pass:** budget 9,454 rows (7,327 primary nulled, 4,636 mention
+  entries scrubbed), fiscal notes 776 (752 / 32). Dry-run == apply. One
+  CRC-verified snapshot `lancedb-20260825T200430Z.zip`; reversal records
+  `fund-unstamp-reversal-{table}-2026-08-25T2005Z.json`. FTS rebuilt +
+  optimized on both tables afterwards (the precedent skips this; the
+  unstamp module now does it and pins it).
+- **After:** budget 16,301 stamped chunks on 154 ids, 0 without a name;
+  fiscal notes 319 on 51 ids, 0 without a name; 0 mention ids unnamed.
+- **Evals:** control `2026-08-25T2003Z-bd58ee2` and after
+  `2026-08-25T2007Z-e461747` identical (85.71 / 97.62 / 100 / 60); a third
+  after the index rebuild recorded in STATUS.

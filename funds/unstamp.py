@@ -201,6 +201,16 @@ def unstamp_table(
         lock.heartbeat()
         changed_ids = {row["chunk_id"] for row, _p, _m in changes}
         _verify_nothing_was_lost(store, table, before_rows, changed_ids, progress)
+        # The ingest write contract (ingest/lance_writer.py): upsert is
+        # delete-then-add, and ADDED rows are invisible to BM25 until the
+        # full-text index is rebuilt. A pass that rewrote 9,454 rows and
+        # skipped this would leave every one of them findable by the dense
+        # leg only -- a silent keyword-search hole with no error anywhere.
+        if changes:
+            progress(f"{table}: rebuilding the full-text index and optimizing")
+            store.build_fts_index(table)
+            store.optimize(table)
+            lock.heartbeat()
 
         if reversal_dir is None:
             from store.config import data_dir as _resolve_data_dir

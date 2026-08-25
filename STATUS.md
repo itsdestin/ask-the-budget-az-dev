@@ -1,6 +1,6 @@
 # Project Status
 
-**Last updated:** 2026-08-22
+**Last updated:** 2026-08-23
 
 This file is the single source of truth for what's shipped, what's
 open, and what's blocked. The phase plans under `docs/superpowers/`
@@ -56,7 +56,110 @@ source. When something ships, update only this file.
 | **Consolidated eval pipeline** | ✅ **Shipped — merged to master (2026-08-18), 3265 pytest green** | Replaced the smoke/full/dr-probe Layer-2 organization with three `set:`s (quick 45 / deep 3 / refusal 5; **multi deferred**), a tokens/turns-to-accurate headline (wall-clock dropped), a `document_correctness` doc-type axis, a tool-error ledger, an over-time archive, a free corpus-verification script, and a **resumable judge** (partial writes + resume-skip). 53 queries, all **solvable** (0 presence misses). **deepseek-v4-flash-0731 full-45 quick rerun: 0.711 accurate (32/45), $0.21 — beats glm-5.2 (0.667) at ~1/10 cost.** Report bundle auto-opens at end of every run. See "Consolidated eval pipeline" below |
 | **Product rename — JLBC Search** | ✅ **Shipped (2026-08-18), all suites + Layer 1 gate green** | Every user-facing and internal reference to "JLBC Insight" / "Ask the Budget AZ" became **JLBC Search** — SPA title, home hero, repair/health screens, launcher, installers, shortcuts, bundle names, state dirs (`%LOCALAPPDATA%\JLBC-Search`), OpenRouter `X-Title`, system-prompt lead, QUICKSTART + PREVIEW-BRIEFING, pyproject/package names. Old MCP-namespaced tool aliases kept in `citation-extract` so saved transcripts still render. Historical docs/plans/specs untouched (record of design intent). 3299 pytest / 1149 vitest / tsc / build green; **Layer 1 eval identical to baseline** (recall@5 85.71%, @15 97.62%, @20 100.00%, refusal 60%). "JLBC Agentic Search" (memo footer) deliberately kept per Destin's call. See "Product rename" section below |
 | **One-click diagnostic → verification + repair** | ✅ **Rewritten (2026-08-18)**, 3304 pytest green | The old USB diagnostic only wrote a REPORT. The replacement (`packaging/diag/diag.pyw` + `diag.cmd` + new `RUN-DIAGNOSTIC.cmd`) copies the server log (redacted), **compares the network/share copy of the corpus against the USB seed** file-by-file (missing + half-copied files, plain-english verdict), then **offers to repair** — copy the missing files from USB and re-verify with the app's own `ChunkStore` open-check (the exact health-ladder rung). Root cause of the flash-and-close also fixed: every `.cmd` in the repo was LF-only; new/rewritten ones are CRLF. Verified end-to-end against the live corpus (7,932-file manifest; repair closed a 7,930-file gap and the open-check then passed at 83,197 passages). Ships on the USB only — `packaging/` is excluded from the bundle by design. `tests/test_diag_tool.py` pins the manifest/compare/copy logic. See the section below |
+| **Fund identity repair** (catalog + stamps + the analyst's fund list) | ✅ **Built and APPLIED to the corpus 2026-08-23**, evals identical before/after, awaiting Destin's review | Branch `fund-identity` off `easy-wins`. 17 truncated fund names restored, 50 non-fund catalog rows removed, fund stamping bounded to word edges, and 9,454 + 776 junk stamps nulled on both corpora with a verified snapshot + reversal records. Fund list: 187 ids/49 codes → **154 funds, all named**. See "Fund identity repair" below |
 | **Easy-wins batch — five small fixes** | ✅ **Built 2026-08-22, all gates green, awaiting Destin's review + browser pass** | Branch `easy-wins`. Five open STATUS items closed: fund names on the filter-values card, tool card survives the answer arriving, the books panel tells offline from nothing-missing (and stops caching the poisoned answer), the chat nickname appears without a click, the issue-inbox transcript is bounded. Plus the uv.lock rename fallout committed. Each item: agent-drafted spec → independent review → implementation → per-task review; final whole-branch review clean. pytest 3323 / vitest 1158 / tsc / build green; no eval owed (nothing on an eval-gated path). See "Easy-wins batch" below |
+
+## Fund identity repair — catalog, stamps, and the analyst's fund list (2026-08-23)
+
+Branch `fund-identity` (off `easy-wins`). Spec:
+`docs/superpowers/specs/2026-08-23-fund-identity-repair-design.md` (with the
+independent review's amendments, which govern). **The corpus was written**
+— restore point `backups/lancedb-20260825T200430Z.zip` (CRC-verified before
+the write), reversal records
+`<data_dir>/fund-unstamp-reversal-{budget_chunks,fiscal_note_chunks}-2026-08-25T2005Z.json`.
+
+Destin's directive: *"fix this more robustly so it works the way a typical
+JLBC analyst would expect."* The easy-wins allowlist had stopped wrong NAMES;
+the fund dimension still did not BEHAVE — 49 raw codes in the model's fund
+list, "funds" that were schedule rows and agency names, and 7,000+ chunks
+stamped by a substring bug.
+
+### Three defect classes, all measured corpus-wide and re-derived by review
+
+| class | what it was | how it was told apart |
+|---|---|---|
+| **Truncated names** | the s18 catalog parser cut 17 real fund names mid-phrase (`Department of Education Empowerment` → `… Scholarship Account`, `Special Employee Health Insurance` → `… Trust Fund`) | *recovery coverage* (share of the id's own stamped chunks containing the full continuation) and *dominance* of one recovered form, or a corpus-wide count (`Motor Vehicle Liability Insurance Enforcement Fund` ×235 vs bare ×2) |
+| **Junk rows** | 50 catalog entries that were never funds: 25 `Total -`/`SUBTOTAL` schedule rows, 11 agency names, 11 FY-2026 budget-adjustment lines, one line item, and severed fragments (`Account`, `Block Grant`, `Species Fund`) | their "recoveries" are column collisions (`Child Safety, Department of` + the `General Fund` cell beside it); coverage low, dominant form not a fund |
+| **Severed tails** | short `X Fund` entries that are really the tail of a longer fund | the word BEFORE `X Fund` in the id's own text: `Corrections/Podiatry/Recycling/Telecommunications/AHCCCS Fund` are real (bare form dominates 201/75/60/73/120); `Species Fund` is not — 16 of 18 chunks print *Game, Non-Game, Fish and Endangered Species Fund* |
+
+**Mechanism, both halves:** parser truncation at build, and
+`chunking/entity_stamper.py::_scan_for_names` matching fund names as plain
+casefolded substrings with no word boundary — how `Account` stamped 5,238
+chunks across 143 agencies from inside "Account**ing**".
+
+### What shipped
+
+- **`data/fund-catalog.yaml` repaired in place** (227 → 177) by
+  `scripts/repair_fund_catalog.py`: 17 renames (each row's evidence in the
+  spec), two variants that are full names rather than truncated prefixes,
+  50 deletions. The delete rule IS the display allowlist
+  (`funds/names.py::_looks_like_a_fund_name`, `grant` now an allowed tail),
+  so catalog and screen cannot disagree about what a fund name is; two ids
+  are hand-pinned because they pass the shape (`fund:block-grant`,
+  `fund:species`). `scripts/build_fund_catalog.py` applies the same filter
+  so a regeneration cannot resurrect the junk, and warns that it would lose
+  the renames. `tests/test_fund_catalog_shape.py` guards all of it.
+- **Fund stamping requires word edges.** A switch on `_scan_for_names`,
+  taken by the FUND path only — the agency table path shares the function
+  and was calibrated by the 2026-08-16 relabel, so it is pinned unchanged
+  (`tests/test_entity_stamper_fund_boundaries.py`; the 206 existing
+  stamper/relabel tests untouched).
+- **`funds/unstamp.py`** nulled every stamp whose fund no longer exists, on
+  BOTH corpora (the review found fiscal notes carried 752 of them — the
+  spec had assumed none). It keeps `identity/relabel.py`'s five
+  disciplines (lock, CRC-verified snapshot, batched writes, id-set + column
+  verification, tmp+rename reversal carrying the full old `fund_mentions`
+  list) **and one the precedent lacks:** it rebuilds the full-text index and
+  optimizes after writing, because the ingest contract says re-added rows
+  are invisible to BM25 until then. `identity/relabel.py` does not do this
+  — a follow-up worth a look.
+
+### Measured, before → after
+
+| | before | after |
+|---|---|---|
+| catalog entries | 227 | **177**, every one passing the fund-name shape |
+| budget chunks carrying a fund stamp | 23,628 on 187 ids | **16,301 on 154 ids** |
+| stamped ids with no displayable name | 49 | **0** |
+| `fund_mentions` entries pointing at a deleted id | 4,636 | **0** |
+| fiscal-note chunks carrying a fund stamp | 1,071 (654 of them `Account`) | **319 on 51 ids, all named** |
+| top of the fund list | `Account` ×5,238 | `Long Term Care System Fund` ×751 |
+
+Rows rewritten: 9,454 budget + 776 fiscal-note; dry-run and apply counts
+identical; verification passed on every touched row plus 200 untouched
+per table.
+
+**Layer 1 eval, control discipline:** run on the UNMODIFIED corpus minutes
+before the write (`eval/results/2026-08-25T2003Z-bd58ee2`) and again after
+(`…T2007Z-e461747`), same machine, same 47-query set: **recall@5 85.71% /
+@15 97.62% / @20 100% / refusal 60% both times** — identical, as expected
+(fund is a hard filter only when asked for; no eval query asks and no
+ranking constant reads it). **A third run after the full-text index
+rebuild (`…T2009Z-e461747`) is identical too** — so the keyword leg lost
+nothing to the rewrite. All three result files are committed.
+
+### What the analyst sees now
+
+"What funds can you filter by?" lists ~154 real funds, every one by name;
+no codes, no `Total -` rows, no agencies. A fund filter has no junk value
+left to return.
+
+### ⏸ Known residuals (recorded, not fixed)
+
+- ~9 "Juvenile Corrections Fund" mentions still stamp as `fund:corrections`
+  — a word-boundary rule cannot separate a real fund whose name CONTAINS
+  another real fund's name; only a catalog entry for the longer fund would.
+- `RetrieveView` still echoes a fund FILTER ARGUMENT as an uppercased raw
+  code (the model's own chosen id) — honest, not a name; needs the server
+  to echo names beside filter arguments.
+- Saved AI-Mode transcripts are unaffected (retrieve JSON carries no fund
+  id); an old `list_filter_values` card keeps whatever junk it captured.
+- The fund stamps that REMAIN were never audited for accuracy (right name
+  for the id; is the id right for the passage?) — the same per-id
+  read-the-chunks method the agency audit used, if it is ever done.
+- Nobody has looked at the fund list in a browser after this pass.
+
+---
 
 ## Easy-wins batch — five small fixes (2026-08-22)
 
@@ -353,7 +456,7 @@ mutation that mattered.
   mis-labelling (the query-understanding section predicted it: "fund
   resolution has the identical gap") — the fix is catalog regeneration +
   word-boundary/genericity rules in the stamper + a re-stamp pass, NOT
-  display work.
+  display work. **→ DONE 2026-08-23 on branch `fund-identity` — see "Fund identity repair" below.**
 - ✅ **A card expanded mid-search snaps shut — FIXED 2026-08-22** (easy-wins
   batch). Open state is hoisted into `AssistantTurnBubble`, which survives
   the move into the bubble, keyed by the run's first tool-call id. The

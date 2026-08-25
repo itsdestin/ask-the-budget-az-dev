@@ -20,6 +20,14 @@ class FakeStore:
     table: str
     rows: dict[str, dict[str, Any]]
     upsert_calls: list[list[dict[str, Any]]] = field(default_factory=list)
+    fts_rebuilds: list[str] = field(default_factory=list)
+    optimizes: list[str] = field(default_factory=list)
+
+    def build_fts_index(self, table):
+        self.fts_rebuilds.append(table)
+
+    def optimize(self, table):
+        self.optimizes.append(table)
 
     def scan(self, table, columns, *, where=None, limit=None):
         assert table == self.table
@@ -102,6 +110,10 @@ def test_apply_writes_only_changed_rows_and_records_full_old_mentions(tmp_path):
     # Every non-fund column survives the rewrite.
     assert store.rows["d-0002"]["text"] == "passage 2"
     assert store.rows["d-0002"]["vector"] == [0.1, 0.2]
+    # The ingest write contract: re-added rows are invisible to BM25 until
+    # the full-text index is rebuilt. A pass that skips this ships a silent
+    # keyword-search hole.
+    assert store.fts_rebuilds == ["budget_chunks"] and store.optimizes == ["budget_chunks"]
     record = json.loads(res.reversal_path.read_text())
     by_id = {c["chunk_id"]: c for c in record["changes"]}
     assert by_id["d-0002"]["before"]["fund_mentions"] == ["fund:account", "fund:corrections"]
