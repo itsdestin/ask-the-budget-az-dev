@@ -25,9 +25,22 @@ import json
 import os
 import sys
 import tempfile
-from pathlib import Path
+from pathlib import Path, PosixPath, WindowsPath
 
 MACHINE_FILE = "machine.json"
+
+# The REAL local filesystem class, captured once at import — before any
+# test can monkeypatch os.name to exercise normalize_data_dir's Windows
+# string-formatting branch. `pathlib.Path(...)` re-reads `os.name` on
+# EVERY call (`PurePath.__new__`), so this module's own file I/O would
+# otherwise start building WindowsPath objects mid-test on a Linux box —
+# and CPython 3.12 refuses to instantiate WindowsPath a second time on a
+# non-Windows system (`.parent`, `/`, `.mkdir()` all raise
+# NotImplementedError, since pathlib's internals reconstruct paths via
+# `type(self)(...)`, not the dispatcher). Binding the concrete class here,
+# once, keeps this module's actual reads/writes tied to the machine it is
+# really running on, regardless of what a test mocks afterward.
+_LocalPath = WindowsPath if os.name == "nt" else PosixPath
 
 # Test seam. Without it, every test in tests/test_machine_config.py would
 # read and WRITE the developer's real per-machine pointer and silently
@@ -56,11 +69,11 @@ def machine_config_dir() -> Path:
     """
     override = os.environ.get(_DIR_ENV_VAR)
     if override:
-        return Path(override)
+        return _LocalPath(override)
     local_appdata = os.environ.get("LOCALAPPDATA")
     if local_appdata:
-        return Path(local_appdata) / "JLBC-Search"
-    return Path.home() / ".config" / "jlbc-search"
+        return _LocalPath(local_appdata) / "JLBC-Search"
+    return _LocalPath.home() / ".config" / "jlbc-search"
 
 
 def machine_config_path() -> Path:
@@ -188,6 +201,41 @@ def set_display_name(user: str, name: str) -> None:
     _update({_DISPLAY_NAMES_KEY: names})
 
 
+def normalize_data_dir(path: Path | str) -> str:
+    """The stored form of a data-dir path: the spelling the storage engine
+    can open.
+
+    WHY this exists (work laptop, 2026-08-18 — see
+    docs/superpowers/investigations/2026-08-25-windows-launch-failure.md):
+    `//bcpool/JLBCSearch` passes every pathlib check (`exists`, `is_dir`,
+    `iterdir`), so the repair screen accepted it and said "saved"; LanceDB's
+    Rust object store then built a `file://` URL from it and refused it
+    (InvalidUrl) — and the app kept serving stub fixtures. Every writer
+    funnels through here first, so what lands in machine.json is the form
+    LanceDB opens, not what was typed.
+
+    Rules: trim, strip surrounding quotes, drop trailing separators (but not
+    from a bare drive root — `E:` alone means "current directory on E:").
+    On Windows every `/` becomes `\\`; a path starting with ONE separator
+    (`/host/share`) is read as a UNC root and gains its second one. That
+    last rule is a guess — `\\JLBCSearch` can also mean `C:\\JLBCSearch` —
+    and is harmless only because validate_data_dir refuses anything that
+    does not open.
+    """
+    cleaned = str(path).strip().strip('"').strip("'").strip()
+    stripped = cleaned.rstrip("\\/")
+    # A drive root keeps ONE separator: `E:\` stays, and a bare `E:` becomes
+    # `E:\` — `E:` alone means "current directory on E:" to Windows and
+    # Path("E:").exists() is True, so it would validate and then open LanceDB
+    # relative to wherever the process happens to be.
+    cleaned = stripped + "\\" if stripped.endswith(":") else stripped
+    if os.name == "nt":
+        cleaned = cleaned.replace("/", "\\")
+        if len(cleaned) >= 2 and cleaned[0] == "\\" and cleaned[1] != "\\":
+            cleaned = "\\" + cleaned
+    return cleaned
+
+
 def validate_data_dir(path: Path | str) -> str | None:
     """None if `path` is a usable corpus folder, else ONE plain sentence.
 
@@ -201,9 +249,10 @@ def validate_data_dir(path: Path | str) -> str | None:
     directory is the single most likely mistake here, and it would
     otherwise look like a successful repair followed by an empty corpus.
     """
-    if not str(path).strip():
+    candidate_str = normalize_data_dir(path)
+    if not candidate_str:
         return "Type the full path to the shared JLBC Search folder."
-    candidate = Path(str(path).strip())
+    candidate = Path(candidate_str)
     if not candidate.exists():
         return (
             "Couldn't find that folder. Check the spelling, and that the "
@@ -256,34 +305,39 @@ def _update(changes: dict) -> None:
 
 
 def set_data_dir(path: Path | str) -> Path:
-    """Point this machine at `path`. Returns the resolved path.
+    """Point this machine at `path`. Returns the stored path.
 
     Does NOT validate — the caller does, so it can report which of the
-    three failures happened. Writing an unvalidated path deliberately
-    remains possible: an admin fixing a pointer while the share is
-    temporarily down should not be blocked by the share being down.
+    failures happened. Writing an unvalidated path deliberately remains
+    possible: an admin fixing a pointer while the share is temporarily
+    down should not be blocked by the share being down.
+
+    STORED NORMALISED (`normalize_data_dir`): the laptop incident proved a
+    pointer can pass every Python check and still be a form the storage
+    engine refuses.
     """
-    resolved = Path(str(path).strip())
-    _update({"data_dir": str(resolved)})
-    return resolved
+    stored = normalize_data_dir(path)
+    _update({"data_dir": stored})
+    return Path(stored)
 
 
 # ---------------------------------------------------------------------------
-# CLI — for packaging/install.cmd
+# CLI — for packaging/Install-JLBC-Search.cmd
 # ---------------------------------------------------------------------------
 
 
 def main(argv: list[str] | None = None) -> int:
     """`python -m app.machine_config --set-data-dir "\\\\server\\share"`.
 
-    `install.cmd` runs before the app has ever started, so it used to
-    write machine.json with a hand-rolled JSON literal — the schema
-    duplicated in a batch file, guaranteed to rot the first time this
-    module changed shape (which it just did, gaining `ingest_enabled`).
+    `packaging/Install-JLBC-Search.cmd` — the one-click installer on the
+    USB — runs this before the app has ever started, so it used to write
+    machine.json with a hand-rolled JSON literal — the schema duplicated
+    in a batch file, guaranteed to rot the first time this module changed
+    shape (which it just did, gaining `ingest_enabled`).
 
     Contract, as `packaging/` depends on it:
 
-    * Exit 0 on success, silently. `install.cmd` prints its own progress
+    * Exit 0 on success, silently. The installer prints its own progress
       and a chatty subprocess in the middle reads as an error to whoever
       is watching.
     * Validation failure is a WARNING on stderr and still exit 0. A
@@ -302,10 +356,21 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument(
         "--set-ingest-enabled", metavar="BOOL", choices=("true", "false"),
     )
+    parser.add_argument(
+        "--default-ingest-enabled", metavar="BOOL", choices=("true", "false"),
+        help="record the value only if machine.json has no ingest_enabled key",
+    )
     args = parser.parse_args(argv)
 
-    if args.set_data_dir is None and args.set_ingest_enabled is None:
-        parser.error("nothing to do — pass --set-data-dir or --set-ingest-enabled")
+    if (
+        args.set_data_dir is None
+        and args.set_ingest_enabled is None
+        and args.default_ingest_enabled is None
+    ):
+        parser.error(
+            "nothing to do — pass --set-data-dir, --set-ingest-enabled or "
+            "--default-ingest-enabled"
+        )
 
     if args.set_data_dir is not None:
         if not args.set_data_dir.strip():
@@ -320,6 +385,13 @@ def main(argv: list[str] | None = None) -> int:
 
     if args.set_ingest_enabled is not None:
         set_ingest_enabled(args.set_ingest_enabled == "true")
+
+    if args.default_ingest_enabled is not None:
+        # WHY a separate flag: the installer runs on every upgrade, and
+        # `--set-ingest-enabled false` there switched the one ingest machine
+        # off each time (2026-08-25). A default must not override a choice.
+        if "ingest_enabled" not in _read_all(quiet=True):
+            set_ingest_enabled(args.default_ingest_enabled == "true")
 
     return 0
 

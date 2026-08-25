@@ -232,3 +232,48 @@ def test_an_unreachable_share_resolves_instead_of_raising(monkeypatch, capsys, t
 
     assert data_dir() == unreachable
     assert "couldn't create or reach" in capsys.readouterr().err
+
+
+# ---------------------------------------------------------------------------
+# Normalisation (2026-08-25, the laptop incident — see
+# docs/superpowers/investigations/2026-08-25-windows-launch-failure.md)
+# ---------------------------------------------------------------------------
+import os
+
+from app.machine_config import normalize_data_dir
+
+
+@pytest.mark.parametrize(
+    "typed, stored",
+    [
+        ("//bcpool/JLBCSearch", r"\\bcpool\JLBCSearch"),
+        ("/bcpool/JLBCSearch", r"\\bcpool\JLBCSearch"),
+        ("E:/JLBCSearch/", r"E:\JLBCSearch"),
+        ('"E:\\JLBCSearch\\"', r"E:\JLBCSearch"),
+        ("E:\\", "E:\\"),
+        ("E:", "E:\\"),  # bare drive = "cwd on E:" — never store that
+        (r"\\bcpool\JLBCSearch", r"\\bcpool\JLBCSearch"),
+        ("  Z:/x/y  ", r"Z:\x\y"),
+    ],
+)
+def test_normalize_on_windows(monkeypatch, typed, stored):
+    """The exact strings from the 2026-08-18 laptop log. `//bcpool/JLBCSearch`
+    passed every Path check, was saved, and LanceDB refused it (InvalidUrl)."""
+    monkeypatch.setattr(os, "name", "nt")
+    assert normalize_data_dir(typed) == stored
+
+
+def test_normalize_on_posix_only_trims(monkeypatch):
+    monkeypatch.setattr(os, "name", "posix")
+    assert normalize_data_dir(' "/mnt/share/jlbc/" ') == "/mnt/share/jlbc"
+    assert normalize_data_dir("//server/share/x") == "//server/share/x"
+
+
+def test_set_data_dir_stores_the_normalised_form(monkeypatch, tmp_path):
+    monkeypatch.setenv("JLBC_MACHINE_CONFIG_DIR", str(tmp_path))
+    monkeypatch.setattr(os, "name", "nt")
+    from app.machine_config import machine_config_path, set_data_dir
+
+    set_data_dir("//bcpool/JLBCSearch")
+    raw = json.loads(machine_config_path().read_text(encoding="utf-8"))
+    assert raw["data_dir"] == r"\\bcpool\JLBCSearch"

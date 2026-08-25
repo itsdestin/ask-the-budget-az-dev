@@ -137,3 +137,19 @@ def test_it_writes_no_console_noise_on_success(tmp_path, config_dir):
 
     assert result.stdout == ""
     assert result.stderr == ""
+
+
+def test_default_ingest_enabled_only_writes_when_the_key_is_absent(tmp_path, config_dir):
+    """An upgrade re-runs the installer. `--set-ingest-enabled false` there
+    switched the ONE ingest machine off every time (found 2026-08-25);
+    `--default-ingest-enabled` records the office default without
+    overriding a choice already made on this PC."""
+    r = run("--default-ingest-enabled", "false", config_dir=config_dir)
+    assert r.returncode == 0
+    assert json.loads((config_dir / "machine.json").read_text())["ingest_enabled"] is False
+
+    r = run("--set-ingest-enabled", "true", config_dir=config_dir)
+    assert r.returncode == 0
+    r = run("--default-ingest-enabled", "false", config_dir=config_dir)
+    assert r.returncode == 0
+    assert json.loads((config_dir / "machine.json").read_text())["ingest_enabled"] is True
