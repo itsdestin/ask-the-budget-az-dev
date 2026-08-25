@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import sys
 import threading
+import time
 from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import Callable
@@ -44,35 +45,90 @@ from app.routes.upload import router as upload_router
 from app.search_provider import LanceSearchProvider, SearchProvider, StubSearchProvider
 
 
+REPROBE_INTERVAL_S = 30.0
+
+
+def _probe_provider() -> SearchProvider | None:
+    """The real provider if the corpus opens and has rows, else None.
+
+    Prints WHY on stderr (the launcher's log) so a stub is never silent.
+    create=False: a probe must not manufacture the folder it probes
+    (spec principle 3, 2026-08-25).
+    """
+    try:
+        from store.chunk_store import ChunkStore
+        from store.config import resolve_data_dir
+
+        # root=resolve_data_dir(), not the default (root=None): ChunkStore's
+        # `self._root = (root or data_dir()) / "lancedb"` calls data_dir()
+        # -- which CREATES the folder -- whenever root is omitted, regardless
+        # of create=False. Passing the already-resolved, non-creating path
+        # is the same pattern app/health.py and app/machine_config.py use
+        # for every other create=False probe; skipping it here reproduced
+        # the laptop bug one level up — a stub-triggered health check would
+        # conjure the missing share directory it was reporting as missing.
+        if ChunkStore(root=resolve_data_dir(), create=False).count("budget_chunks") > 0:
+            return LanceSearchProvider()
+        reason = "budget_chunks table is empty"
+    except Exception as e:  # noqa: BLE001 — missing folder, unreadable share, engine error
+        reason = f"{type(e).__name__}: {e}"
+    print(
+        f"jlbc-search: no usable corpus ({reason}) — serving stub search fixtures "
+        "until the shared folder can be opened.",
+        file=sys.stderr,
+    )
+    return None
+
+
 def _default_provider() -> SearchProvider:
     """Real corpus present -> real provider; else the fixture stub.
 
-    The probe asks LanceDB (store/config.py's data dir — JLBC_DATA_DIR, or the
-    repo's data/insight-data) whether budget_chunks has rows. Fresh checkouts,
-    CI, and dev machines that haven't run the Plan 1 migration have none, and
-    get the stub plus an honest stderr note saying WHY — a silent fallback
-    would leave "why is my search returning fake rows" undiagnosable.
+    Chosen at startup and RE-PROBED while stub (see _install_reprobe): a
+    share that is down at 8 AM and back at 8:05 must not mean fake rows all
+    day. A real provider never swaps back to stub — a share that goes away
+    mid-session surfaces as the search route's honest 503, never as fake
+    rows.
+    """
+    return _probe_provider() or StubSearchProvider()
 
-    Deliberate tradeoff: corpus availability is checked ONCE, at app startup.
-    A corpus migrated while the server runs is not picked up (restart to use
-    it), and a share that goes offline mid-session surfaces per-request as the
-    search route's 503, not as a fallback to stub — swapping in fake rows
-    mid-session because the share hiccuped would be far worse than an honest
-    error. Plan 5's launcher owns any fancier health ladder."""
-    try:
-        from store.chunk_store import ChunkStore
 
-        if ChunkStore().count("budget_chunks") > 0:
-            return LanceSearchProvider()
-        reason = "budget_chunks table is empty"
-    except Exception as e:  # missing table, missing deps, unreadable data dir…
-        reason = f"{type(e).__name__}: {e}"
-    print(
-        f"jlbc-search: no usable corpus ({reason}) — serving stub search fixtures. "
-        "Set JLBC_DATA_DIR to a migrated data dir for real retrieval.",
-        file=sys.stderr,
-    )
-    return StubSearchProvider()
+def _install_reprobe(app: FastAPI) -> None:
+    lock = threading.Lock()
+    last = {"at": float("-inf")}
+
+    def reprobe(*, force: bool = False) -> str:
+        """Re-run the corpus probe. Unforced: only while on the stub, at most
+        once per REPROBE_INTERVAL_S. Forced (a repair was just saved): always
+        — the repair screen can appear on a machine that booted with a REAL
+        corpus whose handles are now dead, and skipping it because the
+        provider is 'not stub' would make the repair a no-op."""
+        current = app.state.provider
+        if not force and current.name != "stub":
+            return current.name
+        # Non-blocking: lancedb.connect on an unreachable UNC path can block
+        # for the SMB timeout; concurrent searches must not queue behind it
+        # (spec S5). Whoever holds the lock is already probing.
+        if not lock.acquire(blocking=force):
+            return current.name
+        try:
+            now = time.monotonic()
+            if not force and now - last["at"] < REPROBE_INTERVAL_S:
+                return current.name
+            last["at"] = now
+            fresh = _probe_provider()
+            from retrieval.pipeline import reset_default_collaborators
+
+            if fresh is not None:
+                app.state.provider = fresh
+            if fresh is not None or force:
+                # AI Mode caches its own ChunkStore; a pointer that changed
+                # under it must not keep answering from the old folder.
+                reset_default_collaborators()
+            return app.state.provider.name
+        finally:
+            lock.release()
+
+    app.state.reprobe = reprobe
 
 
 def _start_archive_sweep() -> None:
@@ -214,6 +270,20 @@ DEFAULT_STATIC_DIR = Path(__file__).resolve().parent.parent / "webapp" / "dist"
 _MISSING = object()
 
 
+class DataDirBody(BaseModel):
+    """Body of POST /api/config/data-dir.
+
+    Module-level, not nested inside create_app: this file has
+    `from __future__ import annotations`, so a route parameter's type is
+    resolved from a STRING against the function's module globals. A class
+    defined inside create_app is a local, invisible to that lookup — the
+    route silently read as taking no body at all (a bare 422 "field
+    required: body"), never exercised by any test until this one.
+    """
+
+    path: str = ""
+
+
 def create_app(
     *, provider: SearchProvider | None = None,
     static_dir: Path | None | object = _MISSING,
@@ -225,6 +295,7 @@ def create_app(
     # could be falsy (e.g. a fake defining __len__/__bool__) and get silently
     # swapped for the default, which would be a baffling test failure.
     app.state.provider = _default_provider() if provider is None else provider
+    _install_reprobe(app)
     # The AI-Mode seam: tests inject a fake tool loop here so a conversation
     # test never reaches OpenRouter, LanceDB or the ONNX models. Unlike
     # static_dir there is no _MISSING sentinel — "no session factory" has no
@@ -296,28 +367,24 @@ def create_app(
         behind the identity system would be exactly backwards."""
         from app.health import health_detail
 
+        reprobe = getattr(app.state, "reprobe", None)
+        if reprobe is not None:
+            reprobe()
         return health_detail()
-
-    class DataDirBody(BaseModel):
-        path: str = ""
 
     @app.post("/api/config/data-dir")
     def set_data_dir_route(body: DataDirBody):
         """Repoint THIS machine at the shared folder (S18). No auth — the
-        app is unusable when this fires, so requiring the identity system
-        to work would make the repair unreachable in the case it exists
-        for. It writes a per-machine file; it cannot touch the share."""
+        app is unusable when this fires. Takes effect NOW: the launcher
+        reuses a running server, so 'reopen the app' would be a no-op."""
         from app.machine_config import set_data_dir, validate_data_dir
 
         problem = validate_data_dir(body.path)
         if problem:
             raise HTTPException(status_code=400, detail=problem)
         resolved = set_data_dir(body.path)
-        # Ground truth 10: LanceDB handles and the search provider resolve
-        # at startup, so a relocation CANNOT take effect mid-session.
-        # Reporting success without this would produce an app that says it
-        # is fixed and then serves errors from stale handles.
-        return {"path": str(resolved), "restart_required": True}
+        app.state.reprobe(force=True)
+        return {"path": str(resolved)}
 
     resolved = DEFAULT_STATIC_DIR if static_dir is _MISSING else static_dir
 

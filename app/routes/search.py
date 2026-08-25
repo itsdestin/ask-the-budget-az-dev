@@ -34,6 +34,9 @@ class SearchBody(BaseModel):
 def search(body: SearchBody, request: Request):
     if not body.query.strip():
         raise HTTPException(status_code=400, detail="query is empty")
+    reprobe = getattr(request.app.state, "reprobe", None)
+    if reprobe is not None:
+        reprobe()
     provider = request.app.state.provider
     try:
         outcome = provider.search(
