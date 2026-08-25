@@ -92,9 +92,17 @@ def sql_str(value: str) -> str:
 
 
 class ChunkStore:
-    def __init__(self, *, root: Path | None = None, dim: int = DEFAULT_DIM):
+    def __init__(self, *, root: Path | None = None, dim: int = DEFAULT_DIM,
+                 create: bool = True):
         self._root = (root or data_dir()) / "lancedb"
-        self._root.mkdir(parents=True, exist_ok=True)
+        if create:
+            self._root.mkdir(parents=True, exist_ok=True)
+        elif not self._root.is_dir():
+            # WHY not connect anyway: lancedb.connect() creates a missing
+            # local directory itself. A PROBE must never do that — spec
+            # principle 3 (2026-08-25); the health ladder, the startup
+            # provider probe and validate_data_dir all pass create=False.
+            raise FileNotFoundError(f"no lancedb folder at {self._root}")
         self._dim = dim
         self._db = lancedb.connect(str(self._root))
         # WHY cache handles: table_names() + open_table() measured ~5.7ms per
