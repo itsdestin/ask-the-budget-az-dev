@@ -539,6 +539,7 @@ class EntityStamper:
             corpus=corpus,
             names_longest_first=self._fund_names_sorted,
             name_to_id=self._fund_name_to_id,
+            word_boundaries=True,
         )
         if not ordered:
             return None, []
@@ -552,11 +553,19 @@ class EntityStamper:
 _MIN_SCAN_NAME_LEN = 5
 
 
+def _at_word_edges(corpus: str, start: int, end: int) -> bool:
+    """True when corpus[start:end] neither begins nor ends mid-word."""
+    before = corpus[start - 1] if start > 0 else " "
+    after = corpus[end] if end < len(corpus) else " "
+    return not (before.isalnum() or after.isalnum())
+
+
 def _scan_for_names(
     *,
     corpus: str,
     names_longest_first: list[str],
     name_to_id: dict[str, str],
+    word_boundaries: bool = False,
 ) -> list[str]:
     """Canonical ids named in `corpus`, in first-mention order, deduped.
 
@@ -585,6 +594,19 @@ def _scan_for_names(
             if idx == -1:
                 break
             end = idx + len(name)
+            # WHY `word_boundaries` exists (2026-08-23 fund-identity audit):
+            # the plain `find` above matched the catalog fund "account"
+            # inside "accountING" — the "Summary of Significant Accounting
+            # Policies" heading in every AFR — and stamped fund:account onto
+            # 5,238 chunks across 143 agencies, the most-stamped "fund" in
+            # the corpus. A match now has to start and end at a word edge.
+            # It is a SWITCH, not the default, because the agency table path
+            # (resolve_all) shares this function and its behaviour was
+            # calibrated by the 2026-08-16 relabel; only the fund path opts
+            # in. Pinned both ways in tests/test_entity_stamper_fund_boundaries.py.
+            if word_boundaries and not _at_word_edges(corpus, idx, end):
+                offset = idx + 1
+                continue
             if not _overlaps(idx, end):
                 matches.append((idx, name_to_id[name]))
                 consumed.append((idx, end))

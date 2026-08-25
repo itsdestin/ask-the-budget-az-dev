@@ -1,20 +1,17 @@
 _meta:
-  instructions: Canonical fund names + slugs derived from JLBC cross-cut sources.
-    Slug derivation rules in funds/slug.py. Per fund, observed_in_agencies lists every
-    agency that appropriated from this fund across the processed sources. present_in
-    records the source set.
+  instructions: Canonical fund names + slugs derived from JLBC cross-cut sources. Slug derivation
+    rules in funds/slug.py. Per fund, observed_in_agencies lists every agency that appropriated
+    from this fund across the processed sources. present_in records the source set.
   sources_processed:
   - jlbc-s18
   - jlbc-bd2
-  unique_funds: 227
+  unique_funds: 177
+  repaired: '2026-08-23: 17 truncated names restored from corpus evidence and 50 non-fund
+    rows (schedule totals, agency names, budget adjustment lines, severed fragments) removed.
+    See docs/superpowers/specs/2026-08-23-fund-identity-repair-design.md. Regenerating from
+    source PDFs with scripts/build_fund_catalog.py would LOSE the renames — merge this file''s
+    renames back in first.'
 funds:
-- canonical_name: Account
-  canonical_id: fund:account
-  slug: account
-  observed_in_agencies:
-  - Respiratory Care Examiners, Board of
-  present_in:
-  - jlbc-s18
 - canonical_name: Acupuncture Board of Examiners Fund
   canonical_id: fund:acupuncture-board-of-examiners
   slug: acupuncture-board-of-examiners
@@ -172,13 +169,15 @@ funds:
   - Insurance and Financial Institutions, Department of
   present_in:
   - jlbc-s18
-- canonical_name: Barbering and Cosmetology Board
+- canonical_name: Barbering and Cosmetology Fund
   canonical_id: fund:barbering-and-cosmetology-board
   slug: barbering-and-cosmetology-board
   observed_in_agencies:
   - Attorney General - Department of Law
   present_in:
   - jlbc-s18
+  name_variants:
+  - Barbering and Cosmetology Board Fund
 - canonical_name: Barbering and Cosmetology Fund
   canonical_id: fund:barbering-and-cosmetology
   slug: barbering-and-cosmetology
@@ -193,19 +192,12 @@ funds:
   - Fund Psychologist Examiners,State Board of
   present_in:
   - jlbc-s18
-- canonical_name: Behavioral Health Examiners, Board of Board of Behavioral Health
-    Examiners Fund
+- canonical_name: Behavioral Health Examiners, Board of Board of Behavioral Health Examiners
+    Fund
   canonical_id: fund:behavioral-health-examiners-board-of-board-of-behavioral-health-examiners
   slug: behavioral-health-examiners-board-of-board-of-behavioral-health-examiners
   observed_in_agencies:
   - Attorney General - Department of Law
-  present_in:
-  - jlbc-s18
-- canonical_name: Block Grant
-  canonical_id: fund:block-grant
-  slug: block-grant
-  observed_in_agencies:
-  - Fund Domestic Violence Services Fund
   present_in:
   - jlbc-s18
 - canonical_name: Block Grant Health Services Licensing Fund
@@ -215,7 +207,7 @@ funds:
   - Health Services, Department of
   present_in:
   - jlbc-s18
-- canonical_name: Board for Private Postsecondary Education
+- canonical_name: Board for Private Postsecondary Education Fund
   canonical_id: fund:board-for-private-postsecondary-education
   slug: board-for-private-postsecondary-education
   observed_in_agencies:
@@ -250,7 +242,7 @@ funds:
   - Medically Needy Account
   present_in:
   - jlbc-s18
-- canonical_name: Board of Osteopathic Examiners in Medicine
+- canonical_name: Board of Osteopathic Examiners in Medicine and Surgery Fund
   canonical_id: fund:board-of-osteopathic-examiners-in-medicine
   slug: board-of-osteopathic-examiners-in-medicine
   observed_in_agencies:
@@ -295,13 +287,6 @@ funds:
   - Forestry and Fire Management, Arizona Department of
   present_in:
   - jlbc-s18
-- canonical_name: Capital Outlay - Building Renewal/Projects
-  canonical_id: fund:capital-outlay-building-renewal-projects
-  slug: capital-outlay-building-renewal-projects
-  observed_in_agencies:
-  - FY 2026 Adjustments 2/
-  present_in:
-  - jlbc-s18
 - canonical_name: Capital Outlay Stabilization Fund
   canonical_id: fund:capital-outlay-stabilization
   slug: capital-outlay-stabilization
@@ -323,20 +308,15 @@ funds:
   - Health Services, Department of
   present_in:
   - jlbc-s18
-- canonical_name: Child Safety, Department of
-  canonical_id: fund:child-safety-department-of
-  slug: child-safety-department-of
-  observed_in_agencies:
-  - Attorney General - Department of Law
-  present_in:
-  - jlbc-s18
-- canonical_name: Child Support Enforcement Administration
+- canonical_name: Child Support Enforcement Administration Fund
   canonical_id: fund:child-support-enforcement-administration
   slug: child-support-enforcement-administration
   observed_in_agencies:
   - Dental Examiners, State Board of
   present_in:
   - jlbc-s18
+  name_variants:
+  - Child Support Enforcement Administration (CSEA) Fund
 - canonical_name: Child Welfare Licensing Fee Fund
   canonical_id: fund:child-welfare-licensing-fee
   slug: child-welfare-licensing-fee
@@ -344,7 +324,7 @@ funds:
   - Attorney General - Department of Law
   present_in:
   - jlbc-s18
-- canonical_name: Children and Family Services Training
+- canonical_name: Children and Family Services Training Program Fund
   canonical_id: fund:children-and-family-services-training
   slug: children-and-family-services-training
   observed_in_agencies:
@@ -415,18 +395,11 @@ funds:
   - Corrections, State Department of
   present_in:
   - jlbc-s18
-- canonical_name: Court Appointed Special Advocate and
+- canonical_name: Court Appointed Special Advocate and Vulnerable Persons Fund
   canonical_id: fund:court-appointed-special-advocate-and
   slug: court-appointed-special-advocate-and
   observed_in_agencies:
   - Judiciary - Supreme Court
-  present_in:
-  - jlbc-s18
-- canonical_name: Criminal Justice Commission,Arizona
-  canonical_id: fund:criminal-justice-commission-arizona
-  slug: criminal-justice-commission-arizona
-  observed_in_agencies:
-  - Education
   present_in:
   - jlbc-s18
 - canonical_name: Criminal Justice Enhancement Fund
@@ -452,8 +425,7 @@ funds:
   - Vulnerable Persons Fund
   present_in:
   - jlbc-s18
-- canonical_name: Delivery System Reform Incentive Payment Fund Health Care Investment
-    Fund
+- canonical_name: Delivery System Reform Incentive Payment Fund Health Care Investment Fund
   canonical_id: fund:delivery-system-reform-incentive-payment-fund-health-care-investment
   slug: delivery-system-reform-incentive-payment-fund-health-care-investment
   observed_in_agencies:
@@ -474,18 +446,11 @@ funds:
   - Transportation, Department of
   present_in:
   - jlbc-s18
-- canonical_name: Department of Education Empowerment
+- canonical_name: Department of Education Empowerment Scholarship Account
   canonical_id: fund:department-of-education-empowerment
   slug: department-of-education-empowerment
   observed_in_agencies:
   - Families Block Grant
-  present_in:
-  - jlbc-s18
-- canonical_name: Department of Juvenile Corrections
-  canonical_id: fund:department-of-juvenile-corrections
-  slug: department-of-juvenile-corrections
-  observed_in_agencies:
-  - Judiciary - Superior Court
   present_in:
   - jlbc-s18
 - canonical_name: Department of Revenue Administrative Fund
@@ -537,20 +502,6 @@ funds:
   - Land Department, State
   present_in:
   - jlbc-s18
-- canonical_name: Education Sales Tax - Accountability
-  canonical_id: fund:education-sales-tax-accountability
-  slug: education-sales-tax-accountability
-  observed_in_agencies:
-  - Scholarship Account Fund
-  present_in:
-  - jlbc-s18
-- canonical_name: Education,Department of
-  canonical_id: fund:education-department-of
-  slug: education-department-of
-  observed_in_agencies:
-  - Families Block Grant
-  present_in:
-  - jlbc-s18
 - canonical_name: Election Systems Improvement Fund
   canonical_id: fund:election-systems-improvement
   slug: election-systems-improvement
@@ -579,7 +530,7 @@ funds:
   - Environmental Quality, Department of
   present_in:
   - jlbc-s18
-- canonical_name: Environmental Laboratory Licensure
+- canonical_name: Environmental Laboratory Licensure Revolving Fund
   canonical_id: fund:environmental-laboratory-licensure
   slug: environmental-laboratory-licensure
   observed_in_agencies:
@@ -607,13 +558,15 @@ funds:
   - Administration, Arizona Department of
   present_in:
   - jlbc-s18
-- canonical_name: Federal Temporary Assistance for Needy
+- canonical_name: Federal Temporary Assistance for Needy Families Block Grant
   canonical_id: fund:federal-temporary-assistance-for-needy
   slug: federal-temporary-assistance-for-needy
   observed_in_agencies:
   - Fund Domestic Violence Services Fund
   present_in:
   - jlbc-s18
+  name_variants:
+  - Federal Temporary Assistance for Needy Families (TANF) Block Grant
 - canonical_name: Financial Services Fund
   canonical_id: fund:financial-services
   slug: financial-services
@@ -628,62 +581,6 @@ funds:
   - Public Safety, Department of
   present_in:
   - jlbc-s18
-- canonical_name: FY 2026 Unallocated AZ360 Adjustments
-  canonical_id: fund:fy-2026-unallocated-az360-adjustments
-  slug: fy-2026-unallocated-az360-adjustments
-  observed_in_agencies:
-  - FY 2026 Adjustments 2/
-  present_in:
-  - jlbc-s18
-- canonical_name: FY 2026 Unallocated Fleet Operating Adjustments
-  canonical_id: fund:fy-2026-unallocated-fleet-operating-adjustments
-  slug: fy-2026-unallocated-fleet-operating-adjustments
-  observed_in_agencies:
-  - FY 2026 Adjustments 2/
-  present_in:
-  - jlbc-s18
-- canonical_name: FY 2026 Unallocated Health Insurance Adjustments
-  canonical_id: fund:fy-2026-unallocated-health-insurance-adjustments
-  slug: fy-2026-unallocated-health-insurance-adjustments
-  observed_in_agencies:
-  - FY 2026 Adjustments 2/
-  present_in:
-  - jlbc-s18
-- canonical_name: FY 2026 Unallocated Rent and COP Adjustments
-  canonical_id: fund:fy-2026-unallocated-rent-and-cop-adjustments
-  slug: fy-2026-unallocated-rent-and-cop-adjustments
-  observed_in_agencies:
-  - FY 2026 Adjustments 2/
-  present_in:
-  - jlbc-s18
-- canonical_name: FY 2026 Unallocated Retirement Adjustments
-  canonical_id: fund:fy-2026-unallocated-retirement-adjustments
-  slug: fy-2026-unallocated-retirement-adjustments
-  observed_in_agencies:
-  - FY 2026 Adjustments 2/
-  present_in:
-  - jlbc-s18
-- canonical_name: FY 2026 Unallocated Risk Management Adjustments
-  canonical_id: fund:fy-2026-unallocated-risk-management-adjustments
-  slug: fy-2026-unallocated-risk-management-adjustments
-  observed_in_agencies:
-  - FY 2026 Adjustments 2/
-  present_in:
-  - jlbc-s18
-- canonical_name: FY 2026 Unallocated Salary Adjustments
-  canonical_id: fund:fy-2026-unallocated-salary-adjustments
-  slug: fy-2026-unallocated-salary-adjustments
-  observed_in_agencies:
-  - FY 2026 Adjustments 2/
-  present_in:
-  - jlbc-s18
-- canonical_name: Game and Fish Department, Arizona
-  canonical_id: fund:game-and-fish-department-arizona
-  slug: game-and-fish-department-arizona
-  observed_in_agencies:
-  - Forestry and Fire Management, Arizona Department of
-  present_in:
-  - jlbc-s18
 - canonical_name: Game and Fish Fund
   canonical_id: fund:game-and-fish
   slug: game-and-fish
@@ -691,14 +588,16 @@ funds:
   - Forestry and Fire Management, Arizona Department of
   present_in:
   - jlbc-s18
-- canonical_name: Game,Nongame, Fish and Endangered
+- canonical_name: Game, Nongame, Fish and Endangered Species Fund
   canonical_id: fund:game-nongame-fish-and-endangered
   slug: game-nongame-fish-and-endangered
   observed_in_agencies:
   - Forestry and Fire Management, Arizona Department of
   present_in:
   - jlbc-s18
-- canonical_name: GIITEM Border Security and Law
+  name_variants:
+  - Game, Non-Game, Fish and Endangered Species Fund
+- canonical_name: GIITEM Border Security and Law Enforcement Subaccount
   canonical_id: fund:giitem-border-security-and-law
   slug: giitem-border-security-and-law
   observed_in_agencies:
@@ -740,17 +639,9 @@ funds:
   - Transportation, Department of
   present_in:
   - jlbc-s18
-- canonical_name: Homeland Security, Arizona Department of Information Technology
-    Fund
+- canonical_name: Homeland Security, Arizona Department of Information Technology Fund
   canonical_id: fund:homeland-security-arizona-department-of-information-technology
   slug: homeland-security-arizona-department-of-information-technology
-  observed_in_agencies:
-  - Medically Needy Account
-  present_in:
-  - jlbc-s18
-- canonical_name: Homeopathic and Integrated Medicine Examiners, Board of
-  canonical_id: fund:homeopathic-and-integrated-medicine-examiners-board-of
-  slug: homeopathic-and-integrated-medicine-examiners-board-of
   observed_in_agencies:
   - Medically Needy Account
   present_in:
@@ -791,13 +682,6 @@ funds:
   - Health Services, Department of
   present_in:
   - jlbc-s18
-- canonical_name: Industrial Commission of Arizona
-  canonical_id: fund:industrial-commission-of-arizona
-  slug: industrial-commission-of-arizona
-  observed_in_agencies:
-  - Medically Needy Account
-  present_in:
-  - jlbc-s18
 - canonical_name: Information Technology Fund
   canonical_id: fund:information-technology
   slug: information-technology
@@ -826,7 +710,7 @@ funds:
   - Attorney General - Department of Law
   present_in:
   - jlbc-s18
-- canonical_name: Investment Management Regulatory and
+- canonical_name: Investment Management Regulatory and Enforcement Fund
   canonical_id: fund:investment-management-regulatory-and
   slug: investment-management-regulatory-and
   observed_in_agencies:
@@ -841,15 +725,7 @@ funds:
   - Judiciary - Superior Court
   present_in:
   - jlbc-s18
-- canonical_name: Juvenile Corrections, Department of
-  canonical_id: fund:juvenile-corrections-department-of
-  slug: juvenile-corrections-department-of
-  observed_in_agencies:
-  - Judiciary - Superior Court
-  present_in:
-  - jlbc-s18
-- canonical_name: Law Enforcement and Boating Safety Fund Long-Term Water Augmentation
-    Fund
+- canonical_name: Law Enforcement and Boating Safety Fund Long-Term Water Augmentation Fund
   canonical_id: fund:law-enforcement-and-boating-safety-fund-long-term-water-augmentation
   slug: law-enforcement-and-boating-safety-fund-long-term-water-augmentation
   observed_in_agencies:
@@ -887,7 +763,7 @@ funds:
   - Pioneers' Home,Arizona
   present_in:
   - jlbc-s18
-- canonical_name: Motor Vehicle Liability Insurance
+- canonical_name: Motor Vehicle Liability Insurance Enforcement Fund
   canonical_id: fund:motor-vehicle-liability-insurance
   slug: motor-vehicle-liability-insurance
   observed_in_agencies:
@@ -923,15 +799,15 @@ funds:
   - Emergency and Military Affairs, Department of
   present_in:
   - jlbc-s18
-- canonical_name: Nursing Care Institution Administrators' Licensing and Assisted
-    Living Facility
+- canonical_name: Nursing Care Institution Administrators' Licensing and Assisted Living Facility
+    Managers' Certification Fund
   canonical_id: fund:nursing-care-institution-administrators-licensing-and-assisted-living-facility
   slug: nursing-care-institution-administrators-licensing-and-assisted-living-facility
   observed_in_agencies:
   - Nursing Care Institution Administrators Board
   present_in:
   - jlbc-s18
-- canonical_name: Nursing Care Institution Resident Protection
+- canonical_name: Nursing Care Institution Resident Protection Revolving Fund
   canonical_id: fund:nursing-care-institution-resident-protection
   slug: nursing-care-institution-resident-protection
   observed_in_agencies:
@@ -951,13 +827,6 @@ funds:
   observed_in_agencies:
   - Land Department, State
   - Parks Board,Arizona State
-  present_in:
-  - jlbc-s18
-- canonical_name: Osteopathic Examiner in Medicine and Surgery,Arizona Board of
-  canonical_id: fund:osteopathic-examiner-in-medicine-and-surgery-arizona-board-of
-  slug: osteopathic-examiner-in-medicine-and-surgery-arizona-board-of
-  observed_in_agencies:
-  - Board of Optometry Fund
   present_in:
   - jlbc-s18
 - canonical_name: Peace Officer Training Equipment Fund
@@ -1079,34 +948,6 @@ funds:
   - Chiropractic Examiners, State Board of
   present_in:
   - jlbc-s18
-- canonical_name: Remove One-Time FY 2026 Fleet Operating Adjustments
-  canonical_id: fund:remove-one-time-fy-2026-fleet-operating-adjustments
-  slug: remove-one-time-fy-2026-fleet-operating-adjustments
-  observed_in_agencies:
-  - FY 2026 Adjustments 2/
-  present_in:
-  - jlbc-s18
-- canonical_name: Remove One-Time FY 2026 Fleet Replacement Adjustments
-  canonical_id: fund:remove-one-time-fy-2026-fleet-replacement-adjustments
-  slug: remove-one-time-fy-2026-fleet-replacement-adjustments
-  observed_in_agencies:
-  - FY 2026 Adjustments 2/
-  present_in:
-  - jlbc-s18
-- canonical_name: Remove One-Time FY 2026 Health Insurance Adjustments
-  canonical_id: fund:remove-one-time-fy-2026-health-insurance-adjustments
-  slug: remove-one-time-fy-2026-health-insurance-adjustments
-  observed_in_agencies:
-  - FY 2026 Adjustments 2/
-  present_in:
-  - jlbc-s18
-- canonical_name: Remove One-Time FY 2026 Risk Management Adjustments
-  canonical_id: fund:remove-one-time-fy-2026-risk-management-adjustments
-  slug: remove-one-time-fy-2026-risk-management-adjustments
-  observed_in_agencies:
-  - FY 2026 Adjustments 2/
-  present_in:
-  - jlbc-s18
 - canonical_name: Residential Utility Consumer Office Revolving Fund
   canonical_id: fund:residential-utility-consumer-office-revolving
   slug: residential-utility-consumer-office-revolving
@@ -1114,8 +955,7 @@ funds:
   - Residential Utility Consumer Office
   present_in:
   - jlbc-s18
-- canonical_name: Retirement System, Arizona State Long-Term Disability Trust Fund
-    Administration
+- canonical_name: Retirement System, Arizona State Long-Term Disability Trust Fund Administration
   canonical_id: fund:retirement-system-arizona-state-long-term-disability-trust-fund-administration
   slug: retirement-system-arizona-state-long-term-disability-trust-fund-administration
   observed_in_agencies:
@@ -1186,7 +1026,7 @@ funds:
   - Scholarship Account Fund
   present_in:
   - jlbc-s18
-- canonical_name: Special Employee Health Insurance
+- canonical_name: Special Employee Health Insurance Trust Fund
   canonical_id: fund:special-employee-health-insurance
   slug: special-employee-health-insurance
   observed_in_agencies:
@@ -1198,13 +1038,6 @@ funds:
   slug: special-services-revolving
   observed_in_agencies:
   - Trust Fund
-  present_in:
-  - jlbc-s18
-- canonical_name: Species Fund
-  canonical_id: fund:species
-  slug: species
-  observed_in_agencies:
-  - Forestry and Fire Management, Arizona Department of
   present_in:
   - jlbc-s18
 - canonical_name: Spinal and Head Injuries Trust Fund
@@ -1242,7 +1075,7 @@ funds:
   - Pioneers' Home,Arizona
   present_in:
   - jlbc-s18
-- canonical_name: State Charitable, Penal and Reformatory
+- canonical_name: State Charitable, Penal and Reformatory Institutions Land Fund
   canonical_id: fund:state-charitable-penal-and-reformatory
   slug: state-charitable-penal-and-reformatory
   observed_in_agencies:
@@ -1319,13 +1152,6 @@ funds:
   - Treasurer, State
   present_in:
   - jlbc-s18
-- canonical_name: SUBTOTAL - Judiciary
-  canonical_id: fund:subtotal-judiciary
-  slug: subtotal-judiciary
-  observed_in_agencies:
-  - Judiciary - Superior Court
-  present_in:
-  - jlbc-s18
 - canonical_name: Teacher Certification Fund
   canonical_id: fund:teacher-certification
   slug: teacher-certification
@@ -1361,167 +1187,6 @@ funds:
   - Revenue, Department of
   present_in:
   - jlbc-s18
-- canonical_name: Total - AHCCCS Athletic Training, Board of
-  canonical_id: fund:total-ahcccs-athletic-training-board-of
-  slug: total-ahcccs-athletic-training-board-of
-  observed_in_agencies:
-  - Medically Needy Account
-  present_in:
-  - jlbc-s18
-- canonical_name: Total - Arizona Criminal Justice Commission
-  canonical_id: fund:total-arizona-criminal-justice-commission
-  slug: total-arizona-criminal-justice-commission
-  observed_in_agencies:
-  - Criminal Justice Enhancement Fund
-  present_in:
-  - jlbc-s18
-- canonical_name: Total - Arizona Department of Administration
-  canonical_id: fund:total-arizona-department-of-administration
-  slug: total-arizona-department-of-administration
-  observed_in_agencies:
-  - Trust Fund
-  present_in:
-  - jlbc-s18
-- canonical_name: Total - Arizona Department of Agriculture
-  canonical_id: fund:total-arizona-department-of-agriculture
-  slug: total-arizona-department-of-agriculture
-  observed_in_agencies:
-  - Agriculture, Arizona Department of
-  present_in:
-  - jlbc-s18
-- canonical_name: Total - Arizona Pioneers' Home
-  canonical_id: fund:total-arizona-pioneers-home
-  slug: total-arizona-pioneers-home
-  observed_in_agencies:
-  - Pioneers' Home,Arizona
-  present_in:
-  - jlbc-s18
-- canonical_name: Total - Arizona State Retirement System
-  canonical_id: fund:total-arizona-state-retirement-system
-  slug: total-arizona-state-retirement-system
-  observed_in_agencies:
-  - Respiratory Care Examiners, Board of
-  present_in:
-  - jlbc-s18
-- canonical_name: Total - Attorney General - Department of Law
-  canonical_id: fund:total-attorney-general-department-of-law
-  slug: total-attorney-general-department-of-law
-  observed_in_agencies:
-  - Attorney General - Department of Law
-  present_in:
-  - jlbc-s18
-- canonical_name: Total - Corporation Commission
-  canonical_id: fund:total-corporation-commission
-  slug: total-corporation-commission
-  observed_in_agencies:
-  - Enforcement Fund
-  present_in:
-  - jlbc-s18
-- canonical_name: Total - Department of Economic Security
-  canonical_id: fund:total-department-of-economic-security
-  slug: total-department-of-economic-security
-  observed_in_agencies:
-  - Families Block Grant
-  present_in:
-  - jlbc-s18
-- canonical_name: Total - Department of Environmental Quality
-  canonical_id: fund:total-department-of-environmental-quality
-  slug: total-department-of-environmental-quality
-  observed_in_agencies:
-  - Environmental Quality, Department of
-  present_in:
-  - jlbc-s18
-- canonical_name: Total - Department of Insurance and Financial
-  canonical_id: fund:total-department-of-insurance-and-financial
-  slug: total-department-of-insurance-and-financial
-  observed_in_agencies:
-  - Insurance and Financial Institutions, Department of
-  present_in:
-  - jlbc-s18
-- canonical_name: Total - Department of Juvenile Corrections
-  canonical_id: fund:total-department-of-juvenile-corrections
-  slug: total-department-of-juvenile-corrections
-  observed_in_agencies:
-  - Institutions Land Fund
-  present_in:
-  - jlbc-s18
-- canonical_name: Total - Department of Transportation
-  canonical_id: fund:total-department-of-transportation
-  slug: total-department-of-transportation
-  observed_in_agencies:
-  - Enforcement Fund
-  present_in:
-  - jlbc-s18
-- canonical_name: Total - Judiciary - Superior Court
-  canonical_id: fund:total-judiciary-superior-court
-  slug: total-judiciary-superior-court
-  observed_in_agencies:
-  - Judiciary - Superior Court
-  present_in:
-  - jlbc-s18
-- canonical_name: Total - Judiciary - Supreme Court
-  canonical_id: fund:total-judiciary-supreme-court
-  slug: total-judiciary-supreme-court
-  observed_in_agencies:
-  - Vulnerable Persons Fund
-  present_in:
-  - jlbc-s18
-- canonical_name: Total - Secretary of State
-  canonical_id: fund:total-secretary-of-state
-  slug: total-secretary-of-state
-  observed_in_agencies:
-  - Secretary of State
-  present_in:
-  - jlbc-s18
-- canonical_name: Total - State Board of Psychologist Examiners
-  canonical_id: fund:total-state-board-of-psychologist-examiners
-  slug: total-state-board-of-psychologist-examiners
-  observed_in_agencies:
-  - Fund Psychologist Examiners,State Board of
-  present_in:
-  - jlbc-s18
-- canonical_name: Total - State Land Department
-  canonical_id: fund:total-state-land-department
-  slug: total-state-land-department
-  observed_in_agencies:
-  - Land Department, State
-  present_in:
-  - jlbc-s18
-- canonical_name: Total - State Treasurer
-  canonical_id: fund:total-state-treasurer
-  slug: total-state-treasurer
-  observed_in_agencies:
-  - Treasurer, State
-  present_in:
-  - jlbc-s18
-- canonical_name: Total - Universities
-  canonical_id: fund:total-universities
-  slug: total-universities
-  observed_in_agencies:
-  - University of Arizona - Health Sciences Center
-  present_in:
-  - jlbc-s18
-- canonical_name: Total -Arizona Game and Fish Department
-  canonical_id: fund:total-arizona-game-and-fish-department
-  slug: total-arizona-game-and-fish-department
-  observed_in_agencies:
-  - Forestry and Fire Management, Arizona Department of
-  present_in:
-  - jlbc-s18
-- canonical_name: Total -Arizona State Schools for the Deaf and the Blind
-  canonical_id: fund:total-arizona-state-schools-for-the-deaf-and-the-blind
-  slug: total-arizona-state-schools-for-the-deaf-and-the-blind
-  observed_in_agencies:
-  - Deaf and the Blind, Arizona Schools for the
-  present_in:
-  - jlbc-s18
-- canonical_name: Total -Department of Education
-  canonical_id: fund:total-department-of-education
-  slug: total-department-of-education
-  observed_in_agencies:
-  - Scholarship Account Fund
-  present_in:
-  - jlbc-s18
 - canonical_name: Transition Program Fund Total - State Department of Corrections
   canonical_id: fund:transition-program-fund-total-state-department-of-corrections
   slug: transition-program-fund-total-state-department-of-corrections
@@ -1549,13 +1214,6 @@ funds:
   observed_in_agencies:
   - Arizona State University
   - University of Arizona - Health Sciences Center
-  present_in:
-  - jlbc-s18
-- canonical_name: University of Arizona - Main Campus
-  canonical_id: fund:university-of-arizona-main-campus
-  slug: university-of-arizona-main-campus
-  observed_in_agencies:
-  - Northern Arizona University University Collections Fund 1/
   present_in:
   - jlbc-s18
 - canonical_name: Utility Regulation Revolving Fund
@@ -1586,8 +1244,7 @@ funds:
   - Attorney General - Department of Law
   present_in:
   - jlbc-s18
-- canonical_name: Vital Records Electronic Systems Fund Total - Department of Health
-    Services
+- canonical_name: Vital Records Electronic Systems Fund Total - Department of Health Services
   canonical_id: fund:vital-records-electronic-systems-fund-total-department-of-health-services
   slug: vital-records-electronic-systems-fund-total-department-of-health-services
   observed_in_agencies:

@@ -93,7 +93,11 @@ def test_pollution_shaped_names_are_withheld(tmp_path):
         tmp_path,
         [
             "Account",
-            "Block Grant",
+            # "Block Grant" is NOT here: two words with a "grant" tail pass
+            # the allowlist by design (TANF/WIA are real). That fragment is
+            # removed from the catalog itself, hand-pinned in the
+            # fund-identity repair, because no shape rule can tell it from
+            # a real grant name.
             "Total - Secretary of State",
             "SUBTOTAL - Judiciary",
             "Department of Juvenile Corrections",
@@ -128,3 +132,17 @@ def test_the_real_catalog_withholds_the_measured_bad_names():
     assert names["fund:consumer-remediation-subaccount"] == (
         "Consumer Remediation Subaccount"
     )
+
+
+def test_a_grant_tail_is_a_complete_funding_source_name(tmp_path):
+    # Federal block grants are real money analysts filter by; once the junk
+    # "Block Grant" fragment is deleted from the catalog (fund-identity
+    # repair, 2026-08-23) the tail word is safe to admit.
+    path = _write_catalog(
+        tmp_path,
+        [
+            "Federal Temporary Assistance for Needy Families Block Grant",
+            "Workforce Investment Act Grant",
+        ],
+    )
+    assert len(id_to_name(path)) == 2
