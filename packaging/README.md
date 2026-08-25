@@ -1,15 +1,15 @@
 # packaging/ — how the Windows bundle is built
 
 Everything in this folder produces one artefact: `dist/JLBC-Search-<version>.zip`.
-Unzipping it into `%LOCALAPPDATA%\JLBC-Search` and double-clicking `install.cmd`
-is the entire install — no admin rights, no Python on the machine, no Java on the
+Double-clicking `Install-JLBC-Search.cmd` on the USB, next to the zip, is the
+entire install — no admin rights, no Python on the machine, no Java on the
 machine, and no downloads the first time it runs.
 
 | File | What it is |
 |---|---|
 | `build_bundle.py` | Builds the bundle. Runs on Linux or Windows. |
 | `launcher.pyw` | What the shortcut runs. Starts the server, opens the window. |
-| `install.cmd` | Creates the shortcuts, records the shared folder. Run once, by the user. |
+| `Install-JLBC-Search.cmd` | The one-click installer. Lives on the USB next to the zip (copied to `dist/` by the build). Asks for two folders, stops any running server, replaces `program\`, creates the shortcuts. |
 | `measure.py` | The Task 14 size spike. Kept because it is how you re-check the size after a dependency change. |
 
 ## Rebuilding
@@ -77,13 +77,13 @@ already on the machine is unaffected.
 These are places where this folder duplicates knowledge that lives elsewhere. Each
 needs updating if the other side moves.
 
-- ~~**`install.cmd` writes `machine.json` directly.**~~ **RESOLVED, Track 4.**
+- ~~**`Install-JLBC-Search.cmd` writes `machine.json` directly.**~~ **RESOLVED, Track 4.**
   It now calls `python -m app.machine_config --set-data-dir "…"`, so
   `app/machine_config.py` is the only thing that knows that file's schema. The
   entry point starts no server, and it exits 0 even when the folder is
   unreachable — a network drive that is not connected during setup is normal,
-  and refusing to record the path would strand the user. `install.cmd` also
-  calls `--set-ingest-enabled false`, which is deliberate rather than
+  and refusing to record the path would strand the user. `Install-JLBC-Search.cmd`
+  also calls `--set-ingest-enabled false`, which is deliberate rather than
   redundant: it is the same default the app applies, written down where the
   installer's reader can see it.
 - **`REQUIREMENTS` in `build_bundle.py` mirrors `measure.py`**, and both are derived
@@ -123,7 +123,7 @@ Full transcript: `docs/superpowers/investigations/2026-08-01-bundle-size.md`.
 
 Also verified in the same session:
 
-- `install.cmd` completed with no admin elevation and no endpoint-security prompt
+- `Install-JLBC-Search.cmd` completed with no admin elevation and no endpoint-security prompt
 - the shortcut starts the server and serves the SPA
 - several clicks leave exactly **one** `pythonw.exe` — S8's relaunch-reuse, confirmed by
   process count rather than by how fast the window felt
@@ -138,6 +138,8 @@ had `HF_HUB_OFFLINE` been wrong, the run would have hung on a timeout instead of
 
 ## What has still NOT been verified
 
+- **The `program\` layout and the upgrade path (Task 14 of the 2026-08-25 plan)
+  have not been run on Windows.**
 - **Real retrieval against a corpus.** Every run so far had an empty data dir, where
   `create_app()` falls back to stub search fixtures — so the interface was exercised
   without the retrieval path.

@@ -1,9 +1,9 @@
 """Build the distributable Windows bundle (Plan 5, Task 15 — spec S7).
 
-Produces `dist/JLBC-Search-<version>.zip`. Unzipping it into
-`%LOCALAPPDATA%\\JLBC-Search` and running `install.cmd` is the entire install:
-no admin rights, no Python on the machine, no PATH edits, no registry writes,
-and — the property that matters — **no downloads on first run**.
+Produces `dist/JLBC-Search-<version>.zip`. `Install-JLBC-Search.cmd` on
+the USB does the entire install: no admin rights, no Python on the machine,
+no PATH edits, no registry writes, and — the property that matters — **no
+downloads on first run**.
 
 Runs on Linux or Windows. Every Windows-specific artefact (the embeddable
 runtime, the wheel closure, the Java runtime) is downloaded rather than built,
@@ -28,7 +28,7 @@ own source tree, so this mirrors the repo root):
         mineru/          PDF-Extract-Kit-1.0 weights
         mineru.json      points models-dir.pipeline at ./mineru
         tiktoken/        pre-seeded cl100k_base
-      launcher.pyw  install.cmd  QUICKSTART.md  VERSION  MANIFEST.json
+      launcher.pyw  QUICKSTART.md  VERSION  MANIFEST.json
 
 Usage:
     python packaging/build_bundle.py --version 1.0.0
@@ -191,7 +191,6 @@ REQUIRED_ENTRIES = (
     "models/mineru.json",
     "models/tiktoken",
     "launcher.pyw",
-    "install.cmd",
     "QUICKSTART.md",
     "VERSION",
 )
@@ -464,8 +463,9 @@ def step_models(out: Path, cache: Path) -> None:
     # MinerU reads models-dir.pipeline out of this file; the launcher points
     # MINERU_TOOLS_CONFIG_JSON at it as an absolute path
     # (mineru/utils/config_reader.py:17-22). The path is rewritten at install
-    # time by install.cmd, because it must be absolute and the install location
-    # is not known at build time.
+    # time by Install-JLBC-Search.cmd (install.cmd deleted 2026-08-25, spec S1),
+    # because it must be absolute and the install location is not known at
+    # build time.
     (out / "models" / "mineru.json").write_text(json.dumps({
         "models-dir": {"pipeline": "__INSTALL_DIR__/models/mineru", "vlm": ""},
         "model-source": "local",
@@ -483,8 +483,9 @@ def step_models(out: Path, cache: Path) -> None:
 
 def step_launcher(out: Path, version: str) -> None:
     here = Path(__file__).resolve().parent
-    for name in ("launcher.pyw", "install.cmd"):
-        shutil.copy2(here / name, out / name)
+    # install.cmd (the unzip-it-yourself path) was deleted 2026-08-25 (spec S1):
+    # the one-click Install-JLBC-Search.cmd on the USB is the only installer.
+    shutil.copy2(here / "launcher.pyw", out / "launcher.pyw")
     quickstart = REPO_ROOT / "docs" / "QUICKSTART.md"
     if quickstart.exists():
         shutil.copy2(quickstart, out / "QUICKSTART.md")
