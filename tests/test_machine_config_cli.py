@@ -85,7 +85,10 @@ def test_a_folder_without_a_corpus_still_records(tmp_path, config_dir):
     result = run("--set-data-dir", str(plain), config_dir=config_dir)
 
     assert result.returncode == 0
-    assert "lancedb" in result.stderr.lower()
+    # MSG_NO_CORPUS names the corpus, not the storage engine — Task 7 moved
+    # the wording off "lancedb" so it reads the same whether the folder is
+    # missing entirely or holds an index with nothing in it.
+    assert "corpus" in result.stderr.lower()
     assert _written(config_dir)["data_dir"] == str(plain)
 
 
@@ -128,10 +131,22 @@ def test_setting_one_does_not_clobber_the_other(tmp_path, config_dir):
 
 
 def test_it_writes_no_console_noise_on_success(tmp_path, config_dir):
-    """`install.cmd` prints its own progress. A chatty subprocess in the
-    middle of it reads as an error to somebody watching an installer."""
+    """`Install-JLBC-Search.cmd` prints its own progress. A chatty
+    subprocess in the middle of it reads as an error to somebody watching
+    an installer.
+
+    An empty `lancedb/` folder is no longer silent success (Task 7 —
+    `lancedb.connect()` on an empty directory succeeds and lists no
+    tables), so this needs a real row for `validate_data_dir` to have
+    nothing to warn about.
+    """
+    from store.chunk_store import ChunkStore
+    from tests.test_chunk_store import _row
+
     share = tmp_path / "share"
-    (share / "lancedb").mkdir(parents=True)
+    ChunkStore(root=share).upsert_chunks(
+        "budget_chunks", [_row("c1", "ahcccs", [0.0] * 768)]
+    )
 
     result = run("--set-data-dir", str(share), config_dir=config_dir)
 

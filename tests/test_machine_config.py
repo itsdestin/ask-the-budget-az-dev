@@ -23,16 +23,15 @@ import pytest
 
 from app.machine_config import (
     MACHINE_FILE,
+    MSG_CANT_OPEN,
+    MSG_DIFFERENT_INDEX,
+    MSG_NO_CORPUS,
     machine_config_path,
     read_data_dir,
     set_data_dir,
     validate_data_dir,
 )
 from store.config import data_dir
-
-MSG_NO_CORPUS = (
-    "That folder doesn't contain a JLBC Search corpus (no lancedb folder inside)."
-)
 
 
 @pytest.fixture(autouse=True)
@@ -93,9 +92,50 @@ def test_the_repo_default_applies_when_nothing_is_configured():
 # ---------------------------------------------------------------------------
 
 
-def test_validate_accepts_a_folder_holding_a_corpus(tmp_path):
-    make_corpus(tmp_path / "share")
-    assert validate_data_dir(tmp_path / "share") is None
+def test_validate_refuses_an_empty_index_folder(tmp_path):
+    """lancedb.connect() on an empty directory SUCCEEDS and lists no tables
+    (measured, lancedb 0.36) — so this lands on MSG_NO_CORPUS, not on
+    'can't be opened'."""
+    (tmp_path / "lancedb").mkdir()
+    assert validate_data_dir(tmp_path) == MSG_NO_CORPUS
+
+
+def test_validate_refuses_a_folder_the_engine_cannot_open(tmp_path, monkeypatch):
+    """The laptop's InvalidUrl shape: pathlib says yes, the storage engine
+    says no. Only an actual open can tell."""
+    (tmp_path / "lancedb").mkdir()
+    import store.chunk_store as cs
+
+    def boom(*a, **k):
+        raise ValueError("Invalid input, Failed to connect to namespace")
+
+    monkeypatch.setattr(cs.lancedb, "connect", boom)
+    assert validate_data_dir(tmp_path) == MSG_CANT_OPEN
+
+
+def test_validate_accepts_a_folder_with_rows(tmp_path):
+    """One row is enough — the check is 'has budget passages', not 'how many'.
+    DEFAULT dim (768): validate opens with ChunkStore's default and `_open`
+    checks the table's vector width, so an 8-dim test table would read as
+    'can't be opened'."""
+    from store.chunk_store import ChunkStore
+    from tests.test_chunk_store import _row
+
+    store = ChunkStore(root=tmp_path)
+    store.upsert_chunks("budget_chunks", [_row("c1", "ahcccs", [0.0] * 768)])
+    assert validate_data_dir(tmp_path) is None
+
+
+def test_validate_refuses_a_different_embedding_model(tmp_path):
+    """An index built with a different vector width — `_check_dim`'s guard.
+    Retyping the address cannot fix this, so it gets its own sentence
+    rather than the generic MSG_CANT_OPEN."""
+    from store.chunk_store import ChunkStore
+    from tests.test_chunk_store import _row
+
+    store = ChunkStore(root=tmp_path, dim=8)
+    store.upsert_chunks("budget_chunks", [_row("c1", "ahcccs", [0.0] * 8)])
+    assert validate_data_dir(tmp_path) == MSG_DIFFERENT_INDEX
 
 
 def test_validate_rejects_a_folder_with_no_corpus(tmp_path):

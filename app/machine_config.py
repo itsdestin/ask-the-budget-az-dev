@@ -56,8 +56,18 @@ _TRUTHY = frozenset({"1", "true", "yes", "on"})
 _FALSY = frozenset({"0", "false", "no", "off", ""})
 
 MSG_NO_CORPUS = (
-    "That folder doesn't contain a JLBC Search corpus (no lancedb folder inside)."
+    "That folder doesn't contain a JLBC Search corpus (no budget documents "
+    "in its search index)."
 )
+MSG_CANT_OPEN = (
+    "That folder is there, but the search index inside it can't be opened. "
+    "Copy the folder's address from File Explorer's address bar and try again."
+)
+MSG_DIFFERENT_INDEX = (
+    "That folder holds a search index made by a different version of the app. "
+    "Ask whoever maintains the shared drive to re-copy the corpus for this build."
+)
+
 
 def machine_config_dir() -> Path:
     """Per-machine, per-user config location.
@@ -138,7 +148,8 @@ def ingest_enabled() -> bool:
     have to click a button in a browser to make its own queue run.
 
     A machine.json with no `ingest_enabled` key reads as False: that is
-    install.cmd's file, and silence must not read as consent.
+    the file `Install-JLBC-Search.cmd` writes (via `python -m
+    app.machine_config`), and silence must not read as consent.
 
     An unrecognised env value falls through to the file rather than
     reading as False. A typo on the ONE machine configured to do the work
@@ -261,6 +272,25 @@ def validate_data_dir(path: Path | str) -> str | None:
     if not candidate.is_dir():
         return "That's a file, not a folder. Pick the folder that holds the corpus."
     if not (candidate / "lancedb").is_dir():
+        return MSG_NO_CORPUS
+    # Open it the way the app does. The laptop incident (2026-08-18):
+    # `//bcpool/JLBCSearch` passed every pathlib check above and the storage
+    # engine refused it, so the repair screen reported success over an app
+    # still serving fixtures. This is the only check that cannot false-pass.
+    # create=False: validation must never manufacture a folder (principle 3).
+    # Repair path only — never a hot path — so an open is affordable.
+    try:
+        from store.chunk_store import ChunkStore
+
+        rows = ChunkStore(root=candidate, create=False).count("budget_chunks")
+    except Exception as err:  # noqa: BLE001 — every engine failure is one sentence
+        # `_check_dim` raises ValueError naming the dimension: an index
+        # embedded by another model. Retyping the address cannot fix that —
+        # same discrimination app/health.py::_check_corpus already makes.
+        if "dim" in (str(err) + type(err).__name__).lower():
+            return MSG_DIFFERENT_INDEX
+        return MSG_CANT_OPEN
+    if rows <= 0:
         return MSG_NO_CORPUS
     return None
 
