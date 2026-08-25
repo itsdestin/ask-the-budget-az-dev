@@ -222,7 +222,12 @@ describe("the repair box", () => {
       </HealthGate>,
     );
     await screen.findByTestId("repair-form");
-    expect(screen.getByPlaceholderText(/jlbc-search-data/)).toBeInTheDocument();
+    // WHY: pin the EXACT rendered string, not just that a placeholder exists.
+    // A JSX attribute string literal doesn't process backslash escapes, so a
+    // regression back to placeholder="..." would render four leading
+    // backslashes instead of two and this assertion is what catches it.
+    const box = screen.getByPlaceholderText(/jlbc-search-data/) as HTMLInputElement;
+    expect(box.placeholder).toBe("\\\\server\\share\\jlbc-search-data");
   });
 
   it("surfaces the server's own rejection sentence", async () => {

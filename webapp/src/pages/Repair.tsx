@@ -85,7 +85,11 @@ export function Repair({
                   value={path}
                   autoComplete="off"
                   spellCheck={false}
-                  placeholder="\\\\server\\share\\jlbc-search-data"
+                  // WHY: JSX attribute strings are not escape-processed; a plain
+                  // placeholder="..." rendered four leading backslashes (seen in
+                  // the 2026-08-25 checkpoint screenshot). This JS expression is
+                  // escape-processed, so it renders the intended two.
+                  placeholder={"\\\\server\\share\\jlbc-search-data"}
                   onChange={(e) => setPath(e.target.value)}
                 />
                 <p className="rep-fix">
