@@ -45,13 +45,14 @@ tasks.
 
 ## §S — decisions the review flagged as mine, not Destin's
 
-Each is implemented as written unless he says otherwise at the spec review.
+**S1 and S2 approved by Destin 2026-08-25.** S3 and S5 are defaults he was told and
+did not object to; S4 is settled at the rendered checkpoint (plan Task 10 Step 6).
 
 - **S1** `install.cmd` (the unzip-it-yourself path) is deleted; the one-click
-  `Install-JLBC-Search.cmd` is the only installer (§1.4).
+  `Install-JLBC-Search.cmd` is the only installer (§1.4). **Approved.**
 - **S2** The program subfolder is named **`program\`**, not `app\` — the bundle
   already has a Python package called `app/`, so `app\app\main.py` and an error text
-  saying "delete the app folder" invite the wrong deletion (§1.4).
+  saying "delete the app folder" invite the wrong deletion (§1.4). **Approved.**
 - **S3** Launcher start-up timeout 180 s, and its box says "still starting" rather
   than "failed" (§1.7).
 - **S4** Every new sentence on the repair screen, the launcher box and the installer
