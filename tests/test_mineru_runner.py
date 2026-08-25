@@ -84,10 +84,37 @@ def test_resolve_exe_prefers_env(monkeypatch, tmp_path):
     assert resolve_mineru_exe() == [str(fake)]
 
 
-def test_resolve_exe_falls_back_to_uv_run_in_dev(monkeypatch):
-    """Dev machines have mineru inside the project venv, not on PATH."""
+def test_resolve_exe_runs_the_module_when_the_package_is_importable(monkeypatch):
+    """The Windows bundle has no `mineru.exe` and no `Scripts/` — only the
+    importable package. Found 2026-08-25: with nothing on PATH the old chain
+    fell through to `uv run mineru`, which does not exist on office PCs, so
+    every MinerU-routed upload failed in under a second."""
+    import importlib.util
+    import sys
+
     monkeypatch.delenv("JLBC_MINERU_EXE", raising=False)
     monkeypatch.setattr("shutil.which", lambda _name: None)
+    monkeypatch.setattr(importlib.util, "find_spec", lambda name: object() if name == "mineru" else None)
+    assert resolve_mineru_exe() == [sys.executable, "-m", "mineru.cli.client"]
+
+
+def test_resolve_exe_env_override_still_beats_the_module(monkeypatch, tmp_path):
+    import importlib.util
+
+    fake = tmp_path / "mineru.exe"
+    fake.write_text("")
+    monkeypatch.setenv("JLBC_MINERU_EXE", str(fake))
+    monkeypatch.setattr(importlib.util, "find_spec", lambda name: object())
+    assert resolve_mineru_exe() == [str(fake)]
+
+
+def test_resolve_exe_falls_back_to_uv_run_in_dev(monkeypatch):
+    """Dev machines without the package importable run it through uv."""
+    import importlib.util
+
+    monkeypatch.delenv("JLBC_MINERU_EXE", raising=False)
+    monkeypatch.setattr("shutil.which", lambda _name: None)
+    monkeypatch.setattr(importlib.util, "find_spec", lambda name: None)
     assert resolve_mineru_exe() == ["uv", "run", "mineru"]
 
 
