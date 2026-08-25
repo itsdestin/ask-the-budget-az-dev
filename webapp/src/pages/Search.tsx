@@ -86,7 +86,7 @@ type Mode = "titles" | "contents";
 type ContentPhase =
   | { kind: "idle" }
   | { kind: "loading" }
-  | { kind: "ready"; results: api.SearchResult[] }
+  | { kind: "ready"; results: api.SearchResult[]; provider: string }
   | { kind: "error"; message: string };
 
 /** How long the box must be quiet, with ZERO title matches, before content
@@ -1016,7 +1016,7 @@ export function Search() {
     setContent({ kind: "loading" });
     api.search(q, toSearchFilters(types, years, sectionSlugs), "budget").then(
       (res) => {
-        if (!ignore) setContent({ kind: "ready", results: res.results });
+        if (!ignore) setContent({ kind: "ready", results: res.results, provider: res.provider });
       },
       (err: unknown) => {
         // The api client already carries the backend's own `detail`; show it
@@ -1286,6 +1286,20 @@ export function Search() {
                       </span>
                     </div>
                   </div>
+
+                  {content.kind === "ready" && content.provider === "stub" && (
+                    // The dev-fixture provider serves the same handful of
+                    // passages for every question — indistinguishable from a
+                    // real answer unless labelled. Fiscal Notes already
+                    // carries this note (see FiscalNotes.tsx); this is the
+                    // same sentence, same class, on the sibling page.
+                    <p className="fnnote fn-fixture" role="note">
+                      <strong>These are sample results, not a real search.</strong> This
+                      computer can't open the shared budget folder, or that folder holds
+                      no documents yet, so the same few example passages come back for
+                      every question. Ask whoever set up the shared drive.
+                    </p>
+                  )}
 
                   {showingContents ? (
                     contentsBusy ? (

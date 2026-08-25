@@ -13,11 +13,8 @@ import * as api from "../api";
 //     help (`can_repair`). Offering it for a corrupt corpus would send
 //     someone through a fix that cannot work.
 //
-// The honest limitation, stated and not softened: a relocation cannot take
-// effect mid-session. LanceDB handles and the search provider are resolved at
-// startup, so the screen says "restart to finish" — because an app that
-// claimed to be fixed and then served errors from stale handles would be
-// worse than one that asked for a restart.
+// A relocation takes effect at once: the server re-probes the folder when
+// it is saved (2026-08-25). The "Check again" button re-runs the ladder.
 
 function RungRow({ rung }: { rung: api.HealthRung }) {
   if (rung.ok === true) return null;
@@ -73,12 +70,8 @@ export function Repair({
             saved ? (
               <div className="rep-done" role="status" data-testid="repair-done">
                 <p>
-                  <strong>Saved.</strong> Close this window and open JLBC
-                  Search again from the Start Menu to finish.
-                </p>
-                <p className="rep-fix">
-                  The app has to start up again to use the new folder — it
-                  can't switch over while it is running.
+                  <strong>Saved.</strong> Click <strong>Check again</strong> below to
+                  confirm the app can open that folder.
                 </p>
               </div>
             ) : (
@@ -92,7 +85,7 @@ export function Repair({
                   value={path}
                   autoComplete="off"
                   spellCheck={false}
-                  placeholder="\\\\server\\share\\jlbc-insight-data"
+                  placeholder="\\\\server\\share\\jlbc-search-data"
                   onChange={(e) => setPath(e.target.value)}
                 />
                 <p className="rep-fix">

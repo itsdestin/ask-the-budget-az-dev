@@ -12,7 +12,8 @@ import { HealthGate } from "./HealthGate";
 //   * The short-circuited rungs below the failure stay silent — printing
 //     "not checked" three times would bury the one line that matters.
 //   * The repair box appears only when relocating can help, and on success
-//     says plainly that a restart is needed and how to do it.
+//     says to check again — never to restart or reopen the app (2026-08-25:
+//     the server now swaps the folder in place; see Repair.tsx).
 
 function rung(over: Partial<api.HealthRung> = {}): api.HealthRung {
   return { name: "share", ok: true, detail: "fine", fix: null, ...over };
@@ -174,12 +175,9 @@ describe("the repair box", () => {
     expect(screen.getByText(/no search index in it/)).toBeInTheDocument();
   });
 
-  it("says plainly that a restart is needed, and how", async () => {
+  it("after saving, says to check again — never to restart", async () => {
     vi.spyOn(api, "healthDetail").mockResolvedValue(SHARE_GONE);
-    vi.spyOn(api, "setDataDir").mockResolvedValue({
-      path: "\\\\newserver\\share",
-      restart_required: true,
-    });
+    vi.spyOn(api, "setDataDir").mockResolvedValue({ path: "\\\\newserver\\share" });
     render(
       <HealthGate>
         <App />
@@ -192,11 +190,39 @@ describe("the repair box", () => {
     fireEvent.click(screen.getByRole("button", { name: /use this folder/i }));
 
     const done = await screen.findByTestId("repair-done");
-    // Ground truth 10: handles resolve at startup, so this CANNOT take
-    // effect mid-session. Claiming otherwise would produce an app that says
-    // it is fixed and then serves errors from stale handles.
-    expect(done).toHaveTextContent(/Close this window and open JLBC Search again/i);
-    expect(done).toHaveTextContent(/can't switch over while it is running/i);
+    // The launcher reuses a running server, so "reopen the app" did nothing
+    // (2026-08-25). The server swaps in place; the button re-runs the ladder.
+    expect(done).toHaveTextContent(/Saved/);
+    expect(done).toHaveTextContent(/Check again/);
+    expect(done).not.toHaveTextContent(/open JLBC Search again/i);
+  });
+
+  it("offers the folder box when the pointer file itself is the problem", async () => {
+    const POINTER_BROKEN: api.HealthReport = {
+      ok: false,
+      rungs: [
+        rung({ name: "server" }),
+        rung({
+          name: "machine_config",
+          ok: false,
+          detail: "This computer hasn't been told where the shared budget folder is.",
+          fix: "Type the folder's location below — it's the one that contains the 'lancedb' folder.",
+        }),
+        rung({ name: "share", ok: null, detail: "Not checked — fix the problem above first." }),
+        rung({ name: "corpus", ok: null, detail: "Not checked — fix the problem above first." }),
+        rung({ name: "models", ok: null, detail: "Not checked — fix the problem above first." }),
+      ],
+      data_dir: null,
+      can_repair: true,
+    };
+    vi.spyOn(api, "healthDetail").mockResolvedValue(POINTER_BROKEN);
+    render(
+      <HealthGate>
+        <App />
+      </HealthGate>,
+    );
+    await screen.findByTestId("repair-form");
+    expect(screen.getByPlaceholderText(/jlbc-search-data/)).toBeInTheDocument();
   });
 
   it("surfaces the server's own rejection sentence", async () => {

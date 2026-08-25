@@ -1090,9 +1090,10 @@ export async function healthDetail(): Promise<HealthReport> {
   return r.json();
 }
 
-export async function setDataDir(
-  path: string,
-): Promise<{ path: string; restart_required: boolean }> {
+export async function setDataDir(path: string): Promise<{ path: string }> {
+  // The server now re-probes the folder and swaps it in place (Task 9,
+  // 2026-08-25) — there is no restart to wait for, so the response no
+  // longer carries `restart_required`. See Repair.tsx.
   const r = await fetch("/api/config/data-dir", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
