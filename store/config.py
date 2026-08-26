@@ -14,6 +14,8 @@ import sys
 from pathlib import Path
 from typing import Any
 
+from store.fs import replace_with_retry
+
 _ENV_VAR = "JLBC_DATA_DIR"
 
 # The root of THIS checkout or bundle: `<root>/store/config.py`. Module-level
@@ -148,6 +150,11 @@ def write_documents_sidecar(docs: dict[str, dict[str, Any]]) -> Path:
     it: ingest writes this file on every upload now, and importing the
     migration script would pull psycopg into the ingest path that Plan 3
     exists to get Postgres out of. One writer, one definition, no Postgres.
+
+    WHY the retry: this write sits AFTER the LanceDB commit, so a Windows/SMB
+    sharing violation here used to fail the whole job over a document that
+    was already searchable -- the sidecar's title/date never landing while
+    the chunks were live.
     """
     path = documents_path()
     tmp = path.with_suffix(".json.tmp")
@@ -155,5 +162,5 @@ def write_documents_sidecar(docs: dict[str, dict[str, Any]]) -> Path:
         json.dumps(docs, indent=2, sort_keys=True, ensure_ascii=False),
         encoding="utf-8",
     )
-    os.replace(tmp, path)
+    replace_with_retry(tmp, path)
     return path

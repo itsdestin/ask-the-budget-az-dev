@@ -22,7 +22,6 @@ import json
 import os
 import threading
 import socket
-import time
 import uuid
 from dataclasses import asdict, dataclass, field
 from datetime import datetime, timezone
@@ -37,6 +36,7 @@ from ingest.archive import (
 )
 from ingest.archive import sweep as _sweep
 from store.config import data_dir
+from store.fs import replace_with_retry
 
 JOBS_DIRNAME = "jobs"
 
@@ -294,7 +294,12 @@ def save(job: JobRecord) -> Path:
     # writer on every platform we run on.
     tmp = path.with_suffix(f".{os.getpid()}.{threading.get_ident()}.json.tmp")
     tmp.write_text(json.dumps(job.to_json(), indent=2), encoding="utf-8")
-    _replace_with_retry(tmp, path)
+    # 0.4 s budget (was `attempts=20` * 0.02 s here): the queue page polls
+    # every job file every couple of seconds from this and other machines
+    # while the worker writes progress several times a stage, so this
+    # collision is routine, not exotic, and a small job file's reader holds
+    # it open for microseconds, not seconds.
+    replace_with_retry(tmp, path, budget_s=0.4)
     # A job only ever moves ONE way -- into `done/` -- because every
     # transition into an archived state comes from the main folder and
     # nothing ever leaves `live` or `cancelled` (see `advance`). So this is
@@ -304,27 +309,6 @@ def save(job: JobRecord) -> Path:
     if target != main:
         unlink_with_retry(main / f"{job.job_id}.json")
     return path
-
-
-def _replace_with_retry(tmp: Path, path: Path, *, attempts: int = 20) -> None:
-    """os.replace, retried — on Windows it fails while a reader has the file.
-
-    POSIX rename is unconditional, but Windows (and SMB) refuse to replace a
-    destination another handle has open. The queue page polls every job file
-    every couple of seconds from this and other machines while the worker
-    writes progress several times a stage, so this collision is routine, not
-    exotic. Retrying briefly is correct: the reader's handle is open for the
-    microseconds of a small read.
-    """
-    for attempt in range(attempts):
-        try:
-            os.replace(tmp, path)
-            return
-        except PermissionError:
-            if attempt == attempts - 1:
-                tmp.unlink(missing_ok=True)
-                raise
-            time.sleep(0.02)
 
 
 def load_job(job_id: str) -> JobRecord | None:

@@ -24,9 +24,18 @@ Nothing here deletes anything, ever.
 from __future__ import annotations
 
 import os
-import time
 from pathlib import Path
 from typing import Callable
+
+# Moved to store/fs.py on 2026-08-25 (store/config.py needed the same retry
+# and must not import ingest/); re-exported here because ingest/jobs.py
+# imports unlink_with_retry from this module. Same hazard as store/fs.py
+# describes: Windows and SMB refuse to touch a file another handle has open,
+# and the queue page polls these files from other PCs every couple of
+# seconds while the worker writes progress. A failure here is benign BY
+# DESIGN (the caller writes the new copy first and removes the old one
+# second, so the worst case `load_all` dedupes is a job in both folders).
+from store.fs import unlink_with_retry  # noqa: F401
 
 # States whose files move out of the main folder.
 #
@@ -42,34 +51,6 @@ ARCHIVE_DIRNAME = "done"
 def dir_for_state(main: Path, state: str) -> Path:
     """The folder a job in `state` belongs in."""
     return (main / ARCHIVE_DIRNAME) if state in ARCHIVED_STATES else main
-
-
-def unlink_with_retry(path: Path, *, attempts: int = 20) -> bool:
-    """Remove a file another machine may have open. Never raises.
-
-    Same hazard as ingest/jobs.py::_replace_with_retry: Windows and SMB refuse
-    to touch a file while another handle is open, and the queue page polls
-    these files from other PCs every couple of seconds while the worker writes
-    progress several times a stage. Retrying briefly is correct -- the
-    reader's handle is open for the microseconds of a small read.
-
-    A failure here is benign BY DESIGN, which is why this returns a bool
-    instead of raising. The new copy is already written, so the worst case is
-    one job appearing in both folders -- which `load_all` dedupes -- rather
-    than a job file lost. That is why the caller writes first and removes
-    second, and never the other way round.
-    """
-    for attempt in range(attempts):
-        try:
-            path.unlink(missing_ok=True)
-            return True
-        except PermissionError:
-            if attempt == attempts - 1:
-                return False
-            time.sleep(0.02)
-        except OSError:
-            return False
-    return False
 
 
 def sweep(main: Path, *, read: Callable[[Path], object], limit: int | None = None) -> int:
